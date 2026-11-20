@@ -65,6 +65,10 @@ QUERY_TARGET_PATTERN = re.compile(r"_q(\d+)/([^:]+):(.+)$")
 FORMAT_DISPLAY_NAMES = {
     "vortex": "vortex-file-compressed",
 }
+# Query table columns use the short format names targets are declared with.
+FORMAT_COLUMN_NAMES = {
+    "vortex-file-compressed": "vortex",
+}
 
 
 @dataclass
@@ -703,6 +707,135 @@ def format_delta_cell(
     return f"{pr_text} / {base_text} / {change_text} {marker}"
 
 
+def format_duration(value_ns: object) -> str:
+    """Render a nanosecond duration with three significant figures in a readable unit."""
+
+    if pd.isna(value_ns):
+        return "—"
+    value = float(value_ns)
+    for scale, unit in ((1e9, "s"), (1e6, "ms"), (1e3, "µs")):
+        if abs(value) >= scale:
+            value /= scale
+            break
+    else:
+        unit = "ns"
+    if abs(value) >= 100:
+        return f"{value:.0f} {unit}"
+    if abs(value) >= 10:
+        return f"{value:.1f} {unit}"
+    return f"{value:.2f} {unit}"
+
+
+def format_query_cell(
+    pr_value: object, ratio: object, improvement_threshold: float, regression_threshold: float
+) -> str:
+    """Render one query cell as `PR time (PR/base)`, bold and marked once it clears the threshold."""
+
+    if pd.isna(pr_value):
+        return "—"
+    duration = format_duration(pr_value)
+    if pd.isna(ratio) or float(ratio) <= 0:
+        return duration
+    cell = f"{duration} ({float(ratio):.2f})"
+    marker = format_change_marker(float(ratio), improvement_threshold, regression_threshold)
+    return f"**{cell}** {marker}" if marker else cell
+
+
+def is_sql_query(query: object) -> bool:
+    """Return whether a row's query is a SQL query number, not a random-access variant."""
+
+    return isinstance(query, (int, np.integer)) and not isinstance(query, bool)
+
+
+def query_column_label(engine: str, file_format: str) -> str:
+    """Name a query table column the way targets are named, e.g. `datafusion:vortex`."""
+
+    for full_name, short_name in FORMAT_COLUMN_NAMES.items():
+        if file_format == full_name or file_format.startswith(f"{full_name} "):
+            file_format = short_name + file_format[len(full_name) :]
+            break
+    return f"{engine}:{file_format}"
+
+
+def query_column_sort_key(combo: tuple[str, str]) -> tuple[int, int, str, str]:
+    """Order query table columns by engine, then format, with a format's variants beside it.
+
+    A variant such as `vortex-file-compressed [scan-api]` sorts right after its base format.
+    """
+
+    engine, file_format = combo
+    base_format = file_format.split(" [", 1)[0]
+    return (
+        ENGINE_ORDER.get(engine, len(ENGINE_ORDER)),
+        FILE_FORMAT_ORDER.get(base_format, len(FILE_FORMAT_ORDER)),
+        engine,
+        file_format,
+    )
+
+
+def format_query_table(
+    df: pd.DataFrame,
+    run: str,
+    improvement_threshold: float,
+    regression_threshold: float,
+) -> str | None:
+    """Render one row per query and one column per target, with a geomean row first.
+
+    Each cell is the PR's `run` ("hot" or "cold") time and its ratio to the base; the
+    geomean row holds the geomean time and the geomean ratio over the queries with a base.
+    """
+
+    value_column = f"{run}_value_pr"
+    ratio_column = "ratio" if run == "hot" else "cold_ratio"
+    rows = df[df[value_column].notna()].copy()
+    if rows.empty:
+        return None
+
+    rows["row_label"] = rows["name"].map(lambda name: str(name).rsplit("/", 1)[0])
+    row_keys = ["row_label"]
+    for extra in ("storage", "dataset_key"):
+        if rows[extra].astype(str).nunique() > 1:
+            row_keys.append(extra)
+    combos = sorted(
+        {(str(engine), str(file_format)) for engine, file_format in zip(rows["engine"], rows["file_format"])},
+        key=query_column_sort_key,
+    )
+
+    def cell(value: object, ratio: object) -> str:
+        return format_query_cell(value, ratio, improvement_threshold, regression_threshold)
+
+    geomean_cells = []
+    for engine, file_format in combos:
+        target_rows = rows[(rows["engine"] == engine) & (rows["file_format"] == file_format)]
+        geomean_cells.append(
+            cell(
+                geometric_mean_from_values(target_rows[value_column]),
+                calculate_geometric_mean(target_rows, ratio_column),
+            )
+        )
+
+    table_rows = [["**geomean**", *geomean_cells]]
+    for key, group in sorted(rows.groupby(row_keys, sort=False), key=lambda item: tuple(str(k) for k in item[0])):
+        key = key if isinstance(key, tuple) else (key,)
+        label = str(key[0]) + "".join(f" ({part})" for part in key[1:] if part is not None and str(part) != "nan")
+        cells = []
+        for engine, file_format in combos:
+            match = group[(group["engine"] == engine) & (group["file_format"] == file_format)]
+            if match.empty:
+                cells.append("—")
+            else:
+                cells.append(cell(match[value_column].iloc[0], match[ratio_column].iloc[0]))
+        table_rows.append([label, *cells])
+
+    headers = ["query", *(query_column_label(engine, file_format) for engine, file_format in combos)]
+    return pd.DataFrame(table_rows, columns=headers).to_markdown(
+        index=False,
+        tablefmt="github",
+        disable_numparse=True,
+        colalign=("left", *("right" for _ in combos)),
+    )
+
+
 def format_comparison_ratio(value: float) -> str:
     """Render a PR/base ratio or identify an unmatched PR measurement."""
 
@@ -1026,10 +1159,12 @@ def format_report_help() -> str:
             "first-run cost per row, and `hot/cold` is how much of "
             "each run the warm path saves. Rows whose results predate per-run reporting "
             "show only one value, taken from the value the runner reported.",
-            "- **Table cells**: Each cell reads `PR / base / %diff`. The hot and cold "
-            "columns mark a change as 🔴 slower or 🟢 faster once it clears this suite's "
-            "threshold; anything smaller is noise here and is left unmarked, as is "
-            "`hot/cold`, because a shift in the warm-up ratio is not a win or a loss by itself.",
+            "- **Query tables**: One row per query and one column per target. Each cell "
+            "reads `PR time (PR/base)`, so `0.80` is 20% faster. A change that clears this "
+            "suite's threshold is bold and marked 🔴 slower or 🟢 faster; anything smaller is "
+            "noise here and is left plain. The `geomean` row holds the geomean time and the "
+            "geomean ratio. Hot runs are shown first and cold runs are folded below them.",
+            "- **Other tables**: Each cell reads `PR / base / %diff`, marked the same way.",
             "",
             "</details>",
         ]
@@ -1199,7 +1334,25 @@ def main() -> None:
     print("---")
     print("")
 
-    grouped_tables = df3.groupby(["engine", "file_format", "unit"], dropna=False, sort=False)
+    sql_mask = df3["query"].map(is_sql_query) & df3["unit"].eq("ns")
+    sql_df = df3[sql_mask]
+    hot_table = format_query_table(sql_df, "hot", improvement_threshold, regression_threshold)
+    if hot_table is not None:
+        print(hot_table)
+        print("")
+    cold_table = format_query_table(sql_df, "cold", improvement_threshold, regression_threshold)
+    if cold_table is not None:
+        print("<details>")
+        print("<summary>Cold runs (first iteration)</summary>")
+        print("")
+        print("<br>")
+        print("")
+        print(cold_table)
+        print("")
+        print("</details>")
+        print("")
+
+    grouped_tables = df3[~sql_mask].groupby(["engine", "file_format", "unit"], dropna=False, sort=False)
     for engine, file_format, unit in sorted(grouped_tables.groups.keys(), key=group_sort_key):
         group_df = grouped_tables.get_group((engine, file_format, unit)).sort_values("name")
         group_performance = format_performance(
