@@ -22,7 +22,7 @@ use vortex::error::vortex_err;
 use vortex::error::vortex_panic;
 use vortex::file::Footer;
 use vortex::file::multi::MultiFileSession;
-use vortex::file::multi::open_cached;
+use vortex::file::multi::open_cached_with_version;
 use vortex::file::multi::parse_uri_or_path;
 use vortex::file::v2::FileStatsLayoutReader;
 use vortex::io::compat::Compat;
@@ -138,8 +138,20 @@ pub struct FileScanState {
 impl OpenFileReader {
     async fn open(path: String) -> VortexResult<Self> {
         let (fs, fs_path) = resolve_filesystem(&parse_uri_or_path(&path)?)?;
-        let source = fs.open_read(&fs_path).await?;
-        let file = open_cached(&SESSION, Some(&path), source, None, &|options| options).await?;
+        let listing = fs
+            .head(&fs_path)
+            .await?
+            .ok_or_else(|| vortex_err!("File not found: {path}"))?;
+        let source = fs.open_read(&listing).await?;
+        let file = open_cached_with_version(
+            &SESSION,
+            Some(&path),
+            source,
+            listing.size,
+            listing.version.as_ref(),
+            &|options| options,
+        )
+        .await?;
         let mut scan_file = file.scan_file();
         scan_file.cache.get_or_insert_default();
         Ok(OpenFileReader {
@@ -475,14 +487,21 @@ pub fn can_get_partition_stats(bind: &BindState) -> bool {
 }
 
 /// Called by one thread for every file. When we open files, we cache footers
-/// in MultiFileSession so this function retrieves the cached data if present.
-/// If any footer is not present, it sets a flag in BindState so we won't try
-/// again.
+/// in MultiFileSession so this function retrieves the cached data if it matches the current file
+/// version. If any footer is not present or cannot be validated, it sets a flag in BindState so we
+/// won't try again.
 pub fn footer_get_cached(bind: &mut BindState, path: &str) -> VortexResult<Option<Footer>> {
-    let footer = SESSION
-        .get_opt::<MultiFileSession>()
-        .vortex_expect("MultiFileSession not found")
-        .get_footer(path);
+    let (fs, fs_path) = resolve_filesystem(&parse_uri_or_path(path)?)?;
+    let listing = RUNTIME.block_on(fs.head(&fs_path))?;
+    let footer = listing
+        .as_ref()
+        .and_then(|listing| listing.version.as_ref())
+        .and_then(|version| {
+            SESSION
+                .get_opt::<MultiFileSession>()
+                .vortex_expect("MultiFileSession not found")
+                .get_footer(path, version)
+        });
     bind.no_footer_caches |= footer.is_none();
     Ok(footer)
 }

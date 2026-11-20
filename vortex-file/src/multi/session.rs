@@ -7,11 +7,18 @@ use std::any::Any;
 use std::fmt;
 use std::fmt::Debug;
 
+use vortex_io::filesystem::FileVersion;
 use vortex_session::SessionExt;
 use vortex_session::SessionGuard;
 use vortex_session::SessionVar;
 
 use crate::footer::Footer;
+
+#[derive(Clone)]
+struct CachedFooter {
+    footer: Footer,
+    version: FileVersion,
+}
 
 /// Session state for multi-file scanning.
 ///
@@ -25,7 +32,7 @@ use crate::footer::Footer;
 /// that single-file opens also benefit from session-level footer caching.
 #[derive(Clone)]
 pub struct MultiFileSession {
-    footer_cache: moka::sync::Cache<String, Footer>,
+    footer_cache: moka::sync::Cache<String, CachedFooter>,
 }
 
 impl Default for MultiFileSession {
@@ -34,8 +41,9 @@ impl Default for MultiFileSession {
             footer_cache: moka::sync::Cache::builder()
                 // Capacity and weigher are in KB
                 .max_capacity(100 * 1024) // 100MB
-                .weigher(|_k, footer: &Footer| {
-                    footer
+                .weigher(|_k, cached: &CachedFooter| {
+                    cached
+                        .footer
                         .approx_byte_size()
                         .and_then(|bytes| u32::try_from(bytes / 1024).ok())
                         .unwrap_or(10)
@@ -54,14 +62,23 @@ impl Debug for MultiFileSession {
 }
 
 impl MultiFileSession {
-    /// Retrieve a cached footer for the given file path.
-    pub fn get_footer(&self, path: &str) -> Option<Footer> {
-        self.footer_cache.get(path)
+    /// Retrieve a cached footer only if it belongs to the supplied file version.
+    pub fn get_footer(&self, path: &str, version: &FileVersion) -> Option<Footer> {
+        self.footer_cache
+            .get(path)
+            .filter(|cached| &cached.version == version)
+            .map(|cached| cached.footer)
     }
 
-    /// Store a footer under the given file path.
-    pub(crate) fn put_footer(&self, path: &str, footer: Footer) {
-        self.footer_cache.insert(path.to_string(), footer);
+    /// Store a footer under the given file path and version.
+    pub(crate) fn put_footer(&self, path: &str, footer: Footer, version: &FileVersion) {
+        self.footer_cache.insert(
+            path.to_string(),
+            CachedFooter {
+                footer,
+                version: version.clone(),
+            },
+        );
     }
 }
 

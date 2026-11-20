@@ -115,6 +115,7 @@ mod tests {
                     .map(|&(path, size)| FileListing {
                         path: path.to_string(),
                         size: Some(size),
+                        version: None,
                     })
                     .collect(),
             }
@@ -135,7 +136,7 @@ mod tests {
                 .cloned())
         }
 
-        async fn open_read(&self, _path: &str) -> VortexResult<Arc<dyn VortexReadAt>> {
+        async fn open_read(&self, _file: &FileListing) -> VortexResult<Arc<dyn VortexReadAt>> {
             vortex_panic!("open_read() should not be called")
         }
 

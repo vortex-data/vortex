@@ -25,9 +25,13 @@ impl<F: FileSystem> FileSystem for Compat<F> {
         Compat::new(self.inner().head(path)).await
     }
 
-    async fn open_read(&self, path: &str) -> VortexResult<Arc<dyn VortexReadAt>> {
-        let read_at = Compat::new(self.inner().open_read(path)).await?;
+    async fn open_read(&self, file: &FileListing) -> VortexResult<Arc<dyn VortexReadAt>> {
+        let read_at = Compat::new(self.inner().open_read(file)).await?;
         Ok(Arc::new(Compat::new(read_at)))
+    }
+
+    fn cache_key(&self, file: &FileListing) -> Option<String> {
+        self.inner().cache_key(file)
     }
 
     async fn delete(&self, path: &str) -> VortexResult<()> {

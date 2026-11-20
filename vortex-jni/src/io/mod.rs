@@ -222,7 +222,10 @@ pub(crate) mod tests {
         )?;
         // `open_read` clones the global ref into a `JavaReadable`; both it and the
         // file system must let go of the Java object once dropped.
-        let reader = runtime.block_on(fs.open_read("data/file.vortex"))?;
+        let listing = runtime
+            .block_on(fs.head("data/file.vortex"))?
+            .expect("registered Java readable");
+        let reader = runtime.block_on(fs.open_read(&listing))?;
         let config = reader
             .coalesce_config()
             .ok_or_else(|| vortex_err!("Java readable has no coalescing config"))?;

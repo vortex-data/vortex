@@ -22,6 +22,7 @@ use vortex::buffer::Alignment;
 use vortex::buffer::ByteBufferMut;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
+use vortex::error::vortex_ensure;
 use vortex::error::vortex_err;
 use vortex::io::CoalesceConfig;
 use vortex::io::VortexReadAt;
@@ -329,6 +330,7 @@ impl FileSystem for JavaFileSystem {
                 Ok(FileListing {
                     path: path.clone(),
                     size: Some(entry.size),
+                    version: None,
                 })
             })
             .collect();
@@ -339,14 +341,19 @@ impl FileSystem for JavaFileSystem {
         Ok(self.files.get(path).map(|entry| FileListing {
             path: path.to_string(),
             size: Some(entry.size),
+            version: None,
         }))
     }
 
-    async fn open_read(&self, path: &str) -> VortexResult<Arc<dyn VortexReadAt>> {
+    async fn open_read(&self, file: &FileListing) -> VortexResult<Arc<dyn VortexReadAt>> {
+        vortex_ensure!(
+            file.version.is_none(),
+            "JavaFileSystem does not provide file versions"
+        );
         let entry = self
             .files
-            .get(path)
-            .ok_or_else(|| vortex_err!("no Java readable registered for path '{path}'"))?;
+            .get(&file.path)
+            .ok_or_else(|| vortex_err!("no Java readable registered for path '{}'", file.path))?;
         Ok(Arc::new(JavaReadable::new(
             self.vm.clone(),
             Arc::clone(&entry.readable),
