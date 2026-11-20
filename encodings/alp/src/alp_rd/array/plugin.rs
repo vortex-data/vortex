@@ -134,14 +134,18 @@ impl ArrayPlugin for ALPRD {
             .map(|p| {
                 let indices = children.get(2, &p.indices_dtype()?, p.len()?)?;
                 let values = children.get(3, &left_parts_dtype.as_nonnullable(), p.len()?)?;
+                // Files written before ALP-RD stored chunk offsets have no fifth child.
+                let chunk_offsets = p
+                    .chunk_offsets_dtype()?
+                    .map(|dtype| children.get(4, &dtype, usize::try_from(p.chunk_offsets_len())?))
+                    .transpose()?;
 
-                Patches::new(
+                Patches::from_metadata(
                     len,
-                    p.offset()?,
+                    &p,
                     indices,
                     values,
-                    // TODO(0ax1): handle chunk offsets
-                    None,
+                    chunk_offsets,
                     &mut session.create_execution_ctx(),
                 )
             })

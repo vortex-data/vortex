@@ -7,6 +7,7 @@ use std::hash::Hash;
 
 use vortex_error::VortexResult;
 
+use crate::dtype::Claims;
 use crate::dtype::DType;
 use crate::dtype::extension::ExtDType;
 use crate::dtype::extension::ExtId;
@@ -73,6 +74,24 @@ pub trait ExtVTable: 'static + Sized + Send + Sync + Clone + Debug + Eq + Hash {
     /// Callers **must** pass metadata accepted by [`validate_metadata`](Self::validate_metadata).
     /// Implementations may panic on invalid metadata.
     fn storage_dtype(metadata: &Self::Metadata) -> DType;
+
+    /// Declares which operations give the same result on values of this dtype and on their storage.
+    ///
+    /// Dtype constructors check that the declared storage holds each claim. Claims **must** be
+    /// independent of top-level nullability so they remain valid after a nullability change.
+    /// The default is [`Claims::none`], so the type is opaque to operations that require a claim.
+    ///
+    /// Operations that require a claim run on the storage values and trust the claim. A claim that
+    /// the storage values do not honor gives wrong results.
+    ///
+    /// If the metadata carries a storage dtype that can contain other extension dtypes, derive the
+    /// claims from that storage with [`DType::holds`]. A reader without the plugin of a nested type
+    /// then gets fewer claims instead of failing to build the dtype.
+    ///
+    /// Callers **must** pass metadata accepted by [`validate_metadata`](Self::validate_metadata).
+    fn claims(_metadata: &Self::Metadata) -> Claims {
+        Claims::none()
+    }
 
     /// Checks that the metadata describes a valid dtype of this extension type.
     ///

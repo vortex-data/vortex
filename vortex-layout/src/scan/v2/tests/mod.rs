@@ -58,7 +58,9 @@ use vortex_array::validity::Validity;
 use vortex_arrow::ArrowSessionExt;
 use vortex_buffer::Alignment;
 use vortex_buffer::Buffer;
+use vortex_buffer::buffer;
 use vortex_error::VortexResult;
+use vortex_error::vortex_err;
 use vortex_io::session::RuntimeSessionExt;
 use vortex_mask::Mask;
 use vortex_scan::execution::SegmentLocation;
@@ -312,22 +314,30 @@ async fn write(
     session: &VortexSession,
     strategy: &dyn LayoutStrategy,
 ) -> VortexResult<(Arc<dyn SegmentSource>, LayoutRef)> {
-    write_chunks(session, strategy, table_chunk, CHUNKS).await
+    write_chunks(session, strategy, make_chunks(table_chunk)?).await
 }
 
-/// Writes `count` chunks made by `chunk`, called with each chunk's first row, with `strategy`.
+/// Makes `CHUNKS` chunks with `chunk`, called with each chunk's first row.
+fn make_chunks(chunk: fn(usize) -> VortexResult<ArrayRef>) -> VortexResult<Vec<ArrayRef>> {
+    (0..CHUNKS).map(|index| chunk(index * CHUNK_ROWS)).collect()
+}
+
+/// Writes `chunks`, which must hold at least one chunk, with `strategy`.
 async fn write_chunks(
     session: &VortexSession,
     strategy: &dyn LayoutStrategy,
-    chunk: fn(usize) -> VortexResult<ArrayRef>,
-    count: usize,
+    chunks: Vec<ArrayRef>,
 ) -> VortexResult<(Arc<dyn SegmentSource>, LayoutRef)> {
+    let dtype = chunks
+        .first()
+        .ok_or_else(|| vortex_err!("test layout requires at least one chunk"))?
+        .dtype()
+        .clone();
     let segments = Arc::new(TestSegments::default());
     let (mut sequence_id, eof) = SequenceId::root().split();
-    let chunks = (0..count)
-        .map(|index| Ok((sequence_id.advance(), chunk(index * CHUNK_ROWS)?)))
-        .collect::<Vec<_>>();
-    let dtype = chunk(0)?.dtype().clone();
+    let chunks = chunks
+        .into_iter()
+        .map(move |chunk| Ok((sequence_id.advance(), chunk)));
     let layout = strategy
         .write_stream(
             ArrayContext::empty().into(),
@@ -943,7 +953,8 @@ async fn pruning_beneath_a_nullable_struct_skips_zones(
     #[case] pruned_requests: usize,
 ) -> VortexResult<()> {
     let session = new_session().with_tokio();
-    let (segments, layout) = write_chunks(&session, &zoned_table_strategy(), chunk, CHUNKS).await?;
+    let (segments, layout) =
+        write_chunks(&session, &zoned_table_strategy(), make_chunks(chunk)?).await?;
     let mut requests = Vec::new();
     for filter in [lt(field.clone(), pruned), lt(field, unpruned)] {
         let source = Arc::new(CountingSegmentSource::new(Arc::clone(&segments)));
@@ -983,7 +994,7 @@ async fn assert_matches_v1_and_input(
     filter: Option<&Expression>,
 ) -> VortexResult<()> {
     let session = new_session().with_tokio();
-    let (segments, layout) = write_chunks(&session, strategy, chunk, CHUNKS).await?;
+    let (segments, layout) = write_chunks(&session, strategy, make_chunks(chunk)?).await?;
     let dtype = layout.dtype().clone();
     let make = || -> VortexResult<ScanBuilder> {
         Ok(builder(&session, &segments, &layout)?
@@ -1033,7 +1044,7 @@ async fn extension_filter_prunes_like_struct(#[values(false, true)] v2: bool) ->
         ),
         (plain_point_chunk, get_item("point", root())),
     ] {
-        let (segments, layout) = write_chunks(&session, &strategy, chunk, CHUNKS).await?;
+        let (segments, layout) = write_chunks(&session, &strategy, make_chunks(chunk)?).await?;
         let source = Arc::new(CountingSegmentSource::new(segments));
         let projection = get_item("id", root()).bind(layout.dtype())?;
         let filter = gt(get_item("a", point), lit(3500i32)).bind(layout.dtype())?;
@@ -1084,7 +1095,7 @@ async fn extension_field_projection_reads(
 ) -> VortexResult<()> {
     let session = new_session().with_tokio();
     let strategy = table_strategy().with_extension_layout([TestPoint.id()]);
-    let (segments, layout) = write_chunks(&session, &strategy, chunk, CHUNKS).await?;
+    let (segments, layout) = write_chunks(&session, &strategy, make_chunks(chunk)?).await?;
     let source = Arc::new(CountingSegmentSource::new(segments));
     let projection = projection.bind(layout.dtype())?;
     let dtype = projection.dtype().clone();
@@ -1105,6 +1116,70 @@ async fn extension_field_projection_reads(
 
     assert_eq!(actual.len(), CHUNKS * CHUNK_ROWS);
     assert_eq!(source.requests(), columns_read * CHUNKS);
+    Ok(())
+}
+
+/// Each ancestor masks a different row, and the nullable field has a null of its own.
+fn nullable_struct_with_list(session: &VortexSession) -> VortexResult<ArrayRef> {
+    let inner = StructArray::try_new(
+        FieldNames::from(["value", "optional"]),
+        [
+            buffer![10i32, 20, 30, 40].into_array(),
+            PrimitiveArray::from_option_iter([Some(11i32), Some(21), Some(31), None]).into_array(),
+        ],
+        4,
+        Validity::from_iter([true, true, false, true]),
+    )?;
+    let items = ListArray::try_new(
+        buffer![1i32, 2, 3, 4].into_array(),
+        buffer![0u32, 1, 2, 3, 4].into_array(),
+        Validity::NonNullable,
+        &mut session.create_execution_ctx(),
+    )?;
+    Ok(StructArray::try_new(
+        FieldNames::from(["inner", "items"]),
+        [inner.into_array(), items.into_array()],
+        4,
+        Validity::from_iter([true, false, true, true]),
+    )?
+    .into_array())
+}
+
+#[rstest]
+#[case::nested_nullable_field(get_item("optional", get_item("inner", root())), true, Some(3))]
+#[case::whole_input(
+    pack([("input", root()), ("marker", lit(7i32))], false.into()),
+    false,
+    None,
+)]
+#[tokio::test]
+async fn nullable_struct_projection_preserves_validity(
+    #[case] projection: Expression,
+    #[case] list_layout: bool,
+    #[case] expected_requests: Option<usize>,
+) -> VortexResult<()> {
+    let session = new_session().with_tokio();
+    let strategy = TableStrategy::new(chunked_flat(), chunked_flat());
+    let strategy = if list_layout {
+        strategy.with_list_layout()
+    } else {
+        strategy
+    };
+    let input = nullable_struct_with_list(&session)?;
+    let (segments, layout) = write_chunks(&session, &strategy, vec![input.clone()]).await?;
+
+    let source = Arc::new(CountingSegmentSource::new(segments));
+    let scan_source: Arc<dyn SegmentSource> = Arc::<CountingSegmentSource>::clone(&source);
+    let projection = projection.bind(layout.dtype())?;
+    let scan = builder(&session, &scan_source, &layout)?.with_projection(projection.clone());
+    let actual = collect_scan(scan.dtype().clone(), scan).await?;
+
+    let expected = input.apply_bound(&projection)?;
+    assert_arrays_eq!(actual, expected, &mut session.create_execution_ctx());
+    if let Some(expected_requests) = expected_requests {
+        assert_eq!(source.requests(), expected_requests);
+    }
+
     Ok(())
 }
 

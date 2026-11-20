@@ -3,6 +3,7 @@
 
 //! Moving expressions below the validity mask of a nullable struct's fields.
 
+use vortex_array::dtype::FieldName;
 use vortex_array::expr::BoundExpression;
 use vortex_array::expr::bound;
 use vortex_array::expr::traversal::NodeExt;
@@ -23,7 +24,8 @@ use crate::plan::builtins::zoned::holds_under_masking;
 /// partitioning pushes it into the field's plan:
 ///
 /// - `mask(s, v).name` becomes `mask(s.name, v)`: a field of a masked struct is null wherever the
-///   struct is. Reading a nested field then reads only that field.
+///   struct is. The read moves below nested masks in one step, so `mask(mask(s, u), v).name`
+///   becomes `mask(mask(s.name, u), v)`. Reading a nested field then reads only that field.
 /// - `f(mask(x, v))` becomes `mask(f(x), v)` for a function `f` of one argument that is strict and
 ///   cannot fail, such as `list_transform(mask(l, v), x -> x.sku)`. A strict function is null
 ///   wherever its argument is, and one that cannot fail may run on the values that `v` hides. The
@@ -66,8 +68,7 @@ impl NodeRewriter for MaskLifter {
         let (input, validity) = (masked.child(0).clone(), masked.child(1).clone());
 
         if let Some(name) = node.as_opt::<GetItem>() {
-            let field = bound::get_item(name.clone(), input);
-            return Ok(Transformed::yes(bound::mask(field, validity)));
+            return Ok(Transformed::yes(project_field_through_masks(name, masked)));
         }
 
         if let Some(options) = node.as_opt::<StatFn>() {
@@ -93,6 +94,19 @@ impl NodeRewriter for MaskLifter {
         }
         Ok(Transformed::no(node))
     }
+}
+
+/// Reads the field `name` of `input` below every mask that wraps it.
+///
+/// A field of a null struct is null, so applying the same masks to just the field preserves the
+/// result.
+fn project_field_through_masks(name: &FieldName, input: &BoundExpression) -> BoundExpression {
+    if !input.is::<Mask>() {
+        return bound::get_item(name.clone(), input.clone());
+    }
+
+    let projected = project_field_through_masks(name, input.child(0));
+    bound::mask(projected, input.child(1).clone())
 }
 
 /// Whether `node` is a function that is null wherever an argument is, and cannot fail.

@@ -121,15 +121,8 @@ pub trait PrimitiveArrayExt: TypedArrayRef<Primitive> {
         }
     }
 
-    fn validity_child(&self) -> Option<&ArrayRef> {
-        self.slots()[PrimitiveSlots::VALIDITY_CHILD].as_ref()
-    }
-
     fn validity(&self) -> Validity {
-        child_to_validity(
-            self.slots()[PrimitiveSlots::VALIDITY_CHILD].as_ref(),
-            self.nullability(),
-        )
+        child_to_validity(self.validity_child(), self.nullability())
     }
 
     fn buffer_handle(&self) -> &BufferHandle {

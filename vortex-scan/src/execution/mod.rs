@@ -32,9 +32,9 @@ mod selection;
 use std::ops::Range;
 use std::sync::Arc;
 
-use vortex_buffer::Alignment;
 use vortex_io::request::IoService;
 use vortex_io::request::IoTarget;
+pub use vortex_io::segments::SegmentLocation;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
 
@@ -62,25 +62,12 @@ use crate::planning::planner::WorkScope;
 use crate::selection::Selection;
 use crate::source::SegmentSource;
 
-/// Where a segment's bytes live in the file.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct SegmentLocation {
-    /// Byte offset of the segment from the start of the source.
-    pub offset: u64,
-    /// Length of the segment in bytes.
-    pub length: u32,
-    /// Alignment the segment's bytes must have once delivered.
-    pub alignment: Alignment,
-}
-
-impl SegmentLocation {
-    /// The byte range a read of the segment asks for.
-    fn target(&self) -> IoTarget {
-        IoTarget::Range {
-            offset: self.offset,
-            len: self.length as usize,
-            alignment: self.alignment,
-        }
+/// The byte range a read of the segment at `location` asks for.
+fn segment_target(location: &SegmentLocation) -> IoTarget {
+    IoTarget::Range {
+        offset: location.offset,
+        len: location.length as usize,
+        alignment: location.alignment,
     }
 }
 

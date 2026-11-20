@@ -1,6 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! Plans reads from structs stored as separate children.
+//!
+//! A [`Pack`] assembles the field children and, for a nullable struct, a validity child. An
+//! expression that uses part of the struct can read the relevant children directly.
+
 pub(crate) mod execute;
 mod mask;
 
@@ -309,16 +314,12 @@ fn validate_validity_child(expected_row_count: u64, child: &PlanRef) -> VortexRe
 }
 
 impl PackPlan {
-    /// Builds a non-nullable struct of `fields`, each a slot of this plan or an expression over
-    /// one.
+    /// Builds the temporary struct that `$` refers to in the combiner.
     ///
-    /// The result drops the validity of a nullable struct. An expression over a nullable struct
-    /// partitions its validity into a field of its own wherever the struct's nulls are observable,
-    /// so a pruned struct carries the validity exactly when the expression reads it.
-    pub(crate) fn with_pruned_fields(
-        &self,
-        fields: Vec<(FieldName, PlanRef)>,
-    ) -> VortexResult<Self> {
+    /// Each field holds one partition result and keeps its dtype. The combiner's input struct
+    /// must be present on every row so it can read an original validity bit as `false` on a row
+    /// where the original struct is null.
+    fn with_partition_fields(&self, fields: Vec<(FieldName, PlanRef)>) -> VortexResult<Self> {
         let struct_fields = StructFields::from_iter(
             fields
                 .iter()
@@ -335,13 +336,21 @@ impl PackPlan {
     }
 }
 
-/// Pushes an expression into the referenced fields of a [`Pack`], pruning the rest.
+/// Rewrites an evaluation to read only the children it needs from a [`Pack`].
 ///
-/// Over a nullable struct, the partition rules read a field as `mask(field, validity)`, so the
-/// pruned struct reads the validity alongside the fields and the expression above it still sees
-/// a field as null wherever the struct is null. Nested field reads, statistics and strict functions
-/// that cannot fail above such a mask move below it, so a later rewrite pushes them into the
-/// field's plan.
+/// For `$.address.zip` on a nullable struct, the first split puts the `address` child and
+/// the original struct's validity in fields `0` and `1` of the combiner's input.
+///
+/// ```text
+/// $.address.zip          // Original projection.
+/// mask($.0, $.1).zip     // Partitioning still feeds the whole address into the mask.
+/// mask($.0.zip, $.1)     // The rewriter moves the lookup onto the address child.
+/// ```
+///
+/// The next pass pushes the lookup into the `address` child as `$.zip`. The scan can
+/// skip `city` and read just `zip` and the validity of each nullable ancestor. Statistics and
+/// strict functions that cannot fail move below the mask too, as [`lift_masks`] describes, so
+/// zone pruning and list element reads also reach the fields of a nullable struct.
 #[derive(Debug)]
 pub(crate) struct ExpressionPackRule;
 
@@ -360,14 +369,15 @@ impl PlanParentReduceRule<Pack> for ExpressionPackRule {
         if fields.nfields() == 0 {
             return Ok(None);
         }
+
         let partitioned = match Pack.partition(child.dtype(), expression, session)? {
             PartitionedExpression::One(slot, expr) => {
                 let field = child.slot_required(slot)?;
                 return Ok(Some(EvalPlan::try_new(expr, field)?.into_plan()));
             }
             PartitionedExpression::Any(expr) => {
-                let rewritten = child.with_pruned_fields(Vec::new())?.into_plan();
-                return Ok(Some(EvalPlan::try_new(expr, rewritten)?.into_plan()));
+                let empty_scope = child.with_partition_fields(Vec::new())?.into_plan();
+                return Ok(Some(EvalPlan::try_new(expr, empty_scope)?.into_plan()));
             }
             PartitionedExpression::Many(partitioned) => partitioned,
         };
@@ -375,42 +385,45 @@ impl PlanParentReduceRule<Pack> for ExpressionPackRule {
             combiner,
             partitions,
         } = partitioned;
-        let combiner = if child.dtype().is_nullable() {
+
+        let nullable = child.dtype().is_nullable();
+        let combiner = if nullable {
             lift_masks(combiner)?
         } else {
             combiner
         };
 
-        // The combiner reads a non-nullable struct, which a nullable child never is.
-        let mut fields_changed =
-            child.dtype().is_nullable() || partitions.len() != fields.nfields();
-        let mut pruned_fields = Vec::with_capacity(partitions.len());
+        // The combiner's root is non-nullable even when it uses every original field.
+        let mut pack_changed = nullable || partitions.len() != fields.nfields();
+        let mut partition_fields = Vec::with_capacity(partitions.len());
         for (position, partition) in partitions.into_iter().enumerate() {
-            fields_changed |= partition.slot != Pack::FIELDS_OFFSET + position;
-            fields_changed |= fields
-                .field_name(position)
-                .is_none_or(|name| *name != positional_name(position));
+            let name = positional_name(position);
+            pack_changed |= partition.slot != Pack::FIELDS_OFFSET + position
+                || fields.field_name(position) != Some(&name);
 
             let field = child.slot_required(partition.slot)?;
             let field = if is_identity_expression(&partition.expr, field.dtype()) {
                 field
             } else {
-                fields_changed = true;
+                pack_changed = true;
                 EvalPlan::try_new(partition.expr, field)?.into_plan()
             };
-            pruned_fields.push((positional_name(position), field));
+            partition_fields.push((name, field));
         }
-        let rewritten = if fields_changed {
-            child.with_pruned_fields(pruned_fields)?.into_plan()
+
+        if !pack_changed && combiner == *expression {
+            return Ok(None);
+        }
+
+        let combiner_input = if pack_changed {
+            child.with_partition_fields(partition_fields)?.into_plan()
         } else {
             child.to_plan()
         };
 
-        if !fields_changed && combiner == *expression {
-            return Ok(None);
-        }
-
-        Ok(Some(EvalPlan::try_new(combiner, rewritten)?.into_plan()))
+        Ok(Some(
+            EvalPlan::try_new(combiner, combiner_input)?.into_plan(),
+        ))
     }
 }
 

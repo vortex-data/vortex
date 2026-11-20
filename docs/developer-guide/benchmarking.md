@@ -254,10 +254,12 @@ factors are configurable per suite (e.g. `--opt scale-factor=10.0` for TPC-H SF=
 
 ### Unstable Encodings
 
-Benchmark sessions enable the `unstable` edition, so every benchmark measures Vortex files whose
-compressor may also choose its encodings. It currently holds the `fastlanes.delta` encoding and the
-`vortex.ext` layout, which splits only the extension types that a session opts into, so benchmark
-files do not use it. `vortex_bench::enable_unstable_encodings` enables it on a session.
+Benchmark sessions enable the newest `preview` edition and the `unstable` edition, so every
+benchmark measures Vortex files whose compressor may also choose their encodings. `preview`
+currently holds `fastlanes.delta`, and `unstable` holds `vortex.decimal_byte_parts.v2`,
+`vortex.widen`, and the `vortex.ext` layout. That layout splits only the extension types that a
+session opts into, so benchmark files do not use it. `vortex_bench::enable_unstable_encodings`
+enables both editions on a session.
 
 ### Running SQL Benchmarks
 
@@ -305,6 +307,12 @@ Benchmarks run automatically on all commits to `develop` and can be run on-deman
 - **SQL** -- `action/bench-sql` runs the `pr` preset, a quick core subset of the SQL benchmarks
   that includes TPC-DS SF=10 on NVMe and excludes `vortex-compact`, Clickbench Sorted, Appian,
   JOB, nested TPC-H, statpopgen, FineWeb on S3, TPC-H SF=10 on S3, and Vortex queries.
+- **SQL Scan** -- `action/bench-scan` runs the `pr-scan` preset: ClickBench and TPC-H SF=1 on
+  NVMe with every valid Vortex integration and scan engine, each combination on a machine of its
+  own. Vortex targets name both axes, such as `datafusion:vortex [file, v2]`: the integration is
+  `file` (DataFusion `ListingTable`, DuckDB `MultiFileReader`) or `datasource` (DataFusion
+  `VortexTable` over a Vortex `DataSource`), and the scan engine is `v1` (LayoutReader) or `v2`
+  (plans). Use it on PRs that change either path.
 - **SQL Extended** -- `action/bench-sql-extended` runs the `pr-full` preset: every regular SQL
   benchmark, including `vortex-compact` and DuckDB-format targets.
 - **SQL Compact** -- `action/bench-sql-compact` runs the `pr-compact` preset, which benchmarks

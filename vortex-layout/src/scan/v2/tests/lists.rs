@@ -121,7 +121,7 @@ async fn write(
     list: fn(usize) -> VortexResult<ArrayRef>,
 ) -> VortexResult<(VortexSession, Arc<dyn SegmentSource>, LayoutRef)> {
     let session = new_session().with_tokio();
-    let (segments, layout) = write_chunks(&session, strategy, list, 1).await?;
+    let (segments, layout) = write_chunks(&session, strategy, vec![list(0)?]).await?;
     Ok((session, segments, layout))
 }
 
