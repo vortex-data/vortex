@@ -173,13 +173,8 @@ fn patch_constant(
 
     Ok(Some(match (dtype, values) {
         (DType::Primitive(ptype, _), Canonical::Primitive(values)) => {
-            let validity = patch_validity(
-                fill_validity,
-                values.validity()?,
-                values.len(),
-                layout,
-                ctx,
-            )?;
+            let validity =
+                patch_validity(fill_validity, values.validity()?, values.len(), layout, ctx)?;
             match_each_native_ptype!(*ptype, |V| {
                 let fill = fill.as_primitive().as_::<V>().unwrap_or_default();
                 let mut output = BufferMut::<V>::full(fill, len);
@@ -188,13 +183,8 @@ fn patch_constant(
             })
         }
         (DType::Bool(_), Canonical::Bool(values)) => {
-            let validity = patch_validity(
-                fill_validity,
-                values.validity()?,
-                values.len(),
-                layout,
-                ctx,
-            )?;
+            let validity =
+                patch_validity(fill_validity, values.validity()?, values.len(), layout, ctx)?;
             let mut bits = if fill.as_bool().value().unwrap_or(false) {
                 BitBufferMut::new_set(len)
             } else {
@@ -205,13 +195,8 @@ fn patch_constant(
             BoolArray::new(bits.freeze(), validity).into_array()
         }
         (DType::Utf8(_) | DType::Binary(_), Canonical::VarBinView(values)) => {
-            let validity = patch_validity(
-                fill_validity,
-                values.validity()?,
-                values.len(),
-                layout,
-                ctx,
-            )?;
+            let validity =
+                patch_validity(fill_validity, values.validity()?, values.len(), layout, ctx)?;
             let bytes: &[u8] = match dtype {
                 DType::Utf8(_) => fill.as_utf8().value().map_or(&[], |s| s.as_bytes()),
                 _ => fill.as_binary().value().map_or(&[], |b| b.as_slice()),

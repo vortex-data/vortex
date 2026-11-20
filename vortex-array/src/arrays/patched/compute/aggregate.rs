@@ -90,7 +90,8 @@ impl DynAggregateKernel for PatchedConstantAggregate {
             let mut sources = BufferMut::<u32>::with_capacity(layout.all_patches().len());
             #[expect(clippy::cast_possible_truncation, reason = "patch counts fit in u32")]
             layout.for_each(|_, patch| sources.push(patch as u32));
-            values.take(PrimitiveArray::new(sources.freeze(), Validity::NonNullable).into_array())?
+            values
+                .take(PrimitiveArray::new(sources.freeze(), Validity::NonNullable).into_array())?
         };
 
         let mut accumulator = aggregate_fn.accumulator(batch.dtype())?;

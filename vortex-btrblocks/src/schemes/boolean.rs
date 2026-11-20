@@ -11,9 +11,11 @@ use vortex_array::IntoArray;
 use vortex_array::VTable;
 use vortex_array::arrays::Bool;
 use vortex_array::arrays::ConstantArray;
+use vortex_array::arrays::Patched;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::RunEnd;
 use vortex_array::arrays::bool::BoolArrayExt;
+use vortex_array::arrays::patched::use_experimental_patches;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_array::arrays::runend::compress::bool_run_count;
 use vortex_array::arrays::runend::compress::runend_encode_bool;
@@ -24,17 +26,15 @@ use vortex_compressor::scheme::CompressionEstimate;
 use vortex_compressor::scheme::EstimateVerdict;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_array::arrays::Patched;
-use vortex_array::arrays::patched::use_experimental_patches;
 use vortex_sparse::Sparse;
 use vortex_sparse::SparseExt;
 
 use crate::ArrayAndStats;
-use crate::schemes::patches::sparse_to_patched;
 use crate::CascadingCompressor;
 use crate::CompressorContext;
 use crate::Scheme;
 use crate::SchemeExt;
+use crate::schemes::patches::sparse_to_patched;
 
 /// Run-end encoding for boolean arrays with long runs.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -147,14 +147,14 @@ impl Scheme for BoolSparseScheme {
         };
         if use_experimental_patches() {
             return sparse_to_patched(
-            compressor,
-            &compress_ctx,
-            self.id(),
-            sparse,
-            0,
-            None,
-            exec_ctx,
-    );
+                compressor,
+                &compress_ctx,
+                self.id(),
+                sparse,
+                0,
+                None,
+                exec_ctx,
+            );
         }
         let indices = sparse
             .patches()
