@@ -87,7 +87,7 @@ use crate::metrics::PATH_LABEL;
 use crate::persistent::cache::CachedVortexMetadata;
 use crate::persistent::reader::VortexReaderFactory;
 use crate::persistent::stream::PrunableStream;
-use crate::v2::dynamic_filters::convert_dynamic_filter;
+use crate::table::dynamic_filters::convert_dynamic_filter;
 
 #[derive(Clone)]
 pub(crate) struct VortexOpener {
