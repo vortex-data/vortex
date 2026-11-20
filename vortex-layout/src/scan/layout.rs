@@ -65,8 +65,11 @@ pub struct LayoutReaderDataSource {
     /// The whole-source cut points computed by [`DataSource::cut_points`], keyed by the fields
     /// whose layout decides them. Scans whose fields match reuse them instead of walking the
     /// layout again.
-    cut_points: Mutex<Vec<(Vec<FieldMask>, Arc<[u64]>)>>,
+    cut_points: Mutex<Vec<CachedCutPoints>>,
 }
+
+/// Whole-source cut points and the fields whose layout decided them.
+type CachedCutPoints = (Vec<FieldMask>, Arc<[u64]>);
 
 impl LayoutReaderDataSource {
     /// Creates a new [`LayoutReaderDataSource`].
@@ -665,7 +668,7 @@ impl Partition for Empty {
         let dtype = self.dtype.clone();
 
         // Create an iterator of arrays with the correct row count, respecting u64::MAX limits.
-        let iter = std::iter::from_fn(move || {
+        let iter = iter::from_fn(move || {
             if self.row_count == 0 {
                 return None;
             }
