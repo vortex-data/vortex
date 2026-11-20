@@ -5,10 +5,12 @@ use std::fmt::Display;
 use std::fmt::Formatter;
 use std::ops::Range;
 
+use vortex_buffer::Buffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
+use vortex_mask::Mask;
 
 use crate::AnyCanonical;
 use crate::ArrayRef;
@@ -18,11 +20,15 @@ use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::array::Array;
 use crate::array::ArrayParts;
+use crate::array::ArrayView;
 use crate::array::TypedArrayRef;
 use crate::array_slots;
 use crate::arrays::ConstantArray;
+use crate::arrays::Masked;
 use crate::arrays::Patched;
 use crate::arrays::PrimitiveArray;
+use crate::arrays::masked::MaskedArrayExt;
+use crate::arrays::masked::MaskedArraySlotsExt;
 use crate::arrays::patched::PATCH_CHUNK_SIZE;
 use crate::arrays::patched::PatchLayout;
 use crate::arrays::patched::layout::TransposedPatches;
@@ -432,6 +438,49 @@ impl Patched {
         let fill_value = fill_value.cast(&fill_value.dtype().with_nullability(nullable.into()))?;
         let inner = ConstantArray::new(fill_value, len).into_array();
         Self::try_new_with_lanes(inner, indices, values, n_lanes, ctx)
+    }
+
+    /// Creates a nullable array with the values of `inner` and nulls at the ascending positions
+    /// `null_positions`.
+    ///
+    /// This is the patched equivalent of a masked array whose nulls are sparse: the patch values
+    /// are a single null constant, so only the positions of the nulls are stored.
+    pub fn with_nulls(
+        inner: ArrayRef,
+        null_positions: ArrayRef,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Array<Patched>> {
+        let dtype = inner.dtype().as_nullable();
+        let values = ConstantArray::new(Scalar::null(dtype), null_positions.len()).into_array();
+        Self::try_new(inner, null_positions, values, ctx)
+    }
+
+    /// Converts a [`Masked`] array into the equivalent patched array of nulls over its child.
+    pub fn from_masked(
+        masked: ArrayView<'_, Masked>,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Array<Patched>> {
+        let mask = masked.masked_validity().execute_mask(masked.len(), ctx)?;
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "patch positions fit in u32"
+        )]
+        let null_positions: Buffer<u32> = match mask {
+            Mask::AllTrue(_) => Buffer::empty(),
+            Mask::AllFalse(len) => (0..len as u32).collect(),
+            Mask::Values(values) => values
+                .bit_buffer()
+                .iter()
+                .enumerate()
+                .filter(|(_, valid)| !valid)
+                .map(|(pos, _)| pos as u32)
+                .collect(),
+        };
+        Self::with_nulls(
+            masked.child().clone(),
+            PrimitiveArray::new(null_positions, Validity::NonNullable).into_array(),
+            ctx,
+        )
     }
 
     /// Creates a patched array from its parts without validation.

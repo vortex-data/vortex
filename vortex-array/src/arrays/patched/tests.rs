@@ -22,6 +22,7 @@ use crate::arrays::Patched;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::StructArray;
 use crate::arrays::VarBinViewArray;
+use crate::arrays::patched::PatchedArraySlotsExt;
 use crate::assert_arrays_eq;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
@@ -429,7 +430,6 @@ mod serde {
 
     use super::*;
     use crate::ArrayContext;
-    use crate::arrays::patched::PatchedArraySlotsExt;
     use crate::serde::SerializeOptions;
     use crate::serde::SerializedArray;
     use crate::session::ArraySessionExt;
@@ -754,4 +754,18 @@ mod aggregates {
             check(NanCount, EmptyOptions, &array);
         }
     }
+}
+
+#[test]
+fn masked_arrays_convert_to_patched_nulls() -> VortexResult<()> {
+    use crate::arrays::MaskedArray;
+
+    let mut ctx = SESSION.create_execution_ctx();
+    let child = PrimitiveArray::from_iter(0..3000i32).into_array();
+    let validity = Validity::from_iter((0..3000).map(|i| i % 500 != 7));
+    let masked = MaskedArray::try_new(child, validity, &mut ctx)?;
+    let patched = Patched::from_masked(masked.as_view(), &mut ctx)?;
+    assert_eq!(patched.patch_values().len(), 6);
+    assert_arrays_eq!(patched, masked, &mut ctx);
+    Ok(())
 }
