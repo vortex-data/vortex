@@ -15,7 +15,10 @@ use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::ExtensionArray;
+use crate::builders::ArrayBuilder;
+use crate::builders::PrimitiveBuilder;
 use crate::dtype::DType;
+use crate::match_each_native_ptype;
 use crate::stats::StatsSet;
 use crate::trace_op;
 use crate::validity::Validity;
@@ -86,6 +89,46 @@ impl FusedChain {
                 .with_stats_set(self.stats)
                 .into_array(),
             _ => values.with_stats_set(self.stats).into_array(),
+        })
+    }
+
+    /// Drive the program straight into `builder`, appending the values of the parent the chain
+    /// stands for without a buffer of their own, if `builder` is a primitive builder of the
+    /// chain's dtype. Returns the chain back otherwise.
+    pub(crate) fn drive_into(
+        self,
+        builder: &mut dyn ArrayBuilder,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Result<(), Self>> {
+        if builder.dtype() != &self.dtype {
+            return Ok(Err(self));
+        }
+        let DType::Primitive(ptype, _) = self.dtype else {
+            return Ok(Err(self));
+        };
+        match_each_native_ptype!(ptype, |T| {
+            let Some(builder) = builder.as_any_mut().downcast_mut::<PrimitiveBuilder<T>>() else {
+                return Ok(Err(self));
+            };
+            trace_op!(record_block_drive_into_builder(
+                self.program.ops(),
+                self.len
+            ));
+            let mask = self
+                .validity
+                .union_nullability(self.dtype.nullability())
+                .execute_mask(self.len, ctx)?;
+            builder.reserve_exact(self.len);
+            let mut range = builder.uninit_range(self.len);
+            // SAFETY: the range holds `len` slots, which `write_into` initializes before
+            // `finish`, and the mask describes those `len` rows.
+            unsafe {
+                self.program
+                    .write_into(range.slice_uninit_mut(0, self.len))?;
+                range.append_mask(&mask);
+                range.finish();
+            }
+            Ok(Ok(()))
         })
     }
 }

@@ -184,11 +184,37 @@ impl ArrayRef {
     /// partially consumes `current_array`: some slots already live in the builder, so a
     /// parent rewrite would observe inconsistent state and could discard accumulated builder
     /// data.
-    #[allow(clippy::cognitive_complexity)]
     pub fn execute_until<M: Matcher + 'static>(
         self,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
+        match self.execute_loop::<M>(ctx)? {
+            Executed::Array(array) => Ok(array),
+            Executed::Chain(chain) => chain.drive(ctx),
+        }
+    }
+
+    /// Execute this array to canonical and append it to `builder`. A fused chain that reaches
+    /// the root is driven straight into `builder`, so its values need no buffer of their own.
+    pub(crate) fn execute_and_append(
+        self,
+        builder: &mut dyn ArrayBuilder,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
+        let canonical = match self.execute_loop::<AnyCanonical>(ctx)? {
+            Executed::Array(array) => array,
+            Executed::Chain(chain) => match chain.drive_into(builder, ctx)? {
+                Ok(()) => return Ok(()),
+                Err(chain) => chain.drive(ctx)?,
+            },
+        };
+        canonical.append_to_builder(builder, ctx)
+    }
+
+    /// The loop of [`ArrayRef::execute_until`]. It stops early with a fused chain that stands for
+    /// the root, which its caller drives into a buffer or a builder.
+    #[allow(clippy::cognitive_complexity)]
+    fn execute_loop<M: Matcher + 'static>(self, ctx: &mut ExecutionCtx) -> VortexResult<Executed> {
         // Cloning the context's kernels releases the borrow of `ctx`, which the kernels need.
         let ctx_kernels = Arc::clone(&ctx.kernels);
 
@@ -238,7 +264,8 @@ impl ArrayRef {
                 // that extend it.
                 if done_canonical && ctx.block_fusion && current_builder.is_none() {
                     match try_fuse(&mut stack, current_array, ctx)? {
-                        Ok(driven) => {
+                        Ok(Executed::Chain(chain)) => return Ok(Executed::Chain(chain)),
+                        Ok(Executed::Array(driven)) => {
                             current_array = driven;
                             child_rewritten = false;
                             continue;
@@ -257,7 +284,7 @@ impl ArrayRef {
                         // free when the array is already marked as optimized.
                         current_array = optimizer.optimize_array(&current_array)?;
                         trace_op!(record_execute_until_return(&current_array));
-                        return Ok(current_array);
+                        return Ok(Executed::Array(current_array));
                     }
                     Some(frame) => {
                         let _slot_idx = frame.slot_idx;
@@ -379,7 +406,8 @@ impl ArrayRef {
             // skips no kernel.
             if ctx.block_fusion && current_builder.is_none() {
                 match try_fuse(&mut stack, current_array, ctx)? {
-                    Ok(driven) => {
+                    Ok(Executed::Chain(chain)) => return Ok(Executed::Chain(chain)),
+                    Ok(Executed::Array(driven)) => {
                         current_array = driven;
                         child_rewritten = false;
                         continue;
@@ -491,13 +519,14 @@ impl ArrayRef {
 
 /// On the way up, start a block program from `child` with the spine parent suspended on the top
 /// of the stack, extend it with each spine parent above that transforms blocks, popping their
-/// frames, and drive it: the values of the last parent it reached. Returns `child` back if the
-/// first parent has no op, or `child` is not a leaf yet.
+/// frames, and drive it: the values of the last parent it reached. A chain that reaches the root
+/// is returned undriven, for the caller of the loop to drive. Returns `child` back if the first
+/// parent has no op, or `child` is not a leaf yet.
 fn try_fuse(
     stack: &mut Vec<StackFrame>,
     child: ArrayRef,
     ctx: &mut ExecutionCtx,
-) -> VortexResult<Result<ArrayRef, ArrayRef>> {
+) -> VortexResult<Result<Executed, ArrayRef>> {
     // The op first, so a parent without one costs no source.
     let Some(mut op) = take_op(stack, child.dtype(), ctx)? else {
         return Ok(Err(child));
@@ -513,11 +542,22 @@ fn try_fuse(
     loop {
         let parent = stack.pop().vortex_expect("the op's frame").parent_array;
         chain.push(&parent, op)?;
+        if stack.is_empty() {
+            return Ok(Ok(Executed::Chain(Box::new(chain))));
+        }
         let Some(next) = take_op(stack, chain.dtype(), ctx)? else {
-            return chain.drive(ctx).map(Ok);
+            return Ok(Ok(Executed::Array(chain.drive(ctx)?)));
         };
         op = next;
     }
+}
+
+/// What the executor's loop ended with.
+enum Executed {
+    /// The executed array.
+    Array(ArrayRef),
+    /// A fused chain standing for the root, not yet driven.
+    Chain(Box<FusedChain>),
 }
 
 /// The block op of the parent on the top of the stack over its spine child of `dtype`, if
@@ -843,9 +883,9 @@ impl Executable for ArrayRef {
 
 /// Execute `array` into the given `builder`.
 ///
-/// This uses the encoding's [`crate::array::VTable::append_to_builder`] implementation. Most
-/// encodings use the default path of `execute::<Canonical>` followed by re-dispatching
-/// `append_to_builder` on the canonical array, while encodings like `Chunked` can override that to
+/// This uses the encoding's [`crate::array::VTable::append_to_builder`] implementation. By default
+/// an encoding executes to canonical and appends the result, driving a fused chain that stands
+/// for the whole array straight into the builder, while encodings like `Chunked` override that to
 /// append child-by-child without materializing the entire parent.
 ///
 /// The builder must have a [`DType`] that is a nullability-superset of `array.dtype()`.

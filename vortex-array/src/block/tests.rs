@@ -45,6 +45,7 @@ use crate::array::ArrayView;
 use crate::array::vtable::NotSupported;
 use crate::array::vtable::ValidityVTable;
 use crate::array::vtable::with_empty_buffers;
+use crate::arrays::ChunkedArray;
 use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
 use crate::assert_arrays_eq;
@@ -718,5 +719,62 @@ fuse extend parent=vortex.test.op(i32, len=3000) ops=1
 drive ops=1 len=3000
 block_op 0 in_place i32->i32 leaf -> leaf"
     );
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------------------------
+// Driving into a builder.
+// ---------------------------------------------------------------------------------------------
+
+/// A chunked array appends each chunk to one builder. A chain standing for a whole chunk is
+/// driven straight into that builder, so the chunk needs no buffer of its own; a chain that stops
+/// below its chunk's root is driven into its own buffer, which the chunk then appends.
+#[test]
+fn chunks_drive_into_the_builder() -> VortexResult<()> {
+    let (first, _) = counter(1, 1500, 0);
+    let (second, _) = counter(-40, 700, 0);
+    let (third, _) = counter(9, 300, 0);
+    let chunks = [
+        add(add(first)),
+        add(second),
+        op(TestOpKind::Pass, add(third)),
+        PrimitiveArray::from_iter(0..5i32).into_array(),
+    ];
+    let array = ChunkedArray::try_new(chunks, dtype(PType::I32))?.into_array();
+    assert_eq!(
+        fused(array)?,
+        "ExecuteSpine slot=0 parent=vortex.test.op(i32, len=1500) child=vortex.test.op(i32, len=1500)
+ExecuteSpine slot=0 parent=vortex.test.op(i32, len=1500) child=vortex.test.counter(i32, len=1500)
+fuse start array=vortex.test.counter(i32, len=1500)
+fuse extend parent=vortex.test.op(i32, len=1500) ops=1
+fuse extend parent=vortex.test.op(i32, len=1500) ops=2
+drive ops=2 len=1500 into=builder
+block_op 0 in_place i32->i32 scratch0 -> scratch0
+block_op 1 copy i32->i32 scratch0 -> output
+ExecuteSpine slot=0 parent=vortex.test.op(i32, len=700) child=vortex.test.counter(i32, len=700)
+fuse start array=vortex.test.counter(i32, len=700)
+fuse extend parent=vortex.test.op(i32, len=700) ops=1
+drive ops=1 len=700 into=builder
+block_op 0 copy i32->i32 scratch0 -> output
+ExecuteSlot slot=0 parent=vortex.test.op(i32, len=300) child=vortex.test.op(i32, len=300)
+ExecuteSpine slot=0 parent=vortex.test.op(i32, len=300) child=vortex.test.counter(i32, len=300)
+fuse start array=vortex.test.counter(i32, len=300)
+fuse extend parent=vortex.test.op(i32, len=300) ops=1
+drive ops=1 len=300
+block_op 0 copy i32->i32 scratch0 -> output"
+    );
+    Ok(())
+}
+
+/// Without fusion, each chunk executes into a buffer of its own and is appended.
+#[test]
+fn chunks_without_fusion_append_level_wise() -> VortexResult<()> {
+    let (first, _) = counter(1, 1500, 0);
+    let array = ChunkedArray::try_new([add(add(first))], dtype(PType::I32))?.into_array();
+    let mut ctx = SESSION.create_execution_ctx().with_block_fusion(false);
+    let before = fused_chain_count();
+    let traced = trace_op(|| array.execute::<PrimitiveArray>(&mut ctx))?;
+    assert_eq!(fused_chain_count(), before);
+    assert!(!traced.trace.to_string().contains("drive "));
     Ok(())
 }

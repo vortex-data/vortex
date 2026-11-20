@@ -4,6 +4,7 @@
 //! The block program a [`FusedChain`](super::FusedChain) builds, and the loops that run it.
 
 use std::marker::PhantomData;
+use std::mem::MaybeUninit;
 use std::ops::Range;
 
 use vortex_buffer::Buffer;
@@ -86,14 +87,11 @@ impl BlockProgram {
             !self.ops.is_empty(),
             "a block program needs at least one op"
         );
-        #[cfg(any(test, feature = "_test-harness"))]
-        super::FUSED_CHAINS.with(|count| count.set(count.get() + 1));
         let (len, out_ptype) = (self.len, *self.ptypes.last().vortex_expect("input type"));
-        let mut source = self.source;
         // When every op keeps the width and the source owns its buffer outright, such as a
         // canonical leaf nothing else references, each block is overwritten where it lies.
         let in_place = (0..self.ops.len()).all(|i| in_place_op(&self.ops, &self.ptypes, i));
-        if in_place && let Some(mut values) = source.take_buffer() {
+        if in_place && let Some(mut values) = self.source.take_buffer() {
             vortex_ensure_eq!(
                 values.len(),
                 len * self.ptypes[0].byte_width(),
@@ -103,7 +101,10 @@ impl BlockProgram {
             // the width, so each block is overwritten in place.
             unsafe { run_blocks_in_place(&mut self.ops, &self.ptypes, len, values.as_mut_ptr())? };
             #[cfg(any(test, feature = "_test-harness"))]
-            super::IN_PLACE_CHAINS.with(|count| count.set(count.get() + 1));
+            {
+                super::FUSED_CHAINS.with(|count| count.set(count.get() + 1));
+                super::IN_PLACE_CHAINS.with(|count| count.set(count.get() + 1));
+            }
             return Ok(PrimitiveArray::from_byte_buffer(
                 values.freeze(),
                 out_ptype,
@@ -112,13 +113,42 @@ impl BlockProgram {
         }
         match_each_native_ptype!(out_ptype, |T| {
             let mut output = BufferMut::<T>::with_capacity_in(len, ctx.allocator().clone());
-            let dst = output.spare_capacity_mut().as_mut_ptr().cast::<u8>();
-            // SAFETY: `dst` has room for `len` values of `T`, the program's output type.
-            unsafe { run_blocks(source.as_mut(), &mut self.ops, &self.ptypes, len, dst)? };
-            // SAFETY: `run_blocks` wrote every one of the `len` values.
+            self.write_into(&mut output.spare_capacity_mut()[..len])?;
+            // SAFETY: `write_into` wrote every one of the `len` values.
             unsafe { output.set_len(len) };
             Ok(PrimitiveArray::new(output.freeze(), validity))
         })
+    }
+
+    /// Run the program block by block, writing its values into `dst`, which holds one slot for
+    /// each of them: a buffer of its own, or the uninitialized tail of a builder.
+    pub(crate) fn write_into<T: NativePType>(
+        mut self,
+        dst: &mut [MaybeUninit<T>],
+    ) -> VortexResult<()> {
+        vortex_ensure_eq!(
+            T::PTYPE,
+            *self.ptypes.last().vortex_expect("input type"),
+            "a block program writes its own type"
+        );
+        vortex_ensure_eq!(
+            dst.len(),
+            self.len,
+            "a block program writes all of its rows"
+        );
+        #[cfg(any(test, feature = "_test-harness"))]
+        super::FUSED_CHAINS.with(|count| count.set(count.get() + 1));
+        let dst = dst.as_mut_ptr().cast::<u8>();
+        // SAFETY: `dst` has room for `len` values of `T`, the program's output type.
+        unsafe {
+            run_blocks(
+                self.source.as_mut(),
+                &mut self.ops,
+                &self.ptypes,
+                self.len,
+                dst,
+            )
+        }
     }
 }
 

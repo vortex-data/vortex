@@ -303,6 +303,7 @@ mod tests {
     use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
+    use vortex_array::arrays::ChunkedArray;
     use vortex_array::arrays::DictArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
@@ -311,6 +312,8 @@ mod tests {
     use vortex_array::block::SourceBlock;
     use vortex_array::block::fused_chain_count;
     use vortex_array::block::in_place_chain_count;
+    use vortex_array::builders::PrimitiveBuilder;
+    use vortex_array::dtype::Nullability;
     use vortex_array::scalar::Scalar;
     use vortex_array::test_harness::trace::trace_op;
     use vortex_array::validity::Validity;
@@ -605,6 +608,67 @@ block_op 0 copy u32->u32 scratch0 -> output"
             "ExecuteSpine slot=0 parent=fastlanes.for.v2(u32?, len=3000) child=fastlanes.for.v2(u32?, len=3000)"
         );
         assert_fuses_like_execute(&array, 0)
+    }
+
+    /// A chunked array of FoR stacks appends each chunk to one builder, and each chunk's chain is
+    /// driven straight into it: nulls, patches and a sliced chunk included. The slice pushes below
+    /// the innermost FoR, so that chunk's source is BitPacked and all four levels are ops.
+    #[test]
+    fn chunks_drive_into_the_builder() -> VortexResult<()> {
+        let chunks = [
+            for_stack(3000, 2, true)?,
+            for_stack(5000, 4, true)?.slice(517..4013)?,
+            for_stack(1024, 2, true)?,
+        ];
+        let dtype = chunks[0].dtype().clone();
+        let array = ChunkedArray::try_new(chunks, dtype)?.into_array();
+        let expected = array.clone().execute::<PrimitiveArray>(
+            &mut SESSION.create_execution_ctx().with_block_fusion(false),
+        )?;
+        let mut ctx = SESSION.create_execution_ctx();
+        let before = fused_chain_count();
+        let traced = trace_op(|| array.execute::<PrimitiveArray>(&mut ctx))?;
+        assert_eq!(fused_chain_count() - before, 3);
+        assert_arrays_eq!(traced.output, expected, &mut ctx);
+        let drives = traced
+            .trace
+            .to_string()
+            .lines()
+            .map(str::trim)
+            .filter(|line| line.starts_with("drive "))
+            .map(str::to_owned)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            drives,
+            [
+                "drive ops=1 len=3000 into=builder",
+                "drive ops=4 len=3496 into=builder",
+                "drive ops=1 len=1024 into=builder",
+            ]
+        );
+        Ok(())
+    }
+
+    /// Appending into a builder that reserved nothing grows it first, as appending a canonical
+    /// array does.
+    #[test]
+    fn drives_into_a_builder_without_capacity() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let array = for_stack(5000, 2, false)?;
+        let expected = array.clone().execute::<PrimitiveArray>(
+            &mut SESSION.create_execution_ctx().with_block_fusion(false),
+        )?;
+        let mut builder =
+            PrimitiveBuilder::<u32>::new_in(Nullability::NonNullable, ctx.allocator());
+        let traced = trace_op(|| array.append_to_builder(&mut builder, &mut ctx))?;
+        assert!(
+            traced
+                .trace
+                .to_string()
+                .contains("drive ops=1 len=5000 into=builder")
+        );
+        assert_arrays_eq!(builder.finish_into_primitive(), expected, &mut ctx);
+        Ok(())
     }
 
     /// A packed source fills any in-order ranges, including ones that straddle FastLanes chunks,
