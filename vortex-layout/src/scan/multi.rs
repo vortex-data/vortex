@@ -71,8 +71,7 @@ use crate::scan::scan_builder::ScanBuilder;
 /// How many files each clone of an unordered scan's opened stream reads at once.
 ///
 /// This matches the read-ahead of the DataFusion `VortexTable` path on develop
-/// (`SCAN_PARTITION_READ_AHEAD`), so that reading a scan through `open` and through `split`
-/// behaves the same.
+/// (`SCAN_PARTITION_READ_AHEAD`), whose partitions share one stream of files as the clones do.
 const PARTITION_READ_AHEAD: usize = 2;
 
 /// Default concurrency for opening deferred readers.
@@ -573,8 +572,7 @@ impl DataSourceScan for MultiLayoutScan {
                 Some((next, shared))
             })
             .map(|partition| partition.and_then(|partition| partition.execute()))
-            // Matches the DataFusion `VortexTable` path's read-ahead on develop, so a scan read
-            // through `open` behaves as one read through `split`.
+            // Matches the read-ahead of the DataFusion `VortexTable` path on develop.
             .try_flatten_unordered(Some(PARTITION_READ_AHEAD))
             .boxed()
         }))
