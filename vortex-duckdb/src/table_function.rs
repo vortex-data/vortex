@@ -33,7 +33,6 @@ use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::error::vortex_ensure;
 use vortex::error::vortex_err;
-use vortex::expr::BoundExpression;
 use vortex::expr::Expression;
 use vortex::expr::col;
 use vortex::expr::proto::ExprSerializeProtoExt;
@@ -181,8 +180,7 @@ impl<'a> TableInitInput<'a> {
 }
 
 pub struct GlobalState {
-    pub projection: BoundExpression,
-    /// The projection before binding, for scans that bind it against each file.
+    /// The projection before binding, which each file's scan binds against the file.
     pub projection_expr: Expression,
     pub filter: Filter,
     pub file_row_number_column_pos: Option<usize>,
@@ -349,11 +347,8 @@ pub fn init_global(init_input: &TableInitInput) -> VortexResult<GlobalState> {
         "table function scan input"
     );
 
-    let projection_expr = projection.clone();
-    let projection = optimize_and_bind(projection, &bind_data.dtype)?;
     Ok(GlobalState {
-        projection,
-        projection_expr,
+        projection_expr: projection,
         filter,
         aggregates: bind_data.aggregates.clone(),
         has_count_star,
@@ -433,10 +428,6 @@ pub fn init_local(bind_data: &BindState, global: &GlobalState) -> LocalState {
         pending: Vec::new(),
         finished: false,
     }
-}
-
-pub(crate) fn optimize_and_bind(expr: Expression, dtype: &DType) -> VortexResult<BoundExpression> {
-    expr.bind(dtype)?.optimize_recursive()
 }
 
 pub(crate) fn convert_result(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<StructArray> {
