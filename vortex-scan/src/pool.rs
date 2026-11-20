@@ -64,11 +64,6 @@ pub trait ScanPool: 'static + Send + Sync {
     }
 }
 
-/// The most units each worker of a pool keeps in flight when the request's
-/// [`split_concurrency`](crate::ScanRequest::split_concurrency) does not say. Stands in for the
-/// scan engine's memory budget.
-pub const SPLITS_IN_FLIGHT_PER_WORKER: usize = 4;
-
 /// A cloneable row budget shared by all work that can contribute rows to one scan.
 ///
 /// Filterless scans can reserve each unit's selected rows before decoding it, so rows past the

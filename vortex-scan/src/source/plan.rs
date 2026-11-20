@@ -203,11 +203,13 @@ pub enum PlanSourceChild {
 /// each a list of children and row ranges of them, on the 8,192-row block grid that every chunk
 /// boundary of the executor lies on. It reads nothing; a deferred child is one indivisible unit.
 ///
-/// [`open`](DataSourceScan::open) prepares each ready child of the scan once and hands its parts,
-/// the chunks of its plan, or the child's [splits](PlanChild::with_splits) when it has them, to
-/// workers, which keep several in flight on the session's runtime. Expanding a deferred child is a unit
-/// of work too: the worker that takes it expands it and puts the work of its children back for
-/// any worker to take. See the pool's documentation in `plan_pool.rs`.
+/// [`open`](DataSourceScan::open) runs the scan on V2's own driver, as develop's V2 DuckDB scan
+/// does: it prepares each ready child of the scan once and queues its parts, the chunks of its
+/// plan, or the rows between the child's [splits](PlanChild::with_splits) when it has them. Each
+/// worker drives a planning run of its own on the task that polls it, fed with parts from that
+/// queue. Expanding a deferred child is queued work too: the worker that takes it expands it and
+/// queues the work of its children for any worker to take. See the pool's documentation in
+/// `plan_pool.rs`.
 ///
 /// # Partitions
 ///
