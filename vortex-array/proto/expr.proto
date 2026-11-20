@@ -110,6 +110,25 @@ message CastOpts {
   vortex.dtype.DType target = 1;
 }
 
+// Options for `vortex.change_time_unit`.
+message ChangeTimeUnitOpts {
+  // The target time unit, as the same code that the temporal dtype metadata stores.
+  uint32 unit = 1;
+  Rounding rounding = 2;
+
+  enum Rounding {
+    EXACT = 0;
+    TOWARD_ZERO = 1;
+    FLOOR = 2;
+    NEAREST_TIES_AWAY_FROM_ZERO = 3;
+  }
+}
+
+// Options for `vortex.convert_time_zone`.
+message ConvertTimeZoneOpts {
+  string time_zone = 1;
+}
+
 message FieldNames {
   repeated string names = 1;
 }

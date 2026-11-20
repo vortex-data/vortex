@@ -187,6 +187,66 @@ pub struct CastOpts {
     #[prost(message, optional, tag = "1")]
     pub target: ::core::option::Option<super::dtype::DType>,
 }
+/// Options for `vortex.change_time_unit`.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct ChangeTimeUnitOpts {
+    /// The target time unit, as the same code that the temporal dtype metadata stores.
+    #[prost(uint32, tag = "1")]
+    pub unit: u32,
+    #[prost(enumeration = "change_time_unit_opts::Rounding", tag = "2")]
+    pub rounding: i32,
+}
+/// Nested message and enum types in `ChangeTimeUnitOpts`.
+pub mod change_time_unit_opts {
+    #[derive(
+        Clone,
+        Copy,
+        Debug,
+        PartialEq,
+        Eq,
+        Hash,
+        PartialOrd,
+        Ord,
+        ::prost::Enumeration
+    )]
+    #[repr(i32)]
+    pub enum Rounding {
+        Exact = 0,
+        TowardZero = 1,
+        Floor = 2,
+        NearestTiesAwayFromZero = 3,
+    }
+    impl Rounding {
+        /// String value of the enum field names used in the ProtoBuf definition.
+        ///
+        /// The values are not transformed in any way and thus are considered stable
+        /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+        pub fn as_str_name(&self) -> &'static str {
+            match self {
+                Self::Exact => "EXACT",
+                Self::TowardZero => "TOWARD_ZERO",
+                Self::Floor => "FLOOR",
+                Self::NearestTiesAwayFromZero => "NEAREST_TIES_AWAY_FROM_ZERO",
+            }
+        }
+        /// Creates an enum from field names used in the ProtoBuf definition.
+        pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+            match value {
+                "EXACT" => Some(Self::Exact),
+                "TOWARD_ZERO" => Some(Self::TowardZero),
+                "FLOOR" => Some(Self::Floor),
+                "NEAREST_TIES_AWAY_FROM_ZERO" => Some(Self::NearestTiesAwayFromZero),
+                _ => None,
+            }
+        }
+    }
+}
+/// Options for `vortex.convert_time_zone`.
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct ConvertTimeZoneOpts {
+    #[prost(string, tag = "1")]
+    pub time_zone: ::prost::alloc::string::String,
+}
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct FieldNames {
     #[prost(string, repeated, tag = "1")]

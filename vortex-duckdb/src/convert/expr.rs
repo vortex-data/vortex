@@ -437,15 +437,12 @@ fn not_distinct_from(left: Expression, right: Expression) -> Expression {
     or(both_null, both_equal)
 }
 
-// We limit casting to Primitive types, because some conversions yield an error
-// like vortex.date[days](i32) -> vortex.timestamp[µs](i64?). However, when we
-// push down the cast, we don't have access to column's dtype, so we need to
-// be overly restrictive.
-// TODO(myrrc) change after https://github.com/vortex-data/vortex/issues/8570
-// is resolved
-//
-// We also don't push floats and doubles because Vortex truncates to zero and
-// Duckdb rounds the result
+// DuckDB can truncate a timestamp from nanoseconds to microseconds. Vortex requires an explicit
+// rounding mode for that conversion, and this check has only the DuckDB types. DuckDB and Vortex
+// also round casts from floats to integers differently.
+// TODO(connor): Send extension literals from the DuckDB and DataFusion converters, and map
+// truncating SQL casts to named functions (item RU3 of
+// https://github.com/vortex-data/vortex/issues/11114).
 fn can_push_cast(cast: &duckdb::BoundCast<'_>, target: &duckdb::LogicalTypeRef) -> bool {
     !cast.is_try && target.is_primitive_integer() && cast.child.return_type().is_primitive_integer()
 }
