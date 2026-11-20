@@ -349,51 +349,9 @@ struct PlanScan {
     units: Vec<Unit>,
 }
 
-impl PlanScan {
-    /// The rows of `unit` the scan selects before filtering, or `None` when not known yet.
-    fn unit_rows(&self, unit: &Unit) -> Option<u64> {
-        let rows = unit.rows.as_ref()?;
-        Some(self.state.selection.row_count_in_range(rows))
-    }
-
-    /// The bytes of `unit`, in proportion to its share of its child's rows.
-    fn unit_bytes(&self, unit: &Unit) -> u64 {
-        let child = self.state.child(unit.child);
-        let bytes = child.byte_size();
-        match (&unit.rows, child.row_count) {
-            (Some(rows), Some(count)) if count > 0 => u64::try_from(
-                u128::from(bytes) * u128::from(rows.end - rows.start) / u128::from(count),
-            )
-            .unwrap_or(u64::MAX),
-            _ => bytes,
-        }
-    }
-}
-
 impl DataSourceScan for PlanScan {
     fn dtype(&self) -> &DType {
         &self.state.dtype
-    }
-
-    fn row_count(&self) -> Precision<u64> {
-        let Some(rows) = self
-            .units
-            .iter()
-            .map(|unit| self.unit_rows(unit))
-            .sum::<Option<u64>>()
-        else {
-            return Precision::Absent;
-        };
-        let rows = self.state.limit.map_or(rows, |limit| rows.min(limit));
-        if self.state.filter.is_some() {
-            Precision::inexact(rows)
-        } else {
-            Precision::exact(rows)
-        }
-    }
-
-    fn byte_size(&self) -> Precision<u64> {
-        Precision::inexact(self.units.iter().map(|unit| self.unit_bytes(unit)).sum())
     }
 
     fn split(self: Box<Self>, _n: NonZeroUsize) -> VortexResult<Vec<DataSourceScanRef>> {

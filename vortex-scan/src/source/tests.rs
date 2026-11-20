@@ -17,7 +17,6 @@ use vortex_array::expr::checked_add;
 use vortex_array::expr::gt;
 use vortex_array::expr::lit;
 use vortex_array::expr::root;
-use vortex_array::expr::stats::Precision;
 use vortex_buffer::Buffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -124,17 +123,6 @@ async fn execute_applies_the_limit() -> VortexResult<()> {
     Ok(())
 }
 
-#[tokio::test]
-async fn partitions_report_their_rows() -> VortexResult<()> {
-    let partitions = partitions(ScanRequest {
-        row_range: Some(4..9),
-        ..Default::default()
-    })
-    .await?;
-    assert_eq!(partitions[0].row_count(), Precision::exact(5_u64));
-    Ok(())
-}
-
 /// A request that selects no rows of the source scans one partition, which reads nothing.
 #[rstest]
 #[case::zero_limit(ScanRequest { limit: Some(0), ..Default::default() })]
@@ -147,7 +135,6 @@ async fn partitions_report_their_rows() -> VortexResult<()> {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn requests_without_rows_read_nothing(#[case] request: ScanRequest) -> VortexResult<()> {
     let scan = source().scan(request).await?;
-    assert_eq!(scan.row_count(), Precision::exact(0_u64));
     let partitions: Vec<PartitionRef> = scan.partitions().try_collect().await?;
     assert_eq!(collect(partitions).await?.len(), 0);
     Ok(())
