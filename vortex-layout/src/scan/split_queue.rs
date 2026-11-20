@@ -5,6 +5,8 @@
 
 use std::iter;
 use std::sync::Arc;
+use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::Ordering;
 use std::vec;
 
 use futures::StreamExt;
@@ -44,6 +46,8 @@ pub(crate) struct SplitQueue {
     handle: Handle,
     per_worker: usize,
     splits: Mutex<vec::IntoIter<SplitTask>>,
+    total: usize,
+    claimed: AtomicUsize,
 }
 
 impl SplitQueue {
@@ -51,13 +55,25 @@ impl SplitQueue {
         Self {
             handle,
             per_worker: per_worker.max(1),
+            total: splits.len(),
             splits: Mutex::new(splits.into_iter()),
+            claimed: AtomicUsize::new(0),
         }
     }
 
     /// Claims the next split, if any is left.
     fn claim(&self) -> Option<SplitTask> {
-        self.splits.lock().next()
+        let split = self.splits.lock().next()?;
+        self.claimed.fetch_add(1, Ordering::Relaxed);
+        Some(split)
+    }
+
+    /// The fraction of the splits that the stream's clones have claimed.
+    pub(crate) fn progress(&self) -> f64 {
+        if self.total == 0 {
+            return 1.0;
+        }
+        (self.claimed.load(Ordering::Relaxed) as f64 / self.total as f64).min(1.0)
     }
 
     /// A new worker over the shared queue, which one clone of the scan's stream polls.
