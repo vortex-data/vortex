@@ -125,8 +125,8 @@ struct Args {
     scan_v1: bool,
 
     /// Register Vortex tables through the Scan API (`VortexTable` over a `MultiFileDataSource`)
-    /// instead of a listing table, whatever `--scan-v1` says. `VORTEX_USE_SCAN_API=1` does the same
-    /// when `--scan-v1` is true.
+    /// instead of a listing table, whatever `--scan-v1` says. `MultiFileDataSource` runs the V1
+    /// scan.
     #[arg(long, default_value_t = false, action = clap::ArgAction::Set)]
     scan_api: bool,
 
@@ -143,7 +143,7 @@ async fn main() -> anyhow::Result<()> {
     let args = Args::parse();
     let opts = Opts::from(args.options);
     let scan_v2 = !args.scan_v1;
-    let scan_api = args.scan_api || (args.scan_v1 && use_scan_api());
+    let scan_api = args.scan_api;
 
     set_join_set_tracer(get_static_tracer())?;
     setup_logging_and_tracing(args.verbose, args.tracing)?;
@@ -258,10 +258,6 @@ async fn main() -> anyhow::Result<()> {
     }
 
     Ok(())
-}
-
-fn use_scan_api() -> bool {
-    std::env::var("VORTEX_USE_SCAN_API").is_ok_and(|v| v == "1")
 }
 
 async fn register_benchmark_tables<B: Benchmark + ?Sized>(

@@ -13,6 +13,7 @@ pub mod gpu {
 use vortex::dtype::PType;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
+use vortex_cuda_driver::CudaStream;
 use vortex_cuda_driver::DeviceRepr;
 
 use crate::CudaBufferExt;
@@ -61,14 +62,15 @@ pub(crate) fn ptype_to_chunk_offset_type(ptype: PType) -> VortexResult<ChunkOffs
 /// `chunk_offsets` signals "no patches" to the kernel.
 pub(crate) fn build_gpu_patches(
     device_patches: Option<&DevicePatches>,
+    stream: &CudaStream,
 ) -> VortexResult<GPUPatches> {
     #[expect(clippy::cast_possible_truncation)]
     match device_patches {
         Some(p) => Ok(GPUPatches {
-            chunk_offsets: p.chunk_offsets.cuda_device_ptr()? as _,
+            chunk_offsets: p.chunk_offsets.cuda_device_ptr(stream)? as _,
             chunk_offset_type: ptype_to_chunk_offset_type(p.chunk_offset_ptype)?,
-            indices: p.indices.cuda_device_ptr()? as _,
-            values: p.values.cuda_device_ptr()? as _,
+            indices: p.indices.cuda_device_ptr(stream)? as _,
+            values: p.values.cuda_device_ptr(stream)? as _,
             offset: p.offset as u32,
             offset_within_chunk: p.offset_within_chunk as u32,
             num_patches: p.num_patches as u32,
