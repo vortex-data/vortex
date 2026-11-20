@@ -69,40 +69,43 @@
 
 mod array;
 mod compute;
+mod execute;
+mod layout;
+#[cfg(test)]
+mod tests;
 mod vtable;
 
 use std::env;
 use std::sync::LazyLock;
 
 pub use array::*;
-use vortex_buffer::ByteBuffer;
+pub use layout::*;
 pub use vtable::*;
+
+use crate::dtype::DType;
+
+/// The number of values in each patched chunk. This is the FastLanes block size.
+pub const PATCH_CHUNK_SIZE: usize = 1024;
 
 pub(crate) fn initialize(session: &vortex_session::VortexSession) {
     vtable::initialize(session);
     compute::rules::register_parent_rules(session);
 }
 
-/// Patches that have been transposed into GPU format.
-struct TransposedPatches {
-    n_lanes: usize,
-    lane_offsets: ByteBuffer,
-    indices: ByteBuffer,
-    values: ByteBuffer,
-}
-
-/// Number of lanes used at patch time for a value of type `V`.
+/// The default number of lanes used to lay out the patches of an array with the given [`DType`].
 ///
-/// This is *NOT* equal to the number of FastLanes lanes for the type `V`, rather this is going to
-/// correspond to how many "lanes" we will end up copying data on.
+/// For primitive types this is the number of FastLanes lanes for a value of that width (1024
+/// divided by the bit width): 128 lanes for 8-bit values, 64 for 16-bit, 32 for 32-bit and 16
+/// for 64-bit values. Patches therefore line up with the lanes in which FastLanes decodes values,
+/// which lets a decoder apply the patches of a lane as soon as that lane has been unpacked, and
+/// lets each GPU thread seek directly to the patches for its lane.
 ///
-/// When applied on the CPU, this configuration doesn't really matter. On the GPU, it is based
-/// on the number of patches involved here.
-const fn patch_lanes<V: Sized>() -> usize {
-    // For types 32-bits or smaller, we use a 32 lane configuration, and for 64-bit we use 16 lanes.
-    // This matches up with the number of lanes we use to execute copying results from bit-unpacking
-    // from shared to global memory.
-    if size_of::<V>() < 8 { 32 } else { 16 }
+/// Other types have no lane structure, so their patches are grouped only by chunk.
+pub fn default_patch_lanes(dtype: &DType) -> usize {
+    match dtype {
+        DType::Primitive(ptype, _) => PATCH_CHUNK_SIZE / ptype.bit_width(),
+        _ => 1,
+    }
 }
 
 /// Flag indicating if experimental patched array support is enabled.
