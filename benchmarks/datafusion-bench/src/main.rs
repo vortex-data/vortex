@@ -3,6 +3,7 @@
 
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::sync::LazyLock;
 use std::time::Instant;
 
 use clap::Parser;
@@ -52,6 +53,37 @@ use vortex_bench::setup_logging_and_tracing;
 use vortex_bench::v3;
 use vortex_datafusion::metrics::VortexMetricsFinder;
 use vortex_datafusion::v2::VortexTable;
+use vortex_metrics::DefaultMetricsRegistry;
+use vortex_metrics::MetricValue;
+use vortex_metrics::MetricsRegistry;
+
+/// DIAGNOSTIC: with `VORTEX_BENCH_IO_METRICS` set, every file the Scan API tables open records its
+/// I/O metrics here, and the run prints their totals to stderr when it ends.
+static IO_METRICS: LazyLock<Option<Arc<DefaultMetricsRegistry>>> = LazyLock::new(|| {
+    std::env::var_os("VORTEX_BENCH_IO_METRICS").map(|_| Arc::new(DefaultMetricsRegistry::default()))
+});
+
+/// DIAGNOSTIC: prints each I/O metric's total over every file and query run: counter values
+/// summed, and histogram and timer sample counts.
+fn print_io_metrics() {
+    let Some(registry) = IO_METRICS.as_ref() else {
+        return;
+    };
+    let mut totals: std::collections::BTreeMap<String, (u64, usize)> = Default::default();
+    for metric in registry.snapshot() {
+        let entry = totals.entry(metric.name().to_string()).or_default();
+        match metric.value() {
+            MetricValue::Counter(counter) => entry.0 += counter.value(),
+            MetricValue::Histogram(histogram) => entry.1 += histogram.count(),
+            MetricValue::Timer(timer) => entry.1 += timer.count(),
+            MetricValue::Gauge(_) => {}
+        }
+    }
+    eprintln!("io metrics (counter total, samples):");
+    for (name, (value, samples)) in totals {
+        eprintln!("  {name}: {value} {samples}");
+    }
+}
 
 /// Common arguments shared across benchmarks
 #[derive(Parser)]
@@ -248,6 +280,8 @@ async fn main() -> anyhow::Result<()> {
             print_metrics(plans.as_ref());
         }
 
+        print_io_metrics();
+
         if let Some(path) = args.ingest_output.as_ref() {
             v3::write_jsonl_to_path(path, &runner.v3_records())?;
         }
@@ -336,10 +370,15 @@ async fn register_v2_tables<B: Benchmark + ?Sized>(
             None => format!("*.{}", format.ext()),
         };
 
-        let multi_ds = MultiFileDataSource::new(SESSION.clone())
-            .with_glob(glob_pattern, Some(fs))
-            .build()
-            .await?;
+        let mut multi_ds =
+            MultiFileDataSource::new(SESSION.clone()).with_glob(glob_pattern, Some(fs));
+        if let Some(registry) = IO_METRICS.as_ref() {
+            let registry: Arc<dyn MetricsRegistry> = Arc::clone(registry) as _;
+            multi_ds = multi_ds.with_open_options(move |options| {
+                options.with_metrics_registry(Arc::clone(&registry))
+            });
+        }
+        let multi_ds = multi_ds.build().await?;
 
         let arrow_schema = Arc::new(SESSION.arrow().to_arrow_schema(multi_ds.dtype())?);
         let data_source: DataSourceRef = Arc::new(multi_ds);
