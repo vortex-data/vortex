@@ -10,6 +10,10 @@ Install
 
    pip install vortex-data
 
+The pandas, Polars and DuckDB examples on this page need those packages. Install them as extras::
+
+   pip install "vortex-data[pandas,polars,duckdb]"
+
 Write
 -----
 
@@ -23,43 +27,53 @@ Write
    >>> people = pa.table({"name": ["Joseph", "Angela", "Mikhail", "Ana"], "age": [25, 31, 57, 42]})
    >>> vx.io.write(people, "people.vortex")
 
-To convert a Parquet file, read it with Arrow first. You can use your own Parquet file or download
-the `example file used here <https://docs.vortex.dev/_static/example.parquet>`__.
-:func:`~vortex.array` turns the table into an uncompressed Vortex array:
+To convert a Parquet file, read it with Arrow and write the table. You can use your own Parquet file
+or download the `example file used here <https://docs.vortex.dev/_static/example.parquet>`__:
 
 .. doctest::
 
    >>> import pyarrow.parquet as pq
-   >>> parquet = pq.read_table("_static/example.parquet")
-   >>> vtx = vx.array(parquet)
-   >>> vtx.nbytes
-   141024
-   >>> vx.io.write(vtx, "example.vortex")  # doctest: +SKIP
+   >>> vx.io.write(pq.read_table("_static/example.parquet"), "example.vortex")  # doctest: +SKIP
 
-Small Vortex files (this one is just 71KiB) currently have substantial overhead relative to their
-size. This will be addressed shortly. On files with at least tens of megabytes of data, Vortex is
-similar to or smaller than Parquet.
+:func:`~vortex.io.write` compresses the data with options that balance file size and read speed.
+To prioritize a small file instead, write with the compact options of
+:class:`~vortex.io.VortexWriteOptions`:
 
 .. doctest::
 
-   >>> from os.path import getsize
-   >>> getsize("example.vortex") / getsize("_static/example.parquet") # doctest: +SKIP
-   2.0...
+   >>> vx.io.VortexWriteOptions.compact().write(people, "people-compact.vortex")
 
 Read
 ----
 
-:func:`~vortex.open` opens a file lazily: it reads the footer and nothing else.
-:meth:`~vortex.VortexFile.to_arrow` reads it as a :class:`pyarrow.RecordBatchReader`, which
-streams record batches instead of loading the whole file at once:
+:func:`~vortex.open` opens a file lazily: it reads the footer and nothing else. The footer holds
+the row count and the schema:
 
 .. doctest::
 
    >>> f = vx.open("people.vortex")
    >>> len(f)
    4
+   >>> f.dtype
+   struct({"name": utf8(nullable=True), "age": int(64, nullable=True)}, nullable=False)
+
+:func:`~vortex.open` also accepts a URL. Vortex infers the object store from the URL, or you can
+pass one from :doc:`/api/python/store` as ``store``:
+
+.. code-block:: python
+
+   f = vx.open("s3://bucket/people.vortex")
+
+:meth:`~vortex.VortexFile.to_arrow` reads the file as a :class:`pyarrow.RecordBatchReader`, which
+streams record batches instead of loading the whole file at once. Pass ``limit`` to read only the
+first rows:
+
+.. doctest::
+
    >>> f.to_arrow().read_all().to_pydict()
    {'name': ['Joseph', 'Angela', 'Mikhail', 'Ana'], 'age': [25, 31, 57, 42]}
+   >>> f.to_arrow(limit=2).read_all().to_pydict()
+   {'name': ['Joseph', 'Angela'], 'age': [25, 31]}
 
 Pass column names to read only those columns, and an ``expr`` to keep only the rows that match it.
 Vortex reads data in proportion to the rows that pass the filter and the columns selected, and the
@@ -80,8 +94,8 @@ Filters compare columns with plain Python values, and combine with ``&``, ``|`` 
    >>> f.to_arrow(["name"], expr=thirties_and_forties).read_all().to_pydict()
    {'name': ['Angela', 'Ana']}
 
-Vortex is architected for fast random access, in many cases hundreds of times faster than Parquet.
-If an external index gives you the rows you need, pass their indices, which must be sorted and
+Vortex is architected for fast random access, with reads about 100x faster than Parquet in the
+`benchmarks <https://bench.vortex.dev>`__. If an external index gives you the rows you need, pass their indices, which must be sorted and
 unique, to skip the IO and decoding of every other row:
 
 .. doctest::
@@ -93,15 +107,16 @@ pandas
 ------
 
 :meth:`~vortex.VortexFile.scan` reads the file as Vortex arrays, which convert to pandas, Polars,
-NumPy and Arrow:
+NumPy and Arrow. It takes the same column selection, ``expr``, ``limit`` and ``indices`` as
+:meth:`~vortex.VortexFile.to_arrow`, so the DataFrame holds only the data you need:
 
 .. doctest::
 
-   >>> df = f.scan().read_all().to_pandas()
-   >>> df.shape
-   (4, 2)
-   >>> float(df["age"].mean())
-   38.75
+   >>> df = f.scan(["name", "age"], expr=ve.column("age") > 35).read_all().to_pandas()
+   >>> df
+         name  age
+   0  Mikhail   57
+   1      Ana   42
 
 Polars
 ------
@@ -142,9 +157,48 @@ The dataset also accepts Arrow compute expressions as filters:
    >>> f.to_dataset().to_table(columns=["name"], filter=pc.field("age") > 35).to_pydict()
    {'name': ['Mikhail', 'Ana']}
 
+Many files
+----------
+
+:func:`~vortex.open_dataset` opens a directory, a glob pattern, an object store prefix or a list of
+files as one :class:`~vortex.dataset.VortexDataset`. Every file must have the same schema, and
+opening the dataset reads only the footer of each file:
+
+.. doctest::
+
+   >>> vx.io.write(people, "team-a.vortex")
+   >>> vx.io.write(pa.table({"name": ["Wei", "Priya"], "age": [38, 29]}), "team-b.vortex")
+   >>> teams = vx.open_dataset("team-*.vortex")
+   >>> teams.file_count
+   2
+
+The dataset reads the same way as the dataset of one file, with column selection and filters pushed
+into the scan of every file:
+
+.. doctest::
+
+   >>> _ = con.register("teams", teams)
+   >>> con.sql("SELECT name FROM teams WHERE age > 35 ORDER BY name").fetchall()
+   [('Ana',), ('Mikhail',), ('Wei',)]
+   >>> teams.to_polars().filter(pl.col("age") < 30).select("name").collect()["name"].to_list()
+   ['Joseph', 'Priya']
+
+A read keeps up to ``concurrency`` splits in flight across all the files, so many small files read
+as concurrently as one large file. Query engines such as DuckDB and Polars do not set it, so set it
+on the dataset to tune their reads, for example to keep more requests in flight against an object
+store:
+
+.. code-block:: python
+
+   teams = vx.open_dataset("s3://bucket/teams/", concurrency=32)
+
 Next steps
 ----------
 
 The user guides cover each integration in more depth: :doc:`/user-guide/pyarrow`,
-:doc:`/user-guide/pandas`, :doc:`/user-guide/polars` and :doc:`/user-guide/duckdb`. The
-:doc:`/api/python/index` documents every function and class.
+:doc:`/user-guide/pandas`, :doc:`/user-guide/polars` and :doc:`/user-guide/duckdb`.
+:doc:`/user-guide/vortex-python` covers arrays and dtypes, and :doc:`/api/python/store/huggingface`
+covers reading Vortex files with Hugging Face ``datasets``. The :doc:`/api/python/index` documents
+every function and class.
+
+For files shared between applications or Vortex versions, see :doc:`/specs/versioning`.
