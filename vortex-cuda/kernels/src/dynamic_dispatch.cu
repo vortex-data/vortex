@@ -8,7 +8,7 @@
 // Vortex arrays are stored as nested encodings — e.g. ALP(FoR(BitPacked))
 // or Dict(codes=BitPacked, values=FoR(BitPacked)). This kernel walks
 // such a tree in a single launch by decomposing it into a linear sequence
-// of stages described by a packed plan buffer on the device.
+// of stages described by a packed plan passed as a kernel parameter.
 //
 // Each block produces ELEMENTS_PER_BLOCK output elements. Input stages
 // are fully decoded per block (every block independently decodes the
@@ -56,6 +56,7 @@
 #include <stdint.h>
 #include <thrust/binary_search.h>
 #include <thrust/execution_policy.h>
+#include <type_traits>
 
 #include "bit_unpack.cuh"
 #include "dynamic_dispatch.h"
@@ -177,6 +178,24 @@ __device__ inline void scalar_op(T *values, const struct ScalarOp &op, char *__r
     case ScalarOp::CAST:
         // Values are casted as part of LOAD as defined by the dispatch plan.
         break;
+    case ScalarOp::EXTEND: {
+        using Signed = std::make_signed_t<T>;
+        const PTypeTag source = op.params.extend.source_ptype;
+        const uint32_t shift = (sizeof(T) - ptype_byte_width(source)) * 8;
+        if (source == ptype_to_unsigned(source)) {
+            const T mask = static_cast<T>(~T {0}) >> shift;
+#pragma unroll
+            for (uint32_t i = 0; i < N; ++i) {
+                values[i] &= mask;
+            }
+        } else {
+#pragma unroll
+            for (uint32_t i = 0; i < N; ++i) {
+                values[i] = static_cast<T>(static_cast<Signed>(static_cast<T>(values[i] << shift)) >> shift);
+            }
+        }
+        break;
+    }
     default:
         __builtin_unreachable();
     }
@@ -697,14 +716,14 @@ dynamic_dispatch(T *__restrict output, uint64_t array_len, const uint8_t *__rest
     extern "C" __global__ void __launch_bounds__(BLOCK_SIZE, 32)                                             \
         dynamic_dispatch_##suffix(Type *__restrict output,                                                   \
                                   uint64_t array_len,                                                        \
-                                  const uint8_t *__restrict packed_plan) {                                   \
-        dynamic_dispatch<Type, false>(output, array_len, packed_plan);                                       \
+                                  const __grid_constant__ struct DispatchPlanParam plan) {                   \
+        dynamic_dispatch<Type, false>(output, array_len, plan.bytes);                                        \
     }                                                                                                        \
     extern "C" __global__ void __launch_bounds__(BLOCK_SIZE, 32)                                             \
         dynamic_dispatch_##suffix##_loop_ranges(Type *__restrict output,                                     \
                                                 uint64_t array_len,                                          \
-                                                const uint8_t *__restrict packed_plan) {                     \
-        dynamic_dispatch<Type, true>(output, array_len, packed_plan);                                        \
+                                                const __grid_constant__ struct DispatchPlanParam plan) {     \
+        dynamic_dispatch<Type, true>(output, array_len, plan.bytes);                                         \
     }
 
 FOR_EACH_UNSIGNED_INT(GENERATE_KERNEL)

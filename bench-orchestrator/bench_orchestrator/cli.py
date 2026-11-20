@@ -16,6 +16,7 @@ from typing import Annotated, TextIO
 import pandas as pd
 import typer
 from rich.console import Console
+from rich.markup import escape
 from rich.table import Table
 
 from .ci_matrix import MATRIX_PRESETS, resolve_matrix
@@ -32,11 +33,11 @@ from .config import (
     parse_formats_json,
     parse_targets_json,
     resolve_axis_targets,
-    uses_scan_v2,
 )
 from .data_cache import S3DataCache, cached_dataset
 from .runner.builder import BenchmarkBuilder
 from .runner.executor import BenchmarkExecutor
+from .runner.labels import label_ingest_file, label_result_line
 from .storage.store import ResultStore
 
 app = typer.Typer(
@@ -362,6 +363,8 @@ def run(
 
     for warning in warnings:
         console.print(f"[yellow]Warning: {warning}[/yellow]")
+    # Vortex targets without a scan engine run the suite's default; name it from here on.
+    targets = list(dict.fromkeys(target.resolved(benchmark) for target in targets))
     if not targets:
         console.print("[red]No valid benchmark targets selected[/red]")
         raise typer.Exit(1)
@@ -398,10 +401,8 @@ def run(
                 raise typer.Exit(1)
 
     console.print(f"\n[bold]Running {benchmark.value} benchmark[/bold]")
-    console.print(f"  Targets: {', '.join(map(str, config.targets))}")
+    console.print(f"  Targets: {escape(', '.join(map(str, config.targets)))}")
     console.print(f"  Iterations: {iterations}")
-    if any(target.engine in {Engine.DATAFUSION, Engine.DUCKDB} for target in config.targets):
-        console.print(f"  Vortex scan: {'V2' if uses_scan_v2(benchmark) else 'V1'}")
     if label:
         console.print(f"  Label: {label}")
     console.print()
@@ -422,7 +423,8 @@ def run(
                 for target in backend_targets:
                     query_results: list[str] = []
 
-                    def stream(line: str) -> None:
+                    def stream(line: str, target: BenchmarkTarget = target) -> None:
+                        line = label_result_line(line, target, benchmark)
                         query_results.append(line)
                         write_result_line(line, ctx.write_raw_json, compatibility_file)
 
@@ -451,8 +453,12 @@ def run(
                                 runner=runner,
                                 ingest_output=part_ingest_output,
                                 on_result=stream,
+                                integration=target.integration,
+                                scan=target.scan,
                             )
                             if part_ingest_output is not None:
+                                if part_ingest_output.exists():
+                                    label_ingest_file(part_ingest_output, target, benchmark)
                                 ingest_output_parts.append(part_ingest_output)
 
                             elapsed = (datetime.now() - started).total_seconds()
@@ -464,12 +470,12 @@ def run(
                                 soft_wrap=True,
                             )
 
-                        console.print(f"[green]{target}: {len(query_ids)} queries[/green]")
+                        console.print(f"[green]{escape(str(target))}: {len(query_ids)} queries[/green]")
                     except RuntimeError as exc:
                         ctx.metadata.partial = True
                         if strict_failures:
                             raise
-                        console.print(f"[red]{target} failed: {exc}[/red]")
+                        console.print(f"[red]{escape(str(target))} failed: {escape(str(exc))}[/red]")
                         soft_failures.append(str(exc))
 
             if ingest_output is not None:

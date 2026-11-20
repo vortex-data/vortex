@@ -30,7 +30,6 @@ use vortex::file::multi::MultiFileDataSource;
 use vortex::io::filesystem::FileSystemRef;
 use vortex::io::object_store::ObjectStoreFileSystem;
 use vortex::io::session::RuntimeSessionExt;
-use vortex::scan::DataSource as _;
 use vortex::scan::DataSourceRef;
 use vortex_arrow::ArrowSessionExt;
 use vortex_bench::Benchmark;
@@ -124,6 +123,11 @@ struct Args {
     #[arg(long, default_value_t = true, action = clap::ArgAction::Set)]
     scan_v1: bool,
 
+    /// Register Vortex tables through the Scan API (`VortexTable` over a `MultiFileDataSource`)
+    /// instead of a listing table. `--scan-v1` still picks the scan the tables run on.
+    #[arg(long, default_value_t = false, action = clap::ArgAction::Set)]
+    scan_api: bool,
+
     #[arg(long = "opt", value_delimiter = ',', value_parser = value_parser!(Opt))]
     options: Vec<Opt>,
 }
@@ -137,6 +141,7 @@ async fn main() -> anyhow::Result<()> {
     let args = Args::parse();
     let opts = Opts::from(args.options);
     let scan_v2 = !args.scan_v1;
+    let scan_api = args.scan_api;
 
     set_join_set_tracer(get_static_tracer())?;
     setup_logging_and_tracing(args.verbose, args.tracing)?;
@@ -196,7 +201,8 @@ async fn main() -> anyhow::Result<()> {
                         session.sql(&sql).await?.collect().await?;
                     }
                     datafusion_bench::make_object_store(&session, benchmark.data_url())?;
-                    register_benchmark_tables(&session, benchmark, format, scan_v2).await?;
+                    register_benchmark_tables(&session, benchmark, format, scan_v2, scan_api)
+                        .await?;
                     Ok((session, format))
                 }
             },
@@ -252,19 +258,15 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-fn use_scan_api() -> bool {
-    std::env::var("VORTEX_USE_SCAN_API").is_ok_and(|v| v == "1")
-}
-
 async fn register_benchmark_tables<B: Benchmark + ?Sized>(
     session: &SessionContext,
     benchmark: &B,
     format: Format,
     scan_v2: bool,
+    scan_api: bool,
 ) -> anyhow::Result<()> {
-    if !scan_v2 && use_scan_api() && matches!(format, Format::OnDiskVortex | Format::VortexCompact)
-    {
-        register_v2_tables(session, benchmark, format).await
+    if scan_api && matches!(format, Format::OnDiskVortex | Format::VortexCompact) {
+        register_scan_api_tables(session, benchmark, format, scan_v2).await
     } else {
         let benchmark_base = benchmark.data_url().join(&format!("{}/", format.name()))?;
         let file_format = format_to_df_format(format, scan_v2)?;
@@ -300,11 +302,16 @@ async fn register_benchmark_tables<B: Benchmark + ?Sized>(
     }
 }
 
-/// Register tables using the V2 `VortexTable` + `MultiFileDataSource` path.
-async fn register_v2_tables<B: Benchmark + ?Sized>(
+/// Register tables through the Scan API: a `VortexTable` over a `MultiFileDataSource`.
+///
+/// With `scan_v2`, the table scans its files on the planner-driven scan through
+/// [`MultiFileDataSource::build_plan`], whose files open as the scan reaches them. Otherwise it
+/// scans them on layout readers through [`MultiFileDataSource::build`].
+async fn register_scan_api_tables<B: Benchmark + ?Sized>(
     session: &SessionContext,
     benchmark: &B,
     format: Format,
+    scan_v2: bool,
 ) -> anyhow::Result<()> {
     let benchmark_base = benchmark.data_url().join(&format!("{}/", format.name()))?;
 
@@ -328,13 +335,14 @@ async fn register_v2_tables<B: Benchmark + ?Sized>(
             None => format!("*.{}", format.ext()),
         };
 
-        let multi_ds = MultiFileDataSource::new(SESSION.clone())
-            .with_glob(glob_pattern, Some(fs))
-            .build()
-            .await?;
+        let builder = MultiFileDataSource::new(SESSION.clone()).with_glob(glob_pattern, Some(fs));
+        let data_source: DataSourceRef = if scan_v2 {
+            builder.build_plan().await?
+        } else {
+            Arc::new(builder.build().await?)
+        };
 
-        let arrow_schema = Arc::new(SESSION.arrow().to_arrow_schema(multi_ds.dtype())?);
-        let data_source: DataSourceRef = Arc::new(multi_ds);
+        let arrow_schema = Arc::new(SESSION.arrow().to_arrow_schema(data_source.dtype())?);
 
         let table_provider = Arc::new(VortexTable::new(data_source, SESSION.clone(), arrow_schema));
         session.register_table(table.name, table_provider)?;
