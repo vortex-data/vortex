@@ -353,6 +353,16 @@ impl ScalarFnVTable for TemporalConvert {
             }
         }
     }
+
+    fn is_strict(&self, _: &Self::Options) -> bool {
+        true
+    }
+
+    fn is_infallible(&self, operation: &Self::Options) -> bool {
+        // Changing the zone keeps every stored instant. The other operations can overflow or reject
+        // an out-of-range `Time`.
+        matches!(operation, TemporalOperation::ConvertZone(_))
+    }
 }
 
 /// Offset a count into local time before splitting it into a day and a time of day.
@@ -378,7 +388,10 @@ mod tests {
 
     use super::*;
     use crate::VortexSessionExecute;
+    use crate::arrays::Dict;
+    use crate::arrays::DictArray;
     use crate::arrays::PrimitiveArray;
+    use crate::assert_arrays_eq;
     use crate::dtype::Nullability;
     use crate::dtype::extension::ExtDTypeRef;
     use crate::expr::proto::ExprSerializeProtoExt;
@@ -495,6 +508,37 @@ mod tests {
             ExpectedOutcome::Array(expected.into_array()),
             &mut session.create_execution_ctx(),
         );
+        Ok(())
+    }
+
+    #[test]
+    fn test_convert_time_zone_pushes_into_dictionary_values() -> VortexResult<()> {
+        let zoned = |zone: &str, nullability: Nullability| {
+            Timestamp::new_with_tz(TimeUnit::Seconds, Some(zone.into()), nullability).erased()
+        };
+
+        // The null code needs a strict function, and the unused value `1` needs an infallible one.
+        let input = DictArray::try_new(
+            PrimitiveArray::from_option_iter([Some(0u8), None, Some(0)]).into_array(),
+            ExtensionArray::try_new(
+                zoned("America/New_York", NON_NULLABLE),
+                buffer![0i64, 1].into_array(),
+            )?
+            .into_array(),
+        )?;
+        let mut ctx = VortexSession::empty().create_execution_ctx();
+
+        let result = input
+            .into_array()
+            .apply(&convert_time_zone(root(), "UTC"))?
+            .execute_until::<Dict>(&mut ctx)?;
+
+        assert!(result.is::<Dict>());
+        let expected = ExtensionArray::try_new(
+            zoned("UTC", Nullability::Nullable),
+            PrimitiveArray::from_option_iter([Some(0i64), None, Some(0)]).into_array(),
+        )?;
+        assert_arrays_eq!(result, expected.into_array(), &mut ctx);
         Ok(())
     }
 }
