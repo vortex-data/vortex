@@ -49,13 +49,18 @@ pub trait ScanPool: 'static + Send + Sync {
         0.0
     }
 
-    /// Whether workers have taken every unit of the pool, so a new worker would return nothing.
+    /// Whether workers have taken every unit of the pool's work, so a new worker would return
+    /// nothing. Units taken may still be running in the workers that took them.
     ///
-    /// A host that moves threads between pools uses it to stop starting workers on a drained
-    /// pool. `false` is always a safe answer. Never blocks.
-    fn is_exhausted(&self) -> bool {
-        false
-    }
+    /// A host that reads several pools, such as one per file of a table, moves a thread to the
+    /// next pool once the current one is exhausted, while the workers that took its last units
+    /// finish them. A pool that reports exhaustion only once its work has finished makes every
+    /// thread wait for the slowest unit before any moves on.
+    ///
+    /// It must never be true while a unit is left to take. It must be true once every unit is
+    /// taken, or at the latest once a worker has asked for another unit and found none, for a
+    /// pool that cannot know its last unit in advance. Never blocks.
+    fn is_exhausted(&self) -> bool;
 }
 
 /// A pool whose workers take partitions one at a time from a scan's shared partition stream.
@@ -67,6 +72,8 @@ pub struct PartitionPool {
     partitions: Mutex<PartitionStream>,
     /// The scan's partition count, if it is known or estimated.
     partition_count: Option<usize>,
+    /// Whether `partition_count` is exact, so the pool is exhausted once that many are taken.
+    count_is_exact: bool,
     taken: AtomicUsize,
     exhausted: AtomicBool,
 }
@@ -74,7 +81,9 @@ pub struct PartitionPool {
 impl PartitionPool {
     /// Opens a pool over the partitions of `scan`.
     pub fn new(scan: DataSourceScanRef) -> Self {
-        let partition_count = match scan.partition_count() {
+        let precision = scan.partition_count();
+        let count_is_exact = matches!(precision, Precision::Exact(_));
+        let partition_count = match precision {
             Precision::Exact(count) | Precision::Inexact(count) => Some(count),
             Precision::Absent => None,
         };
@@ -82,6 +91,7 @@ impl PartitionPool {
             dtype: scan.dtype().clone(),
             partitions: Mutex::new(scan.partitions()),
             partition_count,
+            count_is_exact,
             taken: AtomicUsize::new(0),
             exhausted: AtomicBool::new(false),
         }
@@ -100,7 +110,7 @@ impl ScanPool for PartitionPool {
                 pool.exhausted.store(true, Ordering::Release);
                 return None;
             };
-            pool.taken.fetch_add(1, Ordering::Relaxed);
+            pool.taken.fetch_add(1, Ordering::Release);
             Some((next, pool))
         });
         let arrays = partitions.flat_map(|partition| {
@@ -118,7 +128,7 @@ impl ScanPool for PartitionPool {
         }
         match self.partition_count {
             Some(count) if count > 0 => {
-                (self.taken.load(Ordering::Relaxed) as f64 / count as f64).clamp(0.0, 1.0)
+                (self.taken.load(Ordering::Acquire) as f64 / count as f64).clamp(0.0, 1.0)
             }
             _ => 0.0,
         }
@@ -126,6 +136,10 @@ impl ScanPool for PartitionPool {
 
     fn is_exhausted(&self) -> bool {
         self.exhausted.load(Ordering::Acquire)
+            || (self.count_is_exact
+                && self
+                    .partition_count
+                    .is_some_and(|count| self.taken.load(Ordering::Acquire) >= count))
     }
 }
 
@@ -312,6 +326,20 @@ mod tests {
         Ok(())
     }
 
+    /// With an exact partition count, the pool is exhausted as soon as its last partition is
+    /// taken, before the worker that took it asks for more.
+    #[test]
+    fn partition_pool_is_exhausted_when_its_last_partition_is_taken() -> VortexResult<()> {
+        let pool = Box::new(PartitionOnlyScan { rows: vec![2, 3] }).open()?;
+        let mut worker = Arc::clone(&pool).worker();
+        assert!(block_on(worker.next()).is_some());
+        assert!(!pool.is_exhausted());
+        assert!(block_on(worker.next()).is_some());
+        assert!(pool.is_exhausted());
+        assert!(block_on(worker.next()).is_none());
+        Ok(())
+    }
+
     /// A scan that implements only `split` and `open`, with a pool of its own.
     struct SplitOnlyScan {
         rows: Vec<usize>,
@@ -358,6 +386,10 @@ mod tests {
                 Some((rows_array(rows), pool))
             });
             ArrayStreamExt::boxed(ArrayStreamAdapter::new(DTYPE.clone(), arrays))
+        }
+
+        fn is_exhausted(&self) -> bool {
+            self.rows.lock().is_empty()
         }
     }
 
