@@ -13,6 +13,7 @@ use crate::arrays::ScalarFnArray;
 use crate::arrays::runend::RunEnd;
 use crate::arrays::runend::array::RunEndArrayExt;
 use crate::arrays::runend::array::RunEndArraySlotsExt;
+use crate::arrays::runend::array::has_all_runs_referenced;
 use crate::arrays::scalar_fn::AnyScalarFn;
 use crate::arrays::scalar_fn::ScalarFn;
 use crate::arrays::scalar_fn::ScalarFnArrayExt;
@@ -26,9 +27,9 @@ use crate::scalar_fn::builtin::fill_null::FillNullReduceAdaptor;
 
 pub(crate) fn register_parent_rules(session: &VortexSession) {
     let kernels = session.kernels();
-    // CastReduceAdaptor must come before RunEndScalarFnRule so that cast operations are executed
-    // eagerly (surfacing out-of-range errors immediately) rather than being pushed lazily into
-    // the values array by the generic scalar function push-down rule.
+    // A cast tries `CastReduceAdaptor` first, because kernels for its exact id run before the
+    // `AnyScalarFn` kernels. The cast rule still pushes a cast that cannot fail into runs that no
+    // row references, while `RunEndScalarFnRule` declines every cast in that case.
     kernels.register_reduce_parent_rule(Cast, RunEnd, const { &CastReduceAdaptor(RunEnd) });
     kernels.register_reduce_parent_rule(AnyScalarFn, RunEnd, const { &RunEndScalarFnRule });
     kernels.register_reduce_parent_rule(FillNull, RunEnd, const { &FillNullReduceAdaptor(RunEnd) });
@@ -49,6 +50,12 @@ impl ArrayParentReduceRule<RunEnd> for RunEndScalarFnRule {
         parent: ArrayView<'_, ScalarFn>,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
+        // The offset and length can skip whole runs. A function that can fail would then fail on
+        // a value that no row exposes, so it runs only when every run is visible.
+        if !parent.scalar_fn().signature().is_infallible() && !has_all_runs_referenced(run_end) {
+            return Ok(None);
+        }
+
         for (idx, child) in parent.iter_children().enumerate() {
             if idx == child_idx {
                 // Skip ourselves
@@ -87,6 +94,7 @@ impl ArrayParentReduceRule<RunEnd> for RunEndScalarFnRule {
         let new_values =
             ScalarFnArray::try_new(parent.scalar_fn().clone(), new_children)?.into_array();
 
+        // SAFETY: Applying the function preserves the number of values paired with the ends.
         Ok(Some(
             unsafe {
                 RunEnd::new_unchecked(
@@ -98,5 +106,51 @@ impl ArrayParentReduceRule<RunEnd> for RunEndScalarFnRule {
             }
             .into_array(),
         ))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+    use vortex_buffer::buffer;
+    use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
+
+    use crate::IntoArray;
+    use crate::VortexSessionExecute;
+    use crate::arrays::ConstantArray;
+    use crate::arrays::runend::RunEnd;
+    use crate::builtins::ArrayBuiltins;
+    use crate::scalar::NumericOperator;
+    use crate::test_harness::ExpectedOutcome;
+    use crate::test_harness::assert_execution_paths;
+
+    #[rstest]
+    #[case::hidden_overflow(0, ExpectedOutcome::Array(buffer![2i8].into_array()))]
+    #[case::visible_overflow(1, ExpectedOutcome::Error)]
+    fn test_runend_checked_add_checks_only_visible_runs(
+        #[case] offset: usize,
+        #[case] expected: ExpectedOutcome,
+    ) -> VortexResult<()> {
+        let mut ctx = VortexSession::empty().create_execution_ctx();
+        let runs = RunEnd::try_new_offset_length(
+            buffer![1u32, 2].into_array(),
+            buffer![1i8, 127].into_array(),
+            offset,
+            1,
+            &mut ctx,
+        )?;
+        assert_execution_paths(
+            &[runs.into_array()],
+            |inputs| {
+                inputs[0].numeric(
+                    ConstantArray::new(1i8, inputs[0].len()).into_array(),
+                    NumericOperator::Add,
+                )
+            },
+            expected,
+            &mut ctx,
+        );
+        Ok(())
     }
 }
