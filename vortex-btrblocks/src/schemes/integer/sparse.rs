@@ -11,7 +11,9 @@ use vortex_array::IntoArray;
 use vortex_array::VTable;
 use vortex_array::arrays::Constant;
 use vortex_array::arrays::ConstantArray;
+use vortex_array::arrays::Patched;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::patched::use_experimental_patches;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_array::scalar::Scalar;
 use vortex_compressor::builtins::IntDictScheme;
@@ -21,20 +23,18 @@ use vortex_compressor::scheme::DescendantExclusion;
 use vortex_compressor::scheme::EstimateVerdict;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_array::arrays::Patched;
-use vortex_array::arrays::patched::use_experimental_patches;
 use vortex_sparse::Sparse;
 use vortex_sparse::SparseExt as _;
 
 use super::IntRLEScheme;
 use super::RunEndScheme;
 use crate::ArrayAndStats;
-use crate::schemes::patches::sparse_to_patched;
 use crate::CascadingCompressor;
 use crate::CompressorContext;
 use crate::GenerateStatsOptions;
 use crate::Scheme;
 use crate::SchemeExt;
+use crate::schemes::patches::sparse_to_patched;
 
 /// Sparse encoding for single-value-dominated arrays.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -181,14 +181,14 @@ impl Scheme for SparseScheme {
         if let Some(sparse) = sparse_encoded.as_opt::<Sparse>() {
             if use_experimental_patches() {
                 return sparse_to_patched(
-                compressor,
-                &compress_ctx,
-                self.id(),
-                sparse,
-                1,
-                Some(0),
-                exec_ctx,
-            );
+                    compressor,
+                    &compress_ctx,
+                    self.id(),
+                    sparse,
+                    1,
+                    Some(0),
+                    exec_ctx,
+                );
             }
             let sparse_values_primitive = sparse
                 .patches()

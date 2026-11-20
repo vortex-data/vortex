@@ -4,24 +4,24 @@
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::Canonical;
+use vortex_array::ExecutionCtx;
+use vortex_array::IntoArray;
+use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::Patched;
+use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::patched::PatchedArrayExt;
 use vortex_array::arrays::patched::PatchedArraySlotsExt;
 use vortex_array::arrays::patched::PatchedSlots;
+use vortex_array::arrays::primitive::PrimitiveArrayExt;
+use vortex_array::patches::Patches;
 use vortex_compressor::scheme::SchemeId;
+use vortex_error::VortexError;
+use vortex_error::VortexResult;
 use vortex_sparse::Sparse;
 use vortex_sparse::SparseExt as _;
 
 use crate::CascadingCompressor;
 use crate::CompressorContext;
-use vortex_array::ExecutionCtx;
-use vortex_array::IntoArray;
-use vortex_array::arrays::ConstantArray;
-use vortex_array::arrays::PrimitiveArray;
-use vortex_array::arrays::primitive::PrimitiveArrayExt;
-use vortex_array::patches::Patches;
-use vortex_error::VortexError;
-use vortex_error::VortexResult;
 
 /// Compresses the given patches by downscaling integers and checking for constant values.
 pub fn compress_patches(patches: Patches, ctx: &mut ExecutionCtx) -> VortexResult<Patches> {
@@ -84,7 +84,11 @@ pub(crate) fn sparse_to_patched(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
     let patches = sparse.patches();
-    let values = patches.values().clone().execute::<Canonical>(ctx)?.into_array();
+    let values = patches
+        .values()
+        .clone()
+        .execute::<Canonical>(ctx)?
+        .into_array();
     let patches = Patches::new(
         patches.array_len(),
         patches.offset(),

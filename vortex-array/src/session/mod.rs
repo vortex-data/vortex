@@ -35,9 +35,8 @@ use crate::arrays::List;
 use crate::arrays::ListView;
 use crate::arrays::Map;
 use crate::arrays::Masked;
-use crate::arrays::Patched;
-use crate::arrays::patched::use_experimental_patches;
 use crate::arrays::Null;
+use crate::arrays::Patched;
 use crate::arrays::Primitive;
 use crate::arrays::RunEnd;
 use crate::arrays::Struct;
@@ -45,6 +44,7 @@ use crate::arrays::Union;
 use crate::arrays::VarBin;
 use crate::arrays::VarBinView;
 use crate::arrays::Variant;
+use crate::arrays::patched::use_experimental_patches;
 use crate::arrays::widen::WidenPlugin;
 
 /// Registry of array encodings.

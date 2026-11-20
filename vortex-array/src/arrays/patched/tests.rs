@@ -356,12 +356,18 @@ fn narrowing_cast_of_sparse_pushes_down_only_when_every_patch_is_visible() -> Vo
     )?
     .into_array();
     let target = DType::Primitive(PType::I8, Nullability::Nullable);
-    let cast = sparse.cast(target.clone())?;
-    let executed = cast.clone().execute::<crate::Canonical>(&mut ctx)?.into_array();
+    let executed = sparse
+        .cast(target)?
+        .execute::<crate::Canonical>(&mut ctx)?
+        .into_array();
     let mut expected = vec![Some(3i8); 2000];
     expected[1] = Some(7);
     expected[1500] = None;
-    assert_arrays_eq!(executed, PrimitiveArray::from_option_iter(expected), &mut ctx);
+    assert_arrays_eq!(
+        executed,
+        PrimitiveArray::from_option_iter(expected),
+        &mut ctx
+    );
 
     // The null patch at 1500 is outside this slice, so a cast to non-nullable must succeed.
     let sliced = sparse.slice(0..1000)?.optimize_ctx(&SESSION)?;

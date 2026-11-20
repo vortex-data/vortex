@@ -61,10 +61,8 @@ impl ArrayPlugin for SparsePatchedPlugin {
         session: &VortexSession,
     ) -> VortexResult<ArrayRef> {
         let sparse = Sparse.deserialize(parts, session)?;
-        let patched = sparse_to_patched(
-            sparse.as_::<Sparse>(),
-            &mut session.create_execution_ctx(),
-        )?;
+        let patched =
+            sparse_to_patched(sparse.as_::<Sparse>(), &mut session.create_execution_ctx())?;
         Ok(patched.into_array())
     }
 
@@ -100,9 +98,15 @@ mod tests {
     });
 
     fn sparse(indices: ArrayRef, values: ArrayRef, len: usize, fill: Scalar) -> ArrayRef {
-        Sparse::try_new(indices, values, len, fill, &mut SESSION.create_execution_ctx())
-            .unwrap()
-            .into_array()
+        Sparse::try_new(
+            indices,
+            values,
+            len,
+            fill,
+            &mut SESSION.create_execution_ctx(),
+        )
+        .unwrap()
+        .into_array()
     }
 
     #[rstest]
@@ -137,9 +141,7 @@ mod tests {
             // Slicing can reduce a sparse array to another encoding.
             return;
         };
-        let patched = sparse_to_patched(sparse, &mut ctx)
-            .unwrap()
-            .into_array();
+        let patched = sparse_to_patched(sparse, &mut ctx).unwrap().into_array();
         assert_arrays_eq!(patched, array, &mut ctx);
         test_array_consistency(&patched, &mut ctx);
     }

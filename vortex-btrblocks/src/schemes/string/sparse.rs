@@ -10,8 +10,9 @@ use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VTable;
 use vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::uncompressed_size_in_bytes;
-use vortex_array::arrays::ChunkedArray;
+use vortex_array::arrays::Patched;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::patched::use_experimental_patches;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_array::arrays::varbinview::BinaryView;
 use vortex_array::dtype::PType;
@@ -22,19 +23,17 @@ use vortex_compressor::scheme::DescendantExclusion;
 use vortex_compressor::scheme::EstimateScore;
 use vortex_compressor::scheme::EstimateVerdict;
 use vortex_error::VortexResult;
-use vortex_array::arrays::Patched;
-use vortex_array::arrays::patched::use_experimental_patches;
 use vortex_sparse::Sparse;
 use vortex_sparse::SparseExt as _;
 
 use crate::ArrayAndStats;
-use crate::schemes::patches::sparse_to_patched;
 use crate::CascadingCompressor;
 use crate::CompressorContext;
 use crate::Scheme;
 use crate::SchemeExt;
 use crate::schemes::integer::IntDictScheme;
 use crate::schemes::integer::SparseScheme as IntSparseScheme;
+use crate::schemes::patches::sparse_to_patched;
 
 /// The number of consecutive values in each sampled run of values.
 const SAMPLE_RUN_LEN: usize = 64;
@@ -168,14 +167,14 @@ impl Scheme for NullDominatedSparseScheme {
         if let Some(sparse) = sparse_encoded.as_opt::<Sparse>() {
             if use_experimental_patches() {
                 return sparse_to_patched(
-                compressor,
-                &compress_ctx,
-                self.id(),
-                sparse,
-                0,
-                None,
-                exec_ctx,
-            );
+                    compressor,
+                    &compress_ctx,
+                    self.id(),
+                    sparse,
+                    0,
+                    None,
+                    exec_ctx,
+                );
             }
             // Compress the indices only (not the values for strings).
             let indices = sparse
