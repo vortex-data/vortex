@@ -197,48 +197,6 @@ pub trait PatchedArrayExt: TypedArrayRef<Patched> {
                 .execute::<PrimitiveArray>(ctx)?,
         })
     }
-
-    /// Returns the positions in the array and indices into the patch values of every patch
-    /// inside the array, ordered by position.
-    fn execute_patch_positions(&self, ctx: &mut ExecutionCtx) -> VortexResult<Vec<(u32, u32)>> {
-        let layout = self.execute_layout(ctx)?;
-        let layout = layout.layout()?;
-        let mut positions = Vec::with_capacity(layout.all_patches().len());
-        #[expect(clippy::cast_possible_truncation, reason = "patch counts fit in u32")]
-        layout.for_each(|pos, patch| positions.push((pos as u32, patch as u32)));
-        positions.sort_unstable();
-        Ok(positions)
-    }
-
-    fn slice_chunks(&self, chunks: Range<usize>) -> VortexResult<Array<Patched>> {
-        let lane_offsets_start = chunks.start * self.n_lanes();
-        let lane_offsets_stop = chunks.end * self.n_lanes() + 1;
-
-        let sliced_lane_offsets = self
-            .lane_offsets()
-            .slice(lane_offsets_start..lane_offsets_stop)?;
-        let indices = self.patch_indices().clone();
-        let values = self.patch_values().clone();
-
-        let begin = (chunks.start * PATCH_CHUNK_SIZE).saturating_sub(self.offset());
-        let end = (chunks.end * PATCH_CHUNK_SIZE)
-            .saturating_sub(self.offset())
-            .min(self.len());
-
-        let offset = if chunks.start == 0 { self.offset() } else { 0 };
-        let inner = self.inner().slice(begin..end)?;
-        let len = inner.len();
-        let dtype = self.dtype().clone();
-        let slots = PatchedSlots {
-            inner,
-            lane_offsets: sliced_lane_offsets,
-            patch_indices: indices,
-            patch_values: values,
-        }
-        .into_slots();
-
-        Ok(unsafe { Patched::new_unchecked(dtype, len, slots, self.n_lanes(), offset) })
-    }
 }
 
 impl<T: TypedArrayRef<Patched>> PatchedArrayExt for T {}

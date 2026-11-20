@@ -76,12 +76,7 @@ pub fn compress_patches(patches: Patches, ctx: &mut ExecutionCtx) -> VortexResul
 }
 
 /// Re-encodes a [`Sparse`] array as a [`Patched`] array over its constant fill value, and
-/// compresses the patches.
-///
-/// The patches are transposed into their chunk/lane layout before compression, so that the patch
-/// values are reordered once here rather than lazily on every read. The lane offsets and patch
-/// indices are compressed as the child `indices_child` of `scheme`, and the values as the child
-/// `values_child` when it is given.
+/// compresses the patches as [`patched_over`] does.
 pub(crate) fn sparse_to_patched(
     compressor: &CascadingCompressor,
     compress_ctx: &CompressorContext,
@@ -91,7 +86,37 @@ pub(crate) fn sparse_to_patched(
     values_child: Option<usize>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
-    let patches = sparse.patches();
+    let fill = ConstantArray::new(sparse.fill_scalar().clone(), sparse.len()).into_array();
+    patched_over(
+        compressor,
+        compress_ctx,
+        scheme,
+        fill,
+        &sparse.patches(),
+        indices_child,
+        values_child,
+        ctx,
+    )
+}
+
+/// Wraps `inner` in a [`Patched`] array that applies `patches` over it, and compresses the
+/// patches.
+///
+/// The patches are transposed into their chunk/lane layout before compression, so that the patch
+/// values are reordered once here rather than lazily on every read. The lane offsets and patch
+/// indices are compressed as the child `indices_child` of `scheme`, and the values as the child
+/// `values_child` when it is given.
+#[expect(clippy::too_many_arguments)]
+pub(crate) fn patched_over(
+    compressor: &CascadingCompressor,
+    compress_ctx: &CompressorContext,
+    scheme: SchemeId,
+    inner: ArrayRef,
+    patches: &Patches,
+    indices_child: usize,
+    values_child: Option<usize>,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ArrayRef> {
     let values = patches
         .values()
         .clone()
@@ -105,8 +130,7 @@ pub(crate) fn sparse_to_patched(
         None,
         ctx,
     )?;
-    let fill = ConstantArray::new(sparse.fill_scalar().clone(), sparse.len()).into_array();
-    let patched = Patched::from_array_and_patches(fill, &patches, ctx)?;
+    let patched = Patched::from_array_and_patches(inner, &patches, ctx)?;
 
     let compress = |child: &ArrayRef, idx: usize, ctx: &mut ExecutionCtx| {
         compressor.compress_child(child, compress_ctx, scheme, idx, ctx)

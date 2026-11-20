@@ -119,6 +119,13 @@ impl<'a> PatchLayout<'a> {
         self.n_lanes
     }
 
+    /// The number of stored patches, including any outside the array after slicing. Every patch
+    /// index a layout yields is below this.
+    #[inline]
+    pub fn n_patches(&self) -> usize {
+        self.indices.len()
+    }
+
     /// The position within its chunk of every patch.
     #[inline]
     pub fn indices(&self) -> &'a [u16] {
@@ -152,26 +159,10 @@ impl<'a> PatchLayout<'a> {
         self.range(chunk * self.n_lanes, (chunk + 1) * self.n_lanes)
     }
 
-    /// The range of patches in `lane` of `chunk`.
-    #[inline]
-    pub fn lane_patches(&self, chunk: usize, lane: usize) -> Range<usize> {
-        let idx = chunk * self.n_lanes + lane;
-        self.range(idx, idx + 1)
-    }
-
     /// The range of patches for all chunks, including any outside of the array's bounds.
     #[inline]
     pub fn all_patches(&self) -> Range<usize> {
         self.range(0, self.lane_offsets.len() - 1)
-    }
-
-    /// Calls `f(chunk_position, patch)` for every patch of `chunk`, where `chunk_position` is the
-    /// patch's position within the 1024-element chunk. Patches outside the array are included.
-    #[inline]
-    pub fn for_each_in_chunk(&self, chunk: usize, mut f: impl FnMut(usize, usize)) {
-        for patch in self.chunk_patches(chunk) {
-            f(self.position_in_chunk(patch), patch);
-        }
     }
 
     /// The chunks that have patches, with the range of their patches.
@@ -257,7 +248,7 @@ impl<'a> PatchLayout<'a> {
     /// `edge(state, position, patch)` for each patch of a partial first or last chunk that is
     /// inside the array.
     #[inline]
-    pub fn for_each_chunk<S: ?Sized>(
+    pub(crate) fn for_each_chunk<S: ?Sized>(
         &self,
         state: &mut S,
         interior: impl Fn(&mut S, usize, &[u16], Range<usize>),
@@ -302,16 +293,6 @@ impl<'a> PatchLayout<'a> {
         // can hold patches outside the array.
         (self.offset > 0 && out_of_bounds(0))
             || (!end.is_multiple_of(PATCH_CHUNK_SIZE) && out_of_bounds(n_chunks - 1))
-    }
-
-    /// The number of patches inside the array.
-    pub fn count(&self) -> usize {
-        if !self.has_out_of_bounds_patches() {
-            return self.all_patches().len();
-        }
-        let mut count = 0;
-        self.for_each(|_, _| count += 1);
-        count
     }
 }
 
@@ -520,7 +501,6 @@ mod tests {
         layout.for_each(|pos, patch| seen.push((pos, patch)));
         assert_eq!(seen, vec![(2, 1), (1027, 2)]);
         assert!(layout.has_out_of_bounds_patches());
-        assert_eq!(layout.count(), 2);
         Ok(())
     }
 }

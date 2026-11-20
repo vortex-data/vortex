@@ -51,8 +51,7 @@ impl TakeExecute for Patched {
             .take(PrimitiveArray::new(sources.freeze(), Validity::NonNullable).into_array())?;
         let positions = PrimitiveArray::new(positions.freeze(), Validity::NonNullable).into_array();
         Ok(Some(
-            Patched::try_new_with_lanes(inner, positions, values, array.n_lanes(), ctx)?
-                .into_array(),
+            Patched::try_new(inner, positions, values, ctx)?.into_array(),
         ))
     }
 }

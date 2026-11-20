@@ -29,6 +29,7 @@ use crate::SchemeExt;
 use crate::compress_patches;
 use crate::schemes::patches::PatchingScheme;
 use crate::schemes::patches::WithPatched;
+use crate::schemes::patches::patched_over;
 
 /// ALP (Adaptive Lossless floating-Point) encoding.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -125,9 +126,20 @@ impl PatchingScheme for ALPScheme {
 
             match patches {
                 None => Ok(alp_array),
-                Some(p) => Ok(Patched::from_array_and_patches(alp_array, &p, exec_ctx)?
-                    .with_stats_set(alp_stats)
-                    .into_array()),
+                Some(p) => {
+                    let patched = patched_over(
+                        compressor,
+                        &compress_ctx,
+                        self.id(),
+                        alp_array,
+                        &p,
+                        0,
+                        None,
+                        exec_ctx,
+                    )?;
+                    patched.statistics().set_all(alp_stats);
+                    Ok(patched)
+                }
             }
         } else {
             let patches = alp_encoded

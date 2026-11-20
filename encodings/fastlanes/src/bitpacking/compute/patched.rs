@@ -139,7 +139,7 @@ fn decode_patched<T: BitPackedUnpack>(
     output: &mut [MaybeUninit<T>],
 ) -> VortexResult<()> {
     assert_eq!(FL_CHUNK_SIZE, PATCH_CHUNK_SIZE);
-    assert!(layout.all_patches().end <= values.len());
+    assert!(layout.n_patches() <= values.len());
 
     let offset = layout.offset();
     let end = offset + layout.len();

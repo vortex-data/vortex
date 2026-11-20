@@ -23,8 +23,10 @@
 //! # Details
 //!
 //! To patch an array, we first divide it into a set of chunks of length 1024, and then within
-//! each chunk, we assign each position to a lane. The number of lanes depends on the width of
-//! the underlying type.
+//! each chunk, we assign each position to a lane: position `i` belongs to lane `i % n_lanes`.
+//! The number of lanes is chosen per array by [`patch_lanes_for`]: sparse patches use a single
+//! lane per chunk, and dense patches up to the number of FastLanes lanes for the width of the
+//! type, so that every lane groups whole FastLanes lanes.
 //!
 //! Thus, rather than sorting patch indices and values by their global offset, they are sorted
 //! primarily by their chunk, and then subsequently by their lanes.
@@ -41,6 +43,11 @@
 //!   the values of the `inner` at the locations provided by `indices`
 //!
 //! `indices` and `values` are aligned and accessed together.
+//!
+//! The array and its patch values may have any dtype, and the patch values may be null. A patched
+//! array over a constant `inner` is the equivalent of a sparse array ([`Patched::sparse`]), and
+//! one whose patch values are a null constant is the equivalent of a masked array with sparse
+//! nulls ([`Patched::with_nulls`]).
 //!
 //! ```text
 //! 
