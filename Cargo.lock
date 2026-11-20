@@ -12361,6 +12361,7 @@ dependencies = [
  "async-lock",
  "async-trait",
  "bit-vec 0.10.2",
+ "event-listener",
  "futures",
  "insta",
  "itertools 0.14.0",

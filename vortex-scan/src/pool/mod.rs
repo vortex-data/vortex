@@ -67,8 +67,9 @@ pub trait ScanPool: 'static + Send + Sync {
     ///
     /// A host that moves threads between pools, such as one pool per file, uses it so that a
     /// thread moves on once nothing is left to start, as it would from a list of splits, rather
-    /// than waiting for the pool's last unit to finish. Pools whose workers already end that way
-    /// return a [`worker`](Self::worker).
+    /// than waiting for the pool's last unit to finish. The host must keep polling such a worker
+    /// until it ends, since it may be the last, which every remaining row reaches. Pools whose
+    /// workers already end that way return a [`worker`](Self::worker).
     fn worker_until_taken(self: Arc<Self>) -> SendableArrayStream {
         self.worker()
     }

@@ -46,6 +46,7 @@ use std::task::Poll;
 use async_channel::Receiver;
 use async_channel::Sender;
 use async_channel::TryRecvError;
+use event_listener::Event;
 use futures::FutureExt;
 use futures::StreamExt;
 use futures::TryFutureExt;
@@ -233,6 +234,7 @@ pub fn open_work_pool(options: WorkPoolOptions, units: Vec<WorkUnit>) -> ScanPoo
         failed: AtomicBool::new(false),
         pending: AtomicUsize::new(0),
         taken: Mutex::new(0.0),
+        all_taken: Event::new(),
         slots: Mutex::new(Slots {
             free: expand_concurrency,
             waiting: VecDeque::new(),
@@ -299,6 +301,9 @@ struct Shared {
     pending: AtomicUsize,
     /// The share of the pool's work that workers have taken.
     taken: Mutex<f64>,
+    /// Notified when an unordered pool's last unit is taken, so workers that end once every unit
+    /// is taken stop waiting for rows.
+    all_taken: Event,
     /// An unordered pool's expansion slots.
     slots: Mutex<Slots>,
 }
@@ -415,6 +420,13 @@ impl Shared {
 
     /// Whether an unordered pool has a unit that no lane has taken yet, or an expansion queued or
     /// running that may queue more.
+    /// Wakes the workers waiting for rows once no unit is left to take.
+    fn wake_if_taken(&self) {
+        if !self.has_untaken() {
+            self.all_taken.notify(usize::MAX);
+        }
+    }
+
     fn has_untaken(&self) -> bool {
         // Only an expansion, which holds a slot until its units are queued, adds units. So once no
         // slot is held and none waits, the pending count only falls, and reading it after the
@@ -537,9 +549,12 @@ impl Drop for Slot {
         if self.sender.is_closed() {
             return;
         }
-        if let Some(next) = self.shared.pass_slot() {
-            let slot = Slot::new(&self.shared, &self.sender);
-            self.shared.send(&self.sender, Work::Expand(next, slot));
+        match self.shared.pass_slot() {
+            Some(next) => {
+                let slot = Slot::new(&self.shared, &self.sender);
+                self.shared.send(&self.sender, Work::Expand(next, slot));
+            }
+            None => self.shared.wake_if_taken(),
         }
     }
 }
@@ -660,17 +675,26 @@ struct Reader {
 
 impl Reader {
     async fn next(&mut self) -> Option<VortexResult<ArrayRef>> {
-        if self.leave {
+        if !self.leave {
+            return self.pool.outputs.recv().await.ok();
+        }
+        loop {
             match self.pool.outputs.try_recv() {
                 Ok(array) => return Some(array),
                 Err(TryRecvError::Closed) => return None,
                 Err(TryRecvError::Empty) => {}
             }
+            // Listening before the check means a worker parked while units are untaken still
+            // wakes when the last of them is taken, rather than only when a row arrives.
+            let taken = self.pool.shared.all_taken.listen();
             if !self.pool.shared.has_untaken() && self.uncount_unless_last() {
                 return None;
             }
+            match future::select(Box::pin(self.pool.outputs.recv()), taken).await {
+                future::Either::Left((array, _)) => return array.ok(),
+                future::Either::Right(((), _)) => {}
+            }
         }
-        self.pool.outputs.recv().await.ok()
     }
 
     /// Stops counting the worker unless it is the pool's last, which must read the rows still to
@@ -729,7 +753,9 @@ async fn lane(lanes: Arc<Lanes>, output: Sender<VortexResult<ArrayRef>>) {
             Taken::Run(units) => units.len(),
             Taken::Expand(..) => 1,
         };
-        shared.pending.fetch_sub(units, Ordering::AcqRel);
+        if shared.pending.fetch_sub(units, Ordering::AcqRel) == units {
+            shared.wake_if_taken();
+        }
         // Units the waiting lanes will not take get lanes of their own, such as the units an
         // expansion has just queued.
         lanes.grow(&output);
@@ -938,9 +964,11 @@ mod tests {
     use std::sync::atomic::Ordering;
 
     use futures::FutureExt;
+    use futures::StreamExt;
     use futures::TryStreamExt;
     use futures::executor::block_on;
     use futures::future::try_join_all;
+    use futures::stream::FuturesUnordered;
     use rstest::rstest;
     use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
@@ -1097,6 +1125,39 @@ mod tests {
         }
         assert!(pool.is_exhausted());
         assert!((pool.progress() - 1.0).abs() < 1e-9, "{}", pool.progress());
+        Ok(())
+    }
+
+    /// Once the last unit is taken but still running, every worker that ends once units are taken
+    /// ends, even one already waiting for rows, except the last, which returns the unit's rows.
+    #[test]
+    fn workers_until_taken_leave_a_running_unit_to_one() -> VortexResult<()> {
+        let (release, gate) = async_channel::bounded::<()>(1);
+        let unit = WorkUnit::run(1.0, move || {
+            async move {
+                drop(gate.recv().await);
+                Ok(vec![Buffer::from_iter(0..10i32).into_array()])
+            }
+            .boxed()
+        });
+        let pool = open_work_pool(options(false, PoolLimit::Unlimited, 1), vec![unit]);
+        let mut workers: FuturesUnordered<_> = (0..4)
+            .map(|_| {
+                Arc::clone(&pool)
+                    .worker_until_taken()
+                    .try_collect::<Vec<_>>()
+            })
+            .collect();
+        for _ in 0..3 {
+            let arrays = block_on(workers.next()).transpose()?;
+            assert!(arrays.is_some_and(|arrays| arrays.is_empty()));
+        }
+        assert!(pool.is_taken());
+        assert!(!pool.is_exhausted());
+        drop(release.try_send(()));
+        let arrays = block_on(workers.next()).transpose()?.unwrap_or_default();
+        assert_eq!(values(arrays)?, (0..10).collect::<Vec<_>>());
+        assert!(pool.is_exhausted());
         Ok(())
     }
 
