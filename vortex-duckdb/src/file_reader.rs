@@ -155,14 +155,14 @@ impl FileScanState {
         if let Some(scan) = self.v2.get() {
             return (!scan.is_exhausted()).then_some(Split::V2);
         }
-        // A thread leaves the file once its pool is claimed, as it leaves a file whose
-        // split list is empty, rather than waiting for the pool's last unit to finish: the
-        // file's last worker reads the rows still to come, and the others move to the next file.
+        // A thread joins the file only while its pool needs another worker, and leaves it once
+        // the pool's other workers are enough for the units still producing rows, as it leaves a
+        // file whose splits in flight each have a thread.
         let pool = self.pool.get()?;
-        if self.finished.load(Ordering::Acquire) || pool.is_claimed() {
+        if self.finished.load(Ordering::Acquire) || !pool.needs_worker() {
             return None;
         }
-        Some(Split::Worker(Arc::clone(pool).worker_until_claimed()))
+        Some(Split::Worker(Arc::clone(pool).worker_while_needed()))
     }
 }
 

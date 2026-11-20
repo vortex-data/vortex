@@ -61,23 +61,28 @@ pub trait ScanPool: 'static + Send + Sync {
     /// so a host drops a worker early only when it abandons the scan.
     fn worker(self: Arc<Self>) -> SendableArrayStream;
 
-    /// Returns a worker that ends once the pool is [claimed](Self::is_claimed) and no row waits
-    /// for it, rather than once the pool is [exhausted](Self::is_exhausted), unless it is the
-    /// pool's last live worker, which reads the rows still to come.
+    /// Returns a worker that ends once the pool no longer needs it, rather than once the pool is
+    /// [exhausted](Self::is_exhausted).
     ///
     /// A host that moves threads between pools, such as one pool per file, uses it so that a
-    /// thread moves on once nothing is left to start, as it would from a list of splits, rather
-    /// than waiting for the pool's last unit to finish. Pools whose workers already end that way
-    /// return a [`worker`](Self::worker).
+    /// thread moves on once the pool has enough threads reading it, as a thread leaves a list of
+    /// splits once the splits in flight each have a thread, rather than waiting for the pool's
+    /// last unit to finish. Pools whose workers already end that way return a
+    /// [`worker`](Self::worker).
     ///
-    /// Workers share the output, so the rows of claimed units that are still running reach
-    /// whichever worker remains. The pool keeps that true on its side: a worker leaves early only
-    /// while another live worker remains, so it never leaves those rows without a reader. A
-    /// worker is live from when it is returned until it ends or is dropped. The host keeps it true
-    /// on its side by polling every worker it holds until that worker ends, as with
-    /// [`worker`](Self::worker): dropping the last live worker before it ends abandons the rows
-    /// still to come.
-    fn worker_until_claimed(self: Arc<Self>) -> SendableArrayStream {
+    /// Two rules decide when such a worker ends, each checked only when no row is ready for it:
+    ///
+    /// - **Enough workers.** It ends only while the pool's other live workers outnumber or match
+    ///   the units still to produce rows: those queued and those running. So, as with a list of
+    ///   splits, each unit still producing rows keeps a worker to read them, and the host's
+    ///   per-row work on those rows stays spread across that many threads.
+    /// - **No lost rows.** It never ends while it is the pool's last live worker. Workers share
+    ///   the output, so whichever workers remain read the rows of units still running; the last
+    ///   one reads them to the end. A worker is live from when it is returned until it ends or is
+    ///   dropped, so the host keeps this true on its side by polling every worker it holds until
+    ///   that worker ends, as with [`worker`](Self::worker): dropping the last live worker before
+    ///   it ends abandons the rows still to come.
+    fn worker_while_needed(self: Arc<Self>) -> SendableArrayStream {
         self.worker()
     }
 
@@ -88,8 +93,7 @@ pub trait ScanPool: 'static + Send + Sync {
     }
 
     /// Whether the pool is exhausted: every unit has run and every row has been returned to a
-    /// worker, so a new worker would return nothing. An exhausted pool is also
-    /// [claimed](Self::is_claimed).
+    /// worker, so a new worker would return nothing.
     ///
     /// A host that moves threads between pools uses it to stop starting workers on a drained
     /// pool. `false` is always a safe answer. Never blocks.
@@ -97,15 +101,15 @@ pub trait ScanPool: 'static + Send + Sync {
         false
     }
 
-    /// Whether the pool is claimed: every unit has been started, and none is left to start or to
-    /// be expanded, though some may still be running and returning rows. It is the counterpart of
-    /// [`is_exhausted`](Self::is_exhausted), which also waits for those rows. Once claimed, a
-    /// pool stays claimed, and a [`worker_until_claimed`](Self::worker_until_claimed) started
-    /// now would find nothing to start.
+    /// Whether a worker started now would be needed: the pool is not exhausted, and its live
+    /// workers are fewer than its units still to produce rows, as
+    /// [`worker_while_needed`](Self::worker_while_needed) counts them. A host that moves threads
+    /// between pools starts a worker on a pool only while it is needed, and may come back to a
+    /// pool later, such as once an expansion has queued more units.
     ///
-    /// `false` is always a safe answer. Never blocks.
-    fn is_claimed(&self) -> bool {
-        self.is_exhausted()
+    /// `true` is always a safe answer while the pool is not exhausted. Never blocks.
+    fn needs_worker(&self) -> bool {
+        !self.is_exhausted()
     }
 }
 
