@@ -74,7 +74,6 @@ use vortex_scan::pool::ScanPool;
 use vortex_scan::pool::ScanPoolRef;
 use vortex_scan::row_mask::RowMask;
 use vortex_session::VortexSession;
-use vortex_utils::parallelism::get_available_parallelism;
 
 use crate::LayoutReaderRef;
 use crate::scan::limit::RowLimit;
@@ -91,6 +90,12 @@ use crate::scan::repeated_scan::stop_on_error;
 use crate::scan::tasks::SplitFuture;
 use crate::scan::tasks::TaskContext;
 use crate::scan::tasks::split_exec;
+
+/// The runs of adjacent splits that an unordered pool keeps going at once, which split the splits
+/// in flight between them. Each run is a lane's, and the lane starts its splits together so that
+/// their reads coalesce, and takes the next run once they have all finished. More runs lose
+/// coalescing; fewer leave more splits idle while a lane waits for the last split of its run.
+const RUN_LANES: usize = 4;
 
 /// A scan prepared once and shared by every piece and execution of it.
 pub(crate) type PreparedScan = RepeatedScan<ArrayRef>;
@@ -277,17 +282,14 @@ pub(crate) fn open_pool(
             PoolFile::Deferred(factory) => shared.deferred.lock().push_back(factory),
         }
     }
-    // Each open file gets an equal share of the splits in flight, and a lane takes a file's share
-    // as one run of adjacent splits that it starts together. The run's reads then reach the
-    // file's read driver together and coalesce, as they do when one scan stream polls its
-    // file's splits; a run of one would hand the driver one read at a time. The rotation moves
-    // between files after each run, and the lanes hold `splits_in_flight` splits in all. A run is
-    // at most one core's share, so that a scan of few files, such as a single-file scan whose
-    // share is every split in flight, still has a lane per core.
-    let cores = get_available_parallelism().unwrap_or(1).max(1);
-    let run = (splits_in_flight / open_concurrency)
-        .min(splits_in_flight / cores)
-        .max(1);
+    // A lane takes a run of adjacent splits from a file's turn and starts them together, and the
+    // turn goes back to the end of the queue, so the lanes read the opened files in turn. A run
+    // is a lane's share of the splits in flight, and the pool keeps `RUN_LANES` runs going:
+    // splits start only as they run, so a file's read driver can coalesce only the reads of the
+    // splits running together, and a filter's reads are made only once its split runs. Few long
+    // runs keep each file's reads as dense as a scan stream's, which runs all of its splits in
+    // flight over one file; a run per open file would spread them over every open file.
+    let run = (splits_in_flight / RUN_LANES).max(1);
     let (output, outputs) = async_channel::bounded(splits_in_flight);
     let lanes = Arc::new(Lanes {
         shared: Arc::clone(&shared),
