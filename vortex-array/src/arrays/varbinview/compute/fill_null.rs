@@ -59,9 +59,7 @@ impl FillNullKernel for VarBinView {
         }
 
         let mut views = BufferMut::copy_from_in(array.views(), ctx.allocator().clone());
-        for (start, end) in is_invalid.set_slices() {
-            views[start..end].fill(fill_view);
-        }
+        views.fill_where::<true>(&is_invalid, fill_view);
 
         let nullability = fill_value.dtype().nullability();
         // SAFETY: the views of valid rows are unchanged. Null rows now hold the fill value's view,

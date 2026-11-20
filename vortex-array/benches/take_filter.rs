@@ -35,6 +35,7 @@ use vortex_array::arrays::ListArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::memory::MemorySession;
 use vortex_array::optimizer::kernels::KernelSession;
+use vortex_array::test_harness::mark_optimized;
 use vortex_array::validity::Validity;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::BitBufferMut;
@@ -134,6 +135,8 @@ fn nullable_random_indices(num_indices: usize, filtered_len: usize) -> ArrayRef 
 }
 
 fn bench_take_filter(bencher: Bencher, array: ArrayRef, indices: ArrayRef) {
+    mark_optimized(&indices, &SESSION).unwrap();
+
     bencher
         .with_inputs(|| (&array, &indices, SESSION.create_execution_ctx()))
         .bench_refs(|(array, indices, ctx)| {
@@ -151,12 +154,16 @@ fn bench_take_filter_uncached_mask(
     mask: BitBuffer,
     indices: ArrayRef,
 ) {
+    mark_optimized(&indices, &SESSION).unwrap();
+
     bencher
         .with_inputs(|| {
             let array = child
                 .clone()
                 .filter(Mask::from_buffer(mask.clone()))
                 .unwrap();
+            mark_optimized(&array, &SESSION).unwrap();
+
             (array, indices.clone(), SESSION.create_execution_ctx())
         })
         .bench_values(|(array, indices, mut ctx)| {
@@ -198,6 +205,8 @@ fn take_filter_primitive_random_mask_sequential_indices<const FILTERED_LEN: usiz
     let array = primitive_array()
         .filter(random_mask(ARRAY_LEN, FILTERED_LEN))
         .unwrap();
+    mark_optimized(&array, &SESSION).unwrap();
+
     bench_take_filter(bencher, array, sequential_indices(num_indices));
 }
 
@@ -209,6 +218,8 @@ fn take_filter_primitive_random_mask_random_indices<const FILTERED_LEN: usize>(
     let array = primitive_array()
         .filter(random_mask(ARRAY_LEN, FILTERED_LEN))
         .unwrap();
+    mark_optimized(&array, &SESSION).unwrap();
+
     bench_take_filter(bencher, array, random_indices(num_indices, FILTERED_LEN));
 }
 
@@ -220,6 +231,8 @@ fn take_filter_primitive_small_random_mask_random_indices<const FILTERED_LEN: us
     let array = primitive_array()
         .filter(random_mask(ARRAY_LEN, FILTERED_LEN))
         .unwrap();
+    mark_optimized(&array, &SESSION).unwrap();
+
     bench_take_filter(bencher, array, random_indices(num_indices, FILTERED_LEN));
 }
 
@@ -272,6 +285,8 @@ fn take_filter_list_random_mask_sequential_indices<const FILTERED_LEN: usize>(
     let array = list_array(NESTED_ARRAY_LEN)
         .filter(random_mask(NESTED_ARRAY_LEN, FILTERED_LEN))
         .unwrap();
+    mark_optimized(&array, &SESSION).unwrap();
+
     bench_take_filter(bencher, array, sequential_indices(num_indices));
 }
 
@@ -283,6 +298,8 @@ fn take_filter_list_random_mask_random_indices<const FILTERED_LEN: usize>(
     let array = list_array(NESTED_ARRAY_LEN)
         .filter(random_mask(NESTED_ARRAY_LEN, FILTERED_LEN))
         .unwrap();
+    mark_optimized(&array, &SESSION).unwrap();
+
     bench_take_filter(bencher, array, random_indices(num_indices, FILTERED_LEN));
 }
 
@@ -294,6 +311,8 @@ fn take_filter_list_small_random_mask_random_indices<const FILTERED_LEN: usize>(
     let array = list_array(NESTED_ARRAY_LEN)
         .filter(random_mask(NESTED_ARRAY_LEN, FILTERED_LEN))
         .unwrap();
+    mark_optimized(&array, &SESSION).unwrap();
+
     bench_take_filter(bencher, array, random_indices(num_indices, FILTERED_LEN));
 }
 
@@ -333,6 +352,8 @@ fn take_filter_primitive_nullable_random_mask_random_indices<const FILTERED_LEN:
     let array = primitive_array()
         .filter(random_mask(ARRAY_LEN, FILTERED_LEN))
         .unwrap();
+    mark_optimized(&array, &SESSION).unwrap();
+
     bench_take_filter(
         bencher,
         array,
@@ -348,6 +369,8 @@ fn take_filter_list_nullable_random_mask_random_indices<const FILTERED_LEN: usiz
     let array = list_array(NESTED_ARRAY_LEN)
         .filter(random_mask(NESTED_ARRAY_LEN, FILTERED_LEN))
         .unwrap();
+    mark_optimized(&array, &SESSION).unwrap();
+
     bench_take_filter(
         bencher,
         array,
@@ -363,5 +386,7 @@ fn take_filter_primitive_large_random_mask_random_indices(
     let array = primitive_array()
         .filter(random_mask(ARRAY_LEN, filtered_len))
         .unwrap();
+    mark_optimized(&array, &SESSION).unwrap();
+
     bench_take_filter(bencher, array, random_indices(num_indices, filtered_len));
 }

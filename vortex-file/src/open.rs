@@ -119,7 +119,7 @@ impl VortexOpenOptions {
     }
 
     /// Cache the file's [`LayoutReader`](vortex_layout::LayoutReader) and V2
-    /// [`ScanCache`](vortex_layout::scan::v2::ScanCache) between scans.
+    /// [`ScanCache`](vortex_scan::prepare::ScanCache) between scans.
     ///
     /// This avoids rebuilding the reader tree or lowered scan plan, and re-reading dictionary
     /// values, for repeated scans of the same [`VortexFile`], at the cost of keeping that state
@@ -262,10 +262,8 @@ impl VortexOpenOptions {
         };
         footer.validate_file_size(buffer.len() as u64)?;
 
-        let segment_source: Arc<dyn SegmentSource> = Arc::new(BufferSegmentSource::new(
-            buffer,
-            footer.segment_specs_with_metadata(),
-        ));
+        let segment_source: Arc<dyn SegmentSource> =
+            Arc::new(BufferSegmentSource::new(buffer, footer.segment_locations()));
         let metadata = if include_metadata {
             block_on(resolve_metadata(&footer, Arc::clone(&segment_source)))?
         } else {
@@ -331,7 +329,7 @@ impl VortexOpenOptions {
 
         // Create a segment source backed by the VortexRead implementation.
         let segment_source = Arc::new(SharedSegmentSource::new(FileSegmentSource::open(
-            footer.segment_specs_with_metadata(),
+            footer.segment_locations(),
             reader,
             self.session.handle(),
             metrics,

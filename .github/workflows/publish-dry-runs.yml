@@ -20,7 +20,7 @@ permissions:
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
-  NIGHTLY_TOOLCHAIN: nightly-2026-09-10
+  NIGHTLY_TOOLCHAIN: nightly-2026-11-13
 
 jobs:
   python-wheel-build:
@@ -38,19 +38,23 @@ jobs:
             with:
               sccache: s3
           - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
-      - uses: ./.github/actions/setup-prebuild
-        with:
-          enable-sccache: ${{ github.repository == 'vortex-data/vortex' && 'true' || 'false' }}
+      - parallel:
+          - uses: ./.github/actions/setup-prebuild
+            with:
+              enable-sccache: ${{ github.repository == 'vortex-data/vortex' && 'true' || 'false' }}
+          - uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29  # v2.2.1
+            with:
+              version: 0.17.0
+          - name: Install uv
+            uses: spiraldb/actions/.github/actions/setup-uv@a746510eafaa926484c354541cfc49b2ec06cc63  # 0.18.6
+            with:
+              sync: false
+              prune-cache: false
+      # The cache key includes the rustc version, so it waits for setup-prebuild to pin the toolchain.
       - name: Rust Dependency Cache
         uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0  # v2
         with:
           save-if: ${{ github.ref_name == 'develop' }}
-      - uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29  # v2.2.1
-      - name: Install uv
-        uses: spiraldb/actions/.github/actions/setup-uv@a746510eafaa926484c354541cfc49b2ec06cc63  # 0.18.6
-        with:
-          sync: false
-          prune-cache: false
       - name: Ensure wheel and sdist can be built on Linux - PyVortex
         shell: bash
         run: |
@@ -104,6 +108,8 @@ jobs:
             with:
               enable-sccache: ${{ github.repository == 'vortex-data/vortex' && 'true' || 'false' }}
           - uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29  # v2.2.1
+            with:
+              version: 0.17.0
       - name: Install cargo-zigbuild
         uses: taiki-e/cache-cargo-install-action@66c9585ef5ca780ee69399975a5e911f47905995
         with:

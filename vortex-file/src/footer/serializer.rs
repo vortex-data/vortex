@@ -20,7 +20,9 @@ use crate::EOF_SIZE;
 use crate::Footer;
 use crate::MAGIC_BYTES;
 use crate::MAX_POSTSCRIPT_SIZE;
+use crate::POSTSCRIPT_LEN_BYTES;
 use crate::VERSION;
+use crate::VERSION_BYTES;
 use crate::footer::SegmentSpec;
 use crate::footer::file_layout::FooterFlatBufferWriter;
 use crate::footer::postscript::Postscript;
@@ -194,9 +196,10 @@ impl FooterSerializer {
 
         // And finally, the EOF 8-byte footer.
         let mut eof = [0u8; EOF_SIZE];
-        eof[0..2].copy_from_slice(&VERSION.to_le_bytes());
-        eof[2..4].copy_from_slice(&postscript_len.to_le_bytes());
-        eof[4..8].copy_from_slice(&MAGIC_BYTES);
+        eof[..VERSION_BYTES].copy_from_slice(&VERSION.to_le_bytes());
+        eof[VERSION_BYTES..VERSION_BYTES + POSTSCRIPT_LEN_BYTES]
+            .copy_from_slice(&postscript_len.to_le_bytes());
+        eof[VERSION_BYTES + POSTSCRIPT_LEN_BYTES..].copy_from_slice(&MAGIC_BYTES);
         buffers.push(ByteBuffer::copy_from(eof));
 
         let approx_byte_size =

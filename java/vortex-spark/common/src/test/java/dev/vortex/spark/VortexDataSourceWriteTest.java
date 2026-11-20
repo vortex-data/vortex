@@ -12,11 +12,13 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Random;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.apache.spark.sql.Dataset;
@@ -193,6 +195,48 @@ public final class VortexDataSourceWriteTest {
         assertEquals(2, rows.size());
         assertEquals(10L, rows.get(0).get(1));
         assertTrue(rows.get(1).isNullAt(1), "expected a null for the second row");
+    }
+
+    @Test
+    @DisplayName("vortex.write.compact writes smaller files that read back the same")
+    public void testCompactWriteIsSmallerAndReadsBack() throws IOException {
+        Random random = new Random(7);
+        String[] words = new String[4096];
+        for (int i = 0; i < words.length; i++) {
+            words[i] = Long.toString(random.nextLong() & Long.MAX_VALUE, 36);
+        }
+        List<Row> rows = new ArrayList<>();
+        for (int i = 0; i < 20_000; i++) {
+            StringBuilder text = new StringBuilder();
+            for (int w = 0; w < 12; w++) {
+                text.append(words[random.nextInt(words.length)]).append(' ');
+            }
+            rows.add(RowFactory.create(i, text.toString()));
+        }
+        StructType schema =
+                new StructType().add("id", DataTypes.IntegerType, false).add("text", DataTypes.StringType, false);
+        Dataset<Row> df = spark.createDataFrame(rows, schema).coalesce(1);
+
+        Path standard = tempDir.resolve("standard");
+        Path compact = tempDir.resolve("compact");
+        df.write().format("vortex").save(standard.toUri().toString());
+        df.write()
+                .format("vortex")
+                .option("vortex.write.compact", "true")
+                .save(compact.toUri().toString());
+
+        long standardBytes = totalBytes(findVortexFiles(standard));
+        long compactBytes = totalBytes(findVortexFiles(compact));
+        assertTrue(compactBytes < standardBytes, "compact " + compactBytes + " bytes, standard " + standardBytes);
+        verifyDataContent(df, spark.read().format("vortex").load(compact.toUri().toString()));
+    }
+
+    private static long totalBytes(List<Path> files) throws IOException {
+        long total = 0;
+        for (Path file : files) {
+            total += Files.size(file);
+        }
+        return total;
     }
 
     @Test
@@ -593,6 +637,74 @@ public final class VortexDataSourceWriteTest {
         assertEquals(
                 List.of(0L, 10L, 20L),
                 nestedRows.stream().map(row -> row.getLong(1)).toList());
+    }
+
+    @Test
+    @DisplayName("Every type round-trips with nulls at every nesting level, at any batch size")
+    public void testNullsAtEveryNestingLevelRoundTrip() {
+        Dataset<Row> expected = spark.range(0, 10_000, 1, 2)
+                .selectExpr(
+                        "id",
+                        "if(id % 7 = 0, null, id % 2 = 0) as bool",
+                        "if(id % 11 = 0, null, cast(id % 128 as tinyint)) as tiny",
+                        "if(id % 13 = 0, null, cast(id as smallint)) as small",
+                        "if(id % 17 = 0, null, cast(id * 31 as int)) as i",
+                        "if(id % 19 = 0, null, cast(id / 3 as float)) as f",
+                        "if(id % 23 = 0, null, cast(id as double) / 7) as d",
+                        "if(id % 5 = 0, null, concat('s-', id)) as s",
+                        "if(id % 29 = 0, null, cast(concat('b', id) as binary)) as bin",
+                        "if(id % 31 = 0, null, date_add(date'2020-01-01', cast(id as int))) as dt",
+                        "if(id % 37 = 0, null, timestamp_micros(id * 1000003)) as ts",
+                        "if(id % 41 = 0, null, cast(timestamp_micros(id * 7) as timestamp_ntz)) as ntz",
+                        "if(id % 43 = 0, null, cast(id / 9 as decimal(18, 4))) as dec18",
+                        "if(id % 47 = 0, null, cast(id * 123456789012345 / 7 as decimal(38, 10))) as dec38",
+                        """
+                        if(id % 3 = 0, null, named_struct(
+                            'a', if(id % 4 = 0, null, id),
+                            's', if(id % 6 = 1, null, concat('st-', id)),
+                            'inner', if(id % 8 = 1, null, named_struct(
+                                'x', if(id % 10 = 2, null, cast(id as int)),
+                                'tags', if(id % 12 = 5, null, array(concat('t', id), cast(null as string))))))) as st""",
+                        """
+                        if(id % 9 = 0, null, array(
+                            named_struct('n', id, 's', if(id % 2 = 0, null, concat('e', id))),
+                            cast(null as struct<n: bigint, s: string>),
+                            named_struct('n', cast(null as bigint), 's', 'x'))) as structs""",
+                        "if(id % 14 = 0, null, array(array(id, cast(null as bigint)), null, array())) as nested",
+                        """
+                        if(id % 15 = 0, null, map(
+                            'present', named_struct('v', cast(id as double)),
+                            'null-field', named_struct('v', cast(null as double)),
+                            'null-value', cast(null as struct<v: double>))) as m""",
+                        // Null in runs of 300, so at batch size 300 some batches are all null, some all set,
+                        // and some switch part-way.
+                        """
+                        if(id % 600 < 300, null, named_struct(
+                            'dec', if(id % 4 = 0, null, cast(id / 3 as decimal(38, 6))),
+                            'tags', if(id % 5 = 0, null, array(concat('r', id), cast(null as string))),
+                            'items', array(
+                                named_struct('k', concat('i', id), 'v', if(id % 2 = 0, null, id)),
+                                cast(null as struct<k: string, v: bigint>)),
+                            'attrs', if(id % 7 = 0, null, map(
+                                'a', cast(id % 1000 as decimal(9, 2)), 'b', cast(null as decimal(9, 2)))),
+                            'inner', if(id % 3 = 0, null, named_struct('s', concat('n', id), 'l', array(id))))) as runs""");
+
+        assertEquals(DataTypes.FloatType, expected.schema().apply("f").dataType());
+        for (int batchSize : new int[] {1, 300, 65536}) {
+            Path outputPath = tempDir.resolve("nulls_batch_" + batchSize);
+            expected.write()
+                    .format("vortex")
+                    .option("batch.size", Integer.toString(batchSize))
+                    .mode(SaveMode.Overwrite)
+                    .save(outputPath.toString());
+
+            Dataset<Row> actual = spark.read().format("vortex").load(outputPath.toString());
+            assertReadBackSchema(expected.schema(), actual.schema());
+            assertEquals(
+                    expected.orderBy("id").collectAsList(),
+                    actual.orderBy("id").collectAsList(),
+                    "rows at batch size " + batchSize);
+        }
     }
 
     /** Creates a test DataFrame with monotonically increasing integers and their string representations. */

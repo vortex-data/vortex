@@ -19,18 +19,23 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure_eq;
 use vortex_mask::AllOr;
 use vortex_mask::Mask;
+use vortex_mask::MaskValues;
 use vortex_utils::aliases::hash_map::Entry;
 use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::array::ArrayView;
+use crate::arrays::VarBinView;
 use crate::arrays::VarBinViewArray;
+use crate::arrays::filter::append_filtered_slice;
 use crate::arrays::varbinview::VarBinViewArrayExt;
 use crate::arrays::varbinview::build_views::BinaryView;
 use crate::arrays::varbinview::build_views::MAX_BUFFER_LEN;
 use crate::arrays::varbinview::build_views::extend_views;
 use crate::arrays::varbinview::compact::BufferUtilization;
+use crate::arrays::varbinview::compact::VarBinViewCompactExt;
 use crate::builders::ArrayBuilder;
 use crate::builders::LazyBitBufferBuilder;
 use crate::canonical::Canonical;
@@ -357,7 +362,9 @@ impl VarBinViewBuilder {
         utilizations: &[BufferUtilization],
     ) -> Vec<CompactedSlot> {
         self.flush_in_progress();
-        buffers
+
+        let mut rewritten_bytes = 0usize;
+        let slots = buffers
             .into_iter()
             .zip(utilizations)
             .map(|(buffer, utilization)| {
@@ -371,10 +378,22 @@ impl VarBinViewBuilder {
                             .push(buffer.slice(start as usize..end as usize)),
                         shift: start,
                     },
-                    CompactionStrategy::Rewrite => CompactedSlot::Rewrite { source: buffer },
+                    CompactionStrategy::Rewrite => {
+                        rewritten_bytes += utilization.used() as usize;
+                        CompactedSlot::Rewrite { source: buffer }
+                    }
                 }
             })
-            .collect()
+            .collect();
+
+        // The measured bytes are an upper bound on what the remap copies. One block of that
+        // size replaces the growth strategy's chain of small blocks and per-value capacity
+        // misses.
+        if rewritten_bytes > 0 && rewritten_bytes <= MAX_BUFFER_LEN {
+            self.init_in_progress(rewritten_bytes);
+        }
+
+        slots
     }
 
     /// [`remap_view`] against [`CompactedSlot`]s: views into kept or sliced buffers are rebased
@@ -395,7 +414,7 @@ impl VarBinViewBuilder {
             CompactedSlot::Rewrite { source } => {
                 let bytes = &source.as_slice()[view_ref.as_range()];
                 let (buffer_idx, offset) = self.append_value_to_buffer(bytes);
-                BinaryView::make_view(bytes, buffer_idx, offset)
+                view_ref.with_buffer_and_offset(buffer_idx, offset).into()
             }
         }
     }
@@ -451,6 +470,73 @@ impl VarBinViewBuilder {
                 bits.for_each_set_index(|row| {
                     gathered[row] = remap_view(views[view_at(row)], &mapping);
                 });
+            }
+        }
+
+        self.nulls.append_validity_mask(validity);
+        debug_assert_eq!(self.nulls.len(), self.views_builder.len());
+    }
+
+    /// Appends the views that `selection` selects, with no byte copy and no intermediate array.
+    ///
+    /// `buffers` are the data buffers the views reference, in the numbering the views use.
+    /// `validity` has one entry per selected row. Null rows get an empty view, so their source
+    /// views are never dereferenced and do not count toward buffer utilization.
+    ///
+    /// When the builder compacts buffers, utilization is measured from the selected valid views
+    /// and each buffer is adopted, sliced, or rewritten accordingly.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `selection` is not `views.len()` long, if `validity` is not
+    /// `selection.true_count()` long, or if a selected valid view references a buffer index
+    /// outside `buffers`.
+    pub(crate) fn append_views_filtered(
+        &mut self,
+        buffers: impl IntoIterator<Item = ByteBuffer>,
+        views: &[BinaryView],
+        selection: &MaskValues,
+        validity: &Mask,
+    ) {
+        assert_eq!(selection.len(), views.len());
+        assert_eq!(selection.true_count(), validity.len());
+
+        if validity.all_false() {
+            self.views_builder
+                .push_n(BinaryView::empty_view(), validity.len());
+            self.nulls.append_validity_mask(validity);
+            return;
+        }
+
+        let start = self.views_builder.len();
+        append_filtered_slice(views, selection, &mut self.views_builder);
+        if let AllOr::Some(bits) = validity.bit_buffer() {
+            let selected = &mut self.views_builder[start..];
+            bits.for_each_unset_index(|row| selected[row] = BinaryView::empty_view());
+        }
+
+        if self.compacts_buffers() {
+            let buffers = buffers.into_iter().collect::<Vec<_>>();
+            let mut utilizations = unmeasured_utilizations(&buffers);
+            for view in &self.views_builder[start..] {
+                measure_view(&mut utilizations, view);
+            }
+
+            let slots = self.push_buffers_compacted(buffers, &utilizations);
+            for row in start..self.views_builder.len() {
+                self.views_builder[row] =
+                    self.remap_view_compacted(self.views_builder[row], &slots);
+            }
+        } else {
+            let mapping = self.push_buffers(buffers);
+            let is_identity = mapping
+                .iter()
+                .enumerate()
+                .all(|(index, &landed)| landed as usize == index);
+            if !is_identity {
+                for view in &mut self.views_builder[start..] {
+                    *view = remap_view(*view, &mapping);
+                }
             }
         }
 
@@ -755,7 +841,7 @@ impl VarBinViewBuilder {
 
     pub(crate) fn append_varbinview_array(
         &mut self,
-        array: &VarBinViewArray,
+        array: ArrayView<'_, VarBinView>,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
         self.flush_in_progress();
@@ -880,7 +966,7 @@ impl VarBinViewBuilder {
         &mut self,
         view: BinaryView,
         adjustment: &RewritingViewAdjustment,
-        array: &VarBinViewArray,
+        array: ArrayView<'_, VarBinView>,
         idx: usize,
     ) -> BinaryView {
         if view.is_inlined() {
@@ -1163,7 +1249,7 @@ enum BuffersWithOffsets {
 
 impl BuffersWithOffsets {
     pub fn from_array(
-        array: &VarBinViewArray,
+        array: ArrayView<'_, VarBinView>,
         compaction_threshold: f64,
         ctx: &mut ExecutionCtx,
     ) -> Self {

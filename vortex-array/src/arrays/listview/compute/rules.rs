@@ -2,28 +2,34 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_error::VortexResult;
+use vortex_session::VortexSession;
 
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::array::ArrayView;
+use crate::arrays::Dict;
 use crate::arrays::Filter;
 use crate::arrays::ListView;
 use crate::arrays::ListViewArray;
+use crate::arrays::Slice;
 use crate::arrays::dict::TakeReduceAdaptor;
 use crate::arrays::listview::ListViewArraySlotsExt;
 use crate::arrays::slice::SliceReduceAdaptor;
+use crate::optimizer::kernels::ArrayKernelsExt;
 use crate::optimizer::rules::ArrayParentReduceRule;
-use crate::optimizer::rules::ParentRuleSet;
+use crate::scalar_fn::fns::cast::Cast;
 use crate::scalar_fn::fns::cast::CastReduceAdaptor;
+use crate::scalar_fn::fns::mask::Mask as MaskFn;
 use crate::scalar_fn::fns::mask::MaskReduceAdaptor;
 
-pub(crate) const PARENT_RULES: ParentRuleSet<ListView> = ParentRuleSet::new(&[
-    ParentRuleSet::lift(&ListViewFilterPushDown),
-    ParentRuleSet::lift(&CastReduceAdaptor(ListView)),
-    ParentRuleSet::lift(&MaskReduceAdaptor(ListView)),
-    ParentRuleSet::lift(&SliceReduceAdaptor(ListView)),
-    ParentRuleSet::lift(&TakeReduceAdaptor(ListView)),
-]);
+pub(crate) fn register_parent_rules(session: &VortexSession) {
+    let kernels = session.kernels();
+    kernels.register_reduce_parent_rule(Filter, ListView, const { &ListViewFilterPushDown });
+    kernels.register_reduce_parent_rule(Cast, ListView, const { &CastReduceAdaptor(ListView) });
+    kernels.register_reduce_parent_rule(MaskFn, ListView, const { &MaskReduceAdaptor(ListView) });
+    kernels.register_reduce_parent_rule(Slice, ListView, const { &SliceReduceAdaptor(ListView) });
+    kernels.register_reduce_parent_rule(Dict, ListView, const { &TakeReduceAdaptor(ListView) });
+}
 
 #[derive(Debug)]
 struct ListViewFilterPushDown;

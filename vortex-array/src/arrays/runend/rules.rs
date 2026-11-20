@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_error::VortexResult;
+use vortex_session::VortexSession;
 
 use crate::ArrayRef;
 use crate::ArrayView;
@@ -16,19 +17,22 @@ use crate::arrays::scalar_fn::AnyScalarFn;
 use crate::arrays::scalar_fn::ScalarFn;
 use crate::arrays::scalar_fn::ScalarFnArrayExt;
 use crate::dtype::DType;
+use crate::optimizer::kernels::ArrayKernelsExt;
 use crate::optimizer::rules::ArrayParentReduceRule;
-use crate::optimizer::rules::ParentRuleSet;
+use crate::scalar_fn::fns::cast::Cast;
 use crate::scalar_fn::fns::cast::CastReduceAdaptor;
+use crate::scalar_fn::fns::fill_null::FillNull;
 use crate::scalar_fn::fns::fill_null::FillNullReduceAdaptor;
 
-pub(super) const RULES: ParentRuleSet<RunEnd> = ParentRuleSet::new(&[
+pub(crate) fn register_parent_rules(session: &VortexSession) {
+    let kernels = session.kernels();
     // CastReduceAdaptor must come before RunEndScalarFnRule so that cast operations are executed
     // eagerly (surfacing out-of-range errors immediately) rather than being pushed lazily into
     // the values array by the generic scalar function push-down rule.
-    ParentRuleSet::lift(&CastReduceAdaptor(RunEnd)),
-    ParentRuleSet::lift(&RunEndScalarFnRule),
-    ParentRuleSet::lift(&FillNullReduceAdaptor(RunEnd)),
-]);
+    kernels.register_reduce_parent_rule(Cast, RunEnd, const { &CastReduceAdaptor(RunEnd) });
+    kernels.register_reduce_parent_rule(AnyScalarFn, RunEnd, const { &RunEndScalarFnRule });
+    kernels.register_reduce_parent_rule(FillNull, RunEnd, const { &FillNullReduceAdaptor(RunEnd) });
+}
 
 /// A rule to push down scalar functions through run-end encoding into the values array.
 ///
@@ -58,7 +62,10 @@ impl ArrayParentReduceRule<RunEnd> for RunEndScalarFnRule {
         }
 
         // TODO(ngates): relax this constraint and implement run-end decoding for all vector types.
-        if !matches!(parent.dtype(), DType::Bool(_) | DType::Primitive(..)) {
+        if !matches!(
+            parent.dtype(),
+            DType::Bool(_) | DType::Primitive(..) | DType::Utf8(_)
+        ) {
             return Ok(None);
         }
 

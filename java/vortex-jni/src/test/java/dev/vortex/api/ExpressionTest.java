@@ -33,10 +33,8 @@ public final class ExpressionTest {
     }
 
     @Test
-    public void timestampLiteralsRejectOutOfRangeValues() {
-        assertThrows(
-                RuntimeException.class,
-                () -> Expression.literalTimestamp(Long.MAX_VALUE, Expression.TimeUnit.SECONDS, null));
+    public void timestampLiteralsAcceptStorageExtremes() {
+        assertNotNull(Expression.literalTimestamp(Long.MAX_VALUE, Expression.TimeUnit.SECONDS, null));
         assertNotNull(Expression.literalTimestamp(0L, Expression.TimeUnit.SECONDS, "UTC"));
     }
 
@@ -100,7 +98,7 @@ public final class ExpressionTest {
         RuntimeException exception =
                 assertThrows(RuntimeException.class, () -> Expression.literalTime(0L, Expression.TimeUnit.DAYS));
         assertTrue(
-                exception.getMessage().contains("Time type does not support time unit"),
+                exception.getMessage().contains("Time time unit must be finer than days"),
                 () -> "unexpected message: " + exception.getMessage());
     }
 

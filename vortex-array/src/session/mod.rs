@@ -36,7 +36,6 @@ use crate::arrays::ListView;
 use crate::arrays::Map;
 use crate::arrays::Masked;
 use crate::arrays::Null;
-use crate::arrays::PiecewiseSequence;
 use crate::arrays::Primitive;
 use crate::arrays::RunEnd;
 use crate::arrays::Struct;
@@ -113,7 +112,6 @@ impl Default for ArraySession {
         this.register(Dict);
         this.register(List);
         this.register(Masked);
-        this.register(PiecewiseSequence);
         this.register(RunEnd);
         this.register(VarBin);
         this.register(WidenPlugin);

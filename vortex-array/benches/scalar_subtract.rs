@@ -21,6 +21,7 @@ use vortex_array::memory::MemorySession;
 use vortex_array::optimizer::kernels::KernelSession;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar_fn::fns::operators::Operator;
+use vortex_array::test_harness::mark_optimized;
 use vortex_buffer::Buffer;
 use vortex_session::VortexSession;
 
@@ -57,6 +58,7 @@ fn scalar_subtract(bencher: Bencher) {
     let to_subtract = -1i64;
 
     let chunked = ChunkedArray::from_iter([data1, data2]).into_array();
+    mark_optimized(&chunked, &SESSION).unwrap();
 
     bencher
         .with_inputs(|| (&chunked, SESSION.create_execution_ctx()))

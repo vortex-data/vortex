@@ -25,6 +25,7 @@ use vortex_array::arrays::listview::ListViewRebuildMode;
 use vortex_array::dtype::FieldNames;
 use vortex_array::memory::MemorySession;
 use vortex_array::optimizer::kernels::KernelSession;
+use vortex_array::test_harness::mark_optimized;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_session::VortexSession;
@@ -141,6 +142,8 @@ fn make_nested_list_lv(
 #[divan::bench]
 fn i32_small(bencher: Bencher) {
     let lv = make_primitive_lv(50, 32, 32);
+    mark_optimized(lv.as_array(), &SESSION).unwrap();
+
     bencher
         .with_inputs(|| (&lv, SESSION.create_execution_ctx()))
         .bench_refs(|(lv, ctx)| {
@@ -158,6 +161,8 @@ fn i32_small(bencher: Bencher) {
 #[divan::bench]
 fn i32_small_overlapping(bencher: Bencher) {
     let lv = make_primitive_lv(50, 8, 1);
+    mark_optimized(lv.as_array(), &SESSION).unwrap();
+
     bencher
         .with_inputs(|| (&lv, SESSION.create_execution_ctx()))
         .bench_refs(|(lv, ctx)| {
@@ -175,6 +180,8 @@ fn i32_small_overlapping(bencher: Bencher) {
 #[divan::bench]
 fn varbinview_small(bencher: Bencher) {
     let lv = make_varbinview_lv(50, 32, 32);
+    mark_optimized(lv.as_array(), &SESSION).unwrap();
+
     bencher
         .with_inputs(|| (&lv, SESSION.create_execution_ctx()))
         .bench_refs(|(lv, ctx)| {
@@ -192,6 +199,8 @@ fn varbinview_small(bencher: Bencher) {
 #[divan::bench]
 fn struct_small(bencher: Bencher) {
     let lv = make_struct_lv(50, 32, 32);
+    mark_optimized(lv.as_array(), &SESSION).unwrap();
+
     bencher
         .with_inputs(|| (&lv, SESSION.create_execution_ctx()))
         .bench_refs(|(lv, ctx)| {
@@ -209,6 +218,8 @@ fn struct_small(bencher: Bencher) {
 #[divan::bench]
 fn i32_large(bencher: Bencher) {
     let lv = make_primitive_lv(50, 1_024, 1_024);
+    mark_optimized(lv.as_array(), &SESSION).unwrap();
+
     bencher
         .with_inputs(|| (&lv, SESSION.create_execution_ctx()))
         .bench_refs(|(lv, ctx)| {
@@ -226,6 +237,8 @@ fn i32_large(bencher: Bencher) {
 #[divan::bench]
 fn varbinview_large(bencher: Bencher) {
     let lv = make_varbinview_lv(4, 512, 512);
+    mark_optimized(lv.as_array(), &SESSION).unwrap();
+
     bencher
         .with_inputs(|| (&lv, SESSION.create_execution_ctx()))
         .bench_refs(|(lv, ctx)| {
@@ -243,6 +256,8 @@ fn varbinview_large(bencher: Bencher) {
 #[divan::bench]
 fn struct_large(bencher: Bencher) {
     let lv = make_struct_lv(25, 1_024, 1_024);
+    mark_optimized(lv.as_array(), &SESSION).unwrap();
+
     bencher
         .with_inputs(|| (&lv, SESSION.create_execution_ctx()))
         .bench_refs(|(lv, ctx)| {
@@ -275,6 +290,8 @@ fn fsl_large(bencher: Bencher) {
         Validity::NonNullable,
         &mut ctx,
     );
+    mark_optimized(lv.as_array(), &SESSION).unwrap();
+
     bencher
         .with_inputs(|| (&lv, SESSION.create_execution_ctx()))
         .bench_refs(|(lv, ctx)| {
@@ -292,6 +309,8 @@ fn fsl_large(bencher: Bencher) {
 #[divan::bench]
 fn list_i32_large(bencher: Bencher) {
     let lv = make_nested_list_lv(2, 512, 2);
+    mark_optimized(lv.as_array(), &SESSION).unwrap();
+
     bencher
         .with_inputs(|| (&lv, SESSION.create_execution_ctx()))
         .bench_refs(|(lv, ctx)| {

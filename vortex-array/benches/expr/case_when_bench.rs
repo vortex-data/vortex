@@ -36,7 +36,7 @@ use vortex_array::scalar_fn::ScalarFnVTableExt;
 use vortex_array::scalar_fn::fns::case_when::CaseWhen;
 use vortex_array::scalar_fn::fns::case_when::CaseWhenOptions;
 use vortex_array::scalar_fn::fns::operators::Operator;
-use vortex_array::validity::Validity;
+use vortex_array::test_harness::mark_optimized;
 use vortex_buffer::Buffer;
 use vortex_session::VortexSession;
 
@@ -57,18 +57,9 @@ fn main() {
 #[divan::bench(args = [1, 8, 64])]
 fn case_when_decimal_product(bencher: Bencher, run_length: usize) {
     let len = 512;
-    let lhs = DecimalArray::new(
-        Buffer::from_iter((0..len).map(|i| i as i64)),
-        DecimalDType::new(15, 2),
-        Validity::NonNullable,
-    )
-    .into_array();
-    let rhs = DecimalArray::new(
-        Buffer::from_iter((0..len).map(|i| (i % 100) as i64)),
-        DecimalDType::new(15, 2),
-        Validity::NonNullable,
-    )
-    .into_array();
+    let dtype = DecimalDType::new(15, 2);
+    let lhs = DecimalArray::from_iter(0..len as i64, dtype).into_array();
+    let rhs = DecimalArray::from_iter((0..len as i64).map(|i| i % 100), dtype).into_array();
     let product = lhs.binary(rhs, Operator::Mul).unwrap();
     let otherwise = ConstantArray::new(Scalar::zero_value(product.dtype()), len).into_array();
     bench_branches(bencher, run_length, product, otherwise);
@@ -96,6 +87,8 @@ fn bench_branches(bencher: Bencher, run_length: usize, lhs: ArrayRef, rhs: Array
     )
     .unwrap()
     .into_array();
+    mark_optimized(&array, &SESSION).unwrap();
+
     bencher
         .with_inputs(|| SESSION.create_execution_ctx())
         .bench_refs(|ctx| array.clone().execute::<Canonical>(ctx).unwrap());
@@ -104,14 +97,17 @@ fn bench_branches(bencher: Bencher, run_length: usize, lhs: ArrayRef, rhs: Array
 fn make_struct_array(size: usize) -> ArrayRef {
     let data: Buffer<i32> = (0..size as i32).collect();
     let field = data.into_array();
-    StructArray::from_fields(&[("value", field)])
+    let array = StructArray::from_fields(&[("value", field)])
         .unwrap()
-        .into_array()
+        .into_array();
+    mark_optimized(&array, &SESSION).unwrap();
+
+    array
 }
 
 /// Array with boolean columns cycling through thirds: `c0[i] = i%3==0`, `c1[i] = i%3==1`.
 fn make_fragmented_array(size: usize) -> ArrayRef {
-    StructArray::from_fields(&[
+    let array = StructArray::from_fields(&[
         (
             "c0",
             BoolArray::from_iter((0..size).map(|i| i % 3 == 0)).into_array(),
@@ -122,7 +118,10 @@ fn make_fragmented_array(size: usize) -> ArrayRef {
         ),
     ])
     .unwrap()
-    .into_array()
+    .into_array();
+    mark_optimized(&array, &SESSION).unwrap();
+
+    array
 }
 
 /// Benchmark a simple binary CASE WHEN with varying array sizes.

@@ -39,6 +39,7 @@ use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::expr::BoundExpression;
 use crate::expr::display::ExprDisplay;
+use crate::optimizer::ArrayOptimizer;
 use crate::proto::expr as pb;
 use crate::scalar::Scalar;
 use crate::scalar_fn::Arity;
@@ -429,9 +430,9 @@ fn merge_runs(
     // Cast once up front: every span below is a slice of these arrays.
     let values = branches
         .iter()
-        .map(|(_, value)| value.cast(output_dtype.clone()))
+        .map(|(_, value)| value.cast(output_dtype.clone())?.optimize_ctx(ctx))
         .collect::<VortexResult<Vec<_>>>()?;
-    let else_value = else_value.cast(output_dtype.clone())?;
+    let else_value = else_value.cast(output_dtype.clone())?.optimize_ctx(ctx)?;
     let len = else_value.len();
 
     let mut builder = builder_with_capacity_in(output_dtype, len, ctx.allocator());
@@ -522,6 +523,7 @@ mod tests {
 
     #[test]
     fn compact_and_run_merges_agree_for_nested_and_nullable_values() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
         let primitive =
             PrimitiveArray::from_option_iter([Some(1i64), None, Some(3), Some(4)]).into_array();
         let fixtures = vec![
@@ -530,14 +532,11 @@ mod tests {
                 buffer![100i64, -200, 300, 400],
                 DecimalDType::new(15, 2),
                 Validity::from_iter([true, false, true, true]),
+                &mut ctx,
             )
             .into_array(),
-            DecimalArray::new(
-                buffer![1i128 << 100, -2, 3, 4],
-                DecimalDType::new(38, 0),
-                Validity::NonNullable,
-            )
-            .into_array(),
+            DecimalArray::from_iter([1i128 << 100, -2, 3, 4], DecimalDType::new(38, 0))
+                .into_array(),
             VarBinViewArray::from_iter(
                 [
                     Some("long out-of-line value"),
@@ -560,7 +559,6 @@ mod tests {
             &[[false, false, false, true], [false, true, false, false]],
         ];
 
-        let mut ctx = SESSION.create_execution_ctx();
         for value in fixtures {
             let reorder =
                 |indices: Buffer<u32>, ctx: &mut ExecutionCtx| -> VortexResult<ArrayRef> {

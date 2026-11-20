@@ -52,6 +52,25 @@ def test_head(ds: pd.Dataset) -> None:
     assert ds.head(1).to_pylist() == [{"index": 0, "string": "0", "bool": True, "float": 0.0}]
 
 
+@pytest.mark.parametrize("num_rows", [0, 2_000_000])
+def test_head_matches_to_table(ds: pd.Dataset, num_rows: int) -> None:
+    assert ds.head(num_rows) == ds.to_table().slice(0, num_rows)
+
+
+def test_head_with_fewer_matching_rows_than_requested(ds: pd.Dataset) -> None:
+    expression = pc.field("index") >= 999_995
+    assert ds.head(10, columns=["index"], filter=expression).column("index").to_pylist() == list(
+        range(999_995, 1_000_000)
+    )
+    assert ds.head(10, filter=pc.field("index") < 0).num_rows == 0
+
+
+def test_head_with_filter_matching_more_rows_than_requested(ds: pd.Dataset) -> None:
+    expression = pc.field("bool")
+    expected = ds.to_table(filter=expression).slice(0, 5_000)
+    assert ds.head(5_000, filter=expression) == expected
+
+
 def test_take(ds: pd.Dataset) -> None:
     assert ds.take(pa.array([10, 50, 1_000, 999_999])).to_pylist() == [
         {"index": 10, "string": "10", "bool": True, "float": math.sqrt(10)},
@@ -59,6 +78,28 @@ def test_take(ds: pd.Dataset) -> None:
         {"index": 1000, "string": "1000", "bool": True, "float": math.sqrt(1000.0)},
         {"index": 999999, "string": "999999", "bool": False, "float": math.sqrt(999999.0)},
     ]
+
+
+@pytest.mark.parametrize("indices", [[999_999, 10], [50, 10, 50], [10, 10], [1_000, 10, 999_999, 50]])
+def test_take_unordered(ds: pd.Dataset, indices: list[int]) -> None:
+    assert ds.take(pa.array(indices)).column("index").to_pylist() == indices
+
+
+def test_take_unordered_on_filtered_dataset_requires_sorted_indices(ds: vx.dataset.VortexDataset) -> None:
+    filtered = ds.filter(pc.field("index") >= 50)
+    assert filtered.take(pa.array([50, 999_999])).column("index").to_pylist() == [50, 999_999]
+    with pytest.raises(RuntimeError, match="strictly increasing"):
+        filtered.take(pa.array([999_999, 10]))
+
+
+def test_fragment_take_unordered(ds: vx.dataset.VortexDataset) -> None:
+    fragment = list(ds.get_fragments())[-1]
+    assert fragment.take(pa.array([999_999, 999_998, 999_999])).column("index").to_pylist() == [
+        999_999,
+        999_998,
+        999_999,
+    ]
+    assert fragment.take(pa.array([999_999, 10, 999_998])).column("index").to_pylist() == [999_999, 999_998]
 
 
 def test_to_batches(ds: pd.Dataset) -> None:
@@ -223,6 +264,24 @@ def test_fragment_schema(ds: vx.dataset.VortexDataset) -> None:
         ), (f, i)
 
     assert ds.head(1).to_pylist() == [{"index": 0, "string": "0", "bool": True, "float": 0.0}]
+
+
+def test_fragment_reads_accept_only_the_dataset_schema(ds: vx.dataset.VortexDataset) -> None:
+    fragment = next(iter(ds.get_fragments()))
+    expected = fragment.to_table()
+
+    # DataFusion passes the dataset schema to unify it with the fragment schema.
+    assert fragment.scanner(ds.schema).to_table() == expected
+    assert fragment.to_table(ds.schema) == expected
+    assert pa.Table.from_batches(fragment.to_batches(ds.schema)) == expected
+
+    other = pa.schema([("index", pa.int32())])
+    with pytest.raises(ValueError, match="schema of the dataset"):
+        fragment.scanner(other)
+    with pytest.raises(ValueError, match="schema of the dataset"):
+        fragment.to_table(other)
+    with pytest.raises(ValueError, match="schema of the dataset"):
+        list(fragment.to_batches(other))
 
 
 def test_fragment_take(ds: vx.dataset.VortexDataset) -> None:

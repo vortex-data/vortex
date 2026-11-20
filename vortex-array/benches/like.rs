@@ -21,6 +21,7 @@ use vortex_array::memory::MemorySession;
 use vortex_array::optimizer::kernels::KernelSession;
 use vortex_array::scalar_fn::fns::like::Like;
 use vortex_array::scalar_fn::fns::like::LikeOptions;
+use vortex_array::test_harness::mark_optimized;
 use vortex_session::VortexSession;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
@@ -86,10 +87,10 @@ fn bench_like(bencher: Bencher, pattern: &str, options: LikeOptions) {
     let array = strings();
     bencher
         .with_inputs(|| {
-            (
-                like(array.clone(), pattern, options),
-                SESSION.create_execution_ctx(),
-            )
+            let array = like(array.clone(), pattern, options);
+            mark_optimized(&array, &SESSION).unwrap();
+
+            (array, SESSION.create_execution_ctx())
         })
         .bench_values(|(array, mut ctx)| array.execute::<BoolArray>(&mut ctx).unwrap());
 }
@@ -127,12 +128,12 @@ fn like_per_row_patterns(bencher: Bencher) {
     let patterns = VarBinViewArray::from_iter_str((0..ARRAY_SIZE).map(|_| "hello%")).into_array();
     bencher
         .with_inputs(|| {
-            (
-                Like::try_new(array.clone(), patterns.clone(), LikeOptions::default())
-                    .unwrap()
-                    .into_array(),
-                SESSION.create_execution_ctx(),
-            )
+            let array = Like::try_new(array.clone(), patterns.clone(), LikeOptions::default())
+                .unwrap()
+                .into_array();
+            mark_optimized(&array, &SESSION).unwrap();
+
+            (array, SESSION.create_execution_ctx())
         })
         .bench_values(|(array, mut ctx)| array.execute::<BoolArray>(&mut ctx).unwrap());
 }

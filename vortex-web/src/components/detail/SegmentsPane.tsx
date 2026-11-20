@@ -8,6 +8,8 @@ import { useVortexFile } from '../../contexts/VortexFileContextCore';
 import { useSelection } from '../../contexts/SelectionContextCore';
 import { DataTable, type CellRenderer } from '../DataTable';
 
+const NUMERIC = new Set(['index', 'byte_offset', 'byte_length', 'alignment']);
+
 interface SegmentsPaneProps {
   node: LayoutTreeNode;
   segments: SegmentMapEntry[];
@@ -37,12 +39,13 @@ export function SegmentsPane({ node, segments }: SegmentsPaneProps) {
       const layoutPath = row.layout_path as string;
       const pathNodes = findPathToNode(file.layoutTree, layoutPath);
       return (
-        <span className="text-vortex-grey-dark">
+        <span>
           {pathNodes.map((pathNode, i) => (
             <span key={pathNode.id}>
-              {i > 0 && <span className="opacity-40">/</span>}
+              {i > 0 && <span className="x-path-sep">/</span>}
               <button
-                className="hover:text-vortex-light-blue"
+                type="button"
+                className="x-path-link"
                 onClick={(e) => {
                   e.stopPropagation();
                   selectNode(pathNode.id);
@@ -79,18 +82,18 @@ export function SegmentsPane({ node, segments }: SegmentsPaneProps) {
   );
 
   if (rows.length === 0) {
-    return <div className="text-xs text-vortex-grey-dark p-2.5">No segments for this node.</div>;
+    return <p className="vx-label x-pad">This node has no segments.</p>;
   }
 
   return (
-    <div className="h-full">
-      <DataTable
-        columns={columns}
-        rows={rows}
-        onRowClick={handleRowClick}
-        onRowHover={handleRowHover}
-        cellRenderers={{ layout_path: pathRenderer }}
-      />
-    </div>
+    <DataTable
+      label="Segments"
+      columns={columns}
+      rows={rows}
+      onRowClick={handleRowClick}
+      onRowHover={handleRowHover}
+      cellRenderers={{ layout_path: pathRenderer }}
+      numeric={NUMERIC}
+    />
   );
 }

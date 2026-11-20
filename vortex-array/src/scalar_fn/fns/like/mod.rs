@@ -19,6 +19,7 @@ use vortex_error::vortex_err;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
+use crate::AnyColumnar;
 use crate::ArrayRef;
 use crate::Canonical;
 use crate::ExecutionCtx;
@@ -33,10 +34,12 @@ use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::expr::display::ExprDisplay;
 use crate::proto::expr as pb;
+use crate::require_input;
 use crate::scalar::Scalar;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
 use crate::scalar_fn::ExecutionArgs;
+use crate::scalar_fn::ScalarFnExecutionResult;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
 use crate::scalar_fn::ScalarFnVTableExt;
@@ -169,6 +172,25 @@ impl ScalarFnVTable for Like {
         let pattern = args.get(1)?;
 
         execute_like(&child, &pattern, *options, ctx)
+    }
+
+    fn execute_step(
+        &self,
+        options: &Self::Options,
+        args: &dyn ExecutionArgs,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ScalarFnExecutionResult> {
+        // A null pattern decides every row without reading the input.
+        if !args.input_matches(1, |pattern| {
+            pattern
+                .as_constant()
+                .is_some_and(|pattern| pattern.is_null())
+        })? {
+            require_input!(args, 0 => AnyColumnar);
+            require_input!(args, 1 => AnyColumnar);
+        }
+        self.execute(options, args, ctx)
+            .map(ScalarFnExecutionResult::done)
     }
 
     fn is_strict(&self, _instance: &Self::Options) -> bool {
@@ -698,5 +720,26 @@ mod tests {
     fn detects_ascii(#[case] values: [&str; 2], #[case] expected: bool) {
         let array = VarBinViewArray::from_iter_str(values);
         assert_eq!(is_ascii(&array.resolved_views()), expected);
+    }
+
+    /// A non-columnar input is executed through the executor before the pattern is matched.
+    #[test]
+    fn executes_non_columnar_input_iteratively() -> vortex_error::VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let chunks = vec![
+            VarBinViewArray::from_iter_str(["alpha", "beta"]).into_array(),
+            VarBinViewArray::from_iter_str(["alphabet"]).into_array(),
+        ];
+        let dtype = chunks[0].dtype().clone();
+        let chunked = crate::arrays::ChunkedArray::try_new(chunks, dtype)?.into_array();
+        let result = Like::try_new(
+            chunked,
+            ConstantArray::new("alpha%", 3).into_array(),
+            LikeOptions::default(),
+        )?
+        .into_array();
+
+        assert_arrays_eq!(result, BoolArray::from_iter([true, false, true]), &mut ctx);
+        Ok(())
     }
 }

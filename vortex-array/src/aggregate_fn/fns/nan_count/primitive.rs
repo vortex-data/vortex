@@ -14,17 +14,19 @@ pub(super) fn accumulate_primitive(
     p: &PrimitiveArray,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<()> {
-    match_each_float_ptype!(p.ptype(), |F| {
-        *count += compute_nan_count_with_validity(
-            p.as_slice::<F>(),
-            p.as_ref().validity()?.execute_mask(p.as_ref().len(), ctx)?,
-        ) as u64;
-    });
+    let added = match_each_float_ptype!(p.ptype(), |F| { count_primitive_nans::<F>(p, ctx) })?;
+    *count += added as u64;
     Ok(())
 }
 
-fn compute_nan_count_with_validity<T: NativePType>(values: &[T], validity: Mask) -> usize {
-    match validity {
+fn count_primitive_nans<T: NativePType>(
+    array: &PrimitiveArray,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<usize> {
+    let values = array.as_slice::<T>();
+    let validity = array.validity()?.execute_mask(array.len(), ctx)?;
+
+    Ok(match validity {
         Mask::AllTrue(_) => values.iter().filter(|v| v.is_nan()).count(),
         Mask::AllFalse(_) => 0,
         Mask::Values(v) => values
@@ -33,7 +35,7 @@ fn compute_nan_count_with_validity<T: NativePType>(values: &[T], validity: Mask)
             .filter_map(|(v, m)| m.then_some(v))
             .filter(|v| v.is_nan())
             .count(),
-    }
+    })
 }
 
 #[cfg(test)]

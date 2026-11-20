@@ -10,7 +10,6 @@ run-name: >-
 on:
   pull_request:
     types: [labeled]
-    branches: ["develop"]
 
 permissions:
   actions: write

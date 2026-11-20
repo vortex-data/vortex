@@ -55,37 +55,39 @@ impl LikePattern {
         case_insensitive: bool,
         ascii_haystack: bool,
     ) -> VortexResult<Self> {
+        // A leading `%` cannot be escaped, but a trailing one is escaped by an unpaired `\`
+        // before it, so prefixes and infixes must not end with one.
+        let prefix = || pattern.strip_suffix('%').and_then(unescape_affix);
+        let suffix = || pattern.strip_prefix('%').and_then(unescape);
+        let infix = || {
+            pattern
+                .strip_prefix('%')
+                .and_then(|pattern| pattern.strip_suffix('%'))
+                .and_then(unescape_affix)
+        };
+
         if case_insensitive {
             if ascii_haystack && pattern.is_ascii() {
-                if !contains_like_pattern(pattern) {
-                    return Ok(Self::IEqAscii(pattern.as_bytes().to_vec()));
-                } else if pattern.ends_with('%')
-                    && !contains_like_pattern(&pattern[..pattern.len() - 1])
-                {
-                    return Ok(Self::IStartsWithAscii(
-                        pattern.as_bytes()[..pattern.len() - 1].to_vec(),
-                    ));
-                } else if pattern.starts_with('%') && !contains_like_pattern(&pattern[1..]) {
-                    return Ok(Self::IEndsWithAscii(pattern.as_bytes()[1..].to_vec()));
+                if let Some(literal) = unescape(pattern) {
+                    return Ok(Self::IEqAscii(literal));
+                } else if let Some(prefix) = prefix() {
+                    return Ok(Self::IStartsWithAscii(prefix));
+                } else if let Some(suffix) = suffix() {
+                    return Ok(Self::IEndsWithAscii(suffix));
                 }
             }
             return Ok(Self::Regex(regex_like(pattern, true)?));
         }
 
-        Ok(if !contains_like_pattern(pattern) {
-            Self::Eq(pattern.as_bytes().to_vec())
-        } else if pattern.ends_with('%') && !contains_like_pattern(&pattern[..pattern.len() - 1]) {
-            Self::StartsWith(pattern.as_bytes()[..pattern.len() - 1].to_vec())
-        } else if pattern.starts_with('%') && !contains_like_pattern(&pattern[1..]) {
-            Self::EndsWith(pattern.as_bytes()[1..].to_vec())
-        } else if pattern.starts_with('%')
-            && pattern.ends_with('%')
-            && !contains_like_pattern(&pattern[1..pattern.len() - 1])
-        {
-            Self::Contains(
-                Box::new(Finder::new(&pattern.as_bytes()[1..pattern.len() - 1]).into_owned()),
-                pattern.len() - 2,
-            )
+        Ok(if let Some(literal) = unescape(pattern) {
+            Self::Eq(literal)
+        } else if let Some(prefix) = prefix() {
+            Self::StartsWith(prefix)
+        } else if let Some(suffix) = suffix() {
+            Self::EndsWith(suffix)
+        } else if let Some(infix) = infix() {
+            let len = infix.len();
+            Self::Contains(Box::new(Finder::new(&infix).into_owned()), len)
         } else {
             Self::Regex(regex_like(pattern, false)?)
         })
@@ -120,9 +122,44 @@ impl LikePattern {
     }
 }
 
-/// Returns whether `pattern` contains a wildcard (`%`, `_`) or an escape (`\`).
-fn contains_like_pattern(pattern: &str) -> bool {
-    memchr3(b'%', b'_', b'\\', pattern.as_bytes()).is_some()
+/// Returns the bytes `pattern` matches if it has no unescaped wildcards.
+fn unescape(pattern: &str) -> Option<Vec<u8>> {
+    unescape_with_trailing(pattern).map(|(literal, _)| literal)
+}
+
+/// Like [`unescape`], for a pattern that a `%` follows, which an unpaired trailing `\` would
+/// escape.
+fn unescape_affix(pattern: &str) -> Option<Vec<u8>> {
+    unescape_with_trailing(pattern)
+        .and_then(|(literal, trailing_backslash)| (!trailing_backslash).then_some(literal))
+}
+
+/// Resolves the escapes of a wildcard-free `pattern`, and reports whether it ends with an
+/// unpaired `\`, which matches a literal backslash.
+fn unescape_with_trailing(pattern: &str) -> Option<(Vec<u8>, bool)> {
+    let mut remaining = pattern.as_bytes();
+    let mut literal: Option<Vec<u8>> = None;
+    while let Some(idx) = memchr3(b'%', b'_', b'\\', remaining) {
+        if remaining[idx] != b'\\' {
+            return None;
+        }
+
+        // Only escapes require rewriting; reject an earlier wildcard without allocating.
+        let literal = literal.get_or_insert_with(|| Vec::with_capacity(pattern.len()));
+        literal.extend_from_slice(&remaining[..idx]);
+        remaining = &remaining[idx + 1..];
+        let Some((&escaped, rest)) = remaining.split_first() else {
+            literal.push(b'\\');
+            return Some((std::mem::take(literal), true));
+        };
+        // Any UTF-8 continuation bytes are copied with the next literal span.
+        literal.push(escaped);
+        remaining = rest;
+    }
+
+    let mut literal = literal.unwrap_or_else(|| Vec::with_capacity(remaining.len()));
+    literal.extend_from_slice(remaining);
+    Some((literal, false))
 }
 
 /// Transforms a LIKE `pattern` into an equivalent anchored regex.
@@ -210,7 +247,6 @@ mod tests {
         assert!(matches!(like("%%"), LikePattern::Contains(..)));
         assert!(matches!(like("f%o"), LikePattern::Regex(_)));
         assert!(matches!(like("f_o"), LikePattern::Regex(_)));
-        assert!(matches!(like(r"foo\%"), LikePattern::Regex(_)));
         for (pattern, matches, misses) in [
             ("foo", "foo", Some("foobar")),
             ("foo%", "foobar", Some("xfoo")),
@@ -226,6 +262,68 @@ mod tests {
             assert!(compiled.matches(matches.as_bytes()), "{pattern}");
             if let Some(misses) = misses {
                 assert!(!compiled.matches(misses.as_bytes()), "{pattern}");
+            }
+        }
+    }
+
+    #[test]
+    fn compile_escaped_fast_paths() {
+        // Escaped wildcards are literal bytes, including an escaped final `%`.
+        assert!(matches!(like(r"foo\%"), LikePattern::Eq(_)));
+        assert!(matches!(like(r"a\_b%"), LikePattern::StartsWith(_)));
+        assert!(matches!(like(r"%a\%b"), LikePattern::EndsWith(_)));
+        assert!(matches!(like(r"%foo\%"), LikePattern::EndsWith(_)));
+        assert!(matches!(like(r"%a\_b%"), LikePattern::Contains(..)));
+    }
+
+    #[test]
+    fn fast_paths_agree_with_regex() {
+        let patterns = [
+            r"foo\%",
+            r"a\_b%",
+            r"%a\%b",
+            r"%foo\%",
+            r"%a\_b%",
+            r"\\%",
+            r"%\\",
+            r"\\",
+            r"\%%",
+            r"%\%",
+            r"\a%",
+            r"%x\",
+            r"\é%",
+            "trailing\\",
+        ];
+        let haystacks = [
+            "",
+            "foo%",
+            "foox",
+            "a_b",
+            "a_bc",
+            "axbc",
+            "xa%b",
+            "xaxb",
+            "xfoo%",
+            "xa_by",
+            "\\",
+            "\\abc",
+            "abc\\",
+            "%",
+            "%x",
+            "ax",
+            "x\\",
+            "éa",
+            "trailing\\",
+        ];
+        for pattern in patterns {
+            let compiled = like(pattern);
+            let regex = regex_like(pattern, false).unwrap();
+            for haystack in haystacks {
+                assert_eq!(
+                    compiled.matches(haystack.as_bytes()),
+                    regex.is_match(haystack.as_bytes()),
+                    "{pattern} on {haystack}"
+                );
             }
         }
     }

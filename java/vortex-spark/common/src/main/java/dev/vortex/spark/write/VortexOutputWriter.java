@@ -8,63 +8,26 @@ import dev.vortex.api.VortexWriter;
 import dev.vortex.io.NativeWritable;
 import dev.vortex.relocated.org.apache.arrow.memory.BufferAllocator;
 import dev.vortex.relocated.org.apache.arrow.memory.RootAllocator;
-import dev.vortex.relocated.org.apache.arrow.vector.BigIntVector;
-import dev.vortex.relocated.org.apache.arrow.vector.BitVector;
-import dev.vortex.relocated.org.apache.arrow.vector.DateDayVector;
-import dev.vortex.relocated.org.apache.arrow.vector.DecimalVector;
 import dev.vortex.relocated.org.apache.arrow.vector.FieldVector;
-import dev.vortex.relocated.org.apache.arrow.vector.Float4Vector;
-import dev.vortex.relocated.org.apache.arrow.vector.Float8Vector;
-import dev.vortex.relocated.org.apache.arrow.vector.IntVector;
-import dev.vortex.relocated.org.apache.arrow.vector.SmallIntVector;
-import dev.vortex.relocated.org.apache.arrow.vector.TimeStampMicroTZVector;
-import dev.vortex.relocated.org.apache.arrow.vector.TimeStampMicroVector;
-import dev.vortex.relocated.org.apache.arrow.vector.TinyIntVector;
-import dev.vortex.relocated.org.apache.arrow.vector.VarBinaryVector;
-import dev.vortex.relocated.org.apache.arrow.vector.VarCharVector;
 import dev.vortex.relocated.org.apache.arrow.vector.VectorSchemaRoot;
-import dev.vortex.relocated.org.apache.arrow.vector.complex.ListVector;
-import dev.vortex.relocated.org.apache.arrow.vector.complex.MapVector;
-import dev.vortex.relocated.org.apache.arrow.vector.complex.StructVector;
 import dev.vortex.spark.VortexOptions;
 import dev.vortex.spark.VortexSparkSession;
 import java.io.IOException;
 import java.io.UncheckedIOException;
-import java.util.ArrayList;
-import java.util.List;
+import java.util.Map;
 import org.apache.spark.TaskContext;
 import org.apache.spark.sql.catalyst.InternalRow;
-import org.apache.spark.sql.catalyst.expressions.SpecializedGetters;
-import org.apache.spark.sql.catalyst.util.ArrayData;
-import org.apache.spark.sql.catalyst.util.MapData;
 import org.apache.spark.sql.execution.datasources.OutputWriter;
-import org.apache.spark.sql.types.ArrayType;
-import org.apache.spark.sql.types.BinaryType;
-import org.apache.spark.sql.types.BooleanType;
-import org.apache.spark.sql.types.ByteType;
-import org.apache.spark.sql.types.DataType;
-import org.apache.spark.sql.types.DateType;
-import org.apache.spark.sql.types.DecimalType;
-import org.apache.spark.sql.types.DoubleType;
-import org.apache.spark.sql.types.FloatType;
-import org.apache.spark.sql.types.IntegerType;
-import org.apache.spark.sql.types.LongType;
-import org.apache.spark.sql.types.MapType;
-import org.apache.spark.sql.types.ShortType;
-import org.apache.spark.sql.types.StringType;
 import org.apache.spark.sql.types.StructField;
 import org.apache.spark.sql.types.StructType;
-import org.apache.spark.sql.types.TimestampNTZType;
-import org.apache.spark.sql.types.TimestampType;
-import org.apache.spark.unsafe.types.UTF8String;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
  * Writes Spark InternalRow data to a Vortex file.
  *
- * <p>This writer converts Spark's internal row format to Arrow vectors and writes them to a Vortex file using the
- * Vortex writer API.
+ * <p>Each row is appended straight into a batch of Arrow vectors as it arrives, and a full batch is handed to the
+ * Vortex writer.
  */
 public final class VortexOutputWriter extends OutputWriter {
     private static final Logger logger = LoggerFactory.getLogger(VortexOutputWriter.class);
@@ -75,12 +38,18 @@ public final class VortexOutputWriter extends OutputWriter {
     /** Option sizing the write batch for Vortex alone, overriding {@value #BATCH_SIZE_OPTION}. */
     public static final String WRITE_BATCH_SIZE_OPTION = "vortex.write.batch.size";
 
+    /**
+     * Boolean option that writes with the compact strategy, which prefers a smaller file over read throughput. Off by
+     * default.
+     */
+    public static final String COMPACT_OPTION = "vortex.write.compact";
+
     private static final int DEFAULT_BATCH_SIZE = 2048;
     private static final int MIN_BATCH_SIZE = 1;
     private static final int MAX_BATCH_SIZE = 65536; // 64K rows max per batch
+    private static final int INITIAL_VECTOR_CAPACITY = 64;
 
     private final String filePath;
-    private final StructType schema;
     private final VortexOptions options;
     private final int batchSize;
     private NativeWritable writable;
@@ -89,7 +58,8 @@ public final class VortexOutputWriter extends OutputWriter {
     private VortexWriter vortexWriter;
     private BufferAllocator allocator;
     private VectorSchemaRoot vectorSchemaRoot;
-    private final List<InternalRow> batchRows = new ArrayList<>();
+    private ArrowFieldWriter<?>[] fieldWriters;
+    private int batchRowCount = 0;
     private Exception writeFailure;
     private boolean closed = false;
 
@@ -101,8 +71,22 @@ public final class VortexOutputWriter extends OutputWriter {
      * @param options additional write options
      */
     public VortexOutputWriter(String filePath, StructType schema, VortexOptions options, NativeWritable writable) {
+        this(filePath, schema, options, writable, Map.of());
+    }
+
+    /**
+     * Creates a writer that also stores {@code metadata} in the file footer, for callers that write files outside
+     * Spark's commit protocol.
+     *
+     * @param metadata footer segments, read back verbatim by {@code NativeFiles.readMetadata}
+     */
+    public VortexOutputWriter(
+            String filePath,
+            StructType schema,
+            VortexOptions options,
+            NativeWritable writable,
+            Map<String, byte[]> metadata) {
         this.filePath = filePath;
-        this.schema = schema;
         this.options = options;
         this.writable = writable;
 
@@ -128,8 +112,21 @@ public final class VortexOutputWriter extends OutputWriter {
 
             this.session = VortexSparkSession.get(options);
             this.vortexWriter = VortexWriter.builder(session, writable, arrowSchema, allocator)
+                    .metadata(metadata)
+                    .compact(options.getBoolean(COMPACT_OPTION, false))
                     .build();
             this.vectorSchemaRoot = VectorSchemaRoot.create(arrowSchema, allocator);
+            // The native writer holds several batches at once, so a batch of few rows must not take Arrow's default
+            // capacity. Vectors grow on demand and keep their largest capacity for later batches.
+            int initialCapacity = Math.min(batchSize, INITIAL_VECTOR_CAPACITY);
+            for (FieldVector vector : vectorSchemaRoot.getFieldVectors()) {
+                vector.setInitialCapacity(initialCapacity);
+            }
+            StructField[] fields = schema.fields();
+            this.fieldWriters = new ArrowFieldWriter<?>[fields.length];
+            for (int i = 0; i < fields.length; i++) {
+                fieldWriters[i] = ArrowFieldWriter.create(vectorSchemaRoot.getVector(i), fields[i].dataType());
+            }
 
             logger.debug("Initialized VortexOutputWriter for {}", filePath);
 
@@ -158,7 +155,7 @@ public final class VortexOutputWriter extends OutputWriter {
     /**
      * Writes a single row to the Vortex file.
      *
-     * <p>Rows are batched and converted to Arrow format before writing.
+     * <p>The row is consumed before this method returns: Spark reuses the row object for the next call.
      *
      * @param row the row to write
      */
@@ -168,156 +165,43 @@ public final class VortexOutputWriter extends OutputWriter {
             throw new IllegalStateException(
                     "VortexOutputWriter for " + filePath + " failed on an earlier write", writeFailure);
         }
-        // Add row to current batch
-        batchRows.add(row.copy());
-
-        // Write batch if it's full
-        if (batchRows.size() >= batchSize) {
-            try {
-                writeBatch();
-            } catch (IOException e) {
-                writeFailure = e;
-                throw new UncheckedIOException("Failed to write a Vortex batch to " + filePath, e);
-            } catch (RuntimeException e) {
-                writeFailure = e;
-                throw e;
+        try {
+            if (batchRowCount == 0) {
+                // The native writer keeps the buffers of every batch it is handed, so each batch needs new ones.
+                // ArrowFieldWriter also needs them zeroed, since it leaves null slots untouched.
+                vectorSchemaRoot.allocateNew();
             }
+            for (int i = 0; i < fieldWriters.length; i++) {
+                fieldWriters[i].write(row, i);
+            }
+            batchRowCount++;
+            if (batchRowCount >= batchSize) {
+                writeBatch();
+            }
+        } catch (IOException e) {
+            writeFailure = e;
+            throw new UncheckedIOException("Failed to write a Vortex batch to " + filePath, e);
+        } catch (RuntimeException e) {
+            // A failure part-way through a row leaves the columns of the batch misaligned.
+            writeFailure = e;
+            throw e;
         }
     }
 
-    /** Writes the current batch of rows to the Vortex file. */
+    /** Hands the rows appended since the last batch to the Vortex writer. */
     private void writeBatch() throws IOException {
-        if (batchRows.isEmpty()) {
+        if (batchRowCount == 0) {
             return;
         }
-
-        // Allocate vectors and populate with data from InternalRows
-        vectorSchemaRoot.allocateNew();
-
-        // Populate each field in the schema
-        StructField[] fields = schema.fields();
-        for (int fieldIndex = 0; fieldIndex < fields.length; fieldIndex++) {
-            FieldVector vector = vectorSchemaRoot.getVector(fieldIndex);
-            DataType dataType = fields[fieldIndex].dataType();
-
-            // Populate this vector with data from all rows
-            for (int rowIndex = 0; rowIndex < batchRows.size(); rowIndex++) {
-                InternalRow row = batchRows.get(rowIndex);
-
-                if (row.isNullAt(fieldIndex)) {
-                    vector.setNull(rowIndex);
-                } else {
-                    populateVector(vector, dataType, row, fieldIndex, rowIndex);
-                }
-            }
-        }
-
-        vectorSchemaRoot.setRowCount(batchRows.size());
+        vectorSchemaRoot.setRowCount(batchRowCount);
 
         vortexWriter.writeBatch(vectorSchemaRoot, allocator);
 
         vectorSchemaRoot.clear();
-        batchRows.clear();
-    }
-
-    /** Populates an Arrow vector with a value from an InternalRow. */
-    private void populateVector(
-            FieldVector vector, DataType dataType, SpecializedGetters row, int fieldIndex, int rowIndex) {
-        if (dataType instanceof BooleanType) {
-            ((BitVector) vector).setSafe(rowIndex, row.getBoolean(fieldIndex) ? 1 : 0);
-        } else if (dataType instanceof ByteType) {
-            ((TinyIntVector) vector).setSafe(rowIndex, row.getByte(fieldIndex));
-        } else if (dataType instanceof ShortType) {
-            ((SmallIntVector) vector).setSafe(rowIndex, row.getShort(fieldIndex));
-        } else if (dataType instanceof IntegerType) {
-            ((IntVector) vector).setSafe(rowIndex, row.getInt(fieldIndex));
-        } else if (dataType instanceof LongType) {
-            ((BigIntVector) vector).setSafe(rowIndex, row.getLong(fieldIndex));
-        } else if (dataType instanceof FloatType) {
-            ((Float4Vector) vector).setSafe(rowIndex, row.getFloat(fieldIndex));
-        } else if (dataType instanceof DoubleType) {
-            ((Float8Vector) vector).setSafe(rowIndex, row.getDouble(fieldIndex));
-        } else if (dataType instanceof StringType) {
-            UTF8String str = row.getUTF8String(fieldIndex);
-            if (str != null) {
-                ((VarCharVector) vector).setSafe(rowIndex, str.getBytes());
-            }
-        } else if (dataType instanceof BinaryType) {
-            byte[] bytes = row.getBinary(fieldIndex);
-            if (bytes != null) {
-                ((VarBinaryVector) vector).setSafe(rowIndex, bytes);
-            }
-        } else if (dataType instanceof DateType) {
-            ((DateDayVector) vector).setSafe(rowIndex, row.getInt(fieldIndex));
-        } else if (dataType instanceof TimestampType) {
-            ((TimeStampMicroTZVector) vector).setSafe(rowIndex, row.getLong(fieldIndex));
-        } else if (dataType instanceof TimestampNTZType) {
-            ((TimeStampMicroVector) vector).setSafe(rowIndex, row.getLong(fieldIndex));
-        } else if (dataType instanceof DecimalType decType) {
-            java.math.BigDecimal decimal = row.getDecimal(fieldIndex, decType.precision(), decType.scale())
-                    .toJavaBigDecimal();
-            ((DecimalVector) vector).setSafe(rowIndex, decimal);
-        } else if (dataType instanceof StructType structType) {
-            populateStructVector(
-                    (StructVector) vector, structType, row.getStruct(fieldIndex, structType.fields().length), rowIndex);
-        } else if (dataType instanceof ArrayType arrayType) {
-            ArrayData data = row.getArray(fieldIndex);
-            ListVector listVector = ((ListVector) vector);
-            int writtenElements = listVector.getElementEndIndex(listVector.getLastSet());
-            listVector.startNewValue(rowIndex);
-            FieldVector elementVector = listVector.getDataVector();
-            for (int i = 0; i < data.numElements(); i++) {
-                int elementIndex = writtenElements + i;
-                if (data.isNullAt(i)) {
-                    // Reading a null slot of a fixed-width element returns the zeroed slot, and the
-                    // typed setters mark it valid, so a null element must be written explicitly.
-                    elementVector.setNull(elementIndex);
-                } else {
-                    populateVector(elementVector, arrayType.elementType(), data, i, elementIndex);
-                }
-            }
-            listVector.endValue(rowIndex, data.numElements());
-        } else if (dataType instanceof MapType mapType) {
-            MapData data = row.getMap(fieldIndex);
-            MapVector mapVector = (MapVector) vector;
-            int writtenEntries = mapVector.getElementEndIndex(mapVector.getLastSet());
-            mapVector.startNewValue(rowIndex);
-
-            StructVector entries = (StructVector) mapVector.getDataVector();
-            FieldVector keyVector = entries.getChild(MapVector.KEY_NAME);
-            FieldVector valueVector = entries.getChild(MapVector.VALUE_NAME);
-            ArrayData keys = data.keyArray();
-            ArrayData values = data.valueArray();
-
-            for (int i = 0; i < data.numElements(); i++) {
-                int entryIndex = writtenEntries + i;
-                entries.setIndexDefined(entryIndex);
-                populateVector(keyVector, mapType.keyType(), keys, i, entryIndex);
-                if (values.isNullAt(i)) {
-                    valueVector.setNull(entryIndex);
-                } else {
-                    populateVector(valueVector, mapType.valueType(), values, i, entryIndex);
-                }
-            }
-            mapVector.endValue(rowIndex, data.numElements());
-        } else {
-            // For unsupported types, set null
-            throw new IllegalArgumentException("Unsupported data type: " + dataType);
+        for (ArrowFieldWriter<?> writer : fieldWriters) {
+            writer.reset();
         }
-    }
-
-    private void populateStructVector(StructVector vector, StructType dataType, InternalRow row, int rowIndex) {
-        vector.setIndexDefined(rowIndex);
-
-        StructField[] fields = dataType.fields();
-        for (int fieldIndex = 0; fieldIndex < fields.length; fieldIndex++) {
-            FieldVector childVector = (FieldVector) vector.getVectorById(fieldIndex);
-            if (row.isNullAt(fieldIndex)) {
-                childVector.setNull(rowIndex);
-                continue;
-            }
-            populateVector(childVector, fields[fieldIndex].dataType(), row, fieldIndex, rowIndex);
-        }
+        batchRowCount = 0;
     }
 
     /**
@@ -336,7 +220,7 @@ public final class VortexOutputWriter extends OutputWriter {
         boolean aborting = writeFailure != null || taskFailed();
         IOException failure = null;
 
-        if (!aborting && !batchRows.isEmpty()) {
+        if (!aborting) {
             try {
                 writeBatch();
             } catch (IOException e) {
@@ -408,13 +292,17 @@ public final class VortexOutputWriter extends OutputWriter {
             }
         }
         if (allocator != null) {
-            try {
+            long leftover = allocator.getAllocatedMemory();
+            if (leftover == 0) {
                 allocator.close();
-            } catch (IllegalStateException e) {
-                logger.debug("Allocator closed with outstanding FFI allocations: {}", e.getMessage());
-            } finally {
-                allocator = null;
+            } else {
+                // Left open so a buffer the native side releases late is still freed.
+                logger.warn(
+                        "{} bytes of Arrow memory were still allocated when the writer for {} closed",
+                        leftover,
+                        filePath);
             }
+            allocator = null;
         }
         return failure;
     }

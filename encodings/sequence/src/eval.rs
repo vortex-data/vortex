@@ -68,12 +68,14 @@ pub(crate) fn step_parts(step: PValue) -> Option<(bool, u64)> {
     match_each_pvalue!(
         step,
         uint: |v| { Some((true, v.as_())) },
-        int: |v| {
-            let v: i64 = v.as_();
-            Some((v >= 0, v.unsigned_abs()))
-        },
+        int: |v| { Some(signed_step_parts(v.as_())) },
         float: |_v| { None }
     )
+}
+
+/// Returns a signed step's direction and magnitude.
+fn signed_step_parts(step: i64) -> (bool, u64) {
+    (step >= 0, step.unsigned_abs())
 }
 
 /// The sequence value at `index`, computed modulo `2^bits`.

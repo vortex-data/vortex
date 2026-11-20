@@ -45,6 +45,7 @@ use crate::CompactionStrategy;
 use crate::Format;
 use crate::IdempotentPath;
 use crate::SESSION;
+use crate::tpch::nest::NestedBatchReader;
 use crate::utils::file::idempotent_async;
 use crate::utils::parquet::parquet_writer_properties;
 use crate::utils::split;
@@ -64,6 +65,17 @@ const PARTSUPP_BYTES_SF1: u64 = 27_226_229;
 const ORDERS_BYTES_SF1: u64 = 45_329_810;
 const LINEITEM_BYTES_SF1: u64 = 169_204_254;
 
+/// The shape of the generated tables.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum TableShape {
+    /// The standard flat TPC-H schema.
+    #[default]
+    Flat,
+    /// Keys and the partition column stay at the top level; every other column moves into a
+    /// one-element `<table>_data` list of structs. See [`crate::tpch::nest`].
+    ListOfStruct,
+}
+
 /// Configuration for TPC-H data generation
 #[derive(Debug, Clone)]
 pub struct TpchGenOptions {
@@ -75,6 +87,8 @@ pub struct TpchGenOptions {
     pub format: Format,
     /// Batch size for streaming
     pub batch_size: usize,
+    /// Shape of the generated tables
+    pub shape: TableShape,
 }
 
 impl Default for TpchGenOptions {
@@ -84,6 +98,7 @@ impl Default for TpchGenOptions {
             output_dir: "tpch".to_data_path(),
             format: Format::Parquet,
             batch_size: 8192 * 64,
+            shape: TableShape::Flat,
         }
     }
 }
@@ -104,6 +119,11 @@ impl TpchGenOptions {
 
     pub fn with_batch_size(mut self, batch_size: usize) -> Self {
         self.batch_size = batch_size;
+        self
+    }
+
+    pub fn with_shape(mut self, shape: TableShape) -> Self {
+        self.shape = shape;
         self
     }
 }
@@ -489,7 +509,10 @@ fn create_batch_iterator(
         ),
     };
 
-    Ok(iterator)
+    Ok(match options.shape {
+        TableShape::Flat => iterator,
+        TableShape::ListOfStruct => Box::new(NestedBatchReader::new(generator.name(), iterator)),
+    })
 }
 
 /// Common interface for file writers

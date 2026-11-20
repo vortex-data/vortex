@@ -24,6 +24,7 @@
 mod execute;
 
 mod batch;
+pub(crate) use batch::RowInputs;
 
 mod row_fn;
 pub use row_fn::RowFn;
@@ -52,5 +53,6 @@ mod visitor;
 pub use visitor::RowVisitor;
 
 mod vtable;
+pub(crate) use vtable::execute_row_inputs;
 pub use vtable::execute_rows;
 pub use vtable::row_fn_return_dtype;

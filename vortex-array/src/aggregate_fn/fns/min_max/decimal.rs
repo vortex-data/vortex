@@ -23,10 +23,10 @@ pub(super) fn accumulate_decimal(
     array: &DecimalArray,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<()> {
-    match_each_decimal_value_type!(array.values_type(), |T| {
-        let local = compute_min_max_with_validity::<T>(array, ctx)?;
-        partial.merge(args, local)
-    })
+    let local = match_each_decimal_value_type!(array.values_type(), |T| {
+        compute_min_max_with_validity::<T>(array, ctx)
+    })?;
+    partial.merge(args, local)
 }
 
 fn compute_min_max_with_validity<D>(
@@ -46,21 +46,21 @@ where
 
     let decimal_dtype = array.decimal_dtype();
 
-    Ok(
-        valid_range(array.buffer::<D>().as_slice(), &validity).map(|(min, max)| {
-            let min_scalar = Scalar::decimal(min.into(), decimal_dtype, NonNullable);
-            let max_scalar = if min == max {
-                min_scalar.clone()
-            } else {
-                Scalar::decimal(max.into(), decimal_dtype, NonNullable)
-            };
+    let Some((min, max)) = valid_range(array.buffer::<D>().as_slice(), &validity) else {
+        return Ok(None);
+    };
 
-            MinMaxResult {
-                min: min_scalar,
-                max: max_scalar,
-            }
-        }),
-    )
+    let min_scalar = Scalar::try_decimal(min.into(), decimal_dtype, NonNullable)?;
+    let max_scalar = if min == max {
+        min_scalar.clone()
+    } else {
+        Scalar::try_decimal(max.into(), decimal_dtype, NonNullable)?
+    };
+
+    Ok(Some(MinMaxResult {
+        min: min_scalar,
+        max: max_scalar,
+    }))
 }
 
 /// Returns the smallest and the largest valid value, or `None` when no value is valid.

@@ -20,6 +20,7 @@ use divan::Bencher;
 use mimalloc::MiMalloc;
 use vortex_array::VortexSessionExecute;
 use vortex_array::optimizer::kernels::KernelSession;
+use vortex_array::test_harness::mark_optimized;
 use vortex_array::validity::Validity;
 use vortex_buffer::BitBuffer;
 use vortex_session::VortexSession;
@@ -36,9 +37,14 @@ const SIZES: &[usize] = &[256, 1024];
 
 /// Build an array-backed validity (~10% nulls so it is `Validity::Array`).
 fn array_validity(len: usize) -> Validity {
-    Validity::from(BitBuffer::from_iter(
+    let validity = Validity::from(BitBuffer::from_iter(
         (0..len).map(|i| !i.is_multiple_of(10)),
-    ))
+    ));
+    if let Some(array) = validity.as_array() {
+        mark_optimized(array, &SESSION).unwrap();
+    }
+
+    validity
 }
 
 static SESSION: LazyLock<VortexSession> =

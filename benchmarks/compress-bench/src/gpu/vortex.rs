@@ -29,7 +29,7 @@ use vortex::file::WriteOptionsSessionExt;
 use vortex::layout::layouts::chunked::writer::ChunkedLayoutStrategy;
 use vortex::layout::layouts::compressed::CompressingStrategy;
 use vortex::layout::scan::split_by::SplitBy;
-use vortex_arrow::ArrowSessionExt;
+use vortex_arrow::ExecuteArrowExt;
 use vortex_bench::Format;
 use vortex_bench::SESSION;
 use vortex_bench::compress::Compressed;
@@ -303,11 +303,11 @@ fn verify_field(
     batch_index: usize,
     field_index: usize,
 ) -> Result<()> {
-    let expected = SESSION.arrow().execute_arrow(host.clone(), None, ctx)?;
+    let expected = host.clone().execute_arrow(None, ctx)?;
     // Pin the Arrow target type so the two sides cannot land on different but equivalent
     // encodings of the same logical values.
     let target = Field::new("", expected.data_type().clone(), gpu.dtype().is_nullable());
-    let actual = SESSION.arrow().execute_arrow(gpu, Some(&target), ctx)?;
+    let actual = gpu.execute_arrow(Some(&target), ctx)?;
 
     if expected.to_data() == actual.to_data() {
         return Ok(());

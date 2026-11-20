@@ -6,8 +6,10 @@ use std::ops::BitAnd;
 use std::ops::BitOr;
 use std::ops::Not;
 
+use itertools::Either;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
+use vortex_compute::lane_kernels::for_each_mask_word;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
@@ -26,6 +28,7 @@ use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
+use crate::optimizer::ArrayOptimizer;
 use crate::scalar_fn::fns::zip::ZipKernel;
 use crate::validity::Validity;
 
@@ -66,8 +69,14 @@ impl ZipKernel for ListView {
 
         // `if_false`'s elements share the element dtype up to nullability; normalize so both chunks
         // of the concatenated elements array have an identical dtype.
-        let true_elements = if_true.elements().cast(result_elements_dtype.clone())?;
-        let false_elements = if_false.elements().cast(result_elements_dtype.clone())?;
+        let true_elements = if_true
+            .elements()
+            .cast(result_elements_dtype.clone())?
+            .optimize_ctx(ctx)?;
+        let false_elements = if_false
+            .elements()
+            .cast(result_elements_dtype.clone())?
+            .optimize_ctx(ctx)?;
 
         // `if_false` views index into the second half of the concatenated elements.
         let false_shift = true_elements.len() as u64;
@@ -75,9 +84,7 @@ impl ZipKernel for ListView {
         // Concatenate the two `elements` arrays without copying. If either side is already a
         // `ChunkedArray` (e.g. the result of a previous list-view zip), splice its chunks in
         // directly rather than nesting chunked arrays.
-        let mut chunks = Vec::with_capacity(2);
-        push_element_chunks(true_elements, &mut chunks);
-        push_element_chunks(false_elements, &mut chunks);
+        let chunks = element_chunks(&true_elements).chain(element_chunks(&false_elements));
         let elements = ChunkedArray::try_new(chunks, result_elements_dtype)?.into_array();
 
         let true_offsets = to_u64(if_true.offsets(), ctx)?;
@@ -96,21 +103,15 @@ impl ZipKernel for ListView {
             let offsets_out = offsets.spare_capacity_mut();
             let sizes_out = sizes.spare_capacity_mut();
 
-            // We matched `Mask::Values` above, so the bit buffer is materialized. `unaligned_chunks`
-            // iterates faster than `chunks`: it exposes the byte-aligned body as a plain `&[u64]`
-            // with no per-word reshifting, isolating any bit misalignment into a leading `prefix`
-            // and trailing `suffix` word. We blend both sides branchlessly per row so the compiler
-            // vectorizes the inner select instead of mispredicting a data-dependent branch.
+            // We matched `Mask::Values` above, so the bit buffer is materialized. We blend both
+            // sides branchlessly per row so the compiler vectorizes the inner select instead of
+            // mispredicting a data-dependent branch.
             let mask_bits = mask
                 .values()
                 .vortex_expect("mask is Mask::Values")
                 .bit_buffer();
-            let unaligned = mask_bits.unaligned_chunks();
-            // The prefix word's low `lead` bits are padding; shifting them out aligns row 0 to bit 0,
-            // after which every chunk and the suffix start cleanly on a row boundary.
-            let lead = unaligned.lead_padding();
 
-            let mut select_block = |word: u64, base: usize, n: usize| {
+            for_each_mask_word(mask_bits, |word, base, n| {
                 let end = base + n;
                 // `if_false` views address the second half of the concatenated elements, so shift
                 // their offsets by `false_shift`; sizes are taken verbatim from the chosen side.
@@ -128,21 +129,7 @@ impl ZipKernel for ListView {
                     0,
                     &mut sizes_out[base..end],
                 );
-            };
-
-            let mut base = 0;
-            if let Some(prefix) = unaligned.prefix() {
-                let n = (64 - lead).min(len);
-                select_block(prefix >> lead, base, n);
-                base += n;
-            }
-            for &word in unaligned.chunks() {
-                select_block(word, base, 64);
-                base += 64;
-            }
-            if let Some(suffix) = unaligned.suffix() {
-                select_block(suffix, base, len - base);
-            }
+            });
         }
 
         // SAFETY: `select_column` initialized exactly `len` slots in both buffers.
@@ -190,12 +177,14 @@ fn select_column(
     }
 }
 
-/// Appends `array`'s element chunks to `chunks`, flattening a top-level [`ChunkedArray`] so the
+/// Iterates over `array`'s element chunks, flattening a top-level [`ChunkedArray`] so the
 /// concatenated elements never nest chunked arrays.
-fn push_element_chunks(array: ArrayRef, chunks: &mut Vec<ArrayRef>) {
+fn element_chunks(array: &ArrayRef) -> impl Iterator<Item = ArrayRef> + '_ {
     match array.as_opt::<Chunked>() {
-        Some(chunked) => chunks.extend(chunked.iter_chunks().cloned()),
-        None => chunks.push(array),
+        Some(chunked) => {
+            Either::Left((0..chunked.nchunks()).map(move |i| chunked.chunk(i).clone()))
+        }
+        None => Either::Right(std::iter::once(array.clone())),
     }
 }
 
@@ -260,6 +249,7 @@ mod tests {
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
+    use crate::optimizer::ArrayOptimizer;
     use crate::validity::Validity;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
@@ -509,7 +499,8 @@ mod tests {
             .collect();
         let mask = BoolArray::from_iter(mask_bits.iter().copied())
             .into_array()
-            .slice(offset..offset + len)?;
+            .slice(offset..offset + len)?
+            .optimize_ctx(&SESSION)?;
 
         let result = mask.zip(if_true, if_false)?.execute::<ArrayRef>(&mut ctx)?;
         assert!(result.is::<ListView>());
