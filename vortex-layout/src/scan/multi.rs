@@ -33,6 +33,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use futures::FutureExt;
 use futures::StreamExt;
+use futures::TryStreamExt;
 use futures::stream;
 use itertools::Itertools;
 use tracing::Instrument;
@@ -67,6 +68,13 @@ use crate::LayoutReaderRef;
 use crate::scan::layout::group_contiguous;
 use crate::scan::limit::RowLimit;
 use crate::scan::scan_builder::ScanBuilder;
+
+/// How many files each clone of an unordered scan's opened stream reads at once.
+///
+/// This matches the read-ahead of the DataFusion `VortexTable` path on develop
+/// (`SCAN_PARTITION_READ_AHEAD`), so that reading a scan through `open` and through `split`
+/// behaves the same.
+const PARTITION_READ_AHEAD: usize = 2;
 
 /// Default concurrency for opening deferred readers.
 const DEFAULT_CONCURRENCY: usize = 8;
@@ -554,8 +562,28 @@ impl DataSourceScan for MultiLayoutScan {
 
     /// Opens the scan into its partition pipeline, which opens up to `concurrency` files ahead
     /// and reads each file as one partition, handing the partitions to the stream's clones.
+    ///
+    /// Each clone of an unordered scan without a limit reads [`PARTITION_READ_AHEAD`] files at
+    /// once, each with its own split concurrency, so that one file's last splits overlap the
+    /// next file's first. An ordered scan must finish a file before it starts the next, and a
+    /// limited one would read files the limit may never need, so both read one at a time.
     fn open(self: Box<Self>) -> VortexResult<ScanStream> {
-        Ok(ScanStream::from_partitions(self))
+        if self.request.ordered || self.request.limit.is_some() {
+            return Ok(ScanStream::from_partitions(self));
+        }
+        let dtype = self.dtype.clone();
+        let partitions = Arc::new(futures::lock::Mutex::new(self.partitions()));
+        Ok(ScanStream::new(dtype, move || {
+            stream::unfold(Arc::clone(&partitions), |shared| async move {
+                let next = shared.lock().await.next().await?;
+                Some((next, shared))
+            })
+            .map(|partition| partition.and_then(|partition| partition.execute()))
+            // Matches the DataFusion `VortexTable` path's read-ahead on develop, so a scan read
+            // through `open` behaves as one read through `split`.
+            .try_flatten_unordered(Some(PARTITION_READ_AHEAD))
+            .boxed()
+        }))
     }
 
     fn partition_count(&self) -> Precision<usize> {
@@ -1119,6 +1147,53 @@ mod tests {
         }
         values.sort_unstable();
         assert_eq!(values, [0, 1, 10, 11, 20, 21]);
+        Ok(())
+    }
+
+    /// A clone of an unordered scan's opened stream reads two files at once, each with its own
+    /// split concurrency. An ordered scan reads one file at a time.
+    #[rstest]
+    #[case::unordered(false, 2)]
+    #[case::ordered(true, 1)]
+    fn opened_stream_reads_files_ahead(
+        #[case] ordered: bool,
+        #[case] expected_peak: usize,
+    ) -> VortexResult<()> {
+        let runtime = SingleThreadRuntime::default();
+        let session = session_with_handle(runtime.handle());
+        let in_flight = Arc::new(InFlight::default());
+        let file = |base: i32| {
+            Arc::new(
+                TestLayoutReader::new(8)
+                    .with_split_size(1)
+                    .with_base(base)
+                    .with_in_flight(Arc::clone(&in_flight)),
+            ) as LayoutReaderRef
+        };
+        let rest = (1..3)
+            .map(|i| {
+                Arc::new(StaticReaderFactory {
+                    reader: file(10 * i),
+                }) as Arc<dyn LayoutReaderFactory>
+            })
+            .collect();
+        let source = MultiLayoutDataSource::new_with_first(file(0), rest, vec![], &session);
+
+        let stream = runtime
+            .block_on(source.scan(ScanRequest {
+                ordered,
+                split_concurrency: NonZeroUsize::new(1),
+                ..Default::default()
+            }))?
+            .open()?;
+        let mut values = collect_scan_values(runtime.block_on_stream(stream))?;
+        values.sort_unstable();
+        let expected: Vec<i32> = [0, 10, 20]
+            .into_iter()
+            .flat_map(|base| base..base + 8)
+            .collect();
+        assert_eq!(values, expected);
+        assert_eq!(in_flight.peak(), expected_peak, "splits read at once");
         Ok(())
     }
 

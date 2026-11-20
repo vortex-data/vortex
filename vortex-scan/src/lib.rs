@@ -178,11 +178,12 @@ pub struct ScanRequest {
     /// order is completion order, so each partition applies the limit locally and the caller must
     /// trim the concatenated result.
     pub limit: Option<u64>,
-    /// The most splits that each worker decodes at once, where a worker is a partition or a
-    /// clone of an opened scan's stream.
+    /// The most splits decoded at once for each partition being read, or for each clone of an
+    /// opened scan's stream that reads a single queue of splits.
     ///
-    /// It bounds each worker on its own, not the whole scan: a scan read by several workers
-    /// decodes up to this many splits in each. `None` keeps the source's default. Each
+    /// It does not bound the whole scan: a scan read by several workers decodes up to this many
+    /// splits for each partition each worker is reading, and a worker may read more than one
+    /// partition at once. `None` keeps the source's default. Each
     /// split being decoded holds the decoded chunks of every column it overlaps, so a scan that
     /// runs alongside others, such as one task of several on a machine, can set this to bound its
     /// memory. It does not bound I/O: segment reads for later splits may still be coalesced ahead
@@ -212,8 +213,9 @@ pub type DataSourceScanRef = Box<dyn DataSourceScan>;
 /// A data source scan reads data from the source.
 ///
 /// Each host reads every scan the same way, whatever the source: its execution model is fixed.
-/// A partition-based host, such as DataFusion, always [splits](Self::split) the scan into one
-/// piece per partition and reads each piece as a stream. A morsel-based host, such as DuckDB,
+/// A host that reads a fixed number of streams always [splits](Self::split) the scan into that
+/// many pieces and reads each piece as a stream; DataFusion's count is its output partition
+/// count. A morsel-based host, such as DuckDB,
 /// never splits: it [opens](Self::open) the scan once and has each of its threads poll a clone
 /// of the returned [`ScanStream`]. The host states the properties it needs, such as row order
 /// or a limit, on the [`ScanRequest`], and the source decides what the pieces are and how they
