@@ -4,17 +4,20 @@
 //! Contracts and execution context for pipeline sources and operators.
 
 use std::collections::VecDeque;
+use std::ops::Range;
 
 use smallvec::SmallVec;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::buffer::BufferHandle;
 use vortex_error::VortexResult;
+use vortex_mask::Mask;
 use vortex_session::VortexSession;
 
 use super::pipeline::Arena;
 use super::pipeline::Inlet;
 use super::pipeline::PortId;
+use crate::plan::PlanRef;
 use crate::source::SegmentId;
 
 /// The output of one non-blocking compute call.
@@ -59,6 +62,10 @@ pub trait Source: Operator {
     /// `SourceReady::Blocked(SourceBlocked::Io)`. The driver issues newly queued reads
     /// before waiting. Readiness is checked again when bytes are available, including bytes
     /// already delivered; they are available through [`Cx::take_segment`] in arrival order.
+    ///
+    /// Compile more of the plan with [`Cx::compile`] and return
+    /// [`SourceReady::Blocked`]: the driver attaches the compiled pipelines as new inlets
+    /// before readiness is checked again.
     fn ready(&mut self, _cx: &mut Cx<'_>) -> VortexResult<SourceReady> {
         Ok(SourceReady::Ready)
     }
@@ -134,6 +141,13 @@ impl InletSet {
         Some(index)
     }
 
+    /// Makes room for inlet indices below `inlets`.
+    pub(crate) fn grow(&mut self, inlets: usize) {
+        if inlets > self.positions.len() {
+            self.positions.resize(inlets, usize::MAX);
+        }
+    }
+
     pub(crate) fn indices(&self) -> &[usize] {
         &self.indices
     }
@@ -146,6 +160,15 @@ impl InletSet {
     }
 }
 
+/// A compile a source asked for with [`Cx::compile`], carried out by the scan once the source's
+/// run ends.
+pub(crate) struct Deferred {
+    pub(crate) plan: PlanRef,
+    pub(crate) rows: Range<u64>,
+    pub(crate) mask: Mask,
+    pub(crate) capacity: usize,
+}
+
 /// What a source or stage may touch during one call: its pipeline's inlets, the bytes the
 /// source asked for, and the session.
 pub struct Cx<'a> {
@@ -153,6 +176,7 @@ pub struct Cx<'a> {
     pub(crate) inlets: &'a [PortId],
     pub(crate) bytes: &'a mut VecDeque<(SegmentId, BufferHandle)>,
     pub(crate) reads: &'a mut SmallVec<[SegmentId; 1]>,
+    pub(crate) compiles: &'a mut Vec<Deferred>,
     pub(crate) session: &'a VortexSession,
     pub(crate) exec: &'a mut ExecutionCtx,
     pub(crate) touched: &'a mut InletSet,
@@ -173,6 +197,36 @@ impl Cx<'_> {
     /// this call.
     pub fn request_read(&mut self, segment: SegmentId) {
         self.reads.push(segment);
+    }
+
+    /// Asks the scan to compile `plan` over `rows` of its domain, restricted to `mask`, once
+    /// this run of the source ends, and returns the index of the inlet the compiled rows arrive
+    /// on, in row order, holding `capacity` batches before its sink is blocked. `mask` is as
+    /// long as `rows`.
+    ///
+    /// Callable only from [`Source::ready`], which must then return
+    /// [`SourceReady::Blocked`]: on the new inlet, on another inlet, or on IO with reads also
+    /// queued. A compile that selects no row gives an inlet that is already closed, and the
+    /// source runs again to see it. A compile error fails the scan.
+    ///
+    /// Segments read by such a compile are not reported by
+    /// [`Scan::segments`](crate::execution::pipeline::Scan::segments), which compiles a plan
+    /// without running its sources.
+    pub fn compile(
+        &mut self,
+        plan: &PlanRef,
+        rows: Range<u64>,
+        mask: Mask,
+        capacity: usize,
+    ) -> usize {
+        let index = self.inlets.len() + self.compiles.len();
+        self.compiles.push(Deferred {
+            plan: plan.clone(),
+            rows,
+            mask,
+            capacity,
+        });
+        index
     }
 
     /// Whether a requested segment has arrived and can be taken.

@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Compiling plans into pipelines, and counting the readers of each segment so segments read
-//! more than once are decoded once.
+//! Compiling plans into pipelines, recording the segments their sources will read.
 
 use std::ops::Range;
 

@@ -47,8 +47,8 @@ impl Core {
     }
 
     /// Checks what one run of pipeline `id` reported: a source waits only on a condition some
-    /// other event will clear.
-    pub(super) fn validate_progress(&self, id: PipelineId, progress: &Progress) {
+    /// other event will clear. Inlets from `attached` on were attached by this run.
+    pub(super) fn validate_progress(&self, id: PipelineId, progress: &Progress, attached: usize) {
         let pipe = self.pipeline(id);
         match progress {
             Progress::Blocked(SourceBlocked::Inlet(index)) => {
@@ -60,9 +60,10 @@ impl Core {
                 let port = pipe.inlets[*index];
                 let queue = self.arena.get(port);
                 // Only the sink pushing or closing wakes the source, and it can do neither
-                // into a closed or full port.
+                // into a closed or full port. An inlet this run attached closed is the
+                // exception: the scheduler wakes the source to see it.
                 assert!(
-                    !queue.closed(),
+                    !queue.closed() || *index >= attached,
                     "pipeline {id} waits on inlet {index} (port {port}), which is closed"
                 );
                 assert!(

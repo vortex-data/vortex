@@ -21,22 +21,24 @@
 //! # Masks
 //!
 //! Every mask a scan applies is known when the pipelines that apply it are compiled: the split's
-//! selection, and the rows the earlier conjuncts kept. The
-//! compiler places the mask in the stage that reads the rows, so chunks a mask selects nothing
-//! of are never built and never read.
+//! selection, the rows the earlier conjuncts kept, and the rows a running source computed for a
+//! compile it asked for. The compiler places the mask in the stage that reads the rows, so chunks
+//! a mask selects nothing of are never built and never read.
 //!
-//! # Sharing
+//! # Compiling at run time
 //!
-//! A segment several readers decode is decoded once. Before the scan starts, one pass over the
-//! plans every split's stages run records the rows each segment is read for, so the splits that
-//! will read it are found by binary search over the splits. The first reader of a segment read
-//! more than once builds one pipeline that decodes it and fans the decoded array out into one
-//! single-use port per reader, tagged with the reader's split: a reader in the same stage, a
-//! later stage of a query, or a later split claims its own port. A split's ports it never
-//! claims, because its rows were pruned or a stage never ran, leave the sharing pipeline's
-//! outlets and are freed when it finishes, so nothing is ever pushed into a port nobody will
-//! read, and a claimed port is dropped once its source has drained it, so a decoded segment
-//! lives only as long as a split that may still read it.
+//! A split's pipelines are compiled before any of them runs, except where the rows to read depend
+//! on data: a list's elements depend on its offsets. A source then asks for more of the plan to
+//! be compiled with [`Cx::compile`](super::operator::Cx::compile), over rows and a mask it
+//! computed. Between runs, the scan compiles it into ordinary pipelines writing a new inlet of
+//! that source, so the source reads the result like any other inlet. Only the scan changes the
+//! pipeline graph, and only between runs.
+//!
+//! # Segments
+//!
+//! Each source reads the segments it needs: a segment two sources need is asked for by each.
+//! Reading a segment twice is left to the scan's owner to make cheap, as by keeping recently read
+//! segments; decoded arrays are shared only as whole values, through the [`ValueCache`].
 
 mod compile;
 pub(crate) mod port;
@@ -60,6 +62,9 @@ pub use self::values::ValueCache;
 /// Batches an inlet holds before its sink is blocked, unless the plan joining it says
 /// otherwise; see [`Compiler::join_with`].
 pub const DEFAULT_CAPACITY: usize = 8;
+
+#[cfg(test)]
+mod deferred_tests;
 
 #[cfg(test)]
 mod scheduling_tests;

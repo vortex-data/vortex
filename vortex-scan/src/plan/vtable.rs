@@ -109,6 +109,9 @@ pub trait PlanVTable: 'static + Clone + Sized + Send + Sync + Debug {
     ///
     /// A plan compiles its children through `compiler` and either adds stages to a child's
     /// chain or joins several children's chains with a source of its own. Compiling does no IO.
+    /// A source may compile more of the plan at run time, over rows it computed from data,
+    /// through [`Cx::compile`](crate::execution::operator::Cx::compile). Such compiles are
+    /// invisible to [`Scan::segments`](crate::execution::pipeline::Scan::segments).
     ///
     /// Pipelines have no absent inputs: a plan that joins its children compiles
     /// [`Plan::children`], the present slots in slot order, so inlet `i` of its source reads the
