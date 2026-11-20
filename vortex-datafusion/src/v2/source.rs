@@ -1076,8 +1076,7 @@ mod tests {
     use vortex::scan::Partition;
     use vortex::scan::PartitionRef;
     use vortex::scan::PartitionStream;
-    use vortex::scan::pool::PartitionPool;
-    use vortex::scan::pool::ScanPoolRef;
+    use vortex::scan::pool::ScanStream;
     use vortex::session::VortexSession;
     use vortex_arrow::ArrowSessionExt;
 
@@ -1228,8 +1227,8 @@ mod tests {
             Ok(vec![self])
         }
 
-        fn open(self: Box<Self>) -> VortexResult<ScanPoolRef> {
-            Ok(Arc::new(PartitionPool::new(self)))
+        fn open(self: Box<Self>) -> VortexResult<ScanStream> {
+            Ok(ScanStream::from_partitions(self))
         }
 
         fn partition_count(&self) -> Precision<usize> {
