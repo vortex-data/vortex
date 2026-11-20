@@ -408,7 +408,9 @@ impl DataSourceScan for LayoutReaderScan {
     }
 
     /// Opens the scan into a stream over a [`SplitQueue`] of its split futures, each clone of the
-    /// stream keeping the stream pipeline's per-thread count of them in flight.
+    /// stream keeping the request's `split_concurrency` of them in flight, or the stream
+    /// pipeline's per-thread count when the request leaves it unset. A host that reads the scan
+    /// through one stream sets it to the splits it wants in flight in all.
     ///
     /// Split futures cannot share a limit, and the clones of a queue finish splits out of row
     /// order. So a scan with a limit, or an ordered one, opens into its partition pipeline and
@@ -417,12 +419,9 @@ impl DataSourceScan for LayoutReaderScan {
         if self.remaining_limit.is_some() || self.ordered {
             return Ok(ScanStream::from_partitions(self));
         }
-        // A cap on the scan's splits in flight also caps each clone's.
         let per_worker = self
             .split_concurrency
-            .map_or(DEFAULT_SPLITS_PER_THREAD, |max| {
-                max.get().min(DEFAULT_SPLITS_PER_THREAD)
-            });
+            .map_or(DEFAULT_SPLITS_PER_THREAD, NonZeroUsize::get);
         let splits = self
             .builder()
             .prepare()?

@@ -553,7 +553,7 @@ impl FileOpener for VortexOpener {
                     // Residual filters need the full scan output before DataFusion applies the
                     // limit.
                     limit: limit.filter(|_| residual_filter.is_none()),
-                    split_concurrency: scan_concurrency.and_then(NonZeroUsize::new),
+                    split_concurrency: splits_in_flight(scan_concurrency),
                     ..ScanRequest::default()
                 };
                 if let Some(selection) = file
@@ -813,15 +813,28 @@ async fn natural_splits_for_file(
     ))
 }
 
+/// The splits a V1 scan keeps in flight per thread when `scan_concurrency` is unset, the scan
+/// pipeline's default.
+const SPLITS_PER_THREAD: usize = 4;
+
+/// The splits a partition's V1 scan keeps in flight in all: `scan_concurrency`, or
+/// [`SPLITS_PER_THREAD`], for each thread of the machine.
+///
+/// The partition reads its scan through one stream, so the request's `split_concurrency` is the
+/// partition's total.
+fn splits_in_flight(scan_concurrency: Option<usize>) -> Option<NonZeroUsize> {
+    let per_thread = scan_concurrency
+        .filter(|&concurrency| concurrency > 0)
+        .unwrap_or(SPLITS_PER_THREAD);
+    NonZeroUsize::new(per_thread.saturating_mul(get_available_parallelism().unwrap_or(1)))
+}
+
 /// Reads `request` from `data_source` as Arrow batches with `schema`.
 ///
 /// The scan is planned and opened when the stream is first polled, so that it sees the dynamic
 /// filters as they are when the file's turn comes, not when DataFusion opens the file ahead.
-/// Opening walks the layout and builds the split tasks, so it runs where compute runs.
-///
-/// An unordered scan without a limit is polled through one clone of its stream per core, each
-/// converting its own arrays, which keeps as many splits in flight for the partition as a scan
-/// pipeline does. An ordered or limited scan is one piece, read through one clone.
+/// Opening walks the layout and builds the split tasks, so it runs where compute runs. The
+/// partition reads one stream of the scan, and converts up to one array per thread at once.
 fn read_data_source(
     data_source: Arc<LayoutReaderDataSource>,
     request: ScanRequest,
@@ -830,22 +843,11 @@ fn read_data_source(
 ) -> BoxStream<'static, VortexResult<RecordBatch>> {
     let source = Arc::clone(&data_source);
     let batches = stream::once(async move {
-        let single = request.ordered || request.limit.is_some();
         let scan = source.scan(request).await?;
         let arrays = session.handle().spawn_cpu(move || scan.open()).await?;
-        let parallelism = get_available_parallelism().unwrap_or(1).max(1);
-        let batches = if single {
-            let concurrency = NonZeroUsize::new(parallelism).unwrap_or(NonZeroUsize::MIN);
-            arrays.to_arrow(&session, Some(schema), concurrency)
-        } else {
-            stream::select_all((0..parallelism).map(|_| {
-                arrays
-                    .clone()
-                    .to_arrow(&session, Some(Arc::clone(&schema)), NonZeroUsize::MIN)
-            }))
-            .boxed()
-        };
-        VortexResult::Ok(batches)
+        let concurrency = NonZeroUsize::new(get_available_parallelism().unwrap_or(1))
+            .unwrap_or(NonZeroUsize::MIN);
+        VortexResult::Ok(arrays.to_arrow(&session, Some(schema), concurrency))
     })
     .try_flatten();
     // Hold the source until the stream ends, so that the file's other partitions share it.
