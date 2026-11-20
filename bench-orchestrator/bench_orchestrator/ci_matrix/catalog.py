@@ -12,7 +12,7 @@ from dataclasses import replace
 from ..config import Benchmark, Engine, Format
 from .model import BenchmarkCase, Catalog, Coverage, Storage
 from .render import merge_coverage
-from .targets import df, duck, targets
+from .targets import df, duck, scan_api, targets
 
 PRESETS = {
     "develop": "Every regular SQL benchmark at full target coverage.",
@@ -59,6 +59,18 @@ COMPACT_TARGETS = df(Format.PARQUET, Format.VORTEX_COMPACT) | duck(
     Format.PARQUET,
     Format.VORTEX_COMPACT,
 )
+
+# DataFusion through the Scan API (`VortexTable` over `MultiFileDataSource`), beside the default
+# FileOpener target on the same files. It runs the V1 scan whatever the suite's engine, so compare it
+# with its own history, not with the V2 `datafusion:vortex` row; see `uses_scan_v2`. It runs only on
+# ClickBench and TPC-H NVMe, to keep PR benchmark time down.
+SCAN_API_TARGETS = scan_api(Engine.DATAFUSION, Format.VORTEX)
+
+
+def with_scan_api(coverage: Coverage) -> Coverage:
+    """Add the DataFusion Scan API target to `coverage`."""
+    return replace(coverage, targets=coverage.targets | SCAN_API_TARGETS)
+
 
 DEFAULT = Coverage(DEFAULT_TARGETS)
 STANDARD = Coverage(STANDARD_TARGETS)
@@ -110,10 +122,10 @@ BENCHMARKS = (
         name="Clickbench on NVME",
         dataset_dir="clickbench_partitioned",
         runs={
-            "pr": DEFAULT,
+            "pr": with_scan_api(DEFAULT),
             "pr-compact": COMPACT,
-            "pr-full": DEFAULT_WITH_DUCKDB_PR_FULL,
-            "develop": FULL_LOCAL,
+            "pr-full": with_scan_api(DEFAULT_WITH_DUCKDB_PR_FULL),
+            "develop": with_scan_api(FULL_LOCAL),
         },
     ),
     BenchmarkCase(
@@ -133,10 +145,10 @@ BENCHMARKS = (
         scale_factor=1.0,
         iterations=10,
         runs={
-            "pr": DEFAULT,
+            "pr": with_scan_api(DEFAULT),
             "pr-compact": COMPACT,
-            "pr-full": FULL_PR,
-            "develop": FULL_LOCAL,
+            "pr-full": with_scan_api(FULL_PR),
+            "develop": with_scan_api(FULL_LOCAL),
         },
     ),
     BenchmarkCase(
@@ -188,7 +200,7 @@ BENCHMARKS = (
         benchmark=Benchmark.TPCH,
         name="TPC-H on NVME",
         scale_factor=100,
-        runs={"nightly": DEFAULT},
+        runs={"nightly": with_scan_api(DEFAULT)},
     ),
     BenchmarkCase(
         id="tpch-s3",

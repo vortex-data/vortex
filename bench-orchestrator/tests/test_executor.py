@@ -1,12 +1,14 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+import json
+import os
 import sys
 import textwrap
 from pathlib import Path
 
 import pytest
-from bench_orchestrator.config import BENCHMARK_SCAN_V1, Benchmark, Engine, Format
+from bench_orchestrator.config import BENCHMARK_SCAN_V1, Benchmark, Engine, Format, Integration
 from bench_orchestrator.runner.executor import BenchmarkExecutor
 
 
@@ -130,3 +132,58 @@ def test_run_streams_logs_without_counting_them(tmp_path: Path) -> None:
 
     assert results == ['{"engine":"duckdb","format":"parquet","query":0}']
     assert streamed == results
+
+
+@pytest.mark.parametrize("benchmark", [Benchmark.CLICKBENCH, Benchmark.TPCH])
+def test_scan_api_runs_vortex_table_on_the_v1_scan(benchmark: Benchmark, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("VORTEX_USE_SCAN_API", raising=False)
+    executor = BenchmarkExecutor(Path("/tmp/datafusion-bench"), Engine.DATAFUSION)
+
+    cmd = executor.build_command(benchmark=benchmark, formats=[Format.VORTEX], integration=Integration.SCAN_API)
+    env = executor.build_env(Integration.SCAN_API)
+
+    # `datafusion-bench` takes `VortexTable` only with both: the variable alone runs FileOpener.
+    assert cmd[cmd.index("--scan-v1") + 1] == "true"
+    assert env["VORTEX_USE_SCAN_API"] == "1"
+
+
+def test_default_integration_clears_a_stray_scan_api_export(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("VORTEX_USE_SCAN_API", "1")
+    executor = BenchmarkExecutor(Path("/tmp/datafusion-bench"), Engine.DATAFUSION)
+
+    env = executor.build_env()
+
+    assert "VORTEX_USE_SCAN_API" not in env
+    assert env["PATH"] == os.environ["PATH"]
+
+
+def test_scan_api_is_rejected_by_backends_without_it() -> None:
+    executor = BenchmarkExecutor(Path("/tmp/duckdb-bench"), Engine.DUCKDB)
+
+    with pytest.raises(ValueError, match="duckdb cannot run the scan-api integration"):
+        _ = executor.build_command(benchmark=Benchmark.TPCH, formats=[Format.VORTEX], integration=Integration.SCAN_API)
+
+
+def test_run_passes_the_integration_environment(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("VORTEX_USE_SCAN_API", raising=False)
+    script = tmp_path / "fake-bench.py"
+    script.write_text(
+        textwrap.dedent(
+            f"""\
+            #!{sys.executable}
+            import json, os, sys
+
+            print(json.dumps({{"scan_api": os.environ.get("VORTEX_USE_SCAN_API"), "args": sys.argv[1:]}}))
+            """
+        )
+    )
+    script.chmod(0o755)
+    executor = BenchmarkExecutor(script, Engine.DATAFUSION)
+
+    (line,) = executor.run(
+        benchmark=Benchmark.TPCH, formats=[Format.VORTEX], iterations=1, integration=Integration.SCAN_API
+    )
+
+    record = json.loads(line)
+    assert record["scan_api"] == "1"
+    assert record["args"][record["args"].index("--scan-v1") + 1] == "true"

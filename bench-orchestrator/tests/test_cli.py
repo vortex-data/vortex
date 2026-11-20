@@ -170,3 +170,67 @@ def test_format_query_reading_summarizes_runtimes() -> None:
 def test_format_query_reading_without_timing() -> None:
     memory = json.dumps({"name": "tpch_q01 memory", "unit": "bytes", "value": 1024})
     assert cli_module.format_query_reading([memory]) == "no timing reported"
+
+
+def test_run_keeps_scan_api_results_apart_from_the_default_target(tmp_path, monkeypatch) -> None:
+    run_store = ResultStore(base_dir=tmp_path / "runs")
+    output_path = tmp_path / "artifacts" / "results.json"
+    ingest_path = tmp_path / "artifacts" / "results.ingest.jsonl"
+    binary_path = tmp_path / "datafusion-bench"
+    binary_path.write_text("", encoding="utf-8")
+
+    monkeypatch.setattr(cli_module, "ResultStore", lambda: run_store)
+    monkeypatch.setattr(cli_module.BenchmarkBuilder, "get_binary_path", lambda self, backend: binary_path)
+    monkeypatch.setattr(cli_module, "drop_os_caches", lambda: None)
+    monkeypatch.setattr(BenchmarkExecutor, "list_queries", lambda self, *args, **kwargs: [1])
+
+    seen_integrations = []
+
+    def fake_run(self, **kwargs: object) -> list[str]:
+        # The binary labels both paths identically; only the orchestrator knows the integration.
+        seen_integrations.append(kwargs["integration"].value)
+        line = json.dumps(
+            {
+                "name": "tpch_q01/datafusion:vortex-file-compressed",
+                "unit": "ns",
+                "value": 100,
+                "all_runtimes": [100],
+                "target": {"engine": "datafusion", "format": "vortex-file-compressed"},
+            }
+        )
+        kwargs["on_result"](line)
+        record = {"kind": "query_measurement", "engine": "datafusion", "format": "vortex-file-compressed"}
+        kwargs["ingest_output"].write_text(json.dumps(record) + "\n", encoding="utf-8")
+        return [line]
+
+    monkeypatch.setattr(BenchmarkExecutor, "run", fake_run)
+
+    result = runner.invoke(
+        cli_module.app,
+        [
+            "run",
+            "tpch",
+            "--targets-json",
+            '[{"engine":"datafusion","format":"vortex"},'
+            '{"engine":"datafusion","format":"vortex","integration":"scan-api"}]',
+            "--no-build",
+            "--output",
+            str(output_path),
+            "--ingest-jsonl",
+            str(ingest_path),
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    assert seen_integrations == ["default", "scan-api"]
+    results = [json.loads(line) for line in output_path.read_text(encoding="utf-8").splitlines()]
+    assert [record["name"] for record in results] == [
+        "tpch_q01/datafusion:vortex-file-compressed",
+        "tpch_q01/datafusion:vortex-file-compressed [scan-api]",
+    ]
+    ingest = [json.loads(line) for line in ingest_path.read_text(encoding="utf-8").splitlines()]
+    assert [record["format"] for record in ingest] == [
+        "vortex-file-compressed",
+        "vortex-file-compressed [scan-api]",
+    ]
+    assert "datafusion:vortex [scan-api] V1" in result.stdout

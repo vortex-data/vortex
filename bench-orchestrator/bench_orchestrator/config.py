@@ -48,6 +48,20 @@ class Format(Enum):
     LANCE = "lance"
 
 
+class Integration(Enum):
+    """How an engine reaches Vortex files.
+
+    The files on disk are the same for every integration; only the engine-side code path differs.
+    """
+
+    # The engine's established path: DataFusion's `FileFormat`/`FileOpener` behind a
+    # `ListingTable`, and DuckDB's table function.
+    DEFAULT = "default"
+    # The Scan API (`DataSourceScan::split`/`open`): DataFusion's `VortexTable` over a
+    # `MultiFileDataSource`.
+    SCAN_API = "scan-api"
+
+
 class Benchmark(Enum):
     """Available benchmark suites."""
 
@@ -105,8 +119,22 @@ BENCHMARK_SCAN_V1: frozenset[Benchmark] = frozenset(
 )
 
 
-def uses_scan_v2(benchmark: Benchmark) -> bool:
-    """Return whether `benchmark` runs its Vortex scans on the V2 scan."""
+# Engine/format pairs each non-default integration supports. A DuckDB Scan API target needs only an
+# entry here plus its switch in `BenchmarkExecutor`, once DuckDB has a `DataSource` table function.
+INTEGRATION_TARGETS: dict[Integration, dict[Engine, frozenset[Format]]] = {
+    Integration.SCAN_API: {
+        Engine.DATAFUSION: frozenset({Format.VORTEX, Format.VORTEX_COMPACT}),
+    },
+}
+
+
+def uses_scan_v2(benchmark: Benchmark, integration: Integration = Integration.DEFAULT) -> bool:
+    """Return whether `benchmark` runs its Vortex scans on the V2 scan through `integration`."""
+    # `VortexTable` reaches only the V1 scan today: `MultiFileDataSource` opens `LayoutReader`s,
+    # and `datafusion-bench` picks it only under `--scan-v1 true`. Once the V2 scan sits behind
+    # `split`/`open`, Scan API targets should follow the suite's engine like the others.
+    if integration is Integration.SCAN_API:
+        return False
     return benchmark not in BENCHMARK_SCAN_V1
 
 
@@ -131,15 +159,16 @@ def _unique_preserve_order(values: Iterable[T]) -> list[T]:
 
 @dataclass(frozen=True)
 class BenchmarkTarget:
-    """An explicit engine/format benchmark target."""
+    """An explicit engine/format benchmark target, reached through one integration."""
 
     engine: Engine
     format: Format
+    integration: Integration = Integration.DEFAULT
 
     def normalized(self) -> "BenchmarkTarget":
         """Normalize legacy lance targets onto the logical CI identity."""
         if self.engine == Engine.LANCE and self.format == Format.LANCE:
-            return BenchmarkTarget(engine=Engine.DATAFUSION, format=Format.LANCE)
+            return BenchmarkTarget(engine=Engine.DATAFUSION, format=Format.LANCE, integration=self.integration)
         return self
 
     @property
@@ -155,13 +184,35 @@ class BenchmarkTarget:
         raise ValueError(f"Unsupported benchmark target: {target}")
 
     def is_supported(self) -> bool:
-        """Return whether the logical engine supports this format."""
+        """Return whether the logical engine supports this format through this integration."""
         target = self.normalized()
-        return target.format in ENGINE_FORMATS.get(target.engine, [])
+        if target.format not in ENGINE_FORMATS.get(target.engine, []):
+            return False
+        if target.integration is Integration.DEFAULT:
+            return True
+        return target.format in INTEGRATION_TARGETS.get(target.integration, {}).get(target.engine, frozenset())
+
+    def uses_scan_v2(self, benchmark: Benchmark) -> bool:
+        """Return whether this target's Vortex scans run on the V2 scan in `benchmark`."""
+        return uses_scan_v2(benchmark, self.integration)
+
+    def result_format(self, format_name: str) -> str:
+        """Return the format label results record for this target, given the binary's label.
+
+        The benchmark binaries label results by engine and format alone, so a non-default
+        integration would collide with the default target's rows. The integration is appended to
+        the format, which keeps the row under its engine's Parquet controls in comparisons.
+        """
+        if self.integration is Integration.DEFAULT:
+            return format_name
+        return f"{format_name} [{self.integration.value}]"
 
     def to_dict(self) -> dict[str, str]:
         target = self.normalized()
-        return {"engine": target.engine.value, "format": target.format.value}
+        data = {"engine": target.engine.value, "format": target.format.value}
+        if target.integration is not Integration.DEFAULT:
+            data["integration"] = target.integration.value
+        return data
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "BenchmarkTarget":
@@ -171,6 +222,7 @@ class BenchmarkTarget:
             target = cls(
                 engine=Engine(data["engine"]),
                 format=Format(data["format"]),
+                integration=Integration(data.get("integration", Integration.DEFAULT.value)),
             )
         except KeyError as exc:
             raise ValueError("Targets must include engine and format fields") from exc
@@ -180,7 +232,7 @@ class BenchmarkTarget:
 
     def __str__(self) -> str:
         target = self.normalized()
-        return f"{target.engine.value}:{target.format.value}"
+        return f"{target.engine.value}:{target.result_format(target.format.value)}"
 
 
 def parse_targets_json(value: str) -> list[BenchmarkTarget]:
@@ -254,8 +306,12 @@ def validate_targets(
 
     normalized_targets = [target.normalized() for target in targets]
     for target in normalized_targets:
-        if not target.is_supported():
+        if target.format not in ENGINE_FORMATS.get(target.engine, []):
             errors.append(f"Format {target.format.value} is not supported by engine {target.engine.value}")
+        elif not target.is_supported():
+            errors.append(
+                f"Integration {target.integration.value} does not support {target.engine.value}:{target.format.value}"
+            )
         if benchmark is not None and target.engine not in engines_for_benchmark(benchmark):
             errors.append(f"Benchmark {benchmark.value} does not support engine {target.engine.value}")
 

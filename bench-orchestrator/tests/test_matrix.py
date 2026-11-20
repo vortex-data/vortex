@@ -14,6 +14,7 @@ from bench_orchestrator.ci_matrix.catalog import CATALOG
 from bench_orchestrator.ci_matrix.model import Catalog, Coverage
 from bench_orchestrator.ci_matrix.render import render_matrix
 from bench_orchestrator.ci_matrix.targets import TargetSet
+from bench_orchestrator.config import BenchmarkTarget, Engine, Format, Integration, parse_targets_json
 from typer.testing import CliRunner
 
 runner = CliRunner()
@@ -79,8 +80,12 @@ def _entries(preset: str) -> list[dict[str, object]]:
 
 
 def _targets(entry: dict[str, object]) -> set[tuple[str, str]]:
+    """Return an entry's targets as `(engine, format)`, with any integration appended to the format."""
     targets = cast("list[dict[str, str]]", entry["targets"])
-    return {(target["engine"], target["format"]) for target in targets}
+    return {
+        (target["engine"], target["format"] + (f" [{target['integration']}]" if "integration" in target else ""))
+        for target in targets
+    }
 
 
 @pytest.mark.parametrize(("preset", "expected_ids"), EXPECTED_IDS.items())
@@ -116,6 +121,7 @@ def test_pr_target_selection() -> None:
         ("datafusion", "vortex"),
         ("duckdb", "parquet"),
         ("duckdb", "vortex"),
+        ("datafusion", "vortex [scan-api]"),
     }
     assert ("datafusion", "lance") in _targets(develop["tpch-nvme"])
     for preset in (pr_full, develop):
@@ -126,6 +132,39 @@ def test_pr_target_selection() -> None:
         targets = _targets(entry)
         assert {file_format for _engine, file_format in targets} == {"parquet", "vortex-compact"}
         assert set(cast("list[str]", entry["data_formats"])) == {"parquet", "vortex-compact"}
+
+
+SCAN_API_TARGET = ("datafusion", "vortex [scan-api]")
+SCAN_API_IDS = {
+    "pr": {"clickbench-nvme", "tpch-nvme"},
+    "pr-all": {"clickbench-nvme", "tpch-nvme"},
+    "pr-full": {"clickbench-nvme", "tpch-nvme"},
+    "develop": {"clickbench-nvme", "tpch-nvme"},
+    "nightly": {"tpch-nvme"},
+    "pr-compact": set(),
+}
+
+
+@pytest.mark.parametrize(("preset", "expected_ids"), SCAN_API_IDS.items())
+def test_scan_api_target_runs_only_on_clickbench_and_tpch_nvme(preset: str, expected_ids: set[str]) -> None:
+    entries = _entries(preset)
+
+    assert {entry["id"] for entry in entries if SCAN_API_TARGET in _targets(entry)} == expected_ids
+    for entry in entries:
+        if SCAN_API_TARGET in _targets(entry):
+            # The Scan API target reads the default target's Vortex files; it needs no data of its own.
+            assert ("datafusion", "vortex") in _targets(entry)
+            assert "vortex" in cast("list[str]", entry["data_formats"])
+
+
+def test_scan_api_target_round_trips_through_targets_json() -> None:
+    (entry,) = [entry for entry in _entries("pr") if entry["id"] == "tpch-nvme"]
+
+    targets = parse_targets_json(json.dumps(entry["targets"]))
+
+    assert BenchmarkTarget(Engine.DATAFUSION, Format.VORTEX, Integration.SCAN_API) in targets
+    assert BenchmarkTarget(Engine.DATAFUSION, Format.VORTEX) in targets
+    assert {"engine": "datafusion", "format": "vortex"} in cast("list[dict[str, str]]", entry["targets"])
 
 
 def test_pr_all_is_union_of_pr_compact_and_full() -> None:

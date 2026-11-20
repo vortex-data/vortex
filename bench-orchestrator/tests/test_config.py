@@ -1,17 +1,23 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+import pytest
 from bench_orchestrator.config import (
+    BENCHMARK_SCAN_V1,
     Benchmark,
     BenchmarkTarget,
     Engine,
     Format,
+    Integration,
     group_targets_by_backend,
     parse_formats_json,
     parse_targets_json,
     resolve_axis_targets,
+    uses_scan_v2,
     validate_targets,
 )
+
+SCAN_API = BenchmarkTarget(engine=Engine.DATAFUSION, format=Format.VORTEX, integration=Integration.SCAN_API)
 
 
 def test_parse_targets_json_normalizes_and_dedupes_lance_targets() -> None:
@@ -128,3 +134,54 @@ def test_group_targets_by_backend_routes_lance_to_lance_binary() -> None:
 def test_datafusion_package_and_binary_names_match() -> None:
     assert Engine.DATAFUSION.package_name == "datafusion-bench"
     assert Engine.DATAFUSION.binary_name == "datafusion-bench"
+
+
+def test_default_integration_keeps_the_existing_target_identity() -> None:
+    target = BenchmarkTarget(engine=Engine.DATAFUSION, format=Format.VORTEX)
+
+    assert target.to_dict() == {"engine": "datafusion", "format": "vortex"}
+    assert str(target) == "datafusion:vortex"
+    assert target.result_format("vortex-file-compressed") == "vortex-file-compressed"
+
+
+def test_scan_api_target_identity() -> None:
+    assert SCAN_API.to_dict() == {"engine": "datafusion", "format": "vortex", "integration": "scan-api"}
+    assert str(SCAN_API) == "datafusion:vortex [scan-api]"
+    assert SCAN_API.result_format("vortex-file-compressed") == "vortex-file-compressed [scan-api]"
+    assert parse_targets_json(
+        '[{"engine":"datafusion","format":"vortex"},{"engine":"datafusion","format":"vortex","integration":"scan-api"}]'
+    ) == [BenchmarkTarget(engine=Engine.DATAFUSION, format=Format.VORTEX), SCAN_API]
+
+
+def test_parse_targets_json_rejects_unknown_integration() -> None:
+    with pytest.raises(ValueError, match="Invalid benchmark target"):
+        _ = parse_targets_json('[{"engine":"datafusion","format":"vortex","integration":"bogus"}]')
+
+
+@pytest.mark.parametrize(
+    ("engine", "fmt", "supported"),
+    [
+        (Engine.DATAFUSION, Format.VORTEX, True),
+        (Engine.DATAFUSION, Format.VORTEX_COMPACT, True),
+        (Engine.DATAFUSION, Format.PARQUET, False),
+        # DuckDB has no `DataSource` table function yet.
+        (Engine.DUCKDB, Format.VORTEX, False),
+    ],
+)
+def test_scan_api_supported_targets(engine: Engine, fmt: Format, supported: bool) -> None:
+    assert BenchmarkTarget(engine=engine, format=fmt, integration=Integration.SCAN_API).is_supported() is supported
+
+
+def test_validate_targets_rejects_unsupported_integration() -> None:
+    errors = validate_targets(
+        [BenchmarkTarget(engine=Engine.DUCKDB, format=Format.VORTEX, integration=Integration.SCAN_API)], {}
+    )
+
+    assert errors == ["Integration scan-api does not support duckdb:vortex"]
+
+
+@pytest.mark.parametrize("benchmark", list(Benchmark))
+def test_scan_api_always_runs_the_v1_scan(benchmark: Benchmark) -> None:
+    assert uses_scan_v2(benchmark) is (benchmark not in BENCHMARK_SCAN_V1)
+    assert uses_scan_v2(benchmark, Integration.SCAN_API) is False
+    assert SCAN_API.uses_scan_v2(benchmark) is False
