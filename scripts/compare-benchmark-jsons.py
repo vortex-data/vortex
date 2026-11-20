@@ -204,6 +204,7 @@ def ingest_record_row(record: dict[str, Any]) -> dict[str, Any] | None:
         if dims:
             row["dataset"] = dims
         row["target"] = {"engine": engine, "format": file_format}
+        row.update({axis: record[axis] for axis in SCAN_AXES if record.get(axis) is not None})
     elif kind == "random_access_time":
         ext = "vortex" if str(file_format).startswith("vortex") else file_format
         row["name"] = f"random-access/{record['dataset']}/{ext}-{record['open_mode']}"
@@ -254,6 +255,35 @@ def read_benchmark_rows(path: str) -> pd.DataFrame:
     if not rows:
         return pd.DataFrame(columns=EMPTY_ROW_COLUMNS)
     return pd.DataFrame(rows)
+
+
+# Fields the bench orchestrator records on Vortex SQL results: the integration (`file` or
+# `datasource`) and the scan engine (`v1` or `v2`). See `BenchmarkTarget` in bench-orchestrator.
+SCAN_AXES = ("integration", "scan_engine")
+
+
+def label_scan_axes(base: pd.DataFrame, pr: pd.DataFrame) -> None:
+    """Name the integration and scan engine in every Vortex format that does not already.
+
+    Only the file integration on a suite's default scan engine keeps the bare format identity, so
+    its history continues; every other combination already carries `[integration, scan]`. The PR
+    rows record both axes as fields, which label the bare format on both sides alike, so a column
+    never reads as a different engine than it ran. The match and merge keys are left unchanged.
+    """
+
+    if not set(SCAN_AXES) <= set(pr.columns):
+        return
+    labels = {}
+    for engine, file_format, integration, scan in zip(
+        pr["engine"], pr["file_format"], pr["integration"], pr["scan_engine"]
+    ):
+        if isinstance(integration, str) and isinstance(scan, str) and " [" not in str(file_format):
+            labels[(engine, file_format)] = f"{file_format} [{integration}, {scan}]"
+    for df in (base, pr):
+        df["file_format"] = [
+            labels.get((engine, file_format), file_format)
+            for engine, file_format in zip(df["engine"], df["file_format"])
+        ]
 
 
 def normalize_measurement_rows(df: pd.DataFrame) -> pd.DataFrame:
@@ -776,43 +806,46 @@ def query_column_label(engine: str, file_format: str) -> str:
     return f"{engine}:{file_format}"
 
 
-def query_column_sort_key(combo: tuple[str, str]) -> tuple[int, int, str, str]:
-    """Order query table columns by engine, then format, with a format's variants beside it.
+# Within a format, the file integration comes before datasource and the v2 scan before v1, so
+# each engine's columns start with the target its history is recorded under.
+SCAN_AXIS_ORDER = {"file": 0, "datasource": 1, "v2": 0, "v1": 1}
 
-    A variant such as `vortex-file-compressed [scan-api]` sorts right after its base format.
-    """
+
+def query_column_sort_key(combo: tuple[str, str]) -> tuple[int, int, str, tuple[int, ...], str]:
+    """Order query table columns by engine, then format, with a format's scan variants beside it,
+    e.g. `[file, v2]`, `[file, v1]`, then `[datasource, v1]`."""
 
     engine, file_format = combo
-    base_format = file_format.split(" [", 1)[0]
+    base_format, _, axes = file_format.partition(" [")
+    axis_order = tuple(SCAN_AXIS_ORDER.get(axis.strip(), len(SCAN_AXIS_ORDER)) for axis in axes.rstrip("]").split(","))
     return (
         ENGINE_ORDER.get(engine, len(ENGINE_ORDER)),
         FILE_FORMAT_ORDER.get(base_format, len(FILE_FORMAT_ORDER)),
         engine,
+        axis_order if axes else (),
         file_format,
     )
 
 
-# Notes printed under the query table caption when a column of that variant is present.
-FORMAT_VARIANT_NOTES = {
-    "scan-api": (
-        "`[scan-api]` columns run DataFusion through the Scan API (`VortexTable`) on the V1 scan. "
-        "Compare them with their own develop times, not with the V2 `datafusion:vortex` column."
-    ),
-}
+# Printed under the query table caption when any column names an integration and scan engine.
+SCAN_AXES_NOTE = (
+    "Vortex columns name the integration and the scan engine: `file` reads through the engine's file "
+    "format (DataFusion `ListingTable`, DuckDB `MultiFileReader`), `datasource` through DataFusion's "
+    "`VortexTable` over a Vortex `DataSource`; `v1` and `v2` are the LayoutReader and plan scans. "
+    "Each column compares with its own develop times."
+)
 
 
 def format_query_table_caption(df: pd.DataFrame, base_label: str, pr_label: str, threshold_pct: int) -> str:
-    """Say what the query table compares, and note any format variant its columns carry."""
+    """Say what the query table compares, and what the scan axes on its Vortex columns mean."""
 
     lines = [
         f"Each cell is develop `{base_label}` → this PR `{pr_label}` (hot runs), with PR ÷ develop in "
         f"parentheses: below 1.00 is faster. Changes past ±{threshold_pct}% are bold. The geomean row "
         "compares each target's geomean over its queries."
     ]
-    variants = {
-        str(file_format).split(" [", 1)[1].rstrip("]") for file_format in df["file_format"] if " [" in str(file_format)
-    }
-    lines += [FORMAT_VARIANT_NOTES[variant] for variant in sorted(variants) if variant in FORMAT_VARIANT_NOTES]
+    if any(" [" in str(file_format) for file_format in df["file_format"]):
+        lines.append(SCAN_AXES_NOTE)
     return "<br>".join(lines)
 
 
@@ -1316,6 +1349,7 @@ def main() -> None:
 
     base = normalize_measurement_rows(base)
     pr = normalize_measurement_rows(pr)
+    label_scan_axes(base, pr)
 
     comparison_keys = ["name", "storage", "dataset_key", "engine", "file_format", "unit", "query"]
     df3 = pd.merge(base, pr, on=comparison_keys, how="right", suffixes=("_base", "_pr"))

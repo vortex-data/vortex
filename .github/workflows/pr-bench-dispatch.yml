@@ -189,3 +189,21 @@ jobs:
     secrets: inherit
     with:
       matrix_preset: "pr-full"
+
+  remove-sql-scan-label:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    if: github.event.label.name == 'action/bench-scan'
+    steps:
+      - uses: actions-ecosystem/action-remove-labels@2ce5d41b4b6aa8503e285553f75ed56e0a40bae0  # v1
+        if: github.event.pull_request.head.repo.full_name == 'vortex-data/vortex'
+        with:
+          labels: action/bench-scan
+          fail_on_error: true
+
+  sql-scan-bench:
+    needs: remove-sql-scan-label
+    uses: ./.github/workflows/pr-bench-sql.yml
+    secrets: inherit
+    with:
+      matrix_preset: "pr-scan"

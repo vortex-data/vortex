@@ -488,7 +488,7 @@ impl FusedPlan {
                 vortex_err!("all source buffer slots must be filled before materialize")
             })?;
             let device_buf = ctx.ensure_on_device_sync(source_buf)?;
-            let ptr = device_buf.cuda_device_ptr()?;
+            let ptr = device_buf.cuda_device_ptr(ctx.stream())?;
             device_ptrs.push(ptr);
             device_buffers.push(device_buf);
         }
