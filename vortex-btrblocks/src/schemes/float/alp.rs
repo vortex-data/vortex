@@ -14,7 +14,6 @@ use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VTable;
 use vortex_array::arrays::Patched;
-use vortex_array::arrays::patched::use_experimental_patches;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_array::dtype::PType;
 use vortex_compressor::scheme::CompressionEstimate;
@@ -28,6 +27,8 @@ use crate::CompressorContext;
 use crate::Scheme;
 use crate::SchemeExt;
 use crate::compress_patches;
+use crate::schemes::patches::PatchingScheme;
+use crate::schemes::patches::WithPatched;
 
 /// ALP (Adaptive Lossless floating-Point) encoding.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -43,11 +44,7 @@ impl Scheme for ALPScheme {
     }
 
     fn produced_encodings(&self) -> Vec<ArrayId> {
-        let mut encodings = vec![ALP.id()];
-        if use_experimental_patches() {
-            encodings.push(Patched.id());
-        }
-        encodings
+        vec![ALP.id()]
     }
 
     /// Children: encoded_ints=0.
@@ -75,12 +72,36 @@ impl Scheme for ALPScheme {
         CompressionEstimate::Deferred(DeferredEstimate::Sample)
     }
 
+    fn refine(&self, allowed: &dyn Fn(&ArrayId) -> bool) -> &dyn Scheme {
+        if allowed(&Patched.id()) {
+            &ALPSCHEME_PATCHED
+        } else {
+            self
+        }
+    }
+
     fn compress(
         &self,
         compressor: &CascadingCompressor,
         data: &ArrayAndStats,
         compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        self.compress_patching(compressor, data, compress_ctx, exec_ctx, false)
+    }
+}
+
+/// The variant of [`ALPScheme`] that writes its exceptions as a `vortex.patched` parent.
+static ALPSCHEME_PATCHED: WithPatched<ALPScheme> = WithPatched(ALPScheme);
+
+impl PatchingScheme for ALPScheme {
+    fn compress_patching(
+        &self,
+        compressor: &CascadingCompressor,
+        data: &ArrayAndStats,
+        compress_ctx: CompressorContext,
+        exec_ctx: &mut ExecutionCtx,
+        patched: bool,
     ) -> VortexResult<ArrayRef> {
         let alp_encoded = alp_encode(data.array_as_primitive(), None, exec_ctx)?;
 
@@ -96,7 +117,7 @@ impl Scheme for ALPScheme {
         let alp_stats = alp_encoded.as_array().statistics().to_owned();
         let exponents = alp_encoded.exponents();
 
-        if use_experimental_patches() {
+        if patched {
             let patches = alp_encoded.patches();
 
             // Create ALP array without interior patches.

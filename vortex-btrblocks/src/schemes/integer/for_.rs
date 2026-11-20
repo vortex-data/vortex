@@ -8,6 +8,8 @@ use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
+use vortex_array::VTable as _;
+use vortex_array::arrays::Patched;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_compressor::builtins::BinaryDictScheme;
 use vortex_compressor::builtins::DecimalDictScheme;
@@ -59,6 +61,31 @@ static FOR_V2_BLOCKED: FoRScheme = FoRScheme {
     bitpacking: BitPackingScheme::v2(),
 };
 
+/// The FoR variants whose bit-packed child writes its exceptions as a `vortex.patched` parent,
+/// indexed by whether they use v2 references and a v2 child.
+static FOR_PATCHED: [[FoRScheme; 2]; 2] = [
+    [
+        FoRScheme {
+            mode: FoRSchemeMode::V1,
+            bitpacking: BitPackingScheme::v1().with_patched(),
+        },
+        FoRScheme {
+            mode: FoRSchemeMode::V1,
+            bitpacking: BitPackingScheme::v2().with_patched(),
+        },
+    ],
+    [
+        FoRScheme {
+            mode: FoRSchemeMode::V2,
+            bitpacking: BitPackingScheme::v1().with_patched(),
+        },
+        FoRScheme {
+            mode: FoRSchemeMode::V2,
+            bitpacking: BitPackingScheme::v2().with_patched(),
+        },
+    ],
+];
+
 /// Frame of Reference encoding.
 ///
 /// The v1 mode subtracts one reference, the array's minimum. The v2 mode subtracts one reference
@@ -71,7 +98,8 @@ static FOR_V2_BLOCKED: FoRScheme = FoRScheme {
 /// BitPacking scheme does not stop FoR from bit-packing; disallowing `fastlanes.bitpacked` does.
 ///
 /// The default uses v1 for both. [`refine`](Scheme::refine) picks v2 references when
-/// `fastlanes.for.v2` is allowed, and a v2 child when `fastlanes.bitpacked.v2` is allowed.
+/// `fastlanes.for.v2` is allowed, a v2 child when `fastlanes.bitpacked.v2` is allowed, and a child
+/// that writes its exceptions as a `vortex.patched` parent when that is allowed.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct FoRScheme {
     mode: FoRSchemeMode,
@@ -121,7 +149,11 @@ impl Scheme for FoRScheme {
     }
 
     fn refine(&self, allowed: &dyn Fn(&ArrayId) -> bool) -> &dyn Scheme {
-        match (allowed(&for_v2_id()), allowed(&bitpacked_v2_id())) {
+        let (for_v2, bitpacked_v2) = (allowed(&for_v2_id()), allowed(&bitpacked_v2_id()));
+        if allowed(&Patched.id()) {
+            return &FOR_PATCHED[usize::from(for_v2)][usize::from(bitpacked_v2)];
+        }
+        match (for_v2, bitpacked_v2) {
             (false, false) => &FOR_V1,
             (false, true) => &FOR_V1_BLOCKED,
             (true, false) => &FOR_V2,

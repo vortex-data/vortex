@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_array::ArrayId;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
+use vortex_array::VTable as _;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::Patched;
 use vortex_array::arrays::PrimitiveArray;
@@ -14,14 +16,20 @@ use vortex_array::arrays::patched::PatchedArraySlotsExt;
 use vortex_array::arrays::patched::PatchedSlots;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_array::patches::Patches;
+use vortex_compressor::scheme::AncestorExclusion;
+use vortex_compressor::scheme::CompressionEstimate;
+use vortex_compressor::scheme::DescendantExclusion;
 use vortex_compressor::scheme::SchemeId;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
 use vortex_sparse::Sparse;
 use vortex_sparse::SparseExt as _;
 
+use crate::ArrayAndStats;
 use crate::CascadingCompressor;
 use crate::CompressorContext;
+use crate::GenerateStatsOptions;
+use crate::Scheme;
 
 /// Compresses the given patches by downscaling integers and checking for constant values.
 pub fn compress_patches(patches: Patches, ctx: &mut ExecutionCtx) -> VortexResult<Patches> {
@@ -128,4 +136,79 @@ pub(crate) fn sparse_to_patched(
         )
     }
     .into_array())
+}
+
+/// A scheme that can write the exceptions it encodes either inside its own array or as a
+/// `vortex.patched` parent.
+pub(crate) trait PatchingScheme: Scheme {
+    /// Compress like [`Scheme::compress`], writing exceptions as a `vortex.patched` parent when
+    /// `patched` is set.
+    fn compress_patching(
+        &self,
+        compressor: &CascadingCompressor,
+        data: &ArrayAndStats,
+        compress_ctx: CompressorContext,
+        exec_ctx: &mut ExecutionCtx,
+        patched: bool,
+    ) -> VortexResult<ArrayRef>;
+}
+
+/// The variant of scheme `S` that writes its exceptions as a `vortex.patched` parent.
+///
+/// It shares the [`SchemeId`] of `S`, which [`refine`](Scheme::refine)s to it when the session's
+/// editions allow `vortex.patched`.
+#[derive(Debug)]
+pub(crate) struct WithPatched<S>(pub S);
+
+impl<S: PatchingScheme> Scheme for WithPatched<S> {
+    fn scheme_name(&self) -> &'static str {
+        self.0.scheme_name()
+    }
+
+    fn matches(&self, canonical: &Canonical) -> bool {
+        self.0.matches(canonical)
+    }
+
+    fn produced_encodings(&self) -> Vec<ArrayId> {
+        let mut encodings = self.0.produced_encodings();
+        encodings.push(Patched.id());
+        encodings
+    }
+
+    fn stats_options(&self) -> GenerateStatsOptions {
+        self.0.stats_options()
+    }
+
+    fn num_children(&self) -> usize {
+        self.0.num_children()
+    }
+
+    fn descendant_exclusions(&self) -> Vec<DescendantExclusion> {
+        self.0.descendant_exclusions()
+    }
+
+    fn ancestor_exclusions(&self) -> Vec<AncestorExclusion> {
+        self.0.ancestor_exclusions()
+    }
+
+    fn expected_compression_ratio(
+        &self,
+        data: &ArrayAndStats,
+        compress_ctx: CompressorContext,
+        exec_ctx: &mut ExecutionCtx,
+    ) -> CompressionEstimate {
+        self.0
+            .expected_compression_ratio(data, compress_ctx, exec_ctx)
+    }
+
+    fn compress(
+        &self,
+        compressor: &CascadingCompressor,
+        data: &ArrayAndStats,
+        compress_ctx: CompressorContext,
+        exec_ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        self.0
+            .compress_patching(compressor, data, compress_ctx, exec_ctx, true)
+    }
 }

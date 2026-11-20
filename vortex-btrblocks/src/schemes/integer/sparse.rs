@@ -13,7 +13,6 @@ use vortex_array::arrays::Constant;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::Patched;
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::arrays::patched::use_experimental_patches;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_array::scalar::Scalar;
 use vortex_compressor::builtins::IntDictScheme;
@@ -34,6 +33,8 @@ use crate::CompressorContext;
 use crate::GenerateStatsOptions;
 use crate::Scheme;
 use crate::SchemeExt;
+use crate::schemes::patches::PatchingScheme;
+use crate::schemes::patches::WithPatched;
 use crate::schemes::patches::sparse_to_patched;
 
 /// Sparse encoding for single-value-dominated arrays.
@@ -50,11 +51,7 @@ impl Scheme for SparseScheme {
     }
 
     fn produced_encodings(&self) -> Vec<ArrayId> {
-        let mut encodings = vec![Sparse.id(), Constant.id()];
-        if use_experimental_patches() {
-            encodings.push(Patched.id());
-        }
-        encodings
+        vec![Sparse.id(), Constant.id()]
     }
 
     fn stats_options(&self) -> GenerateStatsOptions {
@@ -137,12 +134,36 @@ impl Scheme for SparseScheme {
         ))
     }
 
+    fn refine(&self, allowed: &dyn Fn(&ArrayId) -> bool) -> &dyn Scheme {
+        if allowed(&Patched.id()) {
+            &SPARSESCHEME_PATCHED
+        } else {
+            self
+        }
+    }
+
     fn compress(
         &self,
         compressor: &CascadingCompressor,
         data: &ArrayAndStats,
         compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        self.compress_patching(compressor, data, compress_ctx, exec_ctx, false)
+    }
+}
+
+/// The variant of [`SparseScheme`] that writes its exceptions as a `vortex.patched` parent.
+static SPARSESCHEME_PATCHED: WithPatched<SparseScheme> = WithPatched(SparseScheme);
+
+impl PatchingScheme for SparseScheme {
+    fn compress_patching(
+        &self,
+        compressor: &CascadingCompressor,
+        data: &ArrayAndStats,
+        compress_ctx: CompressorContext,
+        exec_ctx: &mut ExecutionCtx,
+        patched: bool,
     ) -> VortexResult<ArrayRef> {
         let len = data.array_len();
         let stats = data.integer_stats(exec_ctx);
@@ -179,7 +200,7 @@ impl Scheme for SparseScheme {
         )?;
 
         if let Some(sparse) = sparse_encoded.as_opt::<Sparse>() {
-            if use_experimental_patches() {
+            if patched {
                 return sparse_to_patched(
                     compressor,
                     &compress_ctx,
