@@ -11,13 +11,13 @@ mod slice;
 use std::hash::Hash;
 use std::hash::Hasher;
 
-use vortex_buffer::Buffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
+use crate::AnyCanonical;
 use crate::ArrayRef;
 use crate::Canonical;
 use crate::EqMode;
@@ -29,24 +29,25 @@ use crate::array::ArrayId;
 use crate::array::ArrayParts;
 use crate::array::ArrayView;
 use crate::array::VTable;
-use crate::array::ValidityChild;
-use crate::array::ValidityVTableFromChild;
+use crate::array::ValidityVTable;
 use crate::array::with_empty_buffers;
 use crate::arrays::Primitive;
-use crate::arrays::PrimitiveArray;
 use crate::arrays::patched::PatchedArrayExt;
 use crate::arrays::patched::PatchedArraySlotsExt;
 use crate::arrays::patched::PatchedData;
 use crate::arrays::patched::PatchedSlots;
 use crate::arrays::patched::PatchedSlotsView;
-use crate::arrays::primitive::PrimitiveDataParts;
+use crate::arrays::patched::execute::PatchedCanonicalParts;
+use crate::arrays::patched::execute::execute_canonical;
+use crate::arrays::patched::execute::scatter;
 use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
 use crate::builders::PrimitiveBuilder;
 use crate::dtype::DType;
-use crate::dtype::NativePType;
+use crate::dtype::Nullability;
 use crate::match_each_native_ptype;
 use crate::require_child;
+use crate::validity::Validity;
 
 /// A [`Patched`]-encoded Vortex array.
 pub type PatchedArray = Array<Patched>;
@@ -58,9 +59,37 @@ pub(crate) fn initialize(session: &VortexSession) {
 #[derive(Clone, Debug)]
 pub struct Patched;
 
-impl ValidityChild<Patched> for Patched {
-    fn validity_child(array: ArrayView<'_, Patched>) -> ArrayRef {
-        array.inner().clone()
+impl ValidityVTable<Patched> for Patched {
+    fn validity(array: ArrayView<'_, Patched>) -> VortexResult<Validity> {
+        let inner = array.inner().validity()?;
+        let values = array.patch_values().validity()?;
+        if inner.definitely_no_nulls() && values.definitely_no_nulls() {
+            return Ok(Validity::AllValid);
+        }
+        if inner.definitely_all_null() && values.definitely_all_null() {
+            return Ok(Validity::AllInvalid);
+        }
+
+        // The validity is itself a lazily patched array of the children's validity bits.
+        let slots = PatchedSlots {
+            inner: inner.to_array(array.len()),
+            lane_offsets: array.lane_offsets().clone(),
+            patch_indices: array.patch_indices().clone(),
+            patch_values: values.to_array(array.patch_values().len()),
+        }
+        .into_slots();
+        // SAFETY: the validity arrays have the lengths of the children they describe, and share
+        // their layout.
+        let validity = unsafe {
+            Patched::new_unchecked(
+                DType::Bool(Nullability::NonNullable),
+                array.len(),
+                slots,
+                array.n_lanes(),
+                array.offset(),
+            )
+        };
+        Ok(Validity::Array(validity.into_array()))
     }
 }
 
@@ -70,7 +99,7 @@ pub struct PatchedMetadata {
     #[prost(uint32, tag = "1")]
     pub(crate) n_patches: u32,
 
-    /// The number of lanes used for patch indexing. Must be a power of two between 1 and 128.
+    /// The number of lanes used for patch indexing. Must be a power of two between 1 and 1024.
     #[prost(uint32, tag = "2")]
     pub(crate) n_lanes: u32,
 
@@ -97,7 +126,7 @@ impl ArrayEq for PatchedData {
 impl VTable for Patched {
     type TypedArrayData = PatchedData;
     type OperationsVTable = Self;
-    type ValidityVTable = ValidityVTableFromChild;
+    type ValidityVTable = Self;
 
     fn id(&self) -> ArrayId {
         static ID: CachedId = CachedId::new("vortex.patched");
@@ -141,8 +170,12 @@ impl VTable for Patched {
     ) -> VortexResult<()> {
         let dtype = array.array().dtype();
 
-        if !dtype.is_primitive() {
-            // Default pathway: canonicalize and propagate.
+        // Primitive values are appended from the inner array and then overwritten in place, as
+        // long as the patches cannot change the validity of the appended values.
+        let fast_path = dtype.is_primitive()
+            && array.inner().validity()?.definitely_no_nulls()
+            && array.patch_values().validity()?.definitely_no_nulls();
+        if !fast_path {
             let canonical = array
                 .array()
                 .clone()
@@ -151,46 +184,27 @@ impl VTable for Patched {
             return canonical.append_to_builder(builder, ctx);
         }
 
-        let ptype = dtype.as_ptype();
-
         let len = array.len();
-
         array.inner().append_to_builder(builder, ctx)?;
 
-        let offset = array.offset();
-        let lane_offsets = array
-            .lane_offsets()
-            .clone()
-            .execute::<PrimitiveArray>(ctx)?;
-        let indices = array
-            .patch_indices()
-            .clone()
-            .execute::<PrimitiveArray>(ctx)?;
+        let layout = array.execute_layout(ctx)?;
+        let layout = layout.layout()?;
         let values = array
             .patch_values()
             .clone()
-            .execute::<PrimitiveArray>(ctx)?;
+            .execute::<crate::arrays::PrimitiveArray>(ctx)?;
 
-        match_each_native_ptype!(ptype, |V| {
+        match_each_native_ptype!(dtype.as_ptype(), |V| {
             let typed_builder = builder
                 .as_any_mut()
                 .downcast_mut::<PrimitiveBuilder<V>>()
                 .vortex_expect("correctly typed builder");
 
-            // Overwrite the last `len` elements of the builder. These would have been
-            // populated by the inner.append_to_builder() call above.
+            // Overwrite the last `len` elements of the builder, which were just appended from
+            // the inner array.
             let output = typed_builder.values_mut();
             let trailer = output.len() - len;
-
-            apply_patches_primitive::<V>(
-                &mut output[trailer..],
-                offset,
-                len,
-                array.n_lanes(),
-                lane_offsets.as_slice::<u32>(),
-                indices.as_slice::<u16>(),
-                values.as_slice::<V>(),
-            );
+            scatter(&mut output[trailer..], values.as_slice::<V>(), &layout);
         });
 
         Ok(())
@@ -200,82 +214,35 @@ impl VTable for Patched {
         PatchedSlots::NAMES[idx].to_string()
     }
 
-    fn execute(array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
-        let array = require_child!(array, array.inner(), PatchedSlots::INNER => Primitive);
+    fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+        let array = require_child!(array, array.inner(), PatchedSlots::INNER => AnyCanonical);
         let array =
             require_child!(array, array.lane_offsets(), PatchedSlots::LANE_OFFSETS => Primitive);
         let array =
             require_child!(array, array.patch_indices(), PatchedSlots::PATCH_INDICES => Primitive);
         let array =
-            require_child!(array, array.patch_values(), PatchedSlots::PATCH_VALUES => Primitive);
+            require_child!(array, array.patch_values(), PatchedSlots::PATCH_VALUES => AnyCanonical);
 
-        let len = array.len();
-
-        let n_lanes = array.n_lanes;
-        let offset = array.offset;
+        let layout = array.execute_layout(ctx)?;
+        let layout = layout.layout()?;
+        let dtype = array.dtype().clone();
         let slots = match array.try_into_parts() {
             Ok(parts) => PatchedSlots::from_slots(parts.slots),
             Err(array) => array.slots_view().to_owned(),
         };
 
-        // TODO(joe): use iterative execution
-        let PrimitiveDataParts {
-            buffer,
-            ptype,
-            validity,
-        } = slots.inner.downcast::<Primitive>().into_data_parts();
-
-        let values = slots.patch_values.downcast::<Primitive>();
-        let lane_offsets = slots.lane_offsets.downcast::<Primitive>();
-        let patch_indices = slots.patch_indices.downcast::<Primitive>();
-
-        let patched_values = match_each_native_ptype!(values.ptype(), |V| {
-            let mut output = Buffer::<V>::from_byte_buffer(buffer.unwrap_host()).into_mut();
-
-            apply_patches_primitive::<V>(
-                &mut output,
-                offset,
-                len,
-                n_lanes,
-                lane_offsets.as_slice::<u32>(),
-                patch_indices.as_slice::<u16>(),
-                values.as_slice::<V>(),
-            );
-
-            let output = output.freeze();
-
-            PrimitiveArray::from_byte_buffer(output.into_byte_buffer(), ptype, validity)
-        });
-
-        Ok(ExecutionResult::done(patched_values.into_array()))
-    }
-}
-
-/// Apply patches on top of the existing value types.
-fn apply_patches_primitive<V: NativePType>(
-    output: &mut [V],
-    offset: usize,
-    len: usize,
-    n_lanes: usize,
-    lane_offsets: &[u32],
-    indices: &[u16],
-    values: &[V],
-) {
-    let n_chunks = (offset + len).div_ceil(1024);
-    for chunk in 0..n_chunks {
-        let start = lane_offsets[chunk * n_lanes] as usize;
-        let stop = lane_offsets[chunk * n_lanes + n_lanes] as usize;
-
-        for idx in start..stop {
-            // the indices slice is measured as an offset into the 1024-value chunk.
-            let index = chunk * 1024 + indices[idx] as usize;
-            if index < offset || index >= offset + len {
-                continue;
-            }
-
-            let value = values[idx];
-            output[index - offset] = value;
-        }
+        let result = execute_canonical(
+            PatchedCanonicalParts {
+                dtype,
+                layout,
+                lane_offsets: slots.lane_offsets,
+                patch_indices: slots.patch_indices,
+                inner: slots.inner.execute::<Canonical>(ctx)?,
+                values: slots.patch_values.execute::<Canonical>(ctx)?,
+            },
+            ctx,
+        )?;
+        Ok(ExecutionResult::done(result))
     }
 }
 

@@ -5,8 +5,6 @@ use std::fmt::Display;
 use std::fmt::Formatter;
 use std::ops::Range;
 
-use vortex_buffer::Buffer;
-use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
@@ -14,25 +12,27 @@ use vortex_error::vortex_err;
 
 use crate::ArrayRef;
 use crate::ArraySlots;
-use crate::Canonical;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::array::Array;
 use crate::array::ArrayParts;
 use crate::array::TypedArrayRef;
 use crate::array_slots;
+use crate::arrays::ConstantArray;
 use crate::arrays::Patched;
 use crate::arrays::PrimitiveArray;
-use crate::arrays::patched::TransposedPatches;
-use crate::arrays::patched::patch_lanes;
-use crate::buffer::BufferHandle;
+use crate::arrays::patched::PATCH_CHUNK_SIZE;
+use crate::arrays::patched::PatchLayout;
+use crate::arrays::patched::default_patch_lanes;
+use crate::arrays::patched::layout::TransposedPatches;
+use crate::arrays::patched::layout::transpose;
+use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
-use crate::dtype::IntegerPType;
-use crate::dtype::NativePType;
+use crate::dtype::Nullability;
 use crate::dtype::PType;
-use crate::match_each_native_ptype;
-use crate::match_each_unsigned_integer_ptype;
+use crate::match_each_integer_ptype;
 use crate::patches::Patches;
+use crate::scalar::Scalar;
 use crate::validity::Validity;
 
 #[derive(Debug, Clone)]
@@ -82,17 +82,48 @@ impl PatchedData {
         vortex_ensure_eq!(
             slots.inner.dtype(),
             dtype,
-            "PatchedArray base dtype does not match outer dtype",
+            "PatchedArray inner dtype does not match outer dtype",
+        );
+        vortex_ensure_eq!(
+            slots.patch_values.dtype(),
+            dtype,
+            "PatchedArray patch values dtype does not match outer dtype",
         );
         vortex_ensure_eq!(
             slots.inner.len(),
             len,
-            "PatchedArray base len does not match outer len",
+            "PatchedArray inner len does not match outer len",
         );
         vortex_ensure_eq!(
             slots.patch_indices.len(),
             slots.patch_values.len(),
             "PatchedArray patch indices len does not match patch values len",
+        );
+        vortex_ensure_eq!(
+            slots.patch_indices.dtype(),
+            &DType::Primitive(PType::U16, Nullability::NonNullable),
+            "PatchedArray patch indices must be non-nullable u16",
+        );
+        vortex_ensure_eq!(
+            slots.lane_offsets.dtype(),
+            &DType::Primitive(PType::U32, Nullability::NonNullable),
+            "PatchedArray lane offsets must be non-nullable u32",
+        );
+        vortex_ensure!(
+            self.n_lanes.is_power_of_two() && self.n_lanes <= PATCH_CHUNK_SIZE,
+            "PatchedArray lanes must be a power of two of at most {PATCH_CHUNK_SIZE}, got {}",
+            self.n_lanes
+        );
+        vortex_ensure!(
+            self.offset < PATCH_CHUNK_SIZE,
+            "PatchedArray offset {} must be less than {PATCH_CHUNK_SIZE}",
+            self.offset
+        );
+        let n_chunks = (self.offset + len).div_ceil(PATCH_CHUNK_SIZE);
+        vortex_ensure_eq!(
+            slots.lane_offsets.len(),
+            n_chunks * self.n_lanes + 1,
+            "PatchedArray lane offsets must have one entry per chunk lane, plus one",
         );
         Ok(())
     }
@@ -109,6 +140,12 @@ pub trait PatchedArrayExt: TypedArrayRef<Patched> {
         self.offset
     }
 
+    /// The number of chunks spanned by the array, including partial first and last chunks.
+    #[inline]
+    fn n_chunks(&self) -> usize {
+        (self.offset() + self.len()).div_ceil(PATCH_CHUNK_SIZE)
+    }
+
     #[inline]
     fn lane_range(
         &self,
@@ -116,7 +153,7 @@ pub trait PatchedArrayExt: TypedArrayRef<Patched> {
         lane: usize,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Range<usize>> {
-        assert!(chunk * 1024 <= self.len() + self.offset());
+        assert!(chunk * PATCH_CHUNK_SIZE <= self.len() + self.offset());
         assert!(lane < self.n_lanes());
 
         let start = self
@@ -139,6 +176,29 @@ pub trait PatchedArrayExt: TypedArrayRef<Patched> {
         Ok(start..stop)
     }
 
+    /// Execute the lane offsets and patch indices, returning them for use with [`PatchLayout`].
+    fn execute_layout(&self, ctx: &mut ExecutionCtx) -> VortexResult<ExecutedLayout> {
+        Ok(ExecutedLayout {
+            offset: self.offset(),
+            len: self.len(),
+            n_lanes: self.n_lanes(),
+            lane_offsets: self.lane_offsets().clone().execute::<PrimitiveArray>(ctx)?,
+            indices: self.patch_indices().clone().execute::<PrimitiveArray>(ctx)?,
+        })
+    }
+
+    /// Returns the positions in the array and indices into the patch values of every patch
+    /// inside the array, ordered by position.
+    fn execute_patch_positions(&self, ctx: &mut ExecutionCtx) -> VortexResult<Vec<(u32, u32)>> {
+        let layout = self.execute_layout(ctx)?;
+        let layout = layout.layout()?;
+        let mut positions = Vec::with_capacity(layout.all_patches().len());
+        #[expect(clippy::cast_possible_truncation, reason = "patch counts fit in u32")]
+        layout.for_each(|pos, patch| positions.push((pos as u32, patch as u32)));
+        positions.sort_unstable();
+        Ok(positions)
+    }
+
     fn slice_chunks(&self, chunks: Range<usize>) -> VortexResult<Array<Patched>> {
         let lane_offsets_start = chunks.start * self.n_lanes();
         let lane_offsets_stop = chunks.end * self.n_lanes() + 1;
@@ -149,8 +209,8 @@ pub trait PatchedArrayExt: TypedArrayRef<Patched> {
         let indices = self.patch_indices().clone();
         let values = self.patch_values().clone();
 
-        let begin = (chunks.start * 1024).saturating_sub(self.offset());
-        let end = (chunks.end * 1024)
+        let begin = (chunks.start * PATCH_CHUNK_SIZE).saturating_sub(self.offset());
+        let end = (chunks.end * PATCH_CHUNK_SIZE)
             .saturating_sub(self.offset())
             .min(self.len());
 
@@ -172,73 +232,193 @@ pub trait PatchedArrayExt: TypedArrayRef<Patched> {
 
 impl<T: TypedArrayRef<Patched>> PatchedArrayExt for T {}
 
+/// The executed lane offsets and patch indices of a patched array.
+pub struct ExecutedLayout {
+    offset: usize,
+    len: usize,
+    n_lanes: usize,
+    lane_offsets: PrimitiveArray,
+    indices: PrimitiveArray,
+}
+
+impl ExecutedLayout {
+    /// A borrowed [`PatchLayout`] over the executed buffers.
+    pub fn layout(&self) -> VortexResult<PatchLayout<'_>> {
+        PatchLayout::try_new(
+            self.offset,
+            self.len,
+            self.n_lanes,
+            self.lane_offsets.as_slice::<u32>(),
+            self.indices.as_slice::<u16>(),
+        )
+    }
+}
+
 impl Patched {
+    /// Creates a patched array that replaces the values of `inner` at the ascending positions
+    /// `indices` with the corresponding `values`.
+    ///
+    /// The patches are laid out with [`default_patch_lanes`] lanes.
+    ///
+    /// `values` may have any nullability; it is cast to the nullability of `inner`, which must be
+    /// nullable if `values` contains nulls.
+    pub fn try_new(
+        inner: ArrayRef,
+        indices: ArrayRef,
+        values: ArrayRef,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Array<Patched>> {
+        let n_lanes = default_patch_lanes(inner.dtype());
+        Self::try_new_with_lanes(inner, indices, values, n_lanes, ctx)
+    }
+
+    /// Creates a patched array like [`Patched::try_new`], laid out with `n_lanes` lanes.
+    pub fn try_new_with_lanes(
+        inner: ArrayRef,
+        indices: ArrayRef,
+        values: ArrayRef,
+        n_lanes: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Array<Patched>> {
+        Self::try_new_offset(inner, indices, values, 0, n_lanes, ctx)
+    }
+
+    /// Creates a patched array whose `indices` are all offset by `indices_offset`.
+    fn try_new_offset(
+        inner: ArrayRef,
+        indices: ArrayRef,
+        values: ArrayRef,
+        indices_offset: usize,
+        n_lanes: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Array<Patched>> {
+        vortex_ensure!(
+            inner.dtype().eq_ignore_nullability(values.dtype()),
+            "patch values dtype {} does not match array dtype {}",
+            values.dtype(),
+            inner.dtype()
+        );
+        vortex_ensure_eq!(
+            indices.len(),
+            values.len(),
+            "patch indices and values must have the same length"
+        );
+        vortex_ensure!(
+            indices.dtype().is_int(),
+            "patch indices must be integers, found {}",
+            indices.dtype()
+        );
+
+        let nullability = inner.dtype().nullability() | values.dtype().nullability();
+        let dtype = inner.dtype().with_nullability(nullability);
+        let len = inner.len();
+        let inner = if inner.dtype() == &dtype {
+            inner
+        } else {
+            inner.cast(dtype.clone())?
+        };
+        let values = if values.dtype() == &dtype {
+            values
+        } else {
+            values.cast(dtype.clone())?
+        };
+
+        let indices = indices.execute::<PrimitiveArray>(ctx)?;
+        vortex_ensure!(
+            indices.all_valid(ctx)?,
+            "patch indices must not contain nulls"
+        );
+        let TransposedPatches {
+            lane_offsets,
+            indices,
+            permutation,
+        } = match_each_integer_ptype!(indices.ptype(), |I| {
+            transpose(indices.as_slice::<I>(), indices_offset, len, n_lanes)?
+        });
+
+        let values = match permutation {
+            None => values,
+            Some(permutation) => values.take(
+                PrimitiveArray::new(permutation, Validity::NonNullable).into_array(),
+            )?,
+        };
+
+        let slots = PatchedSlots {
+            inner,
+            lane_offsets: PrimitiveArray::new(lane_offsets, Validity::NonNullable).into_array(),
+            patch_indices: PrimitiveArray::new(indices, Validity::NonNullable).into_array(),
+            patch_values: values,
+        }
+        .into_slots();
+        // SAFETY: `transpose` validated the indices and produced a layout covering every chunk,
+        // and the dtypes of the children were checked above.
+        Ok(unsafe { Self::new_unchecked(dtype, len, slots, n_lanes, 0) })
+    }
+
+    /// Creates a patched array from an array and its [`Patches`].
     pub fn from_array_and_patches(
         inner: ArrayRef,
         patches: &Patches,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Array<Patched>> {
-        vortex_ensure!(
-            inner.dtype().eq_with_nullability_superset(patches.dtype()),
-            "array DType must match patches DType"
+        vortex_ensure_eq!(
+            inner.len(),
+            patches.array_len(),
+            "array length must match patches length"
         );
-
-        vortex_ensure!(
-            inner.dtype().is_primitive(),
-            "Creating PatchedArray from Patches only supported for primitive arrays"
-        );
-
-        vortex_ensure!(
-            patches.num_patches() <= u32::MAX as usize,
-            "PatchedArray does not support > u32::MAX patch values"
-        );
-
-        vortex_ensure!(
-            patches.values().all_valid(ctx)?,
-            "PatchedArray cannot be built from Patches with nulls"
-        );
-
-        let values_ptype = patches.dtype().as_ptype();
-
-        let TransposedPatches {
-            n_lanes,
-            lane_offsets,
-            indices,
-            values,
-        } = transpose_patches(patches, ctx)?;
-
-        let lane_offsets = PrimitiveArray::from_buffer_handle(
-            BufferHandle::new_host(lane_offsets),
-            PType::U32,
-            Validity::NonNullable,
-        )
-        .into_array();
-        let indices = PrimitiveArray::from_buffer_handle(
-            BufferHandle::new_host(indices),
-            PType::U16,
-            Validity::NonNullable,
-        )
-        .into_array();
-        let values = PrimitiveArray::from_buffer_handle(
-            BufferHandle::new_host(values),
-            values_ptype,
-            Validity::NonNullable,
-        )
-        .into_array();
-
-        let dtype = inner.dtype().clone();
-        let len = inner.len();
-        let slots = PatchedSlots {
+        Self::try_new_offset(
             inner,
-            lane_offsets,
-            patch_indices: indices,
-            patch_values: values,
-        }
-        .into_slots();
-        Ok(unsafe { Self::new_unchecked(dtype, len, slots, n_lanes, 0) })
+            patches.indices().clone(),
+            patches.values().clone(),
+            patches.offset(),
+            default_patch_lanes(patches.dtype()),
+            ctx,
+        )
     }
 
-    pub(crate) unsafe fn new_unchecked(
+    /// Creates an array of `len` copies of `fill_value`, except at the ascending positions
+    /// `indices` which take the corresponding `values`.
+    ///
+    /// This is the patched equivalent of a sparse array.
+    pub fn sparse(
+        indices: ArrayRef,
+        values: ArrayRef,
+        len: usize,
+        fill_value: Scalar,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Array<Patched>> {
+        Self::sparse_with_lanes(
+            indices,
+            values,
+            len,
+            fill_value.clone(),
+            default_patch_lanes(fill_value.dtype()),
+            ctx,
+        )
+    }
+
+    /// Creates a sparse patched array like [`Patched::sparse`], laid out with `n_lanes` lanes.
+    pub fn sparse_with_lanes(
+        indices: ArrayRef,
+        values: ArrayRef,
+        len: usize,
+        fill_value: Scalar,
+        n_lanes: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Array<Patched>> {
+        let nullable = fill_value.dtype().is_nullable() || values.dtype().is_nullable();
+        let fill_value = fill_value.cast(&fill_value.dtype().with_nullability(nullable.into()))?;
+        let inner = ConstantArray::new(fill_value, len).into_array();
+        Self::try_new_with_lanes(inner, indices, values, n_lanes, ctx)
+    }
+
+    /// Creates a patched array from its parts without validation.
+    ///
+    /// # Safety
+    ///
+    /// The slots must satisfy the invariants checked by [`PatchedData::validate`], and the patch
+    /// indices of every lane must be in bounds of their chunk.
+    pub unsafe fn new_unchecked(
         dtype: DType,
         len: usize,
         slots: ArraySlots,
@@ -255,114 +435,28 @@ impl Patched {
             ))
         }
     }
-}
 
-/// Transpose a set of patches from the default sorted layout into the data parallel layout.
-fn transpose_patches(patches: &Patches, ctx: &mut ExecutionCtx) -> VortexResult<TransposedPatches> {
-    let array_len = patches.array_len();
-    let offset = patches.offset();
-
-    let indices = patches
-        .indices()
-        .clone()
-        .execute::<Canonical>(ctx)?
-        .into_primitive();
-
-    let values = patches
-        .values()
-        .clone()
-        .execute::<Canonical>(ctx)?
-        .into_primitive();
-
-    let indices_ptype = indices.ptype();
-    let values_ptype = values.ptype();
-
-    let indices = indices.buffer_handle().clone().unwrap_host();
-    let values = values.buffer_handle().clone().unwrap_host();
-
-    match_each_unsigned_integer_ptype!(indices_ptype, |I| {
-        match_each_native_ptype!(values_ptype, |V| {
-            let indices: Buffer<I> = Buffer::from_byte_buffer(indices);
-            let values: Buffer<V> = Buffer::from_byte_buffer(values);
-
-            Ok(transpose(
-                indices.as_slice(),
-                values.as_slice(),
-                offset,
-                array_len,
-            ))
-        })
-    })
-}
-
-#[expect(clippy::cast_possible_truncation)]
-fn transpose<I: IntegerPType, V: NativePType>(
-    indices_in: &[I],
-    values_in: &[V],
-    offset: usize,
-    array_len: usize,
-) -> TransposedPatches {
-    // Total number of slots is number of chunks times number of lanes.
-    let n_chunks = array_len.div_ceil(1024);
-    assert!(
-        n_chunks <= u32::MAX as usize,
-        "Cannot transpose patches for array with >= 4 trillion elements"
-    );
-
-    let n_lanes = patch_lanes::<V>();
-
-    // We know upfront how many indices and values we'll have.
-    let mut indices_buffer = BufferMut::with_capacity(indices_in.len());
-    let mut values_buffer = BufferMut::with_capacity(values_in.len());
-
-    // Number of patches in each chunk/lane.
-    let mut lane_offsets: BufferMut<u32> = BufferMut::zeroed(n_chunks * n_lanes + 1);
-
-    // Scan the index/value pairs once to get chunk/lane counts.
-    for index in indices_in {
-        let index = index.as_() - offset;
-        let chunk = index / 1024;
-        let lane = index % n_lanes;
-
-        lane_offsets[chunk * n_lanes + lane + 1] += 1;
-    }
-
-    for index in 1..lane_offsets.len() {
-        lane_offsets[index] += lane_offsets[index - 1];
-    }
-
-    // Loop over patches, writing them to final positions.
-    let indices_out = indices_buffer.spare_capacity_mut();
-    let values_out = values_buffer.spare_capacity_mut();
-    for (index, &value) in std::iter::zip(indices_in, values_in) {
-        let index = index.as_() - offset;
-        let chunk = index / 1024;
-        let lane = index % n_lanes;
-
-        let position = &mut lane_offsets[chunk * n_lanes + lane];
-        indices_out[*position as usize].write((index % 1024) as u16);
-        values_out[*position as usize].write(value);
-        *position += 1;
-    }
-
-    unsafe {
-        indices_buffer.set_len(indices_in.len());
-        values_buffer.set_len(values_in.len());
-    }
-
-    for index in indices_in {
-        let index = index.as_() - offset;
-        let chunk = index / 1024;
-        let lane = index % n_lanes;
-
-        lane_offsets[chunk * n_lanes + lane] -= 1;
-    }
-
-    TransposedPatches {
-        n_lanes,
-        lane_offsets: lane_offsets.freeze().into_byte_buffer(),
-        indices: indices_buffer.freeze().into_byte_buffer(),
-        values: values_buffer.freeze().into_byte_buffer(),
+    /// Creates a patched array that shares the lane offsets and patch indices of `array`, with
+    /// new `inner` and `values` children.
+    ///
+    /// # Safety
+    ///
+    /// `inner` must have the length of `array`, `values` the length of its patch values, and both
+    /// must have the dtype `dtype`.
+    pub(crate) unsafe fn with_inner_and_values<A: TypedArrayRef<Patched>>(
+        array: &A,
+        dtype: DType,
+        inner: ArrayRef,
+        values: ArrayRef,
+    ) -> Array<Patched> {
+        let slots = PatchedSlots {
+            inner,
+            lane_offsets: array.lane_offsets().clone(),
+            patch_indices: array.patch_indices().clone(),
+            patch_values: values,
+        }
+        .into_slots();
+        unsafe { Self::new_unchecked(dtype, array.len(), slots, array.n_lanes(), array.offset()) }
     }
 }
 

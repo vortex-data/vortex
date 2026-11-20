@@ -1,62 +1,70 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
-use vortex_mask::AllOr;
 use vortex_mask::Mask;
 
 use crate::ArrayRef;
+use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::array::ArrayView;
-use crate::arrays::FilterArray;
 use crate::arrays::Patched;
-use crate::arrays::filter::FilterReduce;
+use crate::arrays::PrimitiveArray;
+use crate::arrays::filter::FilterKernel;
 use crate::arrays::patched::PatchedArrayExt;
+use crate::arrays::patched::PatchedArraySlotsExt;
+use crate::validity::Validity;
 
-impl FilterReduce for Patched {
-    fn filter(array: ArrayView<'_, Self>, mask: &Mask) -> VortexResult<Option<ArrayRef>> {
-        // Find the contiguous chunk range that the mask covers. We use this to slice the inner
-        // components, then wrap the rest up with another FilterArray.
-        //
-        // This is helpful when we have a very selective filter that is clustered to a small
-        // range.
-        let (chunk_start, chunk_stop) = match mask.slices() {
-            AllOr::All | AllOr::None => {
-                // This is handled as the precondition to this method, see the FilterReduce
-                // documentation.
-                unreachable!("mask must be a MaskValues here")
-            }
-            AllOr::Some(slices) => {
-                let (first, _) = slices[0];
-                let (_, last) = slices[slices.len() - 1];
+impl FilterKernel for Patched {
+    fn filter(
+        array: ArrayView<'_, Self>,
+        mask: &Mask,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
+        let inner = array.inner().filter(mask.clone())?;
 
-                // Convert mask indices to absolute positions by adding offset
-                (
-                    (array.offset() + first) / 1024,
-                    (array.offset() + last).div_ceil(1024),
-                )
-            }
-        };
-
-        let n_chunks = (array.offset() + array.len()).div_ceil(1024);
-
-        // If all chunks already covered, there is nothing to do.
-        if chunk_start == 0 && chunk_stop == n_chunks {
+        let Some(mask_values) = mask.values() else {
             return Ok(None);
+        };
+        let bits = mask_values.bit_buffer();
+
+        // The rank of each kept position is the number of kept positions before it.
+        let mut positions = Vec::new();
+        let layout = array.execute_layout(ctx)?;
+        let layout = layout.layout()?;
+        layout.for_each(|pos, patch| {
+            if bits.value(pos) {
+                positions.push((pos, patch));
+            }
+        });
+        if positions.is_empty() {
+            return Ok(Some(inner));
+        }
+        positions.sort_unstable();
+
+        let mut new_positions = BufferMut::<u32>::with_capacity(positions.len());
+        let mut sources = BufferMut::<u32>::with_capacity(positions.len());
+        let mut rank = 0usize;
+        let mut ranked_up_to = 0usize;
+        for (pos, patch) in positions {
+            rank += bits.slice(ranked_up_to..pos).true_count();
+            ranked_up_to = pos;
+            #[expect(clippy::cast_possible_truncation, reason = "patch counts fit in u32")]
+            {
+                new_positions.push(rank as u32);
+                sources.push(patch as u32);
+            }
         }
 
-        let sliced = array.slice_chunks(chunk_start..chunk_stop)?;
-
-        // Slice the mask according to if the chunk is sliced.
-        // Convert chunk bounds back to mask indices by subtracting offset.
-        let mask_start = (chunk_start * 1024).saturating_sub(array.offset());
-        let mask_end = (chunk_stop * 1024)
-            .saturating_sub(array.offset())
-            .min(array.len());
-        let remainder = mask.slice(mask_start..mask_end);
-
+        let values = array.patch_values().take(
+            PrimitiveArray::new(sources.freeze(), Validity::NonNullable).into_array(),
+        )?;
+        let new_positions =
+            PrimitiveArray::new(new_positions.freeze(), Validity::NonNullable).into_array();
         Ok(Some(
-            FilterArray::new(sliced.into_array(), remainder).into_array(),
+            Patched::try_new_with_lanes(inner, new_positions, values, array.n_lanes(), ctx)?
+                .into_array(),
         ))
     }
 }

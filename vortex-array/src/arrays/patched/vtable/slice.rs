@@ -100,7 +100,7 @@ mod tests {
             @r#"
             root: vortex.patched(u16, len=9)
               inner: vortex.primitive(u16, len=9)
-              lane_offsets: vortex.primitive(u32, len=33)
+              lane_offsets: vortex.primitive(u32, len=65)
               patch_indices: vortex.primitive(u16, len=3)
               patch_values: vortex.primitive(u16, len=3)
             "#);
