@@ -79,6 +79,13 @@ pub fn scan_v2() -> bool {
     SCAN_V2.load(Ordering::Relaxed)
 }
 
+/// Whether a scan starting now reads V1 files through scan pools, the default, or through the
+/// per-file split lists it used before. Set `VORTEX_SCAN_POOL=0` to compare against the split
+/// lists; it is read once per scan, so one binary can benchmark both.
+pub fn scan_pool() -> bool {
+    std::env::var("VORTEX_SCAN_POOL").map_or(true, |value| value != "0")
+}
+
 // Duckdb's logger requires a *Context as first argument which
 // would be hard to integrate with tracing::. We use logging for
 // debugging only anyway, so that's good enough.

@@ -125,6 +125,9 @@ pub struct OpenFileReader {
     /// file holds a reference too, and the file gives its own reference to a local state before
     /// DuckDB releases the file. The last local state drops the state outside the lock.
     scan_state: Option<Arc<FileScanState>>,
+    /// The file's V1 split tasks in inverse order, when the scan does not use a pool.
+    pub splits: Vec<Split>,
+    total_splits: usize,
 }
 
 /// The state of an open file that the threads scanning it share.
@@ -173,6 +176,8 @@ impl OpenFileReader {
                 finished: AtomicBool::new(false),
                 cache: ConversionCache::default(),
             })),
+            splits: vec![],
+            total_splits: 0,
         })
     }
 
@@ -262,6 +267,27 @@ pub fn reader_initialize(file: &mut OpenFileReader, global: &GlobalState) -> Vor
         return Ok(false);
     }
 
+    if !global.scan_pool {
+        let reader = Arc::clone(file.reader());
+        let filter = &global.filter;
+        let builder = ScanBuilder::new(SESSION.clone(), reader)
+            .with_projection(global.projection.clone())
+            .with_some_filter(filter.filter.clone())
+            .with_selection(filter.row_selection.clone());
+        let scan = builder.prepare()?;
+        let mut splits: Vec<Split> = scan
+            .execute(filter.row_range.clone())?
+            .into_iter()
+            .map(Split::V1)
+            .collect();
+
+        // threads take last element of file.splits so we need to reverse
+        splits.reverse();
+        file.total_splits = splits.len();
+        file.splits = splits;
+        return Ok(false);
+    }
+
     let state = file.scan_state();
     let filter = &global.filter;
     let request = ScanRequest {
@@ -314,6 +340,9 @@ enum SplitItem {
 fn next_split_item(local: &mut LocalState) -> VortexResult<SplitItem> {
     match local.split.take() {
         None => Ok(SplitItem::Done),
+        Some(Split::V1(task)) => Ok(RUNTIME
+            .block_on(task)?
+            .map_or(SplitItem::Empty, SplitItem::Array)),
         Some(Split::Worker(mut worker)) => {
             let array = match local.pending.pop() {
                 Some(array) => array,
@@ -385,14 +414,15 @@ fn split_chunks(pending: &mut Vec<ArrayRef>, array: ArrayRef) -> ArrayRef {
 /// the global lock. It only moves references between the file and the local
 /// state, and reader_scan drops the retired ones.
 pub fn reader_try_initialize_scan(file: &mut OpenFileReader, local: &mut LocalState) -> bool {
-    // A thread joins a file while its V2 scan has chunks left to spawn, or its pool
-    // has work left. Starting a worker only clones the pool's handles, so it is
-    // cheap under the global lock.
-    let Some(split) = file
+    // A thread joins a file while its V2 scan has chunks left to spawn, its pool
+    // has work left, or its V1 split list has a split left. Starting a worker only
+    // clones the pool's handles, so it is cheap under the global lock.
+    let split = file
         .scan_state
         .as_ref()
         .and_then(|state| state.next_split())
-    else {
+        .or_else(|| file.splits.pop());
+    let Some(split) = split else {
         // DuckDB releases the file after this call, under the global lock.
         // Give the reference of the file to this thread so it drops outside.
         local.retired_files.extend(file.scan_state.take());
@@ -509,10 +539,13 @@ pub fn reader_get_progress_in_file(file: &OpenFileReader) -> f64 {
     if let Some(scan) = file.scan_state.as_ref().and_then(|state| state.v2.get()) {
         return scan.progress();
     }
-    let Some(state) = &file.scan_state else {
-        return 100.0;
-    };
-    100.0 * state.pool.get().map_or(0.0, |pool| pool.progress())
+    if let Some(pool) = file.scan_state.as_ref().and_then(|state| state.pool.get()) {
+        return 100.0 * pool.progress();
+    }
+    let total = file.total_splits;
+    let left = file.splits.len();
+    let denom = total + (total == 0) as usize;
+    100.0 * (total - left) as f64 / denom as f64
 }
 
 /// Called by one thread in planning phase

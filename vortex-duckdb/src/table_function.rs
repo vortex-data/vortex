@@ -11,6 +11,7 @@ use std::sync::atomic::Ordering;
 
 #[cfg(unix)]
 use custom_labels::CURRENT_LABELSET;
+use futures::future::BoxFuture;
 use itertools::Itertools;
 use num_traits::AsPrimitive;
 use parking_lot::Mutex;
@@ -189,6 +190,9 @@ pub struct GlobalState {
     pub file_row_number_column_pos: Option<usize>,
     /// Whether the scan runs on the planner-driven V2 executor.
     pub scan_v2: bool,
+    /// Whether a V1 scan reads each file through a scan pool, or through the file's own list of
+    /// split tasks. Read from `VORTEX_SCAN_POOL` when the scan starts.
+    pub scan_pool: bool,
 
     // Following fields are used only in aggregate scans.
     pub aggregate_state: Mutex<AggregateState>,
@@ -207,6 +211,9 @@ assert_impl_all!(GlobalState: Send, Sync);
 
 /// The scan work that one thread does on a file.
 pub enum Split {
+    /// A V1 scan task yielding one array, or `None` if the filter removed every row. Used when
+    /// the scan does not read through a pool.
+    V1(BoxFuture<'static, VortexResult<Option<ArrayRef>>>),
     /// A worker of the file's scan pool, which the thread polls inline until it ends.
     Worker(SendableArrayStream),
     /// Chunks of the file's V2 scan, taken by the thread until the scan has none left.
@@ -367,6 +374,7 @@ pub fn init_global(init_input: &TableInitInput) -> VortexResult<GlobalState> {
         row_count: AtomicU64::new(0),
         file_row_number_column_pos,
         scan_v2: crate::scan_v2(),
+        scan_pool: crate::scan_pool(),
     })
 }
 
