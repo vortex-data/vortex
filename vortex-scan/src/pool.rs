@@ -31,11 +31,13 @@ pub trait ScanPool: 'static + Send + Sync {
     /// Returns a new worker: a stream that one host thread polls.
     ///
     /// Workers take work from the pool until none is left, so together they return every row of
-    /// the scan exactly once. A host may start any number of workers, at any time. A worker may
-    /// spawn its work onto the session's runtime, so its splits decode concurrently and their I/O
-    /// starts early, but it never starts threads of its own. Dropping a worker before it ends
-    /// gives up the work it had taken, so a host drops a worker early only when it abandons the
-    /// scan.
+    /// the scan exactly once. A host may start any number of workers, at any time, and the number
+    /// it runs is its parallelism. A pool may run its work as tasks on the session's runtime,
+    /// which the host owns, and hand each result to whichever worker asks next; it never starts
+    /// threads of its own. A host whose runtime has no threads of its own, such as a
+    /// `CurrentThreadRuntime`, must therefore drive that runtime while it waits on a worker, for
+    /// example with `block_on`. Dropping a worker before it ends gives up any work it had taken,
+    /// so a host drops a worker early only when it abandons the scan.
     fn worker(self: Arc<Self>) -> SendableArrayStream;
 
     /// The fraction of the pool's work that workers have taken, from 0.0 to 1.0, for a host's
