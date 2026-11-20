@@ -185,7 +185,7 @@ impl PlanDataSource {
             .map(|child| child.row_count)
             .sum::<Option<u64>>()
             .map_or(Precision::Absent, Precision::exact);
-        let byte_size = Precision::inexact(children.iter().map(PlanChild::byte_size).sum());
+        let byte_size = Precision::inexact(children.iter().map(PlanChild::byte_size).sum::<u64>());
         Self {
             session,
             dtype,
