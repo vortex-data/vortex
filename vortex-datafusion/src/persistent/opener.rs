@@ -566,18 +566,23 @@ impl FileOpener for VortexOpener {
                 if let Some(bytes) = byte_range
                     && (bytes.start != 0 || bytes.end != file.object_meta.size)
                 {
-                    let splits = natural_splits_for_file(
-                        natural_splits.as_ref(),
-                        &file.object_meta.location,
-                        data_source.as_ref(),
-                        &request,
-                        vxf.row_count(),
-                        file.object_meta.size,
-                    )
-                    .await?;
-                    let Some(rows) = split_aligned_row_range(bytes, splits.as_ref()) else {
-                        return Ok(stream::empty().boxed());
+                    // Measurement variant: map bytes to rows by proportion, without cut points.
+                    let _ = &natural_splits;
+                    let row_count = vxf.row_count();
+                    let file_size = file.object_meta.size;
+                    let row = |byte: u64| -> u64 {
+                        if byte >= file_size {
+                            return row_count;
+                        }
+                        u64::try_from(
+                            u128::from(byte) * u128::from(row_count) / u128::from(file_size),
+                        )
+                        .vortex_expect("a row of the file fits u64")
                     };
+                    let rows = row(bytes.start)..row(bytes.end).max(row(bytes.start));
+                    if rows.is_empty() {
+                        return Ok(stream::empty().boxed());
+                    }
                     request.row_range = Some(rows);
                 }
                 Ok(read_data_source(
