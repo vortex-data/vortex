@@ -40,9 +40,7 @@ use crate::dtype::StructFields;
 use crate::expr::BoundExpression;
 use crate::expr::bound;
 use crate::expr::display::ExprDisplay;
-use crate::extension::datetime::TemporalMetadata::Date;
-use crate::extension::datetime::TemporalMetadata::Time;
-use crate::extension::datetime::TemporalMetadata::Timestamp;
+use crate::extension::datetime::TemporalMetadata;
 use crate::extension::datetime::convert::TemporalCast;
 use crate::extension::datetime::convert::temporal_metadata;
 use crate::proto::expr as pb;
@@ -59,8 +57,10 @@ use crate::scalar_fn::is_not_null_node;
 
 /// Allows specific top-level temporal conversions, nullability changes, and typed nulls.
 ///
-/// Nested fields support only nullability changes and typed nulls. A container may expose
-/// unused children to its cast kernel, so a fallible value conversion could see hidden rows.
+/// Returns the [`TemporalCast`] for a supported pair of temporal dtypes, or `None` when the
+/// generic cast applies. Nested fields support only nullability changes and typed nulls. A
+/// container may expose unused children to its cast kernel, so a fallible value conversion could
+/// see hidden rows.
 ///
 /// Use [`ext_storage`](crate::expr::ext_storage) to extract an extension array's storage.
 pub(crate) fn bind_extension_cast(
@@ -74,13 +74,20 @@ pub(crate) fn bind_extension_cast(
     Ok(temporal)
 }
 
+/// Reject a cast that would reinterpret the values of an _opaque_ extension type.
+///
+/// `cast` treats an extension type as opaque: it can change the nullability or produce typed
+/// nulls, but it never converts the values to or from another dtype, because only the type knows
+/// what its storage means. The check also applies to list, map, and struct fields.
 fn check_opaque_cast(source: &DType, target: &DType) -> VortexResult<()> {
     if source.is_extension() || target.is_extension() {
         if !source.eq_ignore_nullability(target)
             && !(*source == DType::Null && target.is_nullable())
         {
-            let hint = extension_cast_hint(source, target);
-            vortex_bail!("Cannot cast {source} to {target}.{hint}");
+            match extension_cast_hint(source, target) {
+                Some(hint) => vortex_bail!("Cannot cast {source} to {target}. {hint}"),
+                None => vortex_bail!("Cannot cast {source} to {target}."),
+            }
         }
         return Ok(());
     }
@@ -101,40 +108,45 @@ fn check_opaque_cast(source: &DType, target: &DType) -> VortexResult<()> {
     }
 }
 
-fn extension_cast_hint(source: &DType, target: &DType) -> &'static str {
-    if source.is_extension() != target.is_extension() {
-        return " Use ext_storage to access raw extension values.";
+/// Name the function that performs a rejected extension cast, if one exists.
+fn extension_cast_hint(source: &DType, target: &DType) -> Option<&'static str> {
+    // `ext_storage` reads the storage of an extension value. It cannot build one from a plain or
+    // null source.
+    if source.is_extension() && !target.is_extension() {
+        return Some("Use ext_storage to access raw extension values.");
     }
 
     match (temporal_metadata(source), temporal_metadata(target)) {
-        (Some(Timestamp(_, Some(source_zone))), Some(Timestamp(_, Some(target_zone))))
-            if source_zone != target_zone =>
-        {
-            " Use convert_time_zone to change the time zone while preserving the instant."
+        (
+            Some(TemporalMetadata::Timestamp(_, Some(source_zone))),
+            Some(TemporalMetadata::Timestamp(_, Some(target_zone))),
+        ) if source_zone != target_zone => {
+            Some("Use convert_time_zone to change the time zone while preserving the instant.")
         }
-        (Some(Timestamp(_, source_zone)), Some(Timestamp(_, target_zone)))
-            if source_zone.is_some() != target_zone.is_some() =>
-        {
-            " Use replace_time_zone to add or remove a time zone while preserving wall time."
+        (
+            Some(TemporalMetadata::Timestamp(_, source_zone)),
+            Some(TemporalMetadata::Timestamp(_, target_zone)),
+        ) if source_zone.is_some() != target_zone.is_some() => {
+            Some("Use replace_time_zone to add or remove a time zone while preserving wall time.")
         }
-        (Some(Timestamp(..)), Some(Date(_))) => {
-            " Use timestamp_to_date to extract the local calendar date."
+        (Some(TemporalMetadata::Timestamp(..)), Some(TemporalMetadata::Date(_))) => {
+            Some("Use timestamp_to_date to extract the local calendar date in days.")
         }
-        (Some(Timestamp(..)), Some(Time(_))) => {
-            " Use timestamp_to_time to extract the local time of day."
+        (Some(TemporalMetadata::Timestamp(..)), Some(TemporalMetadata::Time(_))) => {
+            Some("Use timestamp_to_time to extract the local time of day in the timestamp's unit.")
         }
-        (Some(Date(from)), Some(Date(to)))
-        | (Some(Time(from)), Some(Time(to)))
-        | (Some(Timestamp(from, _)), Some(Timestamp(to, _)))
+        (Some(TemporalMetadata::Date(from)), Some(TemporalMetadata::Date(to)))
+        | (Some(TemporalMetadata::Time(from)), Some(TemporalMetadata::Time(to)))
+        | (Some(TemporalMetadata::Timestamp(from, _)), Some(TemporalMetadata::Timestamp(to, _)))
             if from < to =>
         {
-            " Use change_time_unit to select an explicit rounding mode."
+            Some("Use change_time_unit to select an explicit rounding mode.")
         }
-        _ => "",
+        _ => None,
     }
 }
 
-/// Check existing extension dtypes for each pair of fields that
+/// Apply [`check_opaque_cast`] to each pair of fields that
 /// [`struct_cast_fields`](crate::arrays::struct_::compute::cast::struct_cast_fields) casts. A
 /// target field that the source lacks becomes nulls, so it reinterprets nothing.
 fn check_struct_extension_cast(source: &StructFields, target: &StructFields) -> VortexResult<()> {

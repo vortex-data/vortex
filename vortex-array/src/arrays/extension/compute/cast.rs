@@ -120,7 +120,7 @@ mod tests {
     #[case::different_zone(
         create_timestamp_array(TimeUnit::Milliseconds, false).into_array(),
         DType::Extension(Timestamp::new_with_tz(
-            TimeUnit::Nanoseconds,
+            TimeUnit::Milliseconds,
             Some("+01:00".into()),
             Nullability::NonNullable,
         ).erased()),

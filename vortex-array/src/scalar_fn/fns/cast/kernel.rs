@@ -80,7 +80,6 @@ where
         if array.dtype() == dtype {
             return Ok(Some(array.array().clone()));
         }
-
         <V as CastReduce>::cast(array, dtype)
     }
 }

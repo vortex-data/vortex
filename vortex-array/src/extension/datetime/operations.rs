@@ -3,8 +3,8 @@
 
 //! Named temporal conversions.
 //!
-//! These operations select a rounding policy or interpret a time zone explicitly. Unit
-//! conversion preserves the source zone, and calendar extraction uses that zone when present.
+//! These operations select a rounding policy or interpret a time zone explicitly. Unit conversion
+//! preserves the source zone, and calendar extraction uses that zone when present.
 
 use std::fmt;
 use std::sync::Arc;
@@ -17,6 +17,7 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
+use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
@@ -78,6 +79,7 @@ impl TemporalRounding {
     fn divide(self, value: i64, divisor: i64) -> VortexResult<i64> {
         let quotient = value / divisor;
         let remainder = value % divisor;
+
         Ok(match self {
             Self::Exact => {
                 vortex_ensure_eq!(
@@ -97,10 +99,14 @@ impl TemporalRounding {
     }
 }
 
-/// Convert a Date, Time, or Timestamp to a coarser unit with explicit rounding.
+/// Convert a [`Date`], [`Time`], or [`Timestamp`] to a coarser `unit` with an explicit
+/// [`TemporalRounding`].
 ///
-/// A time of day that rounds up to midnight returns an error. The result must fall
-/// within the same day.
+/// `unit` **must** be coarser than the input unit and valid for the input type (a [`Date`]
+/// supports only days and milliseconds), or binding fails. At execution,
+/// [`TemporalRounding::Exact`] fails on a count with a remainder, and a [`Time`] fails when it
+/// rounds up to midnight, because the result must stay within the same day. A [`Timestamp`] keeps
+/// its time zone, and nulls stay null.
 pub fn change_time_unit(
     child: Expression,
     unit: TimeUnit,
@@ -109,24 +115,29 @@ pub fn change_time_unit(
     TemporalConvert.new_expr(TemporalOperation::ChangeUnit(unit, rounding), [child])
 }
 
-/// Extract a timestamp's local calendar date as days since the epoch.
+/// Extract the local calendar date of a [`Timestamp`] as a [`Date`] in days.
 ///
-/// For zoned timestamps, use the offset at the input instant.
+/// A timestamp with a time zone uses the offset of that zone at its instant, and a timestamp
+/// without a time zone already counts local time. The input **must** be a [`Timestamp`], or
+/// binding fails. A date outside the `i32` range of days fails at execution.
 pub fn timestamp_to_date(child: Expression) -> Expression {
-    TemporalConvert.new_expr(TemporalOperation::Date, [child])
+    TemporalConvert.new_expr(TemporalOperation::TimestampToDate, [child])
 }
 
-/// Extract a timestamp's local time of day in the original unit.
+/// Extract the local time of day of a [`Timestamp`] as a [`Time`] in the same unit.
 ///
-/// For zoned timestamps, use the offset at the input instant.
+/// The time zone applies as in [`timestamp_to_date`]. The input **must** be a [`Timestamp`], or
+/// binding fails.
 pub fn timestamp_to_time(child: Expression) -> Expression {
-    TemporalConvert.new_expr(TemporalOperation::Time, [child])
+    TemporalConvert.new_expr(TemporalOperation::TimestampToTime, [child])
 }
 
-/// Change an aware timestamp's display zone, preserving its instant.
+/// Change the time zone of a [`Timestamp`] and keep its instant, so the stored count does not
+/// change.
 ///
-/// Use [`replace_time_zone`](crate::expr::replace_time_zone) to interpret existing clock fields in
-/// another zone.
+/// The input **must** be a [`Timestamp`] with a time zone, or binding fails. Use
+/// [`replace_time_zone`](crate::expr::replace_time_zone) to keep the local clock time in another
+/// zone instead.
 pub fn convert_time_zone(child: Expression, zone: impl Into<Arc<str>>) -> Expression {
     TemporalConvert.new_expr(TemporalOperation::ConvertZone(zone.into()), [child])
 }
@@ -137,9 +148,9 @@ pub(crate) enum TemporalOperation {
     /// Convert to a coarser unit using the supplied rounding mode.
     ChangeUnit(TimeUnit, TemporalRounding),
     /// Extract the local calendar date.
-    Date,
+    TimestampToDate,
     /// Extract the local time of day.
-    Time,
+    TimestampToTime,
     /// Change the display zone without changing the instant.
     ConvertZone(Arc<str>),
 }
@@ -148,8 +159,8 @@ impl fmt::Display for TemporalOperation {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::ChangeUnit(unit, rounding) => write!(f, "change_time_unit({unit}, {rounding})"),
-            Self::Date => f.write_str("timestamp_to_date"),
-            Self::Time => f.write_str("timestamp_to_time"),
+            Self::TimestampToDate => f.write_str("timestamp_to_date"),
+            Self::TimestampToTime => f.write_str("timestamp_to_time"),
             Self::ConvertZone(zone) => write!(f, "convert_time_zone({zone})"),
         }
     }
@@ -191,8 +202,12 @@ impl ScalarFnVTable for TemporalConvert {
                     rounding: rounding.into(),
                 })
             }
-            TemporalOperation::Date => pb::Operation::TimestampToDate(pb::TimestampToDate {}),
-            TemporalOperation::Time => pb::Operation::TimestampToTime(pb::TimestampToTime {}),
+            TemporalOperation::TimestampToDate => {
+                pb::Operation::TimestampToDate(pb::TimestampToDate {})
+            }
+            TemporalOperation::TimestampToTime => {
+                pb::Operation::TimestampToTime(pb::TimestampToTime {})
+            }
             TemporalOperation::ConvertZone(time_zone) => {
                 pb::Operation::ConvertZone(pb::ConvertZone {
                     time_zone: time_zone.to_string(),
@@ -219,12 +234,15 @@ impl ScalarFnVTable for TemporalConvert {
                     Ok(pb::Rounding::NearestTiesAwayFromZero) => {
                         TemporalRounding::NearestTiesAwayFromZero
                     }
-                    Err(_) => vortex_bail!("Unknown temporal rounding mode {}", opts.rounding),
+                    Err(_) => vortex_bail!(
+                        "Expected a known temporal rounding mode, got {}",
+                        opts.rounding
+                    ),
                 };
                 TemporalOperation::ChangeUnit(unit, rounding)
             }
-            Some(pb::Operation::TimestampToDate(_)) => TemporalOperation::Date,
-            Some(pb::Operation::TimestampToTime(_)) => TemporalOperation::Time,
+            Some(pb::Operation::TimestampToDate(_)) => TemporalOperation::TimestampToDate,
+            Some(pb::Operation::TimestampToTime(_)) => TemporalOperation::TimestampToTime,
             Some(pb::Operation::ConvertZone(opts)) => {
                 TemporalOperation::ConvertZone(Arc::from(opts.time_zone))
             }
@@ -237,11 +255,13 @@ impl ScalarFnVTable for TemporalConvert {
         let nullable = input.nullability();
         let metadata = temporal_metadata(input)
             .ok_or_else(|| vortex_err!("Expected a temporal dtype, got {input}"))?;
+
         let ext = match (operation, metadata) {
             (TemporalOperation::ChangeUnit(unit, _), metadata) => {
                 vortex_ensure!(
                     nanos_per_unit(*unit) > nanos_per_unit(metadata.time_unit()),
-                    "Expected a coarser temporal unit, got {unit}"
+                    "Expected a temporal unit coarser than {}, got {unit}",
+                    metadata.time_unit()
                 );
                 match metadata {
                     TemporalMetadata::Timestamp(_, zone) => {
@@ -251,17 +271,18 @@ impl ScalarFnVTable for TemporalConvert {
                     TemporalMetadata::Date(_) => Date::try_new(*unit, nullable)?.erased(),
                 }
             }
-            (TemporalOperation::Date, TemporalMetadata::Timestamp(..)) => {
+            (TemporalOperation::TimestampToDate, TemporalMetadata::Timestamp(..)) => {
                 Date::new(TimeUnit::Days, nullable).erased()
             }
-            (TemporalOperation::Time, TemporalMetadata::Timestamp(unit, _)) => {
+            (TemporalOperation::TimestampToTime, TemporalMetadata::Timestamp(unit, _)) => {
                 Time::new(*unit, nullable).erased()
             }
             (TemporalOperation::ConvertZone(zone), TemporalMetadata::Timestamp(unit, Some(_))) => {
                 Timestamp::try_new_with_tz(*unit, Some(Arc::clone(zone)), nullable)?.erased()
             }
-            _ => vortex_bail!("Unsupported temporal operation {operation} for {input}"),
+            _ => vortex_bail!("Expected an input dtype that supports {operation}, got {input}"),
         };
+
         Ok(DType::Extension(ext))
     }
 
@@ -273,8 +294,10 @@ impl ScalarFnVTable for TemporalConvert {
     ) -> VortexResult<ArrayRef> {
         let input = args.get(0)?;
         let target = self.return_dtype(operation, std::slice::from_ref(input.dtype()))?;
-        let metadata = temporal_metadata(input.dtype()).vortex_expect("validated temporal input");
+        let metadata = temporal_metadata(input.dtype())
+            .vortex_expect("`return_dtype` above accepts only temporal inputs");
         let source_unit = metadata.time_unit();
+
         match operation {
             TemporalOperation::ChangeUnit(unit, rounding) => {
                 let is_time = matches!(metadata, TemporalMetadata::Time(_));
@@ -293,7 +316,7 @@ impl ScalarFnVTable for TemporalConvert {
             TemporalOperation::ConvertZone(_) => {
                 let target = target
                     .as_extension_opt()
-                    .vortex_expect("validated timestamp target");
+                    .vortex_expect("`return_dtype` returns a timestamp for `ConvertZone`");
                 if let Some(scalar) = input.as_constant() {
                     let output = Scalar::try_extension_ref(
                         target.clone(),
@@ -301,16 +324,18 @@ impl ScalarFnVTable for TemporalConvert {
                     )?;
                     return Ok(ConstantArray::new(output, input.len()).into_array());
                 }
+
                 let input = input.execute::<ExtensionArray>(ctx)?;
                 Ok(
                     ExtensionArray::try_new(target.clone(), input.storage_array().clone())?
                         .into_array(),
                 )
             }
-            TemporalOperation::Date | TemporalOperation::Time => {
+            TemporalOperation::TimestampToDate | TemporalOperation::TimestampToTime => {
                 let TemporalMetadata::Timestamp(_, zone) = metadata else {
-                    unreachable!("validated timestamp input");
+                    vortex_panic!("`return_dtype` accepts only a timestamp input for {operation}");
                 };
+
                 let zone = zone
                     .as_deref()
                     .map(|zone| resolve_time_zone(Some(zone)))
@@ -318,7 +343,7 @@ impl ScalarFnVTable for TemporalConvert {
                 let day = i128::from(units_per_day(source_unit));
                 transform_temporal(input, &target, ctx, |value| {
                     let local = local_count(value, source_unit, zone.as_ref())?;
-                    let result = if matches!(operation, TemporalOperation::Date) {
+                    let result = if matches!(operation, TemporalOperation::TimestampToDate) {
                         local.div_euclid(day)
                     } else {
                         local.rem_euclid(day)
@@ -395,15 +420,27 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn test_change_time_unit_rejects_rounding_up_to_midnight() -> VortexResult<()> {
-        let source = Time::new(TimeUnit::Milliseconds, NON_NULLABLE).erased();
-        let input = ExtensionArray::try_new(source, buffer![86_399_500i32].into_array())?;
-        let operation = change_time_unit(
-            root(),
-            TimeUnit::Seconds,
-            TemporalRounding::NearestTiesAwayFromZero,
-        );
+    #[rstest]
+    #[case::time_rounds_up_to_midnight(
+        Time::new(TimeUnit::Milliseconds, NON_NULLABLE).erased(),
+        buffer![86_399_500i32].into_array(),
+        TimeUnit::Seconds,
+        TemporalRounding::NearestTiesAwayFromZero,
+    )]
+    #[case::exact_with_remainder(
+        Timestamp::new(TimeUnit::Nanoseconds, NON_NULLABLE).erased(),
+        buffer![1_500_000i64].into_array(),
+        TimeUnit::Milliseconds,
+        TemporalRounding::Exact,
+    )]
+    fn test_change_time_unit_errors(
+        #[case] source: ExtDTypeRef,
+        #[case] storage: ArrayRef,
+        #[case] unit: TimeUnit,
+        #[case] rounding: TemporalRounding,
+    ) -> VortexResult<()> {
+        let input = ExtensionArray::try_new(source, storage)?;
+        let operation = change_time_unit(root(), unit, rounding);
         assert_execution_paths(
             &[input.into_array()],
             |inputs| inputs[0].clone().apply(&operation),
@@ -441,7 +478,12 @@ mod tests {
                 NON_NULLABLE,
             )
             .erased(),
-            buffer![0i64, 1_710_053_999, 1_710_054_000].into_array(),
+            buffer![
+                0i64,          // The epoch, which is 1969-12-31 19:00:00 EST in New York.
+                1_710_053_999, // 2024-03-10 01:59:59 EST, the last second before DST starts.
+                1_710_054_000, // 2024-03-10 03:00:00 EDT, after the offset moves from -5h to -4h.
+            ]
+            .into_array(),
         )?;
         let expected = ExtensionArray::try_new(target, expected_storage)?;
         let session = VortexSession::empty();
