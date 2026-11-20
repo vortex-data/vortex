@@ -57,10 +57,12 @@ const PATCH_STRIDES: &[usize] = &[100, 10];
 fn make_dict_of_sparse_codes(patch_stride: usize, values: ArrayRef) -> ArrayRef {
     let mut ctx = SESSION.create_execution_ctx();
     let positions: Buffer<u32> = (0..LEN).step_by(patch_stride).map(|i| i as u32).collect();
-    // Spread the present codes over the dictionary, with repeats.
-    let codes =
-        PrimitiveArray::from_iter((0..positions.len()).map(|i| ((i * 7_919) % DICT_SIZE) as u16))
-            .into_array();
+    // Spread the present codes over the dictionary, with repeats. The codes share the null
+    // fill's nullable dtype.
+    let codes = PrimitiveArray::from_option_iter(
+        (0..positions.len()).map(|i| Some(((i * 7_919) % DICT_SIZE) as u16)),
+    )
+    .into_array();
     let sparse_codes = Sparse::try_new(
         positions.into_array(),
         codes,
