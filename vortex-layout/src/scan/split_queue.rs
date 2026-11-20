@@ -37,6 +37,10 @@ type SplitTask = BoxFuture<'static, VortexResult<Option<ArrayRef>>>;
 /// A worker yields only the splits it claimed, and claims a split only when it has room for one,
 /// so no worker waits on a split another one claimed.
 ///
+/// A worker with room for one split has nothing to overlap it with, so it polls the split itself
+/// rather than spawning it. The split then runs on the thread that polls the worker, which also
+/// consumes its array, and no other thread driving the runtime picks it up.
+///
 /// [`RepeatedScan::execute`]: crate::scan::repeated_scan::RepeatedScan::execute
 pub(crate) struct SplitQueue {
     handle: Handle,
@@ -76,9 +80,16 @@ impl SplitQueue {
     pub(crate) fn worker(self: Arc<Self>) -> BoxStream<'static, VortexResult<ArrayRef>> {
         let handle = self.handle.clone();
         let per_worker = self.per_worker;
+        let splits = stream::iter(iter::from_fn(move || self.claim()));
+        if per_worker == 1 {
+            return splits
+                .then(|split| split)
+                .filter_map(|array| future::ready(array.transpose()))
+                .boxed();
+        }
         // `buffer_unordered` pulls a split only when it has room, so a worker claims no more
         // than it runs.
-        stream::iter(iter::from_fn(move || self.claim()))
+        splits
             .map(move |split| handle.spawn(split))
             .buffer_unordered(per_worker)
             .filter_map(|array| future::ready(array.transpose()))

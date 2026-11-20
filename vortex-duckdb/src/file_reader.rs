@@ -279,8 +279,8 @@ pub fn reader_initialize(file: &mut OpenFileReader, global: &GlobalState) -> Vor
         selection: filter.row_selection.clone(),
         ordered: false,
         // DuckDB runs one thread per core, so its threads are the scan's parallelism: each runs
-        // one split at a time. A clone with room for more would claim splits other threads could
-        // have run, leaving them nothing on a file with few splits.
+        // one split at a time, polling it itself. A clone with room for more would claim splits
+        // other threads could have run, leaving them nothing on a file with few splits.
         split_concurrency: Some(NonZeroUsize::MIN),
         ..ScanRequest::default()
     };
@@ -329,23 +329,17 @@ fn next_split_item(local: &mut LocalState) -> VortexResult<SplitItem> {
     match local.split.take() {
         None => Ok(SplitItem::Done),
         Some(Split::V1(mut stream)) => {
-            let array = match local.pending.pop() {
-                Some(array) => array,
-                None => {
-                    let Some(array) = RUNTIME.block_on(stream.next()).transpose()? else {
-                        local
-                            .file
-                            .as_ref()
-                            .vortex_expect("split without a file")
-                            .finished
-                            .store(true, Ordering::Release);
-                        // Dropping the last clone drops the file's split queue; do that outside
-                        // DuckDB's locks.
-                        local.retired_splits.push(Split::V1(stream));
-                        return Ok(SplitItem::Done);
-                    };
-                    split_chunks(&mut local.pending, array)
-                }
+            let Some(array) = RUNTIME.block_on(stream.next()).transpose()? else {
+                local
+                    .file
+                    .as_ref()
+                    .vortex_expect("split without a file")
+                    .finished
+                    .store(true, Ordering::Release);
+                // Dropping the last clone drops the file's split queue; do that outside DuckDB's
+                // locks.
+                local.retired_splits.push(Split::V1(stream));
+                return Ok(SplitItem::Done);
             };
             local.split = Some(Split::V1(stream));
             Ok(if array.is_empty() {
@@ -366,7 +360,16 @@ fn next_split_item(local: &mut LocalState) -> VortexResult<SplitItem> {
                     let Some(array) = scan.next_array(&mut local.run)? else {
                         return Ok(SplitItem::Done);
                     };
-                    split_chunks(&mut local.pending, array)
+                    // A V2 batch can join chunks of several layout chunks. Canonicalizing it
+                    // would decode their dictionaries, so export each chunk on its own, as a V1
+                    // scan yields them.
+                    match array.as_opt::<Chunked>() {
+                        Some(chunked) => {
+                            local.pending.extend(chunked.chunks().into_iter().rev());
+                            local.pending.pop().unwrap_or(array)
+                        }
+                        None => array,
+                    }
                 }
             };
             local.split = Some(Split::V2);
@@ -376,20 +379,6 @@ fn next_split_item(local: &mut LocalState) -> VortexResult<SplitItem> {
                 SplitItem::Array(array)
             })
         }
-    }
-}
-
-/// The first chunk of `array`, leaving the rest in `pending` in reverse order.
-///
-/// An array can join chunks of several layout chunks. Canonicalizing it would decode their
-/// dictionaries, so export each chunk on its own.
-fn split_chunks(pending: &mut Vec<ArrayRef>, array: ArrayRef) -> ArrayRef {
-    match array.as_opt::<Chunked>() {
-        Some(chunked) => {
-            pending.extend(chunked.chunks().into_iter().rev());
-            pending.pop().unwrap_or(array)
-        }
-        None => array,
     }
 }
 
