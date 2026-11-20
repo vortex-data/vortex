@@ -19,10 +19,11 @@
 //!
 //! The pools differ in how workers share the work:
 //!
-//! - An unordered pool runs `splits_in_flight` lanes on the runtime once its first worker starts.
-//!   Each lane takes the next unit from a channel of units, runs it, and sends its rows into one
-//!   bounded output channel; a lane that opens a deferred file sends the file's splits back into
-//!   the channel of units, followed by the next deferred file. Workers only take rows from the
+//! - An unordered pool runs lanes on the runtime once its first worker starts: one for each unit
+//!   that is ready, more as units queue, and at most `splits_in_flight`. Each lane takes the next
+//!   unit from a channel of units, runs it, and sends its rows into one bounded output channel; a
+//!   lane that opens a deferred file sends the file's splits back into the channel of units,
+//!   followed by the next deferred file. Workers only take rows from the
 //!   output channel, so whichever worker asks next gets the next rows, however many workers there
 //!   are, and the number of workers is only the host's parallelism. The output channel closes
 //!   once every lane has finished, which ends the workers.
@@ -36,6 +37,7 @@ use std::num::NonZeroUsize;
 use std::ops::Range;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
+use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 
 use async_channel::Receiver;
@@ -272,13 +274,21 @@ pub(crate) fn open_pool(
         }
     }
     let (output, outputs) = async_channel::bounded(splits_in_flight);
+    let lanes = Arc::new(Lanes {
+        shared: Arc::clone(&shared),
+        units: receiver.clone(),
+        max: splits_in_flight,
+        waiting: AtomicUsize::new(0),
+        started: AtomicUsize::new(0),
+        tasks: Mutex::new(Some(Vec::new())),
+    });
     Arc::new(UnorderedPool {
         dtype: options.dtype,
         shared,
         units: receiver,
         outputs,
-        lanes: Mutex::new(Lanes::Idle(output)),
-        splits_in_flight,
+        lanes,
+        output: Mutex::new(Some(output)),
     })
 }
 
@@ -547,15 +557,49 @@ fn send(sender: &Sender<Work>, work: Work) {
     drop(sender.try_send(work));
 }
 
-/// The lanes of an unordered pool.
-enum Lanes {
-    /// Not started: the sender of the output channel, for the lanes to hold once they start.
-    Idle(Sender<VortexResult<ArrayRef>>),
-    /// Running, until the pool is dropped, which aborts them.
-    Running(
-        #[expect(dead_code, reason = "held so that dropping the pool aborts the lanes")]
-        Vec<Task<()>>,
-    ),
+/// The lanes of an unordered pool. They start when its first worker does, as many as there are
+/// units ready, and grow while units wait for a lane, up to `splits_in_flight`, so a scan with
+/// few units spawns and wakes few tasks.
+struct Lanes {
+    shared: Arc<Shared>,
+    units: Receiver<Work>,
+    /// The most lanes that run at once.
+    max: usize,
+    /// Lanes waiting for a unit.
+    waiting: AtomicUsize,
+    /// Lanes started, so a lane can see without a lock that no more may start.
+    started: AtomicUsize,
+    /// The lanes started, until the pool is dropped, which aborts them. `None` once it is.
+    tasks: Mutex<Option<Vec<Task<()>>>>,
+}
+
+impl Lanes {
+    /// Starts lanes for the units that no waiting lane will take, up to the most that run at
+    /// once. Each lane holds a sender of the output channel.
+    fn grow(self: &Arc<Self>, output: &Sender<VortexResult<ArrayRef>>) {
+        // Every lane calls this for every unit it takes, so it locks only to start lanes.
+        if self.started.load(Ordering::Acquire) >= self.max || self.unserved() == 0 {
+            return;
+        }
+        let mut tasks = self.tasks.lock();
+        let Some(tasks) = tasks.as_mut() else {
+            return;
+        };
+        let new = self.unserved().min(self.max.saturating_sub(tasks.len()));
+        if new == 0 {
+            return;
+        }
+        let handle = self.shared.session.handle();
+        tasks.extend((0..new).map(|_| handle.spawn(lane(Arc::clone(self), output.clone()))));
+        self.started.store(tasks.len(), Ordering::Release);
+    }
+
+    /// The units that the lanes waiting for one will not take.
+    fn unserved(&self) -> usize {
+        self.units
+            .len()
+            .saturating_sub(self.waiting.load(Ordering::Acquire))
+    }
 }
 
 /// A pool whose lanes run its units on the runtime, and whose workers share their output.
@@ -564,8 +608,10 @@ struct UnorderedPool {
     shared: Arc<Shared>,
     units: Receiver<Work>,
     outputs: Receiver<VortexResult<ArrayRef>>,
-    lanes: Mutex<Lanes>,
-    splits_in_flight: usize,
+    lanes: Arc<Lanes>,
+    /// The sender of the output channel until the first worker starts the lanes, which hold it
+    /// from then on.
+    output: Mutex<Option<Sender<VortexResult<ArrayRef>>>>,
 }
 
 impl UnorderedPool {
@@ -588,38 +634,32 @@ impl UnorderedPool {
         }
     }
 
-    /// Starts the lanes, once.
+    /// Starts the lanes, once. With no units, it starts none, and the output channel closes.
     fn start_lanes(&self) {
-        let mut lanes = self.lanes.lock();
-        let Lanes::Idle(output) = &*lanes else {
-            return;
-        };
-        let output = output.clone();
-        let handle = self.shared.session.handle();
-        let running = (0..self.splits_in_flight)
-            .map(|_| {
-                handle.spawn(lane(
-                    Arc::clone(&self.shared),
-                    self.units.clone(),
-                    output.clone(),
-                ))
-            })
-            .collect();
         // Dropping the pool's own sender leaves the lanes holding the output channel open.
-        *lanes = Lanes::Running(running);
+        if let Some(output) = self.output.lock().take() {
+            self.lanes.grow(&output);
+        }
     }
 }
 
 /// A lane: runs units one at a time and sends their rows to the workers, trimming them to a
 /// trimmed limit. Ends once the units run out, a limit is spent, a unit fails, or every worker
 /// is gone.
-async fn lane(shared: Arc<Shared>, units: Receiver<Work>, output: Sender<VortexResult<ArrayRef>>) {
+async fn lane(lanes: Arc<Lanes>, output: Sender<VortexResult<ArrayRef>>) {
+    let shared = Arc::clone(&lanes.shared);
     let handle = shared.session.handle();
     let identity: MapFn<ArrayRef> = Arc::new(Ok);
     while !shared.limit.is_trimmed_out() && !shared.failed.load(Ordering::Acquire) {
-        let Ok(work) = units.recv().await else {
+        lanes.waiting.fetch_add(1, Ordering::AcqRel);
+        let work = lanes.units.recv().await;
+        lanes.waiting.fetch_sub(1, Ordering::AcqRel);
+        let Ok(work) = work else {
             return;
         };
+        // Units the waiting lanes will not take get lanes of their own, such as the splits an
+        // open has just queued.
+        lanes.grow(&output);
         let array = match UnorderedPool::run(&shared, work).await {
             Ok(Some(array)) => Ok(array),
             Ok(None) => continue,
@@ -693,6 +733,7 @@ impl Drop for UnorderedPool {
         self.units.close();
         while self.units.try_recv().is_ok() {}
         self.outputs.close();
+        drop(self.lanes.tasks.lock().take());
     }
 }
 
