@@ -34,10 +34,15 @@ use crate::match_each_native_ptype;
 use crate::trace_op;
 use crate::validity::Validity;
 
-/// The primitive type of an array the executor can fuse, or `None` if it is not primitive.
+/// The primitive type of an array the executor can fuse: its own, or its storage type for an
+/// extension type stored as a primitive. `None` for any other array.
 pub(crate) fn fusable_ptype(array: &ArrayRef) -> Option<PType> {
     match array.dtype() {
         DType::Primitive(ptype, _) => Some(*ptype),
+        DType::Extension(ext) => match ext.storage_dtype() {
+            DType::Primitive(ptype, _) => Some(*ptype),
+            _ => None,
+        },
         _ => None,
     }
 }

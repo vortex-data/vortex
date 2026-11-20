@@ -21,10 +21,12 @@ use vortex_array::IntoArray;
 use vortex_array::array_slots;
 use vortex_array::arrays::Primitive;
 use vortex_array::arrays::TemporalArray;
+use vortex_array::block::BlockOp;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::PType;
 use vortex_array::require_child;
+use vortex_array::require_spine;
 use vortex_array::smallvec::smallvec;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityChild;
@@ -37,6 +39,7 @@ use vortex_error::vortex_panic;
 use vortex_session::registry::CachedId;
 
 use crate::TemporalParts;
+use crate::canonical::days_block_op;
 use crate::canonical::decode_to_temporal;
 use crate::split_temporal;
 
@@ -132,16 +135,35 @@ impl VTable for DateTimeParts {
     }
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
-        let array = require_child!(array, array.days(), DateTimePartsSlots::DAYS => Primitive);
+        // Days last, as the spine: once the time parts are executed, the executor can combine
+        // blocks of an encoded days child with them, without materializing days.
         let array =
             require_child!(array, array.seconds(), DateTimePartsSlots::SECONDS => AnyCanonical);
         let array = require_child!(array, array.subseconds(), DateTimePartsSlots::SUBSECONDS => AnyCanonical);
+        let array = require_spine!(array, array.days(), DateTimePartsSlots::DAYS => Primitive);
 
         let dtype = array.dtype().clone();
         let parts = array.into_parts();
 
         Ok(ExecutionResult::done(
             decode_to_temporal(parts, &dtype, ctx)?.into_array(),
+        ))
+    }
+
+    fn block_op(
+        array: ArrayView<'_, Self>,
+        slot_idx: usize,
+        child_dtype: &DType,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<Box<dyn BlockOp>>> {
+        if slot_idx != DateTimePartsSlots::DAYS {
+            return Ok(None);
+        }
+        Ok(days_block_op(
+            array.dtype(),
+            child_dtype,
+            array.seconds(),
+            array.subseconds(),
         ))
     }
 }

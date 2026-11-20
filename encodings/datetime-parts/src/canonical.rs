@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::marker::PhantomData;
 use std::mem::MaybeUninit;
 
 use num_traits::AsPrimitive;
@@ -11,13 +12,18 @@ use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::TemporalArray;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
+use vortex_array::block::Block;
+use vortex_array::block::BlockOp;
+use vortex_array::block::Written;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
+use vortex_array::dtype::NativePType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::extension::datetime::TimeUnit;
 use vortex_array::extension::datetime::Timestamp;
 use vortex_array::match_each_integer_ptype;
+use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_compute::lane_kernels::IndexedSource;
 use vortex_compute::lane_kernels::IndexedSourceExt;
@@ -25,6 +31,7 @@ use vortex_compute::lane_kernels::LaneZip;
 use vortex_compute::lane_kernels::Repeat;
 use vortex_error::VortexExpect as _;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_error::vortex_panic;
 
 use crate::array::DateTimePartsParts;
@@ -107,6 +114,82 @@ pub fn decode_to_temporal(
         options.unit,
         options.tz.clone(),
     ))
+}
+
+/// The block op of a [`DateTimeParts`](crate::DateTimeParts) array over its days slot, once its
+/// seconds and subseconds are executed: each block of days is combined with the same rows of the
+/// time parts, as [`decode_to_temporal`] does. `None` when it decodes some other way: a unit of
+/// days, or a time part that is not `i32`, which the level-wise decode casts.
+pub(crate) fn days_block_op(
+    dtype: &DType,
+    days_dtype: &DType,
+    seconds: &ArrayRef,
+    subseconds: &ArrayRef,
+) -> Option<Box<dyn BlockOp>> {
+    let DType::Extension(ext) = dtype else {
+        return None;
+    };
+    let divisor = match ext.metadata_opt::<Timestamp>()?.unit {
+        TimeUnit::Nanoseconds => 1_000_000_000,
+        TimeUnit::Microseconds => 1_000_000,
+        TimeUnit::Milliseconds => 1_000,
+        TimeUnit::Seconds => 1,
+        TimeUnit::Days => return None,
+    };
+    let DType::Primitive(days_ptype, _) = days_dtype else {
+        return None;
+    };
+    if !days_ptype.is_int() {
+        return None;
+    }
+    let part = |array: &ArrayRef| {
+        (array.dtype() == &DType::Primitive(PType::I32, Nullability::NonNullable))
+            .then(|| {
+                array
+                    .as_opt::<Primitive>()
+                    .map(|part| part.to_buffer::<i32>())
+            })
+            .flatten()
+    };
+    let (seconds, subseconds) = (part(seconds)?, part(subseconds)?);
+    Some(match_each_integer_ptype!(days_ptype, |D| {
+        Box::new(CombineParts::<D> {
+            seconds,
+            subseconds,
+            divisor,
+            _days: PhantomData,
+        }) as Box<dyn BlockOp>
+    }))
+}
+
+/// Combines blocks of days with the same rows of seconds and subseconds.
+struct CombineParts<D> {
+    seconds: Buffer<i32>,
+    subseconds: Buffer<i32>,
+    divisor: i64,
+    _days: PhantomData<fn(D)>,
+}
+
+impl<D: NativePType + AsPrimitive<i64>> BlockOp for CombineParts<D> {
+    fn process<'a>(&mut self, start: usize, block: Block<'a>) -> VortexResult<Written<'a>> {
+        let Block::Copy { input, mut out } = block else {
+            vortex_bail!("DateTimeParts combines days into a block of its own");
+        };
+        let rows = start..start + input.len();
+        combine_parts(
+            input.as_slice::<D>(),
+            &self.seconds[rows.clone()],
+            &self.subseconds[rows],
+            self.divisor,
+            out.as_uninit::<i64>(),
+        );
+        // SAFETY: `combine_parts` writes every value of `out`.
+        Ok(unsafe { Written::assume_init(out) })
+    }
+
+    fn supports_in_place(&self) -> bool {
+        false
+    }
 }
 
 /// A non-nullable integer component of every timestamp.

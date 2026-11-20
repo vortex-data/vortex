@@ -14,6 +14,7 @@ use super::fusable_ptype;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::arrays::ExtensionArray;
 use crate::dtype::DType;
 use crate::stats::StatsSet;
 use crate::trace_op;
@@ -80,6 +81,11 @@ impl FusedChain {
             .union_nullability(self.dtype.nullability())
             .execute(ctx)?;
         let values = self.program.run(validity, ctx)?;
-        Ok(values.with_stats_set(self.stats).into_array())
+        Ok(match &self.dtype {
+            DType::Extension(ext) => ExtensionArray::try_new(ext.clone(), values.into_array())?
+                .with_stats_set(self.stats)
+                .into_array(),
+            _ => values.with_stats_set(self.stats).into_array(),
+        })
     }
 }

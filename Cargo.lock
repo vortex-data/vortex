@@ -11763,6 +11763,7 @@ dependencies = [
  "vortex-buffer",
  "vortex-compute",
  "vortex-error",
+ "vortex-fastlanes",
  "vortex-mask",
  "vortex-session",
 ]
