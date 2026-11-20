@@ -28,6 +28,8 @@ use crate::LayoutStrategy;
 use crate::LayoutWriterContext;
 use crate::layouts::list::writer::ListLayoutStrategy;
 use crate::layouts::struct_::StructStrategy;
+use crate::layouts::variant::VariantShreddingPolicy;
+use crate::layouts::variant::VariantStrategy;
 use crate::segments::SegmentSinkRef;
 use crate::sequence::SendableSequentialStream;
 use crate::sequence::SequencePointer;
@@ -61,6 +63,14 @@ pub struct TableStrategy {
     ///
     /// [`ListLayoutStrategy`]: ListLayoutStrategy
     list_layout_factory: Option<ListLayoutFactory>,
+    /// Whether shredded Variant fields are written with [`VariantStrategy`].
+    variant_layout: bool,
+    /// Chooses how to shred the Variant fields that are not shredded and have no override in
+    /// `variant_shredding_at`.
+    variant_shredding: Option<Arc<dyn VariantShreddingPolicy>>,
+    /// Chooses how to shred the Variant field at each path, relative to the level this
+    /// dispatcher sits at. The root path is the field this dispatcher writes.
+    variant_shredding_at: HashMap<FieldPath, Arc<dyn VariantShreddingPolicy>>,
 }
 
 impl TableStrategy {
@@ -88,6 +98,9 @@ impl TableStrategy {
             validity,
             leaf: fallback,
             list_layout_factory: None,
+            variant_layout: false,
+            variant_shredding: None,
+            variant_shredding_at: HashMap::default(),
         }
     }
 
@@ -175,6 +188,39 @@ impl TableStrategy {
         self.list_layout_factory = Some(Arc::new(factory));
         self
     }
+
+    /// Enable writing shredded Variant fields with [`VariantStrategy`], which stores the core
+    /// storage and each shredded field as columns of their own.
+    ///
+    /// **Note**: this is an unstable and experimental layout that is expected to change.
+    /// Using it may lead to unreadable files in the future.
+    pub fn with_variant_layout(mut self) -> Self {
+        self.variant_layout = true;
+        self
+    }
+
+    /// Shred the Variant fields that are not shredded as `policy` chooses, so that
+    /// [`VariantStrategy`] has columns to split them into. A field with a policy of its own, set
+    /// with [`with_variant_shredding_at`](Self::with_variant_shredding_at), uses that instead.
+    ///
+    /// This has no effect without [`with_variant_layout`](Self::with_variant_layout).
+    pub fn with_variant_shredding(mut self, policy: Arc<dyn VariantShreddingPolicy>) -> Self {
+        self.variant_shredding = Some(policy);
+        self
+    }
+
+    /// Shred the Variant field at `field_path` as `policy` chooses, if it is not shredded. The
+    /// root path is a Variant written on its own.
+    ///
+    /// This has no effect without [`with_variant_layout`](Self::with_variant_layout).
+    pub fn with_variant_shredding_at(
+        mut self,
+        field_path: impl Into<FieldPath>,
+        policy: Arc<dyn VariantShreddingPolicy>,
+    ) -> Self {
+        self.variant_shredding_at.insert(field_path.into(), policy);
+        self
+    }
 }
 
 impl TableStrategy {
@@ -188,7 +234,11 @@ impl TableStrategy {
         // The distinct named first-segments of our override paths are the only fields that need
         // anything other than the default dispatcher.
         let mut named_first: HashSet<FieldName> = HashSet::default();
-        for path in self.leaf_writers.keys() {
+        for path in self
+            .leaf_writers
+            .keys()
+            .chain(self.variant_shredding_at.keys())
+        {
             if let Some(Field::Name(name)) = path.parts().first() {
                 named_first.insert(name.clone());
             }
@@ -239,11 +289,24 @@ impl TableStrategy {
             }
         }
 
+        // A path to the field itself becomes the root path, which applies to the field.
+        let mut new_shredding = HashMap::default();
+        for (field_path, policy) in &self.variant_shredding_at {
+            if field_path.parts().first() == Some(field)
+                && let Some(subpath) = field_path.clone().step_into()
+            {
+                new_shredding.insert(subpath, Arc::clone(policy));
+            }
+        }
+
         Self {
             leaf_writers: new_writers,
             validity: Arc::clone(&self.validity),
             leaf: Arc::clone(&self.leaf),
             list_layout_factory: self.list_layout_factory.clone(),
+            variant_layout: self.variant_layout,
+            variant_shredding: self.variant_shredding.clone(),
+            variant_shredding_at: new_shredding,
         }
     }
 
@@ -255,6 +318,9 @@ impl TableStrategy {
             validity: Arc::clone(&self.validity),
             leaf: Arc::clone(&self.leaf),
             list_layout_factory: self.list_layout_factory.clone(),
+            variant_layout: self.variant_layout,
+            variant_shredding: self.variant_shredding.clone(),
+            variant_shredding_at: HashMap::default(),
         }
     }
 
@@ -301,6 +367,26 @@ impl LayoutStrategy for TableStrategy {
             && let Some(list_strategy) = self.list_strategy()
         {
             return list_strategy
+                .write_stream(ctx, segment_sink, stream, eof, session)
+                .await;
+        }
+
+        if dtype.is_variant() && self.variant_layout {
+            // The stored struct goes back through a clean dispatcher, so that its shredded
+            // child is split into columns, and a Variant in it is split in turn.
+            // A Variant inside the struct is the residual of a shredded object. The policy has
+            // seen its fields already, so it is written as it is.
+            let mut storage = self.descend_clean();
+            storage.variant_shredding = None;
+            let mut strategy = VariantStrategy::new(Arc::new(storage), Arc::clone(&self.leaf));
+            let policy = self
+                .variant_shredding_at
+                .get(&FieldPath::root())
+                .or(self.variant_shredding.as_ref());
+            if let Some(policy) = policy {
+                strategy = strategy.with_shredding(Arc::clone(policy));
+            }
+            return strategy
                 .write_stream(ctx, segment_sink, stream, eof, session)
                 .await;
         }

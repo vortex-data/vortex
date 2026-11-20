@@ -28,10 +28,13 @@ mod array;
 mod arrow;
 mod builder;
 mod compute;
+mod extract;
+mod fold;
 #[cfg(test)]
 mod json_to_variant_tests;
 mod kernel;
 mod operations;
+mod shred;
 mod validity;
 mod vtable;
 
@@ -41,6 +44,7 @@ pub use array::ParquetVariantArrayExt;
 pub use array::ParquetVariantArraySlotsExt;
 pub use array::ParquetVariantSlots;
 pub use array::ParquetVariantSlotsView;
+pub use shred::InferredShredding;
 use vortex_array::session::ArraySessionExt;
 use vortex_arrow::ArrowSessionExt;
 pub use vortex_json::JsonToVariant;

@@ -223,11 +223,15 @@ mod tests {
 
     use arrow_array::ArrayRef as ArrowArrayRef;
     use arrow_array::Int32Array;
+    use arrow_array::StringArray;
     use arrow_array::StructArray;
     use arrow_array::builder::BinaryViewBuilder;
     use arrow_schema::DataType;
     use arrow_schema::Field;
+    use parquet_variant_compute::ShreddedSchemaBuilder;
     use parquet_variant_compute::VariantArray as ArrowVariantArray;
+    use parquet_variant_compute::json_to_variant;
+    use parquet_variant_compute::shred_variant;
     use rstest::fixture;
     use rstest::rstest;
     use vortex_array::ArrayContext;
@@ -243,9 +247,16 @@ mod tests {
     use vortex_array::arrays::variant::VariantArraySlotsExt;
     use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::DType;
+    use vortex_array::dtype::FieldNames;
+    use vortex_array::dtype::FieldPath;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
+    use vortex_array::dtype::UnionVariants;
     use vortex_array::dtype::session::DTypeSessionExt;
+    use vortex_array::expr::root;
+    use vortex_array::expr::variant_get;
+    use vortex_array::scalar_fn::fns::variant_get::VariantPath;
+    use vortex_array::scalar_fn::fns::variant_get::VariantPathElement;
     use vortex_array::serde::SerializeOptions;
     use vortex_array::serde::SerializedArray;
     use vortex_array::session::ArraySessionExt;
@@ -265,12 +276,18 @@ mod tests {
     use vortex_file::OpenOptionsSessionExt;
     use vortex_file::WriteOptionsSessionExt;
     use vortex_io::session::RuntimeSession;
+    use vortex_layout::LayoutRef;
     use vortex_layout::layouts::flat::writer::FlatLayoutStrategy;
+    use vortex_layout::layouts::struct_::Struct as StructLayoutEncoding;
+    use vortex_layout::layouts::variant::NoShredding;
+    use vortex_layout::layouts::variant::UnionShredding;
+    use vortex_layout::layouts::variant::VariantShreddingPolicy;
     use vortex_layout::session::LayoutSession;
     use vortex_layout::session::LayoutSessionExt;
     use vortex_session::VortexSession;
     use vortex_session::registry::ReadContext;
 
+    use crate::InferredShredding;
     use crate::ParquetVariant;
     use crate::array::ParquetVariantArraySlotsExt;
 
@@ -450,6 +467,309 @@ mod tests {
             .await?;
 
         assert_arrays_eq!(actual, expected, &mut SESSION.create_execution_ctx());
+        Ok(())
+    }
+
+    const WRITER_ROWS: [&str; 3] = [
+        r#"{"kind":"commit","n":1,"commit":{"collection":"post"},"mixed":1}"#,
+        r#"{"kind":"identity","n":2,"mixed":"two"}"#,
+        r#"{"kind":"commit","n":3,"commit":{"collection":"like"}}"#,
+    ];
+
+    fn writer_rows(session: &VortexSession) -> VortexResult<ArrayRef> {
+        let json: ArrowArrayRef = Arc::new(StringArray::from(WRITER_ROWS.to_vec()));
+        ParquetVariant::from_arrow_variant(&json_to_variant(&json)?, &session.arrow())
+    }
+
+    /// Whether `layout` stores a shredded Variant, as a struct layout of a Variant.
+    fn is_variant_layout(layout: &LayoutRef) -> bool {
+        layout.is::<StructLayoutEncoding>() && layout.dtype().is_variant()
+    }
+
+    /// The number of Variant layouts in the tree under `layout`.
+    fn variant_layouts(layout: &LayoutRef) -> VortexResult<usize> {
+        let own = usize::from(is_variant_layout(layout));
+        layout
+            .children()?
+            .iter()
+            .try_fold(own, |count, child| Ok(count + variant_layouts(child)?))
+    }
+
+    /// A writer with a shredding policy writes an unshredded Variant with the Variant layout
+    /// too, and a scan extracts what the unshredded Variant holds.
+    #[rstest]
+    #[tokio::test]
+    async fn test_file_roundtrip_variant_shredded_by_the_writer(
+        parquet_variant_file_session: VortexResult<VortexSession>,
+    ) -> VortexResult<()> {
+        let session = parquet_variant_file_session?;
+        crate::initialize(&session);
+        let unshredded = writer_rows(&session)?;
+
+        let mut bytes = ByteBufferMut::empty();
+        session
+            .write_options()
+            .with_strategy(
+                vortex_file::WriteStrategyBuilder::from_session(&session)
+                    .with_variant_shredding(Arc::new(InferredShredding::default()))
+                    .build(),
+            )
+            .write(&mut bytes, unshredded.to_array_stream())
+            .await?;
+        let file = session.open_options().open_buffer(bytes)?;
+        assert!(is_variant_layout(file.footer().layout()));
+
+        let utf8 = DType::Utf8(Nullability::Nullable);
+        let i64 = DType::Primitive(PType::I64, Nullability::Nullable);
+        let mut ctx = session.create_execution_ctx();
+        for (path, dtype) in [
+            (VariantPath::field("kind"), utf8.clone()),
+            (
+                VariantPath::new([
+                    VariantPathElement::field("commit"),
+                    VariantPathElement::field("collection"),
+                ]),
+                utf8.clone(),
+            ),
+            (VariantPath::field("n"), i64.clone()),
+            // A field of two types is not shredded, and stays in the core storage.
+            (VariantPath::field("mixed"), utf8),
+            (VariantPath::field("mixed"), i64),
+        ] {
+            let extraction = variant_get(root(), path, Some(dtype));
+            let expected = unshredded
+                .clone()
+                .apply(&extraction)?
+                .execute::<ArrayRef>(&mut ctx)?;
+            let scanned = file
+                .scan()?
+                .with_projection(extraction.bind(file.dtype())?)
+                .into_array_stream()?
+                .read_all()
+                .await?;
+            assert_arrays_eq!(scanned, expected, &mut ctx);
+        }
+        Ok(())
+    }
+
+    /// A union shredding writes each member of a union, and a scan extracts the values of each
+    /// type from the file.
+    #[rstest]
+    #[tokio::test]
+    async fn test_file_roundtrip_variant_shredded_into_a_union(
+        parquet_variant_file_session: VortexResult<VortexSession>,
+    ) -> VortexResult<()> {
+        let session = parquet_variant_file_session?;
+        crate::initialize(&session);
+        let unshredded = writer_rows(&session)?;
+
+        let utf8 = DType::Utf8(Nullability::Nullable);
+        let i64 = DType::Primitive(PType::I64, Nullability::Nullable);
+        let mixed = DType::Union(
+            UnionVariants::new(["int", "str"].into(), vec![i64.clone(), utf8.clone()])?,
+            Nullability::Nullable,
+        );
+        let schema = DType::struct_(
+            [("kind", utf8.clone()), ("mixed", mixed)],
+            Nullability::Nullable,
+        );
+
+        let mut bytes = ByteBufferMut::empty();
+        session
+            .write_options()
+            .with_strategy(
+                vortex_file::WriteStrategyBuilder::from_session(&session)
+                    .with_variant_shredding(Arc::new(UnionShredding::new(schema)))
+                    .build(),
+            )
+            .write(&mut bytes, unshredded.to_array_stream())
+            .await?;
+        let file = session.open_options().open_buffer(bytes)?;
+        assert!(is_variant_layout(file.footer().layout()));
+
+        let mut ctx = session.create_execution_ctx();
+        let actual = file.scan()?.into_array_stream()?.read_all().await?;
+        // The export folds the union back into the Variant bytes of each row.
+        let exported = crate::arrow::prepare_variant_for_export(actual.clone(), None, &mut ctx)?;
+        for (path, dtype) in [
+            (VariantPath::field("kind"), utf8.clone()),
+            (VariantPath::field("mixed"), utf8.clone()),
+            (VariantPath::field("mixed"), i64.clone()),
+            (VariantPath::field("n"), i64),
+        ] {
+            let extraction = variant_get(root(), path, Some(dtype));
+            let expected = unshredded
+                .clone()
+                .apply(&extraction)?
+                .execute::<ArrayRef>(&mut ctx)?;
+
+            assert_arrays_eq!(
+                actual
+                    .clone()
+                    .apply(&extraction)?
+                    .execute::<ArrayRef>(&mut ctx)?,
+                expected,
+                &mut ctx
+            );
+            assert_arrays_eq!(
+                exported
+                    .clone()
+                    .apply(&extraction)?
+                    .execute::<ArrayRef>(&mut ctx)?,
+                expected,
+                &mut ctx
+            );
+            let scanned = file
+                .scan()?
+                .with_projection(extraction.bind(file.dtype())?)
+                .into_array_stream()?
+                .read_all()
+                .await?;
+            assert_arrays_eq!(scanned, expected, &mut ctx);
+        }
+        Ok(())
+    }
+
+    /// A policy for one field overrides the default policy for that field alone.
+    #[rstest]
+    #[case::default_for_both(None, None, 2)]
+    #[case::override_one(None, Some(Arc::new(NoShredding) as Arc<dyn VariantShreddingPolicy>), 1)]
+    #[case::only_one(
+        Some(Arc::new(NoShredding) as Arc<dyn VariantShreddingPolicy>),
+        Some(Arc::new(InferredShredding::default()) as Arc<dyn VariantShreddingPolicy>),
+        1
+    )]
+    #[case::neither(Some(Arc::new(NoShredding) as Arc<dyn VariantShreddingPolicy>), None, 0)]
+    #[tokio::test]
+    async fn test_file_variant_shredding_for_each_field(
+        parquet_variant_file_session: VortexResult<VortexSession>,
+        #[case] default: Option<Arc<dyn VariantShreddingPolicy>>,
+        #[case] for_b: Option<Arc<dyn VariantShreddingPolicy>>,
+        #[case] shredded_fields: usize,
+    ) -> VortexResult<()> {
+        let session = parquet_variant_file_session?;
+        crate::initialize(&session);
+        let unshredded = writer_rows(&session)?;
+        let table = vortex_array::arrays::StructArray::try_new(
+            FieldNames::from(["a", "b"]),
+            vec![unshredded.clone(), unshredded.clone()],
+            unshredded.len(),
+            Validity::NonNullable,
+        )?
+        .into_array();
+
+        let shredded_layouts = async |default: Option<Arc<dyn VariantShreddingPolicy>>,
+                                      for_b: Option<Arc<dyn VariantShreddingPolicy>>|
+               -> VortexResult<usize> {
+            let mut strategy = vortex_file::WriteStrategyBuilder::from_session(&session)
+                .with_variant_shredding(
+                    default.unwrap_or_else(|| Arc::new(InferredShredding::default())),
+                );
+            if let Some(for_b) = for_b {
+                strategy = strategy.with_variant_shredding_at(FieldPath::from_name("b"), for_b);
+            }
+            let mut bytes = ByteBufferMut::empty();
+            session
+                .write_options()
+                .with_strategy(strategy.build())
+                .write(&mut bytes, table.clone().to_array_stream())
+                .await?;
+            let file = session.open_options().open_buffer(bytes)?;
+            variant_layouts(file.footer().layout())
+        };
+
+        // A shredded field can have more than one Variant layout, for the objects in it.
+        let per_field = shredded_layouts(None, Some(Arc::new(NoShredding))).await?;
+        assert!(per_field > 0);
+        assert_eq!(
+            shredded_layouts(default, for_b).await?,
+            shredded_fields * per_field
+        );
+        Ok(())
+    }
+
+    /// A shredded object is written with the Variant layout, as a column for its core storage
+    /// and one for each shredded field. Reading the Variant back, and extracting a path in the
+    /// scan, return what the Variant that was written holds.
+    #[rstest]
+    #[tokio::test]
+    async fn test_file_roundtrip_shredded_object_with_variant_layout(
+        parquet_variant_file_session: VortexResult<VortexSession>,
+    ) -> VortexResult<()> {
+        let session = parquet_variant_file_session?;
+        crate::initialize(&session);
+
+        // Only some events have a `commit`, and `commit.rev` stays in its residual value.
+        let json: ArrowArrayRef = Arc::new(StringArray::from(vec![
+            r#"{"kind":"commit","n":1,"commit":{"collection":"post","rev":7}}"#,
+            r#"{"kind":"identity","n":2}"#,
+            r#"{"kind":"commit","n":3,"commit":{"collection":"like","rev":8}}"#,
+        ]));
+        let shredding = ShreddedSchemaBuilder::new()
+            .with_path("kind", &DataType::Utf8)?
+            .with_path("commit.collection", &DataType::Utf8)?
+            .build();
+        let shredded = shred_variant(&json_to_variant(&json)?, &shredding)?;
+        let expected = ParquetVariant::from_arrow_variant(&shredded, &session.arrow())?;
+
+        let mut bytes = ByteBufferMut::empty();
+        session
+            .write_options()
+            .with_strategy(vortex_file::WriteStrategyBuilder::from_session(&session).build())
+            .write(&mut bytes, expected.to_array_stream())
+            .await?;
+        let file = session.open_options().open_buffer(bytes)?;
+        // The Variant is stored in a struct layout of its own dtype.
+        assert!(is_variant_layout(file.footer().layout()));
+
+        let utf8 = DType::Utf8(Nullability::Nullable);
+        let i64 = DType::Primitive(PType::I64, Nullability::Nullable);
+        let mut ctx = session.create_execution_ctx();
+        let actual = file.scan()?.into_array_stream()?.read_all().await?;
+        for (path, dtype) in [
+            // A shredded leaf, and a leaf of a shredded object.
+            (VariantPath::field("kind"), utf8.clone()),
+            (
+                VariantPath::new([
+                    VariantPathElement::field("commit"),
+                    VariantPathElement::field("collection"),
+                ]),
+                utf8,
+            ),
+            // A field in the residual value of a shredded object, and one in the core storage.
+            (
+                VariantPath::new([
+                    VariantPathElement::field("commit"),
+                    VariantPathElement::field("rev"),
+                ]),
+                i64.clone(),
+            ),
+            (VariantPath::field("n"), i64),
+        ] {
+            let extraction = variant_get(root(), path.clone(), Some(dtype));
+            let extracted = expected
+                .clone()
+                .apply(&extraction)?
+                .execute::<ArrayRef>(&mut ctx)?;
+
+            // Extracting from the Variant that was read back.
+            assert_arrays_eq!(
+                actual
+                    .clone()
+                    .apply(&extraction)?
+                    .execute::<ArrayRef>(&mut ctx)?,
+                extracted,
+                &mut ctx
+            );
+            // Extracting in the scan, which reads the column that holds the path.
+            let scanned = file
+                .scan()?
+                .with_projection(extraction.bind(file.dtype())?)
+                .into_array_stream()?
+                .read_all()
+                .await?;
+            assert_arrays_eq!(scanned, extracted, &mut ctx);
+        }
         Ok(())
     }
 
