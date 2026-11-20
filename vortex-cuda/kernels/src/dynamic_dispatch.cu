@@ -56,6 +56,7 @@
 #include <stdint.h>
 #include <thrust/binary_search.h>
 #include <thrust/execution_policy.h>
+#include <type_traits>
 
 #include "bit_unpack.cuh"
 #include "dynamic_dispatch.h"
@@ -177,6 +178,24 @@ __device__ inline void scalar_op(T *values, const struct ScalarOp &op, char *__r
     case ScalarOp::CAST:
         // Values are casted as part of LOAD as defined by the dispatch plan.
         break;
+    case ScalarOp::EXTEND: {
+        using Signed = std::make_signed_t<T>;
+        const PTypeTag source = op.params.extend.source_ptype;
+        const uint32_t shift = (sizeof(T) - ptype_byte_width(source)) * 8;
+        if (source == ptype_to_unsigned(source)) {
+            const T mask = static_cast<T>(~T {0}) >> shift;
+#pragma unroll
+            for (uint32_t i = 0; i < N; ++i) {
+                values[i] &= mask;
+            }
+        } else {
+#pragma unroll
+            for (uint32_t i = 0; i < N; ++i) {
+                values[i] = static_cast<T>(static_cast<Signed>(static_cast<T>(values[i] << shift)) >> shift);
+            }
+        }
+        break;
+    }
     default:
         __builtin_unreachable();
     }
