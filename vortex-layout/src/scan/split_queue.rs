@@ -79,7 +79,14 @@ impl SplitQueue {
         // `buffer_unordered` pulls a split only when it has room, so a worker claims no more
         // than it runs.
         stream::iter(iter::from_fn(move || self.claim()))
-            .map(move |split| handle.spawn(split))
+            .map(move |split| {
+                // EXPERIMENT: poll splits inline on the polling thread instead of spawning.
+                if std::env::var_os("VORTEX_SPLIT_INLINE").is_some() {
+                    future::Either::Left(split)
+                } else {
+                    future::Either::Right(handle.spawn(split))
+                }
+            })
             .buffer_unordered(per_worker)
             .filter_map(|array| future::ready(array.transpose()))
             .boxed()
