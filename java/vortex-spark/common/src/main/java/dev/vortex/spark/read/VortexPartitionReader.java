@@ -84,8 +84,6 @@ public final class VortexPartitionReader implements PartitionReader<ColumnarBatc
                     readDataSchema, fileColumns, caseSensitive, file.toPath().toString());
             options.projection(projection.expression());
             shape = projection.shape();
-            ReadTypes.check(
-                    readDataSchema, fileColumns, caseSensitive, file.toPath().toString());
             // Filters are converted against this file's own columns. Spark evaluates every data filter above the
             // scan anyway, so one that reads a column this file lacks, or compares one it stores in another type, is
             // dropped rather than pushed.

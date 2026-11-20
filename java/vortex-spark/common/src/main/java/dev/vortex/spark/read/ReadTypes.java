@@ -14,8 +14,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.TreeMap;
-import java.util.function.Function;
 import org.apache.spark.sql.sources.Filter;
 import org.apache.spark.sql.types.ArrayType;
 import org.apache.spark.sql.types.DataType;
@@ -32,6 +30,9 @@ import org.apache.spark.sql.types.StructType;
  * <p>A column vector takes its type from the file and converts nothing, so a column read as another type would return
  * its stored values under that type: a count of microseconds read as a timestamp, for one. Only conversions Spark's
  * Parquet source also makes, and that the vectors get right as they are, are allowed.
+ *
+ * <p>{@link NestedSchemaPruning} resolves the read schema against the file and calls {@link #check} on the fields it
+ * resolves, so there is one walk and one name resolution for each file.
  */
 final class ReadTypes {
     // Spark 4 lets Parquet widen decimal scales and read timestamps with a time zone as timestamps without one.
@@ -41,75 +42,62 @@ final class ReadTypes {
     private ReadTypes() {}
 
     /**
-     * Fails unless every field of {@code readSchema} that the file carries can be read as its type.
+     * Fails unless a vector of {@code file} values reads correctly as {@code read}.
      *
-     * <p>Fields are matched the way the reader resolves them, under Spark's case sensitivity: struct fields by name,
-     * and struct fields inside arrays and maps by position, since the vectors return their elements as the file stores
-     * them. Only the fields Spark reads are converted, so a column Spark cannot represent fails only a query that reads
-     * it.
+     * <p>{@link NestedSchemaPruning} calls this for each field that it resolves and that the scan returns as the file
+     * stores it: a leaf, an array, a map, or an extension type stored as a struct. Struct fields below such a field
+     * match by position under the same name, since the vectors return them as stored.
      *
-     * @throws IllegalArgumentException naming {@code fileName}, the field and both types
+     * @throws IllegalArgumentException naming {@code fileName}, the field at {@code path} and both types
      */
-    static void check(StructType readSchema, List<Field> fileFields, boolean caseSensitive, String fileName) {
-        new Check(caseSensitive, fileName).byName(readSchema, fileFields, "");
+    static void check(DataType read, Field file, String path, boolean caseSensitive, String fileName) {
+        new Check(caseSensitive, fileName).value(read, file, path);
     }
 
     private record Check(boolean caseSensitive, String fileName) {
-        void byName(StructType read, List<Field> file, String path) {
-            Function<String, Field> lookup = lookup(file, caseSensitive);
-            for (StructField field : read.fields()) {
-                Field child = lookup.apply(field.name());
-                if (child != null) {
-                    value(field.dataType(), child, path.isEmpty() ? field.name() : path + "." + field.name(), true);
-                }
-            }
-        }
-
-        void byPosition(StructType read, Field file, String path) {
-            StructField[] fields = read.fields();
-            List<Field> children = file.getChildren();
-            if (fields.length > children.size()) {
-                throw mismatch(read, file, path, fileName);
-            }
-            for (int i = 0; i < fields.length; i++) {
-                String name = children.get(i).getName();
-                if (!(caseSensitive ? name.equals(fields[i].name()) : name.equalsIgnoreCase(fields[i].name()))) {
-                    throw mismatch(read, file, path, fileName);
-                }
-                value(fields[i].dataType(), children.get(i), path + "." + fields[i].name(), false);
-            }
-        }
-
-        void value(DataType read, Field file, String path, boolean byName) {
+        void value(DataType read, Field file, String path) {
             ArrowType type = file.getType();
             if (type instanceof ArrowType.Null) {
                 // Every value is null, which reads the same as any type.
                 return;
             }
+
             if (read instanceof StructType struct) {
                 if (!(type instanceof ArrowType.Struct)) {
                     throw mismatch(read, file, path, fileName);
                 }
-                // The reader reshapes native structs by name, but returns an extension type such as Variant as stored.
-                if (byName && !isExtension(file)) {
-                    byName(struct, file.getChildren(), path);
-                } else {
-                    byPosition(struct, file, path);
-                }
+                positional(struct, file, path);
             } else if (read instanceof ArrayType array) {
                 if (!(type instanceof ArrowType.List || type instanceof ArrowType.ListView)) {
                     throw mismatch(read, file, path, fileName);
                 }
-                value(array.elementType(), file.getChildren().get(0), path + ".element", false);
+                value(array.elementType(), file.getChildren().get(0), path + ".element");
             } else if (read instanceof MapType map) {
                 if (!(type instanceof ArrowType.Map)) {
                     throw mismatch(read, file, path, fileName);
                 }
                 List<Field> entry = file.getChildren().get(0).getChildren();
-                value(map.keyType(), entry.get(0), path + ".key", false);
-                value(map.valueType(), entry.get(1), path + ".value", false);
+                value(map.keyType(), entry.get(0), path + ".key");
+                value(map.valueType(), entry.get(1), path + ".value");
             } else if (!readable(file, read)) {
                 throw mismatch(read, file, path, fileName);
+            }
+        }
+
+        /** Checks the fields of a struct that the scan returns as stored, which Spark then reads by position. */
+        void positional(StructType read, Field file, String path) {
+            StructField[] fields = read.fields();
+            List<Field> children = file.getChildren();
+            if (fields.length > children.size()) {
+                throw mismatch(read, file, path, fileName);
+            }
+
+            for (int i = 0; i < fields.length; i++) {
+                String name = children.get(i).getName();
+                if (!(caseSensitive ? name.equals(fields[i].name()) : name.equalsIgnoreCase(fields[i].name()))) {
+                    throw mismatch(read, file, path, fileName);
+                }
+                value(fields[i].dataType(), children.get(i), path + "." + fields[i].name());
             }
         }
     }
@@ -198,10 +186,10 @@ final class ReadTypes {
             }
         }
         // Filters name columns as the table does, and the native scan reads them under those names.
-        Function<String, Field> lookup = lookup(fileFields, true);
+        Map<String, Field> fileByName = byName(fileFields);
         List<StructField> present = new ArrayList<>(referenced.size());
         for (Map.Entry<String, List<String[]>> entry : referenced.entrySet()) {
-            Field fileField = lookup.apply(entry.getKey());
+            Field fileField = fileByName.get(entry.getKey());
             if (fileField == null || schema.getFieldIndex(entry.getKey()).isEmpty()) {
                 continue;
             }
@@ -238,11 +226,11 @@ final class ReadTypes {
         return file.getMetadata().containsKey(ArrowType.ExtensionType.EXTENSION_METADATA_KEY_NAME);
     }
 
-    private static Function<String, Field> lookup(List<Field> fields, boolean caseSensitive) {
-        Map<String, Field> byName = caseSensitive ? new HashMap<>() : new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
+    private static Map<String, Field> byName(List<Field> fields) {
+        Map<String, Field> byName = new HashMap<>();
         for (Field field : fields) {
             byName.putIfAbsent(field.getName(), field);
         }
-        return byName::get;
+        return byName;
     }
 }
