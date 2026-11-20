@@ -212,8 +212,9 @@ pub type DataSourceScanRef = Box<dyn DataSourceScan>;
 /// A data source scan reads data from the source.
 ///
 /// Each host reads every scan the same way, whatever the source: its execution model is fixed.
-/// A partition-based host, such as DataFusion, always [splits](Self::split) the scan into one
-/// piece per partition and reads each piece as a stream. A morsel-based host, such as DuckDB,
+/// A host that reads a fixed number of streams always [splits](Self::split) the scan into that
+/// many pieces and reads each piece as a stream; DataFusion's count is its output partition
+/// count. A morsel-based host, such as DuckDB,
 /// never splits: it [opens](Self::open) the scan once and has each of its threads poll a clone
 /// of the returned [`ScanStream`]. The host states the properties it needs, such as row order
 /// or a limit, on the [`ScanRequest`], and the source decides what the pieces are and how they
