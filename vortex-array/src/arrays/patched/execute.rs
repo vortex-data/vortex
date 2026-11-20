@@ -338,12 +338,13 @@ fn patch_bits(bits: &mut BitBufferMut, values: &BitBuffer, layout: &PatchLayout<
         bits,
         |bits, base, indices, patches| {
             let start = offset + base;
-            if start % 64 == 0 {
-                // Patch the chunk's 16 words in registers, then write them back once.
+            // With many patches, patch the chunk's 16 words in registers and write them back once.
+            if start.is_multiple_of(64) && indices.len() >= PATCH_CHUNK_SIZE / 64 {
                 let bytes = &mut bits.as_mut_slice()[start / 8..][..PATCH_CHUNK_SIZE / 8];
                 let mut words = [0u64; PATCH_CHUNK_SIZE / 64];
-                for (word, chunk) in words.iter_mut().zip(bytes.chunks_exact(8)) {
-                    *word = u64::from_le_bytes(chunk.try_into().unwrap_or_default());
+                let (byte_words, _) = bytes.as_chunks_mut::<8>();
+                for (word, chunk) in words.iter_mut().zip(byte_words.iter()) {
+                    *word = u64::from_le_bytes(*chunk);
                 }
                 for (&index, patch) in indices.iter().zip(patches) {
                     let bit = usize::from(index) & (PATCH_CHUNK_SIZE - 1);
@@ -353,8 +354,8 @@ fn patch_bits(bits: &mut BitBufferMut, values: &BitBuffer, layout: &PatchLayout<
                     let word = &mut words[bit / 64];
                     *word = (*word & !(1 << (bit % 64))) | (value << (bit % 64));
                 }
-                for (word, chunk) in words.iter().zip(bytes.chunks_exact_mut(8)) {
-                    chunk.copy_from_slice(&word.to_le_bytes());
+                for (word, chunk) in words.iter().zip(byte_words.iter_mut()) {
+                    *chunk = word.to_le_bytes();
                 }
             } else {
                 for (&index, patch) in indices.iter().zip(patches) {

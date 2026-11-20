@@ -1,8 +1,58 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Comparisons of patched arrays are pushed down into the inner array and the patch values by
-//! the scalar function rules in [`super::rules`].
+//! Comparisons of patched arrays against constants.
+//!
+//! Most comparisons are pushed down into the inner array and the patch values by the scalar
+//! function rules in [`super::rules`]. Over a constant inner array, as in a sparse array, this
+//! kernel compares the fill value directly instead, which saves executing a comparison of
+//! constants.
+
+use vortex_error::VortexResult;
+
+use crate::ArrayRef;
+use crate::ExecutionCtx;
+use crate::IntoArray;
+use crate::array::ArrayView;
+use crate::arrays::Constant;
+use crate::arrays::ConstantArray;
+use crate::arrays::Patched;
+use crate::arrays::patched::PatchedArraySlotsExt;
+use crate::builtins::ArrayBuiltins;
+use crate::scalar_fn::fns::binary::CompareKernel;
+use crate::scalar_fn::fns::binary::scalar_cmp;
+use crate::scalar_fn::fns::operators::CompareOperator;
+use crate::scalar_fn::fns::operators::Operator;
+
+impl CompareKernel for Patched {
+    fn compare(
+        lhs: ArrayView<'_, Self>,
+        rhs: &ArrayRef,
+        operator: CompareOperator,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
+        let Some(fill) = lhs.inner().as_opt::<Constant>() else {
+            return Ok(None);
+        };
+        let Some(rhs) = rhs.as_constant() else {
+            return Ok(None);
+        };
+
+        let values = lhs.patch_values();
+        let values = values.binary(
+            ConstantArray::new(rhs.clone(), values.len()).into_array(),
+            Operator::from(operator),
+        )?;
+        let dtype = values.dtype().clone();
+        let fill = scalar_cmp(fill.scalar(), rhs, operator)?.cast(&dtype)?;
+        let inner = ConstantArray::new(fill, lhs.len()).into_array();
+
+        // SAFETY: the inner array and the compared values keep their lengths, and share the dtype
+        // of the comparison.
+        let patched = unsafe { Patched::with_inner_and_values(&lhs, dtype, inner, values) };
+        Ok(Some(patched.into_array()))
+    }
+}
 
 #[cfg(test)]
 mod tests {
