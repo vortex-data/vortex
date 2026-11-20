@@ -3,21 +3,13 @@
 
 //! Conversion of [`Sparse`] arrays into [`Patched`] arrays.
 
-use vortex_array::ArrayDeserialization;
-use vortex_array::ArrayId;
-use vortex_array::ArrayPlugin;
-use vortex_array::ArrayRef;
-use vortex_array::ArraySerialization;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
-use vortex_array::VTable;
-use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::Patched;
 use vortex_array::arrays::PatchedArray;
 use vortex_error::VortexResult;
-use vortex_session::VortexSession;
 
 use crate::Sparse;
 use crate::SparseExt;
@@ -32,43 +24,6 @@ pub fn sparse_to_patched(
 ) -> VortexResult<PatchedArray> {
     let fill = ConstantArray::new(sparse.fill_scalar().clone(), sparse.len()).into_array();
     Patched::from_array_and_patches_with_lanes(fill, &sparse.patches(), 1, ctx)
-}
-
-/// Deserializes `vortex.sparse` arrays as [`Patched`] arrays, and serializes sparse arrays as
-/// before.
-///
-/// Registered in place of the [`Sparse`] plugin when experimental patched arrays are enabled, so
-/// that existing files are read as patched arrays.
-#[derive(Debug, Clone)]
-pub(crate) struct SparsePatchedPlugin;
-
-impl ArrayPlugin for SparsePatchedPlugin {
-    fn id(&self) -> ArrayId {
-        VTable::id(&Sparse)
-    }
-
-    fn serialize(
-        &self,
-        array: &ArrayRef,
-        session: &VortexSession,
-    ) -> VortexResult<Option<ArraySerialization>> {
-        Sparse.serialize(array, session)
-    }
-
-    fn deserialize(
-        &self,
-        parts: ArrayDeserialization<'_>,
-        session: &VortexSession,
-    ) -> VortexResult<ArrayRef> {
-        let sparse = Sparse.deserialize(parts, session)?;
-        let patched =
-            sparse_to_patched(sparse.as_::<Sparse>(), &mut session.create_execution_ctx())?;
-        Ok(patched.into_array())
-    }
-
-    fn is_supported_encoding(&self, id: &ArrayId) -> bool {
-        id == VTable::id(&Sparse) || id == VTable::id(&Patched)
-    }
 }
 
 #[cfg(test)]

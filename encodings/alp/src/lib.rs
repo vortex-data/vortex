@@ -20,7 +20,6 @@ use vortex_array::ArrayVTable;
 use vortex_array::aggregate_fn::AggregateFnVTable;
 use vortex_array::aggregate_fn::fns::nan_count::NanCount;
 use vortex_array::aggregate_fn::session::AggregateFnSessionExt;
-use vortex_array::arrays::patched::use_experimental_patches;
 use vortex_array::session::ArraySessionExt;
 use vortex_session::VortexSession;
 
@@ -32,13 +31,7 @@ mod alp_rd;
 
 /// Initialize ALP encoding in the given session.
 pub fn initialize(session: &VortexSession) {
-    // If we're using the experimental Patched encoding, register a shim
-    // for ALP with interior patches to decode as Patched array.
-    if use_experimental_patches() {
-        session.arrays().register(ALPPatchedPlugin);
-    } else {
-        session.arrays().register(ALP);
-    }
+    session.arrays().register(ALP);
     session.arrays().register(ALPRD);
     alp::initialize(session);
     alp_rd::initialize(session);
