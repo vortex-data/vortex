@@ -188,8 +188,7 @@ fn test_leaf_validity_is_compressed(
 
 #[test]
 fn test_list_offset_run_ends_with_terminal_exception() -> VortexResult<()> {
-    let input =
-        PrimitiveArray::from_iter((0..100_001u32).map(|i| i.min(1000) * 3)).into_array();
+    let input = PrimitiveArray::from_iter((0..100_001u32).map(|i| i.min(1000) * 3)).into_array();
     let compressor = BtrBlocksCompressorBuilder::empty()
         .with_new_scheme(&RunEndScheme)
         .with_new_scheme(&SequenceScheme)
