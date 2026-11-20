@@ -409,15 +409,17 @@ impl VortexDataSource {
 ///
 /// The output partitions read the scan in one of two ways, chosen as DataFusion's own file scans
 /// choose whether to steal work. By default the scan is [opened] into a pool and every output
-/// partition polls its own worker, so partitions that finish early take work from the others.
+/// partition polls its own worker until it ends; the pool decides how work reaches the workers.
 /// When each partition must keep its rows in order, or when
 /// `datafusion.execution.enable_file_stream_work_stealing` is off, the scan is instead [split]
 /// into one piece per output partition, and partitions beyond the piece count return no rows.
 /// A direct [`DataSource::open`] without shared [`OpenArgs`] always splits, since its partition
-/// cannot share a pool with the others.
+/// cannot share a pool with the others. Setting [`SCAN_POOL_ENV`] to `0` instead reads the scan's
+/// shared partition stream, for comparison.
 ///
-/// As with DataFusion's work-stealing file scans, dropping an output partition before it ends
-/// abandons the work it had taken, so a host drops one early only when it abandons the scan.
+/// A pool may give up the work a worker had taken when that worker is dropped, so, as with
+/// DataFusion's work-stealing file scans, a host drops an output partition early only when it
+/// abandons the scan.
 ///
 /// [opened]: vortex::scan::DataSourceScan::open
 /// [split]: vortex::scan::DataSourceScan::split
