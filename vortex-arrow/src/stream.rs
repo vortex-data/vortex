@@ -23,7 +23,7 @@ use vortex_session::VortexSession;
 use crate::ArrowSessionExt;
 use crate::ExecuteArrowExt;
 
-/// Arrow record-batch output for an [`ArrayStream`], such as a scan worker.
+/// Arrow record-batch output for an [`ArrayStream`], such as a piece of a split scan.
 pub trait ArrowArrayStreamExt: ArrayStream + Send + Sized + 'static {
     /// Converts each array of the stream to an Arrow [`RecordBatch`] with `schema`.
     ///
