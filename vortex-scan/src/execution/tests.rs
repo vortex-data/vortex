@@ -32,6 +32,7 @@ use vortex_array::scalar_fn::fns::operators::CompareOperator;
 use vortex_array::validity::Validity;
 use vortex_buffer::Alignment;
 use vortex_buffer::Buffer;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_io::session::RuntimeSessionExt;
@@ -39,6 +40,7 @@ use vortex_mask::Mask;
 use vortex_session::VortexSession;
 
 use crate::execution::SegmentLocation;
+use crate::execution::filter::segments_read;
 use crate::execution::row_chunks;
 use crate::execution::scan_chunks;
 use crate::execution::*;
@@ -746,6 +748,59 @@ async fn chunks_recheck_a_tightened_dynamic_conjunct_before_reading(
     } else {
         assert!(counted.requests() > reads, "the chunks read the column");
     }
+    Ok(())
+}
+
+/// A chunk rechecks a tightened dynamic conjunct only from zones an earlier pruning read. With no
+/// pruning before them, the chunks skip the recheck rather than read the zones ahead of their own
+/// reads, and evaluate the conjunct on the column instead.
+#[tokio::test]
+async fn chunks_skip_the_recheck_when_no_pruning_read_the_zones() -> VortexResult<()> {
+    let bound = Arc::new(AtomicI32::new(-1));
+    let (scan, counted) = dynamic_scan(200, &bound).await?;
+    let rows = scan.rows().clone();
+
+    let mut planner = ChunkPlanner::new(
+        Arc::clone(&scan),
+        rows.clone(),
+        scan.selection().clone(),
+        None,
+    );
+    let mut chunks = Vec::new();
+    while let PlannerOutput::Spawn(scope, chunk) = planner.compute()? {
+        chunks.push((scope, chunk));
+    }
+    assert!(chunks.len() > 1, "the scan has several chunks");
+    bound.store(199_999, Ordering::Relaxed);
+
+    let reads = counted.requests();
+    let io = scan.io();
+    let mut run = Run::new();
+    for (scope, chunk) in chunks {
+        run.admit(chunk, scope, io.session());
+    }
+    let mut returned = 0;
+    loop {
+        match run.advance()? {
+            Progress::Batch(batch) => returned += batch.array.len(),
+            Progress::Spawn(scope, planner) => {
+                run.admit(planner, scope, io.session());
+            }
+            Progress::RootDone(_) if run.live_roots() > 0 => {}
+            Progress::RootDone(_) | Progress::Idle => break,
+            Progress::Waiting => std::future::poll_fn(|cx| run.poll_completion(cx)).await?,
+        }
+    }
+    assert_eq!(returned, 0);
+    assert!(counted.requests() > reads, "the chunks read the column");
+    let filter = scan.filter.as_ref().vortex_expect("the scan has a filter");
+    let zones = segments_read(
+        &scan.session,
+        filter.pruning_over(rows.end - rows.start),
+        rows.clone(),
+        &Mask::new_true(usize::try_from(rows.end - rows.start)?),
+    )?;
+    assert!(!zones.is_empty(), "no chunk read the zones");
     Ok(())
 }
 
