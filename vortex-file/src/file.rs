@@ -19,6 +19,7 @@ use vortex_array::expr::Expression;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
 use vortex_layout::LayoutReader;
+use vortex_layout::layouts::list::List;
 use vortex_layout::scan::layout::LayoutReaderDataSource;
 use vortex_layout::scan::metrics::ScanUsage;
 use vortex_layout::scan::scan_builder::ScanBuilder;
@@ -141,10 +142,10 @@ impl VortexFile {
 
     /// Enable layout reader and V2 scan caching.
     ///
-    /// Repeated calls to [`layout_reader`](Self::layout_reader), [`scan`](Self::scan), and
-    /// [`data_source`](Self::data_source) will share the same reader tree. Repeated V2 scans of
-    /// [`scan_file`](Self::scan_file), and so of the plan data sources, will share its segment
-    /// locations and a [`ScanCache`].
+    /// Repeated calls to [`layout_reader`](Self::layout_reader) and [`scan`](Self::scan), and to
+    /// [`data_source`](Self::data_source) for a file it scans with the layout reader, will share the
+    /// same reader tree. Repeated V2 scans of [`scan_file`](Self::scan_file), and so of the plan
+    /// data sources, will share its segment locations and a [`ScanCache`].
     pub fn with_caching(self) -> Self {
         let scan_cache = FileScanCache {
             locations: self.footer.segment_locations(),
@@ -273,10 +274,16 @@ impl VortexFile {
 
     /// Create a [`DataSource`](vortex_scan::DataSource) from this file for scanning.
     ///
-    /// Scans run on the file's [layout reader](Self::layout_reader), as with
-    /// [`layout_reader_data_source`](Self::layout_reader_data_source). Stored footer aggregates
+    /// Scans run on the planner-driven executor, as with
+    /// [`plan_data_source`](Self::plan_data_source), unless the file has a layout that
+    /// executor cannot read yet. Such files are scanned on the layout reader instead, as with
+    /// [`layout_reader_data_source`](Self::layout_reader_data_source). Either way, a scan whose
+    /// filter the file-level statistics prove false reads nothing, and stored footer aggregates
     /// are available through the source statistics methods without reading payloads.
     pub fn data_source(&self) -> VortexResult<DataSourceRef> {
+        if self.planned_scan_supported()? {
+            return Ok(self.plan_data_source());
+        }
         self.layout_reader_data_source()
     }
 
@@ -292,6 +299,24 @@ impl VortexFile {
             LayoutReaderDataSource::new(reader, self.session.clone()),
             self.file_stats().cloned(),
         )))
+    }
+
+    /// Whether the planner-driven executor can scan this file, which
+    /// [`data_source`](Self::data_source) uses to choose its executor.
+    ///
+    /// The planner-driven executor cannot read list layouts yet (tracked with making it the
+    /// default in #11502), so files that contain one are scanned by the layout reader instead. The
+    /// layout tree is only walked when the file's dtype could hold a list layout.
+    pub(crate) fn planned_scan_supported(&self) -> VortexResult<bool> {
+        if !may_contain_list_layout(self.dtype()) {
+            return Ok(true);
+        }
+        for layout in self.footer.layout().depth_first_traversal() {
+            if layout?.is::<List>() {
+                return Ok(false);
+            }
+        }
+        Ok(true)
     }
 
     /// Create a [`DataSource`](vortex_scan::DataSource) from this file whose scans run on the
