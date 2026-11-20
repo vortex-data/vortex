@@ -23,9 +23,10 @@ use crate::scan::repeated_scan::ScanTasks;
 /// of its rows.
 type SplitTask = BoxFuture<'static, VortexResult<Option<ArrayRef>>>;
 
-/// A pool over the split futures of [`RepeatedScan::execute`], in row order.
+/// A queue of the split futures of [`RepeatedScan::execute`], in row order, which the clones of
+/// an opened scan's stream share. Each clone polls one worker over the queue.
 ///
-/// Each worker claims splits from the shared queue and keeps up to `per_worker` of its own in
+/// Each worker claims splits from the queue and keeps up to `per_worker` of its own in
 /// flight, spawned on the session's runtime, yielding them as they finish. This is the scan's
 /// stream pipeline with its in-flight bound split across workers: `per_worker` is the per-thread
 /// count that the stream multiplies by the cores, so a host polling one worker per core keeps as
@@ -35,13 +36,13 @@ type SplitTask = BoxFuture<'static, VortexResult<Option<ArrayRef>>>;
 /// so no worker waits on a split another one claimed.
 ///
 /// [`RepeatedScan::execute`]: crate::scan::repeated_scan::RepeatedScan::execute
-pub(crate) struct SplitPool {
+pub(crate) struct SplitQueue {
     handle: Handle,
     per_worker: usize,
     splits: Mutex<vec::IntoIter<SplitTask>>,
 }
 
-impl SplitPool {
+impl SplitQueue {
     pub(crate) fn new(handle: Handle, per_worker: usize, splits: ScanTasks<ArrayRef>) -> Self {
         Self {
             handle,

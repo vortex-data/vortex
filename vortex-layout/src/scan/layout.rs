@@ -39,18 +39,18 @@ use vortex_scan::Partition;
 use vortex_scan::PartitionRef;
 use vortex_scan::PartitionStream;
 use vortex_scan::ScanRequest;
-use vortex_scan::pool::ScanStream;
-use vortex_scan::pool::split_shared;
 use vortex_scan::selection::Selection;
+use vortex_scan::stream::ScanStream;
+use vortex_scan::stream::split_shared;
 use vortex_session::VortexSession;
 
 use crate::LayoutReaderRef;
 use crate::scan::limit::RowLimit;
 use crate::scan::metrics::ScanMetrics;
 use crate::scan::metrics::ScanRecorder;
-use crate::scan::pool::SplitPool;
 use crate::scan::repeated_scan::DEFAULT_SPLITS_PER_THREAD;
 use crate::scan::scan_builder::ScanBuilder;
+use crate::scan::split_queue::SplitQueue;
 
 /// An implementation of a [`DataSource`] that reads data from a [`LayoutReaderRef`].
 pub struct LayoutReaderDataSource {
@@ -283,7 +283,7 @@ impl DataSourceScan for LayoutReaderScan {
         &self.dtype
     }
 
-    /// Splits an unordered scan into `n` clones of its opened [`SplitPool`], which share its
+    /// Splits an unordered scan into `n` pieces that share its opened stream, and so its
     /// splits. Cuts an ordered scan at the layout's natural split boundaries, into contiguous
     /// pieces of about equal rows.
     ///
@@ -312,17 +312,17 @@ impl DataSourceScan for LayoutReaderScan {
             .collect())
     }
 
-    /// Opens the scan into a [`SplitPool`] over its split futures, each clone of the stream
-    /// keeping the stream pipeline's per-thread count of them in flight.
+    /// Opens the scan into a stream over a [`SplitQueue`] of its split futures, each clone of the
+    /// stream keeping the stream pipeline's per-thread count of them in flight.
     ///
-    /// Split futures cannot share a limit, and the workers of a queue finish splits out of row
+    /// Split futures cannot share a limit, and the clones of a queue finish splits out of row
     /// order. So a scan with a limit, or an ordered one, opens into its partition pipeline and
     /// hands its partitions to the clones.
     fn open(self: Box<Self>) -> VortexResult<ScanStream> {
         if self.remaining_limit.is_some() || self.ordered {
             return Ok(ScanStream::from_partitions(self));
         }
-        // A cap on the scan's splits in flight also caps each worker's.
+        // A cap on the scan's splits in flight also caps each clone's.
         let per_worker = self
             .split_concurrency
             .map_or(DEFAULT_SPLITS_PER_THREAD, |max| {
@@ -332,9 +332,9 @@ impl DataSourceScan for LayoutReaderScan {
             .builder()
             .prepare()?
             .execute(Some(self.next_row..self.end_row))?;
-        let pool = Arc::new(SplitPool::new(self.session.handle(), per_worker, splits));
+        let queue = Arc::new(SplitQueue::new(self.session.handle(), per_worker, splits));
         Ok(ScanStream::new(self.dtype, move || {
-            Arc::clone(&pool).worker()
+            Arc::clone(&queue).worker()
         }))
     }
 

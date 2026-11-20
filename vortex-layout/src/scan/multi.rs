@@ -57,9 +57,9 @@ use vortex_scan::Partition;
 use vortex_scan::PartitionRef;
 use vortex_scan::PartitionStream;
 use vortex_scan::ScanRequest;
-use vortex_scan::pool::ScanStream;
-use vortex_scan::pool::split_shared;
 use vortex_scan::selection::Selection;
+use vortex_scan::stream::ScanStream;
+use vortex_scan::stream::split_shared;
 use vortex_session::VortexSession;
 use vortex_utils::parallelism::get_available_parallelism;
 
@@ -553,7 +553,7 @@ impl DataSourceScan for MultiLayoutScan {
     }
 
     /// Opens the scan into its partition pipeline, which opens up to `concurrency` files ahead
-    /// and reads each file as one partition, handing the partitions to workers.
+    /// and reads each file as one partition, handing the partitions to the stream's clones.
     fn open(self: Box<Self>) -> VortexResult<ScanStream> {
         Ok(ScanStream::from_partitions(self))
     }

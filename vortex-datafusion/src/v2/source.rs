@@ -1120,7 +1120,7 @@ mod tests {
     use vortex::scan::Partition;
     use vortex::scan::PartitionRef;
     use vortex::scan::PartitionStream;
-    use vortex::scan::pool::ScanStream;
+    use vortex::scan::stream::ScanStream;
     use vortex::session::VortexSession;
     use vortex_arrow::ArrowSessionExt;
 
