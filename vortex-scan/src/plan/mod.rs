@@ -27,6 +27,7 @@ mod vtable;
 pub use builtins::Concat;
 pub use builtins::ConcatData;
 pub use builtins::ConcatPlan;
+pub use builtins::ElementSamples;
 pub use builtins::Eval;
 pub use builtins::EvalData;
 pub use builtins::EvalPlan;
