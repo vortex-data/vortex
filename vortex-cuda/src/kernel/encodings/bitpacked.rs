@@ -184,7 +184,7 @@ where
     vortex_ensure!(len > 0, "Non empty array");
     let offset = offset as usize;
 
-    let device_input = ctx.ensure_on_device(packed).await?;
+    let device_input = ctx.ensure_on_device(packed)?;
 
     // Get CUDA view of input
     let input_view = device_input.cuda_view::<A::Physical>()?;

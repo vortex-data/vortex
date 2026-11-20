@@ -604,7 +604,7 @@ mod tests {
     #[crate::test]
     async fn alignment_update_is_metadata_only() -> VortexResult<()> {
         let ctx = CudaSession::create_execution_ctx(&crate::cuda_session())?;
-        let original = ctx.copy_to_device(vec![7u8; 17])?.await?;
+        let original = ctx.copy_to_device(&[7u8; 17])?;
         let aligned = original.clone().ensure_aligned(Alignment::new(16))?;
         let original = original
             .as_device_opt()
@@ -645,8 +645,7 @@ mod tests {
     ) -> VortexResult<()> {
         let ctx = CudaSession::create_execution_ctx(&crate::cuda_session())?;
         let buffer = ctx
-            .copy_to_device(vec![0u8; 32])?
-            .await?
+            .copy_to_device(&[0u8; 32])?
             .ensure_aligned(Alignment::new(16))?;
         let slice = buffer.slice(offset..32);
         assert_eq!(slice.alignment(), alignment);
@@ -805,7 +804,7 @@ mod tests {
             launch_ctx.stream().cu_stream()
         );
 
-        let handle = allocation_ctx.copy_to_device(vec![0u32; 4])?.await?;
+        let handle = allocation_ctx.copy_to_device(&[0u32; 4])?;
         let kernel = launch_ctx.load_function("constant_numeric", &[PType::U32])?;
         let value = 42u32;
         let len = 4u64;

@@ -6,7 +6,6 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
-use futures::future::BoxFuture;
 use tracing::debug;
 use tracing::trace;
 use vortex::array::ArrayRef;
@@ -268,16 +267,11 @@ impl CudaExecutionCtx {
 
     /// Copies host data to the device.
     ///
-    /// For **pageable** host memory the source is staged synchronously; for
-    /// **pinned** memory the transfer is async. In both cases `data` is
-    /// kept alive by the returned future until the copy completes.
-    pub fn copy_to_device<T, D>(
-        &self,
-        data: D,
-    ) -> VortexResult<BoxFuture<'static, VortexResult<BufferHandle>>>
+    /// Allocates device memory, enqueues the H2D copy on the stream, and
+    /// returns immediately. Later work on any stream waits for the copy.
+    pub fn copy_to_device<T>(&self, data: &[T]) -> VortexResult<BufferHandle>
     where
         T: DeviceRepr + ValidAsZeroBits + Debug + Send + Sync + 'static,
-        D: AsRef<[T]> + Send + 'static,
     {
         self.stream.copy_to_device(data)
     }
@@ -291,7 +285,7 @@ impl CudaExecutionCtx {
     ///
     /// Returns an error if the transfer fails or the device allocation cannot satisfy the source
     /// alignment. No additional copy is performed to realign the buffer.
-    pub async fn ensure_on_device(&self, handle: BufferHandle) -> VortexResult<BufferHandle> {
+    pub fn ensure_on_device(&self, handle: BufferHandle) -> VortexResult<BufferHandle> {
         if handle.is_on_device() {
             return Ok(handle);
         }
@@ -301,28 +295,8 @@ impl CudaExecutionCtx {
             .clone();
         let alignment = host_buffer.alignment();
         self.stream
-            .copy_to_device(host_buffer)?
-            .await?
+            .copy_to_device(host_buffer.as_ref())?
             .ensure_aligned(alignment)
-    }
-
-    /// Synchronous variant of [`ensure_on_device`](Self::ensure_on_device).
-    ///
-    /// Safe to call from within an async executor (no nested `block_on`).
-    /// The copy is enqueued on the stream and completes before any subsequent
-    /// work on the same stream. Preserves the source alignment without an additional copy,
-    /// returning an error if the device allocation cannot satisfy it.
-    pub fn ensure_on_device_sync(&self, handle: BufferHandle) -> VortexResult<BufferHandle> {
-        if handle.is_on_device() {
-            return Ok(handle);
-        }
-        let host_buffer = handle
-            .as_host_opt()
-            .ok_or_else(|| vortex_err!("Buffer is not on host"))?
-            .clone();
-        self.stream
-            .copy_to_device_sync(host_buffer.as_ref())?
-            .ensure_aligned(host_buffer.alignment())
     }
 
     /// Returns a reference to the underlying [`VortexCudaStream`].
@@ -426,7 +400,7 @@ pub(crate) async fn execute_validity_cuda(
     };
 
     let BoolDataParts { bits, meta } = bool_array.into_data().into_parts(len);
-    let bits = ctx.ensure_on_device(bits).await?;
+    let bits = ctx.ensure_on_device(bits)?;
     Ok(Validity::Array(
         BoolArray::new_handle(bits, meta.offset(), meta.len(), Validity::NonNullable).into_array(),
     ))
@@ -551,7 +525,6 @@ mod tests {
     async fn ensure_on_device_preserves_decimal_alignment(
         #[case] values_type: DecimalType,
         #[case] precision: u8,
-        #[values(false, true)] sync: bool,
         #[values(0..4, 1..3, 0..0)] range: Range<usize>,
     ) -> VortexResult<()> {
         let mut ctx = CudaSession::create_execution_ctx(&cuda_session())?;
@@ -572,20 +545,12 @@ mod tests {
         });
         let parts = expected.clone().into_data_parts();
         let alignment = parts.values.alignment();
-        let values = if sync {
-            ctx.ensure_on_device_sync(parts.values)?
-        } else {
-            ctx.ensure_on_device(parts.values).await?
-        };
+        let values = ctx.ensure_on_device(parts.values)?;
         assert!(values.is_on_device());
         assert_eq!(values.alignment(), alignment);
 
         let allocation = Arc::clone(values.as_device_opt().expect("uploaded to CUDA"));
-        let values = if sync {
-            ctx.ensure_on_device_sync(values)?
-        } else {
-            ctx.ensure_on_device(values).await?
-        };
+        let values = ctx.ensure_on_device(values)?;
         assert!(Arc::ptr_eq(
             &allocation,
             values.as_device_opt().expect("still on CUDA"),

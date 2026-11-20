@@ -349,7 +349,7 @@ fn upload(array: ArrayRef, ctx: &mut CudaExecutionCtx) -> VortexResult<ArrayRef>
     }
     let mut buffers = Vec::new();
     for buffer in array.buffer_handles() {
-        buffers.push(ctx.ensure_on_device_sync(buffer)?);
+        buffers.push(ctx.ensure_on_device(buffer)?);
     }
     // SAFETY: The fixture's slots and buffers are unchanged except for their memory placement.
     unsafe { array.with_slots(slots.into())?.with_buffers(buffers) }
