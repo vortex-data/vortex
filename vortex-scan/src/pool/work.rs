@@ -22,8 +22,9 @@
 //!   [turn](WorkUnit::turn), such as an opened file's splits or a child's parts, is one entry of
 //!   the channel: the lane that takes it takes its next run of adjacent units, which it runs
 //!   together so that their reads coalesce, and queues the rest again behind the other entries,
-//!   so the lanes rotate over the open turns. With [runs](WorkPoolOptions::runs), a run is the
-//!   turn's share of `in_flight`, divided among `expand_concurrency` turns; without, one unit. Each turn then has only a few units in flight, which keeps
+//!   so the lanes rotate over the open turns. A run of [units that run](WorkUnit::run) is the
+//!   turn's share of `in_flight`, divided among `expand_concurrency` turns; a
+//!   [streaming unit](WorkUnit::stream) is a run of its own. Each turn then has only a few units in flight, which keeps
 //!   its first rows, and any dynamic filter they tighten, ahead of its later units. A lane that expands a unit sends the units it yields back into the channel of units. At most `expand_concurrency` expansions
 //!   are queued or running at once; each holds a slot that it passes on to the next waiting
 //!   expansion when it is done, or when it is dropped. Workers only take rows from the output
@@ -147,7 +148,8 @@ impl WorkUnit {
 
     /// A unit with nothing to read, whose share is taken once a worker reaches it.
     pub fn skipped(share: f64) -> Self {
-        Self::run(share, || future::ready(Ok(Vec::new())).boxed())
+        // A stream, so that it never makes a pool take its units in runs.
+        Self::stream(share, || stream::empty().boxed())
     }
 
     /// The unit, or a turn's units, in its place.
@@ -163,6 +165,12 @@ impl WorkUnit {
 
     fn is_expand(&self) -> bool {
         matches!(self.kind, UnitKind::Expand(_))
+    }
+
+    /// Whether the unit runs to return all of its arrays at once, so that an unordered pool's
+    /// lanes take it in a run with the adjacent units that do too.
+    fn runs_at_once(&self) -> bool {
+        matches!(self.kind, UnitKind::Run(_))
     }
 }
 
@@ -209,12 +217,6 @@ pub struct WorkPoolOptions {
     pub handle: Handle,
     /// The most expansions that are queued or running at once.
     pub expand_concurrency: NonZeroUsize,
-    /// Whether an unordered pool's lanes take a turn's adjacent units in runs, starting them
-    /// together so that their reads coalesce, or one at a time. Runs suit units that read little
-    /// each and return their arrays at once, which run as tasks of their own, such as V1 splits.
-    /// A unit that streams its arrays runs on its lane, so a run of them would share one task's
-    /// CPU, and a scan with few units would get few lanes.
-    pub runs: bool,
     /// Maps every array the workers return under a [trimmed](PoolLimit::Trim) limit, such as to
     /// optimize the array that the limit sliced.
     pub map_trimmed: Option<MapOutput>,
@@ -236,6 +238,7 @@ pub fn open_work_pool(options: WorkPoolOptions, units: Vec<WorkUnit>) -> ScanPoo
         handle: options.handle,
         failed: AtomicBool::new(false),
         pending: AtomicUsize::new(0),
+        runs_queued: AtomicBool::new(false),
         taken: Mutex::new(0.0),
         slots: Mutex::new(Slots {
             free: expand_concurrency,
@@ -263,21 +266,23 @@ pub fn open_work_pool(options: WorkPoolOptions, units: Vec<WorkUnit>) -> ScanPoo
     // A lane polls its run's units on its own task, and their decoding and filtering run there
     // too, so a run is at most `in_flight` divided by the cores: there is then a lane for every
     // core, even when one turn, such as a single file, would otherwise take every unit in flight.
+    //
+    // Only units that return their arrays at once, such as V1 splits, run in runs: each runs as a
+    // task of its own. A unit that streams its arrays, such as a V2 part, runs on its lane, so a
+    // run of them would share one task's CPU, and it already keeps many reads in flight itself,
+    // so a lane takes one at a time, and the lanes hold `in_flight` of them.
     let cores = get_available_parallelism().unwrap_or(1).clamp(1, in_flight);
-    let run = if options.runs {
-        (in_flight / expand_concurrency)
-            .min(in_flight / cores)
-            .max(1)
-    } else {
-        1
-    };
+    let run = (in_flight / expand_concurrency)
+        .min(in_flight / cores)
+        .max(1);
     let lanes = Arc::new(Lanes {
         shared: Arc::clone(&shared),
         units: receiver.clone(),
         run,
-        max: (in_flight / run).max(1),
+        max_runs: (in_flight / run).max(1),
+        max_units: in_flight,
         waiting: AtomicUsize::new(0),
-        started: AtomicUsize::new(0),
+        live: AtomicUsize::new(0),
         tasks: Mutex::new(Some(Vec::new())),
     });
     Arc::new(UnorderedPool {
@@ -302,6 +307,9 @@ struct Shared {
     failed: AtomicBool,
     /// The units of an unordered pool that are queued and not yet taken by a lane.
     pending: AtomicUsize,
+    /// Whether an unordered pool has queued a unit that runs to return its arrays at once, which
+    /// lanes take in runs. Once it has, the lanes are capped so that runs keep `in_flight` units.
+    runs_queued: AtomicBool,
     /// The share of the pool's work that workers have taken.
     taken: Mutex<f64>,
     /// An unordered pool's expansion slots.
@@ -394,10 +402,14 @@ impl Shared {
 
     /// Sends an entry into an unordered pool's channel, counting the units it holds as pending.
     fn send(&self, sender: &Sender<Work>, work: Work) {
-        let units = match &work {
-            Work::Turn(units, _) => units.len(),
-            Work::Unit(_) | Work::Expand(..) => 1,
+        let (units, runs) = match &work {
+            Work::Turn(units, _) => (units.len(), units.iter().any(WorkUnit::runs_at_once)),
+            Work::Unit(unit) => (1, unit.runs_at_once()),
+            Work::Expand(..) => (1, false),
         };
+        if runs && !self.runs_queued.load(Ordering::Acquire) {
+            self.runs_queued.store(true, Ordering::Release);
+        }
         self.pending.fetch_add(units, Ordering::AcqRel);
         send(sender, work);
     }
@@ -540,30 +552,49 @@ fn send(sender: &Sender<Work>, work: Work) {
 }
 
 /// The lanes of an unordered pool. They start when its first worker does, as many as there are
-/// units ready, and grow while units wait for a lane, up to `in_flight`, so a scan with few units
-/// spawns and wakes few tasks.
+/// units ready, and grow while units wait for a lane, up to `in_flight` units, so a scan with few
+/// units spawns and wakes few tasks.
 struct Lanes {
     shared: Arc<Shared>,
     units: Receiver<Work>,
-    /// The most adjacent units of a turn that a lane takes and runs together.
+    /// The most adjacent units of a turn that a lane takes and runs together, when they return
+    /// their arrays at once.
     run: usize,
-    /// The most lanes that run at once, so that they run `in_flight` units in all.
-    max: usize,
+    /// The most lanes that run at once once the pool has queued units that run in runs, so that
+    /// they run `in_flight` units in all.
+    max_runs: usize,
+    /// The most lanes that run at once while every unit is taken alone: `in_flight`.
+    max_units: usize,
     /// Lanes waiting for a unit.
     waiting: AtomicUsize,
-    /// Lanes started, so a lane can see without a lock that no more may start.
-    started: AtomicUsize,
+    /// Lanes running, so a lane can see without a lock that no more may start, or that it is
+    /// beyond the cap.
+    live: AtomicUsize,
     /// The lanes started, until the pool is dropped, which aborts them. `None` once it is.
     tasks: Mutex<Option<Vec<Task<()>>>>,
 }
 
 impl Lanes {
-    /// Starts lanes for the units that no waiting lane will take, up to `in_flight` in all. Each
-    /// lane holds a sender of the output channel.
+    /// The most lanes that run at once, so that they run at most `in_flight` units in all, and
+    /// the most units a lane takes at once.
+    ///
+    /// Each lane takes at most a run, so once the pool has queued units that run in runs, the
+    /// lanes are capped at `in_flight` divided by a run, even when other units are taken alone.
+    /// Until then, each lane takes one unit, and up to `in_flight` lanes run.
+    fn cap(&self) -> (usize, usize) {
+        if self.shared.runs_queued.load(Ordering::Acquire) {
+            (self.max_runs, self.run)
+        } else {
+            (self.max_units, 1)
+        }
+    }
+
+    /// Starts lanes for the units that no waiting lane will take, up to the cap. Each lane holds a
+    /// sender of the output channel.
     fn grow(self: &Arc<Self>, output: &Sender<VortexResult<ArrayRef>>) {
         // Every lane calls this for every unit it takes, so it locks only to start lanes.
-        let max = self.max;
-        if self.started.load(Ordering::Acquire) >= max || self.unserved() == 0 {
+        let (max, per_lane) = self.cap();
+        if self.live.load(Ordering::Acquire) >= max || self.unserved(per_lane) == 0 {
             return;
         }
         let mut tasks = self.tasks.lock();
@@ -571,27 +602,39 @@ impl Lanes {
             return;
         };
         let new = self
-            .unserved()
-            .div_ceil(self.run)
-            .min(max.saturating_sub(tasks.len()));
+            .unserved(per_lane)
+            .div_ceil(per_lane)
+            .min(max.saturating_sub(self.live.load(Ordering::Acquire)));
         if new == 0 {
             return;
         }
+        self.live.fetch_add(new, Ordering::AcqRel);
         tasks.extend((0..new).map(|_| {
             self.shared
                 .handle
                 .spawn(lane(Arc::clone(self), output.clone()))
         }));
-        self.started.store(tasks.len(), Ordering::Release);
+    }
+
+    /// Stops counting a lane that is beyond the cap, which a pool lowers once it queues units
+    /// that run in runs after its lanes started for units taken alone. Returns whether it did, in
+    /// which case the lane ends. The lanes left are never fewer than the cap.
+    fn leave_if_beyond_cap(&self) -> bool {
+        let (max, _) = self.cap();
+        self.live
+            .try_update(Ordering::AcqRel, Ordering::Acquire, |live| {
+                live.checked_sub(1).filter(|_| live > max)
+            })
+            .is_ok()
     }
 
     /// The pending units that the lanes waiting for one will not take, each of which takes up
-    /// to a run.
-    fn unserved(&self) -> usize {
+    /// to `per_lane` units.
+    fn unserved(&self, per_lane: usize) -> usize {
         self.shared
             .pending
             .load(Ordering::Acquire)
-            .saturating_sub(self.waiting.load(Ordering::Acquire) * self.run)
+            .saturating_sub(self.waiting.load(Ordering::Acquire) * per_lane)
     }
 }
 
@@ -619,19 +662,41 @@ impl UnorderedPool {
 
 /// A lane: runs units one at a time and sends their rows to the workers as they are produced,
 /// trimmed to a trimmed limit and mapped. Ends once the units run out, a trimmed limit is spent, a
-/// unit fails, or the pool is gone.
+/// unit fails, the pool is gone, or it is beyond the lanes' cap.
 async fn lane(lanes: Arc<Lanes>, output: Sender<VortexResult<ArrayRef>>) {
+    if !run_lane(&lanes, output).await {
+        lanes.live.fetch_sub(1, Ordering::AcqRel);
+    }
+}
+
+/// Runs a lane until it ends. Returns whether it ended beyond the cap, which already stopped
+/// counting it.
+async fn run_lane(lanes: &Lanes, output: Sender<VortexResult<ArrayRef>>) -> bool {
     let shared = Arc::clone(&lanes.shared);
     while !shared.limit.is_trimmed_out() && !shared.failed.load(Ordering::Acquire) {
+        if lanes.leave_if_beyond_cap() {
+            return true;
+        }
         lanes.waiting.fetch_add(1, Ordering::AcqRel);
         let work = lanes.units.recv().await;
         lanes.waiting.fetch_sub(1, Ordering::AcqRel);
         let Ok(work) = work else {
-            return;
+            return false;
         };
         let taken = match work {
             Work::Turn(mut units, sender) => {
-                let run: Vec<_> = units.drain(..lanes.run.min(units.len())).collect();
+                // Adjacent units that return their arrays at once are taken in a run; a unit that
+                // streams them is taken alone.
+                let len = if units.front().is_some_and(WorkUnit::runs_at_once) {
+                    units
+                        .iter()
+                        .take(lanes.run)
+                        .take_while(|unit| unit.runs_at_once())
+                        .count()
+                } else {
+                    units.len().min(1)
+                };
+                let run: Vec<_> = units.drain(..len).collect();
                 if run.is_empty() {
                     continue;
                 }
@@ -656,10 +721,10 @@ async fn lane(lanes: Arc<Lanes>, output: Sender<VortexResult<ArrayRef>>) {
             Taken::Run(mut units) if units.len() == 1 => {
                 shared.stream(units.pop().vortex_expect("a run of one unit"), false)
             }
-            // The run's units start together, so their reads are registered together. A unit that
-            // returns its arrays at once, such as a V1 split, decodes inside its future, so each
-            // runs as its own task, as a scan stream spawns its splits, rather than all on this
-            // lane. A streaming unit, such as a V2 part, stays on the lane to pass on its chunks.
+            // The run's units start together, so their reads are registered together. Each
+            // returns its arrays at once, such as a V1 split, and decodes inside its future, so
+            // each runs as its own task, as a scan stream spawns its splits, rather than all on
+            // this lane.
             Taken::Run(units) => {
                 stream::select_all(units.into_iter().map(|unit| shared.stream(unit, true))).boxed()
             }
@@ -676,10 +741,11 @@ async fn lane(lanes: Arc<Lanes>, output: Sender<VortexResult<ArrayRef>>) {
         };
         while let Some(array) = arrays.next().await {
             if !emit(&shared, &output, array).await {
-                return;
+                return false;
             }
         }
     }
+    false
 }
 
 /// Sends one of a lane's arrays to the workers, trimmed to a trimmed limit and mapped. Returns
@@ -962,7 +1028,6 @@ mod tests {
             handle: RUNTIME.0.handle(),
             expand_concurrency: NonZeroUsize::new(expand_concurrency).unwrap_or(NonZeroUsize::MIN),
             map_trimmed: None,
-            runs: true,
         }
     }
 

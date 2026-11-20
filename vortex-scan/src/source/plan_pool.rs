@@ -101,10 +101,6 @@ pub(super) fn open(state: Arc<ScanState>, units: Vec<Unit>) -> VortexResult<Scan
                 .unwrap_or(NonZeroUsize::MIN)
         },
         map_trimmed: None,
-        // A part streams its chunks from its lane, and each part already reads many chunks, which
-        // coalesce within the part, so lanes take one part at a time, as many lanes as parts up to
-        // the pool's units in flight.
-        runs: false,
     };
     Ok(open_work_pool(options, work))
 }
