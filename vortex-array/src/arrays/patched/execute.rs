@@ -312,9 +312,13 @@ pub fn patch_validity(
 
 /// Overwrite the patched positions of `output` with `values`.
 #[inline]
-pub(crate) fn scatter<V: Copy>(output: &mut [V], values: &[V], layout: &PatchLayout<'_>) {
+pub fn scatter<V: Copy>(output: &mut [V], values: &[V], layout: &PatchLayout<'_>) {
     assert_eq!(output.len(), layout.len());
     assert!(layout.all_patches().end <= values.len());
+    if layout.is_sparse() {
+        layout.for_each(|pos, patch| output[pos] = values[patch]);
+        return;
+    }
     layout.for_each_chunk(
         output,
         |output, base, indices, patches| {
@@ -334,6 +338,14 @@ fn patch_bits(bits: &mut BitBufferMut, values: &BitBuffer, layout: &PatchLayout<
     assert_eq!(bits.len(), layout.len());
     assert!(layout.all_patches().end <= values.len());
     let offset = bits.offset();
+    if layout.is_sparse() {
+        layout.for_each(|pos, patch| {
+            // SAFETY: `pos` is inside the array, and `patch` is below the end of the patches,
+            // which was checked against `values` above.
+            unsafe { bits.set_to_unchecked(pos, values.value_unchecked(patch)) }
+        });
+        return;
+    }
     layout.for_each_chunk(
         bits,
         |bits, base, indices, patches| {
