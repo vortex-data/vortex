@@ -1287,22 +1287,8 @@ mod pool_tests {
     #[test]
     fn deferred_opens_are_bounded() -> VortexResult<()> {
         let opens = Arc::new(AtomicUsize::new(0));
-        let gates: Vec<_> = (0..6).map(|_| Arc::new(Gate::default())).collect();
-        let factories = gates
-            .iter()
-            .enumerate()
-            .map(|(index, gate)| {
-                let base = 100 * i32::try_from(index).expect("few files");
-                Arc::new(GatedFactory {
-                    reader: Arc::new(TestLayoutReader::new(4).with_split_size(1).with_base(base)),
-                    gate: Arc::clone(gate),
-                    opens: Arc::clone(&opens),
-                }) as Arc<dyn LayoutReaderFactory>
-            })
-            .collect();
-        let source =
-            MultiLayoutDataSource::new_deferred(i32_dtype(), factories, vec![], &new_session())
-                .with_concurrency(2);
+        let (source, gates) = counted_source(6, 4, &opens);
+        let source = source.with_concurrency(2);
         let pool = plan(&source, ScanRequest::default())?.open()?;
         let mut workers: Vec<_> = (0..4).map(|_| Arc::clone(&pool).worker()).collect();
         let mut noop = Context::from_waker(noop_waker_ref());
@@ -1413,6 +1399,102 @@ mod pool_tests {
         }
         let values = collect_scan_values(futures::executor::block_on_stream(worker))?;
         assert_eq!(values, [0, 1, 2, 100, 101, 102, 200, 201, 202]);
+        Ok(())
+    }
+
+    /// Deferred files of `rows` one-row splits whose opens are released, counted by `opens`; the
+    /// `i`th produces `100 * i + row`.
+    fn counted_source(
+        files: usize,
+        rows: u64,
+        opens: &Arc<AtomicUsize>,
+    ) -> (MultiLayoutDataSource, Vec<Arc<Gate>>) {
+        let gates: Vec<_> = (0..files).map(|_| Arc::new(Gate::default())).collect();
+        let factories = gates
+            .iter()
+            .enumerate()
+            .map(|(index, gate)| {
+                let base = 100 * i32::try_from(index).expect("few files");
+                Arc::new(GatedFactory {
+                    reader: Arc::new(
+                        TestLayoutReader::new(rows)
+                            .with_split_size(1)
+                            .with_base(base),
+                    ),
+                    gate: Arc::clone(gate),
+                    opens: Arc::clone(opens),
+                }) as Arc<dyn LayoutReaderFactory>
+            })
+            .collect();
+        let source =
+            MultiLayoutDataSource::new_deferred(i32_dtype(), factories, vec![], &new_session());
+        (source, gates)
+    }
+
+    /// An ordered pool reserves an unfiltered limit in row order across files, so it returns
+    /// exactly the first rows even when the limit ends inside a later file.
+    #[test]
+    fn ordered_reserved_limit_crosses_files() -> VortexResult<()> {
+        let (source, gates) = counted_source(3, 4, &Arc::default());
+        for gate in &gates {
+            gate.release();
+        }
+        let pool = plan(
+            &source,
+            ScanRequest {
+                ordered: true,
+                limit: Some(6),
+                ..Default::default()
+            },
+        )?
+        .open()?;
+        assert_eq!(read_with_one_worker(pool)?, [0, 1, 2, 3, 100, 101]);
+        Ok(())
+    }
+
+    /// Once an unordered pool's reserved limit is spent, it opens no more files, and reports
+    /// that it is done.
+    #[test]
+    fn spent_limit_stops_opening_files() -> VortexResult<()> {
+        let opens = Arc::new(AtomicUsize::new(0));
+        let (source, gates) = counted_source(6, 4, &opens);
+        for gate in &gates {
+            gate.release();
+        }
+        let source = source.with_concurrency(1);
+        let pool = plan(
+            &source,
+            ScanRequest {
+                limit: Some(2),
+                ..Default::default()
+            },
+        )?
+        .open()?;
+        let values = read_with_one_worker(Arc::clone(&pool))?;
+        assert_eq!(values.len(), 2);
+        assert!(opens.load(Ordering::SeqCst) < 6, "opened every file");
+        assert!(pool.is_exhausted());
+        assert_eq!(pool.progress(), 1.0);
+        Ok(())
+    }
+
+    /// A worker dropped while it opens a file gives up only that file: the next deferred file
+    /// still opens, and other workers read it.
+    #[test]
+    fn dropped_opener_strands_only_its_file() -> VortexResult<()> {
+        let (source, gates) = counted_source(3, 2, &Arc::default());
+        let source = source.with_concurrency(1);
+        let pool = plan(&source, ScanRequest::default())?.open()?;
+        let mut dropped = Arc::clone(&pool).worker();
+        let mut noop = Context::from_waker(noop_waker_ref());
+        assert!(poll_worker(&mut dropped, &mut noop).is_pending());
+        drop(dropped);
+
+        gates[1].release();
+        gates[2].release();
+        let mut values = read_with_one_worker(pool)?;
+        values.sort_unstable();
+        assert_eq!(values, [100, 101, 200, 201]);
         Ok(())
     }
 

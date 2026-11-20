@@ -236,7 +236,11 @@ pub(crate) fn open_pool(
             }
             PoolFile::Deferred(factory) if opens < open_concurrency => {
                 opens += 1;
-                send(&sender, Work::Open(factory, sender.clone()));
+                let slot = OpenSlot {
+                    shared: Arc::clone(&shared),
+                    sender: sender.clone(),
+                };
+                send(&sender, Work::Open(factory, slot));
             }
             PoolFile::Deferred(factory) => shared.deferred.lock().push_back(factory),
         }
@@ -347,10 +351,11 @@ impl Shared {
     }
 
     /// The next deferred file of an unordered pool to open, if any is left and the limit is not
-    /// spent.
+    /// spent. Once it is spent, the files left count as read.
     fn next_deferred(&self) -> Option<Arc<dyn LayoutReaderFactory>> {
         let mut deferred = self.deferred.lock();
-        if self.limit.is_spent() {
+        if self.limit.is_spent() && !deferred.is_empty() {
+            *self.progress.lock() += self.file_share * deferred.len() as f64;
             deferred.clear();
         }
         deferred.pop_front()
@@ -453,9 +458,33 @@ fn limit_output(
 /// A unit of an unordered pool.
 enum Work {
     Split(FileSplit),
-    /// A deferred file, and where to send its splits once it is open. The sender keeps the
-    /// channel open until the file's splits, and the next deferred file, are in it.
-    Open(Arc<dyn LayoutReaderFactory>, Sender<Work>),
+    /// A deferred file, and the open slot it holds until its splits are in the channel.
+    Open(Arc<dyn LayoutReaderFactory>, OpenSlot),
+}
+
+/// One of an unordered pool's `open_concurrency` open slots. Its sender keeps the channel open
+/// while the file that holds it is queued or opening.
+struct OpenSlot {
+    shared: Arc<Shared>,
+    sender: Sender<Work>,
+}
+
+impl Drop for OpenSlot {
+    /// Passes the slot to the next deferred file, queued behind the splits of the file that held
+    /// it, so opens keep pace with the workers. The slot passes on whether the open finished or a
+    /// dropped worker gave it up, so that worker strands only the file it was opening.
+    fn drop(&mut self) {
+        if self.sender.is_closed() {
+            return;
+        }
+        if let Some(next) = self.shared.next_deferred() {
+            let slot = OpenSlot {
+                shared: Arc::clone(&self.shared),
+                sender: self.sender.clone(),
+            };
+            send(&self.sender, Work::Open(next, slot));
+        }
+    }
 }
 
 fn send(sender: &Sender<Work>, work: Work) {
@@ -475,24 +504,17 @@ impl UnorderedPool {
     fn run(shared: &Arc<Shared>, work: Work) -> SplitOutput {
         match work {
             Work::Split(split) => shared.admit(split),
-            Work::Open(factory, sender) => {
-                let shared = Arc::clone(shared);
-                async move {
-                    let opened = shared.open_file(factory).await.map(|work| {
-                        for split in shared.file_splits(work) {
-                            send(&sender, Work::Split(split));
-                        }
-                        None
-                    });
-                    // Queue the next file behind this one's splits, so opens keep pace with the
-                    // workers and at most `open_concurrency` are queued or running at once.
-                    if let Some(next) = shared.next_deferred() {
-                        send(&sender, Work::Open(next, sender.clone()));
+            Work::Open(factory, slot) => async move {
+                let opened = slot.shared.open_file(factory).await.map(|work| {
+                    for split in slot.shared.file_splits(work) {
+                        send(&slot.sender, Work::Split(split));
                     }
-                    opened
-                }
-                .boxed()
+                    None
+                });
+                drop(slot);
+                opened
             }
+            .boxed(),
         }
     }
 }
@@ -521,11 +543,14 @@ impl ScanPool for UnorderedPool {
     }
 
     fn progress(&self) -> f64 {
+        if self.is_exhausted() {
+            return 1.0;
+        }
         self.shared.progress()
     }
 
     fn is_exhausted(&self) -> bool {
-        // Pending opens hold senders, so the channel closes only once every unit is in it.
+        // Open slots hold senders, so the channel closes only once every unit is in it.
         self.shared.limit.is_trimmed_out()
             || (self.receiver.is_closed() && self.receiver.is_empty())
     }
@@ -595,6 +620,7 @@ impl ScanPool for OrderedPool {
     }
 
     fn is_exhausted(&self) -> bool {
+        // The first worker takes every file.
         self.shared.limit.is_trimmed_out() || self.files.lock().is_none()
     }
 }
