@@ -295,7 +295,7 @@ mod tests {
     use crate::CanonicalCudaExt;
     use crate::CudaSession;
     use crate::device_buffer::CUDF_VALIDITY_BUFFER_PADDING;
-    use crate::device_buffer::cuda_backing_allocation;
+    use crate::device_buffer::test_support::cuda_backing_allocation;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 

@@ -23,7 +23,7 @@ use vortex_cuda_driver::stream::launch_host_function;
 
 use super::*;
 use crate::CudaSessionExt;
-use crate::device_buffer::cuda_address;
+use crate::device_buffer::test_support::cuda_address;
 
 const WAIT: Duration = Duration::from_secs(30);
 const FILE_OFFSET: u64 = (1 << 32) + 37;

@@ -1496,8 +1496,8 @@ mod tests {
     use crate::arrow::dictionary_tests::upload;
     use crate::arrow::tests::private_data_buffer_bytes;
     use crate::device_buffer::CUDF_VALIDITY_BUFFER_PADDING;
-    use crate::device_buffer::cuda_address;
-    use crate::device_buffer::cuda_backing_allocation;
+    use crate::device_buffer::test_support::cuda_address;
+    use crate::device_buffer::test_support::cuda_backing_allocation;
     use crate::executor::CudaArrayExt;
     use crate::session::CudaSession;
     use crate::session::VarBinExportLayout;

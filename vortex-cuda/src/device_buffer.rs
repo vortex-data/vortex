@@ -220,38 +220,49 @@ pub(crate) fn cuda_aligned_bitmap_view(
     Ok((view, prefix_bytes))
 }
 
-/// The buffer's device address, for tests that check addresses without reading through them.
+/// Helpers for tests in other modules that inspect device buffers.
 #[cfg(test)]
-pub(crate) fn cuda_address(handle: &BufferHandle) -> VortexResult<sys::CUdeviceptr> {
-    Ok(handle
-        .as_device_opt()
-        .ok_or_else(|| vortex_err!("Buffer is not on device"))?
-        .as_any()
-        .downcast_ref::<CudaDeviceBuffer>()
-        .ok_or_else(|| vortex_err!("expected CudaDeviceBuffer"))?
-        .offset_ptr())
-}
+pub(crate) mod test_support {
+    use std::sync::Arc;
 
-#[cfg(test)]
-pub(crate) fn cuda_backing_allocation(handle: &BufferHandle) -> VortexResult<BufferHandle> {
-    let device_buffer = handle
-        .as_device_opt()
-        .ok_or_else(|| vortex_err!("Buffer is not on device"))?;
+    use vortex::array::buffer::BufferHandle;
+    use vortex::error::VortexResult;
+    use vortex::error::vortex_err;
+    use vortex_cuda_driver::sys;
 
-    let cuda_buf = device_buffer
-        .as_any()
-        .downcast_ref::<CudaDeviceBuffer>()
-        .ok_or_else(|| vortex_err!("expected CudaDeviceBuffer, was {device_buffer:?}"))?;
-    let len = cuda_buf.allocation.as_bytes_view().len();
+    use super::CudaDeviceBuffer;
 
-    Ok(BufferHandle::new_device(Arc::new(CudaDeviceBuffer {
-        allocation: Arc::clone(&cuda_buf.allocation),
-        offset: 0,
-        len,
-        device_ptr: cuda_buf.device_ptr,
-        alignment: cuda_buf.alignment,
-        zeroed_tail_start: cuda_buf.zeroed_tail_start,
-    })))
+    /// The buffer's device address, for tests that check addresses without reading through them.
+    pub(crate) fn cuda_address(handle: &BufferHandle) -> VortexResult<sys::CUdeviceptr> {
+        Ok(handle
+            .as_device_opt()
+            .ok_or_else(|| vortex_err!("Buffer is not on device"))?
+            .as_any()
+            .downcast_ref::<CudaDeviceBuffer>()
+            .ok_or_else(|| vortex_err!("expected CudaDeviceBuffer"))?
+            .offset_ptr())
+    }
+
+    pub(crate) fn cuda_backing_allocation(handle: &BufferHandle) -> VortexResult<BufferHandle> {
+        let device_buffer = handle
+            .as_device_opt()
+            .ok_or_else(|| vortex_err!("Buffer is not on device"))?;
+
+        let cuda_buf = device_buffer
+            .as_any()
+            .downcast_ref::<CudaDeviceBuffer>()
+            .ok_or_else(|| vortex_err!("expected CudaDeviceBuffer, was {device_buffer:?}"))?;
+        let len = cuda_buf.allocation.as_bytes_view().len();
+
+        Ok(BufferHandle::new_device(Arc::new(CudaDeviceBuffer {
+            allocation: Arc::clone(&cuda_buf.allocation),
+            offset: 0,
+            len,
+            device_ptr: cuda_buf.device_ptr,
+            alignment: cuda_buf.alignment,
+            zeroed_tail_start: cuda_buf.zeroed_tail_start,
+        })))
+    }
 }
 
 pub(crate) fn with_cuda_view_mut<T: DeviceRepr + Send + Sync + 'static, R>(
@@ -616,6 +627,7 @@ mod tests {
 
     use super::*;
     use crate::CudaSession;
+    use crate::device_buffer::test_support::cuda_address;
 
     #[crate::test]
     async fn alignment_update_is_metadata_only() -> VortexResult<()> {

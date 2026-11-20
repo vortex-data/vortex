@@ -222,8 +222,8 @@ mod tests {
     use crate::CanonicalCudaExt;
     use crate::arrow::DeviceArrayExt;
     use crate::device_buffer::CUDF_VALIDITY_BUFFER_PADDING;
-    use crate::device_buffer::cuda_address;
-    use crate::device_buffer::cuda_backing_allocation;
+    use crate::device_buffer::test_support::cuda_address;
+    use crate::device_buffer::test_support::cuda_backing_allocation;
     use crate::session::CudaSession;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);

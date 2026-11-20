@@ -973,7 +973,7 @@ mod tests {
     use crate::arrow::PrivateData;
     use crate::arrow::release_device_array;
     use crate::arrow::release_schema;
-    use crate::device_buffer::cuda_address;
+    use crate::device_buffer::test_support::cuda_address;
 
     unsafe extern "C" fn count_release(array: *mut ArrowArray) {
         // SAFETY: The callback receives the live array created by counted_array.
