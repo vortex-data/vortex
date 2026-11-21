@@ -11,6 +11,7 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 use vortex_mask::Mask;
+use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::ArrayRef;
 use crate::Canonical;
@@ -428,11 +429,12 @@ fn take_piecewise_chunked(
 
     let array_len = array.as_ref().len();
     let chunk_offsets = array.chunk_offset_values();
-    let nchunks = array.nchunks();
 
-    let mut plans: Vec<ChunkGather> = Vec::new();
-    plans.resize_with(nchunks, ChunkGather::default);
-    // Sub-pieces in output order: (chunk index, offset within that chunk's gathered output, run
+    // Plans exist only for the chunks that the pieces touch, in the order of the first visit, so
+    // the cost scales with the number of pieces and not with the number of chunks.
+    let mut plans: Vec<(usize, ChunkGather)> = Vec::new();
+    let mut plan_of_chunk: HashMap<usize, usize> = HashMap::default();
+    // Sub-pieces in output order: (plan index, offset within that chunk's gathered output, run
     // length).
     let mut sub_pieces: Vec<(usize, usize, usize)> = Vec::with_capacity(starts.len());
     let mut monotonic = true;
@@ -470,12 +472,21 @@ fn take_piecewise_chunked(
             monotonic &= chunk_idx >= prev_chunk;
             prev_chunk = chunk_idx;
 
-            let plan = &mut plans[chunk_idx];
+            // Consecutive sub-pieces usually stay in one chunk, so check the last plan first.
+            let plan_idx = match plans.last() {
+                Some((last_chunk, _)) if *last_chunk == chunk_idx => plans.len() - 1,
+                _ => *plan_of_chunk.entry(chunk_idx).or_insert_with(|| {
+                    plans.push((chunk_idx, ChunkGather::default()));
+                    plans.len() - 1
+                }),
+            };
+            let plan = &mut plans[plan_idx].1;
+
             // Consecutive sub-pieces in the same chunk stay adjacent in its gathered output, so
             // they merge into one reorder run.
             match sub_pieces.last_mut() {
-                Some((last_chunk, _, last_run)) if *last_chunk == chunk_idx => *last_run += run,
-                _ => sub_pieces.push((chunk_idx, plan.total, run)),
+                Some((last_plan, _, last_run)) if *last_plan == plan_idx => *last_run += run,
+                _ => sub_pieces.push((plan_idx, plan.total, run)),
             }
             // A run that continues exactly where the chunk's previous run ended extends it, so
             // contiguous spans gather as one run.
@@ -502,13 +513,11 @@ fn take_piecewise_chunked(
         "PiecewiseSequenceArray expanded length does not match declared length",
     );
 
-    // Chunks visited in order: the per-chunk gathers already concatenate into the result.
+    // Chunks visited in order: the plans are in chunk order, and the per-chunk gathers already
+    // concatenate into the result.
     if monotonic {
-        let mut gathered = Vec::new();
-        for (chunk_idx, plan) in plans.into_iter().enumerate() {
-            if plan.starts.is_empty() {
-                continue;
-            }
+        let mut gathered = Vec::with_capacity(plans.len());
+        for (chunk_idx, plan) in plans {
             gathered.push(gather_chunk(array.chunk(chunk_idx), plan)?);
         }
         let result = if gathered.len() == 1 {
@@ -523,14 +532,11 @@ fn take_piecewise_chunked(
 
     // Out-of-order sub-pieces: flatten the per-chunk gathers, then take the sub-piece runs from
     // the flattened result in output order.
-    let mut bases = vec![0usize; nchunks];
+    let mut bases = Vec::with_capacity(plans.len());
     let mut running = 0usize;
     let mut flattener = ChunkFlattener::new(array.dtype(), output_len, ctx.allocator());
-    for (chunk_idx, plan) in plans.into_iter().enumerate() {
-        if plan.starts.is_empty() {
-            continue;
-        }
-        bases[chunk_idx] = running;
+    for (chunk_idx, plan) in plans {
+        bases.push(running);
         running += plan.total;
         flattener.push(gather_chunk(array.chunk(chunk_idx), plan)?, ctx)?;
     }
@@ -538,8 +544,8 @@ fn take_piecewise_chunked(
 
     let mut reorder_starts = Vec::with_capacity(sub_pieces.len());
     let mut reorder_lengths = Vec::with_capacity(sub_pieces.len());
-    for &(chunk_idx, offset, run) in &sub_pieces {
-        reorder_starts.push((bases[chunk_idx] + offset) as u64);
+    for &(plan_idx, offset, run) in &sub_pieces {
+        reorder_starts.push((bases[plan_idx] + offset) as u64);
         reorder_lengths.push(run as u64);
     }
     flat.take(contiguous_runs(reorder_starts, reorder_lengths, output_len))
