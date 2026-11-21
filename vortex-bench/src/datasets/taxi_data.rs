@@ -27,6 +27,7 @@ use crate::random_access::BenchDataset;
 use crate::random_access::data_path;
 use crate::random_access::parquet_to_arrow_file;
 use crate::random_access::write_random_access_parquet;
+use crate::utils::parquet::remove_stale_parquet;
 
 /// Dataset identifier used for data path generation.
 pub const DATASET: &str = "taxi";
@@ -88,7 +89,9 @@ pub async fn taxi_data_parquet() -> Result<PathBuf> {
 pub async fn taxi_random_access_parquet() -> Result<PathBuf> {
     let published = taxi_data_parquet().await?;
     tokio::task::spawn_blocking(move || {
-        idempotent(&data_path(DATASET, Format::Parquet), |output| {
+        let path = data_path(DATASET, Format::Parquet);
+        remove_stale_parquet(&path.to_data_path())?;
+        idempotent(&path, |output| {
             write_random_access_parquet(&published, output)
         })
     })

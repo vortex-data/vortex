@@ -9,6 +9,7 @@ use std::path::Path;
 
 use parquet::basic::Compression;
 use parquet::basic::ZstdLevel;
+use parquet::file::metadata::KeyValue;
 use parquet::file::metadata::ParquetMetaData;
 use parquet::file::metadata::ParquetMetaDataReader;
 use parquet::file::properties::EnabledStatistics;
@@ -37,8 +38,13 @@ pub const DATA_PAGE_ROW_COUNT_LIMIT: usize = 20_000;
 pub const DATA_PAGE_SIZE_LIMIT: usize = 1024 * 1024;
 
 /// The version of the layout that [`parquet_writer_properties`] writes. Raise it when a setting
-/// changes, so that [`prepare_parquet_dir`] removes local data in the old layout.
-const LAYOUT_VERSION: u32 = 2;
+/// changes, so that local data in the old layout is generated again: [`prepare_parquet_dir`]
+/// removes a directory in the old layout, and [`remove_stale_parquet`] removes a file.
+pub const LAYOUT_VERSION: u32 = 2;
+
+/// The key of the file metadata entry in which each generated Parquet file records the
+/// [`LAYOUT_VERSION`] it was written in.
+pub const LAYOUT_KEY: &str = "vortex_bench_layout";
 
 /// Writer settings for all Parquet that the benchmarks generate:
 ///
@@ -47,6 +53,8 @@ const LAYOUT_VERSION: u32 = 2;
 /// - Page statistics, so each file has a page index: the column index and the offset index. With
 ///   the offset index, a point lookup fetches and decodes only the pages that hold its rows.
 /// - Data pages of at most [`DATA_PAGE_SIZE_LIMIT`] and about [`DATA_PAGE_ROW_COUNT_LIMIT`] rows.
+/// - The [`LAYOUT_VERSION`] in the file metadata, under [`LAYOUT_KEY`]. A caller that sets its own
+///   key-value metadata on the builder replaces it, so append other entries to the writer instead.
 ///
 /// The page settings are parquet-rs's defaults, set here so that a change of default cannot change
 /// the benchmarks. Against pages bounded by bytes only, the row limit made random access lookups
@@ -62,6 +70,40 @@ pub fn parquet_writer_properties() -> WriterPropertiesBuilder {
         .set_statistics_enabled(EnabledStatistics::Page)
         .set_data_page_size_limit(DATA_PAGE_SIZE_LIMIT)
         .set_data_page_row_count_limit(DATA_PAGE_ROW_COUNT_LIMIT)
+        .set_key_value_metadata(Some(vec![KeyValue::new(
+            LAYOUT_KEY.to_string(),
+            LAYOUT_VERSION.to_string(),
+        )]))
+}
+
+/// Return whether `metadata` records the current [`LAYOUT_VERSION`].
+pub fn has_current_layout(metadata: &ParquetMetaData) -> bool {
+    let version = LAYOUT_VERSION.to_string();
+    metadata
+        .file_metadata()
+        .key_value_metadata()
+        .is_some_and(|kvs| {
+            kvs.iter()
+                .any(|kv| kv.key == LAYOUT_KEY && kv.value.as_deref() == Some(version.as_str()))
+        })
+}
+
+/// Remove the generated Parquet file at `path` if it exists and does not record the current
+/// [`LAYOUT_VERSION`], so that its generator, which skips a file that exists, writes it again. It
+/// reads only the footer.
+pub fn remove_stale_parquet(path: &Path) -> anyhow::Result<()> {
+    let Ok(file) = File::open(path) else {
+        return Ok(());
+    };
+    let metadata = ParquetMetaDataReader::new().parse_and_finish(&file)?;
+    if !has_current_layout(&metadata) {
+        info!(
+            "Removing {}: it was not written in Parquet layout {LAYOUT_VERSION}",
+            path.display()
+        );
+        fs::remove_file(path)?;
+    }
+    Ok(())
 }
 
 /// The text of the marker beside a `parquet` directory for row groups of `row_group_rows` rows.
@@ -157,6 +199,22 @@ mod tests {
         let mut writer = ArrowWriter::try_new(File::create(path)?, batch.schema(), props)?;
         writer.write(&batch)?;
         writer.close()?;
+        Ok(())
+    }
+
+    #[test]
+    fn parquet_in_an_old_layout_is_removed() -> anyhow::Result<()> {
+        let dir = tempfile::tempdir()?;
+        let old = dir.path().join("old.parquet");
+        let current = dir.path().join("current.parquet");
+        write(&old, Some(WriterProperties::builder().build()))?;
+        write(&current, Some(parquet_writer_properties().build()))?;
+
+        remove_stale_parquet(&old)?;
+        remove_stale_parquet(&current)?;
+        remove_stale_parquet(&dir.path().join("missing.parquet"))?;
+        assert!(!old.exists());
+        assert!(current.exists());
         Ok(())
     }
 

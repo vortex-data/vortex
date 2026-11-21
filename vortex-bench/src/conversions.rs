@@ -73,6 +73,7 @@ use crate::Format;
 use crate::SESSION;
 use crate::utils::file::idempotent_async;
 use crate::utils::parquet::LOCAL_ROW_GROUP_ROWS;
+use crate::utils::parquet::has_current_layout;
 use crate::utils::parquet::is_zstd;
 use crate::utils::parquet::parquet_writer_properties;
 
@@ -432,8 +433,8 @@ pub async fn write_parquet_as_vortex(
 /// Add GeoParquet `geo` file metadata to externally-sourced parquet we don't generate (e.g. SpatialBench `zone`).
 ///
 /// The file is rewritten with the shared Parquet settings, in local row groups, unless it already
-/// has the metadata, zstd, and no row group larger than a local one. So a file tagged before the
-/// benchmarks wrote zstd or local row groups is written again too.
+/// has the metadata, zstd, no row group larger than a local one, and the current layout version.
+/// So a file tagged before a change of the shared settings is written again too.
 pub async fn add_geoparquet_metadata(
     parquet_path: &Path,
     geoparquet_json: &str,
@@ -448,7 +449,7 @@ pub async fn add_geoparquet_metadata(
         .row_groups()
         .iter()
         .all(|row_group| row_group.num_rows() <= LOCAL_ROW_GROUP_ROWS as i64);
-    if already_tagged && is_zstd(metadata) && local_row_groups {
+    if already_tagged && is_zstd(metadata) && local_row_groups && has_current_layout(metadata) {
         return Ok(());
     }
 
@@ -597,6 +598,8 @@ mod tests {
     use parquet::file::reader::SerializedFileReader;
 
     use super::*;
+    use crate::utils::parquet::LAYOUT_KEY;
+    use crate::utils::parquet::LAYOUT_VERSION;
 
     #[tokio::test]
     async fn geoparquet_tagging_rewrites_an_uncompressed_file_with_zstd() -> anyhow::Result<()> {
@@ -632,13 +635,13 @@ mod tests {
             Arc::clone(&schema),
             vec![Arc::new(Int64Array::from_iter_values(0..200_000))],
         )?;
-        // Tagged and zstd, but in one row group larger than a local one.
+        // Tagged, zstd, and in the current layout, but in one row group larger than a local one.
         let props = parquet_writer_properties()
             .set_max_row_group_row_count(Some(1024 * 1024))
-            .set_key_value_metadata(Some(vec![KeyValue::new(
-                "geo".to_string(),
-                Some("{}".to_string()),
-            )]))
+            .set_key_value_metadata(Some(vec![
+                KeyValue::new("geo".to_string(), Some("{}".to_string())),
+                KeyValue::new(LAYOUT_KEY.to_string(), LAYOUT_VERSION.to_string()),
+            ]))
             .build();
         let mut writer = ArrowWriter::try_new(fs::File::create(&path)?, schema, Some(props))?;
         writer.write(&batch)?;
@@ -654,6 +657,34 @@ mod tests {
             .map(|row_group| row_group.num_rows())
             .collect();
         assert_eq!(rows, vec![122_880, 200_000 - 122_880]);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn geoparquet_tagging_rewrites_a_file_in_an_old_layout() -> anyhow::Result<()> {
+        let dir = tempfile::tempdir()?;
+        let path = dir.path().join("zone.parquet");
+        let schema = Arc::new(Schema::new(vec![Field::new("id", DataType::Int64, false)]));
+        let batch = RecordBatch::try_new(
+            Arc::clone(&schema),
+            vec![Arc::new(Int64Array::from_iter_values(0..1000))],
+        )?;
+        // Tagged, zstd, and in local row groups, but with no layout version.
+        let props = parquet_writer_properties()
+            .set_max_row_group_row_count(Some(LOCAL_ROW_GROUP_ROWS))
+            .set_key_value_metadata(Some(vec![KeyValue::new(
+                "geo".to_string(),
+                Some("{}".to_string()),
+            )]))
+            .build();
+        let mut writer = ArrowWriter::try_new(fs::File::create(&path)?, schema, Some(props))?;
+        writer.write(&batch)?;
+        writer.close()?;
+
+        add_geoparquet_metadata(&path, "{}").await?;
+
+        let reader = SerializedFileReader::new(fs::File::open(&path)?)?;
+        assert!(has_current_layout(reader.metadata()));
         Ok(())
     }
 

@@ -36,6 +36,8 @@ use crate::utils::file::idempotent_async;
 use crate::utils::parquet::DATA_PAGE_ROW_COUNT_LIMIT;
 use crate::utils::parquet::DATA_PAGE_SIZE_LIMIT;
 use crate::utils::parquet::DICTIONARY_PAGE_SIZE_LIMIT;
+use crate::utils::parquet::LAYOUT_KEY;
+use crate::utils::parquet::LAYOUT_VERSION;
 use crate::utils::parquet::LOCAL_ROW_GROUP_ROWS;
 
 /// Batch size matching the TPC-H generator's streaming batches.
@@ -107,6 +109,10 @@ pub async fn generate_tables(scale_factor: &str, output_dir: PathBuf) -> Result<
                     .set_data_page_size_limit(DATA_PAGE_SIZE_LIMIT)
                     .set_data_page_row_count_limit(DATA_PAGE_ROW_COUNT_LIMIT)
                     .set_max_row_group_size(LOCAL_ROW_GROUP_ROWS)
+                    .set_key_value_metadata(Some(vec![KeyValue::new(
+                        LAYOUT_KEY.to_string(),
+                        LAYOUT_VERSION.to_string(),
+                    )]))
                     .build();
                 let mut writer = AsyncArrowWriter::try_new(file, schema, Some(props))?;
                 for batch in iter {
