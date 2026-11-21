@@ -15,7 +15,6 @@ version = { workspace = true }
 all-features = true
 
 [dependencies]
-async-channel = { workspace = true }
 async-lock = { workspace = true }
 async-trait = { workspace = true }
 bit-vec = { workspace = true }
