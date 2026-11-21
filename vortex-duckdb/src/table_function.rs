@@ -38,6 +38,7 @@ use vortex::expr::BoundExpression;
 use vortex::expr::Expression;
 use vortex::expr::col;
 use vortex::expr::proto::ExprSerializeProtoExt;
+use vortex::file::Footer;
 #[cfg(unix)]
 use vortex::metrics::tracing::get_global_labels;
 use vortex::proto::expr as expr_pb;
@@ -98,6 +99,8 @@ pub(crate) struct BindState {
     pub has_non_optional_filter: AtomicBool,
     // Non-empty iff this scan is aggregate
     pub aggregates: Vec<ColumnAggregate>,
+    // Footers observed by this bind. A new query must observe the files again.
+    pub planning_footers: HashMap<String, Footer>,
     // Any of files present in scan lack a footer
     pub no_footer_caches: bool,
 }
@@ -112,6 +115,7 @@ impl BindState {
             columns: vec![],
             has_non_optional_filter: AtomicBool::new(false),
             aggregates: vec![],
+            planning_footers: HashMap::new(),
             no_footer_caches: true,
         }
     }
@@ -128,6 +132,7 @@ impl Clone for BindState {
                 self.has_non_optional_filter.load(Ordering::Relaxed),
             ),
             aggregates: self.aggregates.clone(),
+            planning_footers: self.planning_footers.clone(),
             no_footer_caches: false,
         }
     }

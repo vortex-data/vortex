@@ -243,7 +243,7 @@ async fn open_file(
         session,
         key,
         source,
-        file.size,
+        file.versioned_size(),
         file.version.as_ref(),
         open_options_fn,
     )
@@ -687,14 +687,14 @@ mod tests {
             .write_options()
             .write(&mut output, buffer![1u32].into_array().to_array_stream())
             .await?;
-        let size = output.len() as u64;
         let fs: FileSystemRef = Arc::new(UnkeyedFileSystem {
             bytes: ByteBuffer::from(output),
             expose_uri: false,
         });
         let listing = FileListing {
             path: "anonymous.vortex".to_string(),
-            size: Some(size),
+            // This listing predates a different-size replacement at the same path.
+            size: Some(1),
             version: None,
         };
 

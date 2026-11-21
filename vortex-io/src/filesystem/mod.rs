@@ -49,6 +49,14 @@ pub struct FileListing {
     pub version: Option<FileVersion>,
 }
 
+impl FileListing {
+    /// Returns the listed size when opening this listing pins reads to the same version.
+    /// Otherwise the opened source must supply its size, since the path may have been replaced.
+    pub fn versioned_size(&self) -> Option<u64> {
+        self.version.as_ref().and(self.size)
+    }
+}
+
 /// A reference-counted handle to a file system.
 pub type FileSystemRef = Arc<dyn FileSystem>;
 

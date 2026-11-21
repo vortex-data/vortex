@@ -11804,6 +11804,7 @@ dependencies = [
  "itertools 0.14.0",
  "jiff",
  "mimalloc",
+ "moka",
  "num-traits",
  "object_store 0.13.2",
  "parking_lot",

@@ -189,6 +189,18 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn unversioned_source_observes_replacement_size() -> VortexResult<()> {
+        let fs = memory_fs(&[("data.vortex", 5)]).await?;
+        let listing = fs.head("data.vortex").await?.expect("file exists");
+        assert_eq!(listing.version, None);
+        fs.store
+            .put(&object_path_from_literal("data.vortex"), vec![0; 8].into())
+            .await?;
+        assert_eq!(fs.open_read(&listing).await?.size().await?, 8);
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn test_cache_key_scoped_to_filesystem_and_prefix() -> VortexResult<()> {
         let fs_a = memory_fs(&[("a/shared.vortex", 1), ("b/shared.vortex", 1)]).await?;
         let fs_b = memory_fs(&[("a/shared.vortex", 1)]).await?;

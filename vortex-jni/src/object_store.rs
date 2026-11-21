@@ -81,14 +81,7 @@ pub(crate) fn make_object_store(
 
 /// The registry serving `properties`, created on first use.
 fn registry_for(properties: &HashMap<String, String>) -> Arc<Registry> {
-    let mut sorted_props: Vec<_> = properties.iter().collect();
-    sorted_props.sort_by_key(|(k, _)| *k);
-    let key: String = sorted_props
-        .iter()
-        .map(|(k, v)| format!("{k}={v}"))
-        .collect::<Vec<_>>()
-        .join(",");
-
+    let key = properties_key(properties);
     let mut registries = REGISTRIES.lock();
     Arc::clone(registries.entry(key).or_insert_with(|| {
         // Later inserts win; keys are lowercased because the registry matches case-insensitively
@@ -105,31 +98,25 @@ fn registry_for(properties: &HashMap<String, String>) -> Arc<Registry> {
     }))
 }
 
-pub(crate) fn footer_cache_key(
-    url: &Url,
-    properties: &HashMap<String, String>,
-    path: &str,
-) -> String {
-    let store_key = url_cache_key(url, properties);
-    // Length-prefix the store identity so delimiters in properties or paths cannot blur the
-    // boundary.
-    format!("{}:{}{}", store_key.len(), store_key, path)
+fn properties_key(properties: &HashMap<String, String>) -> String {
+    let mut sorted_props: Vec<_> = properties.iter().collect();
+    sorted_props.sort_by_key(|(k, _)| *k);
+    url::form_urlencoded::Serializer::new(String::new())
+        .extend_pairs(sorted_props)
+        .finish()
+}
+
+pub(crate) fn footer_cache_key(url: &Url, properties: &HashMap<String, String>) -> String {
+    // The URL also identifies mounts below the authority, such as a Hugging Face repository.
+    format!("{url};{}", properties_key(properties))
 }
 
 fn url_cache_key(url: &Url, properties: &HashMap<String, String>) -> String {
-    let mut sorted_props: Vec<_> = properties.iter().collect();
-    sorted_props.sort_by_key(|(k, _)| *k);
-
-    let props_str: String = sorted_props
-        .iter()
-        .map(|(k, v)| format!("{k}={v}"))
-        .collect::<Vec<_>>()
-        .join(",");
     format!(
         "{}://{};{}",
         url.scheme(),
         &url[url::Position::BeforeHost..url::Position::AfterPort],
-        props_str,
+        properties_key(properties),
     )
 }
 
@@ -163,6 +150,10 @@ mod tests {
         let (store_b, _) = make_object_store(&b, &HashMap::new())?;
 
         assert!(!Arc::ptr_eq(&store_a, &store_b));
+        assert_ne!(
+            footer_cache_key(&a, &HashMap::new()),
+            footer_cache_key(&b, &HashMap::new())
+        );
         Ok(())
     }
 
@@ -208,18 +199,25 @@ mod tests {
             "http://localhost:9001".to_string(),
         )]);
 
-        let key = footer_cache_key(&url, &properties, "data.vortex");
-        assert_eq!(key, footer_cache_key(&url, &properties, "data.vortex"));
+        let key = footer_cache_key(&url, &properties);
+        assert_eq!(key, footer_cache_key(&url, &properties));
+        assert_ne!(key, footer_cache_key(&other_bucket, &properties));
+        assert_ne!(key, footer_cache_key(&url, &other_properties));
         assert_ne!(
             key,
-            footer_cache_key(&other_bucket, &properties, "data.vortex")
+            footer_cache_key(&parse("s3://bucket-a/other.vortex")?, &properties)
         );
-        assert_ne!(
-            key,
-            footer_cache_key(&url, &other_properties, "data.vortex")
-        );
-        assert_ne!(key, footer_cache_key(&url, &properties, "other.vortex"));
         Ok(())
+    }
+
+    #[test]
+    fn property_values_preserve_pair_boundaries() {
+        let one = HashMap::from_iter([("a".to_owned(), "1,b=2".to_owned())]);
+        let two = HashMap::from_iter([
+            ("a".to_owned(), "1".to_owned()),
+            ("b".to_owned(), "2".to_owned()),
+        ]);
+        assert_ne!(properties_key(&one), properties_key(&two));
     }
 
     #[test]

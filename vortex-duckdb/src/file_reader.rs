@@ -2,11 +2,13 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::sync::Arc;
+use std::sync::LazyLock;
 use std::sync::OnceLock;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
 
 use futures::FutureExt;
+use moka::sync::Cache;
 use object_store::registry::ObjectStoreRegistry;
 use url::Url;
 use vortex::array::ArrayRef;
@@ -21,15 +23,16 @@ use vortex::error::VortexResult;
 use vortex::error::vortex_err;
 use vortex::error::vortex_panic;
 use vortex::file::Footer;
+use vortex::file::OpenOptionsSessionExt;
+use vortex::file::VortexFile;
 use vortex::file::multi::MultiFileSession;
 use vortex::file::multi::open_cached_with_version;
 use vortex::file::multi::parse_uri_or_path;
 use vortex::file::v2::FileStatsLayoutReader;
 use vortex::io::compat::Compat;
-use vortex::io::filesystem::FileSystemRef;
+use vortex::io::filesystem::FileSystem;
 use vortex::io::object_store::ObjectStoreFileSystem;
 use vortex::io::runtime::BlockingRuntime as _;
-use vortex::io::std_file::StdFileSystem;
 use vortex::layout::LayoutReaderRef;
 use vortex::layout::scan::scan_builder::ScanBuilder;
 use vortex::layout::scan::v2::ScanBuilder as V2ScanBuilder;
@@ -85,27 +88,22 @@ use crate::table_function::convert_result;
 // `reader_get_progress_in_file` is called during `reader_scan` calls from a
 // separate thread.
 
-fn resolve_filesystem(url: &Url) -> VortexResult<(FileSystemRef, String)> {
-    // Compat makes us use tokio which is very bad for local reads on
-    // high-core machines because reads go into blocking pool
-    if url.scheme() == "file" {
-        let path = url
-            // path() is fine on Linux but produces /C:/ (lead slash) on Windows
-            .to_file_path()
-            .map_err(|()| vortex_err!("invalid file url {url}"))?;
-        return Ok((
-            Arc::new(StdFileSystem::new(RUNTIME.handle())),
-            path.to_string_lossy().into_owned(),
-        ));
-    }
+// Only revisit previously opened local paths during optimization. A cold glob must not open
+// every file on the planning thread. A hit is a hint to read the file, never a source of stats.
+static OPENED_LOCAL_PATHS: LazyLock<Cache<String, ()>> = LazyLock::new(|| Cache::new(16_384));
 
+async fn open_local_file(url: &Url) -> VortexResult<VortexFile> {
+    let path = url
+        .to_file_path()
+        .map_err(|()| vortex_err!("invalid file url {url}"))?;
+    SESSION.open_options().open_path(path).await
+}
+
+fn resolve_object_store(url: &Url) -> VortexResult<(ObjectStoreFileSystem, String)> {
     let (object_store, path) = REGISTRY.resolve(url)?;
 
     Ok((
-        Arc::new(ObjectStoreFileSystem::new(
-            Arc::new(Compat::new(object_store)),
-            RUNTIME.handle(),
-        )),
+        ObjectStoreFileSystem::new(Arc::new(Compat::new(object_store)), RUNTIME.handle()),
         path.to_string(),
     ))
 }
@@ -126,6 +124,8 @@ pub struct OpenFileReader {
 
 /// The state of an open file that the threads scanning it share.
 pub struct FileScanState {
+    path: String,
+    footer: Footer,
     reader: LayoutReaderRef,
     /// The file as the V2 executor reads it.
     scan_file: ScanFile,
@@ -137,25 +137,34 @@ pub struct FileScanState {
 
 impl OpenFileReader {
     async fn open(path: String) -> VortexResult<Self> {
-        let (fs, fs_path) = resolve_filesystem(&parse_uri_or_path(&path)?)?;
-        let listing = fs
-            .head(&fs_path)
+        let url = parse_uri_or_path(&path)?;
+        let file = if url.scheme() == "file" {
+            let file = open_local_file(&url).await?;
+            OPENED_LOCAL_PATHS.insert(path.clone(), ());
+            file
+        } else {
+            let (fs, fs_path) = resolve_object_store(&url)?;
+            let listing = fs
+                .head(&fs_path)
+                .await?
+                .ok_or_else(|| vortex_err!("File not found: {path}"))?;
+            let source = fs.open_read(&listing).await?;
+            open_cached_with_version(
+                &SESSION,
+                Some(&path),
+                source,
+                listing.versioned_size(),
+                listing.version.as_ref(),
+                &|options| options,
+            )
             .await?
-            .ok_or_else(|| vortex_err!("File not found: {path}"))?;
-        let source = fs.open_read(&listing).await?;
-        let file = open_cached_with_version(
-            &SESSION,
-            Some(&path),
-            source,
-            listing.size,
-            listing.version.as_ref(),
-            &|options| options,
-        )
-        .await?;
+        };
         let mut scan_file = file.scan_file();
         scan_file.cache.get_or_insert_default();
         Ok(OpenFileReader {
             scan_state: Some(Arc::new(FileScanState {
+                path,
+                footer: file.footer().clone(),
                 reader: file.layout_reader()?,
                 scan_file,
                 v2: OnceLock::new(),
@@ -216,6 +225,12 @@ pub fn reader_bind(file: &OpenFileReader, result: &mut BindResultRef) -> VortexR
         columns,
         has_non_optional_filter: AtomicBool::new(false),
         aggregates: vec![],
+        planning_footers: [(
+            file.scan_state().path.clone(),
+            file.scan_state().footer.clone(),
+        )]
+        .into_iter()
+        .collect(),
         no_footer_caches: false,
     })
 }
@@ -476,8 +491,6 @@ pub fn reader_get_progress_in_file(file: &OpenFileReader) -> f64 {
 
 /// Called by one thread in planning phase
 pub fn can_get_partition_stats(bind: &BindState) -> bool {
-    // Re-reading footers on every request is costly so we mimic DuckDB's
-    // TryLoadCaches for Parquet and load them once per file
     !bind.no_footer_caches
     // This function is called during planning where we haven't read data yet.
     // If there's a filter, we need to read the data to evaluate stats.
@@ -486,23 +499,31 @@ pub fn can_get_partition_stats(bind: &BindState) -> bool {
         && bind.filters.is_empty()
 }
 
-/// Called by one thread for every file. When we open files, we cache footers
-/// in MultiFileSession so this function retrieves the cached data if it matches the current file
-/// version. If any footer is not present or cannot be validated, it sets a flag in BindState so we
-/// won't try again.
+/// Supply exact partition statistics from this bind, or validate a warm file on first use.
 pub fn footer_get_cached(bind: &mut BindState, path: &str) -> VortexResult<Option<Footer>> {
-    let (fs, fs_path) = resolve_filesystem(&parse_uri_or_path(path)?)?;
-    let listing = RUNTIME.block_on(fs.head(&fs_path))?;
-    let footer = listing
-        .as_ref()
-        .and_then(|listing| listing.version.as_ref())
-        .and_then(|version| {
-            SESSION
-                .get_opt::<MultiFileSession>()
-                .vortex_expect("MultiFileSession not found")
-                .get_footer(path, version)
-        });
-    bind.no_footer_caches |= footer.is_none();
+    if let Some(footer) = bind.planning_footers.get(path) {
+        return Ok(Some(footer.clone()));
+    }
+    let url = parse_uri_or_path(path)?;
+    let footer = if url.scheme() == "file" {
+        if OPENED_LOCAL_PATHS.contains_key(path) {
+            Some(RUNTIME.block_on(open_local_file(&url))?.footer().clone())
+        } else {
+            None
+        }
+    } else {
+        let (fs, fs_path) = resolve_object_store(&url)?;
+        RUNTIME.block_on(fs.head(&fs_path))?.and_then(|listing| {
+            let version = listing.version.as_ref()?;
+            SESSION.get::<MultiFileSession>().get_footer(path, version)
+        })
+    };
+    if let Some(footer) = &footer {
+        bind.planning_footers
+            .insert(path.to_owned(), footer.clone());
+    } else {
+        bind.no_footer_caches = true;
+    }
     Ok(footer)
 }
 

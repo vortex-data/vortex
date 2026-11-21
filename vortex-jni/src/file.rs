@@ -155,7 +155,7 @@ fn metadata_segments(file: &VortexFile) -> Vec<(String, ByteBuffer)> {
 
 /// Open the Vortex file at `uri` through a native storage client.
 ///
-/// The cache key includes the URL authority, caller properties, and resolved path so different
+/// The cache key includes the complete URL and caller properties so different
 /// stores cannot collide even when their object paths and version tokens are equal.
 fn open_uri_file(
     env: &mut jni::Env,
@@ -173,13 +173,13 @@ fn open_uri_file(
         .block_on(fs.head(&path))?
         .ok_or_else(|| vortex_err!("File not found: {uri}"))?;
     let source = RUNTIME.block_on(fs.open_read(&listing))?;
-    let cache_key = footer_cache_key(&url, &properties, &path);
+    let cache_key = footer_cache_key(&url, &properties);
 
     Ok(open_file(
         session,
         source,
         &cache_key,
-        listing.size,
+        listing.versioned_size(),
         listing.version.as_ref(),
         include_metadata,
     )?)

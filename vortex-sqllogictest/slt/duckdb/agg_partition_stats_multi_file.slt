@@ -11,6 +11,12 @@ statement ok
 COPY (SELECT * FROM (VALUES (4::INTEGER), (5), (6)) t(i))
 TO '${WORK_DIR}/agg_partition_stats_2.vortex';
 
+# A cold glob leaves unopened files for execution.
+query TT
+EXPLAIN SELECT count(*) FROM '${WORK_DIR}/agg_partition_stats_*.vortex';
+----
+<REGEX>:.*Read Vortex.*
+
 query I
 SELECT count(*) FROM '${WORK_DIR}/agg_partition_stats_*.vortex';
 ----
@@ -31,6 +37,21 @@ SELECT count(*), min(i), max(i)
 FROM '${WORK_DIR}/agg_partition_stats_*.vortex';
 ----
 6 1 6
+
+# A warm path can be rewritten between binds, including a file other than the first.
+statement ok
+COPY (SELECT * FROM (VALUES (-40::INTEGER), (80)) t(i))
+TO '${WORK_DIR}/agg_partition_stats_2.vortex';
+
+query TT
+EXPLAIN SELECT count(*), min(i), max(i) FROM '${WORK_DIR}/agg_partition_stats_*.vortex';
+----
+<REGEX>:.*Column Data Scan.*
+
+query III
+SELECT count(*), min(i), max(i) FROM '${WORK_DIR}/agg_partition_stats_*.vortex';
+----
+5 -40 80
 
 statement ok
 COPY (SELECT 1::INTEGER AS a, 100::INTEGER AS b) TO '${WORK_DIR}/reordered_1.vortex';

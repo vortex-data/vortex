@@ -14,7 +14,6 @@ use object_store::GetOptions;
 use object_store::GetRange;
 use object_store::GetResultPayload;
 use object_store::ObjectStore;
-use object_store::ObjectStoreExt;
 use object_store::path::Path as ObjectPath;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::memory::BufferAllocatorRef;
@@ -86,7 +85,7 @@ impl ObjectStoreReadAt {
             .version
             .as_ref()
             .map(|version| version.as_str().to_owned());
-        self.known_size = listing.size;
+        self.known_size = listing.versioned_size();
         self
     }
 
@@ -195,11 +194,16 @@ impl VortexReadAt for ObjectStoreReadAt {
         }
         let store = Arc::clone(&self.store);
         let path = self.path.clone();
+        let options = GetOptions {
+            head: true,
+            version: self.version.clone(),
+            ..Default::default()
+        };
         async move {
             store
-                .head(&path)
+                .get_opts(&path, options)
                 .await
-                .map(|h| h.size)
+                .map(|result| result.meta.size)
                 .map_err(VortexError::from)
         }
         .boxed()
@@ -287,6 +291,7 @@ mod tests {
     use std::sync::atomic::AtomicUsize;
     use std::sync::atomic::Ordering;
 
+    use object_store::ObjectStoreExt;
     use object_store::PutPayload;
     use object_store::memory::InMemory;
 
