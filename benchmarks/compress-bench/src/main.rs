@@ -533,37 +533,6 @@ async fn run_benchmark_for_dataset(
                         result.compressed_size,
                         uncompressed_size.context("compression size requires Arrow memory size")?,
                     ));
-                    if *format == Format::Parquet && !mode.is_gpu() {
-                        // Snappy Parquet is measured for size only: one untimed write by DuckDB.
-                        let snappy_size = duckdb_snappy_parquet_size(&parquet_path)
-                            .await
-                            .with_context(|| {
-                                format!("writing {bench_name} as Snappy Parquet with DuckDB")
-                            })?;
-                        v3_records.push(v3::named_compression_size_record(
-                            v3_dataset,
-                            v3_variant,
-                            PARQUET_SNAPPY_FORMAT,
-                            snappy_size,
-                            uncompressed_size
-                                .context("compression size requires Arrow memory size")?,
-                        ));
-                    }
-                    if *format == Format::OnDiskVortex && !mode.is_gpu() {
-                        // Compact Vortex is measured for size only: one untimed write.
-                        let compact_size =
-                            vortex_compact_size(&input).await.with_context(|| {
-                                format!("compressing {bench_name} as compact Vortex")
-                            })?;
-                        v3_records.push(v3::compression_size_record(
-                            v3_dataset,
-                            v3_variant,
-                            Format::VortexCompact,
-                            compact_size,
-                            uncompressed_size
-                                .context("compression size requires Arrow memory size")?,
-                        ));
-                    }
                     ratios.extend(result.ratios);
                     timings.push(result.timing);
                     compressed = Some(result.compressed);
@@ -610,6 +579,41 @@ async fn run_benchmark_for_dataset(
 
             measurements_map.insert((*format, *op), time);
             progress.inc(1);
+        }
+    }
+
+    // Size-only formats: one untimed write each. They run after every timed run of the dataset,
+    // so their reads and writes cannot warm caches for a timed measurement.
+    if ops.contains(&CompressOp::Compress) && !mode.is_gpu() {
+        let uncompressed_size =
+            uncompressed_size.context("compression size requires Arrow memory size")?;
+        if formats.contains(&Format::Parquet) {
+            let snappy_size = duckdb_snappy_parquet_size(&parquet_path)
+                .await
+                .with_context(|| format!("writing {bench_name} as Snappy Parquet with DuckDB"))?;
+            v3_records.push(v3::named_compression_size_record(
+                v3_dataset,
+                v3_variant,
+                PARQUET_SNAPPY_FORMAT,
+                snappy_size,
+                uncompressed_size,
+            ));
+        }
+        if formats.contains(&Format::OnDiskVortex) {
+            let input = get_compressor(Format::OnDiskVortex, mode)?
+                .load(&parquet_path)
+                .await
+                .with_context(|| format!("loading {bench_name} for compact Vortex"))?;
+            let compact_size = vortex_compact_size(&input)
+                .await
+                .with_context(|| format!("compressing {bench_name} as compact Vortex"))?;
+            v3_records.push(v3::compression_size_record(
+                v3_dataset,
+                v3_variant,
+                Format::VortexCompact,
+                compact_size,
+                uncompressed_size,
+            ));
         }
     }
 

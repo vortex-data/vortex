@@ -197,6 +197,33 @@ def test_run_combines_ingest_output_per_backend(tmp_path, monkeypatch) -> None:
     assert seen_backend_paths[0] != seen_backend_paths[1]
 
 
+def test_run_writes_lance_data_before_the_first_cache_drop(tmp_path, monkeypatch) -> None:
+    run_store = ResultStore(base_dir=tmp_path / "runs")
+    binary_path = tmp_path / "lance-bench"
+    binary_path.write_text("", encoding="utf-8")
+    events = []
+
+    monkeypatch.setattr(cli_module, "ResultStore", lambda: run_store)
+    monkeypatch.setattr(cli_module.BenchmarkBuilder, "get_binary_path", lambda self, backend: binary_path)
+    monkeypatch.setattr(cli_module, "drop_os_caches", lambda: events.append("drop caches"))
+    monkeypatch.setattr(BenchmarkExecutor, "list_queries", lambda self, *args, **kwargs: [1, 2])
+    monkeypatch.setattr(BenchmarkExecutor, "write_data", lambda self, *args, **kwargs: events.append("write data"))
+
+    def fake_run(self, **kwargs: object) -> list[str]:
+        events.append(f"query {kwargs['query']}")
+        return []
+
+    monkeypatch.setattr(BenchmarkExecutor, "run", fake_run)
+
+    result = runner.invoke(
+        cli_module.app,
+        ["run", "tpcds", "--targets-json", '[{"engine":"datafusion","format":"lance"}]', "--no-build"],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert events == ["write data", "drop caches", "query 1", "drop caches", "query 2"]
+
+
 def test_format_query_reading_summarizes_runtimes() -> None:
     line = json.dumps(
         {

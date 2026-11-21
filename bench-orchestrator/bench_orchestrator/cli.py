@@ -482,6 +482,8 @@ def run(
                         write_result_line(line, ctx.write_raw_json, compatibility_file)
 
                     try:
+                        # Before the first cache drop, so the first query reads cold files.
+                        executor.write_data(benchmark, bench_opts)
                         query_ids = executor.list_queries(benchmark, query_list, exclude_list)
                         for i, query_id in enumerate(query_ids, start=1):
                             query_results.clear()

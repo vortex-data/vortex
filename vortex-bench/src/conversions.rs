@@ -16,6 +16,7 @@ use parquet::arrow::ParquetRecordBatchStreamBuilder;
 use parquet::arrow::arrow_reader::ArrowReaderMetadata;
 use parquet::arrow::arrow_reader::ArrowReaderOptions;
 use parquet::arrow::async_reader::ParquetRecordBatchStream;
+use parquet::basic::Compression;
 use parquet::file::metadata::KeyValue;
 use parquet::file::metadata::ParquetMetaData;
 use sysinfo::System;
@@ -428,17 +429,25 @@ pub async fn write_parquet_as_vortex(
 }
 
 /// Add GeoParquet `geo` file metadata to externally-sourced parquet we don't generate (e.g. SpatialBench `zone`).
+///
+/// The file is rewritten with zstd unless it already has both the metadata and zstd, so a file
+/// tagged before the benchmarks wrote zstd is compressed too.
 pub async fn add_geoparquet_metadata(
     parquet_path: &Path,
     geoparquet_json: &str,
 ) -> anyhow::Result<()> {
     let builder = ParquetRecordBatchStreamBuilder::new(File::open(parquet_path).await?).await?;
-    let already_tagged = builder
-        .metadata()
+    let metadata = builder.metadata();
+    let already_tagged = metadata
         .file_metadata()
         .key_value_metadata()
         .is_some_and(|kvs| kvs.iter().any(|kv| kv.key == "geo"));
-    if already_tagged {
+    let zstd = metadata
+        .row_groups()
+        .iter()
+        .flat_map(|row_group| row_group.columns())
+        .all(|column| matches!(column.compression(), Compression::ZSTD(_)));
+    if already_tagged && zstd {
         return Ok(());
     }
 
@@ -579,7 +588,7 @@ mod tests {
     use arrow_schema::Field;
     use arrow_schema::Schema;
     use parquet::arrow::ArrowWriter;
-    use parquet::basic::Compression;
+    use parquet::file::properties::WriterProperties;
     use parquet::file::reader::FileReader as _;
     use parquet::file::reader::SerializedFileReader;
 
@@ -607,6 +616,42 @@ mod tests {
             Compression::ZSTD(_)
         ));
         assert_eq!(metadata.file_metadata().num_rows(), 1000);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn geoparquet_tagging_recompresses_a_tagged_uncompressed_file() -> anyhow::Result<()> {
+        let dir = tempfile::tempdir()?;
+        let path = dir.path().join("zone.parquet");
+        let schema = Arc::new(Schema::new(vec![Field::new("id", DataType::Int64, false)]));
+        let batch = RecordBatch::try_new(
+            Arc::clone(&schema),
+            vec![Arc::new(Int64Array::from_iter_values(0..1000))],
+        )?;
+        // A file the previous implementation left: tagged, but uncompressed.
+        let props = WriterProperties::builder()
+            .set_key_value_metadata(Some(vec![KeyValue::new(
+                "geo".to_string(),
+                Some("{}".to_string()),
+            )]))
+            .build();
+        let mut writer = ArrowWriter::try_new(fs::File::create(&path)?, schema, Some(props))?;
+        writer.write(&batch)?;
+        writer.close()?;
+
+        add_geoparquet_metadata(&path, "{}").await?;
+
+        let reader = SerializedFileReader::new(fs::File::open(&path)?)?;
+        let metadata = reader.metadata();
+        assert!(matches!(
+            metadata.row_group(0).column(0).compression(),
+            Compression::ZSTD(_)
+        ));
+        let geo_keys = metadata
+            .file_metadata()
+            .key_value_metadata()
+            .map_or(0, |kvs| kvs.iter().filter(|kv| kv.key == "geo").count());
+        assert_eq!(geo_keys, 1);
         Ok(())
     }
 }
