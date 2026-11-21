@@ -624,12 +624,24 @@ impl DefaultExpressionConverter {
         schema: &Schema,
         input_dtype: &DType,
     ) -> Conversion<Expression> {
+        let value_type = in_list.expr().data_type(schema)?;
         if in_list.is_empty()
             || !in_list
                 .list()
                 .iter()
                 .all(|expr| expr.is::<df_expr::Literal>())
-            || !supported_data_types(&in_list.expr().data_type(schema)?)
+            || !supported_data_types(&value_type)
+        {
+            return Err(Unconverted::Unsupported);
+        }
+        // DataFusion reads the nulls of a run-end encoded list from its physical validity, which
+        // is always empty, so it ignores a NULL element that SQL, and Vortex, do not.
+        if matches!(value_type, DataType::RunEndEncoded(..))
+            && in_list.list().iter().any(|element| {
+                element
+                    .downcast_ref::<df_expr::Literal>()
+                    .is_some_and(|literal| literal.value().is_null())
+            })
         {
             return Err(Unconverted::Unsupported);
         }
@@ -1071,9 +1083,18 @@ fn try_operator_from_df(value: &DFOperator) -> Option<Operator> {
 fn supported_data_types(dt: &DataType) -> bool {
     use DataType::*;
 
-    // For dictionary types, check if the value type is supported.
-    if let Dictionary(_, value_type) = dt {
-        return supported_data_types(value_type.as_ref());
+    // For dictionary and run-end encoded types, check if the value type is supported. Arrow's
+    // comparison kernels only unwrap run-end encoding as the outermost layer.
+    match dt {
+        Dictionary(_, value_type) => {
+            return !matches!(value_type.as_ref(), RunEndEncoded(..))
+                && supported_data_types(value_type.as_ref());
+        }
+        RunEndEncoded(_, values) => {
+            return !matches!(values.data_type(), RunEndEncoded(..))
+                && supported_data_types(values.data_type());
+        }
+        _ => {}
     }
 
     let is_supported = dt.is_null()

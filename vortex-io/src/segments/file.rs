@@ -30,25 +30,25 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
-use vortex_io::ReadAtRequest;
-use vortex_io::ReadAtStream;
-use vortex_io::VortexReadAt;
-use vortex_io::runtime::Handle;
-use vortex_io::runtime::JoinOutcome;
-use vortex_layout::segments::SegmentFuture;
-use vortex_layout::segments::SegmentId;
-use vortex_layout::segments::SegmentSource;
 use vortex_metrics::Counter;
 use vortex_metrics::Histogram;
 use vortex_metrics::Label;
 use vortex_metrics::MetricBuilder;
 use vortex_metrics::MetricsRegistry;
 
-use crate::SegmentSpec;
-use crate::read::IoRequest;
-use crate::read::IoRequestStream;
-use crate::read::ReadRequest;
-use crate::read::RequestId;
+use super::SegmentFuture;
+use super::SegmentId;
+use super::SegmentLocation;
+use super::SegmentSource;
+use super::read::IoRequest;
+use super::read::IoRequestStream;
+use super::read::ReadRequest;
+use super::read::RequestId;
+use crate::ReadAtRequest;
+use crate::ReadAtStream;
+use crate::VortexReadAt;
+use crate::runtime::Handle;
+use crate::runtime::JoinOutcome;
 
 #[derive(Debug)]
 /// Events sent from segment futures to the coalescing read driver.
@@ -277,7 +277,7 @@ impl<R: VortexReadAt> Stream for ReadDriver<R> {
 }
 
 pub struct FileSegmentSource {
-    segments: Arc<[SegmentSpec]>,
+    segments: Arc<[SegmentLocation]>,
     /// A queue for sending read request events to the I/O stream.
     events: mpsc::UnboundedSender<ReadEvent>,
     /// Background request driver, joined by readers to surface a driver panic.
@@ -294,7 +294,7 @@ impl FileSegmentSource {
     /// The returned source spawns a background driver on `handle` that coalesces and executes
     /// random-access read requests.
     pub fn open<R: VortexReadAt + Clone>(
-        segments: Arc<[SegmentSpec]>,
+        segments: Arc<[SegmentLocation]>,
         reader: R,
         handle: Handle,
         metrics: RequestMetrics,
@@ -372,7 +372,7 @@ impl SegmentSource for FileSegmentSource {
             }
         };
 
-        let SegmentSpec {
+        let SegmentLocation {
             offset,
             length,
             alignment,
@@ -521,14 +521,14 @@ impl RequestMetrics {
 /// in-memory [`ByteBuffer`].
 ///
 /// Resolves segments synchronously, bypassing the async I/O pipeline.
-pub(crate) struct BufferSegmentSource {
+pub struct BufferSegmentSource {
     buffer: ByteBuffer,
-    segments: Arc<[SegmentSpec]>,
+    segments: Arc<[SegmentLocation]>,
 }
 
 impl BufferSegmentSource {
     /// Create a new `BufferSegmentSource` from a buffer and its segment map.
-    pub fn new(buffer: ByteBuffer, segments: Arc<[SegmentSpec]>) -> Self {
+    pub fn new(buffer: ByteBuffer, segments: Arc<[SegmentLocation]>) -> Self {
         Self { buffer, segments }
     }
 }
@@ -542,7 +542,14 @@ impl SegmentSource for BufferSegmentSource {
             }
         };
 
-        let start = spec.offset as usize;
+        let Ok(start) = usize::try_from(spec.offset) else {
+            return future::ready(Err(vortex_err!(
+                "Segment {} offset {} does not fit in memory",
+                *id,
+                spec.offset
+            )))
+            .boxed();
+        };
         let end = start + spec.length as usize;
         if end > self.buffer.len() {
             return future::ready(Err(vortex_err!(
@@ -561,6 +568,7 @@ impl SegmentSource for BufferSegmentSource {
 }
 
 #[cfg(test)]
+#[cfg(feature = "tokio")]
 mod tests {
     use std::panic::AssertUnwindSafe;
     use std::sync::atomic::AtomicBool;
@@ -568,11 +576,11 @@ mod tests {
     use futures::future::BoxFuture;
     use futures::task::ArcWake;
     use vortex_error::vortex_bail;
-    use vortex_io::runtime::tokio::TokioRuntime;
-    use vortex_layout::segments::SegmentSource;
     use vortex_metrics::DefaultMetricsRegistry;
 
+    use super::SegmentSource;
     use super::*;
+    use crate::runtime::tokio::TokioRuntime;
 
     fn io_request(id: RequestId, offset: u64, length: usize) -> IoRequest {
         let (callback, _receiver) = oneshot::channel();
@@ -631,7 +639,7 @@ mod tests {
     }
 
     fn panicking_source() -> FileSegmentSource {
-        let segments: Arc<[SegmentSpec]> = Arc::from([SegmentSpec {
+        let segments: Arc<[SegmentLocation]> = Arc::from([SegmentLocation {
             offset: 0,
             length: 4,
             alignment: Alignment::none(),
@@ -797,8 +805,8 @@ mod tests {
     #[tokio::test]
     async fn read_driver_batches_ready_requests() -> VortexResult<()> {
         let calls = Arc::new(AtomicUsize::new(0));
-        let segments: Arc<[SegmentSpec]> = (0..4)
-            .map(|i| SegmentSpec {
+        let segments: Arc<[SegmentLocation]> = (0..4)
+            .map(|i| SegmentLocation {
                 offset: i * 4,
                 length: 4,
                 alignment: Alignment::none(),
@@ -888,8 +896,8 @@ mod tests {
         let max_active = Arc::new(AtomicUsize::new(0));
         let batch_sizes = Arc::new(Mutex::new(Vec::new()));
         let permits = Arc::new(tokio::sync::Semaphore::new(0));
-        let segments: Arc<[SegmentSpec]> = (0..6)
-            .map(|i| SegmentSpec {
+        let segments: Arc<[SegmentLocation]> = (0..6)
+            .map(|i| SegmentLocation {
                 offset: i * 4,
                 length: 4,
                 alignment: Alignment::none(),
@@ -948,8 +956,8 @@ mod tests {
         let max_active = Arc::new(AtomicUsize::new(0));
         let batch_sizes = Arc::new(Mutex::new(Vec::new()));
         let permits = Arc::new(tokio::sync::Semaphore::new(0));
-        let segments: Arc<[SegmentSpec]> = (0..8)
-            .map(|i| SegmentSpec {
+        let segments: Arc<[SegmentLocation]> = (0..8)
+            .map(|i| SegmentLocation {
                 offset: i * 4,
                 length: 4,
                 alignment: Alignment::none(),
@@ -1034,7 +1042,7 @@ mod tests {
         ) -> BoxFuture<'static, VortexResult<BufferHandle>> {
             async move {
                 // Stagger completions so some reads finish while others are still in flight.
-                for _ in 0..(offset as usize % 5 + 1) {
+                for _ in 0..(offset % 5 + 1) {
                     tokio::task::yield_now().await;
                 }
                 vortex_bail!("slow read done")
@@ -1047,8 +1055,8 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn read_driver_concurrent_reads_make_progress() {
         let n = 16u32;
-        let segments: Arc<[SegmentSpec]> = (0..n)
-            .map(|i| SegmentSpec {
+        let segments: Arc<[SegmentLocation]> = (0..n)
+            .map(|i| SegmentLocation {
                 offset: u64::from(i) * 4,
                 length: 4,
                 alignment: Alignment::none(),

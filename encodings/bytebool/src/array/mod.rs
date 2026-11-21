@@ -149,10 +149,7 @@ impl Display for ByteBoolData {
 pub trait ByteBoolArrayExt: TypedArrayRef<ByteBool> {
     /// Returns the [`Validity`] derived from the validity slot.
     fn bytebool_validity(&self) -> Validity {
-        child_to_validity(
-            self.slots()[ByteBoolSlots::VALIDITY_CHILD].as_ref(),
-            self.dtype().nullability(),
-        )
+        child_to_validity(self.validity_child(), self.dtype().nullability())
     }
 }
 

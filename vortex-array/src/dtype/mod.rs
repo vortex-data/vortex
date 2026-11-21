@@ -16,6 +16,10 @@
 #[cfg(feature = "arbitrary")]
 mod arbitrary;
 mod bigint;
+mod claim;
+pub use claim::Claim;
+pub use claim::Claims;
+
 mod decimal;
 mod dtype_impl;
 pub mod extension;

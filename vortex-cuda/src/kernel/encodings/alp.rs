@@ -96,7 +96,7 @@ where
     } else {
         None
     };
-    let patches_arg = build_gpu_patches(device_patches.as_ref())?;
+    let patches_arg = build_gpu_patches(device_patches.as_ref(), ctx.stream())?;
 
     // Load the kernel: alp_{enc}_{float}_32t
     let enc_suffix = A::ALPInt::PTYPE.to_string();

@@ -262,10 +262,8 @@ impl VortexOpenOptions {
         };
         footer.validate_file_size(buffer.len() as u64)?;
 
-        let segment_source: Arc<dyn SegmentSource> = Arc::new(BufferSegmentSource::new(
-            buffer,
-            footer.segment_specs_with_metadata(),
-        ));
+        let segment_source: Arc<dyn SegmentSource> =
+            Arc::new(BufferSegmentSource::new(buffer, footer.segment_locations()));
         let metadata = if include_metadata {
             block_on(resolve_metadata(&footer, Arc::clone(&segment_source)))?
         } else {
@@ -331,7 +329,7 @@ impl VortexOpenOptions {
 
         // Create a segment source backed by the VortexRead implementation.
         let segment_source = Arc::new(SharedSegmentSource::new(FileSegmentSource::open(
-            footer.segment_specs_with_metadata(),
+            footer.segment_locations(),
             reader,
             self.session.handle(),
             metrics,
