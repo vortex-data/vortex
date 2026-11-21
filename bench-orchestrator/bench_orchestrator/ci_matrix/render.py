@@ -13,7 +13,6 @@ _FORMAT_ORDER = (
     Format.PARQUET,
     Format.PARQUET_SNAPPY,
     Format.PARQUET_DUCKDB_ZSTD,
-    Format.PARQUET_DUCKDB_ZSTD_1M,
     Format.VORTEX,
     Format.VORTEX_COMPACT,
     Format.VORTEX_SPATIAL_NATIVE,

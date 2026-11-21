@@ -1284,11 +1284,10 @@ FILE_FORMAT_ORDER = {
     "parquet": 2,
     "parquet-snappy": 3,
     "parquet-duckdb-zstd": 4,
-    "parquet-duckdb-zstd-1m": 5,
-    "lance": 6,
-    "duckdb": 7,
-    "arrow": 8,
-    "litdata": 9,
+    "lance": 5,
+    "duckdb": 6,
+    "arrow": 7,
+    "litdata": 8,
 }
 
 UNIT_ORDER = {

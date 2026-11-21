@@ -25,7 +25,6 @@ use vortex_bench::conversions::convert_parquet_directory_to_vortex;
 use vortex_bench::create_benchmark;
 use vortex_bench::generate_duckdb_registration_sql;
 use vortex_bench::parquet_copies::SizeFormat;
-use vortex_bench::parquet_copies::write_duckdb_zstd_1m_parquet_directory;
 use vortex_bench::parquet_copies::write_duckdb_zstd_parquet_directory;
 use vortex_bench::parquet_copies::write_size_format;
 use vortex_bench::parquet_copies::write_snappy_parquet_directory;
@@ -109,12 +108,6 @@ async fn main() -> anyhow::Result<()> {
         if args.formats.contains(&Format::ParquetDuckdbZstd) {
             let base_path = base_path.clone();
             tokio::task::spawn_blocking(move || write_duckdb_zstd_parquet_directory(&base_path))
-                .await??;
-        }
-
-        if args.formats.contains(&Format::ParquetDuckdbZstd1m) {
-            let base_path = base_path.clone();
-            tokio::task::spawn_blocking(move || write_duckdb_zstd_1m_parquet_directory(&base_path))
                 .await??;
         }
 

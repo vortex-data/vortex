@@ -11,8 +11,6 @@
 //!   `duckdb` CLI.
 //! - [`Format::ParquetDuckdbZstd`]: the same rows as DuckDB writes them by default, but with zstd
 //!   level 3. Beside the two others, it tells the writer's effect from the codec's.
-//! - [`Format::ParquetDuckdbZstd1m`]: the same, but in row groups of 1,048,576 rows, the row group
-//!   size of the base TPC-H files. It tells the row group size's effect from the rest of the writer's.
 //! - [`SizeFormat::ArrowIpc`]: uncompressed Arrow IPC, which no query reads. `data-gen
 //!   --size-formats arrow-ipc` writes it only so that `scripts/capture-file-sizes.py` records its
 //!   size. Lance is also written for size only, by `lance-bench --data-only`, because only that
@@ -70,17 +68,6 @@ pub fn write_duckdb_zstd_parquet_directory(base_path: &Path) -> Result<()> {
         base_path,
         Format::ParquetDuckdbZstd,
         write_duckdb_zstd_parquet,
-    )
-}
-
-/// Write every Parquet file in `{base_path}/parquet/` again with DuckDB, zstd level 3, and row
-/// groups of 1,048,576 rows, to `{base_path}/parquet-duckdb-zstd-1m/`. See
-/// [`write_duckdb_zstd_1m_parquet`].
-pub fn write_duckdb_zstd_1m_parquet_directory(base_path: &Path) -> Result<()> {
-    copy_parquet_directory(
-        base_path,
-        Format::ParquetDuckdbZstd1m,
-        write_duckdb_zstd_1m_parquet,
     )
 }
 
@@ -144,16 +131,6 @@ pub fn write_duckdb_snappy_parquet(input: &Path, output: &Path) -> Result<()> {
 /// codec and level of the base files, with every other setting at DuckDB's default.
 pub fn write_duckdb_zstd_parquet(input: &Path, output: &Path) -> Result<()> {
     write_duckdb_parquet(input, output, "COMPRESSION zstd, COMPRESSION_LEVEL 3")
-}
-
-/// Write the Parquet file `input` again as [`write_duckdb_zstd_parquet`] does, but in row groups of
-/// 1,048,576 rows, which is how parquet-rs writes the base TPC-H files.
-pub fn write_duckdb_zstd_1m_parquet(input: &Path, output: &Path) -> Result<()> {
-    write_duckdb_parquet(
-        input,
-        output,
-        "COMPRESSION zstd, COMPRESSION_LEVEL 3, ROW_GROUP_SIZE 1048576",
-    )
 }
 
 /// Write the Parquet file `input` to `output` with the `duckdb` CLI, with the `COPY` options
