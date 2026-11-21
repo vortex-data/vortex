@@ -33,8 +33,7 @@ use std::future;
 use std::iter;
 use std::ops::Range;
 use std::sync::Arc;
-use std::sync::atomic::AtomicBool;
-use std::sync::atomic::AtomicU64;
+use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 
 use futures::StreamExt;
@@ -60,30 +59,27 @@ use crate::planning::planner::Planner;
 use crate::planning::planner::WorkScope;
 use crate::prepare::PreparedScan;
 use crate::prepare::part_root;
+use crate::stream::Claims;
 use crate::stream::ScanStream;
 
 /// The parts of an unordered scan, cut when the scan is made.
 pub(super) struct Planned {
     work: Vec<Work>,
-    /// The rows of the scan's units.
-    total_rows: u64,
 }
 
 /// Prepares each of the scan's `units` once and runs its root, awaiting the zone maps a dynamic
 /// filter's root reads, and returns the work the roots produce, in unit and row order.
 pub(super) async fn plan(state: &ScanState, units: &[Unit]) -> VortexResult<Planned> {
     let mut work = Vec::new();
-    let mut total_rows = 0;
     for unit in units {
         let rows = state.unit_rows(unit)?;
         if rows.is_empty() {
             continue;
         }
-        total_rows += rows.end - rows.start;
         let (child, root) = prepare(state, unit, rows)?;
         work.extend(run_root(child, root).await?);
     }
-    Ok(Planned { work, total_rows })
+    Ok(Planned { work })
 }
 
 /// Opens the stream of a scan of `units`. An unordered scan reads the parts it `planned`.
@@ -107,12 +103,11 @@ pub(super) fn open(
 
     let planned = planned.vortex_expect("an unordered scan cuts its parts when it is made");
     let queue = Arc::new(Queue {
-        exhausted: AtomicBool::new(planned.work.is_empty()),
+        total: planned.work.len(),
         work: Mutex::new(planned.work.into()),
-        total_rows: planned.total_rows,
-        rows_taken: AtomicU64::new(0),
+        taken: AtomicUsize::new(0),
     });
-    let progress = Arc::clone(&queue);
+    let claims = Arc::clone(&queue);
     Ok(ScanStream::new(dtype, move || {
         let worker = Worker {
             queue: Arc::clone(&queue),
@@ -131,7 +126,7 @@ pub(super) fn open(
         .boxed();
         limited(arrays, limit.clone())
     })
-    .with_progress(move || progress.progress()))
+    .with_claims(move || claims.claims()))
 }
 
 /// One child's prepared scan, shared by the parts of it that clones run.
@@ -215,38 +210,26 @@ enum Work {
 struct Queue {
     /// The work no clone has taken yet, in unit and row order.
     work: Mutex<VecDeque<Work>>,
-    /// Set once a clone has taken the last of `work`.
-    exhausted: AtomicBool,
-    /// The rows of the scan's units.
-    total_rows: u64,
-    /// The rows of the parts clones have taken.
-    rows_taken: AtomicU64,
+    /// The work the queue started with.
+    total: usize,
+    /// The work clones have taken.
+    taken: AtomicUsize,
 }
 
 impl Queue {
     /// Takes the next work, or `None` once every one has been taken.
     fn take(&self) -> Option<Work> {
-        let mut queue = self.work.lock();
-        let work = queue.pop_front()?;
-        if queue.is_empty() {
-            self.exhausted.store(true, Ordering::Release);
-        }
-        if let Work::Part(part) = &work {
-            self.rows_taken.fetch_add(
-                part.scope.rows.end - part.scope.rows.start,
-                Ordering::Relaxed,
-            );
-        }
+        let work = self.work.lock().pop_front()?;
+        self.taken.fetch_add(1, Ordering::Relaxed);
         Some(work)
     }
 
-    /// The fraction of the scan's rows whose parts clones have taken. Pruning can leave rows that
-    /// no part covers, so a queue with nothing left to take has made all of its progress.
-    fn progress(&self) -> f64 {
-        if self.total_rows == 0 || self.exhausted.load(Ordering::Relaxed) {
-            return 1.0;
+    /// How much of the queue's work clones have taken, out of how much in all.
+    fn claims(&self) -> Claims {
+        Claims {
+            claimed: self.taken.load(Ordering::Relaxed).min(self.total),
+            total: self.total,
         }
-        (self.rows_taken.load(Ordering::Relaxed) as f64 / self.total_rows as f64).min(1.0)
     }
 }
 

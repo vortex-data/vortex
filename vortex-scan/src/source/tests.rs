@@ -192,7 +192,11 @@ async fn clones_share_the_scan() -> VortexResult<()> {
             .map(|clone| clone.try_collect::<Vec<ArrayRef>>()),
     )
     .await?;
-    assert_eq!(stream.progress(), Some(1.0));
+    assert!(
+        stream
+            .claims()
+            .is_some_and(|claims| claims.total > 0 && claims.claimed == claims.total)
+    );
     let mut ctx = VortexSession::empty().create_execution_ctx();
     let mut values = Vec::new();
     for batch in batches.into_iter().flatten() {
