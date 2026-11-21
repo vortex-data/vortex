@@ -2,6 +2,10 @@
 # it once per run, after their benchmark ingests finish, instead of once per benchmark job. This
 # keeps the website from flushing and refilling its cache dozens of times an hour while
 # benchmarks run. The script does nothing when the URL or the token is not set.
+#
+# The website that stores its data in Spiral (`BENCH_SITE_INGEST_URL`) has no shared token: it
+# checks the identity token of the job, and accepts only a develop run of a workflow that it
+# trusts. Each workflow that calls this one must thus have `id-token: write`.
 
 name: Refresh benchmarks website
 
@@ -13,17 +17,28 @@ on:
 
 jobs:
   refresh:
-    if: vars.BENCH_SITE_BASE_URL != ''
+    if: vars.BENCH_SITE_BASE_URL != '' || vars.BENCH_SITE_INGEST_URL != ''
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
       contents: read
+      id-token: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
         with:
           sparse-checkout: scripts
       - name: Revalidate and warm the benchmarks website
+        if: vars.BENCH_SITE_BASE_URL != ''
         env:
           BENCH_SITE_BASE_URL: ${{ vars.BENCH_SITE_BASE_URL }}
           BENCH_REVALIDATE_TOKEN: ${{ secrets.BENCH_REVALIDATE_TOKEN }}
+        run: python3 scripts/refresh-bench-site.py
+      # With no shared token, the script sends the identity token of the job. This website gets
+      # its results from the posts of `scripts/post-bench-site.py`. It runs next to the one above
+      # until the website moves over, so a failure here does not fail the job.
+      - name: Revalidate and warm the benchmarks website that stores its data in Spiral
+        if: vars.BENCH_SITE_INGEST_URL != ''
+        continue-on-error: true
+        env:
+          BENCH_SITE_BASE_URL: ${{ vars.BENCH_SITE_INGEST_URL }}
         run: python3 scripts/refresh-bench-site.py

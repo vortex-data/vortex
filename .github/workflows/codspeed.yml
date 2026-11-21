@@ -185,6 +185,46 @@ jobs:
           if-no-files-found: warn
           retention-days: 30
 
+  # Post the Callgrind profiles of a develop run to the benchmarks website, which shows the call
+  # stacks of a commit and compares them between two commits. Only this job can ask for an
+  # identity token, and it runs no benchmark code. The website also refuses a token that is not
+  # for a develop run of this workflow. One post for each shard: a post replaces the profile of
+  # each benchmark that it has.
+  post-codspeed-profiles:
+    name: "Post Codspeed profiles"
+    needs: [bench-codspeed]
+    if: >-
+      ${{ !cancelled() && github.repository == 'vortex-data/vortex'
+          && github.ref == 'refs/heads/develop' && github.event_name != 'pull_request'
+          && vars.BENCH_SITE_INGEST_URL != '' }}
+    timeout-minutes: 30
+    runs-on: >-
+      runs-on=${{ github.run_id }}/region=us-east-1/runner=amd64-ci-small/image=ubuntu26-full-x64-pre-v2/tag=post-codspeed-profiles
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - parallel:
+          # Initialise the RunsOn artifact proxy used by download-artifact.
+          - uses: runs-on/action@v2
+          - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+            with:
+              sparse-checkout: scripts
+      - name: Download the CodSpeed profiles
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8
+        with:
+          pattern: codspeed-profiles-shard-*
+          path: codspeed-profiles
+      - name: Post the profiles to the benchmarks website
+        env:
+          BENCH_SITE_INGEST_URL: ${{ vars.BENCH_SITE_INGEST_URL }}
+        run: |
+          set -Eeuo pipefail
+          shopt -s nullglob
+          for shard in codspeed-profiles/codspeed-profiles-shard-*/; do
+            python3 scripts/post-bench-site.py --profiles "$shard"
+          done
+
   bench-codspeed-python:
     name: "Benchmark with Codspeed (Python)"
     if: github.event.pull_request.draft != true

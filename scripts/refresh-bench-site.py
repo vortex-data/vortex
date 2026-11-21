@@ -23,9 +23,13 @@ The request shape is the contract in `docs/bench/CONTRACT.md` of the vortex-data
 repository: `POST {BENCH_SITE_BASE_URL}/api/revalidate` with
 `Authorization: Bearer $BENCH_REVALIDATE_TOKEN`.
 
-The script does nothing when either environment variable is unset. A revalidate that fails with
-a transport error, HTTP 429 or HTTP 5xx is tried again a few times; a revalidate that still fails
-exits non-zero. A failed warm request only prints a warning.
+Without `BENCH_REVALIDATE_TOKEN`, the bearer token is the GitHub Actions identity token (OIDC) of
+the job, with the URL of the website as its audience. The website that stores its data in Spiral
+accepts it, so that website needs no secret. The job then needs `permissions: id-token: write`.
+
+The script does nothing when the URL is unset, or when there is no token of either kind. A
+revalidate that fails with a transport error, HTTP 429 or HTTP 5xx is tried again a few times; a
+revalidate that still fails exits non-zero. A failed warm request only prints a warning.
 """
 
 from __future__ import annotations
@@ -36,6 +40,7 @@ import os
 import sys
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
@@ -60,6 +65,24 @@ def _http(method: str, url: str, token: str | None, timeout: float) -> bytes:
     req = urllib.request.Request(url, method=method, headers=headers)
     with urllib.request.urlopen(req, timeout=timeout) as resp:
         return resp.read()
+
+
+def has_identity_token() -> bool:
+    """True when the job can ask GitHub for an identity token: it runs in GitHub Actions and has
+    the `id-token: write` permission."""
+    return bool(os.environ.get("ACTIONS_ID_TOKEN_REQUEST_URL") and os.environ.get("ACTIONS_ID_TOKEN_REQUEST_TOKEN"))
+
+
+def identity_token(audience: str, timeout: float = 30.0) -> str:
+    """Ask GitHub for the identity token of this job, for one audience."""
+    url = os.environ["ACTIONS_ID_TOKEN_REQUEST_URL"]
+    bearer = os.environ["ACTIONS_ID_TOKEN_REQUEST_TOKEN"]
+    request = urllib.request.Request(
+        f"{url}&audience={urllib.parse.quote(audience, safe='')}",
+        headers={"authorization": f"bearer {bearer}", "accept": "application/json"},
+    )
+    with urllib.request.urlopen(request, timeout=timeout) as response:
+        return json.load(response)["value"]
 
 
 def _warm_default_windows(base: str, timeout: float) -> None:
@@ -101,7 +124,7 @@ def _is_transient(exc: Exception) -> bool:
 
 def refresh_site_cache(
     base_url: str,
-    token: str,
+    token: str | Callable[[], str],
     timeout: float,
     *,
     delays: tuple[float, ...] = _RETRY_DELAYS_S,
@@ -109,13 +132,16 @@ def refresh_site_cache(
 ) -> bool:
     """Revalidate the site's Data Cache tag, then warm the default windows.
 
+    `token` is the bearer token, or a function that gives a new one for each attempt: an identity
+    token is valid for a short time.
+
     Returns False when the revalidate fails. The warm pass is then skipped: warming a cache
     that was not marked stale only keeps the old data.
     """
     base = base_url.rstrip("/")
     for attempt in range(len(delays) + 1):
         try:
-            _http("POST", f"{base}/api/revalidate", token, timeout)
+            _http("POST", f"{base}/api/revalidate", token() if callable(token) else token, timeout)
             break
         except Exception as exc:  # noqa: BLE001 -- reported through the exit code.
             if attempt == len(delays) or not _is_transient(exc):
@@ -130,11 +156,20 @@ def refresh_site_cache(
 def main() -> int:
     args = parse_args()
     base_url = os.environ.get("BENCH_SITE_BASE_URL")
-    token = os.environ.get("BENCH_REVALIDATE_TOKEN")
-    if not base_url or not token:
-        print("BENCH_SITE_BASE_URL or BENCH_REVALIDATE_TOKEN is not set; skipping site refresh.")
+    if not base_url:
+        print("BENCH_SITE_BASE_URL is not set; skipping site refresh.")
         return 0
-    return 0 if refresh_site_cache(base_url, token, args.timeout) else 1
+
+    shared = os.environ.get("BENCH_REVALIDATE_TOKEN")
+    if shared:
+        return 0 if refresh_site_cache(base_url, shared, args.timeout) else 1
+
+    if not has_identity_token():
+        print("There is no BENCH_REVALIDATE_TOKEN and no identity token; skipping site refresh.")
+        return 0
+
+    audience = base_url.rstrip("/")
+    return 0 if refresh_site_cache(base_url, lambda: identity_token(audience), args.timeout) else 1
 
 
 if __name__ == "__main__":

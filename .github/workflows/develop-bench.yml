@@ -317,6 +317,17 @@ jobs:
             --branch "${{ github.ref_name }}" \
             --region "${AWS_REGION}"
 
+      # Also post the results to the benchmarks website that stores them in Spiral. The website
+      # checks the identity token of the job (`id-token: write` above), so there is no secret. It
+      # runs next to the Postgres ingest until the website moves over, so a failure here does not
+      # fail the job.
+      - name: Post results to the benchmarks website
+        if: vars.BENCH_SITE_INGEST_URL != '' && matrix.benchmark.v4_ingest
+        continue-on-error: true
+        env:
+          BENCH_SITE_INGEST_URL: ${{ vars.BENCH_SITE_INGEST_URL }}
+        run: python3 scripts/post-bench-site.py --results results.ingest.jsonl
+
       - name: Alert incident.io
         if: failure()
         uses: ./.github/actions/alert-incident-io

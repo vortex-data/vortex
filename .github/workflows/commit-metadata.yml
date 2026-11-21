@@ -60,6 +60,15 @@ jobs:
             --branch "${{ github.ref_name }}" \
             --region "${AWS_REGION}"
 
+      # Also post the commit to the benchmarks website that stores its data in Spiral (see
+      # develop-bench.yml). With no results, the post has only the commit metadata.
+      - name: Post commit metadata to the benchmarks website
+        if: vars.BENCH_SITE_INGEST_URL != ''
+        continue-on-error: true
+        env:
+          BENCH_SITE_INGEST_URL: ${{ vars.BENCH_SITE_INGEST_URL }}
+        run: python3 scripts/post-bench-site.py
+
   # Tell the benchmarks website that the new commit exists. develop-bench.yml refreshes again
   # after its benchmark results are ingested, but it does not wait for this workflow, so a push
   # whose benchmark ingests all fail could otherwise leave this commit hidden by the cache.

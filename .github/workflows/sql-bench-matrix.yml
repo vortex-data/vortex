@@ -381,6 +381,16 @@ jobs:
             --branch "${{ github.ref_name }}" \
             --region "${AWS_REGION}"
 
+      # Also post the results to the benchmarks website that stores them in Spiral (see
+      # develop-bench.yml). The website accepts only the token of a develop run of a workflow that
+      # it trusts, and the token names the workflow that calls this one.
+      - name: Post results to the benchmarks website
+        if: inputs.mode == 'develop' && vars.BENCH_SITE_INGEST_URL != ''
+        continue-on-error: true
+        env:
+          BENCH_SITE_INGEST_URL: ${{ vars.BENCH_SITE_INGEST_URL }}
+        run: python3 scripts/post-bench-site.py --results results.ingest.jsonl
+
       - name: Alert incident.io
         if: failure() && inputs.mode == 'develop'
         uses: ./.github/actions/alert-incident-io

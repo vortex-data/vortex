@@ -83,3 +83,58 @@ def test_fails_without_warming_when_retries_run_out(refresh, monkeypatch):
     assert not refresh.refresh_site_cache(BASE, "token", 1.0, sleep=sleeps.append)
     assert sleeps == list(refresh._RETRY_DELAYS_S)
     assert log == ["POST /api/revalidate"] * attempts
+
+
+def test_asks_for_a_new_identity_token_for_each_attempt(refresh, monkeypatch):
+    tokens: list[str] = []
+
+    def http(method: str, url: str, token: str | None, timeout: float) -> bytes:
+        if method == "POST":
+            assert token is not None
+            tokens.append(token)
+            if len(tokens) == 1:
+                raise _http_error(503)
+        return b'{"groups":[]}'
+
+    monkeypatch.setattr(refresh, "_http", http)
+    minted = iter(["first", "second"])
+
+    assert refresh.refresh_site_cache(BASE, lambda: next(minted), 1.0, sleep=lambda _: None)
+    assert tokens == ["first", "second"]
+
+
+def test_uses_the_identity_token_when_there_is_no_shared_token(refresh, monkeypatch):
+    monkeypatch.setenv("BENCH_SITE_BASE_URL", f"{BASE}/")
+    monkeypatch.delenv("BENCH_REVALIDATE_TOKEN", raising=False)
+    monkeypatch.setenv("ACTIONS_ID_TOKEN_REQUEST_URL", "https://token.example/?api-version=2")
+    monkeypatch.setenv("ACTIONS_ID_TOKEN_REQUEST_TOKEN", "runtime")
+    monkeypatch.setattr("sys.argv", ["refresh-bench-site.py"])
+    audiences: list[str] = []
+    calls: list[tuple[str, str]] = []
+
+    def identity(audience: str, timeout: float = 30.0) -> str:
+        audiences.append(audience)
+        return "identity"
+
+    def refresh_site_cache(base_url: str, token, timeout: float) -> bool:
+        calls.append((base_url, token()))
+        return True
+
+    monkeypatch.setattr(refresh, "identity_token", identity)
+    monkeypatch.setattr(refresh, "refresh_site_cache", refresh_site_cache)
+
+    assert refresh.main() == 0
+    assert calls == [(f"{BASE}/", "identity")]
+
+    # The audience is the URL of the website with no `/` at the end.
+    assert set(audiences) == {BASE}
+
+
+def test_does_nothing_without_a_token_of_either_kind(refresh, monkeypatch, capsys):
+    monkeypatch.setenv("BENCH_SITE_BASE_URL", BASE)
+    monkeypatch.delenv("BENCH_REVALIDATE_TOKEN", raising=False)
+    monkeypatch.delenv("ACTIONS_ID_TOKEN_REQUEST_URL", raising=False)
+    monkeypatch.setattr("sys.argv", ["refresh-bench-site.py"])
+
+    assert refresh.main() == 0
+    assert "skipping site refresh" in capsys.readouterr().out
