@@ -33,6 +33,7 @@ use tracing::info;
 use crate::Format;
 use crate::idempotent;
 use crate::utils::parquet::parquet_writer_properties;
+use crate::utils::parquet::plain_arrow_reader;
 
 /// A format that is written only to record its file size. No query reads it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
@@ -104,9 +105,10 @@ fn copy_parquet_directory(
     Ok(())
 }
 
-/// Write the Parquet file `input` as an uncompressed Arrow IPC file.
+/// Write the Parquet file `input` as an uncompressed Arrow IPC file, with view types written as
+/// plain types ([`plain_arrow_reader`]).
 fn write_arrow_ipc(input: &Path, output: &Path) -> Result<()> {
-    let reader = ParquetRecordBatchReaderBuilder::try_new(File::open(input)?)?;
+    let reader = plain_arrow_reader(input)?;
     let schema = Arc::clone(reader.schema());
     let mut writer = FileWriter::try_new(BufWriter::new(File::create(output)?), &schema)?;
     for batch in reader.build()? {

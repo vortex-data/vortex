@@ -6,7 +6,15 @@
 use std::fs;
 use std::fs::File;
 use std::path::Path;
+use std::sync::Arc;
 
+use arrow_schema::DataType;
+use arrow_schema::Field;
+use arrow_schema::FieldRef;
+use arrow_schema::Schema;
+use parquet::arrow::arrow_reader::ArrowReaderMetadata;
+use parquet::arrow::arrow_reader::ArrowReaderOptions;
+use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use parquet::basic::Compression;
 use parquet::basic::ZstdLevel;
 use parquet::file::metadata::KeyValue;
@@ -181,12 +189,69 @@ pub fn is_zstd_file(path: &Path) -> anyhow::Result<bool> {
     Ok(is_zstd(&metadata))
 }
 
+/// A reader for the Parquet file at `path` that reads Arrow's view types as their plain types:
+/// `Utf8View` as `Utf8`, and `BinaryView` as `Binary`.
+///
+/// The TPC-H and TPC-DS generators write `Utf8View` columns, and the Parquet file keeps that type
+/// in its Arrow schema. An Arrow IPC writer writes every buffer that a view array refers to, and
+/// the batches that a Parquet reader returns share their buffers, so an IPC file written from
+/// view arrays holds the same bytes many times. Arrow IPC sizes are of the plain types.
+pub fn plain_arrow_reader(path: &Path) -> anyhow::Result<ParquetRecordBatchReaderBuilder<File>> {
+    let file = File::open(path)?;
+    let metadata = ArrowReaderMetadata::load(&file, ArrowReaderOptions::new())?;
+    let schema = schema_without_views(metadata.schema());
+    if schema == **metadata.schema() {
+        return Ok(ParquetRecordBatchReaderBuilder::new_with_metadata(
+            file, metadata,
+        ));
+    }
+    let metadata = ArrowReaderMetadata::try_new(
+        Arc::clone(metadata.metadata()),
+        ArrowReaderOptions::new().with_schema(Arc::new(schema)),
+    )?;
+    Ok(ParquetRecordBatchReaderBuilder::new_with_metadata(
+        file, metadata,
+    ))
+}
+
+fn schema_without_views(schema: &Schema) -> Schema {
+    Schema::new_with_metadata(
+        schema
+            .fields()
+            .iter()
+            .map(field_without_views)
+            .collect::<Vec<_>>(),
+        schema.metadata().clone(),
+    )
+}
+
+fn field_without_views(field: &FieldRef) -> FieldRef {
+    Arc::new(Field::clone(field).with_data_type(type_without_views(field.data_type())))
+}
+
+fn type_without_views(data_type: &DataType) -> DataType {
+    match data_type {
+        DataType::Utf8View => DataType::Utf8,
+        DataType::BinaryView => DataType::Binary,
+        DataType::List(field) => DataType::List(field_without_views(field)),
+        DataType::LargeList(field) => DataType::LargeList(field_without_views(field)),
+        DataType::FixedSizeList(field, size) => {
+            DataType::FixedSizeList(field_without_views(field), *size)
+        }
+        DataType::Struct(fields) => {
+            DataType::Struct(fields.iter().map(field_without_views).collect())
+        }
+        DataType::Map(field, sorted) => DataType::Map(field_without_views(field), *sorted),
+        other => other.clone(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-
     use arrow_array::Int64Array;
     use arrow_array::RecordBatch;
+    use arrow_array::StringViewArray;
+    use arrow_array::cast::AsArray;
     use parquet::arrow::ArrowWriter;
 
     use super::*;
@@ -199,6 +264,27 @@ mod tests {
         let mut writer = ArrowWriter::try_new(File::create(path)?, batch.schema(), props)?;
         writer.write(&batch)?;
         writer.close()?;
+        Ok(())
+    }
+
+    #[test]
+    fn the_plain_reader_reads_view_types_as_plain_types() -> anyhow::Result<()> {
+        let dir = tempfile::tempdir()?;
+        let path = dir.path().join("views.parquet");
+        let strings = ["a short one", "a string longer than twelve bytes"];
+        let batch = RecordBatch::try_from_iter([(
+            "s",
+            Arc::new(StringViewArray::from_iter_values(strings)) as _,
+        )])?;
+        let mut writer = ArrowWriter::try_new(File::create(&path)?, batch.schema(), None)?;
+        writer.write(&batch)?;
+        writer.close()?;
+
+        let builder = plain_arrow_reader(&path)?;
+        assert_eq!(builder.schema().field(0).data_type(), &DataType::Utf8);
+        let read = builder.build()?.collect::<Result<Vec<_>, _>>()?;
+        let column = read[0].column(0).as_string::<i32>();
+        assert_eq!(column.iter().flatten().collect::<Vec<_>>(), strings);
         Ok(())
     }
 
