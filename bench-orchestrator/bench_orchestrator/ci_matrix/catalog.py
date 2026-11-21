@@ -218,7 +218,7 @@ BENCHMARKS = (
         scale_factor=10.0,
         iterations=10,
         runs={
-            "pr": DEFAULT,
+            "pr": Coverage(DEFAULT_TARGETS | SNAPPY_TARGETS),  # TEMPORARY: compare the Parquet variants on this PR
             "pr-compact": COMPACT,
             "pr-full": FULL_PR,
             "develop": FULL_LOCAL_WITH_SNAPPY,
@@ -234,6 +234,7 @@ BENCHMARKS = (
         local_dir="vortex-bench/data/tpch/10.0",
         remote_key="tpch/10.0",
         runs={
+            "pr": Coverage(DEFAULT_TARGETS | SNAPPY_TARGETS),  # TEMPORARY: compare the Parquet variants on this PR
             "pr-compact": COMPACT,
             "pr-full": STANDARD,
             "develop": STANDARD_WITH_SNAPPY,

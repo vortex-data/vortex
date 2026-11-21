@@ -58,7 +58,6 @@ EXPECTED_GROUPS = {
         if benchmark_id
         not in {
             "clickbench-sorted-nvme",
-            "tpch-s3-10",
             "statpopgen",
             "fineweb-s3",
             "appian-nvme",
@@ -289,10 +288,15 @@ def test_pr_full_covers_pr() -> None:
     pr = _groups("pr")
     pr_full = _groups("pr-full")
 
+    # TEMPORARY: this PR runs TPC-H SF=10 Snappy targets in `pr` only, to compare the Parquet variants.
+    def no_snappy(values: set) -> set:
+        return {v for v in values if "parquet-snappy" not in v}
+
     for benchmark_id, group in pr.items():
         full_group = pr_full[benchmark_id]
-        assert cast("set[object]", group["targets"]) <= cast("set[object]", full_group["targets"])
-        assert cast("set[str]", group["data_formats"]) <= cast("set[str]", full_group["data_formats"])
+        targets = no_snappy(cast("set[object]", group["targets"]))
+        assert targets <= cast("set[object]", full_group["targets"])
+        assert no_snappy(cast("set[str]", group["data_formats"])) <= cast("set[str]", full_group["data_formats"])
 
 
 def test_resolver_rejects_empty_targets() -> None:
