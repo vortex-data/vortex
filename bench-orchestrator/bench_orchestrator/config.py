@@ -41,6 +41,8 @@ class Format(Enum):
     """Data formats for benchmarks."""
 
     PARQUET = "parquet"
+    # The base Parquet files as DuckDB writes them, with Snappy, which `data-gen` writes beside them.
+    PARQUET_SNAPPY = "parquet-snappy"
     VORTEX = "vortex"
     VORTEX_COMPACT = "vortex-compact"
     VORTEX_SPATIAL_NATIVE = "vortex-spatial-native"
@@ -68,6 +70,17 @@ class ScanEngine(Enum):
     V2 = "v2"
 
 
+class SizeFormat(Enum):
+    """A format a benchmark writes only to record its file sizes. No query reads it.
+
+    `vx-bench write-size-formats` writes Arrow IPC with `data-gen --size-formats`, and Lance with
+    `lance-bench --data-only`.
+    """
+
+    ARROW_IPC = "arrow-ipc"
+    LANCE = "lance"
+
+
 class Benchmark(Enum):
     """Available benchmark suites."""
 
@@ -91,12 +104,14 @@ class Benchmark(Enum):
 ENGINE_FORMATS: dict[Engine, list[Format]] = {
     Engine.DATAFUSION: [
         Format.PARQUET,
+        Format.PARQUET_SNAPPY,
         Format.VORTEX,
         Format.VORTEX_COMPACT,
         Format.LANCE,
     ],
     Engine.DUCKDB: [
         Format.PARQUET,
+        Format.PARQUET_SNAPPY,
         Format.VORTEX,
         Format.VORTEX_COMPACT,
         Format.VORTEX_SPATIAL_NATIVE,
@@ -332,6 +347,20 @@ def parse_targets_json(value: str) -> list[BenchmarkTarget]:
         raise ValueError("Targets JSON must be an array")
 
     return _unique_preserve_order(BenchmarkTarget.from_dict(item) for item in raw_targets)
+
+
+def parse_size_formats_json(value: str) -> list[SizeFormat]:
+    """Parse a JSON array of size-only format names."""
+    try:
+        raw_formats = json.loads(value)
+    except json.JSONDecodeError as exc:
+        raise ValueError("Size formats JSON must be a valid JSON array") from exc
+    if not isinstance(raw_formats, list) or not all(isinstance(item, str) for item in raw_formats):
+        raise ValueError("Size formats JSON must be an array of strings")
+    try:
+        return _unique_preserve_order(SizeFormat(item) for item in raw_formats)
+    except ValueError as exc:
+        raise ValueError(f"Invalid size format in {raw_formats}") from exc
 
 
 def parse_formats_json(value: str) -> list[Format]:

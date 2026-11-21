@@ -936,6 +936,45 @@ def test_summary_reports_hot_alone_when_no_row_recorded_its_runs(tmp_path: Path)
     assert "cold" not in summary
 
 
+def test_capture_file_sizes_names_parquet_by_its_directory(tmp_path: Path) -> None:
+    data_dir = tmp_path / "data"
+    files = {
+        # ClickBench's own files are Snappy, and they are its `parquet`.
+        ("clickbench_partitioned", "parquet", "hits_0.parquet"): 40,
+        ("clickbench_partitioned", "parquet-snappy", "hits_0.parquet"): 50,
+        ("clickbench_partitioned", "arrow-ipc", "hits_0.arrow"): 80,
+    }
+    for parts, size in files.items():
+        path = data_dir.joinpath(*parts)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"x" * size)
+    output_path = tmp_path / "sizes.jsonl"
+
+    subprocess.run(
+        [
+            sys.executable,
+            str(CAPTURE_SCRIPT),
+            str(data_dir),
+            "--benchmark",
+            "clickbench",
+            "--dataset-dir",
+            "clickbench_partitioned",
+            "--commit",
+            "deadbeef",
+            "-o",
+            str(output_path),
+        ],
+        check=True,
+    )
+
+    records = [json.loads(line) for line in output_path.read_text(encoding="utf-8").splitlines()]
+    assert sorted((r["file_size"]["format"], r["value"]) for r in records) == [
+        ("arrow-ipc", 80),
+        ("parquet", 40),
+        ("parquet-snappy", 50),
+    ]
+
+
 def test_capture_file_sizes_reads_only_the_named_directory(tmp_path: Path) -> None:
     data_dir = tmp_path / "data"
     for name, size in (("clickbench_partitioned", 42), ("clickbench_partitioned_10", 7)):

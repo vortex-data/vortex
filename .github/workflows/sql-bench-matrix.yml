@@ -294,6 +294,16 @@ jobs:
             --opt remote-data-dir="$REMOTE_STORAGE" \
             ${{ matrix.scale_factor && format('--opt scale-factor={0}', matrix.scale_factor) || '' }}
 
+      # Formats that no query reads, written after the queries so they cannot affect them, only
+      # for the file sizes that "Capture file sizes" records.
+      - name: Write size-only formats
+        if: matrix.remote_key == null && matrix.records_data && join(matrix.size_formats, ',') != ''
+        shell: bash
+        run: |
+          uv run --project bench-orchestrator vx-bench write-size-formats "${{ matrix.subcommand }}" \
+            --formats-json '${{ toJSON(matrix.size_formats) }}' \
+            ${{ matrix.scale_factor && format('--opt scale-factor={0}', matrix.scale_factor) || '' }}
+
       # The `file_size` records join the run's ingest records: develop runs store them in the
       # benchmarks database (the `file_sizes` table), and PR runs fetch them back as the baseline.
       - parallel:

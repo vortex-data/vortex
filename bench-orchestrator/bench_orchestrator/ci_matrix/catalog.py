@@ -9,7 +9,7 @@ validate, and render these declarations.
 
 from dataclasses import replace
 
-from ..config import Benchmark, BenchmarkTarget, Engine, Format, Integration, ScanEngine
+from ..config import Benchmark, BenchmarkTarget, Engine, Format, Integration, ScanEngine, SizeFormat
 from .model import BenchmarkCase, Catalog, Coverage, ScanCoverage, Storage
 from .render import merge_coverage
 from .targets import TargetSet, df, duck
@@ -91,6 +91,13 @@ DEFAULT_WITH_DUCKDB_PR_FULL = Coverage(
     data_formats=(Format.PARQUET, Format.VORTEX, Format.VORTEX_COMPACT, Format.DUCKDB),
 )
 STANDARD_WITH_DUCKDB = Coverage(STANDARD_WITH_DUCKDB_TARGETS)
+# TPC-DS SF1 is the SQL data that bench.vortex.dev's File Sizes summary ranks, so develop has every
+# format `compress-bench` measures. It queries Snappy Parquet on both engines and Lance on
+# DataFusion, and writes Arrow IPC only for its size. They are small and fast at SF1.
+STANDARD_WITH_DUCKDB_AND_SIZE_FORMATS = Coverage(
+    STANDARD_WITH_DUCKDB_TARGETS | df(Format.PARQUET_SNAPPY, Format.LANCE) | duck(Format.PARQUET_SNAPPY),
+    size_formats=(SizeFormat.ARROW_IPC,),
+)
 DATAFUSION_VORTEX = Coverage(DATAFUSION_VORTEX_TARGETS)
 COMPACT = Coverage(COMPACT_TARGETS)
 JOB_DUCKDB = Coverage(duck(Format.PARQUET, Format.VORTEX, Format.DUCKDB))
@@ -252,7 +259,7 @@ BENCHMARKS = (
             "pr": DEFAULT,
             "pr-compact": COMPACT,
             "pr-full": STANDARD_WITH_DUCKDB,
-            "develop": STANDARD_WITH_DUCKDB,
+            "develop": STANDARD_WITH_DUCKDB_AND_SIZE_FORMATS,
         },
     ),
     BenchmarkCase(

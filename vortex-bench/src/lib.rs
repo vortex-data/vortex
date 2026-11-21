@@ -55,6 +55,7 @@ pub mod job;
 pub mod measurements;
 pub mod memory;
 pub mod output;
+pub mod parquet_copies;
 pub mod polarsignals;
 pub mod public_bi;
 pub mod random_access;
@@ -217,6 +218,11 @@ pub enum Format {
     Csv,
     #[clap(name = "parquet")]
     Parquet,
+    /// Parquet as DuckDB writes it, with Snappy: the base Parquet files written again by the
+    /// `duckdb` CLI. Only suites that list it generate it.
+    #[clap(name = "parquet-snappy")]
+    #[serde(rename = "parquet-snappy")]
+    ParquetSnappy,
     #[clap(name = "vortex")]
     #[serde(rename = "vortex")]
     OnDiskVortex,
@@ -272,6 +278,7 @@ impl Format {
             Format::ArrowIpc => "arrow-ipc",
             Format::Csv => "csv",
             Format::Parquet => "parquet",
+            Format::ParquetSnappy => "parquet-snappy",
             Format::OnDiskVortex => "vortex-file-compressed",
             Format::VortexCompact => "vortex-compact",
             Format::VortexSpatialNative => "vortex-spatial-native",
@@ -286,6 +293,7 @@ impl Format {
             Format::ArrowIpc => "arrow",
             Format::Csv => "csv",
             Format::Parquet => "parquet",
+            Format::ParquetSnappy => "parquet",
             Format::OnDiskVortex => "vortex",
             Format::VortexCompact => "vortex",
             Format::VortexSpatialNative => "vortex",
