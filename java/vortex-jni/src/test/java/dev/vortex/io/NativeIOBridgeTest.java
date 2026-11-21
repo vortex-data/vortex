@@ -267,11 +267,11 @@ public final class NativeIOBridgeTest {
             assertArrayEquals(value, metadata.get("iceberg.schema"));
         }
 
-        // The readable's name keys the session footer cache, so this read resolves the metadata
-        // against the footer cached by the read above rather than reading it again.
-        try (FileChannelReadable readable = new FileChannelReadable(path)) {
+        Path replacement = tempDir.resolve("without-metadata.vortex");
+        writePeopleFile(session, allocator, replacement);
+        try (FileChannelReadable readable = new FileChannelReadable(path.toString(), replacement)) {
             Map<String, byte[]> metadata = NativeFiles.readMetadata(session, readable);
-            assertArrayEquals(value, metadata.get("iceberg.schema"));
+            assertTrue(metadata.isEmpty());
         }
     }
 

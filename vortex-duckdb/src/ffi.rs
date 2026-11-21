@@ -9,7 +9,6 @@ use std::ptr;
 use num_traits::AsPrimitive;
 use vortex::error::VortexExpect;
 use vortex::error::vortex_err;
-use vortex::file::Footer;
 
 use crate::convert::can_push_expression;
 use crate::copy::CopyFunctionBind;
@@ -39,6 +38,7 @@ use crate::duckdb::Value;
 use crate::duckdb::try_or;
 use crate::duckdb::try_or_null;
 use crate::file_reader::OpenFileReader;
+use crate::file_reader::PlanningStats;
 use crate::file_reader::can_get_partition_stats;
 use crate::file_reader::footer_get_cached;
 use crate::file_reader::footer_get_statistics;
@@ -295,7 +295,7 @@ pub unsafe extern "C-unwind" fn duckdb_footer_get_cached(
         let path = str::from_utf8(path).map_err(|_| vortex_err!("invalid utf-8"))?;
         Ok(match footer_get_cached(bind, path)? {
             Some(footer) => {
-                unsafe { *row_count_out = footer.row_count() };
+                unsafe { *row_count_out = footer.row_count };
                 Data::from(Box::new(footer)).as_ptr()
             }
             None => ptr::null_mut(),
@@ -310,7 +310,7 @@ pub unsafe extern "C-unwind" fn duckdb_footer_get_statistics(
     column_name_len: usize,
     stats_out: *mut cpp::duckdb_column_statistics,
 ) -> bool {
-    let footer = unsafe { footer.cast::<Footer>().as_ref() }.vortex_expect("null pointer");
+    let footer = unsafe { footer.cast::<PlanningStats>().as_ref() }.vortex_expect("null pointer");
     let name_bytes =
         unsafe { std::slice::from_raw_parts(column_name.cast::<u8>(), column_name_len) };
     let name = String::from_utf8_lossy(name_bytes);

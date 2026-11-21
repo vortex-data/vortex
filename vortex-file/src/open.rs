@@ -103,6 +103,11 @@ impl<S: ArraySessionExt + LayoutSessionExt + RuntimeSessionExt + MemorySessionEx
 }
 
 impl VortexOpenOptions {
+    /// Only share a footer decoded from the file's own layout and embedded dtype.
+    pub(crate) fn can_share_footer(&self) -> bool {
+        self.footer.is_none() && self.dtype.is_none()
+    }
+
     /// Return the session this opener is bound to.
     pub fn session(&self) -> &VortexSession {
         &self.session

@@ -22,6 +22,7 @@ use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
 use vortex::error::vortex_panic;
+use vortex::file::FileStatistics;
 use vortex::file::Footer;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::file::VortexFile;
@@ -91,6 +92,7 @@ use crate::table_function::convert_result;
 // Only revisit previously opened local paths during optimization. A cold glob must not open
 // every file on the planning thread. A hit is a hint to read the file, never a source of stats.
 static OPENED_LOCAL_PATHS: LazyLock<Cache<String, ()>> = LazyLock::new(|| Cache::new(16_384));
+const PLANNING_STATS_BUDGET: usize = 100 * 1024 * 1024;
 
 async fn open_local_file(url: &Url) -> VortexResult<VortexFile> {
     let path = url
@@ -125,7 +127,7 @@ pub struct OpenFileReader {
 /// The state of an open file that the threads scanning it share.
 pub struct FileScanState {
     path: String,
-    footer: Footer,
+    partition_stats: PlanningStats,
     reader: LayoutReaderRef,
     /// The file as the V2 executor reads it.
     scan_file: ScanFile,
@@ -164,7 +166,7 @@ impl OpenFileReader {
         Ok(OpenFileReader {
             scan_state: Some(Arc::new(FileScanState {
                 path,
-                footer: file.footer().clone(),
+                partition_stats: PlanningStats::from(file.footer()),
                 reader: file.layout_reader()?,
                 scan_file,
                 v2: OnceLock::new(),
@@ -218,21 +220,19 @@ pub fn reader_bind(file: &OpenFileReader, result: &mut BindResultRef) -> VortexR
         result.add_result_column(&column.name, &column.logical_type);
     }
 
-    Ok(BindState {
+    let mut bind = BindState {
         dtype,
         first_file_row_count: file.reader().row_count(),
         filters: vec![],
         columns,
         has_non_optional_filter: AtomicBool::new(false),
         aggregates: vec![],
-        planning_footers: [(
-            file.scan_state().path.clone(),
-            file.scan_state().footer.clone(),
-        )]
-        .into_iter()
-        .collect(),
+        planning_stats: Default::default(),
+        planning_bytes_left: PLANNING_STATS_BUDGET,
         no_footer_caches: false,
-    })
+    };
+    bind.remember_partition(&file.scan_state().path, &file.scan_state().partition_stats);
+    Ok(bind)
 }
 
 /// Called once per file by one thread under file-local lock. Determines
@@ -499,10 +499,42 @@ pub fn can_get_partition_stats(bind: &BindState) -> bool {
         && bind.filters.is_empty()
 }
 
+/// Statistics that DuckDB needs after the file layout and segment tables have been released.
+#[derive(Clone)]
+pub(crate) struct PlanningStats {
+    pub row_count: u64,
+    columns: Option<FileStatistics>,
+    estimated_bytes: usize,
+}
+
+impl From<&Footer> for PlanningStats {
+    fn from(footer: &Footer) -> Self {
+        Self {
+            row_count: footer.row_count(),
+            columns: footer.statistics().cloned(),
+            // Charge the full encoded footer as a conservative estimate for the retained statistics.
+            estimated_bytes: footer.approx_byte_size().unwrap_or(10 * 1024).max(1024),
+        }
+    }
+}
+
+impl BindState {
+    fn remember_partition(&mut self, path: &str, stats: &PlanningStats) -> bool {
+        let weight = stats.estimated_bytes.saturating_add(path.len());
+        let Some(left) = self.planning_bytes_left.checked_sub(weight) else {
+            self.no_footer_caches = true;
+            return false;
+        };
+        self.planning_bytes_left = left;
+        self.planning_stats.insert(path.to_owned(), stats.clone());
+        true
+    }
+}
+
 /// Supply exact partition statistics from this bind, or validate a warm file on first use.
-pub fn footer_get_cached(bind: &mut BindState, path: &str) -> VortexResult<Option<Footer>> {
-    if let Some(footer) = bind.planning_footers.get(path) {
-        return Ok(Some(footer.clone()));
+pub fn footer_get_cached(bind: &mut BindState, path: &str) -> VortexResult<Option<PlanningStats>> {
+    if let Some(stats) = bind.planning_stats.get(path) {
+        return Ok(Some(stats.clone()));
     }
     let url = parse_uri_or_path(path)?;
     let footer = if url.scheme() == "file" {
@@ -518,22 +550,42 @@ pub fn footer_get_cached(bind: &mut BindState, path: &str) -> VortexResult<Optio
             SESSION.get::<MultiFileSession>().get_footer(path, version)
         })
     };
-    if let Some(footer) = &footer {
-        bind.planning_footers
-            .insert(path.to_owned(), footer.clone());
-    } else {
+    let Some(footer) = footer else {
         bind.no_footer_caches = true;
-    }
-    Ok(footer)
+        return Ok(None);
+    };
+    let stats = PlanningStats::from(&footer);
+    Ok(bind.remember_partition(path, &stats).then_some(stats))
 }
 
 /// Called by one thread for every footer in planning phase
-pub fn footer_get_statistics(footer: &Footer, column: &str) -> Option<ColumnStatistics> {
-    let stats = footer.statistics()?;
+pub fn footer_get_statistics(footer: &PlanningStats, column: &str) -> Option<ColumnStatistics> {
+    let stats = footer.columns.as_ref()?;
     let (stats, dtype) = stats.get_by_path(&FieldPath::from_name(column))?;
     let stats = ColumnStatisticsAggregate::new(stats);
     match ColumnStatistics::try_from(stats, dtype.clone()) {
         Ok(stats) => Some(stats),
         Err(e) => vortex_panic!(e),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn partition_stats_stop_at_the_bind_budget() {
+        let stats = PlanningStats {
+            row_count: 1,
+            columns: None,
+            estimated_bytes: 1024,
+        };
+        let mut bind = BindState::empty();
+        bind.no_footer_caches = false;
+        bind.planning_bytes_left = 1025;
+        assert!(bind.remember_partition("a", &stats));
+        assert!(!bind.remember_partition("b", &stats));
+        assert!(!can_get_partition_stats(&bind));
+        assert_eq!(bind.planning_stats.len(), 1);
     }
 }

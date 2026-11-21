@@ -49,8 +49,7 @@ public final class NativeFiles {
      *
      * <p>The readable must stay open for the duration of the call; native code never closes it.
      *
-     * <p>{@link NativeReadable#name()} keys the file in the session's footer cache, exactly as it does when the
-     * readable is scanned, so reading metadata and then scanning the same file share one footer read.
+     * <p>Each open reads the footer from the supplied readable. Its name can refer to different contents over time.
      */
     public static Map<String, byte[]> readMetadata(Session session, NativeReadable readable) {
         Objects.requireNonNull(readable, "readable");
@@ -78,8 +77,7 @@ public final class NativeFiles {
      *
      * <p>The readable must stay open for the duration of the call; native code never closes it.
      *
-     * <p>{@link NativeReadable#name()} keys the file in the session's footer cache, exactly as it does when the
-     * readable is scanned, so reading statistics and then scanning the same file share one footer read.
+     * <p>Each open reads the footer from the supplied readable. Its name can refer to different contents over time.
      */
     public static List<VortexColumnStatistics> readStatistics(Session session, NativeReadable readable) {
         Objects.requireNonNull(readable, "readable");

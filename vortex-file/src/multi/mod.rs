@@ -173,10 +173,13 @@ impl MultiFileDataSource {
         // Open first file eagerly for dtype.
         let (first_file_listing, first_fs) = &all_files[0];
         let open_fn = self.open_options_fn.as_ref();
-        let first_file = open_file(first_fs, first_file_listing, &self.session, open_fn).await?;
+        let (first_file, first_size) =
+            open_file(first_fs, first_file_listing, &self.session, open_fn).await?;
         let first_reader = first_file.layout_reader()?;
 
-        let byte_sizes: Vec<Option<u64>> = all_files.iter().map(|(file, _)| file.size).collect();
+        let byte_sizes = std::iter::once(first_size)
+            .chain(all_files[1..].iter().map(|(file, _)| file.versioned_size()))
+            .collect();
 
         let factories: Vec<Arc<dyn LayoutReaderFactory>> = all_files[1..]
             .iter()
@@ -231,23 +234,29 @@ async fn open_file(
     file: &FileListing,
     session: &VortexSession,
     open_options_fn: &(dyn Fn(VortexOpenOptions) -> VortexOpenOptions + Send + Sync),
-) -> VortexResult<VortexFile> {
+) -> VortexResult<(VortexFile, Option<u64>)> {
     tracing::trace!(path = %file.path, "opening vortex file");
 
     let source = fs.open_read(file).await?;
+    let size = if file.version.is_some() {
+        file.size
+    } else {
+        Some(source.size().await?)
+    };
     let cache_key = fs.cache_key(file);
     let key = cache_key
         .as_deref()
         .or_else(|| file.version.is_none().then_some(file.path.as_str()));
-    open_cached_with_version(
+    let opened = open_cached_with_version(
         session,
         key,
         source,
-        file.versioned_size(),
+        size,
         file.version.as_ref(),
         open_options_fn,
     )
-    .await
+    .await?;
+    Ok((opened, size))
 }
 
 /// Open a Vortex file without reusing or populating the session footer cache.
@@ -297,6 +306,9 @@ pub async fn open_cached_with_version(
     if let Some(size) = file_size {
         options = options.with_file_size(size);
     }
+    if !options.can_share_footer() {
+        return options.open(source).await;
+    }
 
     if let Some(version) = file_version
         && let Some(key) = key
@@ -327,7 +339,7 @@ struct VortexFileReaderFactory {
 #[async_trait]
 impl LayoutReaderFactory for VortexFileReaderFactory {
     async fn open(&self) -> VortexResult<Option<LayoutReaderRef>> {
-        let file = open_file(
+        let (file, _) = open_file(
             &self.fs,
             &self.file,
             &self.session,
@@ -348,6 +360,7 @@ mod tests {
     use futures::future::BoxFuture;
     use vortex_array::IntoArray;
     use vortex_array::buffer::BufferHandle;
+    use vortex_array::expr::stats::Precision;
     use vortex_buffer::Alignment;
     use vortex_buffer::ByteBuffer;
     use vortex_buffer::ByteBufferMut;
@@ -451,20 +464,20 @@ mod tests {
         let metadata_options = |options: VortexOpenOptions| options.include_metadata();
 
         if default_first {
-            let default = open_file(&fs, &listing, &session, &default_options).await?;
+            let (default, _) = open_file(&fs, &listing, &session, &default_options).await?;
             assert!(default.metadata_segment("key").is_none());
-            let included = open_file(&fs, &listing, &session, &metadata_options).await?;
+            let (included, _) = open_file(&fs, &listing, &session, &metadata_options).await?;
             assert_eq!(
                 included.metadata_segment("key").map(ByteBuffer::as_slice),
                 Some(expected.as_slice())
             );
         } else {
-            let included = open_file(&fs, &listing, &session, &metadata_options).await?;
+            let (included, _) = open_file(&fs, &listing, &session, &metadata_options).await?;
             assert_eq!(
                 included.metadata_segment("key").map(ByteBuffer::as_slice),
                 Some(expected.as_slice())
             );
-            let default = open_file(&fs, &listing, &session, &default_options).await?;
+            let (default, _) = open_file(&fs, &listing, &session, &default_options).await?;
             assert!(default.metadata_segment("key").is_none());
         }
 
@@ -549,6 +562,51 @@ mod tests {
         Ok(())
     }
 
+    #[tokio::test]
+    async fn external_dtype_does_not_populate_shared_footer() -> VortexResult<()> {
+        let session = VortexSession::empty()
+            .with::<LayoutSession>()
+            .with::<RuntimeSession>()
+            .with::<MultiFileSession>();
+        crate::register_default_encodings(&session);
+        crate::enable_all_registered_array_encodings(&session);
+        let values = buffer![1u32].into_array();
+        let dtype = values.dtype().clone();
+        let mut output = ByteBufferMut::empty();
+        session
+            .write_options()
+            .exclude_dtype()
+            .write(&mut output, values.to_array_stream())
+            .await?;
+        let source: Arc<dyn VortexReadAt> = Arc::new(ByteBuffer::from(output));
+        let version = FileVersion::new("v1");
+        let file = open_cached_with_version(
+            &session,
+            Some("schema"),
+            Arc::clone(&source),
+            None,
+            Some(&version),
+            &|opts| opts.with_dtype(dtype.clone()),
+        )
+        .await?;
+        assert_eq!(file.dtype(), &dtype);
+        let result = open_cached_with_version(
+            &session,
+            Some("schema"),
+            source,
+            None,
+            Some(&version),
+            &|opts| opts,
+        )
+        .await;
+        assert!(
+            result
+                .err()
+                .is_some_and(|e| e.to_string().contains("doesn't embed a DType"))
+        );
+        Ok(())
+    }
+
     #[derive(Clone)]
     struct UriReadAt {
         bytes: ByteBuffer,
@@ -596,6 +654,13 @@ mod tests {
         }
 
         async fn head(&self, path: &str) -> VortexResult<Option<FileListing>> {
+            if path == "anonymous.vortex" {
+                return Ok(Some(FileListing {
+                    path: path.to_owned(),
+                    size: Some(1),
+                    version: None,
+                }));
+            }
             Ok((path == "shared.vortex").then_some(FileListing {
                 path: path.to_string(),
                 size: Some(self.bytes.len() as u64),
@@ -659,8 +724,8 @@ mod tests {
         };
         let include = |options: VortexOpenOptions| options.include_metadata();
 
-        let file_a = open_file(&fs_a, &listing, &session, &include).await?;
-        let file_b = open_file(&fs_b, &listing, &session, &include).await?;
+        let (file_a, _) = open_file(&fs_a, &listing, &session, &include).await?;
+        let (file_b, _) = open_file(&fs_b, &listing, &session, &include).await?;
 
         assert_eq!(
             file_a.metadata_segment("k").map(ByteBuffer::as_slice),
@@ -687,6 +752,7 @@ mod tests {
             .write_options()
             .write(&mut output, buffer![1u32].into_array().to_array_stream())
             .await?;
+        let actual_size = output.len() as u64;
         let fs: FileSystemRef = Arc::new(UnkeyedFileSystem {
             bytes: ByteBuffer::from(output),
             expose_uri: false,
@@ -698,8 +764,13 @@ mod tests {
             version: None,
         };
 
-        let file = open_file(&fs, &listing, &session, &|options| options).await?;
+        let (file, _) = open_file(&fs, &listing, &session, &|options| options).await?;
         assert_eq!(file.row_count(), 1);
+        let source = MultiFileDataSource::new(session)
+            .with_glob("anonymous.vortex", Some(fs))
+            .build()
+            .await?;
+        assert_eq!(source.byte_size(), Precision::exact(actual_size));
         Ok(())
     }
 
@@ -790,8 +861,8 @@ mod tests {
             size: None,
             version: Some(FileVersion::new("b.vortex-v1")),
         };
-        let fa = open_file(&fs, &a_listing, &session, &include).await?;
-        let fb = open_file(&fs, &b_listing, &session, &include).await?;
+        let (fa, _) = open_file(&fs, &a_listing, &session, &include).await?;
+        let (fb, _) = open_file(&fs, &b_listing, &session, &include).await?;
 
         assert_eq!(
             fa.metadata_segment("k").map(ByteBuffer::as_slice),

@@ -38,7 +38,6 @@ use vortex::expr::BoundExpression;
 use vortex::expr::Expression;
 use vortex::expr::col;
 use vortex::expr::proto::ExprSerializeProtoExt;
-use vortex::file::Footer;
 #[cfg(unix)]
 use vortex::metrics::tracing::get_global_labels;
 use vortex::proto::expr as expr_pb;
@@ -65,6 +64,7 @@ use crate::duckdb::TableInitInput;
 use crate::duckdb::Value;
 use crate::exporter::ArrayExporter;
 use crate::file_reader::FileScanState;
+use crate::file_reader::PlanningStats;
 use crate::projection::DuckdbField;
 use crate::projection::Filter;
 use crate::projection::Projection;
@@ -99,8 +99,9 @@ pub(crate) struct BindState {
     pub has_non_optional_filter: AtomicBool,
     // Non-empty iff this scan is aggregate
     pub aggregates: Vec<ColumnAggregate>,
-    // Footers observed by this bind. A new query must observe the files again.
-    pub planning_footers: HashMap<String, Footer>,
+    // Partition statistics observed by this bind. A new query must observe the files again.
+    pub planning_stats: HashMap<String, PlanningStats>,
+    pub planning_bytes_left: usize,
     // Any of files present in scan lack a footer
     pub no_footer_caches: bool,
 }
@@ -115,7 +116,8 @@ impl BindState {
             columns: vec![],
             has_non_optional_filter: AtomicBool::new(false),
             aggregates: vec![],
-            planning_footers: HashMap::new(),
+            planning_stats: HashMap::new(),
+            planning_bytes_left: 0,
             no_footer_caches: true,
         }
     }
@@ -132,8 +134,9 @@ impl Clone for BindState {
                 self.has_non_optional_filter.load(Ordering::Relaxed),
             ),
             aggregates: self.aggregates.clone(),
-            planning_footers: self.planning_footers.clone(),
-            no_footer_caches: false,
+            planning_stats: self.planning_stats.clone(),
+            planning_bytes_left: self.planning_bytes_left,
+            no_footer_caches: self.no_footer_caches,
         }
     }
 }
