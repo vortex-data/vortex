@@ -218,11 +218,6 @@ pub enum Format {
     Csv,
     #[clap(name = "parquet")]
     Parquet,
-    /// Parquet as DuckDB writes it, with Snappy: the base Parquet files written again by the
-    /// `duckdb` CLI. Only suites that list it generate it.
-    #[clap(name = "parquet-snappy")]
-    #[serde(rename = "parquet-snappy")]
-    ParquetSnappy,
     #[clap(name = "vortex")]
     #[serde(rename = "vortex")]
     OnDiskVortex,
@@ -278,7 +273,6 @@ impl Format {
             Format::ArrowIpc => "arrow-ipc",
             Format::Csv => "csv",
             Format::Parquet => "parquet",
-            Format::ParquetSnappy => "parquet-snappy",
             Format::OnDiskVortex => "vortex-file-compressed",
             Format::VortexCompact => "vortex-compact",
             Format::VortexSpatialNative => "vortex-spatial-native",
@@ -293,7 +287,6 @@ impl Format {
             Format::ArrowIpc => "arrow",
             Format::Csv => "csv",
             Format::Parquet => "parquet",
-            Format::ParquetSnappy => "parquet",
             Format::OnDiskVortex => "vortex",
             Format::VortexCompact => "vortex",
             Format::VortexSpatialNative => "vortex",
@@ -447,6 +440,18 @@ const DEFAULT_SCALE_FACTOR: &str = "1.0";
 
 const SCALE_FACTOR_KEY: &str = "scale-factor";
 const REMOTE_DATA_KEY: &str = "remote-data-dir";
+/// Rows in each row group of the Parquet that TPC-H, TPC-DS, and nested TPC-H generate. The
+/// default is [`LOCAL_ROW_GROUP_ROWS`]; the benchmarks read from S3 use [`S3_ROW_GROUP_ROWS`].
+///
+/// [`LOCAL_ROW_GROUP_ROWS`]: utils::parquet::LOCAL_ROW_GROUP_ROWS
+/// [`S3_ROW_GROUP_ROWS`]: utils::parquet::S3_ROW_GROUP_ROWS
+const ROW_GROUP_ROWS_KEY: &str = "row-group-rows";
+
+/// The `row-group-rows` option, or [`utils::parquet::LOCAL_ROW_GROUP_ROWS`].
+fn row_group_rows(opts: &Opts) -> usize {
+    opts.get_as::<usize>(ROW_GROUP_ROWS_KEY)
+        .unwrap_or(utils::parquet::LOCAL_ROW_GROUP_ROWS)
+}
 
 /// Factory function to create a benchmark instance from CLI arguments.
 pub fn create_benchmark(b: BenchmarkArg, opts: &Opts) -> anyhow::Result<Box<dyn Benchmark>> {
@@ -471,13 +476,15 @@ pub fn create_benchmark(b: BenchmarkArg, opts: &Opts) -> anyhow::Result<Box<dyn 
         BenchmarkArg::TpcH => {
             let scale_factor = opts.get(SCALE_FACTOR_KEY).unwrap_or(DEFAULT_SCALE_FACTOR);
             let remote_data_dir = opts.get_as::<String>(REMOTE_DATA_KEY);
-            let benchmark = TpcHBenchmark::new(scale_factor.to_string(), remote_data_dir)?;
+            let benchmark = TpcHBenchmark::new(scale_factor.to_string(), remote_data_dir)?
+                .with_row_group_rows(row_group_rows(opts));
             Ok(Box::new(benchmark) as _)
         }
         BenchmarkArg::TpcDS => {
             let scale_factor = opts.get(SCALE_FACTOR_KEY).unwrap_or(DEFAULT_SCALE_FACTOR);
             let remote_data_dir = opts.get_as::<String>(REMOTE_DATA_KEY);
-            let benchmark = TpcDsBenchmark::new(scale_factor.to_string(), remote_data_dir)?;
+            let benchmark = TpcDsBenchmark::new(scale_factor.to_string(), remote_data_dir)?
+                .with_row_group_rows(row_group_rows(opts));
             Ok(Box::new(benchmark) as _)
         }
         BenchmarkArg::TpcHNested => {
@@ -486,7 +493,8 @@ pub fn create_benchmark(b: BenchmarkArg, opts: &Opts) -> anyhow::Result<Box<dyn 
             let shape = opts.get_as::<Shape>("shape").unwrap_or_default();
             let remote_data_dir = opts.get_as::<String>(REMOTE_DATA_KEY);
             let benchmark =
-                TpcHNestedBenchmark::new(scale_factor.to_string(), shape, remote_data_dir)?;
+                TpcHNestedBenchmark::new(scale_factor.to_string(), shape, remote_data_dir)?
+                    .with_row_group_rows(row_group_rows(opts));
             Ok(Box::new(benchmark) as _)
         }
         BenchmarkArg::StatPopGen => {

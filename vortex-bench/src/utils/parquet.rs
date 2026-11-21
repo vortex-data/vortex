@@ -13,6 +13,14 @@ use parquet::file::metadata::ParquetMetaDataReader;
 use parquet::file::properties::WriterProperties;
 use parquet::file::properties::WriterPropertiesBuilder;
 
+/// Rows in each row group of generated benchmark Parquet that queries read from local disk:
+/// DuckDB's default. Small row groups give the query engines more units of work to run in parallel.
+pub const LOCAL_ROW_GROUP_ROWS: usize = 122_880;
+
+/// Rows in each row group of generated benchmark Parquet that queries read from S3: parquet-rs's
+/// default. Large row groups need fewer requests to object storage.
+pub const S3_ROW_GROUP_ROWS: usize = 1024 * 1024;
+
 /// Columns whose dictionary outgrows this fall back to plain encoding. The parquet-rs default
 /// (1 MiB) keeps dictionaries for unique keys, which compress far worse than plain values. A small
 /// limit approximates the per-column choice that DuckDB's writer makes.

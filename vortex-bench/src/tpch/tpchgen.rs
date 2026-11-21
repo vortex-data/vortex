@@ -47,12 +47,9 @@ use crate::IdempotentPath;
 use crate::SESSION;
 use crate::tpch::nest::NestedBatchReader;
 use crate::utils::file::idempotent_async;
+use crate::utils::parquet::LOCAL_ROW_GROUP_ROWS;
 use crate::utils::parquet::parquet_writer_properties;
 use crate::utils::split;
-
-/// The parquet-rs default, kept explicit so the shared writer settings do not change the
-/// parallelism of existing TPC-H Parquet benchmarks.
-const ROW_GROUP_SIZE: usize = 1024 * 1024;
 
 // Compressed size of each TPC-H table at scale factor 1, used to split tables into files of about
 // `split::TARGET_FILE_COMPRESSED_BYTES`: the mean of the Parquet and default Vortex sizes, measured at
@@ -89,6 +86,8 @@ pub struct TpchGenOptions {
     pub batch_size: usize,
     /// Shape of the generated tables
     pub shape: TableShape,
+    /// Rows in each Parquet row group
+    pub row_group_rows: usize,
 }
 
 impl Default for TpchGenOptions {
@@ -99,6 +98,7 @@ impl Default for TpchGenOptions {
             format: Format::Parquet,
             batch_size: 8192 * 64,
             shape: TableShape::Flat,
+            row_group_rows: LOCAL_ROW_GROUP_ROWS,
         }
     }
 }
@@ -124,6 +124,11 @@ impl TpchGenOptions {
 
     pub fn with_shape(mut self, shape: TableShape) -> Self {
         self.shape = shape;
+        self
+    }
+
+    pub fn with_row_group_rows(mut self, row_group_rows: usize) -> Self {
+        self.row_group_rows = row_group_rows;
         self
     }
 }
@@ -318,11 +323,11 @@ fn generate_table_file(
 }
 
 /// Number of parts generated in parallel for a table written as one Parquet file.
-fn table_num_parts(generator: TableGenerator, scale_factor: f64) -> usize {
+fn table_num_parts(generator: TableGenerator, scale_factor: f64, row_group_rows: usize) -> usize {
     let rows = usize::try_from(generator.estimated_rows(scale_factor)).unwrap_or(1);
     get_available_parallelism()
         .unwrap_or(1)
-        .min(rows.div_ceil(ROW_GROUP_SIZE))
+        .min(rows.div_ceil(row_group_rows))
         .max(1)
 }
 
@@ -347,7 +352,7 @@ async fn write_parquet(
     }
 
     let scale_factor = options.scale_factor.parse::<f64>()?;
-    let gen_parts = table_num_parts(generator, scale_factor);
+    let gen_parts = table_num_parts(generator, scale_factor, options.row_group_rows);
     write_parquet_parts(generator, options, gen_parts, output).await
 }
 
@@ -386,7 +391,7 @@ fn write_parquet_file(
     let iter = create_batch_iterator(generator, options, part, num_parts)?;
     let schema = iter.schema();
     let props = parquet_writer_properties()
-        .set_max_row_group_row_count(Some(ROW_GROUP_SIZE))
+        .set_max_row_group_row_count(Some(options.row_group_rows))
         .build();
     let mut writer = ArrowWriter::try_new(fs::File::create(output)?, schema, Some(props))?;
     for batch in iter {

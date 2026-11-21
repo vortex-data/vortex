@@ -224,6 +224,7 @@ jobs:
           uv run --project bench-orchestrator vx-bench prepare-data "${{ matrix.subcommand }}" \
             --formats-json '${{ toJSON(matrix.data_formats) }}' \
             ${S3_CACHE:+--s3-cache "$S3_CACHE"} \
+            ${{ matrix.row_group_rows && format('--opt row-group-rows={0}', matrix.row_group_rows) || '' }} \
             ${{ matrix.scale_factor && format('--opt scale-factor={0}', matrix.scale_factor) || '' }}
 
       # setup-benchmark.sh pins every running process to the housekeeping CPUs, so it waits for

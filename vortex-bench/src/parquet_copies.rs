@@ -4,15 +4,17 @@
 //! Copies of a benchmark's base Parquet files in other formats, one output file for each input
 //! file, in a directory of the format's name beside the base `parquet` directory.
 //!
-//! - [`Format::ParquetSnappy`]: the same rows as DuckDB writes them by default, with Snappy,
+//! No query reads these copies. `data-gen --size-formats` writes them only so that
+//! `scripts/capture-file-sizes.py` records their sizes.
+//!
+//! - [`SizeFormat::ParquetSnappy`]: the same rows as DuckDB writes them by default, with Snappy,
 //!   DuckDB's row groups, and its dictionaries, statistics, and Bloom filters. This is Parquet as
 //!   an analytics engine writes it for speed, where the base files are zstd level 3 for size. The
-//!   query engines read it like Parquet. `data-gen --formats parquet-snappy` writes it with the
-//!   `duckdb` CLI.
-//! - [`SizeFormat::ArrowIpc`]: uncompressed Arrow IPC, which no query reads. `data-gen
-//!   --size-formats arrow-ipc` writes it only so that `scripts/capture-file-sizes.py` records its
-//!   size. Lance is also written for size only, by `lance-bench --data-only`, because only that
-//!   binary depends on Lance.
+//!   `duckdb` CLI writes it.
+//! - [`SizeFormat::ArrowIpc`]: uncompressed Arrow IPC.
+//!
+//! Lance is also written for size only, by `lance-bench --data-only`, because only that binary
+//! depends on Lance.
 
 use std::fs;
 use std::fs::File;
@@ -35,6 +37,9 @@ use crate::idempotent;
 /// A format that is written only to record its file size. No query reads it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
 pub enum SizeFormat {
+    /// Parquet as DuckDB writes it, with Snappy. See [`write_duckdb_snappy_parquet`].
+    #[clap(name = "parquet-snappy")]
+    ParquetSnappy,
     /// Uncompressed Arrow IPC, as `compress-bench` writes it.
     #[clap(name = "arrow-ipc")]
     ArrowIpc,
@@ -43,32 +48,33 @@ pub enum SizeFormat {
 /// Write `format` from the base Parquet files in `base_path`.
 pub fn write_size_format(base_path: &Path, format: SizeFormat) -> Result<()> {
     match format {
-        SizeFormat::ArrowIpc => {
-            copy_parquet_directory(base_path, Format::ArrowIpc, write_arrow_ipc)
-        }
+        SizeFormat::ParquetSnappy => copy_parquet_directory(
+            base_path,
+            "parquet-snappy",
+            Format::Parquet.ext(),
+            write_duckdb_snappy_parquet,
+        ),
+        SizeFormat::ArrowIpc => copy_parquet_directory(
+            base_path,
+            Format::ArrowIpc.name(),
+            Format::ArrowIpc.ext(),
+            write_arrow_ipc,
+        ),
     }
 }
 
-/// Write every Parquet file in `{base_path}/parquet/` again with DuckDB, to
-/// `{base_path}/parquet-snappy/`. See [`write_duckdb_snappy_parquet`].
-pub fn write_snappy_parquet_directory(base_path: &Path) -> Result<()> {
-    copy_parquet_directory(
-        base_path,
-        Format::ParquetSnappy,
-        write_duckdb_snappy_parquet,
-    )
-}
-
-/// Write each Parquet file in `{base_path}/parquet/` with `write`, to `{base_path}/{format}/`.
+/// Write each Parquet file in `{base_path}/parquet/` with `write`, to `{base_path}/{name}/`, with
+/// the extension `ext`.
 ///
 /// The write is idempotent: an output file that exists is not written again.
 fn copy_parquet_directory(
     base_path: &Path,
-    format: Format,
+    name: &str,
+    ext: &str,
     write: fn(&Path, &Path) -> Result<()>,
 ) -> Result<()> {
     let parquet_dir = base_path.join(Format::Parquet.name());
-    let output_dir = base_path.join(format.name());
+    let output_dir = base_path.join(name);
     let mut inputs = fs::read_dir(&parquet_dir)
         .with_context(|| format!("reading {}", parquet_dir.display()))?
         .map(|entry| entry.map(|entry| entry.path()))
@@ -79,7 +85,7 @@ fn copy_parquet_directory(
     info!(
         "Writing {} files as {} in {}",
         inputs.len(),
-        format.name(),
+        name,
         output_dir.display()
     );
     for input in inputs {
@@ -88,9 +94,9 @@ fn copy_parquet_directory(
             .context("a Parquet file has no name")?
             .to_os_string();
         let mut output = output_dir.join(stem);
-        output.set_extension(format.ext());
+        output.set_extension(ext);
         idempotent(output.as_path(), |temp| write(&input, temp))
-            .with_context(|| format!("writing {} as {}", input.display(), format.name()))?;
+            .with_context(|| format!("writing {} as {}", input.display(), name))?;
     }
     Ok(())
 }
@@ -189,7 +195,7 @@ mod tests {
         let base = tempfile::tempdir()?;
         let expected = write_base(base.path(), 1000, 300)?;
 
-        write_snappy_parquet_directory(base.path())?;
+        write_size_format(base.path(), SizeFormat::ParquetSnappy)?;
 
         let output = base.path().join("parquet-snappy").join("t.parquet");
         let metadata = SerializedFileReader::new(File::open(&output)?)?

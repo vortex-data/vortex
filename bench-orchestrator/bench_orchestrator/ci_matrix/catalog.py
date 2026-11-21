@@ -92,11 +92,11 @@ DEFAULT_WITH_DUCKDB_PR_FULL = Coverage(
 )
 STANDARD_WITH_DUCKDB = Coverage(STANDARD_WITH_DUCKDB_TARGETS)
 # TPC-DS SF1 is the SQL data that bench.vortex.dev's File Sizes summary ranks, so develop has every
-# format `compress-bench` measures. It queries Snappy Parquet on both engines and Lance on
-# DataFusion, and writes Arrow IPC only for its size. They are small and fast at SF1.
+# format `compress-bench` measures. It queries Lance on DataFusion, and writes Snappy Parquet and
+# Arrow IPC only for their sizes. They are small and fast at SF1.
 STANDARD_WITH_DUCKDB_AND_SIZE_FORMATS = Coverage(
-    STANDARD_WITH_DUCKDB_TARGETS | df(Format.PARQUET_SNAPPY, Format.LANCE) | duck(Format.PARQUET_SNAPPY),
-    size_formats=(SizeFormat.ARROW_IPC,),
+    STANDARD_WITH_DUCKDB_TARGETS | df(Format.LANCE),
+    size_formats=(SizeFormat.PARQUET_SNAPPY, SizeFormat.ARROW_IPC),
 )
 DATAFUSION_VORTEX = Coverage(DATAFUSION_VORTEX_TARGETS)
 COMPACT = Coverage(COMPACT_TARGETS)
