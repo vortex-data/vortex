@@ -10,6 +10,7 @@
     "alp_rd_take_chunked": 4
   },
   "vortex-array": {
+    "aggregate_approx_distinct": 9,
     "aggregate_grouped": 18,
     "aggregate_max": 15,
     "aggregate_sum": 14,
