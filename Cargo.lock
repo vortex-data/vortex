@@ -4641,25 +4641,12 @@ dependencies = [
 ]
 
 [[package]]
-name = "geojson"
-version = "0.24.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e26f3c45b36fccc9cf2805e61d4da6bc4bbd5a3a9589b01afa3a40eff703bd79"
-dependencies = [
- "log",
- "serde",
- "serde_json",
- "thiserror 2.0.21",
-]
-
-[[package]]
 name = "geozero"
 version = "0.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e5f28f34864745eb2f123c990c6ffd92c1584bd39439b3f27ff2a0f4ea5b309b"
 dependencies = [
  "geo-types",
- "geojson",
  "log",
  "scroll",
  "serde_json",
@@ -8026,7 +8013,7 @@ checksum = "044b1fa4f259f4df9ad5078e587b208f5d288a25407575fcddb9face30c7c692"
 dependencies = [
  "rand 0.9.5",
  "socket2",
- "thiserror 2.0.21",
+ "thiserror 1.0.69",
 ]
 
 [[package]]
@@ -9819,24 +9806,14 @@ dependencies = [
 
 [[package]]
 name = "spatialbench"
-version = "0.3.0"
-source = "git+https://github.com/apache/sedona-spatialbench?rev=c412c9e4bf7aecee0f8511e2b7434b00fc9a70d8#c412c9e4bf7aecee0f8511e2b7434b00fc9a70d8"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "07f3f4b67ccf571f183d3695aa6b9d6f996864c31782a480e97a23ed0f2f6f18"
 dependencies = [
  "geo",
  "once_cell",
  "rand 0.8.8",
  "serde",
-]
-
-[[package]]
-name = "spatialbench-arrow"
-version = "0.3.0"
-source = "git+https://github.com/apache/sedona-spatialbench?rev=c412c9e4bf7aecee0f8511e2b7434b00fc9a70d8#c412c9e4bf7aecee0f8511e2b7434b00fc9a70d8"
-dependencies = [
- "arrow 59.3.2",
- "geo",
- "geozero",
- "spatialbench",
 ]
 
 [[package]]
@@ -11149,6 +11126,7 @@ dependencies = [
  "geo-traits",
  "geoarrow",
  "geoarrow-cast",
+ "geozero",
  "get_dir",
  "glob",
  "humansize",
@@ -11169,7 +11147,6 @@ dependencies = [
  "serde",
  "serde_json",
  "spatialbench",
- "spatialbench-arrow",
  "sysinfo",
  "tabled",
  "target-lexicon",

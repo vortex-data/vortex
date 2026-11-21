@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! SpatialBench WKB base-table generation via the `spatialbench` crates (a tpchgen-rs fork).
+//! SpatialBench WKB base-table generation via the `spatialbench` generators (a tpchgen-rs fork).
 //! Geometry is emitted as WKB, which DuckDB reads directly as `GEOMETRY` via `ST_GeomFromWKB`.
 
 use std::fs;
@@ -16,14 +16,12 @@ use parquet::file::metadata::KeyValue;
 use spatialbench::generators::BuildingGenerator;
 use spatialbench::generators::CustomerGenerator;
 use spatialbench::generators::TripGenerator;
-use spatialbench_arrow::BuildingArrow;
-use spatialbench_arrow::CustomerArrow;
-use spatialbench_arrow::RecordBatchIterator;
-use spatialbench_arrow::TripArrow;
 use tokio::fs::File as TokioFile;
 use tokio::process::Command;
 use tracing::info;
 
+use super::batches;
+use super::batches::RecordBatches;
 use super::table::Table;
 use crate::Format;
 use crate::utils::file::idempotent_async;
@@ -34,27 +32,22 @@ use crate::utils::parquet::parquet_writer_properties;
 const BATCH_SIZE: usize = 8192 * 64;
 
 impl Table {
-    /// Batch iterator for one partition of this table, from the `spatialbench` crates. Only called
-    /// for generated tables (see [`Table::is_generated`]).
-    fn batch_iterator(
-        self,
-        scale_factor: f64,
-        part: i32,
-        part_count: i32,
-    ) -> Box<dyn RecordBatchIterator> {
+    /// Record batches of one partition of this table, from the `spatialbench` generators. Only
+    /// called for generated tables (see [`Table::is_generated`]).
+    fn batches(self, scale_factor: f64, part: i32, part_count: i32) -> Box<dyn RecordBatches> {
         match self {
-            Table::Trip => Box::new(
-                TripArrow::new(TripGenerator::new(scale_factor, part, part_count))
-                    .with_batch_size(BATCH_SIZE),
-            ),
-            Table::Building => Box::new(
-                BuildingArrow::new(BuildingGenerator::new(scale_factor, part, part_count))
-                    .with_batch_size(BATCH_SIZE),
-            ),
-            Table::Customer => Box::new(
-                CustomerArrow::new(CustomerGenerator::new(scale_factor, part, part_count))
-                    .with_batch_size(BATCH_SIZE),
-            ),
+            Table::Trip => Box::new(batches::trip(
+                TripGenerator::new(scale_factor, part, part_count),
+                BATCH_SIZE,
+            )),
+            Table::Building => Box::new(batches::building(
+                BuildingGenerator::new(scale_factor, part, part_count),
+                BATCH_SIZE,
+            )),
+            Table::Customer => Box::new(batches::customer(
+                CustomerGenerator::new(scale_factor, part, part_count),
+                BATCH_SIZE,
+            )),
             Table::Zone => unreachable!("zone is sourced externally, not generated in-process"),
         }
     }
@@ -86,16 +79,16 @@ pub async fn generate_tables(scale_factor: &str, output_dir: PathBuf) -> Result<
                     "Generating SpatialBench table"
                 );
 
-                let iter = table.batch_iterator(scale_factor, part, part_count);
-                let schema = Arc::clone(iter.schema());
+                let batches = table.batches(scale_factor, part, part_count);
+                let schema = Arc::clone(batches.schema());
 
                 let file = TokioFile::create(&path).await?;
                 let props = parquet_writer_properties()
                     .set_max_row_group_row_count(Some(LOCAL_ROW_GROUP_ROWS))
                     .build();
                 let mut writer = AsyncArrowWriter::try_new(file, schema, Some(props))?;
-                for batch in iter {
-                    writer.write(&batch).await?;
+                for batch in batches {
+                    writer.write(&batch?).await?;
                 }
                 // Tag geometry columns with GeoParquet `geo` metadata so DuckDB's `read_parquet`
                 // surfaces them as `GEOMETRY` directly.
