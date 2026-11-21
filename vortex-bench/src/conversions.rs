@@ -72,6 +72,7 @@ use crate::CompactionStrategy;
 use crate::Format;
 use crate::SESSION;
 use crate::utils::file::idempotent_async;
+use crate::utils::parquet::LOCAL_ROW_GROUP_ROWS;
 use crate::utils::parquet::is_zstd;
 use crate::utils::parquet::parquet_writer_properties;
 
@@ -430,8 +431,9 @@ pub async fn write_parquet_as_vortex(
 
 /// Add GeoParquet `geo` file metadata to externally-sourced parquet we don't generate (e.g. SpatialBench `zone`).
 ///
-/// The file is rewritten with zstd unless it already has both the metadata and zstd, so a file
-/// tagged before the benchmarks wrote zstd is compressed too.
+/// The file is rewritten with the shared Parquet settings, in local row groups, unless it already
+/// has the metadata, zstd, and no row group larger than a local one. So a file tagged before the
+/// benchmarks wrote zstd or local row groups is written again too.
 pub async fn add_geoparquet_metadata(
     parquet_path: &Path,
     geoparquet_json: &str,
@@ -442,7 +444,11 @@ pub async fn add_geoparquet_metadata(
         .file_metadata()
         .key_value_metadata()
         .is_some_and(|kvs| kvs.iter().any(|kv| kv.key == "geo"));
-    if already_tagged && is_zstd(metadata) {
+    let local_row_groups = metadata
+        .row_groups()
+        .iter()
+        .all(|row_group| row_group.num_rows() <= LOCAL_ROW_GROUP_ROWS as i64);
+    if already_tagged && is_zstd(metadata) && local_row_groups {
         return Ok(());
     }
 
@@ -450,8 +456,10 @@ pub async fn add_geoparquet_metadata(
     let mut reader = builder.build()?;
 
     let tmp_path = parquet_path.with_extension("parquet.tmp");
-    // Rewrite with the zstd settings every benchmark writes, not parquet-rs's default (none).
-    let props = parquet_writer_properties().build();
+    // The settings every benchmark writes, not parquet-rs's defaults (no compression).
+    let props = parquet_writer_properties()
+        .set_max_row_group_row_count(Some(LOCAL_ROW_GROUP_ROWS))
+        .build();
     let mut writer =
         AsyncArrowWriter::try_new(File::create(&tmp_path).await?, schema, Some(props))?;
     while let Some(batch) = reader.try_next().await? {
@@ -612,6 +620,40 @@ mod tests {
             Compression::ZSTD(_)
         ));
         assert_eq!(metadata.file_metadata().num_rows(), 1000);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn geoparquet_tagging_rewrites_large_row_groups_as_local_ones() -> anyhow::Result<()> {
+        let dir = tempfile::tempdir()?;
+        let path = dir.path().join("zone.parquet");
+        let schema = Arc::new(Schema::new(vec![Field::new("id", DataType::Int64, false)]));
+        let batch = RecordBatch::try_new(
+            Arc::clone(&schema),
+            vec![Arc::new(Int64Array::from_iter_values(0..200_000))],
+        )?;
+        // Tagged and zstd, but in one row group larger than a local one.
+        let props = parquet_writer_properties()
+            .set_max_row_group_row_count(Some(1024 * 1024))
+            .set_key_value_metadata(Some(vec![KeyValue::new(
+                "geo".to_string(),
+                Some("{}".to_string()),
+            )]))
+            .build();
+        let mut writer = ArrowWriter::try_new(fs::File::create(&path)?, schema, Some(props))?;
+        writer.write(&batch)?;
+        writer.close()?;
+
+        add_geoparquet_metadata(&path, "{}").await?;
+
+        let reader = SerializedFileReader::new(fs::File::open(&path)?)?;
+        let rows: Vec<i64> = reader
+            .metadata()
+            .row_groups()
+            .iter()
+            .map(|row_group| row_group.num_rows())
+            .collect();
+        assert_eq!(rows, vec![122_880, 200_000 - 122_880]);
         Ok(())
     }
 
