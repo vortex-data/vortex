@@ -112,6 +112,7 @@ use datafusion_common::stats::Precision as DFPrecision;
 use vortex::expr::stats::Precision;
 
 pub mod convert;
+mod df_expression;
 mod persistent;
 mod row_index;
 pub mod v2;
@@ -119,6 +120,7 @@ pub mod v2;
 #[cfg(test)]
 mod tests;
 
+pub use df_expression::df_expression;
 pub use persistent::*;
 pub use row_index::row_index;
 
