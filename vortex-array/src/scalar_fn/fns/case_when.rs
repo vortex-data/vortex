@@ -513,6 +513,7 @@ mod tests {
     use crate::expr::proto::ExprSerializeProtoExt;
     use crate::expr::root;
     use crate::expr::test_harness;
+    use crate::expr::try_nested_case_when;
     use crate::scalar::Scalar;
     use crate::scalar_fn::ScalarFnVTableExt;
     use crate::scalar_fn::VecExecutionArgs;
@@ -1130,6 +1131,33 @@ mod tests {
 
         let result = apply_expr(&expr, &test_array);
         assert_arrays_eq!(result, buffer![10i32, 0, 30, 0, 0].into_array(), &mut ctx);
+    }
+
+    #[test]
+    fn try_nested_case_when_rejects_empty_pairs() {
+        let err = try_nested_case_when(vec![], Some(lit(0i32))).unwrap_err();
+        assert!(
+            err.to_string().contains("at least one when/then pair"),
+            "unexpected error: {err}"
+        );
+        assert!(try_nested_case_when(vec![], None).is_err());
+    }
+
+    #[test]
+    fn try_nested_case_when_matches_nested_case_when() -> VortexResult<()> {
+        let pairs = vec![
+            (eq(get_item("value", root()), lit(1i32)), lit(10i32)),
+            (eq(get_item("value", root()), lit(3i32)), lit(30i32)),
+        ];
+        let expr = try_nested_case_when(pairs.clone(), Some(lit(0i32)))?;
+        assert_eq!(expr, nested_case_when(pairs, Some(lit(0i32))));
+        Ok(())
+    }
+
+    #[test]
+    #[should_panic(expected = "at least one when/then pair")]
+    fn nested_case_when_panics_on_empty_pairs() {
+        drop(nested_case_when(vec![], None));
     }
 
     #[test]

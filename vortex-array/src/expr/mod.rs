@@ -110,6 +110,7 @@ pub use exprs::root;
 pub use exprs::select;
 pub use exprs::select_exclude;
 pub use exprs::strpos;
+pub use exprs::try_nested_case_when;
 pub use exprs::var;
 pub use exprs::variant_get;
 pub use exprs::zip_expr;

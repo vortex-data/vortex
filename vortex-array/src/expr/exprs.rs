@@ -7,6 +7,7 @@ use std::sync::Arc;
 
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 use vortex_utils::iter::ReduceBalancedIterExt;
@@ -254,33 +255,58 @@ pub fn bound_case_when_no_else(
 }
 
 /// Creates an n-ary CASE WHEN expression from WHEN/THEN pairs and an optional ELSE value.
+///
+/// # Panics
+///
+/// Panics if `when_then_pairs` is empty or has more than `u32::MAX` pairs. Use
+/// [`try_nested_case_when`] when the pairs come from input the caller does not control.
 pub fn nested_case_when(
     when_then_pairs: Vec<(Expression, Expression)>,
     else_value: Option<Expression>,
 ) -> Expression {
-    assert!(
+    try_nested_case_when(when_then_pairs, else_value)
+        .vortex_expect("nested_case_when requires between 1 and u32::MAX when/then pairs")
+}
+
+/// Creates an n-ary CASE WHEN expression from WHEN/THEN pairs and an optional ELSE value.
+///
+/// Returns an error if `when_then_pairs` is empty or has more than `u32::MAX` pairs.
+///
+/// ```rust
+/// # use vortex_array::expr::{lit, try_nested_case_when};
+/// assert!(try_nested_case_when(vec![(lit(true), lit(1_i32))], Some(lit(0_i32))).is_ok());
+/// assert!(try_nested_case_when(vec![], Some(lit(0_i32))).is_err());
+/// ```
+pub fn try_nested_case_when(
+    when_then_pairs: Vec<(Expression, Expression)>,
+    else_value: Option<Expression>,
+) -> VortexResult<Expression> {
+    vortex_ensure!(
         !when_then_pairs.is_empty(),
         "nested_case_when requires at least one when/then pair"
     );
+    let Ok(num_when_then_pairs) = u32::try_from(when_then_pairs.len()) else {
+        vortex_bail!(
+            "nested_case_when has too many when/then pairs: {}",
+            when_then_pairs.len()
+        );
+    };
 
     let has_else = else_value.is_some();
     let mut children = Vec::with_capacity(when_then_pairs.len() * 2 + usize::from(has_else));
-    for (condition, then_value) in &when_then_pairs {
-        children.push(condition.clone());
-        children.push(then_value.clone());
+    for (condition, then_value) in when_then_pairs {
+        children.push(condition);
+        children.push(then_value);
     }
     if let Some(else_expr) = else_value {
         children.push(else_expr);
     }
 
-    let Ok(num_when_then_pairs) = u32::try_from(when_then_pairs.len()) else {
-        vortex_panic!("nested_case_when has too many when/then pairs");
-    };
     let options = CaseWhenOptions {
         num_when_then_pairs,
         has_else,
     };
-    CaseWhen.new_expr(options, children)
+    Ok(CaseWhen.new_expr(options, children))
 }
 
 /// Creates a bound n-ary CASE WHEN expression from WHEN/THEN pairs and an optional ELSE value.
