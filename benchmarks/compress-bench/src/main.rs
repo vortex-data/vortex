@@ -62,7 +62,7 @@ use vortex_bench::statpopgen::StatPopGenBenchmark;
 use vortex_bench::v3;
 
 /// The size record name of Parquet as DuckDB writes it, with Snappy, beside `parquet`, which is
-/// zstd level 3. It is the same writer that `data-gen --size-formats parquet-snappy` uses.
+/// zstd level 3.
 const PARQUET_SNAPPY_FORMAT: &str = "parquet-snappy";
 
 #[derive(Parser, Debug)]

@@ -7,14 +7,11 @@
 //! No query reads these copies. `data-gen --size-formats` writes them only so that
 //! `scripts/capture-file-sizes.py` records their sizes.
 //!
-//! - [`SizeFormat::ParquetSnappy`]: the same rows as DuckDB writes them by default, with Snappy,
-//!   DuckDB's row groups, and its dictionaries, statistics, and Bloom filters. This is Parquet as
-//!   an analytics engine writes it for speed, where the base files are zstd level 3 for size. The
-//!   `duckdb` CLI writes it.
 //! - [`SizeFormat::ArrowIpc`]: uncompressed Arrow IPC.
 //!
 //! Lance is also written for size only, by `lance-bench --data-only`, because only that binary
-//! depends on Lance.
+//! depends on Lance. [`write_duckdb_snappy_parquet`] writes the Snappy Parquet whose size
+//! `compress-bench` records.
 
 use std::fs;
 use std::fs::File;
@@ -37,9 +34,6 @@ use crate::idempotent;
 /// A format that is written only to record its file size. No query reads it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
 pub enum SizeFormat {
-    /// Parquet as DuckDB writes it, with Snappy. See [`write_duckdb_snappy_parquet`].
-    #[clap(name = "parquet-snappy")]
-    ParquetSnappy,
     /// Uncompressed Arrow IPC, as `compress-bench` writes it.
     #[clap(name = "arrow-ipc")]
     ArrowIpc,
@@ -48,12 +42,6 @@ pub enum SizeFormat {
 /// Write `format` from the base Parquet files in `base_path`.
 pub fn write_size_format(base_path: &Path, format: SizeFormat) -> Result<()> {
     match format {
-        SizeFormat::ParquetSnappy => copy_parquet_directory(
-            base_path,
-            "parquet-snappy",
-            Format::Parquet.ext(),
-            write_duckdb_snappy_parquet,
-        ),
         SizeFormat::ArrowIpc => copy_parquet_directory(
             base_path,
             Format::ArrowIpc.name(),
@@ -115,7 +103,8 @@ fn write_arrow_ipc(input: &Path, output: &Path) -> Result<()> {
 
 /// Write the Parquet file `input` again as DuckDB writes Parquet: `COPY ... (FORMAT parquet,
 /// COMPRESSION snappy)` in the `duckdb` CLI, which must be on `PATH`. Every setting other than the
-/// codec is DuckDB's default, so the file is what a DuckDB user gets. The codec is named because
+/// codec is DuckDB's default, so the file is what a DuckDB user gets: DuckDB's row groups, and its
+/// dictionaries, statistics, and Bloom filters. The codec is named because
 /// it is the one the `parquet-snappy` name promises, and DuckDB's default could change.
 pub fn write_duckdb_snappy_parquet(input: &Path, output: &Path) -> Result<()> {
     let sql = format!(
@@ -195,9 +184,9 @@ mod tests {
         let base = tempfile::tempdir()?;
         let expected = write_base(base.path(), 1000, 300)?;
 
-        write_size_format(base.path(), SizeFormat::ParquetSnappy)?;
+        let output = base.path().join("t.snappy.parquet");
+        write_duckdb_snappy_parquet(&base.path().join("parquet").join("t.parquet"), &output)?;
 
-        let output = base.path().join("parquet-snappy").join("t.parquet");
         let metadata = SerializedFileReader::new(File::open(&output)?)?
             .metadata()
             .clone();

@@ -71,12 +71,10 @@ class ScanEngine(Enum):
 class SizeFormat(Enum):
     """A format a benchmark writes only to record its file sizes. No query reads it.
 
-    `vx-bench write-size-formats` writes Snappy Parquet and Arrow IPC with `data-gen --size-formats`,
-    and Lance with `lance-bench --data-only`.
+    `vx-bench write-size-formats` writes Arrow IPC with `data-gen --size-formats`, and Lance with
+    `lance-bench --data-only`.
     """
 
-    # The base Parquet files as DuckDB writes them, with Snappy.
-    PARQUET_SNAPPY = "parquet-snappy"
     ARROW_IPC = "arrow-ipc"
     LANCE = "lance"
 

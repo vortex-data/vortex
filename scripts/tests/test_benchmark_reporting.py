@@ -941,7 +941,6 @@ def test_capture_file_sizes_names_parquet_by_its_directory(tmp_path: Path) -> No
     files = {
         # ClickBench's own files are Snappy, and they are its `parquet`.
         ("clickbench_partitioned", "parquet", "hits_0.parquet"): 40,
-        ("clickbench_partitioned", "parquet-snappy", "hits_0.parquet"): 50,
         ("clickbench_partitioned", "arrow-ipc", "hits_0.arrow"): 80,
     }
     for parts, size in files.items():
@@ -971,7 +970,6 @@ def test_capture_file_sizes_names_parquet_by_its_directory(tmp_path: Path) -> No
     assert sorted((r["file_size"]["format"], r["value"]) for r in records) == [
         ("arrow-ipc", 80),
         ("parquet", 40),
-        ("parquet-snappy", 50),
     ]
 
 

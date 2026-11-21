@@ -231,8 +231,7 @@ These CI checks are the ones most often missed when adding files rather than edi
   - DuckDB: `(FORMAT parquet, COMPRESSION zstd, COMPRESSION_LEVEL 3)`
   - tpchgen-cli: `parquet --compression='ZSTD(3)'`
 - Benchmarks that deliberately compare Parquet codecs, such as the GPU compress benchmark's
-  `--codec` and the `parquet-snappy` copy that `data-gen --size-formats` writes only for its
-  size, are exempt.
+  `--codec` and the Snappy Parquet whose size `compress-bench` records, are exempt.
 - Generated Parquet that queries read from local disk has row groups of 122,880 rows
   (`LOCAL_ROW_GROUP_ROWS`, DuckDB's default). Generated Parquet that queries read from S3 has
   row groups of 1,048,576 rows (`S3_ROW_GROUP_ROWS`, parquet-rs's default): the CI matrix passes
