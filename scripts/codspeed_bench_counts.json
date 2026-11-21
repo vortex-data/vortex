@@ -38,7 +38,7 @@
     "interleave": 18,
     "kleene_bool": 14,
     "like": 7,
-    "list_contains_set": 4,
+    "list_contains_set": 6,
     "list_length": 6,
     "list_sum": 11,
     "listview_builder_extend": 4,
