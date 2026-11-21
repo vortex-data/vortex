@@ -23,6 +23,7 @@ use spatialbench_arrow::TripArrow;
 use spatialbench_parquet::arrow::AsyncArrowWriter;
 use spatialbench_parquet::basic::Compression;
 use spatialbench_parquet::basic::ZstdLevel;
+use spatialbench_parquet::file::properties::EnabledStatistics;
 use spatialbench_parquet::file::properties::WriterProperties;
 use spatialbench_parquet::format::KeyValue;
 use tokio::fs::File as TokioFile;
@@ -32,6 +33,8 @@ use tracing::info;
 use super::table::Table;
 use crate::Format;
 use crate::utils::file::idempotent_async;
+use crate::utils::parquet::DATA_PAGE_ROW_COUNT_LIMIT;
+use crate::utils::parquet::DATA_PAGE_SIZE_LIMIT;
 use crate::utils::parquet::DICTIONARY_PAGE_SIZE_LIMIT;
 use crate::utils::parquet::LOCAL_ROW_GROUP_ROWS;
 
@@ -100,7 +103,9 @@ pub async fn generate_tables(scale_factor: &str, output_dir: PathBuf) -> Result<
                 let props = WriterProperties::builder()
                     .set_compression(Compression::ZSTD(ZstdLevel::try_new(3)?))
                     .set_dictionary_page_size_limit(DICTIONARY_PAGE_SIZE_LIMIT)
-                    .set_data_page_row_count_limit(usize::MAX)
+                    .set_statistics_enabled(EnabledStatistics::Page)
+                    .set_data_page_size_limit(DATA_PAGE_SIZE_LIMIT)
+                    .set_data_page_row_count_limit(DATA_PAGE_ROW_COUNT_LIMIT)
                     .set_max_row_group_size(LOCAL_ROW_GROUP_ROWS)
                     .build();
                 let mut writer = AsyncArrowWriter::try_new(file, schema, Some(props))?;

@@ -207,6 +207,7 @@ jobs:
                   hashFiles(
                     'vortex-bench/src/datasets/**',
                     'vortex-bench/src/random_access/**',
+                    'vortex-bench/src/utils/parquet.rs',
                     'scripts/litdata-random-access.py',
                     'benchmarks/random-access-bench/src/litdata.rs') }}
 

@@ -11,6 +11,7 @@ use parquet::basic::Compression;
 use parquet::basic::ZstdLevel;
 use parquet::file::metadata::ParquetMetaData;
 use parquet::file::metadata::ParquetMetaDataReader;
+use parquet::file::properties::EnabledStatistics;
 use parquet::file::properties::WriterProperties;
 use parquet::file::properties::WriterPropertiesBuilder;
 use tracing::info;
@@ -28,29 +29,54 @@ pub const S3_ROW_GROUP_ROWS: usize = 1024 * 1024;
 /// limit approximates the per-column choice that DuckDB's writer makes.
 pub const DICTIONARY_PAGE_SIZE_LIMIT: usize = 64 * 1024;
 
-/// Writer settings for generated benchmark Parquet: zstd level 3, pages bounded by bytes only,
-/// and small dictionaries.
+/// Most rows in a data page: parquet-rs's default. parquet-rs checks it after every 1,024 rows, so
+/// full pages hold 20,480 rows.
+pub const DATA_PAGE_ROW_COUNT_LIMIT: usize = 20_000;
+
+/// Most bytes in a data page: parquet-rs's default.
+pub const DATA_PAGE_SIZE_LIMIT: usize = 1024 * 1024;
+
+/// The version of the layout that [`parquet_writer_properties`] writes. Raise it when a setting
+/// changes, so that [`prepare_parquet_dir`] removes local data in the old layout.
+const LAYOUT_VERSION: u32 = 2;
+
+/// Writer settings for all Parquet that the benchmarks generate:
 ///
-/// Row group size is left to the caller.
+/// - zstd level 3. parquet-rs's default is no compression.
+/// - Dictionaries of at most [`DICTIONARY_PAGE_SIZE_LIMIT`].
+/// - Page statistics, so each file has a page index: the column index and the offset index. With
+///   the offset index, a point lookup fetches and decodes only the pages that hold its rows.
+/// - Data pages of at most [`DATA_PAGE_SIZE_LIMIT`] and about [`DATA_PAGE_ROW_COUNT_LIMIT`] rows.
+///
+/// The page settings are parquet-rs's defaults, set here so that a change of default cannot change
+/// the benchmarks. Against pages bounded by bytes only, the row limit made random access lookups
+/// up to 4 times faster, and cost no space or scan time on TPC-H SF10.
+///
+/// Row group size is left to the caller: [`LOCAL_ROW_GROUP_ROWS`] or [`S3_ROW_GROUP_ROWS`].
 pub fn parquet_writer_properties() -> WriterPropertiesBuilder {
     WriterProperties::builder()
         .set_compression(Compression::ZSTD(
             ZstdLevel::try_new(3).unwrap_or_else(|_| unreachable!("3 is a valid zstd level")),
         ))
         .set_dictionary_page_size_limit(DICTIONARY_PAGE_SIZE_LIMIT)
-        // The default 20,000-row page limit splits row groups into many small pages, which gives
-        // zstd too little context to compress repeating columns.
-        .set_data_page_row_count_limit(usize::MAX)
+        .set_statistics_enabled(EnabledStatistics::Page)
+        .set_data_page_size_limit(DATA_PAGE_SIZE_LIMIT)
+        .set_data_page_row_count_limit(DATA_PAGE_ROW_COUNT_LIMIT)
+}
+
+/// The text of the marker beside a `parquet` directory for row groups of `row_group_rows` rows.
+fn layout(row_group_rows: usize) -> String {
+    format!("layout {LAYOUT_VERSION}, row groups of {row_group_rows} rows\n")
 }
 
 /// Make `parquet_dir` ready for generated Parquet in row groups of `row_group_rows` rows.
 ///
-/// The generators do not write a file that exists, so Parquet generated before with other row
-/// groups would stay. A marker file beside the directory, `parquet.row-group-rows`, records the
-/// row groups its files have. If the directory exists and the marker is missing or records another
-/// size, this removes it, so that the generator writes it again. It also removes the other format
-/// directories beside it, such as `vortex-file-compressed`, because they were converted from the
-/// old Parquet and their conversions skip files that exist.
+/// The generators do not write a file that exists, so Parquet generated before in another layout
+/// would stay. A marker file beside the directory, `parquet.layout`, records the layout of its
+/// files: the [`LAYOUT_VERSION`] and the row groups. If the directory exists and the marker is
+/// missing or records another layout, this removes it, so that the generator writes it again. It
+/// also removes the other format directories beside it, such as `vortex-file-compressed`, because
+/// they were converted from the old Parquet and their conversions skip files that exist.
 pub fn prepare_parquet_dir(parquet_dir: &Path, row_group_rows: usize) -> anyhow::Result<()> {
     prepare_parquet_dir_keeping(parquet_dir, row_group_rows, |_| false)
 }
@@ -62,17 +88,17 @@ pub fn prepare_parquet_dir_keeping(
     row_group_rows: usize,
     keep: impl Fn(&Path) -> bool,
 ) -> anyhow::Result<()> {
-    let marker = parquet_dir.with_extension("row-group-rows");
-    let recorded = fs::read_to_string(&marker)
-        .ok()
-        .and_then(|text| text.trim().parse::<usize>().ok());
-    if parquet_dir.exists() && recorded != Some(row_group_rows) {
+    let marker = parquet_dir.with_extension("layout");
+    let layout = layout(row_group_rows);
+    let recorded = fs::read_to_string(&marker).ok();
+    if parquet_dir.exists() && recorded.as_deref() != Some(layout.as_str()) {
         let data_dir = parquet_dir
             .parent()
             .ok_or_else(|| anyhow::anyhow!("{} has no parent", parquet_dir.display()))?;
         info!(
-            "Removing the data in {}: its Parquet row groups are not {row_group_rows} rows",
-            data_dir.display()
+            "Removing the data in {}: its Parquet layout is not {}",
+            data_dir.display(),
+            layout.trim()
         );
         for entry in fs::read_dir(data_dir)? {
             let path = entry?.path();
@@ -93,7 +119,7 @@ pub fn prepare_parquet_dir_keeping(
         }
     }
     fs::create_dir_all(parquet_dir)?;
-    fs::write(&marker, row_group_rows.to_string())?;
+    fs::write(&marker, layout)?;
     Ok(())
 }
 
@@ -160,8 +186,8 @@ mod tests {
         assert!(parquet_dir.exists());
         assert!(!file.exists());
         assert_eq!(
-            fs::read_to_string(base.path().join("parquet.row-group-rows"))?,
-            S3_ROW_GROUP_ROWS.to_string()
+            fs::read_to_string(base.path().join("parquet.layout"))?,
+            layout(S3_ROW_GROUP_ROWS)
         );
         Ok(())
     }

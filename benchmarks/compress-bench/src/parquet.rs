@@ -29,7 +29,6 @@ use parquet::basic::Compression;
 use parquet::basic::ZstdLevel;
 use parquet::file::metadata::RowGroupMetaData;
 use parquet::file::properties::DEFAULT_MAX_ROW_GROUP_ROW_COUNT;
-use parquet::file::properties::WriterProperties;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use vortex_bench::Format;
@@ -39,6 +38,7 @@ use vortex_bench::compress::Compressor;
 use vortex_bench::compress::Uncompressed;
 use vortex_bench::compress::read_projection;
 use vortex_bench::parquet_copies::write_duckdb_snappy_parquet;
+use vortex_bench::utils::parquet::parquet_writer_properties;
 
 /// Compressor implementation for Parquet format with ZSTD level 3 compression.
 pub struct ParquetCompressor {
@@ -149,7 +149,7 @@ pub async fn parquet_compress_write(
     compression: Compression,
     buf: &mut Vec<u8>,
 ) -> anyhow::Result<usize> {
-    let writer_properties = WriterProperties::builder()
+    let writer_properties = parquet_writer_properties()
         .set_compression(compression)
         .build();
     let max_rows = writer_properties
@@ -454,6 +454,7 @@ mod tests {
     use arrow_schema::DataType;
     use arrow_schema::Field;
     use parquet::file::metadata::ParquetMetaData;
+    use parquet::file::properties::WriterProperties;
     use rstest::rstest;
 
     use super::*;
@@ -503,7 +504,7 @@ mod tests {
         let parallel = Bytes::from(parallel);
 
         let mut sequential = Vec::new();
-        let props = WriterProperties::builder()
+        let props = parquet_writer_properties()
             .set_compression(compression)
             .build();
         let mut writer = ArrowWriter::try_new(&mut sequential, Arc::clone(&schema), Some(props))?;

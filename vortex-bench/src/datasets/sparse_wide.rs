@@ -13,9 +13,6 @@ use arrow_array::cast::AsArray;
 use arrow_schema::Field;
 use async_trait::async_trait;
 use parquet::arrow::ArrowWriter;
-use parquet::basic::Compression;
-use parquet::basic::ZstdLevel;
-use parquet::file::properties::WriterProperties;
 use rand::RngExt;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
@@ -39,6 +36,7 @@ use crate::IdempotentPath;
 use crate::SESSION;
 use crate::datasets::Dataset;
 use crate::idempotent_async;
+use crate::utils::parquet::parquet_writer_properties;
 
 /// Synthetic sparse-wide workloads in the compression benchmark's CPU suite.
 #[derive(Clone, Copy)]
@@ -187,9 +185,7 @@ fn write_parquet(path: &Path, array: ArrayRef, ctx: &mut ExecutionCtx) -> Result
     let root = Field::new_struct("", schema.fields, false);
     let arrow = array.execute_arrow(Some(&root), ctx)?;
     let batch = RecordBatch::from(arrow.as_struct());
-    let properties = WriterProperties::builder()
-        .set_compression(Compression::ZSTD(ZstdLevel::try_new(3)?))
-        .build();
+    let properties = parquet_writer_properties().build();
     let mut writer = ArrowWriter::try_new(File::create(path)?, batch.schema(), Some(properties))?;
     writer.write(&batch)?;
     writer.close()?;

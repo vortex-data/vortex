@@ -232,16 +232,15 @@ These CI checks are the ones most often missed when adding files rather than edi
   - tpchgen-cli: `parquet --compression='ZSTD(3)'`
 - Benchmarks that deliberately compare Parquet codecs, such as the GPU compress benchmark's
   `--codec` and the Snappy Parquet whose size `compress-bench` records, are exempt.
-- The SQL benchmarks that write Parquet with parquet-rs (TPC-H, TPC-DS, nested TPC-H, JOB,
-  Polar Signals, and SpatialBench) use `parquet_writer_properties()`, with row groups of 122,880
-  rows (`LOCAL_ROW_GROUP_ROWS`, DuckDB's default) on local disk. TPC-H, TPC-DS, and nested TPC-H
-  also run on S3, with row groups of 1,048,576 rows (`S3_ROW_GROUP_ROWS`, parquet-rs's default):
-  the CI matrix passes `--opt row-group-rows=1048576` to `data-gen` for S3 entries. The suites
-  that DuckDB's `COPY` writes get DuckDB's 122,880-row groups by default.
-- The random access benchmark writes all its Parquet with `random_access_writer_properties`, on
-  local disk and S3 alike: a page index and pages of about 20,000 rows. A lookup reads only the
-  pages that hold its rows, so the row-group size matters little, and the S3 job reads the same
-  files that the local job prepares.
+- Every parquet-rs writer of benchmark data uses `parquet_writer_properties()` in
+  `vortex-bench/src/utils/parquet.rs`: zstd level 3, 64 KiB dictionaries, a page index, and
+  parquet-rs's default pages of at most 1 MiB and about 20,000 rows. Only the row-group size
+  differs. SQL data has row groups of 122,880 rows (`LOCAL_ROW_GROUP_ROWS`, DuckDB's default) on
+  local disk and 1,048,576 rows (`S3_ROW_GROUP_ROWS`, parquet-rs's default) on S3: the CI matrix
+  passes `--opt row-group-rows=1048576` to `data-gen` for S3 entries. Random access uses the S3
+  size on local disk too, because its S3 job reads the files that its local job prepares. When a
+  setting changes, raise `LAYOUT_VERSION` so that local data is generated again. The suites that
+  DuckDB's `COPY` writes get DuckDB's 122,880-row groups by default.
 
 ## Common Mistakes
 

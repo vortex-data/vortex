@@ -86,7 +86,7 @@ pub async fn nested_lists_parquet() -> Result<PathBuf> {
             let mut writer = ArrowWriter::try_new(
                 file,
                 Arc::clone(&schema),
-                Some(random_access_writer_properties()?),
+                Some(random_access_writer_properties()),
             )?;
             let mut rng = StdRng::seed_from_u64(42);
 

@@ -34,9 +34,6 @@ use parquet::arrow::ArrowWriter;
 use parquet::arrow::ParquetRecordBatchStreamBuilder;
 use parquet::arrow::ProjectionMask;
 use parquet::arrow::async_reader;
-use parquet::basic::Compression;
-use parquet::basic::ZstdLevel;
-use parquet::file::properties::WriterProperties;
 use tokio::fs::File;
 use url::Url;
 use vortex::VortexSessionDefault;
@@ -58,6 +55,7 @@ use vortex_bench::datasets::data_downloads::download_data;
 use vortex_bench::datasets::tpch_l_comment::TPCHLCommentCanonical;
 use vortex_bench::enable_unstable_encodings;
 use vortex_bench::idempotent_async;
+use vortex_bench::utils::parquet::parquet_writer_properties;
 use vortex_cloud::hf::make_hf_store_from_url;
 use vortex_fsst::FSST;
 use vortex_onpair::Config;
@@ -453,9 +451,7 @@ async fn cache_hf_column(source: &HfColumn) -> Result<PathBuf> {
         }
         let mut reader = builder.build()?;
 
-        let props = WriterProperties::builder()
-            .set_compression(Compression::ZSTD(ZstdLevel::try_new(3)?))
-            .build();
+        let props = parquet_writer_properties().build();
         let mut writer = ArrowWriter::try_new(
             std::fs::File::create(&tmp)?,
             Arc::clone(reader.schema()),
