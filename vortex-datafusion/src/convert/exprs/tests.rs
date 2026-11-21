@@ -52,6 +52,9 @@ use datafusion_physical_expr::PhysicalExpr;
 use datafusion_physical_expr::expressions::DynamicFilterPhysicalExpr;
 use datafusion_physical_expr::projection::ProjectionExpr;
 use datafusion_physical_plan::expressions as df_expr;
+use datafusion_physical_plan::expressions::BinaryExpr;
+use datafusion_physical_plan::expressions::Column;
+use datafusion_physical_plan::expressions::Literal as DFLiteral;
 use insta::assert_snapshot;
 use rstest::rstest;
 use vortex::array::Canonical;
@@ -3086,5 +3089,51 @@ fn test_fallible_boolean_rhs_is_residual(
     // DataFusion selects the one row that needs RHS evaluation at this selectivity.
     expr.evaluate(&batch)?;
     assert!(!converts(&expr, &batch.schema())?);
+    Ok(())
+}
+
+struct ExactConverter(DefaultExpressionConverter);
+
+impl ExpressionConverter for ExactConverter {
+    fn try_convert(
+        &self,
+        expr: &Arc<dyn PhysicalExpr>,
+        schema: &Schema,
+    ) -> DFResult<Option<Expression>> {
+        self.0.try_convert(expr, schema)
+    }
+}
+
+#[test]
+fn advisory_conversion_default_requires_infallible_evaluation() -> DFResult<()> {
+    let converter = ExactConverter(DefaultExpressionConverter::default());
+    let schema = Schema::new(vec![Field::new("a", DataType::Int32, false)]);
+    let column: Arc<dyn PhysicalExpr> = Arc::new(Column::new("a", 0));
+    let comparison: Arc<dyn PhysicalExpr> = Arc::new(BinaryExpr::new(
+        Arc::clone(&column),
+        DFOperator::Eq,
+        Arc::new(DFLiteral::new(ScalarValue::Int32(Some(1)))),
+    ));
+    assert!(converter.try_convert_dynamic(&comparison, &schema)?.is_some());
+
+    let arithmetic_comparison: Arc<dyn PhysicalExpr> = Arc::new(BinaryExpr::new(
+        Arc::new(BinaryExpr::new(
+            column,
+            DFOperator::Plus,
+            Arc::new(DFLiteral::new(ScalarValue::Int32(Some(1)))),
+        )),
+        DFOperator::Eq,
+        Arc::new(DFLiteral::new(ScalarValue::Int32(Some(1)))),
+    ));
+    assert!(
+        converter
+            .try_convert(&arithmetic_comparison, &schema)?
+            .is_some()
+    );
+    assert!(
+        converter
+            .try_convert_dynamic(&arithmetic_comparison, &schema)?
+            .is_none()
+    );
     Ok(())
 }
