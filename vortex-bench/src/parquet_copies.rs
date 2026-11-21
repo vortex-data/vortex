@@ -8,6 +8,9 @@
 //! `scripts/capture-file-sizes.py` records their sizes.
 //!
 //! - [`SizeFormat::ArrowIpc`]: uncompressed Arrow IPC.
+//! - [`SizeFormat::ParquetSnappy`]: the base Parquet with Snappy in place of zstd level 3, and
+//!   every other writer setting the same. `compress-bench` records the same format for its
+//!   datasets.
 //!
 //! Lance is also written for size only, by `lance-bench --data-only`, because only that binary
 //! depends on Lance.
@@ -22,11 +25,14 @@ use anyhow::Context;
 use anyhow::Result;
 use arrow_ipc::writer::FileWriter;
 use clap::ValueEnum;
+use parquet::arrow::ArrowWriter;
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
+use parquet::basic::Compression;
 use tracing::info;
 
 use crate::Format;
 use crate::idempotent;
+use crate::utils::parquet::parquet_writer_properties;
 
 /// A format that is written only to record its file size. No query reads it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
@@ -34,6 +40,9 @@ pub enum SizeFormat {
     /// Uncompressed Arrow IPC, as `compress-bench` writes it.
     #[clap(name = "arrow-ipc")]
     ArrowIpc,
+    /// The base Parquet with Snappy in place of zstd level 3.
+    #[clap(name = "parquet-snappy")]
+    ParquetSnappy,
 }
 
 /// Write `format` from the base Parquet files in `base_path`.
@@ -45,8 +54,17 @@ pub fn write_size_format(base_path: &Path, format: SizeFormat) -> Result<()> {
             Format::ArrowIpc.ext(),
             write_arrow_ipc,
         ),
+        SizeFormat::ParquetSnappy => copy_parquet_directory(
+            base_path,
+            PARQUET_SNAPPY_DIR,
+            Format::Parquet.ext(),
+            write_snappy_parquet,
+        ),
     }
 }
+
+/// The directory of [`SizeFormat::ParquetSnappy`], beside the base `parquet` directory.
+const PARQUET_SNAPPY_DIR: &str = "parquet-snappy";
 
 /// Write each Parquet file in `{base_path}/parquet/` with `write`, to `{base_path}/{name}/`, with
 /// the extension `ext`.
@@ -98,6 +116,30 @@ fn write_arrow_ipc(input: &Path, output: &Path) -> Result<()> {
     Ok(())
 }
 
+/// Write the Parquet file `input` again with Snappy. Every other setting is the shared writer's,
+/// and the row groups are the input's, so the file differs from `input` only by its codec.
+fn write_snappy_parquet(input: &Path, output: &Path) -> Result<()> {
+    let builder = ParquetRecordBatchReaderBuilder::try_new(File::open(input)?)?;
+    // Every row group but the last is full, so the first holds the input's row group size.
+    let row_group_rows = builder
+        .metadata()
+        .row_groups()
+        .first()
+        .map(|row_group| row_group.num_rows())
+        .context("the Parquet file has no row groups")?;
+    let schema = Arc::clone(builder.schema());
+    let props = parquet_writer_properties()
+        .set_compression(Compression::SNAPPY)
+        .set_max_row_group_row_count(Some(usize::try_from(row_group_rows)?))
+        .build();
+    let mut writer = ArrowWriter::try_new(File::create(output)?, schema, Some(props))?;
+    for batch in builder.build()? {
+        writer.write(&batch?)?;
+    }
+    writer.close()?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use arrow_array::Int64Array;
@@ -107,10 +149,10 @@ mod tests {
     use arrow_schema::DataType;
     use arrow_schema::Field;
     use arrow_schema::Schema;
-    use parquet::arrow::ArrowWriter;
+    use parquet::file::metadata::ParquetMetaData;
 
     use super::*;
-    use crate::utils::parquet::parquet_writer_properties;
+    use crate::utils::parquet::has_current_layout;
 
     /// Write `rows` rows to `{base}/parquet/t.parquet`, in row groups of `row_group_rows`.
     fn write_base(base: &Path, rows: i64, row_group_rows: usize) -> Result<RecordBatch> {
@@ -137,6 +179,42 @@ mod tests {
         writer.write(&batch)?;
         writer.close()?;
         Ok(batch)
+    }
+
+    #[test]
+    fn snappy_parquet_differs_from_the_base_only_by_the_codec() -> Result<()> {
+        let base = tempfile::tempdir()?;
+        let expected = write_base(base.path(), 1000, 300)?;
+
+        write_size_format(base.path(), SizeFormat::ParquetSnappy)?;
+
+        let read = |path: &Path| -> Result<_> {
+            Ok(ParquetRecordBatchReaderBuilder::try_new(File::open(path)?)?)
+        };
+        let input = read(&base.path().join("parquet").join("t.parquet"))?;
+        let output = read(&base.path().join("parquet-snappy").join("t.parquet"))?;
+        let rows = |metadata: &ParquetMetaData| -> Vec<i64> {
+            metadata
+                .row_groups()
+                .iter()
+                .map(|rg| rg.num_rows())
+                .collect()
+        };
+        assert_eq!(rows(output.metadata()), rows(input.metadata()));
+        assert_eq!(rows(input.metadata()), vec![300, 300, 300, 100]);
+        assert!(has_current_layout(output.metadata()));
+        for column in output
+            .metadata()
+            .row_groups()
+            .iter()
+            .flat_map(|rg| rg.columns())
+        {
+            assert_eq!(column.compression(), Compression::SNAPPY);
+        }
+        let batches = output.build()?.collect::<Result<Vec<_>, _>>()?;
+        let actual = arrow_select::concat::concat_batches(&expected.schema(), &batches)?;
+        assert_eq!(actual, expected);
+        Ok(())
     }
 
     #[test]

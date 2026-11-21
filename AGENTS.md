@@ -231,7 +231,8 @@ These CI checks are the ones most often missed when adding files rather than edi
   - DuckDB: `(FORMAT parquet, COMPRESSION zstd, COMPRESSION_LEVEL 3)`
   - tpchgen-cli: `parquet --compression='ZSTD(3)'`
 - Benchmarks that deliberately compare Parquet codecs, such as the GPU compress benchmark's
-  `--codec` and the Snappy Parquet whose size `compress-bench` records, are exempt.
+  `--codec` and the Snappy Parquet whose size `compress-bench` and TPC-DS at SF1 record, are
+  exempt.
 - Every parquet-rs writer of benchmark data uses `parquet_writer_properties()` in
   `vortex-bench/src/utils/parquet.rs`: zstd level 3, 64 KiB dictionaries, a page index, and
   parquet-rs's default pages of at most 1 MiB and about 20,000 rows. Only the row-group size

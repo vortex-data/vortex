@@ -342,7 +342,7 @@ def test_only_develop_tpcds_sf1_writes_size_only_formats(preset: str) -> None:
     writers = {entry["id"]: entry["size_formats"] for entry in _entries(preset) if entry["size_formats"]}
 
     if preset == "develop":
-        assert writers == {"tpcds-nvme": ["arrow-ipc"]}
+        assert writers == {"tpcds-nvme": ["arrow-ipc", "parquet-snappy"]}
     else:
         assert writers == {}
 

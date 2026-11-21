@@ -52,7 +52,8 @@ the common writers are different:
 - `tpchgen-cli`: writes Snappy by default. Use `parquet --compression='ZSTD(3)'`.
 
 Benchmarks that compare Parquet codecs on purpose, such as the compress-bench `--gpu-parquet-codec`
-option and the Snappy Parquet whose size compress-bench records, are exempt.
+option and the Snappy Parquet whose size compress-bench and TPC-DS at SF1 record
+(`parquet-snappy`), are exempt.
 
 ## Parquet layout
 

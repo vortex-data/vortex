@@ -71,12 +71,14 @@ class ScanEngine(Enum):
 class SizeFormat(Enum):
     """A format a benchmark writes only to record its file sizes. No query reads it.
 
-    `vx-bench write-size-formats` writes Arrow IPC with `data-gen --size-formats`, and Lance with
-    `lance-bench --data-only`.
+    `vx-bench write-size-formats` writes Arrow IPC and Snappy Parquet with `data-gen --size-formats`,
+    and Lance with `lance-bench --data-only`.
     """
 
     ARROW_IPC = "arrow-ipc"
     LANCE = "lance"
+    # The base Parquet with Snappy in place of zstd level 3, and every other writer setting the same.
+    PARQUET_SNAPPY = "parquet-snappy"
 
 
 class Benchmark(Enum):
