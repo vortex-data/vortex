@@ -49,18 +49,28 @@ pub fn parquet_writer_properties() -> WriterPropertiesBuilder {
 /// The generators do not write a file that exists, so Parquet generated before with other row
 /// groups would stay. A marker file beside the directory, `parquet.row-group-rows`, records the
 /// row groups its files have. If the directory exists and the marker is missing or records another
-/// size, this removes the directory, so that the generator writes it again.
+/// size, this removes it, so that the generator writes it again. It also removes the other format
+/// directories beside it, such as `vortex-file-compressed`, because they were converted from the
+/// old Parquet and their conversions skip files that exist.
 pub fn prepare_parquet_dir(parquet_dir: &Path, row_group_rows: usize) -> anyhow::Result<()> {
     let marker = parquet_dir.with_extension("row-group-rows");
     let recorded = fs::read_to_string(&marker)
         .ok()
         .and_then(|text| text.trim().parse::<usize>().ok());
     if parquet_dir.exists() && recorded != Some(row_group_rows) {
+        let data_dir = parquet_dir
+            .parent()
+            .ok_or_else(|| anyhow::anyhow!("{} has no parent", parquet_dir.display()))?;
         info!(
-            "Removing {}: its row groups are not {row_group_rows} rows",
-            parquet_dir.display()
+            "Removing the data in {}: its Parquet row groups are not {row_group_rows} rows",
+            data_dir.display()
         );
-        fs::remove_dir_all(parquet_dir)?;
+        for entry in fs::read_dir(data_dir)? {
+            let path = entry?.path();
+            if path.is_dir() {
+                fs::remove_dir_all(path)?;
+            }
+        }
     }
     fs::create_dir_all(parquet_dir)?;
     fs::write(&marker, row_group_rows.to_string())?;
@@ -108,12 +118,18 @@ mod tests {
         let base = tempfile::tempdir()?;
         let parquet_dir = base.path().join("parquet");
         let file = parquet_dir.join("t.parquet");
+        let vortex_dir = base.path().join("vortex-file-compressed");
+        let converted = vortex_dir.join("t.vortex");
 
-        // Parquet without a marker, as generated before the marker existed.
+        // Parquet without a marker, as generated before the marker existed, and a file converted
+        // from it.
         fs::create_dir_all(&parquet_dir)?;
         fs::write(&file, b"old")?;
+        fs::create_dir_all(&vortex_dir)?;
+        fs::write(&converted, b"old")?;
         prepare_parquet_dir(&parquet_dir, LOCAL_ROW_GROUP_ROWS)?;
         assert!(!file.exists());
+        assert!(!converted.exists());
 
         fs::write(&file, b"local")?;
         prepare_parquet_dir(&parquet_dir, LOCAL_ROW_GROUP_ROWS)?;
