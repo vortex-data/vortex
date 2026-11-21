@@ -223,6 +223,10 @@ pub enum Format {
     #[clap(name = "parquet-snappy")]
     #[serde(rename = "parquet-snappy")]
     ParquetSnappy,
+    /// Parquet as DuckDB writes it, but with zstd level 3. Only suites that list it generate it.
+    #[clap(name = "parquet-duckdb-zstd")]
+    #[serde(rename = "parquet-duckdb-zstd")]
+    ParquetDuckdbZstd,
     #[clap(name = "vortex")]
     #[serde(rename = "vortex")]
     OnDiskVortex,
@@ -279,6 +283,7 @@ impl Format {
             Format::Csv => "csv",
             Format::Parquet => "parquet",
             Format::ParquetSnappy => "parquet-snappy",
+            Format::ParquetDuckdbZstd => "parquet-duckdb-zstd",
             Format::OnDiskVortex => "vortex-file-compressed",
             Format::VortexCompact => "vortex-compact",
             Format::VortexSpatialNative => "vortex-spatial-native",
@@ -294,6 +299,7 @@ impl Format {
             Format::Csv => "csv",
             Format::Parquet => "parquet",
             Format::ParquetSnappy => "parquet",
+            Format::ParquetDuckdbZstd => "parquet",
             Format::OnDiskVortex => "vortex",
             Format::VortexCompact => "vortex",
             Format::VortexSpatialNative => "vortex",

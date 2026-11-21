@@ -12,6 +12,7 @@ _NOT_GENERATED = frozenset({Format.LANCE})
 _FORMAT_ORDER = (
     Format.PARQUET,
     Format.PARQUET_SNAPPY,
+    Format.PARQUET_DUCKDB_ZSTD,
     Format.VORTEX,
     Format.VORTEX_COMPACT,
     Format.VORTEX_SPATIAL_NATIVE,

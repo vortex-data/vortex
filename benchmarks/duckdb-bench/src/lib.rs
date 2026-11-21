@@ -207,6 +207,7 @@ impl DuckClient {
         let object_type = match file_format {
             Format::Parquet
             | Format::ParquetSnappy
+            | Format::ParquetDuckdbZstd
             | Format::OnDiskVortex
             | Format::VortexCompact
             | Format::VortexSpatialNative => "VIEW",
