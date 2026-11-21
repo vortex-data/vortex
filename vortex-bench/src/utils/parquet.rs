@@ -52,6 +52,16 @@ pub fn parquet_writer_properties() -> WriterPropertiesBuilder {
 /// directories beside it, such as `vortex-file-compressed`, because they were converted from the
 /// old Parquet and their conversions skip files that exist.
 pub fn prepare_parquet_dir(parquet_dir: &Path, row_group_rows: usize) -> anyhow::Result<()> {
+    prepare_parquet_dir_keeping(parquet_dir, row_group_rows, |_| false)
+}
+
+/// [`prepare_parquet_dir`], but it keeps the entries of `parquet_dir` for which `keep` returns
+/// true, such as input files that no generator writes.
+pub fn prepare_parquet_dir_keeping(
+    parquet_dir: &Path,
+    row_group_rows: usize,
+    keep: impl Fn(&Path) -> bool,
+) -> anyhow::Result<()> {
     let marker = parquet_dir.with_extension("row-group-rows");
     let recorded = fs::read_to_string(&marker)
         .ok()
@@ -66,8 +76,19 @@ pub fn prepare_parquet_dir(parquet_dir: &Path, row_group_rows: usize) -> anyhow:
         );
         for entry in fs::read_dir(data_dir)? {
             let path = entry?.path();
+            if path.is_dir() && path != parquet_dir {
+                fs::remove_dir_all(path)?;
+            }
+        }
+        for entry in fs::read_dir(parquet_dir)? {
+            let path = entry?.path();
+            if keep(&path) {
+                continue;
+            }
             if path.is_dir() {
                 fs::remove_dir_all(path)?;
+            } else {
+                fs::remove_file(path)?;
             }
         }
     }
@@ -142,6 +163,25 @@ mod tests {
             fs::read_to_string(base.path().join("parquet.row-group-rows"))?,
             S3_ROW_GROUP_ROWS.to_string()
         );
+        Ok(())
+    }
+
+    #[test]
+    fn kept_inputs_stay_when_parquet_is_generated_again() -> anyhow::Result<()> {
+        let base = tempfile::tempdir()?;
+        let parquet_dir = base.path().join("parquet");
+        let generated = parquet_dir.join("trip_0.parquet");
+        let input = parquet_dir.join("zone_0.parquet");
+        let vortex_dir = base.path().join("vortex-file-compressed");
+        fs::create_dir_all(&parquet_dir)?;
+        fs::write(&generated, b"old")?;
+        fs::write(&input, b"input")?;
+        fs::create_dir_all(&vortex_dir)?;
+
+        prepare_parquet_dir_keeping(&parquet_dir, LOCAL_ROW_GROUP_ROWS, |path| path == input)?;
+        assert!(!generated.exists());
+        assert!(input.exists());
+        assert!(!vortex_dir.exists());
         Ok(())
     }
 
