@@ -33,7 +33,6 @@ use crate::RUNTIME;
 use crate::errors::try_or_throw;
 use crate::io::java_readable;
 use crate::io::read_coalesce_config;
-use crate::object_store::footer_cache_key;
 use crate::object_store::object_store_fs;
 use crate::session::session_ref;
 use crate::statistics::ColumnStatistics;
@@ -131,14 +130,14 @@ fn metadata_to_java(
 fn open_file(
     session: &VortexSession,
     source: Arc<dyn VortexReadAt>,
-    cache_key: &str,
+    cache_key: Option<&str>,
     file_size: Option<u64>,
     file_version: Option<&FileVersion>,
     include_metadata: bool,
 ) -> VortexResult<VortexFile> {
     RUNTIME.block_on(open_cached_with_version(
         session,
-        Some(cache_key),
+        cache_key,
         source,
         file_size,
         file_version,
@@ -154,9 +153,6 @@ fn metadata_segments(file: &VortexFile) -> Vec<(String, ByteBuffer)> {
 }
 
 /// Open the Vortex file at `uri` through a native storage client.
-///
-/// The cache key includes the complete URL and caller properties so different
-/// stores cannot collide even when their object paths and version tokens are equal.
 fn open_uri_file(
     env: &mut jni::Env,
     session: &VortexSession,
@@ -168,17 +164,17 @@ fn open_uri_file(
     let url = parse_uri_or_path(&uri)?;
     let properties = extract_properties(env, options)?;
 
-    let (fs, path) = object_store_fs(&url, &properties, session.handle())?;
+    let (fs, path) = object_store_fs(&url, &properties, session)?;
     let listing = RUNTIME
         .block_on(fs.head(&path))?
         .ok_or_else(|| vortex_err!("File not found: {uri}"))?;
     let source = RUNTIME.block_on(fs.open_read(&listing))?;
-    let cache_key = footer_cache_key(&url, &properties);
+    let cache_key = fs.cache_key(&listing);
 
     Ok(open_file(
         session,
         source,
-        &cache_key,
+        cache_key.as_deref(),
         listing.versioned_size(),
         listing.version.as_ref(),
         include_metadata,
@@ -218,7 +214,7 @@ fn open_readable_file(
     Ok(open_file(
         session,
         source,
-        cache_key,
+        Some(cache_key),
         Some(length),
         None,
         include_metadata,
@@ -329,7 +325,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeFiles_listFiles(
 
         let properties = extract_properties(env, &options)?;
 
-        let (fs, prefix) = object_store_fs(&url, &properties, session.handle())?;
+        let (fs, prefix) = object_store_fs(&url, &properties, session)?;
 
         let mut stream = fs.list(&prefix);
 
@@ -388,7 +384,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeFiles_delete(
 
         let properties = extract_properties(env, &options)?;
 
-        let (fs, _path) = object_store_fs(&store_url, &properties, session.handle())?;
+        let (fs, _path) = object_store_fs(&store_url, &properties, session)?;
 
         RUNTIME.block_on(async {
             for uri in delete_uris {

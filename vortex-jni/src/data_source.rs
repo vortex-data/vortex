@@ -96,7 +96,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeDataSource_open(
         // Glob by the path the resolver reports — only it knows how deep each store is mounted.
         let mut builder = MultiFileDataSource::new(session.clone());
         for glob_url in &glob_urls {
-            let (fs, glob) = object_store_fs(glob_url, &properties, session.handle())?;
+            let (fs, glob) = object_store_fs(glob_url, &properties, session)?;
             builder = builder.with_glob(glob, Some(fs));
         }
 

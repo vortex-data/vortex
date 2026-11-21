@@ -20,10 +20,15 @@ struct CachedFooter {
     version: FileVersion,
 }
 
+fn footer_weight_kib(bytes: Option<usize>) -> u32 {
+    let kib = bytes.unwrap_or(10 * 1024).div_ceil(1024).max(1);
+    u32::try_from(kib).unwrap_or(u32::MAX)
+}
+
 /// Session state for multi-file scanning.
 ///
 /// Provides a shared, in-memory footer cache so that repeated scans over the same files
-/// avoid redundant footer I/O. The cache is bounded by entry count and lives as long as
+/// avoid redundant footer I/O. The cache is bounded by estimated size and lives as long as
 /// the [`VortexSession`](vortex_session::VortexSession).
 ///
 /// # Future Work
@@ -42,11 +47,7 @@ impl Default for MultiFileSession {
                 // Capacity and weigher are in KB
                 .max_capacity(100 * 1024) // 100MB
                 .weigher(|_k, cached: &CachedFooter| {
-                    cached
-                        .footer
-                        .approx_byte_size()
-                        .and_then(|bytes| u32::try_from(bytes / 1024).ok())
-                        .unwrap_or(10)
+                    footer_weight_kib(cached.footer.approx_byte_size())
                 })
                 .build(),
         }
@@ -101,3 +102,14 @@ pub(super) trait MultiFileSessionExt: SessionExt {
 }
 
 impl<S: SessionExt> MultiFileSessionExt for S {}
+
+#[cfg(test)]
+mod tests {
+    use super::footer_weight_kib;
+
+    #[test]
+    fn small_footers_count_toward_capacity() {
+        assert_eq!(footer_weight_kib(Some(100)), 1);
+        assert_eq!(footer_weight_kib(Some(1025)), 2);
+    }
+}
