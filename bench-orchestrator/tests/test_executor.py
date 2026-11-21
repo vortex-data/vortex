@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+import subprocess
 import sys
 import textwrap
 from pathlib import Path
@@ -85,6 +86,21 @@ def test_build_command_omits_formats_for_lance_backend() -> None:
     assert "--formats" not in cmd
     assert "--scan-v1" not in cmd
     assert cmd[cmd.index("--queries") + 1] == "3"
+
+
+def test_write_data_writes_lance_without_running_a_query(monkeypatch) -> None:
+    calls = []
+
+    def fake_run(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        calls.append(cmd)
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    BenchmarkExecutor(Path("/tmp/lance-bench"), Engine.LANCE).write_data(Benchmark.TPCDS, {"scale-factor": "1.0"})
+    BenchmarkExecutor(Path("/tmp/datafusion-bench"), Engine.DATAFUSION).write_data(Benchmark.TPCDS)
+
+    assert calls == [["/tmp/lance-bench", "tpcds", "--data-only", "--opt", "scale-factor=1.0"]]
 
 
 def test_build_command_includes_ingest_output_when_set() -> None:

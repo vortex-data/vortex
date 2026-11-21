@@ -3,12 +3,14 @@
 
 """Render declarative benchmark coverage as GitHub Actions matrices."""
 
-from ..config import Benchmark, BenchmarkTarget, Engine, Format, Integration, ScanEngine
-from .model import BenchmarkCase, Catalog, Coverage, ScanCoverage
+from ..config import Benchmark, BenchmarkTarget, Engine, Format, Integration, ScanEngine, SizeFormat
+from .model import BenchmarkCase, Catalog, Coverage, ScanCoverage, Storage
 from .targets import TargetSet
 from .validate import validate_catalog
 
 _NOT_GENERATED = frozenset({Format.LANCE})
+# vortex-bench's `S3_ROW_GROUP_ROWS`: parquet-rs's default.
+S3_ROW_GROUP_ROWS = 1024 * 1024
 _FORMAT_ORDER = (
     Format.PARQUET,
     Format.VORTEX,
@@ -31,12 +33,19 @@ def merge_coverage(benchmark: Benchmark, coverages: list[Coverage]) -> Coverage:
     """Union several coverages of `benchmark`: every resolved target and every generated format."""
     targets = TargetSet()
     formats: set[Format] = set()
+    size_formats: set[SizeFormat] = set()
     for coverage in coverages:
         resolved = coverage.resolved_targets(benchmark)
         targets = targets | resolved
         formats.update(_data_formats(coverage, resolved))
+        size_formats.update(coverage.size_formats)
     scans = ScanCoverage.ALL if any(c.scans is ScanCoverage.ALL for c in coverages) else ScanCoverage.DEFAULT
-    return Coverage(targets, data_formats=tuple(fmt for fmt in _FORMAT_ORDER if fmt in formats), scans=scans)
+    return Coverage(
+        targets,
+        data_formats=tuple(fmt for fmt in _FORMAT_ORDER if fmt in formats),
+        scans=scans,
+        size_formats=tuple(fmt for fmt in SizeFormat if fmt in size_formats),
+    )
 
 
 ScanGroup = tuple[Engine, Integration, ScanEngine]
@@ -95,6 +104,8 @@ def _matrix_entry(
         # File sizes and trees describe the data, which every entry of a case generates alike, so
         # only the default entry records them.
         "records_data": group is None,
+        # Formats the default entry writes after its queries, only for their file sizes.
+        "size_formats": [fmt.value for fmt in coverage.size_formats] if group is None else [],
     }
     if benchmark.scale_factor is not None:
         entry["scale_factor"] = str(benchmark.scale_factor)
@@ -105,6 +116,10 @@ def _matrix_entry(
     if benchmark.remote_key is not None:
         # A distinct key per entry: each S3 entry clears and re-uploads its own copy of the data.
         entry["remote_key"] = benchmark.remote_key + suffix
+    if benchmark.storage is Storage.S3:
+        # Generated Parquet that queries read from S3 has larger row groups than the default, so
+        # it needs fewer requests to object storage. Suites that query published files ignore it.
+        entry["row_group_rows"] = str(S3_ROW_GROUP_ROWS)
     return entry
 
 

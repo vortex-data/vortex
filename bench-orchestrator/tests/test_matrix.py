@@ -14,7 +14,15 @@ from bench_orchestrator.ci_matrix.catalog import CATALOG
 from bench_orchestrator.ci_matrix.model import Catalog, Coverage
 from bench_orchestrator.ci_matrix.render import render_matrix
 from bench_orchestrator.ci_matrix.targets import TargetSet
-from bench_orchestrator.config import BenchmarkTarget, Engine, Format, Integration, ScanEngine, parse_targets_json
+from bench_orchestrator.config import (
+    BenchmarkTarget,
+    Engine,
+    Format,
+    Integration,
+    ScanEngine,
+    SizeFormat,
+    parse_targets_json,
+)
 from typer.testing import CliRunner
 
 runner = CliRunner()
@@ -192,6 +200,18 @@ def test_every_s3_entry_has_its_own_remote_key(preset: str) -> None:
     assert len(keys) == len(set(keys))
 
 
+@pytest.mark.parametrize("preset", ["develop", "nightly", "pr-full", "pr-all"])
+def test_only_s3_entries_generate_parquet_with_large_row_groups(preset: str) -> None:
+    entries = _entries(preset)
+
+    assert any("remote_key" in entry for entry in entries)
+    for entry in entries:
+        if "remote_key" in entry:
+            assert entry["row_group_rows"] == "1048576"
+        else:
+            assert "row_group_rows" not in entry
+
+
 def test_tpcds_sf100_runs_one_target_per_job() -> None:
     nightly = [
         entry for entry in _entries("nightly") if str(entry["id"]).startswith("tpcds-") and "-100-" in str(entry["id"])
@@ -315,6 +335,41 @@ def test_matrix_entries_name_their_data_directory() -> None:
 
     assert entries["clickbench-nvme"]["dataset_dir"] == "clickbench_partitioned"
     assert entries["tpch-nvme"]["dataset_dir"] == "tpch"
+
+
+@pytest.mark.parametrize("preset", tuple(MATRIX_PRESETS))
+def test_only_develop_tpcds_sf1_writes_size_only_formats(preset: str) -> None:
+    writers = {entry["id"]: entry["size_formats"] for entry in _entries(preset) if entry["size_formats"]}
+
+    if preset == "develop":
+        assert writers == {"tpcds-nvme": ["arrow-ipc", "parquet-snappy"]}
+    else:
+        assert writers == {}
+
+
+def test_develop_tpcds_sf1_queries_lance() -> None:
+    entry = {entry["id"]: entry for entry in _entries("develop")}["tpcds-nvme"]
+    targets = {(target["engine"], target["format"]) for target in entry["targets"]}
+
+    assert ("datafusion", "lance") in targets
+    assert "lance" not in entry["data_formats"]
+
+
+def test_resolver_rejects_a_size_only_format_that_a_target_reads() -> None:
+    benchmark = replace(
+        CATALOG.benchmarks[0],
+        id="reads-lance",
+        runs={
+            "develop": Coverage(
+                TargetSet((BenchmarkTarget(Engine.DATAFUSION, Format.LANCE),)),
+                size_formats=(SizeFormat.LANCE,),
+            )
+        },
+    )
+    catalog = Catalog(presets=CATALOG.presets, benchmarks=(benchmark,))
+
+    with pytest.raises(ValueError, match="reads 'lance'.*needs no size-only write"):
+        _ = render_matrix("develop", catalog)
 
 
 def test_matrix_command() -> None:
