@@ -337,14 +337,25 @@ jobs:
           if-no-files-found: ignore
 
       # The `comment` job compares and comments once per case, over every entry of the case.
+      # The results go in a directory named after the entry, because download-artifact extracts
+      # a lone matching artifact straight into its path, without the artifact's name.
+      - name: Stage results for the PR comment
+        if: ${{ !cancelled() && inputs.mode == 'pr' }}
+        shell: bash
+        env:
+          ENTRY_ID: ${{ matrix.id }}
+        run: |
+          set -Eeuo pipefail
+          mkdir -p "pr-comment-results/${ENTRY_ID}"
+          for file in results.json results.ingest.jsonl; do
+            if [[ -f "$file" ]]; then cp "$file" "pr-comment-results/${ENTRY_ID}/"; fi
+          done
       - name: Upload results for the PR comment
         if: ${{ !cancelled() && inputs.mode == 'pr' }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
         with:
           name: sql-results-${{ inputs.matrix_preset }}--${{ matrix.group }}--${{ matrix.id }}
-          path: |
-            results.json
-            results.ingest.jsonl
+          path: pr-comment-results/
           retention-days: 5
           if-no-files-found: ignore
 
@@ -459,7 +470,11 @@ jobs:
           : > results.ingest.jsonl
           missing=()
           while read -r id; do
-            dir="entries/sql-results-${{ inputs.matrix_preset }}--${{ matrix.group }}--${id}"
+            # Each artifact holds a directory named after its entry. download-artifact puts each
+            # artifact in a directory of the artifact's name, except a lone match, which it
+            # extracts straight into `entries`.
+            dir="entries/sql-results-${{ inputs.matrix_preset }}--${{ matrix.group }}--${id}/${id}"
+            [[ -d "$dir" ]] || dir="entries/${id}"
             if [[ -s "$dir/results.ingest.jsonl" ]]; then
               cat "$dir/results.ingest.jsonl" >> results.ingest.jsonl
               cat "$dir/results.json" >> results.json 2>/dev/null || true
