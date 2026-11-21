@@ -61,7 +61,7 @@ pub(crate) struct FileScan {
 }
 
 /// What a thread takes from the file next.
-enum Work {
+pub(crate) enum Work {
     /// A chunk to run on the thread's run.
     Chunk(WorkScope, Box<dyn Planner>),
     /// A batch the root produced itself.
@@ -117,11 +117,6 @@ impl FileScan {
         })
     }
 
-    /// Whether every chunk has been taken, so a thread joining the scan finds no work.
-    pub(crate) fn is_exhausted(&self) -> bool {
-        self.exhausted.load(Ordering::Acquire)
-    }
-
     /// The percentage of the scanned rows whose chunks threads have taken.
     pub(crate) fn progress(&self) -> f64 {
         let rows = self.scan.rows();
@@ -134,11 +129,16 @@ impl FileScan {
 
     /// The next array of this file for the thread whose run is `run`, or `None` once the file has
     /// no more work for the thread. Keeps the thread's run fed with chunks from the file, and
-    /// waits for reads on the calling thread.
-    pub(crate) fn next_array(&self, run: &mut Run) -> VortexResult<Option<ArrayRef>> {
+    /// waits for reads on the calling thread. `reserved` is work the thread took when it joined
+    /// the file, which it runs before taking more.
+    pub(crate) fn next_array(
+        &self,
+        run: &mut Run,
+        mut reserved: Option<Work>,
+    ) -> VortexResult<Option<ArrayRef>> {
         loop {
             while run.live_roots() < CHUNKS_PER_THREAD {
-                match self.next_work() {
+                match reserved.take().or_else(|| self.take_work()) {
                     Some(Work::Chunk(scope, chunk)) => {
                         run.admit(chunk, scope, self.io.session());
                     }
@@ -161,7 +161,9 @@ impl FileScan {
     }
 
     /// Takes the next chunk or batch of the file, or `None` once every one has been taken.
-    fn next_work(&self) -> Option<Work> {
+    /// DuckDB calls this under its global lock when a thread joins the file, so the thread only
+    /// joins with work in hand; the work itself runs outside the lock.
+    pub(crate) fn take_work(&self) -> Option<Work> {
         let mut queue = self.queue.lock();
         let work = queue.pop_front()?;
         if queue.is_empty() {
@@ -299,23 +301,4 @@ fn part_ranges(rows: Range<u64>, splits: &[u64]) -> Vec<Range<u64>> {
 }
 
 #[cfg(test)]
-mod tests {
-    use std::ops::Range;
-
-    use rstest::rstest;
-
-    use super::part_ranges;
-
-    #[rstest]
-    #[case::whole(0..30, &[0, 10, 20, 30], vec![0..10, 10..20, 20..30])]
-    #[case::clipped(5..25, &[0, 10, 20, 30], vec![5..10, 10..20, 20..25])]
-    #[case::inside_one_split(12..18, &[0, 10, 20, 30], vec![12..18])]
-    #[case::empty(5..5, &[0, 10], vec![])]
-    fn parts_follow_splits(
-        #[case] rows: Range<u64>,
-        #[case] splits: &[u64],
-        #[case] expected: Vec<Range<u64>>,
-    ) {
-        assert_eq!(part_ranges(rows, splits), expected);
-    }
-}
+mod tests;
