@@ -58,6 +58,8 @@ def main() -> None:
         "parquet-snappy",
         # Parquet as DuckDB writes it, but with zstd level 3.
         "parquet-duckdb-zstd",
+        # The same, in row groups of 1,048,576 rows, as parquet-rs writes TPC-H.
+        "parquet-duckdb-zstd-1m",
         "vortex-compact",
         "vortex-file-compressed",
         "vortex-spatial-native",

@@ -227,6 +227,10 @@ pub enum Format {
     #[clap(name = "parquet-duckdb-zstd")]
     #[serde(rename = "parquet-duckdb-zstd")]
     ParquetDuckdbZstd,
+    /// [`Format::ParquetDuckdbZstd`] in row groups of 1,048,576 rows, as parquet-rs writes TPC-H.
+    #[clap(name = "parquet-duckdb-zstd-1m")]
+    #[serde(rename = "parquet-duckdb-zstd-1m")]
+    ParquetDuckdbZstd1m,
     #[clap(name = "vortex")]
     #[serde(rename = "vortex")]
     OnDiskVortex,
@@ -284,6 +288,7 @@ impl Format {
             Format::Parquet => "parquet",
             Format::ParquetSnappy => "parquet-snappy",
             Format::ParquetDuckdbZstd => "parquet-duckdb-zstd",
+            Format::ParquetDuckdbZstd1m => "parquet-duckdb-zstd-1m",
             Format::OnDiskVortex => "vortex-file-compressed",
             Format::VortexCompact => "vortex-compact",
             Format::VortexSpatialNative => "vortex-spatial-native",
@@ -300,6 +305,7 @@ impl Format {
             Format::Parquet => "parquet",
             Format::ParquetSnappy => "parquet",
             Format::ParquetDuckdbZstd => "parquet",
+            Format::ParquetDuckdbZstd1m => "parquet",
             Format::OnDiskVortex => "vortex",
             Format::VortexCompact => "vortex",
             Format::VortexSpatialNative => "vortex",

@@ -208,6 +208,7 @@ impl DuckClient {
             Format::Parquet
             | Format::ParquetSnappy
             | Format::ParquetDuckdbZstd
+            | Format::ParquetDuckdbZstd1m
             | Format::OnDiskVortex
             | Format::VortexCompact
             | Format::VortexSpatialNative => "VIEW",

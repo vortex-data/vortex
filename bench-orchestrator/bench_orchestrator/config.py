@@ -44,6 +44,7 @@ class Format(Enum):
     # The base Parquet files as DuckDB writes them, with Snappy, which `data-gen` writes beside them.
     PARQUET_SNAPPY = "parquet-snappy"
     PARQUET_DUCKDB_ZSTD = "parquet-duckdb-zstd"
+    PARQUET_DUCKDB_ZSTD_1M = "parquet-duckdb-zstd-1m"
     VORTEX = "vortex"
     VORTEX_COMPACT = "vortex-compact"
     VORTEX_SPATIAL_NATIVE = "vortex-spatial-native"
@@ -107,6 +108,7 @@ ENGINE_FORMATS: dict[Engine, list[Format]] = {
         Format.PARQUET,
         Format.PARQUET_SNAPPY,
         Format.PARQUET_DUCKDB_ZSTD,
+        Format.PARQUET_DUCKDB_ZSTD_1M,
         Format.VORTEX,
         Format.VORTEX_COMPACT,
         Format.LANCE,
@@ -115,6 +117,7 @@ ENGINE_FORMATS: dict[Engine, list[Format]] = {
         Format.PARQUET,
         Format.PARQUET_SNAPPY,
         Format.PARQUET_DUCKDB_ZSTD,
+        Format.PARQUET_DUCKDB_ZSTD_1M,
         Format.VORTEX,
         Format.VORTEX_COMPACT,
         Format.VORTEX_SPATIAL_NATIVE,
