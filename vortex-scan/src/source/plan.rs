@@ -152,6 +152,9 @@ impl PlanChild {
 /// own rows, and its `partition_range` and `partition_selection` select children by ordinal. A
 /// scan reads its children in order.
 ///
+/// Making an unordered scan does the reads it needs to know its units of work: it prepares each
+/// child and cuts it into parts, which for a dynamic filter reads zone maps.
+/// [`split`](DataSourceScan::split) and [`open`](DataSourceScan::open) read nothing.
 /// [`split`](DataSourceScan::split) returns a scan whole. [`open`](DataSourceScan::open) runs it
 /// on V2's planners and [`Run`](crate::planning::driver::Run) driver; see `plan_stream.rs`. A
 /// scan's one partition reads its opened stream.
@@ -279,9 +282,17 @@ impl DataSource for PlanDataSource {
             ordered: request.ordered,
             limit: request.limit,
         };
+        // An unordered scan's parts are its units of work, and cutting them can read zone maps,
+        // so it happens here, where the host awaits the scan, and opening reads nothing.
+        let planned = if state.ordered {
+            None
+        } else {
+            Some(plan_stream::plan(&state, &units).await?)
+        };
         Ok(Box::new(PlanScan {
             state: Arc::new(state),
             units,
+            planned,
         }))
     }
 
@@ -354,6 +365,8 @@ struct PlanScan {
     state: Arc<ScanState>,
     /// The scan's units, in child and row order.
     units: Vec<Unit>,
+    /// The parts of an unordered scan, cut when the scan was made.
+    planned: Option<plan_stream::Planned>,
 }
 
 impl DataSourceScan for PlanScan {
@@ -366,7 +379,7 @@ impl DataSourceScan for PlanScan {
     }
 
     fn open(self: Box<Self>) -> VortexResult<ScanStream> {
-        plan_stream::open(self.state, self.units)
+        plan_stream::open(self.state, self.units, self.planned)
     }
 
     fn partition_count(&self) -> Precision<usize> {
