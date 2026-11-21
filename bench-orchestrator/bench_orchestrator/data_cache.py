@@ -74,7 +74,7 @@ def cached_dataset(benchmark: Benchmark, options: dict[str, str], workspace_root
             f"statpopgen-{n_rows}",
             data_dir / "statpopgen" / str(n_rows) / "parquet",
             workspace_root,
-            ["vortex-bench/src/statpopgen"],
+            ["vortex-bench/src/statpopgen", "vortex-bench/src/utils/parquet.rs"],
         )
     if benchmark is Benchmark.CLICKBENCH_SORTED:
         return _dataset(
