@@ -11,8 +11,11 @@ use std::sync::Arc;
 
 use anyhow::Context;
 use anyhow::Result;
-// spatialbench emits arrow-56 batches, so they must be written with its matching arrow-56
-// parquet crate, not the workspace's arrow-58 one. The parquet file itself is version-neutral.
+use parquet::arrow::AsyncArrowWriter;
+use parquet::basic::Compression;
+use parquet::basic::ZstdLevel;
+use parquet::file::metadata::KeyValue;
+use parquet::file::properties::WriterProperties;
 use spatialbench::generators::BuildingGenerator;
 use spatialbench::generators::CustomerGenerator;
 use spatialbench::generators::TripGenerator;
@@ -20,11 +23,6 @@ use spatialbench_arrow::BuildingArrow;
 use spatialbench_arrow::CustomerArrow;
 use spatialbench_arrow::RecordBatchIterator;
 use spatialbench_arrow::TripArrow;
-use spatialbench_parquet::arrow::AsyncArrowWriter;
-use spatialbench_parquet::basic::Compression;
-use spatialbench_parquet::basic::ZstdLevel;
-use spatialbench_parquet::file::properties::WriterProperties;
-use spatialbench_parquet::format::KeyValue;
 use tokio::fs::File as TokioFile;
 use tokio::process::Command;
 use tracing::info;
@@ -37,8 +35,8 @@ use crate::utils::file::idempotent_async;
 const BATCH_SIZE: usize = 8192 * 64;
 
 impl Table {
-    /// Batch iterator for one partition of this table, from the arrow-56 `spatialbench` crates. Only
-    /// called for generated tables (see [`Table::is_generated`]).
+    /// Batch iterator for one partition of this table, from the `spatialbench` crates. Only called
+    /// for generated tables (see [`Table::is_generated`]).
     fn batch_iterator(
         self,
         scale_factor: f64,
