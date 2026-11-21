@@ -3,7 +3,7 @@
 
 """Render declarative benchmark coverage as GitHub Actions matrices."""
 
-from ..config import Benchmark, BenchmarkTarget, Engine, Format, Integration, ScanEngine, SizeFormat
+from ..config import SCAN_COMBINATIONS, Benchmark, BenchmarkTarget, Engine, Format, Integration, ScanEngine, SizeFormat
 from .model import BenchmarkCase, Catalog, Coverage, ScanCoverage, Storage
 from .targets import TargetSet
 from .validate import validate_catalog
@@ -39,12 +39,19 @@ def merge_coverage(benchmark: Benchmark, coverages: list[Coverage]) -> Coverage:
         targets = targets | resolved
         formats.update(_data_formats(coverage, resolved))
         size_formats.update(coverage.size_formats)
-    scans = ScanCoverage.ALL if any(c.scans is ScanCoverage.ALL for c in coverages) else ScanCoverage.DEFAULT
+    all_scans = [c for c in coverages if c.scans is ScanCoverage.ALL]
+    scans = ScanCoverage.ALL if all_scans else ScanCoverage.DEFAULT
     return Coverage(
         targets,
         data_formats=tuple(fmt for fmt in _FORMAT_ORDER if fmt in formats),
         scans=scans,
         size_formats=tuple(fmt for fmt in SizeFormat if fmt in size_formats),
+        # Skip a combination only when every coverage that adds scans skips it.
+        skip_scans=tuple(
+            combination
+            for combination in SCAN_COMBINATIONS
+            if all_scans and all(combination in c.skip_scans for c in all_scans)
+        ),
     )
 
 
