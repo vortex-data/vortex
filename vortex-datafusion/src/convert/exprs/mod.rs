@@ -36,6 +36,7 @@ use datafusion_physical_expr::DynamicFilterTracking;
 use datafusion_physical_expr::HigherOrderFunctionExpr;
 use datafusion_physical_expr::PhysicalExpr;
 use datafusion_physical_expr::ScalarFunctionExpr;
+use datafusion_physical_expr::projection::ProjectionExpr;
 use datafusion_physical_expr::projection::ProjectionExprs;
 use datafusion_physical_expr::utils::collect_columns;
 use datafusion_physical_plan::expressions as df_expr;
@@ -68,6 +69,7 @@ use vortex::expr::strpos;
 use vortex::expr::traversal::NodeExt;
 use vortex::expr::traversal::Transformed;
 use vortex::expr::var;
+use vortex::expr::variant_get;
 use vortex::layout::layouts::row_idx;
 use vortex::scalar::Scalar;
 use vortex::scalar_fn::ScalarFnVTableExt;
@@ -76,10 +78,15 @@ use vortex::scalar_fn::fns::get_item::GetItem;
 use vortex::scalar_fn::fns::like::Like;
 use vortex::scalar_fn::fns::like::LikeOptions;
 use vortex::scalar_fn::fns::operators::Operator;
+use vortex::scalar_fn::fns::variant_get::VariantPath;
+use vortex::scalar_fn::fns::variant_get::VariantPathElement;
 use vortex::session::VortexSession;
 use vortex_arrow::ArrowSessionExt;
 
 use crate::row_index::RowIndex;
+
+/// Name of the Variant extraction function of datafusion-variant.
+const VARIANT_GET: &str = "variant_get";
 
 /// Result of splitting a projection into Vortex expressions and leftover DataFusion projections.
 pub struct ProcessedProjection {
@@ -157,19 +164,34 @@ pub trait ExpressionConverter: Send + Sync {
         {
             return self.no_pushdown_projection(source_projection, input_schema);
         }
-        let mut scan_projection = Vec::with_capacity(source_projection.as_ref().len());
-        for projection in source_projection.as_ref() {
+        // The scan evaluates each distinct expression once. DataFusion can ask for the same
+        // expression under several aliases, such as a `variant_get` that it hoists out of both a
+        // filter and a group key.
+        let mut scan_projection: Vec<(String, Expression)> = Vec::new();
+        let mut scan_indices = Vec::new();
+        let mut leftover_projection = Vec::with_capacity(source_projection.as_ref().len());
+        for (idx, projection) in source_projection.as_ref().iter().enumerate() {
             let Some(expr) = self.try_convert(&projection.expr, input_schema)? else {
                 return self.no_pushdown_projection(source_projection, input_schema);
             };
-            scan_projection.push((projection.alias.clone(), expr));
+            let scan_idx = match scan_projection.iter().position(|(_, scan)| *scan == expr) {
+                Some(scan_idx) => scan_idx,
+                None => {
+                    scan_indices.push(idx);
+                    scan_projection.push((projection.alias.clone(), expr));
+                    scan_projection.len() - 1
+                }
+            };
+            leftover_projection.push(ProjectionExpr::new(
+                Arc::new(df_expr::Column::new(&scan_projection[scan_idx].0, scan_idx)),
+                projection.alias.clone(),
+            ));
         }
         // The output schema names its fields after the projection aliases.
-        let output_indices = (0..scan_projection.len()).collect_vec();
         Ok(ProcessedProjection {
             scan_projection: pack(scan_projection, Nullability::NonNullable),
-            scan_reference_schema: output_schema.clone(),
-            leftover_projection: ProjectionExprs::from_indices(&output_indices, output_schema),
+            scan_reference_schema: output_schema.project(&scan_indices)?,
+            leftover_projection: ProjectionExprs::new(leftover_projection),
         })
     }
 
@@ -786,6 +808,10 @@ impl DefaultExpressionConverter {
             return self.convert_array_sum(scalar_fn, schema, input_dtype);
         }
 
+        if scalar_fn.name() == VARIANT_GET {
+            return self.convert_variant_get(scalar_fn, schema, input_dtype);
+        }
+
         let (input, length): (_, fn(Expression) -> Expression) =
             if ScalarFunctionExpr::try_downcast_func::<OctetLengthFunc>(scalar_fn).is_some() {
                 let [input] = scalar_fn.args() else {
@@ -821,6 +847,56 @@ impl DefaultExpressionConverter {
             scalar_fn.nullable(),
         ))?;
         Ok(cast(length(input), return_dtype))
+    }
+
+    /// Converts `variant_get(variant, path, type)` to the Vortex `variant_get`, so that the scan
+    /// reads a shredded path from its typed column instead of materializing the whole Variant.
+    ///
+    /// The function is matched by name, because it is not part of DataFusion: it has the contract
+    /// of [datafusion-variant], which extracts with the `variant_get` kernel of
+    /// `parquet-variant-compute`, as the Vortex Parquet Variant encoding does. Both yield null for
+    /// a missing path and for a value that does not cast to the requested type.
+    ///
+    /// Only the typed form over a path of plain object fields converts.
+    ///
+    /// [datafusion-variant]: https://github.com/datafusion-contrib/datafusion-variant
+    fn convert_variant_get(
+        &self,
+        scalar_fn: &ScalarFunctionExpr,
+        schema: &Schema,
+        input_dtype: &DType,
+    ) -> Conversion<Expression> {
+        let [input, path, _type] = scalar_fn.args() else {
+            return Err(Unconverted::Unsupported);
+        };
+        let Some(Some(path)) = path
+            .downcast_ref::<df_expr::Literal>()
+            .map(|literal| literal.value().try_as_str().flatten())
+        else {
+            return Err(Unconverted::Unsupported);
+        };
+        let is_field = |field: &str| {
+            !field.is_empty() && field.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+        };
+        if !path.split('.').all(is_field) {
+            return Err(Unconverted::Unsupported);
+        }
+        let path = path
+            .split('.')
+            .map(VariantPathElement::field)
+            .collect::<VariantPath>();
+
+        let input = self.convert_expr(input, schema, input_dtype)?;
+        if !converted_dtype(&input, input_dtype)?.is_variant() {
+            return Err(Unconverted::Unsupported);
+        }
+        let return_dtype = self
+            .arrow_dtype(&Field::new("", scalar_fn.return_type().clone(), true))?
+            .as_nullable();
+        if return_dtype.is_variant() {
+            return Err(Unconverted::Unsupported);
+        }
+        Ok(variant_get(input, path, Some(return_dtype)))
     }
 
     /// Converts `array_sum` to `list_sum`.

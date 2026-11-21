@@ -112,6 +112,8 @@ pub use exprs::select_exclude;
 pub use exprs::strpos;
 pub use exprs::var;
 pub use exprs::variant_get;
+pub use exprs::variant_pack;
+pub use exprs::variant_pack_with_validity;
 pub use exprs::zip_expr;
 pub use lambda::*;
 pub use scope::*;

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::cell::Cell;
 use std::fmt;
 use std::fmt::Display;
 use std::fmt::Formatter;
@@ -16,8 +17,13 @@ use vortex_utils::aliases::StringEscape;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::arrays::Chunked;
+use crate::arrays::ChunkedArray;
 use crate::arrays::ScalarFn;
 use crate::arrays::ScalarFnArray;
+use crate::arrays::Variant;
+use crate::arrays::VariantArray;
+use crate::arrays::chunked::ChunkedArrayExt;
 use crate::arrays::scalar_fn::ScalarFnArrayExt;
 use crate::builders::VariantBuilder;
 use crate::builders::builder_with_capacity_in;
@@ -32,10 +38,22 @@ use crate::scalar::Scalar;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
 use crate::scalar_fn::ExecutionArgs;
+use crate::scalar_fn::ReduceNode;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
 use crate::scalar_fn::ScalarFnVTableExt;
+use crate::scalar_fn::fns::cast::Cast;
+use crate::scalar_fn::fns::get_item::GetItem;
 use crate::scalar_fn::fns::mask::Mask;
+use crate::scalar_fn::fns::variant_pack::VariantPack;
+
+/// How many lazy layers `variant_get` unwraps from its input before it extracts row by row.
+const MAX_CANONICALIZE_DEPTH: usize = 8;
+
+thread_local! {
+    /// How many inputs the executions of `variant_get` on this thread's stack have canonicalized.
+    static CANONICALIZE_DEPTH: Cell<usize> = const { Cell::new(0) };
+}
 
 /// Extracts a field/index path from Variant values.
 ///
@@ -145,6 +163,20 @@ impl ScalarFnVTable for VariantGet {
             .dtype()
             .map_or(DType::Variant(Nullability::Nullable), DType::as_nullable);
 
+        // The kernels that extract in bulk are keyed on the Variant encodings. A lazy input, such
+        // as a filtered or chunked Variant read from a file, reaches this point without one, so
+        // bring it to those encodings before falling back to extracting row by row.
+        if let Some(chunked) = input.as_opt::<Chunked>() {
+            let chunks = chunked
+                .iter_chunks()
+                .map(|chunk| {
+                    VariantGet::try_new(chunk.clone(), options.clone())?
+                        .into_array()
+                        .execute::<ArrayRef>(ctx)
+                })
+                .collect::<VortexResult<Vec<_>>>()?;
+            return Ok(ChunkedArray::try_new(chunks, dtype)?.into_array());
+        }
         // A mask only nulls rows out, so it commutes with extraction.
         if let Some(masked) = input.as_opt::<ScalarFn>()
             && masked.scalar_fn().id() == Mask.id()
@@ -154,6 +186,17 @@ impl ScalarFnVTable for VariantGet {
                 .execute::<ArrayRef>(ctx)?
                 .mask(masked.child_at(1).clone())?
                 .execute::<ArrayRef>(ctx);
+        }
+        // Each canonicalization unwraps one lazy layer, such as a filter over a slice over a
+        // shared array. An input that canonicalizes to itself, such as a constant, would recurse
+        // forever, so the depth is bounded.
+        if !input.is::<Variant>() && CANONICALIZE_DEPTH.get() < MAX_CANONICALIZE_DEPTH {
+            let canonical = input.clone().execute::<VariantArray>(ctx)?;
+            CANONICALIZE_DEPTH.set(CANONICALIZE_DEPTH.get() + 1);
+            let result = VariantGet::try_new(canonical.into_array(), options.clone())
+                .and_then(|array| array.into_array().execute::<ArrayRef>(ctx));
+            CANONICALIZE_DEPTH.set(CANONICALIZE_DEPTH.get() - 1);
+            return result;
         }
 
         if !dtype.is_variant() {
@@ -173,6 +216,66 @@ impl ScalarFnVTable for VariantGet {
             builder.append_n_scalars(&variant_get_scalar(&scalar, options, &dtype)?, 1)?;
         }
         builder.finish_into_variant().map(IntoArray::into_array)
+    }
+
+    /// Reads a shredded path from the shredded child of a [`VariantPack`] input, leaving its
+    /// core storage unread.
+    fn reduce<T: ReduceNode>(&self, options: &Self::Options, node: &T) -> VortexResult<Option<T>> {
+        let input = node.child(0);
+        let Some(pack) = input
+            .scalar_fn()
+            .and_then(|scalar_fn| scalar_fn.as_opt::<VariantPack>())
+        else {
+            return Ok(None);
+        };
+        let core = input.child(0);
+        let mut current = input.child(1);
+        let mut path = options.path().elements();
+        // Whether `current` is below the shredded child itself. Only the shredded child can
+        // have left values in the core storage, so only reading it needs it to be complete.
+        let mut descended = false;
+
+        loop {
+            let dtype = current.node_dtype()?;
+            match (&dtype, path.split_first()) {
+                // A shredded Variant holds the rest of the path itself.
+                (DType::Variant(_), _) if descended => {
+                    let rest = VariantGetOptions::new(
+                        VariantPath::new(path.iter().cloned()),
+                        options.dtype().cloned(),
+                    );
+                    return node.new_node(VariantGet.bind(rest), &[current]).map(Some);
+                }
+                (DType::Struct(fields, _), Some((VariantPathElement::Field(name), rest))) => {
+                    if fields.find(name.as_ref()).is_none() {
+                        // A field that was not shredded is only in the core storage.
+                        return if descended {
+                            Ok(None)
+                        } else {
+                            node.new_node(VariantGet.bind(options.clone()), &[core])
+                                .map(Some)
+                        };
+                    }
+                    if !descended && !pack.complete() {
+                        return Ok(None);
+                    }
+                    current = current.new_node(GetItem.bind(name.clone()), &[current.clone()])?;
+                    path = rest;
+                    descended = true;
+                }
+                // The end of the path at a typed value of the requested dtype.
+                (dtype, None)
+                    if options.dtype().is_some_and(|requested| {
+                        !requested.is_variant() && dtype.eq_ignore_nullability(requested)
+                    }) && (descended || pack.complete()) =>
+                {
+                    return node
+                        .new_node(Cast.bind(node.node_dtype()?), &[current])
+                        .map(Some);
+                }
+                _ => return Ok(None),
+            }
+        }
     }
 
     fn is_strict(&self, _options: &Self::Options) -> bool {

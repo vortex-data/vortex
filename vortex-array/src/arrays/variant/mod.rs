@@ -17,6 +17,10 @@ pub(crate) fn initialize(session: &vortex_session::VortexSession) {
 }
 
 use crate::ArrayRef;
+use crate::ArraySlots;
+use crate::Canonical;
+use crate::ExecutionCtx;
+use crate::IntoArray;
 use crate::array::Array;
 use crate::array::ArrayParts;
 use crate::array::EmptyArrayData;
@@ -73,6 +77,59 @@ impl Array<Variant> {
         ))?
         .with_stats_set(stats))
     }
+}
+
+/// Decodes the storage of an unshredded Variant `array`, so that every `variant_get` over it
+/// reads the decoded children instead of decoding them again.
+///
+/// A Variant with shredded children is returned as it is: an extraction usually reads a shredded
+/// child, and decoding the storage would be wasted.
+pub fn decode_unshredded_storage(
+    array: ArrayRef,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ArrayRef> {
+    vortex_ensure!(
+        array.dtype().is_variant(),
+        "expected a Variant, found {}",
+        array.dtype()
+    );
+    let mut variant = array.execute::<VariantArray>(ctx)?;
+    // The core storage can itself be lazy, such as a filter over the stored encoding. Execute it
+    // until it is the encoding that holds the children, which executes to itself.
+    loop {
+        if variant.shredded().is_some() {
+            return Ok(variant.into_array());
+        }
+        let storage = variant
+            .core_storage()
+            .clone()
+            .execute::<VariantArray>(ctx)?;
+        if storage.core_storage().encoding_id() == variant.core_storage().encoding_id() {
+            break;
+        }
+        variant = storage;
+    }
+
+    let core_storage = variant.core_storage();
+    let slots = core_storage
+        .slots()
+        .iter()
+        .map(|slot| {
+            slot.as_ref()
+                .map(|child| {
+                    // A Variant child is storage of its own, not a child to decode.
+                    if child.dtype().is_variant() {
+                        Ok(child.clone())
+                    } else {
+                        Ok(child.clone().execute::<Canonical>(ctx)?.into_array())
+                    }
+                })
+                .transpose()
+        })
+        .collect::<VortexResult<ArraySlots>>()?;
+    // SAFETY: executing a slot to its canonical form keeps its logical values.
+    let core_storage = unsafe { core_storage.clone().with_slots(slots) }?;
+    Ok(VariantArray::try_new(core_storage, None)?.into_array())
 }
 
 #[cfg(test)]
