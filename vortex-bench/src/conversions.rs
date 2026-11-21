@@ -16,7 +16,6 @@ use parquet::arrow::ParquetRecordBatchStreamBuilder;
 use parquet::arrow::arrow_reader::ArrowReaderMetadata;
 use parquet::arrow::arrow_reader::ArrowReaderOptions;
 use parquet::arrow::async_reader::ParquetRecordBatchStream;
-use parquet::basic::Compression;
 use parquet::file::metadata::KeyValue;
 use parquet::file::metadata::ParquetMetaData;
 use sysinfo::System;
@@ -73,6 +72,7 @@ use crate::CompactionStrategy;
 use crate::Format;
 use crate::SESSION;
 use crate::utils::file::idempotent_async;
+use crate::utils::parquet::is_zstd;
 use crate::utils::parquet::parquet_writer_properties;
 
 /// Memory budget per concurrent conversion stream in GB. This is somewhat arbitary.
@@ -442,12 +442,7 @@ pub async fn add_geoparquet_metadata(
         .file_metadata()
         .key_value_metadata()
         .is_some_and(|kvs| kvs.iter().any(|kv| kv.key == "geo"));
-    let zstd = metadata
-        .row_groups()
-        .iter()
-        .flat_map(|row_group| row_group.columns())
-        .all(|column| matches!(column.compression(), Compression::ZSTD(_)));
-    if already_tagged && zstd {
+    if already_tagged && is_zstd(metadata) {
         return Ok(());
     }
 
@@ -588,6 +583,7 @@ mod tests {
     use arrow_schema::Field;
     use arrow_schema::Schema;
     use parquet::arrow::ArrowWriter;
+    use parquet::basic::Compression;
     use parquet::file::properties::WriterProperties;
     use parquet::file::reader::FileReader as _;
     use parquet::file::reader::SerializedFileReader;

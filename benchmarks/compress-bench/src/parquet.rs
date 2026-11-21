@@ -136,7 +136,7 @@ impl Compressor for ParquetCompressor {
 }
 
 /// Write `batches` to `buf` as one Parquet file the way DataFusion's `ParquetSink` does with its
-/// default options, returning the bytes written before the footer.
+/// default options, returning the file's size, footer included, as the other formats count theirs.
 ///
 /// Batches are split at the writer's `max_row_group_row_count`, the same row-group boundaries a
 /// sequential `ArrowWriter` produces. Every leaf column of the open row group is encoded by its own
@@ -185,11 +185,11 @@ pub async fn parquet_compress_write(
     }
     serialize.await??;
 
-    let n_bytes = writer.bytes_written();
     writer.close()?;
     output.flush_into(&mut parts, 0);
 
-    buf.reserve_exact(parts.iter().map(Vec::len).sum());
+    let n_bytes = parts.iter().map(Vec::len).sum();
+    buf.reserve_exact(n_bytes);
     for part in parts {
         buf.extend_from_slice(&part);
     }
@@ -491,13 +491,15 @@ mod tests {
         let compression = Compression::ZSTD(ZstdLevel::try_new(3)?);
 
         let mut parallel = Vec::new();
-        parquet_compress_write(
+        let size = parquet_compress_write(
             batches.clone(),
             Arc::clone(&schema),
             compression,
             &mut parallel,
         )
         .await?;
+        // The size counts the whole file, footer included.
+        assert_eq!(size, parallel.len());
         let parallel = Bytes::from(parallel);
 
         let mut sequential = Vec::new();
