@@ -433,3 +433,36 @@ fn test_varbin_validity_is_compressed() -> VortexResult<()> {
     assert!(compressed.validity()?.to_array(input.len()).nbytes() < 100);
     Ok(())
 }
+
+/// Sparse stores each null as a patch, so a quarter of nulls among mostly-zero values must not
+/// pick it. This is the shape of a genotype column: most samples are homozygous reference (0),
+/// about a fifth have no call (null), and a few carry an alternate allele.
+#[test]
+fn test_sparse_counts_nulls_as_patches() -> VortexResult<()> {
+    let mut rng = StdRng::seed_from_u64(0);
+    let len = 131_072;
+    let input = PrimitiveArray::from_option_iter((0..len).map(|_| {
+        let draw = rng.next_u32() % 400;
+        if draw < 100 {
+            None
+        } else if draw < 103 {
+            Some(1u8)
+        } else {
+            Some(0u8)
+        }
+    }))
+    .into_array();
+    let compressor = BtrBlocksCompressorBuilder::from_session(&SESSION)
+        .unrestricted()
+        .build();
+    let compressed = assert_roundtrip(&compressor, &input)?;
+
+    assert!(!compressed.is::<Sparse>(), "{}", compressed.display_tree());
+    // A raw validity bitmap is len / 8 bytes; the values cost little beyond it.
+    assert!(
+        compressed.nbytes() < len / 8 + len / 16,
+        "{}",
+        compressed.display_tree()
+    );
+    Ok(())
+}
