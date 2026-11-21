@@ -31,7 +31,6 @@ mod exporter;
 mod ffi;
 mod file_reader;
 mod projection;
-mod scan_v2;
 mod table_function;
 
 #[rustfmt::skip]
