@@ -209,6 +209,19 @@ jobs:
                     'vortex-bench/src/random_access/**',
                     'scripts/litdata-random-access.py',
                     'benchmarks/random-access-bench/src/litdata.rs') }}
+          # string-bench reads most of its columns from Hugging Face, which rate limits
+          # unauthenticated downloads. The key covers the sources and row caps in lib.rs and the
+          # shared Parquet writer settings, whose layout version decides when a file is stale.
+          - name: Restore string-bench data
+            id: string-data-cache
+            if: matrix.benchmark.id == 'string-bench'
+            uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+            with:
+              path: vortex-bench/data/string-bench/*.parquet
+              key: >-
+                string-bench-data-v1-${{ hashFiles(
+                  'benchmarks/string-bench/src/lib.rs',
+                  'vortex-bench/src/utils/parquet.rs') }}
 
       # Download and convert all benchmark data up front, so the benchmark step below only
       # contains timed runs. The data is written with the same settings the benchmark uses.
@@ -234,6 +247,12 @@ jobs:
                 vortex-bench/data/random_access/*/*.parquet
                 vortex-bench/data/random_access/*/*.litdata
               key: ${{ steps.data-cache.outputs.cache-primary-key }}
+          - name: Save string-bench data
+            if: matrix.benchmark.id == 'string-bench' && steps.string-data-cache.outputs.cache-hit != 'true'
+            uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+            with:
+              path: vortex-bench/data/string-bench/*.parquet
+              key: ${{ steps.string-data-cache.outputs.cache-primary-key }}
           - name: Upload benchmark data to S3
             if: matrix.benchmark.remote_data_dir != null
             shell: bash
