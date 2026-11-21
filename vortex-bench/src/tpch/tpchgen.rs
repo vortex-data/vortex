@@ -421,12 +421,15 @@ fn concat_parquet_parts(parts: &[PathBuf], output: &Path) -> Result<()> {
         })
         .collect::<Result<Vec<_>>>()?;
 
-    let root_schema = inputs[0].1.file_metadata().schema_descr().root_schema_ptr();
-    let mut writer = SerializedFileWriter::new(
-        fs::File::create(output)?,
-        root_schema,
-        Arc::new(WriterProperties::builder().build()),
-    )?;
+    let file_metadata = inputs[0].1.file_metadata();
+    let root_schema = file_metadata.schema_descr().root_schema_ptr();
+    // The parts' key-value metadata holds the Arrow schema and the layout version, which
+    // `remove_stale_parquet` reads, so the whole file keeps it.
+    let props = WriterProperties::builder()
+        .set_key_value_metadata(file_metadata.key_value_metadata().cloned())
+        .build();
+    let mut writer =
+        SerializedFileWriter::new(fs::File::create(output)?, root_schema, Arc::new(props))?;
 
     for (input, metadata) in &inputs {
         let column_indexes = metadata.column_index();
@@ -595,6 +598,48 @@ impl FileWriter for VortexWriter {
                 .map_err(|e| anyhow!("Write task failed: {}", e))??;
         }
 
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use arrow_array::Int64Array;
+    use parquet::arrow::ARROW_SCHEMA_META_KEY;
+
+    use super::*;
+    use crate::utils::parquet::has_current_layout;
+
+    #[test]
+    fn concatenated_parts_keep_the_file_metadata() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let parts = (0..2)
+            .map(|part| -> Result<PathBuf> {
+                let path = dir.path().join(format!("t.part{part}"));
+                let batch = RecordBatch::try_from_iter([(
+                    "x",
+                    Arc::new(Int64Array::from_iter_values(0..1000)) as _,
+                )])?;
+                let props = parquet_writer_properties().build();
+                let mut writer =
+                    ArrowWriter::try_new(fs::File::create(&path)?, batch.schema(), Some(props))?;
+                writer.write(&batch)?;
+                writer.close()?;
+                Ok(path)
+            })
+            .collect::<Result<Vec<_>>>()?;
+        let output = dir.path().join("t.parquet");
+        concat_parquet_parts(&parts, &output)?;
+
+        let metadata = ParquetMetaDataReader::new().parse_and_finish(&fs::File::open(&output)?)?;
+        assert_eq!(metadata.file_metadata().num_rows(), 2000);
+        assert!(has_current_layout(&metadata));
+        assert!(
+            metadata
+                .file_metadata()
+                .key_value_metadata()
+                .is_some_and(|kvs| kvs.iter().any(|kv| kv.key == ARROW_SCHEMA_META_KEY))
+        );
         Ok(())
     }
 }
