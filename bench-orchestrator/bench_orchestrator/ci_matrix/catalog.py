@@ -66,8 +66,6 @@ COMPACT_TARGETS = df(Format.PARQUET, Format.VORTEX_COMPACT) | duck(
     Format.PARQUET,
     Format.VORTEX_COMPACT,
 )
-# Parquet as DuckDB writes it by default, queried beside zstd Parquet where bench compares the two.
-SNAPPY_TARGETS = df(Format.PARQUET_SNAPPY) | duck(Format.PARQUET_SNAPPY)
 
 # Vortex targets name an integration (`file`, `datasource`) and a scan engine (`v1`, `v2`); see
 # `BenchmarkTarget`. Declared targets run the file integration on the suite's default engine.
@@ -100,10 +98,6 @@ STANDARD_WITH_DUCKDB_AND_SIZE_FORMATS = Coverage(
     STANDARD_WITH_DUCKDB_TARGETS | df(Format.PARQUET_SNAPPY, Format.LANCE) | duck(Format.PARQUET_SNAPPY),
     size_formats=(SizeFormat.ARROW_IPC,),
 )
-# TPC-H SF=10 queries Snappy Parquet on NVMe and S3, so bench can compare the two Parquet variants
-# where file size matters most for speed: S3 reads every byte over the network.
-FULL_LOCAL_WITH_SNAPPY = Coverage(FULL_LOCAL_TARGETS | SNAPPY_TARGETS)
-STANDARD_WITH_SNAPPY = Coverage(STANDARD_TARGETS | SNAPPY_TARGETS)
 DATAFUSION_VORTEX = Coverage(DATAFUSION_VORTEX_TARGETS)
 COMPACT = Coverage(COMPACT_TARGETS)
 JOB_DUCKDB = Coverage(duck(Format.PARQUET, Format.VORTEX, Format.DUCKDB))
@@ -221,7 +215,7 @@ BENCHMARKS = (
             "pr": DEFAULT,
             "pr-compact": COMPACT,
             "pr-full": FULL_PR,
-            "develop": FULL_LOCAL_WITH_SNAPPY,
+            "develop": FULL_LOCAL,
         },
     ),
     BenchmarkCase(
@@ -236,7 +230,7 @@ BENCHMARKS = (
         runs={
             "pr-compact": COMPACT,
             "pr-full": STANDARD,
-            "develop": STANDARD_WITH_SNAPPY,
+            "develop": STANDARD,
         },
     ),
     BenchmarkCase(

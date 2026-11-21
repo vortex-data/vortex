@@ -348,20 +348,6 @@ def test_develop_tpcds_sf1_queries_snappy_parquet_and_lance() -> None:
     assert "lance" not in entry["data_formats"]
 
 
-@pytest.mark.parametrize("case_id", ("tpch-nvme-10", "tpch-s3-10"))
-def test_develop_tpch_sf10_queries_both_parquet_variants(case_id: str) -> None:
-    entry = {entry["id"]: entry for entry in _entries("develop")}[case_id]
-    targets = {(target["engine"], target["format"]) for target in entry["targets"]}
-
-    assert {
-        ("datafusion", "parquet"),
-        ("duckdb", "parquet"),
-        ("datafusion", "parquet-snappy"),
-        ("duckdb", "parquet-snappy"),
-    } <= targets
-    assert entry["data_formats"][:2] == ["parquet", "parquet-snappy"]
-
-
 def test_resolver_rejects_a_size_only_format_that_a_target_reads() -> None:
     benchmark = replace(
         CATALOG.benchmarks[0],
