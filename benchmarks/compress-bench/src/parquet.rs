@@ -37,7 +37,6 @@ use vortex_bench::compress::CompressedData;
 use vortex_bench::compress::Compressor;
 use vortex_bench::compress::Uncompressed;
 use vortex_bench::compress::read_projection;
-use vortex_bench::parquet_copies::write_duckdb_snappy_parquet;
 use vortex_bench::utils::parquet::parquet_writer_properties;
 
 /// Compressor implementation for Parquet format with ZSTD level 3 compression.
@@ -61,17 +60,18 @@ impl Default for ParquetCompressor {
     }
 }
 
-/// Return the size of the Parquet file `parquet_path` written again by DuckDB, with Snappy. See
-/// [`write_duckdb_snappy_parquet`].
-pub async fn duckdb_snappy_parquet_size(parquet_path: &Path) -> anyhow::Result<u64> {
-    let parquet_path = parquet_path.to_path_buf();
-    tokio::task::spawn_blocking(move || {
-        let dir = tempfile::tempdir()?;
-        let output = dir.path().join("snappy.parquet");
-        write_duckdb_snappy_parquet(&parquet_path, &output)?;
-        Ok(std::fs::metadata(&output)?.len())
-    })
-    .await?
+/// Return the size of `input` written as Parquet with Snappy. Every other setting is the one that
+/// [`ParquetCompressor`] writes with, so the size differs from `parquet`'s only by the codec.
+pub async fn snappy_parquet_size(input: &Uncompressed) -> anyhow::Result<u64> {
+    let (schema, batches) = input.arrow()?;
+    let size = parquet_compress_write(
+        batches.to_vec(),
+        Arc::clone(schema),
+        Compression::SNAPPY,
+        &mut Vec::new(),
+    )
+    .await?;
+    Ok(size as u64)
 }
 
 /// Return the Arrow memory size after decoding the input Parquet file.
@@ -530,6 +530,66 @@ mod tests {
             arrow_select::concat::concat_batches(&schema, &batches)?
         );
         assert!(parquet_decompress_read(parallel).await? > 0);
+        Ok(())
+    }
+
+    /// `parquet-snappy` differs from `parquet` only by the codec: the same row groups, pages,
+    /// encodings, and file metadata.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn snappy_parquet_differs_only_by_the_codec() -> anyhow::Result<()> {
+        let batches = vec![batch(0, 50_000)?];
+        let schema = batches[0].schema();
+        let mut metadata = Vec::new();
+        for compression in [
+            Compression::ZSTD(ZstdLevel::try_new(3)?),
+            Compression::SNAPPY,
+        ] {
+            let mut buf = Vec::new();
+            parquet_compress_write(batches.clone(), Arc::clone(&schema), compression, &mut buf)
+                .await?;
+            let options = ArrowReaderOptions::new().with_page_index(true);
+            metadata.push(ArrowReaderMetadata::load(&Bytes::from(buf), options)?);
+        }
+        let (zstd, snappy) = (metadata[0].metadata(), metadata[1].metadata());
+
+        assert_eq!(row_group_rows(zstd), row_group_rows(snappy));
+        assert_eq!(
+            zstd.file_metadata().key_value_metadata(),
+            snappy.file_metadata().key_value_metadata()
+        );
+        // The same pages: each page of each column chunk starts at the same row.
+        let page_starts = |metadata: &ParquetMetaData| -> Vec<Vec<Vec<i64>>> {
+            metadata
+                .offset_index()
+                .into_iter()
+                .flatten()
+                .map(|row_group| {
+                    row_group
+                        .iter()
+                        .map(|column| {
+                            column
+                                .page_locations()
+                                .iter()
+                                .map(|page| page.first_row_index)
+                                .collect()
+                        })
+                        .collect()
+                })
+                .collect()
+        };
+        assert!(!page_starts(zstd).is_empty());
+        assert_eq!(page_starts(zstd), page_starts(snappy));
+        for (z, s) in zstd.row_groups().iter().zip(snappy.row_groups()) {
+            for (z, s) in z.columns().iter().zip(s.columns()) {
+                assert!(matches!(z.compression(), Compression::ZSTD(_)));
+                assert_eq!(s.compression(), Compression::SNAPPY);
+                assert_eq!(
+                    z.encodings().collect::<Vec<_>>(),
+                    s.encodings().collect::<Vec<_>>()
+                );
+                assert_eq!(z.num_values(), s.num_values());
+            }
+        }
         Ok(())
     }
 

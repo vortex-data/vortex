@@ -10,7 +10,8 @@ without codec cost. Its file size provides the approximately 1x baseline for com
 ratios. Parquet provides the established reference for a compressed columnar representation.
 
 The suite also records the file size of two formats that it does not time: Parquet with Snappy
-(`parquet-snappy`), beside the timed Parquet with zstd level 3, and Vortex with the compact
+(`parquet-snappy`), written with the same settings as the timed Parquet except for the codec,
+which is zstd level 3 in the timed Parquet, and Vortex with the compact
 strategy (`vortex-compact`), as the SQL benchmarks write it. Each is one write per dataset, and
 neither runs in GPU mode. bench shows these sizes in its `File Sizes` group.
 

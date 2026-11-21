@@ -10,19 +10,16 @@
 //! - [`SizeFormat::ArrowIpc`]: uncompressed Arrow IPC.
 //!
 //! Lance is also written for size only, by `lance-bench --data-only`, because only that binary
-//! depends on Lance. [`write_duckdb_snappy_parquet`] writes the Snappy Parquet whose size
-//! `compress-bench` records.
+//! depends on Lance.
 
 use std::fs;
 use std::fs::File;
 use std::io::BufWriter;
 use std::path::Path;
-use std::process::Command;
 use std::sync::Arc;
 
 use anyhow::Context;
 use anyhow::Result;
-use anyhow::bail;
 use arrow_ipc::writer::FileWriter;
 use clap::ValueEnum;
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
@@ -101,39 +98,6 @@ fn write_arrow_ipc(input: &Path, output: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Write the Parquet file `input` again as DuckDB writes Parquet: `COPY ... (FORMAT parquet,
-/// COMPRESSION snappy)` in the `duckdb` CLI, which must be on `PATH`. Every setting other than the
-/// codec is DuckDB's default, so the file is what a DuckDB user gets: DuckDB's row groups, and its
-/// dictionaries, statistics, and Bloom filters. The codec is named because
-/// it is the one the `parquet-snappy` name promises, and DuckDB's default could change.
-pub fn write_duckdb_snappy_parquet(input: &Path, output: &Path) -> Result<()> {
-    let sql = format!(
-        "COPY (FROM read_parquet({})) TO {} (FORMAT parquet, COMPRESSION snappy)",
-        sql_string(input)?,
-        sql_string(output)?,
-    );
-    let result = Command::new("duckdb")
-        .arg("-c")
-        .arg(&sql)
-        .output()
-        .context("running the duckdb CLI, which writes parquet-snappy")?;
-    if !result.status.success() {
-        bail!(
-            "the duckdb CLI failed: {}",
-            String::from_utf8_lossy(&result.stderr)
-        );
-    }
-    Ok(())
-}
-
-/// `path` as a SQL string literal.
-fn sql_string(path: &Path) -> Result<String> {
-    let path = path
-        .to_str()
-        .with_context(|| format!("{} is not UTF-8", path.display()))?;
-    Ok(format!("'{}'", path.replace('\'', "''")))
-}
-
 #[cfg(test)]
 mod tests {
     use arrow_array::Int64Array;
@@ -144,9 +108,6 @@ mod tests {
     use arrow_schema::Field;
     use arrow_schema::Schema;
     use parquet::arrow::ArrowWriter;
-    use parquet::basic::Compression;
-    use parquet::file::reader::FileReader as _;
-    use parquet::file::reader::SerializedFileReader;
 
     use super::*;
     use crate::utils::parquet::parquet_writer_properties;
@@ -176,46 +137,6 @@ mod tests {
         writer.write(&batch)?;
         writer.close()?;
         Ok(batch)
-    }
-
-    #[test]
-    #[ignore = "needs the duckdb CLI on PATH, which the benchmark runners install"]
-    fn snappy_parquet_is_duckdbs_parquet_with_the_same_rows() -> Result<()> {
-        let base = tempfile::tempdir()?;
-        let expected = write_base(base.path(), 1000, 300)?;
-
-        let output = base.path().join("t.snappy.parquet");
-        write_duckdb_snappy_parquet(&base.path().join("parquet").join("t.parquet"), &output)?;
-
-        let metadata = SerializedFileReader::new(File::open(&output)?)?
-            .metadata()
-            .clone();
-        assert!(
-            metadata
-                .file_metadata()
-                .created_by()
-                .is_some_and(|created_by| created_by.starts_with("DuckDB"))
-        );
-        // DuckDB's own row groups, not the base file's 300 rows.
-        assert_eq!(metadata.num_row_groups(), 1);
-        for column in metadata.row_groups().iter().flat_map(|rg| rg.columns()) {
-            assert_eq!(column.compression(), Compression::SNAPPY);
-        }
-        let reader = ParquetRecordBatchReaderBuilder::try_new(File::open(&output)?)?.build()?;
-        let batches = reader.collect::<Result<Vec<_>, _>>()?;
-        let actual = arrow_select::concat::concat_batches(&batches[0].schema(), &batches)?;
-        assert_eq!(actual.num_rows(), expected.num_rows());
-        assert_eq!(actual.columns(), expected.columns());
-        Ok(())
-    }
-
-    #[test]
-    fn sql_strings_escape_quotes() -> Result<()> {
-        assert_eq!(
-            sql_string(Path::new("/data/o'brien.parquet"))?,
-            "'/data/o''brien.parquet'"
-        );
-        Ok(())
     }
 
     #[test]

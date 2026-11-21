@@ -3,7 +3,7 @@ description: "Download the DuckDB CLI and put it on PATH"
 inputs:
   duckdb_version:
     # Keep this on the DuckDB minor version that `vortex-duckdb/build.rs` links (2.0), so the CLI
-    # that writes `parquet-snappy` and the `duckdb` database matches the DuckDB the queries run on.
+    # that writes the `duckdb` database matches the DuckDB the queries run on.
     description: "Version of the DuckDB CLI"
     default: "2.0.1"
 runs:

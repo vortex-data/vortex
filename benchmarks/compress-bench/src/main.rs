@@ -17,7 +17,7 @@ use compress_bench::gpu::GpuOptions;
 use compress_bench::gpu::compressor as gpu_compressor;
 use compress_bench::parquet::ParquetCompressor;
 use compress_bench::parquet::arrow_uncompressed_size;
-use compress_bench::parquet::duckdb_snappy_parquet_size;
+use compress_bench::parquet::snappy_parquet_size;
 use compress_bench::vortex::VortexCompressor;
 use compress_bench::vortex::vortex_compact_size;
 use futures::FutureExt;
@@ -61,8 +61,8 @@ use vortex_bench::setup_logging_and_tracing_with_format;
 use vortex_bench::statpopgen::StatPopGenBenchmark;
 use vortex_bench::v3;
 
-/// The size record name of Parquet as DuckDB writes it, with Snappy, beside `parquet`, which is
-/// zstd level 3.
+/// The size record name of Parquet with Snappy, beside `parquet`, which is zstd level 3. Every
+/// other writer setting is the same.
 const PARQUET_SNAPPY_FORMAT: &str = "parquet-snappy";
 
 #[derive(Parser, Debug)]
@@ -461,8 +461,8 @@ async fn run_compress(
 
     Ok(())
 }
-/// Size records of the size-only formats, one untimed write each: DuckDB's Snappy Parquet beside
-/// `parquet`, and compact Vortex beside `vortex`.
+/// Size records of the size-only formats, one untimed write each: Snappy Parquet beside `parquet`,
+/// and compact Vortex beside `vortex`.
 async fn size_only_records(
     parquet_path: &Path,
     formats: &[Format],
@@ -473,9 +473,13 @@ async fn size_only_records(
 ) -> anyhow::Result<Vec<v3::V3Record>> {
     let mut records = Vec::new();
     if formats.contains(&Format::Parquet) {
-        let snappy_size = duckdb_snappy_parquet_size(parquet_path)
+        let input = get_compressor(Format::Parquet, mode)?
+            .load(parquet_path)
             .await
-            .with_context(|| format!("writing {bench_name} as Snappy Parquet with DuckDB"))?;
+            .with_context(|| format!("loading {bench_name} for Snappy Parquet"))?;
+        let snappy_size = snappy_parquet_size(&input)
+            .await
+            .with_context(|| format!("writing {bench_name} as Snappy Parquet"))?;
         records.push(v3::named_compression_size_record(
             v3_dataset,
             v3_variant,
