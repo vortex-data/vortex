@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::fs::File;
 use std::io::Write;
 use std::path::Path;
 use std::sync::Arc;
@@ -38,6 +37,7 @@ use vortex_bench::compress::Compressor;
 use vortex_bench::compress::Uncompressed;
 use vortex_bench::compress::read_projection;
 use vortex_bench::utils::parquet::parquet_writer_properties;
+use vortex_bench::utils::parquet::plain_arrow_reader;
 
 /// Compressor implementation for Parquet format with ZSTD level 3 compression.
 pub struct ParquetCompressor {
@@ -74,10 +74,10 @@ pub async fn snappy_parquet_size(input: &Uncompressed) -> anyhow::Result<u64> {
     Ok(size as u64)
 }
 
-/// Return the Arrow memory size after decoding the input Parquet file.
+/// Return the Arrow memory size after decoding the input Parquet file, in the representation that
+/// [`Uncompressed::read_arrow`] loads: view types read as plain types.
 pub fn arrow_uncompressed_size(parquet_path: &Path) -> anyhow::Result<u64> {
-    let file = File::open(parquet_path)?;
-    let reader = ParquetRecordBatchReaderBuilder::try_new(file)?.build()?;
+    let reader = plain_arrow_reader(parquet_path)?.build()?;
     let mut total = 0u64;
 
     for batch in reader {
