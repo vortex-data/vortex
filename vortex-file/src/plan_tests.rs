@@ -263,15 +263,15 @@ async fn open_cuts_parts_on_layout_splits() -> VortexResult<()> {
     Ok(())
 }
 
-/// A dynamic filter, such as a top-N's bound, prunes a file as a whole before its parts are cut,
-/// as queued work rather than in `open`. The rows follow the bound as it stands when the workers
-/// read, not as it stood when the scan was opened.
+/// A dynamic filter, such as a top-N's bound, prunes a file as a whole when the scan is made,
+/// before its parts are cut. The rows follow the bound as it stands when the clones read, not as
+/// it stood when the scan was made.
 #[rstest]
 #[case::unordered(false)]
 #[case::ordered(true)]
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[cfg_attr(miri, ignore)]
-async fn open_prunes_the_file_first_for_a_dynamic_filter(
+async fn scan_prunes_the_file_first_for_a_dynamic_filter(
     #[case] ordered: bool,
 ) -> VortexResult<()> {
     let bound = Arc::new(AtomicU32::new(0));
