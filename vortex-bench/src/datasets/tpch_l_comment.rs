@@ -37,7 +37,9 @@ async fn ensure_lineitem(format: Format) -> Result<PathBuf> {
     TpchSf1Table::LineItem.path(format).await
 }
 
-/// Rows per row group in the `l_comment` Parquet file, the same as the TPC-H generator writes.
+/// Rows per row group in the `l_comment` Parquet file: parquet-rs's default, which compress-bench's
+/// own Parquet writer also uses. The TPC-H generator's row groups depend on the storage that the
+/// queries read from, so this file does not copy the row groups of `lineitem`.
 const L_COMMENT_ROW_GROUP_ROWS: usize = 1024 * 1024;
 
 /// Path of a Parquet file that holds only the `l_comment` column of TPC-H SF=1 `lineitem`.
