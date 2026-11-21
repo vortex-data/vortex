@@ -256,6 +256,8 @@ jobs:
       - name: Setup benchmark environment
         run: sudo bash scripts/setup-benchmark.sh
 
+      # The run steps pass the same row groups as "Generate data". A fork PR runs an S3 entry
+      # here, on local data, and a benchmark that expects other row groups removes that data.
       - name: Run ${{ matrix.name }} benchmark
         if: matrix.remote_key == null || github.event.pull_request.head.repo.fork == true
         shell: bash
@@ -272,6 +274,7 @@ jobs:
             --ingest-jsonl results.ingest.jsonl \
             --no-build \
             ${{ matrix.iterations && format('--iterations {0}', matrix.iterations) || '' }} \
+            ${{ matrix.row_group_rows && format('--opt row-group-rows={0}', matrix.row_group_rows) || '' }} \
             ${{ matrix.scale_factor && format('--opt scale-factor={0}', matrix.scale_factor) || '' }}
 
       - name: Run ${{ matrix.name }} benchmark (remote)
@@ -292,6 +295,7 @@ jobs:
             --ingest-jsonl results.ingest.jsonl \
             --no-build \
             ${{ matrix.iterations && format('--iterations {0}', matrix.iterations) || '' }} \
+            ${{ matrix.row_group_rows && format('--opt row-group-rows={0}', matrix.row_group_rows) || '' }} \
             --opt remote-data-dir="$REMOTE_STORAGE" \
             ${{ matrix.scale_factor && format('--opt scale-factor={0}', matrix.scale_factor) || '' }}
 
