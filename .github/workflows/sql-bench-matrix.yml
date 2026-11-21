@@ -224,6 +224,7 @@ jobs:
           uv run --project bench-orchestrator vx-bench prepare-data "${{ matrix.subcommand }}" \
             --formats-json '${{ toJSON(matrix.data_formats) }}' \
             ${S3_CACHE:+--s3-cache "$S3_CACHE"} \
+            ${{ matrix.row_group_rows && format('--opt row-group-rows={0}', matrix.row_group_rows) || '' }} \
             ${{ matrix.scale_factor && format('--opt scale-factor={0}', matrix.scale_factor) || '' }}
 
       # setup-benchmark.sh pins every running process to the housekeeping CPUs, so it waits for
@@ -255,6 +256,8 @@ jobs:
       - name: Setup benchmark environment
         run: sudo bash scripts/setup-benchmark.sh
 
+      # The run steps pass the same row groups as "Generate data". A fork PR runs an S3 entry
+      # here, on local data, and a benchmark that expects other row groups removes that data.
       - name: Run ${{ matrix.name }} benchmark
         if: matrix.remote_key == null || github.event.pull_request.head.repo.fork == true
         shell: bash
@@ -271,6 +274,7 @@ jobs:
             --ingest-jsonl results.ingest.jsonl \
             --no-build \
             ${{ matrix.iterations && format('--iterations {0}', matrix.iterations) || '' }} \
+            ${{ matrix.row_group_rows && format('--opt row-group-rows={0}', matrix.row_group_rows) || '' }} \
             ${{ matrix.scale_factor && format('--opt scale-factor={0}', matrix.scale_factor) || '' }}
 
       - name: Run ${{ matrix.name }} benchmark (remote)
@@ -291,7 +295,18 @@ jobs:
             --ingest-jsonl results.ingest.jsonl \
             --no-build \
             ${{ matrix.iterations && format('--iterations {0}', matrix.iterations) || '' }} \
+            ${{ matrix.row_group_rows && format('--opt row-group-rows={0}', matrix.row_group_rows) || '' }} \
             --opt remote-data-dir="$REMOTE_STORAGE" \
+            ${{ matrix.scale_factor && format('--opt scale-factor={0}', matrix.scale_factor) || '' }}
+
+      # Formats that no query reads, written after the queries so they cannot affect them, only
+      # for the file sizes that "Capture file sizes" records.
+      - name: Write size-only formats
+        if: matrix.remote_key == null && matrix.records_data && join(matrix.size_formats, ',') != ''
+        shell: bash
+        run: |
+          uv run --project bench-orchestrator vx-bench write-size-formats "${{ matrix.subcommand }}" \
+            --formats-json '${{ toJSON(matrix.size_formats) }}' \
             ${{ matrix.scale_factor && format('--opt scale-factor={0}', matrix.scale_factor) || '' }}
 
       # The `file_size` records join the run's ingest records: develop runs store them in the

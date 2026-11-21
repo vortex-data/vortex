@@ -16,12 +16,14 @@ use crate::IdempotentPath;
 use crate::TableSpec;
 use crate::tpcds::tpcds_queries;
 use crate::tpcds::tpcdsgen::generate_tpcds;
+use crate::utils::parquet::LOCAL_ROW_GROUP_ROWS;
 use crate::utils::split;
 
 /// TPC-DS benchmark implementation
 pub struct TpcDsBenchmark {
     pub scale_factor: String,
     pub data_url: Url,
+    row_group_rows: usize,
 }
 
 impl TpcDsBenchmark {
@@ -29,7 +31,14 @@ impl TpcDsBenchmark {
         Ok(Self {
             scale_factor: scale_factor.clone(),
             data_url: Self::create_data_url(use_remote_data_dir.as_deref(), &scale_factor)?,
+            row_group_rows: LOCAL_ROW_GROUP_ROWS,
         })
+    }
+
+    /// Generate Parquet in row groups of `row_group_rows` rows.
+    pub fn with_row_group_rows(mut self, row_group_rows: usize) -> Self {
+        self.row_group_rows = row_group_rows;
+        self
     }
 
     fn create_data_url(remote_data_dir: Option<&str>, scale_factor: &str) -> Result<Url> {
@@ -77,7 +86,12 @@ impl Benchmark for TpcDsBenchmark {
             Format::Parquet
         );
 
-        generate_tpcds(base_data_dir, self.scale_factor.clone()).await?;
+        generate_tpcds(
+            base_data_dir,
+            self.scale_factor.clone(),
+            self.row_group_rows,
+        )
+        .await?;
 
         Ok(())
     }
