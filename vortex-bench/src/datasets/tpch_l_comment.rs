@@ -24,11 +24,13 @@ use vortex::expr::pack;
 use vortex::file::OpenOptionsSessionExt;
 
 use crate::Format;
+use crate::IdempotentPath;
 use crate::SESSION;
 use crate::datasets::Dataset;
 use crate::datasets::tpch_sf1::TpchSf1Table;
 use crate::idempotent;
 use crate::utils::parquet::parquet_writer_properties;
+use crate::utils::parquet::remove_stale_parquet;
 
 pub struct TPCHLCommentChunked;
 
@@ -49,9 +51,9 @@ const L_COMMENT_ROW_GROUP_ROWS: usize = 1024 * 1024;
 async fn l_comment_parquet() -> Result<PathBuf> {
     let lineitem = ensure_lineitem(Format::Parquet).await?;
     tokio::task::spawn_blocking(move || {
-        idempotent(&"tpch-l_comment/1.0/l_comment.parquet", |output| {
-            write_l_comment(&lineitem, output)
-        })
+        let path = "tpch-l_comment/1.0/l_comment.parquet";
+        remove_stale_parquet(&path.to_data_path())?;
+        idempotent(&path, |output| write_l_comment(&lineitem, output))
     })
     .await?
 }

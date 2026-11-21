@@ -37,6 +37,7 @@ use crate::SESSION;
 use crate::datasets::Dataset;
 use crate::idempotent_async;
 use crate::utils::parquet::parquet_writer_properties;
+use crate::utils::parquet::remove_stale_parquet;
 
 /// Synthetic sparse-wide workloads in the compression benchmark's CPU suite.
 #[derive(Clone, Copy)]
@@ -171,6 +172,7 @@ impl Dataset for SparseWide {
 
     async fn to_parquet_path(&self) -> Result<PathBuf> {
         let path = format!("sparse_wide/v1/{}.parquet", self.name()).to_data_path();
+        remove_stale_parquet(&path)?;
         idempotent_async(path, |temp_path| async move {
             let mut ctx = SESSION.create_execution_ctx();
             let array = self.to_vortex_array(&mut ctx).await?;

@@ -38,8 +38,8 @@ use super::StatPopGenBenchmark;
 use crate::idempotent_async;
 use crate::statpopgen::builder::GnomADBuilder;
 use crate::statpopgen::schema::schema_from_vcf_header;
-use crate::utils::parquet::is_zstd_file;
 use crate::utils::parquet::parquet_writer_properties;
+use crate::utils::parquet::remove_stale_parquet;
 
 // DuckDB parallelizes parquet at row-group granularity. Each of our rows are quite big (~4000
 // genotypes each with tens of bytes of data).
@@ -57,10 +57,8 @@ impl StatPopGenBenchmark {
             StatPopGenBenchmark::FILE_NAME
         );
         let parquet_output_path = self.parquet_path()?;
-        // A file written before the benchmark wrote zstd is written again.
-        if parquet_output_path.exists() && !is_zstd_file(&parquet_output_path)? {
-            std::fs::remove_file(&parquet_output_path)?;
-        }
+        // A file written in an older Parquet layout is written again.
+        remove_stale_parquet(&parquet_output_path)?;
 
         idempotent_async(
             &parquet_output_path,
