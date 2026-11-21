@@ -279,9 +279,18 @@ impl DataSource for PlanDataSource {
             ordered: request.ordered,
             limit: request.limit,
         };
+        let state = Arc::new(state);
+        // Cutting an unordered scan's parts here, where the host awaits the scan, runs a root that
+        // reads zone maps for a dynamic filter before any clone of the opened stream polls.
+        let planned = if state.ordered {
+            None
+        } else {
+            Some(plan_stream::plan(&state, &units).await?)
+        };
         Ok(Box::new(PlanScan {
-            state: Arc::new(state),
+            state,
             units,
+            planned,
         }))
     }
 
@@ -354,6 +363,8 @@ struct PlanScan {
     state: Arc<ScanState>,
     /// The scan's units, in child and row order.
     units: Vec<Unit>,
+    /// The parts of an unordered scan, cut when the scan was made.
+    planned: Option<plan_stream::Planned>,
 }
 
 impl DataSourceScan for PlanScan {
@@ -366,7 +377,7 @@ impl DataSourceScan for PlanScan {
     }
 
     fn open(self: Box<Self>) -> VortexResult<ScanStream> {
-        plan_stream::open(self.state, self.units)
+        plan_stream::open(self.state, self.units, self.planned)
     }
 
     fn partition_count(&self) -> Precision<usize> {

@@ -61,8 +61,36 @@ use crate::prepare::PreparedScan;
 use crate::prepare::part_root;
 use crate::stream::ScanStream;
 
-/// Opens the stream of the scan's `units`.
-pub(super) fn open(state: Arc<ScanState>, units: Vec<Unit>) -> VortexResult<ScanStream> {
+/// The parts of an unordered scan, cut before it is opened.
+pub(super) struct Planned {
+    work: Vec<Work>,
+    total_rows: u64,
+}
+
+/// Prepares each of the scan's `units` and runs its root, awaiting any root that reads, and
+/// returns the work the roots produce.
+pub(super) async fn plan(state: &ScanState, units: &[Unit]) -> VortexResult<Planned> {
+    let mut work = Vec::new();
+    let mut total_rows = 0;
+    for unit in units {
+        let rows = state.unit_rows(unit)?;
+        if rows.is_empty() {
+            continue;
+        }
+        total_rows += rows.end - rows.start;
+        let (child, root, _) = prepare(state, unit, rows)?;
+        work.extend(run_root(child, root).await?);
+    }
+    Ok(Planned { work, total_rows })
+}
+
+/// Opens the stream of the scan's `units`, whose parts are `planned` when an unordered scan cut
+/// them already.
+pub(super) fn open(
+    state: Arc<ScanState>,
+    units: Vec<Unit>,
+    planned: Option<Planned>,
+) -> VortexResult<ScanStream> {
     let dtype = state.dtype.clone();
     let limit = state.limit.map(RowLimit::new);
     if state.ordered {
@@ -78,23 +106,33 @@ pub(super) fn open(state: Arc<ScanState>, units: Vec<Unit>) -> VortexResult<Scan
 
     let (sender, receiver) = async_channel::unbounded();
     let mut total_rows = 0;
-    for unit in &units {
-        let rows = state.unit_rows(unit)?;
-        if rows.is_empty() {
-            continue;
+    match planned {
+        Some(planned) => {
+            total_rows = planned.total_rows;
+            for work in planned.work {
+                send(&sender, work);
+            }
         }
-        total_rows += rows.end - rows.start;
-        let (child, root, dynamic) = prepare(&state, unit, rows)?;
-        let parts = run_root(child, root);
-        if dynamic {
-            send(&sender, Work::Root(parts, sender.clone()));
-            continue;
-        }
-        let work = parts
-            .now_or_never()
-            .vortex_expect("a root that only cuts parts reads nothing")?;
-        for work in work {
-            send(&sender, work);
+        None => {
+            for unit in &units {
+                let rows = state.unit_rows(unit)?;
+                if rows.is_empty() {
+                    continue;
+                }
+                total_rows += rows.end - rows.start;
+                let (child, root, dynamic) = prepare(&state, unit, rows)?;
+                let parts = run_root(child, root);
+                if dynamic {
+                    send(&sender, Work::Root(parts, sender.clone()));
+                    continue;
+                }
+                let work = parts
+                    .now_or_never()
+                    .vortex_expect("a root that only cuts parts reads nothing")?;
+                for work in work {
+                    send(&sender, work);
+                }
+            }
         }
     }
     // Only queued roots hold senders now, so the queue closes once it is empty and no root is
