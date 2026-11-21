@@ -56,8 +56,6 @@ def main() -> None:
         # benchmarks write it, and the dataset's own files where the suite prescribes them, as
         # ClickBench's are Snappy.
         "parquet-snappy",
-        # Parquet as DuckDB writes it, but with zstd level 3.
-        "parquet-duckdb-zstd",
         "vortex-compact",
         "vortex-file-compressed",
         "vortex-spatial-native",

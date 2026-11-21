@@ -68,8 +68,6 @@ COMPACT_TARGETS = df(Format.PARQUET, Format.VORTEX_COMPACT) | duck(
 )
 # Parquet as DuckDB writes it by default, queried beside zstd Parquet where bench compares the two.
 SNAPPY_TARGETS = df(Format.PARQUET_SNAPPY) | duck(Format.PARQUET_SNAPPY)
-# TEMPORARY: DuckDB's Parquet with zstd, to tell the writer's effect from the codec's on this PR.
-DUCKDB_ZSTD_TARGETS = df(Format.PARQUET_DUCKDB_ZSTD) | duck(Format.PARQUET_DUCKDB_ZSTD)
 
 # Vortex targets name an integration (`file`, `datasource`) and a scan engine (`v1`, `v2`); see
 # `BenchmarkTarget`. Declared targets run the file integration on the suite's default engine.
@@ -220,7 +218,7 @@ BENCHMARKS = (
         scale_factor=10.0,
         iterations=10,
         runs={
-            "pr": Coverage(DEFAULT_TARGETS | SNAPPY_TARGETS | DUCKDB_ZSTD_TARGETS),  # TEMPORARY
+            "pr": Coverage(DEFAULT_TARGETS | SNAPPY_TARGETS),  # TEMPORARY: compare the Parquet variants on this PR
             "pr-compact": COMPACT,
             "pr-full": FULL_PR,
             "develop": FULL_LOCAL_WITH_SNAPPY,
@@ -236,7 +234,7 @@ BENCHMARKS = (
         local_dir="vortex-bench/data/tpch/10.0",
         remote_key="tpch/10.0",
         runs={
-            "pr": Coverage(DEFAULT_TARGETS | SNAPPY_TARGETS | DUCKDB_ZSTD_TARGETS),  # TEMPORARY
+            "pr": Coverage(DEFAULT_TARGETS | SNAPPY_TARGETS),  # TEMPORARY: compare the Parquet variants on this PR
             "pr-compact": COMPACT,
             "pr-full": STANDARD,
             "develop": STANDARD_WITH_SNAPPY,

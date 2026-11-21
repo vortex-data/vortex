@@ -9,8 +9,6 @@
 //!   an analytics engine writes it for speed, where the base files are zstd level 3 for size. The
 //!   query engines read it like Parquet. `data-gen --formats parquet-snappy` writes it with the
 //!   `duckdb` CLI.
-//! - [`Format::ParquetDuckdbZstd`]: the same rows as DuckDB writes them by default, but with zstd
-//!   level 3. Beside the two others, it tells the writer's effect from the codec's.
 //! - [`SizeFormat::ArrowIpc`]: uncompressed Arrow IPC, which no query reads. `data-gen
 //!   --size-formats arrow-ipc` writes it only so that `scripts/capture-file-sizes.py` records its
 //!   size. Lance is also written for size only, by `lance-bench --data-only`, because only that
@@ -58,16 +56,6 @@ pub fn write_snappy_parquet_directory(base_path: &Path) -> Result<()> {
         base_path,
         Format::ParquetSnappy,
         write_duckdb_snappy_parquet,
-    )
-}
-
-/// Write every Parquet file in `{base_path}/parquet/` again with DuckDB and zstd level 3, to
-/// `{base_path}/parquet-duckdb-zstd/`. See [`write_duckdb_zstd_parquet`].
-pub fn write_duckdb_zstd_parquet_directory(base_path: &Path) -> Result<()> {
-    copy_parquet_directory(
-        base_path,
-        Format::ParquetDuckdbZstd,
-        write_duckdb_zstd_parquet,
     )
 }
 
@@ -124,20 +112,8 @@ fn write_arrow_ipc(input: &Path, output: &Path) -> Result<()> {
 /// codec is DuckDB's default, so the file is what a DuckDB user gets. The codec is named because
 /// it is the one the `parquet-snappy` name promises, and DuckDB's default could change.
 pub fn write_duckdb_snappy_parquet(input: &Path, output: &Path) -> Result<()> {
-    write_duckdb_parquet(input, output, "COMPRESSION snappy")
-}
-
-/// Write the Parquet file `input` again as DuckDB writes Parquet, but with zstd level 3: the
-/// codec and level of the base files, with every other setting at DuckDB's default.
-pub fn write_duckdb_zstd_parquet(input: &Path, output: &Path) -> Result<()> {
-    write_duckdb_parquet(input, output, "COMPRESSION zstd, COMPRESSION_LEVEL 3")
-}
-
-/// Write the Parquet file `input` to `output` with the `duckdb` CLI, with the `COPY` options
-/// `codec`.
-fn write_duckdb_parquet(input: &Path, output: &Path, codec: &str) -> Result<()> {
     let sql = format!(
-        "COPY (FROM read_parquet({})) TO {} (FORMAT parquet, {codec})",
+        "COPY (FROM read_parquet({})) TO {} (FORMAT parquet, COMPRESSION snappy)",
         sql_string(input)?,
         sql_string(output)?,
     );
@@ -145,7 +121,7 @@ fn write_duckdb_parquet(input: &Path, output: &Path, codec: &str) -> Result<()> 
         .arg("-c")
         .arg(&sql)
         .output()
-        .context("running the duckdb CLI, which writes DuckDB's Parquet")?;
+        .context("running the duckdb CLI, which writes parquet-snappy")?;
     if !result.status.success() {
         bail!(
             "the duckdb CLI failed: {}",

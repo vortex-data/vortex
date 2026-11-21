@@ -288,9 +288,9 @@ def test_pr_full_covers_pr() -> None:
     pr = _groups("pr")
     pr_full = _groups("pr-full")
 
-    # TEMPORARY: this PR runs TPC-H SF=10 DuckDB Parquet targets in `pr` only, to compare the Parquet variants.
+    # TEMPORARY: this PR runs TPC-H SF=10 Snappy targets in `pr` only, to compare the Parquet variants.
     def no_snappy(values: set) -> set:
-        return {v for v in values if "parquet-snappy" not in v and "parquet-duckdb-zstd" not in v}
+        return {v for v in values if "parquet-snappy" not in v}
 
     for benchmark_id, group in pr.items():
         full_group = pr_full[benchmark_id]

@@ -1283,11 +1283,10 @@ FILE_FORMAT_ORDER = {
     "vortex-compact": 1,
     "parquet": 2,
     "parquet-snappy": 3,
-    "parquet-duckdb-zstd": 4,
-    "lance": 5,
-    "duckdb": 6,
-    "arrow": 7,
-    "litdata": 8,
+    "lance": 4,
+    "duckdb": 5,
+    "arrow": 6,
+    "litdata": 7,
 }
 
 UNIT_ORDER = {
