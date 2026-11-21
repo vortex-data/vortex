@@ -41,7 +41,7 @@ class Format(Enum):
     """Data formats for benchmarks."""
 
     PARQUET = "parquet"
-    # The base Parquet files rewritten with Snappy, which `data-gen` writes beside them.
+    # The base Parquet files as DuckDB writes them, with Snappy, which `data-gen` writes beside them.
     PARQUET_SNAPPY = "parquet-snappy"
     VORTEX = "vortex"
     VORTEX_COMPACT = "vortex-compact"

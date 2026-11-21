@@ -38,6 +38,7 @@ use vortex_bench::compress::CompressedData;
 use vortex_bench::compress::Compressor;
 use vortex_bench::compress::Uncompressed;
 use vortex_bench::compress::read_projection;
+use vortex_bench::parquet_copies::write_duckdb_snappy_parquet;
 
 /// Compressor implementation for Parquet format with ZSTD level 3 compression.
 pub struct ParquetCompressor {
@@ -52,16 +53,25 @@ impl ParquetCompressor {
             ),
         }
     }
-
-    pub fn with_compression(compression: Compression) -> Self {
-        Self { compression }
-    }
 }
 
 impl Default for ParquetCompressor {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// Return the size of the Parquet file `parquet_path` written again by DuckDB, with Snappy. See
+/// [`write_duckdb_snappy_parquet`].
+pub async fn duckdb_snappy_parquet_size(parquet_path: &Path) -> anyhow::Result<u64> {
+    let parquet_path = parquet_path.to_path_buf();
+    tokio::task::spawn_blocking(move || {
+        let dir = tempfile::tempdir()?;
+        let output = dir.path().join("snappy.parquet");
+        write_duckdb_snappy_parquet(&parquet_path, &output)?;
+        Ok(std::fs::metadata(&output)?.len())
+    })
+    .await?
 }
 
 /// Return the Arrow memory size after decoding the input Parquet file.

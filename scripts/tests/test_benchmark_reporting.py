@@ -936,46 +936,21 @@ def test_summary_reports_hot_alone_when_no_row_recorded_its_runs(tmp_path: Path)
     assert "cold" not in summary
 
 
-def parquet_with_codecs(codecs: list[int], body: bytes = b"data") -> bytes:
-    """A Parquet file with one row group whose column chunks use `codecs`, footer only.
-
-    The footer is the Thrift compact encoding of `FileMetaData{4: [RowGroup{1: [ColumnChunk{3:
-    ColumnMetaData{4: codec}}]}]}`, plus an unread field before each so the reader must skip it.
-    """
-
-    def i32_field(delta: int, value: int) -> bytes:
-        return bytes([(delta << 4) | 5, (value << 1) ^ (value >> 31)])
-
-    def list_field(delta: int, items: list[bytes]) -> bytes:
-        return bytes([(delta << 4) | 9, (len(items) << 4) | 12]) + b"".join(items)
-
-    columns = [
-        # ColumnChunk: file_offset (2, i64) skipped, then meta_data (3).
-        bytes([0x26, 0x00, 0x1C]) + bytes([0x15, 0x02]) + i32_field(3, codec) + b"\x00\x00"
-        for codec in codecs
-    ]
-    row_group = list_field(1, columns) + b"\x00"
-    metadata = bytes([0x15, 0x04]) + list_field(3, [row_group]) + b"\x00"
-    return b"PAR1" + body + metadata + len(metadata).to_bytes(4, "little") + b"PAR1"
-
-
-def test_capture_file_sizes_names_parquet_by_codec(tmp_path: Path) -> None:
+def test_capture_file_sizes_names_parquet_by_its_directory(tmp_path: Path) -> None:
     data_dir = tmp_path / "data"
-    parquet_dir = data_dir / "clickbench_partitioned" / "parquet"
-    parquet_dir.mkdir(parents=True)
-    zstd, snappy, uncompressed = 6, 1, 0
     files = {
-        "hits_0.parquet": parquet_with_codecs([zstd, zstd]),
-        "hits_1.parquet": parquet_with_codecs([snappy, snappy]),
-        "hits_2.parquet": parquet_with_codecs([uncompressed]),
-        "hits_3.parquet": parquet_with_codecs([zstd, snappy]),
-        "hits_4.parquet": b"not parquet",
+        # ClickBench's own files are Snappy, and they are its `parquet`.
+        ("clickbench_partitioned", "parquet", "hits_0.parquet"): 40,
+        ("clickbench_partitioned", "parquet-snappy", "hits_0.parquet"): 50,
+        ("clickbench_partitioned", "arrow-ipc", "hits_0.arrow"): 80,
     }
-    for name, data in files.items():
-        (parquet_dir / name).write_bytes(data)
+    for parts, size in files.items():
+        path = data_dir.joinpath(*parts)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"x" * size)
     output_path = tmp_path / "sizes.jsonl"
 
-    result = subprocess.run(
+    subprocess.run(
         [
             sys.executable,
             str(CAPTURE_SCRIPT),
@@ -989,68 +964,14 @@ def test_capture_file_sizes_names_parquet_by_codec(tmp_path: Path) -> None:
             "-o",
             str(output_path),
         ],
-        check=False,
-        capture_output=True,
-        text=True,
+        check=True,
     )
 
-    assert result.returncode == 0, result.stderr
     records = [json.loads(line) for line in output_path.read_text(encoding="utf-8").splitlines()]
-    assert sorted((r["file_size"]["file"], r["file_size"]["format"], r["value"]) for r in records) == [
-        ("hits_0.parquet", "parquet", len(files["hits_0.parquet"])),
-        ("hits_1.parquet", "parquet-snappy", len(files["hits_1.parquet"])),
-        ("hits_2.parquet", "parquet-uncompressed", len(files["hits_2.parquet"])),
-        # Mixed codecs and unreadable footers keep the plain name, with a warning.
-        ("hits_3.parquet", "parquet", len(files["hits_3.parquet"])),
-        ("hits_4.parquet", "parquet", len(files["hits_4.parquet"])),
-    ]
-    assert "mixes Parquet codecs" in result.stderr
-    assert "Could not read the Parquet footer" in result.stderr
-
-
-def test_capture_file_sizes_records_the_size_only_snappy_directory(tmp_path: Path) -> None:
-    data_dir = tmp_path / "data"
-    scale_dir = data_dir / "tpcds" / "1.0"
-    zstd, snappy = 6, 1
-    files = {
-        ("parquet", "item.parquet"): parquet_with_codecs([zstd]),
-        ("parquet-snappy", "item.parquet"): parquet_with_codecs([snappy]),
-        ("parquet-snappy", "store.parquet"): b"not parquet",
-        ("arrow-ipc", "item.arrow"): b"x" * 80,
-    }
-    for (format_name, name), data in files.items():
-        path = scale_dir / format_name / name
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_bytes(data)
-    output_path = tmp_path / "sizes.jsonl"
-
-    result = subprocess.run(
-        [
-            sys.executable,
-            str(CAPTURE_SCRIPT),
-            str(data_dir),
-            "--benchmark",
-            "tpcds",
-            "--dataset-dir",
-            "tpcds",
-            "--commit",
-            "deadbeef",
-            "-o",
-            str(output_path),
-        ],
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-
-    assert result.returncode == 0, result.stderr
-    records = [json.loads(line) for line in output_path.read_text(encoding="utf-8").splitlines()]
-    assert [(r["file_size"]["format"], r["file_size"]["file"]) for r in records] == [
-        ("arrow-ipc", "item.arrow"),
-        ("parquet", "item.parquet"),
-        ("parquet-snappy", "item.parquet"),
-        # An unreadable footer in the Snappy directory keeps that directory's name.
-        ("parquet-snappy", "store.parquet"),
+    assert sorted((r["file_size"]["format"], r["value"]) for r in records) == [
+        ("arrow-ipc", 80),
+        ("parquet", 40),
+        ("parquet-snappy", 50),
     ]
 
 

@@ -16,13 +16,13 @@ use compress_bench::gpu::GpuOptions;
 use compress_bench::gpu::compressor as gpu_compressor;
 use compress_bench::parquet::ParquetCompressor;
 use compress_bench::parquet::arrow_uncompressed_size;
+use compress_bench::parquet::duckdb_snappy_parquet_size;
 use compress_bench::vortex::VortexCompressor;
 use compress_bench::vortex::vortex_compact_size;
 use futures::FutureExt;
 use indicatif::ProgressBar;
 use itertools::Itertools;
 use mimalloc::MiMalloc;
-use parquet::basic::Compression;
 use regex::Regex;
 use vortex::utils::aliases::hash_map::HashMap;
 use vortex_bench::Engine;
@@ -60,7 +60,8 @@ use vortex_bench::setup_logging_and_tracing_with_format;
 use vortex_bench::statpopgen::StatPopGenBenchmark;
 use vortex_bench::v3;
 
-/// The size record name of Parquet written with Snappy, beside `parquet`, which is zstd level 3.
+/// The size record name of Parquet as DuckDB writes it, with Snappy, beside `parquet`, which is
+/// zstd level 3. It is the same writer that `data-gen --formats parquet-snappy` uses.
 const PARQUET_SNAPPY_FORMAT: &str = "parquet-snappy";
 
 #[derive(Parser, Debug)]
@@ -533,18 +534,17 @@ async fn run_benchmark_for_dataset(
                         uncompressed_size.context("compression size requires Arrow memory size")?,
                     ));
                     if *format == Format::Parquet && !mode.is_gpu() {
-                        // Snappy Parquet is measured for size only: one untimed write.
-                        let snappy = ParquetCompressor::with_compression(Compression::SNAPPY)
-                            .compress(&input)
+                        // Snappy Parquet is measured for size only: one untimed write by DuckDB.
+                        let snappy_size = duckdb_snappy_parquet_size(&parquet_path)
                             .await
                             .with_context(|| {
-                                format!("compressing {bench_name} as Snappy Parquet")
+                                format!("writing {bench_name} as Snappy Parquet with DuckDB")
                             })?;
                         v3_records.push(v3::named_compression_size_record(
                             v3_dataset,
                             v3_variant,
                             PARQUET_SNAPPY_FORMAT,
-                            snappy.size,
+                            snappy_size,
                             uncompressed_size
                                 .context("compression size requires Arrow memory size")?,
                         ));

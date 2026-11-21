@@ -4,8 +4,11 @@
 //! Copies of a benchmark's base Parquet files in other formats, one output file for each input
 //! file, in a directory of the format's name beside the base `parquet` directory.
 //!
-//! - [`Format::ParquetSnappy`]: the same files written with Snappy in place of zstd. The query
-//!   engines read it like Parquet. `data-gen --formats parquet-snappy` writes it.
+//! - [`Format::ParquetSnappy`]: the same rows as DuckDB writes them by default, with Snappy,
+//!   DuckDB's row groups, and its dictionaries, statistics, and Bloom filters. This is Parquet as
+//!   an analytics engine writes it for speed, where the base files are zstd level 3 for size. The
+//!   query engines read it like Parquet. `data-gen --formats parquet-snappy` writes it with the
+//!   `duckdb` CLI.
 //! - [`SizeFormat::ArrowIpc`]: uncompressed Arrow IPC, which no query reads. `data-gen
 //!   --size-formats arrow-ipc` writes it only so that `scripts/capture-file-sizes.py` records its
 //!   size. Lance is also written for size only, by `lance-bench --data-only`, because only that
@@ -15,20 +18,19 @@ use std::fs;
 use std::fs::File;
 use std::io::BufWriter;
 use std::path::Path;
+use std::process::Command;
 use std::sync::Arc;
 
 use anyhow::Context;
 use anyhow::Result;
+use anyhow::bail;
 use arrow_ipc::writer::FileWriter;
 use clap::ValueEnum;
-use parquet::arrow::ArrowWriter;
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
-use parquet::basic::Compression;
 use tracing::info;
 
 use crate::Format;
 use crate::idempotent;
-use crate::utils::parquet::parquet_writer_properties;
 
 /// A format that is written only to record its file size. No query reads it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
@@ -47,10 +49,14 @@ pub fn write_size_format(base_path: &Path, format: SizeFormat) -> Result<()> {
     }
 }
 
-/// Write every Parquet file in `{base_path}/parquet/` again with Snappy, to
-/// `{base_path}/parquet-snappy/`.
+/// Write every Parquet file in `{base_path}/parquet/` again with DuckDB, to
+/// `{base_path}/parquet-snappy/`. See [`write_duckdb_snappy_parquet`].
 pub fn write_snappy_parquet_directory(base_path: &Path) -> Result<()> {
-    copy_parquet_directory(base_path, Format::ParquetSnappy, write_snappy_parquet)
+    copy_parquet_directory(
+        base_path,
+        Format::ParquetSnappy,
+        write_duckdb_snappy_parquet,
+    )
 }
 
 /// Write each Parquet file in `{base_path}/parquet/` with `write`, to `{base_path}/{format}/`.
@@ -101,27 +107,36 @@ fn write_arrow_ipc(input: &Path, output: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Write the Parquet file `input` again with Snappy. Every other setting is the base files':
-/// [`parquet_writer_properties`], and the row group size of `input`'s first row group.
-fn write_snappy_parquet(input: &Path, output: &Path) -> Result<()> {
-    let reader = ParquetRecordBatchReaderBuilder::try_new(File::open(input)?)?;
-    let schema = Arc::clone(reader.schema());
-    let row_group_rows = reader
-        .metadata()
-        .row_groups()
-        .first()
-        .map(|row_group| usize::try_from(row_group.num_rows()))
-        .transpose()?;
-    let props = parquet_writer_properties()
-        .set_compression(Compression::SNAPPY)
-        .set_max_row_group_row_count(row_group_rows)
-        .build();
-    let mut writer = ArrowWriter::try_new(File::create(output)?, schema, Some(props))?;
-    for batch in reader.build()? {
-        writer.write(&batch?)?;
+/// Write the Parquet file `input` again as DuckDB writes Parquet: `COPY ... (FORMAT parquet,
+/// COMPRESSION snappy)` in the `duckdb` CLI, which must be on `PATH`. Every setting other than the
+/// codec is DuckDB's default, so the file is what a DuckDB user gets. The codec is named because
+/// it is the one the `parquet-snappy` name promises, and DuckDB's default could change.
+pub fn write_duckdb_snappy_parquet(input: &Path, output: &Path) -> Result<()> {
+    let sql = format!(
+        "COPY (FROM read_parquet({})) TO {} (FORMAT parquet, COMPRESSION snappy)",
+        sql_string(input)?,
+        sql_string(output)?,
+    );
+    let result = Command::new("duckdb")
+        .arg("-c")
+        .arg(&sql)
+        .output()
+        .context("running the duckdb CLI, which writes parquet-snappy")?;
+    if !result.status.success() {
+        bail!(
+            "the duckdb CLI failed: {}",
+            String::from_utf8_lossy(&result.stderr)
+        );
     }
-    writer.close()?;
     Ok(())
+}
+
+/// `path` as a SQL string literal.
+fn sql_string(path: &Path) -> Result<String> {
+    let path = path
+        .to_str()
+        .with_context(|| format!("{} is not UTF-8", path.display()))?;
+    Ok(format!("'{}'", path.replace('\'', "''")))
 }
 
 #[cfg(test)]
@@ -133,10 +148,13 @@ mod tests {
     use arrow_schema::DataType;
     use arrow_schema::Field;
     use arrow_schema::Schema;
+    use parquet::arrow::ArrowWriter;
+    use parquet::basic::Compression;
     use parquet::file::reader::FileReader as _;
     use parquet::file::reader::SerializedFileReader;
 
     use super::*;
+    use crate::utils::parquet::parquet_writer_properties;
 
     /// Write `rows` rows to `{base}/parquet/t.parquet`, in row groups of `row_group_rows`.
     fn write_base(base: &Path, rows: i64, row_group_rows: usize) -> Result<RecordBatch> {
@@ -166,27 +184,42 @@ mod tests {
     }
 
     #[test]
-    fn snappy_parquet_keeps_the_row_groups_and_changes_only_the_codec() -> Result<()> {
+    #[ignore = "needs the duckdb CLI on PATH, which the benchmark runners install"]
+    fn snappy_parquet_is_duckdbs_parquet_with_the_same_rows() -> Result<()> {
         let base = tempfile::tempdir()?;
-        write_base(base.path(), 1000, 300)?;
+        let expected = write_base(base.path(), 1000, 300)?;
 
         write_snappy_parquet_directory(base.path())?;
 
         let output = base.path().join("parquet-snappy").join("t.parquet");
-        let metadata = SerializedFileReader::new(File::open(output)?)?
+        let metadata = SerializedFileReader::new(File::open(&output)?)?
             .metadata()
             .clone();
-        let row_groups: Vec<i64> = metadata
-            .row_groups()
-            .iter()
-            .map(|rg| rg.num_rows())
-            .collect();
-        assert_eq!(row_groups, [300, 300, 300, 100]);
-        for row_group in metadata.row_groups() {
-            for column in row_group.columns() {
-                assert_eq!(column.compression(), Compression::SNAPPY);
-            }
+        assert!(
+            metadata
+                .file_metadata()
+                .created_by()
+                .is_some_and(|created_by| created_by.starts_with("DuckDB"))
+        );
+        // DuckDB's own row groups, not the base file's 300 rows.
+        assert_eq!(metadata.num_row_groups(), 1);
+        for column in metadata.row_groups().iter().flat_map(|rg| rg.columns()) {
+            assert_eq!(column.compression(), Compression::SNAPPY);
         }
+        let reader = ParquetRecordBatchReaderBuilder::try_new(File::open(&output)?)?.build()?;
+        let batches = reader.collect::<Result<Vec<_>, _>>()?;
+        let actual = arrow_select::concat::concat_batches(&batches[0].schema(), &batches)?;
+        assert_eq!(actual.num_rows(), expected.num_rows());
+        assert_eq!(actual.columns(), expected.columns());
+        Ok(())
+    }
+
+    #[test]
+    fn sql_strings_escape_quotes() -> Result<()> {
+        assert_eq!(
+            sql_string(Path::new("/data/o'brien.parquet"))?,
+            "'/data/o''brien.parquet'"
+        );
         Ok(())
     }
 

@@ -11,144 +11,10 @@
 
 import argparse
 import json
-import struct
 import sys
 from pathlib import Path
 
 DUCKDB_CATALOG_FILES = {"duckdb.db", "duckdb.db.wal"}
-
-# Parquet's `CompressionCodec` enum, from `parquet.thrift`.
-PARQUET_CODECS = {
-    0: "uncompressed",
-    1: "snappy",
-    2: "gzip",
-    3: "lzo",
-    4: "brotli",
-    5: "lz4",
-    6: "zstd",
-    7: "lz4-raw",
-}
-
-# Thrift compact protocol type ids.
-_T_STOP, _T_TRUE, _T_FALSE, _T_BYTE, _T_I16, _T_I32, _T_I64, _T_DOUBLE = range(8)
-_T_BINARY, _T_LIST, _T_SET, _T_MAP, _T_STRUCT = range(8, 13)
-
-
-class _CompactReader:
-    """Read Thrift compact protocol values. Structs read as dicts keyed by field id."""
-
-    def __init__(self, data: bytes) -> None:
-        self.data = data
-        self.pos = 0
-
-    def byte(self) -> int:
-        value = self.data[self.pos]
-        self.pos += 1
-        return value
-
-    def varint(self) -> int:
-        shift = result = 0
-        while True:
-            b = self.byte()
-            result |= (b & 0x7F) << shift
-            if not b & 0x80:
-                return result
-            shift += 7
-
-    def zigzag(self) -> int:
-        n = self.varint()
-        return (n >> 1) ^ -(n & 1)
-
-    def value(self, kind: int) -> object:
-        if kind in (_T_TRUE, _T_FALSE):
-            # A bool list element is a whole byte; a bool field carries its value in its type.
-            return self.byte() == _T_TRUE
-        if kind == _T_BYTE:
-            return self.byte()
-        if kind in (_T_I16, _T_I32, _T_I64):
-            return self.zigzag()
-        if kind == _T_DOUBLE:
-            self.pos += 8
-            return None
-        if kind == _T_BINARY:
-            length = self.varint()
-            self.pos += length
-            return None
-        if kind in (_T_LIST, _T_SET):
-            header = self.byte()
-            size = header >> 4
-            if size == 15:
-                size = self.varint()
-            return [self.value(header & 0x0F) for _ in range(size)]
-        if kind == _T_MAP:
-            size = self.varint()
-            if size == 0:
-                return {}
-            types = self.byte()
-            for _ in range(size):
-                self.value(types >> 4)
-                self.value(types & 0x0F)
-            return None
-        if kind == _T_STRUCT:
-            return self.struct()
-        raise ValueError(f"unknown thrift compact type {kind}")
-
-    def struct(self) -> dict[int, object]:
-        fields: dict[int, object] = {}
-        field_id = 0
-        while True:
-            header = self.byte()
-            kind = header & 0x0F
-            if kind == _T_STOP:
-                return fields
-            delta = header >> 4
-            field_id = field_id + delta if delta else self.zigzag()
-            if kind in (_T_TRUE, _T_FALSE):
-                fields[field_id] = kind == _T_TRUE
-            else:
-                fields[field_id] = self.value(kind)
-
-
-def parquet_codecs(path: Path) -> set[str]:
-    """The codecs of every column chunk in a Parquet file, read from its footer."""
-    with open(path, "rb") as f:
-        f.seek(-8, 2)
-        length_bytes, magic = struct.unpack("<I4s", f.read(8))
-        if magic != b"PAR1":
-            raise ValueError("no PAR1 footer")
-        f.seek(-8 - length_bytes, 2)
-        metadata = _CompactReader(f.read(length_bytes)).struct()
-    codecs = set()
-    # FileMetaData.row_groups (4) -> RowGroup.columns (1) -> ColumnChunk.meta_data (3)
-    # -> ColumnMetaData.codec (4).
-    for row_group in metadata.get(4) or []:
-        for column in row_group.get(1) or []:
-            meta = column.get(3)
-            if isinstance(meta, dict) and isinstance(meta.get(4), int):
-                codecs.add(PARQUET_CODECS.get(meta[4], f"codec-{meta[4]}"))
-    return codecs
-
-
-def parquet_format_name(path: Path, directory: str = "parquet") -> str:
-    """Name a Parquet file's format by its codec, as `vortex` and `vortex-compact` name Vortex's.
-
-    `parquet` is zstd, the codec every Parquet file the benchmarks write themselves uses (zstd
-    level 3). A file written with another codec, such as Snappy in a downloaded dataset, is
-    `parquet-<codec>`. A file whose footer cannot be read, or that mixes codecs, keeps the name of
-    its `directory` with a warning: `parquet`, as before codecs were recorded, or
-    `parquet-snappy`, which `data-gen --formats parquet-snappy` writes.
-    """
-    try:
-        codecs = parquet_codecs(path)
-    except (OSError, ValueError, IndexError, struct.error) as error:
-        print(f"Could not read the Parquet footer of {path}: {error}", file=sys.stderr)
-        return directory
-    if len(codecs) != 1:
-        if codecs:
-            print(f"{path} mixes Parquet codecs {sorted(codecs)}; recording it as {directory}", file=sys.stderr)
-        return directory
-    codec = next(iter(codecs))
-    return "parquet" if codec == "zstd" else f"parquet-{codec}"
 
 
 def main() -> None:
@@ -185,6 +51,10 @@ def main() -> None:
         "lance",
         "litdata",
         "parquet",
+        # Parquet as DuckDB writes it, with Snappy. A format is named by its directory, not by
+        # its codec: `parquet` is the suite's base Parquet, which is zstd level 3 where the
+        # benchmarks write it, and the dataset's own files where the suite prescribes them, as
+        # ClickBench's are Snappy.
         "parquet-snappy",
         "vortex-compact",
         "vortex-file-compressed",
@@ -221,11 +91,6 @@ def main() -> None:
                 continue
 
             size_bytes = file_path.stat().st_size
-            recorded_format = (
-                parquet_format_name(file_path, format_name)
-                if format_name in ("parquet", "parquet-snappy") and file_path.suffix == ".parquet"
-                else format_name
-            )
 
             records.append(
                 {
@@ -236,7 +101,7 @@ def main() -> None:
                     "file_size": {
                         "benchmark": args.benchmark,
                         "scale_factor": scale_factor,
-                        "format": recorded_format,
+                        "format": format_name,
                         "file": str(relative_path),
                     },
                 }

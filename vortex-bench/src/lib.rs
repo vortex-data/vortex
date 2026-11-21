@@ -218,8 +218,8 @@ pub enum Format {
     Csv,
     #[clap(name = "parquet")]
     Parquet,
-    /// Parquet with Snappy compression, the base Parquet files written again with Snappy in
-    /// place of zstd. Only suites that list it generate it.
+    /// Parquet as DuckDB writes it, with Snappy: the base Parquet files written again by the
+    /// `duckdb` CLI. Only suites that list it generate it.
     #[clap(name = "parquet-snappy")]
     #[serde(rename = "parquet-snappy")]
     ParquetSnappy,
