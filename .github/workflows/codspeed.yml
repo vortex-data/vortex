@@ -171,6 +171,19 @@ jobs:
               exclude-allocations: ${{ steps.shard.outputs.exclude-allocations }}
               # Cached package restoration fails on dangling libc6-dbg documentation symlinks.
               cache-instruments: "false"
+      # The CodSpeed runner keeps a Callgrind profile of each benchmark process in a folder
+      # `profile.<random>.out` in $TMPDIR, or /tmp when it is not set. Keep them, so bench.vortex.dev can show the call stacks of a commit and compare them
+      # between two commits.
+      - name: Upload the CodSpeed profiles
+        if: always() && steps.shard.outputs.active == 'true'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
+        with:
+          name: codspeed-profiles-shard-${{ matrix.shard }}
+          path: |
+            /tmp/profile.*.out/
+            ${{ runner.temp }}/profile.*.out/
+          if-no-files-found: warn
+          retention-days: 30
 
   bench-codspeed-python:
     name: "Benchmark with Codspeed (Python)"
