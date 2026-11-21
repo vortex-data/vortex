@@ -32,6 +32,8 @@ use tracing::info;
 use super::table::Table;
 use crate::Format;
 use crate::utils::file::idempotent_async;
+use crate::utils::parquet::DICTIONARY_PAGE_SIZE_LIMIT;
+use crate::utils::parquet::LOCAL_ROW_GROUP_ROWS;
 
 /// Batch size matching the TPC-H generator's streaming batches.
 const BATCH_SIZE: usize = 8192 * 64;
@@ -93,8 +95,13 @@ pub async fn generate_tables(scale_factor: &str, output_dir: PathBuf) -> Result<
                 let schema = Arc::clone(iter.schema());
 
                 let file = TokioFile::create(&path).await?;
+                // `parquet_writer_properties`'s settings, in the parquet version this writer
+                // takes.
                 let props = WriterProperties::builder()
                     .set_compression(Compression::ZSTD(ZstdLevel::try_new(3)?))
+                    .set_dictionary_page_size_limit(DICTIONARY_PAGE_SIZE_LIMIT)
+                    .set_data_page_row_count_limit(usize::MAX)
+                    .set_max_row_group_size(LOCAL_ROW_GROUP_ROWS)
                     .build();
                 let mut writer = AsyncArrowWriter::try_new(file, schema, Some(props))?;
                 for batch in iter {

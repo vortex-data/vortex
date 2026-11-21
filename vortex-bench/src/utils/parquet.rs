@@ -26,7 +26,7 @@ pub const S3_ROW_GROUP_ROWS: usize = 1024 * 1024;
 /// Columns whose dictionary outgrows this fall back to plain encoding. The parquet-rs default
 /// (1 MiB) keeps dictionaries for unique keys, which compress far worse than plain values. A small
 /// limit approximates the per-column choice that DuckDB's writer makes.
-const DICTIONARY_PAGE_SIZE_LIMIT: usize = 64 * 1024;
+pub const DICTIONARY_PAGE_SIZE_LIMIT: usize = 64 * 1024;
 
 /// Writer settings for generated benchmark Parquet: zstd level 3, pages bounded by bytes only,
 /// and small dictionaries.
