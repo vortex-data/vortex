@@ -3,6 +3,7 @@
 
 //! Shared Parquet writer settings for generated benchmark data.
 
+use std::fs;
 use std::fs::File;
 use std::path::Path;
 
@@ -12,6 +13,7 @@ use parquet::file::metadata::ParquetMetaData;
 use parquet::file::metadata::ParquetMetaDataReader;
 use parquet::file::properties::WriterProperties;
 use parquet::file::properties::WriterPropertiesBuilder;
+use tracing::info;
 
 /// Rows in each row group of generated benchmark Parquet that queries read from local disk:
 /// DuckDB's default. Small row groups give the query engines more units of work to run in parallel.
@@ -42,6 +44,29 @@ pub fn parquet_writer_properties() -> WriterPropertiesBuilder {
 }
 
 /// Return whether every column chunk in `metadata` is zstd.
+/// Make `parquet_dir` ready for generated Parquet in row groups of `row_group_rows` rows.
+///
+/// The generators do not write a file that exists, so Parquet generated before with other row
+/// groups would stay. A marker file beside the directory, `parquet.row-group-rows`, records the
+/// row groups its files have. If the directory exists and the marker is missing or records another
+/// size, this removes the directory, so that the generator writes it again.
+pub fn prepare_parquet_dir(parquet_dir: &Path, row_group_rows: usize) -> anyhow::Result<()> {
+    let marker = parquet_dir.with_extension("row-group-rows");
+    let recorded = fs::read_to_string(&marker)
+        .ok()
+        .and_then(|text| text.trim().parse::<usize>().ok());
+    if parquet_dir.exists() && recorded != Some(row_group_rows) {
+        info!(
+            "Removing {}: its row groups are not {row_group_rows} rows",
+            parquet_dir.display()
+        );
+        fs::remove_dir_all(parquet_dir)?;
+    }
+    fs::create_dir_all(parquet_dir)?;
+    fs::write(&marker, row_group_rows.to_string())?;
+    Ok(())
+}
+
 pub fn is_zstd(metadata: &ParquetMetaData) -> bool {
     metadata
         .row_groups()
@@ -75,6 +100,32 @@ mod tests {
         let mut writer = ArrowWriter::try_new(File::create(path)?, batch.schema(), props)?;
         writer.write(&batch)?;
         writer.close()?;
+        Ok(())
+    }
+
+    #[test]
+    fn parquet_with_other_row_groups_is_generated_again() -> anyhow::Result<()> {
+        let base = tempfile::tempdir()?;
+        let parquet_dir = base.path().join("parquet");
+        let file = parquet_dir.join("t.parquet");
+
+        // Parquet without a marker, as generated before the marker existed.
+        fs::create_dir_all(&parquet_dir)?;
+        fs::write(&file, b"old")?;
+        prepare_parquet_dir(&parquet_dir, LOCAL_ROW_GROUP_ROWS)?;
+        assert!(!file.exists());
+
+        fs::write(&file, b"local")?;
+        prepare_parquet_dir(&parquet_dir, LOCAL_ROW_GROUP_ROWS)?;
+        assert!(file.exists());
+
+        prepare_parquet_dir(&parquet_dir, S3_ROW_GROUP_ROWS)?;
+        assert!(parquet_dir.exists());
+        assert!(!file.exists());
+        assert_eq!(
+            fs::read_to_string(base.path().join("parquet.row-group-rows"))?,
+            S3_ROW_GROUP_ROWS.to_string()
+        );
         Ok(())
     }
 

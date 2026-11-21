@@ -60,6 +60,7 @@ use vortex::utils::parallelism::get_available_parallelism;
 use crate::Format;
 use crate::utils::file::temp_download_filepath;
 use crate::utils::parquet::parquet_writer_properties;
+use crate::utils::parquet::prepare_parquet_dir;
 use crate::utils::split;
 
 const BATCH_SIZE: usize = 8192 * 16;
@@ -82,7 +83,7 @@ pub async fn generate_tpcds(
     row_group_rows: usize,
 ) -> Result<PathBuf> {
     let output_dir = base_dir.join(Format::Parquet.name());
-    fs::create_dir_all(&output_dir)?;
+    prepare_parquet_dir(&output_dir, row_group_rows)?;
 
     let scale_factor: f64 = scale_factor.parse()?;
     // Follow the C `dsdgen` reference rather than the Trino Java port, like `tpcgen-cli` does.

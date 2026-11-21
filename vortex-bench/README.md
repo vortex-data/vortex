@@ -60,8 +60,9 @@ TPC-H, TPC-DS, and nested TPC-H write Parquet in row groups of 122,880 rows, Duc
 In our tests, these smaller row groups were faster from local disk, because they give the query
 engines more units of work to run in parallel. The benchmarks that read from S3 use row groups of
 1,048,576 rows, parquet-rs's default, which need fewer requests to object storage. Pass
-`--opt row-group-rows=1048576` to `data-gen` to generate data for S3. Data that is already
-generated is not written again, so delete it first to change its row groups.
+`--opt row-group-rows=1048576` to `data-gen` to generate data for S3. The file
+`parquet.row-group-rows`, beside the `parquet` directory, records the row groups of its files.
+`data-gen` removes and generates again Parquet whose row groups are different or not recorded.
 
 ## Memory allocators
 

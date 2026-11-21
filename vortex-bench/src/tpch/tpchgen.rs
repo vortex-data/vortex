@@ -49,6 +49,7 @@ use crate::tpch::nest::NestedBatchReader;
 use crate::utils::file::idempotent_async;
 use crate::utils::parquet::LOCAL_ROW_GROUP_ROWS;
 use crate::utils::parquet::parquet_writer_properties;
+use crate::utils::parquet::prepare_parquet_dir;
 use crate::utils::split;
 
 // Compressed size of each TPC-H table at scale factor 1, used to split tables into files of about
@@ -136,6 +137,12 @@ impl TpchGenOptions {
 /// Generate all TPC-H tables for a single scale factor
 pub async fn generate_tpch_tables(options: TpchGenOptions) -> Result<()> {
     fs::create_dir_all(&options.output_dir)?;
+    if matches!(options.format, Format::Parquet | Format::OnDiskDuckDB) {
+        prepare_parquet_dir(
+            &options.output_dir.join(Format::Parquet.name()),
+            options.row_group_rows,
+        )?;
+    }
 
     let scale_factor = options.scale_factor.parse::<f64>()?;
     let mut all_futures = Vec::new();
