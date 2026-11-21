@@ -6,9 +6,9 @@
 //! Inputs select an extension family and generate storage with its declared dtype.
 //! Most storage uses [`ArbitraryArray`](vortex_array::arrays::arbitrary::ArbitraryArray). JSON and
 //! WKB use valid serialized payloads because arbitrary UTF-8 and binary bytes need not represent
-//! those logical values. The shared Arrow harness checks each
-//! [`ExtensionArray`](vortex_array::arrays::ExtensionArray) in every container. Variant is excluded
-//! pending <https://github.com/vortex-data/vortex/issues/11359>.
+//! those logical values. Time uses values within one day because its scalars reject the rest. The
+//! shared Arrow harness checks each [`ExtensionArray`](vortex_array::arrays::ExtensionArray) in
+//! every container. Variant is excluded pending <https://github.com/vortex-data/vortex/issues/11359>.
 
 use arbitrary::Arbitrary;
 use arbitrary::Unstructured;
@@ -17,12 +17,12 @@ use vortex_array::EmptyMetadata;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::ExtensionArray;
+use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::arbitrary::ArbitraryArray;
 use vortex_array::arrays::arbitrary::ArbitraryArrayConfig;
 use vortex_array::arrays::arbitrary::ArbitraryWith;
 use vortex_array::builtins::ArrayBuiltins;
-use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::dtype::extension::ExtDType;
@@ -119,7 +119,7 @@ impl<'a> Arbitrary<'a> for ArrowRoundTrip {
         let len = u.int_in_range(0usize..=32)?;
 
         let dtype = kind.arbitrary_dtype(u, nullability)?;
-        let storage = kind.arbitrary_storage(u, dtype.storage_dtype(), len)?;
+        let storage = kind.arbitrary_storage(u, &dtype, len)?;
 
         Ok(Self {
             array: ExtensionArray::try_new(dtype, storage)
@@ -263,14 +263,38 @@ impl ExtensionKind {
         Ok(dtype)
     }
 
-    /// Generates storage with valid JSON and WKB payloads for types that constrain their bytes.
+    /// Generates storage with valid JSON and WKB payloads and in-range times of day.
     fn arbitrary_storage(
         self,
         u: &mut Unstructured<'_>,
-        dtype: &DType,
+        ext_dtype: &ExtDTypeRef,
         len: usize,
     ) -> arbitrary::Result<ArrayRef> {
+        let dtype = ext_dtype.storage_dtype();
         let storage = match self {
+            Self::Time => {
+                // Time storage counts units since midnight, and scalars reject a full day or more.
+                let units_per_day: i64 = match *ext_dtype.metadata::<Time>() {
+                    TimeUnit::Seconds => 86_400,
+                    TimeUnit::Milliseconds => 86_400_000,
+                    TimeUnit::Microseconds => 86_400_000_000,
+                    TimeUnit::Nanoseconds => 86_400_000_000_000,
+                    TimeUnit::Days => unreachable!("Time rejects days"),
+                };
+                let values = (0..len)
+                    .map(|_| {
+                        let valid = !dtype.is_nullable() || u.arbitrary::<bool>()?;
+                        valid
+                            .then(|| u.int_in_range(0..=units_per_day - 1))
+                            .transpose()
+                    })
+                    .collect::<arbitrary::Result<Vec<_>>>()?;
+
+                PrimitiveArray::from_option_iter(values)
+                    .into_array()
+                    .cast(dtype.clone())
+                    .vortex_expect("times of day fit the storage type and nullability")
+            }
             Self::Json => {
                 let text = u.arbitrary::<i64>()?.to_string();
                 let values =
@@ -378,5 +402,22 @@ mod tests {
         #[case] vtable: impl ExtVTable,
     ) -> VortexResult<()> {
         check_seeded_round_trip(kind, vtable)
+    }
+
+    /// Regression for <https://github.com/vortex-data/vortex/issues/11668>: generated time storage
+    /// exceeded one day, so the single-run slice of the run-end container failed scalar validation.
+    #[test]
+    fn time_storage_stays_within_one_day() -> VortexResult<()> {
+        let bytes = [
+            0x5f, 0x65, 0x65, 0x55, 0x55, 0x06, 0x55, 0x55, 0x55, 0x55, 0x00, 0x00, 0x55, 0x55,
+            0x56, 0x00, 0x55,
+        ];
+        let input = ArrowRoundTrip::arbitrary(&mut Unstructured::new(&bytes))
+            .map_err(|e| vortex_err!("failed to generate crash input: {e}"))?;
+
+        assert_eq!(input.array.dtype().as_extension().id(), Time.id());
+        input.check();
+
+        Ok(())
     }
 }
