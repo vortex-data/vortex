@@ -12176,6 +12176,7 @@ dependencies = [
  "vortex-arrow",
  "vortex-btrblocks",
  "vortex-buffer",
+ "vortex-decimal-byte-parts",
  "vortex-edition",
  "vortex-error",
  "vortex-expr",
