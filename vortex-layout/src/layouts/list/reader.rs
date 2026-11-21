@@ -25,6 +25,7 @@ use vortex_array::scalar_fn::fns::operators::Operator;
 use vortex_array::validity::Validity;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_ensure;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
 
@@ -214,6 +215,10 @@ impl ListReader {
     /// Crops leading and trailing unselected lists, reads their offsets, and translates the first
     /// and last offset into the element-row range to fetch. Any holes in the selection are filtered
     /// after reconstructing the list array.
+    ///
+    /// When the layout has [`ElementSamples`](crate::layouts::list::ElementSamples), the elements
+    /// they bound are read beside the offsets rather than after them, and cut to the offsets'
+    /// range once both arrive.
     fn project_all_bounded(
         &self,
         row_range: &Range<u64>,
@@ -234,18 +239,45 @@ impl ListReader {
         let expr = expr.clone();
         let reader = self.clone();
         let offsets_fut = self.fetch_raw_offsets(&selected_row_range)?;
+        let sampled = self
+            .layout
+            .element_samples()
+            .map(|samples| {
+                let range =
+                    samples.element_range(selected_row_range.clone(), self.elements.row_count());
+                VortexResult::Ok((range.start, self.fetch_raw_elements(&range)?))
+            })
+            .transpose()?;
+        let sampled_fut = async move {
+            match sampled {
+                Some((start, elements)) => Ok(Some((start, elements.await?))),
+                None => Ok(None),
+            }
+        };
+        let validity_fut = fetch_validity(
+            self.validity.as_ref(),
+            &selected_row_range,
+            MaskFuture::new_true(selected_mask.len()),
+        )?;
 
         Ok(async move {
-            let offsets = offsets_fut.await?;
+            let (offsets, sampled, validity) = try_join!(offsets_fut, sampled_fut, validity_fut)?;
 
             let elements_range = elements_range_from_offsets(&offsets, &reader.session)?;
-            let elements_fut = reader.fetch_raw_elements(&elements_range)?;
-            let validity_fut = fetch_validity(
-                reader.validity.as_ref(),
-                &selected_row_range,
-                MaskFuture::new_true(selected_mask.len()),
-            )?;
-            let (elements, validity) = try_join!(elements_fut, validity_fut)?;
+            let elements = match sampled {
+                Some((start, elements)) => {
+                    vortex_ensure!(
+                        start <= elements_range.start
+                            && elements_range.end - start <= elements.len() as u64,
+                        "List element samples do not hold elements {elements_range:?}"
+                    );
+                    elements.slice(
+                        usize::try_from(elements_range.start - start)?
+                            ..usize::try_from(elements_range.end - start)?,
+                    )?
+                }
+                None => reader.fetch_raw_elements(&elements_range)?.await?,
+            };
 
             let offsets = rebase_offsets(offsets, elements_range.start)?;
             // SAFETY: the selected offsets remain monotonically increasing, rebasing them against
@@ -615,8 +647,13 @@ fn apply_lengths_validity(
 
 #[cfg(test)]
 mod tests {
+    use std::num::NonZeroU64;
     use std::ops::Range;
+    use std::time::Duration;
 
+    use futures::channel::oneshot;
+    use futures::future::Shared;
+    use parking_lot::Mutex;
     use rstest::rstest;
     use vortex_array::ArrayContext;
     use vortex_array::VortexSessionExecute;
@@ -643,11 +680,14 @@ mod tests {
     use crate::LayoutStrategy;
     use crate::layouts::chunked::writer::ChunkedLayoutStrategy;
     use crate::layouts::flat::writer::FlatLayoutStrategy;
+    use crate::layouts::list::ListLayoutEncoding;
     use crate::layouts::list::writer::ListLayoutStrategy;
     use crate::layouts::repartition::RepartitionStrategy;
     use crate::layouts::repartition::RepartitionWriterOptions;
     use crate::scan::split_by::SplitBy;
     use crate::segments::CountingSegmentSource;
+    use crate::segments::SegmentFuture;
+    use crate::segments::SegmentId;
     use crate::segments::SegmentSource;
     use crate::segments::TestSegments;
     use crate::sequence::SequenceId;
@@ -1127,6 +1167,14 @@ mod tests {
         ListLayoutStrategy::default().with_elements(chunked_elements_strategy())
     }
 
+    /// `strategy` recording element samples every `stride` elements, when there is one.
+    fn with_samples(strategy: ListLayoutStrategy, stride: Option<u64>) -> ListLayoutStrategy {
+        match stride.and_then(NonZeroU64::new) {
+            Some(stride) => strategy.with_element_samples(stride),
+            None => strategy,
+        }
+    }
+
     fn chunked_elements_strategy() -> Arc<dyn LayoutStrategy> {
         Arc::new(RepartitionStrategy::new(
             ChunkedLayoutStrategy::new(FlatLayoutStrategy::default()),
@@ -1157,12 +1205,15 @@ mod tests {
     /// A sparse mask must remain selective even when the requested row range covers the complete
     /// local list layout. The selected first list touches one element chunk plus the offsets
     /// segment; reading all five element chunks would make the count six.
+    #[rstest]
     #[tokio::test]
-    async fn full_range_sparse_mask_crops_element_read() -> VortexResult<()> {
+    async fn full_range_sparse_mask_crops_element_read(
+        #[values(None, Some(2))] stride: Option<u64>,
+    ) -> VortexResult<()> {
         let list = create_wider_list_array(false);
         let ctx = LayoutReaderContext::new();
-        let (segments, layout, session) =
-            write_layout(&chunked_elements_list_strategy(), list.clone()).await?;
+        let strategy = with_samples(chunked_elements_list_strategy(), stride);
+        let (segments, layout, session) = write_layout(&strategy, list.clone()).await?;
         let source = Arc::new(CountingSegmentSource::new(segments));
         let reader = layout.new_reader("".into(), Arc::clone(&source) as _, &session, &ctx)?;
 
@@ -1200,11 +1251,12 @@ mod tests {
         #[case] row_range: Range<u64>,
         #[case] mask: Mask,
         #[case] nullable: bool,
+        #[values(None, Some(1), Some(2), Some(3))] stride: Option<u64>,
     ) -> VortexResult<()> {
         let list = create_wider_list_array(nullable);
         let ctx = LayoutReaderContext::new();
-        let (segments, layout, session) =
-            write_layout(&chunked_elements_list_strategy(), list.clone()).await?;
+        let strategy = with_samples(chunked_elements_list_strategy(), stride);
+        let (segments, layout, session) = write_layout(&strategy, list.clone()).await?;
         let reader = layout.new_reader("".into(), segments, &session, &ctx)?;
 
         let expr = root().bind(reader.dtype())?;
@@ -1328,5 +1380,118 @@ mod tests {
 
         let strategy = chunked_list_strategy().with_elements(Arc::new(chunked_list_strategy()));
         assert_round_trips(&strategy, sliced_chunks(&outer, &[1, 2])?, outer).await
+    }
+
+    /// Holds the offsets segment back until another segment is requested.
+    struct OffsetsAfterOthers {
+        inner: Arc<dyn SegmentSource>,
+        offsets: SegmentId,
+        release: Mutex<Option<oneshot::Sender<()>>>,
+        released: Shared<oneshot::Receiver<()>>,
+    }
+
+    impl SegmentSource for OffsetsAfterOthers {
+        fn request(&self, id: SegmentId) -> SegmentFuture {
+            let segment = self.inner.request(id);
+            if id != self.offsets {
+                if let Some(release) = self.release.lock().take() {
+                    _ = release.send(());
+                }
+                return segment;
+            }
+            let released = self.released.clone();
+            async move {
+                _ = released.await;
+                segment.await
+            }
+            .boxed()
+        }
+    }
+
+    /// With samples, a bounded read requests the elements beside the offsets: a source that
+    /// answers the offsets only once something else is requested still finishes. Without them,
+    /// the elements wait on the offsets and the read never finishes.
+    #[rstest]
+    #[case::samples(Some(2), true)]
+    #[case::no_samples(None, false)]
+    #[tokio::test]
+    async fn sampled_elements_are_requested_beside_offsets(
+        #[case] stride: Option<u64>,
+        #[case] finishes: bool,
+    ) -> VortexResult<()> {
+        let list = create_wider_list_array(false);
+        let strategy = with_samples(chunked_elements_list_strategy(), stride);
+        let (segments, layout, session) = write_layout(&strategy, list.clone()).await?;
+        let offsets = layout.as_::<ListLayoutEncoding>().offsets()?.segment_ids()[0];
+        let (release, released) = oneshot::channel();
+        let source = Arc::new(OffsetsAfterOthers {
+            inner: segments,
+            offsets,
+            release: Mutex::new(Some(release)),
+            released: released.shared(),
+        });
+        let reader = layout.new_reader("".into(), source, &session, &LayoutReaderContext::new())?;
+
+        let expr = root().bind(reader.dtype())?;
+        let read = reader.projection_evaluation(&(1..4), &expr, MaskFuture::new_true(3))?;
+        match tokio::time::timeout(Duration::from_secs(1), read).await {
+            Ok(result) => {
+                assert!(finishes, "the read finished without samples");
+                let mut exec_ctx = session.create_execution_ctx();
+                assert_arrays_eq!(result?, list.slice(1..4)?, &mut exec_ctx);
+            }
+            Err(_) => assert!(!finishes, "the read waited on the offsets"),
+        }
+        Ok(())
+    }
+
+    /// Outer lists `[[0, 1], []]`, `[[2, 3, 4]]`, `[[5], [6, 7, 8, 9], []]`, `[[10, 11],
+    /// [12, 13, 14]]`, with samples at both levels and chunked elements under each.
+    #[rstest]
+    #[case::all(0..4, Mask::new_true(4))]
+    #[case::middle(1..3, Mask::new_true(2))]
+    #[case::last(3..4, Mask::new_true(1))]
+    #[case::sparse(0..4, Mask::from_iter([false, true, false, true]))]
+    #[case::sparse_subrange(1..4, Mask::from_iter([true, false, true]))]
+    #[tokio::test]
+    async fn sampled_nested_lists_round_trip(
+        #[case] row_range: Range<u64>,
+        #[case] mask: Mask,
+        #[values(1, 2, 3)] stride: u64,
+    ) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let inner = ListArray::try_new(
+            PrimitiveArray::from_iter(0..15i32).into_array(),
+            buffer![0u32, 2, 2, 5, 6, 10, 10, 12, 15].into_array(),
+            Validity::NonNullable,
+            &mut ctx,
+        )?
+        .into_array();
+        let outer = ListArray::try_new(
+            inner,
+            buffer![0u32, 2, 3, 6, 8].into_array(),
+            Validity::NonNullable,
+            &mut ctx,
+        )?
+        .into_array();
+        let inner_strategy = with_samples(chunked_elements_list_strategy(), Some(stride));
+        let strategy = with_samples(
+            ListLayoutStrategy::default().with_elements(Arc::new(inner_strategy)),
+            Some(stride),
+        );
+        let (segments, layout, session) = write_layout(&strategy, outer.clone()).await?;
+        let reader =
+            layout.new_reader("".into(), segments, &session, &LayoutReaderContext::new())?;
+
+        let expr = root().bind(reader.dtype())?;
+        let result = reader
+            .projection_evaluation(&row_range, &expr, MaskFuture::ready(mask.clone()))?
+            .await?;
+        let expected = outer
+            .slice(usize::try_from(row_range.start)?..usize::try_from(row_range.end)?)?
+            .filter(mask)?;
+        let mut exec_ctx = session.create_execution_ctx();
+        assert_arrays_eq!(result, expected, &mut exec_ctx);
+        Ok(())
     }
 }
