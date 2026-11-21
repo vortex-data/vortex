@@ -22,7 +22,8 @@ use vortex_array::dtype::FieldName;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::expr::BoundExpression;
-use vortex_array::expr::ExactBoundExpr;
+use vortex_array::expr::ExactKey;
+use vortex_array::expr::WeakBoundExprKey;
 use vortex_array::expr::traversal::NodeExt;
 use vortex_array::expr::traversal::Transformed;
 use vortex_array::expr::traversal::TraversalOrder;
@@ -47,7 +48,7 @@ pub struct RowIdxLayoutReader {
     name: Arc<str>,
     row_offset: u64,
     child: Arc<dyn LayoutReader>,
-    partition_cache: DashMap<ExactBoundExpr, Arc<OnceLock<Partitioning>>>,
+    partition_cache: DashMap<WeakBoundExprKey, Arc<OnceLock<Partitioning>>>,
     session: VortexSession,
 }
 
@@ -88,10 +89,8 @@ impl RowIdxLayoutReader {
     }
 
     fn partition_expr(&self, expr: &BoundExpression) -> VortexResult<Partitioning> {
-        let key = ExactBoundExpr(expr.clone());
-
         // Check cache first with read-only lock.
-        if let Some(entry) = self.partition_cache.get(&key)
+        if let Some(entry) = self.partition_cache.get(expr as &dyn ExactKey)
             && let Some(partitioning) = entry.value().get()
         {
             return Ok(partitioning.clone());
@@ -99,8 +98,9 @@ impl RowIdxLayoutReader {
 
         let result = self.compute_partitioning(expr)?;
 
+        self.partition_cache.retain(|key, _| key.is_live());
         self.partition_cache
-            .entry(key)
+            .entry(WeakBoundExprKey::new(expr))
             .or_insert_with(|| Arc::new(OnceLock::new()))
             .get_or_init(|| result.clone());
 

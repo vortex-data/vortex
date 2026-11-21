@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::ops::BitAnd;
+use std::ops::Deref;
 use std::ops::Range;
 use std::sync::Arc;
 use std::sync::OnceLock;
@@ -16,7 +17,8 @@ use vortex_array::dtype::Nullability;
 use vortex_array::dtype::RESERVED_VALIDITY_FIELD_NAME;
 use vortex_array::dtype::StructFields;
 use vortex_array::expr::BoundExpression;
-use vortex_array::expr::ExactBoundExpr;
+use vortex_array::expr::ExactKey;
+use vortex_array::expr::WeakBoundExprKey;
 use vortex_array::expr::bound::get_item;
 use vortex_array::expr::bound::is_not_null;
 use vortex_array::expr::bound::mask;
@@ -90,7 +92,7 @@ pub struct StructReader {
     expanded_root_expr: BoundExpression,
 
     field_lookup: Option<HashMap<FieldName, usize>>,
-    partitioned_expr_cache: DashMap<ExactBoundExpr, Arc<OnceLock<Partitioned>>>,
+    partitioned_expr_cache: DashMap<WeakBoundExprKey, Arc<OnceLock<Partitioned>>>,
 }
 
 impl StructReader {
@@ -194,30 +196,31 @@ impl StructReader {
     }
 
     /// Utility for partitioning an expression over the fields of a struct.
-    fn partition_expr(&self, expr: &BoundExpression) -> VortexResult<Partitioned> {
-        let key = ExactBoundExpr(expr.clone());
-
+    fn partition_expr(&self, expr: &BoundExpression) -> VortexResult<CachedPartitioned> {
         // Look up the cell under a shared shard lock; only a miss takes the write lock, and
         // only for as long as it takes to insert an empty cell.
-        let cell = match self.partitioned_expr_cache.get(&key) {
+        let cell = match self.partitioned_expr_cache.get(expr as &dyn ExactKey) {
             Some(entry) => Arc::clone(entry.value()),
-            None => Arc::clone(
-                self.partitioned_expr_cache
-                    .entry(key)
-                    .or_insert_with(|| Arc::new(OnceLock::new()))
-                    .value(),
-            ),
+            None => {
+                self.partitioned_expr_cache.retain(|key, _| key.is_live());
+                Arc::clone(
+                    self.partitioned_expr_cache
+                        .entry(WeakBoundExprKey::new(expr))
+                        .or_insert_with(|| Arc::new(OnceLock::new()))
+                        .value(),
+                )
+            }
         };
         // All map guards are dropped here, so partitioning runs outside any shard lock.
         // Concurrent misses may compute redundantly; `get_or_init` keeps a single winner.
 
-        if let Some(value) = cell.get() {
-            return Ok(value.clone());
+        if cell.get().is_none() {
+            // Cache the bound trees themselves: rebinding would create fresh child identity and
+            // defeat downstream identity-keyed caches on every split.
+            let result = self.compute_partitioned_expr(expr)?;
+            cell.get_or_init(|| result);
         }
-        // Cache the bound trees themselves: rebinding would create fresh child identity and defeat
-        // downstream `ExactBoundExpr` caches on every split.
-        let result = self.compute_partitioned_expr(expr)?;
-        Ok(cell.get_or_init(|| result).clone())
+        Ok(CachedPartitioned(cell))
     }
 
     fn compute_partitioned_expr(&self, expr: &BoundExpression) -> VortexResult<Partitioned> {
@@ -437,6 +440,19 @@ enum Partitioned {
     Multi(Arc<PartitionedEval<Item>>),
 }
 
+/// A cached partitioning, borrowed from the cache rather than cloned for every split.
+struct CachedPartitioned(Arc<OnceLock<Partitioned>>);
+
+impl Deref for CachedPartitioned {
+    type Target = Partitioned;
+
+    fn deref(&self) -> &Partitioned {
+        self.0
+            .get()
+            .vortex_expect("partition_expr initializes the cell")
+    }
+}
+
 impl LayoutReader for StructReader {
     fn name(&self) -> &Arc<str> {
         &self.name
@@ -551,7 +567,7 @@ impl LayoutReader for StructReader {
         mask: Mask,
     ) -> VortexResult<MaskFuture> {
         // Partition the expression into expressions that can be evaluated over individual fields
-        match &self.partition_expr(expr)? {
+        match &*self.partition_expr(expr)? {
             Partitioned::Single(name, partition) => {
                 let reader = self.field_reader(name)?;
                 reader
@@ -593,7 +609,7 @@ impl LayoutReader for StructReader {
         mask: MaskFuture,
     ) -> VortexResult<MaskFuture> {
         // Partition the expression into expressions that can be evaluated over individual fields
-        match &self.partition_expr(expr)? {
+        match &*self.partition_expr(expr)? {
             Partitioned::Single(name, partition) => {
                 let reader = self.field_reader(name)?;
                 reader
@@ -634,7 +650,7 @@ impl LayoutReader for StructReader {
         mask_fut: MaskFuture,
     ) -> VortexResult<ArrayFuture> {
         // Partition the expression into expressions that can be evaluated over individual fields
-        match &self.partition_expr(expr)? {
+        match &*self.partition_expr(expr)? {
             Partitioned::Single(name, partition) => {
                 let reader = self.field_reader(name)?;
                 reader
