@@ -232,10 +232,14 @@ These CI checks are the ones most often missed when adding files rather than edi
   - tpchgen-cli: `parquet --compression='ZSTD(3)'`
 - Benchmarks that deliberately compare Parquet codecs, such as the GPU compress benchmark's
   `--codec` and the Snappy Parquet whose size `compress-bench` records, are exempt.
-- Generated Parquet that queries read from local disk has row groups of 122,880 rows
-  (`LOCAL_ROW_GROUP_ROWS`, DuckDB's default). Generated Parquet that queries read from S3 has
-  row groups of 1,048,576 rows (`S3_ROW_GROUP_ROWS`, parquet-rs's default): the CI matrix passes
+- The Parquet that TPC-H, TPC-DS, and nested TPC-H generate for SQL queries has row groups of
+  122,880 rows (`LOCAL_ROW_GROUP_ROWS`, DuckDB's default) on local disk, and 1,048,576 rows
+  (`S3_ROW_GROUP_ROWS`, parquet-rs's default) on S3: the CI matrix passes
   `--opt row-group-rows=1048576` to `data-gen` for S3 entries.
+- The random access benchmark writes all its Parquet with `random_access_writer_properties`, on
+  local disk and S3 alike: a page index and pages of about 20,000 rows. A lookup reads only the
+  pages that hold its rows, so the row-group size matters little, and the S3 job reads the same
+  files that the local job prepares.
 
 ## Common Mistakes
 
