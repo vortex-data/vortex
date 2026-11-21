@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 //! Copies of a benchmark's base Parquet files in other formats, one output file for each input
 //! file, in a directory of the format's name beside the base `parquet` directory.
 //!
