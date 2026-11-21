@@ -108,13 +108,18 @@ impl Footer {
         dtype: DType,
         statistics: Option<FileStatistics>,
         metadata: Arc<[(String, SegmentSpec)]>,
+        dtype_and_statistics_bytes: usize,
         session: &VortexSession,
     ) -> VortexResult<Self> {
         let metadata_bytes: usize = metadata
             .iter()
             .map(|(key, _segment)| key.len() + size_of::<SegmentSpec>())
             .sum();
-        let approx_byte_size = footer_bytes.len() + layout_bytes.len() + metadata_bytes;
+        let approx_byte_size = footer_bytes
+            .len()
+            .saturating_add(layout_bytes.len())
+            .saturating_add(metadata_bytes)
+            .saturating_add(dtype_and_statistics_bytes);
         let fb_footer = root::<fb::Footer>(footer_bytes)?;
 
         // Create a LayoutContext from the registry.

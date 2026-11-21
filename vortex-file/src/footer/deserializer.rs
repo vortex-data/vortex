@@ -319,12 +319,20 @@ impl FooterDeserializer {
             layout_segment,
         )?);
 
+        let dtype_and_statistics_bytes = postscript
+            .dtype
+            .iter()
+            .chain(&postscript.statistics)
+            .fold(0usize, |size, segment| {
+                size.saturating_add(segment.length as usize)
+            });
         Footer::from_flatbuffer(
             footer_bytes,
             layout_bytes,
             dtype,
             file_stats,
             metadata,
+            dtype_and_statistics_bytes,
             &self.session,
         )
     }

@@ -173,11 +173,10 @@ impl MultiFileDataSource {
         // Open first file eagerly for dtype.
         let (first_file_listing, first_fs) = &all_files[0];
         let open_fn = self.open_options_fn.as_ref();
-        let (first_file, first_size) =
-            open_file(first_fs, first_file_listing, &self.session, open_fn).await?;
+        let first_file = open_file(first_fs, first_file_listing, &self.session, open_fn).await?;
         let first_reader = first_file.layout_reader()?;
 
-        let byte_sizes = std::iter::once(first_size)
+        let byte_sizes = std::iter::once(first_file.opened_size)
             .chain(all_files[1..].iter().map(|(file, _)| file.versioned_size()))
             .collect();
 
@@ -234,29 +233,23 @@ async fn open_file(
     file: &FileListing,
     session: &VortexSession,
     open_options_fn: &(dyn Fn(VortexOpenOptions) -> VortexOpenOptions + Send + Sync),
-) -> VortexResult<(VortexFile, Option<u64>)> {
+) -> VortexResult<VortexFile> {
     tracing::trace!(path = %file.path, "opening vortex file");
 
     let source = fs.open_read(file).await?;
-    let size = if file.version.is_some() {
-        file.size
-    } else {
-        Some(source.size().await?)
-    };
     let cache_key = fs.cache_key(file);
     let key = cache_key
         .as_deref()
         .or_else(|| file.version.is_none().then_some(file.path.as_str()));
-    let opened = open_cached_with_version(
+    open_cached_with_version(
         session,
         key,
         source,
-        size,
+        file.versioned_size(),
         file.version.as_ref(),
         open_options_fn,
     )
-    .await?;
-    Ok((opened, size))
+    .await
 }
 
 /// Open a Vortex file without reusing or populating the session footer cache.
@@ -339,7 +332,7 @@ struct VortexFileReaderFactory {
 #[async_trait]
 impl LayoutReaderFactory for VortexFileReaderFactory {
     async fn open(&self) -> VortexResult<Option<LayoutReaderRef>> {
-        let (file, _) = open_file(
+        let file = open_file(
             &self.fs,
             &self.file,
             &self.session,
@@ -464,20 +457,20 @@ mod tests {
         let metadata_options = |options: VortexOpenOptions| options.include_metadata();
 
         if default_first {
-            let (default, _) = open_file(&fs, &listing, &session, &default_options).await?;
+            let default = open_file(&fs, &listing, &session, &default_options).await?;
             assert!(default.metadata_segment("key").is_none());
-            let (included, _) = open_file(&fs, &listing, &session, &metadata_options).await?;
+            let included = open_file(&fs, &listing, &session, &metadata_options).await?;
             assert_eq!(
                 included.metadata_segment("key").map(ByteBuffer::as_slice),
                 Some(expected.as_slice())
             );
         } else {
-            let (included, _) = open_file(&fs, &listing, &session, &metadata_options).await?;
+            let included = open_file(&fs, &listing, &session, &metadata_options).await?;
             assert_eq!(
                 included.metadata_segment("key").map(ByteBuffer::as_slice),
                 Some(expected.as_slice())
             );
-            let (default, _) = open_file(&fs, &listing, &session, &default_options).await?;
+            let default = open_file(&fs, &listing, &session, &default_options).await?;
             assert!(default.metadata_segment("key").is_none());
         }
 
@@ -623,7 +616,7 @@ mod tests {
         }
 
         fn size(&self) -> BoxFuture<'static, VortexResult<u64>> {
-            self.bytes.size()
+            Box::pin(async { vortex_bail!("range-only source has no length lookup") })
         }
 
         fn read_at(
@@ -654,6 +647,13 @@ mod tests {
         }
 
         async fn head(&self, path: &str) -> VortexResult<Option<FileListing>> {
+            if path == "catalog.vortex" {
+                return Ok(Some(FileListing {
+                    path: path.to_owned(),
+                    size: None,
+                    version: None,
+                }));
+            }
             if path == "anonymous.vortex" {
                 return Ok(Some(FileListing {
                     path: path.to_owned(),
@@ -724,8 +724,8 @@ mod tests {
         };
         let include = |options: VortexOpenOptions| options.include_metadata();
 
-        let (file_a, _) = open_file(&fs_a, &listing, &session, &include).await?;
-        let (file_b, _) = open_file(&fs_b, &listing, &session, &include).await?;
+        let file_a = open_file(&fs_a, &listing, &session, &include).await?;
+        let file_b = open_file(&fs_b, &listing, &session, &include).await?;
 
         assert_eq!(
             file_a.metadata_segment("k").map(ByteBuffer::as_slice),
@@ -764,13 +764,48 @@ mod tests {
             version: None,
         };
 
-        let (file, _) = open_file(&fs, &listing, &session, &|options| options).await?;
+        let file = open_file(&fs, &listing, &session, &|options| options).await?;
         assert_eq!(file.row_count(), 1);
         let source = MultiFileDataSource::new(session)
             .with_glob("anonymous.vortex", Some(fs))
             .build()
             .await?;
         assert_eq!(source.byte_size(), Precision::exact(actual_size));
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn range_only_source_accepts_catalog_size_or_footer() -> VortexResult<()> {
+        let session = VortexSession::empty()
+            .with::<LayoutSession>()
+            .with::<RuntimeSession>()
+            .with::<MultiFileSession>();
+        crate::register_default_encodings(&session);
+        crate::enable_all_registered_array_encodings(&session);
+        let mut output = ByteBufferMut::empty();
+        let summary = session
+            .write_options()
+            .write(&mut output, buffer![1u32].into_array().to_array_stream())
+            .await?;
+        let len = output.len() as u64;
+        let footer = summary.footer().clone();
+        let fs: FileSystemRef = Arc::new(UnkeyedFileSystem {
+            bytes: output.into(),
+            expose_uri: true,
+        });
+        let source = MultiFileDataSource::new(session.clone())
+            .with_glob("catalog.vortex", Some(Arc::clone(&fs)))
+            .with_open_options(move |opts| opts.with_file_size(len))
+            .build()
+            .await?;
+        assert_eq!(source.byte_size(), Precision::exact(len));
+        let source = MultiFileDataSource::new(session)
+            .with_glob("catalog.vortex", Some(fs))
+            .with_open_options(move |opts| opts.with_footer(footer.clone()))
+            .build()
+            .await?;
+        assert_eq!(source.byte_size(), Precision::Absent);
+        assert_eq!(source.row_count(), Precision::exact(1u64));
         Ok(())
     }
 
@@ -861,8 +896,8 @@ mod tests {
             size: None,
             version: Some(FileVersion::new("b.vortex-v1")),
         };
-        let (fa, _) = open_file(&fs, &a_listing, &session, &include).await?;
-        let (fb, _) = open_file(&fs, &b_listing, &session, &include).await?;
+        let fa = open_file(&fs, &a_listing, &session, &include).await?;
+        let fb = open_file(&fs, &b_listing, &session, &include).await?;
 
         assert_eq!(
             fa.metadata_segment("k").map(ByteBuffer::as_slice),

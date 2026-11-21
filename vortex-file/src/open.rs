@@ -43,6 +43,7 @@ const INITIAL_READ_SIZE: usize = MAX_POSTSCRIPT_SIZE as usize + EOF_SIZE;
 
 struct FooterRead {
     footer: Footer,
+    file_size: Option<u64>,
     initial_segments: HashMap<SegmentId, ByteBuffer>,
 }
 
@@ -265,7 +266,8 @@ impl VortexOpenOptions {
             Some(footer) => footer,
             None => block_on(opts.read_footer(&buffer))?.footer,
         };
-        footer.validate_file_size(buffer.len() as u64)?;
+        let size = buffer.len() as u64;
+        footer.validate_file_size(size)?;
 
         let segment_source: Arc<dyn SegmentSource> =
             Arc::new(BufferSegmentSource::new(buffer, footer.segment_locations()));
@@ -274,7 +276,8 @@ impl VortexOpenOptions {
         } else {
             Arc::new(HashMap::new())
         };
-        let file = VortexFile::new(footer, segment_source, opts.session).with_metadata(metadata);
+        let file = VortexFile::new(footer, segment_source, opts.session)
+            .with_open_metadata(metadata, Some(size));
         Ok(if cache_layout_reader {
             file.with_caching()
         } else {
@@ -298,6 +301,7 @@ impl VortexOpenOptions {
 
         let FooterRead {
             footer,
+            file_size,
             initial_segments,
         } = if let Some(footer) = self.footer {
             if let Some(file_size) = self.file_size {
@@ -305,6 +309,7 @@ impl VortexOpenOptions {
             }
             FooterRead {
                 footer,
+                file_size: self.file_size,
                 initial_segments: HashMap::default(),
             }
         } else {
@@ -351,8 +356,8 @@ impl VortexOpenOptions {
         } else {
             Arc::new(HashMap::new())
         };
-        let file =
-            VortexFile::new(footer, segment_source, self.session.clone()).with_metadata(metadata);
+        let file = VortexFile::new(footer, segment_source, self.session.clone())
+            .with_open_metadata(metadata, file_size);
         Ok(if self.cache_layout_reader {
             file.with_caching()
         } else {
@@ -413,6 +418,7 @@ impl VortexOpenOptions {
 
         Ok(FooterRead {
             footer,
+            file_size: Some(file_size),
             initial_segments,
         })
     }

@@ -44,6 +44,8 @@ use crate::v2::FileStatsLayoutReader;
 /// and for initiating scans to read the file's contents.
 #[derive(Clone)]
 pub struct VortexFile {
+    /// The file length used for this open, when known.
+    pub(crate) opened_size: Option<u64>,
     /// The footer of the Vortex file, containing metadata and layout information.
     footer: Footer,
     /// The segment source used to read segments from this file.
@@ -98,6 +100,7 @@ impl VortexFile {
     ) -> Self {
         Self {
             footer,
+            opened_size: None,
             segment_source,
             session,
             metadata: Arc::new(HashMap::new()),
@@ -107,8 +110,13 @@ impl VortexFile {
         }
     }
 
-    pub(crate) fn with_metadata(mut self, metadata: Arc<HashMap<String, ByteBuffer>>) -> Self {
+    pub(crate) fn with_open_metadata(
+        mut self,
+        metadata: Arc<HashMap<String, ByteBuffer>>,
+        size: Option<u64>,
+    ) -> Self {
         self.metadata = metadata;
+        self.opened_size = size;
         self
     }
 
@@ -123,13 +131,9 @@ impl VortexFile {
             plans: ScanCache::default(),
         };
         Self {
-            footer: self.footer,
-            segment_source: self.segment_source,
-            session: self.session,
-            metadata: self.metadata,
             layout_reader_cache: Some(OnceLock::new()),
             scan_cache: Some(scan_cache),
-            usage: self.usage,
+            ..self
         }
     }
 
