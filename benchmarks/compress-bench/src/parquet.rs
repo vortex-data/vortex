@@ -453,6 +453,7 @@ mod tests {
     use arrow_array::StringArray;
     use arrow_schema::DataType;
     use arrow_schema::Field;
+    use parquet::file::metadata::PageIndexPolicy;
     use parquet::file::metadata::ParquetMetaData;
     use parquet::file::properties::WriterProperties;
     use rstest::rstest;
@@ -547,7 +548,8 @@ mod tests {
             let mut buf = Vec::new();
             parquet_compress_write(batches.clone(), Arc::clone(&schema), compression, &mut buf)
                 .await?;
-            let options = ArrowReaderOptions::new().with_page_index(true);
+            let options =
+                ArrowReaderOptions::new().with_page_index_policy(PageIndexPolicy::Required);
             metadata.push(ArrowReaderMetadata::load(&Bytes::from(buf), options)?);
         }
         let (zstd, snappy) = (metadata[0].metadata(), metadata[1].metadata());
