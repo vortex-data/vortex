@@ -18,6 +18,12 @@
 //! traits document the stable contract; avoid depending on undocumented slot order or metadata
 //! details.
 
+use std::sync::LazyLock;
+
+use vortex_session::VortexSession;
+
+use crate::optimizer::kernels::ArrayKernels;
+
 #[cfg(any(test, feature = "_test-harness"))]
 mod assertions;
 
@@ -138,7 +144,6 @@ pub use varbinview::VarBinViewArray;
 pub mod variant;
 pub use variant::Variant;
 pub use variant::VariantArray;
-use vortex_session::VortexSession;
 
 pub mod widen;
 pub use widen::Widen;
@@ -170,6 +175,18 @@ pub(crate) fn initialize(session: &VortexSession) {
     varbinview::initialize(session);
     variant::initialize(session);
     widen::initialize(session);
+}
+
+/// Parent reductions for write normalization. Rules move a rejected wrapper through an existing
+/// structural encoding so normalization can continue on the stored values.
+pub(crate) fn write_parent_reductions() -> &'static ArrayKernels {
+    static KERNELS: LazyLock<ArrayKernels> = LazyLock::new(|| {
+        let kernels = ArrayKernels::empty();
+        widen::compute::rules::register_write_parent_rules(&kernels);
+        kernels
+    });
+
+    &KERNELS
 }
 
 #[cfg(feature = "arbitrary")]

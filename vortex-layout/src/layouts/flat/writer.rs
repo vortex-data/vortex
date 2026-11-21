@@ -142,7 +142,7 @@ impl LayoutStrategy for FlatLayoutStrategy {
             _ => {}
         }
 
-        let buffers = chunk.serialize(
+        let buffers = chunk.serialize_with_fallback(
             ctx.array_ctx(),
             session,
             &SerializeOptions {
