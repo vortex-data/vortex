@@ -291,11 +291,19 @@ impl ParquetRandomAccessor {
 }
 
 /// Parse the Parquet footer, including the page index, from any async reader.
+///
+/// parquet-rs returns no page index, and no error, for a file that has none at all. Without the
+/// offset index every lookup would decode whole column chunks, so this returns an error instead.
 async fn load_metadata<T: AsyncFileReader + Send>(
     reader: &mut T,
 ) -> anyhow::Result<ArrowReaderMetadata> {
     let options = ArrowReaderOptions::new().with_page_index_policy(PageIndexPolicy::Required);
-    Ok(ArrowReaderMetadata::load_async(reader, options).await?)
+    let metadata = ArrowReaderMetadata::load_async(reader, options).await?;
+    anyhow::ensure!(
+        metadata.metadata().offset_index().is_some(),
+        "the Parquet file has no offset index; write it with `random_access_writer_properties`"
+    );
+    Ok(metadata)
 }
 
 /// The rows to read from one row group: runs of consecutive row-group-local indices.

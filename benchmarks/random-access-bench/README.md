@@ -14,6 +14,13 @@ touched row group into a `RowSelection`, so with the page index parquet-rs fetch
 only the pages holding those rows; row groups are read concurrently, and local files go through
 `object_store`'s `LocalFileSystem`, as DataFusion reads them.
 
+Every Parquet file is written by parquet-rs with zstd level 3 and parquet-rs's default layout:
+a page index, data pages of at most 1 MiB and about 20,000 rows, and row groups of at most
+1,048,576 rows (`random_access_writer_properties` in `vortex-bench/src/random_access/mod.rs`).
+The taxi data is the published NYC TLC file written again in this layout, because the published
+file has no page index. The benchmark stops with an error on a Parquet file without the offset
+index.
+
 Two access patterns are generated with a fixed seed (see [`src/main.rs`](./src/main.rs)):
 
 - **correlated**: several clusters of consecutive indices scattered across the dataset,

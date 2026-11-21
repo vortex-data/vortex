@@ -21,10 +21,12 @@ use crate::SESSION;
 use crate::conversions::parquet_to_vortex_chunks;
 use crate::datasets::Dataset;
 use crate::datasets::data_downloads::download_data;
+use crate::idempotent;
 use crate::idempotent_async;
 use crate::random_access::BenchDataset;
 use crate::random_access::data_path;
 use crate::random_access::parquet_to_arrow_file;
+use crate::random_access::write_random_access_parquet;
 
 /// Dataset identifier used for data path generation.
 pub const DATASET: &str = "taxi";
@@ -67,7 +69,7 @@ impl BenchDataset for TaxiData {
             }
             Format::OnDiskVortex => taxi_data_vortex().await,
             Format::VortexCompact => taxi_data_vortex_compact().await,
-            Format::Parquet => taxi_data_parquet().await,
+            Format::Parquet => taxi_random_access_parquet().await,
             other => anyhow::bail!("Random access bench not implemented for {other}"),
         }
     }
@@ -78,6 +80,19 @@ pub async fn taxi_data_parquet() -> Result<PathBuf> {
     let taxi_data_url =
         "https://d37ci6vzurychx.cloudfront.net/trip-data/yellow_tripdata_2023-11.parquet";
     download_data(taxi_parquet_fpath, taxi_data_url).await
+}
+
+/// The taxi data as the random access benchmark reads it: the published file written again with
+/// [`random_access_writer_properties`](crate::random_access::random_access_writer_properties),
+/// because the published file has no page index.
+pub async fn taxi_random_access_parquet() -> Result<PathBuf> {
+    let published = taxi_data_parquet().await?;
+    tokio::task::spawn_blocking(move || {
+        idempotent(&data_path(DATASET, Format::Parquet), |output| {
+            write_random_access_parquet(&published, output)
+        })
+    })
+    .await?
 }
 
 pub async fn fetch_taxi_data() -> Result<ArrayRef> {
