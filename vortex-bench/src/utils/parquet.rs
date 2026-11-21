@@ -43,7 +43,6 @@ pub fn parquet_writer_properties() -> WriterPropertiesBuilder {
         .set_data_page_row_count_limit(usize::MAX)
 }
 
-/// Return whether every column chunk in `metadata` is zstd.
 /// Make `parquet_dir` ready for generated Parquet in row groups of `row_group_rows` rows.
 ///
 /// The generators do not write a file that exists, so Parquet generated before with other row
@@ -77,6 +76,7 @@ pub fn prepare_parquet_dir(parquet_dir: &Path, row_group_rows: usize) -> anyhow:
     Ok(())
 }
 
+/// Return whether every column chunk in `metadata` is zstd.
 pub fn is_zstd(metadata: &ParquetMetaData) -> bool {
     metadata
         .row_groups()
