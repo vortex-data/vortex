@@ -23,8 +23,11 @@ use crate::execution::ROW_BLOCK_SIZE;
 pub use crate::execution::SegmentLocation;
 pub use crate::execution::cache::ScanCache;
 pub use crate::execution::cache::WeakScanCache;
+use crate::execution::demand::DemandSegmentSource;
+use crate::execution::demand::chunk_segments;
 use crate::execution::io::segment_ranges;
 use crate::execution::rows_per_chunk;
+use crate::execution::scan_chunks;
 use crate::plan::optimize;
 use crate::plan::plan_row_idx_expression;
 use crate::selection::Selection;
@@ -185,11 +188,22 @@ impl ScanBuilder {
             None => cache.insert_ranges(segment_ranges(&file.locations)),
         };
         let values = cache.values();
+        let rows = self.row_range.unwrap_or(0..row_count);
+        let chunks = scan_chunks(rows.clone(), chunk_rows);
+        let predicates = filter.iter().flat_map(|filter| filter.predicates());
+        let segments = Arc::new(DemandSegmentSource::new(
+            cache.retaining(file.segments),
+            chunk_segments(
+                &self.session,
+                std::iter::once(&projection).chain(predicates),
+                &chunks,
+            )?,
+        ));
         Ok(PreparedScan {
             session: self.session,
-            rows: self.row_range.unwrap_or(0..row_count),
+            rows,
             selection: self.selection,
-            segments: cache.retaining(file.segments),
+            segments,
             ranges,
             cache,
             locations: file.locations,
