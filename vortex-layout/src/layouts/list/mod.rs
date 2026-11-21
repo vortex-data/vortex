@@ -17,6 +17,7 @@ use vortex_array::dtype::PType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
@@ -58,6 +59,56 @@ pub use List as ListLayoutEncoding;
 #[derive(Clone, Debug)]
 pub struct ListData {
     offsets_ptype: PType,
+    element_samples: Option<ElementSamples>,
+}
+
+/// The list holding every `stride`-th element row, recorded by the writer.
+///
+/// A reader maps a selection of lists to the element rows that hold them, to within `stride`
+/// elements, without reading the offsets: list `i` holds element row `k * stride` exactly when
+/// it is the last list starting at or before that row. Sampling the elements rather than the
+/// lists bounds what a selection reads in elements, whatever the lists' lengths.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ElementSamples {
+    stride: u64,
+    lists: Arc<[u64]>,
+}
+
+impl ElementSamples {
+    /// Samples every `stride`-th of `element_rows` elements of `list_rows` lists: one list per
+    /// sample, never decreasing.
+    pub fn try_new(
+        stride: u64,
+        lists: Vec<u64>,
+        list_rows: u64,
+        element_rows: u64,
+    ) -> VortexResult<Self> {
+        vortex_ensure!(stride > 0, "List element samples need a stride");
+        vortex_ensure_eq!(
+            lists.len() as u64,
+            element_rows.div_ceil(stride),
+            "List element samples do not cover the elements"
+        );
+        vortex_ensure!(
+            lists.windows(2).all(|pair| pair[0] <= pair[1])
+                && lists.last().is_none_or(|&last| last < list_rows),
+            "List element samples must be ascending lists of the layout"
+        );
+        Ok(Self {
+            stride,
+            lists: lists.into(),
+        })
+    }
+
+    /// The elements between samples.
+    pub fn stride(&self) -> u64 {
+        self.stride
+    }
+
+    /// The list holding element row `k * stride`, for each `k`.
+    pub fn lists(&self) -> &[u64] {
+        &self.lists
+    }
 }
 
 /// A list layout shredded into elements, offsets, and optional validity children.
@@ -73,7 +124,12 @@ impl VTable for List {
     }
 
     fn metadata(layout: &Layout<Self>) -> Self::Metadata {
-        ProstMetadata(ListLayoutMetadata::new(layout.offsets_ptype))
+        let mut metadata = ListLayoutMetadata::new(layout.offsets_ptype);
+        if let Some(samples) = &layout.element_samples {
+            metadata.element_stride = samples.stride;
+            metadata.element_lists = samples.lists.to_vec();
+        }
+        ProstMetadata(metadata)
     }
 
     fn deserialize(
@@ -87,7 +143,7 @@ impl VTable for List {
             .dtype
             .as_list_element_opt()
             .ok_or_else(|| vortex_err!("ListLayout requires a List dtype, got {}", args.dtype))?;
-        args.children.child(ELEMENTS_CHILD_INDEX, elements_dtype)?;
+        let elements = args.children.child(ELEMENTS_CHILD_INDEX, elements_dtype)?;
         let offsets_dtype = DType::Primitive(offsets_ptype, Nullability::NonNullable);
         let offsets = args.children.child(OFFSETS_CHILD_INDEX, &offsets_dtype)?;
         vortex_ensure_eq!(
@@ -105,7 +161,20 @@ impl VTable for List {
                 "List validity row count does not match parent"
             );
         }
-        Ok(ListData { offsets_ptype })
+        let element_samples = (metadata.element_stride > 0)
+            .then(|| {
+                ElementSamples::try_new(
+                    metadata.element_stride,
+                    metadata.element_lists.clone(),
+                    args.row_count,
+                    elements.row_count(),
+                )
+            })
+            .transpose()?;
+        Ok(ListData {
+            offsets_ptype,
+            element_samples,
+        })
     }
 
     fn nslots(_layout: &Layout<Self>) -> usize {
@@ -189,6 +258,18 @@ impl Layout<List> {
         offsets: LayoutRef,
         validity: Option<LayoutRef>,
     ) -> Self {
+        Self::new_with_element_samples(dtype, elements, offsets, validity, None)
+    }
+
+    /// Construct a list layout from its children, with the writer's samples of the list holding
+    /// every so many elements.
+    pub fn new_with_element_samples(
+        dtype: DType,
+        elements: LayoutRef,
+        offsets: LayoutRef,
+        validity: Option<LayoutRef>,
+        element_samples: Option<ElementSamples>,
+    ) -> Self {
         let row_count = offsets.row_count().saturating_sub(1);
         let offsets_ptype = offsets.dtype().as_ptype();
         let mut children = vec![elements, offsets];
@@ -200,9 +281,17 @@ impl Layout<List> {
             row_count,
             Vec::new(),
             OwnedLayoutChildren::layout_children(children),
-            ListData { offsets_ptype },
+            ListData {
+                offsets_ptype,
+                element_samples,
+            },
         )
         .into_typed()
+    }
+
+    /// The list holding every so many elements, when the writer recorded them.
+    pub fn element_samples(&self) -> Option<&ElementSamples> {
+        self.element_samples.as_ref()
     }
 
     /// Returns the elements child.
@@ -245,12 +334,20 @@ impl Layout<List> {
 pub struct ListLayoutMetadata {
     #[prost(int32, tag = "1")]
     offsets_ptype: i32,
+    /// The elements between [`ElementSamples`], or zero when the writer recorded none.
+    #[prost(uint64, tag = "2")]
+    element_stride: u64,
+    /// The list holding every `element_stride`-th element row.
+    #[prost(uint64, repeated, tag = "3")]
+    element_lists: Vec<u64>,
 }
 
 impl ListLayoutMetadata {
     pub fn new(offsets_ptype: PType) -> Self {
         Self {
             offsets_ptype: offsets_ptype as i32,
+            element_stride: 0,
+            element_lists: Vec::new(),
         }
     }
 
@@ -289,7 +386,11 @@ mod tests {
             Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable)),
             Nullability::NonNullable,
         );
-        let metadata = ListLayoutMetadata { offsets_ptype: 11 }.encode_to_vec();
+        let metadata = ListLayoutMetadata {
+            offsets_ptype: 11,
+            ..Default::default()
+        }
+        .encode_to_vec();
         let children = layout_children(vec![]);
         let read_ctx = ReadContext::new([]);
         let build_ctx = LayoutBuildContext {
