@@ -31,6 +31,18 @@ def _validate_coverage(benchmark: BenchmarkCase, preset: str, coverage: Coverage
         if Format.LANCE in coverage.data_formats:
             raise ValueError(f"Benchmark {benchmark.id!r} cannot generate Lance data in preset {preset!r}")
 
+    if len(coverage.size_formats) != len(set(coverage.size_formats)):
+        raise ValueError(f"Benchmark {benchmark.id!r} repeats a size-only format in preset {preset!r}")
+    if coverage.size_formats and benchmark.storage is not Storage.NVME:
+        raise ValueError(f"Benchmark {benchmark.id!r} records no file sizes, so it cannot write size-only formats")
+    read_formats = {target.format.value for target in coverage.targets}
+    for size_format in coverage.size_formats:
+        if size_format.value in read_formats:
+            raise ValueError(
+                f"Benchmark {benchmark.id!r} reads {size_format.value!r} in preset {preset!r}, "
+                "so it needs no size-only write"
+            )
+
 
 def validate_catalog(catalog: Catalog) -> None:
     """Validate catalog references and per-preset benchmark invariants."""

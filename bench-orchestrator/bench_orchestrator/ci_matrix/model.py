@@ -7,7 +7,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from enum import Enum
 
-from ..config import SCAN_COMBINATIONS, Benchmark, BenchmarkTarget, Format
+from ..config import SCAN_COMBINATIONS, Benchmark, BenchmarkTarget, Format, SizeFormat
 from .targets import TargetSet
 
 
@@ -36,6 +36,8 @@ class Coverage:
     targets: TargetSet
     data_formats: tuple[Format, ...] | None = None
     scans: ScanCoverage = ScanCoverage.DEFAULT
+    # Formats written after the queries only to record their file sizes. No query reads them.
+    size_formats: tuple[SizeFormat, ...] = ()
 
     def resolved_targets(self, benchmark: Benchmark) -> TargetSet:
         """Return the targets this coverage runs in `benchmark`, with every scan engine named.

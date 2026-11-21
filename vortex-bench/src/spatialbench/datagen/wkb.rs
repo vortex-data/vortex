@@ -12,10 +12,7 @@ use std::sync::Arc;
 use anyhow::Context;
 use anyhow::Result;
 use parquet::arrow::AsyncArrowWriter;
-use parquet::basic::Compression;
-use parquet::basic::ZstdLevel;
 use parquet::file::metadata::KeyValue;
-use parquet::file::properties::WriterProperties;
 use spatialbench::generators::BuildingGenerator;
 use spatialbench::generators::CustomerGenerator;
 use spatialbench::generators::TripGenerator;
@@ -30,6 +27,8 @@ use tracing::info;
 use super::table::Table;
 use crate::Format;
 use crate::utils::file::idempotent_async;
+use crate::utils::parquet::LOCAL_ROW_GROUP_ROWS;
+use crate::utils::parquet::parquet_writer_properties;
 
 /// Batch size matching the TPC-H generator's streaming batches.
 const BATCH_SIZE: usize = 8192 * 64;
@@ -91,8 +90,8 @@ pub async fn generate_tables(scale_factor: &str, output_dir: PathBuf) -> Result<
                 let schema = Arc::clone(iter.schema());
 
                 let file = TokioFile::create(&path).await?;
-                let props = WriterProperties::builder()
-                    .set_compression(Compression::ZSTD(ZstdLevel::try_new(3)?))
+                let props = parquet_writer_properties()
+                    .set_max_row_group_row_count(Some(LOCAL_ROW_GROUP_ROWS))
                     .build();
                 let mut writer = AsyncArrowWriter::try_new(file, schema, Some(props))?;
                 for batch in iter {
