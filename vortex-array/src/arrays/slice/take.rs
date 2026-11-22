@@ -72,26 +72,33 @@ impl TakeExecute for Slice {
         let len = array.as_ref().len() as u64;
         let start = array.slice_range().start as u64;
 
-        let moved: Buffer<u64> = match_each_integer_ptype!(indices.ptype(), |T| {
-            indices
-                .as_slice::<T>()
-                .iter()
-                .map(|&index| {
-                    let index: u64 = AsPrimitive::<u64>::as_(index);
-
-                    if index >= len {
-                        vortex_bail!("take index {index} out of bounds for length {len}");
-                    }
-
-                    Ok(index + start)
-                })
-                .collect::<VortexResult<_>>()?
-        });
+        let moved = match_each_integer_ptype!(indices.ptype(), |T| {
+            shift_indices(indices.as_slice::<T>(), start, len)
+        })?;
 
         let moved = PrimitiveArray::new(moved, validity).into_array();
 
         child.take(moved).map(Some)
     }
+}
+
+fn shift_indices<T: AsPrimitive<u64>>(
+    indices: &[T],
+    start: u64,
+    len: u64,
+) -> VortexResult<Buffer<u64>> {
+    indices
+        .iter()
+        .map(|&index| {
+            let index: u64 = index.as_();
+
+            if index >= len {
+                vortex_bail!("take index {index} out of bounds for length {len}");
+            }
+
+            Ok(index + start)
+        })
+        .collect()
 }
 
 #[cfg(test)]
