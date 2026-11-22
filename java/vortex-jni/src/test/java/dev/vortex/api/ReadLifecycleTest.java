@@ -213,6 +213,30 @@ final class ReadLifecycleTest {
         }
     }
 
+    private record ExportedArrowReader(ArrowReader reader, WeakReference<Session> sessionRef) {}
+
+    private ExportedArrowReader exportArrowReaderFromStandaloneSession() {
+        Session standalone = Session.create();
+        WeakReference<Session> sessionRef = new WeakReference<>(standalone);
+        try (DataSource source = DataSource.open(standalone, uri);
+                Scan scan = source.scan(ScanOptions.of())) {
+            return new ExportedArrowReader(scan.next().scanArrow(allocator), sessionRef);
+        }
+    }
+
+    @Test
+    void arrowReaderSurvivesCollectedSession() throws Exception {
+        ExportedArrowReader exported = exportArrowReaderFromStandaloneSession();
+        try (ArrowReader reader = exported.reader()) {
+            for (int attempt = 0; attempt < 100 && !exported.sessionRef().refersTo(null); attempt++) {
+                System.gc();
+                Thread.sleep(10);
+            }
+            assertTrue(exported.sessionRef().refersTo(null), "standalone session should be collectible after export");
+            assertValues(reader);
+        }
+    }
+
     private static void assertValues(ArrowReader reader) throws IOException {
         int row = 0;
         while (reader.loadNextBatch()) {
