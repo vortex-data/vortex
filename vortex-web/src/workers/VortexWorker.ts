@@ -122,6 +122,10 @@ export class VortexWorker {
     return this.sendRequest<Uint8Array>({ type: 'previewData', nodeId, rowLimit });
   }
 
+  closeFile(): void {
+    this.worker.postMessage({ type: 'close' });
+  }
+
   terminate(): void {
     this.failAllPending(new Error('Worker terminated'));
   }
