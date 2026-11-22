@@ -6,6 +6,7 @@ use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 use std::task::Waker;
 
+use parking_lot::Mutex;
 use rstest::rstest;
 use vortex_array::assert_arrays_eq;
 use vortex_buffer::buffer;
@@ -811,4 +812,191 @@ fn polls_io_while_a_later_branch_keeps_computing() -> VortexResult<()> {
         .count();
     assert!(later_visits > 0 && later_visits <= IO_POLL_INTERVAL);
     Ok(())
+}
+
+/// Planner that spawns one independent root, then performs a fetch and emits a batch.
+struct SpawningRoot {
+    spawned: Option<(WorkScope, Box<dyn Planner>)>,
+    inner: Box<dyn Planner>,
+}
+
+impl IoConsumer for SpawningRoot {
+    fn set_io_result(&mut self, request: IoRequestId, result: IoResult) {
+        self.inner.set_io_result(request, result);
+    }
+}
+
+impl Planner for SpawningRoot {
+    fn state(&self) -> State {
+        if self.spawned.is_some() {
+            State::NeedsCompute
+        } else {
+            self.inner.state()
+        }
+    }
+
+    fn compute(&mut self) -> VortexResult<PlannerOutput> {
+        if let Some((scope, child)) = self.spawned.take() {
+            return Ok(PlannerOutput::Spawn(scope, child));
+        }
+        self.inner.compute()
+    }
+}
+
+struct ControlledOrder {
+    release_order: VecDeque<usize>,
+    wakers: Vec<Waker>,
+}
+
+struct ControlledIoSession {
+    index: usize,
+    inner: RecordingIoSource,
+    order: Arc<Mutex<ControlledOrder>>,
+    clears: AtomicUsize,
+}
+
+impl ControlledIoSession {
+    fn clear_count(&self) -> usize {
+        self.clears.load(Ordering::Acquire)
+    }
+}
+
+impl IoSource for ControlledIoSession {
+    fn submit(&self, owner: IoOwnerId, batch: IoBatch) -> VortexResult<()> {
+        self.inner.submit(owner, batch)
+    }
+
+    fn poll(&self) -> VortexResult<Option<Completion>> {
+        let order = self.order.lock();
+        if order.release_order.front() != Some(&self.index) {
+            return Ok(None);
+        }
+        drop(order);
+        self.inner.poll()
+    }
+
+    fn poll_completion(&self, cx: &mut Context<'_>) -> Poll<VortexResult<Completion>> {
+        let mut order = self.order.lock();
+        if order.release_order.front() != Some(&self.index) {
+            order.wakers.push(cx.waker().clone());
+            return Poll::Pending;
+        }
+        drop(order);
+        Poll::Ready(self.inner.wait())
+    }
+
+    fn wait(&self) -> VortexResult<Completion> {
+        self.inner.wait()
+    }
+
+    fn release(&self, owner: IoOwnerId) {
+        self.inner.release(owner);
+    }
+
+    fn clear(&self) {
+        self.clears.fetch_add(1, Ordering::AcqRel);
+        self.inner.clear();
+        let wakers = {
+            let mut order = self.order.lock();
+            if order.release_order.front() == Some(&self.index) {
+                order.release_order.pop_front();
+            }
+            std::mem::take(&mut order.wakers)
+        };
+        for waker in wakers {
+            waker.wake();
+        }
+    }
+}
+
+struct ControlledIoService {
+    order: Arc<Mutex<ControlledOrder>>,
+    sessions: Mutex<Vec<Arc<ControlledIoSession>>>,
+}
+
+impl ControlledIoService {
+    fn new(release_order: impl IntoIterator<Item = usize>) -> Arc<Self> {
+        Arc::new(Self {
+            order: Arc::new(Mutex::new(ControlledOrder {
+                release_order: release_order.into_iter().collect(),
+                wakers: Vec::new(),
+            })),
+            sessions: Mutex::new(Vec::new()),
+        })
+    }
+
+    fn sessions(&self) -> Vec<Arc<ControlledIoSession>> {
+        self.sessions.lock().clone()
+    }
+}
+
+impl IoService for ControlledIoService {
+    fn session(&self) -> Arc<dyn IoSource> {
+        let mut sessions = self.sessions.lock();
+        let index = sessions.len();
+        let inner = RecordingIoSource::default();
+        inner.canned_bytes(0, buffer![0u8, 1, 2, 3].into_byte_buffer());
+        inner.canned_bytes(4, buffer![4u8, 5, 6, 7].into_byte_buffer());
+        let session = Arc::new(ControlledIoSession {
+            index,
+            inner,
+            order: Arc::clone(&self.order),
+            clears: AtomicUsize::new(0),
+        });
+        sessions.push(Arc::clone(&session));
+        session
+    }
+}
+
+#[rstest]
+#[case::parent_finishes_first([0, 1], [0..2, 2..4])]
+#[case::child_finishes_first([1, 0], [2..4, 0..2])]
+fn blocking_driver_isolates_spawned_root_sessions(
+    #[case] first_run_order: [usize; 2],
+    #[case] expected_scopes: [Range<u64>; 2],
+) -> VortexResult<()> {
+    let second_run_order = [first_run_order[0] + 2, first_run_order[1] + 2];
+    let service = ControlledIoService::new(first_run_order.into_iter().chain(second_run_order));
+    let driver =
+        Driver::with_service(Arc::clone(&service) as Arc<dyn IoService>).with_step_limit(1_000);
+
+    for run_idx in 0..2 {
+        let log = Log::default();
+        let child = reading_root("child", &log, 2..4);
+        let root = Box::new(SpawningRoot {
+            spawned: Some((scope(2..4), child)),
+            inner: reading_root("parent", &log, 0..2),
+        });
+
+        let batches = driver.run(root)?;
+        let actual_scopes: Vec<Range<u64>> = batches.iter().map(|b| b.scope.rows.clone()).collect();
+        assert_eq!(actual_scopes, expected_scopes);
+
+        let sessions = service.sessions();
+        assert_eq!(sessions.len(), (run_idx + 1) * 2);
+        for session in &sessions[run_idx * 2..(run_idx + 1) * 2] {
+            assert_eq!(session.clear_count(), 1);
+        }
+    }
+    Ok(())
+}
+
+#[test]
+fn single_session_driver_rejects_spawned_independent_root() {
+    let log = Log::default();
+    let child = reading_root("child", &log, 2..4);
+    let root = Box::new(SpawningRoot {
+        spawned: Some((scope(2..4), child)),
+        inner: reading_root("parent", &log, 0..2),
+    });
+    let io = source();
+    let err = Driver::new(Arc::clone(&io) as Arc<dyn IoSource>)
+        .with_step_limit(1_000)
+        .run(root)
+        .err()
+        .expect("Driver::new must reject spawned independent roots");
+    assert!(
+        err.to_string().contains("Driver::with_service"),
+        "unexpected error: {err}"
+    );
 }

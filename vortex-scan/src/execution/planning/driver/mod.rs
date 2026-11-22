@@ -33,8 +33,11 @@ use vortex_io::request::IoIntent;
 use vortex_io::request::IoOwnerId;
 use vortex_io::request::IoRequestId;
 use vortex_io::request::IoResult;
+use vortex_io::request::IoService;
 use vortex_io::request::IoSource;
 use vortex_io::request::IoTarget;
+use vortex_io::runtime::BlockingRuntime;
+use vortex_io::runtime::single::SingleThreadRuntime;
 use vortex_utils::aliases::hash_map::Entry;
 use vortex_utils::aliases::hash_map::HashMap;
 
@@ -510,17 +513,34 @@ impl Run {
     }
 }
 
+enum DriverIo {
+    Single(Arc<dyn IoSource>),
+    Service(Arc<dyn IoService>),
+}
+
 /// Drives one root to completion on the calling thread, blocking while it waits for IO.
 pub struct Driver {
-    io: Arc<dyn IoSource>,
+    io: DriverIo,
     step_limit: Option<usize>,
 }
 
 impl Driver {
-    /// Creates a driver that submits every request to `io`.
+    /// Creates a driver that submits every request for a single root to `io`.
+    ///
+    /// Use [`Driver::with_service`] when a root may spawn independent roots so each root gets its
+    /// own IO session.
     pub fn new(io: Arc<dyn IoSource>) -> Self {
         Self {
-            io,
+            io: DriverIo::Single(io),
+            step_limit: None,
+        }
+    }
+
+    /// Creates a driver that opens a fresh IO session from `service` for the initial root and for
+    /// every independent root it spawns.
+    pub fn with_service(service: Arc<dyn IoService>) -> Self {
+        Self {
+            io: DriverIo::Service(service),
             step_limit: None,
         }
     }
@@ -535,7 +555,8 @@ impl Driver {
     }
 
     /// Runs `root` and everything it spawns, returning batches in emission order. A planner
-    /// spawned as independent runs as another root of the same run.
+    /// spawned as independent runs as another root of the same run with its own IO session when
+    /// constructed with [`Driver::with_service`].
     pub fn run(&self, root: Box<dyn Planner>) -> VortexResult<Vec<Batch>> {
         let mut run = Run::new();
         run.step_limit = self.step_limit;
@@ -543,17 +564,35 @@ impl Driver {
             file_ordinal: 0,
             rows: 0..0,
         };
-        run.admit(root, scope, Arc::clone(&self.io));
+        let initial_io = match &self.io {
+            DriverIo::Single(io) => Arc::clone(io),
+            DriverIo::Service(service) => service.session(),
+        };
+        run.admit(root, scope, initial_io);
         let mut batches = Vec::new();
+        let mut runtime: Option<SingleThreadRuntime> = None;
         loop {
             match run.advance()? {
                 Progress::Batch(batch) => batches.push(batch),
-                Progress::Spawn(scope, child) => {
-                    run.admit(child, scope, Arc::clone(&self.io));
-                }
+                Progress::Spawn(scope, child) => match &self.io {
+                    DriverIo::Service(service) => {
+                        run.admit(child, scope, service.session());
+                    }
+                    DriverIo::Single(_) => vortex_bail!(
+                        "Driver::new cannot admit spawned independent roots on a shared IoSource; \
+                         use Driver::with_service with an IoService"
+                    ),
+                },
                 Progress::RootDone(_) if run.live_roots() > 0 => {}
                 Progress::RootDone(_) | Progress::Idle => return Ok(batches),
-                Progress::Waiting => run.complete(self.io.wait()?)?,
+                Progress::Waiting => match &self.io {
+                    DriverIo::Single(io) => run.complete(io.wait()?)?,
+                    DriverIo::Service(_) => {
+                        runtime
+                            .get_or_insert_with(SingleThreadRuntime::default)
+                            .block_on(futures::future::poll_fn(|cx| run.poll_completion(cx)))?;
+                    }
+                },
             }
         }
     }
