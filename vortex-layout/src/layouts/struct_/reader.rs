@@ -248,6 +248,9 @@ impl StructReader {
             .try_collect::<_, Vec<_>, _>()?
             .into_boxed_slice();
         partitioned.replace_partitions(partitions)?;
+        if partitioned.partitions.is_empty() {
+            partitioned.root = partitioned.root.detach_identity();
+        }
 
         Ok(Partitioned::Multi(Arc::new(PartitionedEval::new(
             partitioned,
@@ -672,6 +675,7 @@ impl LayoutReader for StructReader {
 mod tests {
     use std::num::NonZeroUsize;
     use std::sync::Arc;
+    use std::sync::OnceLock;
 
     use rstest::fixture;
     use rstest::rstest;
@@ -715,17 +719,21 @@ mod tests {
     use vortex_array::scalar::Scalar;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
+    use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
     use vortex_io::runtime::single::block_on;
     use vortex_io::session::RuntimeSessionExt;
     use vortex_mask::Mask;
     use vortex_session::registry::ReadContext;
 
+    use super::Partitioned;
+    use super::StructReader;
     use crate::BoundaryMode;
     use crate::LayoutReaderRef;
     use crate::LayoutRef;
     use crate::LayoutStrategy;
     use crate::children::OwnedLayoutChildren;
+    use crate::expr_cache::WeakExprCache;
     use crate::layouts::chunked::ChunkedLayout;
     use crate::layouts::chunked::writer::ChunkedLayoutStrategy;
     use crate::layouts::flat::FlatLayout;
@@ -1599,6 +1607,36 @@ mod tests {
         let field = result.unmasked_field_by_name("x")?;
         let expected = PrimitiveArray::from_iter([1i32, 1, 1]);
         assert_arrays_eq!(field, expected, &mut ctx);
+        Ok(())
+    }
+
+    #[rstest]
+    fn test_constant_projection_evicts_from_partition_cache(
+        #[from(null_struct_layout)] (segments, layout): (Arc<dyn SegmentSource>, LayoutRef),
+    ) -> VortexResult<()> {
+        let reader = layout.new_reader("".into(), segments, &SESSION, &Default::default())?;
+        let struct_reader = reader
+            .as_any()
+            .downcast_ref::<StructReader>()
+            .vortex_expect("root reader is StructReader");
+
+        let live = pack([("x", lit(1))], false.into()).bind(reader.dtype())?;
+        drop(struct_reader.partition_expr(&live)?);
+
+        for _ in 0..(WeakExprCache::<Arc<OnceLock<Partitioned>>>::EVICT_INTERVAL - 1) {
+            let dead = pack([("x", lit(2))], false.into()).bind(reader.dtype())?;
+            drop(struct_reader.partition_expr(&dead)?);
+        }
+
+        // The sweep evicted all earlier dead constant projections while keeping `live` and the
+        // final triggering entry.
+        assert_eq!(struct_reader.partitioned_expr_cache.len(), 2);
+        assert!(
+            struct_reader
+                .partitioned_expr_cache
+                .get_cloned(&live)
+                .is_some()
+        );
         Ok(())
     }
 

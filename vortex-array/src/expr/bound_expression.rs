@@ -322,6 +322,28 @@ impl BoundExpression {
         Self::try_new_vec(scalar_fn.clone(), children)
     }
 
+    /// Returns a copy of this node with a fresh top-level children allocation, preserving its
+    /// scalar function, dtype, and child subtrees.
+    ///
+    /// Caches keyed by [`WeakBoundExprKey`] use this when a cached output expression would
+    /// otherwise reuse the key's own children allocation and keep its weak key alive forever.
+    pub fn detach_identity(&self) -> Self {
+        match self {
+            Self::Root { dtype } => Self::Root {
+                dtype: dtype.clone(),
+            },
+            Self::Scalar {
+                dtype,
+                scalar_fn,
+                children,
+            } => Self::Scalar {
+                dtype: dtype.clone(),
+                scalar_fn: scalar_fn.clone(),
+                children: Arc::new((**children).clone()),
+            },
+        }
+    }
+
     /// The dtype this expression evaluates to.
     pub fn dtype(&self) -> &DType {
         match self {

@@ -122,7 +122,7 @@ impl RowIdxLayoutReader {
         if partitioned.partitions.len() == 1 {
             return Ok(match &partitioned.partition_annotations[0] {
                 Partition::RowIdx => Partitioning::RowIdx(replace_row_idx(expr.clone())?),
-                Partition::Child => Partitioning::Child(expr.clone()),
+                Partition::Child => Partitioning::Child(expr.detach_identity()),
             });
         }
 
@@ -135,6 +135,9 @@ impl RowIdxLayoutReader {
             .collect::<VortexResult<Vec<_>>>()?
             .into_boxed_slice();
         partitioned.replace_partitions(partitions)?;
+        if partitioned.partitions.is_empty() {
+            partitioned.root = partitioned.root.detach_identity();
+        }
 
         Ok(Partitioning::Partitioned(Arc::new(PartitionedEval::new(
             partitioned,
