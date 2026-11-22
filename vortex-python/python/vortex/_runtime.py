@@ -28,9 +28,12 @@ class _UnthreadedLeaseManager:
     def acquire(self) -> int:
         with self._lock:
             if self._unthreaded_leases == 0:
-                saved = _worker_threads()
-                _set_worker_threads(0)
-                self._saved_workers = saved
+                self._saved_workers = _worker_threads()
+                try:
+                    _set_worker_threads(0)
+                except BaseException:
+                    self._saved_workers = None
+                    raise
             self._unthreaded_leases += 1
             return self._generation
 
