@@ -1,8 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::io::ErrorKind;
 use std::ops::Range;
+use std::path::Component;
 use std::path::Path;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::task::Poll;
 
@@ -844,9 +847,14 @@ fn glob_match_options() -> MatchOptions {
 }
 
 /// Resolve `path` to a regular file listing, following symlinks so `size` is the target's length.
+///
+/// Missing targets (`NotFound`) return `Ok(None)`; all other metadata errors (such as
+/// `PermissionDenied`) propagate so unreadable shards are not silently dropped.
 fn regular_file_listing(path: &Path) -> VortexResult<Option<FileListing>> {
-    let Ok(meta) = std::fs::metadata(path) else {
-        return Ok(None);
+    let meta = match std::fs::metadata(path) {
+        Ok(meta) => meta,
+        Err(err) if err.kind() == ErrorKind::NotFound => return Ok(None),
+        Err(err) => vortex_bail!("failed to inspect {}: {err}", path.display()),
     };
     if !meta.is_file() {
         return Ok(None);
@@ -858,6 +866,140 @@ fn regular_file_listing(path: &Path) -> VortexResult<Option<FileListing>> {
         path: path_str.to_string(),
         size: Some(meta.len()),
     }))
+}
+
+/// Expand a local glob pattern without interpreting the captured working directory as a glob,
+/// without descending into symlinked directories, and without scanning unrelated subdirectories
+/// on shallow patterns.
+fn glob_local(path: &Path, source: &str) -> VortexResult<Vec<FileListing>> {
+    let mut root_dir = if path.is_relative() {
+        std::env::current_dir()?
+    } else {
+        PathBuf::new()
+    };
+    let mut pattern_segs: Vec<String> = Vec::new();
+    let mut in_glob = false;
+
+    for comp in path.components() {
+        match comp {
+            Component::Prefix(_) | Component::RootDir | Component::ParentDir if !in_glob => {
+                root_dir.push(comp.as_os_str());
+            }
+            Component::CurDir => {}
+            Component::Normal(seg) => {
+                let seg_str = seg
+                    .to_str()
+                    .ok_or_else(|| vortex_err!("{} is not a UTF-8 path", path.display()))?;
+                if !in_glob && !has_glob(seg_str) {
+                    root_dir.push(seg);
+                } else {
+                    in_glob = true;
+                    pattern_segs.push(seg_str.to_string());
+                }
+            }
+            Component::ParentDir | Component::Prefix(_) | Component::RootDir => {
+                vortex_bail!("unsupported path component after wildcard in {source:?}");
+            }
+        }
+    }
+
+    if pattern_segs.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let options = glob_match_options();
+    let rel_pattern = pattern_segs.join("/");
+    let compiled = Pattern::new(&rel_pattern)
+        .map_err(|e| vortex_err!("invalid glob pattern {source:?}: {e}"))?;
+    let seg_patterns: Vec<Option<Pattern>> = pattern_segs
+        .iter()
+        .map(|seg| {
+            if seg == "**" {
+                Ok(None)
+            } else {
+                Pattern::new(seg)
+                    .map(Some)
+                    .map_err(|e| vortex_err!("invalid glob pattern {source:?}: {e}"))
+            }
+        })
+        .collect::<VortexResult<_>>()?;
+
+    let mut out = Vec::new();
+    walk_local_glob(
+        &root_dir,
+        "",
+        0,
+        false,
+        &seg_patterns,
+        &compiled,
+        options,
+        &mut out,
+    )?;
+    Ok(out)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn walk_local_glob(
+    dir: &Path,
+    rel_prefix: &str,
+    depth: usize,
+    recursive: bool,
+    seg_patterns: &[Option<Pattern>],
+    compiled: &Pattern,
+    options: MatchOptions,
+    out: &mut Vec<FileListing>,
+) -> VortexResult<()> {
+    let entries = match std::fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(err) if err.kind() == ErrorKind::NotFound => return Ok(()),
+        Err(err) => vortex_bail!("failed to read directory {}: {err}", dir.display()),
+    };
+
+    let is_recursive = recursive || seg_patterns.get(depth).is_some_and(Option::is_none);
+
+    for entry in entries {
+        let entry =
+            entry.map_err(|err| vortex_err!("failed to read entry in {}: {err}", dir.display()))?;
+        let name = entry.file_name();
+        let Some(name_str) = name.to_str() else {
+            continue;
+        };
+        let rel = if rel_prefix.is_empty() {
+            name_str.to_string()
+        } else {
+            format!("{rel_prefix}/{name_str}")
+        };
+        let entry_path = entry.path();
+        let file_type = entry
+            .file_type()
+            .map_err(|err| vortex_err!("failed to inspect {}: {err}", entry_path.display()))?;
+
+        if file_type.is_dir() {
+            let should_descend = is_recursive
+                || (depth + 1 < seg_patterns.len()
+                    && seg_patterns[depth]
+                        .as_ref()
+                        .is_some_and(|pat| pat.matches_with(name_str, options)));
+            if should_descend {
+                walk_local_glob(
+                    &entry_path,
+                    &rel,
+                    depth + 1,
+                    is_recursive,
+                    seg_patterns,
+                    compiled,
+                    options,
+                    out,
+                )?;
+            }
+        } else if compiled.matches_with(&rel, options)
+            && let Some(listing) = regular_file_listing(&entry_path)?
+        {
+            out.push(listing);
+        }
+    }
+
+    Ok(())
 }
 
 /// Resolve `source` to `(FileSystemRef, FileListing)` pairs in sorted path order.
@@ -883,7 +1025,7 @@ async fn discover_source(
             let abs = if path.is_relative() {
                 std::env::current_dir()?.join(&path)
             } else {
-                path
+                path.clone()
             };
             let abs_str = abs
                 .to_str()
@@ -919,17 +1061,7 @@ async fn discover_source(
                 }
                 out
             } else {
-                let mut out = Vec::new();
-                for entry in glob::glob_with(abs_str, glob_match_options())
-                    .map_err(|e| vortex_err!("invalid glob pattern {source:?}: {e}"))?
-                {
-                    let matched =
-                        entry.map_err(|e| vortex_err!("failed to read glob match: {e}"))?;
-                    if let Some(listing) = regular_file_listing(&matched)? {
-                        out.push(listing);
-                    }
-                }
-                out
+                glob_local(&path, source)?
             };
 
             listings.sort_by(|a, b| a.path.cmp(&b.path));

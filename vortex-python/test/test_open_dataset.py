@@ -3,6 +3,8 @@
 
 """Reading many Vortex files as one dataset with :func:`vortex.open_dataset`."""
 
+import os
+import sys
 from pathlib import Path
 
 import duckdb
@@ -272,3 +274,63 @@ def test_fragment_reads_only_its_own_file(tmp_path: Path):
     first.unlink()
     assert fragments[1].count_rows() == 6
     assert fragments[1].to_table() == table(range(5, 11))
+
+
+def test_relative_glob_from_dir_with_glob_chars(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    bracket_dir = tmp_path / "batch[1]"
+    plain_dir = tmp_path / "batch1"
+    bracket_dir.mkdir()
+    plain_dir.mkdir()
+    vx.io.write(table(range(0, 4)), str(bracket_dir / "part.vortex"))
+    vx.io.write(table(range(10, 14)), str(plain_dir / "part.vortex"))
+
+    monkeypatch.chdir(bracket_dir)
+    ds = vx.open_dataset("*.vortex")
+    assert ds.to_table() == table(range(0, 4))
+
+    monkeypatch.chdir(plain_dir)
+    assert ds.to_table() == table(range(0, 4))
+
+
+def test_recursive_glob_does_not_double_count_symlinked_dir(tmp_path: Path):
+    data = tmp_path / "data"
+    parts = data / "parts"
+    parts.mkdir(parents=True)
+    vx.io.write(table(range(0, 5)), str(parts / "part.vortex"))
+    (data / "latest").symlink_to(parts, target_is_directory=True)
+
+    assert vx.open_dataset(data).to_table() == table(range(0, 5))
+    assert vx.open_dataset(str(data / "**/*.vortex")).to_table() == table(range(0, 5))
+
+
+def test_trailing_double_star_glob_reads_files(tmp_path: Path):
+    data = tmp_path / "data"
+    nested = data / "nested"
+    nested.mkdir(parents=True)
+    vx.io.write(table(range(0, 3)), str(data / "a.vortex"))
+    vx.io.write(table(range(3, 6)), str(nested / "b.vortex"))
+
+    assert vx.open_dataset(str(data / "**")).to_table() == table(range(0, 6))
+
+
+@pytest.mark.skipif(
+    sys.platform == "win32" or (hasattr(os, "geteuid") and os.geteuid() == 0),
+    reason="POSIX chmod permission test",
+)
+def test_unreadable_symlink_target_propagates_error(tmp_path: Path):
+    locked = tmp_path / "locked"
+    locked.mkdir()
+    secret = locked / "secret.vortex"
+    vx.io.write(table(range(0, 3)), str(secret))
+
+    data = tmp_path / "data"
+    data.mkdir()
+    vx.io.write(table(range(0, 2)), str(data / "ok.vortex"))
+    (data / "bad.vortex").symlink_to(secret)
+
+    locked.chmod(0o000)
+    try:
+        with pytest.raises(RuntimeError, match="failed to inspect"):
+            vx.open_dataset(data)
+    finally:
+        locked.chmod(0o700)
