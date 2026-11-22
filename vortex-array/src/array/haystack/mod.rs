@@ -24,11 +24,13 @@ use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::RecursiveCanonical;
 use crate::array::VTable;
+use crate::arrays::Chunked;
 use crate::arrays::DecimalArray;
 use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::Slice;
 use crate::arrays::VarBinViewArray;
+use crate::arrays::chunked::ChunkedArrayExt;
 use crate::arrays::primitive::PrimitiveArrayExt;
 use crate::arrays::slice::SliceArraySlotsExt;
 use crate::arrays::varbinview::BinaryView;
@@ -207,7 +209,7 @@ impl<T: NativePType + SetInteger> HaystackState for PrimitiveSet<T> {
     ) -> VortexResult<(BitBuffer, Validity)> {
         if needles.len() > NEEDLE_BATCH_LEN && !needles.is::<Primitive>() {
             let first = needles.slice(0..NEEDLE_BATCH_LEN)?.optimize_ctx(ctx)?;
-            if slices_without_full_decode(&first, ctx) {
+            if slices_without_full_decode(&first, ctx)? {
                 // Decoding a long compressed array in batches keeps each batch of needles in the
                 // cache between decoding and looking it up, instead of writing out the whole array
                 // first.
@@ -240,14 +242,38 @@ impl<T: NativePType + SetInteger> HaystackState for PrimitiveSet<T> {
 
 /// Whether every remaining `Slice` node in `array` is handled by a slice kernel rather than
 /// falling back to `Slice::execute`, which materializes the full child column.
-fn slices_without_full_decode(array: &ArrayRef, ctx: &ExecutionCtx) -> bool {
+fn slices_without_full_decode(array: &ArrayRef, ctx: &ExecutionCtx) -> VortexResult<bool> {
     if let Some(slice) = array.as_opt::<Slice>() {
-        return ctx.has_execute_parent_kernel(Slice.id(), slice.child().encoding_id());
+        let child = slice.child();
+        if !ctx.has_execute_parent_kernel(Slice.id(), child.encoding_id()) {
+            return Ok(false);
+        }
+
+        // The chunked slice kernel slices each chunk that a batch touches, and the batches
+        // together touch every chunk, so each chunk must also slice without a full decode.
+        if let Some(chunked) = child.as_opt::<Chunked>() {
+            for chunk in chunked.iter_chunks() {
+                // A full-range slice returns the chunk itself, so drop the last row to get a
+                // `Slice` node that shows how the chunk handles a slice.
+                let sliced = chunk
+                    .slice(0..chunk.len().saturating_sub(1))?
+                    .optimize_ctx(ctx)?;
+                if !slices_without_full_decode(&sliced, ctx)? {
+                    return Ok(false);
+                }
+            }
+        }
+
+        return Ok(true);
     }
-    array
-        .children()
-        .iter()
-        .all(|child| slices_without_full_decode(child, ctx))
+
+    for child in array.children().iter() {
+        if !slices_without_full_decode(child, ctx)? {
+            return Ok(false);
+        }
+    }
+
+    Ok(true)
 }
 
 /// Unscaled decimal values at the canonical width shared by the elements and needles.
@@ -659,6 +685,24 @@ mod tests {
         }
     }
 
+    /// An array without a slice kernel that counts how many times it is decoded.
+    fn counting_array(
+        values: PrimitiveArray,
+        decodes: &Arc<AtomicUsize>,
+    ) -> VortexResult<ArrayRef> {
+        Ok(Array::try_from_parts(ArrayParts::new(
+            CountingEncoding,
+            values.dtype().clone(),
+            values.len(),
+            CountingData {
+                values,
+                decodes: Arc::clone(decodes),
+            },
+            ArraySlots::new(),
+        ))?
+        .into_array())
+    }
+
     #[test]
     fn small_wide_span_uses_sorted_large_uses_bitmap() {
         let session = VortexSession::empty().with::<ArraySession>();
@@ -694,23 +738,13 @@ mod tests {
         let mut ctx = session.create_execution_ctx();
 
         let widened_slice = widened.slice(0..NEEDLE_BATCH_LEN)?.optimize_ctx(&ctx)?;
-        assert!(slices_without_full_decode(&widened_slice, &ctx));
+        assert!(slices_without_full_decode(&widened_slice, &ctx)?);
 
         let chunked_slice = chunked.slice(0..NEEDLE_BATCH_LEN)?.optimize_ctx(&ctx)?;
-        assert!(slices_without_full_decode(&chunked_slice, &ctx));
+        assert!(slices_without_full_decode(&chunked_slice, &ctx)?);
 
         let decodes = Arc::new(AtomicUsize::new(0));
-        let unsliced_needles = Array::try_from_parts(ArrayParts::new(
-            CountingEncoding,
-            narrow.dtype().clone(),
-            len,
-            CountingData {
-                values: narrow,
-                decodes: Arc::clone(&decodes),
-            },
-            ArraySlots::new(),
-        ))?
-        .into_array();
+        let unsliced_needles = counting_array(narrow, &decodes)?;
 
         let elements = PrimitiveArray::from_iter([5i32, 9_000, 20_000]).into_array();
         let haystack = ArrayHaystack::try_new(&elements, &mut ctx)?;
@@ -722,6 +756,37 @@ mod tests {
         assert!(bits.value(20_000));
         assert!(!bits.value(0));
         assert_eq!(bits.true_count(), 3);
+
+        Ok(())
+    }
+
+    #[test]
+    fn chunks_without_slice_kernel_decode_once_instead_of_per_batch() -> VortexResult<()> {
+        let len = NEEDLE_BATCH_LEN * 3;
+        let values = PrimitiveArray::from_iter(0..i32::try_from(len).vortex_expect("fits in i32"));
+        let decodes = Arc::new(AtomicUsize::new(0));
+
+        // The first chunk is a lazy slice, so slicing it again keeps the counting array below.
+        let sliced_chunk = counting_array(values.clone(), &decodes)?.slice(1..len)?;
+        let chunk = counting_array(values, &decodes)?;
+        let needles = ChunkedArray::try_new(
+            vec![sliced_chunk, chunk],
+            DType::Primitive(PType::I32, Nullability::NonNullable),
+        )?
+        .into_array();
+
+        let session = VortexSession::empty().with::<ArraySession>();
+        let mut ctx = session.create_execution_ctx();
+
+        let first = needles.slice(0..NEEDLE_BATCH_LEN)?.optimize_ctx(&ctx)?;
+        assert!(!slices_without_full_decode(&first, &ctx)?);
+
+        let elements = PrimitiveArray::from_iter([5i32, 9_000, 20_000]).into_array();
+        let haystack = ArrayHaystack::try_new(&elements, &mut ctx)?;
+        let (bits, _) = haystack.contains(&needles, &mut ctx)?;
+
+        assert_eq!(decodes.load(Ordering::Relaxed), 2);
+        assert_eq!(bits.true_count(), 6);
 
         Ok(())
     }
