@@ -65,11 +65,13 @@ runs:
         RDS_BENCH_DB_NAME: ${{ inputs.database }}
       run: |
         set -Eeu -o pipefail
+        rm -f "$OUTPUT"
         if [[ "$AWS_OUTCOME" != "success" ]]; then
           # No baseline file tells the report that the baseline could not be read.
           echo "::warning::Could not assume the read-only benchmarks role; reporting without a baseline."
           exit 0
         fi
+        mkdir -p "$(dirname "$OUTPUT")"
         curl -fsSL https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem \
           -o "${RUNNER_TEMP}/rds-global-bundle.pem"
         DSN="postgresql://bench_ci_read@${RDS_BENCH_INSTANCE_ENDPOINT}:5432/${RDS_BENCH_DB_NAME}?sslmode=verify-full&sslrootcert=${RUNNER_TEMP}/rds-global-bundle.pem"

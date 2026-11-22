@@ -21,6 +21,9 @@ inputs:
   missing-entries:
     description: "Optional formatted list of SQL matrix entries that did not report"
     default: ""
+  failed:
+    description: "Set to true when the benchmark job failed so pr-bench-report.yml posts a failure comment"
+    default: "false"
 
 runs:
   using: "composite"
@@ -32,11 +35,17 @@ runs:
         COMMENT_TAG: ${{ inputs.comment-tag }}
         MATRIX_PRESET: ${{ inputs.matrix-preset }}
         MISSING_ENTRIES: ${{ inputs.missing-entries }}
+        FAILED: ${{ inputs.failed }}
       run: |
         set -Eeu -o pipefail
         REPORT="${RUNNER_TEMP}/fork-bench-report"
+        rm -rf "$REPORT"
         mkdir -p "$REPORT"
-        cp results.json results.ingest.jsonl "$REPORT/"
+        if [[ "$FAILED" == "true" ]]; then
+          printf 'true' > "$REPORT/failed.txt"
+        else
+          cp results.json results.ingest.jsonl "$REPORT/"
+        fi
         printf '%s' "$BENCHMARK_NAME" > "$REPORT/name.txt"
         printf '%s' "$COMMENT_TAG" > "$REPORT/comment-tag.txt"
         if [[ -n "$MATRIX_PRESET" ]]; then
