@@ -117,3 +117,17 @@ async fn max_in_flight_bounds_the_per_worker_limit() {
     assert_eq!(driver.in_flight(), 4 * cores);
     assert_eq!(driver.with_max_in_flight(NonZeroUsize::MIN).in_flight(), 1);
 }
+
+#[tokio::test]
+async fn partitioned_drivers_together_run_one_chunk_per_core() {
+    let cores = get_available_parallelism().unwrap_or(1);
+    let session = VortexSession::empty().with_tokio();
+    for partitions in [1, 2, cores, 2 * cores] {
+        let driver = ScanDriver::partitioned(session.handle(), partitions, true);
+        assert_eq!(
+            driver.in_flight(),
+            cores.div_ceil(partitions),
+            "{partitions} partitions on {cores} cores"
+        );
+    }
+}

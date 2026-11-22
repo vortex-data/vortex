@@ -61,6 +61,17 @@ impl ScanDriver {
         }
     }
 
+    /// A driver for one of `partitions` scans an engine runs beside each other. Its chunks fill
+    /// only the cores the other partitions leave idle: at one partition per core, they run
+    /// inline on the root run.
+    pub fn partitioned(handle: Handle, partitions: usize, ordered: bool) -> Self {
+        let idle = get_available_parallelism()
+            .unwrap_or(1)
+            .div_ceil(partitions.max(1));
+        Self::new(handle, 1, ordered)
+            .with_max_in_flight(NonZeroUsize::new(idle).unwrap_or(NonZeroUsize::MIN))
+    }
+
     /// Bounds the chunks in flight at once to `max` in all, whatever the per-worker concurrency
     /// and the machine's core count.
     pub fn with_max_in_flight(mut self, max: NonZeroUsize) -> Self {
