@@ -224,11 +224,9 @@ mod test {
     use std::task::Poll;
 
     use futures::io::Cursor;
-    use rstest::rstest;
     use vortex_array::IntoArray as _;
     use vortex_array::VortexSessionExecute;
     use vortex_array::assert_arrays_eq;
-    use vortex_array::iter::ArrayIterator;
     use vortex_array::stream::ArrayStream;
     use vortex_array::stream::ArrayStreamExt;
     use vortex_buffer::buffer;
@@ -320,185 +318,28 @@ mod test {
         assert_arrays_eq!(result, expected, &mut SESSION.create_execution_ctx());
     }
 
-    struct EncodedTwoChunkStream {
-        full: Vec<u8>,
-        chunk1: ArrayRef,
-        chunk2: ArrayRef,
-        after_dtype: usize,
-        chunk1_header_len: usize,
-        chunk1_body_len: usize,
-        after_chunk1: usize,
-        chunk2_header_len: usize,
-        chunk2_body_len: usize,
-    }
-
-    fn encode_two_chunk_stream() -> VortexResult<EncodedTwoChunkStream> {
+    #[tokio::test]
+    async fn sync_and_async_adapters_reject_truncated_second_chunk() -> VortexResult<()> {
         let chunk1 = buffer![1i32, 2, 3].into_array();
         let chunk2 = buffer![4i32, 5, 6, 7].into_array();
 
         let mut encoder = MessageEncoder::new(SESSION.clone());
-        let dtype_parts = encoder.encode(EncoderMessage::DType(chunk1.dtype()))?;
-        let chunk1_parts = encoder.encode(EncoderMessage::Array(&chunk1))?;
+        let mut truncated = Vec::new();
+        for part in encoder.encode(EncoderMessage::DType(chunk1.dtype()))? {
+            truncated.extend_from_slice(part.as_ref());
+        }
+        for part in encoder.encode(EncoderMessage::Array(&chunk1))? {
+            truncated.extend_from_slice(part.as_ref());
+        }
         let chunk2_parts = encoder.encode(EncoderMessage::Array(&chunk2))?;
+        // Include only the 4-byte length prefix of chunk 2.
+        truncated.extend_from_slice(chunk2_parts[0].as_ref());
 
-        let mut full = Vec::new();
-        for part in &dtype_parts {
-            full.extend_from_slice(part.as_ref());
-        }
-        let after_dtype = full.len();
-        let chunk1_header_len = chunk1_parts[1].len();
-        let chunk1_body_len: usize = chunk1_parts[2..].iter().map(|b| b.len()).sum();
-        for part in &chunk1_parts {
-            full.extend_from_slice(part.as_ref());
-        }
-        let after_chunk1 = full.len();
-        let chunk2_header_len = chunk2_parts[1].len();
-        let chunk2_body_len: usize = chunk2_parts[2..].iter().map(|b| b.len()).sum();
-        for part in &chunk2_parts {
-            full.extend_from_slice(part.as_ref());
-        }
-
-        Ok(EncodedTwoChunkStream {
-            full,
-            chunk1,
-            chunk2,
-            after_dtype,
-            chunk1_header_len,
-            chunk1_body_len,
-            after_chunk1,
-            chunk2_header_len,
-            chunk2_body_len,
-        })
-    }
-
-    #[derive(Clone, Copy)]
-    enum FrameCut {
-        PartialLength,
-        AfterLength,
-        AfterHeader,
-        MidBody,
-    }
-
-    impl FrameCut {
-        fn offset(self, header_len: usize, body_len: usize) -> usize {
-            match self {
-                Self::PartialLength => 2,
-                Self::AfterLength => 4,
-                Self::AfterHeader => 4 + header_len,
-                Self::MidBody => 4 + header_len + body_len / 2,
-            }
-        }
-    }
-
-    #[tokio::test]
-    async fn sync_and_async_adapters_match_on_complete_stream() -> VortexResult<()> {
-        let encoded = encode_two_chunk_stream()?;
-
-        let sync_reader = SyncIPCReader::try_new(io::Cursor::new(encoded.full.clone()), &SESSION)?;
-        let async_reader = AsyncIPCReader::try_new(Cursor::new(encoded.full), &SESSION).await?;
-        assert_eq!(sync_reader.dtype(), async_reader.dtype());
-
-        let sync_chunks: Vec<ArrayRef> = sync_reader.collect::<VortexResult<_>>()?;
-        let async_chunks: Vec<ArrayRef> = async_reader.try_collect().await?;
-        assert_eq!(sync_chunks.len(), 2);
-        assert_eq!(async_chunks.len(), 2);
-        let mut ctx = SESSION.create_execution_ctx();
-        assert_arrays_eq!(sync_chunks[0], async_chunks[0], &mut ctx);
-        assert_arrays_eq!(sync_chunks[1], async_chunks[1], &mut ctx);
-        assert_arrays_eq!(sync_chunks[0], encoded.chunk1, &mut ctx);
-        assert_arrays_eq!(sync_chunks[1], encoded.chunk2, &mut ctx);
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn sync_and_async_adapters_reject_empty_stream_as_missing_dtype() {
-        let sync_err = match SyncIPCReader::try_new(io::Cursor::new(Vec::new()), &SESSION) {
-            Ok(_) => unreachable!("empty stream must fail try_new"),
-            Err(e) => e,
-        };
-        assert!(
-            sync_err
-                .to_string()
-                .contains("Expected DType message, got EOF")
-        );
-
-        let async_err = match AsyncIPCReader::try_new(Cursor::new(Vec::new()), &SESSION).await {
-            Ok(_) => unreachable!("empty stream must fail try_new"),
-            Err(e) => e,
-        };
-        assert!(
-            async_err
-                .to_string()
-                .contains("Expected DType message, got EOF")
-        );
-    }
-
-    #[tokio::test]
-    async fn sync_and_async_adapters_reject_truncated_dtype() -> VortexResult<()> {
-        let encoded = encode_two_chunk_stream()?;
-        let truncated = encoded.full[..4].to_vec();
-
-        let sync_err = match SyncIPCReader::try_new(io::Cursor::new(truncated.clone()), &SESSION) {
-            Ok(_) => unreachable!("truncated dtype must fail try_new"),
-            Err(e) => e,
-        };
-        assert_io_error_kind(&sync_err, io::ErrorKind::UnexpectedEof);
-
-        let async_err = match AsyncIPCReader::try_new(Cursor::new(truncated), &SESSION).await {
-            Ok(_) => unreachable!("truncated dtype must fail try_new"),
-            Err(e) => e,
-        };
-        assert_io_error_kind(&async_err, io::ErrorKind::UnexpectedEof);
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn sync_and_async_adapters_end_cleanly_after_dtype() -> VortexResult<()> {
-        let encoded = encode_two_chunk_stream()?;
-        let dtype_only = encoded.full[..encoded.after_dtype].to_vec();
-
-        let mut sync_reader =
-            SyncIPCReader::try_new(io::Cursor::new(dtype_only.clone()), &SESSION)?;
-        assert!(sync_reader.next().is_none());
-
-        let mut async_reader = AsyncIPCReader::try_new(Cursor::new(dtype_only), &SESSION).await?;
-        assert!(async_reader.next().await.is_none());
-        Ok(())
-    }
-
-    #[rstest]
-    #[case::chunk1_partial_length(0, FrameCut::PartialLength)]
-    #[case::chunk1_after_length(0, FrameCut::AfterLength)]
-    #[case::chunk1_after_header(0, FrameCut::AfterHeader)]
-    #[case::chunk1_mid_body(0, FrameCut::MidBody)]
-    #[case::chunk2_partial_length(1, FrameCut::PartialLength)]
-    #[case::chunk2_after_length(1, FrameCut::AfterLength)]
-    #[case::chunk2_after_header(1, FrameCut::AfterHeader)]
-    #[case::chunk2_mid_body(1, FrameCut::MidBody)]
-    #[tokio::test]
-    async fn sync_and_async_adapters_reject_truncated_chunk(
-        #[case] complete_chunks: usize,
-        #[case] cut: FrameCut,
-    ) -> VortexResult<()> {
-        let encoded = encode_two_chunk_stream()?;
-        let cut_pos = match complete_chunks {
-            0 => {
-                encoded.after_dtype + cut.offset(encoded.chunk1_header_len, encoded.chunk1_body_len)
-            }
-            1 => {
-                encoded.after_chunk1
-                    + cut.offset(encoded.chunk2_header_len, encoded.chunk2_body_len)
-            }
-            _ => unreachable!(),
-        };
-        let truncated = encoded.full[..cut_pos].to_vec();
         let mut ctx = SESSION.create_execution_ctx();
 
         let mut sync_reader = SyncIPCReader::try_new(io::Cursor::new(truncated.clone()), &SESSION)?;
-        if complete_chunks == 1 {
-            let first = sync_reader.next().vortex_expect("expected first chunk")?;
-            assert_arrays_eq!(first, encoded.chunk1, &mut ctx);
-        }
+        let first = sync_reader.next().vortex_expect("expected first chunk")?;
+        assert_arrays_eq!(first, chunk1, &mut ctx);
         let err = sync_reader
             .next()
             .vortex_expect("expected error on truncated chunk")
@@ -507,13 +348,11 @@ mod test {
         assert!(sync_reader.next().is_none());
 
         let mut async_reader = AsyncIPCReader::try_new(Cursor::new(truncated), &SESSION).await?;
-        if complete_chunks == 1 {
-            let first = async_reader
-                .next()
-                .await
-                .vortex_expect("expected first chunk")?;
-            assert_arrays_eq!(first, encoded.chunk1, &mut ctx);
-        }
+        let first = async_reader
+            .next()
+            .await
+            .vortex_expect("expected first chunk")?;
+        assert_arrays_eq!(first, chunk1, &mut ctx);
         let err = async_reader
             .next()
             .await

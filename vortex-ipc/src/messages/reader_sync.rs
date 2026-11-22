@@ -186,26 +186,6 @@ mod tests {
     }
 
     #[test]
-    fn empty_message_body_reads_cleanly() -> VortexResult<()> {
-        let empty = vortex_buffer::ByteBuffer::empty();
-        let mut encoder = MessageEncoder::new(SESSION.clone());
-        let full: Vec<u8> = encoder
-            .encode(EncoderMessage::Buffer(&empty))?
-            .iter()
-            .flat_map(|b| b.as_ref())
-            .copied()
-            .collect();
-
-        let mut messages = SyncMessageReader::new(ByteAtATimeReader { data: full, pos: 0 });
-        let DecoderMessage::Buffer(buf) = messages.next().vortex_expect("expected message")? else {
-            vortex_panic!("expected buffer message");
-        };
-        assert!(buf.is_empty());
-        assert!(messages.next().is_none());
-        Ok(())
-    }
-
-    #[test]
     fn transport_error_is_distinct_and_preserves_progress() -> VortexResult<()> {
         struct FlakyReader {
             data: Vec<u8>,

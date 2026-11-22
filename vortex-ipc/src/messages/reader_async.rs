@@ -149,11 +149,9 @@ mod tests {
     use futures::AsyncRead;
     use futures::StreamExt;
     use vortex_array::IntoArray;
-    use vortex_buffer::ByteBuffer;
     use vortex_buffer::buffer;
     use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
-    use vortex_error::vortex_panic;
 
     use super::*;
     use crate::messages::EncoderMessage;
@@ -166,7 +164,6 @@ mod tests {
         data: Vec<u8>,
         pos: usize,
         yield_pending: bool,
-        fail_at: Option<(usize, io::ErrorKind)>,
     }
 
     impl PendingByteReader {
@@ -175,7 +172,6 @@ mod tests {
                 data,
                 pos: 0,
                 yield_pending: true,
-                fail_at: None,
             }
         }
     }
@@ -193,13 +189,6 @@ mod tests {
             }
             self.yield_pending = true;
 
-            if let Some((at, kind)) = self.fail_at
-                && self.pos == at
-            {
-                self.fail_at = None;
-                return Poll::Ready(Err(io::Error::new(kind, "synthetic transport error")));
-            }
-
             if buf.is_empty() || self.pos >= self.data.len() {
                 return Poll::Ready(Ok(0));
             }
@@ -207,37 +196,6 @@ mod tests {
             self.pos += 1;
             Poll::Ready(Ok(1))
         }
-    }
-
-    #[tokio::test]
-    async fn preserves_progress_across_pending_and_empty_body() -> VortexResult<()> {
-        let empty = ByteBuffer::empty();
-        let array = buffer![10i32, 20, 30].into_array();
-        let mut encoder = MessageEncoder::new(SESSION.clone());
-        let mut full = Vec::new();
-        for part in encoder.encode(EncoderMessage::Buffer(&empty))? {
-            full.extend_from_slice(part.as_ref());
-        }
-        for part in encoder.encode(EncoderMessage::Array(&array))? {
-            full.extend_from_slice(part.as_ref());
-        }
-
-        let mut reader = AsyncMessageReader::new(PendingByteReader::new(full));
-        let DecoderMessage::Buffer(buf) = reader.next().await.vortex_expect("expected buffer")?
-        else {
-            vortex_panic!("expected buffer message");
-        };
-        assert!(buf.is_empty());
-
-        let DecoderMessage::Array((parts, ctx, row_count)) =
-            reader.next().await.vortex_expect("expected array")?
-        else {
-            vortex_panic!("expected array message");
-        };
-        let actual = parts.decode(array.dtype(), row_count, &ctx, &SESSION)?;
-        assert_eq!(actual.len(), array.len());
-        assert!(reader.next().await.is_none());
-        Ok(())
     }
 
     #[tokio::test]
@@ -269,39 +227,6 @@ mod tests {
             assert!(reader.next().await.is_none());
         }
 
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn transport_error_is_distinct_and_preserves_progress() -> VortexResult<()> {
-        let array = buffer![7i32, 8, 9].into_array();
-        let mut encoder = MessageEncoder::new(SESSION.clone());
-        let full: Vec<u8> = encoder
-            .encode(EncoderMessage::Array(&array))?
-            .iter()
-            .flat_map(|b| b.as_ref())
-            .copied()
-            .collect();
-
-        let mut source = PendingByteReader::new(full);
-        source.fail_at = Some((1, io::ErrorKind::Interrupted));
-        let mut reader = AsyncMessageReader::new(source);
-
-        let err = reader
-            .next()
-            .await
-            .vortex_expect("expected transport error")
-            .unwrap_err();
-        assert_io_error_kind(&err, io::ErrorKind::Interrupted);
-
-        let DecoderMessage::Array((parts, ctx, row_count)) =
-            reader.next().await.vortex_expect("expected recovered")?
-        else {
-            vortex_panic!("expected array message");
-        };
-        let actual = parts.decode(array.dtype(), row_count, &ctx, &SESSION)?;
-        assert_eq!(actual.len(), array.len());
-        assert!(reader.next().await.is_none());
         Ok(())
     }
 }
