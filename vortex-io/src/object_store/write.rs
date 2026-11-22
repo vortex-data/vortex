@@ -58,7 +58,10 @@ pub struct ObjectStoreWrite {
 #[cfg(not(target_arch = "wasm32"))]
 enum CompletionOutcome {
     Completed(PutResult),
-    Failed(object_store::Error),
+    Failed {
+        complete_err: object_store::Error,
+        abort_result: object_store::Result<()>,
+    },
     Aborted(object_store::Result<()>),
 }
 
@@ -142,9 +145,9 @@ impl ObjectStoreWrite {
                     self.state = UploadState::Aborted;
                     res.map_err(io::Error::from)
                 }
-                Ok(CompletionOutcome::Failed(_)) => {
+                Ok(CompletionOutcome::Failed { abort_result, .. }) => {
                     self.state = UploadState::Aborted;
-                    Ok(())
+                    abort_result.map_err(io::Error::from)
                 }
                 Ok(CompletionOutcome::Completed(put_result)) => {
                     self.state = UploadState::Completed;
@@ -297,9 +300,9 @@ impl ObjectStoreWrite {
                 self.put_result = Some(put_result);
                 Ok(())
             }
-            Ok(CompletionOutcome::Failed(err)) => {
+            Ok(CompletionOutcome::Failed { complete_err, .. }) => {
                 self.state = UploadState::Aborted;
-                Err(err.into())
+                Err(complete_err.into())
             }
             Ok(CompletionOutcome::Aborted(_)) => {
                 self.state = UploadState::Aborted;
@@ -485,7 +488,7 @@ impl VortexWrite for ObjectStoreWrite {
             // Move upload ownership into the `Compat` task so any HTTP connection opened by
             // `complete()` belongs to `Compat`'s runtime, while `UploadState::Completing` tracks
             // cancellation and preserves the final outcome across caller cancellation.
-            let (cancel_tx, cancel_rx) = oneshot::channel::<()>();
+            let (cancel_tx, mut cancel_rx) = oneshot::channel::<()>();
             let (result_tx, result_rx) = oneshot::channel();
             let UploadState::Active(mut upload) = std::mem::replace(
                 &mut guard.writer.state,
@@ -500,25 +503,31 @@ impl VortexWrite for ObjectStoreWrite {
                 ));
             };
             smol::spawn(Compat::new(async move {
-                let complete_outcome = {
+                let complete_outcome = if !matches!(cancel_rx.try_recv(), Ok(None)) {
+                    None
+                } else {
                     let complete_fut = upload.complete();
                     futures::pin_mut!(complete_fut);
                     futures::pin_mut!(cancel_rx);
-                    match futures::future::select(complete_fut, cancel_rx).await {
-                        Either::Left((res, _)) => Some(res),
-                        Either::Right((..)) => None,
+                    match futures::future::select(cancel_rx, complete_fut).await {
+                        Either::Left((..)) => None,
+                        Either::Right((res, _)) => Some(res),
                     }
                 };
                 let outcome = match complete_outcome {
                     Some(Ok(put_result)) => CompletionOutcome::Completed(put_result),
-                    Some(Err(err)) => {
-                        if let Err(abort_err) = upload.abort().await {
+                    Some(Err(complete_err)) => {
+                        let abort_result = upload.abort().await;
+                        if let Err(abort_err) = &abort_result {
                             tracing::warn!(
                                 %abort_err,
                                 "failed to abort multipart upload after completion error"
                             );
                         }
-                        CompletionOutcome::Failed(err)
+                        CompletionOutcome::Failed {
+                            complete_err,
+                            abort_result,
+                        }
                     }
                     None => CompletionOutcome::Aborted(upload.abort().await),
                 };
@@ -2005,6 +2014,150 @@ mod tests {
             writer2.shutdown().await?;
             let body2 = local2.get(&target).await?.bytes().await?;
             assert_eq!(body2.as_ref(), b"published-payload");
+            Ok(())
+        }
+
+        #[tokio::test]
+        async fn test_cancelled_shutdown_before_first_complete_poll_preserves_in_memory_destination()
+        -> anyhow::Result<()> {
+            let store: Arc<dyn ObjectStore> = Arc::new(InMemory::new());
+            let target = Path::from("known-good.vortex");
+            store
+                .put(&target, PutPayload::from_static(b"known-good"))
+                .await?;
+
+            let mut writer = ObjectStoreWrite::new(Arc::clone(&store), &target).await?;
+
+            // Hold all global `smol` executor worker threads (1 by default unless `SMOL_THREADS`
+            // is set) so the completion task stays queued until after `shutdown()` is cancelled
+            // and `abort()` has sent cancellation.
+            let worker_count = std::env::var("SMOL_THREADS")
+                .ok()
+                .and_then(|v| v.parse::<usize>().ok())
+                .unwrap_or(1);
+            let (entered_tx, entered_rx) = mpsc::channel();
+            let mut release_txs = Vec::with_capacity(worker_count);
+            let mut blockers = Vec::with_capacity(worker_count);
+            for _ in 0..worker_count {
+                let entered_tx = entered_tx.clone();
+                let (release_tx, release_rx) = mpsc::channel();
+                release_txs.push(release_tx);
+                blockers.push(smol::spawn(async move {
+                    let _ = entered_tx.send(());
+                    let _ = release_rx.recv();
+                }));
+            }
+            for _ in 0..worker_count {
+                entered_rx.recv_timeout(Duration::from_secs(2))?;
+            }
+
+            {
+                let mut shutdown_fut = Box::pin(writer.shutdown());
+                let first_poll = poll_fn(|cx| Poll::Ready(shutdown_fut.as_mut().poll(cx))).await;
+                assert!(first_poll.is_pending());
+                drop(shutdown_fut);
+            }
+
+            let mut abort_fut = Box::pin(writer.abort());
+            let abort_first_poll = poll_fn(|cx| Poll::Ready(abort_fut.as_mut().poll(cx))).await;
+            assert!(abort_first_poll.is_pending());
+
+            for release_tx in release_txs {
+                let _ = release_tx.send(());
+            }
+            for blocker in blockers {
+                blocker.await;
+            }
+
+            abort_fut.await?;
+            assert!(writer.put_result().is_none());
+            let body = store.get(&target).await?.bytes().await?;
+            assert_eq!(body.as_ref(), b"known-good");
+            Ok(())
+        }
+
+        #[tokio::test]
+        async fn test_cancelled_shutdown_after_failed_complete_reports_abort_error_on_explicit_abort()
+        -> anyhow::Result<()> {
+            // Case 1: explicit `abort()` after a cancelled `shutdown()` whose `complete()` and
+            // `abort()` both fail must report the cleanup error (not `Ok(())`) with one abort call.
+            let entered = Arc::new(Notify::new());
+            let release = Arc::new(Notify::new());
+            let counters = Arc::new(UploadCounters::default());
+            let store: Arc<dyn ObjectStore> = Arc::new(RecordingStore {
+                behavior: Arc::new(UploadBehavior {
+                    fail_complete: true,
+                    fail_abort: true,
+                    gate_abort: Some((Arc::clone(&entered), Arc::clone(&release))),
+                    ..Default::default()
+                }),
+                counters: Arc::clone(&counters),
+            });
+
+            let mut writer =
+                ObjectStoreWrite::new(store, &Path::from("failed-complete-abort.vortex")).await?;
+            {
+                let mut shutdown_fut = Box::pin(writer.shutdown());
+                let first_poll = poll_fn(|cx| Poll::Ready(shutdown_fut.as_mut().poll(cx))).await;
+                assert!(first_poll.is_pending());
+                timeout(Duration::from_secs(2), entered.notified()).await?;
+                drop(shutdown_fut);
+            }
+
+            let mut abort_fut = Box::pin(writer.abort());
+            let abort_first_poll = poll_fn(|cx| Poll::Ready(abort_fut.as_mut().poll(cx))).await;
+            assert!(abort_first_poll.is_pending());
+            release.notify_one();
+
+            let err = abort_fut
+                .await
+                .expect_err("explicit abort must surface the cleanup failure");
+            assert!(
+                err.to_string().contains("injected abort failure"),
+                "expected abort error, got: {err}"
+            );
+            assert_eq!(counters.abort_calls.load(Ordering::SeqCst), 1);
+
+            // Case 2: a subsequent `shutdown()` on the same scenario reports the original
+            // completion error with only one abort attempt.
+            let entered2 = Arc::new(Notify::new());
+            let release2 = Arc::new(Notify::new());
+            let counters2 = Arc::new(UploadCounters::default());
+            let store2: Arc<dyn ObjectStore> = Arc::new(RecordingStore {
+                behavior: Arc::new(UploadBehavior {
+                    fail_complete: true,
+                    fail_abort: true,
+                    gate_abort: Some((Arc::clone(&entered2), Arc::clone(&release2))),
+                    ..Default::default()
+                }),
+                counters: Arc::clone(&counters2),
+            });
+
+            let mut writer2 =
+                ObjectStoreWrite::new(store2, &Path::from("failed-complete-shutdown.vortex"))
+                    .await?;
+            {
+                let mut shutdown_fut = Box::pin(writer2.shutdown());
+                let first_poll = poll_fn(|cx| Poll::Ready(shutdown_fut.as_mut().poll(cx))).await;
+                assert!(first_poll.is_pending());
+                timeout(Duration::from_secs(2), entered2.notified()).await?;
+                drop(shutdown_fut);
+            }
+
+            let mut shutdown_retry = Box::pin(writer2.shutdown());
+            let retry_first_poll =
+                poll_fn(|cx| Poll::Ready(shutdown_retry.as_mut().poll(cx))).await;
+            assert!(retry_first_poll.is_pending());
+            release2.notify_one();
+
+            let err2 = shutdown_retry
+                .await
+                .expect_err("subsequent shutdown must surface the completion failure");
+            assert!(
+                err2.to_string().contains("injected complete failure"),
+                "expected completion error, got: {err2}"
+            );
+            assert_eq!(counters2.abort_calls.load(Ordering::SeqCst), 1);
             Ok(())
         }
     }
