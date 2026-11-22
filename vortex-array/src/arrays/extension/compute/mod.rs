@@ -9,6 +9,7 @@ mod mask;
 pub(crate) mod rules;
 mod slice;
 mod take;
+mod zip;
 
 #[cfg(test)]
 mod test {
