@@ -1,60 +1,129 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  useSyncExternalStore,
-  type DragEvent,
-} from 'react';
-import type { VortexFileContextValue } from './contexts/VortexFileContext';
+import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from 'react';
+import type { VortexFileState, VortexFileContextValue } from './contexts/VortexFileContext';
 import { VortexFileProvider } from './contexts/VortexFileContext';
 import { SelectionProvider } from './contexts/SelectionContext';
+import type { LayoutTreeNode } from './components/swimlane/types';
+import { arrayTreeToLayoutChildren, findNodeById } from './components/swimlane/utils';
 import { FileDropScreen } from './components/explorer/FileDropScreen';
 import { FileHeader } from './components/explorer/FileHeader';
 import { MainArea, type MainView } from './components/explorer/MainArea';
 import { StatusBar } from './components/explorer/StatusBar';
-import { ExplorerSession } from './explorerSession';
 import { VortexWorker } from './workers/VortexWorker';
 
 function App() {
+  const [fileState, setFileState] = useState<VortexFileState | null>(null);
+  const [fileGen, setFileGen] = useState(0);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [view, setView] = useState<MainView>('details');
   const dragCounter = useRef(0);
   const workerRef = useRef<VortexWorker | null>(null);
-  const sessionRef = useRef<ExplorerSession | null>(null);
-
-  if (!sessionRef.current) {
-    sessionRef.current = new ExplorerSession(() => workerRef.current);
-  }
-  const session = sessionRef.current;
+  const openGenRef = useRef(0);
+  const activeGenRef = useRef(0);
 
   useEffect(() => {
-    const worker = new VortexWorker();
-    workerRef.current = worker;
-    return () => {
-      worker.terminate();
-      if (workerRef.current === worker) {
-        workerRef.current = null;
-      }
-    };
+    workerRef.current = new VortexWorker();
+    return () => workerRef.current?.terminate();
   }, []);
 
-  const { fileState, activeGeneration, loading, error } = useSyncExternalStore(
-    session.subscribe,
-    session.getSnapshot,
+  const openFile = useCallback(async (file: File) => {
+    const gen = ++openGenRef.current;
+    setError(null);
+    setLoading(true);
+    try {
+      const result = await workerRef.current!.openFile(file);
+      if (openGenRef.current !== gen) return;
+      activeGenRef.current = gen;
+      setFileGen(gen);
+      setFileState({
+        fileName: file.name,
+        fileSize: file.size,
+        rowCount: result.rowCount,
+        version: result.fileStructure.version,
+        dtype: result.dtype,
+        layoutTree: result.layoutTree,
+        segments: result.segments,
+        fileStructure: result.fileStructure,
+      });
+    } catch (e) {
+      if (openGenRef.current !== gen) return;
+      activeGenRef.current = 0;
+      workerRef.current?.closeFile();
+      setError(e instanceof Error ? e.message : String(e));
+      setFileState(null);
+    } finally {
+      if (openGenRef.current === gen) {
+        setLoading(false);
+      }
+    }
+  }, []);
+
+  const fetchEncodingTree = useCallback(
+    (nodeId: string) => workerRef.current!.fetchEncodingTree(nodeId),
+    [],
   );
 
-  const openFile = useCallback((file: File) => session.openFile(file), [session]);
+  const previewData = useCallback(
+    (nodeId: string, rowLimit: number) => workerRef.current!.previewData(nodeId, rowLimit),
+    [],
+  );
 
-  const closeFile = useCallback(() => session.closeFile(), [session]);
+  /** Clone a tree, replacing the node at targetId with a modified version. */
+  const cloneTreeWithUpdate = useCallback(
+    (
+      root: LayoutTreeNode,
+      targetId: string,
+      update: (node: LayoutTreeNode) => LayoutTreeNode,
+    ): LayoutTreeNode => {
+      if (root.id === targetId) return update(root);
+      const newChildren = root.children.map((child) =>
+        cloneTreeWithUpdate(child, targetId, update),
+      );
+      if (newChildren === root.children) return root;
+      return { ...root, children: newChildren };
+    },
+    [],
+  );
 
-  const fileCallbacks = useMemo(
-    () => session.getFileCallbacks(activeGeneration),
-    [session, activeGeneration],
+  const expandArrayTree = useCallback(
+    async (nodeId: string) => {
+      const gen = activeGenRef.current;
+      // Fetch the encoding tree (may be async).
+      const arrayTree = await workerRef.current!.fetchEncodingTree(nodeId);
+      if (!arrayTree || activeGenRef.current !== gen) return;
+
+      setFileState((prev) => {
+        if (!prev || activeGenRef.current !== gen) return prev;
+        const node = findNodeById(prev.layoutTree, nodeId);
+        if (node?.encoding !== 'vortex.flat') return prev;
+        if (node.children.some((c) => c.isArrayNode)) return prev;
+
+        const arrayChildren = arrayTreeToLayoutChildren(arrayTree, node);
+        const newTree = cloneTreeWithUpdate(prev.layoutTree, nodeId, (n) => ({
+          ...n,
+          arrayEncodingTree: arrayTree,
+          children: [...n.children, ...arrayChildren],
+        }));
+        return { ...prev, layoutTree: newTree };
+      });
+    },
+    [cloneTreeWithUpdate],
+  );
+
+  const fetchArrayBuffer = useCallback(
+    (layoutNodeId: string, arrayPath: string[], bufferIndex: number) =>
+      workerRef.current!.fetchArrayBuffer(layoutNodeId, arrayPath, bufferIndex),
+    [],
+  );
+
+  const previewArrayData = useCallback(
+    (layoutNodeId: string, arrayPath: string[], rowLimit: number) =>
+      workerRef.current!.previewArrayData(layoutNodeId, arrayPath, rowLimit),
+    [],
   );
 
   const fileContextValue = useMemo<VortexFileContextValue | null>(
@@ -62,11 +131,31 @@ function App() {
       fileState
         ? {
             ...fileState,
-            ...fileCallbacks,
+            fetchEncodingTree,
+            previewData,
+            expandArrayTree,
+            fetchArrayBuffer,
+            previewArrayData,
           }
         : null,
-    [fileState, fileCallbacks],
+    [
+      fileState,
+      fetchEncodingTree,
+      previewData,
+      expandArrayTree,
+      fetchArrayBuffer,
+      previewArrayData,
+    ],
   );
+
+  const closeFile = useCallback(() => {
+    openGenRef.current++;
+    activeGenRef.current = 0;
+    setFileState(null);
+    setError(null);
+    setLoading(false);
+    workerRef.current?.closeFile();
+  }, []);
 
   const handleDragEnter = useCallback((e: DragEvent<HTMLDivElement>) => {
     e.preventDefault();
@@ -101,7 +190,7 @@ function App() {
 
   return (
     <VortexFileProvider value={fileContextValue}>
-      <SelectionProvider key={activeGeneration} tree={fileContextValue.layoutTree}>
+      <SelectionProvider key={fileGen} tree={fileContextValue.layoutTree}>
         {/* The whole window takes a dropped file, so a new file can replace the open one. */}
         {/* biome-ignore lint/a11y/noStaticElementInteractions: drag and drop has no keyboard form; Close and the open screen's button do. */}
         <div

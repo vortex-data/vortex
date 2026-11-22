@@ -1,16 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-import { describe, expect, it } from 'bun:test';
-import type { ArrayEncodingNode, LayoutTreeNode } from '../src/components/swimlane/types';
-import { ExplorerSession } from '../src/explorerSession';
-import { VortexWorker } from '../src/workers/VortexWorker';
-import {
-  createVortexWorkerHandler,
-  type VortexWorkerFileHandle,
-  type WorkerRequest,
-  type WorkerResponse,
-} from '../src/workers/workerRuntime';
+import { afterEach, describe, expect, mock, test } from 'bun:test';
 
 interface Deferred<T> {
   promise: Promise<T>;
@@ -28,71 +19,35 @@ function deferred<T>(): Deferred<T> {
   return { promise, resolve, reject };
 }
 
-function makeFlatTree(label: string): LayoutTreeNode {
-  return {
-    id: 'root',
-    name: label,
-    encoding: 'vortex.flat',
-    dtype: 'i64',
-    rowCount: 10,
-    rowOffset: 0,
-    segmentIds: [0],
-    totalBytes: 100,
-    metadataBytes: 16,
-    children: [],
-    childType: { kind: 'root' },
-  };
-}
-
-function makeArrayTree(encoding: string): ArrayEncodingNode {
-  return {
-    name: 'root',
-    encoding,
-    dtype: 'i64',
-    rowCount: 10,
-    nbytes: 80,
-    metadataBytes: 0,
-    bufferLengths: [80],
-    children: [],
-  };
-}
-
-interface FakeHandle extends VortexWorkerFileHandle {
-  readonly label: string;
+interface FakeHandle {
+  row_count: bigint;
+  dtype: string;
   freeCount: number;
+  layout_tree: () => string;
+  segment_map: () => string;
+  file_structure: () => string;
+  fetch_encoding_tree: (nodeId: string) => Promise<string>;
+  fetch_array_buffer: () => Promise<Uint8Array>;
+  preview_array_data: () => Promise<Uint8Array>;
+  preview_data: () => Promise<Uint8Array>;
+  free: () => void;
 }
 
-function makeFakeHandle(
-  label: string,
-  opts?: {
-    fetchEncodingTree?: (nodeId: string) => Promise<string>;
-    fetchArrayBuffer?: () => Promise<Uint8Array>;
-  },
+function makeHandle(
+  name: string,
+  fetchEncodingTree: (nodeId: string) => Promise<string> = async () => JSON.stringify({ name }),
 ): FakeHandle {
   const handle: FakeHandle = {
-    label,
+    row_count: 1n,
+    dtype: 'i32',
     freeCount: 0,
-    row_count: 10n,
-    dtype: `dtype(${label})`,
-    layout_tree: () => JSON.stringify(makeFlatTree(label)),
-    segment_map: () => JSON.stringify([]),
-    file_structure: () =>
-      JSON.stringify({
-        version: 1,
-        eof: { version: 1, postscriptSize: 0 },
-        postscript: {
-          dtypeSegment: null,
-          layoutSegment: 0,
-          statisticsSegment: null,
-          footerSegment: 0,
-        },
-        segments: [],
-      }),
-    fetch_encoding_tree:
-      opts?.fetchEncodingTree ?? (async () => JSON.stringify(makeArrayTree(`enc.${label}`))),
-    fetch_array_buffer: opts?.fetchArrayBuffer ?? (async () => new Uint8Array([1, 2, 3])),
-    preview_array_data: async () => new Uint8Array([]),
-    preview_data: async () => new Uint8Array([]),
+    layout_tree: () => JSON.stringify({ id: 'layout-0', name }),
+    segment_map: () => '[]',
+    file_structure: () => JSON.stringify({ version: 1 }),
+    fetch_encoding_tree: fetchEncodingTree,
+    fetch_array_buffer: async () => new Uint8Array([1]),
+    preview_array_data: async () => new Uint8Array([1]),
+    preview_data: async () => new Uint8Array([1]),
     free() {
       handle.freeCount++;
     },
@@ -100,231 +55,131 @@ function makeFakeHandle(
   return handle;
 }
 
-function createHarness(openImpl: (file: File) => Promise<VortexWorkerFileHandle>) {
-  let onmessage: ((e: MessageEvent<WorkerResponse>) => void) | null = null;
-  const handler = createVortexWorkerHandler({
-    init: async () => {},
-    openVortexFile: openImpl,
-    postMessage: (msg) => {
-      onmessage?.({ data: msg } as MessageEvent<WorkerResponse>);
-    },
-  });
+type WorkerReply =
+  | { type: 'result'; id: number; data: unknown }
+  | { type: 'error'; id: number; error: string };
 
-  const fakeWorker = {
-    get onmessage() {
-      return onmessage;
-    },
-    set onmessage(fn: ((e: MessageEvent<WorkerResponse>) => void) | null) {
-      onmessage = fn;
-    },
-    postMessage(msg: WorkerRequest) {
-      void handler(msg);
-    },
-    terminate() {},
-  } as unknown as Worker;
+const replies: WorkerReply[] = [];
+let openHandler: (file: File) => Promise<FakeHandle> = async () => makeHandle('default');
 
-  const client = new VortexWorker(fakeWorker);
-  const session = new ExplorerSession(() => client);
-  return { client, session };
+const fakeSelf = {
+  onmessage: null as ((e: MessageEvent) => Promise<void>) | null,
+  postMessage(msg: WorkerReply) {
+    replies.push(msg);
+  },
+};
+
+Object.assign(globalThis, { self: fakeSelf });
+
+mock.module('../src/wasm/pkg/vortex_web_wasm.js', () => ({
+  default: async () => {},
+  open_vortex_file: (file: File) => openHandler(file),
+}));
+
+await import('../src/workers/vortex.worker.ts');
+
+async function send(data: Record<string, unknown>): Promise<void> {
+  await fakeSelf.onmessage?.({ data } as MessageEvent);
 }
 
-describe('Explorer file generation and handle lifecycle', () => {
-  it('keeps the newer file active and disposes the stale handle once when an older open resolves late', async () => {
+afterEach(async () => {
+  await send({ type: 'close' });
+  replies.length = 0;
+});
+
+describe('vortex.worker handle lifecycle', () => {
+  test('stale open frees its own handle and does not replace a newer open', async () => {
     const openA = deferred<FakeHandle>();
     const openB = deferred<FakeHandle>();
-    const handleA = makeFakeHandle('file-a');
-    const handleB = makeFakeHandle('file-b');
+    openHandler = (file) => (file.name === 'a.vortex' ? openA.promise : openB.promise);
 
-    const { session } = createHarness((file) =>
-      file.name === 'a.vortex' ? openA.promise : openB.promise,
-    );
+    const pA = send({ type: 'open', id: 1, file: new File(['a'], 'a.vortex') });
+    const pB = send({ type: 'open', id: 2, file: new File(['b'], 'b.vortex') });
 
-    const pA = session.openFile(new File(['a'], 'a.vortex'));
-    // Let openA finish WASM init and enter openVortexFile before openB arrives.
-    await new Promise((r) => setTimeout(r, 0));
-    const pB = session.openFile(new File(['b'], 'b.vortex'));
-
-    // Newer open completes first.
+    const handleB = makeHandle('B');
     openB.resolve(handleB);
     await pB;
 
-    expect(session.getSnapshot().loading).toBe(false);
-    expect(session.getSnapshot().error).toBeNull();
-    expect(session.getSnapshot().fileState?.fileName).toBe('b.vortex');
-    expect(session.getSnapshot().fileState?.layoutTree.name).toBe('file-b');
-    const genB = session.getSnapshot().activeGeneration;
-    expect(genB).toBeGreaterThan(0);
-
-    // Older open resolves late: must not overwrite UI or worker handle, and must dispose handleA once.
+    const handleA = makeHandle('A');
     openA.resolve(handleA);
     await pA;
 
     expect(handleA.freeCount).toBe(1);
     expect(handleB.freeCount).toBe(0);
-    expect(session.getSnapshot().fileState?.fileName).toBe('b.vortex');
-    expect(session.getSnapshot().fileState?.layoutTree.name).toBe('file-b');
-    expect(session.getSnapshot().activeGeneration).toBe(genB);
-    expect(session.getSnapshot().loading).toBe(false);
-    expect(session.getSnapshot().error).toBeNull();
+    expect(replies.find((r) => r.id === 2)).toMatchObject({ type: 'result' });
+    expect(replies.find((r) => r.id === 1)).toEqual({
+      type: 'error',
+      id: 1,
+      error: 'Stale file open',
+    });
 
-    // Subsequent worker operation still uses handleB.
-    const enc = await session.getFileCallbacks(genB).fetchEncodingTree('root');
-    expect(enc.encoding).toBe('enc.file-b');
+    await send({ type: 'fetchEncodingTree', id: 3, nodeId: 'layout-0' });
+    expect(replies.find((r) => r.id === 3)).toEqual({
+      type: 'result',
+      id: 3,
+      data: { name: 'B' },
+    });
   });
 
-  it('ignores a late error from an older open without clearing loading or overwriting a newer file', async () => {
-    const openA = deferred<FakeHandle>();
+  test('keeps active handle readable during replacement open and defers free until reads finish', async () => {
+    const readA = deferred<string>();
+    const handleA = makeHandle('A', () => readA.promise);
     const openB = deferred<FakeHandle>();
-    const handleB = makeFakeHandle('file-b');
+    openHandler = (file) => (file.name === 'a.vortex' ? Promise.resolve(handleA) : openB.promise);
 
-    const { session } = createHarness((file) =>
-      file.name === 'a.vortex' ? openA.promise : openB.promise,
-    );
+    await send({ type: 'open', id: 1, file: new File(['a'], 'a.vortex') });
 
-    const pA = session.openFile(new File(['a'], 'a.vortex'));
-    await new Promise((r) => setTimeout(r, 0));
-    const pB = session.openFile(new File(['b'], 'b.vortex'));
-
-    // Older open fails while newer open is still in flight: busy flag must stay true, error null.
-    openA.reject(new Error('corrupt file A'));
-    await pA;
-
-    expect(session.getSnapshot().loading).toBe(true);
-    expect(session.getSnapshot().error).toBeNull();
-
-    // Newer open succeeds cleanly.
-    openB.resolve(handleB);
-    await pB;
-
-    expect(session.getSnapshot().loading).toBe(false);
-    expect(session.getSnapshot().error).toBeNull();
-    expect(session.getSnapshot().fileState?.fileName).toBe('b.vortex');
-  });
-
-  it('prevents a delayed array expansion from mutating a matching node in a replacement file and advances generation', async () => {
-    const expandA = deferred<string>();
-    const handleA = makeFakeHandle('file-a', {
-      fetchEncodingTree: () => expandA.promise,
-    });
-    const handleB = makeFakeHandle('file-b');
-
-    const { session } = createHarness(async (file) =>
-      file.name === 'a.vortex' ? handleA : handleB,
-    );
-
-    await session.openFile(new File(['a'], 'a.vortex'));
-    const genA = session.getSnapshot().activeGeneration;
-
-    // Start expanding node 'root' on file A.
-    const expandPromise = session.expandArrayTree('root', genA);
-
-    // Replace with file B (which has the same 'root' node ID) before expansion finishes.
-    await session.openFile(new File(['b'], 'b.vortex'));
-    const genB = session.getSnapshot().activeGeneration;
-
-    // Generation incremented so SelectionProvider keyed on activeGeneration resets selection.
-    expect(genB).toBeGreaterThan(genA);
-    // Handle A is still in flight for expandA, so it must NOT be freed yet.
-    expect(handleA.freeCount).toBe(0);
-
-    // Complete delayed expansion from file A.
-    expandA.resolve(JSON.stringify(makeArrayTree('enc.stale-a')));
-    await expandPromise;
-
-    // Handle A is disposed exactly once after its outstanding use finishes.
-    expect(handleA.freeCount).toBe(1);
-    expect(handleB.freeCount).toBe(0);
-
-    // File B's 'root' node must not have received file A's array children.
-    expect(session.getSnapshot().fileState?.fileName).toBe('b.vortex');
-    expect(session.getSnapshot().fileState?.layoutTree.children).toEqual([]);
-    expect(session.getSnapshot().fileState?.layoutTree.arrayEncodingTree).toBeUndefined();
-  });
-
-  it('invalidates a pending open on close and disposes the handle once when it resolves', async () => {
-    const openA = deferred<FakeHandle>();
-    const handleA = makeFakeHandle('file-a');
-
-    const { session } = createHarness(() => openA.promise);
-
-    const pA = session.openFile(new File(['a'], 'a.vortex'));
-    await new Promise((r) => setTimeout(r, 0));
-    expect(session.getSnapshot().loading).toBe(true);
-
-    session.closeFile();
-    expect(session.getSnapshot().loading).toBe(false);
-    expect(session.getSnapshot().fileState).toBeNull();
-    expect(session.getSnapshot().error).toBeNull();
-
-    openA.resolve(handleA);
-    await pA;
-
-    expect(handleA.freeCount).toBe(1);
-    expect(session.getSnapshot().fileState).toBeNull();
-    expect(session.getSnapshot().loading).toBe(false);
-  });
-
-  it('disposes the active handle once on close after an in-flight read completes', async () => {
-    const readBuf = deferred<Uint8Array>();
-    const handleA = makeFakeHandle('file-a', {
-      fetchArrayBuffer: () => readBuf.promise,
-    });
-
-    const { session } = createHarness(async () => handleA);
-
-    await session.openFile(new File(['a'], 'a.vortex'));
-    const genA = session.getSnapshot().activeGeneration;
-
-    const bufPromise = session.getFileCallbacks(genA).fetchArrayBuffer('root', [], 0);
-    // Let fetchArrayBuffer pass ensureInit() and enter handle.fetch_array_buffer().
+    const pOpenB = send({ type: 'open', id: 2, file: new File(['b'], 'b.vortex') });
+    const pReadA = send({ type: 'fetchEncodingTree', id: 3, nodeId: 'layout-0' });
     await Promise.resolve();
-    session.closeFile();
 
-    // Still in flight, so not freed yet.
+    const handleB = makeHandle('B');
+    openB.resolve(handleB);
+    await pOpenB;
+
     expect(handleA.freeCount).toBe(0);
+    expect(handleB.freeCount).toBe(0);
 
-    readBuf.resolve(new Uint8Array([42]));
-    await expect(bufPromise).rejects.toThrow('Stale file generation');
+    readA.resolve(JSON.stringify({ name: 'A-tree' }));
+    await pReadA;
 
-    // Freed exactly once after the in-flight operation finishes.
     expect(handleA.freeCount).toBe(1);
-
-    // Repeated close does not double-free.
-    session.closeFile();
-    expect(handleA.freeCount).toBe(1);
+    expect(replies.find((r) => r.id === 3)).toEqual({
+      type: 'result',
+      id: 3,
+      data: { name: 'A-tree' },
+    });
   });
 
-  it('keeps the still-visible file readable while a replacement open is pending', async () => {
+  test('close frees active handle after in-flight reads and discards in-flight opens', async () => {
+    const readA = deferred<string>();
+    const handleA = makeHandle('A', () => readA.promise);
     const openB = deferred<FakeHandle>();
-    const handleA = makeFakeHandle('file-a');
-    const handleB = makeFakeHandle('file-b');
+    openHandler = (file) => (file.name === 'a.vortex' ? Promise.resolve(handleA) : openB.promise);
 
-    const { session } = createHarness((file) =>
-      file.name === 'a.vortex' ? Promise.resolve(handleA) : openB.promise,
-    );
+    await send({ type: 'open', id: 1, file: new File(['a'], 'a.vortex') });
+    const pReadA = send({ type: 'fetchEncodingTree', id: 2, nodeId: 'layout-0' });
+    const pOpenB = send({ type: 'open', id: 3, file: new File(['b'], 'b.vortex') });
+    await Promise.resolve();
 
-    await session.openFile(new File(['a'], 'a.vortex'));
-    const genA = session.getSnapshot().activeGeneration;
-
-    // Start opening replacement file B without resolving it yet.
-    const pB = session.openFile(new File(['b'], 'b.vortex'));
-    await new Promise((r) => setTimeout(r, 0));
-
-    // File A is still visible in the UI, so reads against A must still succeed.
-    expect(session.getSnapshot().fileState?.fileName).toBe('a.vortex');
+    await send({ type: 'close' });
     expect(handleA.freeCount).toBe(0);
-    const tree = await session.getFileCallbacks(genA).fetchEncodingTree('root');
-    expect(tree.encoding).toBe('enc.file-a');
 
-    // Once B completes, A is retired and freed once, and B becomes active.
-    openB.resolve(handleB);
-    await pB;
-
+    readA.resolve(JSON.stringify({ name: 'A-tree' }));
+    await pReadA;
     expect(handleA.freeCount).toBe(1);
-    expect(handleB.freeCount).toBe(0);
-    expect(session.getSnapshot().fileState?.fileName).toBe('b.vortex');
-    await expect(session.getFileCallbacks(genA).fetchEncodingTree('root')).rejects.toThrow(
-      'Stale file generation',
-    );
+
+    const handleB = makeHandle('B');
+    openB.resolve(handleB);
+    await pOpenB;
+    expect(handleB.freeCount).toBe(1);
+    expect(replies.find((r) => r.id === 3)).toEqual({
+      type: 'error',
+      id: 3,
+      error: 'Stale file open',
+    });
+
+    await send({ type: 'fetchEncodingTree', id: 4, nodeId: 'layout-0' });
+    expect(replies.find((r) => r.id === 4)).toMatchObject({ type: 'error', id: 4 });
   });
 });
