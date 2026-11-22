@@ -19,6 +19,7 @@ use vortex_array::arrays::VarBinArray;
 use vortex_array::assert_arrays_eq;
 use vortex_array::flatbuffers::ReadFlatBuffer;
 use vortex_array::flatbuffers::WriteFlatBufferExt;
+use vortex_buffer::Alignment;
 use vortex_buffer::ByteBuffer;
 use vortex_buffer::ByteBufferMut;
 use vortex_buffer::buffer;
@@ -39,6 +40,7 @@ use crate::Footer;
 use crate::OpenOptionsSessionExt;
 use crate::VortexFile;
 use crate::WriteOptionsSessionExt;
+use crate::flatbuffers::footer as fb;
 use crate::footer::postscript::Postscript;
 use crate::footer::postscript::PostscriptSegment;
 
@@ -539,6 +541,86 @@ async fn rejects_stripped_metadata_encryption() -> VortexResult<()> {
         postscript.metadata[0].segment.encryption = EncryptionSpec::plaintext();
     })?;
     expect_err(open(stripped, Some(decryption())), "is not encrypted");
+    Ok(())
+}
+
+/// A forged plaintext file that lists two empty encryption specs must not bypass required
+/// decryption.
+#[tokio::test]
+async fn rejects_plaintext_footer_with_empty_encryption_specs() -> VortexResult<()> {
+    let bytes = write(None).await?;
+    let mut postscript = read_postscript(&bytes)?;
+    let footer_start = usize::try_from(postscript.footer.offset)?;
+    let footer_end = footer_start + postscript.footer.length as usize;
+    let orig = flatbuffers::root::<fb::Footer>(&bytes[footer_start..footer_end])?;
+
+    let mut fbb = FlatBufferBuilder::new();
+    let segment_specs = orig.segment_specs().map(|specs| {
+        let copied: Vec<_> = specs.iter().copied().collect();
+        fbb.create_vector(&copied)
+    });
+    let array_specs = orig.array_specs().map(|specs| {
+        let copied: Vec<_> = specs
+            .iter()
+            .map(|spec| {
+                let id = Some(fbb.create_string(spec.id()));
+                fb::ArraySpec::create(&mut fbb, &fb::ArraySpecArgs { id })
+            })
+            .collect();
+        fbb.create_vector(&copied)
+    });
+    let layout_specs = orig.layout_specs().map(|specs| {
+        let copied: Vec<_> = specs
+            .iter()
+            .map(|spec| {
+                let id = Some(fbb.create_string(spec.id()));
+                fb::LayoutSpec::create(&mut fbb, &fb::LayoutSpecArgs { id })
+            })
+            .collect();
+        fbb.create_vector(&copied)
+    });
+    let encryption_specs = {
+        let specs = [EncryptionSpec::plaintext(), EncryptionSpec::plaintext()]
+            .iter()
+            .map(|spec| spec.write_flatbuffer(&mut fbb))
+            .collect::<Vec<_>>();
+        fbb.create_vector(&specs)
+    };
+    let root = fb::Footer::create(
+        &mut fbb,
+        &fb::FooterArgs {
+            segment_specs,
+            array_specs,
+            layout_specs,
+            compression_specs: None,
+            encryption_specs: Some(encryption_specs),
+        },
+    );
+    fbb.finish_minimal(root);
+    let forged_footer = fbb.finished_data();
+
+    let eof = bytes.len() - EOF_SIZE;
+    let ps_len = usize::from(u16::from_le_bytes([bytes[eof + 2], bytes[eof + 3]]));
+    let mut forged = ByteBufferMut::copy_from(&bytes[..eof - ps_len]);
+    let forged_offset = u64::try_from(forged.len())?;
+    forged.extend_from_slice(forged_footer);
+    postscript.metadata.clear();
+    postscript.footer.offset = forged_offset;
+    postscript.footer.length = u32::try_from(forged_footer.len())?;
+    postscript.footer.alignment = Alignment::none();
+    let ps_bytes = postscript.write_flatbuffer_bytes()?;
+    forged.extend_from_slice(&ps_bytes);
+    forged.extend_from_slice(&bytes[eof..eof + 2]);
+    forged.extend_from_slice(&u16::try_from(ps_bytes.len())?.to_le_bytes());
+    forged.extend_from_slice(&bytes[eof + 4..]);
+
+    expect_err(
+        SESSION
+            .open_options()
+            .with_decryption(decryption())
+            .open_buffer(forged.freeze()),
+        "footer key",
+    );
     Ok(())
 }
 

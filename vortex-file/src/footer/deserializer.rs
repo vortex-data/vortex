@@ -15,6 +15,7 @@ use vortex_error::VortexError;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_session::VortexSession;
 
@@ -351,6 +352,10 @@ impl FooterDeserializer {
         let footer_key = footer.encryption_specs().get(1).ok_or_else(|| {
             vortex_err!("Encrypted file's footer lists no footer key encryption spec")
         })?;
+        vortex_ensure!(
+            footer_key.is_encrypted(),
+            "Encrypted file's footer key encryption spec is not encrypted"
+        );
         self.require_footer_protection(postscript, footer_key)
     }
 
