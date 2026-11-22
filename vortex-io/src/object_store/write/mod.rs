@@ -27,8 +27,8 @@ use crate::compat::Compat;
 ///
 /// Multipart initiation, part uploads, and completion run on the caller's async runtime so
 /// concurrent writers scale across the caller's worker threads. If a part upload or completion
-/// fails, the writer aborts the multipart upload once (preserving the primary error if abort
-/// itself fails) and rejects any subsequent writes or completion.
+/// fails, the writer schedules a background abort once, returns the part/completion error, and
+/// rejects any subsequent writes or completion.
 ///
 /// Dropping an uncompleted writer (or cancelling an in-flight `write_all`, `flush`, or `shutdown`
 /// future) schedules an asynchronous abort on a process-lifetime executor (`smol` with a `Compat`
@@ -82,7 +82,7 @@ impl ObjectStoreWrite {
         let UploadState::Active { mut upload, .. } =
             std::mem::replace(&mut self.state, UploadState::Aborted)
         else {
-            unreachable!("checked active state above");
+            vortex_error::vortex_panic!("checked active state above");
         };
         spawn_detached_cleanup(async move {
             if let Err(err) = upload.abort().await {
@@ -105,8 +105,8 @@ impl ObjectStoreWrite {
 
     /// Flush buffered chunks of up to `CHUNK_SIZE` while more than `min_remaining` bytes remain.
     ///
-    /// Arms [`AbortOnCancel`] once chunks are removed from the buffer and aborts once on failure,
-    /// preserving the primary part error if abort itself fails.
+    /// Arms [`AbortOnCancel`] once chunks are removed from the buffer; on failure or cancellation,
+    /// dropping the guard schedules a background abort once and returns the part error.
     async fn flush_parts(&mut self, min_remaining: usize) -> io::Result<()> {
         let (_, buffer) = self.ensure_active()?;
         if buffer.len() <= min_remaining {
@@ -125,11 +125,7 @@ impl ObjectStoreWrite {
             parts.try_collect::<Vec<_>>().await
         };
 
-        if let Err(err) = part_result {
-            guard.writer.abort_in_background();
-            guard.disarm();
-            return Err(err.into());
-        }
+        part_result?;
         guard.disarm();
         Ok(())
     }
@@ -216,18 +212,10 @@ impl VortexWrite for ObjectStoreWrite {
 
         let guard = AbortOnCancel::new(self);
         let (upload, _) = guard.writer.ensure_active()?;
-        match upload.complete().await {
-            Ok(put_result) => {
-                guard.writer.state = UploadState::Completed(put_result);
-                guard.disarm();
-                Ok(())
-            }
-            Err(err) => {
-                guard.writer.abort_in_background();
-                guard.disarm();
-                Err(err.into())
-            }
-        }
+        let put_result = upload.complete().await?;
+        guard.writer.state = UploadState::Completed(put_result);
+        guard.disarm();
+        Ok(())
     }
 }
 
