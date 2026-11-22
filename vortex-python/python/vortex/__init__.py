@@ -64,7 +64,6 @@ from ._lib.dtype import (
     utf8,
 )
 from ._lib.iter import ArrayIterator
-from ._lib.runtime import worker_threads
 from ._lib.scalar import (
     BinaryScalar,
     BoolScalar,
@@ -79,13 +78,13 @@ from ._lib.scalar import (
     scalar,
 )
 from ._lib.serde import ArrayContext, SerializedArray
+from ._runtime import set_worker_threads, worker_threads
 from .arrays import (
     Array,
     PyArray,
     _unpickle_array,
     array,
 )
-from .dataset import set_worker_threads
 from .file import SegmentCache, VortexFile, open, open_readable
 from .scan import RepeatedScan
 

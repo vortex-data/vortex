@@ -12,6 +12,7 @@ import pyarrow as pa
 import pyarrow.compute as pc
 import pyarrow.dataset as pd
 import pytest
+import vortex._runtime as vx_runtime
 import vortex.dataset as vx_dataset
 
 import vortex as vx
@@ -126,15 +127,16 @@ def test_use_threads_configures_worker_pool(monkeypatch: pytest.MonkeyPatch) -> 
         calls.append(count)
         current_workers = 11 if count is None else count
 
-    monkeypatch.setattr(vx_dataset, "_worker_threads", fake_worker_threads)
-    monkeypatch.setattr(vx_dataset, "_set_worker_threads", fake_set_worker_threads)
+    monkeypatch.setattr(vx_runtime, "_worker_threads", fake_worker_threads)
+    monkeypatch.setattr(vx_runtime, "_set_worker_threads", fake_set_worker_threads)
+    monkeypatch.setattr(vx_runtime, "_WORKER_THREAD_LEASES", vx_runtime._WorkerThreadLeaseManager())
 
-    with vx_dataset._temporary_worker_threads(True):
+    with vx_runtime._temporary_worker_threads(True):
         assert current_workers == 11
 
     assert current_workers == 3
 
-    with vx_dataset._temporary_worker_threads(False):
+    with vx_runtime._temporary_worker_threads(False):
         assert current_workers == 0
 
     assert current_workers == 3
@@ -183,9 +185,9 @@ def _patch_worker_pool(monkeypatch: pytest.MonkeyPatch, initial: int = 4, parall
         pool.calls.append(count)
         pool.workers = pool.parallel if count is None else count
 
-    monkeypatch.setattr(vx_dataset, "_worker_threads", fake_worker_threads)
-    monkeypatch.setattr(vx_dataset, "_set_worker_threads", fake_set_worker_threads)
-    monkeypatch.setattr(vx_dataset, "_WORKER_THREAD_LEASES", vx_dataset._WorkerThreadLeaseManager())
+    monkeypatch.setattr(vx_runtime, "_worker_threads", fake_worker_threads)
+    monkeypatch.setattr(vx_runtime, "_set_worker_threads", fake_set_worker_threads)
+    monkeypatch.setattr(vx_runtime, "_WORKER_THREAD_LEASES", vx_runtime._WorkerThreadLeaseManager())
     return pool
 
 
@@ -270,16 +272,75 @@ def test_explicit_user_update_during_active_lease_is_preserved(monkeypatch: pyte
     assert next(gen).to_pylist() == [{"x": 1}]
     assert pool.workers == 0
 
-    vx_dataset.set_worker_threads(6)
+    vx.set_worker_threads(6)
     assert pool.workers == 6
+    assert vx.worker_threads() == 6
 
     gen.close()
     assert pool.workers == 6
 
     # Subsequent lease uses the updated baseline (6).
-    with vx_dataset._temporary_worker_threads(False):
+    with vx_runtime._temporary_worker_threads(False):
         assert pool.workers == 0
     assert pool.workers == 6
+
+
+def test_worker_threads_save_restore_during_active_lease(monkeypatch: pytest.MonkeyPatch) -> None:
+    pool = _patch_worker_pool(monkeypatch, initial=4, parallel=11)
+    gen = vx_dataset._read_batches_with_temporary_worker_threads(_make_two_batch_reader((1, 2)), False)
+
+    assert next(gen).to_pylist() == [{"x": 1}]
+    assert pool.workers == 0
+
+    # Save/restore around set_worker_threads must round-trip to the real baseline (4), not 0.
+    previous = vx.worker_threads()
+    assert previous == 4
+    try:
+        vx.set_worker_threads(None)
+        assert pool.workers == 11
+    finally:
+        vx.set_worker_threads(previous)
+    assert pool.workers == 4
+
+    gen.close()
+    assert pool.workers == 4
+    assert vx.worker_threads() == 4
+
+
+def test_reentrant_release_during_acquire_does_not_deadlock_or_lose_decrement(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    pool = _FakeWorkerPool(initial=4, parallel=11)
+    manager = vx_runtime._WorkerThreadLeaseManager()
+    reentrant_gen: int | None = None
+    triggered = False
+
+    def fake_worker_threads() -> int:
+        nonlocal triggered
+        if reentrant_gen is not None and not triggered:
+            triggered = True
+            manager.release(False, reentrant_gen)
+        return pool.workers
+
+    def fake_set_worker_threads(count: int | None) -> None:
+        pool.calls.append(count)
+        pool.workers = pool.parallel if count is None else count
+
+    monkeypatch.setattr(vx_runtime, "_worker_threads", fake_worker_threads)
+    monkeypatch.setattr(vx_runtime, "_set_worker_threads", fake_set_worker_threads)
+    monkeypatch.setattr(vx_runtime, "_WORKER_THREAD_LEASES", manager)
+
+    first_gen = manager.acquire(False)
+    assert pool.workers == 0
+
+    # Trigger a re-entrant release of the first lease while acquiring the second lease.
+    reentrant_gen = first_gen
+    second_gen = manager.acquire(True)
+    assert triggered
+    assert pool.workers == 11
+
+    manager.release(True, second_gen)
+    assert pool.workers == 4
 
 
 def test_closing_inherited_reader_after_fork_does_not_corrupt_leases(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -289,14 +350,14 @@ def test_closing_inherited_reader_after_fork_does_not_corrupt_leases(monkeypatch
     assert pool.workers == 0
 
     # Simulate child process state after fork: baseline is restored and generation advances.
-    vx_dataset._WORKER_THREAD_LEASES.reset_after_fork()
+    vx_runtime._WORKER_THREAD_LEASES.reset_after_fork()
     assert pool.workers == 4
 
     # Closing the pre-fork reader in the child must not decrement child lease counts.
     inherited.close()
     assert pool.workers == 4
 
-    with vx_dataset._temporary_worker_threads(False):
+    with vx_runtime._temporary_worker_threads(False):
         assert pool.workers == 0
     assert pool.workers == 4
 
