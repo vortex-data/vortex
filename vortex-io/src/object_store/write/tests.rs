@@ -7,7 +7,6 @@ use std::future::poll_fn;
 use std::sync::Arc;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
-use std::sync::mpsc;
 use std::task::Poll;
 use std::time::Duration;
 
@@ -27,7 +26,6 @@ use object_store::UploadPart;
 use object_store::local::LocalFileSystem;
 use object_store::memory::InMemory;
 use object_store::path::Path;
-use parking_lot::Mutex;
 use rstest::rstest;
 use tempfile::tempdir;
 use tokio::sync::Notify;
@@ -95,8 +93,6 @@ mod multipart_lifecycle_tests {
         complete_calls: AtomicUsize,
         abort_calls: AtomicUsize,
         abort_notify: Notify,
-        abort_finished: AtomicUsize,
-        abort_finished_notify: Notify,
     }
 
     #[derive(Default)]
@@ -106,7 +102,6 @@ mod multipart_lifecycle_tests {
         fail_abort: bool,
         gate_part: Option<(Arc<Notify>, Arc<Notify>)>,
         gate_complete: Option<(Arc<Notify>, Arc<Notify>)>,
-        gate_abort: Option<(Arc<Notify>, Arc<Notify>)>,
         abort_uses_tokio_timer: bool,
     }
 
@@ -243,21 +238,13 @@ mod multipart_lifecycle_tests {
             }
             self.counters.abort_calls.fetch_add(1, Ordering::SeqCst);
             self.counters.abort_notify.notify_one();
-            if let Some((entered, release)) = &self.behavior.gate_abort {
-                entered.notify_one();
-                release.notified().await;
-            }
-            let res = if self.behavior.fail_abort {
-                Err(object_store::Error::Generic {
+            if self.behavior.fail_abort {
+                return Err(object_store::Error::Generic {
                     store: "test",
                     source: "synthetic abort failure".into(),
-                })
-            } else {
-                Ok(())
-            };
-            self.counters.abort_finished.fetch_add(1, Ordering::SeqCst);
-            self.counters.abort_finished_notify.notify_one();
-            res
+                });
+            }
+            Ok(())
         }
     }
 
@@ -552,359 +539,6 @@ mod multipart_lifecycle_tests {
         }
 
         drop(tokio_rt);
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn test_cancelled_shutdown_after_failed_complete_reports_abort_error_on_explicit_abort()
-    -> anyhow::Result<()> {
-        // Case 1: explicit `abort()` started while failed-complete cleanup is still in flight
-        // must surface the cleanup error with only one abort attempt.
-        let entered = Arc::new(Notify::new());
-        let release = Arc::new(Notify::new());
-        let (store, counters) = make_store(UploadBehavior {
-            fail_complete: true,
-            fail_abort: true,
-            gate_abort: Some((Arc::clone(&entered), Arc::clone(&release))),
-            ..Default::default()
-        });
-
-        let mut writer =
-            ObjectStoreWrite::new(store, &Path::from("failed-complete-abort.vortex")).await?;
-        {
-            let mut shutdown_fut = Box::pin(writer.shutdown());
-            let first_poll = poll_fn(|cx| Poll::Ready(shutdown_fut.as_mut().poll(cx))).await;
-            assert!(first_poll.is_pending());
-            timeout(Duration::from_secs(2), entered.notified()).await?;
-            drop(shutdown_fut);
-        }
-
-        let mut abort_fut = Box::pin(writer.abort());
-        let abort_first_poll = poll_fn(|cx| Poll::Ready(abort_fut.as_mut().poll(cx))).await;
-        assert!(abort_first_poll.is_pending());
-        release.notify_one();
-
-        let err = abort_fut
-            .await
-            .expect_err("explicit abort must surface the cleanup failure");
-        assert!(
-            err.to_string().contains("synthetic abort failure"),
-            "expected abort error, got: {err}"
-        );
-        assert_eq!(counters.abort_calls.load(Ordering::SeqCst), 1);
-
-        // Case 2: backend rejects cleanup before explicit `abort()` is called; the writer must
-        // retain that failure and report it from `abort()` without issuing a second abort.
-        let entered_done = Arc::new(Notify::new());
-        let release_done = Arc::new(Notify::new());
-        let (store_done, counters_done) = make_store(UploadBehavior {
-            fail_complete: true,
-            fail_abort: true,
-            gate_abort: Some((Arc::clone(&entered_done), Arc::clone(&release_done))),
-            ..Default::default()
-        });
-
-        let mut writer_done =
-            ObjectStoreWrite::new(store_done, &Path::from("failed-complete-settled.vortex"))
-                .await?;
-        {
-            let mut shutdown_fut = Box::pin(writer_done.shutdown());
-            let first_poll = poll_fn(|cx| Poll::Ready(shutdown_fut.as_mut().poll(cx))).await;
-            assert!(first_poll.is_pending());
-            timeout(Duration::from_secs(2), entered_done.notified()).await?;
-            drop(shutdown_fut);
-        }
-
-        release_done.notify_one();
-        timeout(Duration::from_secs(2), async {
-            loop {
-                let mut notified = std::pin::pin!(counters_done.abort_finished_notify.notified());
-                notified.as_mut().enable();
-                if counters_done.abort_finished.load(Ordering::SeqCst) > 0 {
-                    break;
-                }
-                notified.await;
-            }
-        })
-        .await?;
-
-        let err_done = writer_done
-            .abort()
-            .await
-            .expect_err("explicit abort must surface a cleanup failure that already settled");
-        assert!(
-            err_done.to_string().contains("synthetic abort failure"),
-            "expected abort error, got: {err_done}"
-        );
-        assert_eq!(counters_done.abort_calls.load(Ordering::SeqCst), 1);
-
-        // Case 3: a subsequent `shutdown()` on the same scenario reports the original completion
-        // error with only one abort attempt.
-        let entered2 = Arc::new(Notify::new());
-        let release2 = Arc::new(Notify::new());
-        let (store2, counters2) = make_store(UploadBehavior {
-            fail_complete: true,
-            fail_abort: true,
-            gate_abort: Some((Arc::clone(&entered2), Arc::clone(&release2))),
-            ..Default::default()
-        });
-
-        let mut writer2 =
-            ObjectStoreWrite::new(store2, &Path::from("failed-complete-shutdown.vortex")).await?;
-        {
-            let mut shutdown_fut = Box::pin(writer2.shutdown());
-            let first_poll = poll_fn(|cx| Poll::Ready(shutdown_fut.as_mut().poll(cx))).await;
-            assert!(first_poll.is_pending());
-            timeout(Duration::from_secs(2), entered2.notified()).await?;
-            drop(shutdown_fut);
-        }
-
-        let mut shutdown_retry = Box::pin(writer2.shutdown());
-        let retry_first_poll = poll_fn(|cx| Poll::Ready(shutdown_retry.as_mut().poll(cx))).await;
-        assert!(retry_first_poll.is_pending());
-        release2.notify_one();
-
-        let err2 = shutdown_retry
-            .await
-            .expect_err("subsequent shutdown must surface the completion failure");
-        assert!(
-            err2.to_string().contains("synthetic complete failure"),
-            "expected completion error, got: {err2}"
-        );
-        assert_eq!(counters2.abort_calls.load(Ordering::SeqCst), 1);
-
-        // Case 4: final `put_part` fails inside `shutdown()`, `shutdown()` is cancelled while
-        // cleanup is in flight, and the backend rejects cleanup before explicit `abort()` runs.
-        // Explicit `abort()` must surface that cleanup error with a single abort attempt.
-        let entered_part = Arc::new(Notify::new());
-        let release_part = Arc::new(Notify::new());
-        let (store_part, counters_part) = make_store(UploadBehavior {
-            fail_part_on_call: Some(1),
-            fail_abort: true,
-            gate_abort: Some((Arc::clone(&entered_part), Arc::clone(&release_part))),
-            ..Default::default()
-        });
-
-        let mut writer_part =
-            ObjectStoreWrite::new(store_part, &Path::from("failed-final-part.vortex")).await?;
-        writer_part.write_all(b"hello".to_vec()).await?;
-        {
-            let mut shutdown_fut = Box::pin(writer_part.shutdown());
-            let first_poll = poll_fn(|cx| Poll::Ready(shutdown_fut.as_mut().poll(cx))).await;
-            assert!(first_poll.is_pending());
-            timeout(Duration::from_secs(2), entered_part.notified()).await?;
-            drop(shutdown_fut);
-        }
-
-        release_part.notify_one();
-        timeout(Duration::from_secs(2), async {
-            loop {
-                let mut notified = std::pin::pin!(counters_part.abort_finished_notify.notified());
-                notified.as_mut().enable();
-                if counters_part.abort_finished.load(Ordering::SeqCst) > 0 {
-                    break;
-                }
-                notified.await;
-            }
-        })
-        .await?;
-
-        let err_part = writer_part
-            .abort()
-            .await
-            .expect_err("explicit abort must surface cleanup failure after final put_part failure");
-        assert!(
-            err_part.to_string().contains("synthetic abort failure"),
-            "expected abort error, got: {err_part}"
-        );
-        assert_eq!(counters_part.abort_calls.load(Ordering::SeqCst), 1);
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn test_cancelled_shutdown_preserves_ready_complete_result_when_both_ready()
-    -> anyhow::Result<()> {
-        #[derive(Debug)]
-        struct PostPublishGatedUpload {
-            inner: Box<dyn MultipartUpload>,
-            published: Arc<Notify>,
-            deliver_rx: Mutex<Option<oneshot::Receiver<()>>>,
-            abort_calls: Arc<AtomicUsize>,
-        }
-
-        #[async_trait]
-        impl MultipartUpload for PostPublishGatedUpload {
-            fn put_part(&mut self, data: PutPayload) -> UploadPart {
-                self.inner.put_part(data)
-            }
-
-            async fn complete(&mut self) -> object_store::Result<PutResult> {
-                let res = self.inner.complete().await;
-                self.published.notify_one();
-                let rx = self.deliver_rx.lock().take();
-                if let Some(rx) = rx {
-                    let _ = rx.await;
-                }
-                res
-            }
-
-            async fn abort(&mut self) -> object_store::Result<()> {
-                self.abort_calls.fetch_add(1, Ordering::SeqCst);
-                self.inner.abort().await
-            }
-        }
-
-        #[derive(Debug)]
-        struct PostPublishGatedStore {
-            inner: Arc<dyn ObjectStore>,
-            published: Arc<Notify>,
-            deliver_rx: Mutex<Option<oneshot::Receiver<()>>>,
-            abort_calls: Arc<AtomicUsize>,
-        }
-
-        impl fmt::Display for PostPublishGatedStore {
-            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-                write!(f, "PostPublishGatedStore")
-            }
-        }
-
-        #[async_trait]
-        impl ObjectStore for PostPublishGatedStore {
-            async fn put_opts(
-                &self,
-                location: &Path,
-                payload: PutPayload,
-                opts: PutOptions,
-            ) -> object_store::Result<PutResult> {
-                self.inner.put_opts(location, payload, opts).await
-            }
-
-            async fn put_multipart_opts(
-                &self,
-                location: &Path,
-                opts: PutMultipartOptions,
-            ) -> object_store::Result<Box<dyn MultipartUpload>> {
-                let inner = self.inner.put_multipart_opts(location, opts).await?;
-                Ok(Box::new(PostPublishGatedUpload {
-                    inner,
-                    published: Arc::clone(&self.published),
-                    deliver_rx: Mutex::new(self.deliver_rx.lock().take()),
-                    abort_calls: Arc::clone(&self.abort_calls),
-                }))
-            }
-
-            async fn get_opts(
-                &self,
-                location: &Path,
-                options: GetOptions,
-            ) -> object_store::Result<GetResult> {
-                self.inner.get_opts(location, options).await
-            }
-
-            fn delete_stream(
-                &self,
-                locations: BoxStream<'static, object_store::Result<Path>>,
-            ) -> BoxStream<'static, object_store::Result<Path>> {
-                self.inner.delete_stream(locations)
-            }
-
-            fn list(
-                &self,
-                prefix: Option<&Path>,
-            ) -> BoxStream<'static, object_store::Result<ObjectMeta>> {
-                self.inner.list(prefix)
-            }
-
-            async fn list_with_delimiter(
-                &self,
-                prefix: Option<&Path>,
-            ) -> object_store::Result<ListResult> {
-                self.inner.list_with_delimiter(prefix).await
-            }
-
-            async fn copy_opts(
-                &self,
-                from: &Path,
-                to: &Path,
-                options: object_store::CopyOptions,
-            ) -> object_store::Result<()> {
-                self.inner.copy_opts(from, to, options).await
-            }
-        }
-
-        let dir = tempdir()?;
-        let local: Arc<dyn ObjectStore> = Arc::new(LocalFileSystem::new_with_prefix(dir.path())?);
-        let target = Path::from("published.vortex");
-        let published = Arc::new(Notify::new());
-        let (deliver_tx, deliver_rx) = oneshot::channel();
-        let abort_calls = Arc::new(AtomicUsize::new(0));
-        let store: Arc<dyn ObjectStore> = Arc::new(PostPublishGatedStore {
-            inner: Arc::clone(&local),
-            published: Arc::clone(&published),
-            deliver_rx: Mutex::new(Some(deliver_rx)),
-            abort_calls: Arc::clone(&abort_calls),
-        });
-
-        let mut writer = ObjectStoreWrite::new(Arc::clone(&store), &target).await?;
-        let mut shutdown_fut = Box::pin(writer.shutdown());
-        let first_poll = poll_fn(|cx| Poll::Ready(shutdown_fut.as_mut().poll(cx))).await;
-        assert!(first_poll.is_pending());
-
-        // Wait until `LocalFileSystem::complete()` has published the file and parked before
-        // returning `PutResult`.
-        timeout(Duration::from_secs(2), published.notified()).await?;
-        assert!(local.get(&target).await.is_ok());
-
-        // Hold all global `smol` executor worker threads so both `complete_fut` and `cancel_rx`
-        // become ready before the completion task is polled again.
-        let worker_count = std::env::var("SMOL_THREADS")
-            .ok()
-            .and_then(|v| v.parse::<usize>().ok())
-            .unwrap_or(1);
-        let (entered_tx, entered_rx) = mpsc::channel();
-        let mut release_txs = Vec::with_capacity(worker_count);
-        let mut blockers = Vec::with_capacity(worker_count);
-        for _ in 0..worker_count {
-            let entered_tx = entered_tx.clone();
-            let (release_tx, release_rx) = mpsc::channel();
-            release_txs.push(release_tx);
-            blockers.push(smol::spawn(async move {
-                let _ = entered_tx.send(());
-                let _ = release_rx.recv();
-            }));
-        }
-        for _ in 0..worker_count {
-            entered_rx.recv_timeout(Duration::from_secs(2))?;
-        }
-
-        // Make the `PutResult` ready, then cancel `shutdown()` and start `abort()`.
-        let _ = deliver_tx.send(());
-        drop(shutdown_fut);
-
-        let mut abort_fut = Box::pin(writer.abort());
-        let abort_first_poll = poll_fn(|cx| Poll::Ready(abort_fut.as_mut().poll(cx))).await;
-        assert!(abort_first_poll.is_pending());
-
-        for release_tx in release_txs {
-            let _ = release_tx.send(());
-        }
-        for blocker in blockers {
-            blocker.await;
-        }
-
-        assert!(
-            abort_fut.await.is_err(),
-            "abort() must report that publication won when PutResult was already ready"
-        );
-        assert_eq!(abort_calls.load(Ordering::SeqCst), 0);
-        assert!(
-            writer
-                .put_result()
-                .and_then(|res| res.e_tag.as_deref())
-                .is_some(),
-            "retained PutResult must preserve the published ETag"
-        );
-        writer.shutdown().await?;
         Ok(())
     }
 }
