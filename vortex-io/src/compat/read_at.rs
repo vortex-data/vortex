@@ -23,6 +23,10 @@ impl<R: VortexReadAt> VortexReadAt for Compat<R> {
         self.inner().uri()
     }
 
+    fn object_version(&self) -> Option<&Arc<str>> {
+        self.inner().object_version()
+    }
+
     fn coalesce_config(&self) -> Option<CoalesceConfig> {
         self.inner().coalesce_config()
     }

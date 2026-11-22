@@ -52,6 +52,16 @@ pub type FileSystemRef = Arc<dyn FileSystem>;
 /// object-safe (it currently uses `impl Future` return types which prevent trait-object usage).
 #[async_trait]
 pub trait FileSystem: Debug + Send + Sync {
+    /// Optional namespace identifying this filesystem (for example, a bucket or root URI).
+    ///
+    /// Cross-open caches include this namespace alongside the relative path and object version so
+    /// that two filesystems exposing the same relative path cannot collide. Returning `None`
+    /// indicates no stable namespace is known, in which case cross-open caches must not reuse
+    /// entries for this filesystem.
+    fn namespace(&self) -> Option<Arc<str>> {
+        None
+    }
+
     /// Recursively list files whose paths start with `prefix`.
     ///
     /// When `prefix` is empty, all files are listed. Implementations must recurse into

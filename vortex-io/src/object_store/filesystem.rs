@@ -6,6 +6,8 @@
 use std::fmt::Debug;
 use std::fmt::Formatter;
 use std::sync::Arc;
+use std::sync::atomic::AtomicU64;
+use std::sync::atomic::Ordering;
 
 use async_trait::async_trait;
 use futures::StreamExt;
@@ -22,12 +24,15 @@ use crate::object_store::ObjectStoreReadAt;
 use crate::object_store::object_path_from_literal;
 use crate::runtime::Handle;
 
+static NEXT_OBJECT_STORE_FS_ID: AtomicU64 = AtomicU64::new(1);
+
 /// A [`FileSystem`] backed by an [`ObjectStore`].
 // TODO(ngates): we could consider spawning a driver task inside this file system such that we can
 //  apply concurrency limits to the overall object store, rather than on a per-file basis.
 pub struct ObjectStoreFileSystem {
     store: Arc<dyn ObjectStore>,
     handle: Handle,
+    namespace: Arc<str>,
 }
 
 impl Debug for ObjectStoreFileSystem {
@@ -41,7 +46,18 @@ impl Debug for ObjectStoreFileSystem {
 impl ObjectStoreFileSystem {
     /// Create a new filesystem backed by the given object store and runtime handle.
     pub fn new(store: Arc<dyn ObjectStore>, handle: Handle) -> Self {
-        Self { store, handle }
+        let id = NEXT_OBJECT_STORE_FS_ID.fetch_add(1, Ordering::Relaxed);
+        Self {
+            store,
+            handle,
+            namespace: Arc::from(format!("object_store:{id}")),
+        }
+    }
+
+    /// Set an explicit cache namespace for this filesystem (for example, a bucket URL).
+    pub fn with_namespace(mut self, namespace: impl Into<Arc<str>>) -> Self {
+        self.namespace = namespace.into();
+        self
     }
 
     /// Create a new filesystem backed by a local file system object store and the given runtime
@@ -64,6 +80,10 @@ fn listing_from_meta(location: &Path, size: u64) -> FileListing {
 
 #[async_trait]
 impl FileSystem for ObjectStoreFileSystem {
+    fn namespace(&self) -> Option<Arc<str>> {
+        Some(Arc::clone(&self.namespace))
+    }
+
     fn list(&self, prefix: &str) -> BoxStream<'_, VortexResult<FileListing>> {
         let path = if prefix.is_empty() {
             None

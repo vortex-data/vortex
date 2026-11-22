@@ -33,6 +33,12 @@ impl PrefixFileSystem {
 
 #[async_trait]
 impl FileSystem for PrefixFileSystem {
+    fn namespace(&self) -> Option<Arc<str>> {
+        self.inner
+            .namespace()
+            .map(|ns| Arc::from(format!("{ns}/{}", self.prefix)))
+    }
+
     fn list(&self, prefix: &str) -> BoxStream<'_, VortexResult<FileListing>> {
         let full_prefix = format!("{}{}", self.prefix, prefix.trim_start_matches('/'));
 

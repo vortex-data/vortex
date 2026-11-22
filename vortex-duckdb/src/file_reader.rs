@@ -21,8 +21,7 @@ use vortex::error::VortexResult;
 use vortex::error::vortex_err;
 use vortex::error::vortex_panic;
 use vortex::file::Footer;
-use vortex::file::multi::MultiFileSession;
-use vortex::file::multi::open_cached;
+use vortex::file::multi::open_cached_in_namespace;
 use vortex::file::multi::parse_uri_or_path;
 use vortex::file::v2::FileStatsLayoutReader;
 use vortex::io::compat::Compat;
@@ -35,7 +34,6 @@ use vortex::layout::scan::scan_builder::ScanBuilder;
 use vortex::layout::scan::v2::ScanBuilder as V2ScanBuilder;
 use vortex::layout::scan::v2::ScanFile;
 use vortex::mask::Mask;
-use vortex::session::SessionExt as _;
 
 use crate::REGISTRY;
 use crate::RUNTIME;
@@ -139,7 +137,16 @@ impl OpenFileReader {
     async fn open(path: String) -> VortexResult<Self> {
         let (fs, fs_path) = resolve_filesystem(&parse_uri_or_path(&path)?)?;
         let source = fs.open_read(&fs_path).await?;
-        let file = open_cached(&SESSION, Some(&path), source, None, &|options| options).await?;
+        let namespace = fs.namespace();
+        let file = open_cached_in_namespace(
+            &SESSION,
+            namespace.as_deref(),
+            Some(&fs_path),
+            source,
+            None,
+            &|options| options,
+        )
+        .await?;
         let mut scan_file = file.scan_file();
         scan_file.cache.get_or_insert_default();
         Ok(OpenFileReader {
@@ -474,17 +481,15 @@ pub fn can_get_partition_stats(bind: &BindState) -> bool {
         && bind.filters.is_empty()
 }
 
-/// Called by one thread for every file. When we open files, we cache footers
-/// in MultiFileSession so this function retrieves the cached data if present.
-/// If any footer is not present, it sets a flag in BindState so we won't try
-/// again.
-pub fn footer_get_cached(bind: &mut BindState, path: &str) -> VortexResult<Option<Footer>> {
-    let footer = SESSION
-        .get_opt::<MultiFileSession>()
-        .vortex_expect("MultiFileSession not found")
-        .get_footer(path);
-    bind.no_footer_caches |= footer.is_none();
-    Ok(footer)
+/// Called by one thread for every file during DuckDB planning, before files are opened.
+///
+/// Because planning only has a path and cannot establish a handle-bound object version for the
+/// file, returning a footer from the process-wide session cache could expose stale statistics
+/// after a file is replaced. Mark cached footers unavailable so DuckDB treats partition
+/// statistics as unknown and reads fresh data on open.
+pub fn footer_get_cached(bind: &mut BindState, _path: &str) -> VortexResult<Option<Footer>> {
+    bind.no_footer_caches = true;
+    Ok(None)
 }
 
 /// Called by one thread for every footer in planning phase
@@ -495,5 +500,73 @@ pub fn footer_get_statistics(footer: &Footer, column: &str) -> Option<ColumnStat
     match ColumnStatistics::try_from(stats, dtype.clone()) {
         Ok(stats) => Some(stats),
         Err(e) => vortex_panic!(e),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use tempfile::NamedTempFile;
+    use vortex::array::IntoArray;
+    use vortex::array::arrays::StructArray;
+    use vortex::array::validity::Validity;
+    use vortex::buffer::buffer;
+    use vortex::file::WriteOptionsSessionExt;
+
+    use super::*;
+
+    #[test]
+    fn test_footer_get_cached_returns_none_without_bound_version() -> VortexResult<()> {
+        let mut bind = BindState::empty();
+        bind.no_footer_caches = false;
+        assert!(can_get_partition_stats(&bind));
+        assert!(footer_get_cached(&mut bind, "/tmp/replaced.vortex")?.is_none());
+        assert!(bind.no_footer_caches);
+        assert!(!can_get_partition_stats(&bind));
+        Ok(())
+    }
+
+    #[test]
+    fn test_reader_open_observes_replaced_file() -> VortexResult<()> {
+        let tmp = NamedTempFile::new()?;
+        let path = tmp.path().to_string_lossy().into_owned();
+
+        let arr1 = StructArray::try_new(
+            ["a"].into(),
+            vec![buffer![1i32].into_array()],
+            1,
+            Validity::NonNullable,
+        )?;
+        let mut bytes1 = Vec::new();
+        RUNTIME.block_on(async {
+            SESSION
+                .write_options()
+                .write(&mut bytes1, arr1.into_array().to_array_stream())
+                .await?;
+            VortexResult::Ok(())
+        })?;
+        std::fs::write(&path, &bytes1)?;
+
+        let reader1 = reader_open(&path)?;
+        assert_eq!(reader1.reader().row_count(), 1);
+
+        let arr2 = StructArray::try_new(
+            ["a"].into(),
+            vec![buffer![10i32, 20, 30].into_array()],
+            3,
+            Validity::NonNullable,
+        )?;
+        let mut bytes2 = Vec::new();
+        RUNTIME.block_on(async {
+            SESSION
+                .write_options()
+                .write(&mut bytes2, arr2.into_array().to_array_stream())
+                .await?;
+            VortexResult::Ok(())
+        })?;
+        std::fs::write(&path, &bytes2)?;
+
+        let reader2 = reader_open(&path)?;
+        assert_eq!(reader2.reader().row_count(), 3);
+        Ok(())
     }
 }

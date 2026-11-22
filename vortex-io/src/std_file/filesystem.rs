@@ -57,6 +57,10 @@ fn walk(dir: &Path, out: &mut Vec<FileListing>) -> io::Result<()> {
 
 #[async_trait]
 impl FileSystem for StdFileSystem {
+    fn namespace(&self) -> Option<Arc<str>> {
+        Some(Arc::from("std_file"))
+    }
+
     fn list(&self, prefix: &str) -> BoxStream<'_, VortexResult<FileListing>> {
         let dir = PathBuf::from(prefix);
         let listing = self.handle.spawn_blocking(move || {

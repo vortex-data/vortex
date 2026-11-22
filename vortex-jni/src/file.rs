@@ -20,7 +20,7 @@ use vortex::buffer::ByteBuffer;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
 use vortex::file::VortexFile;
-use vortex::file::multi::open_cached;
+use vortex::file::multi::open_cached_in_namespace;
 use vortex::file::multi::parse_uri_or_path;
 use vortex::io::VortexReadAt;
 use vortex::io::runtime::BlockingRuntime;
@@ -129,13 +129,15 @@ fn metadata_to_java(
 /// metadata or statistics read and a later scan of the same file share one footer read.
 fn open_file(
     session: &VortexSession,
+    namespace: Option<&str>,
     source: Arc<dyn VortexReadAt>,
     cache_key: &str,
     file_size: Option<u64>,
     include_metadata: bool,
 ) -> VortexResult<VortexFile> {
-    RUNTIME.block_on(open_cached(
+    RUNTIME.block_on(open_cached_in_namespace(
         session,
+        namespace,
         Some(cache_key),
         source,
         file_size,
@@ -166,8 +168,16 @@ fn open_uri_file(
 
     let (fs, path) = object_store_fs(&url, &properties, session.handle())?;
     let source = RUNTIME.block_on(async { fs.open_read(&path).await })?;
+    let namespace = fs.namespace();
 
-    Ok(open_file(session, source, &path, None, include_metadata)?)
+    Ok(open_file(
+        session,
+        namespace.as_deref(),
+        source,
+        &path,
+        None,
+        include_metadata,
+    )?)
 }
 
 /// Open a Vortex file through a caller-provided `dev.vortex.io.NativeReadable`, so no native
@@ -204,6 +214,7 @@ fn open_readable_file(
     let cache_key = name.trim_start_matches('/');
     Ok(open_file(
         session,
+        None,
         source,
         cache_key,
         Some(length),

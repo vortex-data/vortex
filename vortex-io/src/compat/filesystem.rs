@@ -17,6 +17,10 @@ use crate::filesystem::FileSystem;
 #[deny(clippy::missing_trait_methods)]
 #[async_trait]
 impl<F: FileSystem> FileSystem for Compat<F> {
+    fn namespace(&self) -> Option<Arc<str>> {
+        self.inner().namespace()
+    }
+
     fn list(&self, prefix: &str) -> BoxStream<'_, VortexResult<FileListing>> {
         Compat::new(self.inner().list(prefix)).boxed()
     }

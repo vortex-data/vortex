@@ -88,6 +88,16 @@ pub trait VortexReadAt: Send + Sync + 'static {
         None
     }
 
+    /// An opaque version identifier bound to the exact bytes this opened handle reads.
+    ///
+    /// Implementations must return `Some` only when every read through this handle is guaranteed
+    /// to observe the same immutable bytes (for example, an object-store reader pinned to a
+    /// specific ETag or object version). Returning `None` signals that the source cannot guarantee
+    /// immutability across opens, so cross-open caches must not reuse metadata such as footers.
+    fn object_version(&self) -> Option<&Arc<str>> {
+        None
+    }
+
     /// Configuration for merging nearby I/O requests into fewer, larger reads.
     fn coalesce_config(&self) -> Option<CoalesceConfig> {
         None
@@ -144,6 +154,10 @@ impl VortexReadAt for Arc<dyn VortexReadAt> {
         self.as_ref().uri()
     }
 
+    fn object_version(&self) -> Option<&Arc<str>> {
+        self.as_ref().object_version()
+    }
+
     fn coalesce_config(&self) -> Option<CoalesceConfig> {
         self.as_ref().coalesce_config()
     }
@@ -173,6 +187,10 @@ impl VortexReadAt for Arc<dyn VortexReadAt> {
 impl<R: VortexReadAt> VortexReadAt for Arc<R> {
     fn uri(&self) -> Option<&Arc<str>> {
         self.as_ref().uri()
+    }
+
+    fn object_version(&self) -> Option<&Arc<str>> {
+        self.as_ref().object_version()
     }
 
     fn coalesce_config(&self) -> Option<CoalesceConfig> {
@@ -338,6 +356,10 @@ impl Drop for InnerMetrics {
 impl<T: VortexReadAt + Clone> VortexReadAt for InstrumentedReadAt<T> {
     fn uri(&self) -> Option<&Arc<str>> {
         self.read.uri()
+    }
+
+    fn object_version(&self) -> Option<&Arc<str>> {
+        self.read.object_version()
     }
 
     fn coalesce_config(&self) -> Option<CoalesceConfig> {

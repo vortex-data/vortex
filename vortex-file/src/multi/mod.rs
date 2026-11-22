@@ -12,6 +12,7 @@ use async_trait::async_trait;
 use futures::StreamExt;
 use futures::TryStreamExt;
 use futures::stream;
+pub use session::FooterCacheKey;
 pub use session::MultiFileSession;
 use session::MultiFileSessionExt;
 use tracing::debug;
@@ -235,43 +236,74 @@ async fn open_file(
 
     let source = fs.open_read(&file.path).await?;
     let key = source.uri().is_none().then_some(file.path.as_str());
-    open_cached(session, key, source, file.size, open_options_fn).await
+    let namespace = fs.namespace();
+    open_cached_in_namespace(
+        session,
+        namespace.as_deref(),
+        key,
+        source,
+        file.size,
+        open_options_fn,
+    )
+    .await
 }
 
-/// Open a Vortex file and cache its footer on the session.
-/// Subsequent calls to this function will reuse the footer from cache.
+/// Open a Vortex file and reuse its footer from the session cache when both a filesystem
+/// namespace and a handle-bound [`VortexReadAt::object_version`] are available.
 ///
-/// "key" is the optional cache key provided by user. If it's not found,
-/// source.uri() is probed. If there's no uri(), open_cached errors.
-pub async fn open_cached(
+/// When either the namespace or object version is absent, the footer is read directly from
+/// `source` without reading from or writing to the session cache, preventing stale footer reuse
+/// after a file is replaced or across distinct filesystems with identical relative paths.
+pub async fn open_cached_in_namespace(
     session: &VortexSession,
-    mut key: Option<&str>,
+    namespace: Option<&str>,
+    key: Option<&str>,
     source: Arc<dyn VortexReadAt>,
     file_size: Option<u64>,
     open_options_fn: &(dyn Fn(VortexOpenOptions) -> VortexOpenOptions + Send + Sync),
 ) -> VortexResult<VortexFile> {
     let uri = source.uri().cloned();
-    if key.is_none() {
-        key = uri.as_deref();
-    }
-    let Some(key) = key else {
+    let Some(path) = key.or(uri.as_deref()) else {
         vortex_bail!("Missing cache key");
     };
+
+    let cache_key = namespace
+        .zip(source.object_version())
+        .map(|(ns, version)| FooterCacheKey::new(ns, path, Arc::clone(version)));
 
     let mut options = open_options_fn(session.open_options());
     if let Some(size) = file_size {
         options = options.with_file_size(size);
     }
 
+    if let Some(cache_key) = &cache_key
+        && let Some(footer) = session.multi_file().get_footer(cache_key)
     {
-        if let Some(footer) = session.multi_file().get_footer(key) {
-            options = options.with_footer(footer);
-        }
+        options = options.with_footer(footer);
     }
 
     let file = options.open(source).await?;
-    session.multi_file().put_footer(key, file.footer().clone());
+    if let Some(cache_key) = cache_key {
+        session
+            .multi_file()
+            .put_footer(cache_key, file.footer().clone());
+    }
     Ok(file)
+}
+
+/// Open a Vortex file and cache its footer on the session when the source identifies its
+/// immutable object version and namespace.
+///
+/// "key" is the optional cache key provided by the caller. If omitted, `source.uri()` is used.
+/// If neither is present, `open_cached` returns an error.
+pub async fn open_cached(
+    session: &VortexSession,
+    key: Option<&str>,
+    source: Arc<dyn VortexReadAt>,
+    file_size: Option<u64>,
+    open_options_fn: &(dyn Fn(VortexOpenOptions) -> VortexOpenOptions + Send + Sync),
+) -> VortexResult<VortexFile> {
+    open_cached_in_namespace(session, None, key, source, file_size, open_options_fn).await
 }
 
 /// A [`LayoutReaderFactory`] that lazily opens a single Vortex file and returns its layout reader.
@@ -300,7 +332,10 @@ impl LayoutReaderFactory for VortexFileReaderFactory {
 #[cfg(test)]
 mod tests {
     use std::fmt;
+    use std::sync::atomic::AtomicUsize;
+    use std::sync::atomic::Ordering;
 
+    use parking_lot::Mutex;
     use vortex_array::IntoArray;
     use vortex_buffer::ByteBuffer;
     use vortex_buffer::ByteBufferMut;
@@ -493,6 +528,270 @@ mod tests {
             fb.metadata_segment("k").map(ByteBuffer::as_slice),
             Some(b"file-b".as_slice())
         );
+        Ok(())
+    }
+
+    struct VersionedReadAt {
+        bytes: ByteBuffer,
+        uri: Arc<str>,
+        version: Option<Arc<str>>,
+        reads: Arc<AtomicUsize>,
+    }
+
+    impl VortexReadAt for VersionedReadAt {
+        fn uri(&self) -> Option<&Arc<str>> {
+            Some(&self.uri)
+        }
+
+        fn object_version(&self) -> Option<&Arc<str>> {
+            self.version.as_ref()
+        }
+
+        fn concurrency(&self) -> usize {
+            1
+        }
+
+        fn size(&self) -> futures::future::BoxFuture<'static, VortexResult<u64>> {
+            let len = self.bytes.len() as u64;
+            Box::pin(async move { Ok(len) })
+        }
+
+        fn read_at(
+            &self,
+            offset: u64,
+            length: usize,
+            alignment: vortex_buffer::Alignment,
+        ) -> futures::future::BoxFuture<'static, VortexResult<vortex_array::buffer::BufferHandle>>
+        {
+            self.reads.fetch_add(1, Ordering::SeqCst);
+            self.bytes.read_at(offset, length, alignment)
+        }
+    }
+
+    struct SwappableFileSystem {
+        namespace: Option<Arc<str>>,
+        current: Mutex<(ByteBuffer, Option<Arc<str>>)>,
+        reads: Arc<AtomicUsize>,
+    }
+
+    impl fmt::Debug for SwappableFileSystem {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            f.debug_struct("SwappableFileSystem")
+                .field("namespace", &self.namespace)
+                .finish()
+        }
+    }
+
+    #[async_trait]
+    impl FileSystem for SwappableFileSystem {
+        fn namespace(&self) -> Option<Arc<str>> {
+            self.namespace.clone()
+        }
+
+        fn list(&self, _prefix: &str) -> stream::BoxStream<'_, VortexResult<FileListing>> {
+            stream::empty().boxed()
+        }
+
+        async fn head(&self, path: &str) -> VortexResult<Option<FileListing>> {
+            let len = self.current.lock().0.len() as u64;
+            Ok(Some(FileListing {
+                path: path.to_string(),
+                size: Some(len),
+            }))
+        }
+
+        async fn open_read(&self, path: &str) -> VortexResult<Arc<dyn VortexReadAt>> {
+            let (bytes, version) = self.current.lock().clone();
+            Ok(Arc::new(VersionedReadAt {
+                bytes,
+                uri: Arc::from(path),
+                version,
+                reads: Arc::clone(&self.reads),
+            }))
+        }
+
+        async fn delete(&self, _path: &str) -> VortexResult<()> {
+            Ok(())
+        }
+    }
+
+    fn test_session() -> VortexSession {
+        let session = VortexSession::empty()
+            .with::<LayoutSession>()
+            .with::<RuntimeSession>()
+            .with::<MultiFileSession>();
+        crate::register_default_encodings(&session);
+        crate::enable_all_registered_array_encodings(&session);
+        session
+    }
+
+    async fn write_vortex_bytes(
+        session: &VortexSession,
+        array: vortex_array::ArrayRef,
+    ) -> VortexResult<ByteBuffer> {
+        let mut output = ByteBufferMut::empty();
+        session
+            .write_options()
+            .write(&mut output, array.to_array_stream())
+            .await?;
+        Ok(ByteBuffer::from(output))
+    }
+
+    #[tokio::test]
+    async fn test_replaced_file_does_not_inherit_stale_footer() -> VortexResult<()> {
+        let session = test_session();
+        let fresh_session = test_session();
+
+        let gen1 = write_vortex_bytes(&session, buffer![10i32].into_array()).await?;
+        let gen2 = write_vortex_bytes(&session, buffer![1i32, 2, 3].into_array()).await?;
+
+        let reads = Arc::new(AtomicUsize::new(0));
+        let fs = Arc::new(SwappableFileSystem {
+            namespace: Some(Arc::from("fs-replace")),
+            current: Mutex::new((gen1, None)),
+            reads: Arc::clone(&reads),
+        });
+        let fs_ref: FileSystemRef = Arc::clone(&fs) as FileSystemRef;
+        let listing = FileListing {
+            path: "same.vortex".to_string(),
+            size: None,
+        };
+        let opts = |o: VortexOpenOptions| o;
+
+        let opened1 = open_file(&fs_ref, &listing, &session, &opts).await?;
+        assert_eq!(opened1.row_count(), 1);
+
+        // Replace with a 3-row file at the same path.
+        *fs.current.lock() = (gen2.clone(), None);
+
+        let opened2 = open_file(&fs_ref, &listing, &session, &opts).await?;
+        let fresh2 = fresh_session.open_options().open_buffer(gen2)?;
+
+        assert_eq!(opened2.row_count(), fresh2.row_count());
+        assert_eq!(opened2.row_count(), 3);
+        assert_eq!(opened2.dtype(), fresh2.dtype());
+        assert_eq!(
+            format!("{:?}", opened2.file_stats().map(|s| s.aggregates())),
+            format!("{:?}", fresh2.file_stats().map(|s| s.aggregates()))
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_equal_size_replacement_does_not_inherit_stale_footer() -> VortexResult<()> {
+        let session = test_session();
+        let fresh_session = test_session();
+
+        // Two distinct generations with identical byte length and different statistics.
+        let gen1 = write_vortex_bytes(&session, buffer![100i32, 200, 300].into_array()).await?;
+        let gen2 = write_vortex_bytes(&session, buffer![101i32, 201, 301].into_array()).await?;
+        assert_eq!(gen1.len(), gen2.len());
+
+        let reads = Arc::new(AtomicUsize::new(0));
+        let fs = Arc::new(SwappableFileSystem {
+            namespace: Some(Arc::from("fs-equal-size")),
+            current: Mutex::new((gen1.clone(), None)),
+            reads,
+        });
+        let fs_ref: FileSystemRef = Arc::clone(&fs) as FileSystemRef;
+        let listing = FileListing {
+            path: "equal.vortex".to_string(),
+            size: Some(gen2.len() as u64),
+        };
+        let opts = |o: VortexOpenOptions| o;
+
+        let opened1 = open_file(&fs_ref, &listing, &session, &opts).await?;
+        let fresh1 = fresh_session.open_options().open_buffer(gen1)?;
+        assert_eq!(
+            format!("{:?}", opened1.file_stats().map(|s| s.aggregates())),
+            format!("{:?}", fresh1.file_stats().map(|s| s.aggregates()))
+        );
+
+        *fs.current.lock() = (gen2.clone(), None);
+
+        let opened2 = open_file(&fs_ref, &listing, &session, &opts).await?;
+        let fresh2 = fresh_session.open_options().open_buffer(gen2)?;
+
+        assert_eq!(opened2.row_count(), fresh2.row_count());
+        assert_eq!(opened2.dtype(), fresh2.dtype());
+        assert_eq!(
+            format!("{:?}", opened2.file_stats().map(|s| s.aggregates())),
+            format!("{:?}", fresh2.file_stats().map(|s| s.aggregates()))
+        );
+        assert_ne!(
+            format!("{:?}", opened1.file_stats().map(|s| s.aggregates())),
+            format!("{:?}", opened2.file_stats().map(|s| s.aggregates()))
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_two_filesystems_same_relative_path_do_not_collide() -> VortexResult<()> {
+        let session = test_session();
+
+        let bytes_a = write_vortex_bytes(&session, buffer![1i32].into_array()).await?;
+        let bytes_b = write_vortex_bytes(&session, buffer![10i64, 20, 30].into_array()).await?;
+
+        let fs_a: FileSystemRef = Arc::new(SwappableFileSystem {
+            namespace: Some(Arc::from("bucket-a")),
+            current: Mutex::new((bytes_a, Some(Arc::from("v1")))),
+            reads: Arc::new(AtomicUsize::new(0)),
+        });
+        let fs_b: FileSystemRef = Arc::new(SwappableFileSystem {
+            namespace: Some(Arc::from("bucket-b")),
+            current: Mutex::new((bytes_b, Some(Arc::from("v1")))),
+            reads: Arc::new(AtomicUsize::new(0)),
+        });
+        let listing = FileListing {
+            path: "shared.vortex".to_string(),
+            size: None,
+        };
+        let opts = |o: VortexOpenOptions| o;
+
+        let file_a = open_file(&fs_a, &listing, &session, &opts).await?;
+        let file_b = open_file(&fs_b, &listing, &session, &opts).await?;
+
+        assert_eq!(file_a.row_count(), 1);
+        assert_eq!(file_b.row_count(), 3);
+        assert_ne!(file_a.dtype(), file_b.dtype());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_unchanged_version_reuses_footer_and_new_version_refreshes() -> VortexResult<()> {
+        let session = test_session();
+
+        let gen1 = write_vortex_bytes(&session, buffer![1i32].into_array()).await?;
+        let gen2 = write_vortex_bytes(&session, buffer![1i32, 2, 3].into_array()).await?;
+
+        let reads = Arc::new(AtomicUsize::new(0));
+        let fs = Arc::new(SwappableFileSystem {
+            namespace: Some(Arc::from("bucket-versioned")),
+            current: Mutex::new((gen1, Some(Arc::from("etag-1")))),
+            reads: Arc::clone(&reads),
+        });
+        let fs_ref: FileSystemRef = Arc::clone(&fs) as FileSystemRef;
+        let listing = FileListing {
+            path: "versioned.vortex".to_string(),
+            size: None,
+        };
+        let opts = |o: VortexOpenOptions| o;
+
+        let first = open_file(&fs_ref, &listing, &session, &opts).await?;
+        assert_eq!(first.row_count(), 1);
+        let reads_after_first = reads.load(Ordering::SeqCst);
+        assert!(reads_after_first > 0);
+
+        // Second open with the same namespace, path, and bound version must reuse the cached footer.
+        let second = open_file(&fs_ref, &listing, &session, &opts).await?;
+        assert_eq!(second.row_count(), 1);
+        assert_eq!(reads.load(Ordering::SeqCst), reads_after_first);
+
+        // Replacing with a new bound version must read the new footer.
+        *fs.current.lock() = (gen2, Some(Arc::from("etag-2")));
+        let third = open_file(&fs_ref, &listing, &session, &opts).await?;
+        assert_eq!(third.row_count(), 3);
+        assert!(reads.load(Ordering::SeqCst) > reads_after_first);
         Ok(())
     }
 }
