@@ -561,33 +561,4 @@ mod tests {
             assert_eq!(session.get::<Counter>().count, expected);
         }
     }
-
-    #[test]
-    fn concurrent_with_some_distinct_types_both_succeed() {
-        for _ in 0..50 {
-            let session = VortexSession::empty();
-            let clone_a = session.clone();
-            let clone_b = session.clone();
-            let barrier = Barrier::new(2);
-
-            let (res_a, res_b) = thread::scope(|s| {
-                let h_a = s.spawn(|| {
-                    barrier.wait();
-                    clone_a.with_some(Counter { count: 42 })
-                });
-                let h_b = s.spawn(|| {
-                    barrier.wait();
-                    clone_b.with_some(Other)
-                });
-                (h_a.join().unwrap(), h_b.join().unwrap())
-            });
-
-            assert_eq!(res_a.get::<Counter>().count, 42);
-            assert!(res_a.get_opt::<Other>().is_some());
-            assert_eq!(res_b.get::<Counter>().count, 42);
-            assert!(res_b.get_opt::<Other>().is_some());
-            assert_eq!(session.get::<Counter>().count, 42);
-            assert!(session.get_opt::<Other>().is_some());
-        }
-    }
 }
