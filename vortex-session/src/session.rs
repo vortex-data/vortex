@@ -179,7 +179,7 @@ impl VortexSession {
     /// Inserts a session variable of type `V`, unconditionally replacing any existing variable of
     /// that type.
     ///
-    /// [`SessionMut`](SessionMut) uses this copy-on-write primitive on drop, while
+    /// [`SessionMut`] uses this copy-on-write primitive on drop, while
     /// [`with_some`](Self::with_some) and [`get_or_insert_with`](SessionExt::get_or_insert_with)
     /// use [`ArcSwapMap::insert_if_absent`](crate::arc_swap_map::ArcSwapMap::insert_if_absent) so
     /// that a first registration cannot overwrite another. The mutation is applied in place to the
