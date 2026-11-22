@@ -1,0 +1,55 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+# Polls `develop` every 10 minutes and dispatches `develop-bench.yml` when HEAD has moved past
+# the latest non-cancelled Develop Benchmarks run. This caps triggers to at most one dispatch
+# per 10 minutes while keeping `develop-bench.yml` free of skipped no-op runs.
+
+name: Develop Benchmarks Trigger
+
+concurrency:
+  group: develop-bench-trigger
+  cancel-in-progress: false
+
+on:
+  schedule:
+    - cron: "7-59/10 * * * *"
+  workflow_dispatch: { }
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  dispatch-if-new-commits:
+    if: github.repository == 'vortex-data/vortex'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Dispatch develop benchmarks if develop HEAD is unbenchmarked
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -Eeuo pipefail
+
+          head_sha="$(gh api "repos/${GH_REPO}/commits/develop" --jq '.sha')"
+          echo "develop HEAD: ${head_sha}"
+
+          # Check recent non-cancelled runs of develop-bench.yml on develop.
+          # Checking the last 10 runs covers in-flight dispatches, failed runs (so a broken
+          # commit is not retried every 10 minutes), and out-of-order completions.
+          already_ran="$(gh api \
+            "repos/${GH_REPO}/actions/workflows/develop-bench.yml/runs?branch=develop&per_page=10" \
+            | jq -r --arg sha "${head_sha}" \
+              '[.workflow_runs[] | select(.conclusion != "cancelled") | .head_sha] | any(. == $sha)')"
+
+          if [ "${already_ran}" = "true" ]; then
+            echo "develop HEAD ${head_sha} already has a Develop Benchmarks run; skipping."
+            exit 0
+          fi
+
+          echo "Dispatching develop-bench.yml for develop (${head_sha})..."
+          gh api --method POST \
+            "repos/${GH_REPO}/actions/workflows/develop-bench.yml/dispatches" \
+            -f ref="develop"
