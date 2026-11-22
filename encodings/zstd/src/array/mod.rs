@@ -1541,11 +1541,13 @@ mod tests {
 
     use rstest::rstest;
     use vortex_array::VortexSessionExecute;
+    use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::varbin::VarBinArrayExt as _;
     use vortex_array::builders::VarBinBuilder;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability::NonNullable;
     use vortex_array::validity::Validity;
+    use vortex_buffer::Buffer;
     use vortex_buffer::ByteBuffer;
     use vortex_error::VortexResult;
     use vortex_mask::Mask;
@@ -1558,6 +1560,7 @@ mod tests {
     use super::try_reconstruct_views;
     use super::zstd_value_len;
     use super::zstd_value_offset;
+    use crate::Zstd;
     use crate::array::BinaryView;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
@@ -1741,5 +1744,15 @@ mod tests {
         assert!(append_slice_to_varbin(&slice, &Mask::new_true(2), &mut builder).is_err());
         // The builder rejected the values before committing any of them.
         assert_eq!(builder.finish_into_varbin().len(), 0);
+    }
+
+    #[test]
+    fn test_all_null_slice_keeps_all_invalid_validity() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let values = PrimitiveArray::new(Buffer::<u32>::zeroed(1024), Validity::AllInvalid);
+        let zstd = Zstd::from_primitive(&values, 0, 128, &mut ctx)?;
+        let decoded = zstd.slice(10..20)?.execute::<PrimitiveArray>(&mut ctx)?;
+        assert!(matches!(decoded.validity()?, Validity::AllInvalid));
+        Ok(())
     }
 }
