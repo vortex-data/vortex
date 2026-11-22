@@ -102,10 +102,10 @@ impl ChildBuilder {
             return Ok(());
         }
 
+        let array = array.optimize_ctx(ctx)?;
+
         self.flush_pending();
         self.chunks_len += array.len();
-
-        let array = array.optimize_ctx(ctx)?;
         self.chunks.push(array);
 
         Ok(())
@@ -203,29 +203,37 @@ impl ChildBuilder {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
     use std::sync::LazyLock;
 
     use rstest::rstest;
     use vortex_buffer::BufferAllocatorRef;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
+    use vortex_error::vortex_bail;
     use vortex_session::VortexSession;
 
     use super::ChildBuilder;
     use crate::ArrayRef;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
+    use crate::array::ArrayView;
     use crate::arrays::Chunked;
+    use crate::arrays::ChunkedArray;
     use crate::arrays::Constant;
     use crate::arrays::ConstantArray;
     use crate::arrays::Primitive;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::chunked::ChunkedArrayExt;
+    use crate::arrays::list::ListArraySlotsExt;
     use crate::assert_arrays_eq;
+    use crate::builders::ListBuilder;
     use crate::dtype::DType;
     use crate::dtype::Nullability::NonNullable;
     use crate::dtype::Nullability::Nullable;
     use crate::dtype::PType::I32;
+    use crate::optimizer::kernels::ArrayKernelsExt;
+    use crate::optimizer::rules::ArrayParentReduceRule;
     use crate::scalar::Scalar;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
@@ -467,6 +475,111 @@ mod tests {
         let child = builder.finish();
         assert!(child.is_empty());
         assert!(child.is::<Primitive>());
+
+        Ok(())
+    }
+
+    #[derive(Debug)]
+    struct FailingChunkedConstantRule;
+
+    impl ArrayParentReduceRule<Constant> for FailingChunkedConstantRule {
+        type Parent = Chunked;
+
+        fn reduce_parent(
+            &self,
+            _array: ArrayView<'_, Constant>,
+            _parent: ArrayView<'_, Chunked>,
+            _child_idx: usize,
+        ) -> VortexResult<Option<ArrayRef>> {
+            vortex_bail!("simulated optimization error")
+        }
+    }
+
+    fn session_with_failing_optimizer() -> VortexSession {
+        let session = VortexSession::empty();
+        session.kernels().register_reduce_parent_rule(
+            Chunked,
+            Constant,
+            const { &FailingChunkedConstantRule },
+        );
+        session
+    }
+
+    #[test]
+    fn test_failed_append_preserves_len_and_allows_continued_use() -> VortexResult<()> {
+        let session = session_with_failing_optimizer();
+        let mut ctx = session.create_execution_ctx();
+        let mut builder =
+            ChildBuilder::with_capacity(&DType::from(I32), 0, BufferAllocatorRef::static_ref());
+
+        // Seed with a pending scalar so we also verify pending scalars keep their order.
+        builder.append_scalar(&1i32.into())?;
+        assert_eq!(builder.len(), 1);
+
+        // A multi-chunk ChunkedArray with Constant children so Chunked's own single-chunk
+        // reduce rule does not collapse it before our failing parent-reduce rule runs.
+        let failing_chunk =
+            ChunkedArray::try_new(vec![constant(99, 2), constant(88, 2)], DType::from(I32))?
+                .into_array();
+        assert!(builder.append_array(&failing_chunk, &mut ctx).is_err());
+
+        // Accepted length must not count the failed chunk.
+        assert_eq!(builder.len(), 1);
+
+        // Continued appends must keep values and order intact.
+        builder.append_array(&constant(2, 3), &mut ctx)?;
+        builder.append_scalar(&3i32.into())?;
+        assert_eq!(builder.len(), 5);
+
+        let child = builder.finish();
+        assert_eq!(child.len(), 5);
+        assert_arrays_eq!(
+            child,
+            PrimitiveArray::from_iter([1i32, 2, 2, 2, 3]),
+            &mut SESSION.create_execution_ctx()
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_list_builder_append_array_as_list_after_optimizer_error() -> VortexResult<()> {
+        let session = session_with_failing_optimizer();
+        let mut ctx = session.create_execution_ctx();
+        let dtype = Arc::new(DType::from(I32));
+        let mut builder = ListBuilder::<u32>::with_capacity_in(
+            Arc::clone(&dtype),
+            NonNullable,
+            4,
+            BufferAllocatorRef::static_ref(),
+        );
+
+        builder.append_array_as_list(&buffer![1i32, 2].into_array(), &mut ctx)?;
+
+        let failing_chunk =
+            ChunkedArray::try_new(vec![constant(99, 2), constant(88, 3)], DType::from(I32))?
+                .into_array();
+        assert!(
+            builder
+                .append_array_as_list(&failing_chunk, &mut ctx)
+                .is_err()
+        );
+
+        builder.append_array_as_list(&buffer![3i32, 4, 5].into_array(), &mut ctx)?;
+
+        let list = builder.finish_into_list();
+        assert_eq!(list.len(), 2);
+        let offsets = list.offsets().clone().execute::<PrimitiveArray>(&mut ctx)?;
+        assert_eq!(offsets.as_slice::<u32>(), &[0, 2, 5]);
+        assert_eq!(
+            offsets.as_slice::<u32>().last().copied().unwrap() as usize,
+            list.elements().len()
+        );
+        assert_arrays_eq!(
+            list.elements(),
+            PrimitiveArray::from_iter([1i32, 2, 3, 4, 5]),
+            &mut ctx
+        );
 
         Ok(())
     }
