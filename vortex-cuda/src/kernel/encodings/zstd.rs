@@ -21,7 +21,6 @@ use vortex::array::buffer::DeviceBuffer;
 use vortex::array::validity::Validity;
 use vortex::array::vtable::child_to_validity;
 use vortex::buffer::Alignment;
-use vortex::buffer::Buffer;
 use vortex::buffer::BufferMut;
 use vortex::buffer::ByteBuffer;
 use vortex::dtype::DType;
@@ -35,6 +34,7 @@ use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::error::vortex_err;
 use vortex::mask::AllOr;
+use vortex::mask::Mask;
 use vortex_cuda_driver::CudaSlice;
 use vortex_cuda_driver::DevicePtr;
 use vortex_cuda_driver::DevicePtrMut;
@@ -234,14 +234,18 @@ async fn decode_zstd(array: ZstdArray, ctx: &mut CudaExecutionCtx) -> VortexResu
         return Err(vortex_err!("ZSTD dictionary not supported on GPU"));
     }
 
-    if frames.is_empty() {
-        return decode_empty_zstd_frames(
-            dtype,
-            validity,
-            slice_start,
-            slice_stop,
-            ctx.execution_ctx(),
-        );
+    let slice_len = slice_stop - slice_start;
+    let sliced_validity = validity.slice(slice_start..slice_stop)?;
+    let sliced_mask = sliced_validity.execute_mask(slice_len, ctx.execution_ctx())?;
+
+    if let Some(canonical) = try_decode_all_null_or_empty(
+        &dtype,
+        &sliced_validity,
+        &sliced_mask,
+        !frames.is_empty(),
+        ctx.execution_ctx(),
+    )? {
+        return Ok(canonical);
     }
 
     let mut exec = zstd_kernel_prepare(frames, &metadata, ctx).await?;
@@ -348,12 +352,7 @@ async fn decode_zstd(array: ZstdArray, ctx: &mut CudaExecutionCtx) -> VortexResu
     let slice_value_idx_start = slice_value_indices[0];
     let slice_value_idx_stop = slice_value_indices[1];
 
-    let sliced_validity = validity.slice(slice_start..slice_stop)?;
-
-    match sliced_validity
-        .execute_mask(slice_stop - slice_start, ctx.execution_ctx())?
-        .indices()
-    {
+    match sliced_mask.indices() {
         AllOr::All => {
             let (buffers, all_views) = reconstruct_views(&host_buffer, 0, MAX_BUFFER_LEN);
             let sliced_views = all_views.slice(slice_value_idx_start..slice_value_idx_stop);
@@ -373,39 +372,32 @@ async fn decode_zstd(array: ZstdArray, ctx: &mut CudaExecutionCtx) -> VortexResu
     }
 }
 
-fn decode_empty_zstd_frames(
-    dtype: DType,
-    validity: Validity,
-    slice_start: usize,
-    slice_stop: usize,
+fn try_decode_all_null_or_empty(
+    dtype: &DType,
+    sliced_validity: &Validity,
+    sliced_mask: &Mask,
+    has_frames: bool,
     ctx: &mut ExecutionCtx,
-) -> VortexResult<Canonical> {
-    let slice_len = slice_stop - slice_start;
-    let sliced_validity = validity.slice(slice_start..slice_stop)?;
-    if slice_len == 0 {
-        return Ok(Canonical::VarBinView(VarBinViewArray::try_new(
-            Buffer::<BinaryView>::empty(),
-            Arc::from([]),
-            dtype,
-            sliced_validity,
-            ctx,
-        )?));
-    }
-
-    match sliced_validity.execute_mask(slice_len, ctx)?.indices() {
-        AllOr::None => Ok(Canonical::VarBinView(VarBinViewArray::try_new(
+) -> VortexResult<Option<Canonical>> {
+    let slice_len = sliced_mask.len();
+    let valid_count = sliced_mask.true_count();
+    if valid_count == 0 {
+        return Ok(Some(Canonical::VarBinView(VarBinViewArray::try_new(
             BufferMut::<BinaryView>::zeroed(slice_len).freeze(),
             Arc::from([]),
-            dtype,
-            sliced_validity,
+            dtype.clone(),
+            sliced_validity.clone(),
             ctx,
-        )?)),
-        AllOr::All | AllOr::Some(_) => {
-            vortex_bail!(
-                "Zstd array has no compressed frames for {slice_len} rows with non-null values"
-            )
-        }
+        )?)));
     }
+
+    if !has_frames {
+        vortex_bail!(
+            "Zstd array has no compressed frames but {valid_count} of {slice_len} rows are non-null"
+        );
+    }
+
+    Ok(None)
 }
 
 #[cfg(test)]
@@ -609,25 +601,19 @@ mod tests {
         let parts = zstd_sliced.into_data().into_parts(validity);
         assert!(parts.frames.is_empty());
 
-        let cuda_result = decode_empty_zstd_frames(
-            parts_dtype,
-            parts.validity,
-            parts.slice_start,
-            parts.slice_stop,
+        let sliced_validity = parts.validity.slice(parts.slice_start..parts.slice_stop)?;
+        let sliced_mask =
+            sliced_validity.execute_mask(parts.slice_stop - parts.slice_start, &mut ctx)?;
+        let cuda_result = try_decode_all_null_or_empty(
+            &parts_dtype,
+            &sliced_validity,
+            &sliced_mask,
+            !parts.frames.is_empty(),
             &mut ctx,
         )?
+        .vortex_expect("all-null or empty slice should decode without frames")
         .into_array();
 
-        assert_eq!(cuda_result.dtype(), cpu_result.dtype());
-        assert_eq!(cuda_result.len(), cpu_result.len());
-        assert_eq!(
-            cuda_result
-                .validity()?
-                .execute_mask(cuda_result.len(), &mut ctx)?,
-            cpu_result
-                .validity()?
-                .execute_mask(cpu_result.len(), &mut ctx)?,
-        );
         assert_arrays_eq!(cuda_result, cpu_result, &mut ctx);
         Ok(())
     }
@@ -642,30 +628,72 @@ mod tests {
         let input = all_null_varbinview(&dtype, 5);
         let zstd_array = Zstd::from_var_bin_view(&input, 3, 2, &mut ctx)?;
         let validity = child_to_validity(zstd_array.validity_child(), dtype.nullability());
+        let sliced_validity = validity.slice(2..2)?;
+        let sliced_mask = sliced_validity.execute_mask(0, &mut ctx)?;
 
         let cuda_result =
-            decode_empty_zstd_frames(dtype.clone(), validity, 2, 2, &mut ctx)?.into_array();
+            try_decode_all_null_or_empty(&dtype, &sliced_validity, &sliced_mask, false, &mut ctx)?
+                .vortex_expect("empty slice should decode without frames")
+                .into_array();
 
-        assert_eq!(cuda_result.dtype(), &dtype);
-        assert_eq!(cuda_result.len(), 0);
-        assert_eq!(
-            cuda_result
-                .validity()?
-                .execute_mask(cuda_result.len(), &mut ctx)?
-                .len(),
-            0
-        );
+        assert_arrays_eq!(cuda_result, all_null_varbinview(&dtype, 0), &mut ctx);
         Ok(())
     }
 
     #[test]
-    fn test_cuda_zstd_empty_frames_rejects_non_null_rows() {
+    fn test_cuda_zstd_all_null_slice_with_frames_host() -> VortexResult<()> {
+        let session = VortexSession::empty();
+        vortex::file::register_default_encodings(&session);
+        let mut ctx = session.create_execution_ctx();
+
+        let input = VarBinViewArray::from_iter_nullable_str([
+            Some("hello"),
+            Some("world"),
+            None,
+            None,
+            None,
+        ]);
+        let zstd_array = Zstd::from_var_bin_view(&input, 3, 2, &mut ctx)?;
+        let zstd_sliced = zstd_array
+            .into_array()
+            .slice(2..5)?
+            .optimize_ctx(&ctx)?
+            .try_downcast::<Zstd>()
+            .map_err(|_| vortex_err!("expected ZstdArray"))?;
+
+        let cpu_result = Zstd::decompress(&zstd_sliced, &mut ctx)?;
+        let parts_dtype = zstd_sliced.dtype().clone();
+        let validity = child_to_validity(zstd_sliced.validity_child(), parts_dtype.nullability());
+        let parts = zstd_sliced.into_data().into_parts(validity);
+        assert!(!parts.frames.is_empty());
+
+        let sliced_validity = parts.validity.slice(parts.slice_start..parts.slice_stop)?;
+        let sliced_mask =
+            sliced_validity.execute_mask(parts.slice_stop - parts.slice_start, &mut ctx)?;
+        let cuda_result = try_decode_all_null_or_empty(
+            &parts_dtype,
+            &sliced_validity,
+            &sliced_mask,
+            !parts.frames.is_empty(),
+            &mut ctx,
+        )?
+        .vortex_expect("all-null slice with frames should short-circuit")
+        .into_array();
+
+        assert_arrays_eq!(cuda_result, cpu_result, &mut ctx);
+        Ok(())
+    }
+
+    #[test]
+    fn test_cuda_zstd_empty_frames_rejects_non_null_rows() -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
-        let err = decode_empty_zstd_frames(
-            DType::Utf8(Nullability::NonNullable),
-            Validity::NonNullable,
-            0,
-            3,
+        let validity = Validity::NonNullable;
+        let mask = validity.execute_mask(3, &mut ctx)?;
+        let err = try_decode_all_null_or_empty(
+            &DType::Utf8(Nullability::NonNullable),
+            &validity,
+            &mask,
+            false,
             &mut ctx,
         )
         .expect_err("zero frames with non-null rows must error");
@@ -673,6 +701,7 @@ mod tests {
             err.to_string().contains("no compressed frames"),
             "unexpected error: {err}"
         );
+        Ok(())
     }
 
     #[rstest]
@@ -711,16 +740,37 @@ mod tests {
             .await?
             .into_array();
 
-        assert_eq!(gpu_result.dtype(), cpu_result.dtype());
-        assert_eq!(gpu_result.len(), cpu_result.len());
-        assert_eq!(
-            gpu_result
-                .validity()?
-                .execute_mask(gpu_result.len(), &mut ctx)?,
-            cpu_result
-                .validity()?
-                .execute_mask(cpu_result.len(), &mut ctx)?,
-        );
+        assert_arrays_eq!(gpu_result, cpu_result, &mut ctx);
+        Ok(())
+    }
+
+    #[crate::test]
+    async fn test_cuda_zstd_decompression_all_null_slice_with_frames() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
+            .vortex_expect("failed to create execution context");
+
+        let input = VarBinViewArray::from_iter_nullable_str([
+            Some("hello"),
+            Some("world"),
+            None,
+            None,
+            None,
+        ]);
+        let zstd_array = Zstd::from_var_bin_view(&input, 3, 2, cuda_ctx.execution_ctx())?;
+        let zstd_sliced = zstd_array
+            .into_array()
+            .slice(2..5)?
+            .optimize_ctx(cuda_ctx.execution_ctx())?
+            .try_downcast::<Zstd>()
+            .map_err(|_| vortex_err!("expected ZstdArray"))?;
+        let cpu_result = Zstd::decompress(&zstd_sliced, &mut ctx)?;
+
+        let gpu_result = ZstdExecutor
+            .execute(zstd_sliced.into_array(), &mut cuda_ctx)
+            .await?
+            .into_array();
+
         assert_arrays_eq!(gpu_result, cpu_result, &mut ctx);
         Ok(())
     }
@@ -739,8 +789,6 @@ mod tests {
             .await?
             .into_array();
 
-        assert_eq!(gpu_result.dtype(), empty_strings.dtype());
-        assert_eq!(gpu_result.len(), 3);
         assert_arrays_eq!(gpu_result, empty_strings, &mut ctx);
         Ok(())
     }
