@@ -269,7 +269,7 @@ class ResultStore:
         try:
             with open(metadata_path) as f:
                 return RunMetadata.from_dict(json.load(f))
-        except (json.JSONDecodeError, KeyError, OSError):
+        except (json.JSONDecodeError, KeyError, ValueError, TypeError, OSError):
             return None
 
     def get_run(self, run_id_or_label: str) -> RunMetadata | None:
