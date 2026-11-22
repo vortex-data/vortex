@@ -12,7 +12,6 @@
 //! produced the batch, beside the scan's other chunks.
 
 use std::future;
-use std::num::NonZeroUsize;
 use std::sync::Arc;
 use std::task::Poll;
 
@@ -28,7 +27,6 @@ use vortex_error::vortex_err;
 use vortex_io::request::IoService;
 use vortex_io::runtime::Handle;
 use vortex_mask::Mask;
-use vortex_utils::parallelism::get_available_parallelism;
 
 use crate::planning::driver::Progress;
 use crate::planning::driver::Run;
@@ -43,49 +41,20 @@ use crate::prepare::ScanBuilder;
 pub struct ScanDriver {
     handle: Handle,
     concurrency: usize,
-    max_in_flight: Option<NonZeroUsize>,
     ordered: bool,
 }
 
 impl ScanDriver {
-    /// A driver spawning on `handle`, with a limit of `concurrency` chunks per available worker
-    /// thread. If `concurrency` is zero or the total limit is one, chunks run inline on the root
+    /// A driver spawning on `handle`, with at most `concurrency` chunks in flight at once, whatever
+    /// the machine's core count. If `concurrency` is at most one, chunks run inline on the root
     /// run. When `ordered`, the driver holds batches until the scan is done and yields them in
     /// row order.
     pub fn new(handle: Handle, concurrency: usize, ordered: bool) -> Self {
         Self {
             handle,
             concurrency,
-            max_in_flight: None,
             ordered,
         }
-    }
-
-    /// A driver for one of `partitions` scans an engine runs beside each other. Its chunks fill
-    /// only the cores the other partitions leave idle: at one partition per core, they run
-    /// inline on the root run.
-    pub fn partitioned(handle: Handle, partitions: usize, ordered: bool) -> Self {
-        let idle = get_available_parallelism()
-            .unwrap_or(1)
-            .div_ceil(partitions.max(1));
-        Self::new(handle, 1, ordered)
-            .with_max_in_flight(NonZeroUsize::new(idle).unwrap_or(NonZeroUsize::MIN))
-    }
-
-    /// Bounds the chunks in flight at once to `max` in all, whatever the per-worker concurrency
-    /// and the machine's core count.
-    pub fn with_max_in_flight(mut self, max: NonZeroUsize) -> Self {
-        self.max_in_flight = Some(max);
-        self
-    }
-
-    /// The most chunks this driver runs at once. At most one, they run inline on the root run.
-    pub fn in_flight(&self) -> usize {
-        let scaled = self
-            .concurrency
-            .saturating_mul(get_available_parallelism().unwrap_or(1));
-        self.max_in_flight
-            .map_or(scaled, |max| scaled.min(max.get()))
     }
 
     /// Prepares `builder` where compute runs, composes its planners, and streams their batches.
@@ -130,7 +99,7 @@ impl ScanDriver {
     ) -> BoxStream<'static, VortexResult<A>> {
         let scan = Arc::new(scan);
         let map_fn: MapFn<A> = Arc::new(map_fn);
-        let in_flight = self.in_flight();
+        let in_flight = self.concurrency;
         let inline = in_flight <= 1;
         let scope = WorkScope {
             file_ordinal: 0,

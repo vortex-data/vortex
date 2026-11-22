@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::num::NonZeroUsize;
 use std::sync::Arc;
+use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::Ordering;
 use std::thread;
+use std::time::Duration;
 
 use futures::TryStreamExt;
 use parking_lot::Mutex;
@@ -22,10 +24,10 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_io::session::RuntimeSessionExt;
 use vortex_session::VortexSession;
-use vortex_utils::parallelism::get_available_parallelism;
 
 use super::ScanDriver;
 use crate::execution::cache::ScanCache;
+use crate::execution::chunk::MAX_ROWS_PER_CHUNK;
 use crate::execution::pipeline::synthetic::RowSource;
 use crate::plan::LazyPlanRef;
 use crate::prepare::ScanBuilder;
@@ -109,25 +111,49 @@ async fn prepared_batches_are_mapped_off_the_polling_thread(
     Ok(())
 }
 
-#[tokio::test]
-async fn max_in_flight_bounds_the_per_worker_limit() {
-    let cores = get_available_parallelism().unwrap_or(1);
-    let session = VortexSession::empty().with_tokio();
-    let driver = ScanDriver::new(session.handle(), 4, true);
-    assert_eq!(driver.in_flight(), 4 * cores);
-    assert_eq!(driver.with_max_in_flight(NonZeroUsize::MIN).in_flight(), 1);
-}
+/// The concurrency bounds the chunks in flight in total, not per worker thread.
+#[rstest]
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn concurrency_bounds_chunks_in_flight_in_total(
+    #[values(1, 2)] concurrency: usize,
+) -> VortexResult<()> {
+    let active = Arc::new(AtomicUsize::new(0));
+    let peak = Arc::new(AtomicUsize::new(0));
+    let map_fn = {
+        let (active, peak) = (Arc::clone(&active), Arc::clone(&peak));
+        move |batch: ArrayRef| {
+            let now = active.fetch_add(1, Ordering::SeqCst) + 1;
+            peak.fetch_max(now, Ordering::SeqCst);
+            thread::sleep(Duration::from_millis(20));
+            active.fetch_sub(1, Ordering::SeqCst);
+            Ok(batch)
+        }
+    };
 
-#[tokio::test]
-async fn partitioned_drivers_together_run_one_chunk_per_core() {
-    let cores = get_available_parallelism().unwrap_or(1);
-    let session = VortexSession::empty().with_tokio();
-    for partitions in [1, 2, cores, 2 * cores] {
-        let driver = ScanDriver::partitioned(session.handle(), partitions, true);
-        assert_eq!(
-            driver.in_flight(),
-            cores.div_ceil(partitions),
-            "{partitions} partitions on {cores} cores"
-        );
-    }
+    let chunks = 4;
+    let plan = RowSource::plan(
+        (chunks * MAX_ROWS_PER_CHUNK) as u64,
+        Vec::new(),
+        None,
+        false,
+    );
+    let builder = ScanBuilder::new(
+        VortexSession::empty().with_tokio(),
+        ScanInput {
+            dtype: plan.dtype().clone(),
+            root: LazyPlanRef::ready(plan),
+            locations: Arc::new([]),
+            segments: Arc::new(NoSegments),
+            cache: None,
+        },
+    );
+    let driver = ScanDriver::new(builder.session().handle(), concurrency, true);
+    let batches: Vec<ArrayRef> = driver
+        .run_prepared(builder.prepare()?, map_fn)
+        .try_collect()
+        .await?;
+
+    assert_eq!(batches.len(), chunks);
+    assert!(peak.load(Ordering::SeqCst) <= concurrency);
+    Ok(())
 }

@@ -67,6 +67,7 @@ use vortex::session::VortexSession;
 use vortex_arrow::ArrowSessionExt;
 use vortex_utils::aliases::dash_map::DashMap;
 use vortex_utils::aliases::dash_map::Entry;
+use vortex_utils::parallelism::get_available_parallelism;
 
 use crate::VortexAccessPlan;
 use crate::convert::exprs::ExpressionConverter;
@@ -513,17 +514,20 @@ impl FileOpener for VortexOpener {
                 {
                     builder = builder.with_selection(selection.clone());
                 }
+                // By default, the scans of all partitions together run about one chunk per core.
+                let concurrency = scan_concurrency.unwrap_or_else(|| {
+                    get_available_parallelism()
+                        .unwrap_or(1)
+                        .div_ceil(partitions)
+                        .max(1)
+                });
                 let handle = vxf.session().handle();
                 // Lowering and planning a wide file is real CPU: it runs where compute runs.
                 let scan = handle
                     .spawn_cpu(move || builder.prepare())
                     .await
                     .map_err(|e| exec_datafusion_err!("Failed to plan Vortex scan: {e}"))?;
-                // An explicit concurrency is per worker thread, as in V1.
-                let driver = match scan_concurrency {
-                    Some(concurrency) => ScanDriver::new(handle, concurrency, has_output_ordering),
-                    None => ScanDriver::partitioned(handle, partitions, has_output_ordering),
-                };
+                let driver = ScanDriver::new(handle, concurrency, has_output_ordering);
                 Ok(driver.run_prepared(scan, map_batch))
             } else {
                 // Share V1 layout readers across partitions of the file.
