@@ -32,13 +32,14 @@ use crate::VortexWrite;
 /// returns the original completion error.
 ///
 /// Dropping an uncompleted writer (for example on an upstream input error or task cancellation)
-/// schedules an asynchronous abort on the current Tokio runtime (or the global `smol` executor
-/// when outside Tokio) so cleanup survives cancellation of the file task. Process termination can
-/// still prevent cleanup.
+/// schedules an asynchronous abort on a live executor (the current Tokio runtime, a captured
+/// multi-thread Tokio runtime, or the global `smol` executor) so cleanup survives cancellation of
+/// the file task. Process termination can still prevent cleanup.
 pub struct ObjectStoreWrite {
     state: UploadState,
     buffer: BytesMut,
     put_result: Option<PutResult>,
+    cleanup_runtime: Option<tokio::runtime::Handle>,
 }
 
 enum UploadState {
@@ -53,10 +54,17 @@ const BUFFER_SIZE: usize = 128 * 1024 * 1024;
 impl ObjectStoreWrite {
     pub async fn new(object_store: Arc<dyn ObjectStore>, location: &Path) -> VortexResult<Self> {
         let upload = object_store.put_multipart(location).await?;
+        // Only capture a multi-thread Tokio runtime for off-runtime cleanup: it has its own worker
+        // threads and can make progress independently, whereas a current-thread Tokio runtime may
+        // be alive and idle with nothing polling it.
+        let cleanup_runtime = tokio::runtime::Handle::try_current()
+            .ok()
+            .filter(|handle| handle.runtime_flavor() == tokio::runtime::RuntimeFlavor::MultiThread);
         Ok(Self {
             state: UploadState::Active(upload),
             buffer: BytesMut::with_capacity(CHUNK_SIZE),
             put_result: None,
+            cleanup_runtime,
         })
     }
 
@@ -67,9 +75,9 @@ impl ObjectStoreWrite {
     /// Explicitly abort the multipart upload if it is still active.
     ///
     /// Calling `abort` on an already-aborted or completed writer is a no-op. Cleanup is spawned on
-    /// the current Tokio runtime (or the global `smol` executor when outside Tokio) so cancelling
-    /// the caller while `abort` is in flight does not drop the upload before remote cleanup
-    /// completes.
+    /// a live executor (the current Tokio runtime, a captured multi-thread Tokio runtime, or the
+    /// global `smol` executor) so cancelling the caller while `abort` is in flight does not drop
+    /// the upload before remote cleanup completes.
     pub async fn abort(&mut self) -> io::Result<()> {
         if !matches!(self.state, UploadState::Active(_)) {
             return Ok(());
@@ -81,7 +89,7 @@ impl ObjectStoreWrite {
             unreachable!("checked active state above");
         };
 
-        if let Ok(handle) = tokio::runtime::Handle::try_current() {
+        if let Some(handle) = self.take_live_tokio_handle() {
             let join_handle = handle.spawn(async move { upload.abort().await });
             return match join_handle.await {
                 Ok(res) => res.map_err(io::Error::from),
@@ -122,6 +130,16 @@ impl ObjectStoreWrite {
         }
     }
 
+    fn take_live_tokio_handle(&mut self) -> Option<tokio::runtime::Handle> {
+        if let Ok(handle) = tokio::runtime::Handle::try_current()
+            && is_tokio_handle_alive(&handle)
+        {
+            self.cleanup_runtime = None;
+            return Some(handle);
+        }
+        self.cleanup_runtime.take().filter(is_tokio_handle_alive)
+    }
+
     /// Transition an active upload to `Aborted` and schedule detached remote cleanup on a live
     /// executor. Used by `Drop` and by [`AbortOnCancel`] when an in-flight write, flush, or
     /// shutdown future is cancelled while the caller still owns the writer.
@@ -139,7 +157,7 @@ impl ObjectStoreWrite {
             }
         };
 
-        if let Ok(handle) = tokio::runtime::Handle::try_current() {
+        if let Some(handle) = self.take_live_tokio_handle() {
             handle.spawn(abort_future);
             return;
         }
@@ -178,6 +196,17 @@ impl ObjectStoreWrite {
             tracing::warn!(%abort_err, "failed to abort multipart upload after write error");
         }
     }
+}
+
+/// Checks whether a Tokio runtime handle can still execute spawned tasks.
+///
+/// On a shut-down runtime, `Handle::spawn` cancels the task immediately so `is_finished()` is
+/// already true even for a future that never resolves.
+fn is_tokio_handle_alive(handle: &tokio::runtime::Handle) -> bool {
+    let probe = handle.spawn(std::future::pending::<()>());
+    let alive = !probe.is_finished();
+    probe.abort();
+    alive
 }
 
 /// Drop guard that aborts an active upload if an in-flight `write_all`, `flush`, or `shutdown`
@@ -427,6 +456,7 @@ mod tests {
             complete_calls: AtomicUsize,
             abort_calls: AtomicUsize,
             abort_completed: AtomicUsize,
+            abort_in_tokio: AtomicUsize,
             abort_notify: Notify,
             abort_completed_notify: Notify,
             staged_bytes: parking_lot::Mutex<Vec<u8>>,
@@ -569,6 +599,9 @@ mod tests {
 
             async fn abort(&mut self) -> object_store::Result<()> {
                 self.counters.abort_calls.fetch_add(1, Ordering::SeqCst);
+                if tokio::runtime::Handle::try_current().is_ok() {
+                    self.counters.abort_in_tokio.fetch_add(1, Ordering::SeqCst);
+                }
                 self.counters.abort_notify.notify_waiters();
                 if let Some((entered, release)) = &self.behavior.gate_abort {
                     entered.notify_one();
@@ -1025,6 +1058,120 @@ mod tests {
             // Keep `tokio_rt` alive until after all assertions pass.
             drop(tokio_rt);
             Ok(())
+        }
+
+        #[test]
+        fn test_multithread_tokio_runtime_preserves_tokio_context_for_off_runtime_cleanup()
+        -> anyhow::Result<()> {
+            let abort_counters = Arc::new(UploadCounters::default());
+            let abort_store: Arc<dyn ObjectStore> = Arc::new(RecordingStore {
+                behavior: Arc::new(UploadBehavior::default()),
+                counters: Arc::clone(&abort_counters),
+            });
+
+            let drop_counters = Arc::new(UploadCounters::default());
+            let drop_store: Arc<dyn ObjectStore> = Arc::new(RecordingStore {
+                behavior: Arc::new(UploadBehavior::default()),
+                counters: Arc::clone(&drop_counters),
+            });
+
+            let tokio_rt = tokio::runtime::Builder::new_multi_thread()
+                .worker_threads(1)
+                .enable_all()
+                .build()?;
+            let (mut writer_for_abort, writer_for_drop) = tokio_rt.block_on(async move {
+                let mut w1 =
+                    ObjectStoreWrite::new(abort_store, &Path::from("mt-abort.vortex")).await?;
+                w1.write_all(vec![6u8; 64]).await?;
+                let mut w2 =
+                    ObjectStoreWrite::new(drop_store, &Path::from("mt-drop.vortex")).await?;
+                w2.write_all(vec![7u8; 64]).await?;
+                anyhow::Ok((w1, w2))
+            })?;
+
+            // Drive abort and drop outside Tokio while the multi-thread Tokio runtime stays live;
+            // cleanup should run on that Tokio runtime so Tokio-dependent object stores keep their
+            // reactor context.
+            let current_rt = CurrentThreadRuntime::new();
+            current_rt.block_on(async move {
+                writer_for_abort.abort().await?;
+                assert_eq!(abort_counters.abort_calls.load(Ordering::SeqCst), 1);
+                assert_eq!(abort_counters.abort_completed.load(Ordering::SeqCst), 1);
+                assert_eq!(abort_counters.abort_in_tokio.load(Ordering::SeqCst), 1);
+
+                drop(writer_for_drop);
+                let deadline = std::time::Instant::now() + Duration::from_secs(2);
+                while drop_counters.abort_completed.load(Ordering::SeqCst) == 0 {
+                    assert!(
+                        std::time::Instant::now() < deadline,
+                        "drop cleanup did not complete on captured multi-thread Tokio runtime"
+                    );
+                    smol::Timer::after(Duration::from_millis(5)).await;
+                }
+                assert_eq!(drop_counters.abort_calls.load(Ordering::SeqCst), 1);
+                assert_eq!(drop_counters.abort_completed.load(Ordering::SeqCst), 1);
+                assert_eq!(drop_counters.abort_in_tokio.load(Ordering::SeqCst), 1);
+                anyhow::Ok(())
+            })?;
+
+            drop(tokio_rt);
+            Ok(())
+        }
+
+        #[test]
+        fn test_entered_shutdown_tokio_handle_falls_back_to_smol() -> anyhow::Result<()> {
+            let abort_counters = Arc::new(UploadCounters::default());
+            let abort_store: Arc<dyn ObjectStore> = Arc::new(RecordingStore {
+                behavior: Arc::new(UploadBehavior::default()),
+                counters: Arc::clone(&abort_counters),
+            });
+
+            let drop_counters = Arc::new(UploadCounters::default());
+            let drop_store: Arc<dyn ObjectStore> = Arc::new(RecordingStore {
+                behavior: Arc::new(UploadBehavior::default()),
+                counters: Arc::clone(&drop_counters),
+            });
+
+            let tokio_rt = tokio::runtime::Builder::new_multi_thread()
+                .worker_threads(1)
+                .enable_all()
+                .build()?;
+            let stale_handle = tokio_rt.handle().clone();
+            let (mut writer_for_abort, writer_for_drop) = tokio_rt.block_on(async move {
+                let mut w1 =
+                    ObjectStoreWrite::new(abort_store, &Path::from("stale-handle-abort.vortex"))
+                        .await?;
+                w1.write_all(vec![8u8; 64]).await?;
+                let mut w2 =
+                    ObjectStoreWrite::new(drop_store, &Path::from("stale-handle-drop.vortex"))
+                        .await?;
+                w2.write_all(vec![9u8; 64]).await?;
+                anyhow::Ok((w1, w2))
+            })?;
+            drop(tokio_rt);
+
+            // Enter the shut-down Tokio handle so Handle::try_current() succeeds while spawn()
+            // would immediately cancel any task; both abort() and Drop must fall back to smol.
+            let _guard = stale_handle.enter();
+            let current_rt = CurrentThreadRuntime::new();
+            current_rt.block_on(async move {
+                writer_for_abort.abort().await?;
+                assert_eq!(abort_counters.abort_calls.load(Ordering::SeqCst), 1);
+                assert_eq!(abort_counters.abort_completed.load(Ordering::SeqCst), 1);
+
+                drop(writer_for_drop);
+                let deadline = std::time::Instant::now() + Duration::from_secs(2);
+                while drop_counters.abort_completed.load(Ordering::SeqCst) == 0 {
+                    assert!(
+                        std::time::Instant::now() < deadline,
+                        "drop cleanup under entered shut-down Tokio handle did not complete on smol"
+                    );
+                    smol::Timer::after(Duration::from_millis(5)).await;
+                }
+                assert_eq!(drop_counters.abort_calls.load(Ordering::SeqCst), 1);
+                assert_eq!(drop_counters.abort_completed.load(Ordering::SeqCst), 1);
+                anyhow::Ok(())
+            })
         }
 
         #[tokio::test]
