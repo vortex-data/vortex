@@ -14,7 +14,9 @@
 //! ```
 //!
 //! Export writes the canonical Arrow spec key `permutation`. Import accepts both `permutation`
-//! and arrow-rs's `permutations` key, validating through arrow-rs.
+//! and arrow-rs's `permutations` key, validating through arrow-rs. Import also accepts the forms
+//! that other producers write: unset options as `null` (arrow-rs) and a nullable list item
+//! (pyarrow and Arrow C++).
 
 use std::sync::Arc;
 
@@ -73,23 +75,48 @@ struct ArrowShape {
     shape: Vec<usize>,
 }
 
-/// Renames the spec key `permutation` to the arrow-rs key `permutations`.
+/// The optional keys of the Arrow metadata, in both the spec and the arrow-rs spelling.
+const OPTIONAL_KEYS: [&str; 3] = ["dim_names", "permutation", "permutations"];
+
+/// Converts Arrow metadata to the form that the arrow-rs reader accepts.
 ///
-/// Example: `{"shape": [2, 2], "permutation": [1, 0]}` becomes
-/// `{"shape": [2, 2], "permutations": [1, 0]}`. Both keys at once is an error.
-fn rename_permutation(json: &str) -> VortexResult<String> {
+/// - Removes optional keys whose value is `null`. arrow-rs writes unset options as `null`, but its
+///   reader rejects them. Example: `{"shape": [2, 2], "dim_names": null}` becomes
+///   `{"shape": [2, 2]}`.
+/// - Renames the spec key `permutation` to the arrow-rs key `permutations`. Example:
+///   `{"shape": [2, 2], "permutation": [1, 0]}` becomes
+///   `{"shape": [2, 2], "permutations": [1, 0]}`. Both keys at once is an error.
+fn normalize_metadata(json: &str) -> VortexResult<String> {
     let mut map: serde_json::Map<String, serde_json::Value> =
         serde_json::from_str(json).map_err(|e| vortex_err!("{e}"))?;
 
-    let Some(permutation) = map.remove("permutation") else {
-        return Ok(json.to_string());
-    };
-    if map.contains_key("permutations") {
-        vortex_bail!("{ARROW_EXTENSION_NAME} metadata has both permutation and permutations");
+    for key in OPTIONAL_KEYS {
+        if map.get(key).is_some_and(serde_json::Value::is_null) {
+            map.remove(key);
+        }
     }
-    map.insert("permutations".to_string(), permutation);
+
+    if let Some(permutation) = map.remove("permutation") {
+        if map.contains_key("permutations") {
+            vortex_bail!("{ARROW_EXTENSION_NAME} metadata has both permutation and permutations");
+        }
+        map.insert("permutations".to_string(), permutation);
+    }
 
     serde_json::to_string(&map).map_err(|e| vortex_err!("{e}"))
+}
+
+/// Returns `data_type` with a non-nullable list item, for validation by arrow-rs.
+///
+/// arrow-rs accepts only a non-nullable item, but pyarrow and Arrow C++ always declare the item
+/// nullable. The import of the array checks the actual nulls.
+fn non_nullable_item(data_type: &DataType) -> DataType {
+    match data_type {
+        DataType::FixedSizeList(item, size) if item.is_nullable() => {
+            DataType::FixedSizeList(Arc::new(item.as_ref().clone().with_nullable(false)), *size)
+        }
+        _ => data_type.clone(),
+    }
 }
 
 /// Arrow metadata as written on export: canonical Arrow spec keys, unset fields omitted.
@@ -212,12 +239,12 @@ impl ArrowExtVTable for FixedShapeTensor {
         if field.extension_type_name() != Some(ARROW_EXTENSION_NAME) {
             return Ok(None);
         }
-        // Validates the data type and metadata with arrow-rs, after renaming the spec key
-        // `permutation` to arrow-rs's `permutations` and checking that the shape product fits in
-        // `i32` (arrow-rs panics on `i32` overflow).
+        // Validates the data type and metadata with arrow-rs. Before that, normalizes the metadata
+        // and the item nullability to the form that arrow-rs accepts, and checks that the shape
+        // product fits in `i32` (arrow-rs panics on `i32` overflow).
         let mut field_metadata = field.metadata().clone();
         let shape = if let Some(json) = field_metadata.get_mut(EXTENSION_TYPE_METADATA_KEY) {
-            *json = rename_permutation(json)?;
+            *json = normalize_metadata(json)?;
             let ArrowShape { shape } =
                 serde_json::from_str(json).map_err(|e| vortex_err!("{e}"))?;
             shape
@@ -231,8 +258,10 @@ impl ArrowExtVTable for FixedShapeTensor {
         } else {
             None
         };
-        let tensor =
-            ArrowFixedShapeTensor::try_new_from_field_metadata(field.data_type(), &field_metadata)?;
+        let tensor = ArrowFixedShapeTensor::try_new_from_field_metadata(
+            &non_nullable_item(field.data_type()),
+            &field_metadata,
+        )?;
 
         let elem_dtype =
             session.from_arrow_datatype(tensor.value_type(), Nullability::NonNullable)?;
@@ -329,6 +358,7 @@ mod tests {
     use arrow_buffer::NullBuffer;
     use arrow_schema::DataType;
     use arrow_schema::Field;
+    use arrow_schema::extension::FixedShapeTensor as ArrowFixedShapeTensor;
     use rstest::rstest;
     use serde_json::Value;
     use serde_json::json;
@@ -457,11 +487,16 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn imports_null_rows() -> VortexResult<()> {
+    #[rstest]
+    #[case::non_nullable_item(false)]
+    #[case::nullable_item(true)]
+    fn imports_null_rows(#[case] nullable_item: bool) -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
         let session = SESSION.arrow();
-        let (field, arrow) = arrow_tensors(r#"{"shape": [2, 2], "permutations": [1, 0]}"#);
+        let (field, arrow) = arrow_tensors_with_item(
+            r#"{"shape": [2, 2], "permutations": [1, 0]}"#,
+            nullable_item,
+        );
 
         let imported = session.from_arrow_array(arrow, &field)?;
 
@@ -480,6 +515,16 @@ mod tests {
     #[case::permutations(r#"{"shape": [2, 2], "permutations": [1, 0]}"#, Some(vec![1, 0]))]
     #[case::spec_key(r#"{"shape": [2, 2], "permutation": [1, 0]}"#, Some(vec![1, 0]))]
     #[case::shape_only(r#"{"shape": [2, 2]}"#, None)]
+    #[case::null_dim_names(r#"{"shape": [2, 2], "dim_names": null}"#, None)]
+    #[case::null_options(r#"{"shape": [2, 2], "dim_names": null, "permutations": null}"#, None)]
+    #[case::null_dim_names_with_permutations(
+        r#"{"shape": [2, 2], "dim_names": null, "permutations": [1, 0]}"#,
+        Some(vec![1, 0])
+    )]
+    #[case::null_spelling_with_spec_key(
+        r#"{"shape": [2, 2], "permutation": [1, 0], "permutations": null}"#,
+        Some(vec![1, 0])
+    )]
     fn accepts_metadata(
         #[case] json: &str,
         #[case] permutation: Option<Vec<usize>>,
@@ -504,7 +549,7 @@ mod tests {
     #[case::bad_permutation(r#"{"shape": [2, 2], "permutations": [1, 1]}"#)]
     #[case::list_size_mismatch(r#"{"shape": [2, 3]}"#)]
     #[case::missing_shape(r#"{}"#)]
-    #[case::null_dim_names(r#"{"shape": [2, 2], "dim_names": null}"#)]
+    #[case::null_shape(r#"{"shape": null}"#)]
     #[case::shape_overflows_i32(r#"{"shape": [2147483648]}"#)]
     #[case::shape_product_overflows_i32(r#"{"shape": [65536, 65536]}"#)]
     fn rejects_metadata(#[case] json: &str) {
@@ -561,17 +606,79 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn rejects_nullable_item() {
+    /// arrow-rs writes unset options as `null`.
+    #[rstest]
+    #[case::shape_only(None, None)]
+    #[case::dim_names(Some(vec!["H".to_string(), "W".to_string()]), None)]
+    #[case::permutations(None, Some(vec![1, 0]))]
+    #[case::both(Some(vec!["H".to_string(), "W".to_string()]), Some(vec![1, 0]))]
+    fn imports_arrow_rs_metadata(
+        #[case] dim_names: Option<Vec<String>>,
+        #[case] permutations: Option<Vec<usize>>,
+    ) -> VortexResult<()> {
         let session = SESSION.arrow();
-        let (field, _) = arrow_tensors_with_item(r#"{"shape": [2, 2]}"#, true);
-        assert!(session.from_arrow_field(&field).is_err());
+        let item = Arc::new(Field::new("item", DataType::Float32, false));
+        let tensor = ArrowFixedShapeTensor::try_new(
+            DataType::Float32,
+            vec![2, 2],
+            dim_names,
+            permutations.clone(),
+        )?;
+        let mut field = Field::new("t", DataType::FixedSizeList(item, 4), true);
+        field.try_with_extension_type(tensor)?;
+
+        let dtype = session.from_arrow_field(&field)?;
+        let metadata = dtype
+            .as_extension_opt()
+            .and_then(|ext| ext.metadata_opt::<FixedShapeTensor>().cloned())
+            .unwrap();
+        assert_eq!(metadata.permutation(), permutations.as_deref());
+        Ok(())
+    }
+
+    /// pyarrow and Arrow C++ declare the list item nullable.
+    #[test]
+    fn accepts_nullable_item() -> VortexResult<()> {
+        let session = SESSION.arrow();
+        let (nullable, _) = arrow_tensors_with_item(r#"{"shape": [2, 2]}"#, true);
+        let (non_nullable, _) = arrow_tensors_with_item(r#"{"shape": [2, 2]}"#, false);
+
+        assert_eq!(
+            session.from_arrow_field(&nullable)?,
+            session.from_arrow_field(&non_nullable)?
+        );
+        Ok(())
     }
 
     #[test]
-    fn rejects_null_element_in_valid_row() {
+    fn exports_to_nullable_item_target() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
         let session = SESSION.arrow();
-        let (field, _) = arrow_tensors(r#"{"shape": [4]}"#);
+
+        let values = buffer![1.0_f32, 2.0, 3.0, 4.0];
+        let storage = FixedSizeListArray::try_new(values.into_array(), 4, Validity::AllValid, 1)?;
+        let original = ExtensionArray::try_new_from_vtable(
+            FixedShapeTensor,
+            FixedShapeTensorMetadata::new(PType::F32, vec![2, 2]),
+            storage.into_array(),
+        )?
+        .into_array();
+        let (target, _) = arrow_tensors_with_item(r#"{"shape": [2, 2]}"#, true);
+
+        let arrow = original.clone().execute_arrow(Some(&target), &mut ctx)?;
+        assert_eq!(arrow.data_type(), target.data_type());
+
+        let imported = session.from_arrow_array(arrow, &target)?;
+        vortex_array::assert_arrays_eq!(imported, original, &mut ctx);
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::non_nullable_item(false)]
+    #[case::nullable_item(true)]
+    fn rejects_null_element_in_valid_row(#[case] nullable_item: bool) {
+        let session = SESSION.arrow();
+        let (field, _) = arrow_tensors_with_item(r#"{"shape": [4]}"#, nullable_item);
 
         let values = Float32Array::from(vec![Some(1.0), None, Some(3.0), Some(4.0)]);
         let item = Arc::new(Field::new("item", DataType::Float32, true));
