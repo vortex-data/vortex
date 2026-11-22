@@ -35,7 +35,6 @@ use vortex_array::extension::datetime::Time;
 use vortex_array::extension::datetime::TimeUnit;
 use vortex_array::extension::datetime::Timestamp;
 use vortex_array::validity::Validity;
-use vortex_arrow::test_harness::DefaultExport;
 use vortex_arrow::test_harness::check_containers;
 use vortex_error::VortexExpect;
 use vortex_json::Json;
@@ -107,7 +106,7 @@ impl<'a> Arbitrary<'a> for LogicalKind {
     }
 }
 
-/// An extension or Variant array with valid storage and its expected default-export behavior.
+/// An extension or Variant array with valid storage.
 ///
 /// Input decoding errors are returned to the fuzz engine. Failures to construct the selected
 /// dtype or wrap its generated storage are generator defects and panic.
@@ -115,8 +114,6 @@ impl<'a> Arbitrary<'a> for LogicalKind {
 pub struct ArrowRoundTrip {
     /// Storage was generated from this array's dtype.
     array: ArrayRef,
-    /// Retained so the checker can assert both successful and rejected default exports.
-    default_export: DefaultExport,
 }
 
 impl<'a> Arbitrary<'a> for ArrowRoundTrip {
@@ -128,7 +125,6 @@ impl<'a> Arbitrary<'a> for ArrowRoundTrip {
         if matches!(kind, LogicalKind::Variant) {
             return Ok(Self {
                 array: arbitrary_variant(u, nullability, len)?,
-                default_export: DefaultExport::Supported,
             });
         }
 
@@ -139,11 +135,6 @@ impl<'a> Arbitrary<'a> for ArrowRoundTrip {
             array: ExtensionArray::try_new(dtype, storage)
                 .vortex_expect("storage was generated from the extension's storage dtype")
                 .into_array(),
-            default_export: if matches!(kind, LogicalKind::FixedShapeTensor) {
-                DefaultExport::Unsupported
-            } else {
-                DefaultExport::Supported
-            },
         })
     }
 }
@@ -151,12 +142,11 @@ impl<'a> Arbitrary<'a> for ArrowRoundTrip {
 impl ArrowRoundTrip {
     /// Checks dtype and value preservation in every container, including dictionary and run-end.
     ///
-    /// Panics if Arrow transport fails or accepts an unsupported default export.
+    /// Panics if Arrow transport fails, including export without a target field.
     #[track_caller]
     pub fn check(self) {
         check_containers(
             self.array,
-            self.default_export,
             &mut ARROW_ROUND_TRIP_SESSION.create_execution_ctx(),
         )
         .vortex_expect("Arrow transport must preserve dtype and stored values");

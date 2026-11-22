@@ -2939,7 +2939,6 @@ duckdb = [
 ]
 hf = [
     { name = "datasets" },
-    { name = "huggingface-hub" },
 ]
 numpy = [
     { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
@@ -2960,7 +2959,6 @@ dev = [
     { name = "datafusion" },
     { name = "datasets" },
     { name = "duckdb" },
-    { name = "huggingface-hub" },
     { name = "maturin" },
     { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
     { name = "numpy", version = "2.5.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
@@ -2978,9 +2976,8 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "datasets", marker = "extra == 'hf'", specifier = ">=4.0.0,<6" },
+    { name = "datasets", marker = "extra == 'hf'", specifier = ">=5.1.0" },
     { name = "duckdb", marker = "extra == 'duckdb'", specifier = ">=1.1.2" },
-    { name = "huggingface-hub", marker = "extra == 'hf'", specifier = ">=0.34.0" },
     { name = "numpy", marker = "extra == 'numpy'", specifier = ">=1.26.0" },
     { name = "pandas", marker = "extra == 'pandas'", specifier = ">=2.2.0" },
     { name = "polars", marker = "extra == 'polars'", specifier = ">=1.32.0" },
@@ -2995,9 +2992,8 @@ provides-extras = ["cuda", "duckdb", "hf", "numpy", "pandas", "polars", "ray"]
 [package.metadata.requires-dev]
 dev = [
     { name = "datafusion", specifier = ">=50.0.0" },
-    { name = "datasets", specifier = ">=4.0.0,<6" },
+    { name = "datasets", specifier = ">=5.1.0" },
     { name = "duckdb", specifier = ">=1.1.2" },
-    { name = "huggingface-hub", specifier = ">=0.34.0" },
     { name = "maturin", specifier = ">=1.15.0" },
     { name = "numpy", specifier = ">=2.2.2" },
     { name = "pandas", extras = ["output-formatting"], specifier = ">=2.2.3" },
