@@ -339,8 +339,6 @@ pub(crate) fn handle_search_mode(app: &mut AppState, event: InputEvent) -> Handl
 
 #[cfg(feature = "native")]
 mod native {
-    use std::future::Future;
-
     use crossterm::event::Event;
     use crossterm::event::EventStream;
     use crossterm::event::KeyEventKind;
@@ -351,27 +349,6 @@ mod native {
 
     use super::ui::render_app;
     use super::*;
-
-    /// RAII guard that restores terminal state when `exec_tui` returns, either normally
-    /// or through an early `?` error. On a panic, the hook that `ratatui::init` installs
-    /// restores the terminal, so the guard does not restore it again.
-    struct TerminalRestoreGuard<F: FnOnce()>(Option<F>);
-
-    impl<F: FnOnce()> TerminalRestoreGuard<F> {
-        fn new(restore: F) -> Self {
-            Self(Some(restore))
-        }
-    }
-
-    impl<F: FnOnce()> Drop for TerminalRestoreGuard<F> {
-        fn drop(&mut self) {
-            if let Some(restore) = self.0.take()
-                && !std::thread::panicking()
-            {
-                restore();
-            }
-        }
-    }
 
     async fn run(mut terminal: DefaultTerminal, mut app: AppState) -> VortexResult<()> {
         // Eagerly load data if the initial layout is flat.
@@ -438,25 +415,6 @@ mod native {
         Ok(())
     }
 
-    async fn run_with_restore<T, R, Init, Clear, Run, Fut>(
-        init: Init,
-        clear: Clear,
-        run_loop: Run,
-        restore: R,
-    ) -> VortexResult<()>
-    where
-        R: FnOnce(),
-        Init: FnOnce() -> T,
-        Clear: FnOnce(&mut T) -> VortexResult<()>,
-        Run: FnOnce(T) -> Fut,
-        Fut: Future<Output = VortexResult<()>>,
-    {
-        let mut terminal = init();
-        let _restore_guard = TerminalRestoreGuard::new(restore);
-        clear(&mut terminal)?;
-        run_loop(terminal).await
-    }
-
     /// Launch the interactive TUI browser for a Vortex file.
     ///
     /// # Errors
@@ -468,113 +426,13 @@ mod native {
     ) -> VortexResult<()> {
         let app = AppState::new(session, file).await?;
 
-        run_with_restore(
-            ratatui::init,
-            |terminal| terminal.clear().map_err(Into::into),
-            |terminal| run(terminal, app),
-            ratatui::restore,
-        )
-        .await
-    }
-
-    #[cfg(test)]
-    mod tests {
-        use std::panic::AssertUnwindSafe;
-        use std::sync::Arc;
-        use std::sync::atomic::AtomicUsize;
-        use std::sync::atomic::Ordering;
-
-        use futures::FutureExt;
-        use vortex::error::vortex_err;
-
-        use super::*;
-
-        #[tokio::test]
-        async fn restores_terminal_once_on_normal_exit() -> VortexResult<()> {
-            let restore_count = Arc::new(AtomicUsize::new(0));
-            let restore_ref = Arc::clone(&restore_count);
-
-            run_with_restore(
-                || (),
-                |_| Ok(()),
-                |_| async { Ok(()) },
-                move || {
-                    restore_ref.fetch_add(1, Ordering::SeqCst);
-                },
-            )
-            .await?;
-
-            assert_eq!(restore_count.load(Ordering::SeqCst), 1);
-            Ok(())
-        }
-
-        #[tokio::test]
-        async fn restores_terminal_and_preserves_error_when_clear_fails() -> VortexResult<()> {
-            let restore_count = Arc::new(AtomicUsize::new(0));
-            let restore_ref = Arc::clone(&restore_count);
-
-            let res = run_with_restore(
-                || (),
-                |_| Err(vortex_err!("clear io failure")),
-                |_| async { unreachable!("run loop must not start when clear fails") },
-                move || {
-                    restore_ref.fetch_add(1, Ordering::SeqCst);
-                },
-            )
-            .await;
-
-            let err = res.expect_err("clear error must propagate");
-            assert!(err.to_string().contains("clear io failure"), "got: {err}");
-            assert_eq!(restore_count.load(Ordering::SeqCst), 1);
-            Ok(())
-        }
-
-        #[tokio::test]
-        async fn restores_terminal_and_preserves_error_when_run_loop_fails() -> VortexResult<()> {
-            let restore_count = Arc::new(AtomicUsize::new(0));
-            let restore_ref = Arc::clone(&restore_count);
-
-            let res = run_with_restore(
-                || (),
-                |_| Ok(()),
-                |_| async { Err(vortex_err!("run loop io failure")) },
-                move || {
-                    restore_ref.fetch_add(1, Ordering::SeqCst);
-                },
-            )
-            .await;
-
-            let err = res.expect_err("run loop error must propagate");
-            assert!(
-                err.to_string().contains("run loop io failure"),
-                "got: {err}"
-            );
-            assert_eq!(restore_count.load(Ordering::SeqCst), 1);
-            Ok(())
-        }
-
-        #[tokio::test]
-        async fn skips_restore_when_unwinding_from_panic() -> VortexResult<()> {
-            let restore_count = Arc::new(AtomicUsize::new(0));
-            let restore_ref = Arc::clone(&restore_count);
-
-            let panicked = AssertUnwindSafe(run_with_restore(
-                || (),
-                |_| Ok(()),
-                |_| async {
-                    panic!("simulated tui panic");
-                },
-                move || {
-                    restore_ref.fetch_add(1, Ordering::SeqCst);
-                },
-            ))
-            .catch_unwind()
-            .await;
-
-            assert!(panicked.is_err());
-            assert_eq!(restore_count.load(Ordering::SeqCst), 0);
-            Ok(())
-        }
+        let mut terminal = ratatui::init();
+        let result = match terminal.clear() {
+            Ok(()) => run(terminal, app).await,
+            Err(e) => Err(e.into()),
+        };
+        ratatui::restore();
+        result
     }
 }
 
