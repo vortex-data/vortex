@@ -633,10 +633,13 @@ mod tests {
         )
         .with_split_max_row_count(0);
 
+        let err = runtime
+            .block_on(source.scan(ScanRequest::default()))
+            .err()
+            .expect("zero split_max_row_count should fail");
         assert!(
-            runtime
-                .block_on(source.scan(ScanRequest::default()))
-                .is_err()
+            err.to_string()
+                .contains("split_max_row_count must be greater than zero")
         );
 
         Ok(())

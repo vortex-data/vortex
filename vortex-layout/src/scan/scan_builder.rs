@@ -358,6 +358,10 @@ impl<A: 'static + Send> ScanBuilder<A> {
     /// Rewrite range comparisons in the filter into betweens, compute split ranges, and return an
     /// executable repeated scan.
     pub fn prepare(self) -> VortexResult<RepeatedScan<A>> {
+        // Validate split configuration before selecting the range strategy so empty row ranges,
+        // sparse selections, and natural splits fail consistently with full scans.
+        self.split_by.validate()?;
+
         let dtype = self.dtype()?;
 
         // Spin up the root layout reader, and wrap it in a FilterLayoutReader to perform
@@ -381,10 +385,6 @@ impl<A: 'static + Send> ScanBuilder<A> {
 
         let bound_projection = self.projection;
         let bound_filter = self.filter.map(find_between).transpose()?;
-
-        // Validate split configuration before selecting the range strategy so empty row ranges
-        // and sparse selections fail consistently with full scans.
-        self.split_by.validate()?;
 
         // Compute the row splits of the scan.
         let splits =
@@ -1410,27 +1410,27 @@ mod test {
             SplitBy::RowCount(0),
             SplitBy::LayoutSubSplitting { max_rows: 0 },
         ] {
-            assert!(
-                ScanBuilder::new(
-                    session.clone(),
-                    Arc::new(SplittingLayoutReader::new(Arc::new(AtomicUsize::new(0)))),
-                )
-                .with_row_range(0..0)
-                .with_split_by(split_by)
-                .prepare()
-                .is_err()
-            );
+            let empty_err = ScanBuilder::new(
+                session.clone(),
+                Arc::new(SplittingLayoutReader::new(Arc::new(AtomicUsize::new(0)))),
+            )
+            .with_row_range(0..0)
+            .with_split_by(split_by)
+            .prepare()
+            .err()
+            .expect("empty row range should reject zero split size");
+            assert!(empty_err.to_string().contains("must be greater than zero"));
 
-            assert!(
-                ScanBuilder::new(
-                    session.clone(),
-                    Arc::new(SplittingLayoutReader::new(Arc::new(AtomicUsize::new(0)))),
-                )
-                .with_selection(Selection::IncludeByIndex(sparse_indices.clone()))
-                .with_split_by(split_by)
-                .prepare()
-                .is_err()
-            );
+            let sparse_err = ScanBuilder::new(
+                session.clone(),
+                Arc::new(SplittingLayoutReader::new(Arc::new(AtomicUsize::new(0)))),
+            )
+            .with_selection(Selection::IncludeByIndex(sparse_indices.clone()))
+            .with_split_by(split_by)
+            .prepare()
+            .err()
+            .expect("sparse selection should reject zero split size");
+            assert!(sparse_err.to_string().contains("must be greater than zero"));
         }
 
         Ok(())

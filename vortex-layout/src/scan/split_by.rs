@@ -67,12 +67,12 @@ impl SplitBy {
             SplitBy::LayoutSubSplitting { max_rows } => {
                 vortex_ensure!(
                     max_rows > 0,
-                    "SplitBy::LayoutSubSplitting requires a non-zero max_rows"
+                    "SplitBy::LayoutSubSplitting max_rows must be greater than zero"
                 );
                 Ok(())
             }
             SplitBy::RowCount(n) => {
-                vortex_ensure!(n > 0, "SplitBy::RowCount requires a non-zero row count");
+                vortex_ensure!(n > 0, "SplitBy::RowCount must be greater than zero");
                 Ok(())
             }
         }
@@ -456,13 +456,11 @@ mod test {
 
     #[test]
     fn test_layout_sub_splitting_rejects_zero_max_rows() {
-        let nonempty = StubReader::new(10, vec![]);
-        let result = SplitBy::LayoutSubSplitting { max_rows: 0 }.splits(
-            &nonempty,
-            &(0..10),
-            &[FieldMask::All],
-        );
-        assert!(result.is_err());
+        let reader = StubReader::new(10, vec![]);
+        let err = SplitBy::LayoutSubSplitting { max_rows: 0 }
+            .splits(&reader, &(0..10), &[FieldMask::All])
+            .unwrap_err();
+        assert!(err.to_string().contains("must be greater than zero"));
     }
 
     #[test]

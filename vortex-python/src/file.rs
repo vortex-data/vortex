@@ -611,14 +611,9 @@ pub(crate) fn row_indices(
     if detach { py.detach(decode) } else { decode() }
 }
 
-pub(crate) fn validate_positive_split_size(
-    size: Option<usize>,
-    param_name: &str,
-) -> PyVortexResult<Option<usize>> {
+pub(crate) fn validate_positive_split_size(size: Option<usize>) -> PyVortexResult<Option<usize>> {
     if size == Some(0) {
-        return Err(
-            PyValueError::new_err(format!("{param_name} must be greater than zero")).into(),
-        );
+        return Err(PyValueError::new_err("batch_size must be greater than zero").into());
     }
     Ok(size)
 }
@@ -631,7 +626,7 @@ fn scan_builder(
     indices: Option<StrictSortedBuffer<u64>>,
     batch_size: Option<usize>,
 ) -> PyVortexResult<ScanBuilder<ArrayRef>> {
-    let batch_size = validate_positive_split_size(batch_size, "batch_size")?;
+    let batch_size = validate_positive_split_size(batch_size)?;
     let projection = projection
         .unwrap_or_else(root)
         .bind(vxf.dtype())?
