@@ -340,3 +340,87 @@ def test_latest_symlink_pointing_to_partial_run_falls_back(tmp_path: Path, monke
     assert latest is not None
     assert latest.run_id == ok_id
     assert latest.partial is False
+
+
+def test_latest_recovery_prefers_latest_completion_time_for_overlapping_runs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _patch_store_env(monkeypatch)
+    times = iter(
+        [
+            datetime(2026, 4, 1, 12, 0, 0),  # start A
+            datetime(2026, 4, 1, 12, 0, 5),  # start B
+            datetime(2026, 4, 1, 12, 0, 10),  # finish B
+            datetime(2026, 4, 1, 12, 0, 20),  # finish A
+            datetime(2026, 4, 1, 12, 0, 30),  # start partial
+            datetime(2026, 4, 1, 12, 0, 35),  # finish partial
+        ]
+    )
+
+    class SequencedDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None) -> datetime:  # type: ignore[override]
+            return next(times)
+
+    monkeypatch.setattr("bench_orchestrator.storage.store.datetime", SequencedDatetime)
+
+    store = ResultStore(base_dir=tmp_path / "runs")
+    cfg_a, build_cfg = _make_configs(label="run-a")
+    cfg_b, _ = _make_configs(label="run-b")
+    cfg_partial, _ = _make_configs(label="run-partial")
+
+    with store.create_run(cfg_a, build_cfg) as ctx_a:
+        id_a = ctx_a.metadata.run_id
+        ctx_a.write_raw_json(json.dumps({"run": "a"}))
+        with store.create_run(cfg_b, build_cfg) as ctx_b:
+            id_b = ctx_b.metadata.run_id
+            ctx_b.write_raw_json(json.dumps({"run": "b"}))
+
+    # Live latest points to A (completed last), while list_runs preserves start-time order (B before A).
+    live_latest = store.get_run("latest")
+    assert live_latest is not None
+    assert live_latest.run_id == id_a
+    listed_ids = [r.run_id for r in store.list_runs(limit=None)]
+    assert listed_ids == [id_b, id_a]
+
+    with store.create_run(cfg_partial, build_cfg) as ctx_partial:
+        partial_id = ctx_partial.metadata.run_id
+        ctx_partial.metadata.partial = True
+
+    latest_link = store.base_dir / "latest"
+    latest_link.unlink()
+    latest_link.symlink_to(partial_id)
+
+    recovered = store.get_run("latest")
+    assert recovered is not None
+    assert recovered.run_id == id_a
+
+
+def test_latest_recovery_skips_malformed_timestamp_candidate(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _patch_store_env(monkeypatch)
+    store = ResultStore(base_dir=tmp_path / "runs")
+    cfg_one, build_cfg = _make_configs(label="first")
+    cfg_two, _ = _make_configs(label="second")
+
+    with store.create_run(cfg_one, build_cfg) as ctx_one:
+        ctx_one.write_raw_json(json.dumps({"run": 1}))
+
+    with store.create_run(cfg_two, build_cfg) as ctx_two:
+        id_two = ctx_two.metadata.run_id
+        ctx_two.write_raw_json(json.dumps({"run": 2}))
+
+    # Add an unrelated historical run with a malformed timestamp.
+    corrupt_dir = store.base_dir / "2026-01-01T00-00-00_tpch_corrupt"
+    corrupt_dir.mkdir()
+    corrupt_meta = json.loads((store.base_dir / id_two / "metadata.json").read_text())
+    corrupt_meta["run_id"] = corrupt_dir.name
+    corrupt_meta["timestamp"] = "not-a-valid-timestamp"
+    (corrupt_dir / "metadata.json").write_text(json.dumps(corrupt_meta))
+
+    # Force recovery by removing the latest symlink.
+    (store.base_dir / "latest").unlink()
+
+    recovered = store.get_run("latest")
+    assert recovered is not None
+    assert recovered.run_id == id_two
+    assert len(store.list_runs(limit=None)) == 2

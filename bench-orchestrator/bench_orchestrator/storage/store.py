@@ -230,29 +230,24 @@ class ResultStore:
 
         summaries = []
         for run_dir in self._iter_run_dirs():
-            metadata_path = run_dir / "metadata.json"
-
-            try:
-                with open(metadata_path) as f:
-                    data = json.load(f)
-                metadata = RunMetadata.from_dict(data)
-
-                # Apply filters
-                if benchmark and metadata.benchmark != benchmark:
-                    continue
-                if since and metadata.timestamp < since:
-                    continue
-
-                # Count results
-                results_path = run_dir / "results.jsonl"
-                result_count = 0
-                if results_path.exists():
-                    with open(results_path) as f:
-                        result_count = sum(1 for _ in f)
-
-                summaries.append(RunSummary.from_metadata(metadata, result_count))
-            except (json.JSONDecodeError, KeyError):
+            metadata = self._read_run_metadata(run_dir)
+            if metadata is None:
                 continue
+
+            # Apply filters
+            if benchmark and metadata.benchmark != benchmark:
+                continue
+            if since and metadata.timestamp < since:
+                continue
+
+            # Count results
+            results_path = run_dir / "results.jsonl"
+            result_count = 0
+            if results_path.exists():
+                with open(results_path) as f:
+                    result_count = sum(1 for _ in f)
+
+            summaries.append(RunSummary.from_metadata(metadata, result_count))
 
         # Sort by timestamp descending
         summaries.sort(key=lambda s: s.timestamp, reverse=True)
@@ -281,11 +276,15 @@ class ResultStore:
                 target_meta = self._read_run_metadata(self.base_dir / target_id)
                 if target_meta is not None and not target_meta.partial:
                     return target_meta
-            # Fall back to most recent non-partial run (handles missing, broken, or partial latest link).
-            complete_runs = [r for r in self.list_runs(limit=None) if not r.partial]
+            # Fall back to the successful run with the latest completion time (skipping invalid metadata).
+            complete_runs: list[RunMetadata] = []
+            for run_dir in self._iter_run_dirs():
+                metadata = self._read_run_metadata(run_dir)
+                if metadata is not None and not metadata.partial:
+                    complete_runs.append(metadata)
             if not complete_runs:
                 return None
-            return self._read_run_metadata(self.base_dir / complete_runs[0].run_id)
+            return max(complete_runs, key=lambda m: (m.completed_at or m.timestamp, m.timestamp))
 
         # Try direct match
         run_dir = self.base_dir / run_id_or_label
