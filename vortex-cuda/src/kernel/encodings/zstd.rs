@@ -39,6 +39,7 @@ use vortex_cuda_driver::SyncOnDrop;
 use vortex_nvcomp::sys::nvcompStatus_t;
 use vortex_nvcomp::zstd as nvcomp_zstd;
 
+use super::zstd_buffers::validate_decompress_results;
 use crate::CudaBufferExt;
 use crate::CudaDeviceBuffer;
 use crate::executor::CudaExecute;
@@ -54,6 +55,8 @@ pub struct ZstdKernelPrep {
     pub output_sizes_ptr: u64,
     /// Device pointer to array of pointers to output buffers.
     pub output_ptrs_ptr: u64,
+    /// Expected uncompressed size per frame on host.
+    pub output_sizes: Vec<usize>,
     /// Number of frames to decompress.
     pub num_frames: usize,
     /// Size of temporary buffer for nvcomp.
@@ -145,7 +148,7 @@ pub async fn zstd_kernel_prepare(
     let (frame_ptrs_handle, frame_sizes_handle, output_sizes_handle, output_ptrs_handle) = futures::try_join!(
         ctx.copy_to_device(frame_ptrs)?,
         ctx.copy_to_device(frame_sizes)?,
-        ctx.copy_to_device(output_sizes)?,
+        ctx.copy_to_device(output_sizes.clone())?,
         ctx.copy_to_device(output_ptrs)?
     )?;
 
@@ -165,6 +168,7 @@ pub async fn zstd_kernel_prepare(
         frame_sizes_ptr,
         output_sizes_ptr,
         output_ptrs_ptr,
+        output_sizes,
         num_frames,
         nvcomp_temp_buffer_size,
         device_actual_sizes,
@@ -342,6 +346,13 @@ async fn decode_zstd(array: ZstdArray, ctx: &mut CudaExecutionCtx) -> VortexResu
     })?;
     finish_result?;
 
+    validate_decompress_results(
+        &exec.output_sizes,
+        exec.device_actual_sizes,
+        exec.device_statuses,
+    )
+    .await?;
+
     // Unconditionally copy back to the host as Zstd arrays are fully
     // self-contained. They neither have any parent or child encodings.
     //
@@ -392,6 +403,7 @@ mod tests {
     use vortex::session::VortexSession;
     use vortex_array::VortexSessionExecute;
 
+    use super::super::zstd_buffers::validate_nvcomp_decompress_results;
     use super::*;
     use crate::CanonicalCudaExt;
     use crate::executor::CudaArrayExt;
@@ -612,5 +624,52 @@ mod tests {
 
         assert_arrays_eq!(gpu_result, cpu_result, &mut ctx);
         Ok(())
+    }
+
+    #[test]
+    fn test_cuda_zstd_validate_nvcomp_results_success() -> VortexResult<()> {
+        let expected = [16usize, 64, 24];
+        let actual = [16usize, 64, 24];
+        let statuses = [vortex_nvcomp::sys::nvcompStatus_t_nvcompSuccess; 3];
+
+        validate_nvcomp_decompress_results(&expected, &actual, &statuses)
+    }
+
+    #[test]
+    fn test_cuda_zstd_validate_nvcomp_results_middle_frame_failure() {
+        let expected = [16usize, 64, 24];
+        let actual = [16usize, 64, 24];
+        let statuses = [
+            vortex_nvcomp::sys::nvcompStatus_t_nvcompSuccess,
+            vortex_nvcomp::sys::nvcompStatus_t_nvcompErrorCannotDecompress,
+            vortex_nvcomp::sys::nvcompStatus_t_nvcompSuccess,
+        ];
+
+        let err = validate_nvcomp_decompress_results(&expected, &actual, &statuses)
+            .expect_err("middle frame failure must return an error");
+        let msg = err.to_string();
+        assert!(msg.contains("chunk 1"), "unexpected error: {msg}");
+        assert!(
+            msg.contains(
+                &vortex_nvcomp::sys::nvcompStatus_t_nvcompErrorCannotDecompress.to_string()
+            ),
+            "unexpected error: {msg}"
+        );
+    }
+
+    #[test]
+    fn test_cuda_zstd_validate_nvcomp_results_size_mismatch() {
+        let expected = [16usize, 64, 24];
+        let actual = [16usize, 32, 24];
+        let statuses = [vortex_nvcomp::sys::nvcompStatus_t_nvcompSuccess; 3];
+
+        let err = validate_nvcomp_decompress_results(&expected, &actual, &statuses)
+            .expect_err("size mismatch must return an error");
+        let msg = err.to_string();
+        assert!(msg.contains("chunk 1"), "unexpected error: {msg}");
+        assert!(
+            msg.contains("expected 64, got 32"),
+            "unexpected error: {msg}"
+        );
     }
 }

@@ -15,7 +15,6 @@ use vortex::buffer::Alignment;
 use vortex::buffer::Buffer;
 use vortex::encodings::zstd::ZstdBuffers;
 use vortex::encodings::zstd::ZstdBuffersArray;
-use vortex::encodings::zstd::ZstdBuffersDecodePlan;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
 use vortex_cuda_driver::CudaSlice;
@@ -177,7 +176,7 @@ async fn decode_zstd_buffers(
     })?;
     finish_result?;
 
-    validate_decompress_results(&plan, device_actual_sizes, device_statuses).await?;
+    validate_decompress_results(&plan.output_sizes(), device_actual_sizes, device_statuses).await?;
 
     let output_handle = BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(device_output)?));
     let decompressed_buffers = plan.split_output_handle(&output_handle)?;
@@ -197,27 +196,15 @@ async fn move_frames_to_device(
     Ok(results)
 }
 
-// This performs D2H to retrieve the lengths and status arrays.
-async fn validate_decompress_results(
-    plan: &ZstdBuffersDecodePlan,
-    device_actual_sizes: CudaSlice<usize>,
-    device_statuses: CudaSlice<nvcompStatus_t>,
+/// Validates per-frame nvCOMP decompression statuses and actual output byte lengths.
+pub(super) fn validate_nvcomp_decompress_results(
+    expected_sizes: &[usize],
+    actual_sizes: &[usize],
+    statuses: &[nvcompStatus_t],
 ) -> VortexResult<()> {
-    let actual_sizes_host = CudaDeviceBuffer::new(device_actual_sizes)?
-        .copy_to_host(Alignment::of::<usize>())?
-        .await?;
-    let statuses_host = CudaDeviceBuffer::new(device_statuses)?
-        .copy_to_host(Alignment::of::<nvcompStatus_t>())?
-        .await?;
-
-    let actual_sizes = Buffer::<usize>::from_byte_buffer(actual_sizes_host);
-    let statuses = Buffer::<nvcompStatus_t>::from_byte_buffer(statuses_host);
-    let expected_sizes = plan.output_sizes();
-
     for (idx, ((&status, &actual), &expected)) in statuses
-        .as_slice()
         .iter()
-        .zip(actual_sizes.as_slice().iter())
+        .zip(actual_sizes.iter())
         .zip(expected_sizes.iter())
         .enumerate()
     {
@@ -239,6 +226,24 @@ async fn validate_decompress_results(
     }
 
     Ok(())
+}
+
+// This performs D2H to retrieve the lengths and status arrays.
+pub(super) async fn validate_decompress_results(
+    expected_sizes: &[usize],
+    device_actual_sizes: CudaSlice<usize>,
+    device_statuses: CudaSlice<nvcompStatus_t>,
+) -> VortexResult<()> {
+    let actual_sizes_fut =
+        CudaDeviceBuffer::new(device_actual_sizes)?.copy_to_host(Alignment::of::<usize>())?;
+    let statuses_fut =
+        CudaDeviceBuffer::new(device_statuses)?.copy_to_host(Alignment::of::<nvcompStatus_t>())?;
+    let (actual_sizes_host, statuses_host) = futures::try_join!(actual_sizes_fut, statuses_fut)?;
+
+    let actual_sizes = Buffer::<usize>::from_byte_buffer(actual_sizes_host);
+    let statuses = Buffer::<nvcompStatus_t>::from_byte_buffer(statuses_host);
+
+    validate_nvcomp_decompress_results(expected_sizes, actual_sizes.as_slice(), statuses.as_slice())
 }
 
 #[cfg(test)]
