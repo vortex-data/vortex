@@ -6,22 +6,13 @@ use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 use std::task::Waker;
 
-use parking_lot::Mutex;
 use rstest::rstest;
 use vortex_array::assert_arrays_eq;
-use vortex_buffer::Alignment;
 use vortex_buffer::buffer;
 use vortex_error::VortexResult;
 use vortex_io::request::IoRequest;
-use vortex_io::segments::FileSegmentSource;
-use vortex_io::segments::RequestMetrics;
-use vortex_io::segments::SegmentLocation;
-use vortex_io::segments::SegmentSource;
-use vortex_metrics::DefaultMetricsRegistry;
 
 use super::*;
-use crate::execution::io::SegmentScanIo;
-use crate::execution::io::segment_ranges;
 use crate::execution::planning::tests::scripted::Log;
 use crate::execution::planning::tests::scripted::MorselStep;
 use crate::execution::planning::tests::scripted::PlannerStep;
@@ -851,144 +842,6 @@ impl Planner for SpawningRoot {
     }
 }
 
-struct ControlledOrder {
-    release_order: VecDeque<usize>,
-    wakers: Vec<Waker>,
-}
-
-struct ControlledIoSession {
-    index: usize,
-    inner: RecordingIoSource,
-    order: Arc<Mutex<ControlledOrder>>,
-    clears: AtomicUsize,
-}
-
-impl ControlledIoSession {
-    fn clear_count(&self) -> usize {
-        self.clears.load(Ordering::Acquire)
-    }
-}
-
-impl IoSource for ControlledIoSession {
-    fn submit(&self, owner: IoOwnerId, batch: IoBatch) -> VortexResult<()> {
-        self.inner.submit(owner, batch)
-    }
-
-    fn poll(&self) -> VortexResult<Option<Completion>> {
-        let order = self.order.lock();
-        if order.release_order.front() != Some(&self.index) {
-            return Ok(None);
-        }
-        drop(order);
-        self.inner.poll()
-    }
-
-    fn poll_completion(&self, cx: &mut Context<'_>) -> Poll<VortexResult<Completion>> {
-        let mut order = self.order.lock();
-        if order.release_order.front() != Some(&self.index) {
-            order.wakers.push(cx.waker().clone());
-            return Poll::Pending;
-        }
-        drop(order);
-        Poll::Ready(self.inner.wait())
-    }
-
-    fn wait(&self) -> VortexResult<Completion> {
-        self.inner.wait()
-    }
-
-    fn release(&self, owner: IoOwnerId) {
-        self.inner.release(owner);
-    }
-
-    fn clear(&self) {
-        self.clears.fetch_add(1, Ordering::AcqRel);
-        self.inner.clear();
-        let wakers = {
-            let mut order = self.order.lock();
-            if order.release_order.front() == Some(&self.index) {
-                order.release_order.pop_front();
-            }
-            std::mem::take(&mut order.wakers)
-        };
-        for waker in wakers {
-            waker.wake();
-        }
-    }
-}
-
-struct ControlledIoService {
-    order: Arc<Mutex<ControlledOrder>>,
-    sessions: Mutex<Vec<Arc<ControlledIoSession>>>,
-}
-
-impl ControlledIoService {
-    fn new(release_order: impl IntoIterator<Item = usize>) -> Arc<Self> {
-        Arc::new(Self {
-            order: Arc::new(Mutex::new(ControlledOrder {
-                release_order: release_order.into_iter().collect(),
-                wakers: Vec::new(),
-            })),
-            sessions: Mutex::new(Vec::new()),
-        })
-    }
-
-    fn sessions(&self) -> Vec<Arc<ControlledIoSession>> {
-        self.sessions.lock().clone()
-    }
-}
-
-impl IoService for ControlledIoService {
-    fn session(&self) -> Arc<dyn IoSource> {
-        let mut sessions = self.sessions.lock();
-        let index = sessions.len();
-        let inner = RecordingIoSource::default();
-        inner.canned_bytes(0, buffer![0u8, 1, 2, 3].into_byte_buffer());
-        inner.canned_bytes(4, buffer![4u8, 5, 6, 7].into_byte_buffer());
-        let session = Arc::new(ControlledIoSession {
-            index,
-            inner,
-            order: Arc::clone(&self.order),
-            clears: AtomicUsize::new(0),
-        });
-        sessions.push(Arc::clone(&session));
-        session
-    }
-}
-
-#[rstest]
-#[case::parent_finishes_first([0, 1], [0..2, 2..4])]
-#[case::child_finishes_first([1, 0], [2..4, 0..2])]
-fn blocking_driver_isolates_spawned_root_sessions(
-    #[case] first_run_order: [usize; 2],
-    #[case] expected_scopes: [Range<u64>; 2],
-) -> VortexResult<()> {
-    let second_run_order = [first_run_order[0] + 2, first_run_order[1] + 2];
-    let service = ControlledIoService::new(first_run_order.into_iter().chain(second_run_order));
-    let driver =
-        Driver::with_service(Arc::clone(&service) as Arc<dyn IoService>).with_step_limit(1_000);
-
-    for run_idx in 0..2 {
-        let log = Log::default();
-        let child = reading_root("child", &log, 2..4);
-        let root = Box::new(SpawningRoot {
-            spawned: Some((scope(2..4), child)),
-            inner: reading_root("parent", &log, 0..2),
-        });
-
-        let batches = driver.run(root)?;
-        let actual_scopes: Vec<Range<u64>> = batches.iter().map(|b| b.scope.rows.clone()).collect();
-        assert_eq!(actual_scopes, expected_scopes);
-
-        let sessions = service.sessions();
-        assert_eq!(sessions.len(), (run_idx + 1) * 2);
-        for session in &sessions[run_idx * 2..(run_idx + 1) * 2] {
-            assert_eq!(session.clear_count(), 1);
-        }
-    }
-    Ok(())
-}
-
 #[test]
 fn single_session_driver_rejects_spawned_independent_root() {
     let log = Log::default();
@@ -1004,59 +857,7 @@ fn single_session_driver_rejects_spawned_independent_root() {
         .err()
         .expect("Driver::new must reject spawned independent roots");
     assert!(
-        err.to_string().contains("Driver::with_service"),
+        err.to_string().contains("ScanDriver"),
         "unexpected error: {err}"
     );
-}
-
-#[test]
-fn service_driver_completes_file_segment_source_on_caller_runtime() -> VortexResult<()> {
-    let runtime = SingleThreadRuntime::default();
-    let locations: Arc<[SegmentLocation]> = Arc::from([
-        SegmentLocation {
-            offset: 0,
-            length: 4,
-            alignment: Alignment::none(),
-        },
-        SegmentLocation {
-            offset: 4,
-            length: 4,
-            alignment: Alignment::none(),
-        },
-    ]);
-    let data = buffer![0u8, 1, 2, 3, 4, 5, 6, 7].into_byte_buffer();
-    let metrics = DefaultMetricsRegistry::default();
-    let file_source: Arc<dyn SegmentSource> = Arc::new(FileSegmentSource::open(
-        Arc::clone(&locations),
-        data,
-        runtime.handle(),
-        RequestMetrics::new(&metrics, Vec::new()),
-    ));
-    let service: Arc<dyn IoService> =
-        Arc::new(SegmentScanIo::new(file_source, segment_ranges(&locations)));
-    let single_driver = Driver::new(service.session()).with_step_limit(1_000);
-    let driver = Driver::with_service(service).with_step_limit(1_000);
-
-    let log = Log::default();
-    let single_batches =
-        single_driver.run_on(&runtime, reading_root("single_session", &log, 0..2))?;
-    assert_eq!(single_batches.len(), 1);
-    assert_eq!(single_batches[0].scope.rows, 0..2);
-
-    let root = reading_root("single", &log, 0..2);
-    let batches = driver.run_on(&runtime, root)?;
-    assert_eq!(batches.len(), 1);
-    assert_eq!(batches[0].scope.rows, 0..2);
-
-    let child = reading_root("child", &log, 2..4);
-    let spawning = Box::new(SpawningRoot {
-        spawned: Some((scope(2..4), child)),
-        inner: reading_root("parent", &log, 0..2),
-    });
-    let batches = runtime.block_on(driver.run_async(spawning))?;
-    assert_eq!(batches.len(), 2);
-    let mut scopes: Vec<Range<u64>> = batches.into_iter().map(|b| b.scope.rows).collect();
-    scopes.sort_by_key(|r| r.start);
-    assert_eq!(scopes, vec![0..2, 2..4]);
-    Ok(())
 }

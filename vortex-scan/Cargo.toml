@@ -47,7 +47,6 @@ tokio = { workspace = true, features = [
 ] }
 vortex-array = { workspace = true, features = ["_test-harness"] }
 vortex-io = { workspace = true, features = ["tokio"] }
-vortex-metrics = { workspace = true }
 
 [lints]
 workspace = true
