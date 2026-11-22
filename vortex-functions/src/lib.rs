@@ -5,7 +5,7 @@
 //! crate does not itself depend on.
 //!
 //! The scalar functions that canonical arrays, validity and the optimizer rely on (cast,
-//! fill_null, mask, binary operators, get_item, pack, literal, zip, ...) live in
+//! fill_null, mask, binary operators, get_item, pack, literal, ...) live in
 //! `vortex_array::scalar_fn::builtin`. This crate holds struct reshaping ([`merge`]),
 //! conditionals ([`case_when`]), list reductions ([`list_length`], [`list_sum`]), and
 //! [`byte_length`], [`ext_storage`] and [`replace_time_zone`], and the scan-time functions
