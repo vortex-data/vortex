@@ -26,7 +26,7 @@ function deferred<T>(): Deferred<T> {
   return { promise, resolve, reject };
 }
 
-describe('BufferSelectionController (rank 19)', () => {
+describe('BufferSelectionController', () => {
   test('keeps bytes from the second buffer when the first read resolves late', async () => {
     const read0 = deferred<Uint8Array>();
     const read1 = deferred<Uint8Array>();

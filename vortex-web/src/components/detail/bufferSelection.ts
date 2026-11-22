@@ -40,10 +40,6 @@ export class BufferSelectionController {
     this.fetchArrayBuffer = fetchArrayBuffer;
   }
 
-  setFetchArrayBuffer(fetchArrayBuffer: FetchArrayBufferFn): void {
-    this.fetchArrayBuffer = fetchArrayBuffer;
-  }
-
   subscribe = (listener: () => void): (() => void) => {
     this.listeners.add(listener);
     return () => {
@@ -64,10 +60,14 @@ export class BufferSelectionController {
     this.requestId += 1;
   }
 
-  selectNode(nodeId: string, bufferCount: number): Promise<void> {
+  selectNode(
+    nodeId: string,
+    bufferCount: number,
+    fetchArrayBuffer: FetchArrayBufferFn = this.fetchArrayBuffer,
+  ): Promise<void> {
     this.currentNodeId = nodeId;
     if (bufferCount > 0) {
-      return this.selectBuffer(0);
+      return this.selectBuffer(0, fetchArrayBuffer);
     }
     this.requestId += 1;
     this.setSnapshot({
@@ -80,7 +80,10 @@ export class BufferSelectionController {
     return Promise.resolve();
   }
 
-  async selectBuffer(index: number): Promise<void> {
+  async selectBuffer(
+    index: number,
+    fetchArrayBuffer: FetchArrayBufferFn = this.fetchArrayBuffer,
+  ): Promise<void> {
     const nodeId = this.currentNodeId;
     if (nodeId === null) {
       return;
@@ -97,7 +100,7 @@ export class BufferSelectionController {
 
     try {
       const { layoutNodeId, arrayPath } = parseArrayNodeId(nodeId);
-      const data = await this.fetchArrayBuffer(layoutNodeId, arrayPath, index);
+      const data = await fetchArrayBuffer(layoutNodeId, arrayPath, index);
       if (requestId !== this.requestId) {
         return;
       }

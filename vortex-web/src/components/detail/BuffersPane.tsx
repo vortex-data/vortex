@@ -21,7 +21,6 @@ export function BuffersPane({ node, controller: externalController }: BuffersPan
     controllerRef.current = new BufferSelectionController(fetchArrayBuffer);
   }
   const controller = externalController ?? controllerRef.current!;
-  controller.setFetchArrayBuffer(fetchArrayBuffer);
 
   const snapshot = useSyncExternalStore(
     controller.subscribe,
@@ -38,7 +37,7 @@ export function BuffersPane({ node, controller: externalController }: BuffersPan
 
   // Auto-select first buffer when node changes and invalidate stale reads on change/unmount.
   useEffect(() => {
-    void controller.selectNode(node.id, bufferLengths.length);
+    void controller.selectNode(node.id, bufferLengths.length, fetchArrayBuffer);
     return () => {
       controller.invalidate();
     };
@@ -57,7 +56,7 @@ export function BuffersPane({ node, controller: externalController }: BuffersPan
             type="button"
             key={i}
             aria-pressed={selectedBuffer === i}
-            onClick={() => void controller.selectBuffer(i)}
+            onClick={() => void controller.selectBuffer(i, fetchArrayBuffer)}
           >
             <span className="x-buffer-name">{bufferNames[i]}</span>
             <span className="vx-label-sm vx-num">{formatBytes(len)}</span>
