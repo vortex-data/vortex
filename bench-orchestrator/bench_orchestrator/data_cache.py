@@ -11,11 +11,18 @@ A cache entry is ``s3://bucket/prefix/<key>/`` holding the directory's files plu
 which is written last so that an entry without it is incomplete.
 """
 
+from __future__ import annotations
+
+import fcntl
 import hashlib
 import json
 import os
 import shutil
+import threading
+import uuid
+from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -42,6 +49,144 @@ _PART_CONCURRENCY = 16
 _PART_SIZE = 16 * 1024 * 1024
 
 console = Console(stderr=True)
+
+_LOCKS_GUARD = threading.Lock()
+_THREAD_LOCKS: dict[Path, threading.RLock] = {}
+_LOCK_DEPTH: dict[Path, int] = {}
+_LOCK_FDS: dict[Path, int] = {}
+
+
+def _marker_path(dataset: CachedDataset) -> Path:
+    """Path to the fingerprint marker stored beside ``dataset.directory``."""
+    return dataset.directory.with_name(f".{dataset.directory.name}.cache-key")
+
+
+def _lock_path(dataset: CachedDataset) -> Path:
+    """Path to the advisory lockfile coordinating writers for ``dataset.directory``."""
+    return dataset.directory.with_name(f".{dataset.directory.name}.cache.lock")
+
+
+@contextmanager
+def _dataset_lock(dataset: CachedDataset) -> Iterator[None]:
+    """Serialize in-process and cross-process access to ``dataset.directory``."""
+    lock_file = _lock_path(dataset)
+    lock_file.parent.mkdir(parents=True, exist_ok=True)
+    lock_key = lock_file.resolve()
+    with _LOCKS_GUARD:
+        rlock = _THREAD_LOCKS.setdefault(lock_key, threading.RLock())
+    with rlock:
+        depth = _LOCK_DEPTH.get(lock_key, 0)
+        if depth == 0:
+            fd = os.open(lock_file, os.O_CREAT | os.O_RDWR, 0o666)
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX)
+            except BaseException:
+                os.close(fd)
+                raise
+            _LOCK_FDS[lock_key] = fd
+        _LOCK_DEPTH[lock_key] = depth + 1
+        try:
+            yield
+        finally:
+            _LOCK_DEPTH[lock_key] -= 1
+            if _LOCK_DEPTH[lock_key] == 0:
+                fd = _LOCK_FDS.pop(lock_key)
+                try:
+                    fcntl.flock(fd, fcntl.LOCK_UN)
+                finally:
+                    os.close(fd)
+
+
+def _has_matching_local_cache(dataset: CachedDataset) -> bool:
+    """Return whether ``dataset.directory`` exists and its sibling marker matches ``dataset.key``."""
+    if not dataset.directory.is_dir():
+        return False
+    marker = _marker_path(dataset)
+    if not marker.is_file():
+        return False
+    try:
+        return marker.read_text(encoding="utf-8").strip() == dataset.key
+    except OSError:
+        return False
+
+
+def _write_marker(dataset: CachedDataset) -> None:
+    """Atomically write the completed fingerprint marker beside ``dataset.directory``."""
+    marker = _marker_path(dataset)
+    marker.parent.mkdir(parents=True, exist_ok=True)
+    tmp_marker = marker.with_name(f".{dataset.directory.name}.cache-key.{os.getpid()}.{uuid.uuid4().hex}.tmp")
+    try:
+        tmp_marker.write_text(f"{dataset.key}\n", encoding="utf-8")
+        os.replace(tmp_marker, marker)
+    except BaseException:
+        tmp_marker.unlink(missing_ok=True)
+        raise
+
+
+def _remove_stale_derived_dirs(dataset: CachedDataset) -> None:
+    """Remove sibling derived-format directories that were built from previous base data."""
+    parent = dataset.directory.parent
+    if not parent.is_dir():
+        return
+    for entry in parent.iterdir():
+        if entry.name == dataset.directory.name or entry.name.startswith("."):
+            continue
+        if entry.is_dir() and not entry.is_symlink():
+            shutil.rmtree(entry, ignore_errors=True)
+
+
+def _invalidate_local(dataset: CachedDataset) -> None:
+    """Clear marker, obsolete base directory, and sibling derived-format directories."""
+    _marker_path(dataset).unlink(missing_ok=True)
+    _remove_stale_derived_dirs(dataset)
+    if dataset.directory.is_symlink() or dataset.directory.is_file():
+        dataset.directory.unlink(missing_ok=True)
+    elif dataset.directory.is_dir():
+        shutil.rmtree(dataset.directory)
+
+
+def _publish_staging(dataset: CachedDataset, staging: Path) -> None:
+    """Publish a staged directory and its fingerprint marker under the dataset lock."""
+    _marker_path(dataset).unlink(missing_ok=True)
+    _remove_stale_derived_dirs(dataset)
+    old_dir: Path | None = None
+    if dataset.directory.is_symlink() or dataset.directory.is_file():
+        dataset.directory.unlink()
+    elif dataset.directory.exists():
+        old_dir = dataset.directory.with_name(f".{dataset.directory.name}.old.{os.getpid()}.{uuid.uuid4().hex}")
+        os.replace(dataset.directory, old_dir)
+    try:
+        os.replace(staging, dataset.directory)
+        _write_marker(dataset)
+    finally:
+        if old_dir is not None:
+            shutil.rmtree(old_dir, ignore_errors=True)
+
+
+@contextmanager
+def prepare_dataset(dataset: CachedDataset, cache: S3DataCache | None = None) -> Iterator[bool]:
+    """Coordinate local cache validation, optional S3 restore/save, and clean regeneration.
+
+    Yields ``True`` when the local dataset already matches ``dataset.key`` (or was restored from
+    S3), and ``False`` when the caller must generate ``dataset.directory`` from scratch.
+    """
+    with _dataset_lock(dataset):
+        if cache is not None:
+            restored = cache.restore(dataset)
+        elif _has_matching_local_cache(dataset):
+            console.print(f"{dataset.directory} already matches {dataset.key}")
+            restored = True
+        else:
+            _invalidate_local(dataset)
+            restored = False
+
+        yield restored
+
+        if not restored:
+            if cache is not None:
+                cache.save(dataset)
+            elif dataset.directory.is_dir():
+                _write_marker(dataset)
 
 
 class S3Client(Protocol):
@@ -143,61 +288,81 @@ class S3DataCache:
         assert isinstance(files, list)
         return [str(file) for file in files]
 
+    @contextmanager
+    def prepare(self, dataset: CachedDataset) -> Iterator[bool]:
+        """Coordinate restore, local generation, marker publication, and S3 upload."""
+        with prepare_dataset(dataset, cache=self) as restored:
+            yield restored
+
     def restore(self, dataset: CachedDataset) -> bool:
         """Download the dataset if a fresh entry exists. Return whether ``data-gen`` can skip it.
 
-        An existing local directory counts as restored. The directory only appears once every file
-        is downloaded. S3 errors are reported and treated as a miss, so a cache outage only costs
-        regeneration.
+        Only a local directory whose sibling fingerprint marker matches ``dataset.key`` counts as
+        restored. On a mismatch or unmarked directory, stale data is cleared on miss so ``data-gen``
+        sees an empty destination, or atomically replaced from private staging on hit. S3 errors
+        are reported and treated as a miss, so a cache outage only costs regeneration.
         """
-        if dataset.directory.exists():
-            console.print(f"{dataset.directory} already exists locally")
+        with _dataset_lock(dataset):
+            if _has_matching_local_cache(dataset):
+                console.print(f"{dataset.directory} already matches {dataset.key}")
+                return True
+
+            staging = dataset.directory.with_name(f".{dataset.directory.name}.staging.{os.getpid()}.{uuid.uuid4().hex}")
+            try:
+                files = self._cached_files(dataset)
+                if files is None:
+                    console.print(f"No complete cache for {dataset.key} newer than {RETENTION}")
+                    _invalidate_local(dataset)
+                    return False
+
+                console.print(f"Restoring {len(files)} cached file(s) for {dataset.key}")
+                staging.mkdir(parents=True, exist_ok=True)
+
+                def download(file: str) -> None:
+                    path = staging / file
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    self.client.download_file(
+                        self.bucket, self.object_key(dataset, file), str(path), Config=self._transfer_config
+                    )
+
+                with ThreadPoolExecutor(_FILE_CONCURRENCY) as pool:
+                    list(pool.map(download, files))
+                _publish_staging(dataset, staging)
+            except (BotoCoreError, ClientError, OSError) as exc:
+                shutil.rmtree(staging, ignore_errors=True)
+                _invalidate_local(dataset)
+                console.print(f"[yellow]S3 cache restore failed for {dataset.key}, regenerating: {exc}[/yellow]")
+                return False
             return True
 
-        staging = dataset.directory.with_name(f".{dataset.directory.name}.partial")
-        try:
-            files = self._cached_files(dataset)
-            if files is None:
-                console.print(f"No complete cache for {dataset.key} newer than {RETENTION}")
-                return False
-
-            console.print(f"Restoring {len(files)} cached file(s) for {dataset.key}")
-            shutil.rmtree(staging, ignore_errors=True)
-
-            def download(file: str) -> None:
-                path = staging / file
-                path.parent.mkdir(parents=True, exist_ok=True)
-                self.client.download_file(
-                    self.bucket, self.object_key(dataset, file), str(path), Config=self._transfer_config
-                )
-
-            with ThreadPoolExecutor(_FILE_CONCURRENCY) as pool:
-                list(pool.map(download, files))
-            os.replace(staging, dataset.directory)
-        except (BotoCoreError, ClientError, OSError) as exc:
-            shutil.rmtree(staging, ignore_errors=True)
-            console.print(f"[yellow]S3 cache restore failed for {dataset.key}, regenerating: {exc}[/yellow]")
-            return False
-        return True
-
     def save(self, dataset: CachedDataset) -> None:
-        """Upload the generated directory. S3 errors are reported but do not fail data generation."""
-        if not dataset.directory.is_dir():
-            raise FileNotFoundError(f"data-gen did not write {dataset.directory}")
-        files = sorted(
-            path.relative_to(dataset.directory).as_posix() for path in dataset.directory.rglob("*") if path.is_file()
-        )
+        """Record the local marker and upload the generated directory.
 
-        def upload(file: str) -> None:
-            self.client.upload_file(
-                str(dataset.directory / file), self.bucket, self.object_key(dataset, file), Config=self._transfer_config
+        S3 errors are reported but do not fail data generation.
+        """
+        with _dataset_lock(dataset):
+            if not dataset.directory.is_dir():
+                raise FileNotFoundError(f"data-gen did not write {dataset.directory}")
+            _write_marker(dataset)
+            files = sorted(
+                path.relative_to(dataset.directory).as_posix()
+                for path in dataset.directory.rglob("*")
+                if path.is_file()
             )
 
-        console.print(f"Uploading {len(files)} file(s) to the cache for {dataset.key}")
-        try:
-            with ThreadPoolExecutor(_FILE_CONCURRENCY) as pool:
-                list(pool.map(upload, files))
-            manifest = json.dumps({"files": files}).encode()
-            self.client.put_object(Bucket=self.bucket, Key=self.object_key(dataset, MANIFEST), Body=manifest)
-        except (BotoCoreError, ClientError, OSError) as exc:
-            console.print(f"[yellow]S3 cache upload failed for {dataset.key}: {exc}[/yellow]")
+            def upload(file: str) -> None:
+                self.client.upload_file(
+                    str(dataset.directory / file),
+                    self.bucket,
+                    self.object_key(dataset, file),
+                    Config=self._transfer_config,
+                )
+
+            console.print(f"Uploading {len(files)} file(s) to the cache for {dataset.key}")
+            try:
+                with ThreadPoolExecutor(_FILE_CONCURRENCY) as pool:
+                    list(pool.map(upload, files))
+                manifest = json.dumps({"files": files}).encode()
+                self.client.put_object(Bucket=self.bucket, Key=self.object_key(dataset, MANIFEST), Body=manifest)
+            except (BotoCoreError, ClientError, OSError) as exc:
+                console.print(f"[yellow]S3 cache upload failed for {dataset.key}: {exc}[/yellow]")
