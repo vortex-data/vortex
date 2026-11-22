@@ -339,24 +339,54 @@ pub(crate) fn handle_search_mode(app: &mut AppState, event: InputEvent) -> Handl
 
 #[cfg(feature = "native")]
 mod native {
+    use std::future::Future;
+    use std::io;
+
     use crossterm::event::Event;
     use crossterm::event::EventStream;
     use crossterm::event::KeyEventKind;
+    use futures::Stream;
     use futures::StreamExt;
-    use ratatui::DefaultTerminal;
+    use ratatui::Terminal;
+    use ratatui::backend::Backend;
     use vortex::error::VortexResult;
     use vortex::session::VortexSession;
 
     use super::ui::render_app;
     use super::*;
 
-    async fn run(mut terminal: DefaultTerminal, mut app: AppState) -> VortexResult<()> {
+    /// RAII guard that restores terminal state on every exit path (normal return,
+    /// early `?` error, or unwind).
+    struct TerminalRestoreGuard<F: FnOnce()>(Option<F>);
+
+    impl<F: FnOnce()> TerminalRestoreGuard<F> {
+        fn new(restore: F) -> Self {
+            Self(Some(restore))
+        }
+    }
+
+    impl<F: FnOnce()> Drop for TerminalRestoreGuard<F> {
+        fn drop(&mut self) {
+            if let Some(restore) = self.0.take() {
+                restore();
+            }
+        }
+    }
+
+    async fn run_event_loop<B, S>(
+        mut terminal: Terminal<B>,
+        mut app: AppState,
+        mut events: S,
+    ) -> VortexResult<()>
+    where
+        B: Backend<Error = io::Error>,
+        S: Stream<Item = io::Result<Event>> + Unpin,
+    {
         // Eagerly load data if the initial layout is flat.
         if app.cursor.layout().is::<Flat>() {
             app.load_flat_data().await;
         }
 
-        let mut events = EventStream::new();
         loop {
             terminal.draw(|frame| render_app(&mut app, frame))?;
 
@@ -415,6 +445,25 @@ mod native {
         Ok(())
     }
 
+    async fn run_with_restore<T, R, Init, Clear, Run, Fut>(
+        init: Init,
+        clear: Clear,
+        run_loop: Run,
+        restore: R,
+    ) -> VortexResult<()>
+    where
+        R: FnOnce(),
+        Init: FnOnce() -> T,
+        Clear: FnOnce(&mut T) -> VortexResult<()>,
+        Run: FnOnce(T) -> Fut,
+        Fut: Future<Output = VortexResult<()>>,
+    {
+        let mut terminal = init();
+        let _restore_guard = TerminalRestoreGuard::new(restore);
+        clear(&mut terminal)?;
+        run_loop(terminal).await
+    }
+
     /// Launch the interactive TUI browser for a Vortex file.
     ///
     /// # Errors
@@ -426,13 +475,236 @@ mod native {
     ) -> VortexResult<()> {
         let app = AppState::new(session, file).await?;
 
-        let mut terminal = ratatui::init();
-        terminal.clear()?;
+        run_with_restore(
+            ratatui::init,
+            |terminal| terminal.clear().map_err(Into::into),
+            |terminal| run_event_loop(terminal, app, EventStream::new()),
+            ratatui::restore,
+        )
+        .await
+    }
 
-        run(terminal, app).await?;
+    #[cfg(test)]
+    mod tests {
+        use std::sync::Arc;
+        use std::sync::atomic::AtomicUsize;
+        use std::sync::atomic::Ordering;
 
-        ratatui::restore();
-        Ok(())
+        use ratatui::backend::ClearType;
+        use ratatui::backend::WindowSize;
+        use ratatui::buffer::Cell;
+        use ratatui::layout::Position;
+        use ratatui::layout::Size;
+        use vortex::error::vortex_err;
+
+        use super::*;
+
+        struct FailingBackend {
+            fail_clear: bool,
+            fail_draw: bool,
+        }
+
+        impl Backend for FailingBackend {
+            type Error = io::Error;
+
+            fn draw<'a, I>(&mut self, _content: I) -> io::Result<()>
+            where
+                I: Iterator<Item = (u16, u16, &'a Cell)>,
+            {
+                if self.fail_draw {
+                    Err(io::Error::new(io::ErrorKind::BrokenPipe, "draw io failure"))
+                } else {
+                    Ok(())
+                }
+            }
+
+            fn hide_cursor(&mut self) -> io::Result<()> {
+                Ok(())
+            }
+
+            fn show_cursor(&mut self) -> io::Result<()> {
+                Ok(())
+            }
+
+            fn get_cursor_position(&mut self) -> io::Result<Position> {
+                Ok(Position::ORIGIN)
+            }
+
+            fn set_cursor_position<P: Into<Position>>(&mut self, _position: P) -> io::Result<()> {
+                Ok(())
+            }
+
+            fn clear(&mut self) -> io::Result<()> {
+                if self.fail_clear {
+                    Err(io::Error::new(
+                        io::ErrorKind::BrokenPipe,
+                        "clear io failure",
+                    ))
+                } else {
+                    Ok(())
+                }
+            }
+
+            fn clear_region(&mut self, _clear_type: ClearType) -> io::Result<()> {
+                self.clear()
+            }
+
+            fn size(&self) -> io::Result<Size> {
+                Ok(Size::new(80, 24))
+            }
+
+            fn window_size(&mut self) -> io::Result<WindowSize> {
+                Ok(WindowSize {
+                    columns_rows: Size::new(80, 24),
+                    pixels: Size::new(0, 0),
+                })
+            }
+
+            fn flush(&mut self) -> io::Result<()> {
+                Ok(())
+            }
+        }
+
+        #[tokio::test]
+        async fn restores_terminal_once_on_normal_exit() {
+            let restore_count = Arc::new(AtomicUsize::new(0));
+            let restore_ref = Arc::clone(&restore_count);
+
+            let res = run_with_restore(
+                || {
+                    Terminal::new(FailingBackend {
+                        fail_clear: false,
+                        fail_draw: false,
+                    })
+                    .unwrap()
+                },
+                |terminal| terminal.clear().map_err(Into::into),
+                |_terminal| async { Ok(()) },
+                move || {
+                    restore_ref.fetch_add(1, Ordering::SeqCst);
+                },
+            )
+            .await;
+
+            assert!(res.is_ok());
+            assert_eq!(restore_count.load(Ordering::SeqCst), 1);
+        }
+
+        #[tokio::test]
+        async fn restores_terminal_and_preserves_error_when_clear_fails() {
+            let restore_count = Arc::new(AtomicUsize::new(0));
+            let restore_ref = Arc::clone(&restore_count);
+
+            let res = run_with_restore(
+                || {
+                    Terminal::new(FailingBackend {
+                        fail_clear: true,
+                        fail_draw: false,
+                    })
+                    .unwrap()
+                },
+                |terminal| terminal.clear().map_err(Into::into),
+                |_terminal| async { unreachable!("run loop must not start when clear fails") },
+                move || {
+                    restore_ref.fetch_add(1, Ordering::SeqCst);
+                },
+            )
+            .await;
+
+            let err = res.expect_err("clear error must propagate");
+            assert!(err.to_string().contains("clear io failure"), "got: {err}");
+            assert_eq!(restore_count.load(Ordering::SeqCst), 1);
+        }
+
+        #[tokio::test]
+        async fn restores_terminal_and_preserves_error_when_draw_fails() {
+            let restore_count = Arc::new(AtomicUsize::new(0));
+            let restore_ref = Arc::clone(&restore_count);
+
+            let res = run_with_restore(
+                || {
+                    Terminal::new(FailingBackend {
+                        fail_clear: false,
+                        fail_draw: true,
+                    })
+                    .unwrap()
+                },
+                |terminal| terminal.clear().map_err(Into::into),
+                |mut terminal| async move {
+                    terminal.draw(|_frame| {})?;
+                    Ok(())
+                },
+                move || {
+                    restore_ref.fetch_add(1, Ordering::SeqCst);
+                },
+            )
+            .await;
+
+            let err = res.expect_err("draw error must propagate");
+            assert!(err.to_string().contains("draw io failure"), "got: {err}");
+            assert_eq!(restore_count.load(Ordering::SeqCst), 1);
+        }
+
+        #[tokio::test]
+        async fn restores_terminal_and_preserves_error_when_event_stream_fails() {
+            let restore_count = Arc::new(AtomicUsize::new(0));
+            let restore_ref = Arc::clone(&restore_count);
+
+            let res = run_with_restore(
+                || {
+                    Terminal::new(FailingBackend {
+                        fail_clear: false,
+                        fail_draw: false,
+                    })
+                    .unwrap()
+                },
+                |terminal| terminal.clear().map_err(Into::into),
+                |_terminal| async {
+                    let mut events = futures::stream::iter(vec![Err::<Event, io::Error>(
+                        io::Error::new(io::ErrorKind::UnexpectedEof, "event stream io failure"),
+                    )]);
+                    if let Some(ev) = events.next().await {
+                        drop(ev?);
+                    }
+                    Ok(())
+                },
+                move || {
+                    restore_ref.fetch_add(1, Ordering::SeqCst);
+                },
+            )
+            .await;
+
+            let err = res.expect_err("event error must propagate");
+            assert!(
+                err.to_string().contains("event stream io failure"),
+                "got: {err}"
+            );
+            assert_eq!(restore_count.load(Ordering::SeqCst), 1);
+        }
+
+        #[tokio::test]
+        async fn pre_init_error_does_not_invoke_restore() {
+            let restore_count = Arc::new(AtomicUsize::new(0));
+            let restore_ref = Arc::clone(&restore_count);
+
+            let open_res: VortexResult<()> = Err(vortex_err!("file not found"));
+            let res: VortexResult<()> = async {
+                open_res?;
+                run_with_restore(
+                    || (),
+                    |_| Ok(()),
+                    |_| async { Ok(()) },
+                    move || {
+                        restore_ref.fetch_add(1, Ordering::SeqCst);
+                    },
+                )
+                .await
+            }
+            .await;
+
+            assert!(res.is_err());
+            assert_eq!(restore_count.load(Ordering::SeqCst), 0);
+        }
     }
 }
 
