@@ -22,6 +22,7 @@ use crate::ArrayRef;
 use crate::Columnar;
 use crate::array::ArrayView;
 use crate::arrays::ConstantArray;
+use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::piecewise_sequence::array::PiecewiseSequenceArraySlotsExt;
 use crate::dtype::UnsignedPType;
@@ -122,9 +123,9 @@ fn check_index_array(name: &str, array: &ArrayRef) -> VortexResult<()> {
 }
 
 pub(crate) fn materialize_ranges<S, L, M>(
-    starts: &PrimitiveArray,
-    lengths: &PrimitiveArray,
-    multipliers: &PrimitiveArray,
+    starts: ArrayView<'_, Primitive>,
+    lengths: ArrayView<'_, Primitive>,
+    multipliers: ArrayView<'_, Primitive>,
     output_len: usize,
 ) -> VortexResult<BufferMut<u64>>
 where

@@ -12,6 +12,7 @@ pub mod buffered;
 pub mod chunked;
 pub mod collect;
 pub mod compressed;
+pub mod constant;
 pub mod dict;
 pub mod file_stats;
 pub mod flat;

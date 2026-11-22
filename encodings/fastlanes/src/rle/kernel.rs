@@ -12,6 +12,11 @@ use vortex_array::arrays::Slice;
 use vortex_array::arrays::slice::SliceExecuteAdaptor;
 use vortex_array::arrays::slice::SliceKernel;
 use vortex_array::optimizer::kernels::ArrayKernelsExt;
+use vortex_array::scalar_fn::ScalarFnVTable;
+use vortex_array::scalar_fn::fns::between::Between;
+use vortex_array::scalar_fn::fns::between::BetweenExecuteAdaptor;
+use vortex_array::scalar_fn::fns::binary::Binary;
+use vortex_array::scalar_fn::fns::binary::CompareExecuteAdaptor;
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 
@@ -23,6 +28,8 @@ use crate::rle::RLEArraySlotsExt;
 pub(crate) fn initialize(session: &VortexSession) {
     let kernels = session.kernels();
     kernels.register_execute_parent_kernel(Slice.id(), RLE, SliceExecuteAdaptor(RLE));
+    kernels.register_execute_parent_kernel(Binary.id(), RLE, CompareExecuteAdaptor(RLE));
+    kernels.register_execute_parent_kernel(Between.id(), RLE, BetweenExecuteAdaptor(RLE));
 }
 
 impl SliceKernel for RLE {
