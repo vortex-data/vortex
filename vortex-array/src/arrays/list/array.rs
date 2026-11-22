@@ -30,11 +30,13 @@ use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
+use crate::dtype::IntegerPType;
 use crate::expr::stats::Precision;
 use crate::expr::stats::Stat;
 use crate::match_each_integer_ptype;
 use crate::match_each_native_ptype;
 use crate::optimizer::ArrayOptimizer;
+use crate::scalar::ScalarValue;
 use crate::scalar_fn::fns::operators::Operator;
 use crate::validity::Validity;
 
@@ -224,47 +226,12 @@ impl ListData {
             let elements_len = elements.len();
 
             match_each_integer_ptype!(primitive_offsets.dtype().as_ptype(), |P| {
-                #[allow(clippy::absurd_extreme_comparisons, unused_comparisons)]
-                {
-                    let offsets_slice = primitive_offsets.as_slice::<P>();
-
-                    // Offsets must be sorted (but not strictly sorted, zero-length lists are
-                    // allowed).
-                    if let Some(idx) = offsets_slice.windows(2).position(|w| w[0] > w[1]) {
-                        vortex_bail!(
-                            "offsets must be sorted, but offset {} at index {idx} is greater than \
-                             offset {} at index {}",
-                            offsets_slice[idx],
-                            offsets_slice[idx + 1],
-                            idx + 1
-                        );
-                    }
-
-                    // The offsets are sorted, thus the first offset is the minimum and the last
-                    // offset is the maximum.
-                    if let (Some(&min), Some(&max)) = (offsets_slice.first(), offsets_slice.last())
-                    {
-                        vortex_ensure!(
-                            min >= 0,
-                            "offsets minimum {min} outside valid range [0, {max}]"
-                        );
-
-                        // An offset type too narrow for the elements length cannot exceed it.
-                        vortex_ensure!(
-                            P::try_from(elements_len).ok().is_none_or(|len| max <= len),
-                            "Max offset {max} is beyond the length of the elements array \
-                             {elements_len}"
-                        );
-
-                        // The checked values are exact, so keep them as statistics. This
-                        // replaces any untrusted statistics on `offsets` and saves later scans.
-                        let stats = offsets.statistics();
-                        stats.set(Stat::IsSorted, Precision::exact(true));
-                        stats.set(Stat::Min, Precision::exact(min));
-                        stats.set(Stat::Max, Precision::exact(max));
-                    }
-                }
-            });
+                Self::validate_offset_slice(
+                    offsets,
+                    primitive_offsets.as_slice::<P>(),
+                    elements_len,
+                )
+            })?;
         }
 
         // If a validity array is present, it must be the same length as the ListArray
@@ -274,6 +241,50 @@ impl ListData {
                 offsets.len() - 1,
                 "validity length does not match array size",
             );
+        }
+
+        Ok(())
+    }
+
+    fn validate_offset_slice<P>(
+        offsets: &ArrayRef,
+        offsets_slice: &[P],
+        elements_len: usize,
+    ) -> VortexResult<()>
+    where
+        P: IntegerPType + TryFrom<usize> + Into<ScalarValue>,
+    {
+        // Offsets must be sorted (but not strictly sorted, zero-length lists are allowed).
+        if let Some(idx) = offsets_slice.windows(2).position(|w| w[0] > w[1]) {
+            vortex_bail!(
+                "offsets must be sorted, but offset {} at index {idx} is greater than \
+                 offset {} at index {}",
+                offsets_slice[idx],
+                offsets_slice[idx + 1],
+                idx + 1
+            );
+        }
+
+        // The offsets are sorted, thus the first offset is the minimum and the last
+        // offset is the maximum.
+        if let (Some(&min), Some(&max)) = (offsets_slice.first(), offsets_slice.last()) {
+            vortex_ensure!(
+                min >= P::zero(),
+                "offsets minimum {min} outside valid range [0, {max}]"
+            );
+
+            // An offset type too narrow for the elements length cannot exceed it.
+            vortex_ensure!(
+                P::try_from(elements_len).ok().is_none_or(|len| max <= len),
+                "Max offset {max} is beyond the length of the elements array {elements_len}"
+            );
+
+            // The checked values are exact, so keep them as statistics. This
+            // replaces any untrusted statistics on `offsets` and saves later scans.
+            let stats = offsets.statistics();
+            stats.set(Stat::IsSorted, Precision::exact(true));
+            stats.set(Stat::Min, Precision::exact(min));
+            stats.set(Stat::Max, Precision::exact(max));
         }
 
         Ok(())
