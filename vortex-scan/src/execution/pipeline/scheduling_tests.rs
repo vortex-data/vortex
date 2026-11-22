@@ -206,8 +206,8 @@ fn splits_produce_their_own_rows() -> VortexResult<()> {
     Ok(())
 }
 
-/// Changing `with_max_active` after execution has started preserves live slots, dirty
-/// notifications, and queued work for both shrinking and growing.
+/// Changing `with_max_active` after execution has started preserves live slots and queued work
+/// when shrinking or growing, and honours a lowered limit for subsequent admissions.
 #[rstest]
 #[case::shrink_after_reads(3, 1, false)]
 #[case::shrink_to_zero_clamps_to_one(3, 0, false)]
