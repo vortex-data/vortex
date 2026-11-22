@@ -157,7 +157,9 @@ fn try_new_rejects_unsorted_utf8_offsets_at_null_row() {
 
 /// Sets statistics that say `offsets` are sorted and in the range `0..=max`.
 fn forge_offsets_statistics(offsets: &ArrayRef, max: i32) {
-    offsets.statistics().set(Stat::IsSorted, Precision::exact(true));
+    offsets
+        .statistics()
+        .set(Stat::IsSorted, Precision::exact(true));
     offsets.statistics().set(Stat::Min, Precision::exact(0i32));
     offsets.statistics().set(Stat::Max, Precision::exact(max));
 }

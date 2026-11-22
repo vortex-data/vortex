@@ -242,8 +242,7 @@ impl ListData {
 
                     // The offsets are sorted, thus the first offset is the minimum and the last
                     // offset is the maximum.
-                    if let (Some(&min), Some(&max)) =
-                        (offsets_slice.first(), offsets_slice.last())
+                    if let (Some(&min), Some(&max)) = (offsets_slice.first(), offsets_slice.last())
                     {
                         vortex_ensure!(
                             min >= 0,

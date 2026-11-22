@@ -1232,7 +1232,9 @@ fn try_new_ignores_forged_offsets_statistics() {
     let mut ctx = SESSION.create_execution_ctx();
     let elements = buffer![1i32, 2, 3, 4].into_array();
     let offsets = buffer![0i32, 1000, 2].into_array();
-    offsets.statistics().set(Stat::IsSorted, Precision::exact(true));
+    offsets
+        .statistics()
+        .set(Stat::IsSorted, Precision::exact(true));
     offsets.statistics().set(Stat::Min, Precision::exact(0i32));
     offsets.statistics().set(Stat::Max, Precision::exact(4i32));
 
