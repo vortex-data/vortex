@@ -154,10 +154,20 @@ def test_malformed_metadata_is_skipped_by_discovery_and_lookups(
         valid_id = ctx.metadata.run_id
         ctx.write_raw_json(json.dumps({"query": "q1", "value": 1}))
 
-    # Place a malformed metadata.json (JSON null) beside the valid run and remove the latest symlink.
+    # Place a malformed metadata.json (JSON null) and an offset-aware timestamp record beside the
+    # valid naive record, then remove the latest symlink so discovery and fallback must handle both.
     bad_dir = store.base_dir / "2026-11-21T12-00-01_tpch_bad"
     bad_dir.mkdir()
     (bad_dir / "metadata.json").write_text("null\n", encoding="utf-8")
+
+    aware_dir = store.base_dir / "2026-11-21T12-00-02_tpch_aware"
+    aware_dir.mkdir()
+    aware_data = json.loads((store.base_dir / valid_id / "metadata.json").read_text(encoding="utf-8"))
+    aware_data["run_id"] = aware_dir.name
+    aware_data["label"] = "aware-run"
+    aware_data["timestamp"] = f"{aware_data['timestamp']}+00:00"
+    (aware_dir / "metadata.json").write_text(json.dumps(aware_data), encoding="utf-8")
+
     (store.base_dir / "latest").unlink()
 
     runs = store.list_runs()
@@ -170,3 +180,5 @@ def test_malformed_metadata_is_skipped_by_discovery_and_lookups(
     assert by_label is not None and by_label.run_id == valid_id
 
     assert store.get_run(bad_dir.name) is None
+    assert store.get_run(aware_dir.name) is None
+    assert store.get_run("aware-run") is None

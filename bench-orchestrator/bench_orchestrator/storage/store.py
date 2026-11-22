@@ -77,6 +77,7 @@ def _read_metadata(metadata_path: Path) -> RunMetadata | None:
     if (
         not isinstance(metadata.run_id, str)
         or not isinstance(metadata.benchmark, str)
+        or metadata.timestamp.tzinfo is not None
         or (metadata.label is not None and not isinstance(metadata.label, str))
     ):
         return None
