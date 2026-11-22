@@ -13,12 +13,10 @@ which is written last so that an entry without it is incomplete.
 
 from __future__ import annotations
 
-import errno
 import hashlib
 import json
 import os
 import shutil
-import threading
 import uuid
 from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
@@ -26,6 +24,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from types import ModuleType
 from typing import BinaryIO, Protocol, cast
 from urllib.parse import urlparse
 
@@ -36,6 +35,12 @@ from botocore.exceptions import BotoCoreError, ClientError
 from rich.console import Console
 
 from .config import Benchmark
+
+fcntl: ModuleType | None
+try:
+    import fcntl
+except ImportError:  # pragma: no cover - non-POSIX
+    fcntl = None
 
 # Cached entries older than this are treated as missing and overwritten by the next upload.
 RETENTION = timedelta(days=1)
@@ -50,41 +55,15 @@ _PART_SIZE = 16 * 1024 * 1024
 
 console = Console(stderr=True)
 
-_LOCKS_GUARD = threading.Lock()
-_LOCK_OWNER_PID = os.getpid()
-_THREAD_LOCKS: dict[Path, threading.RLock] = {}
-_LOCK_DEPTH: dict[Path, int] = {}
-_LOCK_FDS: dict[Path, int] = {}
-
-
-def _reset_locks_after_fork() -> None:
-    """Reset inherited lock state in a forked child without unlocking the parent's fds."""
-    global _LOCKS_GUARD, _LOCK_OWNER_PID
-
-    inherited_fds = list(_LOCK_FDS.values())
-    _LOCK_FDS.clear()
-    _LOCK_DEPTH.clear()
-    _THREAD_LOCKS.clear()
-    _LOCKS_GUARD = threading.Lock()
-    _LOCK_OWNER_PID = os.getpid()
-    for fd in inherited_fds:
-        try:
-            os.close(fd)
-        except OSError:
-            pass
-
-
-if hasattr(os, "register_at_fork"):
-    os.register_at_fork(after_in_child=_reset_locks_after_fork)
-
 # Sibling format directories written by ``vortex-bench`` beside the cached base directory.
+# Keep in sync with ``Format::name()`` in ``vortex-bench/src/lib.rs``, ``PARQUET_SNAPPY_DIR`` in
+# ``vortex-bench/src/parquet_copies.rs``, and ``formats_to_capture`` in ``scripts/capture-file-sizes.py``.
 _MANAGED_FORMAT_DIRS: frozenset[str] = frozenset(
     {
         "arrow-ipc",
         "csv",
         "parquet",
         "parquet-snappy",
-        "vortex",
         "vortex-file-compressed",
         "vortex-compact",
         "vortex-spatial-native",
@@ -105,94 +84,26 @@ def _lock_path(dataset: CachedDataset) -> Path:
     return dataset.directory.with_name(f".{dataset.directory.name}.cache.lock")
 
 
-def _acquire_file_lock(fd: int) -> bool:
-    """Acquire an exclusive cross-process lock on ``fd``. Returns False if unsupported."""
-    try:
-        import fcntl
-    except ImportError:
-        fcntl = None  # type: ignore[assignment]
-
-    if fcntl is not None:
-        fcntl.flock(fd, fcntl.LOCK_EX)
-        return True
-
-    try:
-        import msvcrt
-    except ImportError:  # pragma: no cover - non-POSIX, non-Windows
-        return False
-
-    # Lock byte 0 directly (Windows byte-range locks work beyond EOF without writing).
-    while True:
-        os.lseek(fd, 0, os.SEEK_SET)
-        try:
-            msvcrt.locking(fd, msvcrt.LK_LOCK, 1)  # type: ignore[attr-defined]
-            return True
-        except OSError as exc:
-            if exc.errno in (errno.EDEADLK, errno.EACCES):
-                continue
-            raise
-
-
-def _release_file_lock(fd: int) -> None:
-    """Release an exclusive cross-process lock acquired by ``_acquire_file_lock``."""
-    try:
-        import fcntl
-    except ImportError:
-        fcntl = None  # type: ignore[assignment]
-
-    if fcntl is not None:
-        fcntl.flock(fd, fcntl.LOCK_UN)
-        return
-
-    try:
-        import msvcrt
-    except ImportError:  # pragma: no cover - non-POSIX, non-Windows
-        return
-
-    os.lseek(fd, 0, os.SEEK_SET)
-    msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)  # type: ignore[attr-defined]
-
-
 @contextmanager
 def _dataset_lock(dataset: CachedDataset) -> Iterator[bool]:
-    """Serialize in-process and cross-process access to ``dataset.directory``.
+    """Serialize access to ``dataset.directory`` using an exclusive ``flock`` when available.
 
     Yields ``True`` when cross-process file locking is active, ``False`` otherwise.
     """
-    if _LOCK_OWNER_PID != os.getpid():
-        _reset_locks_after_fork()
-    owner_pid = os.getpid()
+    if fcntl is None:
+        yield False
+        return
     lock_file = _lock_path(dataset)
     lock_file.parent.mkdir(parents=True, exist_ok=True)
-    lock_key = lock_file.resolve()
-    with _LOCKS_GUARD:
-        rlock = _THREAD_LOCKS.setdefault(lock_key, threading.RLock())
-    with rlock:
-        depth = _LOCK_DEPTH.get(lock_key, 0)
-        if depth == 0:
-            fd = os.open(lock_file, os.O_CREAT | os.O_RDWR, 0o666)
-            try:
-                locked = _acquire_file_lock(fd)
-            except BaseException:
-                os.close(fd)
-                raise
-            if locked:
-                _LOCK_FDS[lock_key] = fd
-            else:
-                os.close(fd)
-        _LOCK_DEPTH[lock_key] = depth + 1
+    fd = os.open(lock_file, os.O_CREAT | os.O_RDWR, 0o666)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
         try:
-            yield lock_key in _LOCK_FDS
+            yield True
         finally:
-            if os.getpid() == owner_pid:
-                _LOCK_DEPTH[lock_key] -= 1
-                if _LOCK_DEPTH[lock_key] == 0:
-                    fd = _LOCK_FDS.pop(lock_key, None)
-                    if fd is not None:
-                        try:
-                            _release_file_lock(fd)
-                        finally:
-                            os.close(fd)
+            fcntl.flock(fd, fcntl.LOCK_UN)
+    finally:
+        os.close(fd)
 
 
 def _has_matching_local_cache(dataset: CachedDataset) -> bool:
@@ -285,10 +196,9 @@ def prepare_dataset(dataset: CachedDataset, cache: S3DataCache | None = None) ->
     Yields ``True`` when the local dataset already matches ``dataset.key`` (or was restored from
     S3), and ``False`` when the caller must generate ``dataset.directory`` from scratch.
     """
-    owner_pid = os.getpid()
-    with _dataset_lock(dataset):
+    with _dataset_lock(dataset) as cross_process_locked:
         if cache is not None:
-            restored = cache.restore(dataset)
+            restored = cache._restore_unlocked(dataset, cross_process_locked=cross_process_locked)
         elif _has_matching_local_cache(dataset):
             console.print(f"{dataset.directory} already matches {dataset.key}")
             restored = True
@@ -298,9 +208,9 @@ def prepare_dataset(dataset: CachedDataset, cache: S3DataCache | None = None) ->
 
         yield restored
 
-        if not restored and os.getpid() == owner_pid:
+        if not restored:
             if cache is not None:
-                cache.save(dataset)
+                cache._save_unlocked(dataset)
             elif dataset.directory.is_dir():
                 _write_marker(dataset)
 
@@ -404,12 +314,6 @@ class S3DataCache:
         assert isinstance(files, list)
         return [str(file) for file in files]
 
-    @contextmanager
-    def prepare(self, dataset: CachedDataset) -> Iterator[bool]:
-        """Coordinate restore, local generation, marker publication, and S3 upload."""
-        with prepare_dataset(dataset, cache=self) as restored:
-            yield restored
-
     def restore(self, dataset: CachedDataset) -> bool:
         """Download the dataset if a fresh entry exists. Return whether ``data-gen`` can skip it.
 
@@ -419,44 +323,47 @@ class S3DataCache:
         are reported and treated as a miss, so a cache outage only costs regeneration.
         """
         with _dataset_lock(dataset) as cross_process_locked:
-            if _has_matching_local_cache(dataset):
-                console.print(f"{dataset.directory} already matches {dataset.key}")
-                return True
+            return self._restore_unlocked(dataset, cross_process_locked=cross_process_locked)
 
-            if cross_process_locked:
-                _scavenge_abandoned_staging(dataset)
-            staging = dataset.directory.with_name(f".{dataset.directory.name}.staging.{os.getpid()}.{uuid.uuid4().hex}")
-            try:
-                files = self._cached_files(dataset)
-                if files is None:
-                    console.print(f"No complete cache for {dataset.key} newer than {RETENTION}")
-                    _invalidate_local(dataset)
-                    return False
+    def _restore_unlocked(self, dataset: CachedDataset, *, cross_process_locked: bool) -> bool:
+        if _has_matching_local_cache(dataset):
+            console.print(f"{dataset.directory} already matches {dataset.key}")
+            return True
 
-                console.print(f"Restoring {len(files)} cached file(s) for {dataset.key}")
-                staging.mkdir(parents=True, exist_ok=True)
-
-                def download(file: str) -> None:
-                    path = staging / file
-                    path.parent.mkdir(parents=True, exist_ok=True)
-                    self.client.download_file(
-                        self.bucket, self.object_key(dataset, file), str(path), Config=self._transfer_config
-                    )
-
-                with ThreadPoolExecutor(_FILE_CONCURRENCY) as pool:
-                    list(pool.map(download, files))
-            except (BotoCoreError, ClientError, OSError) as exc:
-                shutil.rmtree(staging, ignore_errors=True)
+        if cross_process_locked:
+            _scavenge_abandoned_staging(dataset)
+        staging = dataset.directory.with_name(f".{dataset.directory.name}.staging.{os.getpid()}.{uuid.uuid4().hex}")
+        try:
+            files = self._cached_files(dataset)
+            if files is None:
+                console.print(f"No complete cache for {dataset.key} newer than {RETENTION}")
                 _invalidate_local(dataset)
-                console.print(f"[yellow]S3 cache restore failed for {dataset.key}, regenerating: {exc}[/yellow]")
                 return False
 
-            try:
-                _publish_staging(dataset, staging)
-            finally:
-                if staging.exists():
-                    shutil.rmtree(staging, ignore_errors=True)
-            return True
+            console.print(f"Restoring {len(files)} cached file(s) for {dataset.key}")
+            staging.mkdir(parents=True, exist_ok=True)
+
+            def download(file: str) -> None:
+                path = staging / file
+                path.parent.mkdir(parents=True, exist_ok=True)
+                self.client.download_file(
+                    self.bucket, self.object_key(dataset, file), str(path), Config=self._transfer_config
+                )
+
+            with ThreadPoolExecutor(_FILE_CONCURRENCY) as pool:
+                list(pool.map(download, files))
+        except (BotoCoreError, ClientError, OSError) as exc:
+            shutil.rmtree(staging, ignore_errors=True)
+            _invalidate_local(dataset)
+            console.print(f"[yellow]S3 cache restore failed for {dataset.key}, regenerating: {exc}[/yellow]")
+            return False
+
+        try:
+            _publish_staging(dataset, staging)
+        finally:
+            if staging.exists():
+                shutil.rmtree(staging, ignore_errors=True)
+        return True
 
     def save(self, dataset: CachedDataset) -> None:
         """Record the local marker and upload the generated directory.
@@ -464,28 +371,29 @@ class S3DataCache:
         S3 errors are reported but do not fail data generation.
         """
         with _dataset_lock(dataset):
-            if not dataset.directory.is_dir():
-                raise FileNotFoundError(f"data-gen did not write {dataset.directory}")
-            _write_marker(dataset)
-            files = sorted(
-                path.relative_to(dataset.directory).as_posix()
-                for path in dataset.directory.rglob("*")
-                if path.is_file()
+            self._save_unlocked(dataset)
+
+    def _save_unlocked(self, dataset: CachedDataset) -> None:
+        if not dataset.directory.is_dir():
+            raise FileNotFoundError(f"data-gen did not write {dataset.directory}")
+        _write_marker(dataset)
+        files = sorted(
+            path.relative_to(dataset.directory).as_posix() for path in dataset.directory.rglob("*") if path.is_file()
+        )
+
+        def upload(file: str) -> None:
+            self.client.upload_file(
+                str(dataset.directory / file),
+                self.bucket,
+                self.object_key(dataset, file),
+                Config=self._transfer_config,
             )
 
-            def upload(file: str) -> None:
-                self.client.upload_file(
-                    str(dataset.directory / file),
-                    self.bucket,
-                    self.object_key(dataset, file),
-                    Config=self._transfer_config,
-                )
-
-            console.print(f"Uploading {len(files)} file(s) to the cache for {dataset.key}")
-            try:
-                with ThreadPoolExecutor(_FILE_CONCURRENCY) as pool:
-                    list(pool.map(upload, files))
-                manifest = json.dumps({"files": files}).encode()
-                self.client.put_object(Bucket=self.bucket, Key=self.object_key(dataset, MANIFEST), Body=manifest)
-            except (BotoCoreError, ClientError, OSError) as exc:
-                console.print(f"[yellow]S3 cache upload failed for {dataset.key}: {exc}[/yellow]")
+        console.print(f"Uploading {len(files)} file(s) to the cache for {dataset.key}")
+        try:
+            with ThreadPoolExecutor(_FILE_CONCURRENCY) as pool:
+                list(pool.map(upload, files))
+            manifest = json.dumps({"files": files}).encode()
+            self.client.put_object(Bucket=self.bucket, Key=self.object_key(dataset, MANIFEST), Body=manifest)
+        except (BotoCoreError, ClientError, OSError) as exc:
+            console.print(f"[yellow]S3 cache upload failed for {dataset.key}: {exc}[/yellow]")
