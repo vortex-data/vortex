@@ -2949,7 +2949,7 @@ async fn test_large_flat_chunk_scan_subdivides_splits() -> VortexResult<()> {
     let (file, values) = large_flat_file().await?;
 
     // Sub-division caps each split at DEFAULT_MAX_SPLIT_ROWS while tiling the file exactly.
-    let splits = file.splits(&[FieldMask::All])?;
+    let splits = file.splits()?;
     assert!(splits.len() > 1, "expected sub-divided splits: {splits:?}");
     assert!(
         splits
@@ -3078,7 +3078,7 @@ async fn test_string_chunks_stay_fine_grained_under_split_cap() -> VortexResult<
 
     let file = SESSION.open_options().open_buffer(buf)?;
 
-    let splits = file.splits(&[FieldMask::All])?;
+    let splits = file.splits()?;
     assert!(
         splits.len() > 1,
         "expected multiple natural chunks: {splits:?}"
@@ -3622,8 +3622,8 @@ async fn test_splits_follow_only_the_masked_fields() -> VortexResult<()> {
 
     let file = SESSION.open_options().open_buffer(buf)?;
 
-    let strings_only = file.splits(&[FieldMask::Prefix(FieldPath::from_name("s"))])?;
-    let numbers_only = file.splits(&[FieldMask::Prefix(FieldPath::from_name("n"))])?;
+    let strings_only = file.splits_for(&[FieldMask::Prefix(FieldPath::from_name("s"))])?;
+    let numbers_only = file.splits_for(&[FieldMask::Prefix(FieldPath::from_name("n"))])?;
 
     assert!(
         strings_only.len() > 1,

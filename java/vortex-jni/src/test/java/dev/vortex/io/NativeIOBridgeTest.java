@@ -447,7 +447,6 @@ public final class NativeIOBridgeTest {
         }
     }
 
-    /** Registers {@code readable} through the file-metadata or data-source JNI entry point. */
     @Test
     public void testSplitsCoverEveryRow() throws IOException {
         Path path = tempDir.resolve("bridge_splits.vortex");
@@ -474,6 +473,7 @@ public final class NativeIOBridgeTest {
         }
     }
 
+    /** Registers {@code readable} through the file-metadata or data-source JNI entry point. */
     private static void registerReadable(boolean metadata, Session session, NativeReadable readable) {
         if (metadata) {
             assertEquals(2, NativeFiles.readStatistics(session, readable).size());

@@ -13,7 +13,6 @@ use pyo3::prelude::*;
 use vortex::array::ArrayRef;
 use vortex::array::iter::ArrayIteratorExt;
 use vortex::dtype::DType;
-use vortex::dtype::FieldMask;
 use vortex::dtype::FieldName;
 use vortex::dtype::FieldNames;
 use vortex::error::VortexResult;
@@ -274,7 +273,7 @@ impl PyVortexDataset {
     pub fn splits(&self) -> PyVortexResult<Vec<(u64, u64)>> {
         Ok(self
             .vxf
-            .splits(&[FieldMask::All])?
+            .splits()?
             .into_iter()
             .map(|x| (x.start, x.end))
             .collect())

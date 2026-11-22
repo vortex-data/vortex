@@ -53,7 +53,6 @@ use vortex::array::stream::ArrayStreamExt;
 use vortex::array::validity::Validity;
 use vortex::buffer::Buffer;
 use vortex::buffer::buffer;
-use vortex::dtype::FieldMask;
 use vortex::dtype::PType;
 use vortex::dtype::extension::ExtDType;
 use vortex::editions::CORE_2026_08_3;
@@ -684,7 +683,7 @@ async fn test_repartitioned_scan_matches_non_repartitioned_for_uneven_splits(
         .with_file_size(summary.size())
         .open_read(reader)
         .await?;
-    let split_ranges = vxf.splits(&[FieldMask::All])?;
+    let split_ranges = vxf.splits()?;
     let split_lengths = split_ranges
         .iter()
         .map(|range| range.end - range.start)
