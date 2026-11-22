@@ -509,9 +509,9 @@ impl VortexWrite for ObjectStoreWrite {
                     let complete_fut = upload.complete();
                     futures::pin_mut!(complete_fut);
                     futures::pin_mut!(cancel_rx);
-                    match futures::future::select(cancel_rx, complete_fut).await {
-                        Either::Left((..)) => None,
-                        Either::Right((res, _)) => Some(res),
+                    match futures::future::select(complete_fut, cancel_rx).await {
+                        Either::Left((res, _)) => Some(res),
+                        Either::Right((..)) => None,
                     }
                 };
                 let outcome = match complete_outcome {
@@ -647,6 +647,7 @@ mod tests {
         use object_store::PutResult;
         use object_store::UploadPart;
         use object_store::path::Path;
+        use parking_lot::Mutex;
         use tokio::sync::Notify;
         use tokio::task::JoinSet;
         use tokio::time::timeout;
@@ -674,8 +675,8 @@ mod tests {
             abort_in_tokio: AtomicUsize,
             abort_notify: Notify,
             abort_completed_notify: Notify,
-            staged_bytes: parking_lot::Mutex<Vec<u8>>,
-            published_bytes: parking_lot::Mutex<Option<Vec<u8>>>,
+            staged_bytes: Mutex<Vec<u8>>,
+            published_bytes: Mutex<Option<Vec<u8>>>,
         }
 
         struct RecordingStore {
@@ -2158,6 +2159,188 @@ mod tests {
                 "expected completion error, got: {err2}"
             );
             assert_eq!(counters2.abort_calls.load(Ordering::SeqCst), 1);
+            Ok(())
+        }
+
+        #[tokio::test]
+        async fn test_cancelled_shutdown_preserves_ready_complete_result_when_both_ready()
+        -> anyhow::Result<()> {
+            #[derive(Debug)]
+            struct PostPublishGatedUpload {
+                inner: Box<dyn MultipartUpload>,
+                published: Arc<Notify>,
+                deliver_rx: Mutex<Option<oneshot::Receiver<()>>>,
+                abort_calls: Arc<AtomicUsize>,
+            }
+
+            #[async_trait]
+            impl MultipartUpload for PostPublishGatedUpload {
+                fn put_part(&mut self, data: PutPayload) -> UploadPart {
+                    self.inner.put_part(data)
+                }
+
+                async fn complete(&mut self) -> object_store::Result<PutResult> {
+                    let res = self.inner.complete().await;
+                    self.published.notify_one();
+                    let rx = self.deliver_rx.lock().take();
+                    if let Some(rx) = rx {
+                        let _ = rx.await;
+                    }
+                    res
+                }
+
+                async fn abort(&mut self) -> object_store::Result<()> {
+                    self.abort_calls.fetch_add(1, Ordering::SeqCst);
+                    self.inner.abort().await
+                }
+            }
+
+            #[derive(Debug)]
+            struct PostPublishGatedStore {
+                inner: Arc<dyn ObjectStore>,
+                published: Arc<Notify>,
+                deliver_rx: Mutex<Option<oneshot::Receiver<()>>>,
+                abort_calls: Arc<AtomicUsize>,
+            }
+
+            impl fmt::Display for PostPublishGatedStore {
+                fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                    write!(f, "PostPublishGatedStore")
+                }
+            }
+
+            #[async_trait]
+            impl ObjectStore for PostPublishGatedStore {
+                async fn put_opts(
+                    &self,
+                    location: &Path,
+                    payload: PutPayload,
+                    opts: PutOptions,
+                ) -> object_store::Result<PutResult> {
+                    self.inner.put_opts(location, payload, opts).await
+                }
+
+                async fn put_multipart_opts(
+                    &self,
+                    location: &Path,
+                    opts: PutMultipartOptions,
+                ) -> object_store::Result<Box<dyn MultipartUpload>> {
+                    let inner = self.inner.put_multipart_opts(location, opts).await?;
+                    Ok(Box::new(PostPublishGatedUpload {
+                        inner,
+                        published: Arc::clone(&self.published),
+                        deliver_rx: Mutex::new(self.deliver_rx.lock().take()),
+                        abort_calls: Arc::clone(&self.abort_calls),
+                    }))
+                }
+
+                async fn get_opts(
+                    &self,
+                    location: &Path,
+                    options: GetOptions,
+                ) -> object_store::Result<GetResult> {
+                    self.inner.get_opts(location, options).await
+                }
+
+                fn delete_stream(
+                    &self,
+                    locations: BoxStream<'static, object_store::Result<Path>>,
+                ) -> BoxStream<'static, object_store::Result<Path>> {
+                    self.inner.delete_stream(locations)
+                }
+
+                fn list(
+                    &self,
+                    prefix: Option<&Path>,
+                ) -> BoxStream<'static, object_store::Result<ObjectMeta>> {
+                    self.inner.list(prefix)
+                }
+
+                async fn list_with_delimiter(
+                    &self,
+                    prefix: Option<&Path>,
+                ) -> object_store::Result<ListResult> {
+                    self.inner.list_with_delimiter(prefix).await
+                }
+
+                async fn copy_opts(
+                    &self,
+                    from: &Path,
+                    to: &Path,
+                    options: object_store::CopyOptions,
+                ) -> object_store::Result<()> {
+                    self.inner.copy_opts(from, to, options).await
+                }
+            }
+
+            let dir = tempdir()?;
+            let local: Arc<dyn ObjectStore> =
+                Arc::new(LocalFileSystem::new_with_prefix(dir.path())?);
+            let target = Path::from("published.vortex");
+            let published = Arc::new(Notify::new());
+            let (deliver_tx, deliver_rx) = oneshot::channel();
+            let abort_calls = Arc::new(AtomicUsize::new(0));
+            let store: Arc<dyn ObjectStore> = Arc::new(PostPublishGatedStore {
+                inner: Arc::clone(&local),
+                published: Arc::clone(&published),
+                deliver_rx: Mutex::new(Some(deliver_rx)),
+                abort_calls: Arc::clone(&abort_calls),
+            });
+
+            let mut writer = ObjectStoreWrite::new(Arc::clone(&store), &target).await?;
+            let mut shutdown_fut = Box::pin(writer.shutdown());
+            let first_poll = poll_fn(|cx| Poll::Ready(shutdown_fut.as_mut().poll(cx))).await;
+            assert!(first_poll.is_pending());
+
+            // Wait until `LocalFileSystem::complete()` has published the file and parked before
+            // returning `PutResult`.
+            timeout(Duration::from_secs(2), published.notified()).await?;
+            assert!(local.get(&target).await.is_ok());
+
+            // Hold all global `smol` executor worker threads so both `complete_fut` and
+            // `cancel_rx` become ready before the completion task is polled again.
+            let worker_count = std::env::var("SMOL_THREADS")
+                .ok()
+                .and_then(|v| v.parse::<usize>().ok())
+                .unwrap_or(1);
+            let (entered_tx, entered_rx) = mpsc::channel();
+            let mut release_txs = Vec::with_capacity(worker_count);
+            let mut blockers = Vec::with_capacity(worker_count);
+            for _ in 0..worker_count {
+                let entered_tx = entered_tx.clone();
+                let (release_tx, release_rx) = mpsc::channel();
+                release_txs.push(release_tx);
+                blockers.push(smol::spawn(async move {
+                    let _ = entered_tx.send(());
+                    let _ = release_rx.recv();
+                }));
+            }
+            for _ in 0..worker_count {
+                entered_rx.recv_timeout(Duration::from_secs(2))?;
+            }
+
+            // Make the `PutResult` ready, then cancel `shutdown()` and start `abort()`.
+            let _ = deliver_tx.send(());
+            drop(shutdown_fut);
+
+            let mut abort_fut = Box::pin(writer.abort());
+            let abort_first_poll = poll_fn(|cx| Poll::Ready(abort_fut.as_mut().poll(cx))).await;
+            assert!(abort_first_poll.is_pending());
+
+            for release_tx in release_txs {
+                let _ = release_tx.send(());
+            }
+            for blocker in blockers {
+                blocker.await;
+            }
+
+            assert!(
+                abort_fut.await.is_err(),
+                "abort() must report that publication won when PutResult was already ready"
+            );
+            assert_eq!(abort_calls.load(Ordering::SeqCst), 0);
+            assert!(writer.put_result().is_some());
+            writer.shutdown().await?;
             Ok(())
         }
     }
