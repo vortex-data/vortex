@@ -4,7 +4,9 @@
 """Result storage and retrieval."""
 
 import json
+import os
 import subprocess
+import uuid
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import datetime
@@ -64,15 +66,17 @@ def _get_env_triple() -> EnvTriple:
 class RunContext:
     """Context manager for writing results to a run."""
 
-    def __init__(self, run_dir: Path, metadata: RunMetadata) -> None:
+    def __init__(self, run_dir: Path, metadata: RunMetadata, *, _reserved: bool = False) -> None:
         self.run_dir = run_dir
         self.metadata = metadata
+        self._reserved = _reserved
         self._results_file: TextIO | None = None
         self._result_count = 0
 
     def __enter__(self) -> "RunContext":
-        self.run_dir.mkdir(parents=True, exist_ok=True)
-        self._results_file = open(self.run_dir / "results.jsonl", "w")
+        if not self._reserved:
+            self.run_dir.mkdir(parents=True, exist_ok=False)
+        self._results_file = open(self.run_dir / "results.jsonl", "x")
         return self
 
     def __exit__(
@@ -123,26 +127,50 @@ class ResultStore:
     def __init__(self, base_dir: Path | None = None) -> None:
         self.base_dir = base_dir or get_results_dir()
 
-    def _generate_run_id(self, config: RunConfig) -> str:
-        """Generate a unique run ID."""
-        timestamp = datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
+    def _generate_run_id(self, config: RunConfig, timestamp: datetime | None = None) -> str:
+        """Generate a base run ID with timestamp prefix."""
+        ts = (timestamp or datetime.now()).strftime("%Y-%m-%dT%H-%M-%S")
         benchmark = config.benchmark.value
         if config.label:
-            return f"{timestamp}_{benchmark}_{config.label}"
-        return f"{timestamp}_{benchmark}"
+            return f"{ts}_{benchmark}_{config.label}"
+        return f"{ts}_{benchmark}"
+
+    def _reserve_run_dir(self, base_run_id: str) -> tuple[str, Path]:
+        """Exclusively reserve a run directory, appending a unique suffix on collision."""
+        self.base_dir.mkdir(parents=True, exist_ok=True)
+        run_id = base_run_id
+        while True:
+            run_dir = self.base_dir / run_id
+            try:
+                run_dir.mkdir(exist_ok=False)
+                return run_id, run_dir
+            except FileExistsError:
+                run_id = f"{base_run_id}_{uuid.uuid4().hex[:8]}"
+
+    def _publish_latest(self, run_id: str) -> None:
+        """Atomically point the latest symlink at run_id."""
+        latest_link = self.base_dir / "latest"
+        tmp_link = self.base_dir / f".latest.{os.getpid()}.{uuid.uuid4().hex}.tmp"
+        try:
+            tmp_link.symlink_to(run_id)
+            os.replace(tmp_link, latest_link)
+        except BaseException:
+            tmp_link.unlink(missing_ok=True)
+            raise
 
     @contextmanager
     def create_run(self, config: RunConfig, build_config: BuildConfig) -> Iterator[RunContext]:
         """Create a new run and return a context for writing results."""
-        run_id = self._generate_run_id(config)
-        run_dir = self.base_dir / run_id
+        now = datetime.now()
+        base_run_id = self._generate_run_id(config, timestamp=now)
+        run_id, run_dir = self._reserve_run_dir(base_run_id)
 
         git_commit, git_branch, git_dirty = _get_git_info()
         env_triple = _get_env_triple()
 
         metadata = RunMetadata(
             run_id=run_id,
-            timestamp=datetime.now(),
+            timestamp=now,
             label=config.label,
             benchmark=config.benchmark.value,
             dataset_config=config.options,
@@ -159,17 +187,11 @@ class ResultStore:
             profile=build_config.profile,
         )
 
-        ctx = RunContext(run_dir, metadata)
+        ctx = RunContext(run_dir, metadata, _reserved=True)
         with ctx:
             yield ctx
 
-        # Update the latest symlink
-        latest_link = self.base_dir / "latest"
-        if latest_link.is_symlink():
-            latest_link.unlink()
-        elif latest_link.exists():
-            latest_link.unlink()
-        latest_link.symlink_to(run_id)
+        self._publish_latest(run_id)
 
     def list_runs(
         self,
@@ -183,7 +205,7 @@ class ResultStore:
 
         summaries = []
         for run_dir in self.base_dir.iterdir():
-            if not run_dir.is_dir() or run_dir.name == "latest":
+            if run_dir.is_symlink() or not run_dir.is_dir() or run_dir.name == "latest" or run_dir.name.startswith("."):
                 continue
 
             metadata_path = run_dir / "metadata.json"
@@ -241,8 +263,10 @@ class ResultStore:
                     return RunMetadata.from_dict(json.load(f))
 
         # Try to find by label
+        if not self.base_dir.exists():
+            return None
         for run_dir in self.base_dir.iterdir():
-            if not run_dir.is_dir():
+            if run_dir.is_symlink() or not run_dir.is_dir() or run_dir.name == "latest" or run_dir.name.startswith("."):
                 continue
             metadata_path = run_dir / "metadata.json"
             if not metadata_path.exists():
