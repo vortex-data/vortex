@@ -463,6 +463,7 @@ impl VortexWriteOptions {
         Writer {
             arrays: Some(arrays_send),
             future,
+            terminal_error: None,
             bytes_written,
             buffered_bytes,
         }
@@ -604,6 +605,8 @@ pub struct Writer<'w> {
     arrays: Option<Sender<VortexResult<ArrayRef>>>,
     // The writer task that ultimately produces the footer.
     future: Fuse<LocalBoxFuture<'w, VortexResult<WriteSummary>>>,
+    // The first terminal error observed from the writer task.
+    terminal_error: Option<VortexError>,
     // The bytes written so far.
     bytes_written: Arc<AtomicU64>,
     // The buffered bytes accounting shared with the layout strategies for this write.
@@ -613,6 +616,10 @@ pub struct Writer<'w> {
 impl Writer<'_> {
     /// Push a new chunk into the writer.
     pub async fn push(&mut self, chunk: ArrayRef) -> VortexResult<()> {
+        if let Some(err) = &self.terminal_error {
+            return Err(err.clone());
+        }
+
         let arrays = self.arrays.clone().vortex_expect("missing arrays sender");
         let send_fut = async move { arrays.send(Ok(chunk)).await }.fuse();
         pin_mut!(send_fut);
@@ -629,11 +636,7 @@ impl Writer<'_> {
             result = &mut self.future => {
                 // Under normal operation, the writer future should never complete until
                 // finish() is called. Therefore, we can assume the writer has failed.
-                // The writer future has failed, we need to propagate the error.
-                match result {
-                    Ok(_) => vortex_bail!("Internal error: writer future completed early"),
-                    Err(e) => return Err(e),
-                }
+                return Err(self.record_terminal_outcome(result));
             }
         }
 
@@ -645,6 +648,10 @@ impl Writer<'_> {
     /// A task is spawned to consume the stream and push it into the writer, with the current
     /// thread being used to write buffers to the output.
     pub async fn push_stream(&mut self, mut stream: SendableArrayStream) -> VortexResult<()> {
+        if let Some(err) = &self.terminal_error {
+            return Err(err.clone());
+        }
+
         let arrays = self.arrays.clone().vortex_expect("missing arrays sender");
         let stream_fut = async move {
             while let Some(chunk) = stream.next().await {
@@ -668,11 +675,7 @@ impl Writer<'_> {
             result = &mut self.future => {
                 // Under normal operation, the writer future should never complete until
                 // finish() is called. Therefore, we can assume the writer has failed.
-                // The writer future has failed, we need to propagate the error.
-                match result {
-                    Ok(_) => vortex_bail!("Internal error: writer future completed early"),
-                    Err(e) => return Err(e),
-                }
+                return Err(self.record_terminal_outcome(result));
             }
         }
 
@@ -692,6 +695,10 @@ impl Writer<'_> {
     /// Finish writing the Vortex file, flushing any remaining buffers and returning the
     /// new file's footer.
     pub async fn finish(mut self) -> VortexResult<WriteSummary> {
+        if let Some(err) = self.terminal_error.take() {
+            return Err(err);
+        }
+
         // Drop the input channel to signal EOF.
         drop(self.arrays.take());
 
@@ -699,14 +706,23 @@ impl Writer<'_> {
         self.future.await
     }
 
+    /// Record the first terminal outcome from the writer future and close the input channel.
+    fn record_terminal_outcome(&mut self, result: VortexResult<WriteSummary>) -> VortexError {
+        let err = match result {
+            Ok(_) => vortex_err!("Internal error: writer future completed early"),
+            Err(e) => e,
+        };
+        drop(self.arrays.take());
+        self.terminal_error.get_or_insert(err).clone()
+    }
+
     /// Assuming the writer task has failed, await it to get the error.
     async fn handle_failed_task(&mut self) -> VortexError {
-        match (&mut self.future).await {
-            Ok(_) => vortex_err!(
-                "Internal error: writer task completed successfully but write future finished early"
-            ),
-            Err(e) => e,
+        if let Some(err) = &self.terminal_error {
+            return err.clone();
         }
+        let result = (&mut self.future).await;
+        self.record_terminal_outcome(result)
     }
 }
 
@@ -1045,5 +1061,380 @@ mod tests {
     #[test]
     fn validate_metadata_accepts_no_metadata() -> VortexResult<()> {
         write_options_with_keys(&[]).validate_metadata()
+    }
+
+    mod terminal_error_tests {
+        use std::io;
+        use std::io::Write;
+        use std::sync::Arc;
+        use std::sync::atomic::AtomicUsize;
+        use std::sync::atomic::Ordering;
+        use std::sync::mpsc;
+        use std::time::Duration;
+
+        use vortex_array::IntoArray;
+        use vortex_array::VortexSessionExecute;
+        use vortex_array::arrays::StructArray;
+        use vortex_array::arrays::struct_::StructArrayExt;
+        use vortex_array::assert_arrays_eq;
+        use vortex_array::stream::ArrayStreamAdapter;
+        use vortex_array::stream::ArrayStreamExt;
+        use vortex_buffer::ByteBufferMut;
+        use vortex_buffer::buffer;
+        use vortex_error::VortexResult;
+        use vortex_error::vortex_err;
+        use vortex_io::IoBuf;
+        use vortex_io::VortexWrite;
+        use vortex_io::runtime::BlockingRuntime;
+        use vortex_io::runtime::current::CurrentThreadRuntime;
+        use vortex_io::session::RuntimeSession;
+        use vortex_io::session::RuntimeSessionExt;
+        use vortex_layout::session::LayoutSession;
+        use vortex_session::VortexSession;
+
+        use crate::OpenOptionsSessionExt;
+        use crate::WriteOptionsSessionExt;
+
+        fn test_session() -> VortexSession {
+            let session = VortexSession::empty()
+                .with::<LayoutSession>()
+                .with::<RuntimeSession>();
+            crate::register_default_encodings(&session);
+            crate::enable_all_registered_array_encodings(&session);
+            session
+        }
+
+        fn make_chunk(values: &[u32]) -> VortexResult<vortex_array::ArrayRef> {
+            let numbers = vortex_buffer::Buffer::copy_from(values).into_array();
+            Ok(StructArray::from_fields(&[("numbers", numbers)])?.into_array())
+        }
+
+        struct FailingAsyncWrite {
+            fail_on_write: usize,
+            write_calls: Arc<AtomicUsize>,
+            message: &'static str,
+        }
+
+        impl VortexWrite for FailingAsyncWrite {
+            async fn write_all<B: IoBuf>(&mut self, buffer: B) -> io::Result<B> {
+                let call = self.write_calls.fetch_add(1, Ordering::SeqCst) + 1;
+                if call >= self.fail_on_write {
+                    return Err(io::Error::new(io::ErrorKind::BrokenPipe, self.message));
+                }
+                Ok(buffer)
+            }
+
+            async fn flush(&mut self) -> io::Result<()> {
+                Ok(())
+            }
+
+            async fn shutdown(&mut self) -> io::Result<()> {
+                Ok(())
+            }
+        }
+
+        struct FailingSyncWrite {
+            fail_on_write: usize,
+            write_calls: Arc<AtomicUsize>,
+            message: &'static str,
+        }
+
+        impl Write for FailingSyncWrite {
+            fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+                let call = self.write_calls.fetch_add(1, Ordering::SeqCst) + 1;
+                if call >= self.fail_on_write {
+                    return Err(io::Error::new(io::ErrorKind::BrokenPipe, self.message));
+                }
+                Ok(buf.len())
+            }
+
+            fn flush(&mut self) -> io::Result<()> {
+                Ok(())
+            }
+        }
+
+        #[tokio::test]
+        async fn writer_push_replays_terminal_error_without_hanging() -> VortexResult<()> {
+            let session = test_session();
+            let chunk = make_chunk(&[1, 2, 3])?;
+            let dtype = chunk.dtype().clone();
+
+            let write_calls = Arc::new(AtomicUsize::new(0));
+            let sink = FailingAsyncWrite {
+                fail_on_write: 1,
+                write_calls: Arc::clone(&write_calls),
+                message: "controlled push sink failure",
+            };
+
+            let mut writer = session.write_options().writer(sink, dtype.clone());
+
+            // Push until the writer task observes the sink failure (bounded(1) channel may
+            // accept the first chunk before the writer future polls the failing write).
+            let mut first_err = None;
+            for _ in 0..4 {
+                if let Err(err) = writer.push(chunk.clone()).await {
+                    first_err = Some(err);
+                    break;
+                }
+            }
+            let first_err = first_err.expect("expected push to report sink failure");
+            assert!(
+                first_err
+                    .to_string()
+                    .contains("controlled push sink failure"),
+                "unexpected error: {first_err}"
+            );
+            let calls_after_failure = write_calls.load(Ordering::SeqCst);
+
+            // Subsequent push, push_stream, and finish must return the stored error immediately
+            // without polling the sink again.
+            let second_err =
+                tokio::time::timeout(Duration::from_secs(2), writer.push(chunk.clone()))
+                    .await
+                    .expect("subsequent push hung after terminal error")
+                    .expect_err("subsequent push must return stored error");
+            assert!(
+                second_err
+                    .to_string()
+                    .contains("controlled push sink failure"),
+                "unexpected error: {second_err}"
+            );
+            assert_eq!(write_calls.load(Ordering::SeqCst), calls_after_failure);
+
+            let stream = ArrayStreamExt::boxed(ArrayStreamAdapter::new(
+                dtype,
+                futures::stream::iter(vec![Ok(chunk)]),
+            ));
+            let stream_err =
+                tokio::time::timeout(Duration::from_secs(2), writer.push_stream(stream))
+                    .await
+                    .expect("subsequent push_stream hung after terminal error")
+                    .expect_err("subsequent push_stream must return stored error");
+            assert!(
+                stream_err
+                    .to_string()
+                    .contains("controlled push sink failure"),
+                "unexpected error: {stream_err}"
+            );
+            assert_eq!(write_calls.load(Ordering::SeqCst), calls_after_failure);
+
+            let Err(finish_err) = tokio::time::timeout(Duration::from_secs(2), writer.finish())
+                .await
+                .expect("finish hung after terminal error")
+            else {
+                panic!("finish must return stored error");
+            };
+            assert!(
+                finish_err
+                    .to_string()
+                    .contains("controlled push sink failure"),
+                "unexpected error: {finish_err}"
+            );
+            assert_eq!(write_calls.load(Ordering::SeqCst), calls_after_failure);
+
+            Ok(())
+        }
+
+        #[tokio::test]
+        async fn writer_push_stream_replays_terminal_error_without_hanging() -> VortexResult<()> {
+            let session = test_session();
+            let chunk = make_chunk(&[1, 2, 3])?;
+            let dtype = chunk.dtype().clone();
+
+            let write_calls = Arc::new(AtomicUsize::new(0));
+            let sink = FailingAsyncWrite {
+                fail_on_write: 1,
+                write_calls: Arc::clone(&write_calls),
+                message: "controlled stream sink failure",
+            };
+
+            let mut writer = session.write_options().writer(sink, dtype.clone());
+
+            let stream = ArrayStreamExt::boxed(ArrayStreamAdapter::new(
+                dtype,
+                futures::stream::iter(vec![Ok(chunk.clone()); 4]),
+            ));
+            let first_err = writer
+                .push_stream(stream)
+                .await
+                .expect_err("expected push_stream to report sink failure");
+            assert!(
+                first_err
+                    .to_string()
+                    .contains("controlled stream sink failure"),
+                "unexpected error: {first_err}"
+            );
+            let calls_after_failure = write_calls.load(Ordering::SeqCst);
+
+            let push_err = tokio::time::timeout(Duration::from_secs(2), writer.push(chunk))
+                .await
+                .expect("push hung after push_stream terminal error")
+                .expect_err("push must return stored error");
+            assert!(
+                push_err
+                    .to_string()
+                    .contains("controlled stream sink failure"),
+                "unexpected error: {push_err}"
+            );
+            assert_eq!(write_calls.load(Ordering::SeqCst), calls_after_failure);
+
+            let Err(finish_err) = tokio::time::timeout(Duration::from_secs(2), writer.finish())
+                .await
+                .expect("finish hung after push_stream terminal error")
+            else {
+                panic!("finish must return stored error");
+            };
+            assert!(
+                finish_err
+                    .to_string()
+                    .contains("controlled stream sink failure"),
+                "unexpected error: {finish_err}"
+            );
+            assert_eq!(write_calls.load(Ordering::SeqCst), calls_after_failure);
+
+            Ok(())
+        }
+
+        #[tokio::test]
+        async fn writer_push_stream_producer_error_replays_on_subsequent_calls() -> VortexResult<()>
+        {
+            let session = test_session();
+            let chunk = make_chunk(&[1, 2, 3])?;
+            let dtype = chunk.dtype().clone();
+
+            let mut buf = ByteBufferMut::empty();
+            let mut writer = session.write_options().writer(&mut buf, dtype.clone());
+
+            let stream = ArrayStreamExt::boxed(ArrayStreamAdapter::new(
+                dtype,
+                futures::stream::iter(vec![
+                    Err(vortex_err!("producer stream failure")),
+                    Ok(chunk.clone()),
+                    Ok(chunk.clone()),
+                ]),
+            ));
+
+            // Either push_stream or the following push observes the writer task terminating on
+            // the producer error.
+            let observed = match writer.push_stream(stream).await {
+                Err(err) => err,
+                Ok(()) => {
+                    let mut err = None;
+                    for _ in 0..4 {
+                        if let Err(e) = writer.push(chunk.clone()).await {
+                            err = Some(e);
+                            break;
+                        }
+                    }
+                    err.expect("expected writer to observe producer error")
+                }
+            };
+            assert!(
+                observed.to_string().contains("producer stream failure"),
+                "unexpected error: {observed}"
+            );
+
+            let Err(finish_err) = tokio::time::timeout(Duration::from_secs(2), writer.finish())
+                .await
+                .expect("finish hung after producer error")
+            else {
+                panic!("finish must return stored producer error");
+            };
+            assert!(
+                finish_err.to_string().contains("producer stream failure"),
+                "unexpected error: {finish_err}"
+            );
+
+            Ok(())
+        }
+
+        #[test]
+        fn blocking_writer_finish_replays_terminal_error_without_hanging() -> VortexResult<()> {
+            let (tx, rx) = mpsc::channel();
+            std::thread::spawn(move || {
+                let result = (|| -> VortexResult<()> {
+                    let runtime = CurrentThreadRuntime::new();
+                    let session = test_session().with_handle(runtime.handle());
+                    let chunk = make_chunk(&[1, 2, 3])?;
+                    let dtype = chunk.dtype().clone();
+
+                    let write_calls = Arc::new(AtomicUsize::new(0));
+                    let sink = FailingSyncWrite {
+                        fail_on_write: 1,
+                        write_calls: Arc::clone(&write_calls),
+                        message: "controlled blocking sink failure",
+                    };
+
+                    let mut writer = session
+                        .write_options()
+                        .blocking(&runtime)
+                        .writer(sink, dtype);
+
+                    let mut first_err = None;
+                    for _ in 0..4 {
+                        if let Err(err) = writer.push(chunk.clone()) {
+                            first_err = Some(err);
+                            break;
+                        }
+                    }
+                    let first_err = first_err.expect("expected blocking push to fail");
+                    assert!(
+                        first_err
+                            .to_string()
+                            .contains("controlled blocking sink failure"),
+                        "unexpected error: {first_err}"
+                    );
+                    let calls_after_failure = write_calls.load(Ordering::SeqCst);
+
+                    let Err(finish_err) = writer.finish() else {
+                        panic!("blocking finish must return stored error");
+                    };
+                    assert!(
+                        finish_err
+                            .to_string()
+                            .contains("controlled blocking sink failure"),
+                        "unexpected error: {finish_err}"
+                    );
+                    assert_eq!(write_calls.load(Ordering::SeqCst), calls_after_failure);
+                    Ok(())
+                })();
+                drop(tx.send(result));
+            });
+
+            rx.recv_timeout(Duration::from_secs(5))
+                .map_err(|err| vortex_err!("blocking writer hung after terminal error: {err}"))??;
+            Ok(())
+        }
+
+        #[tokio::test]
+        async fn writer_cancelled_push_preserves_subsequent_pushes_and_finish() -> VortexResult<()>
+        {
+            let session = test_session();
+            let mut ctx = session.create_execution_ctx();
+            let chunk1 = make_chunk(&[1, 2, 3])?;
+            let chunk2 = make_chunk(&[4, 5, 6])?;
+            let dtype = chunk1.dtype().clone();
+
+            let mut buf = ByteBufferMut::empty();
+            let mut writer = session.write_options().writer(&mut buf, dtype);
+
+            writer.push(chunk1).await?;
+            // Create a push future and cancel it before polling.
+            drop(writer.push(make_chunk(&[99])?));
+            writer.push(chunk2).await?;
+
+            let summary = writer.finish().await?;
+            assert_eq!(summary.row_count(), 6);
+
+            let file = session.open_options().open_buffer(buf)?;
+            let result = file.scan()?.into_array_stream()?.read_all().await?;
+            let numbers = result
+                .execute::<StructArray>(&mut ctx)?
+                .unmasked_field_by_name("numbers")?
+                .clone();
+            assert_arrays_eq!(numbers, buffer![1u32, 2, 3, 4, 5, 6].into_array(), &mut ctx);
+
+            Ok(())
+        }
     }
 }
