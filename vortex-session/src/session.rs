@@ -40,6 +40,8 @@ use std::ops::DerefMut;
 use std::sync::Arc;
 
 use arc_swap::Guard;
+use parking_lot::ReentrantMutex;
+use parking_lot::ReentrantMutexGuard;
 use vortex_error::VortexExpect;
 use vortex_error::vortex_panic;
 use vortex_utils::aliases::hash_map::HashMap;
@@ -114,10 +116,22 @@ impl<V: VortexSessionVar> Debug for SessionGuard<'_, V> {
 /// session, replacing the previous one. Because the session stores each variable behind a shared
 /// [`Arc`] observed by every clone, handing out a plain `&mut` to the stored value would be unsound;
 /// this guard provides mutable access by cloning on read and publishing on drop instead.
+///
+/// The handle holds the session's writer lock until it is dropped, so handles on other threads, and
+/// [`VortexSession::register`] calls from them, wait for it instead of overwriting its update.
+///
+/// # Panics
+///
+/// On drop, if the variable was replaced on the same thread while the handle was alive, for
+/// example by a second `get_mut` handle or a `register` call.
 pub struct SessionMut<'a, V: VortexSessionVar> {
     session: &'a VortexSession,
+    // The stored variable that `value` was cloned from.
+    original: Arc<dyn VortexSessionVar>,
     // `Some` for the whole lifetime of the guard; taken in `drop` to move it back into the session.
     value: Option<V>,
+    // Dropped after `drop` publishes `value`.
+    _writer: ReentrantMutexGuard<'a, ()>,
 }
 
 impl<V: VortexSessionVar> Deref for SessionMut<'_, V> {
@@ -140,8 +154,20 @@ impl<V: VortexSessionVar> DerefMut for SessionMut<'_, V> {
 
 impl<V: VortexSessionVar> Drop for SessionMut<'_, V> {
     fn drop(&mut self) {
-        if let Some(value) = self.value.take() {
-            self.session.register(value);
+        let Some(value) = self.value.take() else {
+            return;
+        };
+        let published =
+            self.session
+                .vars
+                .insert_if(TypeId::of::<V>(), Arc::new(value), |current| {
+                    current.is_some_and(|current| Arc::ptr_eq(current, &self.original))
+                });
+        if !published && !std::thread::panicking() {
+            vortex_panic!(
+                "Session variable of type {} was replaced while a `get_mut` handle to it was alive",
+                type_name::<V>()
+            );
         }
     }
 }
@@ -161,11 +187,15 @@ impl<V: VortexSessionVar> Debug for SessionMut<'_, V> {
 /// clone (via [`VortexSession::with_some`] or one of the `with_*` helpers) is observed by all
 /// clones. To build an *independent* session, start from [`VortexSession::empty`].
 #[derive(Clone)]
-pub struct VortexSession(SharedSessionVars);
+pub struct VortexSession {
+    vars: SharedSessionVars,
+    // Serializes replacing writes: `register` and the lifetime of each `SessionMut`.
+    writer: Arc<ReentrantMutex<()>>,
+}
 
 impl Debug for VortexSession {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        self.0
+        self.vars
             .read(|vars| f.debug_tuple("VortexSession").field(vars).finish())
     }
 }
@@ -173,7 +203,10 @@ impl Debug for VortexSession {
 impl VortexSession {
     /// Create a new [`VortexSession`] with no session state.
     pub fn empty() -> Self {
-        Self(SharedSessionVars::default())
+        Self {
+            vars: SharedSessionVars::default(),
+            writer: Arc::default(),
+        }
     }
 
     /// Inserts a session variable of type `V`, unconditionally replacing any existing variable of
@@ -185,7 +218,8 @@ impl VortexSession {
     /// that a first registration cannot overwrite another. The mutation is applied in place to the
     /// shared backing store, so it is visible through every clone.
     pub fn register<V: VortexSessionVar>(&self, var: V) {
-        self.0.insert(TypeId::of::<V>(), Arc::new(var));
+        let _writer = self.writer.lock();
+        self.vars.insert(TypeId::of::<V>(), Arc::new(var));
     }
 
     /// Inserts a new session variable of type `V` with its default value, mutating this session in
@@ -211,7 +245,7 @@ impl VortexSession {
     ///
     /// If a variable of that type already exists.
     pub fn with_some<V: VortexSessionVar>(self, var: V) -> Self {
-        if !self.0.insert_if_absent(TypeId::of::<V>(), Arc::new(var)) {
+        if !self.vars.insert_if_absent(TypeId::of::<V>(), Arc::new(var)) {
             vortex_panic!(
                 "Session variable of type {} already exists",
                 type_name::<V>()
@@ -254,14 +288,14 @@ impl SessionExt for VortexSession {
         // NB: `init` runs before the map is updated, never inside it, because it may re-enter the
         // session. If a concurrent writer published a value first, that value is kept.
         let var: Arc<dyn VortexSessionVar> = Arc::new(init());
-        self.0.insert_if_absent(TypeId::of::<V>(), var);
+        self.vars.insert_if_absent(TypeId::of::<V>(), var);
 
         self.get_opt::<V>()
             .vortex_expect("a variable of type `V` is present after `insert_if_absent`")
     }
 
     fn get_opt<V: VortexSessionVar>(&self) -> Option<SessionGuard<'_, V>> {
-        let snapshot = self.0.load();
+        let snapshot = self.vars.load();
         snapshot
             .contains_key(&TypeId::of::<V>())
             .then(|| SessionGuard {
@@ -272,10 +306,23 @@ impl SessionExt for VortexSession {
     }
 
     fn get_mut<V: VortexSessionVar + Default + Clone>(&self) -> SessionMut<'_, V> {
-        let value = (*self.get::<V>()).clone();
+        let writer = self.writer.lock();
+        // Insert the default if the variable is missing.
+        drop(self.get::<V>());
+        let original = self
+            .vars
+            .get(&TypeId::of::<V>())
+            .vortex_expect("a variable of type `V` is present after `get`");
+        let value = original
+            .as_any()
+            .downcast_ref::<V>()
+            .vortex_expect("Type mismatch - this is a bug")
+            .clone();
         SessionMut {
             session: self,
+            original,
             value: Some(value),
+            _writer: writer,
         }
     }
 }
@@ -560,5 +607,34 @@ mod tests {
             assert_eq!(winner.get::<Counter>().count, expected);
             assert_eq!(session.get::<Counter>().count, expected);
         }
+    }
+
+    #[test]
+    fn concurrent_get_mut_keeps_every_update() {
+        let session = VortexSession::empty();
+
+        thread::scope(|s| {
+            for _ in 0..4 {
+                let session = session.clone();
+                s.spawn(move || {
+                    for _ in 0..1000 {
+                        session.get_mut::<Counter>().count += 1;
+                    }
+                });
+            }
+        });
+
+        assert_eq!(session.get::<Counter>().count, 4000);
+    }
+
+    #[test]
+    #[should_panic(expected = "was replaced while a `get_mut` handle to it was alive")]
+    fn get_mut_fails_if_the_variable_is_replaced_before_drop() {
+        let session = VortexSession::empty();
+        let mut counter = session.get_mut::<Counter>();
+        counter.count = 1;
+
+        session.register(Counter { count: 2 });
+        drop(counter);
     }
 }

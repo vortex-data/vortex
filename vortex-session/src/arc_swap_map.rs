@@ -144,15 +144,26 @@ impl<K: Eq + Hash, V, S: BuildHasher> ArcSwapMap<K, V, S> {
         V: Clone,
         S: Clone,
     {
+        self.insert_if(key, value, |current| current.is_none())
+    }
+
+    /// Insert `value` under `key` only if `expected` accepts the value stored there, and return
+    /// whether it was inserted.
+    pub(crate) fn insert_if(&self, key: K, value: V, expected: impl Fn(Option<&V>) -> bool) -> bool
+    where
+        K: Clone,
+        V: Clone,
+        S: Clone,
+    {
         let previous = self.inner.rcu(|existing| {
-            if existing.contains_key(&key) {
+            if !expected(existing.get(&key)) {
                 return Arc::clone(existing);
             }
             let mut map = existing.as_ref().clone();
             map.insert(key.clone(), value.clone());
             Arc::new(map)
         });
-        !previous.contains_key(&key)
+        expected(previous.get(&key))
     }
 }
 
