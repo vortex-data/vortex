@@ -58,8 +58,16 @@ jobs:
             'if ($run_pr != "" and any(.[]; tostring == $run_pr)) then $run_pr else (.[0] // empty | tostring) end' \
             <<<"$OPEN_PRS")
           REPORTS=$(gh api --paginate "repos/${REPO}/actions/runs/${RUN_ID}/artifacts" \
-            --jq '.artifacts[] | select(.name | startswith("fork-bench-report-")) | .name' \
-            | jq -R -s -c 'split("\n") | map(select(. != ""))')
+            | jq -s -c '
+              [
+                .[].artifacts[]
+                | select(.expired == false and (.name | startswith("fork-bench-report-")))
+                | (.name | capture("^(?<base>fork-bench-report-.+?)(?:-attempt-(?<attempt>[0-9]+))?$")) as $m
+                | {name: .name, base: $m.base, attempt: (($m.attempt // "0") | tonumber)}
+              ]
+              | group_by(.base)
+              | map(max_by(.attempt).name)
+            ')
           if [[ -z "$PR_NUMBER" ]]; then
             echo "::notice::No open PR has the head ${HEAD_OWNER}:${HEAD_BRANCH}; nothing to report."
             REPORTS='[]'
