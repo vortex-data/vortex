@@ -382,8 +382,9 @@ fn check_field_round_trip(
 /// Checks an array at the top level and in every required container.
 ///
 /// The top-level array is also exported without a target field, so the exporter must infer the
-/// field. Containers with validity are checked with both parent nullabilities, including a masked second row when
-/// one exists. Empty arrays retain all placements, including dictionary and run-end fields.
+/// field. Containers with validity are checked with both parent nullabilities, including a masked
+/// second row when one exists. Empty arrays retain all placements, including dictionary and
+/// run-end fields.
 #[track_caller]
 pub fn check_containers(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<()> {
     let session = ctx.session().clone();
