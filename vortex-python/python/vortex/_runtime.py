@@ -96,6 +96,14 @@ class _WorkerThreadLeaseManager:
             if changed:
                 self._reconcile_policy_locked()
 
+    def _finish_locked(self) -> None:
+        while True:
+            self._drain_pending_releases_locked()
+            self._busy = False
+            if not self._pending_releases:
+                return
+            self._busy = True
+
     def acquire(self, use_threads: bool) -> int:
         with self._lock:
             self._busy = True
@@ -119,13 +127,11 @@ class _WorkerThreadLeaseManager:
                         self._threaded_leases -= 1
                     else:
                         self._unthreaded_leases -= 1
-                    self._drain_pending_releases_locked()
                     raise
 
-                self._drain_pending_releases_locked()
                 return self._generation
             finally:
-                self._busy = False
+                self._finish_locked()
 
     def release(self, use_threads: bool, generation: int) -> None:
         with self._lock:
@@ -135,9 +141,8 @@ class _WorkerThreadLeaseManager:
             self._busy = True
             try:
                 self._apply_release_locked(use_threads, generation)
-                self._drain_pending_releases_locked()
             finally:
-                self._busy = False
+                self._finish_locked()
 
     def get_user_worker_threads(self) -> int:
         with self._lock:
@@ -145,13 +150,11 @@ class _WorkerThreadLeaseManager:
             try:
                 if self._threaded_leases > 0 or self._unthreaded_leases > 0:
                     self._sync_external_baseline_locked()
-                    result = self._baseline_workers if self._baseline_workers is not None else _worker_threads()
-                else:
-                    result = _worker_threads()
-                self._drain_pending_releases_locked()
-                return result
+                    if self._baseline_workers is not None:
+                        return self._baseline_workers
+                return _worker_threads()
             finally:
-                self._busy = False
+                self._finish_locked()
 
     def set_user_worker_threads(self, n: int | None = None) -> None:
         with self._lock:
@@ -161,9 +164,8 @@ class _WorkerThreadLeaseManager:
                 if self._threaded_leases > 0 or self._unthreaded_leases > 0:
                     self._baseline_workers = _worker_threads()
                     self._last_applied_workers = None
-                self._drain_pending_releases_locked()
             finally:
-                self._busy = False
+                self._finish_locked()
 
     def reset_after_fork(self) -> None:
         baseline = self._baseline_workers
