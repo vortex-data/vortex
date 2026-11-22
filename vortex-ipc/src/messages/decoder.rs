@@ -171,7 +171,7 @@ impl MessageDecoder {
     /// Returns `Ok(())` only when the decoder is waiting for a new message with no buffered
     /// prefix bytes. Otherwise returns an [`io::ErrorKind::UnexpectedEof`] error describing the
     /// unfinished frame.
-    pub fn finish_eof(&self, buffered_bytes: usize) -> VortexResult<()> {
+    pub(crate) fn finish_eof(&self, buffered_bytes: usize) -> VortexResult<()> {
         match &self.state {
             State::Length if buffered_bytes == 0 => Ok(()),
             State::Length => Err(io::Error::new(
@@ -206,8 +206,6 @@ impl MessageDecoder {
 
 #[cfg(test)]
 mod tests {
-    use std::error::Error as _;
-
     use bytes::BytesMut;
     use vortex_array::ArrayRef;
     use vortex_array::ArrayVTable;
@@ -230,6 +228,7 @@ mod tests {
     use crate::messages::EncoderMessage;
     use crate::messages::MessageEncoder;
     use crate::test::SESSION;
+    use crate::test::assert_io_error_kind;
 
     fn write_and_read(expected: &ArrayRef) {
         let mut ipc_bytes = BytesMut::new();
@@ -300,14 +299,6 @@ mod tests {
         Ok(())
     }
 
-    fn assert_unexpected_eof(err: &vortex_error::VortexError) {
-        let io_err = err
-            .source()
-            .and_then(|s| s.downcast_ref::<io::Error>())
-            .vortex_expect("expected io::Error source");
-        assert_eq!(io_err.kind(), io::ErrorKind::UnexpectedEof);
-    }
-
     #[test]
     fn finish_eof_each_state() -> VortexResult<()> {
         let array = buffer![0i32, 1, 2, 3].into_array();
@@ -325,7 +316,10 @@ mod tests {
         // Clean boundary before any message.
         decoder.finish_eof(0)?;
         // Partial length prefix in State::Length.
-        assert_unexpected_eof(&decoder.finish_eof(2).unwrap_err());
+        assert_io_error_kind(
+            &decoder.finish_eof(2).unwrap_err(),
+            io::ErrorKind::UnexpectedEof,
+        );
 
         // Advance to State::Header.
         let mut buf = BytesMut::from(length_bytes.as_ref());
@@ -333,8 +327,14 @@ mod tests {
             decoder.read_next(&mut buf)?,
             PollRead::NeedMore(_)
         ));
-        assert_unexpected_eof(&decoder.finish_eof(0).unwrap_err());
-        assert_unexpected_eof(&decoder.finish_eof(1).unwrap_err());
+        assert_io_error_kind(
+            &decoder.finish_eof(0).unwrap_err(),
+            io::ErrorKind::UnexpectedEof,
+        );
+        assert_io_error_kind(
+            &decoder.finish_eof(1).unwrap_err(),
+            io::ErrorKind::UnexpectedEof,
+        );
 
         // Advance to State::Reading.
         buf.extend_from_slice(header_bytes.as_ref());
@@ -342,8 +342,14 @@ mod tests {
             decoder.read_next(&mut buf)?,
             PollRead::NeedMore(_)
         ));
-        assert_unexpected_eof(&decoder.finish_eof(0).unwrap_err());
-        assert_unexpected_eof(&decoder.finish_eof(1).unwrap_err());
+        assert_io_error_kind(
+            &decoder.finish_eof(0).unwrap_err(),
+            io::ErrorKind::UnexpectedEof,
+        );
+        assert_io_error_kind(
+            &decoder.finish_eof(1).unwrap_err(),
+            io::ErrorKind::UnexpectedEof,
+        );
 
         // Complete the body -> back to State::Length.
         buf.extend_from_slice(&body_bytes);

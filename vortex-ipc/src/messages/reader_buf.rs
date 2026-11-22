@@ -51,7 +51,6 @@ impl<B: Buf> Iterator for BufMessageReader<B> {
 
 #[cfg(test)]
 mod tests {
-    use std::error::Error as _;
     use std::io;
 
     use bytes::Bytes;
@@ -64,6 +63,7 @@ mod tests {
     use crate::messages::EncoderMessage;
     use crate::messages::MessageEncoder;
     use crate::test::SESSION;
+    use crate::test::assert_io_error_kind;
 
     #[test]
     fn truncated_buffer_errors_once_then_terminates() -> VortexResult<()> {
@@ -80,11 +80,7 @@ mod tests {
                 .next()
                 .vortex_expect("expected error on truncated buffer")
                 .unwrap_err();
-            let io_err = err
-                .source()
-                .and_then(|s| s.downcast_ref::<io::Error>())
-                .vortex_expect("expected io::Error source");
-            assert_eq!(io_err.kind(), io::ErrorKind::UnexpectedEof);
+            assert_io_error_kind(&err, io::ErrorKind::UnexpectedEof);
             assert!(reader.next().is_none());
             assert!(reader.next().is_none());
         }

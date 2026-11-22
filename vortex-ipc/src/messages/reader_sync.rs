@@ -89,7 +89,6 @@ impl<R: Read> Iterator for SyncMessageReader<R> {
 
 #[cfg(test)]
 mod tests {
-    use std::error::Error as _;
     use std::io::Read;
 
     use bytes::BytesMut;
@@ -104,6 +103,7 @@ mod tests {
     use crate::messages::EncoderMessage;
     use crate::messages::MessageEncoder;
     use crate::test::SESSION;
+    use crate::test::assert_io_error_kind;
 
     /// A `Read` that yields a single byte per call, forcing maximal partial reads.
     struct ByteAtATimeReader {
@@ -147,14 +147,6 @@ mod tests {
         assert_eq!(actual.encoding_id(), array.encoding_id());
         assert!(messages.next().is_none());
         Ok(())
-    }
-
-    fn assert_io_error_kind(err: &vortex_error::VortexError, expected: std::io::ErrorKind) {
-        let io_err = err
-            .source()
-            .and_then(|s| s.downcast_ref::<std::io::Error>())
-            .vortex_expect("expected io::Error source");
-        assert_eq!(io_err.kind(), expected);
     }
 
     #[test]

@@ -141,7 +141,6 @@ impl<R: AsyncRead> Stream for AsyncMessageReader<R> {
 
 #[cfg(test)]
 mod tests {
-    use std::error::Error as _;
     use std::io;
     use std::pin::Pin;
     use std::task::Context;
@@ -152,7 +151,6 @@ mod tests {
     use vortex_array::IntoArray;
     use vortex_buffer::ByteBuffer;
     use vortex_buffer::buffer;
-    use vortex_error::VortexError;
     use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
     use vortex_error::vortex_panic;
@@ -161,6 +159,7 @@ mod tests {
     use crate::messages::EncoderMessage;
     use crate::messages::MessageEncoder;
     use crate::test::SESSION;
+    use crate::test::assert_io_error_kind;
 
     /// An `AsyncRead` that alternates `Poll::Pending` with 1-byte reads.
     struct PendingByteReader {
@@ -208,14 +207,6 @@ mod tests {
             self.pos += 1;
             Poll::Ready(Ok(1))
         }
-    }
-
-    fn assert_io_error_kind(err: &VortexError, expected: io::ErrorKind) {
-        let io_err = err
-            .source()
-            .and_then(|s| s.downcast_ref::<io::Error>())
-            .vortex_expect("expected io::Error source");
-        assert_eq!(io_err.kind(), expected);
     }
 
     #[tokio::test]
