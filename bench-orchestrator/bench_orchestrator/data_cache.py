@@ -161,6 +161,7 @@ def _dataset_lock(dataset: CachedDataset) -> Iterator[bool]:
     """
     if _LOCK_OWNER_PID != os.getpid():
         _reset_locks_after_fork()
+    owner_pid = os.getpid()
     lock_file = _lock_path(dataset)
     lock_file.parent.mkdir(parents=True, exist_ok=True)
     lock_key = lock_file.resolve()
@@ -183,14 +184,15 @@ def _dataset_lock(dataset: CachedDataset) -> Iterator[bool]:
         try:
             yield lock_key in _LOCK_FDS
         finally:
-            _LOCK_DEPTH[lock_key] -= 1
-            if _LOCK_DEPTH[lock_key] == 0:
-                fd = _LOCK_FDS.pop(lock_key, None)
-                if fd is not None:
-                    try:
-                        _release_file_lock(fd)
-                    finally:
-                        os.close(fd)
+            if os.getpid() == owner_pid:
+                _LOCK_DEPTH[lock_key] -= 1
+                if _LOCK_DEPTH[lock_key] == 0:
+                    fd = _LOCK_FDS.pop(lock_key, None)
+                    if fd is not None:
+                        try:
+                            _release_file_lock(fd)
+                        finally:
+                            os.close(fd)
 
 
 def _has_matching_local_cache(dataset: CachedDataset) -> bool:
