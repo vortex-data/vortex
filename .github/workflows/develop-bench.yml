@@ -1,16 +1,9 @@
-# Runs on commits to `develop` (i.e. after pull requests merge), debounced via a single
-# concurrency group: at most one run executes and one latest push queues behind it, so rapid
-# bursts of merges collapse into the newest commit without cancelling in-progress benchmarks.
+# Runs benchmarks on `develop`, dispatched every 10 minutes by `develop-bench-trigger.yml`
+# whenever new commits have landed on `develop` (or manually via `workflow_dispatch` on `develop`).
 
 name: Develop Benchmarks
 
-concurrency:
-  group: develop-bench-${{ github.ref }}
-  cancel-in-progress: false
-
 on:
-  push:
-    branches: [develop]
   workflow_dispatch: { }
 
 permissions:
@@ -20,6 +13,7 @@ permissions:
 
 jobs:
   build:
+    if: github.ref == 'refs/heads/develop'
     timeout-minutes: 60
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
@@ -65,7 +59,7 @@ jobs:
   # bench job; Polar Signals matches debuginfo to profiles by build ID whenever it lands.
   upload-debuginfo:
     needs: build
-    if: github.repository == 'vortex-data/vortex'
+    if: github.repository == 'vortex-data/vortex' && github.ref == 'refs/heads/develop'
     timeout-minutes: 30
     strategy:
       fail-fast: false
@@ -96,7 +90,7 @@ jobs:
 
   bench:
     needs: build
-    if: ${{ !cancelled() && needs.build.result == 'success' }}
+    if: ${{ !cancelled() && needs.build.result == 'success' && github.ref == 'refs/heads/develop' }}
     timeout-minutes: 120
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
@@ -117,7 +111,7 @@ jobs:
             build_args: "--features lance"
             v4_ingest: true
             remote_data_dir: >-
-              s3://vortex-ci-benchmark-datasets/develop/random-access/
+              s3://vortex-ci-benchmark-datasets/develop/${{ github.run_id }}/random-access/
           - id: compress-bench
             name: Compression
             build_args: "--features lance"
@@ -335,18 +329,19 @@ jobs:
           deduplication-key: ci-bench-${{ matrix.benchmark.id }}-failure
 
   sql:
+    if: github.ref == 'refs/heads/develop'
     uses: ./.github/workflows/sql-bench-matrix.yml
     secrets: inherit
     with:
       mode: "develop"
       matrix_preset: "develop"
 
-  # Tell the benchmarks website that new results exist, once per push, after every benchmark job
-  # of the push has ingested its results. `always()` runs it even when a benchmark job failed, so
+  # Tell the benchmarks website that new results exist, once per run, after every benchmark job
+  # of the run has ingested its results. `always()` runs it even when a benchmark job failed, so
   # the results that other jobs ingested still appear.
   refresh-site:
     needs: [bench, sql]
-    if: ${{ always() }}
+    if: ${{ always() && github.ref == 'refs/heads/develop' }}
     uses: ./.github/workflows/refresh-bench-site.yml
     secrets:
       BENCH_REVALIDATE_TOKEN: ${{ secrets.BENCH_REVALIDATE_TOKEN }}
