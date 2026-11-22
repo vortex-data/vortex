@@ -26,7 +26,7 @@
     "compare_sorted": 3,
     "copy_to_canonical_width": 0,
     "dict_compare": 16,
-    "dict_compress": 25,
+    "dict_compress": 31,
     "dict_mask": 16,
     "dict_unreferenced_mask": 10,
     "expr_case_when": 28,
