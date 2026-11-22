@@ -172,7 +172,10 @@ geo-traits = "0.3.0"
 geo-types = "0.7.19"
 geoarrow = "0.9.0"
 geoarrow-cast = "0.9.0"
-geozero = { version = "0.14", default-features = false, features = ["with-geo", "with-wkb"] }
+geozero = { version = "0.14", default-features = false, features = [
+    "with-geo",
+    "with-wkb",
+] }
 get_dir = "0.5.0"
 git2 = { version = "0.21", default-features = false }
 glob = "0.3.2"
