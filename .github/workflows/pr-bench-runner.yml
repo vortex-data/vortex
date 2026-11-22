@@ -312,7 +312,7 @@ jobs:
         with:
           benchmark-name: ${{ inputs.benchmark_name }}
           comment-tag: bench-pr-comment-${{ inputs.benchmark_id }}${{ inputs.variant_id }}
-          failed: ${{ failure() }}
+          failed: ${{ job.status == 'failure' }}
 
       - name: Comment PR
         if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork == false
