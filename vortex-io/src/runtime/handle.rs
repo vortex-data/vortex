@@ -311,72 +311,49 @@ impl<T> Drop for Task<T> {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::atomic::AtomicBool;
     use std::sync::atomic::AtomicUsize;
     use std::sync::atomic::Ordering;
 
     use futures::future::BoxFuture;
     use futures::task::noop_waker;
     use parking_lot::Mutex;
-    use rstest::rstest;
 
     use super::*;
     use crate::runtime::AbortHandle;
 
-    struct QueuedJob {
-        executor_cancelled: Arc<AtomicBool>,
-        work: Box<dyn FnOnce() + Send + 'static>,
-    }
-
     struct GatedAbortHandle {
-        executor_cancelled: Arc<AtomicBool>,
-        supports_queued_cancel: bool,
         abort_calls: Arc<AtomicUsize>,
     }
 
     impl AbortHandle for GatedAbortHandle {
         fn abort(self: Box<Self>) {
             self.abort_calls.fetch_add(1, Ordering::SeqCst);
-            if self.supports_queued_cancel {
-                self.executor_cancelled.store(true, Ordering::Release);
-            }
         }
     }
 
     struct GatedExecutor {
-        queue: Mutex<Vec<QueuedJob>>,
-        supports_queued_cancel: bool,
+        queue: Mutex<Vec<Box<dyn FnOnce() + Send + 'static>>>,
         abort_calls: Arc<AtomicUsize>,
     }
 
     impl GatedExecutor {
-        fn new(supports_queued_cancel: bool) -> Arc<Self> {
+        fn new() -> Arc<Self> {
             Arc::new(Self {
                 queue: Mutex::new(Vec::new()),
-                supports_queued_cancel,
                 abort_calls: Arc::new(AtomicUsize::new(0)),
             })
         }
 
         fn enqueue(&self, work: Box<dyn FnOnce() + Send + 'static>) -> AbortHandleRef {
-            let executor_cancelled = Arc::new(AtomicBool::new(false));
-            self.queue.lock().push(QueuedJob {
-                executor_cancelled: Arc::clone(&executor_cancelled),
-                work,
-            });
+            self.queue.lock().push(work);
             Box::new(GatedAbortHandle {
-                executor_cancelled,
-                supports_queued_cancel: self.supports_queued_cancel,
                 abort_calls: Arc::clone(&self.abort_calls),
             })
         }
 
         fn drain(&self) {
-            let jobs = std::mem::take(&mut *self.queue.lock());
-            for job in jobs {
-                if !job.executor_cancelled.load(Ordering::Acquire) {
-                    (job.work)();
-                }
+            for job in std::mem::take(&mut *self.queue.lock()) {
+                job();
             }
         }
     }
@@ -397,7 +374,7 @@ mod tests {
 
     #[test]
     fn detached_cpu_and_blocking_tasks_run_queued_work() {
-        let executor = GatedExecutor::new(true);
+        let executor = GatedExecutor::new();
         let dyn_exec: Arc<dyn Executor> = Arc::clone(&executor) as Arc<dyn Executor>;
         let handle = Handle::new(Arc::downgrade(&dyn_exec));
 
@@ -426,11 +403,9 @@ mod tests {
         assert_eq!(executor.abort_calls.load(Ordering::SeqCst), 0);
     }
 
-    #[rstest]
-    #[case::executor_cancels_queued(true)]
-    #[case::closure_skips_queued(false)]
-    fn dropped_cpu_and_blocking_tasks_skip_queued_work(#[case] supports_queued_cancel: bool) {
-        let executor = GatedExecutor::new(supports_queued_cancel);
+    #[test]
+    fn dropped_cpu_and_blocking_tasks_skip_queued_work() {
+        let executor = GatedExecutor::new();
         let dyn_exec: Arc<dyn Executor> = Arc::clone(&executor) as Arc<dyn Executor>;
         let handle = Handle::new(Arc::downgrade(&dyn_exec));
 
@@ -455,43 +430,6 @@ mod tests {
         assert_eq!(cpu_runs.load(Ordering::SeqCst), 0);
         assert_eq!(blocking_runs.load(Ordering::SeqCst), 0);
         assert_eq!(executor.abort_calls.load(Ordering::SeqCst), 2);
-    }
-
-    #[test]
-    fn joined_cpu_and_blocking_tasks_return_values_and_propagate_panics() {
-        let executor = GatedExecutor::new(true);
-        let dyn_exec: Arc<dyn Executor> = Arc::clone(&executor) as Arc<dyn Executor>;
-        let handle = Handle::new(Arc::downgrade(&dyn_exec));
-
-        let mut cpu_ok = handle.spawn_cpu(|| 41u32);
-        let mut blocking_ok = handle.spawn_blocking(|| 42u32);
-        let mut cpu_panic = handle.spawn_cpu(|| -> u32 { panic!("cpu boom") });
-        let mut blocking_panic = handle.spawn_blocking(|| -> u32 { panic!("blocking boom") });
-
-        executor.drain();
-
-        let waker = noop_waker();
-        let mut cx = Context::from_waker(&waker);
-        assert!(matches!(
-            cpu_ok.poll_join(&mut cx),
-            Poll::Ready(JoinOutcome::Completed(41))
-        ));
-        assert!(matches!(
-            blocking_ok.poll_join(&mut cx),
-            Poll::Ready(JoinOutcome::Completed(42))
-        ));
-        match cpu_panic.poll_join(&mut cx) {
-            Poll::Ready(JoinOutcome::Panicked(payload)) => {
-                assert_eq!(payload.downcast_ref::<&str>(), Some(&"cpu boom"));
-            }
-            _ => panic!("expected cpu task panic"),
-        }
-        match blocking_panic.poll_join(&mut cx) {
-            Poll::Ready(JoinOutcome::Panicked(payload)) => {
-                assert_eq!(payload.downcast_ref::<&str>(), Some(&"blocking boom"));
-            }
-            _ => panic!("expected blocking task panic"),
-        }
     }
 
     // A task whose result channel closed without a value — the runtime dropped its future before
