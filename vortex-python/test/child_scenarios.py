@@ -135,6 +135,18 @@ def child_inherits_worker_count(ctx: BaseContext, path: str) -> None:
     assert in_child(ctx, worker_threads) == 3
 
 
+def child_inherits_baseline_worker_count_during_reader(ctx: BaseContext, path: str) -> None:
+    """Forking while a ``use_threads=False`` dataset reader is open must inherit the configured
+    baseline worker count rather than the reader's temporary 0-worker override."""
+    vx.set_worker_threads(3)
+    reader = vx.open(path).to_dataset().to_record_batch_reader(batch_size=1024, use_threads=False)
+    try:
+        assert reader.read_next_batch().num_rows > 0
+        assert in_child(ctx, worker_threads) == 3
+    finally:
+        reader.close()
+
+
 def pool_map_with_pickled_expr(ctx: BaseContext, path: str) -> None:
     """A Pool pickles both the callable and its arguments: the shape `datasets` uses for `num_proc`,
     and the reason Expr needs `__reduce__`."""
@@ -172,6 +184,9 @@ SCENARIOS: dict[str, Scenario] = {
     "child_has_live_workers": Scenario(child_has_live_workers),
     "expr_filter_in_child": Scenario(expr_filter_in_child),
     "child_inherits_worker_count": Scenario(child_inherits_worker_count, start_methods=(FORK,)),
+    "child_inherits_baseline_worker_count_during_reader": Scenario(
+        child_inherits_baseline_worker_count_during_reader, start_methods=(FORK,)
+    ),
     "pool_map_with_pickled_expr": Scenario(pool_map_with_pickled_expr),
     "pickled_file_reads_in_child": Scenario(pickled_file_reads_in_child),
 }

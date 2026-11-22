@@ -14,7 +14,6 @@ use parquet_variant_compute::VariantArrayBuilder;
 use vortex_array::ArrayRef;
 use vortex_array::VortexSessionExecute;
 use vortex_arrow::ArrowSessionExt;
-use vortex_arrow::test_harness::DefaultExport;
 use vortex_arrow::test_harness::check_containers;
 use vortex_arrow::test_harness::check_generated;
 use vortex_error::VortexExpect;
@@ -70,9 +69,9 @@ fn check_variant_round_trip(tc: &TestCase) -> VortexResult<()> {
     let array = draw_array(tc, &session)?;
 
     let empty = array.slice(0..0)?;
-    check_containers(empty, DefaultExport::Supported, &mut ctx)?;
+    check_containers(empty, &mut ctx)?;
 
-    check_generated(tc, array, DefaultExport::Supported, &mut ctx)
+    check_generated(tc, array, &mut ctx)
 }
 
 #[hegel::test(test_cases = 100, print_blob = true)]
