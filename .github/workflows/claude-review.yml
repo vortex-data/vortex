@@ -53,6 +53,11 @@ jobs:
             const sender = context.payload.sender?.login ?? '';
             const senderType = context.payload.sender?.type ?? '';
             const trustedClaudeLogin = process.env.CLAUDE_APP_LOGIN ?? '';
+            const allowedBotLogins = new Set(['devin-ai-integration[bot]']);
+            const isAllowedBot =
+              senderType === 'Bot' &&
+              context.eventName === 'issue_comment' &&
+              allowedBotLogins.has(sender);
 
             async function getPermission(username) {
               try {
@@ -96,12 +101,12 @@ jobs:
               reason = 'not_mentioned';
             } else if (!pullNumber) {
               reason = 'not_a_pr_event';
-            } else if (senderType === 'Bot') {
+            } else if (senderType === 'Bot' && !isAllowedBot) {
               reason = 'bot_sender_refused';
             }
 
             let actorHasWrite = 'false';
-            if (!reason) {
+            if (!reason && !isAllowedBot) {
               const permission = await getPermission(sender);
               core.setOutput('actor_permission', permission);
               actorHasWrite = ['admin', 'maintain', 'write'].includes(permission) ? 'true' : 'false';
@@ -257,6 +262,7 @@ jobs:
           # to read repository state and post review comments. It cannot write repo
           # contents, and it has no access to the GitHub App private key.
           github_token: ${{ github.token }}
+          allowed_bots: "devin-ai-integration[bot]"
 
           additional_permissions: |
             actions: read
