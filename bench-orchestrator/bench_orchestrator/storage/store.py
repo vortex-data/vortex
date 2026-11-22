@@ -195,27 +195,6 @@ class ResultStore:
         if not ctx.metadata.partial:
             self._publish_latest(run_id)
 
-    def _iter_run_dirs(self) -> Iterator[Path]:
-        """Yield run directories containing metadata.json, skipping symlinks and hidden paths."""
-        if not self.base_dir.exists():
-            return
-        for root, dirs, files in os.walk(self.base_dir, followlinks=False):
-            root_path = Path(root)
-            dirs[:] = [d for d in dirs if d != "latest" and not d.startswith(".") and not (root_path / d).is_symlink()]
-            if root_path != self.base_dir and "metadata.json" in files:
-                yield root_path
-
-    def _resolve_latest_run_id(self, latest_link: Path) -> str:
-        """Return the full run ID targeted by the latest symlink."""
-        target_path = Path(os.readlink(latest_link))
-        if not target_path.is_absolute():
-            return target_path.as_posix()
-        resolved = target_path.resolve()
-        try:
-            return resolved.relative_to(self.base_dir.resolve()).as_posix()
-        except ValueError:
-            return resolved.name
-
     def list_runs(
         self,
         benchmark: str | None = None,
@@ -227,25 +206,35 @@ class ResultStore:
             return []
 
         summaries = []
-        for run_dir in self._iter_run_dirs():
-            metadata = self._read_run_metadata(run_dir)
-            if metadata is None:
+        for run_dir in self.base_dir.iterdir():
+            if not run_dir.is_dir() or run_dir.is_symlink() or run_dir.name == "latest" or run_dir.name.startswith("."):
                 continue
 
-            # Apply filters
-            if benchmark and metadata.benchmark != benchmark:
-                continue
-            if since and metadata.timestamp < since:
+            metadata_path = run_dir / "metadata.json"
+            if not metadata_path.exists():
                 continue
 
-            # Count results
-            results_path = run_dir / "results.jsonl"
-            result_count = 0
-            if results_path.exists():
-                with open(results_path) as f:
-                    result_count = sum(1 for _ in f)
+            try:
+                with open(metadata_path) as f:
+                    data = json.load(f)
+                metadata = RunMetadata.from_dict(data)
 
-            summaries.append(RunSummary.from_metadata(metadata, result_count))
+                # Apply filters
+                if benchmark and metadata.benchmark != benchmark:
+                    continue
+                if since and metadata.timestamp < since:
+                    continue
+
+                # Count results
+                results_path = run_dir / "results.jsonl"
+                result_count = 0
+                if results_path.exists():
+                    with open(results_path) as f:
+                        result_count = sum(1 for _ in f)
+
+                summaries.append(RunSummary.from_metadata(metadata, result_count))
+            except (json.JSONDecodeError, KeyError, ValueError):
+                continue
 
         # Sort by timestamp descending
         summaries.sort(key=lambda s: s.timestamp, reverse=True)
@@ -254,48 +243,43 @@ class ResultStore:
         else:
             return summaries
 
-    def _read_run_metadata(self, run_dir: Path) -> RunMetadata | None:
-        """Read RunMetadata from run_dir/metadata.json, or return None if missing or invalid."""
-        metadata_path = run_dir / "metadata.json"
-        if not metadata_path.is_file():
-            return None
-        try:
-            with open(metadata_path) as f:
-                return RunMetadata.from_dict(json.load(f))
-        except (json.JSONDecodeError, KeyError, ValueError, TypeError, OSError):
-            return None
-
     def get_run(self, run_id_or_label: str) -> RunMetadata | None:
         """Get a run by ID, label, or 'latest'."""
         if run_id_or_label == "latest":
             latest_link = self.base_dir / "latest"
             if latest_link.is_symlink():
-                target_id = self._resolve_latest_run_id(latest_link)
-                target_meta = self._read_run_metadata(self.base_dir / target_id)
-                if target_meta is not None and not target_meta.partial:
-                    return target_meta
-            # Fall back to the successful run with the latest completion time (skipping invalid metadata).
-            complete_runs: list[RunMetadata] = []
-            for run_dir in self._iter_run_dirs():
-                metadata = self._read_run_metadata(run_dir)
-                if metadata is not None and not metadata.partial:
-                    complete_runs.append(metadata)
-            if not complete_runs:
-                return None
-            return max(complete_runs, key=lambda m: (m.completed_at or m.timestamp, m.timestamp))
+                run_id_or_label = latest_link.resolve().name
+            else:
+                # Find most recent non-partial run
+                runs = [r for r in self.list_runs(limit=None) if not r.partial]
+                if not runs:
+                    return None
+                run_id_or_label = runs[0].run_id
 
         # Try direct match
         run_dir = self.base_dir / run_id_or_label
         if run_dir.exists():
-            metadata = self._read_run_metadata(run_dir)
-            if metadata is not None:
-                return metadata
+            metadata_path = run_dir / "metadata.json"
+            if metadata_path.exists():
+                with open(metadata_path) as f:
+                    return RunMetadata.from_dict(json.load(f))
 
         # Try to find by label
-        for run_dir in self._iter_run_dirs():
-            metadata = self._read_run_metadata(run_dir)
-            if metadata is not None and metadata.label == run_id_or_label:
-                return metadata
+        if not self.base_dir.exists():
+            return None
+        for run_dir in self.base_dir.iterdir():
+            if not run_dir.is_dir() or run_dir.is_symlink() or run_dir.name == "latest" or run_dir.name.startswith("."):
+                continue
+            metadata_path = run_dir / "metadata.json"
+            if not metadata_path.exists():
+                continue
+            try:
+                with open(metadata_path) as f:
+                    data = json.load(f)
+                if data.get("label") == run_id_or_label:
+                    return RunMetadata.from_dict(data)
+            except (json.JSONDecodeError, KeyError, ValueError):
+                continue
 
         return None
 
@@ -314,31 +298,12 @@ class ResultStore:
         metadata = self.get_run(ref)
         return metadata.run_id if metadata else None
 
-    def _has_descendant_runs(self, run_dir: Path) -> bool:
-        """Return whether run_dir contains any nested run directories with metadata.json."""
-        for root, dirs, files in os.walk(run_dir, followlinks=False):
-            root_path = Path(root)
-            dirs[:] = [d for d in dirs if not (root_path / d).is_symlink()]
-            if root_path != run_dir and "metadata.json" in files:
-                return True
-        return False
-
     def delete_run(self, run_id: str) -> bool:
-        """Delete a run by ID without removing any descendant runs nested beneath it."""
+        """Delete a run by ID."""
         import shutil
 
         run_dir = self.base_dir / run_id
-        if not run_dir.exists():
-            return False
-
-        if not self._has_descendant_runs(run_dir):
+        if run_dir.exists():
             shutil.rmtree(run_dir)
             return True
-
-        # Preserve older nested descendant runs by deleting only this run's own entries.
-        for child in list(run_dir.iterdir()):
-            if child.is_symlink() or child.is_file():
-                child.unlink()
-            elif child.is_dir() and not (child / "metadata.json").exists() and not self._has_descendant_runs(child):
-                shutil.rmtree(child)
-        return True
+        return False
