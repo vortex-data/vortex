@@ -177,19 +177,20 @@ impl<O: OffsetBuilderPType> ListBuilder<O> {
             "offsets length must be one more than nulls length."
         );
 
+        let elements = self.elements_builder.finish();
+        let offsets = self.offsets_builder.finish();
+        let validity = self.nulls.finish_with_nullability(self.dtype.nullability());
+
+        // Re-seed the retained offsets builder with the leading 0 for the next batch.
+        self.offsets_builder.append_zero();
+
         // SAFETY:
         // - The offsets come from a non-nullable integer builder seeded with a leading zero, so
         //   they are a non-nullable integer array of at least one non-negative value.
         // - Every append records `elements_builder.len()` after appending its elements, so the
         //   offsets increase monotonically and the last one is exactly the elements length.
         // - The assert above pairs one validity entry with each list.
-        unsafe {
-            ListArray::new_unchecked(
-                self.elements_builder.finish(),
-                self.offsets_builder.finish(),
-                self.nulls.finish_with_nullability(self.dtype.nullability()),
-            )
-        }
+        unsafe { ListArray::new_unchecked(elements, offsets, validity) }
     }
 
     /// The [`DType`] of the inner elements. Note that this is **not** the same as the [`DType`] of
@@ -1120,5 +1121,146 @@ mod tests {
                 .append_array_as_list(&wrong_dtype_arr, &mut ctx)
                 .is_err()
         );
+    }
+
+    #[test]
+    fn test_reuse_finish_into_list() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let dtype: Arc<DType> = Arc::new(I32.into());
+        let mut reused = ListBuilder::<u32>::with_capacity_in(
+            Arc::clone(&dtype),
+            Nullable,
+            4,
+            BufferAllocatorRef::static_ref(),
+        );
+
+        // Consecutive empty finishes must each keep a leading zero offset.
+        for _ in 0..2 {
+            let empty = reused.finish_into_list();
+            assert_eq!(empty.len(), 0);
+            assert_eq!(empty.elements().len(), 0);
+            assert_arrays_eq!(empty.offsets(), PrimitiveArray::from_iter([0u32]), &mut ctx);
+        }
+
+        // Batch 1: nonempty list, null row, empty list, nonempty list.
+        let list_1_2 = Scalar::list(Arc::clone(&dtype), vec![1i32.into(), 2i32.into()], Nullable);
+        let list_null = Scalar::null(DType::List(Arc::clone(&dtype), Nullable));
+        let list_empty = Scalar::list_empty(Arc::clone(&dtype), Nullable);
+        let list_3 = Scalar::list(Arc::clone(&dtype), vec![3i32.into()], Nullable);
+
+        let mut fresh1 = ListBuilder::<u32>::with_capacity_in(
+            Arc::clone(&dtype),
+            Nullable,
+            4,
+            BufferAllocatorRef::static_ref(),
+        );
+        for scalar in [&list_1_2, &list_null, &list_empty, &list_3] {
+            reused.append_value(scalar.as_list())?;
+            fresh1.append_value(scalar.as_list())?;
+        }
+        let batch1 = reused.finish_into_list();
+        let expected1 = fresh1.finish_into_list();
+        assert_arrays_eq!(
+            batch1.clone().into_array(),
+            expected1.clone().into_array(),
+            &mut ctx
+        );
+        assert_arrays_eq!(
+            batch1.offsets(),
+            PrimitiveArray::from_iter([0u32, 2, 2, 2, 3]),
+            &mut ctx
+        );
+        assert_eq!(batch1.elements().len(), 3);
+
+        // Batch 2 on the reused builder: null row and nonempty list.
+        let list_10_20_30 = Scalar::list(
+            Arc::clone(&dtype),
+            vec![10i32.into(), 20i32.into(), 30i32.into()],
+            Nullable,
+        );
+        let mut fresh2 = ListBuilder::<u32>::with_capacity_in(
+            Arc::clone(&dtype),
+            Nullable,
+            4,
+            BufferAllocatorRef::static_ref(),
+        );
+        for scalar in [&list_null, &list_10_20_30] {
+            reused.append_value(scalar.as_list())?;
+            fresh2.append_value(scalar.as_list())?;
+        }
+        let batch2 = reused.finish_into_list();
+        let expected2 = fresh2.finish_into_list();
+        assert_arrays_eq!(
+            batch2.clone().into_array(),
+            expected2.into_array(),
+            &mut ctx
+        );
+        assert_arrays_eq!(
+            batch2.offsets(),
+            PrimitiveArray::from_iter([0u32, 0, 3]),
+            &mut ctx
+        );
+        assert_eq!(batch2.elements().len(), 3);
+
+        // Batch 1 remains independent of later appends to the reused builder.
+        assert_arrays_eq!(batch1.into_array(), expected1.into_array(), &mut ctx);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_reuse_via_array_builder() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let dtype: Arc<DType> = Arc::new(I32.into());
+        let mut reused = ListBuilder::<u64>::with_capacity_in(
+            Arc::clone(&dtype),
+            Nullable,
+            4,
+            BufferAllocatorRef::static_ref(),
+        );
+        let reused_dyn: &mut dyn ArrayBuilder = &mut reused;
+
+        let list_a = Scalar::list(Arc::clone(&dtype), vec![1i32.into(), 2i32.into()], Nullable);
+        let list_b = Scalar::list(
+            Arc::clone(&dtype),
+            vec![4i32.into(), 5i32.into(), 6i32.into()],
+            Nullable,
+        );
+
+        reused_dyn.append_scalar(&list_a)?;
+        reused_dyn.append_null();
+        let batch1 = reused_dyn.finish();
+
+        let mut fresh1 = ListBuilder::<u64>::with_capacity_in(
+            Arc::clone(&dtype),
+            Nullable,
+            4,
+            BufferAllocatorRef::static_ref(),
+        );
+        fresh1.append_scalar(&list_a)?;
+        fresh1.append_null();
+        let expected1 = ArrayBuilder::finish(&mut fresh1);
+        assert_arrays_eq!(batch1, expected1, &mut ctx);
+
+        reused_dyn.append_scalar(&list_b)?;
+        let batch2 = reused_dyn.finish();
+
+        let mut fresh2 = ListBuilder::<u64>::with_capacity_in(
+            Arc::clone(&dtype),
+            Nullable,
+            4,
+            BufferAllocatorRef::static_ref(),
+        );
+        fresh2.append_scalar(&list_b)?;
+        let expected2 = ArrayBuilder::finish(&mut fresh2);
+        assert_arrays_eq!(batch2, expected2, &mut ctx);
+
+        let empty = reused_dyn.finish();
+        assert_eq!(empty.len(), 0);
+
+        // Batch 1 remains unchanged after later batches.
+        assert_arrays_eq!(batch1, expected1, &mut ctx);
+
+        Ok(())
     }
 }
