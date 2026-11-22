@@ -217,7 +217,7 @@ impl<O: OffsetBuilderPType> ListBuilder<O> {
             return Ok(());
         }
 
-        self.nulls.append_validity(array.validity()?, array.len());
+        let validity = array.validity()?;
 
         let num_lists = array.len();
         let offsets = array.offsets().clone().execute::<PrimitiveArray>(ctx)?;
@@ -248,6 +248,8 @@ impl<O: OffsetBuilderPType> ListBuilder<O> {
             // non-nullable, we are done.
             unsafe { offsets_range.finish() };
         });
+
+        self.nulls.append_validity(validity, num_lists);
         Ok(())
     }
 
@@ -267,11 +269,11 @@ impl<O: OffsetBuilderPType> ListBuilder<O> {
             return Ok(());
         }
 
-        self.nulls.append_validity(array.validity()?, array.len());
+        let validity = array.validity()?;
 
         // Flatten the views into the only layout `ListArray` offsets can express. This is a cheap
         // clone when they already are laid out that way, and the flattened result keeps the
-        // original validity, so the null map appended above still describes it.
+        // original validity, so the null map appended below still describes it.
         let array = array
             .into_owned()
             .rebuild(ListViewRebuildMode::MakeZeroCopyToList, ctx)?;
@@ -282,6 +284,7 @@ impl<O: OffsetBuilderPType> ListBuilder<O> {
         let offsets = array.offsets().clone().execute::<PrimitiveArray>(ctx)?;
         let sizes = array.sizes().clone().execute::<PrimitiveArray>(ctx)?;
 
+        let num_lists = array.len();
         match_each_integer_ptype!(offsets.ptype(), |OffsetType| {
             match_each_integer_ptype!(sizes.ptype(), |SizeType| {
                 extend_from_listview(
@@ -293,6 +296,8 @@ impl<O: OffsetBuilderPType> ListBuilder<O> {
                 )?
             })
         });
+
+        self.nulls.append_validity(validity, num_lists);
         Ok(())
     }
 }
@@ -430,10 +435,16 @@ mod tests {
     use vortex_buffer::buffer;
     use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
+    use vortex_error::vortex_bail;
     use vortex_session::VortexSession;
 
+    use crate::ArrayRef;
     use crate::IntoArray;
+    use crate::array::ArrayView;
+    use crate::arrays::Chunked;
     use crate::arrays::ChunkedArray;
+    use crate::arrays::Constant;
+    use crate::arrays::ConstantArray;
     use crate::arrays::ListViewArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::list::ListArraySlotsExt;
@@ -450,6 +461,8 @@ mod tests {
     use crate::dtype::OffsetBuilderPType;
     use crate::dtype::PType::I32;
     use crate::executor::VortexSessionExecute;
+    use crate::optimizer::kernels::ArrayKernelsExt;
+    use crate::optimizer::rules::ArrayParentReduceRule;
     use crate::scalar::Scalar;
     use crate::validity::Validity;
 
@@ -1120,5 +1133,138 @@ mod tests {
                 .append_array_as_list(&wrong_dtype_arr, &mut ctx)
                 .is_err()
         );
+    }
+
+    #[derive(Debug)]
+    struct FailingChunkedConstantRule;
+
+    impl ArrayParentReduceRule<Constant> for FailingChunkedConstantRule {
+        type Parent = Chunked;
+
+        fn reduce_parent(
+            &self,
+            _array: ArrayView<'_, Constant>,
+            _parent: ArrayView<'_, Chunked>,
+            _child_idx: usize,
+        ) -> VortexResult<Option<ArrayRef>> {
+            vortex_bail!("simulated optimization error")
+        }
+    }
+
+    fn session_with_failing_optimizer() -> VortexSession {
+        let session = VortexSession::empty();
+        session.kernels().register_reduce_parent_rule(
+            Chunked,
+            Constant,
+            const { &FailingChunkedConstantRule },
+        );
+        session
+    }
+
+    fn make_failing_elements() -> VortexResult<ArrayRef> {
+        let chunk1 = ConstantArray::new(99i32, 2).into_array();
+        let chunk2 = ConstantArray::new(88i32, 2).into_array();
+        Ok(ChunkedArray::try_new(vec![chunk1, chunk2], DType::from(I32))?.into_array())
+    }
+
+    #[test]
+    fn test_append_list_array_error_preserves_consistency() -> VortexResult<()> {
+        let session = session_with_failing_optimizer();
+        let mut ctx = session.create_execution_ctx();
+        let dtype = Arc::new(DType::from(I32));
+        let mut builder = ListBuilder::<u32>::with_capacity_in(
+            Arc::clone(&dtype),
+            NonNullable,
+            4,
+            BufferAllocatorRef::static_ref(),
+        );
+
+        // Append one valid list: [1, 2]
+        builder.append_array_as_list(&buffer![1i32, 2].into_array(), &mut ctx)?;
+        assert_eq!(builder.len(), 1);
+
+        // Construct a ListArray whose elements chunk triggers an optimization error
+        let failing_elements = make_failing_elements()?;
+        let offsets = PrimitiveArray::from_iter([0u32, 2, 4]).into_array();
+        let failing_list =
+            ListArray::try_new(offsets, failing_elements, Validity::NonNullable)?;
+
+        let err = builder
+            .append_list_array(failing_list.as_view(), &mut ctx)
+            .unwrap_err();
+        assert!(
+            err.to_string().contains("simulated optimization error"),
+            "unexpected error: {err}"
+        );
+
+        // Builder length must not have advanced for the failed append.
+        assert_eq!(builder.len(), 1);
+
+        // Subsequent append must work and produce a consistent finished array.
+        builder.append_array_as_list(&buffer![3i32, 4, 5].into_array(), &mut ctx)?;
+        assert_eq!(builder.len(), 2);
+
+        let list = builder.finish_into_list();
+        assert_eq!(list.len(), 2);
+        let offsets = list.offsets().clone().execute::<PrimitiveArray>(&mut ctx)?;
+        assert_eq!(offsets.as_slice::<u32>(), &[0, 2, 5]);
+        assert_arrays_eq!(
+            list.elements(),
+            PrimitiveArray::from_iter([1i32, 2, 3, 4, 5]),
+            &mut ctx
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_append_listview_array_error_preserves_consistency() -> VortexResult<()> {
+        let session = session_with_failing_optimizer();
+        let mut ctx = session.create_execution_ctx();
+        let dtype = Arc::new(DType::from(I32));
+        let mut builder = ListBuilder::<u32>::with_capacity_in(
+            Arc::clone(&dtype),
+            NonNullable,
+            4,
+            BufferAllocatorRef::static_ref(),
+        );
+
+        // Append one valid list: [1, 2]
+        builder.append_array_as_list(&buffer![1i32, 2].into_array(), &mut ctx)?;
+        assert_eq!(builder.len(), 1);
+
+        // Construct a ListViewArray whose elements chunk triggers an optimization error
+        let failing_elements = make_failing_elements()?;
+        let offsets = PrimitiveArray::from_iter([0u32, 2]).into_array();
+        let sizes = PrimitiveArray::from_iter([2u32, 2]).into_array();
+        let failing_listview =
+            ListViewArray::try_new(offsets, sizes, failing_elements, Validity::NonNullable)?;
+
+        let err = builder
+            .append_listview_array(failing_listview.as_view(), &mut ctx)
+            .unwrap_err();
+        assert!(
+            err.to_string().contains("simulated optimization error"),
+            "unexpected error: {err}"
+        );
+
+        // Builder length must not have advanced for the failed append.
+        assert_eq!(builder.len(), 1);
+
+        // Subsequent append must work and produce a consistent finished array.
+        builder.append_array_as_list(&buffer![3i32, 4, 5].into_array(), &mut ctx)?;
+        assert_eq!(builder.len(), 2);
+
+        let list = builder.finish_into_list();
+        assert_eq!(list.len(), 2);
+        let offsets = list.offsets().clone().execute::<PrimitiveArray>(&mut ctx)?;
+        assert_eq!(offsets.as_slice::<u32>(), &[0, 2, 5]);
+        assert_arrays_eq!(
+            list.elements(),
+            PrimitiveArray::from_iter([1i32, 2, 3, 4, 5]),
+            &mut ctx
+        );
+
+        Ok(())
     }
 }
