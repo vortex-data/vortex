@@ -21,6 +21,7 @@ use vortex::error::VortexResult;
 use vortex::error::vortex_err;
 use vortex::error::vortex_panic;
 use vortex::file::Footer;
+use vortex::file::VortexFile;
 use vortex::file::multi::open_cached_in_namespace;
 use vortex::file::multi::parse_uri_or_path;
 use vortex::file::v2::FileStatsLayoutReader;
@@ -134,6 +135,21 @@ pub struct FileScanState {
 }
 
 impl OpenFileReader {
+    fn from_file(file: VortexFile) -> VortexResult<Self> {
+        let mut scan_file = file.scan_file();
+        scan_file.cache.get_or_insert_default();
+        Ok(OpenFileReader {
+            scan_state: Some(Arc::new(FileScanState {
+                reader: file.layout_reader()?,
+                scan_file,
+                v2: OnceLock::new(),
+                cache: ConversionCache::default(),
+            })),
+            splits: vec![],
+            total_splits: 0,
+        })
+    }
+
     async fn open(path: String) -> VortexResult<Self> {
         let (fs, fs_path) = resolve_filesystem(&parse_uri_or_path(&path)?)?;
         let source = fs.open_read(&fs_path).await?;
@@ -147,18 +163,7 @@ impl OpenFileReader {
             &|options| options,
         )
         .await?;
-        let mut scan_file = file.scan_file();
-        scan_file.cache.get_or_insert_default();
-        Ok(OpenFileReader {
-            scan_state: Some(Arc::new(FileScanState {
-                reader: file.layout_reader()?,
-                scan_file,
-                v2: OnceLock::new(),
-                cache: ConversionCache::default(),
-            })),
-            splits: vec![],
-            total_splits: 0,
-        })
+        Self::from_file(file)
     }
 
     fn scan_state(&self) -> &FileScanState {
@@ -186,9 +191,15 @@ impl OpenFileReader {
     }
 }
 
-/// Called once per file while initializing the scan under file-local lock.
-/// Files are opened lazily.
-pub fn reader_open(file_path: &str) -> VortexResult<OpenFileReader> {
+/// Opens `file_path` for execution, reusing the handle pinned during planning when available so
+/// execution reads the same object generation as the planned partition statistics.
+pub fn reader_open_with_bind(
+    bind: Option<&BindState>,
+    file_path: &str,
+) -> VortexResult<OpenFileReader> {
+    if let Some(file) = bind.and_then(|state| state.planned_files.lock().get(file_path).cloned()) {
+        return OpenFileReader::from_file(file);
+    }
     RUNTIME.block_on(OpenFileReader::open(file_path.to_owned()))
 }
 
@@ -212,6 +223,7 @@ pub fn reader_bind(file: &OpenFileReader, result: &mut BindResultRef) -> VortexR
         has_non_optional_filter: AtomicBool::new(false),
         aggregates: vec![],
         no_footer_caches: false,
+        planned_files: Default::default(),
     })
 }
 
@@ -483,15 +495,21 @@ pub fn can_get_partition_stats(bind: &BindState) -> bool {
 
 /// Called by one thread for every file during DuckDB planning, before files are opened.
 ///
-/// Opens the file through [`open_cached_in_namespace`] so cached footers are only reused when a
-/// handle-bound object version matches, and otherwise reads the current footer directly from the
-/// opened handle. If opening fails, mark cached footers unavailable so DuckDB treats partition
-/// statistics as unknown.
+/// For local `file://` paths, opens the file and retains the [`VortexFile`] handle on `bind` so
+/// execution reads the same inode/object generation that planning inspected. For remote/mutable
+/// object-store paths whose readers cannot pin reads to a single generation across planning and
+/// execution, reports cached footers unavailable so DuckDB treats partition statistics as unknown.
 pub fn footer_get_cached(bind: &mut BindState, path: &str) -> VortexResult<Option<Footer>> {
-    let footer = RUNTIME.block_on(async {
+    if let Some(file) = bind.planned_files.lock().get(path).cloned() {
+        return Ok(Some(file.footer().clone()));
+    }
+    let file = RUNTIME.block_on(async {
         let Ok(url) = parse_uri_or_path(path) else {
             return None;
         };
+        if url.scheme() != "file" {
+            return None;
+        }
         let Ok((fs, fs_path)) = resolve_filesystem(&url) else {
             return None;
         };
@@ -499,7 +517,7 @@ pub fn footer_get_cached(bind: &mut BindState, path: &str) -> VortexResult<Optio
             return None;
         };
         let namespace = fs.namespace();
-        let file = open_cached_in_namespace(
+        open_cached_in_namespace(
             &SESSION,
             namespace.as_deref(),
             Some(fs_path.as_str()),
@@ -508,8 +526,12 @@ pub fn footer_get_cached(bind: &mut BindState, path: &str) -> VortexResult<Optio
             &|opts| opts,
         )
         .await
-        .ok()?;
-        Some(file.footer().clone())
+        .ok()
+    });
+    let footer = file.map(|file| {
+        let footer = file.footer().clone();
+        bind.planned_files.lock().insert(path.to_owned(), file);
+        footer
     });
     bind.no_footer_caches |= footer.is_none();
     Ok(footer)
@@ -528,7 +550,6 @@ pub fn footer_get_statistics(footer: &Footer, column: &str) -> Option<ColumnStat
 
 #[cfg(test)]
 mod tests {
-    use tempfile::NamedTempFile;
     use vortex::array::IntoArray;
     use vortex::array::arrays::StructArray;
     use vortex::array::validity::Validity;
@@ -538,20 +559,27 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_footer_get_cached_returns_none_for_missing_file() -> VortexResult<()> {
+    fn test_footer_get_cached_returns_none_for_missing_or_remote_file() -> VortexResult<()> {
         let mut bind = BindState::empty();
         bind.no_footer_caches = false;
         assert!(can_get_partition_stats(&bind));
         assert!(footer_get_cached(&mut bind, "/tmp/nonexistent-vortex-file.vortex")?.is_none());
         assert!(bind.no_footer_caches);
         assert!(!can_get_partition_stats(&bind));
+
+        let mut remote_bind = BindState::empty();
+        remote_bind.no_footer_caches = false;
+        assert!(footer_get_cached(&mut remote_bind, "s3://bucket/mutable.vortex")?.is_none());
+        assert!(remote_bind.no_footer_caches);
+        assert!(!can_get_partition_stats(&remote_bind));
         Ok(())
     }
 
     #[test]
-    fn test_reader_open_and_footer_get_cached_observe_replaced_file() -> VortexResult<()> {
-        let tmp = NamedTempFile::new()?;
-        let path = tmp.path().to_string_lossy().into_owned();
+    fn test_retained_plan_reads_same_generation_across_file_replacement() -> VortexResult<()> {
+        let dir = tempfile::tempdir()?;
+        let path = dir.path().join("data.vortex");
+        let path_str = path.to_string_lossy().into_owned();
 
         let arr1 = StructArray::try_new(
             ["a"].into(),
@@ -569,14 +597,14 @@ mod tests {
         })?;
         std::fs::write(&path, &bytes1)?;
 
-        let mut bind = BindState::empty();
-        bind.no_footer_caches = false;
-        let footer1 = footer_get_cached(&mut bind, &path)?
-            .vortex_expect("footer_get_cached should read existing file");
+        // Plan query against generation 1: exact partition statistics report 1 row.
+        let mut retained_bind = BindState::empty();
+        retained_bind.no_footer_caches = false;
+        let footer1 = footer_get_cached(&mut retained_bind, &path_str)?
+            .vortex_expect("footer_get_cached should read existing local file");
         assert_eq!(footer1.row_count(), 1);
-        let reader1 = reader_open(&path)?;
-        assert_eq!(reader1.reader().row_count(), 1);
 
+        // Atomically replace the file on disk with a 3-row generation 2 before execution opens it.
         let arr2 = StructArray::try_new(
             ["a"].into(),
             vec![buffer![10i32, 20, 30].into_array()],
@@ -591,13 +619,23 @@ mod tests {
                 .await?;
             VortexResult::Ok(())
         })?;
-        std::fs::write(&path, &bytes2)?;
+        let replacement = dir.path().join("data.vortex.next");
+        std::fs::write(&replacement, &bytes2)?;
+        std::fs::rename(&replacement, &path)?;
 
-        let footer2 = footer_get_cached(&mut bind, &path)?
-            .vortex_expect("footer_get_cached should read replaced file");
+        // Executing the retained plan reuses the handle opened during planning so data matches
+        // the exact count baked into the plan.
+        let retained_reader = reader_open_with_bind(Some(&retained_bind), &path_str)?;
+        assert_eq!(retained_reader.reader().row_count(), 1);
+
+        // A new plan observes generation 2 for both statistics and execution.
+        let mut fresh_bind = BindState::empty();
+        fresh_bind.no_footer_caches = false;
+        let footer2 = footer_get_cached(&mut fresh_bind, &path_str)?
+            .vortex_expect("footer_get_cached should read replaced local file");
         assert_eq!(footer2.row_count(), 3);
-        let reader2 = reader_open(&path)?;
-        assert_eq!(reader2.reader().row_count(), 3);
+        let fresh_reader = reader_open_with_bind(Some(&fresh_bind), &path_str)?;
+        assert_eq!(fresh_reader.reader().row_count(), 3);
         Ok(())
     }
 }
