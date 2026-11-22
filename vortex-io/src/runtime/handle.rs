@@ -318,6 +318,7 @@ mod tests {
     use futures::future::BoxFuture;
     use futures::task::noop_waker;
     use parking_lot::Mutex;
+    use rstest::rstest;
 
     use super::*;
     use crate::runtime::AbortHandle;
@@ -425,35 +426,35 @@ mod tests {
         assert_eq!(executor.abort_calls.load(Ordering::SeqCst), 0);
     }
 
-    #[test]
-    fn dropped_cpu_and_blocking_tasks_skip_queued_work() {
-        for supports_queued_cancel in [true, false] {
-            let executor = GatedExecutor::new(supports_queued_cancel);
-            let dyn_exec: Arc<dyn Executor> = Arc::clone(&executor) as Arc<dyn Executor>;
-            let handle = Handle::new(Arc::downgrade(&dyn_exec));
+    #[rstest]
+    #[case::executor_cancels_queued(true)]
+    #[case::closure_skips_queued(false)]
+    fn dropped_cpu_and_blocking_tasks_skip_queued_work(#[case] supports_queued_cancel: bool) {
+        let executor = GatedExecutor::new(supports_queued_cancel);
+        let dyn_exec: Arc<dyn Executor> = Arc::clone(&executor) as Arc<dyn Executor>;
+        let handle = Handle::new(Arc::downgrade(&dyn_exec));
 
-            let cpu_runs = Arc::new(AtomicUsize::new(0));
-            let blocking_runs = Arc::new(AtomicUsize::new(0));
+        let cpu_runs = Arc::new(AtomicUsize::new(0));
+        let blocking_runs = Arc::new(AtomicUsize::new(0));
 
-            let cpu_runs_clone = Arc::clone(&cpu_runs);
-            let cpu_task = handle.spawn_cpu(move || {
-                cpu_runs_clone.fetch_add(1, Ordering::SeqCst);
-            });
+        let cpu_runs_clone = Arc::clone(&cpu_runs);
+        let cpu_task = handle.spawn_cpu(move || {
+            cpu_runs_clone.fetch_add(1, Ordering::SeqCst);
+        });
 
-            let blocking_runs_clone = Arc::clone(&blocking_runs);
-            let blocking_task = handle.spawn_blocking(move || {
-                blocking_runs_clone.fetch_add(1, Ordering::SeqCst);
-            });
+        let blocking_runs_clone = Arc::clone(&blocking_runs);
+        let blocking_task = handle.spawn_blocking(move || {
+            blocking_runs_clone.fetch_add(1, Ordering::SeqCst);
+        });
 
-            drop(cpu_task);
-            drop(blocking_task);
+        drop(cpu_task);
+        drop(blocking_task);
 
-            executor.drain();
+        executor.drain();
 
-            assert_eq!(cpu_runs.load(Ordering::SeqCst), 0);
-            assert_eq!(blocking_runs.load(Ordering::SeqCst), 0);
-            assert_eq!(executor.abort_calls.load(Ordering::SeqCst), 2);
-        }
+        assert_eq!(cpu_runs.load(Ordering::SeqCst), 0);
+        assert_eq!(blocking_runs.load(Ordering::SeqCst), 0);
+        assert_eq!(executor.abort_calls.load(Ordering::SeqCst), 2);
     }
 
     #[test]
