@@ -237,12 +237,15 @@ async fn open_file(
     let source = fs.open_read(&file.path).await?;
     let key = source.uri().is_none().then_some(file.path.as_str());
     let namespace = fs.namespace();
+    // FileListing carries only an unbound size from an earlier list/head call, so do not
+    // pass it to the footer reader — if the file was replaced before open_read, the stale
+    // size would seek to the wrong EOF.
     open_cached_in_namespace(
         session,
         namespace.as_deref(),
         key,
         source,
-        file.size,
+        None,
         open_options_fn,
     )
     .await
@@ -351,6 +354,7 @@ mod tests {
 
     struct MetadataFileSystem {
         bytes: ByteBuffer,
+        reads: Arc<AtomicUsize>,
     }
 
     impl fmt::Debug for MetadataFileSystem {
@@ -361,6 +365,10 @@ mod tests {
 
     #[async_trait]
     impl FileSystem for MetadataFileSystem {
+        fn namespace(&self) -> Option<Arc<str>> {
+            Some(Arc::from("metadata-test"))
+        }
+
         fn list(&self, _prefix: &str) -> stream::BoxStream<'_, VortexResult<FileListing>> {
             stream::empty().boxed()
         }
@@ -372,8 +380,13 @@ mod tests {
             }))
         }
 
-        async fn open_read(&self, _path: &str) -> VortexResult<Arc<dyn VortexReadAt>> {
-            Ok(Arc::new(self.bytes.clone()))
+        async fn open_read(&self, path: &str) -> VortexResult<Arc<dyn VortexReadAt>> {
+            Ok(Arc::new(VersionedReadAt {
+                bytes: self.bytes.clone(),
+                uri: Arc::from(path),
+                version: Some(Arc::from("v1")),
+                reads: Arc::clone(&self.reads),
+            }))
         }
 
         async fn delete(&self, _path: &str) -> VortexResult<()> {
@@ -396,32 +409,46 @@ mod tests {
             .with_metadata_segment("key", expected.clone())
             .write(&mut output, buffer![1u32].into_array().to_array_stream())
             .await?;
+        let reads = Arc::new(AtomicUsize::new(0));
         let fs: FileSystemRef = Arc::new(MetadataFileSystem {
             bytes: ByteBuffer::from(output),
+            reads: Arc::clone(&reads),
         });
         let listing = FileListing {
             path: "metadata.vortex".to_string(),
             size: None,
         };
+        let cache_key = FooterCacheKey::new("metadata-test", "metadata.vortex", Arc::from("v1"));
         let default_options = |options: VortexOpenOptions| options;
         let metadata_options = |options: VortexOpenOptions| options.include_metadata();
 
         if default_first {
             let default = open_file(&fs, &listing, &session, &default_options).await?;
             assert!(default.metadata_segment("key").is_none());
+            assert!(session.multi_file().get_footer(&cache_key).is_some());
+            let reads_after_first = reads.load(Ordering::SeqCst);
+            assert!(reads_after_first > 0);
+
             let included = open_file(&fs, &listing, &session, &metadata_options).await?;
             assert_eq!(
                 included.metadata_segment("key").map(ByteBuffer::as_slice),
                 Some(expected.as_slice())
             );
+            // Cache hit skips re-reading the footer and only fetches the metadata segment (1 read).
+            assert_eq!(reads.load(Ordering::SeqCst), reads_after_first + 1);
         } else {
             let included = open_file(&fs, &listing, &session, &metadata_options).await?;
             assert_eq!(
                 included.metadata_segment("key").map(ByteBuffer::as_slice),
                 Some(expected.as_slice())
             );
+            assert!(session.multi_file().get_footer(&cache_key).is_some());
+            let reads_after_first = reads.load(Ordering::SeqCst);
+            assert!(reads_after_first > 0);
+
             let default = open_file(&fs, &listing, &session, &default_options).await?;
             assert!(default.metadata_segment("key").is_none());
+            assert_eq!(reads.load(Ordering::SeqCst), reads_after_first);
         }
 
         Ok(())
@@ -792,6 +819,38 @@ mod tests {
         let third = open_file(&fs_ref, &listing, &session, &opts).await?;
         assert_eq!(third.row_count(), 3);
         assert!(reads.load(Ordering::SeqCst) > reads_after_first);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_replacement_with_stale_listing_size_uses_opened_object_size() -> VortexResult<()>
+    {
+        let session = test_session();
+
+        let gen1 = write_vortex_bytes(&session, buffer![1i32].into_array()).await?;
+        let gen2 = write_vortex_bytes(&session, buffer![10i32, 20, 30].into_array()).await?;
+        assert_ne!(gen1.len(), gen2.len());
+
+        let fs = Arc::new(SwappableFileSystem {
+            namespace: Some(Arc::from("fs-stale-size")),
+            current: Mutex::new((gen1.clone(), None)),
+            reads: Arc::new(AtomicUsize::new(0)),
+        });
+        let fs_ref: FileSystemRef = Arc::clone(&fs) as FileSystemRef;
+        // Simulate a FileListing captured before the file was replaced with a larger one.
+        let listing = FileListing {
+            path: "replaced.vortex".to_string(),
+            size: Some(gen1.len() as u64),
+        };
+        let opts = |o: VortexOpenOptions| o;
+
+        let first = open_file(&fs_ref, &listing, &session, &opts).await?;
+        assert_eq!(first.row_count(), 1);
+
+        *fs.current.lock() = (gen2, None);
+
+        let second = open_file(&fs_ref, &listing, &session, &opts).await?;
+        assert_eq!(second.row_count(), 3);
         Ok(())
     }
 }

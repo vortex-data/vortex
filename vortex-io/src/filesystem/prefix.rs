@@ -36,7 +36,7 @@ impl FileSystem for PrefixFileSystem {
     fn namespace(&self) -> Option<Arc<str>> {
         self.inner
             .namespace()
-            .map(|ns| Arc::from(format!("{ns}/{}", self.prefix)))
+            .map(|ns| Arc::from(format!("prefix:{}:{ns}:{}", ns.len(), self.prefix)))
     }
 
     fn list(&self, prefix: &str) -> BoxStream<'_, VortexResult<FileListing>> {
@@ -87,5 +87,53 @@ impl dyn FileSystem + 'static {
     /// Create a new filesystem that applies the given prefix to all operations on this filesystem.
     pub fn with_prefix(self: Arc<Self>, prefix: String) -> FileSystemRef {
         Arc::new(PrefixFileSystem::new(self, prefix))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use async_trait::async_trait;
+    use futures::stream;
+    use futures::stream::BoxStream;
+    use futures::stream::StreamExt;
+    use vortex_error::VortexResult;
+    use vortex_error::vortex_bail;
+
+    use super::*;
+
+    #[derive(Debug)]
+    struct StaticNamespaceFs(&'static str);
+
+    #[async_trait]
+    impl FileSystem for StaticNamespaceFs {
+        fn namespace(&self) -> Option<Arc<str>> {
+            Some(Arc::from(self.0))
+        }
+
+        fn list(&self, _prefix: &str) -> BoxStream<'_, VortexResult<FileListing>> {
+            stream::empty().boxed()
+        }
+
+        async fn head(&self, _path: &str) -> VortexResult<Option<FileListing>> {
+            Ok(None)
+        }
+
+        async fn open_read(&self, _path: &str) -> VortexResult<Arc<dyn VortexReadAt>> {
+            vortex_bail!("unused")
+        }
+
+        async fn delete(&self, _path: &str) -> VortexResult<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn test_prefix_namespace_encoding_is_injective() {
+        let fs_a = PrefixFileSystem::new(Arc::new(StaticNamespaceFs("tenant/a")), "b".to_string());
+        let fs_b = PrefixFileSystem::new(Arc::new(StaticNamespaceFs("tenant")), "a/b".to_string());
+
+        assert_ne!(fs_a.namespace(), fs_b.namespace());
     }
 }

@@ -483,13 +483,36 @@ pub fn can_get_partition_stats(bind: &BindState) -> bool {
 
 /// Called by one thread for every file during DuckDB planning, before files are opened.
 ///
-/// Because planning only has a path and cannot establish a handle-bound object version for the
-/// file, returning a footer from the process-wide session cache could expose stale statistics
-/// after a file is replaced. Mark cached footers unavailable so DuckDB treats partition
-/// statistics as unknown and reads fresh data on open.
-pub fn footer_get_cached(bind: &mut BindState, _path: &str) -> VortexResult<Option<Footer>> {
-    bind.no_footer_caches = true;
-    Ok(None)
+/// Opens the file through [`open_cached_in_namespace`] so cached footers are only reused when a
+/// handle-bound object version matches, and otherwise reads the current footer directly from the
+/// opened handle. If opening fails, mark cached footers unavailable so DuckDB treats partition
+/// statistics as unknown.
+pub fn footer_get_cached(bind: &mut BindState, path: &str) -> VortexResult<Option<Footer>> {
+    let footer = RUNTIME.block_on(async {
+        let Ok(url) = parse_uri_or_path(path) else {
+            return None;
+        };
+        let Ok((fs, fs_path)) = resolve_filesystem(&url) else {
+            return None;
+        };
+        let Ok(source) = fs.open_read(&fs_path).await else {
+            return None;
+        };
+        let namespace = fs.namespace();
+        let file = open_cached_in_namespace(
+            &SESSION,
+            namespace.as_deref(),
+            Some(fs_path.as_str()),
+            source,
+            None,
+            &|opts| opts,
+        )
+        .await
+        .ok()?;
+        Some(file.footer().clone())
+    });
+    bind.no_footer_caches |= footer.is_none();
+    Ok(footer)
 }
 
 /// Called by one thread for every footer in planning phase
@@ -515,18 +538,18 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_footer_get_cached_returns_none_without_bound_version() -> VortexResult<()> {
+    fn test_footer_get_cached_returns_none_for_missing_file() -> VortexResult<()> {
         let mut bind = BindState::empty();
         bind.no_footer_caches = false;
         assert!(can_get_partition_stats(&bind));
-        assert!(footer_get_cached(&mut bind, "/tmp/replaced.vortex")?.is_none());
+        assert!(footer_get_cached(&mut bind, "/tmp/nonexistent-vortex-file.vortex")?.is_none());
         assert!(bind.no_footer_caches);
         assert!(!can_get_partition_stats(&bind));
         Ok(())
     }
 
     #[test]
-    fn test_reader_open_observes_replaced_file() -> VortexResult<()> {
+    fn test_reader_open_and_footer_get_cached_observe_replaced_file() -> VortexResult<()> {
         let tmp = NamedTempFile::new()?;
         let path = tmp.path().to_string_lossy().into_owned();
 
@@ -546,6 +569,11 @@ mod tests {
         })?;
         std::fs::write(&path, &bytes1)?;
 
+        let mut bind = BindState::empty();
+        bind.no_footer_caches = false;
+        let footer1 = footer_get_cached(&mut bind, &path)?
+            .vortex_expect("footer_get_cached should read existing file");
+        assert_eq!(footer1.row_count(), 1);
         let reader1 = reader_open(&path)?;
         assert_eq!(reader1.reader().row_count(), 1);
 
@@ -565,6 +593,9 @@ mod tests {
         })?;
         std::fs::write(&path, &bytes2)?;
 
+        let footer2 = footer_get_cached(&mut bind, &path)?
+            .vortex_expect("footer_get_cached should read replaced file");
+        assert_eq!(footer2.row_count(), 3);
         let reader2 = reader_open(&path)?;
         assert_eq!(reader2.reader().row_count(), 3);
         Ok(())
