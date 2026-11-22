@@ -12095,6 +12095,7 @@ dependencies = [
  "vortex-expr",
  "vortex-io",
  "vortex-mask",
+ "vortex-metrics",
  "vortex-session",
  "vortex-utils",
 ]
