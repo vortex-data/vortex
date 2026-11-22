@@ -164,11 +164,16 @@ fn forge_offsets_statistics(offsets: &ArrayRef, max: i32) {
     offsets.statistics().set(Stat::Max, Precision::exact(max));
 }
 
-#[test]
-fn try_new_ignores_forged_offsets_statistics() {
+#[rstest]
+#[case::unsorted(buffer![0i32, 1000, 2].into_array(), "sorted")]
+#[case::out_of_bounds_max(buffer![0i32, 2, 1000].into_array(), "Max offset")]
+#[case::negative_min(buffer![-5i32, 0, 2].into_array(), "minimum")]
+fn try_new_ignores_forged_offsets_statistics(
+    #[case] offsets: ArrayRef,
+    #[case] expected_err: &str,
+) {
     let mut ctx = SESSION.create_execution_ctx();
     let values = Buffer::copy_from("abcd".as_bytes());
-    let offsets = buffer![0i32, 1000, 2].into_array();
     forge_offsets_statistics(&offsets, 4);
 
     let result = VarBinArray::try_new(
@@ -179,7 +184,7 @@ fn try_new_ignores_forged_offsets_statistics() {
         &mut ctx,
     );
 
-    assert!(result.is_err_and(|err| err.to_string().contains("sorted")));
+    assert!(result.is_err_and(|err| err.to_string().contains(expected_err)));
 }
 
 #[test]

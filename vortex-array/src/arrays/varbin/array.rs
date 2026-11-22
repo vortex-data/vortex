@@ -375,18 +375,18 @@ impl VarBinData {
                 bytes,
                 mask.as_ref(),
                 all_invalid,
-                ctx,
             )
         })
     }
 
-    fn validate_utf8_offsets<O: AsPrimitive<usize> + PartialOrd + Into<ScalarValue>>(
+    fn validate_utf8_offsets<
+        O: IntegerPType + AsPrimitive<usize> + TryFrom<usize> + Into<ScalarValue>,
+    >(
         offsets: &ArrayRef,
         offsets_slice: &[O],
         bytes: &[u8],
         mask: Option<&Mask>,
         all_invalid: bool,
-        ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
         let last_offset: usize = offsets_slice[offsets_slice.len() - 1].as_();
         vortex_ensure!(
@@ -412,7 +412,7 @@ impl VarBinData {
 
         // The fast path proves the offsets are valid. The per-string check below skips null
         // rows, so it cannot find bad offsets at those rows.
-        Self::validate_offsets(offsets, bytes.len(), ctx)?;
+        Self::validate_offset_slice(offsets, offsets_slice, bytes.len())?;
 
         let validate_at = |i: usize, start: usize, end: usize| -> VortexResult<()> {
             let string_bytes = bytes.get(start..end).ok_or_else(|| {

@@ -217,11 +217,12 @@ impl ListData {
             offsets.dtype()
         );
 
-        // Offsets on a device cannot be read here, so check the values only when they are
-        // host-resident.
+        // Known gap: device-resident offsets cannot be read here, so only host-resident offsets
+        // are validated. Device consumers must not assume device offsets were checked.
         if offsets.is_host() {
             // Read the offset values and do not use the statistics of `offsets`. Statistics can
             // come from untrusted input, for example a serialized file.
+            // TODO: keep this executed primitive array on the created ListArray to avoid re-decoding.
             let primitive_offsets = offsets.clone().execute::<PrimitiveArray>(ctx)?;
             let elements_len = elements.len();
 
