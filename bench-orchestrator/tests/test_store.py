@@ -249,3 +249,94 @@ def test_empty_store_latest_fallback_excludes_partial_runs(tmp_path: Path, monke
     partial_meta = store.get_run(partial_id)
     assert partial_meta is not None
     assert partial_meta.partial is True
+
+
+def test_same_second_parent_and_slash_child_do_not_nest(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _patch_store_env(monkeypatch)
+    fixed = datetime(2026, 4, 1, 12, 0, 0)
+
+    class FixedDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None) -> datetime:  # type: ignore[override]
+            return fixed
+
+    monkeypatch.setattr("bench_orchestrator.storage.store.datetime", FixedDatetime)
+
+    store = ResultStore(base_dir=tmp_path / "runs")
+    parent_cfg, build_cfg = _make_configs(label="parent")
+    child_cfg, _ = _make_configs(label="parent/child")
+
+    with store.create_run(parent_cfg, build_cfg) as parent_ctx:
+        parent_id = parent_ctx.metadata.run_id
+        parent_dir = parent_ctx.run_dir
+        parent_ctx.write_raw_json(json.dumps({"run": "parent"}))
+
+    with store.create_run(child_cfg, build_cfg) as child_ctx:
+        child_id = child_ctx.metadata.run_id
+        child_dir = child_ctx.run_dir
+        child_ctx.write_raw_json(json.dumps({"run": "child"}))
+
+    assert parent_dir.parent == store.base_dir
+    assert child_dir.parent == store.base_dir
+    assert not child_dir.is_relative_to(parent_dir)
+
+    assert store.delete_run(parent_id) is True
+    assert store.get_run(parent_id) is None
+    child_meta = store.get_run(child_id)
+    assert child_meta is not None
+    assert child_meta.label == "parent/child"
+    assert store.get_run("parent/child") is not None
+
+
+def test_delete_run_preserves_legacy_nested_descendant(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _patch_store_env(monkeypatch)
+    store = ResultStore(base_dir=tmp_path / "runs")
+    parent_cfg, build_cfg = _make_configs(label="parent")
+
+    with store.create_run(parent_cfg, build_cfg) as parent_ctx:
+        parent_id = parent_ctx.metadata.run_id
+        parent_dir = parent_ctx.run_dir
+        parent_ctx.write_raw_json(json.dumps({"run": "parent"}))
+
+    # Simulate an older store where a slash-labeled run was nested under parent_dir.
+    legacy_child_id = f"{parent_id}/child"
+    legacy_child_dir = parent_dir / "child"
+    legacy_child_dir.mkdir(parents=True)
+    child_meta = json.loads((parent_dir / "metadata.json").read_text())
+    child_meta["run_id"] = legacy_child_id
+    child_meta["label"] = "parent/child"
+    (legacy_child_dir / "metadata.json").write_text(json.dumps(child_meta))
+    (legacy_child_dir / "results.jsonl").write_text(json.dumps({"run": "child"}) + "\n")
+
+    assert store.delete_run(parent_id) is True
+    assert store.get_run(parent_id) is None
+
+    remaining = store.get_run(legacy_child_id)
+    assert remaining is not None
+    assert remaining.run_id == legacy_child_id
+    assert len(store.load_results(legacy_child_id)) == 1
+
+
+def test_latest_symlink_pointing_to_partial_run_falls_back(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _patch_store_env(monkeypatch)
+    store = ResultStore(base_dir=tmp_path / "runs")
+    config, build_config = _make_configs(label="upgrade")
+
+    with store.create_run(config, build_config) as ctx_ok:
+        ok_id = ctx_ok.metadata.run_id
+        ctx_ok.write_raw_json(json.dumps({"status": "ok"}))
+
+    with store.create_run(config, build_config) as ctx_partial:
+        partial_id = ctx_partial.metadata.run_id
+        ctx_partial.write_raw_json(json.dumps({"status": "partial"}))
+        ctx_partial.metadata.partial = True
+
+    # Simulate an existing store upgraded from older code where latest pointed to a partial run.
+    latest_link = store.base_dir / "latest"
+    latest_link.unlink()
+    latest_link.symlink_to(partial_id)
+
+    latest = store.get_run("latest")
+    assert latest is not None
+    assert latest.run_id == ok_id
+    assert latest.partial is False
