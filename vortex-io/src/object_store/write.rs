@@ -66,7 +66,9 @@ impl ObjectStoreWrite {
 
     /// Explicitly abort the multipart upload if it is still active.
     ///
-    /// Calling `abort` on an already-aborted or completed writer is a no-op.
+    /// Calling `abort` on an already-aborted or completed writer is a no-op. When a Tokio runtime
+    /// handle is available, the remote abort runs on a spawned task so cancelling the caller while
+    /// `abort` is in flight does not drop the upload before cleanup completes.
     pub async fn abort(&mut self) -> io::Result<()> {
         if !matches!(self.state, UploadState::Active(_)) {
             return Ok(());
@@ -77,6 +79,19 @@ impl ObjectStoreWrite {
         else {
             unreachable!("checked active state above");
         };
+
+        if let Some(handle) = self
+            .cleanup_runtime
+            .take()
+            .or_else(|| tokio::runtime::Handle::try_current().ok())
+        {
+            let join_handle = handle.spawn(async move { upload.abort().await });
+            return match join_handle.await {
+                Ok(res) => res.map_err(io::Error::from),
+                Err(err) => Err(io::Error::other(format!("abort task failed: {err}"))),
+            };
+        }
+
         upload.abort().await.map_err(io::Error::from)
     }
 
@@ -326,6 +341,7 @@ mod tests {
             fail_complete: bool,
             fail_abort: bool,
             gate_part_at: Option<(usize, Arc<Notify>, Arc<Notify>)>,
+            gate_abort: Option<(Arc<Notify>, Arc<Notify>)>,
         }
 
         #[derive(Default)]
@@ -333,7 +349,9 @@ mod tests {
             part_calls: AtomicUsize,
             complete_calls: AtomicUsize,
             abort_calls: AtomicUsize,
+            abort_completed: AtomicUsize,
             abort_notify: Notify,
+            abort_completed_notify: Notify,
         }
 
         struct RecordingStore {
@@ -466,6 +484,12 @@ mod tests {
             async fn abort(&mut self) -> object_store::Result<()> {
                 self.counters.abort_calls.fetch_add(1, Ordering::SeqCst);
                 self.counters.abort_notify.notify_waiters();
+                if let Some((entered, release)) = &self.behavior.gate_abort {
+                    entered.notify_one();
+                    release.notified().await;
+                }
+                self.counters.abort_completed.fetch_add(1, Ordering::SeqCst);
+                self.counters.abort_completed_notify.notify_waiters();
                 if self.behavior.fail_abort {
                     return Err(object_store::Error::Generic {
                         store: "RecordingUpload",
@@ -644,6 +668,49 @@ mod tests {
             drop(writer);
             tokio::task::yield_now().await;
             assert_eq!(counters.abort_calls.load(Ordering::SeqCst), 0);
+            Ok(())
+        }
+
+        #[tokio::test]
+        async fn test_cancelled_abort_completes_on_surviving_runtime() -> anyhow::Result<()> {
+            let entered = Arc::new(Notify::new());
+            let release = Arc::new(Notify::new());
+            let counters = Arc::new(UploadCounters::default());
+            let store: Arc<dyn ObjectStore> = Arc::new(RecordingStore {
+                behavior: Arc::new(UploadBehavior {
+                    gate_abort: Some((Arc::clone(&entered), Arc::clone(&release))),
+                    ..Default::default()
+                }),
+                counters: Arc::clone(&counters),
+            });
+
+            let mut tasks = JoinSet::new();
+            tasks.spawn(async move {
+                let mut writer =
+                    ObjectStoreWrite::new(store, &Path::from("cancelled-abort.vortex")).await?;
+                writer.write_all(vec![1u8; 64]).await?;
+                writer.abort().await?;
+                anyhow::Ok(())
+            });
+
+            timeout(Duration::from_secs(2), entered.notified())
+                .await
+                .expect("gated abort must start");
+
+            // Cancel the caller while `abort()` is awaiting the remote store.
+            drop(tasks);
+            release.notify_one();
+
+            timeout(Duration::from_secs(2), async {
+                while counters.abort_completed.load(Ordering::SeqCst) == 0 {
+                    counters.abort_completed_notify.notified().await;
+                }
+            })
+            .await
+            .expect("spawned abort must still finish on surviving runtime after cancellation");
+
+            assert_eq!(counters.abort_calls.load(Ordering::SeqCst), 1);
+            assert_eq!(counters.abort_completed.load(Ordering::SeqCst), 1);
             Ok(())
         }
     }
