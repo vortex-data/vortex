@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::ops::Range;
+
 use num_traits::AsPrimitive;
 use vortex_buffer::Buffer;
 use vortex_error::VortexResult;
@@ -10,13 +12,16 @@ use crate::ArrayRef;
 use crate::ArrayVTable;
 use crate::IntoArray;
 use crate::array::ArrayView;
+use crate::arrays::Chunked;
 use crate::arrays::Dict;
 use crate::arrays::PiecewiseSequence;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::Slice;
+use crate::arrays::chunked::ChunkedArrayExt;
 use crate::arrays::dict::TakeExecute;
 use crate::arrays::primitive::PrimitiveArrayExt;
 use crate::arrays::slice::SliceArraySlotsExt;
+use crate::canonical::AnyCanonical;
 use crate::executor::ExecutionCtx;
 use crate::match_each_integer_ptype;
 use crate::optimizer::kernels::ArrayKernelsExt;
@@ -52,11 +57,7 @@ impl TakeExecute for Slice {
         // decodes only the rows of the slice.
         let child = array.child();
 
-        if !ctx
-            .session()
-            .kernels()
-            .has_execute_parent(Dict.id(), child.encoding_id())
-        {
+        if !supports_take(child, array.slice_range().clone(), ctx)? {
             return Ok(None);
         }
 
@@ -80,6 +81,38 @@ impl TakeExecute for Slice {
 
         child.take(moved).map(Some)
     }
+}
+
+fn supports_take(array: &ArrayRef, range: Range<usize>, ctx: &ExecutionCtx) -> VortexResult<bool> {
+    if let Some(chunked) = array.as_opt::<Chunked>() {
+        if chunked.is_empty() || range.is_empty() {
+            return Ok(true);
+        }
+
+        let (first_chunk, first_offset) = chunked.find_chunk_idx(range.start)?;
+        let (last_chunk, last_offset) = chunked.find_chunk_idx(range.end - 1)?;
+
+        for idx in first_chunk..=last_chunk {
+            let chunk = chunked.chunk(idx);
+            let start = if idx == first_chunk { first_offset } else { 0 };
+            let end = if idx == last_chunk {
+                last_offset + 1
+            } else {
+                chunk.len()
+            };
+            if !supports_take(chunk, start..end, ctx)? {
+                return Ok(false);
+            }
+        }
+
+        return Ok(true);
+    }
+
+    Ok(array.is::<AnyCanonical>()
+        || ctx
+            .session()
+            .kernels()
+            .has_execute_parent(Dict.id(), array.encoding_id()))
 }
 
 fn shift_indices<T: AsPrimitive<u64>>(
@@ -116,8 +149,11 @@ mod tests {
     use crate::IntoArray;
     use crate::VortexSessionExecute;
     use crate::arrays::ChunkedArray;
+    use crate::arrays::MaskedArray;
     use crate::arrays::PrimitiveArray;
+    use crate::arrays::Slice;
     use crate::arrays::SliceArray;
+    use crate::arrays::dict::TakeExecute;
     use crate::assert_arrays_eq;
     use crate::compute::conformance::take::test_take_conformance;
     use crate::validity::Validity;
@@ -176,6 +212,51 @@ mod tests {
 
         let result = sliced.take(buffer![0u32, 32].into_array())?;
         assert!(result.execute::<Canonical>(&mut ctx).is_err());
+
+        Ok(())
+    }
+
+    /// A slice over a chunked child pushes down a sparse take only when every overlapping chunk
+    /// supports take; chunks without a take kernel keep the slice to avoid decoding the whole chunk.
+    #[test]
+    fn test_take_slice_checks_chunk_take_support() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let no_take_chunk = MaskedArray::try_new(
+            PrimitiveArray::from_iter(0i32..32).into_array(),
+            Validity::AllValid,
+            &mut ctx,
+        )?
+        .into_array();
+        let primitive_chunk =
+            PrimitiveArray::new(Buffer::from_iter(32i32..64), Validity::AllValid).into_array();
+        let dtype = no_take_chunk.dtype().clone();
+        let chunked =
+            ChunkedArray::try_new(vec![no_take_chunk, primitive_chunk], dtype)?.into_array();
+        let sparse_indices = buffer![1u32, 5].into_array();
+
+        let overlaps_no_take = SliceArray::try_new(chunked.clone(), 4..28)?;
+        assert!(
+            Slice::take(overlaps_no_take.as_view(), &sparse_indices, &mut ctx)?.is_none(),
+            "slice overlapping a chunk without a take kernel should keep the slice"
+        );
+
+        let spans_both = SliceArray::try_new(chunked.clone(), 20..52)?;
+        assert!(
+            Slice::take(spans_both.as_view(), &sparse_indices, &mut ctx)?.is_none(),
+            "slice spanning a chunk without a take kernel should keep the slice"
+        );
+
+        let only_primitive = SliceArray::try_new(chunked, 36..60)?;
+        let pushed = Slice::take(only_primitive.as_view(), &sparse_indices, &mut ctx)?;
+        assert!(
+            pushed.is_some(),
+            "slice whose overlapping chunks all support take should push down"
+        );
+        assert_arrays_eq!(
+            pushed.vortex_expect("pushed down take"),
+            PrimitiveArray::new(buffer![37i32, 41], Validity::AllValid).into_array(),
+            &mut ctx
+        );
 
         Ok(())
     }
