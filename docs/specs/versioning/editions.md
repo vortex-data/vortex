@@ -6,8 +6,11 @@ earlier editions in the same family. See [Using editions](using-editions.md) for
 
 ## Frozen `core` editions
 
-The default compressor uses only the formats in `core`. If the default compressor must use a format,
-that format must eventually move into a `core` edition.
+Under default configuration, the default session enables only the newest frozen `core` edition, so
+the default compressor emits only `core` formats. It uses formats from draft or optional editions
+only when the caller enables those editions or disables edition checks (see
+[Compression](design.md#compression)). As a policy, any format that the default compressor is
+expected to emit by default must move into a frozen `core` edition.
 
 The origin of every edition below is `vortex`. Each minimum refers to the shared version of the
 Vortex Rust crates, including the `vortex` crate.
