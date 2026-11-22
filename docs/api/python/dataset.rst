@@ -21,7 +21,7 @@ fetches and decodes ahead, across all the files, including reads that a query en
 .. autosummary::
    :nosignatures:
 
-   ~vortex.dataset.open_dataset
+   ~vortex.open_dataset
    ~vortex.dataset.VortexDataset
    ~vortex.dataset.VortexScanner
    ~vortex.dataset.VortexFragment
@@ -30,5 +30,8 @@ fetches and decodes ahead, across all the files, including reads that a query en
 
    <hr>
 
+.. autofunction:: vortex.open_dataset
+
 .. automodule:: vortex.dataset
     :members:
+    :exclude-members: open_dataset

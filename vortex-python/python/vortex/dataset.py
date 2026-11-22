@@ -76,12 +76,12 @@ class VortexDataset(pyarrow.dataset.Dataset):
 
     @staticmethod
     def from_url(url: str) -> VortexDataset:
-        """Open the Vortex files that ``url`` names. See :func:`open_dataset`."""
+        """Open the Vortex files that ``url`` names. See :func:`~vortex.open_dataset`."""
         return open_dataset(url)
 
     @staticmethod
     def from_path(path: str) -> VortexDataset:
-        """Open the Vortex files that ``path`` names. See :func:`open_dataset`."""
+        """Open the Vortex files that ``path`` names. See :func:`~vortex.open_dataset`."""
         return open_dataset(path)
 
     @property
@@ -673,7 +673,7 @@ class VortexDataset(pyarrow.dataset.Dataset):
 
 
 def from_url(url: str) -> VortexDataset:
-    """Open the Vortex files that ``url`` names. See :func:`open_dataset`."""
+    """Open the Vortex files that ``url`` names. See :func:`~vortex.open_dataset`."""
     return open_dataset(url)
 
 
@@ -683,7 +683,7 @@ def open_dataset(
     store: AzureStore | CosStore | GCSStore | HfStore | HTTPStore | LocalStore | MemoryStore | S3Store | None = None,
     concurrency: int | None = None,
 ) -> VortexDataset:
-    """Open many Vortex files as one :class:`VortexDataset`.
+    """Open many Vortex files as one :class:`~vortex.dataset.VortexDataset`.
 
     The dataset reads the rows of every file in order, with column selection and filters pushed into
     the scan of each file. Reads keep up to ``concurrency`` splits in flight across file boundaries,
