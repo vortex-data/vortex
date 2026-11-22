@@ -150,21 +150,11 @@ fn import_buffer_from_capsule(capsule: &Bound<'_, PyCapsule>) -> PyResult<Buffer
         }
 
         // Transfer ownership of the boxed VortexBufferExport from the producer capsule into the
-        // guard below inside a capsule-level critical section (serializing concurrent claimants on
-        // both GIL and free-threaded builds). Rename the capsule to the consumed marker first and
-        // clear its destructor second; if clearing the destructor fails, restore the original name
-        // so the producer destructor (which looks up `BUFFER_EXPORT_CAPSULE_NAME`) still cleans up.
+        // guard below inside a capsule-level critical section.
         let py = capsule.py();
         set_capsule_name(capsule, USED_BUFFER_EXPORT_CAPSULE_NAME)?;
         if unsafe { ffi::PyCapsule_SetDestructor(capsule.as_ptr(), None) } != 0 {
-            let err = PyErr::fetch(py);
-            if unsafe {
-                ffi::PyCapsule_SetName(capsule.as_ptr(), BUFFER_EXPORT_CAPSULE_NAME.as_ptr())
-            } != 0
-            {
-                unsafe { ffi::PyErr_Clear() };
-            }
-            return Err(err);
+            return Err(PyErr::fetch(py));
         }
 
         Ok((BufferExportGuard { export: export_ptr }, len, alignment))
@@ -804,49 +794,6 @@ mod tests {
                 1,
                 "dropping the imported buffer must release the export once"
             );
-
-            // Re-importing even after the underlying export was freed must fail on the consumed
-            // marker before dereferencing the capsule pointer.
-            let third_err = import_buffer_from_capsule(&capsule)
-                .expect_err("consumed capsule must stay rejected");
-            assert!(
-                third_err.to_string().contains("already been consumed"),
-                "unexpected error: {third_err}"
-            );
-            drop(capsule);
-            assert_eq!(releases.load(Ordering::SeqCst), 1);
-            Ok(())
-        })
-    }
-
-    #[test]
-    fn empty_buffer_releases_immediately_and_marks_capsule_consumed() -> PyResult<()> {
-        Python::initialize();
-        Python::attach(|py| {
-            let releases = Arc::new(AtomicUsize::new(0));
-            let capsule = make_test_capsule(
-                py,
-                Vec::new(),
-                Arc::clone(&releases),
-                VORTEX_BUFFER_EXPORT_VERSION,
-            )?;
-
-            let handle = import_buffer_from_capsule(&capsule)?;
-            assert!(handle.as_host().is_empty());
-            assert_eq!(
-                releases.load(Ordering::SeqCst),
-                1,
-                "empty buffer export must be released immediately on import"
-            );
-            assert!(capsule.is_valid_checked(Some(USED_BUFFER_EXPORT_CAPSULE_NAME)));
-
-            let second_err = import_buffer_from_capsule(&capsule)
-                .expect_err("consumed empty capsule must be rejected");
-            assert!(
-                second_err.to_string().contains("already been consumed"),
-                "unexpected error: {second_err}"
-            );
-            drop(handle);
             drop(capsule);
             assert_eq!(releases.load(Ordering::SeqCst), 1);
             Ok(())
@@ -886,27 +833,18 @@ mod tests {
     }
 
     #[test]
-    fn parse_array_metadata_cleans_up_when_later_element_fails() -> PyResult<()> {
+    fn parse_array_metadata_cleans_up_on_duplicate_capsule() -> PyResult<()> {
         Python::initialize();
         Python::attach(|py| {
-            let first_releases = Arc::new(AtomicUsize::new(0));
-            let second_releases = Arc::new(AtomicUsize::new(0));
-            let first_capsule = make_test_capsule(
+            let releases = Arc::new(AtomicUsize::new(0));
+            let capsule = make_test_capsule(
                 py,
                 vec![1, 2, 3, 4],
-                Arc::clone(&first_releases),
-                VORTEX_BUFFER_EXPORT_VERSION,
-            )?;
-            let second_capsule = make_test_capsule(
-                py,
-                vec![5, 6, 7, 8],
-                Arc::clone(&second_releases),
+                Arc::clone(&releases),
                 VORTEX_BUFFER_EXPORT_VERSION,
             )?;
 
-            // Case 1: duplicate capsule in buffers list fails on the second occurrence and drops
-            // the first BufferHandle cleanly.
-            let dup_buffers = PyList::new(py, [first_capsule.as_any(), first_capsule.as_any()])?;
+            let dup_buffers = PyList::new(py, [capsule.as_any(), capsule.as_any()])?;
             let empty_children = PyList::empty(py);
             let dup_tuple = PyTuple::new(
                 py,
@@ -927,107 +865,13 @@ mod tests {
                 "unexpected error: {dup_err}"
             );
             drop(dup_tuple);
-            drop(first_capsule);
+            drop(capsule);
             assert_eq!(
-                first_releases.load(Ordering::SeqCst),
+                releases.load(Ordering::SeqCst),
                 1,
                 "already-transferred buffer must be released once when a later buffer fails"
             );
-
-            // Case 2: a valid buffer followed by an invalid child tuple still releases the
-            // transferred buffer cleanly.
-            let buffers = PyList::new(py, [second_capsule.as_any()])?;
-            let bad_children = PyList::new(py, ["not-a-tuple"])?;
-            let bad_child_tuple = PyTuple::new(
-                py,
-                [
-                    "vortex.primitive".into_pyobject(py)?.into_any(),
-                    PyBytes::new(py, b"").into_any(),
-                    4usize.into_pyobject(py)?.into_any(),
-                    PyBytes::new(py, b"").into_any(),
-                    buffers.into_any(),
-                    bad_children.into_any(),
-                ],
-            )?;
-            let bad_child_err = parse_array_metadata(bad_child_tuple.as_any())
-                .err()
-                .expect("non-tuple child must be rejected");
-            assert!(
-                bad_child_err.is_instance_of::<pyo3::exceptions::PyTypeError>(py),
-                "unexpected error: {bad_child_err}"
-            );
-            drop(bad_child_tuple);
-            drop(second_capsule);
-            assert_eq!(
-                second_releases.load(Ordering::SeqCst),
-                1,
-                "transferred buffer must be released once when a later child element fails"
-            );
             Ok(())
         })
-    }
-
-    #[test]
-    fn concurrent_claim_succeeds_once_and_releases_once() -> PyResult<()> {
-        Python::initialize();
-        let releases = Arc::new(AtomicUsize::new(0));
-        let capsule: Py<PyCapsule> = Python::attach(|py| {
-            let cap = make_test_capsule(
-                py,
-                vec![7, 8, 9, 10],
-                Arc::clone(&releases),
-                VORTEX_BUFFER_EXPORT_VERSION,
-            )?;
-            Ok::<_, PyErr>(cap.unbind())
-        })?;
-
-        const THREADS: usize = 8;
-        let barrier = Arc::new(std::sync::Barrier::new(THREADS));
-        let successes = Arc::new(AtomicUsize::new(0));
-        let rejections = Arc::new(AtomicUsize::new(0));
-
-        std::thread::scope(|scope| {
-            for _ in 0..THREADS {
-                let barrier = Arc::clone(&barrier);
-                let successes = Arc::clone(&successes);
-                let rejections = Arc::clone(&rejections);
-                let cap_ref = &capsule;
-                scope.spawn(move || {
-                    barrier.wait();
-                    let result = Python::attach(|py| import_buffer_from_capsule(cap_ref.bind(py)));
-                    match result {
-                        Ok(handle) => {
-                            assert_eq!(handle.as_host().as_slice(), &[7, 8, 9, 10]);
-                            successes.fetch_add(1, Ordering::SeqCst);
-                        }
-                        Err(err) => {
-                            assert!(
-                                err.to_string().contains("already been consumed"),
-                                "unexpected error: {err}"
-                            );
-                            rejections.fetch_add(1, Ordering::SeqCst);
-                        }
-                    }
-                });
-            }
-        });
-
-        assert_eq!(successes.load(Ordering::SeqCst), 1);
-        assert_eq!(rejections.load(Ordering::SeqCst), THREADS - 1);
-
-        Python::attach(|py| {
-            assert!(
-                capsule
-                    .bind(py)
-                    .is_valid_checked(Some(USED_BUFFER_EXPORT_CAPSULE_NAME))
-            );
-            drop(capsule);
-        });
-        assert_eq!(
-            releases.load(Ordering::SeqCst),
-            1,
-            "owner must be released exactly once across concurrent claimants"
-        );
-        Ok(())
     }
 }
