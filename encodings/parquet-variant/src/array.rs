@@ -39,14 +39,15 @@ use vortex_array::vtable::validity_to_child;
 use vortex_arrow::ArrowExportOptions;
 use vortex_arrow::ArrowSession;
 use vortex_arrow::ExecuteArrowExt;
+use vortex_arrow::level_validity;
 use vortex_arrow::to_arrow_null_buffer;
-use vortex_buffer::BitBuffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 
 use crate::ParquetVariant;
 use crate::ParquetVariantArray;
+use crate::arrow::prepare_variant_for_export;
 
 #[array_slots(ParquetVariant)]
 pub struct ParquetVariantSlots {
@@ -93,25 +94,31 @@ impl ParquetVariant {
         ))
     }
 
-    /// Converts an Arrow `parquet_variant_compute::VariantArray` into Parquet Variant storage,
-    /// converting the storage children through `session`.
+    /// Import Arrow Parquet Variant storage through the session.
+    ///
+    /// The result is nullable when the Arrow variant has a null buffer. See the
+    /// [import nullability rules](ArrowSession::from_arrow_array) for how the children import.
     pub fn from_arrow_variant(
         arrow_variant: &ArrowVariantArray,
         session: &ArrowSession,
     ) -> VortexResult<ArrayRef> {
-        Self::from_arrow_variant_impl(arrow_variant, false, session)
+        Self::from_arrow_variant_with_nullability(
+            arrow_variant,
+            arrow_variant.nulls().is_some(),
+            session,
+        )
     }
 
     pub(crate) fn from_arrow_variant_nullable(
         arrow_variant: &ArrowVariantArray,
         session: &ArrowSession,
     ) -> VortexResult<ArrayRef> {
-        Self::from_arrow_variant_impl(arrow_variant, true, session)
+        Self::from_arrow_variant_with_nullability(arrow_variant, true, session)
     }
 
-    fn from_arrow_variant_impl(
+    pub(crate) fn from_arrow_variant_with_nullability(
         arrow_variant: &ArrowVariantArray,
-        force_nullable: bool,
+        nullable: bool,
         session: &ArrowSession,
     ) -> VortexResult<ArrayRef> {
         let storage = arrow_variant.inner();
@@ -124,20 +131,8 @@ impl ParquetVariant {
                 _ => {}
             }
         }
-        let validity = arrow_variant
-            .nulls()
-            .map(|nulls| {
-                if nulls.null_count() == nulls.len() {
-                    Validity::AllInvalid
-                } else {
-                    Validity::from(BitBuffer::from(nulls.inner().clone()))
-                }
-            })
-            .unwrap_or(if force_nullable {
-                Validity::AllValid
-            } else {
-                Validity::NonNullable
-            });
+        let validity = level_validity(arrow_variant.nulls(), nullable)?;
+
         let metadata = session
             .from_arrow_array(ArrowArrayRef::clone(arrow_variant.metadata_column()), false)?;
 
@@ -150,6 +145,7 @@ impl ParquetVariant {
             .typed_value_column()
             .map(|tv| session.from_arrow_array(ArrowArrayRef::clone(tv), typed_value_nullable))
             .transpose()?;
+
         ParquetVariant::try_new(validity, metadata, value, typed_value).map(IntoArray::into_array)
     }
 }
@@ -352,6 +348,12 @@ pub(crate) fn parquet_typed_value_from_logical_shredded(
         .into_array());
     }
 
+    // A shredded object read from a file can be chunked, which hides its fields.
+    let shredded = if shredded.dtype().is_struct() && !shredded.is::<Struct>() {
+        shredded.execute::<StructArray>(ctx)?.into_array()
+    } else {
+        shredded
+    };
     let Some(struct_array) = shredded.as_opt::<Struct>() else {
         // A bare typed leaf (a fully shredded scalar) is already a valid Parquet `typed_value`.
         return Ok(shredded);
@@ -388,14 +390,9 @@ fn parquet_shredded_field_from_logical(
     // Partially shredded fields canonicalize to a nested Variant whose core storage holds the
     // residual `value` and whose own shredded tree holds the typed children.
     if let Some(variant) = logical_field.as_opt::<Variant>() {
-        let core = variant
-            .core_storage()
-            .as_opt::<ParquetVariant>()
-            .ok_or_else(|| {
-                vortex_err!(
-                    "cannot rebuild Parquet shredded field: nested Variant lacks Parquet Variant core storage"
-                )
-            })?;
+        // The core storage of a Variant read from a file can be chunked or masked.
+        let core = prepare_variant_for_export(variant.core_storage().clone(), None, ctx)?;
+        let core = core.as_::<ParquetVariant>();
         let value = core.value().cloned().ok_or_else(|| {
             vortex_err!("cannot rebuild Parquet shredded field: partially shredded Variant has no residual value")
         })?;
@@ -435,10 +432,7 @@ fn parquet_shredded_field_from_logical(
 pub trait ParquetVariantArrayExt: TypedArrayRef<ParquetVariant> {
     /// Returns the outer row validity for the Variant values.
     fn parquet_variant_validity(&self) -> Validity {
-        child_to_validity(
-            self.slots()[ParquetVariantSlots::VALIDITY_CHILD].as_ref(),
-            self.dtype().nullability(),
-        )
+        child_to_validity(self.validity_child(), self.dtype().nullability())
     }
 
     /// Converts this storage array to Arrow's canonical Parquet Variant extension storage.

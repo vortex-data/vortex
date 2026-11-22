@@ -11,10 +11,15 @@
 use std::sync::Arc;
 
 use jni::EnvUnowned;
+use jni::objects::JBooleanArray;
 use jni::objects::JByteArray;
 use jni::objects::JClass;
+use jni::objects::JDoubleArray;
+use jni::objects::JFloatArray;
+use jni::objects::JIntArray;
 use jni::objects::JLongArray;
 use jni::objects::JObjectArray;
+use jni::objects::JShortArray;
 use jni::objects::JString;
 use jni::objects::ReleaseMode;
 use jni::sys::jboolean;
@@ -39,6 +44,7 @@ use vortex::dtype::extension::ExtDType;
 use vortex::dtype::half::f16;
 use vortex::encodings::uuid::Uuid;
 use vortex::encodings::uuid::UuidMetadata;
+use vortex::error::VortexResult;
 use vortex::error::vortex_err;
 use vortex::expr::Expression;
 use vortex::expr::and_collect;
@@ -886,6 +892,153 @@ pub extern "system" fn Java_dev_vortex_jni_NativeExpression_literalList(
     })
 }
 
+/// Build a list literal from `values`, each cast to the element dtype, plus a null element when
+/// `with_null` is set.
+///
+/// The element dtype follows [`Java_dev_vortex_jni_NativeExpression_literalList`]. A filter such as
+/// a runtime join filter can hold thousands of values, and one native call for all of them avoids a
+/// Java expression object and a native literal per value.
+fn bulk_list_literal(
+    element_type: jlong,
+    elements_nullable: jboolean,
+    with_null: jboolean,
+    values: impl Iterator<Item = Scalar>,
+) -> Result<jlong, JNIError> {
+    let element_dtype =
+        unsafe { prototype_dtype(element_type, "list element type", elements_nullable.into()) }?;
+
+    let mut children = values
+        .map(|value| bulk_list_element(value, &element_dtype))
+        .collect::<VortexResult<Vec<Scalar>>>()?;
+    if with_null {
+        children.push(Scalar::null(element_dtype.as_nullable()));
+    }
+
+    Ok(into_raw(lit(Scalar::list(
+        element_dtype,
+        children,
+        Nullability::NonNullable,
+    ))))
+}
+
+/// Convert one value of a bulk list literal to the element `dtype`.
+///
+/// A cast never turns a primitive into an extension value, so the value of an extension element,
+/// such as a timestamp, is its storage value: it is cast to the storage dtype and then wrapped.
+fn bulk_list_element(value: Scalar, dtype: &DType) -> VortexResult<Scalar> {
+    let DType::Extension(ext) = dtype else {
+        return value.cast(dtype);
+    };
+    let storage = value.cast(ext.storage_dtype())?;
+    Scalar::try_extension_ref(ext.clone(), storage)
+}
+
+/// Defines the native method that builds a list literal from one Java array of primitives. See
+/// [`bulk_list_literal`].
+macro_rules! bulk_list_literal_of {
+    ($(#[$doc:meta])* $name:ident, $array:ty, $scalar:expr) => {
+        $(#[$doc])*
+        #[unsafe(no_mangle)]
+        pub extern "system" fn $name(
+            mut env: EnvUnowned,
+            _class: JClass,
+            values: $array,
+            element_type: jlong,
+            elements_nullable: jboolean,
+            with_null: jboolean,
+        ) -> jlong {
+            try_or_throw(&mut env, |env| {
+                let values = unsafe { values.get_elements(env, ReleaseMode::NoCopyBack) }?;
+
+                bulk_list_literal(
+                    element_type,
+                    elements_nullable,
+                    with_null,
+                    values.iter().map(|value| ($scalar)(*value)),
+                )
+            })
+        }
+    };
+}
+
+bulk_list_literal_of!(
+    /// Build a list literal of booleans. See [`bulk_list_literal`].
+    Java_dev_vortex_jni_NativeExpression_literalListBool,
+    JBooleanArray,
+    |value: jboolean| Scalar::bool(value, Nullability::NonNullable)
+);
+bulk_list_literal_of!(
+    /// Build a list literal of 8-bit integers. See [`bulk_list_literal`].
+    Java_dev_vortex_jni_NativeExpression_literalListI8,
+    JByteArray,
+    |value: jbyte| Scalar::primitive(value, Nullability::NonNullable)
+);
+bulk_list_literal_of!(
+    /// Build a list literal of 16-bit integers. See [`bulk_list_literal`].
+    Java_dev_vortex_jni_NativeExpression_literalListI16,
+    JShortArray,
+    |value: jshort| Scalar::primitive(value, Nullability::NonNullable)
+);
+bulk_list_literal_of!(
+    /// Build a list literal of 32-bit integers. See [`bulk_list_literal`].
+    Java_dev_vortex_jni_NativeExpression_literalListI32,
+    JIntArray,
+    |value: jint| Scalar::primitive(value, Nullability::NonNullable)
+);
+bulk_list_literal_of!(
+    /// Build a list literal of 64-bit integers. See [`bulk_list_literal`].
+    Java_dev_vortex_jni_NativeExpression_literalListI64,
+    JLongArray,
+    |value: jlong| Scalar::primitive(value, Nullability::NonNullable)
+);
+bulk_list_literal_of!(
+    /// Build a list literal of 32-bit floats. See [`bulk_list_literal`].
+    Java_dev_vortex_jni_NativeExpression_literalListF32,
+    JFloatArray,
+    |value: jfloat| Scalar::primitive(value, Nullability::NonNullable)
+);
+bulk_list_literal_of!(
+    /// Build a list literal of 64-bit floats. See [`bulk_list_literal`].
+    Java_dev_vortex_jni_NativeExpression_literalListF64,
+    JDoubleArray,
+    |value: jdouble| Scalar::primitive(value, Nullability::NonNullable)
+);
+
+/// Build a list literal of strings. See [`bulk_list_literal`].
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_vortex_jni_NativeExpression_literalListUtf8(
+    mut env: EnvUnowned,
+    _class: JClass,
+    values: JObjectArray,
+    element_type: jlong,
+    elements_nullable: jboolean,
+    with_null: jboolean,
+) -> jlong {
+    try_or_throw(&mut env, |env| {
+        let length = values.len(env)?;
+        let mut strings = Vec::with_capacity(length);
+
+        for index in 0..length {
+            let element = values.get_element(env, index)?;
+            let value = env.cast_local::<JString>(element)?;
+            strings.push(Scalar::utf8(
+                value.try_to_string(env)?,
+                Nullability::NonNullable,
+            ));
+
+            // A long list would otherwise fill the table of local references.
+            env.delete_local_ref(value);
+        }
+
+        bulk_list_literal(
+            element_type,
+            elements_nullable,
+            with_null,
+            strings.into_iter(),
+        )
+    })
+}
+
 /// Build a fixed-size list literal of `size` elements.
 ///
 /// Elements and `element_type` follow [`Java_dev_vortex_jni_NativeExpression_literalList`]. A
@@ -1058,11 +1211,52 @@ pub extern "system" fn Java_dev_vortex_jni_NativeExpression_literalNull(
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
+    use vortex::dtype::DType;
     use vortex::dtype::DecimalDType;
+    use vortex::dtype::Nullability;
+    use vortex::extension::datetime::Date;
+    use vortex::extension::datetime::TimeUnit;
+    use vortex::extension::datetime::Timestamp;
     use vortex::scalar::DecimalValue;
+    use vortex::scalar::Scalar;
+    use vortex::scalar::ScalarValue;
 
+    use super::bulk_list_element;
     use super::decimal_value_from_be_bytes;
     use crate::errors::JNIError;
+
+    /// A bulk value for a temporal element is a count of its unit, which is the storage value.
+    #[rstest]
+    #[case::timestamp(
+        DType::Extension(Timestamp::new(TimeUnit::Microseconds, Nullability::NonNullable).erased()),
+        ScalarValue::from(5i64),
+    )]
+    #[case::date_days(
+        DType::Extension(Date::new(TimeUnit::Days, Nullability::NonNullable).erased()),
+        ScalarValue::from(5i32),
+    )]
+    fn bulk_list_element_wraps_temporal_storage(
+        #[case] dtype: DType,
+        #[case] storage: ScalarValue,
+    ) -> Result<(), JNIError> {
+        let element = bulk_list_element(Scalar::primitive(5i64, Nullability::NonNullable), &dtype)?;
+
+        assert_eq!(element, Scalar::try_new(dtype, Some(storage))?);
+        Ok(())
+    }
+
+    #[test]
+    fn bulk_list_element_rejects_a_value_outside_the_storage_type() {
+        let dtype = DType::Extension(Date::new(TimeUnit::Days, Nullability::NonNullable).erased());
+
+        assert!(
+            bulk_list_element(
+                Scalar::primitive(1i64 << 40, Nullability::NonNullable),
+                &dtype
+            )
+            .is_err()
+        );
+    }
 
     /// Precision 19 holds values above `i64::MAX`, so the value must use the canonical `i128`.
     #[rstest]

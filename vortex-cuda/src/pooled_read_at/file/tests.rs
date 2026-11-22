@@ -22,8 +22,8 @@ use vortex::io::session::RuntimeSessionExt;
 use vortex_cuda_driver::stream::launch_host_function;
 
 use super::*;
-use crate::CudaBufferExt;
 use crate::CudaSessionExt;
+use crate::device_buffer::test_support::cuda_address;
 
 const WAIT: Duration = Duration::from_secs(30);
 const FILE_OFFSET: u64 = (1 << 32) + 37;
@@ -626,7 +626,7 @@ async fn staged_reads_honor_requested_alignment() -> VortexResult<()> {
     });
     let (_runtime, reader) = reader(backend)?;
     let buffer = reader.read_at(1, 8, Alignment::of::<u64>()).await?;
-    assert!(buffer.cuda_device_ptr()?.is_multiple_of(8));
+    assert!(cuda_address(&buffer)?.is_multiple_of(8));
     assert_bytes(buffer, 1, 8).await
 }
 
@@ -638,7 +638,7 @@ async fn mapped_reads_honor_requested_alignment() -> VortexResult<()> {
         let buffer = reader
             .read_at(offset, 64, Alignment::new(alignment))
             .await?;
-        assert!(buffer.cuda_device_ptr()?.is_multiple_of(alignment as u64));
+        assert!(cuda_address(&buffer)?.is_multiple_of(alignment as u64));
         assert_bytes(buffer, offset, 64).await?;
     }
     Ok(())

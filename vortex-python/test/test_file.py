@@ -115,6 +115,20 @@ def test_stream_pyarrow(tmpdir_factory) -> None:
     assert vx.open(str(data_dir / "names.vortex")).to_arrow(schema=table.schema).read_all().equals(table)
 
 
+@pytest.mark.parametrize("as_reader", [False, True])
+def test_write_reports_unsupported_arrow_type(tmp_path, as_reader: bool) -> None:
+    table = pa.table({"elapsed": pa.array([1], pa.duration("ms"))})
+    source = pa.RecordBatchReader.from_batches(table.schema, table.to_batches()) if as_reader else table
+
+    with pytest.raises(ValueError, match="Duration"):
+        vx.io.write(source, str(tmp_path / "x.vortex"))
+
+
+def test_write_rejects_unsupported_object(tmp_path) -> None:
+    with pytest.raises(TypeError, match="converted to an ArrayIterator"):
+        vx.io.write(object(), str(tmp_path / "x.vortex"))  # ty: ignore[invalid-argument-type]
+
+
 @pytest.mark.parametrize("with_footer", [False, True])
 def test_memory_map_reads_values(vxf: VortexFile, with_footer: bool) -> None:
     mapped = vx.open(vxf.path, memory_map=True, footer=vxf.footer if with_footer else None)

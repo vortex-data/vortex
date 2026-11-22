@@ -28,6 +28,7 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::DecimalDType;
 use vortex_array::dtype::NativeDecimalType;
 use vortex_array::dtype::Nullability;
+use vortex_array::dtype::PType;
 use vortex_array::optimizer::kernels::KernelSession;
 use vortex_array::test_harness::mark_optimized;
 use vortex_array::validity::Validity;
@@ -48,6 +49,10 @@ fn main() {
 // Kept small enough to stay in L2 so the kernel cost shows up rather than DRAM bandwidth,
 // and to keep the CodSpeed simulation under 1ms per benchmark.
 const SIZES: &[usize] = &[16_384];
+
+// Casts that divide every value by the scale factor cost several times more per value under
+// CodSpeed's simulation, so they run on half as many values to stay well under 1ms.
+const DIVIDING_SIZES: &[usize] = &[8_192];
 
 static SESSION: LazyLock<VortexSession> =
     LazyLock::new(|| VortexSession::empty().with::<KernelSession>());
@@ -73,6 +78,7 @@ fn decimal_array<T: NativeDecimalType>(
         values.freeze(),
         DecimalDType::new(precision, scale),
         validity,
+        &mut SESSION.create_execution_ctx(),
     )
     .into_array()
 }
@@ -146,5 +152,28 @@ fn widen_nullable(bencher: Bencher, n: usize) {
         bencher,
         decimal_array::<i32>(n, 9, 2, true),
         DType::Decimal(DecimalDType::new(18, 2), Nullability::Nullable),
+    );
+}
+
+// Narrowing: the target precision has a narrower canonical width, so every value is range-checked
+// and copied into a buffer of the narrower type.
+
+#[divan::bench(args = SIZES)]
+fn narrow_i64_to_i32_nullable(bencher: Bencher, n: usize) {
+    bench_cast(
+        bencher,
+        decimal_array::<i64>(n, 18, 2, true),
+        DType::Decimal(DecimalDType::new(9, 2), Nullability::Nullable),
+    );
+}
+
+// To integer: values are divided by the scale factor, truncating toward zero, and narrowed.
+
+#[divan::bench(args = DIVIDING_SIZES)]
+fn to_i32_nullable(bencher: Bencher, n: usize) {
+    bench_cast(
+        bencher,
+        decimal_array::<i64>(n, 18, 2, true),
+        DType::Primitive(PType::I32, Nullability::Nullable),
     );
 }

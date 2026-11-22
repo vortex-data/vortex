@@ -102,4 +102,29 @@ impl CudaFunction {
     pub fn cu_function(&self) -> sys::CUfunction {
         self.function
     }
+
+    /// The maximum number of blocks of `block_size` threads, each using
+    /// `dynamic_shared_mem_bytes` of dynamic shared memory, that can be
+    /// resident on one multiprocessor at the same time.
+    pub fn max_active_blocks_per_multiprocessor(
+        &self,
+        block_size: u32,
+        dynamic_shared_mem_bytes: u32,
+    ) -> Result<u32, DriverError> {
+        let block_size = i32::try_from(block_size)
+            .map_err(|_| DriverError(CUresult::CUDA_ERROR_INVALID_VALUE))?;
+        self._module.context.bind_to_thread()?;
+        let mut num_blocks = 0;
+        // SAFETY: The function is loaded; the driver writes the block count.
+        unsafe {
+            sys::cuOccupancyMaxActiveBlocksPerMultiprocessor(
+                &raw mut num_blocks,
+                self.function,
+                block_size,
+                dynamic_shared_mem_bytes as usize,
+            )
+        }
+        .result()?;
+        Ok(num_blocks.unsigned_abs())
+    }
 }

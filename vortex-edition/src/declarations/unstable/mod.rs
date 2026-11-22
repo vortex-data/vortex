@@ -32,14 +32,7 @@ pub static DECLARATION: EditionDeclaration = EditionDeclaration {
         min_library_version: None,
     },
     added: &[
-        EditionMember::array(&"fastlanes.bitpacked.v2"),
-        EditionMember::array(&"fastlanes.delta"),
-        EditionMember::array(&"fastlanes.for.v2"),
         EditionMember::array(&"vortex.decimal_byte_parts.v2"),
-        EditionMember::array(&"vortex.patched"),
-        EditionMember::array(&"vortex.union"),
-        EditionMember::layout(&"vortex.list"),
-        EditionMember::aggregate(&"vortex.bloom_filter.sbbf"),
-        EditionMember::aggregate(&"vortex.sum_v2"),
+        EditionMember::array(&"vortex.widen"),
     ],
 };

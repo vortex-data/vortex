@@ -49,13 +49,12 @@ pub unsafe trait InputElement: 'static {
     /// null rows to the row closure.
     const DENSE_SAFE: bool;
 
-    /// Whether [`decode`](Self::decode) and [`decode_ref`](Self::decode_ref) are infallible for
-    /// _legal_ input data.
+    /// Whether decoding a column or a batch constant is semantically infallible for legal input
+    /// data.
     ///
-    /// This excludes infrastructural failures such as IO or allocation.
-    /// It is independent of
-    /// [`RowFn::INFALLIBLE`](crate::scalar_fn::unstable::row::RowFn::INFALLIBLE), which describes
-    /// the row operation rather than input decoding.
+    /// This excludes infrastructural failures such as IO or allocation. A row function that uses
+    /// a fallible decoder must declare
+    /// [`RowFn::INFALLIBLE`](crate::scalar_fn::unstable::row::RowFn::INFALLIBLE) as `false`.
     const DECODE_INFALLIBLE: bool;
 
     /// Validate that `dtype` is an acceptable input column dtype for this element type.

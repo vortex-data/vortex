@@ -137,6 +137,20 @@ fn take_matches_decoded(
     Ok(())
 }
 
+/// Repeated indices can select more values from one chunk than the chunk holds. 9000 rows keep
+/// 1100 indices under the kernel's full-decode ratio, so it groups them by chunk.
+#[test]
+fn take_more_positions_than_a_chunk_from_one_chunk() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let input = PrimitiveArray::from_iter((0..9000u32).map(|i| i / 3));
+    let delta = Delta::try_from_primitive_array(&input, &mut ctx)?;
+    let indices = PrimitiveArray::from_iter((0..1100u32).map(|i| 1024 + i % 1024)).into_array();
+    let taken = <Delta as TakeExecute>::take(delta.as_view(), &indices, &mut ctx)?
+        .vortex_expect("Delta takes");
+    assert_arrays_eq!(taken, input.into_array().take(indices)?, &mut ctx);
+    Ok(())
+}
+
 #[test]
 fn take_out_of_bounds_errors() -> VortexResult<()> {
     let mut ctx = SESSION.create_execution_ctx();

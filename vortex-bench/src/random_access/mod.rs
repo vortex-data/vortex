@@ -9,14 +9,14 @@ use std::sync::Arc;
 use anyhow::Result;
 use anyhow::anyhow;
 use arrow_array::RecordBatch;
+use arrow_array::RecordBatchReader;
 use arrow_ipc::writer::FileWriter;
 use async_trait::async_trait;
 use object_store::ObjectStore;
 use object_store::aws::AmazonS3Builder;
 use object_store::path::Path as ObjectStorePath;
+use parquet::arrow::ArrowWriter;
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
-use parquet::basic::Compression;
-use parquet::basic::ZstdLevel;
 use parquet::file::properties::WriterProperties;
 use url::Url;
 use vortex::array::ArrayRef;
@@ -24,6 +24,8 @@ use vortex::array::ArrayRef;
 use crate::Format;
 use crate::data_dir;
 use crate::idempotent;
+use crate::utils::parquet::S3_ROW_GROUP_ROWS;
+use crate::utils::parquet::parquet_writer_properties;
 
 pub mod take;
 
@@ -82,14 +84,32 @@ pub fn parquet_to_arrow_file(parquet_path: PathBuf, arrow_path: String) -> Resul
     })
 }
 
-/// Parquet writer properties for the synthetic random-access datasets.
+/// Writer properties for every random-access dataset, the taxi data included: the shared
+/// [`parquet_writer_properties`], whose page index and small pages let a lookup read only the
+/// pages that hold its rows, in row groups of [`S3_ROW_GROUP_ROWS`]. The row groups are the S3
+/// size on local disk too, because the S3 job reads the files that the local job prepares.
+pub fn random_access_writer_properties() -> WriterProperties {
+    parquet_writer_properties()
+        .set_max_row_group_row_count(Some(S3_ROW_GROUP_ROWS))
+        .build()
+}
+
+/// Write the Parquet file `input` again with [`random_access_writer_properties`].
 ///
-/// Compression is zstd level 3, matching every other benchmark data generator; parquet-rs would
-/// otherwise write these files uncompressed. Row group and page sizes are left at their defaults.
-pub fn random_access_writer_properties() -> Result<WriterProperties> {
-    Ok(WriterProperties::builder()
-        .set_compression(Compression::ZSTD(ZstdLevel::try_new(3)?))
-        .build())
+/// A published file can lack the page index, and without it parquet-rs must decode every page of
+/// a column chunk to read one row.
+pub fn write_random_access_parquet(input: &Path, output: &Path) -> Result<()> {
+    let reader = ParquetRecordBatchReaderBuilder::try_new(File::open(input)?)?.build()?;
+    let mut writer = ArrowWriter::try_new(
+        File::create(output)?,
+        reader.schema(),
+        Some(random_access_writer_properties()),
+    )?;
+    for batch in reader {
+        writer.write(&batch?)?;
+    }
+    writer.close()?;
+    Ok(())
 }
 
 /// A remote directory holding the same layout as the local benchmark data directory.
@@ -194,7 +214,55 @@ pub trait RandomAccessor: Send + Sync {
 
 #[cfg(test)]
 mod tests {
+    use arrow_array::Int64Array;
+    use parquet::basic::Compression;
+    use parquet::basic::ZstdLevel;
+    use parquet::file::metadata::PageIndexPolicy;
+    use parquet::file::metadata::ParquetMetaDataReader;
+    use parquet::file::properties::EnabledStatistics;
+
     use super::*;
+
+    #[test]
+    fn rewritten_parquet_has_a_page_index_and_small_pages() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let input = dir.path().join("published.parquet");
+        let output = dir.path().join("random-access.parquet");
+
+        // A file without a page index, like the published taxi data.
+        let batch = RecordBatch::try_from_iter([(
+            "x",
+            Arc::new(Int64Array::from_iter_values(0..100_000)) as _,
+        )])?;
+        let props = WriterProperties::builder()
+            .set_statistics_enabled(EnabledStatistics::None)
+            .set_offset_index_disabled(true)
+            .build();
+        let mut writer = ArrowWriter::try_new(File::create(&input)?, batch.schema(), Some(props))?;
+        writer.write(&batch)?;
+        writer.close()?;
+        let published = ParquetMetaDataReader::new()
+            .with_page_index_policy(PageIndexPolicy::Optional)
+            .parse_and_finish(&File::open(&input)?)?;
+        assert!(published.offset_index().is_none());
+
+        write_random_access_parquet(&input, &output)?;
+
+        let metadata = ParquetMetaDataReader::new()
+            .with_page_index_policy(PageIndexPolicy::Required)
+            .parse_and_finish(&File::open(&output)?)?;
+        assert!(metadata.column_index().is_some());
+        let offset_index = metadata
+            .offset_index()
+            .ok_or_else(|| anyhow!("no offset index"))?;
+        let pages = offset_index[0][0].page_locations();
+        assert!(pages.len() >= 5);
+        for pair in pages.windows(2) {
+            // parquet-rs checks the 20,000-row limit after every 1,024 rows.
+            assert!(pair[1].first_row_index - pair[0].first_row_index <= 20_480);
+        }
+        Ok(())
+    }
 
     fn remote(url: &str) -> Result<RemoteDataDir> {
         // `from_env` needs no credentials to construct the client.
@@ -241,7 +309,7 @@ mod tests {
 
     #[test]
     fn generated_parquet_is_zstd_level_3() -> Result<()> {
-        let props = random_access_writer_properties()?;
+        let props = random_access_writer_properties();
         assert_eq!(
             props.compression(&"embedding".into()),
             Compression::ZSTD(ZstdLevel::try_new(3)?)

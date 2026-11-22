@@ -207,6 +207,7 @@ jobs:
                   hashFiles(
                     'vortex-bench/src/datasets/**',
                     'vortex-bench/src/random_access/**',
+                    'vortex-bench/src/utils/parquet.rs',
                     'scripts/litdata-random-access.py',
                     'benchmarks/random-access-bench/src/litdata.rs') }}
 
@@ -217,6 +218,7 @@ jobs:
         env:
           RUST_BACKTRACE: full
           FLAT_LAYOUT_INLINE_ARRAY_NODE: "1"
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
           bench="${{ matrix.benchmark.id }}"
           python3 "scripts/${bench%-bench}-split.py" --prepare-data \

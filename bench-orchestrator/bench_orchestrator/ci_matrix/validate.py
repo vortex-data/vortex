@@ -8,12 +8,16 @@ from .model import BenchmarkCase, Catalog, Coverage, Storage
 
 
 def _validate_coverage(benchmark: BenchmarkCase, preset: str, coverage: Coverage) -> None:
-    if len(coverage.targets) == 0:
+    targets = coverage.resolved_targets(benchmark.benchmark)
+    if len(targets) == 0:
         raise ValueError(f"Benchmark {benchmark.id!r} resolved to no runnable targets")
 
-    for target in coverage.targets:
-        if not target.is_supported():
-            raise ValueError(f"Benchmark {benchmark.id!r} has unsupported target {target} in preset {preset!r}")
+    for target in targets:
+        errors = target.support_errors(benchmark.benchmark)
+        if errors:
+            raise ValueError(
+                f"Benchmark {benchmark.id!r} has unsupported target {target} in preset {preset!r}: {errors[0]}"
+            )
         if target.engine not in engines_for_benchmark(benchmark.benchmark):
             raise ValueError(f"Benchmark {benchmark.id!r} cannot run target {target} in preset {preset!r}")
         if benchmark.storage is Storage.S3 and target.format is Format.LANCE:
@@ -26,6 +30,18 @@ def _validate_coverage(benchmark: BenchmarkCase, preset: str, coverage: Coverage
             raise ValueError(f"Benchmark {benchmark.id!r} repeats a data format in preset {preset!r}")
         if Format.LANCE in coverage.data_formats:
             raise ValueError(f"Benchmark {benchmark.id!r} cannot generate Lance data in preset {preset!r}")
+
+    if len(coverage.size_formats) != len(set(coverage.size_formats)):
+        raise ValueError(f"Benchmark {benchmark.id!r} repeats a size-only format in preset {preset!r}")
+    if coverage.size_formats and benchmark.storage is not Storage.NVME:
+        raise ValueError(f"Benchmark {benchmark.id!r} records no file sizes, so it cannot write size-only formats")
+    read_formats = {target.format.value for target in coverage.targets}
+    for size_format in coverage.size_formats:
+        if size_format.value in read_formats:
+            raise ValueError(
+                f"Benchmark {benchmark.id!r} reads {size_format.value!r} in preset {preset!r}, "
+                "so it needs no size-only write"
+            )
 
 
 def validate_catalog(catalog: Catalog) -> None:

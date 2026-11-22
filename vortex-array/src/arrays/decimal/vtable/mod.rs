@@ -14,6 +14,7 @@ use std::hash::Hasher;
 
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
@@ -36,6 +37,7 @@ use crate::builders::DecimalBuilder;
 use crate::dtype::DType;
 use crate::hash::ArrayEq;
 use crate::hash::ArrayHash;
+use crate::validity::Validity;
 
 /// A [`Decimal`]-encoded Vortex array.
 pub type DecimalArray = Array<Decimal>;
@@ -47,13 +49,13 @@ pub(crate) fn initialize(session: &VortexSession) {
 impl ArrayHash for DecimalData {
     fn array_hash<H: Hasher>(&self, state: &mut H, accuracy: EqMode) {
         self.values.array_hash(state, accuracy);
-        std::mem::discriminant(&self.values_type).hash(state);
+        std::mem::discriminant(&self.values_type()).hash(state);
     }
 }
 
 impl ArrayEq for DecimalData {
     fn array_eq(&self, other: &Self, accuracy: EqMode) -> bool {
-        self.values.array_eq(&other.values, accuracy) && self.values_type == other.values_type
+        self.values.array_eq(&other.values, accuracy) && self.values_type() == other.values_type()
     }
 }
 
@@ -103,23 +105,38 @@ impl VTable for Decimal {
         len: usize,
         slots: &[Option<ArrayRef>],
     ) -> VortexResult<()> {
-        let DType::Decimal(_, nullability) = dtype else {
-            vortex_bail!("Expected decimal dtype, got {dtype:?}");
+        let DType::Decimal(decimal_dtype, nullability) = dtype else {
+            vortex_bail!("Expected decimal dtype, got {dtype}");
         };
+        vortex_ensure_eq!(
+            data.decimal_dtype,
+            *decimal_dtype,
+            "Decimal values must have the precision and scale of the array",
+        );
+        DecimalData::validate(&data.values, data.values_type())?;
         vortex_ensure_eq!(
             data.len(),
             len,
-            "DecimalArray length does not match outer length",
+            "Decimal values must contain one integer per row",
         );
-        let validity = crate::array::child_to_validity(
-            slots[DecimalSlots::VALIDITY_CHILD].as_ref(),
-            *nullability,
-        );
-        if let Some(validity_len) = validity.maybe_len() {
+
+        let [validity] = slots else {
+            vortex_bail!("Decimal requires one validity slot, got {}", slots.len());
+        };
+        if let Some(child) = validity {
+            vortex_ensure!(
+                nullability.is_nullable(),
+                "A validity child requires a nullable dtype, got {dtype}",
+            );
             vortex_ensure_eq!(
-                validity_len,
+                child.dtype(),
+                &Validity::DTYPE,
+                "Decimal validity must contain non-nullable booleans",
+            );
+            vortex_ensure_eq!(
+                child.len(),
                 len,
-                "DecimalArray validity len does not match outer length",
+                "Decimal validity must contain one boolean per row",
             );
         }
 
@@ -142,10 +159,13 @@ impl VTable for Decimal {
         let Some(builder) = builder.as_any_mut().downcast_mut::<DecimalBuilder>() else {
             vortex_bail!("append_to_builder for Decimal requires a DecimalBuilder");
         };
-        builder.append_decimal_array(&array.into_owned(), ctx)
+        builder.append_decimal_array(array, ctx)
     }
 }
 
 /// The vtable of [`DecimalArray`].
 #[derive(Clone, Debug)]
 pub struct Decimal;
+
+#[cfg(test)]
+mod tests;

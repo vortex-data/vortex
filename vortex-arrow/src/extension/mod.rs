@@ -113,7 +113,9 @@ pub trait ArrowExtVTable: ExtVTable {
     /// Interprets the native field, without applying Vortex side metadata.
     ///
     /// Infer the Vortex storage representation here, which can differ from Arrow's physical type.
-    /// Return `None` when the field is unsupported.
+    /// Return `None` only to defer the field to another plugin under the same Arrow extension
+    /// name. A field that names this type but falls outside its domain **must** fail, as
+    /// [`ArrowImportVTable`](crate::ArrowImportVTable) states.
     fn from_arrow_field(
         field: &Field,
         session: &ArrowSession,
@@ -126,9 +128,11 @@ pub trait ArrowExtVTable: ExtVTable {
     /// that metadata.
     ///
     /// A successful result **must** have exactly `ext_dtype` and the input length. Return
-    /// [`ArrowImport::Unsupported`] when the representation is unsupported. Import storage through
-    /// the session with a nullability rather than the extension field, to avoid dispatching this
-    /// plugin recursively.
+    /// [`ArrowImport::Unsupported`] only to defer the array to another plugin under the same Arrow
+    /// extension name, as [`ArrowImportVTable`](crate::ArrowImportVTable) states.
+    ///
+    /// See the [importer contract](crate::ArrowImportVTable::from_arrow_array) for how to apply
+    /// the storage dtype's nullability.
     fn from_arrow_array(
         array: ArrowArrayRef,
         field: &Field,

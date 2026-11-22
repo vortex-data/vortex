@@ -31,10 +31,13 @@ use crate::VortexSessionExecute;
 use crate::arrays::BoolArray;
 use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
+use crate::arrays::DictArray;
 use crate::arrays::ExtensionArray;
 use crate::arrays::FixedSizeListArray;
 use crate::arrays::MaskedArray;
 use crate::arrays::PrimitiveArray;
+use crate::arrays::ScalarFnArray;
+use crate::arrays::VarBinArray;
 use crate::arrays::VarBinViewArray;
 use crate::arrays::varbinview::BinaryView;
 use crate::assert_arrays_eq;
@@ -47,9 +50,11 @@ use crate::dtype::extension::ExtDTypeRef;
 use crate::extension::datetime::TimeUnit;
 use crate::extension::datetime::Timestamp;
 use crate::memory::test_allocator::tracking_allocator;
+use crate::optimizer::ArrayOptimizer;
 use crate::scalar::Scalar;
 use crate::scalar_fn::EmptyOptions;
 use crate::scalar_fn::ScalarFnId;
+use crate::scalar_fn::ScalarFnVTableExt;
 use crate::scalar_fn::VecExecutionArgs;
 use crate::scalar_fn::fns::binary::Binary;
 use crate::scalar_fn::fns::operators::Operator;
@@ -77,7 +82,7 @@ impl RowFn for FilteredBoolean {
     type Options = EmptyOptions;
 
     const ARG_NAMES: &'static [&'static str] = &["lhs", "rhs"];
-    const INFALLIBLE: bool = true;
+    const INFALLIBLE: bool = false;
 
     fn id(&self) -> ScalarFnId {
         static ID: CachedId = CachedId::new("test.filtered_boolean");
@@ -95,26 +100,41 @@ impl RowFn for FilteredBoolean {
 }
 
 #[derive(Debug, PartialEq, Eq, Hash)]
-struct UnreadableDeviceBuffer {
-    len: usize,
-    alignment: Alignment,
+enum TestDeviceBuffer {
+    Readable(ByteBuffer),
+    Unreadable { len: usize, alignment: Alignment },
 }
 
-impl DeviceBuffer for UnreadableDeviceBuffer {
+impl TestDeviceBuffer {
+    fn into_handle(self) -> BufferHandle {
+        BufferHandle::new_device(Arc::new(self))
+    }
+}
+
+impl DeviceBuffer for TestDeviceBuffer {
     fn as_any(&self) -> &dyn Any {
         self
     }
 
     fn len(&self) -> usize {
-        self.len
+        match self {
+            Self::Readable(bytes) => bytes.len(),
+            Self::Unreadable { len, .. } => *len,
+        }
     }
 
     fn alignment(&self) -> Alignment {
-        self.alignment
+        match self {
+            Self::Readable(bytes) => bytes.alignment(),
+            Self::Unreadable { alignment, .. } => *alignment,
+        }
     }
 
-    fn copy_to_host_sync(&self, _alignment: Alignment) -> VortexResult<ByteBuffer> {
-        vortex_bail!("execution must not read the device buffer")
+    fn copy_to_host_sync(&self, alignment: Alignment) -> VortexResult<ByteBuffer> {
+        match self {
+            Self::Readable(bytes) => Ok(bytes.clone().aligned(alignment)),
+            Self::Unreadable { .. } => vortex_bail!("execution must not read the device buffer"),
+        }
     }
 
     fn copy_to_host(
@@ -544,7 +564,7 @@ impl RowFn for FilteredRepeat {
     type Options = usize;
 
     const ARG_NAMES: &'static [&'static str] = &["value"];
-    const INFALLIBLE: bool = true;
+    const INFALLIBLE: bool = false;
 
     fn id(&self) -> ScalarFnId {
         static ID: CachedId = CachedId::new("test.filtered_repeat");
@@ -1710,6 +1730,24 @@ fn constant_output_retains_execution_allocator_payload() -> VortexResult<()> {
 }
 
 #[test]
+fn fallible_decode_skips_unreferenced_dictionary_values() -> VortexResult<()> {
+    let codes = PrimitiveArray::from_iter([0u8, 2, 0, 2]);
+    let values = PrimitiveArray::from_iter([7i64, i64::MIN, -1]);
+    let lhs = DictArray::try_new(codes.into_array(), values.into_array())?;
+    let rhs = ConstantArray::new(0_i64, lhs.len());
+    let expr = ScalarFnArray::try_new(
+        FilteredBoolean.bind(EmptyOptions),
+        [lhs.into_array(), rhs.into_array()],
+    )?;
+
+    let result = expr.into_array().optimize_ctx(&SESSION)?;
+    let expected = BoolArray::from_iter([true, false, true, false]);
+    let mut ctx = SESSION.create_execution_ctx();
+    assert_arrays_eq!(result, expected, &mut ctx);
+    Ok(())
+}
+
+#[test]
 fn test_valid_only_bool_skips_invalid_decode_payloads() -> VortexResult<()> {
     let lhs = PrimitiveArray::new(vec![i64::MIN, 7], Validity::from_iter([false, true]));
     let rhs = ConstantArray::new(0_i64, 2);
@@ -1757,12 +1795,72 @@ fn test_null_literal_skips_lazy_input_execution() -> VortexResult<()> {
 }
 
 #[test]
+fn decode_device_bool_preserves_bit_offset_and_length() -> VortexResult<()> {
+    let bits = TestDeviceBuffer::Readable(ByteBuffer::copy_from([0b0110_1000])).into_handle();
+    let array = BoolArray::try_new_from_handle(bits, 3, 4, Validity::NonNullable)?;
+    let mut ctx = SESSION.create_execution_ctx();
+
+    let decoded = bool::decode(array.into_array(), &mut ctx)?;
+    assert_eq!(
+        decoded.iter().collect::<Vec<_>>(),
+        [true, false, true, true]
+    );
+    Ok(())
+}
+
+#[rstest]
+#[case::offset_storage(b"axb")]
+#[case::view_storage(b"a\xffb")]
+fn decode_utf8_with_device_offsets(#[case] bytes: &[u8]) -> VortexResult<()> {
+    let offsets = TestDeviceBuffer::Readable(Buffer::from(vec![0i64, 1, 2, 3]).into_byte_buffer());
+    let offsets = PrimitiveArray::from_buffer_handle(
+        offsets.into_handle(),
+        i64::PTYPE,
+        Validity::NonNullable,
+    );
+    let mut ctx = SESSION.create_execution_ctx();
+    let array = VarBinArray::try_new(
+        offsets.into_array(),
+        ByteBuffer::copy_from(bytes),
+        DType::Utf8(Nullability::Nullable),
+        Validity::from_iter([true, false, true]),
+        &mut ctx,
+    )?;
+
+    let decoded = Utf8Column::decode(array.into_array(), &mut ctx)?;
+    assert_eq!(Utf8Column::get(&decoded, 0), "a");
+    assert_eq!(Utf8Column::get(&decoded, 2), "b");
+    Ok(())
+}
+
+#[test]
+fn primitive_row_execution_propagates_device_copy_error() {
+    let buffer = TestDeviceBuffer::Unreadable {
+        len: 2 * size_of::<i64>(),
+        alignment: Alignment::of::<i64>(),
+    };
+    let input =
+        PrimitiveArray::from_buffer_handle(buffer.into_handle(), i64::PTYPE, Validity::NonNullable);
+    let args = VecExecutionArgs::new(vec![input.into_array()], 2);
+    let mut ctx = SESSION.create_execution_ctx();
+
+    let error = execute_rows(&PackedPositive, &EmptyOptions, &args, &mut ctx)
+        .expect_err("the device copy must fail");
+    assert!(
+        error
+            .to_string()
+            .contains("execution must not read the device buffer")
+    );
+}
+
+#[test]
 fn test_device_validity_stays_lazy() -> VortexResult<()> {
     let validity = BoolArray::try_new_from_handle(
-        BufferHandle::new_device(Arc::new(UnreadableDeviceBuffer {
+        TestDeviceBuffer::Unreadable {
             len: 1,
             alignment: Alignment::of::<u8>(),
-        })),
+        }
+        .into_handle(),
         0,
         2,
         Validity::NonNullable,
@@ -1786,10 +1884,11 @@ fn test_device_validity_stays_lazy() -> VortexResult<()> {
 #[test]
 fn test_null_literal_skips_device_input_transfer() -> VortexResult<()> {
     let input = PrimitiveArray::from_buffer_handle(
-        BufferHandle::new_device(Arc::new(UnreadableDeviceBuffer {
+        TestDeviceBuffer::Unreadable {
             len: 2 * size_of::<i64>(),
             alignment: Alignment::of::<i64>(),
-        })),
+        }
+        .into_handle(),
         i64::PTYPE,
         Validity::NonNullable,
     );
