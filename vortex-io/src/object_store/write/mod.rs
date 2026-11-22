@@ -142,18 +142,12 @@ impl ObjectStoreWrite {
         };
 
         if let Err(err) = part_result {
-            guard.writer.abort_after_error().await;
+            drop(guard.writer.abort().await);
             guard.disarm();
             return Err(err.into());
         }
         guard.disarm();
         Ok(())
-    }
-
-    async fn abort_after_error(&mut self) {
-        if let Err(abort_err) = self.abort().await {
-            tracing::warn!(%abort_err, "failed to abort multipart upload after write error");
-        }
     }
 }
 
@@ -162,9 +156,11 @@ async fn run_abort(mut upload: Box<dyn MultipartUpload>) -> io::Result<()> {
     {
         let (tx, rx) = oneshot::channel();
         spawn_detached_cleanup(async move {
-            if let Err(Err(err)) = tx.send(upload.abort().await) {
+            let result = upload.abort().await;
+            if let Err(err) = &result {
                 tracing::warn!(%err, "failed to abort multipart upload");
             }
+            drop(tx.send(result));
         });
         match rx.await {
             Ok(res) => res.map_err(io::Error::from),
@@ -174,7 +170,11 @@ async fn run_abort(mut upload: Box<dyn MultipartUpload>) -> io::Result<()> {
 
     #[cfg(all(target_arch = "wasm32", not(feature = "wasm-bindgen")))]
     {
-        upload.abort().await.map_err(io::Error::from)
+        let result = upload.abort().await;
+        if let Err(err) = &result {
+            tracing::warn!(%err, "failed to abort multipart upload");
+        }
+        result.map_err(io::Error::from)
     }
 }
 
@@ -266,7 +266,7 @@ impl VortexWrite for ObjectStoreWrite {
                 Ok(())
             }
             Err(err) => {
-                guard.writer.abort_after_error().await;
+                drop(guard.writer.abort().await);
                 guard.disarm();
                 Err(err.into())
             }
