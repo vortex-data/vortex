@@ -285,6 +285,7 @@ def prepare_dataset(dataset: CachedDataset, cache: S3DataCache | None = None) ->
     Yields ``True`` when the local dataset already matches ``dataset.key`` (or was restored from
     S3), and ``False`` when the caller must generate ``dataset.directory`` from scratch.
     """
+    owner_pid = os.getpid()
     with _dataset_lock(dataset):
         if cache is not None:
             restored = cache.restore(dataset)
@@ -297,7 +298,7 @@ def prepare_dataset(dataset: CachedDataset, cache: S3DataCache | None = None) ->
 
         yield restored
 
-        if not restored:
+        if not restored and os.getpid() == owner_pid:
             if cache is not None:
                 cache.save(dataset)
             elif dataset.directory.is_dir():
