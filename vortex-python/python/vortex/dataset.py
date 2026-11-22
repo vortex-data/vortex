@@ -148,9 +148,13 @@ class VortexDataset(pyarrow.dataset.Dataset):
             If ``True``, leave the configured Vortex worker pool unchanged
             (respecting :func:`vortex.set_worker_threads` and
             ``VORTEX_MAX_THREADS`` rather than forcing the default pool size).
-            If ``False``, temporarily set worker threads to ``0`` until the
-            last ``use_threads=False`` reader closes; while any such reader is
-            open, other reads in the process run on their calling threads.
+            If ``False``, set worker threads to ``0`` on the first open
+            unthreaded reader and restore the saved count when the last one
+            closes; while any such reader is open, other reads in the process
+            run on their calling threads. Calling
+            :func:`vortex.set_worker_threads` while an unthreaded reader is
+            open takes effect immediately and is overwritten when the last
+            unthreaded reader closes and restores the saved count.
         memory_pool : :class:`.pyarrow.MemoryPool` | None
             Not implemented.
 
@@ -250,9 +254,13 @@ class VortexDataset(pyarrow.dataset.Dataset):
             If ``True``, leave the configured Vortex worker pool unchanged
             (respecting :func:`vortex.set_worker_threads` and
             ``VORTEX_MAX_THREADS`` rather than forcing the default pool size).
-            If ``False``, temporarily set worker threads to ``0`` until the
-            last ``use_threads=False`` reader closes; while any such reader is
-            open, other reads in the process run on their calling threads.
+            If ``False``, set worker threads to ``0`` on the first open
+            unthreaded reader and restore the saved count when the last one
+            closes; while any such reader is open, other reads in the process
+            run on their calling threads. Calling
+            :func:`vortex.set_worker_threads` while an unthreaded reader is
+            open takes effect immediately and is overwritten when the last
+            unthreaded reader closes and restores the saved count.
         memory_pool : :class:`.pyarrow.MemoryPool` | None
             Not implemented.
 
@@ -331,9 +339,13 @@ class VortexDataset(pyarrow.dataset.Dataset):
             If ``True``, leave the configured Vortex worker pool unchanged
             (respecting :func:`vortex.set_worker_threads` and
             ``VORTEX_MAX_THREADS`` rather than forcing the default pool size).
-            If ``False``, temporarily set worker threads to ``0`` until the
-            last ``use_threads=False`` reader closes; while any such reader is
-            open, other reads in the process run on their calling threads.
+            If ``False``, set worker threads to ``0`` on the first open
+            unthreaded reader and restore the saved count when the last one
+            closes; while any such reader is open, other reads in the process
+            run on their calling threads. Calling
+            :func:`vortex.set_worker_threads` while an unthreaded reader is
+            open takes effect immediately and is overwritten when the last
+            unthreaded reader closes and restores the saved count.
         cache_metadata : bool
             Not implemented.
         memory_pool : :class:`.pyarrow.MemoryPool` | None
@@ -403,9 +415,13 @@ class VortexDataset(pyarrow.dataset.Dataset):
             If ``True``, leave the configured Vortex worker pool unchanged
             (respecting :func:`vortex.set_worker_threads` and
             ``VORTEX_MAX_THREADS`` rather than forcing the default pool size).
-            If ``False``, temporarily set worker threads to ``0`` until the
-            last ``use_threads=False`` reader closes; while any such reader is
-            open, other reads in the process run on their calling threads.
+            If ``False``, set worker threads to ``0`` on the first open
+            unthreaded reader and restore the saved count when the last one
+            closes; while any such reader is open, other reads in the process
+            run on their calling threads. Calling
+            :func:`vortex.set_worker_threads` while an unthreaded reader is
+            open takes effect immediately and is overwritten when the last
+            unthreaded reader closes and restores the saved count.
         memory_pool : :class:`.pyarrow.MemoryPool` | None
             Not implemented.
 
@@ -473,9 +489,13 @@ class VortexDataset(pyarrow.dataset.Dataset):
             If ``True``, leave the configured Vortex worker pool unchanged
             (respecting :func:`vortex.set_worker_threads` and
             ``VORTEX_MAX_THREADS`` rather than forcing the default pool size).
-            If ``False``, temporarily set worker threads to ``0`` until the
-            last ``use_threads=False`` reader closes; while any such reader is
-            open, other reads in the process run on their calling threads.
+            If ``False``, set worker threads to ``0`` on the first open
+            unthreaded reader and restore the saved count when the last one
+            closes; while any such reader is open, other reads in the process
+            run on their calling threads. Calling
+            :func:`vortex.set_worker_threads` while an unthreaded reader is
+            open takes effect immediately and is overwritten when the last
+            unthreaded reader closes and restores the saved count.
         cache_metadata : bool
             Not implemented.
         memory_pool : :class:`.pyarrow.MemoryPool` | None
@@ -535,9 +555,13 @@ class VortexDataset(pyarrow.dataset.Dataset):
             If ``True``, leave the configured Vortex worker pool unchanged
             (respecting :func:`vortex.set_worker_threads` and
             ``VORTEX_MAX_THREADS`` rather than forcing the default pool size).
-            If ``False``, temporarily set worker threads to ``0`` until the
-            last ``use_threads=False`` reader closes; while any such reader is
-            open, other reads in the process run on their calling threads.
+            If ``False``, set worker threads to ``0`` on the first open
+            unthreaded reader and restore the saved count when the last one
+            closes; while any such reader is open, other reads in the process
+            run on their calling threads. Calling
+            :func:`vortex.set_worker_threads` while an unthreaded reader is
+            open takes effect immediately and is overwritten when the last
+            unthreaded reader closes and restores the saved count.
         memory_pool : :class:`.pyarrow.MemoryPool` | None
             Not implemented.
 
