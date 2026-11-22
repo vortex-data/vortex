@@ -459,7 +459,9 @@ pub fn copy_to_initialize_global(
             {
                 Ok(summary) => summary,
                 Err(err) => {
-                    drop(writer.abort().await);
+                    if let Err(abort_err) = writer.abort().await {
+                        tracing::warn!(%abort_err, "failed to abort multipart upload after write error");
+                    }
                     return Err(err);
                 }
             };

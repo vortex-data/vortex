@@ -278,7 +278,9 @@ pub extern "system" fn Java_dev_vortex_jni_NativeWriter_create(
                     let summary = match write_options.write(&mut write, stream).await {
                         Ok(summary) => summary,
                         Err(err) => {
-                            drop(write.inner_mut().abort().await);
+                            if let Err(abort_err) = write.inner_mut().abort().await {
+                                tracing::warn!(%abort_err, "failed to abort multipart upload after write error");
+                            }
                             return Err(err);
                         }
                     };

@@ -266,7 +266,11 @@ pub fn write(
                         .write(&mut store, iter.into_inner().into_array_stream())
                         .await
                     {
-                        drop(store.abort().await);
+                        if let Err(abort_err) = store.abort().await {
+                            log::warn!(
+                                "failed to abort multipart upload after write error: {abort_err}"
+                            );
+                        }
                         return Err(err);
                     }
                     store.shutdown().await?;
@@ -438,7 +442,11 @@ impl PyVortexWriteOptions {
                             .write(&mut store, iter.into_inner().into_array_stream())
                             .await
                         {
-                            drop(store.abort().await);
+                            if let Err(abort_err) = store.abort().await {
+                                log::warn!(
+                                    "failed to abort multipart upload after write error: {abort_err}"
+                                );
+                            }
                             return Err(err);
                         }
                         store.shutdown().await?;

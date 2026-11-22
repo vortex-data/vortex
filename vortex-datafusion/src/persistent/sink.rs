@@ -583,7 +583,6 @@ mod tests {
         use std::sync::Arc;
         use std::sync::atomic::AtomicUsize;
         use std::sync::atomic::Ordering;
-        use std::time::Duration;
 
         use datafusion::arrow::array::Int64Array;
         use datafusion::execution::context::SessionContext;
@@ -600,8 +599,6 @@ mod tests {
         use object_store::PutPayload;
         use object_store::PutResult;
         use object_store::UploadPart;
-        use tokio::sync::Notify;
-        use tokio::time::timeout;
         use vortex::VortexSessionDefault;
 
         use super::*;
@@ -610,7 +607,6 @@ mod tests {
         struct Counters {
             complete_calls: AtomicUsize,
             abort_calls: AtomicUsize,
-            abort_notify: Notify,
         }
 
         struct RecordingStore {
@@ -715,7 +711,6 @@ mod tests {
 
             async fn abort(&mut self) -> object_store::Result<()> {
                 self.counters.abort_calls.fetch_add(1, Ordering::SeqCst);
-                self.counters.abort_notify.notify_waiters();
                 Ok(())
             }
         }
@@ -768,20 +763,14 @@ mod tests {
 
             let err = DataSink::write_all(&sink, stream, &session_ctx.task_ctx())
                 .await
-                .expect_err("null in non-nullable column must fail sink write before shutdown");
+                .expect_err("batch with extra column must fail sink write before shutdown");
             assert!(
                 err.to_string().contains("Failed to write Vortex file"),
                 "unexpected error: {err}"
             );
 
-            timeout(Duration::from_secs(2), async {
-                while counters.abort_calls.load(Ordering::SeqCst) == 0 {
-                    counters.abort_notify.notified().await;
-                }
-            })
-            .await
-            .expect("input error before shutdown must abort multipart upload");
-
+            // Explicit `abort().await` on the error path means cleanup has already completed
+            // before `write_all` returns (not merely scheduled on `Drop`).
             assert_eq!(counters.abort_calls.load(Ordering::SeqCst), 1);
             assert_eq!(counters.complete_calls.load(Ordering::SeqCst), 0);
             Ok(())
