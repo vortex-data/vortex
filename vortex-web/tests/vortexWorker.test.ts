@@ -36,7 +36,7 @@ class FakeWorker implements WorkerLike {
   }
 }
 
-describe('VortexWorker request settlement (rank 26)', () => {
+describe('VortexWorker request settlement', () => {
   test('rejects all pending requests and future requests on worker error, settling each once', async () => {
     const fake = new FakeWorker();
     const client = new VortexWorker(fake);
