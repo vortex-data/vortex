@@ -51,9 +51,31 @@ _PART_SIZE = 16 * 1024 * 1024
 console = Console(stderr=True)
 
 _LOCKS_GUARD = threading.Lock()
+_LOCK_OWNER_PID = os.getpid()
 _THREAD_LOCKS: dict[Path, threading.RLock] = {}
 _LOCK_DEPTH: dict[Path, int] = {}
 _LOCK_FDS: dict[Path, int] = {}
+
+
+def _reset_locks_after_fork() -> None:
+    """Reset inherited lock state in a forked child without unlocking the parent's fds."""
+    global _LOCKS_GUARD, _LOCK_OWNER_PID
+
+    inherited_fds = list(_LOCK_FDS.values())
+    _LOCK_FDS.clear()
+    _LOCK_DEPTH.clear()
+    _THREAD_LOCKS.clear()
+    _LOCKS_GUARD = threading.Lock()
+    _LOCK_OWNER_PID = os.getpid()
+    for fd in inherited_fds:
+        try:
+            os.close(fd)
+        except OSError:
+            pass
+
+
+if hasattr(os, "register_at_fork"):
+    os.register_at_fork(after_in_child=_reset_locks_after_fork)
 
 # Sibling format directories written by ``vortex-bench`` beside the cached base directory.
 _MANAGED_FORMAT_DIRS: frozenset[str] = frozenset(
@@ -137,6 +159,8 @@ def _dataset_lock(dataset: CachedDataset) -> Iterator[bool]:
 
     Yields ``True`` when cross-process file locking is active, ``False`` otherwise.
     """
+    if _LOCK_OWNER_PID != os.getpid():
+        _reset_locks_after_fork()
     lock_file = _lock_path(dataset)
     lock_file.parent.mkdir(parents=True, exist_ok=True)
     lock_key = lock_file.resolve()

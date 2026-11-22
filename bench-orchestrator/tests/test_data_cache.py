@@ -5,6 +5,8 @@
 
 import io
 import json
+import os
+import select
 import shutil
 import threading
 import time
@@ -13,7 +15,14 @@ from pathlib import Path
 
 import pytest
 from bench_orchestrator.config import Benchmark
-from bench_orchestrator.data_cache import MANIFEST, CachedDataset, S3DataCache, cached_dataset, prepare_dataset
+from bench_orchestrator.data_cache import (
+    MANIFEST,
+    CachedDataset,
+    S3DataCache,
+    _has_matching_local_cache,
+    cached_dataset,
+    prepare_dataset,
+)
 from botocore.exceptions import ClientError
 
 
@@ -323,3 +332,57 @@ def test_restore_scavenges_abandoned_staging_and_aborts_on_undeletable_derived_d
     assert not abandoned.exists()
     marker = ds_v2.directory.with_name(f".{ds_v2.directory.name}.cache-key")
     assert not marker.exists()
+
+
+@pytest.mark.skipif(not hasattr(os, "fork"), reason="os.fork is POSIX-only")
+def test_fork_while_holding_lock_serializes_child_prepare(tmp_path: Path):
+    """A child forked while the parent holds prepare_dataset must block instead of reusing the lock."""
+    data_dir = tmp_path / "hits"
+    ds_a = CachedDataset(key="key-a", directory=data_dir)
+    ds_b = CachedDataset(key="key-b", directory=data_dir)
+
+    child_started_r, child_started_w = os.pipe()
+    child_done_r, child_done_w = os.pipe()
+    child_pid = -1
+
+    with prepare_dataset(ds_a, cache=None):
+        child_pid = os.fork()
+        if child_pid == 0:
+            os.close(child_started_r)
+            os.close(child_done_r)
+            try:
+                os.write(child_started_w, b"1")
+                os.close(child_started_w)
+                with prepare_dataset(ds_b, cache=None):
+                    ds_b.directory.mkdir(parents=True, exist_ok=True)
+                    (ds_b.directory / "hits.parquet").write_bytes(b"bytes-b")
+                os.write(child_done_w, b"done")
+            except BaseException:
+                os.write(child_done_w, b"err")
+                os._exit(1)
+            finally:
+                os.close(child_done_w)
+            os._exit(0)
+
+        os.close(child_started_w)
+        os.close(child_done_w)
+        assert os.read(child_started_r, 1) == b"1"
+        os.close(child_started_r)
+
+        # Give the child time to enter prepare_dataset(ds_b); it must remain blocked on flock.
+        ready, _, _ = select.select([child_done_r], [], [], 0.2)
+        assert not ready, "forked child bypassed parent's dataset lock"
+
+        ds_a.directory.mkdir(parents=True, exist_ok=True)
+        (ds_a.directory / "hits.parquet").write_bytes(b"bytes-a")
+
+    status_bytes = os.read(child_done_r, 16)
+    os.close(child_done_r)
+    _, wait_status = os.waitpid(child_pid, 0)
+    assert os.WIFEXITED(wait_status) and os.WEXITSTATUS(wait_status) == 0
+    assert status_bytes == b"done"
+
+    # Child ran after parent released the lock, so marker and bytes both match B (never A over B).
+    assert (data_dir / "hits.parquet").read_bytes() == b"bytes-b"
+    assert _has_matching_local_cache(ds_b)
+    assert not _has_matching_local_cache(ds_a)
