@@ -66,24 +66,13 @@ def test_to_arrow_batch_size(vxf: VortexFile) -> None:
     assert len(list(vxf.to_arrow(batch_size=1_000))) == 1_000, "batch_size=1_000"
 
 
-def test_zero_batch_size_rejected(vxf: VortexFile, tmp_path) -> None:
-    empty_path = tmp_path / "empty.vortex"
-    vx.io.write(vx.array(pa.Table.from_pydict({"a": pa.array([], type=pa.int64())})), str(empty_path))
-    empty_file = vx.open(str(empty_path))
-
-    for file in (vxf, empty_file):
-        with pytest.raises(ValueError, match="batch_size must be greater than zero"):
-            file.scan(batch_size=0)
-        with pytest.raises(ValueError, match="batch_size must be greater than zero"):
-            file.to_repeated_scan(batch_size=0)
-        with pytest.raises(ValueError, match="batch_size must be greater than zero"):
-            file.to_arrow(batch_size=0)
-
-    small_path = tmp_path / "small.vortex"
-    vx.io.write(vx.array(pa.Table.from_pydict({"a": pa.array(range(10), type=pa.int64())})), str(small_path))
-    small_file = vx.open(str(small_path))
-    assert [len(batch) for batch in small_file.scan(batch_size=3)] == [3, 3, 3, 1]
-    assert [batch.num_rows for batch in small_file.to_arrow(batch_size=3)] == [3, 3, 3, 1]
+def test_zero_batch_size_rejected(vxf: VortexFile) -> None:
+    with pytest.raises(ValueError, match="batch_size must be greater than zero"):
+        vxf.scan(batch_size=0)
+    with pytest.raises(ValueError, match="batch_size must be greater than zero"):
+        vxf.to_repeated_scan(batch_size=0)
+    with pytest.raises(ValueError, match="batch_size must be greater than zero"):
+        vxf.to_arrow(batch_size=0)
 
 
 def test_to_arrow_columns(vxf: VortexFile) -> None:

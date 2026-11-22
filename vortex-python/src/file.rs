@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::num::NonZeroUsize;
 use std::sync::Arc;
 
 use arrow_array::RecordBatchReader;
@@ -615,13 +614,13 @@ pub(crate) fn row_indices(
 pub(crate) fn validate_positive_split_size(
     size: Option<usize>,
     param_name: &str,
-) -> PyVortexResult<Option<NonZeroUsize>> {
-    size.map(|n| {
-        NonZeroUsize::new(n).ok_or_else(|| {
-            PyValueError::new_err(format!("{param_name} must be greater than zero")).into()
-        })
-    })
-    .transpose()
+) -> PyVortexResult<Option<usize>> {
+    if size == Some(0) {
+        return Err(
+            PyValueError::new_err(format!("{param_name} must be greater than zero")).into(),
+        );
+    }
+    Ok(size)
 }
 
 fn scan_builder(
@@ -654,7 +653,7 @@ fn scan_builder(
     }
 
     if let Some(batch_size) = batch_size {
-        builder = builder.with_split_by(SplitBy::RowCount(batch_size.get()));
+        builder = builder.with_split_by(SplitBy::RowCount(batch_size));
     }
 
     Ok(builder)

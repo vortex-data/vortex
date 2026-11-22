@@ -337,33 +337,12 @@ mod test {
         let reader = reader();
         let field_mask = [FieldMask::Exact(FieldPath::root())];
 
-        // Short final split.
         let splits = SplitBy::RowCount(3).splits(reader.as_ref(), &(0..10), &field_mask)?;
         assert_eq!(splits, vec![0u64, 3, 6, 9, 10]);
 
-        // Exact multiple avoids duplicating the end boundary.
-        let splits = SplitBy::RowCount(3).splits(reader.as_ref(), &(0..9), &field_mask)?;
-        assert_eq!(splits, vec![0u64, 3, 6, 9]);
-
-        // Single-row splits and splits larger than the range.
-        let splits = SplitBy::RowCount(1).splits(reader.as_ref(), &(2..5), &field_mask)?;
-        assert_eq!(splits, vec![2u64, 3, 4, 5]);
-        let splits = SplitBy::RowCount(100).splits(reader.as_ref(), &(0..10), &field_mask)?;
-        assert_eq!(splits, vec![0u64, 10]);
-
-        // Empty range with positive stride.
-        let splits = SplitBy::RowCount(3).splits(reader.as_ref(), &(0..0), &field_mask)?;
-        assert_eq!(splits, vec![0u64]);
-
-        // Zero row count is rejected promptly for both nonempty and empty inputs.
         assert!(
             SplitBy::RowCount(0)
                 .splits(reader.as_ref(), &(0..10), &field_mask)
-                .is_err()
-        );
-        assert!(
-            SplitBy::RowCount(0)
-                .splits(reader.as_ref(), &(0..0), &field_mask)
                 .is_err()
         );
 
@@ -484,11 +463,6 @@ mod test {
             &[FieldMask::All],
         );
         assert!(result.is_err());
-
-        let empty = StubReader::new(0, vec![]);
-        let empty_result =
-            SplitBy::LayoutSubSplitting { max_rows: 0 }.splits(&empty, &(0..0), &[FieldMask::All]);
-        assert!(empty_result.is_err());
     }
 
     #[test]

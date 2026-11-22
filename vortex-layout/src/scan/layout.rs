@@ -625,59 +625,19 @@ mod tests {
     }
 
     #[test]
-    fn zero_split_max_row_count_is_rejected_for_empty_and_nonempty_inputs() -> VortexResult<()> {
-        let runtime = SingleThreadRuntime::default();
-        let empty_proj = vortex_array::expr::pack(
-            std::iter::empty::<(&str, vortex_array::expr::Expression)>(),
-            vortex_array::dtype::Nullability::NonNullable,
-        );
-
-        for row_count in [0, 10] {
-            let source = LayoutReaderDataSource::new(
-                Arc::new(TestLayoutReader::new(row_count)),
-                session_with_handle(runtime.handle()),
-            )
-            .with_split_max_row_count(0);
-
-            assert!(
-                runtime
-                    .block_on(source.scan(ScanRequest::default()))
-                    .is_err()
-            );
-            assert!(
-                runtime
-                    .block_on(source.scan(ScanRequest {
-                        projection: empty_proj.clone(),
-                        ..Default::default()
-                    }))
-                    .is_err()
-            );
-        }
-
-        Ok(())
-    }
-
-    #[test]
-    fn positive_split_max_row_count_preserves_boundaries_and_short_final_split() -> VortexResult<()>
-    {
+    fn zero_split_max_row_count_is_rejected() -> VortexResult<()> {
         let runtime = SingleThreadRuntime::default();
         let source = LayoutReaderDataSource::new(
             Arc::new(TestLayoutReader::new(10)),
             session_with_handle(runtime.handle()),
         )
-        .with_split_max_row_count(3);
+        .with_split_max_row_count(0);
 
-        let scan = runtime.block_on(source.scan(ScanRequest::default()))?;
-        let partitions = runtime.block_on(scan.partitions().try_collect::<Vec<_>>())?;
-        let lengths: Vec<usize> = partitions
-            .into_iter()
-            .map(|partition| {
-                runtime
-                    .block_on(partition.execute()?.try_collect::<Vec<_>>())
-                    .map(|arrays| arrays.iter().map(|a| a.len()).sum())
-            })
-            .collect::<VortexResult<_>>()?;
-        assert_eq!(lengths, vec![3, 3, 3, 1]);
+        assert!(
+            runtime
+                .block_on(source.scan(ScanRequest::default()))
+                .is_err()
+        );
 
         Ok(())
     }

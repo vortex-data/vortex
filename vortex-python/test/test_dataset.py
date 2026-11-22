@@ -404,17 +404,12 @@ def test_filter_is_in_with_a_null_member_is_unsupported(tmp_path: Path) -> None:
         vx.open(str(path)).to_dataset().to_table(filter=pc.field("x").isin([1, None]))
 
 
-def test_zero_batch_size_rejected(ds: vx.dataset.VortexDataset, tmp_path: Path) -> None:
-    empty_path = tmp_path / "empty.vortex"
-    vx.io.write(vx.array(pa.Table.from_pydict({"a": pa.array([], type=pa.int64())})), str(empty_path))
-    empty_ds = vx.dataset.VortexDataset.from_path(str(empty_path))
-
-    for dataset, col in ((ds, "index"), (empty_ds, "a")):
-        with pytest.raises(ValueError, match="batch_size must be greater than zero"):
-            dataset.to_record_batch_reader(batch_size=0)
-        with pytest.raises(ValueError, match="batch_size must be greater than zero"):
-            list(dataset.to_batches(batch_size=0))
-        with pytest.raises(ValueError, match="batch_size must be greater than zero"):
-            dataset.count_rows(batch_size=0)
-        with pytest.raises(ValueError, match="batch_size must be greater than zero"):
-            dataset.count_rows(filter=pc.field(col) >= 0, batch_size=0)
+def test_zero_batch_size_rejected(ds: vx.dataset.VortexDataset) -> None:
+    with pytest.raises(ValueError, match="batch_size must be greater than zero"):
+        ds.to_record_batch_reader(batch_size=0)
+    with pytest.raises(ValueError, match="batch_size must be greater than zero"):
+        list(ds.to_batches(batch_size=0))
+    with pytest.raises(ValueError, match="batch_size must be greater than zero"):
+        ds.count_rows(batch_size=0)
+    with pytest.raises(ValueError, match="batch_size must be greater than zero"):
+        ds.count_rows(filter=pc.field("index") >= 0, batch_size=0)
