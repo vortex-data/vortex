@@ -325,7 +325,7 @@ fn test_unwrapped_s3_multipart_abort_and_drop_succeed_outside_idle_tokio_runtime
     let deletes_server = Arc::clone(&delete_count);
 
     let server_thread = std::thread::spawn(move || {
-        // Handle 2 multipart initiation POSTs + 2 abort DELETEs (may reuse keep-alive connections).
+        // Handle 2 multipart initiation POST requests + 2 abort DELETE requests.
         let deadline = std::time::Instant::now() + Duration::from_secs(5);
         drop(listener.set_nonblocking(true));
         while deletes_server.load(Ordering::SeqCst) < 2 && std::time::Instant::now() < deadline {
