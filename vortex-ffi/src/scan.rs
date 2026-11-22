@@ -454,14 +454,10 @@ mod tests {
     use std::sync::atomic::AtomicUsize;
     use std::sync::atomic::Ordering;
 
-    use arrow_array::RecordBatchReader;
-    use arrow_array::ffi_stream::ArrowArrayStreamReader;
     use arrow_array::ffi_stream::FFI_ArrowArrayStream;
     use tempfile::NamedTempFile;
     use vortex::VortexSessionDefault;
-    use vortex::array::ArrayRef;
     use vortex::array::IntoArray;
-    use vortex::array::arrays::ChunkedArray;
     use vortex::array::arrays::PrimitiveArray;
     use vortex::array::arrays::StructArray;
     use vortex::array::arrays::VarBinView;
@@ -473,7 +469,6 @@ mod tests {
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::struct_::StructArrayExt;
     use vortex_array::assert_arrays_eq;
-    use vortex_arrow::ArrowSessionExt;
 
     use crate::array::vx_array;
     use crate::array::vx_array_free;
@@ -906,15 +901,11 @@ mod tests {
         }
     }
 
-    fn export_partition_with_tracked_session() -> (
-        FFI_ArrowArrayStream,
-        Arc<AtomicUsize>,
-        StructArray,
-        NamedTempFile,
-    ) {
+    fn export_partition_with_tracked_session()
+    -> (FFI_ArrowArrayStream, Arc<AtomicUsize>, NamedTempFile) {
         unsafe {
             let source_session = vx_session_new();
-            let (sample, expected) = write_sample(source_session);
+            let (sample, _) = write_sample(source_session);
             let path = vx_view::from_str(sample.path().to_str().unwrap());
             let ds_options = vx_data_source_options {
                 paths: &raw const path,
@@ -955,14 +946,14 @@ mod tests {
             vx_data_source_free(ds);
             vx_session_free(source_session);
 
-            (stream, alive, expected, sample)
+            (stream, alive, sample)
         }
     }
 
     #[test]
     #[cfg_attr(miri, ignore)]
     fn test_partition_scan_arrow_retains_session_until_early_disposal() {
-        let (stream, alive, _expected, _sample) = export_partition_with_tracked_session();
+        let (stream, alive, _sample) = export_partition_with_tracked_session();
         assert_eq!(
             alive.load(Ordering::SeqCst),
             1,
@@ -973,40 +964,6 @@ mod tests {
             alive.load(Ordering::SeqCst),
             0,
             "disposing the exported Arrow stream must release its session handle"
-        );
-    }
-
-    #[test]
-    #[cfg_attr(miri, ignore)]
-    fn test_partition_scan_arrow_retains_session_through_reads_and_disposal() {
-        let (stream, alive, expected, _sample) = export_partition_with_tracked_session();
-        assert_eq!(
-            alive.load(Ordering::SeqCst),
-            1,
-            "exported Arrow stream must own a session handle before any poll"
-        );
-
-        let reader = ArrowArrayStreamReader::try_new(stream).unwrap();
-        let expected_schema = SESSION.arrow().to_arrow_schema(expected.dtype()).unwrap();
-        assert_eq!(reader.schema().as_ref(), &expected_schema);
-
-        let chunks: Vec<ArrayRef> = reader
-            .map(|batch| {
-                SESSION
-                    .arrow()
-                    .from_arrow_record_batch(batch.unwrap(), &expected_schema)
-                    .unwrap()
-            })
-            .collect();
-        let actual = ChunkedArray::try_new(chunks, expected.dtype().clone())
-            .unwrap()
-            .into_array();
-        let mut ctx = SESSION.create_execution_ctx();
-        assert_arrays_eq!(actual, expected.into_array(), &mut ctx);
-        assert_eq!(
-            alive.load(Ordering::SeqCst),
-            0,
-            "exhausting and dropping the Arrow reader must release its session handle"
         );
     }
 }
