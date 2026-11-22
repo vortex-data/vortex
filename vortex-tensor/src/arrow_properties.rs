@@ -175,7 +175,7 @@ mod tests {
         }
         if let Some(permutation) = permutation.as_ref().filter(|p| !p.is_empty()) {
             let items: Vec<String> = permutation.iter().map(ToString::to_string).collect();
-            arrow_metadata.push_str(&format!(r#","permutations":[{}]"#, items.join(",")));
+            arrow_metadata.push_str(&format!(r#","permutation":[{}]"#, items.join(",")));
         }
         arrow_metadata.push('}');
 

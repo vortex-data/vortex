@@ -10,11 +10,11 @@
 //!   Vortex (logical order)              Arrow (physical order, JSON)
 //!   logical_shape [500, 100, 200]  <->  "shape":       [100, 200, 500]
 //!   dim_names     [W, C, H]        <->  "dim_names":   [C, H, W]
-//!   permutation   [2, 0, 1]        <->  "permutations": [2, 0, 1]
+//!   permutation   [2, 0, 1]        <->  "permutation": [2, 0, 1]
 //! ```
 //!
-//! Metadata validation and serialization match arrow-rs, which spells the permutation key
-//! `permutations`. The spec key `permutation` is also accepted on import.
+//! Export writes the canonical Arrow spec key `permutation`. Import accepts both `permutation`
+//! and arrow-rs's `permutations` key, validating through arrow-rs.
 
 use std::sync::Arc;
 
@@ -46,11 +46,13 @@ use vortex_arrow::ArrowExtVTable;
 use vortex_arrow::ArrowImport;
 use vortex_arrow::ArrowMetadataPolicy;
 use vortex_arrow::ArrowSession;
+use vortex_arrow::ArrowSessionExt;
 use vortex_arrow::ExecuteArrowExt;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 use vortex_session::registry::CachedId;
 use vortex_session::registry::Id;
@@ -90,10 +92,10 @@ fn rename_permutation(json: &str) -> VortexResult<String> {
     serde_json::to_string(&map).map_err(|e| vortex_err!("{e}"))
 }
 
-/// Arrow metadata as written on export: arrow-rs keys, unset fields omitted.
+/// Arrow metadata as written on export: canonical Arrow spec keys, unset fields omitted.
 ///
-/// arrow-rs writes unset fields as `null` but rejects `null` when reading, so its own
-/// serialization does not round-trip.
+/// arrow-rs writes unset fields as `null` (which it then rejects when reading) and spells
+/// `permutation` as `permutations`, so we serialize the spec-compliant JSON directly.
 #[derive(Serialize)]
 struct ArrowMetadataOut<'a> {
     shape: Vec<usize>,
@@ -102,7 +104,7 @@ struct ArrowMetadataOut<'a> {
     dim_names: Option<Vec<String>>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    permutations: Option<&'a [usize]>,
+    permutation: Option<&'a [usize]>,
 }
 
 /// Converts validated Arrow metadata (physical order) to Vortex metadata (logical order).
@@ -152,10 +154,10 @@ impl ArrowExtVTable for FixedShapeTensor {
         let out = ArrowMetadataOut {
             shape: metadata.physical_shape().collect(),
             dim_names: metadata.physical_dim_names(),
-            permutations: permutation,
+            permutation,
         };
 
-        // Validate with arrow-rs, then replace its metadata JSON with one it can read back.
+        // Validate with arrow-rs, then replace its metadata JSON with canonical spec JSON.
         let tensor = ArrowFixedShapeTensor::try_new(
             elem.data_type().clone(),
             out.shape.clone(),
@@ -179,6 +181,23 @@ impl ArrowExtVTable for FixedShapeTensor {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrowExport> {
         let executed = array.execute::<ExtensionArray>(ctx)?;
+        let Some(source_metadata) = executed.ext_dtype().metadata_opt::<FixedShapeTensor>() else {
+            return Ok(ArrowExport::Unsupported(executed.into_array()));
+        };
+        let target_dtype =
+            Self::from_arrow_field(target, &ctx.session().arrow())?.ok_or_else(|| {
+                vortex_err!(
+                    "Arrow field {:?} is not a supported {ARROW_EXTENSION_NAME}",
+                    target.name()
+                )
+            })?;
+        vortex_ensure_eq!(
+            target_dtype.metadata(),
+            source_metadata,
+            "Arrow field {:?} tensor metadata does not match source dtype",
+            target.name()
+        );
+
         let storage = executed.storage_array().clone();
 
         let arrow_storage = storage.execute_arrow_with_options(Some(target), options, ctx)?;
@@ -193,25 +212,38 @@ impl ArrowExtVTable for FixedShapeTensor {
         if field.extension_type_name() != Some(ARROW_EXTENSION_NAME) {
             return Ok(None);
         }
-        // Validates the data type and metadata exactly as arrow-rs does, once the spec key
-        // `permutation` is renamed to the arrow-rs key `permutations`.
+        // Validates the data type and metadata with arrow-rs, after renaming the spec key
+        // `permutation` to arrow-rs's `permutations` and checking that the shape product fits in
+        // `i32` (arrow-rs panics on `i32` overflow).
         let mut field_metadata = field.metadata().clone();
-        if let Some(json) = field_metadata.get_mut(EXTENSION_TYPE_METADATA_KEY) {
+        let shape = if let Some(json) = field_metadata.get_mut(EXTENSION_TYPE_METADATA_KEY) {
             *json = rename_permutation(json)?;
-        }
+            let ArrowShape { shape } =
+                serde_json::from_str(json).map_err(|e| vortex_err!("{e}"))?;
+            shape
+                .iter()
+                .try_fold(1usize, |acc, &dim| acc.checked_mul(dim))
+                .and_then(|product| i32::try_from(product).ok())
+                .ok_or_else(|| {
+                    vortex_err!("{ARROW_EXTENSION_NAME} shape {shape:?} overflows i32 list size")
+                })?;
+            Some(shape)
+        } else {
+            None
+        };
         let tensor =
             ArrowFixedShapeTensor::try_new_from_field_metadata(field.data_type(), &field_metadata)?;
 
         let elem_dtype =
             session.from_arrow_datatype(tensor.value_type(), Nullability::NonNullable)?;
         let DType::Primitive(element_ptype, _) = elem_dtype else {
-            return Ok(None);
+            vortex_bail!(
+                "{ARROW_EXTENSION_NAME} elements must be primitive, got {}",
+                tensor.value_type()
+            );
         };
 
-        let json = field_metadata
-            .get(EXTENSION_TYPE_METADATA_KEY)
-            .vortex_expect("arrow-rs requires fixed shape tensor metadata");
-        let ArrowShape { shape } = serde_json::from_str(json).map_err(|e| vortex_err!("{e}"))?;
+        let shape = shape.vortex_expect("arrow-rs requires fixed shape tensor metadata");
 
         Ok(Some(ExtDType::try_with_vtable(
             FixedShapeTensor,
@@ -377,7 +409,7 @@ mod tests {
             .map_err(|e| vortex_err!("{e}"))?;
         assert_eq!(
             metadata,
-            json!({"shape": [2, 3], "dim_names": ["H", "W"], "permutations": [1, 0]})
+            json!({"shape": [2, 3], "dim_names": ["H", "W"], "permutation": [1, 0]})
         );
         Ok(())
     }
@@ -473,10 +505,60 @@ mod tests {
     #[case::list_size_mismatch(r#"{"shape": [2, 3]}"#)]
     #[case::missing_shape(r#"{}"#)]
     #[case::null_dim_names(r#"{"shape": [2, 2], "dim_names": null}"#)]
+    #[case::shape_overflows_i32(r#"{"shape": [2147483648]}"#)]
+    #[case::shape_product_overflows_i32(r#"{"shape": [65536, 65536]}"#)]
     fn rejects_metadata(#[case] json: &str) {
         let session = SESSION.arrow();
         let (field, _) = arrow_tensors(json);
         assert!(session.from_arrow_field(&field).is_err());
+    }
+
+    #[test]
+    fn rejects_non_primitive_element_type() {
+        let session = SESSION.arrow();
+        let item = Arc::new(Field::new("item", DataType::Boolean, false));
+        let mut field = Field::new("t", DataType::FixedSizeList(item, 4), true);
+        field.set_metadata(
+            [
+                (
+                    "ARROW:extension:name".to_string(),
+                    ARROW_EXTENSION_NAME.to_string(),
+                ),
+                (
+                    "ARROW:extension:metadata".to_string(),
+                    r#"{"shape": [2, 2]}"#.to_string(),
+                ),
+            ]
+            .into(),
+        );
+        assert!(session.from_arrow_field(&field).is_err());
+    }
+
+    #[test]
+    fn rejects_mismatched_export_target() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let session = SESSION.arrow();
+
+        let values = buffer![1.0_f32, 2.0, 3.0, 4.0, 5.0, 6.0];
+        let storage =
+            FixedSizeListArray::try_new(values.into_array(), 6, Validity::NonNullable, 1)?;
+        let array = ExtensionArray::try_new_from_vtable(
+            FixedShapeTensor,
+            FixedShapeTensorMetadata::new(PType::F32, vec![2, 3]),
+            storage.into_array(),
+        )?
+        .into_array();
+
+        let mismatched_target = session.to_arrow_field(
+            "t",
+            &tensor_dtype(FixedShapeTensorMetadata::new(PType::F32, vec![3, 2]), false)?,
+        )?;
+        assert!(
+            array
+                .execute_arrow(Some(&mismatched_target), &mut ctx)
+                .is_err()
+        );
+        Ok(())
     }
 
     #[test]
