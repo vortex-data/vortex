@@ -3,6 +3,7 @@
 
 # Tests the _schema_for_substrait workaround in vortex/arrow/expression.py
 
+from datetime import date, datetime, time
 from typing import TYPE_CHECKING, Literal, TypeAlias
 
 import pyarrow as pa
@@ -32,6 +33,13 @@ UNSIGNED_NULL_CASES: list[UnsignedNullCase] = [
     (pa.uint16(), 16),
     (pa.uint32(), 32),
     (pa.uint64(), 64),
+]
+
+
+TEMPORAL_CASES: list[tuple[pa.DataType, object, object]] = [
+    (pa.timestamp("us"), datetime(2024, 1, 2, 3, 4, 5, 6), datetime(2024, 1, 2)),
+    (pa.date32(), date(2024, 1, 2), date(2024, 1, 3)),
+    (pa.time64("us"), time(3, 4, 5, 6), time(3, 4)),
 ]
 
 
@@ -170,6 +178,28 @@ class TestArrowToVortexWithViews:
         expected = ve.column("u") == ve.literal(vx.uint(width, nullable=True), None)
 
         assert str(actual) == str(expected)
+
+
+class TestArrowToVortexTemporal:
+    """Temporal literals are built as typed values, since Vortex does not cast integers to them."""
+
+    @pytest.mark.parametrize(("arrow_type", "value", "other"), TEMPORAL_CASES)
+    def test_equality(self, arrow_type: pa.DataType, value: object, other: object) -> None:
+        schema = pa.schema([("col", arrow_type)])
+        vortex_expr = arrow_to_vortex(pc.field("col") == pa.scalar(value, type=arrow_type), schema)
+        source = vx.array(pa.Table.from_pylist([{"col": value}, {"col": other}, {"col": None}], schema=schema))
+        assert source.apply(vortex_expr).to_arrow_array(combine_chunks=True) == pa.array(
+            [True, False, None], type=pa.bool_()
+        )
+
+    @pytest.mark.parametrize(("arrow_type", "value", "other"), TEMPORAL_CASES)
+    def test_is_in(self, arrow_type: pa.DataType, value: object, other: object) -> None:
+        schema = pa.schema([("col", arrow_type)])
+        vortex_expr = arrow_to_vortex(pc.field("col").isin(pa.array([value], type=arrow_type)), schema)
+        source = vx.array(pa.Table.from_pylist([{"col": value}, {"col": other}, {"col": None}], schema=schema))
+        assert source.apply(vortex_expr).to_arrow_array(combine_chunks=True) == pa.array(
+            [True, False, False], type=pa.bool_()
+        )
 
 
 def test_substrait_typed_null_literal() -> None:

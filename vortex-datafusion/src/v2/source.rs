@@ -84,7 +84,6 @@ use datafusion_common::ColumnStatistics;
 use datafusion_common::DataFusionError;
 use datafusion_common::Result as DFResult;
 use datafusion_common::Statistics;
-use datafusion_common::arrow::array::AsArray;
 use datafusion_common::arrow::array::RecordBatch;
 use datafusion_common::config::ConfigOptions;
 use datafusion_common::stats::Precision as DFPrecision;
@@ -118,7 +117,6 @@ use futures::lock::Mutex;
 use futures::stream;
 use futures::task::AtomicWaker;
 use tokio::sync::OnceCell;
-use vortex::array::VortexSessionExecute;
 use vortex::dtype::DType;
 use vortex::dtype::FieldPath;
 use vortex::dtype::Nullability;
@@ -138,7 +136,6 @@ use vortex::scan::PartitionStream;
 use vortex::scan::ScanRequest;
 use vortex::session::VortexSession;
 use vortex_arrow::ArrowSessionExt;
-use vortex_arrow::ExecuteArrowExt;
 use vortex_utils::parallelism::get_available_parallelism;
 
 use super::dynamic_filters::convert_dynamic_filter;
@@ -147,6 +144,7 @@ use crate::convert::exprs::ExpressionConverter;
 use crate::convert::exprs::ProcessedProjection;
 use crate::convert::schema::calculate_physical_schema;
 use crate::convert::stats::stats_set_to_df;
+use crate::convert::to_record_batch;
 
 // Bound active Scan API partition streams independently of the DataFusion output count.
 const SCAN_PARTITION_READ_AHEAD: usize = 2;
@@ -203,11 +201,13 @@ pub struct VortexDataSourceBuilder {
 impl VortexDataSourceBuilder {
     /// Sets the Arrow schema exposed to DataFusion.
     ///
-    /// If not specified, the builder derives an Arrow schema from the Vortex
-    /// dtype.
+    /// Defaults to the schema inferred by [`ArrowSession::to_arrow_schema`].
     ///
-    /// Note that this schema is not validated against the Vortex DType so any errors will be
-    /// deferred until read time.
+    /// [`Self::build`] checks extension identities and supported Arrow layouts before applying the
+    /// initial projection. A schema cannot label a plain column as an extension or erase an existing
+    /// extension's identity.
+    ///
+    /// [`ArrowSession::to_arrow_schema`]: vortex_arrow::ArrowSession::to_arrow_schema
     pub fn with_arrow_schema(mut self, arrow_schema: SchemaRef) -> Self {
         self.arrow_schema = Some(arrow_schema);
         self
@@ -264,7 +264,14 @@ impl VortexDataSourceBuilder {
 
         // Resolve the Arrow schema
         let mut arrow_schema = match self.arrow_schema {
-            Some(schema) => schema,
+            Some(schema) => {
+                // Validate before projection can hide an incompatible column. Keep the supplied
+                // schema because each scan derives its own physical schema after projection.
+                calculate_physical_schema(self.data_source.dtype(), &schema, &self.session.arrow())
+                    .map_err(VortexError::external)?;
+
+                schema
+            }
             None => Arc::new(
                 self.session
                     .arrow()
@@ -588,12 +595,7 @@ impl VortexDataSource {
                     let metrics = metrics.intermediate();
                     handle.spawn_cpu(move || {
                         let _timer = metrics.elapsed_compute().timer();
-                        let mut ctx = session.create_execution_ctx();
-                        result.and_then(|chunk| {
-                            let arrow =
-                                chunk.execute_arrow(Some(target_field.as_ref()), &mut ctx)?;
-                            Ok(RecordBatch::from(arrow.as_struct().clone()))
-                        })
+                        to_record_batch(result?, &target_field, &session)
                     })
                 })
                 .buffered(conversion_concurrency)

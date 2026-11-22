@@ -1,6 +1,9 @@
 name-template: "$RESOLVED_VERSION"
 tag-template: "$RESOLVED_VERSION"
 categories:
+  - title: "📜 Editions"
+    labels:
+      - "changelog/edition"
   - title: "⚠️ Breaks"
     labels:
       - "changelog/break"
@@ -36,6 +39,7 @@ version-resolver:
       # Any features or breaks will trigger a minor version bump (while we are 0.x)
       - "changelog/feature"
       - "changelog/break"
+      - "changelog/edition"
   default: patch
 
 exclude-labels:

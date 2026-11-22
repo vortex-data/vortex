@@ -13,11 +13,13 @@ use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VTable;
+use vortex_array::arrays::Primitive;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_array::dtype::PType;
 use vortex_compressor::scheme::CompressionEstimate;
 use vortex_compressor::scheme::DeferredEstimate;
 use vortex_compressor::scheme::EstimateVerdict;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 
@@ -60,12 +62,15 @@ impl Scheme for ALPRDScheme {
 
     fn compress(
         &self,
-        _compressor: &CascadingCompressor,
+        compressor: &CascadingCompressor,
         data: &ArrayAndStats,
         _compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        let primitive_array = data.array_as_primitive();
+        let input = compressor.with_compressed_validity(data.array(), exec_ctx)?;
+        let primitive_array = input
+            .as_opt::<Primitive>()
+            .vortex_expect("compressing the validity keeps a primitive leaf primitive");
 
         let encoder = match primitive_array.ptype() {
             PType::F32 => RDEncoder::new(primitive_array.as_slice::<f32>()),

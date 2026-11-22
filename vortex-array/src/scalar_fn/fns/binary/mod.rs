@@ -748,7 +748,7 @@ mod tests {
         //            ^ nullable
         for (lhs, rhs) in [(left.clone(), right.clone()), (right.clone(), left)] {
             let array = lhs
-                .binary(rhs.clone(), Operator::And)?
+                .binary(rhs, Operator::And)?
                 .is_null()?
                 .optimize_ctx(&SESSION)?;
             assert_eq!(*array.as_::<ExactScalarFn<Binary>>().options, Operator::And);
@@ -773,7 +773,7 @@ mod tests {
         //              ^ nullable
         for (lhs, rhs) in [(left.clone(), right.clone()), (right.clone(), left)] {
             let array = lhs
-                .binary(rhs.clone(), Operator::Or)?
+                .binary(rhs, Operator::Or)?
                 .is_not_null()?
                 .optimize_ctx(&SESSION)?;
             assert_eq!(*array.as_::<ExactScalarFn<Binary>>().options, Operator::Or);

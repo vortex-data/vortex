@@ -3,27 +3,26 @@
 
 //! Execution for decimal [`Interleave`] values.
 //!
-//! Sources can use different stored widths for the same logical dtype. Decimal execution
-//! normalizes them to the logical canonical width before gathering rows.
+//! All decoded sources share the canonical width of the result. Constants keep one payload
+//! at that width for the gather.
 
 use vortex_buffer::Buffer;
+use vortex_buffer::BufferAllocatorRef;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_err;
 
 use super::super::Interleave;
 use super::super::InterleaveArrayExt;
+use super::super::InterleaveArraySlotsExt;
 use super::super::InterleaveSlots;
 use super::fixed_width::Source;
 use super::fixed_width::gather;
 use crate::AnyColumnar;
-use crate::ArrayRef;
 use crate::array::Array;
 use crate::arrays::Constant;
 use crate::arrays::Decimal;
 use crate::arrays::DecimalArray;
 use crate::arrays::Primitive;
-use crate::arrays::decimal::DecimalArrayExt;
-use crate::arrays::decimal::copy_to_canonical_width;
 use crate::dtype::DecimalDType;
 use crate::dtype::NativeDecimalType;
 use crate::executor::ExecutionCtx;
@@ -46,7 +45,9 @@ pub(super) fn execute(
     let validity = array.as_ref().validity()?;
     let dtype = DecimalDType::try_from(array.dtype())?;
     let output = match_each_decimal_value_type!(dtype.canonical_values_type(), |T| {
-        DecimalArray::new(gather_values::<T>(&array, dtype, ctx)?, dtype, validity)
+        let values = gather_values::<T>(&array, ctx.allocator())?;
+        // SAFETY: Values and validity select the same rows from inputs with the same decimal dtype.
+        unsafe { DecimalArray::new_unchecked(values, dtype, validity) }
     });
 
     Ok(ExecutionResult::done(output))
@@ -54,50 +55,27 @@ pub(super) fn execute(
 
 fn gather_values<T: NativeDecimalType>(
     array: &Array<Interleave>,
-    dtype: DecimalDType,
-    ctx: &mut ExecutionCtx,
+    allocator: &BufferAllocatorRef,
 ) -> VortexResult<Buffer<T>> {
     let sources = (0..array.num_values())
-        .map(|i| prepare_source::<T>(array.value(i), dtype, ctx))
-        .collect::<VortexResult<Vec<_>>>()?;
+        .map(|i| {
+            let value = array.value(i);
+            if let Some(constant) = value.as_opt::<Constant>() {
+                let payload = match constant.scalar().as_decimal().decimal_value() {
+                    Some(value) => value.cast::<T>().vortex_expect(
+                        "a decimal scalar fits the canonical width of its precision",
+                    ),
+                    None => T::default(),
+                };
 
-    gather(array, &sources, ctx.allocator())
-}
+                Source::constant(payload, value.len(), allocator)
+            } else {
+                Source::decoded(value.as_::<Decimal>().buffer::<T>())
+            }
+        })
+        .collect::<Vec<_>>();
 
-/// Normalizes one decimal source while retaining a single payload for a constant.
-fn prepare_source<T: NativeDecimalType>(
-    value: &ArrayRef,
-    dtype: DecimalDType,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<Source<T>> {
-    if let Some(constant) = value.as_opt::<Constant>() {
-        let payload = match constant.scalar().as_decimal().decimal_value() {
-            Some(value) => value.cast::<T>().ok_or_else(|| {
-                vortex_err!("interleave decimal constant must fit {dtype}, got {value}")
-            })?,
-            None => T::default(),
-        };
-
-        return Ok(Source::constant(payload, value.len(), ctx.allocator()));
-    }
-
-    let decimal = value.as_::<Decimal>();
-    let data = if decimal.values_type() == T::DECIMAL_TYPE {
-        decimal.buffer::<T>()
-    } else {
-        // TODO(connor): Remove this branch once every `DecimalArray` stores its values at the
-        // canonical width of its dtype (#10701). Then all sources share the canonical width `T`,
-        // because they share the dtype up to nullability. Until then, a source can store its values
-        // at another width. The copy widens such values, or checks their precision and narrows them
-        // with zeros in the null slots.
-        let mask = decimal.validity()?.execute_mask(value.len(), ctx)?;
-        let copy = match_each_decimal_value_type!(decimal.values_type(), |S| {
-            copy_to_canonical_width(decimal.buffer::<S>().as_slice(), &mask, dtype)?
-        });
-        Buffer::<T>::from_byte_buffer(copy.unwrap_host())
-    };
-
-    Ok(Source::decoded(data))
+    gather(array, &sources, allocator)
 }
 
 #[cfg(test)]
@@ -118,6 +96,7 @@ mod tests {
     use crate::arrays::DecimalArray;
     use crate::arrays::InterleaveArray;
     use crate::arrays::PrimitiveArray;
+    use crate::arrays::WidenArray;
     use crate::arrays::decimal::DecimalArrayExt;
     use crate::assert_arrays_eq;
     use crate::dtype::BigCast;
@@ -167,6 +146,7 @@ mod tests {
     #[case::i128(38)]
     #[case::i256(76)]
     fn test_decimal_interleave(#[case] precision: u8) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
         let dtype = DecimalDType::new(precision, 2);
         match_each_decimal_value_type!(dtype.canonical_values_type(), |T| {
             let min = T::MIN_BY_PRECISION[usize::from(precision)];
@@ -176,16 +156,14 @@ mod tests {
                 Buffer::copy_from([min, T::MIN, max]),
                 dtype,
                 Validity::from_iter([true, false, true]),
+                &mut ctx,
             );
-            let non_nullable = DecimalArray::new(
-                Buffer::copy_from([max, min, zero]),
-                dtype,
-                Validity::NonNullable,
-            );
+            let non_nullable = DecimalArray::from_iter([max, min, zero], dtype);
             let expected = DecimalArray::new(
                 Buffer::copy_from([zero, min, zero, max, max, min]),
                 dtype,
                 Validity::from_iter([true, true, false, true, true, true]),
+                &mut ctx,
             );
 
             assert_interleaved(
@@ -222,11 +200,12 @@ mod tests {
             let seven = <T as BigCast>::from(7i8).vortex_expect("7 fits every decimal type");
             let minus_seven =
                 <T as BigCast>::from(-7i8).vortex_expect("-7 fits every decimal type");
-            let column = DecimalArray::new(buffer![seven], dtype, Validity::NonNullable);
+            let column = DecimalArray::from_iter([seven], dtype);
             let expected = DecimalArray::new(
                 buffer![minus_seven, seven, minus_seven, minus_seven],
                 dtype,
                 validity,
+                &mut SESSION.create_execution_ctx(),
             );
 
             assert_interleaved(
@@ -237,21 +216,26 @@ mod tests {
         })
     }
 
-    /// Sources that store their values at another width are copied to the canonical width first.
-    /// The `i8` source widens, and the `i256` source narrows with garbage in its null slots.
     #[test]
-    fn test_decimal_interleave_mixed_stored_widths() -> VortexResult<()> {
+    fn test_decimal_interleave_widen_and_canonical() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
         let dtype = DecimalDType::new(9, 0);
-        let narrow = DecimalArray::new(buffer![1i8, -2], dtype, Validity::NonNullable);
+        let child = DecimalArray::from_iter([1i8, -2], DecimalDType::new(2, 0));
+        let narrow = WidenArray::try_new(
+            child.into_array(),
+            DType::Decimal(dtype, Nullability::NonNullable),
+        )?;
         let wide = DecimalArray::new(
-            buffer![i256::from_i128(3), i256::MIN, i256::MAX],
+            buffer![3i32, i32::MIN, i32::MAX],
             dtype,
             Validity::from_iter([true, false, false]),
+            &mut ctx,
         );
         let expected = DecimalArray::new(
             buffer![3i32, -2, 0, 1, 0],
             dtype,
             Validity::from_iter([true, true, false, true, false]),
+            &mut ctx,
         );
 
         assert_interleaved(
@@ -264,36 +248,13 @@ mod tests {
     #[test]
     fn test_decimal_interleave_empty() -> VortexResult<()> {
         let dtype = DecimalDType::new(9, 0);
-        let empty = DecimalArray::new(Buffer::<i8>::empty(), dtype, Validity::NonNullable);
-        let expected = DecimalArray::new(Buffer::<i32>::empty(), dtype, Validity::NonNullable);
+        let empty = DecimalArray::from_iter::<i32, _>([], dtype);
+        let expected = empty.clone();
 
         assert_interleaved(
             vec![empty.clone().into_array(), empty.into_array()],
             &[],
             expected,
         )
-    }
-
-    #[test]
-    fn test_decimal_interleave_rejects_values_outside_precision() -> VortexResult<()> {
-        let source = DecimalArray::new(
-            buffer![100i16],
-            DecimalDType::new(2, 0),
-            Validity::NonNullable,
-        )
-        .into_array();
-        let array = InterleaveArray::try_new(
-            vec![source.clone(), source],
-            PrimitiveArray::from_iter([0u8]).into_array(),
-            PrimitiveArray::from_iter([0u8]).into_array(),
-        )?
-        .into_array();
-
-        let error = array
-            .execute::<DecimalArray>(&mut SESSION.create_execution_ctx())
-            .expect_err("the narrowing copy to `i8` rejects 100 at precision 2");
-        assert!(error.to_string().contains("precision"), "{error}");
-
-        Ok(())
     }
 }

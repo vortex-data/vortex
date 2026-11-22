@@ -293,10 +293,7 @@ pub trait ListArrayExt: TypedArrayRef<List> {
     }
 
     fn list_validity(&self) -> Validity {
-        child_to_validity(
-            self.slots()[ListSlots::VALIDITY_CHILD].as_ref(),
-            self.nullability(),
-        )
+        child_to_validity(self.validity_child(), self.nullability())
     }
 
     fn offset_at(&self, index: usize, ctx: &mut ExecutionCtx) -> VortexResult<usize> {
@@ -411,12 +408,8 @@ impl Array<List> {
 
     pub fn into_data_parts(self) -> ListDataParts {
         let dtype = self.dtype().clone();
-        let elements = self.slots()[ListSlots::ELEMENTS]
-            .clone()
-            .vortex_expect("ListArray elements slot");
-        let offsets = self.slots()[ListSlots::OFFSETS]
-            .clone()
-            .vortex_expect("ListArray offsets slot");
+        let elements = self.elements().clone();
+        let offsets = self.offsets().clone();
         let validity = self.list_validity();
         ListDataParts {
             elements,

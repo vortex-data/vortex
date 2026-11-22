@@ -57,7 +57,7 @@ impl Timestamp {
                 unit: time_unit,
                 tz: timezone,
             },
-            DType::Primitive(PType::I64, nullability),
+            nullability,
         )
     }
 
@@ -158,6 +158,7 @@ impl fmt::Display for TimestampValue<'_> {
 
 impl ExtVTable for Timestamp {
     type Metadata = TimestampOptions;
+    type StoredMetadata = Self::Metadata;
 
     type NativeValue<'a> = TimestampValue<'a>;
 
@@ -189,7 +190,7 @@ impl ExtVTable for Timestamp {
         Ok(bytes)
     }
 
-    fn deserialize_metadata(&self, data: &[u8]) -> VortexResult<Self::Metadata> {
+    fn deserialize_metadata(&self, data: &[u8]) -> VortexResult<Self::StoredMetadata> {
         vortex_ensure!(
             data.len() >= 3,
             "Timestamp metadata must have at least 3 bytes, got {}",
@@ -228,17 +229,25 @@ impl ExtVTable for Timestamp {
         })
     }
 
-    fn validate_dtype(ext_dtype: &ExtDType<Self>) -> VortexResult<()> {
+    fn metadata_from_storage(
+        &self,
+        stored_metadata: Self::StoredMetadata,
+        _storage_dtype: &DType,
+    ) -> VortexResult<Self::Metadata> {
+        Ok(stored_metadata)
+    }
+
+    fn storage_dtype(_metadata: &Self::Metadata) -> DType {
+        DType::Primitive(PType::I64, Nullability::NonNullable)
+    }
+
+    fn validate_metadata(metadata: &Self::Metadata) -> VortexResult<()> {
         vortex_ensure!(
-            matches!(ext_dtype.storage_dtype(), DType::Primitive(PType::I64, _)),
-            "Timestamp storage dtype must be i64"
-        );
-        vortex_ensure!(
-            ext_dtype.metadata().unit != TimeUnit::Days,
+            metadata.unit != TimeUnit::Days,
             "Timestamp time unit must be finer than days, got {:?}",
-            ext_dtype.metadata().unit
+            metadata.unit
         );
-        resolve_time_zone(ext_dtype.metadata().tz.as_deref())?;
+        resolve_time_zone(metadata.tz.as_deref())?;
 
         Ok(())
     }

@@ -69,5 +69,6 @@ pub mod stats;
 
 mod compressor;
 pub use compressor::CascadingCompressor;
+pub use compressor::sample_aligned_chunks;
 
 mod trace;

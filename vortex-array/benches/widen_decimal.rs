@@ -207,10 +207,17 @@ enum Values {
 
 impl Values {
     fn decimal_array(&self, dtype: DecimalDType) -> DecimalArray {
+        let mut ctx = SESSION.create_execution_ctx();
         match self {
-            Self::I32(values) => DecimalArray::new(values.clone(), dtype, Validity::NonNullable),
-            Self::I64(values) => DecimalArray::new(values.clone(), dtype, Validity::NonNullable),
-            Self::I128(values) => DecimalArray::new(values.clone(), dtype, Validity::NonNullable),
+            Self::I32(values) => {
+                DecimalArray::new(values.clone(), dtype, Validity::NonNullable, &mut ctx)
+            }
+            Self::I64(values) => {
+                DecimalArray::new(values.clone(), dtype, Validity::NonNullable, &mut ctx)
+            }
+            Self::I128(values) => {
+                DecimalArray::new(values.clone(), dtype, Validity::NonNullable, &mut ctx)
+            }
         }
     }
 

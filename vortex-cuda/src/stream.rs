@@ -76,8 +76,11 @@ impl VortexCudaStream {
 
     /// Copies host data to the device.
     ///
-    /// Allocates device memory, schedules an async copy, and returns a future
-    /// that completes when the copy is finished.
+    /// Allocates device memory, schedules an async copy, and returns a ready
+    /// future with the device buffer. Later work on this stream runs after the
+    /// copy, and so does work on other streams that accesses the buffer through
+    /// views or launch arguments. Raw pointers from `cuda_device_ptr` are not
+    /// tracked, so other streams must not read them without waiting.
     ///
     /// The copy no longer reads `data` once this returns: the driver stages
     /// **pageable** host memory, and copies of **pinned** host memory are
@@ -110,12 +113,7 @@ impl VortexCudaStream {
         // `zero_padding` zeroed all allocation bytes after `byte_count`.
         let cuda_buf = CudaDeviceBuffer::new_with_zeroed_tail(cuda_slice, byte_count)?;
         let buffer = BufferHandle::new_device(Arc::new(cuda_buf)).slice(0..byte_count);
-        let stream = Arc::clone(&self.0);
-
-        Ok(Box::pin(async move {
-            await_stream_callback(&stream).await?;
-            Ok(buffer)
-        }))
+        Ok(Box::pin(async move { Ok(buffer) }))
     }
 
     /// Synchronous variant of [`copy_to_device`](Self::copy_to_device).
@@ -297,7 +295,7 @@ mod tests {
     use crate::CanonicalCudaExt;
     use crate::CudaSession;
     use crate::device_buffer::CUDF_VALIDITY_BUFFER_PADDING;
-    use crate::device_buffer::cuda_backing_allocation;
+    use crate::device_buffer::test_support::cuda_backing_allocation;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 

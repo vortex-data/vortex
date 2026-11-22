@@ -16,6 +16,7 @@ mod decimal_compare;
 mod decimal_fallback;
 mod decimal_stored;
 mod encoding;
+mod integer_stored;
 mod numeric;
 mod serde;
 

@@ -7,6 +7,8 @@
 //! width keeps small slices exportable even when their source indices are large. The values field
 //! retains extension metadata so imports recover the same logical type.
 
+use std::num::TryFromIntError;
+use std::ops::Range;
 use std::sync::Arc;
 
 use arrow_array::Array as _;
@@ -29,6 +31,7 @@ use vortex_array::arrays::RunEnd;
 use vortex_array::arrays::RunEndArray;
 use vortex_array::arrays::runend::RunEndArrayExt;
 use vortex_array::arrays::runend::RunEndArraySlotsExt;
+use vortex_array::dtype::UnsignedPType;
 use vortex_array::match_each_unsigned_integer_ptype;
 use vortex_array::matcher::Matcher;
 use vortex_error::VortexError;
@@ -117,31 +120,7 @@ fn run_end_to_arrow(
 ) -> VortexResult<ArrowArrayRef> {
     let ends = array.ends().clone().execute::<PrimitiveArray>(ctx)?;
     let (runs, ends) = match_each_unsigned_integer_ptype!(ends.ptype(), |E| {
-        let run_ends = ends.as_slice::<E>();
-        let length = E::try_from(array.len())?;
-
-        if array.offset() == 0
-            && run_ends.first().is_some_and(|&end| end > 0)
-            && run_ends.last() == Some(&length)
-        {
-            (0..run_ends.len(), ends.clone().into_array())
-        } else {
-            let offset = E::try_from(array.offset())?;
-
-            // A run ending at the offset contributes no rows. Retaining it would give Arrow a
-            // zero end, and retaining trailing runs would give duplicate ends after clamping.
-            let start = run_ends.partition_point(|&end| end <= offset);
-            let end = start + run_ends[start..].partition_point(|&end| end - offset < length);
-            let end = (end + 1).min(run_ends.len());
-            let adjusted = PrimitiveArray::from_iter(
-                run_ends[start..end]
-                    .iter()
-                    .map(|&end| (end - offset).min(length)),
-            )
-            .into_array();
-
-            (start..end, adjusted)
-        }
+        relative_run_ends::<E>(&ends, array.offset(), array.len())?
     });
     let values = if runs.start == 0 && runs.end == array.values().len() {
         array.values().clone()
@@ -169,6 +148,42 @@ fn run_end_to_arrow(
         )?)),
         _ => vortex_bail!("Unsupported run-end index type: {:?}", ends_type),
     }
+}
+
+/// Returns the range of runs covering `offset..offset + len` and their ends relative to `offset`.
+fn relative_run_ends<E>(
+    ends: &PrimitiveArray,
+    offset: usize,
+    len: usize,
+) -> VortexResult<(Range<usize>, ArrayRef)>
+where
+    E: UnsignedPType + TryFrom<usize, Error = TryFromIntError>,
+{
+    let run_ends = ends.as_slice::<E>();
+    let length = E::try_from(len)?;
+
+    if offset == 0
+        && run_ends.first().is_some_and(|&end| end > E::zero())
+        && run_ends.last() == Some(&length)
+    {
+        return Ok((0..run_ends.len(), ends.clone().into_array()));
+    }
+
+    let offset = E::try_from(offset)?;
+
+    // A run ending at the offset contributes no rows. Retaining it would give Arrow a
+    // zero end, and retaining trailing runs would give duplicate ends after clamping.
+    let start = run_ends.partition_point(|&end| end <= offset);
+    let end = start + run_ends[start..].partition_point(|&end| end - offset < length);
+    let end = (end + 1).min(run_ends.len());
+    let adjusted = PrimitiveArray::from_iter(
+        run_ends[start..end]
+            .iter()
+            .map(|&end| (end - offset).min(length)),
+    )
+    .into_array();
+
+    Ok((start..end, adjusted))
 }
 
 /// Convert a constant array to a run-end encoded array with a single run.

@@ -43,8 +43,8 @@ pub(crate) fn onpair_batch_offsets(
 
     let mut temp = ctx.device_alloc::<u8>(temp_bytes.max(1))?;
     let mut chunk_offsets = ctx.device_alloc::<u64>(num_batches + 1)?;
-    let codes_ptr = codes.cuda_device_ptr()?;
-    let lens_ptr = lens.cuda_device_ptr()?;
+    let codes_ptr = codes.cuda_device_ptr(ctx.stream())?;
+    let lens_ptr = lens.cuda_device_ptr(ctx.stream())?;
     let total_tokens = u64::try_from(num_tokens)?;
     let stream = ctx.stream();
     let stream_ptr = stream.cu_stream() as cudaStream_t;

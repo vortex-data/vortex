@@ -10,6 +10,7 @@ use mimalloc::MiMalloc;
 use rand::RngExt;
 use rand::SeedableRng;
 use rand::prelude::StdRng;
+use rand::seq::SliceRandom;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::IntoArray;
@@ -17,6 +18,7 @@ use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::ConstantArray;
+use vortex_array::arrays::VarBinViewArray;
 use vortex_array::builders::ArrayBuilder;
 use vortex_array::builders::VarBinBuilder;
 use vortex_array::builders::VarBinViewBuilder;
@@ -25,7 +27,9 @@ use vortex_array::dtype::DType;
 use vortex_array::memory::MemorySession;
 use vortex_array::optimizer::kernels::KernelSession;
 use vortex_array::test_harness::mark_optimized;
+use vortex_buffer::BitBuffer;
 use vortex_error::VortexExpect;
+use vortex_mask::Mask;
 use vortex_session::VortexSession;
 
 #[global_allocator]
@@ -34,6 +38,64 @@ static GLOBAL: MiMalloc = MiMalloc;
 fn main() {
     LazyLock::force(&SESSION);
     divan::main();
+}
+
+const FILTERED_UTF8_LEN: usize = 16_384;
+
+/// Rows selected out of [`FILTERED_UTF8_LEN`], whether the builder compacts, and whether the
+/// selection is one contiguous run. The length keeps CodSpeed simulation under 1ms per benchmark.
+const FILTERED_UTF8_ARGS: &[(usize, bool, bool)] = &[
+    (1_638, false, false),
+    (15_565, false, false),
+    (1_638, true, false),
+    (8_192, false, true),
+];
+
+#[divan::bench(args = FILTERED_UTF8_ARGS)]
+fn filtered_utf8_append_to_builder(
+    bencher: Bencher,
+    (selected, compact, contiguous): (usize, bool, bool),
+) {
+    let len = FILTERED_UTF8_LEN;
+    let values = VarBinViewArray::from_iter_nullable_str(
+        (0..len).map(|row| (row % 11 != 0).then(|| format!("non-inline string value {row}"))),
+    )
+    .into_array();
+    mark_optimized(&values, &SESSION).unwrap();
+
+    let indices = if contiguous {
+        let start = (len - selected) / 2;
+        (start..start + selected).collect::<Vec<_>>()
+    } else {
+        let mut indices = (0..len).collect::<Vec<_>>();
+        indices.shuffle(&mut StdRng::seed_from_u64(42));
+        indices.truncate(selected);
+        indices
+    };
+    let bits = BitBuffer::from_indices(len, indices);
+
+    bencher
+        .with_inputs(|| {
+            (
+                values.filter(Mask::from_buffer(bits.clone())).unwrap(),
+                SESSION.create_execution_ctx(),
+            )
+        })
+        .bench_values(|(filtered, mut ctx)| {
+            let allocator = ctx.allocator().clone();
+            let mut builder = if compact {
+                VarBinViewBuilder::with_compaction_in(
+                    filtered.dtype().clone(),
+                    selected,
+                    1.0,
+                    allocator,
+                )
+            } else {
+                VarBinViewBuilder::with_capacity_in(filtered.dtype().clone(), selected, allocator)
+            };
+            filtered.append_to_builder(&mut builder, &mut ctx).unwrap();
+            builder.finish_into_varbinview()
+        });
 }
 
 const BENCH_ARGS: &[(usize, usize)] = &[
