@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! SpatialBench WKB base-table generation via the `spatialbench` crates (a tpchgen-rs fork).
+//! SpatialBench WKB base-table generation via the `spatialbench` generators (a tpchgen-rs fork).
 //! Geometry is emitted as WKB, which DuckDB reads directly as `GEOMETRY` via `ST_GeomFromWKB`.
 
 use std::fs;
@@ -11,60 +11,43 @@ use std::sync::Arc;
 
 use anyhow::Context;
 use anyhow::Result;
-// spatialbench emits arrow-56 batches, so they must be written with its matching arrow-56
-// parquet crate, not the workspace's arrow-58 one. The parquet file itself is version-neutral.
+use parquet::arrow::AsyncArrowWriter;
+use parquet::file::metadata::KeyValue;
 use spatialbench::generators::BuildingGenerator;
 use spatialbench::generators::CustomerGenerator;
 use spatialbench::generators::TripGenerator;
-use spatialbench_arrow::BuildingArrow;
-use spatialbench_arrow::CustomerArrow;
-use spatialbench_arrow::RecordBatchIterator;
-use spatialbench_arrow::TripArrow;
-use spatialbench_parquet::arrow::AsyncArrowWriter;
-use spatialbench_parquet::basic::Compression;
-use spatialbench_parquet::basic::ZstdLevel;
-use spatialbench_parquet::file::properties::EnabledStatistics;
-use spatialbench_parquet::file::properties::WriterProperties;
-use spatialbench_parquet::format::KeyValue;
 use tokio::fs::File as TokioFile;
 use tokio::process::Command;
 use tracing::info;
 
+use super::batches;
+use super::batches::RecordBatches;
 use super::table::Table;
 use crate::Format;
 use crate::utils::file::idempotent_async;
-use crate::utils::parquet::DATA_PAGE_ROW_COUNT_LIMIT;
-use crate::utils::parquet::DATA_PAGE_SIZE_LIMIT;
-use crate::utils::parquet::DICTIONARY_PAGE_SIZE_LIMIT;
-use crate::utils::parquet::LAYOUT_KEY;
-use crate::utils::parquet::LAYOUT_VERSION;
 use crate::utils::parquet::LOCAL_ROW_GROUP_ROWS;
+use crate::utils::parquet::parquet_writer_properties;
 
 /// Batch size matching the TPC-H generator's streaming batches.
 const BATCH_SIZE: usize = 8192 * 64;
 
 impl Table {
-    /// Batch iterator for one partition of this table, from the arrow-56 `spatialbench` crates. Only
+    /// Record batches of one partition of this table, from the `spatialbench` generators. Only
     /// called for generated tables (see [`Table::is_generated`]).
-    fn batch_iterator(
-        self,
-        scale_factor: f64,
-        part: i32,
-        part_count: i32,
-    ) -> Box<dyn RecordBatchIterator> {
+    fn batches(self, scale_factor: f64, part: i32, part_count: i32) -> Box<dyn RecordBatches> {
         match self {
-            Table::Trip => Box::new(
-                TripArrow::new(TripGenerator::new(scale_factor, part, part_count))
-                    .with_batch_size(BATCH_SIZE),
-            ),
-            Table::Building => Box::new(
-                BuildingArrow::new(BuildingGenerator::new(scale_factor, part, part_count))
-                    .with_batch_size(BATCH_SIZE),
-            ),
-            Table::Customer => Box::new(
-                CustomerArrow::new(CustomerGenerator::new(scale_factor, part, part_count))
-                    .with_batch_size(BATCH_SIZE),
-            ),
+            Table::Trip => Box::new(batches::trip(
+                TripGenerator::new(scale_factor, part, part_count),
+                BATCH_SIZE,
+            )),
+            Table::Building => Box::new(batches::building(
+                BuildingGenerator::new(scale_factor, part, part_count),
+                BATCH_SIZE,
+            )),
+            Table::Customer => Box::new(batches::customer(
+                CustomerGenerator::new(scale_factor, part, part_count),
+                BATCH_SIZE,
+            )),
             Table::Zone => unreachable!("zone is sourced externally, not generated in-process"),
         }
     }
@@ -96,27 +79,16 @@ pub async fn generate_tables(scale_factor: &str, output_dir: PathBuf) -> Result<
                     "Generating SpatialBench table"
                 );
 
-                let iter = table.batch_iterator(scale_factor, part, part_count);
-                let schema = Arc::clone(iter.schema());
+                let batches = table.batches(scale_factor, part, part_count);
+                let schema = Arc::clone(batches.schema());
 
                 let file = TokioFile::create(&path).await?;
-                // `parquet_writer_properties`'s settings, in the parquet version this writer
-                // takes.
-                let props = WriterProperties::builder()
-                    .set_compression(Compression::ZSTD(ZstdLevel::try_new(3)?))
-                    .set_dictionary_page_size_limit(DICTIONARY_PAGE_SIZE_LIMIT)
-                    .set_statistics_enabled(EnabledStatistics::Page)
-                    .set_data_page_size_limit(DATA_PAGE_SIZE_LIMIT)
-                    .set_data_page_row_count_limit(DATA_PAGE_ROW_COUNT_LIMIT)
-                    .set_max_row_group_size(LOCAL_ROW_GROUP_ROWS)
-                    .set_key_value_metadata(Some(vec![KeyValue::new(
-                        LAYOUT_KEY.to_string(),
-                        LAYOUT_VERSION.to_string(),
-                    )]))
+                let props = parquet_writer_properties()
+                    .set_max_row_group_row_count(Some(LOCAL_ROW_GROUP_ROWS))
                     .build();
                 let mut writer = AsyncArrowWriter::try_new(file, schema, Some(props))?;
-                for batch in iter {
-                    writer.write(&batch).await?;
+                for batch in batches {
+                    writer.write(&batch?).await?;
                 }
                 // Tag geometry columns with GeoParquet `geo` metadata so DuckDB's `read_parquet`
                 // surfaces them as `GEOMETRY` directly.
