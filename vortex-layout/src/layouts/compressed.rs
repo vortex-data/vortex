@@ -293,11 +293,14 @@ impl LayoutStrategy for CompressingStrategy {
             };
 
             let mut stream = stream;
+            let mut first_wave = !reuse.has_plan();
             let mut eof_reached = false;
             while !eof_reached {
                 // Establish the initial plan from one chunk before fanning out so subsequent
-                // chunks replay it rather than selecting independently.
-                let wave_limit = if reuse.has_plan() { concurrency } else { 1 };
+                // chunks replay it rather than selecting independently. Only gate the first
+                // wave so planless columns (or opaque compressors) still run at full concurrency.
+                let wave_limit = if first_wave { 1 } else { concurrency };
+                first_wave = false;
                 let mut tasks = Vec::with_capacity(wave_limit);
                 for _ in 0..wave_limit {
                     let Some(chunk) = stream.next().await else {

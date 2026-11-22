@@ -626,9 +626,11 @@ impl CascadingCompressor {
             })?;
 
         // The winner was picked on estimates. A trial output is measured, so it wins when smaller.
-        let compressed = match data.get::<TrialOutput>() {
-            Some(trial) if trial.array.nbytes() < compressed.nbytes() => trial.array.clone(),
-            _ => compressed,
+        let (winning_scheme, compressed) = match data.get::<TrialOutput>() {
+            Some(trial) if trial.array.nbytes() < compressed.nbytes() => {
+                (trial.scheme, trial.array.clone())
+            }
+            _ => (winner.id(), compressed),
         };
 
         let after_nbytes = compressed.nbytes();
@@ -645,7 +647,7 @@ impl CascadingCompressor {
 
         if accepted {
             let ratio = before_nbytes as f64 / after_nbytes.max(1) as f64;
-            record_decision(&plan_ctx, Decision::Scheme(winner.id()), ratio);
+            record_decision(&plan_ctx, Decision::Scheme(winning_scheme), ratio);
             Ok(Selection::Compressed(compressed))
         } else {
             record_decision(&plan_ctx, Decision::Unchanged, 1.0);

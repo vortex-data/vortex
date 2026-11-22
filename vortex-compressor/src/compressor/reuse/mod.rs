@@ -272,9 +272,14 @@ impl CascadingCompressor {
             Step::Challenge(cached) => (cached, true),
         };
 
-        let (replayed, _) =
+        let (replayed, replayed_plan) =
             self.compress_with_plan(array, Some(Arc::clone(&cached.plan)), reuse, exec_ctx)?;
         let replayed_ratio = ratio_of(&replayed);
+
+        if replayed_plan.root_decision() != cached.plan.root_decision() {
+            reuse.replace(replayed_plan, replayed_ratio);
+            return Ok(replayed);
+        }
 
         if !always_challenge && reuse.accepts(replayed_ratio, &cached) {
             return Ok(replayed);
