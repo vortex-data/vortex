@@ -398,6 +398,22 @@ def test_latest_recovery_prefers_latest_completion_time_for_overlapping_runs(
 
 def test_latest_recovery_skips_malformed_timestamp_candidate(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     _patch_store_env(monkeypatch)
+    times = iter(
+        [
+            datetime(2026, 4, 1, 12, 0, 0),  # start first
+            datetime(2026, 4, 1, 12, 0, 1),  # finish first
+            datetime(2026, 4, 1, 12, 0, 5),  # start second
+            datetime(2026, 4, 1, 12, 0, 6),  # finish second
+        ]
+    )
+
+    class SequencedDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None) -> datetime:  # type: ignore[override]
+            return next(times)
+
+    monkeypatch.setattr("bench_orchestrator.storage.store.datetime", SequencedDatetime)
+
     store = ResultStore(base_dir=tmp_path / "runs")
     cfg_one, build_cfg = _make_configs(label="first")
     cfg_two, _ = _make_configs(label="second")
