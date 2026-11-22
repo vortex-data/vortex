@@ -231,8 +231,6 @@ jobs:
         env:
           RUST_BACKTRACE: full
           FLAT_LAYOUT_INLINE_ARRAY_NODE: "1"
-          # string-bench downloads its Hugging Face columns (TinyStories, FineWeb, ...) here;
-          # authenticating avoids the Hub's anonymous rate limits.
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
           bench="${{ matrix.benchmark.id }}"
