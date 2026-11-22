@@ -4,7 +4,9 @@
 """Coverage for the expression builders exposed by :mod:`vortex.expr`."""
 
 import pickle
+import struct
 from collections.abc import Callable
+from pathlib import Path
 from typing import cast
 
 import pyarrow as pa
@@ -281,6 +283,21 @@ def test_reflected_operators(people: vx.VortexFile) -> None:
 def test_bool_literals_are_boolean(people: vx.VortexFile) -> None:
     # A Python bool is a subclass of int, so it must be checked before the int coercion.
     assert names(people, ve.is_not_null(ve.column("age")) & True) == ["Alice", "Bob", "Charlie"]
+
+
+def test_is_nan(tmp_path: Path) -> None:
+    """``is_nan`` is true for a NaN of either sign, and null for null."""
+    negative_nan = struct.unpack("<d", struct.pack("<Q", 0xFFF8000000000000))[0]
+    values = [1.0, float("nan"), negative_nan, float("inf"), -0.0, None]
+    path = str(tmp_path / "floats.vortex")
+    vx.io.write(pa.table({"x": pa.array(values, type=pa.float64()), "i": pa.array(range(6))}), path)
+    vxf = vx.open(path)
+
+    def rows(expr: Expr) -> list[int]:
+        return cast("list[int]", vxf.scan(["i"], expr=expr).read_all().to_arrow_table().column("i").to_pylist())
+
+    assert rows(ve.is_nan(ve.column("x"))) == [1, 2]
+    assert rows(~ve.is_nan(ve.column("x"))) == [0, 3, 4]  # null stays null under negation
 
 
 # --------------------------------------------------------------------------------------

@@ -5,8 +5,10 @@ from __future__ import annotations
 
 import math
 import os
+import struct
 from datetime import date, datetime, time
 from decimal import Decimal
+from pathlib import Path
 from typing import Any, cast
 from zoneinfo import ZoneInfo
 
@@ -616,3 +618,114 @@ def test_to_polars_with_predicate_vortex_rejects(tmp_path, predicate):
     expected = pl.DataFrame(table).lazy().filter(predicate).collect()
     actual = vx.open(str(path)).to_polars().filter(predicate).collect()
     assert_frame_equal(actual, expected)
+
+
+# --------------------------------------------------------------------------------------
+# Float semantics
+#
+# Polars treats ``-0.0 == 0.0`` and every NaN as the largest value. Vortex compares floats with a
+# total order (``-0.0 < 0.0``; a NaN with its sign bit set sorts below every number). Polars does
+# not re-apply a predicate that was pushed into the scan, so a plain translation returns wrong rows.
+# --------------------------------------------------------------------------------------
+
+NEGATIVE_NAN = struct.unpack("<d", struct.pack("<Q", 0xFFF8000000000000))[0]
+FLOAT_VALUES = [
+    float("nan"),
+    NEGATIVE_NAN,
+    1.0,
+    10.0,
+    -5.0,
+    -0.0,
+    0.0,
+    float("inf"),
+    float("-inf"),
+    None,
+    5.0,
+    -1e-300,
+]
+
+
+@pytest.fixture(scope="module")
+def float_files(tmp_path_factory: pytest.TempPathFactory) -> dict[int, tuple[pl.DataFrame, vx.VortexFile]]:
+    out = {}
+    for width, dtype in ((64, pl.Float64), (32, pl.Float32)):
+        df = pl.DataFrame({"i": range(len(FLOAT_VALUES)), "x": pl.Series(FLOAT_VALUES, dtype=dtype)})
+        path = str(tmp_path_factory.mktemp("floats") / f"f{width}.vortex")
+        vx.io.write(df.to_arrow(), path)
+        out[width] = (df, vx.open(path))
+    return out
+
+
+FLOAT_COMPARISONS = {
+    "eq": lambda c, v: c == v,
+    "ne": lambda c, v: c != v,
+    "lt": lambda c, v: c < v,
+    "le": lambda c, v: c <= v,
+    "gt": lambda c, v: c > v,
+    "ge": lambda c, v: c >= v,
+}
+
+
+@pytest.mark.parametrize("width", [64, 32])
+@pytest.mark.parametrize("negate", [False, True])
+@pytest.mark.parametrize("literal", [0.0, -0.0, 5.0, -5.0, 1.0, 100.0, -1e-300])
+@pytest.mark.parametrize("op", list(FLOAT_COMPARISONS))
+def test_float_comparison_with_literal_matches_polars(float_files, width, negate, literal, op) -> None:
+    df, vxf = float_files[width]
+    predicate = FLOAT_COMPARISONS[op](pl.col("x"), literal)
+    predicate = ~predicate if negate else predicate
+    expected = df.filter(predicate)["i"].to_list()
+    assert vxf.to_polars().filter(predicate).collect()["i"].to_list() == expected
+
+
+@pytest.mark.parametrize("op", list(FLOAT_COMPARISONS))
+def test_float_literal_on_the_left_matches_polars(float_files, op) -> None:
+    df, vxf = float_files[64]
+    for literal in (0.0, 5.0, -5.0):
+        predicate = FLOAT_COMPARISONS[op](pl.lit(literal), pl.col("x"))
+        expected = df.filter(predicate)["i"].to_list()
+        assert vxf.to_polars().filter(predicate).collect()["i"].to_list() == expected, literal
+
+
+@pytest.mark.parametrize("closed", ["both", "left", "right", "none"])
+@pytest.mark.parametrize("bounds", [(0.0, 10.0), (-5.0, 5.0), (-1.0, 0.0), (0.0, 0.0)])
+def test_float_is_between_matches_polars(float_files, closed, bounds) -> None:
+    df, vxf = float_files[64]
+    predicate = pl.col("x").is_between(*bounds, closed=closed)
+    expected = df.filter(predicate)["i"].to_list()
+    assert vxf.to_polars().filter(predicate).collect()["i"].to_list() == expected
+
+
+@pytest.mark.parametrize("op", list(FLOAT_COMPARISONS))
+def test_float_column_comparison_is_left_to_polars(float_files, op) -> None:
+    """Two float expressions cannot be rewritten simply, so they are not pushed (and stay correct)."""
+    df, vxf = float_files[64]
+    df2 = df.with_columns(y=pl.col("x").reverse())
+    path = os.path.join(os.path.dirname(vxf.path), "two_cols.vortex")
+    vx.io.write(df2.to_arrow(), path)
+    predicate = FLOAT_COMPARISONS[op](pl.col("x"), pl.col("y"))
+    scope = vx.array(df2.to_arrow().schema.empty_table())
+    pushed, residual = decompose_predicate(predicate, scope)
+    assert pushed is None
+    assert residual is not None
+    assert vx.open(path).to_polars().filter(predicate).collect()["i"].to_list() == df2.filter(predicate)["i"].to_list()
+
+
+@pytest.mark.parametrize("op", list(FLOAT_COMPARISONS))
+def test_float_nan_literal_is_left_to_polars(tmp_path: Path, op: str) -> None:
+    """A NaN literal serializes as null and cannot be pushed, or even rebuilt from JSON."""
+    df = pl.DataFrame({"i": range(5), "x": pl.Series([1.0, float("nan"), 5.0, None, NEGATIVE_NAN])})
+    path = str(tmp_path / "n.vortex")
+    vx.io.write(df.to_arrow(), path)
+    predicate = FLOAT_COMPARISONS[op](pl.col("x"), float("nan"))
+
+    pushed, residual = decompose_predicate(predicate, vx.array(df.to_arrow().schema.empty_table()))
+    assert pushed is None
+    assert residual is not None
+    assert vx.open(path).to_polars().filter(predicate).collect()["i"].to_list() == df.filter(predicate)["i"].to_list()
+
+
+def test_integer_comparisons_are_unchanged() -> None:
+    """The float rewrite must not alter the translation (or serialization) of other comparisons."""
+    assert polars_to_vortex(pl.col("c") > 10000).serialize() == (ve.column("c") > 10000).serialize()
+    assert polars_to_vortex(pl.col("c") == 0).serialize() == (ve.column("c") == 0).serialize()
