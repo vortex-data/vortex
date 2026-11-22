@@ -3,8 +3,10 @@
 
 use std::sync::Arc;
 
+use async_stream::try_stream;
 use async_trait::async_trait;
 use futures::StreamExt as _;
+use futures::channel::oneshot;
 use parking_lot::Mutex;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
@@ -16,6 +18,7 @@ use vortex_array::stats::Stat;
 use vortex_btrblocks::BtrBlocksCompressor;
 use vortex_btrblocks::PlanReuse;
 use vortex_btrblocks::PlanReuseOptions;
+use vortex_error::VortexError;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use vortex_io::session::RuntimeSessionExt;
@@ -36,26 +39,33 @@ use crate::sequence::SequentialStreamExt;
 ///
 /// API consumers are free to implement this trait to provide new plugin compressors.
 pub trait CompressorPlugin: Send + Sync + 'static {
-    /// Compresses one chunk.
-    ///
-    /// `reuse`, if given, holds the scheme decisions for the earlier chunks of the same stream.
-    /// A compressor that does not reuse decisions can ignore it.
-    fn compress_chunk(
+    fn compress_chunk(&self, chunk: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef>;
+
+    /// Compresses one chunk of a stream, reusing the decisions of earlier chunks. The default
+    /// ignores `reuse`.
+    fn compress_stream_chunk(
         &self,
         chunk: &ArrayRef,
-        reuse: Option<&PlanReuse>,
+        reuse: &PlanReuse,
         ctx: &mut ExecutionCtx,
-    ) -> VortexResult<ArrayRef>;
+    ) -> VortexResult<ArrayRef> {
+        let _ = reuse;
+        self.compress_chunk(chunk, ctx)
+    }
 }
 
 impl CompressorPlugin for Arc<dyn CompressorPlugin> {
-    fn compress_chunk(
+    fn compress_chunk(&self, chunk: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
+        self.as_ref().compress_chunk(chunk, ctx)
+    }
+
+    fn compress_stream_chunk(
         &self,
         chunk: &ArrayRef,
-        reuse: Option<&PlanReuse>,
+        reuse: &PlanReuse,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        self.as_ref().compress_chunk(chunk, reuse, ctx)
+        self.as_ref().compress_stream_chunk(chunk, reuse, ctx)
     }
 }
 
@@ -63,35 +73,59 @@ impl<F> CompressorPlugin for F
 where
     F: Fn(&ArrayRef, &mut ExecutionCtx) -> VortexResult<ArrayRef> + Send + Sync + 'static,
 {
-    fn compress_chunk(
-        &self,
-        chunk: &ArrayRef,
-        _reuse: Option<&PlanReuse>,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<ArrayRef> {
+    fn compress_chunk(&self, chunk: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
         self(chunk, ctx)
     }
 }
 
 impl CompressorPlugin for BtrBlocksCompressor {
-    fn compress_chunk(
+    fn compress_chunk(&self, chunk: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
+        self.compress(chunk, ctx)
+    }
+
+    fn compress_stream_chunk(
         &self,
         chunk: &ArrayRef,
-        reuse: Option<&PlanReuse>,
+        reuse: &PlanReuse,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        match reuse {
-            Some(reuse) => self.compress_reusing(chunk, reuse, ctx),
-            None => self.compress(chunk, ctx),
+        self.compress_reusing(chunk, reuse, ctx)
+    }
+}
+
+/// Produces sequential [`PlanReuseScope`] turns that share one [`PlanReuse`] per dtype across
+/// runs of a column (for example, the runs of a dictionary layout) without racing.
+#[derive(Debug, Default)]
+pub(crate) struct PlanReuseScopeQueue {
+    reuse: Arc<Mutex<HashMap<DType, Arc<PlanReuse>>>>,
+    prev_wait: Option<oneshot::Receiver<()>>,
+}
+
+impl PlanReuseScopeQueue {
+    pub(crate) fn next_run(&mut self) -> PlanReuseScope {
+        let (release, next_wait) = oneshot::channel();
+        let wait = self.prev_wait.replace(next_wait);
+        PlanReuseScope {
+            reuse: Arc::clone(&self.reuse),
+            turn: Arc::new(Mutex::new(Some(PlanReuseTurn {
+                wait,
+                release: Some(release),
+            }))),
         }
     }
 }
 
-/// Shares one [`PlanReuse`] per dtype between the streams below a writer context. Clones share
-/// the same decisions.
-#[derive(Debug, Clone, Default)]
+/// Shares one [`PlanReuse`] per dtype between the streams below a writer context.
+#[derive(Debug, Clone)]
 pub(crate) struct PlanReuseScope {
     reuse: Arc<Mutex<HashMap<DType, Arc<PlanReuse>>>>,
+    turn: Arc<Mutex<Option<PlanReuseTurn>>>,
+}
+
+#[derive(Debug)]
+struct PlanReuseTurn {
+    wait: Option<oneshot::Receiver<()>>,
+    release: Option<oneshot::Sender<()>>,
 }
 
 impl PlanReuseScope {
@@ -102,6 +136,10 @@ impl PlanReuseScope {
                 .entry(dtype.clone())
                 .or_insert_with(|| Arc::new(PlanReuse::new(options))),
         )
+    }
+
+    fn take_turn(&self) -> Option<PlanReuseTurn> {
+        self.turn.lock().take()
     }
 }
 
@@ -173,64 +211,155 @@ impl LayoutStrategy for CompressingStrategy {
         let compute_session = session.clone();
         let size_scope = ctx.size_scope().clone();
         let buffered_bytes = ctx.buffered_bytes_tracker().clone();
-        let reuse = self.plan_reuse.map(|options| match ctx.plan_reuse_scope() {
-            Some(scope) => scope.get_or_create(&dtype, options),
-            None => Arc::new(PlanReuse::new(options)),
-        });
-
         let handle = session.handle();
-        let stream = stream
-            .map(move |chunk| {
-                let compressor = Arc::clone(&compressor);
-                let stats = Arc::clone(&stats);
-                let session = compute_session.clone();
-                let buffered_bytes = buffered_bytes.clone();
-                let size_scope = size_scope.clone();
-                let reuse = reuse.clone();
 
-                // Count the input as uncompressed until its compressed output is counted.
-                let input_reservation = chunk
-                    .as_ref()
-                    .ok()
-                    .map(|(_, chunk)| size_scope.reserve(chunk.nbytes()));
+        let Some(options) = self.plan_reuse else {
+            let stream = stream
+                .map(move |chunk| {
+                    let compressor = Arc::clone(&compressor);
+                    let stats = Arc::clone(&stats);
+                    let session = compute_session.clone();
+                    let buffered_bytes = buffered_bytes.clone();
+                    let size_scope = size_scope.clone();
 
-                handle.spawn_cpu(move || {
-                    let (sequence_id, chunk) = chunk?;
-                    let mut ctx = session.create_execution_ctx();
-                    // Compute the stats for the chunk prior to compression. The exact
-                    // uncompressed size is measured once here and cached for the compressor.
-                    chunk.statistics().compute_all(&stats, &mut ctx)?;
-                    let uncompressed_size =
-                        if UncompressedSizeInBytes::supports_dtype(chunk.dtype()) {
-                            u64::try_from(uncompressed_size_in_bytes(&chunk, &mut ctx)?)
-                                .map_err(|e| vortex_err!("chunk size does not fit in u64: {e}"))?
-                        } else {
-                            chunk.nbytes()
-                        };
+                    // Count the input as uncompressed until its compressed output is counted.
+                    let input_reservation = chunk
+                        .as_ref()
+                        .ok()
+                        .map(|(_, chunk)| size_scope.reserve(chunk.nbytes()));
 
-                    let compressed =
-                        compressor.compress_chunk(&chunk, reuse.as_deref(), &mut ctx)?;
-                    let compressed_size = compressed.nbytes();
-                    size_scope.record(uncompressed_size, compressed_size);
+                    handle.spawn_cpu(move || {
+                        let (sequence_id, chunk) = chunk?;
+                        let mut ctx = session.create_execution_ctx();
+                        // Compute the stats for the chunk prior to compression. The exact
+                        // uncompressed size is measured once here and cached for the compressor.
+                        chunk.statistics().compute_all(&stats, &mut ctx)?;
+                        let uncompressed_size =
+                            if UncompressedSizeInBytes::supports_dtype(chunk.dtype()) {
+                                u64::try_from(uncompressed_size_in_bytes(&chunk, &mut ctx)?)
+                                    .map_err(|e| {
+                                        vortex_err!("chunk size does not fit in u64: {e}")
+                                    })?
+                            } else {
+                                chunk.nbytes()
+                            };
 
-                    let output_reservation = buffered_bytes.reserve(compressed_size);
-                    drop(input_reservation);
-                    Ok((sequence_id, compressed, output_reservation))
+                        let compressed = compressor.compress_chunk(&chunk, &mut ctx)?;
+                        let compressed_size = compressed.nbytes();
+                        size_scope.record(uncompressed_size, compressed_size);
+
+                        let output_reservation = buffered_bytes.reserve(compressed_size);
+                        drop(input_reservation);
+                        Ok((sequence_id, compressed, output_reservation))
+                    })
                 })
-            })
-            .buffered(self.concurrency)
-            .map(|result: VortexResult<_>| {
-                // The child counts the chunk when it takes it, so release the compressed bytes
-                // here.
-                result
-                    .map(|(sequence_id, compressed, _output_reservation)| (sequence_id, compressed))
-            });
+                .buffered(self.concurrency)
+                .map(|result: VortexResult<_>| {
+                    // The child counts the chunk when it takes it, so release the compressed bytes
+                    // here.
+                    result.map(|(sequence_id, compressed, _output_reservation)| {
+                        (sequence_id, compressed)
+                    })
+                });
+
+            return self
+                .child
+                .write_stream(
+                    ctx,
+                    segment_sink,
+                    SequentialStreamAdapter::new(dtype, stream).sendable(),
+                    eof,
+                    &session,
+                )
+                .await;
+        };
+
+        let (reuse, turn) = match ctx.plan_reuse_scope() {
+            Some(scope) => (scope.get_or_create(&dtype, options), scope.take_turn()),
+            None => (Arc::new(PlanReuse::new(options)), None),
+        };
+        let concurrency = self.concurrency.max(1);
+        let compressed_stream = try_stream! {
+            // Keep `_release` alive until this stream finishes so later runs in the same
+            // `PlanReuseScope` observe committed plan updates in run order.
+            let _release = match turn {
+                Some(turn) => {
+                    if let Some(wait) = turn.wait {
+                        let _ = wait.await;
+                    }
+                    turn.release
+                }
+                None => None,
+            };
+
+            let mut stream = stream;
+            let mut eof_reached = false;
+            while !eof_reached {
+                // Establish the initial plan from one chunk before fanning out so subsequent
+                // chunks replay it rather than selecting independently.
+                let wave_limit = if reuse.has_plan() { concurrency } else { 1 };
+                let mut tasks = Vec::with_capacity(wave_limit);
+                for _ in 0..wave_limit {
+                    let Some(chunk) = stream.next().await else {
+                        eof_reached = true;
+                        break;
+                    };
+                    let (sequence_id, chunk) = chunk?;
+                    let chunk_reuse = reuse.next_chunk();
+                    let compressor = Arc::clone(&compressor);
+                    let stats = Arc::clone(&stats);
+                    let session = compute_session.clone();
+                    let buffered_bytes = buffered_bytes.clone();
+                    let size_scope = size_scope.clone();
+
+                    // Count the input as uncompressed until its compressed output is counted.
+                    let input_reservation = size_scope.reserve(chunk.nbytes());
+
+                    tasks.push(handle.spawn_cpu(move || {
+                        let mut ctx = session.create_execution_ctx();
+                        // Compute the stats for the chunk prior to compression. The exact
+                        // uncompressed size is measured once here and cached for the compressor.
+                        chunk.statistics().compute_all(&stats, &mut ctx)?;
+                        let uncompressed_size =
+                            if UncompressedSizeInBytes::supports_dtype(chunk.dtype()) {
+                                u64::try_from(uncompressed_size_in_bytes(&chunk, &mut ctx)?)
+                                    .map_err(|e| {
+                                        vortex_err!("chunk size does not fit in u64: {e}")
+                                    })?
+                            } else {
+                                chunk.nbytes()
+                            };
+
+                        let compressed =
+                            compressor.compress_stream_chunk(&chunk, &chunk_reuse, &mut ctx)?;
+                        let compressed_size = compressed.nbytes();
+                        size_scope.record(uncompressed_size, compressed_size);
+
+                        let output_reservation = buffered_bytes.reserve(compressed_size);
+                        drop(input_reservation);
+                        Ok::<_, VortexError>((
+                            sequence_id,
+                            compressed,
+                            chunk_reuse,
+                            output_reservation,
+                        ))
+                    }));
+                }
+
+                for task in tasks {
+                    let (sequence_id, compressed, chunk_reuse, _output_reservation) =
+                        task.await?;
+                    reuse.commit(chunk_reuse);
+                    yield (sequence_id, compressed);
+                }
+            }
+        };
 
         self.child
             .write_stream(
                 ctx,
                 segment_sink,
-                SequentialStreamAdapter::new(dtype, stream).sendable(),
+                SequentialStreamAdapter::new(dtype, Box::pin(compressed_stream)).sendable(),
                 eof,
                 &session,
             )

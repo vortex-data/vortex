@@ -50,12 +50,53 @@ impl Default for PlanReuseOptions {
 ///
 /// Use one `PlanReuse` for each stream of chunks with the same dtype and similar data, for
 /// example the chunks of one column. It is safe to share between threads.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct PlanReuse {
     /// The limits for a plan.
     options: PlanReuseOptions,
-    /// The current plan, if a chunk made one.
-    cached: Mutex<Option<CachedPlan>>,
+    /// Either the shared cached plan or a detached single-chunk reservation.
+    state: Mutex<PlanReuseMode>,
+}
+
+impl Default for PlanReuse {
+    fn default() -> Self {
+        Self::new(PlanReuseOptions::default())
+    }
+}
+
+/// Internal mode of a [`PlanReuse`].
+#[derive(Debug)]
+enum PlanReuseMode {
+    /// Shared mode: `next_step` and `replace`/`keep` mutate the cached plan directly.
+    Shared(Option<CachedPlan>),
+    /// Detached single-chunk mode created by [`PlanReuse::next_chunk`]: replays a pre-decided
+    /// [`Step`] without mutating the parent and records any [`PlanUpdate`] for
+    /// [`PlanReuse::commit`] to apply in chunk order.
+    Detached {
+        /// The pre-decided step reserved for this chunk.
+        step: Option<Step>,
+        /// Any plan update recorded while compressing this chunk.
+        update: Option<PlanUpdate>,
+    },
+}
+
+/// Pending state transition recorded by a detached [`PlanReuse`].
+#[derive(Debug)]
+enum PlanUpdate {
+    /// Replace the cached plan with a newly selected plan and its ratio.
+    Replace {
+        /// The newly selected compression plan.
+        plan: CompressionPlan,
+        /// The achieved compression ratio for the newly selected plan.
+        ratio: f64,
+    },
+    /// Keep the cached plan after it won a comparison with `ratio`.
+    Keep {
+        /// The existing cached plan that won the comparison.
+        plan: Arc<CompressionPlan>,
+        /// The refreshed baseline compression ratio.
+        ratio: f64,
+    },
 }
 
 /// A plan and the data to check it against.
@@ -70,6 +111,7 @@ struct CachedPlan {
 }
 
 /// What the compressor does with the next chunk.
+#[derive(Debug)]
 enum Step {
     /// Select schemes, because there is no plan.
     Select,
@@ -84,28 +126,72 @@ impl PlanReuse {
     pub fn new(options: PlanReuseOptions) -> Self {
         Self {
             options,
-            cached: Mutex::new(None),
+            state: Mutex::new(PlanReuseMode::Shared(None)),
+        }
+    }
+
+    /// Returns `true` if a plan has been recorded for replay.
+    pub fn has_plan(&self) -> bool {
+        match &*self.state.lock() {
+            PlanReuseMode::Shared(cached) => cached.is_some(),
+            PlanReuseMode::Detached { step, .. } => {
+                matches!(step, Some(Step::Replay(_) | Step::Challenge(_)))
+            }
+        }
+    }
+
+    /// Reserves the step for the next chunk in stream order and returns a detached `PlanReuse`
+    /// for compressing that chunk concurrently.
+    ///
+    /// Pass the detached value to [`commit`](Self::commit) in chunk order after compression
+    /// finishes so plan replacements and ratio updates happen deterministically.
+    pub fn next_chunk(&self) -> Self {
+        let step = self.next_step();
+        Self {
+            options: self.options,
+            state: Mutex::new(PlanReuseMode::Detached {
+                step: Some(step),
+                update: None,
+            }),
+        }
+    }
+
+    /// Applies the plan update recorded by a detached `PlanReuse` from
+    /// [`next_chunk`](Self::next_chunk).
+    pub fn commit(&self, chunk: Self) {
+        let PlanReuseMode::Detached { update, .. } = chunk.state.into_inner() else {
+            return;
+        };
+        match update {
+            Some(PlanUpdate::Replace { plan, ratio }) => self.replace(plan, ratio),
+            Some(PlanUpdate::Keep { plan, ratio }) => self.keep(&plan, ratio),
+            None => {}
         }
     }
 
     /// Returns what to do with the next chunk, and counts the replay.
     fn next_step(&self) -> Step {
-        let mut cached = self.cached.lock();
-        let Some(entry) = cached.as_mut() else {
-            return Step::Select;
-        };
+        let mut state = self.state.lock();
+        match &mut *state {
+            PlanReuseMode::Shared(cached) => {
+                let Some(entry) = cached.as_mut() else {
+                    return Step::Select;
+                };
 
-        if self
-            .options
-            .challenge_after
-            .is_some_and(|limit| entry.replays >= limit)
-        {
-            entry.replays = 0;
-            return Step::Challenge(entry.clone());
+                if self
+                    .options
+                    .challenge_after
+                    .is_some_and(|limit| entry.replays >= limit)
+                {
+                    entry.replays = 0;
+                    return Step::Challenge(entry.clone());
+                }
+
+                entry.replays += 1;
+                Step::Replay(entry.clone())
+            }
+            PlanReuseMode::Detached { step, .. } => step.take().unwrap_or(Step::Select),
         }
-
-        entry.replays += 1;
-        Step::Replay(entry.clone())
     }
 
     /// Replaces the cached plan. A plan without a scheme at the root, such as the plan of a
@@ -115,21 +201,39 @@ impl PlanReuse {
             return;
         }
 
-        *self.cached.lock() = Some(CachedPlan {
-            plan: Arc::new(plan),
-            ratio,
-            replays: 0,
-        });
+        let mut state = self.state.lock();
+        match &mut *state {
+            PlanReuseMode::Shared(cached) => {
+                *cached = Some(CachedPlan {
+                    plan: Arc::new(plan),
+                    ratio,
+                    replays: 0,
+                });
+            }
+            PlanReuseMode::Detached { update, .. } => {
+                *update = Some(PlanUpdate::Replace { plan, ratio });
+            }
+        }
     }
 
     /// Keeps the cached plan after it won a comparison with `ratio`.
     fn keep(&self, plan: &Arc<CompressionPlan>, ratio: f64) {
-        let mut cached = self.cached.lock();
-        if let Some(entry) = cached.as_mut()
-            && Arc::ptr_eq(&entry.plan, plan)
-        {
-            entry.ratio = ratio;
-            entry.replays = 0;
+        let mut state = self.state.lock();
+        match &mut *state {
+            PlanReuseMode::Shared(cached) => {
+                if let Some(entry) = cached.as_mut()
+                    && Arc::ptr_eq(&entry.plan, plan)
+                {
+                    entry.ratio = ratio;
+                    entry.replays = 0;
+                }
+            }
+            PlanReuseMode::Detached { update, .. } => {
+                *update = Some(PlanUpdate::Keep {
+                    plan: Arc::clone(plan),
+                    ratio,
+                });
+            }
         }
     }
 

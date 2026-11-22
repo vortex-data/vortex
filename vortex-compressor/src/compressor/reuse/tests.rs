@@ -180,3 +180,44 @@ fn constant_chunk_makes_no_plan() -> VortexResult<()> {
 
     Ok(())
 }
+
+#[test]
+fn detached_chunks_commit_in_order() -> VortexResult<()> {
+    let _lock = LOCK.lock();
+    let compressor = compressor();
+    let reuse = PlanReuse::new(PlanReuseOptions {
+        challenge_after: Some(2),
+        ..PlanReuseOptions::default()
+    });
+
+    // Establish the initial plan from chunk 0.
+    let chunk0 = reuse.next_chunk();
+    assert!(!reuse.has_plan());
+    let (first, estimates) = compress_counting(&compressor, &low_cardinality(0), &chunk0)?;
+    assert!(first.is::<Dict>());
+    assert!(estimates > 0);
+    reuse.commit(chunk0);
+    assert!(reuse.has_plan());
+
+    // Reserve two detached chunks in order, compress them in reverse order, and commit in order.
+    let chunk1 = reuse.next_chunk();
+    let chunk2 = reuse.next_chunk();
+
+    let (second, estimates2) = compress_counting(&compressor, &low_cardinality(2), &chunk2)?;
+    assert!(second.is::<Dict>());
+    assert_eq!(estimates2, 0);
+
+    let (deviating, estimates1) = compress_counting(&compressor, &unique(), &chunk1)?;
+    assert!(!deviating.is::<Dict>());
+    assert!(estimates1 > 0);
+
+    reuse.commit(chunk1);
+    reuse.commit(chunk2);
+
+    // Next chunk sees the plan committed by chunk1 (committed before chunk2's no-op replay).
+    let chunk3 = reuse.next_chunk();
+    let (_, estimates3) = compress_counting(&compressor, &low_cardinality(3), &chunk3)?;
+    assert!(estimates3 > 0);
+
+    Ok(())
+}

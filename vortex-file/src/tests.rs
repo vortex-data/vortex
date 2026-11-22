@@ -77,7 +77,9 @@ use vortex_array::stats::Stat;
 use vortex_array::stream::ArrayStreamAdapter;
 use vortex_array::stream::ArrayStreamExt;
 use vortex_array::validity::Validity;
+use vortex_btrblocks::BtrBlocksCompressor;
 use vortex_btrblocks::BtrBlocksCompressorBuilder;
+use vortex_btrblocks::PlanReuseOptions;
 use vortex_btrblocks::SchemeExt;
 use vortex_btrblocks::schemes::string::StringDictScheme;
 use vortex_buffer::Buffer;
@@ -115,11 +117,13 @@ use vortex_io::VortexWrite;
 use vortex_io::object_store::ObjectStoreWrite;
 use vortex_io::runtime::tokio::TokioRuntime;
 use vortex_io::session::RuntimeSession;
+use vortex_io::session::RuntimeSessionExt;
 use vortex_io::std_file::FileWrite;
 use vortex_layout::DynLayout;
 use vortex_layout::LayoutStrategy;
 use vortex_layout::layouts::buffered::BufferedStrategy;
 use vortex_layout::layouts::chunked::writer::ChunkedLayoutStrategy;
+use vortex_layout::layouts::compressed::CompressingStrategy;
 use vortex_layout::layouts::file_stats::AggregateStats;
 use vortex_layout::layouts::flat::writer::FlatLayoutStrategy;
 use vortex_layout::layouts::struct_::StructStrategy;
@@ -4195,4 +4199,94 @@ mod writer_terminal_error_tests {
         assert_eq!(write_calls.load(Ordering::SeqCst), calls_after_failure);
         Ok(())
     }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn test_write_plan_reuse_deterministic_concurrent() -> VortexResult<()> {
+    let session = VortexSession::empty()
+        .with::<LayoutSession>()
+        .with::<RuntimeSession>()
+        .with_handle(TokioRuntime::current());
+    crate::register_default_encodings(&session);
+    crate::enable_all_registered_array_encodings(&session);
+
+    // Build 16 chunks whose distribution drifts halfway through so replay, challenge, and
+    // ratio-deviation replacement all trigger under concurrency > 1.
+    let chunks: Vec<ArrayRef> = (0..16u64)
+        .map(|chunk_idx| {
+            let values: Buffer<i64> = (0..4096i64)
+                .map(|i| {
+                    if chunk_idx < 8 {
+                        (i * 7) % 8
+                    } else {
+                        chunk_idx as i64 * 100_000 + i * 1_000_003
+                    }
+                })
+                .collect();
+            PrimitiveArray::new(values, Validity::NonNullable).into_array()
+        })
+        .collect();
+    let dtype = chunks[0].dtype().clone();
+
+    let make_stream = || {
+        ArrayStreamExt::boxed(ArrayStreamAdapter::new(
+            dtype.clone(),
+            futures::stream::iter(chunks.clone().into_iter().map(Ok)),
+        ))
+    };
+
+    let options = PlanReuseOptions {
+        max_ratio_deviation: 0.1,
+        challenge_after: Some(2),
+    };
+
+    let write_with_concurrency = || {
+        let session = session.clone();
+        let strategy = CompressingStrategy::new(
+            ChunkedLayoutStrategy::new(FlatLayoutStrategy::default()),
+            BtrBlocksCompressor::from_session(&session),
+        )
+        .with_concurrency(4)
+        .with_plan_reuse(Some(options));
+        let stream = make_stream();
+        async move {
+            let mut buf = Vec::new();
+            session
+                .write_options()
+                .with_strategy(Arc::new(strategy))
+                .write(&mut buf, stream)
+                .await?;
+            Ok::<_, vortex_error::VortexError>(buf)
+        }
+    };
+
+    let first = write_with_concurrency().await?;
+    for _ in 0..3 {
+        let next = write_with_concurrency().await?;
+        assert_eq!(first, next);
+    }
+
+    // Also verify the default WriteStrategyBuilder (which includes DictStrategy + PlanReuseScope).
+    let write_default = || {
+        let session = session.clone();
+        let strategy = crate::strategy::WriteStrategyBuilder::from_session(&session)
+            .with_plan_reuse(Some(options))
+            .build();
+        let stream = make_stream();
+        async move {
+            let mut buf = Vec::new();
+            session
+                .write_options()
+                .with_strategy(strategy)
+                .write(&mut buf, stream)
+                .await?;
+            Ok::<_, vortex_error::VortexError>(buf)
+        }
+    };
+
+    let default_first = write_default().await?;
+    let default_second = write_default().await?;
+    assert_eq!(default_first, default_second);
+
+    Ok(())
 }

@@ -54,7 +54,7 @@ use crate::LayoutWriterContext;
 use crate::OwnedLayoutChildren;
 use crate::layouts::chunked::ChunkedLayout;
 use crate::layouts::compressed::CompressorPlugin;
-use crate::layouts::compressed::PlanReuseScope;
+use crate::layouts::compressed::PlanReuseScopeQueue;
 use crate::layouts::dict::DictLayout;
 use crate::segments::SegmentSinkRef;
 use crate::sequence::SendableSequentialStream;
@@ -188,9 +188,9 @@ impl LayoutStrategy for DictStrategy {
             None => None, // empty stream
             Some(sample) => {
                 let mut exec_ctx = session.create_execution_ctx();
-                let compressed =
-                    self.probe_compressor
-                        .compress_chunk(&sample, None, &mut exec_ctx)?;
+                let compressed = self
+                    .probe_compressor
+                    .compress_chunk(&sample, &mut exec_ctx)?;
                 let sample_size =
                     u64::try_from(uncompressed_size_in_bytes(&sample, &mut exec_ctx)?)
                         .map_err(|e| vortex_err!("probe size does not fit in u64: {e}"))?;
@@ -226,9 +226,9 @@ impl LayoutStrategy for DictStrategy {
         let runs = DictionaryTransformer::new(dict_stream);
 
         // The runs of one column are similar, so their codes streams share scheme decisions, and
-        // so do their values streams.
-        let codes_ctx = ctx.clone().with_plan_reuse_scope(PlanReuseScope::default());
-        let values_ctx = ctx.with_plan_reuse_scope(PlanReuseScope::default());
+        // so do their values streams, in run order.
+        let mut codes_scope = PlanReuseScopeQueue::default();
+        let mut values_scope = PlanReuseScopeQueue::default();
 
         let handle = session.handle();
         let dtype2 = dtype.clone();
@@ -245,7 +245,10 @@ impl LayoutStrategy for DictStrategy {
                 };
                 let codes = Arc::clone(&self.codes);
                 let codes_eof = eof.split_off();
-                let ctx2 = codes_ctx.clone().with_child_size_scope();
+                let ctx2 = ctx
+                    .clone()
+                    .with_child_size_scope()
+                    .with_plan_reuse_scope(codes_scope.next_run());
                 if let Some((uncompressed, compressed)) = codes_probe {
                     ctx2.size_scope().record_probe(uncompressed, compressed);
                 }
@@ -263,7 +266,10 @@ impl LayoutStrategy for DictStrategy {
 
                 let values = Arc::clone(&self.values);
                 let values_eof = eof.split_off();
-                let ctx2 = values_ctx.clone().with_child_size_scope();
+                let ctx2 = ctx
+                    .clone()
+                    .with_child_size_scope()
+                    .with_plan_reuse_scope(values_scope.next_run());
                 let segment_sink2 = Arc::clone(&segment_sink);
                 let dtype2 = dtype2.clone();
                 let session2 = session.clone();
