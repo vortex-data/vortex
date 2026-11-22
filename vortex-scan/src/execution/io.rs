@@ -3,8 +3,6 @@
 
 use std::collections::VecDeque;
 use std::sync::Arc;
-use std::sync::atomic::AtomicBool;
-use std::sync::atomic::Ordering;
 use std::task::Context;
 use std::task::Poll;
 use std::task::Waker;
@@ -12,8 +10,11 @@ use std::task::Waker;
 use futures::FutureExt;
 use futures::StreamExt;
 use futures::TryFutureExt;
+use futures::future::AbortHandle;
+use futures::future::Aborted;
 use futures::future::BoxFuture;
 use futures::future::Shared;
+use futures::future::abortable;
 use futures::stream::FuturesUnordered;
 use parking_lot::Mutex;
 use vortex_array::buffer::BufferHandle;
@@ -80,11 +81,11 @@ impl IoService for SegmentScanIo {
 pub(super) struct SegmentIoSource {
     segments: Arc<dyn SegmentSource>,
     ranges: SegmentRanges,
-    reads: Mutex<FuturesUnordered<BoxFuture<'static, Option<Completion>>>>,
+    reads: Mutex<FuturesUnordered<BoxFuture<'static, Result<Completion, Aborted>>>>,
     ready: Mutex<VecDeque<Completion>>,
-    /// Per-owner liveness flags for in-flight reads; cleared on [`release`](IoSource::release)
-    /// so late completions for a retired owner are suppressed without cancelling shared reads.
-    owners: Mutex<HashMap<IoOwnerId, Arc<AtomicBool>>>,
+    /// Per-owner abort handles for in-flight subscriptions; aborted on [`release`](IoSource::release)
+    /// so retired subscriptions drop immediately while leaving the underlying shared read intact.
+    owners: Mutex<HashMap<IoOwnerId, Vec<AbortHandle>>>,
     /// Every read the session has started, by segment, shared by later fetches of the segment
     /// until the session is cleared.
     prefetched: Mutex<HashMap<SegmentId, Prefetched>>,
@@ -183,22 +184,15 @@ impl IoSource for SegmentIoSource {
                 });
                 continue;
             }
-            let alive = Arc::clone(
-                owners
-                    .entry(owner)
-                    .or_insert_with(|| Arc::new(AtomicBool::new(true))),
-            );
-            reads.push(
-                async move {
-                    let result = bytes.await.map(IoResult::Bytes);
-                    alive.load(Ordering::Acquire).then_some(Completion {
-                        owner,
-                        request: id,
-                        result,
-                    })
+            let (read, abort) = abortable(async move {
+                Completion {
+                    owner,
+                    request: id,
+                    result: bytes.await.map(IoResult::Bytes),
                 }
-                .boxed(),
-            );
+            });
+            owners.entry(owner).or_default().push(abort);
+            reads.push(read.boxed());
         }
         Ok(())
     }
@@ -213,8 +207,8 @@ impl IoSource for SegmentIoSource {
         let mut cx = Context::from_waker(Waker::noop());
         loop {
             match reads.poll_next_unpin(&mut cx) {
-                Poll::Ready(Some(Some(completion))) => return Ok(Some(completion)),
-                Poll::Ready(Some(None)) => continue,
+                Poll::Ready(Some(Ok(completion))) => return Ok(Some(completion)),
+                Poll::Ready(Some(Err(_))) => continue,
                 Poll::Ready(None) | Poll::Pending => return Ok(None),
             }
         }
@@ -227,8 +221,8 @@ impl IoSource for SegmentIoSource {
         let mut reads = self.reads.lock();
         loop {
             match reads.poll_next_unpin(cx) {
-                Poll::Ready(Some(Some(completion))) => return Poll::Ready(Ok(completion)),
-                Poll::Ready(Some(None)) => continue,
+                Poll::Ready(Some(Ok(completion))) => return Poll::Ready(Ok(completion)),
+                Poll::Ready(Some(Err(_))) => continue,
                 Poll::Ready(None) => {
                     return Poll::Ready(Err(vortex_err!(
                         "The split's driver is waiting with no reads in flight"
@@ -244,8 +238,10 @@ impl IoSource for SegmentIoSource {
     }
 
     fn release(&self, owner: IoOwnerId) {
-        if let Some(alive) = self.owners.lock().remove(&owner) {
-            alive.store(false, Ordering::Release);
+        if let Some(handles) = self.owners.lock().remove(&owner) {
+            for handle in handles {
+                handle.abort();
+            }
         }
         self.ready
             .lock()
@@ -253,9 +249,7 @@ impl IoSource for SegmentIoSource {
     }
 
     fn clear(&self) {
-        for (_, alive) in self.owners.lock().drain() {
-            alive.store(false, Ordering::Release);
-        }
+        self.owners.lock().clear();
         self.reads.lock().clear();
         self.ready.lock().clear();
         self.prefetched.lock().clear();
@@ -687,6 +681,34 @@ mod tests {
             PrimitiveArray::from_iter([0u64, 2]).into_array(),
             &mut SESSION.create_execution_ctx()
         );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn release_drops_inflight_subscription_without_waiting_for_read() -> VortexResult<()> {
+        let (_sender, receiver) = oneshot::channel();
+        let segments = Arc::new(MixedSegments(Mutex::new(Some(receiver))));
+        let locations = [0, 4].map(|offset| SegmentLocation {
+            offset,
+            length: 4,
+            alignment: Alignment::none(),
+        });
+        let io = SegmentIoSource::new(segments, segment_ranges(&locations));
+        let mut pending = request(IoIntent::Fetch, 1);
+        pending.target = IoTarget::range(4, 4);
+
+        io.submit(IoOwnerId(0), vec![pending])?;
+        io.release(IoOwnerId(0));
+
+        let err = std::future::poll_fn(|cx| io.poll_completion(cx))
+            .await
+            .err()
+            .expect("releasing the only subscriber leaves no reads in flight");
+        assert!(
+            err.to_string().contains("no reads in flight"),
+            "unexpected error: {err}"
+        );
+        assert!(io.reads.lock().is_empty());
         Ok(())
     }
 }
