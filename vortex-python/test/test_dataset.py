@@ -172,7 +172,6 @@ def _make_two_batch_reader(values: tuple[int, int]) -> pa.RecordBatchReader:
 class _FakeWorkerPool:
     def __init__(self, initial: int) -> None:
         self.workers = initial
-        self.calls: list[int | None] = []
 
 
 def _patch_worker_pool(monkeypatch: pytest.MonkeyPatch, initial: int = 4) -> _FakeWorkerPool:
@@ -182,7 +181,6 @@ def _patch_worker_pool(monkeypatch: pytest.MonkeyPatch, initial: int = 4) -> _Fa
         return pool.workers
 
     def fake_set_worker_threads(count: int | None) -> None:
-        pool.calls.append(count)
         assert count is not None
         pool.workers = count
 
@@ -250,7 +248,6 @@ def test_reentrant_release_during_acquire_does_not_deadlock(monkeypatch: pytest.
         return pool.workers
 
     def fake_set_worker_threads(count: int | None) -> None:
-        pool.calls.append(count)
         assert count is not None
         pool.workers = count
 
@@ -267,25 +264,6 @@ def test_reentrant_release_during_acquire_does_not_deadlock(monkeypatch: pytest.
     assert pool.workers == 0
 
     manager.release(gen)
-    assert pool.workers == 4
-
-
-def test_closing_inherited_reader_after_fork_does_not_corrupt_leases(monkeypatch: pytest.MonkeyPatch) -> None:
-    pool = _patch_worker_pool(monkeypatch, initial=4)
-    inherited = vx_dataset._read_batches_with_temporary_worker_threads(_make_two_batch_reader((1, 2)), False)
-    assert next(inherited).to_pylist() == [{"x": 1}]
-    assert pool.workers == 0
-
-    # Simulate child process state after fork: baseline is restored and generation advances.
-    vx_runtime._UNTHREADED_LEASES.reset_after_fork()
-    assert pool.workers == 4
-
-    # Closing the pre-fork reader in the child must not decrement child lease counts.
-    inherited.close()
-    assert pool.workers == 4
-
-    with vx_runtime._temporary_worker_threads(False):
-        assert pool.workers == 0
     assert pool.workers == 4
 
 

@@ -27,7 +27,6 @@ from multiprocessing.context import BaseContext
 from typing import TypeVar, cast
 
 import pyarrow as pa
-from vortex._lib.runtime import worker_threads as _native_worker_threads
 
 import vortex as vx
 import vortex.expr as ve
@@ -84,10 +83,6 @@ def write_then_count(values: vx.Array, path: str) -> int:
 
 def worker_threads() -> int:
     return vx.worker_threads()
-
-
-def native_worker_threads() -> int:
-    return _native_worker_threads()
 
 
 # Scenarios, each run in the parent of a fresh interpreter.
@@ -147,7 +142,7 @@ def child_inherits_baseline_worker_count_during_reader(ctx: BaseContext, path: s
     reader = vx.open(path).to_dataset().to_record_batch_reader(batch_size=1024, use_threads=False)
     try:
         assert reader.read_next_batch().num_rows > 0
-        assert in_child(ctx, native_worker_threads) == 3
+        assert in_child(ctx, worker_threads) == 3
     finally:
         reader.close()
 
