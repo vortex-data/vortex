@@ -311,7 +311,9 @@ impl ScalarFnVTable for CaseWhen {
             return Ok(Some(x.clone()));
         }
 
-        if !FillNull::supports_dtype(x.dtype()) {
+        if !FillNull::supports_dtype(x.dtype())
+            || x.dtype().as_nullable() != expr.dtype().as_nullable()
+        {
             return Ok(None);
         }
 
@@ -1810,6 +1812,48 @@ mod tests {
             .bind(input.dtype())?
             .optimize_recursive()?;
         assert!(optimized.is::<FillNull>(), "{optimized}");
+        let result = input
+            .clone()
+            .apply_bound(&optimized)?
+            .execute::<Canonical>(&mut ctx)?
+            .into_array();
+        assert_eq!(
+            result.execute_scalar(0, &mut ctx)?,
+            input.execute_scalar(0, &mut ctx)?.cast(result.dtype())?
+        );
+        assert_eq!(
+            result.execute_scalar(1, &mut ctx)?,
+            fill.cast(result.dtype())?
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_simplify_list_coalesce_with_nullable_elements_keeps_case_when() -> VortexResult<()> {
+        // FillNull keeps the input's child dtype, so a literal with nullable elements must stay a
+        // CASE WHEN when the input list has non-nullable elements.
+        let mut ctx = SESSION.create_execution_ctx();
+        let non_nullable_elem = Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable));
+        let nullable_elem = Arc::new(DType::Primitive(PType::I32, Nullability::Nullable));
+        let input_dtype = DType::List(Arc::clone(&non_nullable_elem), Nullability::Nullable);
+        let mut builder = builder_with_capacity_in(&input_dtype, 2, ctx.allocator());
+        builder.append_scalar(&Scalar::list(
+            non_nullable_elem,
+            vec![Scalar::from(1i32)],
+            Nullability::Nullable,
+        ))?;
+        builder.append_scalar(&Scalar::null(input_dtype))?;
+        let input = builder.finish();
+        let fill = Scalar::list(
+            Arc::clone(&nullable_elem),
+            vec![Scalar::null(nullable_elem.as_ref().clone())],
+            Nullability::NonNullable,
+        );
+
+        let optimized = case_when(is_null(root()), lit(fill.clone()), root())
+            .bind(input.dtype())?
+            .optimize_recursive()?;
+        assert!(optimized.is::<CaseWhen>(), "{optimized}");
         let result = input
             .clone()
             .apply_bound(&optimized)?

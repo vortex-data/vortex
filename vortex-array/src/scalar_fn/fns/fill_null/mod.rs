@@ -256,6 +256,9 @@ fn fill_null_canonical(
     if let Some(result) = short_circuit(&arr, fill_value)? {
         return Ok(result);
     }
+    if !FillNull::supports_dtype(arr.dtype()) {
+        vortex_bail!("fill_null is not supported for {} arrays", arr.dtype());
+    }
     match canonical {
         CanonicalView::Bool(a) => <Bool as FillNullKernel>::fill_null(a, fill_value, ctx)?
             .ok_or_else(|| vortex_err!("FillNullKernel for BoolArray returned None")),
@@ -320,10 +323,12 @@ mod tests {
     use crate::arrays::ChunkedArray;
     use crate::arrays::Constant;
     use crate::arrays::ConstantArray;
+    use crate::arrays::ListViewArray;
     use crate::arrays::Primitive;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::ScalarFnArray;
     use crate::arrays::StructArray;
+    use crate::arrays::UnionArray;
     use crate::arrays::VariantArray;
     use crate::arrays::scalar_fn::ExactScalarFn;
     use crate::assert_arrays_eq;
@@ -334,6 +339,7 @@ mod tests {
     use crate::dtype::MapDType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
+    use crate::dtype::UnionVariants;
     use crate::expr::fill_null;
     use crate::expr::get_item;
     use crate::expr::lit;
@@ -347,6 +353,7 @@ mod tests {
     use crate::scalar::Scalar;
     use crate::scalar_fn::fns::binary::Binary;
     use crate::scalar_fn::fns::operators::Operator;
+    use crate::validity::Validity;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
@@ -607,6 +614,52 @@ mod tests {
         let mut ctx = SESSION.create_execution_ctx();
         let error = input
             .fill_null(value)?
+            .execute::<Canonical>(&mut ctx)
+            .unwrap_err();
+        assert!(
+            error.to_string().contains("fill_null is not supported"),
+            "{error}"
+        );
+        Ok(())
+    }
+
+    /// A list of unions with mixed validity fails with an error instead of panicking while
+    /// materializing the fill constant.
+    #[test]
+    fn list_of_union_with_mixed_validity_errors() -> VortexResult<()> {
+        let variants = UnionVariants::try_new(
+            ["num"].into(),
+            vec![DType::Primitive(PType::I32, Nullability::NonNullable)],
+            vec![0],
+        )?;
+        let elements = UnionArray::try_new(
+            PrimitiveArray::from_iter([0u8]).into_array(),
+            variants.clone(),
+            vec![PrimitiveArray::from_iter([1i32]).into_array()],
+        )?
+        .into_array();
+        let mut ctx = SESSION.create_execution_ctx();
+        let input = ListViewArray::try_new(
+            elements,
+            PrimitiveArray::from_iter([0u32, 1]).into_array(),
+            PrimitiveArray::from_iter([1u32, 0]).into_array(),
+            Validity::from_iter([true, false]),
+            &mut ctx,
+        )?
+        .into_array();
+        let fill = Scalar::list(
+            Arc::new(DType::Union(variants.clone(), Nullability::NonNullable)),
+            vec![Scalar::union(
+                variants,
+                0,
+                Scalar::from(2i32),
+                Nullability::NonNullable,
+            )?],
+            Nullability::NonNullable,
+        );
+
+        let error = input
+            .fill_null(fill)?
             .execute::<Canonical>(&mut ctx)
             .unwrap_err();
         assert!(

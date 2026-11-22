@@ -233,10 +233,10 @@ fn zip_impl(
 }
 
 /// Returns whether [`builder_with_capacity_in`] supports `dtype`, which has no builder when it is
-/// or contains a union or a variant.
+/// or contains a union.
 fn has_builder(dtype: &DType) -> bool {
     match dtype {
-        DType::Union(..) | DType::Variant(_) => false,
+        DType::Union(..) => false,
         DType::List(element, _) | DType::FixedSizeList(element, ..) => has_builder(element),
         DType::Map(map, _) => has_builder(&map.key_dtype()) && has_builder(&map.value_dtype()),
         DType::Struct(fields, _) => fields.fields().all(|field| has_builder(&field)),
@@ -246,7 +246,8 @@ fn has_builder(dtype: &DType) -> bool {
         | DType::Primitive(..)
         | DType::Decimal(..)
         | DType::Utf8(_)
-        | DType::Binary(_) => true,
+        | DType::Binary(_)
+        | DType::Variant(_) => true,
     }
 }
 
@@ -385,6 +386,7 @@ mod tests {
     use crate::arrays::PrimitiveArray;
     use crate::arrays::Struct;
     use crate::arrays::StructArray;
+    use crate::arrays::UnionArray;
     use crate::arrays::VarBinView;
     use crate::arrays::VarBinViewArray;
     use crate::arrays::VariantArray;
@@ -397,6 +399,7 @@ mod tests {
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
+    use crate::dtype::UnionVariants;
     use crate::expr::lit;
     use crate::expr::root;
     use crate::expr::zip_expr;
@@ -633,10 +636,9 @@ mod tests {
         assert_arrays_eq!(zipped.array().clone(), expected, &mut ctx);
     }
 
-    /// Variant arrays have no zip kernel and no builder, so a mixed mask fails with an error
-    /// instead of a panic.
+    /// Unshredded Variant arrays have a builder, so a mixed mask zips them through the fallback.
     #[test]
-    fn test_zip_variant_mixed_mask_errors() -> VortexResult<()> {
+    fn test_zip_variant_mixed_mask() -> VortexResult<()> {
         let variants = |value: i32| -> VortexResult<ArrayRef> {
             let scalar = Scalar::variant(Scalar::primitive(value, Nullability::NonNullable));
             let core_storage = ConstantArray::new(scalar, 4).into_array();
@@ -644,9 +646,43 @@ mod tests {
         };
 
         let mut ctx = SESSION.create_execution_ctx();
-        let error = Mask::from_iter([true, false, true, false])
+        let zipped = Mask::from_iter([true, false, true, false])
             .into_array()
             .zip(variants(1)?, variants(2)?)?
+            .execute::<Canonical>(&mut ctx)?
+            .into_array();
+
+        for (i, expected) in [1i32, 2, 1, 2].into_iter().enumerate() {
+            assert_eq!(
+                zipped.execute_scalar(i, &mut ctx)?,
+                Scalar::variant(Scalar::primitive(expected, Nullability::NonNullable)),
+            );
+        }
+        Ok(())
+    }
+
+    /// Union arrays have no zip kernel and no builder, so a mixed mask fails with an error
+    /// instead of a panic.
+    #[test]
+    fn test_zip_union_mixed_mask_errors() -> VortexResult<()> {
+        let variants = UnionVariants::try_new(
+            ["num"].into(),
+            vec![DType::Primitive(PType::I32, Nullability::NonNullable)],
+            vec![0],
+        )?;
+        let union_of = |value: i32| -> VortexResult<ArrayRef> {
+            Ok(UnionArray::try_new(
+                PrimitiveArray::from_iter([0u8, 0]).into_array(),
+                variants.clone(),
+                vec![PrimitiveArray::from_iter([value, value]).into_array()],
+            )?
+            .into_array())
+        };
+
+        let mut ctx = SESSION.create_execution_ctx();
+        let error = Mask::from_iter([true, false])
+            .into_array()
+            .zip(union_of(1)?, union_of(2)?)?
             .execute::<Canonical>(&mut ctx)
             .unwrap_err();
         assert!(error.to_string().contains("is not supported"), "{error}");
