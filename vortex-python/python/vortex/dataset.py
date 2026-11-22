@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+import os
+import threading
 import warnings
 from collections.abc import Generator, Iterator
 from contextlib import contextmanager
@@ -23,18 +25,128 @@ from .arrow.expression import ensure_vortex_expression
 from .expr import Expr, and_
 
 
+class _WorkerThreadLeaseManager:
+    """Reference-counted leases for temporary Vortex worker-pool overrides.
+
+    Overlapping readers share a single process-wide worker pool. When any lease
+    requests ``use_threads=True``, threaded execution takes precedence over
+    concurrent ``use_threads=False`` leases. The original baseline (or the most
+    recent explicit user update made while leases were active) is restored only
+    after the last lease exits. No lock is ever held across a generator yield.
+    """
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._threaded_leases = 0
+        self._unthreaded_leases = 0
+        self._baseline_workers: int | None = None
+        self._last_applied_workers: int | None = None
+        self._active_policy: bool | None = None
+
+    def _sync_external_baseline_locked(self) -> None:
+        if self._last_applied_workers is None:
+            return
+        current = _worker_threads()
+        if current != self._last_applied_workers:
+            self._baseline_workers = current
+            self._last_applied_workers = None
+
+    def _effective_policy_locked(self, threaded: int, unthreaded: int) -> bool | None:
+        if threaded > 0:
+            return True
+        if unthreaded > 0:
+            return False
+        return None
+
+    def acquire(self, use_threads: bool) -> None:
+        with self._lock:
+            was_idle = self._threaded_leases == 0 and self._unthreaded_leases == 0
+            if was_idle:
+                baseline = _worker_threads()
+                last_applied: int | None = None
+                active_policy: bool | None = None
+            else:
+                self._sync_external_baseline_locked()
+                baseline = self._baseline_workers
+                last_applied = self._last_applied_workers
+                active_policy = self._active_policy
+
+            next_threaded = self._threaded_leases + (1 if use_threads else 0)
+            next_unthreaded = self._unthreaded_leases + (0 if use_threads else 1)
+            desired = self._effective_policy_locked(next_threaded, next_unthreaded)
+
+            if desired != active_policy or last_applied is None:
+                _set_worker_threads(None if desired else 0)
+                last_applied = _worker_threads()
+                active_policy = desired
+
+            self._baseline_workers = baseline
+            self._threaded_leases = next_threaded
+            self._unthreaded_leases = next_unthreaded
+            self._last_applied_workers = last_applied
+            self._active_policy = active_policy
+
+    def release(self, use_threads: bool) -> None:
+        with self._lock:
+            self._sync_external_baseline_locked()
+
+            if use_threads:
+                self._threaded_leases -= 1
+            else:
+                self._unthreaded_leases -= 1
+
+            desired = self._effective_policy_locked(self._threaded_leases, self._unthreaded_leases)
+            if desired is None:
+                baseline = self._baseline_workers
+                self._baseline_workers = None
+                self._last_applied_workers = None
+                self._active_policy = None
+                if baseline is not None:
+                    _set_worker_threads(baseline)
+            elif desired != self._active_policy:
+                _set_worker_threads(None if desired else 0)
+                self._last_applied_workers = _worker_threads()
+                self._active_policy = desired
+
+    def set_user_worker_threads(self, n: int | None = None) -> None:
+        with self._lock:
+            _set_worker_threads(n)
+            if self._threaded_leases > 0 or self._unthreaded_leases > 0:
+                self._baseline_workers = _worker_threads()
+                self._last_applied_workers = None
+
+    def reset_after_fork(self) -> None:
+        self._lock = threading.Lock()
+        self._threaded_leases = 0
+        self._unthreaded_leases = 0
+        self._baseline_workers = None
+        self._last_applied_workers = None
+        self._active_policy = None
+
+
+_WORKER_THREAD_LEASES = _WorkerThreadLeaseManager()
+if hasattr(os, "register_at_fork"):
+    os.register_at_fork(after_in_child=_WORKER_THREAD_LEASES.reset_after_fork)
+
+
+def set_worker_threads(n: int | None = None) -> None:
+    """Set the number of background worker threads driving Vortex futures.
+
+    If ``n`` is ``None``, resets the pool to ``available_parallelism() - 1``.
+    When called while a dataset reader holds a temporary worker-thread override,
+    the requested count also becomes the baseline restored once active readers
+    finish.
+    """
+    _WORKER_THREAD_LEASES.set_user_worker_threads(n)
+
+
 @contextmanager
 def _temporary_worker_threads(use_threads: bool) -> Generator[None]:
-    previous_workers = _worker_threads()
-    if use_threads:
-        _set_worker_threads(None)
-    else:
-        _set_worker_threads(0)
-
+    _WORKER_THREAD_LEASES.acquire(use_threads)
     try:
         yield
     finally:
-        _set_worker_threads(previous_workers)
+        _WORKER_THREAD_LEASES.release(use_threads)
 
 
 def _is_strictly_increasing(indices: pyarrow.Array[Any]) -> bool:
@@ -43,7 +155,7 @@ def _is_strictly_increasing(indices: pyarrow.Array[Any]) -> bool:
 
 def _read_batches_with_temporary_worker_threads(
     reader: pyarrow.RecordBatchReader, use_threads: bool
-) -> Iterator[pyarrow.RecordBatch]:
+) -> Generator[pyarrow.RecordBatch]:
     with _temporary_worker_threads(use_threads):
         yield from reader
 

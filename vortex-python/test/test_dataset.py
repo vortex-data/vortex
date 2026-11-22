@@ -3,6 +3,7 @@
 
 import math
 import os
+from collections.abc import Iterator
 from pathlib import Path
 
 import duckdb
@@ -153,6 +154,132 @@ def test_use_threads_configures_worker_pool(monkeypatch: pytest.MonkeyPatch) -> 
     assert [batch.to_pylist() for batch in batches] == [[{"x": 1}], [{"x": 2}]]
     assert current_workers == 3
     assert calls == [None, 3]
+
+
+def _make_two_batch_reader(values: tuple[int, int]) -> pa.RecordBatchReader:
+    return pa.RecordBatchReader.from_batches(
+        pa.schema([("x", pa.int64())]),
+        [
+            pa.record_batch([pa.array([values[0]])], names=["x"]),
+            pa.record_batch([pa.array([values[1]])], names=["x"]),
+        ],
+    )
+
+
+class _FakeWorkerPool:
+    def __init__(self, initial: int, parallel: int) -> None:
+        self.workers = initial
+        self.parallel = parallel
+        self.calls: list[int | None] = []
+
+
+def _patch_worker_pool(monkeypatch: pytest.MonkeyPatch, initial: int = 4, parallel: int = 11) -> _FakeWorkerPool:
+    pool = _FakeWorkerPool(initial=initial, parallel=parallel)
+
+    def fake_worker_threads() -> int:
+        return pool.workers
+
+    def fake_set_worker_threads(count: int | None) -> None:
+        pool.calls.append(count)
+        pool.workers = pool.parallel if count is None else count
+
+    monkeypatch.setattr(vx_dataset, "_worker_threads", fake_worker_threads)
+    monkeypatch.setattr(vx_dataset, "_set_worker_threads", fake_set_worker_threads)
+    monkeypatch.setattr(vx_dataset, "_WORKER_THREAD_LEASES", vx_dataset._WorkerThreadLeaseManager())
+    return pool
+
+
+@pytest.mark.parametrize("close_first_created_first", [True, False])
+def test_overlapping_unthreaded_readers_restore_baseline(
+    monkeypatch: pytest.MonkeyPatch, close_first_created_first: bool
+) -> None:
+    pool = _patch_worker_pool(monkeypatch, initial=4)
+    gen1 = vx_dataset._read_batches_with_temporary_worker_threads(_make_two_batch_reader((1, 2)), False)
+    gen2 = vx_dataset._read_batches_with_temporary_worker_threads(_make_two_batch_reader((3, 4)), False)
+
+    assert next(gen1).to_pylist() == [{"x": 1}]
+    assert pool.workers == 0
+    assert next(gen2).to_pylist() == [{"x": 3}]
+    assert pool.workers == 0
+
+    first_to_close, second_to_close = (gen1, gen2) if close_first_created_first else (gen2, gen1)
+    first_to_close.close()
+    assert pool.workers == 0
+    second_to_close.close()
+    assert pool.workers == 4
+
+
+@pytest.mark.parametrize("close_first_created_first", [True, False])
+@pytest.mark.parametrize("flags", [(False, True), (True, False)])
+def test_overlapping_mixed_flag_readers_precedence_and_restore(
+    monkeypatch: pytest.MonkeyPatch,
+    flags: tuple[bool, bool],
+    close_first_created_first: bool,
+) -> None:
+    pool = _patch_worker_pool(monkeypatch, initial=4, parallel=11)
+    gen1 = vx_dataset._read_batches_with_temporary_worker_threads(_make_two_batch_reader((1, 2)), flags[0])
+    gen2 = vx_dataset._read_batches_with_temporary_worker_threads(_make_two_batch_reader((3, 4)), flags[1])
+
+    assert next(gen1).to_pylist() == [{"x": 1}]
+    assert pool.workers == (11 if flags[0] else 0)
+
+    assert next(gen2).to_pylist() == [{"x": 3}]
+    # Threaded execution takes precedence while any threaded lease is active.
+    assert pool.workers == 11
+
+    if close_first_created_first:
+        assert list(gen1) == [pa.record_batch([pa.array([2])], names=["x"])]
+        assert pool.workers == (11 if flags[1] else 0)
+        assert list(gen2) == [pa.record_batch([pa.array([4])], names=["x"])]
+    else:
+        assert list(gen2) == [pa.record_batch([pa.array([4])], names=["x"])]
+        assert pool.workers == (11 if flags[0] else 0)
+        assert list(gen1) == [pa.record_batch([pa.array([2])], names=["x"])]
+
+    assert pool.workers == 4
+
+
+def test_overlapping_reader_error_still_restores_baseline(monkeypatch: pytest.MonkeyPatch) -> None:
+    pool = _patch_worker_pool(monkeypatch, initial=5, parallel=11)
+
+    class FailingReader:
+        def __iter__(self) -> Iterator[pa.RecordBatch]:
+            yield pa.record_batch([pa.array([1])], names=["x"])
+            raise RuntimeError("boom")
+
+    gen_ok = vx_dataset._read_batches_with_temporary_worker_threads(_make_two_batch_reader((10, 20)), False)
+    gen_err = vx_dataset._read_batches_with_temporary_worker_threads(FailingReader(), True)  # ty: ignore[invalid-argument-type]
+
+    assert next(gen_ok).to_pylist() == [{"x": 10}]
+    assert pool.workers == 0
+    assert next(gen_err).to_pylist() == [{"x": 1}]
+    assert pool.workers == 11
+
+    with pytest.raises(RuntimeError, match="boom"):
+        next(gen_err)
+    assert pool.workers == 0
+
+    gen_ok.close()
+    assert pool.workers == 5
+
+
+def test_explicit_user_update_during_active_lease_is_preserved(monkeypatch: pytest.MonkeyPatch) -> None:
+    pool = _patch_worker_pool(monkeypatch, initial=4, parallel=11)
+    gen = vx_dataset._read_batches_with_temporary_worker_threads(_make_two_batch_reader((1, 2)), False)
+
+    assert next(gen).to_pylist() == [{"x": 1}]
+    assert pool.workers == 0
+
+    vx_dataset.set_worker_threads(6)
+    assert pool.workers == 6
+
+    gen.close()
+    assert pool.workers == 6
+
+    # Subsequent lease uses the updated baseline (6).
+    with vx_dataset._temporary_worker_threads(False):
+        assert pool.workers == 0
+    assert pool.workers == 6
 
 
 @pytest.mark.parametrize("batch_size", [1234, 8192, 1 << 31])

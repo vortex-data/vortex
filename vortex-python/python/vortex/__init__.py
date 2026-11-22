@@ -64,10 +64,7 @@ from ._lib.dtype import (
     utf8,
 )
 from ._lib.iter import ArrayIterator
-from ._lib.runtime import (
-    set_worker_threads,
-    worker_threads,
-)
+from ._lib.runtime import worker_threads
 from ._lib.scalar import (
     BinaryScalar,
     BoolScalar,
@@ -88,6 +85,7 @@ from .arrays import (
     _unpickle_array,
     array,
 )
+from .dataset import set_worker_threads
 from .file import SegmentCache, VortexFile, open, open_readable
 from .scan import RepeatedScan
 
