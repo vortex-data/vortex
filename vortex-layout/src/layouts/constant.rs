@@ -170,7 +170,24 @@ impl LayoutStrategy for ConstantStrategy {
 
 /// Whether [`is_constant`] can examine arrays of `dtype` without an error.
 fn supports_constant_detection(dtype: &DType) -> bool {
-    !matches!(dtype, DType::Union(..) | DType::Variant(..))
+    match dtype {
+        DType::Null
+        | DType::Bool(_)
+        | DType::Primitive(..)
+        | DType::Decimal(..)
+        | DType::Utf8(_)
+        | DType::Binary(_) => true,
+        DType::List(element, _) | DType::FixedSizeList(element, ..) => {
+            supports_constant_detection(element)
+        }
+        DType::Map(map, _) => {
+            supports_constant_detection(&map.key_dtype())
+                && supports_constant_detection(&map.value_dtype())
+        }
+        DType::Struct(fields, _) => fields.fields().all(|f| supports_constant_detection(&f)),
+        DType::Extension(ext) => supports_constant_detection(ext.storage_dtype()),
+        DType::Union(..) | DType::Variant(_) => false,
+    }
 }
 
 #[cfg(test)]
@@ -184,14 +201,20 @@ mod tests {
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::ChunkedArray;
     use vortex_array::arrays::ConstantArray;
+    use vortex_array::arrays::FixedSizeListArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::DType;
+    use vortex_array::dtype::FieldNames;
+    use vortex_array::dtype::MapDType;
     use vortex_array::dtype::Nullability::NonNullable;
     use vortex_array::dtype::Nullability::Nullable;
     use vortex_array::dtype::PType;
+    use vortex_array::dtype::StructFields;
+    use vortex_array::dtype::UnionVariants;
     use vortex_array::expr::root;
     use vortex_array::scalar::Scalar;
+    use vortex_array::validity::Validity;
     use vortex_error::VortexResult;
     use vortex_io::runtime::single::block_on;
     use vortex_io::session::RuntimeSessionExt;
@@ -349,6 +372,72 @@ mod tests {
         let layout = round_trip(vec![], i64_dtype())?;
 
         assert_eq!(layout.row_count(), 0);
+        Ok(())
+    }
+
+    #[test]
+    fn nested_variant_skips_constant_detection() -> VortexResult<()> {
+        let elements = ConstantArray::new(Scalar::variant(Scalar::primitive(1i32, NonNullable)), 2)
+            .into_array();
+        let fsl = FixedSizeListArray::try_new(elements, 1, Validity::NonNullable, 2)?.into_array();
+        let dtype = fsl.dtype().clone();
+        let array = ChunkedArray::try_new(vec![fsl.clone(), fsl], dtype.clone())?.into_array();
+
+        let strategy = ConstantStrategy::new(
+            ChunkedLayoutStrategy::new(FlatLayoutStrategy::default()),
+            FlatLayoutStrategy::default(),
+        );
+
+        let layout = block_on(|handle| async move {
+            let session = new_session().with_handle(handle);
+            let segments = Arc::new(TestSegments::default());
+            let (ptr, eof) = SequenceId::root().split();
+
+            strategy
+                .write_stream(
+                    ArrayContext::empty().into(),
+                    segments,
+                    array.to_array_stream().sequenced(ptr),
+                    eof,
+                    &session,
+                )
+                .await
+        })?;
+
+        assert!(layout.is::<Chunked>());
+        assert_eq!(layout.dtype(), &dtype);
+        assert_eq!(layout.row_count(), 4);
+        Ok(())
+    }
+
+    #[test]
+    fn nested_unsupported_dtypes_skip_constant_detection() -> VortexResult<()> {
+        let variant = DType::Variant(NonNullable);
+        let union = DType::Union(
+            UnionVariants::new(FieldNames::from(["a"]), vec![i64_dtype()])?,
+            NonNullable,
+        );
+
+        for leaf in [variant, union] {
+            assert!(!supports_constant_detection(&DType::List(
+                Arc::new(leaf.clone()),
+                NonNullable,
+            )));
+            assert!(!supports_constant_detection(&DType::FixedSizeList(
+                Arc::new(leaf.clone()),
+                1,
+                NonNullable,
+            )));
+            assert!(!supports_constant_detection(&DType::Map(
+                MapDType::try_new(i64_dtype(), leaf.clone(), false)?,
+                NonNullable,
+            )));
+            assert!(!supports_constant_detection(&DType::Struct(
+                StructFields::from_iter([("v", leaf)]),
+                NonNullable,
+            )));
+        }
+
         Ok(())
     }
 }
