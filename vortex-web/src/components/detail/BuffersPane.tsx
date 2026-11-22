@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import type { LayoutTreeNode } from '../swimlane/types';
-import { formatBytes, parseArrayNodeId } from '../swimlane/utils';
+import { formatBytes } from '../swimlane/utils';
 import { useVortexFile } from '../../contexts/VortexFileContextCore';
+import { BufferSelectionController } from './bufferSelection';
 
 interface BuffersPaneProps {
   node: LayoutTreeNode;
@@ -13,42 +14,28 @@ interface BuffersPaneProps {
 export function BuffersPane({ node }: BuffersPaneProps) {
   const { fetchArrayBuffer } = useVortexFile();
   const bufferLengths = node.bufferLengths ?? [];
-  const [selectedBuffer, setSelectedBuffer] = useState<number | null>(null);
-  const [bufferData, setBufferData] = useState<Uint8Array | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+
+  const controllerRef = useRef<BufferSelectionController | null>(null);
+  if (!controllerRef.current) {
+    controllerRef.current = new BufferSelectionController(fetchArrayBuffer);
+  }
+  const controller = controllerRef.current;
+  controller.setFetchArrayBuffer(fetchArrayBuffer);
+
+  const { selectedBuffer, bufferData, loading, error } = useSyncExternalStore(
+    controller.subscribe,
+    controller.getSnapshot,
+  );
 
   const bufferNames: string[] = bufferLengths.map((_, i) => node.bufferNames?.[i] ?? `buffer ${i}`);
 
-  const loadBuffer = useCallback(
-    async (index: number) => {
-      setSelectedBuffer(index);
-      setBufferData(null);
-      setError(null);
-      setLoading(true);
-      try {
-        const { layoutNodeId, arrayPath } = parseArrayNodeId(node.id);
-        const data = await fetchArrayBuffer(layoutNodeId, arrayPath, index);
-        setBufferData(data);
-      } catch (e) {
-        setError(e instanceof Error ? e.message : String(e));
-      } finally {
-        setLoading(false);
-      }
-    },
-    [node.id, fetchArrayBuffer],
-  );
-
-  // Auto-select first buffer when node changes.
+  // Auto-select first buffer when node changes and invalidate stale reads on change/unmount.
   useEffect(() => {
-    setBufferData(null);
-    setError(null);
-    if (bufferLengths.length > 0) {
-      loadBuffer(0);
-    } else {
-      setSelectedBuffer(null);
-    }
-  }, [node.id, bufferLengths.length, loadBuffer]);
+    void controller.selectNode(node.id, bufferLengths.length);
+    return () => {
+      controller.invalidate();
+    };
+  }, [controller, node.id, bufferLengths.length, fetchArrayBuffer]);
 
   if (bufferLengths.length === 0) {
     return <p className="vx-label x-pad">This node has no buffers.</p>;
@@ -63,7 +50,7 @@ export function BuffersPane({ node }: BuffersPaneProps) {
             type="button"
             key={i}
             aria-pressed={selectedBuffer === i}
-            onClick={() => loadBuffer(i)}
+            onClick={() => void controller.selectBuffer(i)}
           >
             <span className="x-buffer-name">{bufferNames[i]}</span>
             <span className="vx-label-sm vx-num">{formatBytes(len)}</span>
