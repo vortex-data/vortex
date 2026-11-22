@@ -262,6 +262,15 @@ jobs:
           python3 scripts/random-access-split.py --emit-ingest-records \
             ${{ matrix.benchmark.remote_data_dir && format('--remote-data-dir {0}', matrix.benchmark.remote_data_dir) || '' }}
 
+      - name: Clean up S3 benchmark data
+        if: always() && matrix.benchmark.remote_data_dir != null
+        continue-on-error: true
+        shell: bash
+        env:
+          AWS_REGION: "us-east-1"
+        run: |
+          aws s3 rm --recursive "${{ matrix.benchmark.remote_data_dir }}"
+
       - name: Run ${{ matrix.benchmark.name }} benchmark (per-dataset)
         if: matrix.benchmark.id == 'compress-bench'
         shell: bash
