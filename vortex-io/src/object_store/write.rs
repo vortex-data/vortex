@@ -6,6 +6,8 @@ use std::sync::Arc;
 
 use bytes::BytesMut;
 use futures::TryStreamExt;
+#[cfg(any(not(target_arch = "wasm32"), feature = "wasm-bindgen"))]
+use futures::channel::oneshot;
 use futures::stream::FuturesUnordered;
 use object_store::MultipartUpload;
 use object_store::ObjectStore;
@@ -66,9 +68,9 @@ impl ObjectStoreWrite {
 
     /// Explicitly abort the multipart upload if it is still active.
     ///
-    /// Calling `abort` on an already-aborted or completed writer is a no-op. When a Tokio runtime
-    /// handle is available, the remote abort runs on a spawned task so cancelling the caller while
-    /// `abort` is in flight does not drop the upload before cleanup completes.
+    /// Calling `abort` on an already-aborted or completed writer is a no-op. Cleanup is spawned on
+    /// a live executor so cancelling the caller while `abort` is in flight does not drop the
+    /// upload before remote cleanup completes.
     pub async fn abort(&mut self) -> io::Result<()> {
         if !matches!(self.state, UploadState::Active(_)) {
             return Ok(());
@@ -80,10 +82,7 @@ impl ObjectStoreWrite {
             unreachable!("checked active state above");
         };
 
-        if let Some(handle) = tokio::runtime::Handle::try_current()
-            .ok()
-            .or_else(|| self.cleanup_runtime.take())
-        {
+        if let Some(handle) = self.take_live_tokio_handle() {
             let join_handle = handle.spawn(async move { upload.abort().await });
             return match join_handle.await {
                 Ok(res) => res.map_err(io::Error::from),
@@ -91,7 +90,86 @@ impl ObjectStoreWrite {
             };
         }
 
-        upload.abort().await.map_err(io::Error::from)
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let (tx, rx) = oneshot::channel();
+            smol::spawn(async move {
+                let res = upload.abort().await;
+                drop(tx.send(res));
+            })
+            .detach();
+            match rx.await {
+                Ok(res) => res.map_err(io::Error::from),
+                Err(_) => Err(io::Error::other("abort task cancelled")),
+            }
+        }
+
+        #[cfg(all(target_arch = "wasm32", feature = "wasm-bindgen"))]
+        {
+            let (tx, rx) = oneshot::channel();
+            wasm_bindgen_futures::spawn_local(async move {
+                let res = upload.abort().await;
+                drop(tx.send(res));
+            });
+            match rx.await {
+                Ok(res) => res.map_err(io::Error::from),
+                Err(_) => Err(io::Error::other("abort task cancelled")),
+            }
+        }
+
+        #[cfg(all(target_arch = "wasm32", not(feature = "wasm-bindgen")))]
+        {
+            upload.abort().await.map_err(io::Error::from)
+        }
+    }
+
+    fn take_live_tokio_handle(&mut self) -> Option<tokio::runtime::Handle> {
+        if let Ok(handle) = tokio::runtime::Handle::try_current()
+            && is_tokio_handle_alive(&handle)
+        {
+            self.cleanup_runtime = None;
+            return Some(handle);
+        }
+        self.cleanup_runtime.take().filter(is_tokio_handle_alive)
+    }
+
+    /// Transition an active upload to `Aborted` and schedule detached remote cleanup on a live
+    /// executor. Used by `Drop` and by [`AbortOnCancel`] when an in-flight write, flush, or
+    /// shutdown future is cancelled while the caller still owns the writer.
+    fn abort_in_background(&mut self) {
+        self.buffer.clear();
+        let UploadState::Active(mut upload) =
+            std::mem::replace(&mut self.state, UploadState::Aborted)
+        else {
+            return;
+        };
+
+        let abort_future = async move {
+            if let Err(err) = upload.abort().await {
+                tracing::warn!(%err, "failed to abort multipart upload in background");
+            }
+        };
+
+        if let Some(handle) = self.take_live_tokio_handle() {
+            handle.spawn(abort_future);
+            return;
+        }
+
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            smol::spawn(abort_future).detach();
+        }
+
+        #[cfg(all(target_arch = "wasm32", feature = "wasm-bindgen"))]
+        {
+            wasm_bindgen_futures::spawn_local(abort_future);
+        }
+
+        #[cfg(all(target_arch = "wasm32", not(feature = "wasm-bindgen")))]
+        {
+            drop(abort_future);
+            tracing::warn!("no async runtime available to abort multipart upload on drop");
+        }
     }
 
     fn active_upload_mut(&mut self) -> io::Result<&mut Box<dyn MultipartUpload>> {
@@ -113,43 +191,48 @@ impl ObjectStoreWrite {
     }
 }
 
+/// Checks whether a Tokio runtime handle can still execute spawned tasks.
+///
+/// On a shut-down runtime, `Handle::spawn` cancels the task immediately so `is_finished()` is
+/// already true even for a future that never resolves.
+fn is_tokio_handle_alive(handle: &tokio::runtime::Handle) -> bool {
+    let probe = handle.spawn(std::future::pending::<()>());
+    let alive = !probe.is_finished();
+    probe.abort();
+    alive
+}
+
+/// Drop guard that aborts an active upload if an in-flight `write_all`, `flush`, or `shutdown`
+/// future is cancelled after buffered bytes have been removed or a remote call has started.
+struct AbortOnCancel<'a> {
+    writer: &'a mut ObjectStoreWrite,
+    armed: bool,
+}
+
+impl<'a> AbortOnCancel<'a> {
+    fn new(writer: &'a mut ObjectStoreWrite) -> Self {
+        Self {
+            writer,
+            armed: true,
+        }
+    }
+
+    fn disarm(mut self) {
+        self.armed = false;
+    }
+}
+
+impl Drop for AbortOnCancel<'_> {
+    fn drop(&mut self) {
+        if self.armed {
+            self.writer.abort_in_background();
+        }
+    }
+}
+
 impl Drop for ObjectStoreWrite {
     fn drop(&mut self) {
-        let UploadState::Active(mut upload) =
-            std::mem::replace(&mut self.state, UploadState::Aborted)
-        else {
-            return;
-        };
-
-        let abort_future = async move {
-            if let Err(err) = upload.abort().await {
-                tracing::warn!(%err, "failed to abort multipart upload on drop");
-            }
-        };
-
-        if let Some(handle) = tokio::runtime::Handle::try_current()
-            .ok()
-            .or_else(|| self.cleanup_runtime.take())
-        {
-            handle.spawn(abort_future);
-            return;
-        }
-
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            smol::spawn(abort_future).detach();
-        }
-
-        #[cfg(all(target_arch = "wasm32", feature = "wasm-bindgen"))]
-        {
-            wasm_bindgen_futures::spawn_local(abort_future);
-        }
-
-        #[cfg(all(target_arch = "wasm32", not(feature = "wasm-bindgen")))]
-        {
-            drop(abort_future);
-            tracing::warn!("no async runtime available to abort multipart upload on drop");
-        }
+        self.abort_in_background();
     }
 }
 
@@ -160,14 +243,15 @@ impl VortexWrite for ObjectStoreWrite {
 
         // If the buffer is full
         if self.buffer.len() > BUFFER_SIZE {
+            let guard = AbortOnCancel::new(self);
             let part_result = {
                 let parts = FuturesUnordered::new();
-                let UploadState::Active(upload) = &mut self.state else {
+                let UploadState::Active(upload) = &mut guard.writer.state else {
                     unreachable!("checked active state above");
                 };
                 // Split off chunks while buffer is larger than CHUNK_SIZE
-                while self.buffer.len() > CHUNK_SIZE {
-                    let payload = self.buffer.split_to(CHUNK_SIZE).freeze();
+                while guard.writer.buffer.len() > CHUNK_SIZE {
+                    let payload = guard.writer.buffer.split_to(CHUNK_SIZE).freeze();
                     let part_fut = upload.put_part(PutPayload::from_bytes(payload));
 
                     parts.push(part_fut);
@@ -176,9 +260,11 @@ impl VortexWrite for ObjectStoreWrite {
             };
 
             if let Err(err) = part_result {
-                self.abort_after_error().await;
+                guard.writer.abort_after_error().await;
+                guard.disarm();
                 return Err(err.into());
             }
+            guard.disarm();
         }
 
         Ok(buffer)
@@ -186,14 +272,19 @@ impl VortexWrite for ObjectStoreWrite {
 
     async fn flush(&mut self) -> io::Result<()> {
         let _ = self.active_upload_mut()?;
+        if self.buffer.len() <= CHUNK_SIZE {
+            return Ok(());
+        }
+
+        let guard = AbortOnCancel::new(self);
         let part_result = {
             let parts = FuturesUnordered::new();
-            let UploadState::Active(upload) = &mut self.state else {
+            let UploadState::Active(upload) = &mut guard.writer.state else {
                 unreachable!("checked active state above");
             };
 
-            while self.buffer.len() > CHUNK_SIZE {
-                let payload = self.buffer.split_to(CHUNK_SIZE).freeze();
+            while guard.writer.buffer.len() > CHUNK_SIZE {
+                let payload = guard.writer.buffer.split_to(CHUNK_SIZE).freeze();
                 let part_fut = upload.put_part(PutPayload::from_bytes(payload));
 
                 parts.push(part_fut);
@@ -203,10 +294,12 @@ impl VortexWrite for ObjectStoreWrite {
         };
 
         if let Err(err) = part_result {
-            self.abort_after_error().await;
+            guard.writer.abort_after_error().await;
+            guard.disarm();
             return Err(err.into());
         }
 
+        guard.disarm();
         Ok(())
     }
 
@@ -216,28 +309,34 @@ impl VortexWrite for ObjectStoreWrite {
         }
         self.flush().await?;
 
-        if !self.buffer.is_empty() {
-            let payload = std::mem::take(&mut self.buffer).freeze();
-            let part_result = self
+        let guard = AbortOnCancel::new(self);
+
+        if !guard.writer.buffer.is_empty() {
+            let payload = std::mem::take(&mut guard.writer.buffer).freeze();
+            let part_result = guard
+                .writer
                 .active_upload_mut()?
                 .put_part(PutPayload::from_bytes(payload))
                 .await;
             if let Err(err) = part_result {
-                self.abort_after_error().await;
+                guard.writer.abort_after_error().await;
+                guard.disarm();
                 return Err(err.into());
             }
         }
 
-        let complete_result = self.active_upload_mut()?.complete().await;
+        let complete_result = guard.writer.active_upload_mut()?.complete().await;
         match complete_result {
             Ok(put_result) => {
                 // Release upload ownership without aborting now that the object is published.
-                self.state = UploadState::Completed;
-                self.put_result = Some(put_result);
+                guard.writer.state = UploadState::Completed;
+                guard.writer.put_result = Some(put_result);
+                guard.disarm();
                 Ok(())
             }
             Err(err) => {
-                self.abort_after_error().await;
+                guard.writer.abort_after_error().await;
+                guard.disarm();
                 Err(err.into())
             }
         }
@@ -332,6 +431,8 @@ mod tests {
         use tokio::time::timeout;
 
         use super::*;
+        use crate::runtime::BlockingRuntime;
+        use crate::runtime::current::CurrentThreadRuntime;
 
         #[derive(Default)]
         struct UploadBehavior {
@@ -350,6 +451,8 @@ mod tests {
             abort_completed: AtomicUsize,
             abort_notify: Notify,
             abort_completed_notify: Notify,
+            staged_bytes: parking_lot::Mutex<Vec<u8>>,
+            published_bytes: parking_lot::Mutex<Option<Vec<u8>>>,
         }
 
         struct RecordingStore {
@@ -443,13 +546,14 @@ mod tests {
 
         #[async_trait]
         impl MultipartUpload for RecordingUpload {
-            fn put_part(&mut self, _data: PutPayload) -> UploadPart {
+            fn put_part(&mut self, data: PutPayload) -> UploadPart {
                 let part_num = self.counters.part_calls.fetch_add(1, Ordering::SeqCst) + 1;
                 let fail = self.behavior.fail_part_at == Some(part_num);
                 let gate =
                     self.behavior.gate_part_at.as_ref().and_then(|(n, e, r)| {
                         (*n == part_num).then(|| (Arc::clone(e), Arc::clone(r)))
                     });
+                let counters = Arc::clone(&self.counters);
                 Box::pin(async move {
                     if let Some((entered, release)) = gate {
                         entered.notify_one();
@@ -460,6 +564,10 @@ mod tests {
                             store: "RecordingUpload",
                             source: io::Error::other("injected part failure").into(),
                         });
+                    }
+                    let mut staged = counters.staged_bytes.lock();
+                    for chunk in data {
+                        staged.extend_from_slice(&chunk);
                     }
                     Ok(())
                 })
@@ -473,6 +581,8 @@ mod tests {
                         source: io::Error::other("injected complete failure").into(),
                     });
                 }
+                let published = self.counters.staged_bytes.lock().clone();
+                *self.counters.published_bytes.lock() = Some(published);
                 Ok(PutResult {
                     e_tag: Some("etag-ok".to_string()),
                     version: None,
@@ -652,12 +762,17 @@ mod tests {
             });
 
             let mut writer = ObjectStoreWrite::new(store, &Path::from("ok.vortex")).await?;
-            writer.write_all(vec![5u8; 256]).await?;
+            let expected = vec![5u8; 256];
+            writer.write_all(expected.clone()).await?;
             writer.shutdown().await?;
 
             assert_eq!(
                 writer.put_result().and_then(|r| r.e_tag.as_deref()),
                 Some("etag-ok")
+            );
+            assert_eq!(
+                counters.published_bytes.lock().as_deref(),
+                Some(expected.as_slice())
             );
             assert_eq!(counters.part_calls.load(Ordering::SeqCst), 1);
             assert_eq!(counters.complete_calls.load(Ordering::SeqCst), 1);
@@ -667,6 +782,215 @@ mod tests {
             tokio::task::yield_now().await;
             assert_eq!(counters.abort_calls.load(Ordering::SeqCst), 0);
             Ok(())
+        }
+
+        #[tokio::test]
+        async fn test_cancelled_shutdown_aborts_and_rejects_retry_with_live_writer()
+        -> anyhow::Result<()> {
+            let entered = Arc::new(Notify::new());
+            let release = Arc::new(Notify::new());
+            let counters = Arc::new(UploadCounters::default());
+            let store: Arc<dyn ObjectStore> = Arc::new(RecordingStore {
+                behavior: Arc::new(UploadBehavior {
+                    gate_part_at: Some((1, Arc::clone(&entered), Arc::clone(&release))),
+                    ..Default::default()
+                }),
+                counters: Arc::clone(&counters),
+            });
+
+            let mut writer =
+                ObjectStoreWrite::new(store, &Path::from("cancelled-shutdown.vortex")).await?;
+            writer.write_all(vec![0xABu8; 64]).await?;
+
+            {
+                let shutdown_fut = writer.shutdown();
+                tokio::pin!(shutdown_fut);
+                tokio::select! {
+                    res = &mut shutdown_fut => panic!("gated shutdown should not complete: {res:?}"),
+                    () = entered.notified() => {}
+                }
+                // Dropping `shutdown_fut` cancels the pending shutdown while `writer` stays alive.
+            }
+
+            release.notify_one();
+
+            // Retrying shutdown on the live writer must fail rather than publishing a 0-byte file.
+            assert!(
+                writer.shutdown().await.is_err(),
+                "retrying shutdown after cancellation must fail"
+            );
+            assert!(counters.published_bytes.lock().is_none());
+            assert_eq!(counters.complete_calls.load(Ordering::SeqCst), 0);
+
+            timeout(Duration::from_secs(2), async {
+                while counters.abort_completed.load(Ordering::SeqCst) == 0 {
+                    counters.abort_completed_notify.notified().await;
+                }
+            })
+            .await
+            .expect("cancelled shutdown must abort the upload");
+
+            assert_eq!(counters.abort_calls.load(Ordering::SeqCst), 1);
+            Ok(())
+        }
+
+        #[tokio::test]
+        async fn test_cancelled_flush_aborts_and_rejects_shutdown_with_live_writer()
+        -> anyhow::Result<()> {
+            let entered = Arc::new(Notify::new());
+            let release = Arc::new(Notify::new());
+            let counters = Arc::new(UploadCounters::default());
+            let store: Arc<dyn ObjectStore> = Arc::new(RecordingStore {
+                behavior: Arc::new(UploadBehavior {
+                    gate_part_at: Some((1, Arc::clone(&entered), Arc::clone(&release))),
+                    ..Default::default()
+                }),
+                counters: Arc::clone(&counters),
+            });
+
+            let mut writer =
+                ObjectStoreWrite::new(store, &Path::from("cancelled-flush.vortex")).await?;
+            writer.write_all(vec![0xCDu8; CHUNK_SIZE + 1]).await?;
+
+            {
+                let flush_fut = writer.flush();
+                tokio::pin!(flush_fut);
+                tokio::select! {
+                    res = &mut flush_fut => panic!("gated flush should not complete: {res:?}"),
+                    () = entered.notified() => {}
+                }
+                // Dropping `flush_fut` cancels the pending flush while `writer` stays alive.
+            }
+
+            release.notify_one();
+
+            // Calling shutdown on the live writer must fail rather than publishing corrupt data.
+            assert!(
+                writer.shutdown().await.is_err(),
+                "shutdown after cancelled flush must fail"
+            );
+            assert!(counters.published_bytes.lock().is_none());
+            assert_eq!(counters.complete_calls.load(Ordering::SeqCst), 0);
+
+            timeout(Duration::from_secs(2), async {
+                while counters.abort_completed.load(Ordering::SeqCst) == 0 {
+                    counters.abort_completed_notify.notified().await;
+                }
+            })
+            .await
+            .expect("cancelled flush must abort the upload");
+
+            assert_eq!(counters.abort_calls.load(Ordering::SeqCst), 1);
+            Ok(())
+        }
+
+        #[test]
+        fn test_cancelled_abort_on_current_thread_runtime_completes_cleanup() -> anyhow::Result<()>
+        {
+            let runtime = CurrentThreadRuntime::new();
+            let entered = Arc::new(Notify::new());
+            let release = Arc::new(Notify::new());
+            let counters = Arc::new(UploadCounters::default());
+            let store: Arc<dyn ObjectStore> = Arc::new(RecordingStore {
+                behavior: Arc::new(UploadBehavior {
+                    gate_abort: Some((Arc::clone(&entered), Arc::clone(&release))),
+                    ..Default::default()
+                }),
+                counters: Arc::clone(&counters),
+            });
+
+            runtime.block_on(async move {
+                let mut writer =
+                    ObjectStoreWrite::new(store, &Path::from("current-thread-abort.vortex"))
+                        .await?;
+                writer.write_all(vec![1u8; 64]).await?;
+
+                {
+                    let abort_fut = writer.abort();
+                    futures::pin_mut!(abort_fut);
+                    let entered_fut = entered.notified();
+                    futures::pin_mut!(entered_fut);
+                    match futures::future::select(abort_fut, entered_fut).await {
+                        futures::future::Either::Left((res, _)) => {
+                            panic!("gated abort should not complete: {res:?}");
+                        }
+                        futures::future::Either::Right(((), _)) => {}
+                    }
+                    // Dropping `abort_fut` cancels explicit `abort()` on CurrentThreadRuntime.
+                }
+
+                // Retry abort and drop writer; detached cleanup must still finish once released.
+                writer.abort().await?;
+                drop(writer);
+                release.notify_one();
+
+                let deadline = std::time::Instant::now() + Duration::from_secs(2);
+                while counters.abort_completed.load(Ordering::SeqCst) == 0 {
+                    assert!(
+                        std::time::Instant::now() < deadline,
+                        "detached abort on CurrentThreadRuntime did not complete"
+                    );
+                    smol::Timer::after(Duration::from_millis(5)).await;
+                }
+
+                assert_eq!(counters.abort_calls.load(Ordering::SeqCst), 1);
+                assert_eq!(counters.abort_completed.load(Ordering::SeqCst), 1);
+                anyhow::Ok(())
+            })
+        }
+
+        #[test]
+        fn test_stopped_tokio_runtime_falls_back_to_live_smol_executor() -> anyhow::Result<()> {
+            let abort_counters = Arc::new(UploadCounters::default());
+            let abort_store: Arc<dyn ObjectStore> = Arc::new(RecordingStore {
+                behavior: Arc::new(UploadBehavior::default()),
+                counters: Arc::clone(&abort_counters),
+            });
+
+            let drop_counters = Arc::new(UploadCounters::default());
+            let drop_store: Arc<dyn ObjectStore> = Arc::new(RecordingStore {
+                behavior: Arc::new(UploadBehavior::default()),
+                counters: Arc::clone(&drop_counters),
+            });
+
+            // Create both writers on a Tokio runtime, then shut that runtime down.
+            let (mut writer_for_abort, writer_for_drop) = {
+                let tokio_rt = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()?;
+                tokio_rt.block_on(async move {
+                    let mut w1 =
+                        ObjectStoreWrite::new(abort_store, &Path::from("stopped-rt-abort.vortex"))
+                            .await?;
+                    w1.write_all(vec![2u8; 64]).await?;
+                    let mut w2 =
+                        ObjectStoreWrite::new(drop_store, &Path::from("stopped-rt-drop.vortex"))
+                            .await?;
+                    w2.write_all(vec![3u8; 64]).await?;
+                    anyhow::Ok((w1, w2))
+                })?
+            };
+
+            // Drive both explicit abort and drop on Vortex's CurrentThreadRuntime (smol).
+            let current_rt = CurrentThreadRuntime::new();
+            current_rt.block_on(async move {
+                writer_for_abort.abort().await?;
+                assert_eq!(abort_counters.abort_calls.load(Ordering::SeqCst), 1);
+                assert_eq!(abort_counters.abort_completed.load(Ordering::SeqCst), 1);
+
+                drop(writer_for_drop);
+                let deadline = std::time::Instant::now() + Duration::from_secs(2);
+                while drop_counters.abort_completed.load(Ordering::SeqCst) == 0 {
+                    assert!(
+                        std::time::Instant::now() < deadline,
+                        "drop cleanup from stopped Tokio runtime did not complete on smol"
+                    );
+                    smol::Timer::after(Duration::from_millis(5)).await;
+                }
+                assert_eq!(drop_counters.abort_calls.load(Ordering::SeqCst), 1);
+                assert_eq!(drop_counters.abort_completed.load(Ordering::SeqCst), 1);
+                anyhow::Ok(())
+            })
         }
 
         #[tokio::test]
