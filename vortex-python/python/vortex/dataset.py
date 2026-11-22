@@ -37,6 +37,7 @@ class _WorkerThreadLeaseManager:
 
     def __init__(self) -> None:
         self._lock = threading.Lock()
+        self._generation = 0
         self._threaded_leases = 0
         self._unthreaded_leases = 0
         self._baseline_workers: int | None = None
@@ -58,7 +59,7 @@ class _WorkerThreadLeaseManager:
             return False
         return None
 
-    def acquire(self, use_threads: bool) -> None:
+    def acquire(self, use_threads: bool) -> int:
         with self._lock:
             was_idle = self._threaded_leases == 0 and self._unthreaded_leases == 0
             if was_idle:
@@ -85,9 +86,13 @@ class _WorkerThreadLeaseManager:
             self._unthreaded_leases = next_unthreaded
             self._last_applied_workers = last_applied
             self._active_policy = active_policy
+            return self._generation
 
-    def release(self, use_threads: bool) -> None:
+    def release(self, use_threads: bool, generation: int) -> None:
         with self._lock:
+            if generation != self._generation:
+                return
+
             self._sync_external_baseline_locked()
 
             if use_threads:
@@ -116,12 +121,16 @@ class _WorkerThreadLeaseManager:
                 self._last_applied_workers = None
 
     def reset_after_fork(self) -> None:
+        baseline = self._baseline_workers
         self._lock = threading.Lock()
+        self._generation += 1
         self._threaded_leases = 0
         self._unthreaded_leases = 0
         self._baseline_workers = None
         self._last_applied_workers = None
         self._active_policy = None
+        if baseline is not None:
+            _set_worker_threads(baseline)
 
 
 _WORKER_THREAD_LEASES = _WorkerThreadLeaseManager()
@@ -142,11 +151,11 @@ def set_worker_threads(n: int | None = None) -> None:
 
 @contextmanager
 def _temporary_worker_threads(use_threads: bool) -> Generator[None]:
-    _WORKER_THREAD_LEASES.acquire(use_threads)
+    generation = _WORKER_THREAD_LEASES.acquire(use_threads)
     try:
         yield
     finally:
-        _WORKER_THREAD_LEASES.release(use_threads)
+        _WORKER_THREAD_LEASES.release(use_threads, generation)
 
 
 def _is_strictly_increasing(indices: pyarrow.Array[Any]) -> bool:

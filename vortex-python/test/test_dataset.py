@@ -282,6 +282,25 @@ def test_explicit_user_update_during_active_lease_is_preserved(monkeypatch: pyte
     assert pool.workers == 6
 
 
+def test_closing_inherited_reader_after_fork_does_not_corrupt_leases(monkeypatch: pytest.MonkeyPatch) -> None:
+    pool = _patch_worker_pool(monkeypatch, initial=4, parallel=11)
+    inherited = vx_dataset._read_batches_with_temporary_worker_threads(_make_two_batch_reader((1, 2)), False)
+    assert next(inherited).to_pylist() == [{"x": 1}]
+    assert pool.workers == 0
+
+    # Simulate child process state after fork: baseline is restored and generation advances.
+    vx_dataset._WORKER_THREAD_LEASES.reset_after_fork()
+    assert pool.workers == 4
+
+    # Closing the pre-fork reader in the child must not decrement child lease counts.
+    inherited.close()
+    assert pool.workers == 4
+
+    with vx_dataset._temporary_worker_threads(False):
+        assert pool.workers == 0
+    assert pool.workers == 4
+
+
 @pytest.mark.parametrize("batch_size", [1234, 8192, 1 << 31])
 def test_to_batch_size(ds: pd.Dataset, batch_size: int) -> None:
     batch_sizes = [len(x) for x in ds.to_batches(batch_size=batch_size)]
