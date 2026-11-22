@@ -7,6 +7,7 @@ import com.google.common.base.Preconditions;
 import dev.vortex.api.Session;
 import dev.vortex.api.VortexColumnStatistics;
 import dev.vortex.io.NativeReadable;
+import java.lang.ref.Reference;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -90,6 +91,45 @@ public final class NativeFiles {
         return List.of(readStatisticsFromReadable(session.nativePointer(), readable, name, length));
     }
 
+    /**
+     * The natural row splits of the Vortex file behind {@code readable}, as their boundaries: split {@code i} holds
+     * rows {@code [boundaries[i], boundaries[i + 1])}. The splits use the default split policy, following the file's
+     * chunk boundaries and subdividing large chunks.
+     *
+     * <p>The readable must stay open for the duration of the call; native code never closes it.
+     *
+     * <p>{@link NativeReadable#name()} keys the file in the session's footer cache, exactly as it does when the
+     * readable is scanned.
+     */
+    public static long[] splits(Session session, NativeReadable readable) {
+        return splitsFromReadable(session, readable, null);
+    }
+
+    /**
+     * {@link #splits(Session, NativeReadable)} for a scan of the top-level {@code columns}: the splits follow the
+     * chunks of those columns only. This is much cheaper than the splits of every column for a scan of a few columns of
+     * a wide file. Columns that the file does not hold are ignored, and when it holds none of them, the splits follow
+     * every column.
+     */
+    public static long[] splits(Session session, NativeReadable readable, List<String> columns) {
+        Objects.requireNonNull(columns, "columns");
+        return splitsFromReadable(session, readable, columns.toArray(String[]::new));
+    }
+
+    private static long[] splitsFromReadable(Session session, NativeReadable readable, String[] columns) {
+        Objects.requireNonNull(session, "session");
+        Objects.requireNonNull(readable, "readable");
+        String name = readable.name();
+        Preconditions.checkArgument(name != null && !name.isEmpty(), "readable reported an empty name");
+        long length = readable.length();
+        Preconditions.checkArgument(length >= 0, "readable for %s reported negative length", name);
+        try {
+            return splitsFromReadable(session.nativePointer(), readable, name, length, columns);
+        } finally {
+            Reference.reachabilityFence(session);
+        }
+    }
+
     private static native List<String> listFiles(long sessionPointer, String uri, Map<String, String> options);
 
     private static native void delete(long sessionPointer, String[] uris, Map<String, String> options);
@@ -105,4 +145,7 @@ public final class NativeFiles {
 
     private static native VortexColumnStatistics[] readStatisticsFromReadable(
             long sessionPointer, Object readable, String name, long length);
+
+    private static native long[] splitsFromReadable(
+            long sessionPointer, Object readable, String name, long length, String[] columns);
 }
