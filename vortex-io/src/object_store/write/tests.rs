@@ -672,6 +672,52 @@ mod multipart_lifecycle_tests {
             "expected completion error, got: {err2}"
         );
         assert_eq!(counters2.abort_calls.load(Ordering::SeqCst), 1);
+
+        // Case 4: final `put_part` fails inside `shutdown()`, `shutdown()` is cancelled while
+        // cleanup is in flight, and the backend rejects cleanup before explicit `abort()` runs.
+        // Explicit `abort()` must surface that cleanup error with a single abort attempt.
+        let entered_part = Arc::new(Notify::new());
+        let release_part = Arc::new(Notify::new());
+        let (store_part, counters_part) = make_store(UploadBehavior {
+            fail_part_on_call: Some(1),
+            fail_abort: true,
+            gate_abort: Some((Arc::clone(&entered_part), Arc::clone(&release_part))),
+            ..Default::default()
+        });
+
+        let mut writer_part =
+            ObjectStoreWrite::new(store_part, &Path::from("failed-final-part.vortex")).await?;
+        writer_part.write_all(b"hello".to_vec()).await?;
+        {
+            let mut shutdown_fut = Box::pin(writer_part.shutdown());
+            let first_poll = poll_fn(|cx| Poll::Ready(shutdown_fut.as_mut().poll(cx))).await;
+            assert!(first_poll.is_pending());
+            timeout(Duration::from_secs(2), entered_part.notified()).await?;
+            drop(shutdown_fut);
+        }
+
+        release_part.notify_one();
+        timeout(Duration::from_secs(2), async {
+            loop {
+                let mut notified = std::pin::pin!(counters_part.abort_finished_notify.notified());
+                notified.as_mut().enable();
+                if counters_part.abort_finished.load(Ordering::SeqCst) > 0 {
+                    break;
+                }
+                notified.await;
+            }
+        })
+        .await?;
+
+        let err_part = writer_part
+            .abort()
+            .await
+            .expect_err("explicit abort must surface cleanup failure after final put_part failure");
+        assert!(
+            err_part.to_string().contains("synthetic abort failure"),
+            "expected abort error, got: {err_part}"
+        );
+        assert_eq!(counters_part.abort_calls.load(Ordering::SeqCst), 1);
         Ok(())
     }
 

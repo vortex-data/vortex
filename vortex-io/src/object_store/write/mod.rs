@@ -39,6 +39,10 @@ use crate::compat::Compat;
 /// Tokio context on native targets) so cleanup survives both task cancellation and shutdown of the
 /// caller's Tokio runtime. On native targets, `shutdown()` also tracks remote completion on that
 /// executor so a ready publication result or failed cleanup remains observable across cancellation.
+/// Process termination can still prevent cleanup. If the underlying [`ObjectStore`] holds pooled
+/// keep-alive connections opened on a caller Tokio runtime that later goes idle (without shutting
+/// down) and retries are disabled (`max_retries: 0`), an abort that reuses such a connection still
+/// depends on that runtime remaining driven or retries opening a fresh connection.
 pub struct ObjectStoreWrite {
     state: UploadState,
 }
@@ -63,6 +67,8 @@ enum UploadState {
         cancel_tx: Option<oneshot::Sender<()>>,
         outcome_rx: oneshot::Receiver<CompletionOutcome>,
     },
+    #[cfg(any(not(target_arch = "wasm32"), feature = "wasm-bindgen"))]
+    Aborting(oneshot::Receiver<object_store::Result<()>>),
     Completed(PutResult),
     Aborted,
 }
@@ -110,12 +116,51 @@ impl ObjectStoreWrite {
             };
         }
 
-        let Some(upload) = self.take_active_for_abort() else {
-            return Ok(());
-        };
-        run_abort(upload).await
+        #[cfg(any(not(target_arch = "wasm32"), feature = "wasm-bindgen"))]
+        {
+            if matches!(self.state, UploadState::Active { .. }) {
+                self.start_background_abort();
+            }
+            if let UploadState::Aborting(outcome_rx) = &mut self.state {
+                let outcome = outcome_rx.await;
+                self.state = UploadState::Aborted;
+                return match outcome {
+                    Ok(res) => res.map_err(io::Error::from),
+                    Err(_) => Err(io::Error::other("abort task cancelled")),
+                };
+            }
+            Ok(())
+        }
+
+        #[cfg(all(target_arch = "wasm32", not(feature = "wasm-bindgen")))]
+        {
+            let Some(mut upload) = self.take_active_for_abort() else {
+                return Ok(());
+            };
+            upload.abort().await.map_err(io::Error::from)
+        }
     }
 
+    #[cfg(any(not(target_arch = "wasm32"), feature = "wasm-bindgen"))]
+    fn start_background_abort(&mut self) {
+        if !matches!(self.state, UploadState::Active { .. }) {
+            return;
+        }
+        let (tx, rx) = oneshot::channel();
+        let UploadState::Active { mut upload, .. } =
+            std::mem::replace(&mut self.state, UploadState::Aborting(rx))
+        else {
+            unreachable!("checked active state above");
+        };
+        spawn_detached_cleanup(async move {
+            let res = upload.abort().await;
+            if let Err(Err(err)) = tx.send(res) {
+                tracing::warn!(%err, "failed to abort multipart upload in background");
+            }
+        });
+    }
+
+    #[cfg(all(target_arch = "wasm32", not(feature = "wasm-bindgen")))]
     fn take_active_for_abort(&mut self) -> Option<Box<dyn MultipartUpload>> {
         if !matches!(self.state, UploadState::Active { .. }) {
             return None;
@@ -137,14 +182,21 @@ impl ObjectStoreWrite {
             }
             return;
         }
-        let Some(mut upload) = self.take_active_for_abort() else {
-            return;
-        };
-        spawn_detached_cleanup(async move {
-            if let Err(err) = upload.abort().await {
-                tracing::warn!(%err, "failed to abort multipart upload in background");
-            }
-        });
+        #[cfg(any(not(target_arch = "wasm32"), feature = "wasm-bindgen"))]
+        {
+            self.start_background_abort();
+        }
+        #[cfg(all(target_arch = "wasm32", not(feature = "wasm-bindgen")))]
+        {
+            let Some(mut upload) = self.take_active_for_abort() else {
+                return;
+            };
+            spawn_detached_cleanup(async move {
+                if let Err(err) = upload.abort().await {
+                    tracing::warn!(%err, "failed to abort multipart upload in background");
+                }
+            });
+        }
     }
 
     fn ensure_active(&mut self) -> io::Result<(&mut Box<dyn MultipartUpload>, &mut BytesMut)> {
@@ -157,6 +209,10 @@ impl ObjectStoreWrite {
             UploadState::Completed(_) => {
                 Err(io::Error::other("multipart upload already completed"))
             }
+            #[cfg(any(not(target_arch = "wasm32"), feature = "wasm-bindgen"))]
+            UploadState::Aborting(_) => Err(io::Error::other(
+                "multipart upload already failed or aborted",
+            )),
             UploadState::Aborted => Err(io::Error::other(
                 "multipart upload already failed or aborted",
             )),
@@ -232,25 +288,6 @@ impl ObjectStoreWrite {
         if let Err(abort_err) = self.abort().await {
             tracing::warn!(%abort_err, "failed to abort multipart upload after write error");
         }
-    }
-}
-
-async fn run_abort(mut upload: Box<dyn MultipartUpload>) -> io::Result<()> {
-    #[cfg(any(not(target_arch = "wasm32"), feature = "wasm-bindgen"))]
-    {
-        let (tx, rx) = oneshot::channel();
-        spawn_detached_cleanup(async move {
-            drop(tx.send(upload.abort().await));
-        });
-        match rx.await {
-            Ok(res) => res.map_err(io::Error::from),
-            Err(_) => Err(io::Error::other("abort task cancelled")),
-        }
-    }
-
-    #[cfg(all(target_arch = "wasm32", not(feature = "wasm-bindgen")))]
-    {
-        upload.abort().await.map_err(io::Error::from)
     }
 }
 
