@@ -6,6 +6,10 @@ earlier editions in the same family. See [Using editions](using-editions.md) for
 
 ## Frozen `core` editions
 
+A format must be in a frozen `core` edition before the default compressor emits it without extra
+configuration; see [Compression](design.md#compression) for how the compressor filters schemes
+against enabled editions.
+
 The origin of every edition below is `vortex`. Each minimum refers to the shared version of the
 Vortex Rust crates, including the `vortex` crate.
 

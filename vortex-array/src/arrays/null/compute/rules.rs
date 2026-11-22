@@ -13,6 +13,8 @@ use crate::scalar_fn::fns::cast::Cast;
 use crate::scalar_fn::fns::cast::CastReduceAdaptor;
 use crate::scalar_fn::fns::mask::Mask as MaskFn;
 use crate::scalar_fn::fns::mask::MaskReduceAdaptor;
+use crate::scalar_fn::fns::zip::Zip;
+use crate::scalar_fn::fns::zip::ZipReduceAdaptor;
 
 pub(crate) fn register_parent_rules(session: &VortexSession) {
     let kernels = session.kernels();
@@ -20,4 +22,5 @@ pub(crate) fn register_parent_rules(session: &VortexSession) {
     kernels.register_reduce_parent_rule(Cast, Null, const { &CastReduceAdaptor(Null) });
     kernels.register_reduce_parent_rule(MaskFn, Null, const { &MaskReduceAdaptor(Null) });
     kernels.register_reduce_parent_rule(Slice, Null, const { &SliceReduceAdaptor(Null) });
+    kernels.register_reduce_parent_rule(Zip, Null, const { &ZipReduceAdaptor(Null) });
 }

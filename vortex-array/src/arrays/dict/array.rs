@@ -122,10 +122,12 @@ impl DictData {
     ///
     /// # Errors
     ///
-    /// The `codes` **must** be integers, and the maximum code must be less than the length
-    /// of the `values` array. Otherwise, this constructor returns an error.
+    /// The `codes` **must** be integers. Otherwise, this constructor returns an error.
     ///
     /// It is an error to provide a nullable `codes` with non-nullable `values`.
+    ///
+    /// This constructor does not read the codes. Each operation that uses a code as an index
+    /// into `values` must do its own bounds check, because the codes can come from a file.
     pub(crate) fn try_new(codes_dtype: &DType) -> VortexResult<Self> {
         if !codes_dtype.is_int() {
             vortex_bail!("expected type: int but instead got {}", codes_dtype);
