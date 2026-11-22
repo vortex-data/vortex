@@ -77,6 +77,9 @@
 //! [`SliceArray`]: arrays::SliceArray
 //! [`ScalarFnArray`]: arrays::ScalarFnArray
 
+#[cfg(not(target_endian = "little"))]
+compile_error!("vortex-array requires a little-endian target");
+
 extern crate self as vortex_array;
 
 pub use array::*;
