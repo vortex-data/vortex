@@ -534,63 +534,20 @@ fn touched_chunks_piecewise(
     starts: &PrimitiveArray,
     lengths: Columnar,
 ) -> VortexResult<Option<(Vec<ArrayRef>, ArrayRef)>> {
-    let (starts, lengths) = contiguous_slice_ranges(starts, lengths);
     let output_len = indices.as_ref().len();
-    let chunk_offsets = array.chunk_offset_values();
-    let array_len = array.as_ref().len();
+    let sub_pieces = split_piecewise_runs(array, starts, lengths, output_len)?;
 
-    let mut sub_pieces = Vec::with_capacity(starts.len());
-    let mut touched = Vec::with_capacity(starts.len());
-    let mut total_len = 0usize;
-
-    for (&start, &length) in starts.iter().zip_eq(&lengths) {
-        if length == 0 {
-            continue;
-        }
-        let end = start
-            .checked_add(length)
-            .ok_or_else(|| vortex_err!("PiecewiseSequenceArray range overflows usize"))?;
-        if end > array_len {
-            vortex_bail!(
-                "index {} out of bounds from {} to {}",
-                end - 1,
-                0,
-                array_len
-            );
-        }
-        total_len = total_len
-            .checked_add(length)
-            .ok_or_else(|| vortex_err!("PiecewiseSequenceArray output length overflows usize"))?;
-
-        // `<=` steps past empty chunks that share the offset of the next chunk.
-        let mut chunk_idx = chunk_offsets.partition_point(|&offset| offset <= start) - 1;
-        let mut cursor = start;
-        let mut remaining = length;
-        while remaining > 0 {
-            while chunk_offsets[chunk_idx + 1] <= cursor {
-                chunk_idx += 1;
-            }
-            let run = remaining.min(chunk_offsets[chunk_idx + 1] - cursor);
-            sub_pieces.push((chunk_idx, cursor - chunk_offsets[chunk_idx], run));
-            touched.push(chunk_idx);
-            cursor += run;
-            remaining -= run;
-        }
-    }
-
-    vortex_ensure_eq!(
-        total_len,
-        output_len,
-        "PiecewiseSequenceArray expanded length does not match declared length",
-    );
-
+    let mut touched: Vec<usize> = sub_pieces
+        .iter()
+        .map(|&(chunk_idx, ..)| chunk_idx)
+        .collect();
     touched.sort_unstable();
     touched.dedup();
     if touched.len() == array.nchunks() {
         return Ok(None);
     }
 
-    let touched_offsets = touched_chunk_offsets(chunk_offsets, &touched);
+    let touched_offsets = touched_chunk_offsets(array.chunk_offset_values(), &touched);
     let mut remapped_starts = Vec::with_capacity(sub_pieces.len());
     let mut remapped_lengths = Vec::with_capacity(sub_pieces.len());
     for (chunk_idx, local_start, run) in sub_pieces {
@@ -655,44 +612,19 @@ fn contiguous_slice_ranges(starts: &PrimitiveArray, lengths: Columnar) -> (Vec<u
     (starts, lengths)
 }
 
-/// A per-chunk gather plan: chunk-local sub-piece runs to take from one chunk, in output order.
-#[derive(Default)]
-struct ChunkGather {
-    starts: Vec<u64>,
-    lengths: Vec<u64>,
-    total: usize,
-}
-
-/// Take for [`PiecewiseSequence`] indices with unit multipliers.
-///
-/// Each piece is a contiguous index run, so instead of expanding one index per element, pieces
-/// are split at chunk boundaries and gathered from each chunk with a chunk-local
-/// `PiecewiseSequenceArray`. Sub-pieces that visit chunks in non-decreasing order concatenate
-/// directly into the result; otherwise the gathered chunks are flattened once and a second
-/// piecewise take restores output order.
-fn take_piecewise_chunked(
+/// Splits contiguous [`PiecewiseSequence`] runs at chunk boundaries into
+/// `(chunk_idx, local_start, run)` sub-pieces in output order, validating bounds and total length.
+fn split_piecewise_runs(
     array: ArrayView<'_, Chunked>,
-    indices: ArrayView<'_, PiecewiseSequence>,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<Option<ArrayRef>> {
-    let Some((starts, lengths)) = maybe_contiguous_slices(indices, ctx)? else {
-        return Ok(None);
-    };
-
-    let output_len = indices.as_ref().len();
-    let (starts, lengths) = contiguous_slice_ranges(&starts, lengths);
-
-    let array_len = array.as_ref().len();
+    starts: &PrimitiveArray,
+    lengths: Columnar,
+    output_len: usize,
+) -> VortexResult<Vec<(usize, usize, usize)>> {
+    let (starts, lengths) = contiguous_slice_ranges(starts, lengths);
     let chunk_offsets = array.chunk_offset_values();
-    let nchunks = array.nchunks();
+    let array_len = array.as_ref().len();
 
-    let mut plans: Vec<ChunkGather> = Vec::new();
-    plans.resize_with(nchunks, ChunkGather::default);
-    // Sub-pieces in output order: (chunk index, offset within that chunk's gathered output, run
-    // length).
-    let mut sub_pieces: Vec<(usize, usize, usize)> = Vec::with_capacity(starts.len());
-    let mut monotonic = true;
-    let mut prev_chunk = 0usize;
+    let mut pieces = Vec::with_capacity(starts.len());
     let mut total_len = 0usize;
 
     for (&start, &length) in starts.iter().zip_eq(&lengths) {
@@ -723,30 +655,7 @@ fn take_piecewise_chunked(
                 chunk_idx += 1;
             }
             let run = remaining.min(chunk_offsets[chunk_idx + 1] - cursor);
-            monotonic &= chunk_idx >= prev_chunk;
-            prev_chunk = chunk_idx;
-
-            let plan = &mut plans[chunk_idx];
-            // Consecutive sub-pieces in the same chunk stay adjacent in its gathered output, so
-            // they merge into one reorder run.
-            match sub_pieces.last_mut() {
-                Some((last_chunk, _, last_run)) if *last_chunk == chunk_idx => *last_run += run,
-                _ => sub_pieces.push((chunk_idx, plan.total, run)),
-            }
-            // A run that continues exactly where the chunk's previous run ended extends it, so
-            // contiguous spans gather as one run.
-            let local_start = (cursor - chunk_offsets[chunk_idx]) as u64;
-            match (plan.starts.last(), plan.lengths.last_mut()) {
-                (Some(&prev_start), Some(prev_len)) if prev_start + *prev_len == local_start => {
-                    *prev_len += run as u64;
-                }
-                _ => {
-                    plan.starts.push(local_start);
-                    plan.lengths.push(run as u64);
-                }
-            }
-            plan.total += run;
-
+            pieces.push((chunk_idx, cursor - chunk_offsets[chunk_idx], run));
             cursor += run;
             remaining -= run;
         }
@@ -757,6 +666,71 @@ fn take_piecewise_chunked(
         output_len,
         "PiecewiseSequenceArray expanded length does not match declared length",
     );
+
+    Ok(pieces)
+}
+
+/// A per-chunk gather plan: chunk-local sub-piece runs to take from one chunk, in output order.
+#[derive(Default)]
+struct ChunkGather {
+    starts: Vec<u64>,
+    lengths: Vec<u64>,
+    total: usize,
+}
+
+/// Take for [`PiecewiseSequence`] indices with unit multipliers.
+///
+/// Each piece is a contiguous index run, so instead of expanding one index per element, pieces
+/// are split at chunk boundaries and gathered from each chunk with a chunk-local
+/// `PiecewiseSequenceArray`. Sub-pieces that visit chunks in non-decreasing order concatenate
+/// directly into the result; otherwise the gathered chunks are flattened once and a second
+/// piecewise take restores output order.
+fn take_piecewise_chunked(
+    array: ArrayView<'_, Chunked>,
+    indices: ArrayView<'_, PiecewiseSequence>,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Option<ArrayRef>> {
+    let Some((starts, lengths)) = maybe_contiguous_slices(indices, ctx)? else {
+        return Ok(None);
+    };
+
+    let output_len = indices.as_ref().len();
+    let pieces = split_piecewise_runs(array, &starts, lengths, output_len)?;
+    let nchunks = array.nchunks();
+
+    let mut plans: Vec<ChunkGather> = Vec::new();
+    plans.resize_with(nchunks, ChunkGather::default);
+    // Sub-pieces in output order: (chunk index, offset within that chunk's gathered output, run
+    // length).
+    let mut sub_pieces: Vec<(usize, usize, usize)> = Vec::with_capacity(pieces.len());
+    let mut monotonic = true;
+    let mut prev_chunk = 0usize;
+
+    for (chunk_idx, local_start, run) in pieces {
+        monotonic &= chunk_idx >= prev_chunk;
+        prev_chunk = chunk_idx;
+
+        let plan = &mut plans[chunk_idx];
+        // Consecutive sub-pieces in the same chunk stay adjacent in its gathered output, so
+        // they merge into one reorder run.
+        match sub_pieces.last_mut() {
+            Some((last_chunk, _, last_run)) if *last_chunk == chunk_idx => *last_run += run,
+            _ => sub_pieces.push((chunk_idx, plan.total, run)),
+        }
+        // A run that continues exactly where the chunk's previous run ended extends it, so
+        // contiguous spans gather as one run.
+        let local_start = local_start as u64;
+        match (plan.starts.last(), plan.lengths.last_mut()) {
+            (Some(&prev_start), Some(prev_len)) if prev_start + *prev_len == local_start => {
+                *prev_len += run as u64;
+            }
+            _ => {
+                plan.starts.push(local_start);
+                plan.lengths.push(run as u64);
+            }
+        }
+        plan.total += run;
+    }
 
     // Chunks visited in order: the per-chunk gathers already concatenate into the result.
     if monotonic {
