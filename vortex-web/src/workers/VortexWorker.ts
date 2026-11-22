@@ -28,8 +28,9 @@ export class VortexWorker {
   private pending = new Map<number, PendingRequest<any>>();
   private nextId = 0;
 
-  constructor() {
-    this.worker = new Worker(new URL('./vortex.worker.ts', import.meta.url), { type: 'module' });
+  constructor(worker?: Worker) {
+    this.worker =
+      worker ?? new Worker(new URL('./vortex.worker.ts', import.meta.url), { type: 'module' });
     this.worker.onmessage = (e: MessageEvent) => {
       const { type, id, data, error } = e.data;
       const req = this.pending.get(id);
@@ -44,20 +45,25 @@ export class VortexWorker {
   }
 
   /** Open a Vortex file in the worker. The File is structured-cloneable. */
-  openFile(file: File): Promise<OpenFileResult> {
+  openFile(file: File, generation: number): Promise<OpenFileResult> {
     const id = this.nextId++;
     return new Promise<OpenFileResult>((resolve, reject) => {
       this.pending.set(id, { resolve, reject });
-      this.worker.postMessage({ type: 'open', id, file });
+      this.worker.postMessage({ type: 'open', id, generation, file });
     });
   }
 
+  /** Invalidate pending file requests and dispose of the active worker handle. */
+  closeFile(generation: number): void {
+    this.worker.postMessage({ type: 'close', generation });
+  }
+
   /** Fetch the array encoding tree for a flat layout node by its ID. */
-  fetchEncodingTree(nodeId: string): Promise<ArrayEncodingNode> {
+  fetchEncodingTree(nodeId: string, generation: number): Promise<ArrayEncodingNode> {
     const id = this.nextId++;
     return new Promise<ArrayEncodingNode>((resolve, reject) => {
       this.pending.set(id, { resolve, reject });
-      this.worker.postMessage({ type: 'fetchEncodingTree', id, nodeId });
+      this.worker.postMessage({ type: 'fetchEncodingTree', id, generation, nodeId });
     });
   }
 
@@ -66,6 +72,7 @@ export class VortexWorker {
     layoutNodeId: string,
     arrayPath: string[],
     bufferIndex: number,
+    generation: number,
   ): Promise<Uint8Array> {
     const id = this.nextId++;
     return new Promise<Uint8Array>((resolve, reject) => {
@@ -73,6 +80,7 @@ export class VortexWorker {
       this.worker.postMessage({
         type: 'fetchArrayBuffer',
         id,
+        generation,
         layoutNodeId,
         arrayPath,
         bufferIndex,
@@ -85,20 +93,28 @@ export class VortexWorker {
     layoutNodeId: string,
     arrayPath: string[],
     rowLimit: number,
+    generation: number,
   ): Promise<Uint8Array> {
     const id = this.nextId++;
     return new Promise<Uint8Array>((resolve, reject) => {
       this.pending.set(id, { resolve, reject });
-      this.worker.postMessage({ type: 'previewArrayData', id, layoutNodeId, arrayPath, rowLimit });
+      this.worker.postMessage({
+        type: 'previewArrayData',
+        id,
+        generation,
+        layoutNodeId,
+        arrayPath,
+        rowLimit,
+      });
     });
   }
 
   /** Preview data from a specific layout node, returning Arrow IPC bytes. */
-  previewData(nodeId: string, rowLimit: number): Promise<Uint8Array> {
+  previewData(nodeId: string, rowLimit: number, generation: number): Promise<Uint8Array> {
     const id = this.nextId++;
     return new Promise<Uint8Array>((resolve, reject) => {
       this.pending.set(id, { resolve, reject });
-      this.worker.postMessage({ type: 'previewData', id, nodeId, rowLimit });
+      this.worker.postMessage({ type: 'previewData', id, generation, nodeId, rowLimit });
     });
   }
 
