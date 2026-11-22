@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use itertools::Itertools;
-use num_traits::AsPrimitive;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferAllocatorRef;
 use vortex_buffer::BufferMut;
@@ -36,6 +35,7 @@ use crate::builders::builder_with_capacity_in;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::PType;
+use crate::dtype::UnsignedPType;
 use crate::executor::Executable;
 use crate::executor::ExecutionCtx;
 use crate::match_each_unsigned_integer_ptype;
@@ -470,6 +470,12 @@ fn touched_chunks(
         return Ok(None);
     }
 
+    if let Some(piecewise) = indices.as_opt::<PiecewiseSequence>()
+        && let Some((starts, lengths)) = maybe_contiguous_slices(piecewise, ctx)?
+    {
+        return touched_chunks_piecewise(array, piecewise, &starts, lengths);
+    }
+
     let indices = indices
         .cast(DType::Primitive(PType::U64, indices.dtype().nullability()))?
         .execute::<PrimitiveArray>(ctx)?;
@@ -478,18 +484,18 @@ fn touched_chunks(
     let array_len = array.as_ref().len();
 
     // `<=` steps past empty chunks that share the offset of the next chunk.
-    let chunk_of = |index: u64| -> VortexResult<usize> {
-        let index = usize::try_from(index)?;
-        if index >= array_len {
-            vortex_bail!("index {} out of bounds from {} to {}", index, 0, array_len);
-        }
-        Ok(chunk_offsets.partition_point(|&offset| offset <= index) - 1)
-    };
-
-    let mut touched = indices
+    let index_chunks = indices
         .iter()
-        .map(|&index| chunk_of(index))
+        .map(|&index| -> VortexResult<usize> {
+            let index = usize::try_from(index)?;
+            if index >= array_len {
+                vortex_bail!("index {} out of bounds from {} to {}", index, 0, array_len);
+            }
+            Ok(chunk_offsets.partition_point(|&offset| offset <= index) - 1)
+        })
         .collect::<VortexResult<Vec<_>>>()?;
+
+    let mut touched = index_chunks.clone();
     touched.sort_unstable();
     touched.dedup();
 
@@ -497,18 +503,11 @@ fn touched_chunks(
         return Ok(None);
     }
 
-    // The offset of each touched chunk in the touched chunks.
-    let mut touched_offsets = Vec::with_capacity(touched.len());
-    let mut offset = 0usize;
-    for &chunk_idx in &touched {
-        touched_offsets.push(offset);
-        offset += chunk_offsets[chunk_idx + 1] - chunk_offsets[chunk_idx];
-    }
-
+    let touched_offsets = touched_chunk_offsets(chunk_offsets, &touched);
     let remapped = indices
         .iter()
-        .map(|&index| -> VortexResult<u64> {
-            let chunk_idx = chunk_of(index)?;
+        .zip_eq(index_chunks)
+        .map(|(&index, chunk_idx)| -> VortexResult<u64> {
             let position = touched
                 .binary_search(&chunk_idx)
                 .map_err(|_| vortex_err!("chunk {chunk_idx} is not a touched chunk"))?;
@@ -525,6 +524,135 @@ fn touched_chunks(
         chunks,
         PrimitiveArray::new(remapped, Validity::NonNullable).into_array(),
     )))
+}
+
+/// Computes touched chunks and remapped [`PiecewiseSequence`] indices directly from contiguous
+/// runs without expanding them.
+fn touched_chunks_piecewise(
+    array: ArrayView<'_, Chunked>,
+    indices: ArrayView<'_, PiecewiseSequence>,
+    starts: &PrimitiveArray,
+    lengths: Columnar,
+) -> VortexResult<Option<(Vec<ArrayRef>, ArrayRef)>> {
+    let (starts, lengths) = contiguous_slice_ranges(starts, lengths);
+    let output_len = indices.as_ref().len();
+    let chunk_offsets = array.chunk_offset_values();
+    let array_len = array.as_ref().len();
+
+    let mut sub_pieces = Vec::with_capacity(starts.len());
+    let mut touched = Vec::with_capacity(starts.len());
+    let mut total_len = 0usize;
+
+    for (&start, &length) in starts.iter().zip_eq(&lengths) {
+        if length == 0 {
+            continue;
+        }
+        let end = start
+            .checked_add(length)
+            .ok_or_else(|| vortex_err!("PiecewiseSequenceArray range overflows usize"))?;
+        if end > array_len {
+            vortex_bail!(
+                "index {} out of bounds from {} to {}",
+                end - 1,
+                0,
+                array_len
+            );
+        }
+        total_len = total_len
+            .checked_add(length)
+            .ok_or_else(|| vortex_err!("PiecewiseSequenceArray output length overflows usize"))?;
+
+        // `<=` steps past empty chunks that share the offset of the next chunk.
+        let mut chunk_idx = chunk_offsets.partition_point(|&offset| offset <= start) - 1;
+        let mut cursor = start;
+        let mut remaining = length;
+        while remaining > 0 {
+            while chunk_offsets[chunk_idx + 1] <= cursor {
+                chunk_idx += 1;
+            }
+            let run = remaining.min(chunk_offsets[chunk_idx + 1] - cursor);
+            sub_pieces.push((chunk_idx, cursor - chunk_offsets[chunk_idx], run));
+            touched.push(chunk_idx);
+            cursor += run;
+            remaining -= run;
+        }
+    }
+
+    vortex_ensure_eq!(
+        total_len,
+        output_len,
+        "PiecewiseSequenceArray expanded length does not match declared length",
+    );
+
+    touched.sort_unstable();
+    touched.dedup();
+    if touched.len() == array.nchunks() {
+        return Ok(None);
+    }
+
+    let touched_offsets = touched_chunk_offsets(chunk_offsets, &touched);
+    let mut remapped_starts = Vec::with_capacity(sub_pieces.len());
+    let mut remapped_lengths = Vec::with_capacity(sub_pieces.len());
+    for (chunk_idx, local_start, run) in sub_pieces {
+        let position = touched
+            .binary_search(&chunk_idx)
+            .map_err(|_| vortex_err!("chunk {chunk_idx} is not a touched chunk"))?;
+        let remapped_start = u64::try_from(touched_offsets[position] + local_start)?;
+        let remapped_len = u64::try_from(run)?;
+        match (remapped_starts.last(), remapped_lengths.last_mut()) {
+            (Some(&prev_start), Some(prev_len)) if prev_start + *prev_len == remapped_start => {
+                *prev_len += remapped_len;
+            }
+            _ => {
+                remapped_starts.push(remapped_start);
+                remapped_lengths.push(remapped_len);
+            }
+        }
+    }
+
+    let chunks = touched
+        .iter()
+        .map(|&chunk_idx| array.chunk(chunk_idx).clone())
+        .collect();
+    Ok(Some((
+        chunks,
+        contiguous_runs(remapped_starts, remapped_lengths, output_len),
+    )))
+}
+
+/// The offset of each touched chunk in the compacted touched-chunks array.
+fn touched_chunk_offsets(chunk_offsets: &[usize], touched: &[usize]) -> Vec<usize> {
+    let mut touched_offsets = Vec::with_capacity(touched.len());
+    let mut offset = 0usize;
+    for &chunk_idx in touched {
+        touched_offsets.push(offset);
+        offset += chunk_offsets[chunk_idx + 1] - chunk_offsets[chunk_idx];
+    }
+    touched_offsets
+}
+
+fn unsigned_slice_as_usize<T: UnsignedPType>(array: &PrimitiveArray) -> Vec<usize> {
+    array
+        .as_slice::<T>()
+        .iter()
+        .map(|&value| value.as_())
+        .collect()
+}
+
+fn contiguous_slice_ranges(starts: &PrimitiveArray, lengths: Columnar) -> (Vec<usize>, Vec<usize>) {
+    let starts = match_each_unsigned_integer_ptype!(starts.ptype(), |S| {
+        unsigned_slice_as_usize::<S>(starts)
+    });
+    let lengths = match lengths {
+        Columnar::Constant(lengths) => vec![constant_unsigned_usize(&lengths); starts.len()],
+        Columnar::Canonical(lengths) => {
+            let lengths = lengths.into_primitive();
+            match_each_unsigned_integer_ptype!(lengths.ptype(), |L| {
+                unsigned_slice_as_usize::<L>(&lengths)
+            })
+        }
+    };
+    (starts, lengths)
 }
 
 /// A per-chunk gather plan: chunk-local sub-piece runs to take from one chunk, in output order.
@@ -552,26 +680,7 @@ fn take_piecewise_chunked(
     };
 
     let output_len = indices.as_ref().len();
-    let starts: Vec<usize> = match_each_unsigned_integer_ptype!(starts.ptype(), |S| {
-        starts
-            .as_slice::<S>()
-            .iter()
-            .map(|&start| start.as_())
-            .collect()
-    });
-    let lengths: Vec<usize> = match lengths {
-        Columnar::Constant(lengths) => vec![constant_unsigned_usize(&lengths); starts.len()],
-        Columnar::Canonical(lengths) => {
-            let lengths = lengths.into_primitive();
-            match_each_unsigned_integer_ptype!(lengths.ptype(), |L| {
-                lengths
-                    .as_slice::<L>()
-                    .iter()
-                    .map(|&length| length.as_())
-                    .collect()
-            })
-        }
-    };
+    let (starts, lengths) = contiguous_slice_ranges(&starts, lengths);
 
     let array_len = array.as_ref().len();
     let chunk_offsets = array.chunk_offset_values();
@@ -1313,6 +1422,56 @@ mod tests {
 
         let out_of_bounds = chunked.take(buffer![1u64, 8].into_array())?;
         assert!(out_of_bounds.execute::<Canonical>(&mut ctx).is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn test_touched_chunks_piecewise_without_expanding() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let lengths = [2usize, 0, 3, 1, 2];
+        let mut chunks = Vec::new();
+        let mut start = 0u64;
+
+        for length in lengths {
+            let end = start + length as u64;
+            chunks.push(
+                FixedSizeListArray::try_new(
+                    PrimitiveArray::from_iter(start * 2..end * 2).into_array(),
+                    2,
+                    Validity::NonNullable,
+                    length,
+                )?
+                .into_array(),
+            );
+            start = end;
+        }
+
+        let dtype = chunks[0].dtype().clone();
+        let chunked = ChunkedArray::try_new(chunks, dtype)?;
+        let flat = FixedSizeListArray::try_new(
+            PrimitiveArray::from_iter(0..start * 2).into_array(),
+            2,
+            Validity::NonNullable,
+            usize::try_from(start)?,
+        )?
+        .into_array();
+
+        for (indices, expected_chunks) in [
+            (contiguous_pieces(&[1], &[3])?, 2usize),
+            (contiguous_pieces(&[6, 1, 6], &[2, 2, 1])?, 3usize),
+            (contiguous_pieces(&[2], &[2])?, 1usize),
+        ] {
+            let (touched, remapped) = super::touched_chunks(chunked.as_view(), &indices, &mut ctx)?
+                .expect("sparse piecewise indices should select a subset of chunks");
+            assert_eq!(touched.len(), expected_chunks);
+            assert!(remapped.is::<super::PiecewiseSequence>());
+
+            let result = chunked.clone().into_array().take(indices.clone())?;
+            assert_arrays_eq!(result, flat.take(indices)?, &mut ctx);
+        }
+
+        let out_of_bounds = contiguous_pieces(&[6], &[3])?;
+        assert!(super::touched_chunks(chunked.as_view(), &out_of_bounds, &mut ctx).is_err());
         Ok(())
     }
 
