@@ -99,9 +99,7 @@ def _acquire_file_lock(fd: int) -> bool:
     except ImportError:  # pragma: no cover - non-POSIX, non-Windows
         return False
 
-    # Ensure byte 0 exists, then block until the exclusive lock on byte 0 is acquired.
-    if os.fstat(fd).st_size == 0:
-        os.write(fd, b"\0")
+    # Lock byte 0 directly (Windows byte-range locks work beyond EOF without writing).
     while True:
         os.lseek(fd, 0, os.SEEK_SET)
         try:
