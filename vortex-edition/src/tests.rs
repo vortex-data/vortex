@@ -631,7 +631,8 @@ fn failed_declaration_with_intra_batch_duplicate_leaves_no_partial_state() -> Vo
 
     let err = session.register_edition(&DUPLICATE_IN_BATCH).unwrap_err();
     assert!(
-        err.to_string().contains("already joined family test"),
+        err.to_string()
+            .contains("is listed more than once in edition test2026.10.0"),
         "{err}"
     );
     assert!(session.editions().find(&THIRD).is_none());

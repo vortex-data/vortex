@@ -147,6 +147,9 @@ impl EditionSession {
 
     /// Declare an edition together with the members added at it. Each entry's membership
     /// (`since`) is the declared edition; earlier entries are inherited and must not be restated.
+    ///
+    /// The declaration is validated in full before anything is registered: on error, neither the
+    /// edition nor any of its members is published.
     pub fn declare(&self, declaration: &EditionDeclaration) -> VortexResult<()> {
         let mut inner = self.inner.write();
         let key = inner.check_edition(declaration.edition)?;
@@ -159,10 +162,9 @@ impl EditionSession {
             inner.check_inclusion(&inclusion)?;
             if !seen.insert((inclusion.kind, inclusion.component_id)) {
                 vortex_bail!(
-                    "{} {} already joined family {} in edition {}",
+                    "{} {} is listed more than once in edition {}",
                     inclusion.kind,
                     inclusion.component_id,
-                    inclusion.since.family,
                     inclusion.since,
                 );
             }
