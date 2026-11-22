@@ -28,18 +28,7 @@ function App() {
   const sessionRef = useRef<ExplorerSession | null>(null);
 
   if (!sessionRef.current) {
-    sessionRef.current = new ExplorerSession({
-      openFile: (file, generation) => workerRef.current!.openFile(file, generation),
-      closeFile: (generation) => workerRef.current?.closeFile(generation),
-      fetchEncodingTree: (nodeId, generation) =>
-        workerRef.current!.fetchEncodingTree(nodeId, generation),
-      fetchArrayBuffer: (layoutNodeId, arrayPath, bufferIndex, generation) =>
-        workerRef.current!.fetchArrayBuffer(layoutNodeId, arrayPath, bufferIndex, generation),
-      previewArrayData: (layoutNodeId, arrayPath, rowLimit, generation) =>
-        workerRef.current!.previewArrayData(layoutNodeId, arrayPath, rowLimit, generation),
-      previewData: (nodeId, rowLimit, generation) =>
-        workerRef.current!.previewData(nodeId, rowLimit, generation),
-    });
+    sessionRef.current = new ExplorerSession(() => workerRef.current);
   }
   const session = sessionRef.current;
 
@@ -63,15 +52,20 @@ function App() {
 
   const closeFile = useCallback(() => session.closeFile(), [session]);
 
+  const fileCallbacks = useMemo(
+    () => session.getFileCallbacks(activeGeneration),
+    [session, activeGeneration],
+  );
+
   const fileContextValue = useMemo<VortexFileContextValue | null>(
     () =>
       fileState
         ? {
             ...fileState,
-            ...session.getFileCallbacks(activeGeneration),
+            ...fileCallbacks,
           }
         : null,
-    [fileState, activeGeneration, session],
+    [fileState, fileCallbacks],
   );
 
   const handleDragEnter = useCallback((e: DragEvent<HTMLDivElement>) => {

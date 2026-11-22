@@ -4,26 +4,7 @@
 import type { VortexFileState } from './contexts/VortexFileContext';
 import type { ArrayEncodingNode, LayoutTreeNode } from './components/swimlane/types';
 import { arrayTreeToLayoutChildren, findNodeById } from './components/swimlane/utils';
-import type { OpenFileResult } from './workers/VortexWorker';
-
-export interface ExplorerWorkerClient {
-  openFile(file: File, generation: number): Promise<OpenFileResult>;
-  closeFile(generation: number): void;
-  fetchEncodingTree(nodeId: string, generation: number): Promise<ArrayEncodingNode>;
-  fetchArrayBuffer(
-    layoutNodeId: string,
-    arrayPath: string[],
-    bufferIndex: number,
-    generation: number,
-  ): Promise<Uint8Array>;
-  previewArrayData(
-    layoutNodeId: string,
-    arrayPath: string[],
-    rowLimit: number,
-    generation: number,
-  ): Promise<Uint8Array>;
-  previewData(nodeId: string, rowLimit: number, generation: number): Promise<Uint8Array>;
-}
+import type { VortexWorker } from './workers/VortexWorker';
 
 export interface ExplorerSessionSnapshot {
   fileState: VortexFileState | null;
@@ -73,34 +54,23 @@ export class ExplorerSession {
     error: null,
   };
   private listeners = new Set<() => void>();
-  private worker: ExplorerWorkerClient;
-  private cachedCallbacksGen = -1;
-  private cachedCallbacks: ExplorerFileCallbacks | null = null;
+  private getWorker: () => VortexWorker | null;
 
-  constructor(worker: ExplorerWorkerClient) {
-    this.worker = worker;
+  constructor(getWorker: () => VortexWorker | null) {
+    this.getWorker = getWorker;
   }
 
-  /**
-   * Returns stable context callbacks bound to a single file generation so
-   * in-file state updates (like tree expansion) do not recreate callbacks
-   * and trigger consumer effects such as BuffersPane auto-selection.
-   */
   getFileCallbacks(generation: number): ExplorerFileCallbacks {
-    if (this.cachedCallbacks && this.cachedCallbacksGen === generation) {
-      return this.cachedCallbacks;
-    }
-    this.cachedCallbacksGen = generation;
-    this.cachedCallbacks = {
-      fetchEncodingTree: (nodeId) => this.fetchEncodingTree(nodeId, generation),
-      previewData: (nodeId, rowLimit) => this.previewData(nodeId, rowLimit, generation),
+    return {
+      fetchEncodingTree: (nodeId) => this.getWorker()!.fetchEncodingTree(nodeId, generation),
+      previewData: (nodeId, rowLimit) =>
+        this.getWorker()!.previewData(nodeId, rowLimit, generation),
       expandArrayTree: (nodeId) => this.expandArrayTree(nodeId, generation),
       fetchArrayBuffer: (layoutNodeId, arrayPath, bufferIndex) =>
-        this.fetchArrayBuffer(layoutNodeId, arrayPath, bufferIndex, generation),
+        this.getWorker()!.fetchArrayBuffer(layoutNodeId, arrayPath, bufferIndex, generation),
       previewArrayData: (layoutNodeId, arrayPath, rowLimit) =>
-        this.previewArrayData(layoutNodeId, arrayPath, rowLimit, generation),
+        this.getWorker()!.previewArrayData(layoutNodeId, arrayPath, rowLimit, generation),
     };
-    return this.cachedCallbacks;
   }
 
   subscribe = (listener: () => void): (() => void) => {
@@ -123,7 +93,7 @@ export class ExplorerSession {
     const gen = ++this.generation;
     this.update({ ...this.snapshot, error: null, loading: true });
     try {
-      const result = await this.worker.openFile(file, gen);
+      const result = await this.getWorker()!.openFile(file, gen);
       if (this.generation !== gen) return;
       this.update({
         fileState: {
@@ -142,7 +112,7 @@ export class ExplorerSession {
       });
     } catch (e) {
       if (this.generation !== gen) return;
-      this.worker.closeFile(gen);
+      this.getWorker()?.closeFile(gen);
       this.update({
         fileState: null,
         activeGeneration: 0,
@@ -154,39 +124,13 @@ export class ExplorerSession {
 
   closeFile(): void {
     const gen = ++this.generation;
-    this.worker.closeFile(gen);
+    this.getWorker()?.closeFile(gen);
     this.update({
       fileState: null,
       activeGeneration: 0,
       loading: false,
       error: null,
     });
-  }
-
-  fetchEncodingTree(nodeId: string, generation = this.snapshot.activeGeneration) {
-    return this.worker.fetchEncodingTree(nodeId, generation);
-  }
-
-  previewData(nodeId: string, rowLimit: number, generation = this.snapshot.activeGeneration) {
-    return this.worker.previewData(nodeId, rowLimit, generation);
-  }
-
-  fetchArrayBuffer(
-    layoutNodeId: string,
-    arrayPath: string[],
-    bufferIndex: number,
-    generation = this.snapshot.activeGeneration,
-  ) {
-    return this.worker.fetchArrayBuffer(layoutNodeId, arrayPath, bufferIndex, generation);
-  }
-
-  previewArrayData(
-    layoutNodeId: string,
-    arrayPath: string[],
-    rowLimit: number,
-    generation = this.snapshot.activeGeneration,
-  ) {
-    return this.worker.previewArrayData(layoutNodeId, arrayPath, rowLimit, generation);
   }
 
   async expandArrayTree(
@@ -199,7 +143,7 @@ export class ExplorerSession {
 
     let arrayTree: ArrayEncodingNode;
     try {
-      arrayTree = await this.worker.fetchEncodingTree(nodeId, generation);
+      arrayTree = await this.getWorker()!.fetchEncodingTree(nodeId, generation);
     } catch (e) {
       if (this.snapshot.activeGeneration !== generation) {
         return;

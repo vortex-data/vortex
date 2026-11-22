@@ -61,13 +61,11 @@ interface HandleEntry {
   handle: VortexWorkerFileHandle;
   inFlight: number;
   retired: boolean;
-  disposed: boolean;
 }
 
 const STALE_GENERATION_ERROR = 'Stale file generation';
 
 export function createVortexWorkerHandler(deps: WorkerRuntimeDeps) {
-  let initialized = false;
   let initPromise: Promise<void> | null = null;
   let currentGeneration = 0;
   let activeHandle: HandleEntry | null = null;
@@ -76,9 +74,7 @@ export function createVortexWorkerHandler(deps: WorkerRuntimeDeps) {
     if (!initPromise) {
       initPromise = deps
         .init()
-        .then(() => {
-          initialized = true;
-        })
+        .then(() => undefined)
         .catch((err) => {
           initPromise = null;
           throw err;
@@ -88,8 +84,7 @@ export function createVortexWorkerHandler(deps: WorkerRuntimeDeps) {
   }
 
   function disposeIfReady(entry: HandleEntry): void {
-    if (entry.retired && entry.inFlight === 0 && !entry.disposed) {
-      entry.disposed = true;
+    if (entry.retired && entry.inFlight === 0) {
       entry.handle.free();
     }
   }
@@ -144,12 +139,10 @@ export function createVortexWorkerHandler(deps: WorkerRuntimeDeps) {
         }
         currentGeneration = generation;
 
-        if (!initialized) {
-          await ensureInit();
-          if (generation !== currentGeneration) {
-            deps.postMessage({ type: 'error', id, error: STALE_GENERATION_ERROR });
-            return;
-          }
+        await ensureInit();
+        if (generation !== currentGeneration) {
+          deps.postMessage({ type: 'error', id, error: STALE_GENERATION_ERROR });
+          return;
         }
 
         const handle = await deps.openVortexFile(msg.file);
@@ -179,15 +172,12 @@ export function createVortexWorkerHandler(deps: WorkerRuntimeDeps) {
           handle,
           inFlight: 0,
           retired: false,
-          disposed: false,
         };
         deps.postMessage({ type: 'result', id, data: result });
         return;
       }
 
-      if (!initialized) {
-        await ensureInit();
-      }
+      await ensureInit();
 
       if (msg.type === 'fetchEncodingTree') {
         const json = await withActiveHandle(generation, (h) => h.fetch_encoding_tree(msg.nodeId));

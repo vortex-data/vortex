@@ -124,7 +124,7 @@ function createHarness(openImpl: (file: File) => Promise<VortexWorkerFileHandle>
   } as unknown as Worker;
 
   const client = new VortexWorker(fakeWorker);
-  const session = new ExplorerSession(client);
+  const session = new ExplorerSession(() => client);
   return { client, session };
 }
 
@@ -168,7 +168,7 @@ describe('Explorer file generation and handle lifecycle', () => {
     expect(session.getSnapshot().error).toBeNull();
 
     // Subsequent worker operation still uses handleB.
-    const enc = await session.fetchEncodingTree('root');
+    const enc = await session.getFileCallbacks(genB).fetchEncodingTree('root');
     expect(enc.encoding).toBe('enc.file-b');
   });
 
@@ -275,7 +275,9 @@ describe('Explorer file generation and handle lifecycle', () => {
     await session.openFile(new File(['a'], 'a.vortex'));
     const genA = session.getSnapshot().activeGeneration;
 
-    const bufPromise = session.fetchArrayBuffer('root', [], 0, genA);
+    const bufPromise = session.getFileCallbacks(genA).fetchArrayBuffer('root', [], 0);
+    // Let fetchArrayBuffer pass ensureInit() and enter handle.fetch_array_buffer().
+    await Promise.resolve();
     session.closeFile();
 
     // Still in flight, so not freed yet.
@@ -311,7 +313,7 @@ describe('Explorer file generation and handle lifecycle', () => {
     // File A is still visible in the UI, so reads against A must still succeed.
     expect(session.getSnapshot().fileState?.fileName).toBe('a.vortex');
     expect(handleA.freeCount).toBe(0);
-    const tree = await session.fetchEncodingTree('root', genA);
+    const tree = await session.getFileCallbacks(genA).fetchEncodingTree('root');
     expect(tree.encoding).toBe('enc.file-a');
 
     // Once B completes, A is retired and freed once, and B becomes active.
@@ -321,29 +323,8 @@ describe('Explorer file generation and handle lifecycle', () => {
     expect(handleA.freeCount).toBe(1);
     expect(handleB.freeCount).toBe(0);
     expect(session.getSnapshot().fileState?.fileName).toBe('b.vortex');
-    await expect(session.fetchEncodingTree('root', genA)).rejects.toThrow('Stale file generation');
-  });
-
-  it('keeps file callbacks stable across in-file tree expansion so buffer selection is preserved', async () => {
-    const handleA = makeFakeHandle('file-a');
-    const { session } = createHarness(async () => handleA);
-
-    await session.openFile(new File(['a'], 'a.vortex'));
-    const genA = session.getSnapshot().activeGeneration;
-    const callbacksBefore = session.getFileCallbacks(genA);
-
-    // Simulate user selecting buffer 1, then expanding an unrelated node.
-    const buf1 = await callbacksBefore.fetchArrayBuffer('other', [], 1);
-    expect(buf1).toBeInstanceOf(Uint8Array);
-
-    await callbacksBefore.expandArrayTree('root');
-    expect(session.getSnapshot().fileState?.layoutTree.children.length).toBeGreaterThan(0);
-
-    // File generation is unchanged, so callback identities remain identical.
-    expect(session.getSnapshot().activeGeneration).toBe(genA);
-    const callbacksAfter = session.getFileCallbacks(session.getSnapshot().activeGeneration);
-    expect(callbacksAfter.fetchArrayBuffer).toBe(callbacksBefore.fetchArrayBuffer);
-    expect(callbacksAfter.fetchEncodingTree).toBe(callbacksBefore.fetchEncodingTree);
-    expect(callbacksAfter.expandArrayTree).toBe(callbacksBefore.expandArrayTree);
+    await expect(session.getFileCallbacks(genA).fetchEncodingTree('root')).rejects.toThrow(
+      'Stale file generation',
+    );
   });
 });
