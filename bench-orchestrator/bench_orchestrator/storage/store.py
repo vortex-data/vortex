@@ -191,7 +191,29 @@ class ResultStore:
         with ctx:
             yield ctx
 
-        self._publish_latest(run_id)
+        if not ctx.metadata.partial:
+            self._publish_latest(run_id)
+
+    def _iter_run_dirs(self) -> Iterator[Path]:
+        """Yield run directories containing metadata.json, skipping symlinks and hidden paths."""
+        if not self.base_dir.exists():
+            return
+        for root, dirs, files in os.walk(self.base_dir, followlinks=False):
+            root_path = Path(root)
+            dirs[:] = [d for d in dirs if d != "latest" and not d.startswith(".") and not (root_path / d).is_symlink()]
+            if root_path != self.base_dir and "metadata.json" in files:
+                yield root_path
+
+    def _resolve_latest_run_id(self, latest_link: Path) -> str:
+        """Return the full run ID targeted by the latest symlink."""
+        target_path = Path(os.readlink(latest_link))
+        if not target_path.is_absolute():
+            return target_path.as_posix()
+        resolved = target_path.resolve()
+        try:
+            return resolved.relative_to(self.base_dir.resolve()).as_posix()
+        except ValueError:
+            return resolved.name
 
     def list_runs(
         self,
@@ -204,13 +226,8 @@ class ResultStore:
             return []
 
         summaries = []
-        for run_dir in self.base_dir.iterdir():
-            if run_dir.is_symlink() or not run_dir.is_dir() or run_dir.name == "latest" or run_dir.name.startswith("."):
-                continue
-
+        for run_dir in self._iter_run_dirs():
             metadata_path = run_dir / "metadata.json"
-            if not metadata_path.exists():
-                continue
 
             try:
                 with open(metadata_path) as f:
@@ -246,13 +263,13 @@ class ResultStore:
         if run_id_or_label == "latest":
             latest_link = self.base_dir / "latest"
             if latest_link.is_symlink():
-                run_id_or_label = latest_link.resolve().name
+                run_id_or_label = self._resolve_latest_run_id(latest_link)
             else:
-                # Find most recent run
-                runs = self.list_runs(limit=1)
-                if not runs:
+                # Find most recent non-partial run
+                complete_runs = [r for r in self.list_runs(limit=None) if not r.partial]
+                if not complete_runs:
                     return None
-                run_id_or_label = runs[0].run_id
+                run_id_or_label = complete_runs[0].run_id
 
         # Try direct match
         run_dir = self.base_dir / run_id_or_label
@@ -263,14 +280,8 @@ class ResultStore:
                     return RunMetadata.from_dict(json.load(f))
 
         # Try to find by label
-        if not self.base_dir.exists():
-            return None
-        for run_dir in self.base_dir.iterdir():
-            if run_dir.is_symlink() or not run_dir.is_dir() or run_dir.name == "latest" or run_dir.name.startswith("."):
-                continue
+        for run_dir in self._iter_run_dirs():
             metadata_path = run_dir / "metadata.json"
-            if not metadata_path.exists():
-                continue
             try:
                 with open(metadata_path) as f:
                     data = json.load(f)

@@ -178,10 +178,12 @@ def test_temporary_symlinks_excluded_from_run_discovery(tmp_path: Path, monkeypa
     assert [r.run_id for r in runs] == [run_id]
 
 
-def test_slash_label_creates_intermediate_directories(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_slash_label_creates_intermediate_directories_and_lookups(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     _patch_store_env(monkeypatch)
     store = ResultStore(base_dir=tmp_path / "runs")
-    config, build_config = _make_configs(label="feature/new-scan")
+    config, build_config = _make_configs(label="feature/experiment")
 
     with store.create_run(config, build_config) as ctx1:
         run_id_1 = ctx1.metadata.run_id
@@ -194,3 +196,56 @@ def test_slash_label_creates_intermediate_directories(tmp_path: Path, monkeypatc
     assert run_id_1 != run_id_2
     assert store.load_results(run_id_1)["run"].tolist() == [1]
     assert store.load_results(run_id_2)["run"].tolist() == [2]
+
+    latest = store.get_run("latest")
+    assert latest is not None
+    assert latest.run_id == run_id_2
+
+    by_label = store.get_run("feature/experiment")
+    assert by_label is not None
+    assert by_label.label == "feature/experiment"
+
+    listed_ids = {r.run_id for r in store.list_runs()}
+    assert listed_ids == {run_id_1, run_id_2}
+
+
+def test_soft_partial_run_does_not_replace_latest(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _patch_store_env(monkeypatch)
+    store = ResultStore(base_dir=tmp_path / "runs")
+    config, build_config = _make_configs(label="soft-fail")
+
+    with store.create_run(config, build_config) as ctx_ok:
+        ok_id = ctx_ok.metadata.run_id
+        ctx_ok.write_raw_json(json.dumps({"status": "ok"}))
+
+    with store.create_run(config, build_config) as ctx_partial:
+        partial_id = ctx_partial.metadata.run_id
+        ctx_partial.write_raw_json(json.dumps({"status": "partial"}))
+        ctx_partial.metadata.partial = True
+
+    latest = store.get_run("latest")
+    assert latest is not None
+    assert latest.run_id == ok_id
+
+    partial_meta = store.get_run(partial_id)
+    assert partial_meta is not None
+    assert partial_meta.partial is True
+
+
+def test_empty_store_latest_fallback_excludes_partial_runs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _patch_store_env(monkeypatch)
+    store = ResultStore(base_dir=tmp_path / "runs")
+    config, build_config = _make_configs(label="first-fail")
+
+    partial_id = ""
+    with pytest.raises(RuntimeError, match="boom"), store.create_run(config, build_config) as ctx:
+        partial_id = ctx.metadata.run_id
+        ctx.write_raw_json(json.dumps({"status": "partial"}))
+        raise RuntimeError("boom")
+
+    assert not (store.base_dir / "latest").exists()
+    assert store.get_run("latest") is None
+
+    partial_meta = store.get_run(partial_id)
+    assert partial_meta is not None
+    assert partial_meta.partial is True
