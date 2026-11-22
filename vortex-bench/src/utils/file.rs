@@ -37,6 +37,14 @@ fn check_data_generation_allowed(data_path: &Path) -> Result<()> {
     Ok(())
 }
 
+/// Reserves a private per-attempt directory under `target/` and removes it on drop.
+///
+/// Using a dedicated directory instead of a bare temp file prevents a queued blocking
+/// `File::create` from recreating a leaked file after an async future is dropped, since the
+/// missing parent directory makes the late create fail with `NotFound`. Note that this only holds
+/// for writers that do not create missing parent directories (e.g. `object_store::local::LocalFileSystem`
+/// creates parent directories on `NotFound` and could still recreate the directory if a write is
+/// already queued on cancellation).
 struct TempPathGuard {
     dir: PathBuf,
     path: PathBuf,
@@ -255,14 +263,22 @@ mod tests {
     use anyhow::Result;
     use anyhow::bail;
     use parking_lot::Mutex;
-    use tempfile::tempdir;
+    use tempfile::TempDir;
+    use tempfile::tempdir_in;
 
     use super::idempotent;
     use super::idempotent_async;
+    use super::workspace_root;
+
+    fn test_tempdir() -> Result<TempDir> {
+        let target_dir = workspace_root().join("target");
+        fs::create_dir_all(&target_dir)?;
+        Ok(tempdir_in(target_dir)?)
+    }
 
     #[test]
     fn idempotent_cleans_up_temp_file_when_generator_fails() -> Result<()> {
-        let dir = tempdir()?;
+        let dir = test_tempdir()?;
         let final_path = dir.path().join("output.parquet");
         let observed_temp: Rc<RefCell<Option<PathBuf>>> = Rc::new(RefCell::new(None));
         let observed_clone = Rc::clone(&observed_temp);
@@ -288,7 +304,7 @@ mod tests {
 
     #[test]
     fn idempotent_cleans_up_temp_file_when_rename_fails() -> Result<()> {
-        let dir = tempdir()?;
+        let dir = test_tempdir()?;
         let final_path = dir.path().join("output.parquet");
         let observed_temp: Rc<RefCell<Option<PathBuf>>> = Rc::new(RefCell::new(None));
         let observed_clone = Rc::clone(&observed_temp);
@@ -315,7 +331,7 @@ mod tests {
 
     #[test]
     fn idempotent_skips_existing_output_without_invoking_generator() -> Result<()> {
-        let dir = tempdir()?;
+        let dir = test_tempdir()?;
         let final_path = dir.path().join("existing.parquet");
         fs::write(&final_path, b"existing")?;
 
@@ -330,7 +346,7 @@ mod tests {
 
     #[test]
     fn idempotent_async_cleans_up_temp_file_on_error_and_retry_succeeds() -> Result<()> {
-        let dir = tempdir()?;
+        let dir = test_tempdir()?;
         let final_path = dir.path().join("async_output.vortex");
         let leaked_temp = Arc::new(Mutex::new(None::<PathBuf>));
         let leaked_clone = Arc::clone(&leaked_temp);
@@ -346,9 +362,7 @@ mod tests {
                     assert!(!temp_path.exists());
                     *leaked_clone.lock() = Some(temp_path.clone());
                     fs::write(&temp_path, b"partial-async")?;
-                    bail!("async generator failed");
-                    #[allow(unreachable_code)]
-                    Ok::<(), anyhow::Error>(())
+                    Err::<(), _>(anyhow::anyhow!("async generator failed"))
                 }
             }))
             .unwrap_err();
@@ -374,7 +388,7 @@ mod tests {
 
     #[test]
     fn idempotent_async_cleans_up_temp_file_when_future_is_dropped() -> Result<()> {
-        let dir = tempdir()?;
+        let dir = test_tempdir()?;
         let final_path = dir.path().join("cancelled_output.vortex");
         let observed_temp = Arc::new(Mutex::new(None::<PathBuf>));
         let observed_clone = Arc::clone(&observed_temp);
@@ -424,7 +438,7 @@ mod tests {
 
     #[test]
     fn idempotent_async_cancels_before_async_file_create_completes() -> Result<()> {
-        let dir = tempdir()?;
+        let dir = test_tempdir()?;
         let final_path = dir.path().join("cancelled_before_create.vortex");
         let observed_temp = Arc::new(Mutex::new(None::<PathBuf>));
         let observed_clone = Arc::clone(&observed_temp);
