@@ -59,10 +59,18 @@ impl ObjectStoreWrite {
         #[cfg(not(target_arch = "wasm32"))]
         let upload = {
             let location = location.clone();
+            let (tx, rx) = oneshot::channel();
             smol::spawn(Compat::new(async move {
-                object_store.put_multipart(&location).await
+                let res = object_store.put_multipart(&location).await;
+                if let Err(Ok(mut upload)) = tx.send(res)
+                    && let Err(err) = upload.abort().await
+                {
+                    tracing::warn!(%err, "failed to abort multipart upload after cancelled initiation");
+                }
             }))
-            .await?
+            .detach();
+            rx.await
+                .map_err(|_| vortex_error::vortex_err!("multipart initiation task cancelled"))??
         };
         #[cfg(target_arch = "wasm32")]
         let upload = object_store.put_multipart(location).await?;
