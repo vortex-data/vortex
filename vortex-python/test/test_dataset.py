@@ -325,6 +325,11 @@ def test_public_record_batch_reader_close_restores_worker_count_while_alive(
     # Keep both closed reader objects alive across the restored-count assertion.
     assert reader1 is not None and reader2 is not None
 
+    # Verify native PyArrow consumers (e.g. Scanner.from_batches) accept the returned reader.
+    scanner = pd.Scanner.from_batches(ds.to_record_batch_reader(batch_size=1024, use_threads=False))
+    assert scanner.to_table().num_rows == ds.count_rows()
+    assert pool.workers == 4
+
 
 @pytest.mark.parametrize("batch_size", [1234, 8192, 1 << 31])
 def test_to_batch_size(ds: pd.Dataset, batch_size: int) -> None:
