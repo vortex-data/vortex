@@ -39,6 +39,7 @@ use vortex_cuda_driver::SyncOnDrop;
 use vortex_nvcomp::sys::nvcompStatus_t;
 use vortex_nvcomp::zstd as nvcomp_zstd;
 
+use super::zstd_buffers::validate_decompress_results;
 use crate::CudaBufferExt;
 use crate::CudaDeviceBuffer;
 use crate::executor::CudaExecute;
@@ -54,6 +55,8 @@ pub struct ZstdKernelPrep {
     pub output_sizes_ptr: u64,
     /// Device pointer to array of pointers to output buffers.
     pub output_ptrs_ptr: u64,
+    /// Expected uncompressed size per frame on host.
+    pub(crate) output_sizes: Vec<usize>,
     /// Number of frames to decompress.
     pub num_frames: usize,
     /// Size of temporary buffer for nvcomp.
@@ -145,7 +148,7 @@ pub async fn zstd_kernel_prepare(
     let (frame_ptrs_handle, frame_sizes_handle, output_sizes_handle, output_ptrs_handle) = futures::try_join!(
         ctx.copy_to_device(frame_ptrs)?,
         ctx.copy_to_device(frame_sizes)?,
-        ctx.copy_to_device(output_sizes)?,
+        ctx.copy_to_device(output_sizes.clone())?,
         ctx.copy_to_device(output_ptrs)?
     )?;
 
@@ -165,6 +168,7 @@ pub async fn zstd_kernel_prepare(
         frame_sizes_ptr,
         output_sizes_ptr,
         output_ptrs_ptr,
+        output_sizes,
         num_frames,
         nvcomp_temp_buffer_size,
         device_actual_sizes,
@@ -341,6 +345,13 @@ async fn decode_zstd(array: ZstdArray, ctx: &mut CudaExecutionCtx) -> VortexResu
         }
     })?;
     finish_result?;
+
+    validate_decompress_results(
+        &exec.output_sizes,
+        exec.device_actual_sizes,
+        exec.device_statuses,
+    )
+    .await?;
 
     // Unconditionally copy back to the host as Zstd arrays are fully
     // self-contained. They neither have any parent or child encodings.
