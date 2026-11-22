@@ -16,7 +16,7 @@ permissions:
   actions: read
 
 env:
-  NIGHTLY_TOOLCHAIN: nightly-2026-09-10
+  NIGHTLY_TOOLCHAIN: nightly-2026-11-13
 
 jobs:
   close-fixed:
@@ -24,19 +24,19 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: [file_io, array_ops, compress_roundtrip]
+        target: [file_io, array_ops, compress_roundtrip, arrow_roundtrip]
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
           && format('runs-on={0}/region=us-east-1/runner=arm64-medium/extras=s3-cache/tag=fuzzer-cleanup-{1}', github.run_id, matrix.target)
           || 'ubuntu-latest' }}
     timeout-minutes: 30
     steps:
-      - uses: runs-on/action@v2
-        if: github.repository == 'vortex-data/vortex'
-        with:
-          sccache: s3
-
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+      - parallel:
+          - uses: runs-on/action@v2
+            if: github.repository == 'vortex-data/vortex'
+            with:
+              sccache: s3
+          - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
 
       - uses: ./.github/actions/setup-prebuild
         with:

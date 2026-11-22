@@ -3,9 +3,9 @@
 
 //! Native comparison of decimal arrays.
 //!
-//! Both operands share a logical [`DecimalDType`] (equal precision and scale), so comparing the
-//! unscaled integer values is sufficient. The physical storage width may differ per operand; when
-//! it does, both sides are widened once to the larger storage type before the lane loop.
+//! Both operands share a [`DecimalDType`], so their unscaled integers have the same scale.
+//! Canonical arrays also share an integer width. A constant can use any width that holds its
+//! value, so it is converted once before the comparison loop.
 //!
 //! [`DecimalDType`]: crate::dtype::DecimalDType
 
@@ -13,6 +13,7 @@ use vortex_buffer::BitBuffer;
 use vortex_buffer::BufferAllocatorRef;
 use vortex_compute::lane_kernels::collect_bits;
 use vortex_compute::lane_kernels::collect_zip_bits;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 
@@ -22,10 +23,8 @@ use crate::IntoArray;
 use crate::arrays::BoolArray;
 use crate::arrays::Constant;
 use crate::arrays::DecimalArray;
-use crate::arrays::decimal::widened_buffer;
 use crate::dtype::NativeDecimalType;
 use crate::dtype::Nullability;
-use crate::dtype::i256;
 use crate::match_each_decimal_value_type;
 use crate::scalar::DecimalValue;
 use crate::scalar_fn::fns::binary::compare::compare_validity;
@@ -117,11 +116,8 @@ fn compare_decimal_values(
     op: CompareOperator,
     allocator: &BufferAllocatorRef,
 ) -> BitBuffer {
-    let common = lhs.values_type().max(rhs.values_type());
-    match_each_decimal_value_type!(common, |W| {
-        let lhs = widened_buffer::<W>(lhs);
-        let rhs = widened_buffer::<W>(rhs);
-        compare_slices::<W>(&lhs, &rhs, op, allocator)
+    match_each_decimal_value_type!(lhs.values_type(), |T| {
+        compare_slices(&lhs.buffer::<T>(), &rhs.buffer::<T>(), op, allocator)
     })
 }
 
@@ -132,23 +128,7 @@ fn compare_decimal_constant(
     allocator: &BufferAllocatorRef,
 ) -> BitBuffer {
     match_each_decimal_value_type!(array.values_type(), |T| {
-        match constant.cast::<T>() {
-            Some(value) => compare_slice_constant::<T>(&array.buffer::<T>(), value, op, allocator),
-            None => {
-                // The constant does not fit the array's storage type, so it is either greater
-                // than every possible array value or less than every possible array value; the
-                // sign tells us which.
-                let constant_greater = constant.as_i256() > i256::ZERO;
-                let result = match op {
-                    CompareOperator::Eq => false,
-                    CompareOperator::NotEq => true,
-                    // array <op> constant
-                    CompareOperator::Lt | CompareOperator::Lte => constant_greater,
-                    CompareOperator::Gt | CompareOperator::Gte => !constant_greater,
-                };
-                BitBuffer::full_in(result, array.len(), allocator.clone())
-            }
-        }
+        compare_slice_constant(&array.buffer::<T>(), constant, op, allocator)
     })
 }
 
@@ -170,10 +150,14 @@ fn compare_slices<T: NativeDecimalType>(
 
 fn compare_slice_constant<T: NativeDecimalType>(
     values: &[T],
-    constant: T,
+    constant: DecimalValue,
     op: CompareOperator,
     allocator: &BufferAllocatorRef,
 ) -> BitBuffer {
+    let constant = constant
+        .cast::<T>()
+        .vortex_expect("a decimal scalar fits the canonical width of its precision");
+
     match op {
         CompareOperator::Eq => collect_bits(values, |a: T| a == constant, allocator),
         CompareOperator::NotEq => collect_bits(values, |a: T| a != constant, allocator),

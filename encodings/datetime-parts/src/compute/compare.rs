@@ -335,7 +335,11 @@ mod tests {
     use crate::DateTimeParts;
     use crate::DateTimePartsArray;
 
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+        let session = VortexSession::empty();
+        crate::initialize(&session);
+        session
+    });
 
     fn dtp_array_from_timestamp<T: IntegerPType>(
         value: T,

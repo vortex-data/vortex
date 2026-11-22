@@ -5,6 +5,7 @@ package dev.vortex.spark.write;
 
 import dev.vortex.spark.ArrowProperties;
 import dev.vortex.spark.VortexOptions;
+import dev.vortex.spark.VortexSparkSession;
 import dev.vortex.spark.io.HadoopWritable;
 import org.apache.hadoop.mapreduce.TaskAttemptContext;
 import org.apache.spark.sql.execution.datasources.OutputWriter;
@@ -24,8 +25,21 @@ public final class VortexOutputWriterFactory extends OutputWriterFactory {
     private final VortexOptions options;
 
     public VortexOutputWriterFactory(StructType schema, VortexOptions options) {
+        validate(options);
         this.schema = schema;
         this.options = options;
+    }
+
+    /**
+     * Rejects options every writer would fail on. Spark builds the factory on the driver before it starts a task, so a
+     * bad value fails the write there instead of in each task.
+     *
+     * @throws IllegalArgumentException if a write option is unusable
+     */
+    private static void validate(VortexOptions options) {
+        VortexOutputWriter.configuredBatchSize(options);
+        options.getBoolean(VortexOutputWriter.COMPACT_OPTION, false);
+        VortexSparkSession.validate(options);
     }
 
     @Override

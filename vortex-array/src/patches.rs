@@ -22,10 +22,12 @@ use vortex_mask::Mask;
 use vortex_mask::MaskValues;
 use vortex_utils::aliases::hash_map::HashMap;
 
+use crate::ArrayProbe;
 use crate::ArrayRef;
 use crate::ArraySlots;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::ProbeState;
 use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::primitive::PrimitiveArrayExt;
@@ -38,12 +40,14 @@ use crate::dtype::Nullability::NonNullable;
 use crate::dtype::PType;
 use crate::dtype::UnsignedPType;
 use crate::match_each_unsigned_integer_ptype;
+use crate::optimizer::ArrayOptimizer;
 use crate::scalar::Scalar;
 use crate::search_sorted::SearchResult;
 use crate::search_sorted::SearchSorted;
 use crate::search_sorted::SearchSortedPrimitiveArray;
 use crate::search_sorted::SearchSortedSide;
 use crate::validity::Validity;
+use crate::vtable::VTable;
 
 /// One patch index offset is stored for each chunk.
 /// This allows for constant time patch index lookups.
@@ -325,8 +329,9 @@ impl Patches {
                     .offset
                     .checked_add(PATCH_CHUNK_SIZE - sliced_rows)
                     .ok_or_else(|| vortex_err!("Patch chunk boundary overflows usize"))?;
-                let retained =
-                    search_index_binary_search(&patches.indices, first_chunk_end, ctx)?.to_index();
+                let [retained] =
+                    search_index_binary_search(&patches.indices, [first_chunk_end], ctx)?;
+                let retained = retained.to_index();
                 let expected_offset = patches
                     .chunk_offset_at(1, ctx)?
                     .checked_sub(patches.chunk_offset_at(0, ctx)?)
@@ -516,46 +521,89 @@ impl Patches {
     /// [`SearchResult::Found(patch_idx)`]: SearchResult::Found
     /// [`SearchResult::NotFound(insertion_point)`]: SearchResult::NotFound
     pub fn search_index(&self, index: usize, ctx: &mut ExecutionCtx) -> VortexResult<SearchResult> {
-        if self.chunk_offsets.is_some() {
-            return self.search_index_chunked(index, ctx);
-        }
-
-        search_index_binary_search(&self.indices, index + self.offset, ctx)
+        let [result] = self.search_indices([index], ctx)?;
+        Ok(result)
     }
 
-    /// Constant time searches for `index` in the indices array.
+    /// Searches for each of `indices`, as [`Self::search_index`] does for one.
     ///
-    /// First determines which chunk the target index falls into, then performs
+    /// The searches share one probe of the chunk offsets, or one searcher over the patch indices,
+    /// rather than building one per search.
+    fn search_indices<const N: usize>(
+        &self,
+        indices: [usize; N],
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<[SearchResult; N]> {
+        if self.chunk_offsets.is_some() {
+            return self.search_indices_chunked(indices, ctx);
+        }
+
+        search_index_binary_search(&self.indices, indices.map(|index| index + self.offset), ctx)
+    }
+
+    /// Constant time searches for each of `indices` in the indices array.
+    ///
+    /// First determines which chunk each target index falls into, then performs
     /// a binary search within that chunk's range.
     ///
-    /// Returns a [`SearchResult`] indicating either the exact patch index if found,
+    /// Returns a [`SearchResult`] per index indicating either the exact patch index if found,
     /// or the insertion point if not found.
     ///
     /// Returns an error if `chunk_offsets` or `offset_within_chunk` are not set.
-    fn search_index_chunked(
+    fn search_indices_chunked<const N: usize>(
         &self,
-        index: usize,
+        indices: [usize; N],
         ctx: &mut ExecutionCtx,
-    ) -> VortexResult<SearchResult> {
+    ) -> VortexResult<[SearchResult; N]> {
         let Some(chunk_offsets) = &self.chunk_offsets else {
             vortex_bail!("chunk_offsets is required to be set")
         };
 
+        // Every search reads the same chunk offsets, so they share one probe rather than
+        // building one per read as `Self::chunk_offset_at` does.
+        let mut probe = chunk_offsets.repeated_probe();
+        let mut chunk_offsets = ArrayProbe::Repeated(&mut probe);
+
+        let mut results = [SearchResult::NotFound(self.indices.len()); N];
+        for (result, index) in results.iter_mut().zip(indices) {
+            let Some(range) = self.chunk_patch_range(&mut chunk_offsets, index, ctx)? else {
+                continue;
+            };
+
+            let chunk_indices = self.indices.slice(range.clone())?.optimize_ctx(ctx)?;
+            let [found] = search_index_binary_search(&chunk_indices, [index + self.offset], ctx)?;
+
+            *result = match found {
+                SearchResult::Found(idx) => SearchResult::Found(range.start + idx),
+                SearchResult::NotFound(idx) => SearchResult::NotFound(range.start + idx),
+            };
+        }
+
+        Ok(results)
+    }
+
+    /// The range of positions in the indices array that holds the patches of `index`'s chunk,
+    /// read through `chunk_offsets`, or `None` if `index` is past the end of the array.
+    ///
+    /// Returns an error if `offset_within_chunk` is not set.
+    fn chunk_patch_range(
+        &self,
+        chunk_offsets: &mut ArrayProbe<'_>,
+        index: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<Range<usize>>> {
         let Some(offset_within_chunk) = self.offset_within_chunk else {
             vortex_bail!("offset_within_chunk is required to be set")
         };
 
         if index >= self.array_len() {
-            return Ok(SearchResult::NotFound(self.indices().len()));
+            return Ok(None);
         }
 
         let chunk_idx = (index + self.offset % PATCH_CHUNK_SIZE) / PATCH_CHUNK_SIZE;
-
-        // The three reads below are of the same array, so they share one probe rather than
-        // building one per read as `Self::chunk_offset_at` does.
-        let mut probe = chunk_offsets.repeated_probe();
+        let num_chunks = chunk_offsets.array().len();
         let mut chunk_offset_at = |idx: usize| -> VortexResult<usize> {
-            probe
+            chunk_offsets
                 .execute_scalar(idx, ctx)?
                 .as_primitive()
                 .as_::<usize>()
@@ -565,7 +613,7 @@ impl Patches {
         // Patch index offsets are absolute and need to be offset by the first chunk of the current slice.
         let base_offset = chunk_offset_at(0)?;
 
-        let patches_start_idx = (chunk_offset_at(chunk_idx)? - base_offset)
+        let patches_start_idx = relative_chunk_offset(chunk_offset_at(chunk_idx)?, base_offset)?
             // Chunk offsets are only sliced off in case the slice is fully
             // outside of the chunk range.
             //
@@ -574,21 +622,54 @@ impl Patches {
             // saturating sub when adjusting the indices based on the chunk offset.
             .saturating_sub(offset_within_chunk);
 
-        let patches_end_idx = if chunk_idx < chunk_offsets.len() - 1 {
-            (chunk_offset_at(chunk_idx + 1)? - base_offset)
+        let patches_end_idx = if chunk_idx + 1 < num_chunks {
+            relative_chunk_offset(chunk_offset_at(chunk_idx + 1)?, base_offset)?
                 .saturating_sub(offset_within_chunk)
                 .min(self.indices.len())
         } else {
             self.indices.len()
         };
 
-        let chunk_indices = self.indices.slice(patches_start_idx..patches_end_idx)?;
-        let result = search_index_binary_search(&chunk_indices, index + self.offset, ctx)?;
+        Ok(Some(patches_start_idx..patches_end_idx))
+    }
 
-        Ok(match result {
-            SearchResult::Found(idx) => SearchResult::Found(patches_start_idx + idx),
-            SearchResult::NotFound(idx) => SearchResult::NotFound(patches_start_idx + idx),
-        })
+    /// Get the patched value at `index` of the array `state` reads, as [`Self::get_patched`]
+    /// does.
+    ///
+    /// `self` must be the patches held in the `slots` of that array. A repeated read searches the
+    /// patch indices through the state's indices probe and reads the value through its values
+    /// probe, so it shares both across reads rather than building them per read. A one-off read
+    /// takes the [`Self::get_patched`] path, which can narrow the search by the chunk offsets.
+    pub fn probe_patched<V: VTable>(
+        &self,
+        state: &mut ProbeState<'_, V>,
+        slots: PatchSlotIndices,
+        index: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<Scalar>> {
+        let (retained, mut children) = state.split();
+        if retained.is_none() {
+            return self.get_patched(index, ctx);
+        }
+
+        let indices = children
+            .slot(slots.indices)?
+            .ok_or_else(|| vortex_err!("patch indices slot is missing"))?;
+        let needle = index + self.offset;
+        let found = match_each_unsigned_integer_ptype!(indices.array().dtype().as_ptype(), |T| {
+            SearchSortedPrimitiveArray::<T>::with_probe(indices, ctx)
+                .search_sorted(&needle, SearchSortedSide::Left)?
+        });
+
+        let SearchResult::Found(position) = found else {
+            return Ok(None);
+        };
+
+        children
+            .slot(slots.values)?
+            .ok_or_else(|| vortex_err!("patch values slot is missing"))?
+            .execute_scalar(position, ctx)
+            .map(Some)
     }
 
     /// Batch version of `search_index`.
@@ -625,9 +706,17 @@ impl Patches {
             (index + self.offset % PATCH_CHUNK_SIZE) / PATCH_CHUNK_SIZE
         };
 
+        let chunk_offset_at = |idx: usize| -> VortexResult<usize> {
+            let offset = *chunk_offsets
+                .get(idx)
+                .ok_or_else(|| vortex_err!("Patch chunk offsets have no entry for chunk {idx}"))?;
+            usize::try_from(offset)
+                .map_err(|_| vortex_err!("Patch chunk offset does not fit in usize"))
+        };
+
         // Patch index offsets are absolute and need to be offset by the first chunk of the current slice.
-        let chunk_offset = usize::try_from(chunk_offsets[chunk_idx] - chunk_offsets[0])
-            .map_err(|_| vortex_err!("chunk_offset failed to convert to usize"))?;
+        let base_offset = chunk_offset_at(0)?;
+        let chunk_offset = relative_chunk_offset(chunk_offset_at(chunk_idx)?, base_offset)?;
 
         let patches_start_idx = chunk_offset
             // Chunk offsets are only sliced off in case the slice is fully
@@ -638,9 +727,8 @@ impl Patches {
             // saturating sub when adjusting the indices based on the chunk offset.
             .saturating_sub(offset_within_chunk);
 
-        let patches_end_idx = if chunk_idx < chunk_offsets.len() - 1 {
-            usize::try_from(chunk_offsets[chunk_idx + 1] - chunk_offsets[0])
-                .map_err(|_| vortex_err!("patches_end_idx failed to convert to usize"))?
+        let patches_end_idx = if chunk_idx + 1 < chunk_offsets.len() {
+            relative_chunk_offset(chunk_offset_at(chunk_idx + 1)?, base_offset)?
                 .saturating_sub(offset_within_chunk)
                 .min(indices.len())
         } else {
@@ -783,15 +871,22 @@ impl Patches {
 
     /// Slice the patches by a range of the patched array.
     pub fn slice(&self, range: Range<usize>, ctx: &mut ExecutionCtx) -> VortexResult<Option<Self>> {
-        let slice_start_idx = self.search_index(range.start, ctx)?.to_index();
-        let slice_end_idx = self.search_index(range.end, ctx)?.to_index();
+        let [slice_start, slice_end] = self.search_indices([range.start, range.end], ctx)?;
+        let slice_start_idx = slice_start.to_index();
+        let slice_end_idx = slice_end.to_index();
 
         if slice_start_idx == slice_end_idx {
             return Ok(None);
         }
 
-        let values = self.values().slice(slice_start_idx..slice_end_idx)?;
-        let indices = self.indices().slice(slice_start_idx..slice_end_idx)?;
+        let values = self
+            .values()
+            .slice(slice_start_idx..slice_end_idx)?
+            .optimize_ctx(ctx)?;
+        let indices = self
+            .indices()
+            .slice(slice_start_idx..slice_end_idx)?
+            .optimize_ctx(ctx)?;
 
         let new_chunk_offsets = self
             .chunk_offsets
@@ -800,7 +895,9 @@ impl Patches {
                 let chunk_relative_offset = self.offset % PATCH_CHUNK_SIZE;
                 let chunk_start_idx = (chunk_relative_offset + range.start) / PATCH_CHUNK_SIZE;
                 let chunk_end_idx = (chunk_relative_offset + range.end).div_ceil(PATCH_CHUNK_SIZE);
-                chunk_offsets.slice(chunk_start_idx..chunk_end_idx)
+                chunk_offsets
+                    .slice(chunk_start_idx..chunk_end_idx)?
+                    .optimize_ctx(ctx)
             })
             .transpose()?;
 
@@ -814,7 +911,9 @@ impl Patches {
                     .ok_or_else(|| vortex_err!("chunk offset does not fit in usize"))?;
                 let parent_chunk_base = self.chunk_offset_at(0, ctx)?;
                 let parent_within = self.offset_within_chunk.unwrap_or(0);
-                Ok(parent_chunk_base + parent_within + slice_start_idx - new_chunk_base)
+                (parent_chunk_base + parent_within + slice_start_idx)
+                    .checked_sub(new_chunk_base)
+                    .ok_or_else(|| vortex_err!("Patch chunk offsets are not non-decreasing"))
             })
             .transpose()?;
 
@@ -876,10 +975,6 @@ impl Patches {
         }
     }
 
-    #[expect(
-        clippy::cognitive_complexity,
-        reason = "complexity is from nested match_each_* macros"
-    )]
     pub fn take_search(
         &self,
         take_indices: PrimitiveArray,
@@ -898,56 +993,20 @@ impl Patches {
             .map(|co| co.clone().execute::<PrimitiveArray>(ctx))
             .transpose()?;
 
-        let (values_indices, new_indices): (BufferMut<u64>, BufferMut<u64>) =
+        let take_validity = take_indices_validity.execute_mask(take_indices.len(), ctx)?;
+        let (values_indices, new_indices) =
             match_each_unsigned_integer_ptype!(patch_indices.ptype(), |PatchT| {
-                let patch_indices_slice = patch_indices.as_slice::<PatchT>();
                 match_each_unsigned_integer_ptype!(take_indices_unsigned.ptype(), |TakeT| {
-                    let take_slice = take_indices_unsigned.as_slice::<TakeT>();
-
-                    if let Some(chunk_offsets) = chunk_offsets {
-                        match_each_unsigned_integer_ptype!(chunk_offsets.ptype(), |OffsetT| {
-                            let chunk_offsets = chunk_offsets.as_slice::<OffsetT>();
-                            take_indices_with_search_fn(
-                                patch_indices_slice,
-                                take_slice,
-                                take_indices
-                                    .as_ref()
-                                    .validity()?
-                                    .execute_mask(take_indices.as_ref().len(), ctx)?,
-                                include_nulls,
-                                ctx.allocator(),
-                                |take_idx| {
-                                    self.search_index_chunked_batch(
-                                        patch_indices_slice,
-                                        chunk_offsets,
-                                        take_idx,
-                                    )
-                                },
-                            )?
-                        })
-                    } else {
-                        take_indices_with_search_fn(
-                            patch_indices_slice,
-                            take_slice,
-                            take_indices
-                                .as_ref()
-                                .validity()?
-                                .execute_mask(take_indices.as_ref().len(), ctx)?,
-                            include_nulls,
-                            ctx.allocator(),
-                            |take_idx| {
-                                let Some(offset) = <PatchT as NumCast>::from(self.offset) else {
-                                    // If the offset cannot be converted to T, it's larger than all values in this array.
-                                    return Ok(SearchResult::NotFound(patch_indices_slice.len()));
-                                };
-
-                                patch_indices_slice
-                                    .search_sorted(&(take_idx + offset), SearchSortedSide::Left)
-                            },
-                        )?
-                    }
+                    self.take_search_typed(
+                        patch_indices.as_slice::<PatchT>(),
+                        take_indices_unsigned.as_slice::<TakeT>(),
+                        chunk_offsets.as_ref(),
+                        take_validity,
+                        include_nulls,
+                        ctx.allocator(),
+                    )
                 })
-            });
+            })?;
 
         if new_indices.is_empty() {
             return Ok(None);
@@ -967,6 +1026,75 @@ impl Patches {
             chunk_offsets: None,
             offset_within_chunk: Some(0), // Reset when creating new Patches.
         }))
+    }
+
+    fn take_search_typed<PatchT, TakeT>(
+        &self,
+        patch_indices: &[PatchT],
+        take_indices: &[TakeT],
+        chunk_offsets: Option<&PrimitiveArray>,
+        take_validity: Mask,
+        include_nulls: bool,
+        allocator: &BufferAllocatorRef,
+    ) -> VortexResult<(BufferMut<u64>, BufferMut<u64>)>
+    where
+        PatchT: UnsignedPType,
+        TakeT: UnsignedPType,
+        usize: TryFrom<PatchT>,
+    {
+        if let Some(chunk_offsets) = chunk_offsets {
+            return match_each_unsigned_integer_ptype!(chunk_offsets.ptype(), |OffsetT| {
+                self.take_search_chunked::<PatchT, TakeT, OffsetT>(
+                    patch_indices,
+                    take_indices,
+                    chunk_offsets.as_slice::<OffsetT>(),
+                    take_validity,
+                    include_nulls,
+                    allocator,
+                )
+            });
+        }
+
+        take_indices_with_search_fn(
+            patch_indices,
+            take_indices,
+            take_validity,
+            include_nulls,
+            allocator,
+            |take_idx| {
+                let Some(offset) = <PatchT as NumCast>::from(self.offset) else {
+                    // An offset too large for `PatchT` exceeds every patch index.
+                    return Ok(SearchResult::NotFound(patch_indices.len()));
+                };
+
+                patch_indices.search_sorted(&(take_idx + offset), SearchSortedSide::Left)
+            },
+        )
+    }
+
+    fn take_search_chunked<PatchT, TakeT, OffsetT>(
+        &self,
+        patch_indices: &[PatchT],
+        take_indices: &[TakeT],
+        chunk_offsets: &[OffsetT],
+        take_validity: Mask,
+        include_nulls: bool,
+        allocator: &BufferAllocatorRef,
+    ) -> VortexResult<(BufferMut<u64>, BufferMut<u64>)>
+    where
+        PatchT: UnsignedPType,
+        TakeT: UnsignedPType,
+        OffsetT: UnsignedPType,
+        usize: TryFrom<PatchT> + TryFrom<OffsetT>,
+    {
+        take_indices_with_search_fn(
+            patch_indices,
+            take_indices,
+            take_validity,
+            include_nulls,
+            allocator,
+            |take_idx| self.search_index_chunked_batch(patch_indices, chunk_offsets, take_idx),
+        )
     }
 
     pub fn take_map(
@@ -1046,43 +1174,49 @@ impl Patches {
     }
 }
 
-/// Binary searches for `needle` in the indices array.
+/// Returns `chunk_offset` relative to `base_offset`, the first chunk's offset.
 ///
-/// # Returns
-/// [`SearchResult::Found`] with the position if needle exists, or [`SearchResult::NotFound`]
-/// with the insertion point if not found.
-fn search_index_binary_search(
-    indices: &ArrayRef,
-    needle: usize,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<SearchResult> {
-    if let Some(primitive) = indices.as_opt::<Primitive>() {
-        match_each_unsigned_integer_ptype!(primitive.ptype(), |T| {
-            let Ok(needle) = T::try_from(needle) else {
-                // If the needle is not of type T, then it cannot possibly be in this array.
-                //
-                // The needle is a non-negative integer (a usize); therefore, it must be larger
-                // than all values in this array.
-                return Ok(SearchResult::NotFound(primitive.len()));
-            };
-            return primitive
-                .as_slice::<T>()
-                .search_sorted(&needle, SearchSortedSide::Left);
-        });
-    }
-
-    search_index_binary_search_scalar(indices, needle, ctx)
+/// Offsets read from a file are untrusted, and a later chunk whose offset is below the first
+/// would otherwise underflow.
+fn relative_chunk_offset(chunk_offset: usize, base_offset: usize) -> VortexResult<usize> {
+    chunk_offset
+        .checked_sub(base_offset)
+        .ok_or_else(|| vortex_err!("Patch chunk offsets are not non-decreasing"))
 }
 
-fn search_index_binary_search_scalar(
+/// Binary searches for each of `needles` in the indices array, sharing one searcher.
+///
+/// # Returns
+/// Per needle, [`SearchResult::Found`] with the position if it exists, or
+/// [`SearchResult::NotFound`] with the insertion point if not found.
+fn search_index_binary_search<const N: usize>(
     indices: &ArrayRef,
-    needle: usize,
+    needles: [usize; N],
     ctx: &mut ExecutionCtx,
-) -> VortexResult<SearchResult> {
+) -> VortexResult<[SearchResult; N]> {
+    // A needle that does not fit the index type is a non-negative integer (a usize) larger than
+    // all values in this array, so it is never found and sorts last.
+    let mut results = [SearchResult::NotFound(indices.len()); N];
+
+    if let Some(primitive) = indices.as_opt::<Primitive>() {
+        match_each_unsigned_integer_ptype!(primitive.ptype(), |T| {
+            let values = primitive.as_slice::<T>();
+            for (result, needle) in results.iter_mut().zip(needles) {
+                if let Ok(needle) = T::try_from(needle) {
+                    *result = values.search_sorted(&needle, SearchSortedSide::Left)?;
+                }
+            }
+        });
+        return Ok(results);
+    }
+
     match_each_unsigned_integer_ptype!(indices.dtype().as_ptype(), |T| {
-        SearchSortedPrimitiveArray::<T>::new(indices, ctx)
-            .search_sorted(&needle, SearchSortedSide::Left)
-    })
+        let searcher = SearchSortedPrimitiveArray::<T>::new(indices, ctx);
+        for (result, needle) in results.iter_mut().zip(needles) {
+            *result = searcher.search_sorted(&needle, SearchSortedSide::Left)?;
+        }
+    });
+    Ok(results)
 }
 
 #[expect(clippy::too_many_arguments)] // private function, can clean up one day
@@ -2910,5 +3044,55 @@ mod test {
             patches.search_index(2048, &mut ctx).unwrap(),
             SearchResult::NotFound(1)
         );
+    }
+
+    /// What a lookup into patches with corrupt chunk offsets does.
+    #[derive(Clone, Copy, Debug)]
+    enum CorruptOffsetLookup {
+        SearchIndex,
+        GetPatched,
+        Take,
+        Slice,
+    }
+
+    /// Chunk offsets that can come from a corrupt file but that no writer produces.
+    #[rstest]
+    #[case::later_offset_below_the_first(buffer![2u64, 0, 0])]
+    #[case::empty(Buffer::<u64>::empty())]
+    #[case::fewer_than_the_chunks(buffer![0u64])]
+    fn corrupt_chunk_offsets_return_errors(
+        #[case] chunk_offsets: Buffer<u64>,
+        #[values(
+            CorruptOffsetLookup::SearchIndex,
+            CorruptOffsetLookup::GetPatched,
+            CorruptOffsetLookup::Take,
+            CorruptOffsetLookup::Slice
+        )]
+        lookup: CorruptOffsetLookup,
+    ) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        // Ten patches for one taken index, so `take` searches by chunk rather than through a map.
+        let patches = Patches::new(
+            3000,
+            0,
+            buffer![5u64, 100, 1500, 1600, 1700, 1800, 1900, 2100, 2500, 2999].into_array(),
+            buffer![1i32, 2, 3, 4, 5, 6, 7, 8, 9, 10].into_array(),
+            Some(chunk_offsets.into_array()),
+            &mut ctx,
+        )?;
+        // The lookups land in the third chunk, which corrupt offsets describe wrongly or not at all.
+        let result = match lookup {
+            CorruptOffsetLookup::SearchIndex => patches.search_index(2100, &mut ctx).map(|_| ()),
+            CorruptOffsetLookup::GetPatched => patches.get_patched(2100, &mut ctx).map(|_| ()),
+            CorruptOffsetLookup::Take => patches
+                .take(&buffer![2100u64].into_array(), &mut ctx)
+                .map(|_| ()),
+            CorruptOffsetLookup::Slice => patches.slice(2000..3000, &mut ctx).map(|_| ()),
+        };
+        assert!(
+            result.is_err(),
+            "{lookup:?} should reject corrupt chunk offsets"
+        );
+        Ok(())
     }
 }

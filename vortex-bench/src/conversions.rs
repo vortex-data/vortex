@@ -44,6 +44,7 @@ use vortex::array::stream::ArrayStreamExt;
 use vortex::compressor::BtrBlocksCompressorBuilder;
 use vortex::dtype::DType;
 use vortex::dtype::FieldPath;
+use vortex::dtype::Nullability;
 use vortex::dtype::StructFields;
 use vortex::dtype::extension::ExtDType;
 use vortex::dtype::extension::ExtDTypeRef;
@@ -71,6 +72,10 @@ use crate::CompactionStrategy;
 use crate::Format;
 use crate::SESSION;
 use crate::utils::file::idempotent_async;
+use crate::utils::parquet::LOCAL_ROW_GROUP_ROWS;
+use crate::utils::parquet::has_current_layout;
+use crate::utils::parquet::is_zstd;
+use crate::utils::parquet::parquet_writer_properties;
 
 /// Memory budget per concurrent conversion stream in GB. This is somewhat arbitary.
 const MEMORY_PER_STREAM_GB: u64 = 4;
@@ -426,17 +431,25 @@ pub async fn write_parquet_as_vortex(
 }
 
 /// Add GeoParquet `geo` file metadata to externally-sourced parquet we don't generate (e.g. SpatialBench `zone`).
+///
+/// The file is rewritten with the shared Parquet settings, in local row groups, unless it already
+/// has the metadata, zstd, no row group larger than a local one, and the current layout version.
+/// So a file tagged before a change of the shared settings is written again too.
 pub async fn add_geoparquet_metadata(
     parquet_path: &Path,
     geoparquet_json: &str,
 ) -> anyhow::Result<()> {
     let builder = ParquetRecordBatchStreamBuilder::new(File::open(parquet_path).await?).await?;
-    let already_tagged = builder
-        .metadata()
+    let metadata = builder.metadata();
+    let already_tagged = metadata
         .file_metadata()
         .key_value_metadata()
         .is_some_and(|kvs| kvs.iter().any(|kv| kv.key == "geo"));
-    if already_tagged {
+    let local_row_groups = metadata
+        .row_groups()
+        .iter()
+        .all(|row_group| row_group.num_rows() <= LOCAL_ROW_GROUP_ROWS as i64);
+    if already_tagged && is_zstd(metadata) && local_row_groups && has_current_layout(metadata) {
         return Ok(());
     }
 
@@ -444,7 +457,12 @@ pub async fn add_geoparquet_metadata(
     let mut reader = builder.build()?;
 
     let tmp_path = parquet_path.with_extension("parquet.tmp");
-    let mut writer = AsyncArrowWriter::try_new(File::create(&tmp_path).await?, schema, None)?;
+    // The settings every benchmark writes, not parquet-rs's defaults (no compression).
+    let props = parquet_writer_properties()
+        .set_max_row_group_row_count(Some(LOCAL_ROW_GROUP_ROWS))
+        .build();
+    let mut writer =
+        AsyncArrowWriter::try_new(File::create(&tmp_path).await?, schema, Some(props))?;
     while let Some(batch) = reader.try_next().await? {
         writer.write(&batch).await?;
     }
@@ -474,9 +492,9 @@ fn geoparquet_columns(metadata: &ParquetMetaData) -> HashSet<String> {
         .unwrap_or_default()
 }
 
-/// The erased `vortex.st.wkb` extension dtype over a binary `storage` dtype.
-fn wkb_ext_dtype(storage: &DType) -> VortexResult<ExtDTypeRef> {
-    Ok(ExtDType::<WellKnownBinary>::try_new(SpatialMetadata::default(), storage.clone())?.erased())
+/// The erased `vortex.st.wkb` extension dtype with `nullability`.
+fn wkb_ext_dtype(nullability: Nullability) -> VortexResult<ExtDTypeRef> {
+    Ok(ExtDType::<WellKnownBinary>::try_new(SpatialMetadata::default(), nullability)?.erased())
 }
 
 /// Re-type the named binary columns of a struct `dtype` as `vortex.st.wkb`, so the column
@@ -494,7 +512,7 @@ fn tag_spatial_dtype(dtype: DType, spatial_columns: &HashSet<String>) -> VortexR
         .zip(fields.fields())
         .map(|(name, field)| {
             if spatial_columns.contains(name.as_ref()) && field.is_binary() {
-                Ok(DType::Extension(wkb_ext_dtype(&field)?))
+                Ok(DType::Extension(wkb_ext_dtype(field.nullability())?))
             } else {
                 Ok(field)
             }
@@ -522,7 +540,7 @@ fn tag_spatial_array(chunk: ArrayRef, spatial_columns: &HashSet<String>) -> Vort
     let mut tagged = Vec::with_capacity(names.len());
     for (name, field) in names.iter().zip(struct_array.iter_unmasked_fields()) {
         if spatial_columns.contains(name.as_ref()) && field.dtype().is_binary() {
-            let ext = wkb_ext_dtype(field.dtype())?;
+            let ext = wkb_ext_dtype(field.dtype().nullability())?;
             let little_endian = wkb_field_to_little_endian(field, &mut ctx)?;
             tagged.push(ExtensionArray::try_new(ext, little_endian)?.into_array());
         } else {
@@ -565,4 +583,144 @@ fn wkb_field_to_little_endian(field: &ArrayRef, ctx: &mut ExecutionCtx) -> Vorte
         })
         .collect::<VortexResult<_>>()?;
     Ok(VarBinViewArray::from_iter_nullable_bin(little_endian).into_array())
+}
+
+#[cfg(test)]
+mod tests {
+    use arrow_array::Int64Array;
+    use arrow_schema::DataType;
+    use arrow_schema::Field;
+    use arrow_schema::Schema;
+    use parquet::arrow::ArrowWriter;
+    use parquet::basic::Compression;
+    use parquet::file::properties::WriterProperties;
+    use parquet::file::reader::FileReader as _;
+    use parquet::file::reader::SerializedFileReader;
+
+    use super::*;
+    use crate::utils::parquet::LAYOUT_KEY;
+    use crate::utils::parquet::LAYOUT_VERSION;
+
+    #[tokio::test]
+    async fn geoparquet_tagging_rewrites_an_uncompressed_file_with_zstd() -> anyhow::Result<()> {
+        let dir = tempfile::tempdir()?;
+        let path = dir.path().join("zone.parquet");
+        let schema = Arc::new(Schema::new(vec![Field::new("id", DataType::Int64, false)]));
+        let batch = RecordBatch::try_new(
+            Arc::clone(&schema),
+            vec![Arc::new(Int64Array::from_iter_values(0..1000))],
+        )?;
+        let mut writer = ArrowWriter::try_new(fs::File::create(&path)?, schema, None)?;
+        writer.write(&batch)?;
+        writer.close()?;
+
+        add_geoparquet_metadata(&path, "{}").await?;
+
+        let reader = SerializedFileReader::new(fs::File::open(&path)?)?;
+        let metadata = reader.metadata();
+        assert!(matches!(
+            metadata.row_group(0).column(0).compression(),
+            Compression::ZSTD(_)
+        ));
+        assert_eq!(metadata.file_metadata().num_rows(), 1000);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn geoparquet_tagging_rewrites_large_row_groups_as_local_ones() -> anyhow::Result<()> {
+        let dir = tempfile::tempdir()?;
+        let path = dir.path().join("zone.parquet");
+        let schema = Arc::new(Schema::new(vec![Field::new("id", DataType::Int64, false)]));
+        let batch = RecordBatch::try_new(
+            Arc::clone(&schema),
+            vec![Arc::new(Int64Array::from_iter_values(0..200_000))],
+        )?;
+        // Tagged, zstd, and in the current layout, but in one row group larger than a local one.
+        let props = parquet_writer_properties()
+            .set_max_row_group_row_count(Some(1024 * 1024))
+            .set_key_value_metadata(Some(vec![
+                KeyValue::new("geo".to_string(), Some("{}".to_string())),
+                KeyValue::new(LAYOUT_KEY.to_string(), LAYOUT_VERSION.to_string()),
+            ]))
+            .build();
+        let mut writer = ArrowWriter::try_new(fs::File::create(&path)?, schema, Some(props))?;
+        writer.write(&batch)?;
+        writer.close()?;
+
+        add_geoparquet_metadata(&path, "{}").await?;
+
+        let reader = SerializedFileReader::new(fs::File::open(&path)?)?;
+        let rows: Vec<i64> = reader
+            .metadata()
+            .row_groups()
+            .iter()
+            .map(|row_group| row_group.num_rows())
+            .collect();
+        assert_eq!(rows, vec![122_880, 200_000 - 122_880]);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn geoparquet_tagging_rewrites_a_file_in_an_old_layout() -> anyhow::Result<()> {
+        let dir = tempfile::tempdir()?;
+        let path = dir.path().join("zone.parquet");
+        let schema = Arc::new(Schema::new(vec![Field::new("id", DataType::Int64, false)]));
+        let batch = RecordBatch::try_new(
+            Arc::clone(&schema),
+            vec![Arc::new(Int64Array::from_iter_values(0..1000))],
+        )?;
+        // Tagged, zstd, and in local row groups, but with no layout version.
+        let props = parquet_writer_properties()
+            .set_max_row_group_row_count(Some(LOCAL_ROW_GROUP_ROWS))
+            .set_key_value_metadata(Some(vec![KeyValue::new(
+                "geo".to_string(),
+                Some("{}".to_string()),
+            )]))
+            .build();
+        let mut writer = ArrowWriter::try_new(fs::File::create(&path)?, schema, Some(props))?;
+        writer.write(&batch)?;
+        writer.close()?;
+
+        add_geoparquet_metadata(&path, "{}").await?;
+
+        let reader = SerializedFileReader::new(fs::File::open(&path)?)?;
+        assert!(has_current_layout(reader.metadata()));
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn geoparquet_tagging_recompresses_a_tagged_uncompressed_file() -> anyhow::Result<()> {
+        let dir = tempfile::tempdir()?;
+        let path = dir.path().join("zone.parquet");
+        let schema = Arc::new(Schema::new(vec![Field::new("id", DataType::Int64, false)]));
+        let batch = RecordBatch::try_new(
+            Arc::clone(&schema),
+            vec![Arc::new(Int64Array::from_iter_values(0..1000))],
+        )?;
+        // A file the previous implementation left: tagged, but uncompressed.
+        let props = WriterProperties::builder()
+            .set_key_value_metadata(Some(vec![KeyValue::new(
+                "geo".to_string(),
+                Some("{}".to_string()),
+            )]))
+            .build();
+        let mut writer = ArrowWriter::try_new(fs::File::create(&path)?, schema, Some(props))?;
+        writer.write(&batch)?;
+        writer.close()?;
+
+        add_geoparquet_metadata(&path, "{}").await?;
+
+        let reader = SerializedFileReader::new(fs::File::open(&path)?)?;
+        let metadata = reader.metadata();
+        assert!(matches!(
+            metadata.row_group(0).column(0).compression(),
+            Compression::ZSTD(_)
+        ));
+        let geo_keys = metadata
+            .file_metadata()
+            .key_value_metadata()
+            .map_or(0, |kvs| kvs.iter().filter(|kv| kv.key == "geo").count());
+        assert_eq!(geo_keys, 1);
+        Ok(())
+    }
 }

@@ -52,6 +52,7 @@ use crate::scalar_fn::fns::list_sum::ListSum;
 use crate::scalar_fn::fns::list_transform::ListTransform;
 use crate::scalar_fn::fns::list_transform::ListTransformOptions;
 use crate::scalar_fn::fns::literal::Literal;
+use crate::scalar_fn::fns::lower::Lower;
 use crate::scalar_fn::fns::mask::Mask;
 use crate::scalar_fn::fns::merge::DuplicateHandling;
 use crate::scalar_fn::fns::merge::Merge;
@@ -64,6 +65,7 @@ use crate::scalar_fn::fns::replace_time_zone::ReplaceTimeZone;
 use crate::scalar_fn::fns::replace_time_zone::ReplaceTimeZoneOptions;
 use crate::scalar_fn::fns::select::FieldSelection;
 use crate::scalar_fn::fns::select::Select;
+use crate::scalar_fn::fns::strpos::Strpos;
 use crate::scalar_fn::fns::variant_get::VariantGet;
 use crate::scalar_fn::fns::variant_get::VariantGetOptions;
 use crate::scalar_fn::fns::variant_get::VariantPath;
@@ -1340,6 +1342,31 @@ pub fn bound_byte_length(input: BoundExpression) -> BoundExpression {
     ByteLength
         .try_new_bound_expr(EmptyOptions, [input])
         .vortex_expect("byte-length expressions require a variable-length binary child")
+}
+
+// ---- Lower ----
+
+/// Creates an expression that computes the Unicode lowercase of each string, like SQL `lower`.
+///
+/// ```rust
+/// # use vortex_array::expr::{lower, root};
+/// let expr = lower(root());
+/// ```
+pub fn lower(input: Expression) -> Expression {
+    Lower.new_expr(EmptyOptions, [input])
+}
+
+// ---- Strpos ----
+
+/// Creates an expression that computes the one-based character position of `search` in
+/// `input`, or zero when absent, like SQL `strpos`.
+///
+/// ```rust
+/// # use vortex_array::expr::{lit, root, strpos};
+/// let expr = strpos(root(), lit("needle"));
+/// ```
+pub fn strpos(input: Expression, search: Expression) -> Expression {
+    Strpos.new_expr(EmptyOptions, [input, search])
 }
 
 // ---- ExtStorage ----

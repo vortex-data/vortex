@@ -26,7 +26,7 @@ pub struct MaskedSlots {
     pub child: ArrayRef,
     /// The validity bitmap defining which elements are non-null.
     #[slot(1)]
-    pub validity: Option<ArrayRef>,
+    pub validity_child: Option<ArrayRef>,
 }
 
 #[derive(Clone, Debug)]
@@ -38,12 +38,9 @@ impl Display for MaskedData {
     }
 }
 
-pub trait MaskedArrayExt: TypedArrayRef<Masked> + MaskedArraySlotsExt {
+pub trait MaskedArrayExt: TypedArrayRef<Masked> {
     fn masked_validity(&self) -> Validity {
-        child_to_validity(
-            self.slots()[MaskedSlots::VALIDITY].as_ref(),
-            self.dtype().nullability(),
-        )
+        child_to_validity(self.validity_child(), self.dtype().nullability())
     }
 }
 impl<T: TypedArrayRef<Masked>> MaskedArrayExt for T {}
@@ -83,7 +80,7 @@ impl Array<Masked> {
     ) -> VortexResult<Self> {
         let dtype = child.dtype().as_nullable();
         let len = child.len();
-        let validity_slot = validity_to_child(&validity, len);
+        let validity_child = validity_to_child(&validity, len);
         let data = MaskedData::try_new(len, child.all_valid(ctx)?, validity)?;
         Ok(unsafe {
             Array::from_parts_unchecked(ArrayParts::new(
@@ -91,7 +88,7 @@ impl Array<Masked> {
                 dtype,
                 len,
                 data,
-                smallvec![Some(child), validity_slot],
+                smallvec![Some(child), validity_child],
             ))
         })
     }
@@ -105,14 +102,14 @@ impl Array<Masked> {
     pub unsafe fn new_unchecked(child: ArrayRef, validity: Validity) -> Self {
         let dtype = child.dtype().as_nullable();
         let len = child.len();
-        let validity_slot = validity_to_child(&validity, len);
+        let validity_child = validity_to_child(&validity, len);
         unsafe {
             Array::from_parts_unchecked(ArrayParts::new(
                 Masked,
                 dtype,
                 len,
                 MaskedData,
-                smallvec![Some(child), validity_slot],
+                smallvec![Some(child), validity_child],
             ))
         }
     }

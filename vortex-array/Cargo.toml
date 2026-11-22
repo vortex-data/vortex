@@ -24,6 +24,7 @@ workspace = true
 
 [dependencies]
 arbitrary = { workspace = true, optional = true }
+arc-swap = { workspace = true }
 arcref = { workspace = true }
 arrow-buffer = { workspace = true }
 bytes = { workspace = true }
@@ -181,6 +182,10 @@ harness = false
 
 [[bench]]
 name = "chunked_fsl_canonicalize"
+harness = false
+
+[[bench]]
+name = "chunked_nested_canonicalize"
 harness = false
 
 [[bench]]

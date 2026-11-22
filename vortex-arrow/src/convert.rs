@@ -1,18 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Canonical (non-plugin) conversions of Arrow arrays into Vortex arrays.
+//! Conversions of Arrow arrays into Vortex arrays without import plugins.
 //!
-//! Each `from_arrow_*` function converts one Arrow array shape; [`from_arrow_dyn`] dispatches on
-//! the Arrow [`DataType`]. These functions have no awareness of Arrow extension types — the
-//! plugin-aware entry points are the [`ArrowSession`](crate::ArrowSession) methods, which fall
-//! back to these conversions for non-extension data.
+//! Use [`from_arrow_dyn`] to dispatch on the Arrow [`DataType`]. These conversions are also the
+//! fallback for [`ArrowSession`](crate::ArrowSession) when no plugin handles the array.
 
 use std::ops::Range;
 use std::sync::Arc;
 
 use arrow_array::AnyDictionaryArray;
 use arrow_array::Array as ArrowArray;
+use arrow_array::ArrayRef as ArrowArrayRef;
 use arrow_array::ArrowPrimitiveType;
 use arrow_array::BooleanArray as ArrowBooleanArray;
 use arrow_array::DictionaryArray;
@@ -29,7 +28,8 @@ use arrow_array::RecordBatch;
 use arrow_array::StructArray as ArrowStructArray;
 use arrow_array::cast::AsArray;
 use arrow_array::cast::as_null_array;
-use arrow_array::make_array;
+use arrow_array::downcast_integer_array;
+use arrow_array::new_null_array;
 use arrow_array::types::ArrowDictionaryKeyType;
 use arrow_array::types::ByteArrayType;
 use arrow_array::types::ByteViewType;
@@ -113,6 +113,9 @@ use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 
 use crate::dtype::from_arrow_time_unit;
+use crate::import_nullability::import_leaf;
+use crate::import_nullability::level_validity;
+use crate::run_end_import::run_end_from_arrow_dyn;
 
 /// Zero-copy conversion of Arrow buffers into non-nullable Vortex arrays.
 ///
@@ -167,7 +170,10 @@ where
     }
 }
 
-/// Zero-copy conversion of an Arrow numeric primitive array into a Vortex array.
+/// Convert an Arrow numeric primitive array, sharing its values buffer on import.
+///
+/// See the [import nullability rules](crate::ArrowSession::from_arrow_array). Any fill runs when
+/// the array executes.
 ///
 /// Use [`from_arrow_temporal`] for Arrow temporal arrays, which carry a logical dtype beyond
 /// their physical primitive storage.
@@ -179,8 +185,9 @@ where
     T::Native: NativePType,
 {
     let buffer = Buffer::from_arrow_scalar_buffer(value.values().clone());
-    let validity = nulls(value.nulls(), nullable)?;
-    Ok(PrimitiveArray::new(buffer, validity).into_array())
+    import_leaf(value.nulls(), nullable, |validity| {
+        PrimitiveArray::new(buffer, validity).into_array()
+    })
 }
 
 /// Conversion of an Arrow `Decimal32` array into a Vortex decimal array, zero-copy when the Arrow
@@ -261,8 +268,8 @@ pub fn from_arrow_decimal256(
 ///
 /// # Errors
 ///
-/// Returns an error if the precision or scale is invalid, if `nullable` is false and the array has
-/// nulls, or if a valid value is outside the precision.
+/// Returns an error if the precision or scale is invalid or if a valid value is outside the
+/// precision.
 fn from_arrow_decimal<T: NativeDecimalType>(
     values: Buffer<T>,
     arrow_nulls: Option<&NullBuffer>,
@@ -271,7 +278,6 @@ fn from_arrow_decimal<T: NativeDecimalType>(
     nullable: bool,
 ) -> VortexResult<ArrayRef> {
     let decimal_dtype = DecimalDType::try_new(precision, scale)?;
-    let validity = nulls(arrow_nulls, nullable)?;
     let mask = arrow_nulls.map_or_else(
         || Mask::new_true(values.len()),
         |arrow_nulls| Mask::from_buffer(BitBuffer::from(arrow_nulls.inner().clone())),
@@ -292,16 +298,16 @@ fn from_arrow_decimal<T: NativeDecimalType>(
         ))
     })?;
 
-    // SAFETY: Every valid value is within the precision of `decimal_dtype`. `check_precision`
-    // checked the zero-copy values, and `copy_to_canonical_width` checks a narrowing copy. A
-    // widening copy needs no check: the canonical width is wider than `T` only when the precision
-    // is above `T::MAX_PRECISION`, and every value of `T` has at most `T::MAX_PRECISION + 1`
-    // digits. Arrow keeps its null buffer at the length of the values, so the validity matches.
-    let array = unsafe {
-        DecimalArray::new_unchecked_handle(checked_values, values_type, decimal_dtype, validity)
-    };
-
-    Ok(array.into_array())
+    import_leaf(arrow_nulls, nullable, |validity| {
+        // SAFETY: The Arrow buffer and typed copies contain whole, aligned values at the selected
+        // width. Arrow supplies one validity bit per value. `check_precision` checks valid rows
+        // when sharing the buffer, and `copy_to_canonical_width` checks them when narrowing. A
+        // widening copy occurs only above `T::MAX_PRECISION`, so every value of `T` fits.
+        unsafe {
+            DecimalArray::new_unchecked_handle(checked_values, values_type, decimal_dtype, validity)
+        }
+        .into_array()
+    })
 }
 
 /// Conversion of an Arrow temporal array (timestamp/date/time) into a Vortex temporal
@@ -313,29 +319,25 @@ pub fn from_arrow_temporal<T: ArrowPrimitiveType>(
 where
     T::Native: NativePType,
 {
-    let arr = PrimitiveArray::new(
-        Buffer::from_arrow_scalar_buffer(value.values().clone()),
-        nulls(value.nulls(), nullable)?,
-    )
-    .into_array();
+    let storage = from_arrow_primitive(value, nullable)?;
 
     Ok(match value.data_type() {
         DataType::Timestamp(time_unit, tz) => {
             let dtype = Timestamp::try_new_with_tz(
                 from_arrow_time_unit(*time_unit),
                 tz.clone(),
-                arr.dtype().nullability(),
+                storage.dtype().nullability(),
             )?;
-            ExtensionArray::try_new(dtype.erased(), arr)?.into_array()
+            ExtensionArray::try_new(dtype.erased(), storage)?.into_array()
         }
         DataType::Time32(time_unit) => {
-            TemporalArray::new_time(arr, from_arrow_time_unit(*time_unit)).into()
+            TemporalArray::new_time(storage, from_arrow_time_unit(*time_unit)).into()
         }
         DataType::Time64(time_unit) => {
-            TemporalArray::new_time(arr, from_arrow_time_unit(*time_unit)).into()
+            TemporalArray::new_time(storage, from_arrow_time_unit(*time_unit)).into()
         }
-        DataType::Date32 => TemporalArray::new_date(arr, TimeUnit::Days).into(),
-        DataType::Date64 => TemporalArray::new_date(arr, TimeUnit::Milliseconds).into(),
+        DataType::Date32 => TemporalArray::new_date(storage, TimeUnit::Days).into(),
+        DataType::Date64 => TemporalArray::new_date(storage, TimeUnit::Milliseconds).into(),
         DataType::Duration(_) | DataType::Interval(_) => {
             vortex_bail!("Arrow {} arrays are not supported", value.data_type())
         }
@@ -368,25 +370,24 @@ pub fn from_arrow_bytes<T: ByteArrayType>(
 where
     <T as ByteArrayType>::Offset: IntegerPType,
 {
-    let dtype = match T::DATA_TYPE {
-        DataType::Binary | DataType::LargeBinary => DType::Binary(nullable.into()),
-        DataType::Utf8 | DataType::LargeUtf8 => DType::Utf8(nullable.into()),
-        dt => vortex_panic!("Invalid data type for ByteArray: {dt}"),
-    };
     let (offsets, referenced) = trim_offsets(value.offsets());
     let bytes = value
         .values()
         .slice_with_length(referenced.start, referenced.len());
-    // SAFETY: Arrow arrays are already validated (valid UTF-8, valid offsets, correct validity).
-    Ok(unsafe {
-        VarBinArray::new_unchecked(
-            offsets.into_array(),
-            ByteBuffer::from_arrow_buffer(bytes, Alignment::of::<u8>()),
-            dtype,
-            nulls(value.nulls(), nullable)?,
-        )
-    }
-    .into_array())
+    import_leaf(value.nulls(), nullable, |validity| {
+        let dtype = match T::DATA_TYPE {
+            DataType::Binary | DataType::LargeBinary => DType::Binary(validity.nullability()),
+            DataType::Utf8 | DataType::LargeUtf8 => DType::Utf8(validity.nullability()),
+            dt => vortex_panic!("Invalid data type for ByteArray: {dt}"),
+        };
+        let offsets = offsets.into_array();
+        let bytes = ByteBuffer::from_arrow_buffer(bytes, Alignment::of::<u8>());
+
+        // SAFETY: Arrow supplies sorted, non-negative integer offsets and validates UTF-8 string
+        // values. `trim_offsets` rebases the offsets to the byte slice above. The validity comes
+        // from the same array, and its nullability determines the dtype.
+        unsafe { VarBinArray::new_unchecked(offsets, bytes, dtype, validity) }.into_array()
+    })
 }
 
 /// Zero-copy conversion of an Arrow string/binary view array into a Vortex `VarBinView` array.
@@ -394,115 +395,50 @@ pub fn from_arrow_byte_view<T: ByteViewType>(
     value: &GenericByteViewArray<T>,
     nullable: bool,
 ) -> VortexResult<ArrayRef> {
-    let dtype = match T::DATA_TYPE {
-        DataType::BinaryView => DType::Binary(nullable.into()),
-        DataType::Utf8View => DType::Utf8(nullable.into()),
-        dt => vortex_panic!("Invalid data type for ByteViewArray: {dt}"),
-    };
-
     let views_buffer = Buffer::from_byte_buffer(
         Buffer::from_arrow_scalar_buffer(value.views().clone()).into_byte_buffer(),
     );
 
-    // SAFETY: arrow-rs ByteViewArray already checks the same invariants, we inherit those
-    //  guarantees by zero-copy constructing from one.
-    Ok(unsafe {
-        VarBinViewArray::new_unchecked(
-            views_buffer,
-            Arc::from(
-                value
-                    .data_buffers()
-                    .iter()
-                    .map(|b| ByteBuffer::from_arrow_buffer(b.clone(), Alignment::of::<u8>()))
-                    .collect::<Vec<_>>(),
-            ),
-            dtype,
-            nulls(value.nulls(), nullable)?,
-        )
-        .into_array()
+    import_leaf(value.nulls(), nullable, |validity| {
+        let dtype = match T::DATA_TYPE {
+            DataType::BinaryView => DType::Binary(validity.nullability()),
+            DataType::Utf8View => DType::Utf8(validity.nullability()),
+            dt => vortex_panic!("Invalid data type for ByteViewArray: {dt}"),
+        };
+        let data_buffers = value
+            .data_buffers()
+            .iter()
+            .map(|buffer| ByteBuffer::from_arrow_buffer(buffer.clone(), Alignment::of::<u8>()))
+            .collect::<Vec<_>>()
+            .into();
+
+        // SAFETY: Arrow's 16-byte views use the same format, with checked bounds, prefixes, and
+        // UTF-8 for string values. The validity comes from the same array, and its nullability
+        // determines the dtype.
+        unsafe { VarBinViewArray::new_unchecked(views_buffer, data_buffers, dtype, validity) }
+            .into_array()
     })
 }
 
-/// Zero-copy conversion of an Arrow boolean array into a Vortex `Bool` array.
+/// Convert an Arrow boolean array, sharing its bit buffer on import.
 pub fn from_arrow_boolean(value: &ArrowBooleanArray, nullable: bool) -> VortexResult<ArrayRef> {
-    Ok(BoolArray::new(
-        value.values().clone().into(),
-        nulls(value.nulls(), nullable)?,
-    )
-    .into_array())
-}
-
-/// Strip out the nulls from this array and return a new array without nulls.
-pub(crate) fn remove_nulls(data: arrow_data::ArrayData) -> VortexResult<arrow_data::ArrayData> {
-    if data.null_count() == 0 {
-        // No nulls to remove, return the array as is
-        return Ok(data);
-    }
-
-    let children = match data.data_type() {
-        DataType::Struct(fields) => Some(
-            fields
-                .iter()
-                .zip(data.child_data().iter())
-                .map(|(field, child_data)| {
-                    if field.is_nullable() {
-                        Ok(child_data.clone())
-                    } else {
-                        remove_nulls(child_data.clone())
-                    }
-                })
-                .collect::<VortexResult<Vec<_>>>()?,
-        ),
-        DataType::List(f)
-        | DataType::LargeList(f)
-        | DataType::ListView(f)
-        | DataType::LargeListView(f)
-        | DataType::FixedSizeList(f, _)
-            if !f.is_nullable() =>
-        {
-            // All list types only have one child
-            vortex_ensure_eq!(
-                data.child_data().len(),
-                1,
-                "List types should have one child"
-            );
-            Some(vec![remove_nulls(data.child_data()[0].clone())?])
-        }
-        _ => None,
-    };
-
-    let mut builder = data.into_builder().nulls(None);
-    if let Some(children) = children {
-        builder = builder.child_data(children);
-    }
-    builder
-        .build()
-        .map_err(|e| vortex_err!("Failed to reconstruct Arrow array without nulls: {e}"))
+    import_leaf(value.nulls(), nullable, |validity| {
+        BoolArray::new(value.values().clone().into(), validity).into_array()
+    })
 }
 
 /// Conversion of an Arrow struct array into a Vortex `Struct` array, converting each column.
 pub fn from_arrow_struct(value: &ArrowStructArray, nullable: bool) -> VortexResult<ArrayRef> {
-    Ok(StructArray::try_new(
-        value.column_names().iter().copied().collect(),
-        value
-            .columns()
-            .iter()
-            .zip(value.fields())
-            .map(|(c, field)| {
-                // Arrow pushes down nulls, even into non-nullable fields. So we strip them
-                // out here because Vortex is a little more strict.
-                if c.null_count() > 0 && !field.is_nullable() {
-                    let stripped = make_array(remove_nulls(c.into_data())?);
-                    from_arrow_dyn(stripped.as_ref(), false)
-                } else {
-                    from_arrow_dyn(c.as_ref(), field.is_nullable())
-                }
-            })
-            .collect::<VortexResult<Vec<_>>>()?,
-        value.len(),
-        nulls(value.nulls(), nullable)?,
-    )?
-    .into_array())
+    let names = value.column_names().iter().copied().collect();
+    let columns = value
+        .columns()
+        .iter()
+        .zip(value.fields())
+        .map(|(column, field)| from_arrow_dyn(column.as_ref(), field.is_nullable()))
+        .collect::<VortexResult<Vec<_>>>()?;
+    let validity = level_validity(value.nulls(), nullable)?;
+
+    Ok(StructArray::try_new(names, columns, value.len(), validity)?.into_array())
 }
 
 /// Conversion of an Arrow (large) list array into a Vortex `List` array.
@@ -510,7 +446,6 @@ pub fn from_arrow_list<O: IntegerPType + OffsetSizeTrait>(
     value: &GenericListArray<O>,
     nullable: bool,
 ) -> VortexResult<ArrayRef> {
-    // Extract the validity of the underlying element array.
     let elements_are_nullable = match value.data_type() {
         DataType::List(field) => field.is_nullable(),
         DataType::LargeList(field) => field.is_nullable(),
@@ -525,12 +460,13 @@ pub fn from_arrow_list<O: IntegerPType + OffsetSizeTrait>(
             .as_ref(),
         elements_are_nullable,
     )?;
-    let nulls = nulls(value.nulls(), nullable)?;
+    let offsets = offsets.into_array();
+    let validity = level_validity(value.nulls(), nullable)?;
 
     // SAFETY: Arrow offsets are non-negative and sorted, and `trim_offsets` rebases them onto
     // the referenced values, so the last offset is the elements length. The validity comes from
     // the same Arrow array, so it has one entry per list.
-    Ok(unsafe { ListArray::new_unchecked(elements, offsets.into_array(), nulls) }.into_array())
+    Ok(unsafe { ListArray::new_unchecked(elements, offsets, validity) }.into_array())
 }
 
 /// Conversion of an Arrow (large) list-view array into a Vortex `ListView` array.
@@ -538,7 +474,6 @@ pub fn from_arrow_list_view<O: OffsetSizeTrait + NativePType>(
     array: &GenericListViewArray<O>,
     nullable: bool,
 ) -> VortexResult<ArrayRef> {
-    // Extract the validity of the underlying element array.
     let elements_are_nullable = match array.data_type() {
         DataType::ListView(field) => field.is_nullable(),
         DataType::LargeListView(field) => field.is_nullable(),
@@ -547,32 +482,36 @@ pub fn from_arrow_list_view<O: OffsetSizeTrait + NativePType>(
 
     let elements = from_arrow_dyn(array.values().as_ref(), elements_are_nullable)?;
 
-    // `offsets` and `sizes` are always non-nullable.
     let offsets = array.offsets().clone().into_array();
     let sizes = array.sizes().clone().into_array();
-    let nulls = nulls(array.nulls(), nullable)?;
+    let validity = level_validity(array.nulls(), nullable)?;
 
-    // SAFETY: Arrow list views share one integer type for offsets and sizes, and every view
-    // lies within the values. The validity comes from the same Arrow array.
-    Ok(unsafe { ListViewArray::new_unchecked(elements, offsets, sizes, nulls) }.into_array())
+    // SAFETY: Arrow supplies equally sized integer buffers whose ranges lie within the values.
+    // The import preserves the value count, and the validity comes from the same views.
+    Ok(unsafe { ListViewArray::new_unchecked(elements, offsets, sizes, validity) }.into_array())
 }
 
-/// Conversion of an Arrow fixed-size list array into a Vortex `FixedSizeList` array.
+/// Convert an Arrow fixed-size list using its field to import the elements.
+///
+/// See the [import nullability rules](crate::ArrowSession::from_arrow_array).
 pub fn from_arrow_fixed_size_list(
     array: &ArrowFixedSizeListArray,
     nullable: bool,
 ) -> VortexResult<ArrayRef> {
     let DataType::FixedSizeList(field, list_size) = array.data_type() else {
-        vortex_panic!("Invalid data type for ListArray: {}", array.data_type());
+        vortex_panic!(
+            "Arrow fixed-size lists must have a FixedSizeList data type, got {}",
+            array.data_type()
+        );
     };
 
-    Ok(FixedSizeListArray::try_new(
-        from_arrow_dyn(array.values().as_ref(), field.is_nullable())?,
-        *list_size as u32,
-        nulls(array.nulls(), nullable)?,
-        array.len(),
-    )?
-    .into_array())
+    let elements = from_arrow_dyn(array.values().as_ref(), field.is_nullable())?;
+    let validity = level_validity(array.nulls(), nullable)?;
+
+    Ok(
+        FixedSizeListArray::try_new(elements, *list_size as u32, validity, array.len())?
+            .into_array(),
+    )
 }
 
 pub(crate) fn map_from_arrow_parts(
@@ -621,10 +560,12 @@ pub(crate) fn map_from_arrow_parts(
     let sizes = Buffer::<i32>::from_iter(offsets.windows(2).map(|window| window[1] - window[0]))
         .into_array();
     let offsets = offsets.inner().slice(0, len).into_array();
-    let validity = nulls(arrow_nulls, nullable)?;
-    // SAFETY: the sizes are the differences of sorted, non-negative Arrow Map offsets that lie
-    // within the entries, and share their integer type. The validity has one entry per map.
+    let validity = level_validity(arrow_nulls, nullable)?;
+
+    // SAFETY: The original Arrow map offsets lie within the entries. Taking adjacent differences
+    // gives one size per offset using the same integer type. The validity comes from those maps.
     let entries = unsafe { ListViewArray::new_unchecked(entries, offsets, sizes, validity) };
+
     // SAFETY: Arrow Map offsets are sorted list offsets. Vortex sizes are adjacent offset
     // differences, so every view's end equals the next view's start. The caller trims the
     // entries to the referenced range and rebases the offsets, so the first offset is zero and
@@ -661,16 +602,73 @@ pub fn from_arrow_null(value: &ArrowNullArray, nullable: bool) -> VortexResult<A
     Ok(NullArray::new(value.len()).into_array())
 }
 
-/// Conversion of an Arrow dictionary array into a Vortex `Dict` array.
+/// Convert an Arrow dictionary array into a Vortex [`DictArray`].
+///
+/// See the [import nullability rules](crate::ArrowSession::from_arrow_array).
 pub fn from_arrow_dictionary<K: ArrowDictionaryKeyType>(
     array: &DictionaryArray<K>,
     nullable: bool,
 ) -> VortexResult<DictArray> {
-    let keys = AnyDictionaryArray::keys(array);
-    let keys = from_arrow_dyn(keys, keys.is_nullable())?;
-    let values = from_arrow_dyn(array.values().as_ref(), nullable)?;
-    // SAFETY: we assume that Arrow has checked the invariants on construction.
-    Ok(unsafe { DictArray::new_unchecked(keys, values) })
+    import_dictionary(array, nullable, |values| {
+        from_arrow_dyn(values.as_ref(), nullable)
+    })
+}
+
+/// Import dictionary codes alongside values converted by the caller.
+///
+/// `import_values` must preserve the length of the supplied Arrow array.
+pub(crate) fn import_dictionary(
+    dict: &dyn AnyDictionaryArray,
+    nullable: bool,
+    import_values: impl FnOnce(ArrowArrayRef) -> VortexResult<ArrayRef>,
+) -> VortexResult<DictArray> {
+    let keys = dict.keys();
+    let values = dict.values();
+    let values = if !nullable && values.is_empty() && !keys.is_empty() {
+        // Every key is null in a non-empty dictionary with no values. Give code zero a value
+        // through the same import path, including any importer registered for the value field.
+        new_null_array(values.data_type(), 1)
+    } else {
+        Arc::clone(values)
+    };
+    let values = import_values(values)?;
+
+    let codes = if nullable {
+        from_arrow_dyn(keys, keys.is_nullable())?
+    } else {
+        downcast_integer_array!(
+            keys => non_nullable_dictionary_codes(keys),
+            dtype => vortex_bail!("Arrow dictionary keys must be integers, got {dtype}"),
+        )
+    };
+
+    // SAFETY: Both paths import integer keys as integer codes. Arrow validates the non-null keys,
+    // and value conversion preserves order and length after the optional insertion above. The
+    // non-nullable path sets null keys to zero after ensuring that entry zero exists.
+    Ok(unsafe { DictArray::new_unchecked(codes, values) })
+}
+
+fn non_nullable_dictionary_codes<T: ArrowPrimitiveType>(keys: &ArrowPrimitiveArray<T>) -> ArrayRef
+where
+    T::Native: NativePType,
+{
+    let Some(nulls) = keys.nulls().filter(|nulls| nulls.null_count() > 0) else {
+        return keys.values().clone().into_array();
+    };
+
+    // A null key can already contain zero. Copy the buffer only when a key needs to change.
+    let zero = T::Native::default();
+    let mut rewritten_keys = None;
+    for (index, (valid, &key)) in nulls.iter().zip(keys.values()).enumerate() {
+        if !valid && key != zero {
+            rewritten_keys.get_or_insert_with(|| keys.values().to_vec())[index] = zero;
+        }
+    }
+
+    match rewritten_keys {
+        Some(keys) => Buffer::from(keys).into_array(),
+        None => keys.values().clone().into_array(),
+    }
 }
 
 /// Convert an Arrow [`NullBuffer`] into a Vortex [`Validity`] for an array of the given
@@ -703,8 +701,9 @@ pub fn nulls(nulls: Option<&NullBuffer>, nullable: bool) -> VortexResult<Validit
     }
 }
 
-/// Canonical conversion of any supported Arrow array into a Vortex array, dispatching on the
-/// Arrow [`DataType`].
+/// Convert an Arrow array to Vortex by its [`DataType`].
+///
+/// This applies the nullability rules of [`crate::ArrowSession::from_arrow_array`].
 pub fn from_arrow_dyn(array: &dyn ArrowArray, nullable: bool) -> VortexResult<ArrayRef> {
     match array.data_type() {
         DataType::Boolean => from_arrow_boolean(array.as_boolean(), nullable),
@@ -781,49 +780,23 @@ pub fn from_arrow_dyn(array: &dyn ArrowArray, nullable: bool) -> VortexResult<Ar
         DataType::Decimal256(..) => {
             from_arrow_decimal256(array.as_primitive::<Decimal256Type>(), nullable)
         }
-        DataType::Dictionary(key_type, _) => match key_type.as_ref() {
-            DataType::Int8 => Ok(from_arrow_dictionary(
-                array.as_dictionary::<Int8Type>(),
-                nullable,
-            )?
-            .into_array()),
-            DataType::Int16 => Ok(from_arrow_dictionary(
-                array.as_dictionary::<Int16Type>(),
-                nullable,
-            )?
-            .into_array()),
-            DataType::Int32 => Ok(from_arrow_dictionary(
-                array.as_dictionary::<Int32Type>(),
-                nullable,
-            )?
-            .into_array()),
-            DataType::Int64 => Ok(from_arrow_dictionary(
-                array.as_dictionary::<Int64Type>(),
-                nullable,
-            )?
-            .into_array()),
-            DataType::UInt8 => Ok(from_arrow_dictionary(
-                array.as_dictionary::<UInt8Type>(),
-                nullable,
-            )?
-            .into_array()),
-            DataType::UInt16 => Ok(from_arrow_dictionary(
-                array.as_dictionary::<UInt16Type>(),
-                nullable,
-            )?
-            .into_array()),
-            DataType::UInt32 => Ok(from_arrow_dictionary(
-                array.as_dictionary::<UInt32Type>(),
-                nullable,
-            )?
-            .into_array()),
-            DataType::UInt64 => Ok(from_arrow_dictionary(
-                array.as_dictionary::<UInt64Type>(),
-                nullable,
-            )?
-            .into_array()),
-            key_dt => vortex_bail!("Unsupported dictionary key type: {key_dt}"),
-        },
+        DataType::Dictionary(..) => {
+            let dict = array.as_any_dictionary_opt().ok_or_else(|| {
+                vortex_err!(
+                    "Arrow dictionary import requires a DictionaryArray, got {}",
+                    array.data_type()
+                )
+            })?;
+            Ok(import_dictionary(dict, nullable, |values| {
+                from_arrow_dyn(values.as_ref(), nullable)
+            })?
+            .into_array())
+        }
+        DataType::RunEndEncoded(ends, _) => {
+            run_end_from_arrow_dyn(array, ends.data_type(), |values| {
+                from_arrow_dyn(values.as_ref(), nullable)
+            })
+        }
         dt => {
             vortex_bail!("Array encoding not implemented for Arrow data type {dt}")
         }
@@ -842,12 +815,14 @@ mod tests {
     use std::sync::LazyLock;
 
     use arrow_array::Array as ArrowArray;
+    use arrow_array::ArrayRef as ArrowArrayRef;
     use arrow_array::BinaryArray;
     use arrow_array::BooleanArray;
     use arrow_array::Date32Array;
     use arrow_array::Date64Array;
     use arrow_array::Decimal128Array;
     use arrow_array::Decimal256Array;
+    use arrow_array::DictionaryArray;
     use arrow_array::FixedSizeListArray as ArrowFixedSizeListArray;
     use arrow_array::Float32Array;
     use arrow_array::Float64Array;
@@ -860,7 +835,9 @@ mod tests {
     use arrow_array::LargeStringArray;
     use arrow_array::NullArray;
     use arrow_array::RecordBatch;
+    use arrow_array::RunArray;
     use arrow_array::StringArray;
+    use arrow_array::StringViewArray;
     use arrow_array::StructArray;
     use arrow_array::Time32MillisecondArray;
     use arrow_array::Time32SecondArray;
@@ -887,6 +864,7 @@ mod tests {
     use arrow_array::new_null_array;
     use arrow_array::types::ArrowPrimitiveType;
     use arrow_array::types::Float16Type;
+    use arrow_array::types::Int32Type;
     use arrow_buffer::BooleanBuffer;
     use arrow_buffer::Buffer as ArrowBuffer;
     use arrow_buffer::NullBuffer;
@@ -897,6 +875,7 @@ mod tests {
     use arrow_schema::Fields;
     use arrow_schema::Schema;
     use rstest::rstest;
+    use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute as _;
     use vortex_array::arrays::BoolArray;
@@ -908,6 +887,7 @@ mod tests {
     use vortex_array::arrays::ListArray;
     use vortex_array::arrays::ListView;
     use vortex_array::arrays::ListViewArray;
+    use vortex_array::arrays::MapArray;
     use vortex_array::arrays::NullArray as VortexNullArray;
     use vortex_array::arrays::Primitive;
     use vortex_array::arrays::PrimitiveArray;
@@ -916,6 +896,7 @@ mod tests {
     use vortex_array::arrays::TemporalArray;
     use vortex_array::arrays::VarBinArray;
     use vortex_array::arrays::VarBinView;
+    use vortex_array::arrays::VarBinViewArray;
     use vortex_array::arrays::fixed_size_list::FixedSizeListArrayExt;
     use vortex_array::arrays::fixed_size_list::FixedSizeListArraySlotsExt;
     use vortex_array::arrays::list::ListArraySlotsExt;
@@ -925,6 +906,7 @@ mod tests {
     use vortex_array::dtype::DType;
     use vortex_array::dtype::DecimalDType;
     use vortex_array::dtype::DecimalType;
+    use vortex_array::dtype::MapDType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
     use vortex_array::dtype::i256;
@@ -936,12 +918,35 @@ mod tests {
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
+    use crate::ArrowSessionExt;
     use crate::IntoVortexArray as _;
     use crate::convert::from_arrow_batch;
     use crate::convert::from_arrow_dyn;
     use crate::convert::from_arrow_temporal;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
+    #[derive(Clone, Copy)]
+    enum ImportPath {
+        Canonical,
+        Session,
+    }
+
+    #[track_caller]
+    fn assert_import(
+        path: ImportPath,
+        arrow: ArrowArrayRef,
+        nullable: bool,
+        expected: ArrayRef,
+    ) -> VortexResult<()> {
+        let imported = match path {
+            ImportPath::Canonical => from_arrow_dyn(arrow.as_ref(), nullable)?,
+            ImportPath::Session => SESSION.arrow().from_arrow_array(arrow, nullable)?,
+        };
+
+        assert_arrays_eq!(imported, expected, &mut SESSION.create_execution_ctx());
+        Ok(())
+    }
 
     #[rstest]
     #[case::i8(
@@ -2441,58 +2446,229 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn non_nullable_request_rejects_nulls() {
-        // Requesting `nullable = false` on an Arrow array that physically contains nulls is a
-        // contradiction and must surface as an error, not a panic.
-        let arrow_array = Int32Array::from(vec![Some(1), None, Some(3)]);
-        assert!(from_arrow_dyn(&arrow_array, false).is_err());
+    #[rstest]
+    #[case::primitive(
+        Arc::new(Int32Array::new(
+            vec![1, 99, 3].into(),
+            Some(NullBuffer::from(vec![true, false, true])),
+        )),
+        buffer![1i32, 0, 3].into_array(),
+    )]
+    #[case::boolean(
+        Arc::new(BooleanArray::from(vec![Some(true), None, Some(true)])),
+        BoolArray::from_iter([true, false, true]).into_array(),
+    )]
+    #[case::utf8(
+        Arc::new(StringArray::from(vec![Some("left"), None, Some("right")])),
+        VarBinViewArray::from_iter_str(["left", "", "right"]).into_array(),
+    )]
+    #[case::utf8_view(
+        Arc::new(StringViewArray::from(vec![Some("left"), None, Some("right")])),
+        VarBinViewArray::from_iter_str(["left", "", "right"]).into_array(),
+    )]
+    #[case::binary(
+        Arc::new(BinaryArray::from(vec![Some(&b"left"[..]), None, Some(&b"right"[..])])),
+        VarBinViewArray::from_iter_bin([&b"left"[..], b"", b"right"]).into_array(),
+    )]
+    #[case::timestamp(
+        Arc::new(TimestampSecondArray::from(vec![Some(-1), None, Some(5)])),
+        TemporalArray::new_timestamp(buffer![-1i64, 0, 5].into_array(), TimeUnit::Seconds, None)
+            .into_array(),
+    )]
+    fn test_import_non_nullable_leaves_fill_nulls_with_zero(
+        #[case] arrow: ArrowArrayRef,
+        #[case] expected: ArrayRef,
+        #[values(ImportPath::Canonical, ImportPath::Session)] path: ImportPath,
+    ) -> VortexResult<()> {
+        assert_import(path, arrow, false, expected)
+    }
+
+    #[rstest]
+    fn test_import_non_nullable_decimal_fills_nulls_with_zero(
+        #[values(ImportPath::Canonical, ImportPath::Session)] path: ImportPath,
+    ) -> VortexResult<()> {
+        let arrow = Decimal128Array::from(vec![Some(12345), None, Some(-67890)])
+            .with_precision_and_scale(10, 2)?;
+        let expected =
+            DecimalArray::from_iter([12345i64, 0, -67890], DecimalDType::try_new(10, 2)?);
+        assert_import(path, Arc::new(arrow), false, expected.into_array())
     }
 
     #[test]
-    fn non_nullable_request_rejects_null_array() {
-        // An Arrow NullArray is entirely null, so it cannot be converted to a non-nullable
-        // Vortex array.
+    fn test_import_null_type_cannot_be_non_nullable() {
         let arrow_array = NullArray::new(5);
         assert!(from_arrow_dyn(&arrow_array, false).is_err());
     }
 
-    #[test]
-    fn non_nullable_struct_with_nulls_errors() {
-        // A struct array carrying top-level nulls cannot be converted to a non-nullable Vortex
-        // struct; the struct-level validity reconciliation must error rather than panic.
-        let struct_array = new_null_array(
-            &DataType::Struct(Fields::from(vec![Field::new("a", DataType::Int32, true)])),
-            3,
-        );
-        assert!(from_arrow_dyn(struct_array.as_ref(), false).is_err());
+    #[rstest]
+    fn test_import_non_nullable_struct_keeps_its_children(
+        #[values(ImportPath::Canonical, ImportPath::Session)] path: ImportPath,
+    ) -> VortexResult<()> {
+        let arrow = StructArray::try_new(
+            vec![Field::new("a", DataType::Int32, true)].into(),
+            vec![Arc::new(Int32Array::from(vec![Some(7), None]))],
+            Some(NullBuffer::from(vec![false, true])),
+        )?;
+        let expected = VortexStructArray::from_fields(&[(
+            "a",
+            PrimitiveArray::from_option_iter([Some(7i32), None]).into_array(),
+        )])?;
+        assert_import(path, Arc::new(arrow), false, expected.into_array())
     }
 
-    #[test]
-    fn non_nullable_list_with_nulls_errors() {
-        // Likewise for a list array with a null entry: requesting a non-nullable list must error
-        // rather than panic.
+    #[rstest]
+    fn test_import_non_nullable_list_keeps_its_offsets(
+        #[values(ImportPath::Canonical, ImportPath::Session)] path: ImportPath,
+    ) -> VortexResult<()> {
         let mut builder = ListBuilder::new(Int32Builder::new());
         builder.append_value([Some(1), Some(2)]);
         builder.append_null();
-        let list = builder.finish();
-        assert!(from_arrow_dyn(&list, false).is_err());
+        let mut ctx = SESSION.create_execution_ctx();
+        let expected = ListArray::try_new(
+            PrimitiveArray::from_option_iter([Some(1i32), Some(2)]).into_array(),
+            buffer![0i32, 2, 2].into_array(),
+            Validity::NonNullable,
+            &mut ctx,
+        )?;
+        assert_import(
+            path,
+            Arc::new(builder.finish()),
+            false,
+            expected.into_array(),
+        )
     }
 
-    #[test]
-    pub fn nullable_struct_containing_non_nullable_dictionary_with_nulls_errors() {
-        // `remove_nulls` cannot strip pushed-down nulls out of a non-nullable dictionary field,
-        // so the values end up converted with `nullable = false` while still containing nulls.
-        // This must surface as an error rather than panicking.
-        let null_struct_array_with_non_nullable_field = new_null_array(
-            &DataType::Struct(Fields::from(vec![Field::new(
-                "non_nullable_deeper_inner",
-                DataType::Dictionary(Box::new(DataType::Int32), Box::new(DataType::Utf8)),
-                false,
-            )])),
+    #[rstest]
+    fn test_import_non_nullable_list_view_keeps_its_views(
+        #[values(ImportPath::Canonical, ImportPath::Session)] path: ImportPath,
+    ) -> VortexResult<()> {
+        let arrow = GenericListViewArray::<i32>::try_new(
+            Arc::new(Field::new_list_field(DataType::Int32, true)),
+            vec![1, 0].into(),
+            vec![1, 2].into(),
+            Arc::new(Int32Array::from(vec![Some(7), None])),
+            Some(NullBuffer::from(vec![false, true])),
+        )?;
+        let expected = ListViewArray::try_new(
+            PrimitiveArray::from_option_iter([Some(7i32), None]).into_array(),
+            buffer![1i32, 0].into_array(),
+            buffer![1i32, 2].into_array(),
+            Validity::NonNullable,
+            &mut SESSION.create_execution_ctx(),
+        )?;
+        assert_import(path, Arc::new(arrow), false, expected.into_array())
+    }
+
+    #[rstest]
+    fn test_import_non_nullable_map_keeps_its_entries(
+        #[values(ImportPath::Canonical, ImportPath::Session)] path: ImportPath,
+    ) -> VortexResult<()> {
+        let entries = StructArray::try_new(
+            vec![
+                Field::new("key", DataType::Int32, false),
+                Field::new("value", DataType::Int32, true),
+            ]
+            .into(),
+            vec![
+                Arc::new(Int32Array::from(vec![1])),
+                Arc::new(Int32Array::new_null(1)),
+            ],
+            None,
+        )?;
+        let arrow = arrow_array::MapArray::try_new(
+            Arc::new(Field::new("entries", entries.data_type().clone(), false)),
+            OffsetBuffer::new(vec![0, 1, 1].into()),
+            entries,
+            Some(NullBuffer::from(vec![false, true])),
+            false,
+        )?;
+        let entries = VortexStructArray::from_fields(&[
+            ("key", buffer![1i32].into_array()),
+            (
+                "value",
+                PrimitiveArray::from_option_iter([None::<i32>]).into_array(),
+            ),
+        ])?;
+        let view = ListViewArray::try_new(
+            entries.into_array(),
+            buffer![0i32, 1].into_array(),
+            buffer![1i32, 0].into_array(),
+            Validity::NonNullable,
+            &mut SESSION.create_execution_ctx(),
+        )?;
+        let map = MapDType::try_new(
+            DType::Primitive(PType::I32, Nullability::NonNullable),
+            DType::Primitive(PType::I32, Nullability::Nullable),
+            false,
+        )?;
+        let expected = MapArray::try_new(map, view)?;
+        assert_import(path, Arc::new(arrow), false, expected.into_array())
+    }
+
+    #[rstest]
+    fn test_import_non_nullable_run_end_fills_null_values(
+        #[values(ImportPath::Canonical, ImportPath::Session)] path: ImportPath,
+    ) -> VortexResult<()> {
+        let arrow = RunArray::<Int32Type>::try_new(
+            &Int32Array::from(vec![2, 4, 5]),
+            &Int32Array::from(vec![Some(7), None, Some(9)]),
+        )?;
+        assert_import(
+            path,
+            Arc::new(arrow),
+            false,
+            buffer![7i32, 7, 0, 0, 9].into_array(),
+        )
+    }
+
+    #[rstest]
+    fn test_import_non_nullable_dictionary_rewrites_null_keys_and_fills_null_values(
+        #[values(ImportPath::Canonical, ImportPath::Session)] path: ImportPath,
+    ) -> VortexResult<()> {
+        let keys = Int32Array::new(
+            vec![
+                1, // The first key refers to the second value.
+                0, // This null key can keep its stored index.
+                1, 99, -1, // These null keys require rewriting.
+                2,  // The last key refers to a null value.
+            ]
+            .into(),
+            Some(NullBuffer::from(vec![
+                true, false, false, false, false, true,
+            ])),
+        );
+        let values = StringArray::from(vec![Some("first"), Some("second"), None]);
+        let arrow = DictionaryArray::<Int32Type>::try_new(keys, Arc::new(values))?;
+        let expected =
+            VarBinViewArray::from_iter_str(["second", "first", "first", "first", "first", ""]);
+        assert_import(path, Arc::new(arrow), false, expected.into_array())
+    }
+
+    #[rstest]
+    fn test_import_non_nullable_dictionary_without_values_gets_zero_entry(
+        #[values(ImportPath::Canonical, ImportPath::Session)] path: ImportPath,
+    ) -> VortexResult<()> {
+        let dictionary = DataType::Dictionary(Box::new(DataType::Int32), Box::new(DataType::Utf8));
+        let arrow = new_null_array(&dictionary, 2);
+        let expected = VarBinViewArray::from_iter_str(["", ""]);
+        assert_import(path, arrow, false, expected.into_array())
+    }
+
+    #[rstest]
+    fn test_import_null_struct_with_empty_dictionary_preserves_parent_null(
+        #[values(ImportPath::Canonical, ImportPath::Session)] path: ImportPath,
+    ) -> VortexResult<()> {
+        let dictionary = DataType::Dictionary(Box::new(DataType::Int32), Box::new(DataType::Utf8));
+        let arrow = new_null_array(
+            &DataType::Struct(vec![Field::new("child", dictionary, false)].into()),
             1,
         );
-
-        assert!(from_arrow_dyn(null_struct_array_with_non_nullable_field.as_ref(), true).is_err());
+        let expected = VortexStructArray::try_new(
+            ["child"].into(),
+            vec![VarBinViewArray::from_iter_str([""]).into_array()],
+            1,
+            Validity::AllInvalid,
+        )?;
+        assert_import(path, arrow, true, expected.into_array())
     }
 }

@@ -1234,7 +1234,7 @@ fn test_geometry() {
         let geometry = ExtensionArray::new(
             ExtDType::<WellKnownBinary>::try_new(
                 SpatialMetadata::new(Some("EPSG:32600".to_string())),
-                geometry.dtype().clone(),
+                geometry.dtype().nullability(),
             )
             .expect("making extension array")
             .erased(),

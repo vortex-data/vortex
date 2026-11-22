@@ -21,6 +21,7 @@ use vortex_layout::layouts::zoned::zone_map::ZoneMap;
 use crate::aggregate_fn::GeometryAabb;
 use crate::extension::Rect;
 use crate::extension::SpatialMetadata;
+use crate::extension::coordinate::Dimension;
 
 /// A single-column zone map holding one native-box AABB stat row (`[xmin, ymin, xmax, ymax]`)
 /// per zone, with default (unreferenced) metadata to match the aggregate's return dtype.
@@ -34,8 +35,11 @@ pub(super) fn aabb_zone_map(point_dtype: &DType, boxes: &[[f64; 4]]) -> VortexRe
         Validity::AllValid,
     )?
     .into_array();
-    let box_dtype =
-        ExtDType::<Rect>::try_new(SpatialMetadata::default(), storage.dtype().clone())?.erased();
+    let box_dtype = ExtDType::<Rect>::try_new(
+        SpatialMetadata::default().with_dimension(Dimension::Xy),
+        storage.dtype().nullability(),
+    )?
+    .erased();
     let aabbs = ExtensionArray::try_new(box_dtype, storage)?.into_array();
     let zone_array = StructArray::from_fields(&[(aabb_fn.to_string().as_str(), aabbs)])?;
     ZoneMap::try_new(

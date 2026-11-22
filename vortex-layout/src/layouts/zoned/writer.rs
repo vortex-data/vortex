@@ -394,7 +394,7 @@ mod tests {
         Nullability::NonNullable,
     ))]
     fn zone_maps_hold_no_variant_state(#[case] dtype: DType) {
-        let session = SESSION.clone().with::<LayoutSession>();
+        let session = VortexSession::empty().with::<LayoutSession>();
         let accumulator =
             AggregateStatsAccumulator::new(&dtype, &default_zoned_aggregate_fns(&dtype, &session));
         for aggregate_fn in accumulator.aggregate_fns().iter() {

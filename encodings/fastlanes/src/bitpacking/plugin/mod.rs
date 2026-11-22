@@ -54,8 +54,8 @@ pub fn bitpacked_v2_id() -> ArrayId {
 /// its metadata. Arrays whose blocks have their own bit widths serialize as
 /// `fastlanes.bitpacked.v2`, which stores the block offsets as a child.
 ///
-/// Register this plugin, or call [`crate::initialize`], to enable serde. Direct registration of
-/// [`BitPacked`] does not support serde.
+/// Register this plugin, or call [`crate::initialize`], to enable serde. [`BitPacked`] does not
+/// implement [`ArrayPlugin`], so it cannot be registered on its own.
 #[derive(Clone, Debug)]
 pub struct BitPackedPlugin;
 

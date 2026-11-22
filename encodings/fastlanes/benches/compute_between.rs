@@ -41,6 +41,7 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
         .with::<AggregateFnSession>()
         .with::<MemorySession>();
     vortex_fastlanes::initialize(&session);
+    vortex_alp::initialize(&session);
     session
 });
 

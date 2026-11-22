@@ -14,6 +14,7 @@ changelog/index
 
 ## Links
 
+- [FAQ](https://vortex.dev/faq)
 - [Spiral](https://spiraldb.com)
 - [GitHub](https://github.com/vortex-data/vortex)
 - [PyPI](https://pypi.org/project/vortex-data)

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::num::NonZeroUsize;
 use std::ops::Range;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -9,7 +10,6 @@ use std::task::Poll;
 use std::task::ready;
 
 use futures::Stream;
-use futures::future::BoxFuture;
 use futures::stream::BoxStream;
 use itertools::Itertools;
 use vortex_array::ArrayRef;
@@ -38,7 +38,11 @@ use crate::layouts::row_idx::RowIdx;
 use crate::layouts::row_idx::RowIdxLayoutReader;
 use crate::scan::limit::RowLimit;
 use crate::scan::limit::ScanLimit;
+use crate::scan::metrics::ScanMetrics;
+use crate::scan::metrics::ScanUsage;
 use crate::scan::repeated_scan::RepeatedScan;
+use crate::scan::repeated_scan::ScanTasks;
+use crate::scan::repeated_scan::SplitConcurrency;
 use crate::scan::split_by::SplitBy;
 use crate::scan::splits::Splits;
 use crate::scan::splits::attempt_split_ranges;
@@ -71,10 +75,13 @@ pub struct ScanBuilder<A> {
     /// uses them instead of walking the layout.
     natural_splits: Option<Arc<[u64]>>,
     /// The number of splits to make progress on concurrently **per-thread**.
-    concurrency: usize,
+    concurrency: SplitConcurrency,
     /// Function to apply to each [`ArrayRef`] within the spawned split tasks.
     map_fn: Arc<dyn Fn(ArrayRef) -> VortexResult<A> + Send + Sync>,
-    metrics_registry: Option<Arc<dyn MetricsRegistry>>,
+    /// Caller-owned resource usage that the scan adds to.
+    usage: Option<Arc<ScanUsage>>,
+    /// Registry counters that the scan adds to.
+    metrics: Option<ScanMetrics>,
     /// Maximal number of rows to read after filtering.
     limit: Option<ScanLimit>,
     /// The row-offset assigned to the first row of the file. Used by the `row_idx` expression,
@@ -98,9 +105,13 @@ impl ScanBuilder<ArrayRef> {
             natural_splits: None,
             // We default to four tasks per worker thread, which allows for some I/O lookahead
             // without too much impact on work-stealing.
-            concurrency: 4,
+            concurrency: SplitConcurrency {
+                per_worker: 4,
+                max: None,
+            },
             map_fn: Arc::new(Ok),
-            metrics_registry: None,
+            usage: None,
+            metrics: None,
             limit: None,
             row_offset: 0,
         }
@@ -222,26 +233,69 @@ impl<A: 'static + Send> ScanBuilder<A> {
 
     /// Returns the per-worker row-split concurrency.
     pub fn concurrency(&self) -> usize {
-        self.concurrency
+        self.concurrency.per_worker
+    }
+
+    /// Returns the most row splits in progress at once, in all, if a bound is set.
+    pub fn max_splits_in_flight(&self) -> Option<NonZeroUsize> {
+        self.concurrency.max
     }
 
     /// The number of row splits to make progress on concurrently per-thread, must
     /// be greater than 0.
     pub fn with_concurrency(mut self, concurrency: usize) -> Self {
         assert!(concurrency > 0);
-        self.concurrency = concurrency;
+        self.concurrency.per_worker = concurrency;
         self
     }
 
-    /// Add or clear the metrics registry used by scan execution.
-    pub fn with_some_metrics_registry(mut self, metrics: Option<Arc<dyn MetricsRegistry>>) -> Self {
-        self.metrics_registry = metrics;
+    /// Bound the row splits in progress at once to `max` in all, whatever the per-worker
+    /// concurrency and the machine's core count. `None` removes the bound. A filtered, limited
+    /// scan may hold one more trimmed array per split while it is mapped.
+    ///
+    /// Each split in progress holds the decoded chunks of every column it overlaps, so a scan
+    /// that runs alongside others, such as one task of several on a machine, can set this to
+    /// reduce memory held by concurrent decoding. This does not cap total memory or I/O read-ahead.
+    pub fn with_some_max_splits_in_flight(mut self, max: Option<NonZeroUsize>) -> Self {
+        self.concurrency.max = max;
         self
     }
 
-    /// Set the metrics registry used by scan execution.
-    pub fn with_metrics_registry(mut self, metrics: Arc<dyn MetricsRegistry>) -> Self {
-        self.metrics_registry = Some(metrics);
+    /// Adds the resource usage of this scan to `usage`.
+    ///
+    /// The caller owns the scope. Share one value across scans to get the total of a partition or
+    /// a query. A prepared [`RepeatedScan`] adds every execution to the same value.
+    pub fn with_usage(self, usage: Arc<ScanUsage>) -> Self {
+        self.with_some_usage(Some(usage))
+    }
+
+    /// Sets or clears the resource usage that this scan adds to.
+    pub fn with_some_usage(mut self, usage: Option<Arc<ScanUsage>>) -> Self {
+        self.usage = usage;
+        self
+    }
+
+    /// Registers scan counters in `metrics`.
+    ///
+    /// Each call registers new counters. For many scans, register once with [`ScanMetrics::new`]
+    /// and use [`Self::with_scan_metrics`].
+    pub fn with_metrics_registry(self, metrics: Arc<dyn MetricsRegistry>) -> Self {
+        self.with_some_metrics_registry(Some(metrics))
+    }
+
+    /// Registers scan counters in `metrics`, or clears them.
+    pub fn with_some_metrics_registry(self, metrics: Option<Arc<dyn MetricsRegistry>>) -> Self {
+        self.with_some_scan_metrics(metrics.as_deref().map(ScanMetrics::new))
+    }
+
+    /// Uses shared registry counters without new registry entries.
+    pub fn with_scan_metrics(self, metrics: ScanMetrics) -> Self {
+        self.with_some_scan_metrics(Some(metrics))
+    }
+
+    /// Sets or clears shared registry counters.
+    pub fn with_some_scan_metrics(mut self, metrics: Option<ScanMetrics>) -> Self {
+        self.metrics = metrics;
         self
     }
 
@@ -293,7 +347,8 @@ impl<A: 'static + Send> ScanBuilder<A> {
             split_by: self.split_by,
             natural_splits: self.natural_splits,
             concurrency: self.concurrency,
-            metrics_registry: self.metrics_registry,
+            usage: self.usage,
+            metrics: self.metrics,
             limit: self.limit,
             row_offset: self.row_offset,
             map_fn: Arc::new(move |a| old_map_fn(a).and_then(&map_fn)),
@@ -358,6 +413,8 @@ impl<A: 'static + Send> ScanBuilder<A> {
             splits,
             self.concurrency,
             self.map_fn,
+            self.usage,
+            self.metrics,
             self.limit,
             dtype,
         ))
@@ -367,7 +424,7 @@ impl<A: 'static + Send> ScanBuilder<A> {
     ///
     /// Scans with row limits must use [`Self::into_stream`] or [`Self::into_iter`] so the scan
     /// can coordinate the limit across splits.
-    pub fn build(self) -> VortexResult<Vec<BoxFuture<'static, VortexResult<Option<A>>>>> {
+    pub fn build(self) -> VortexResult<ScanTasks<A>> {
         self.prepare()?.execute(None)
     }
 
