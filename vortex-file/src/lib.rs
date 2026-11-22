@@ -189,7 +189,6 @@ mod forever_constant {
 /// Registration covers reading: a session can decode every encoding registered here. The
 /// writer is gated separately by the editions enabled on its session.
 pub fn register_default_encodings(session: &VortexSession) {
-    vortex_functions::initialize(session);
     vortex_bytebool::initialize(session);
     vortex_fsst::initialize(session);
     vortex_onpair::initialize(session);
@@ -287,11 +286,16 @@ pub(crate) fn enable_all_registered_array_encodings(session: &VortexSession) {
 
 #[cfg(test)]
 mod default_encoding_tests {
+    use std::sync::Arc;
+
     use vortex_array::VTable as _;
     use vortex_array::arrays::Filter;
     use vortex_array::optimizer::kernels::ArrayKernelsExt as _;
+    use vortex_array::scalar_fn::ScalarFnVTable;
+    use vortex_array::scalar_fn::session::ScalarFnSessionExt as _;
     use vortex_array::session::ArraySessionExt as _;
     use vortex_fsst::FSST;
+    use vortex_functions::byte_length::ByteLength;
     use vortex_onpair::OnPair;
     use vortex_session::VortexSession;
 
@@ -314,5 +318,26 @@ mod default_encoding_tests {
                 .kernels()
                 .has_execute_parent(Filter.id(), OnPair.id())
         );
+    }
+
+    #[test]
+    fn register_default_encodings_preserves_scalar_fn_registrations() {
+        let session = VortexSession::empty();
+        let id = ScalarFnVTable::id(&ByteLength);
+        session.scalar_fns().register(ByteLength);
+        let registered = session
+            .scalar_fns()
+            .registry()
+            .get(&id)
+            .expect("scalar fn should be registered");
+
+        register_default_encodings(&session);
+
+        let after = session
+            .scalar_fns()
+            .registry()
+            .get(&id)
+            .expect("scalar fn should still be registered");
+        assert!(Arc::ptr_eq(&registered, &after));
     }
 }

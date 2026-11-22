@@ -359,7 +359,6 @@ impl VortexSessionDefault for VortexSession {
             .with::<MemorySession>()
             .with::<CompressionSession>()
             .with::<RuntimeSession>();
-        #[cfg(not(feature = "files"))]
         vortex_functions::initialize(&session);
         #[cfg(feature = "parquet-variant")]
         vortex_parquet_variant::initialize(&session);
