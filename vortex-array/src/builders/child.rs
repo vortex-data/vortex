@@ -521,7 +521,11 @@ mod tests {
         let failing_chunk =
             ChunkedArray::try_new(vec![constant(99, 2), constant(88, 2)], DType::from(I32))?
                 .into_array();
-        assert!(builder.append_array(&failing_chunk, &mut ctx).is_err());
+        let err = builder.append_array(&failing_chunk, &mut ctx).unwrap_err();
+        assert!(
+            err.to_string().contains("simulated optimization error"),
+            "unexpected error: {err}"
+        );
 
         // Accepted length must not count the failed chunk.
         assert_eq!(builder.len(), 1);
@@ -559,10 +563,12 @@ mod tests {
         let failing_chunk =
             ChunkedArray::try_new(vec![constant(99, 2), constant(88, 3)], DType::from(I32))?
                 .into_array();
+        let err = builder
+            .append_array_as_list(&failing_chunk, &mut ctx)
+            .unwrap_err();
         assert!(
-            builder
-                .append_array_as_list(&failing_chunk, &mut ctx)
-                .is_err()
+            err.to_string().contains("simulated optimization error"),
+            "unexpected error: {err}"
         );
 
         builder.append_array_as_list(&buffer![3i32, 4, 5].into_array(), &mut ctx)?;
@@ -571,10 +577,6 @@ mod tests {
         assert_eq!(list.len(), 2);
         let offsets = list.offsets().clone().execute::<PrimitiveArray>(&mut ctx)?;
         assert_eq!(offsets.as_slice::<u32>(), &[0, 2, 5]);
-        assert_eq!(
-            offsets.as_slice::<u32>().last().copied().unwrap() as usize,
-            list.elements().len()
-        );
         assert_arrays_eq!(
             list.elements(),
             PrimitiveArray::from_iter([1i32, 2, 3, 4, 5]),
