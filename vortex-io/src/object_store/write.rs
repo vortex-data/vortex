@@ -8,6 +8,8 @@ use bytes::BytesMut;
 use futures::TryStreamExt;
 #[cfg(any(not(target_arch = "wasm32"), feature = "wasm-bindgen"))]
 use futures::channel::oneshot;
+#[cfg(not(target_arch = "wasm32"))]
+use futures::future::Either;
 use futures::stream::FuturesUnordered;
 use object_store::MultipartUpload;
 use object_store::ObjectStore;
@@ -53,8 +55,23 @@ pub struct ObjectStoreWrite {
     cleanup_runtime: Option<tokio::runtime::Handle>,
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+enum CompletionOutcome {
+    Completed(PutResult),
+    Failed(object_store::Error),
+    Aborted(object_store::Result<()>),
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+struct PendingCompletion {
+    cancel_tx: Option<oneshot::Sender<()>>,
+    result_rx: oneshot::Receiver<CompletionOutcome>,
+}
+
 enum UploadState {
     Active(Box<dyn MultipartUpload>),
+    #[cfg(not(target_arch = "wasm32"))]
+    Completing(PendingCompletion),
     Completed,
     Aborted,
 }
@@ -104,12 +121,45 @@ impl ObjectStoreWrite {
         self.put_result.as_ref()
     }
 
-    /// Explicitly abort the multipart upload if it is still active.
+    /// Explicitly abort the multipart upload if it is still active or completing.
     ///
-    /// Calling `abort` on an already-aborted or completed writer is a no-op. On native targets,
-    /// cleanup is spawned on the global `smol` executor wrapped in [`Compat`] so it outlives both
-    /// caller task cancellation and shutdown of the caller's Tokio runtime.
+    /// Calling `abort` on an already-aborted or completed writer is a no-op. If a previous
+    /// `shutdown()` was cancelled while remote completion was in flight on a native target,
+    /// `abort` signals cancellation and waits for the completion task to settle: it returns
+    /// `Ok(())` only if abort won, or an error (and populates [`Self::put_result`]) if remote
+    /// completion had already published the object. On native targets, cleanup is spawned on the
+    /// global `smol` executor wrapped in [`Compat`] so it outlives both caller task cancellation
+    /// and shutdown of the caller's Tokio runtime.
     pub async fn abort(&mut self) -> io::Result<()> {
+        #[cfg(not(target_arch = "wasm32"))]
+        if let UploadState::Completing(pending) = &mut self.state {
+            if let Some(cancel_tx) = pending.cancel_tx.take() {
+                let _ = cancel_tx.send(());
+            }
+            let outcome = (&mut pending.result_rx).await;
+            return match outcome {
+                Ok(CompletionOutcome::Aborted(res)) => {
+                    self.state = UploadState::Aborted;
+                    res.map_err(io::Error::from)
+                }
+                Ok(CompletionOutcome::Failed(_)) => {
+                    self.state = UploadState::Aborted;
+                    Ok(())
+                }
+                Ok(CompletionOutcome::Completed(put_result)) => {
+                    self.state = UploadState::Completed;
+                    self.put_result = Some(put_result);
+                    Err(io::Error::other(
+                        "multipart upload already completed before abort",
+                    ))
+                }
+                Err(_) => {
+                    self.state = UploadState::Aborted;
+                    Err(io::Error::other("completion task cancelled"))
+                }
+            };
+        }
+
         if !matches!(self.state, UploadState::Active(_)) {
             return Ok(());
         }
@@ -176,6 +226,16 @@ impl ObjectStoreWrite {
     /// flush, or shutdown future is cancelled while the caller still owns the writer.
     fn abort_in_background(&mut self) {
         self.buffer.clear();
+        #[cfg(not(target_arch = "wasm32"))]
+        if let UploadState::Completing(pending) = &mut self.state {
+            // Signal the in-flight completion task to cancel `complete()` and abort the upload,
+            // while keeping `UploadState::Completing` so a subsequent `abort()` or `shutdown()`
+            // still observes whether abort or publication won.
+            if let Some(cancel_tx) = pending.cancel_tx.take() {
+                let _ = cancel_tx.send(());
+            }
+            return;
+        }
         let UploadState::Active(mut upload) =
             std::mem::replace(&mut self.state, UploadState::Aborted)
         else {
@@ -212,10 +272,45 @@ impl ObjectStoreWrite {
     fn active_upload_mut(&mut self) -> io::Result<&mut Box<dyn MultipartUpload>> {
         match &mut self.state {
             UploadState::Active(upload) => Ok(upload),
+            #[cfg(not(target_arch = "wasm32"))]
+            UploadState::Completing(_) => {
+                Err(io::Error::other("multipart upload completion in progress"))
+            }
             UploadState::Completed => Err(io::Error::other("multipart upload already completed")),
             UploadState::Aborted => Err(io::Error::other(
                 "multipart upload already failed or aborted",
             )),
+        }
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    async fn finish_pending_completion(&mut self) -> io::Result<()> {
+        let outcome = {
+            let UploadState::Completing(pending) = &mut self.state else {
+                unreachable!("checked completing state above");
+            };
+            (&mut pending.result_rx).await
+        };
+        match outcome {
+            Ok(CompletionOutcome::Completed(put_result)) => {
+                self.state = UploadState::Completed;
+                self.put_result = Some(put_result);
+                Ok(())
+            }
+            Ok(CompletionOutcome::Failed(err)) => {
+                self.state = UploadState::Aborted;
+                Err(err.into())
+            }
+            Ok(CompletionOutcome::Aborted(_)) => {
+                self.state = UploadState::Aborted;
+                Err(io::Error::other(
+                    "multipart upload already failed or aborted",
+                ))
+            }
+            Err(_) => {
+                self.state = UploadState::Aborted;
+                Err(io::Error::other("completion task cancelled"))
+            }
         }
     }
 
@@ -358,6 +453,13 @@ impl VortexWrite for ObjectStoreWrite {
         if matches!(self.state, UploadState::Completed) {
             return Ok(());
         }
+        #[cfg(not(target_arch = "wasm32"))]
+        if matches!(self.state, UploadState::Completing(_)) {
+            let guard = AbortOnCancel::new(self);
+            let res = guard.writer.finish_pending_completion().await;
+            guard.disarm();
+            return res;
+        }
         self.flush().await?;
 
         let guard = AbortOnCancel::new(self);
@@ -380,41 +482,53 @@ impl VortexWrite for ObjectStoreWrite {
 
         #[cfg(not(target_arch = "wasm32"))]
         {
-            // Move upload ownership into the detached `Compat` task so any HTTP connection opened
-            // by `complete()` belongs to `Compat`'s runtime and cancellation while `complete()` is
-            // in flight preserves upload ownership (aborting if `complete()` fails).
-            let UploadState::Active(mut upload) =
-                std::mem::replace(&mut guard.writer.state, UploadState::Aborted)
-            else {
+            // Move upload ownership into the `Compat` task so any HTTP connection opened by
+            // `complete()` belongs to `Compat`'s runtime, while `UploadState::Completing` tracks
+            // cancellation and preserves the final outcome across caller cancellation.
+            let (cancel_tx, cancel_rx) = oneshot::channel::<()>();
+            let (result_tx, result_rx) = oneshot::channel();
+            let UploadState::Active(mut upload) = std::mem::replace(
+                &mut guard.writer.state,
+                UploadState::Completing(PendingCompletion {
+                    cancel_tx: Some(cancel_tx),
+                    result_rx,
+                }),
+            ) else {
+                guard.disarm();
                 return Err(io::Error::other(
                     "multipart upload already failed or aborted",
                 ));
             };
-            let (tx, rx) = oneshot::channel();
             smol::spawn(Compat::new(async move {
-                let res = upload.complete().await;
-                if res.is_err()
-                    && let Err(abort_err) = upload.abort().await
-                {
-                    tracing::warn!(
-                        %abort_err,
-                        "failed to abort multipart upload after completion error"
-                    );
-                }
-                drop(tx.send(res));
+                let complete_outcome = {
+                    let complete_fut = upload.complete();
+                    futures::pin_mut!(complete_fut);
+                    futures::pin_mut!(cancel_rx);
+                    match futures::future::select(complete_fut, cancel_rx).await {
+                        Either::Left((res, _)) => Some(res),
+                        Either::Right((..)) => None,
+                    }
+                };
+                let outcome = match complete_outcome {
+                    Some(Ok(put_result)) => CompletionOutcome::Completed(put_result),
+                    Some(Err(err)) => {
+                        if let Err(abort_err) = upload.abort().await {
+                            tracing::warn!(
+                                %abort_err,
+                                "failed to abort multipart upload after completion error"
+                            );
+                        }
+                        CompletionOutcome::Failed(err)
+                    }
+                    None => CompletionOutcome::Aborted(upload.abort().await),
+                };
+                drop(result_tx.send(outcome));
             }))
             .detach();
-            guard.disarm();
 
-            match rx.await {
-                Ok(Ok(put_result)) => {
-                    self.state = UploadState::Completed;
-                    self.put_result = Some(put_result);
-                    Ok(())
-                }
-                Ok(Err(err)) => Err(err.into()),
-                Err(_) => Err(io::Error::other("completion task cancelled")),
-            }
+            let res = guard.writer.finish_pending_completion().await;
+            guard.disarm();
+            res
         }
 
         #[cfg(target_arch = "wasm32")]
@@ -1018,10 +1132,10 @@ mod tests {
                     let entered_fut = entered.notified();
                     futures::pin_mut!(entered_fut);
                     match futures::future::select(abort_fut, entered_fut).await {
-                        futures::future::Either::Left((res, _)) => {
+                        Either::Left((res, _)) => {
                             panic!("gated abort should not complete: {res:?}");
                         }
-                        futures::future::Either::Right(((), _)) => {}
+                        Either::Right(((), _)) => {}
                     }
                     // Dropping `abort_fut` cancels explicit `abort()` on CurrentThreadRuntime.
                 }
@@ -1695,6 +1809,202 @@ mod tests {
             }
             assert_eq!(counters.abort_calls.load(Ordering::SeqCst), 1);
             assert_eq!(counters.abort_completed.load(Ordering::SeqCst), 1);
+            Ok(())
+        }
+
+        #[tokio::test]
+        async fn test_cancelled_shutdown_during_gated_complete_preserves_destination_and_tracks_result()
+        -> anyhow::Result<()> {
+            #[derive(Debug)]
+            struct GatedCompleteUpload {
+                inner: Box<dyn MultipartUpload>,
+                entered: Arc<Notify>,
+                release: Arc<Notify>,
+                abort_calls: Arc<AtomicUsize>,
+            }
+
+            #[async_trait]
+            impl MultipartUpload for GatedCompleteUpload {
+                fn put_part(&mut self, data: PutPayload) -> UploadPart {
+                    self.inner.put_part(data)
+                }
+
+                async fn complete(&mut self) -> object_store::Result<PutResult> {
+                    self.entered.notify_one();
+                    self.release.notified().await;
+                    self.inner.complete().await
+                }
+
+                async fn abort(&mut self) -> object_store::Result<()> {
+                    self.abort_calls.fetch_add(1, Ordering::SeqCst);
+                    self.inner.abort().await
+                }
+            }
+
+            #[derive(Debug)]
+            struct GatedCompleteStore {
+                inner: Arc<dyn ObjectStore>,
+                entered: Arc<Notify>,
+                release: Arc<Notify>,
+                abort_calls: Arc<AtomicUsize>,
+            }
+
+            impl fmt::Display for GatedCompleteStore {
+                fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                    write!(f, "GatedCompleteStore")
+                }
+            }
+
+            #[async_trait]
+            impl ObjectStore for GatedCompleteStore {
+                async fn put_opts(
+                    &self,
+                    location: &Path,
+                    payload: PutPayload,
+                    opts: PutOptions,
+                ) -> object_store::Result<PutResult> {
+                    self.inner.put_opts(location, payload, opts).await
+                }
+
+                async fn put_multipart_opts(
+                    &self,
+                    location: &Path,
+                    opts: PutMultipartOptions,
+                ) -> object_store::Result<Box<dyn MultipartUpload>> {
+                    let inner = self.inner.put_multipart_opts(location, opts).await?;
+                    Ok(Box::new(GatedCompleteUpload {
+                        inner,
+                        entered: Arc::clone(&self.entered),
+                        release: Arc::clone(&self.release),
+                        abort_calls: Arc::clone(&self.abort_calls),
+                    }))
+                }
+
+                async fn get_opts(
+                    &self,
+                    location: &Path,
+                    options: GetOptions,
+                ) -> object_store::Result<GetResult> {
+                    self.inner.get_opts(location, options).await
+                }
+
+                fn delete_stream(
+                    &self,
+                    locations: BoxStream<'static, object_store::Result<Path>>,
+                ) -> BoxStream<'static, object_store::Result<Path>> {
+                    self.inner.delete_stream(locations)
+                }
+
+                fn list(
+                    &self,
+                    prefix: Option<&Path>,
+                ) -> BoxStream<'static, object_store::Result<ObjectMeta>> {
+                    self.inner.list(prefix)
+                }
+
+                async fn list_with_delimiter(
+                    &self,
+                    prefix: Option<&Path>,
+                ) -> object_store::Result<ListResult> {
+                    self.inner.list_with_delimiter(prefix).await
+                }
+
+                async fn copy_opts(
+                    &self,
+                    from: &Path,
+                    to: &Path,
+                    options: object_store::CopyOptions,
+                ) -> object_store::Result<()> {
+                    self.inner.copy_opts(from, to, options).await
+                }
+            }
+
+            // Case 1: cancel `shutdown()` while `complete()` is gated before touching the
+            // destination. `abort()` must cancel completion, abort the staged upload, preserve
+            // `known-good`, and leave `put_result()` as `None`.
+            let dir = tempdir()?;
+            let local: Arc<dyn ObjectStore> =
+                Arc::new(LocalFileSystem::new_with_prefix(dir.path())?);
+            let target = Path::from("target.vortex");
+            local
+                .put(&target, PutPayload::from_static(b"known-good"))
+                .await?;
+
+            let entered = Arc::new(Notify::new());
+            let release = Arc::new(Notify::new());
+            let abort_calls = Arc::new(AtomicUsize::new(0));
+            let store: Arc<dyn ObjectStore> = Arc::new(GatedCompleteStore {
+                inner: Arc::clone(&local),
+                entered: Arc::clone(&entered),
+                release: Arc::clone(&release),
+                abort_calls: Arc::clone(&abort_calls),
+            });
+
+            let mut writer = ObjectStoreWrite::new(Arc::clone(&store), &target).await?;
+            {
+                let mut shutdown_fut = Box::pin(writer.shutdown());
+                let first_poll = poll_fn(|cx| Poll::Ready(shutdown_fut.as_mut().poll(cx))).await;
+                assert!(first_poll.is_pending());
+                timeout(Duration::from_secs(2), entered.notified()).await?;
+                drop(shutdown_fut);
+            }
+
+            writer.abort().await?;
+            release.notify_one();
+            tokio::time::sleep(Duration::from_millis(50)).await;
+
+            assert_eq!(abort_calls.load(Ordering::SeqCst), 1);
+            assert!(writer.put_result().is_none());
+            assert!(writer.shutdown().await.is_err());
+            let body = local.get(&target).await?.bytes().await?;
+            assert_eq!(body.as_ref(), b"known-good");
+
+            // Case 2: cancel `shutdown()` after `complete()` already published (before the caller's
+            // next poll). `abort()` must report that completion won and preserve `put_result()`.
+            let dir2 = tempdir()?;
+            let local2: Arc<dyn ObjectStore> =
+                Arc::new(LocalFileSystem::new_with_prefix(dir2.path())?);
+            let entered2 = Arc::new(Notify::new());
+            let release2 = Arc::new(Notify::new());
+            let abort_calls2 = Arc::new(AtomicUsize::new(0));
+            let store2: Arc<dyn ObjectStore> = Arc::new(GatedCompleteStore {
+                inner: Arc::clone(&local2),
+                entered: Arc::clone(&entered2),
+                release: Arc::clone(&release2),
+                abort_calls: Arc::clone(&abort_calls2),
+            });
+
+            let mut writer2 = ObjectStoreWrite::new(Arc::clone(&store2), &target).await?;
+            writer2.write_all(b"published-payload".to_vec()).await?;
+            {
+                let mut shutdown_fut = Box::pin(writer2.shutdown());
+                let first_poll = poll_fn(|cx| Poll::Ready(shutdown_fut.as_mut().poll(cx))).await;
+                assert!(first_poll.is_pending());
+                // Poll until the final buffered part upload finishes and `complete()` enters the gate.
+                while local2.get(&target).await.is_err() {
+                    let poll_res = poll_fn(|cx| Poll::Ready(shutdown_fut.as_mut().poll(cx))).await;
+                    assert!(poll_res.is_pending());
+                    if timeout(Duration::from_millis(20), entered2.notified())
+                        .await
+                        .is_ok()
+                    {
+                        release2.notify_one();
+                        tokio::time::sleep(Duration::from_millis(50)).await;
+                        break;
+                    }
+                }
+                drop(shutdown_fut);
+            }
+
+            assert!(
+                writer2.abort().await.is_err(),
+                "abort() must distinguish already-published completion from a completed abort"
+            );
+            assert_eq!(abort_calls2.load(Ordering::SeqCst), 0);
+            assert!(writer2.put_result().is_some());
+            writer2.shutdown().await?;
+            let body2 = local2.get(&target).await?.bytes().await?;
+            assert_eq!(body2.as_ref(), b"published-payload");
             Ok(())
         }
     }
