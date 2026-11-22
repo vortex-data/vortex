@@ -52,6 +52,7 @@ use vortex_cuda::arrow::DeviceArrayExt;
 use vortex_cuda::arrow::release_device_array;
 use vortex_cuda::arrow::release_schema;
 use vortex_python_abi::BUFFER_EXPORT_CAPSULE_NAME;
+use vortex_python_abi::USED_BUFFER_EXPORT_CAPSULE_NAME;
 use vortex_python_abi::VORTEX_BUFFER_EXPORT_VERSION;
 use vortex_python_abi::VORTEX_BUFFER_HOST;
 use vortex_python_abi::VortexBufferExport;
@@ -98,6 +99,12 @@ unsafe impl Send for BufferExportGuard {}
 unsafe impl Sync for BufferExportGuard {}
 
 fn import_buffer_from_capsule(capsule: &Bound<'_, PyCapsule>) -> PyResult<BufferHandle> {
+    if capsule.is_valid_checked(Some(USED_BUFFER_EXPORT_CAPSULE_NAME)) {
+        return Err(PyValueError::new_err(
+            "VortexBufferExport capsule has already been consumed",
+        ));
+    }
+
     let export_ptr = capsule
         .pointer_checked(Some(BUFFER_EXPORT_CAPSULE_NAME))?
         .cast::<VortexBufferExport>();
@@ -141,11 +148,19 @@ fn import_buffer_from_capsule(capsule: &Bound<'_, PyCapsule>) -> PyResult<Buffer
     }
 
     // Transfer ownership of the boxed VortexBufferExport from the producer capsule into the Bytes
-    // owner below. Otherwise the producer capsule could be dropped before the reconstructed
-    // BufferHandle, leaving the Bytes owner with a dangling export pointer.
-    unsafe { ffi::PyCapsule_SetDestructor(capsule.as_ptr(), None) };
-    if PyErr::occurred(capsule.py()) {
-        return Err(PyErr::fetch(capsule.py()));
+    // owner below while holding the GIL. Rename the capsule to the consumed marker first and clear
+    // its destructor second; if clearing the destructor fails, restore the original name so the
+    // producer destructor (which looks up `BUFFER_EXPORT_CAPSULE_NAME`) still cleans up the export.
+    let py = capsule.py();
+    set_capsule_name(capsule, USED_BUFFER_EXPORT_CAPSULE_NAME)?;
+    if unsafe { ffi::PyCapsule_SetDestructor(capsule.as_ptr(), None) } != 0 {
+        let err = PyErr::fetch(py);
+        if unsafe { ffi::PyCapsule_SetName(capsule.as_ptr(), BUFFER_EXPORT_CAPSULE_NAME.as_ptr()) }
+            != 0
+        {
+            unsafe { ffi::PyErr_Clear() };
+        }
+        return Err(err);
     }
 
     let guard = BufferExportGuard { export: export_ptr };
@@ -252,6 +267,11 @@ fn parse_array_metadata(value: &Bound<'_, PyAny>) -> PyResult<ArrayMetadata> {
         )));
     }
 
+    let encoding_id = tuple.get_item(0)?.extract()?;
+    let dtype = tuple.get_item(1)?.extract()?;
+    let len = tuple.get_item(2)?.extract()?;
+    let metadata = tuple.get_item(3)?.extract()?;
+
     let buffers = tuple
         .get_item(4)?
         .cast::<PyList>()?
@@ -270,10 +290,10 @@ fn parse_array_metadata(value: &Bound<'_, PyAny>) -> PyResult<ArrayMetadata> {
         .collect::<PyResult<Vec<_>>>()?;
 
     Ok(ArrayMetadata {
-        encoding_id: tuple.get_item(0)?.extract()?,
-        dtype: tuple.get_item(1)?.extract()?,
-        len: tuple.get_item(2)?.extract()?,
-        metadata: tuple.get_item(3)?.extract()?,
+        encoding_id,
+        dtype,
+        len,
+        metadata,
         buffers,
         children,
     })
@@ -668,4 +688,248 @@ fn _lib(m: &Bound<PyModule>) -> PyResult<()> {
     )?)?;
     m.add_function(wrap_pyfunction!(export_device_array, m)?)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::ptr;
+    use std::sync::Arc;
+    use std::sync::atomic::AtomicUsize;
+    use std::sync::atomic::Ordering;
+
+    use pyo3::types::PyBytes;
+
+    use super::*;
+
+    struct TestBufferOwner {
+        _bytes: Vec<u8>,
+        releases: Arc<AtomicUsize>,
+    }
+
+    unsafe extern "C" fn release_test_export(export: *mut VortexBufferExport) {
+        if export.is_null() {
+            return;
+        }
+        let mut export = unsafe { Box::from_raw(export) };
+        if !export.private_data.is_null() {
+            let owner = unsafe { Box::from_raw(export.private_data.cast::<TestBufferOwner>()) };
+            owner.releases.fetch_add(1, Ordering::SeqCst);
+            export.private_data = ptr::null_mut();
+        }
+    }
+
+    unsafe extern "C" fn release_test_capsule(capsule: *mut ffi::PyObject) {
+        let ptr =
+            unsafe { ffi::PyCapsule_GetPointer(capsule, BUFFER_EXPORT_CAPSULE_NAME.as_ptr()) };
+        if ptr.is_null() {
+            unsafe { ffi::PyErr_Clear() };
+            return;
+        }
+        unsafe { release_test_export(ptr.cast::<VortexBufferExport>()) };
+    }
+
+    fn make_test_capsule<'py>(
+        py: Python<'py>,
+        bytes: Vec<u8>,
+        releases: Arc<AtomicUsize>,
+        version: u32,
+    ) -> PyResult<Bound<'py, PyCapsule>> {
+        let len = bytes.len();
+        let owner = Box::new(TestBufferOwner {
+            _bytes: bytes,
+            releases,
+        });
+        let data_ptr = if len == 0 {
+            ptr::null()
+        } else {
+            owner._bytes.as_ptr()
+        };
+        let export = VortexBufferExport {
+            version,
+            kind: VORTEX_BUFFER_HOST,
+            ptr: data_ptr,
+            len,
+            alignment: 1,
+            device_id: -1,
+            sync_event: ptr::null_mut(),
+            private_data: Box::into_raw(owner).cast::<c_void>(),
+            release: Some(release_test_export),
+        };
+        let ptr = NonNull::new(Box::into_raw(Box::new(export)).cast::<c_void>())
+            .ok_or_else(|| PyRuntimeError::new_err("failed to allocate test export"))?;
+        unsafe {
+            PyCapsule::new_with_pointer_and_destructor(
+                py,
+                ptr,
+                BUFFER_EXPORT_CAPSULE_NAME,
+                Some(release_test_capsule),
+            )
+        }
+    }
+
+    #[test]
+    fn nonempty_buffer_releases_on_drop_and_rejects_second_import() -> PyResult<()> {
+        Python::initialize();
+        Python::attach(|py| {
+            let releases = Arc::new(AtomicUsize::new(0));
+            let capsule = make_test_capsule(
+                py,
+                vec![10, 20, 30, 40],
+                Arc::clone(&releases),
+                VORTEX_BUFFER_EXPORT_VERSION,
+            )?;
+
+            let handle = import_buffer_from_capsule(&capsule)?;
+            assert_eq!(handle.as_host().as_slice(), &[10, 20, 30, 40]);
+            assert!(capsule.is_valid_checked(Some(USED_BUFFER_EXPORT_CAPSULE_NAME)));
+            assert!(!capsule.is_valid_checked(Some(BUFFER_EXPORT_CAPSULE_NAME)));
+            assert_eq!(releases.load(Ordering::SeqCst), 0);
+
+            let second = import_buffer_from_capsule(&capsule);
+            assert!(second.is_err(), "consumed capsule must be rejected");
+            assert_eq!(releases.load(Ordering::SeqCst), 0);
+
+            drop(handle);
+            assert_eq!(
+                releases.load(Ordering::SeqCst),
+                1,
+                "dropping the imported buffer must release the export once"
+            );
+
+            // Re-importing even after the underlying export was freed must fail on the consumed
+            // marker before dereferencing the capsule pointer.
+            let third = import_buffer_from_capsule(&capsule);
+            assert!(third.is_err(), "consumed capsule must stay rejected");
+            drop(capsule);
+            assert_eq!(releases.load(Ordering::SeqCst), 1);
+            Ok(())
+        })
+    }
+
+    #[test]
+    fn empty_buffer_releases_immediately_and_marks_capsule_consumed() -> PyResult<()> {
+        Python::initialize();
+        Python::attach(|py| {
+            let releases = Arc::new(AtomicUsize::new(0));
+            let capsule = make_test_capsule(
+                py,
+                Vec::new(),
+                Arc::clone(&releases),
+                VORTEX_BUFFER_EXPORT_VERSION,
+            )?;
+
+            let handle = import_buffer_from_capsule(&capsule)?;
+            assert!(handle.as_host().is_empty());
+            assert_eq!(
+                releases.load(Ordering::SeqCst),
+                1,
+                "empty buffer export must be released immediately on import"
+            );
+            assert!(capsule.is_valid_checked(Some(USED_BUFFER_EXPORT_CAPSULE_NAME)));
+
+            let second = import_buffer_from_capsule(&capsule);
+            assert!(second.is_err(), "consumed empty capsule must be rejected");
+            drop(handle);
+            drop(capsule);
+            assert_eq!(releases.load(Ordering::SeqCst), 1);
+            Ok(())
+        })
+    }
+
+    #[test]
+    fn validation_failure_preserves_producer_cleanup() -> PyResult<()> {
+        Python::initialize();
+        Python::attach(|py| {
+            let releases = Arc::new(AtomicUsize::new(0));
+            let capsule = make_test_capsule(
+                py,
+                vec![1, 2, 3],
+                Arc::clone(&releases),
+                VORTEX_BUFFER_EXPORT_VERSION + 1,
+            )?;
+
+            let err = import_buffer_from_capsule(&capsule);
+            assert!(err.is_err(), "unsupported version must be rejected");
+            assert!(capsule.is_valid_checked(Some(BUFFER_EXPORT_CAPSULE_NAME)));
+            assert_eq!(releases.load(Ordering::SeqCst), 0);
+
+            drop(capsule);
+            assert_eq!(
+                releases.load(Ordering::SeqCst),
+                1,
+                "producer destructor must clean up after a failed validation"
+            );
+            Ok(())
+        })
+    }
+
+    #[test]
+    fn parse_array_metadata_cleans_up_when_later_element_fails() -> PyResult<()> {
+        Python::initialize();
+        Python::attach(|py| {
+            let first_releases = Arc::new(AtomicUsize::new(0));
+            let second_releases = Arc::new(AtomicUsize::new(0));
+            let first_capsule = make_test_capsule(
+                py,
+                vec![1, 2, 3, 4],
+                Arc::clone(&first_releases),
+                VORTEX_BUFFER_EXPORT_VERSION,
+            )?;
+            let second_capsule = make_test_capsule(
+                py,
+                vec![5, 6, 7, 8],
+                Arc::clone(&second_releases),
+                VORTEX_BUFFER_EXPORT_VERSION,
+            )?;
+
+            // Case 1: duplicate capsule in buffers list fails on the second occurrence and drops
+            // the first BufferHandle cleanly.
+            let dup_buffers = PyList::new(py, [first_capsule.as_any(), first_capsule.as_any()])?;
+            let empty_children = PyList::empty(py);
+            let dup_tuple = PyTuple::new(
+                py,
+                [
+                    "vortex.primitive".into_pyobject(py)?.into_any(),
+                    PyBytes::new(py, b"").into_any(),
+                    4usize.into_pyobject(py)?.into_any(),
+                    PyBytes::new(py, b"").into_any(),
+                    dup_buffers.into_any(),
+                    empty_children.as_any().clone(),
+                ],
+            )?;
+            assert!(parse_array_metadata(dup_tuple.as_any()).is_err());
+            drop(dup_tuple);
+            drop(first_capsule);
+            assert_eq!(
+                first_releases.load(Ordering::SeqCst),
+                1,
+                "already-transferred buffer must be released once when a later buffer fails"
+            );
+
+            // Case 2: a valid buffer followed by an invalid child tuple still releases the
+            // transferred buffer cleanly.
+            let buffers = PyList::new(py, [second_capsule.as_any()])?;
+            let bad_children = PyList::new(py, ["not-a-tuple"])?;
+            let bad_child_tuple = PyTuple::new(
+                py,
+                [
+                    "vortex.primitive".into_pyobject(py)?.into_any(),
+                    PyBytes::new(py, b"").into_any(),
+                    4usize.into_pyobject(py)?.into_any(),
+                    PyBytes::new(py, b"").into_any(),
+                    buffers.into_any(),
+                    bad_children.into_any(),
+                ],
+            )?;
+            assert!(parse_array_metadata(bad_child_tuple.as_any()).is_err());
+            drop(bad_child_tuple);
+            drop(second_capsule);
+            assert_eq!(
+                second_releases.load(Ordering::SeqCst),
+                1,
+                "transferred buffer must be released once when a later child element fails"
+            );
+            Ok(())
+        })
+    }
 }
