@@ -111,6 +111,11 @@ jobs:
               scripts/tests/test_codspeed_shards.py \
               scripts/tests/test_sample_file_trees.py
 
+      # bench-orchestrator does not depend on vortex-data, so this needs no Rust build.
+      - name: Pytest - bench-orchestrator
+        if: "!cancelled()"
+        run: uv run --project bench-orchestrator --with pytest pytest bench-orchestrator/tests
+
   python-test:
     name: "Python (test)"
     if: github.event.pull_request.draft != true
