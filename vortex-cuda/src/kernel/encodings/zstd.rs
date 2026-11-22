@@ -7,7 +7,6 @@ use std::fmt::Debug;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use futures::future::try_join_all;
 use tracing::debug;
 use tracing::instrument;
 use vortex::array::ArrayRef;
@@ -112,13 +111,11 @@ pub async fn zstd_kernel_prepare(
         nvcomp_zstd::get_decompress_temp_size(num_frames, output_size_max, output_size_total)
             .map_err(|e| vortex_err!("nvcomp get_decompress_temp_size failed: {}", e))?;
 
-    // Async copy frames to the device.
-    let frame_futs = frames
-        .into_iter()
-        .map(|frame| ctx.copy_to_device(frame))
+    // Copy frames to the device.
+    let device_frame_handles = frames
+        .iter()
+        .map(|frame| ctx.copy_to_device(frame.as_ref()))
         .collect::<VortexResult<Vec<_>>>()?;
-
-    let device_frame_handles = try_join_all(frame_futs).await?;
 
     // Allocate contiguous output buffer for all decompressed data.
     let device_output = ctx.device_alloc::<u8>(output_size_total)?;
@@ -144,13 +141,11 @@ pub async fn zstd_kernel_prepare(
             .collect::<Vec<_>>()
     };
 
-    // Copy metadata asynchronously to the device.
-    let (frame_ptrs_handle, frame_sizes_handle, output_sizes_handle, output_ptrs_handle) = futures::try_join!(
-        ctx.copy_to_device(frame_ptrs)?,
-        ctx.copy_to_device(frame_sizes)?,
-        ctx.copy_to_device(output_sizes.clone())?,
-        ctx.copy_to_device(output_ptrs)?
-    )?;
+    // Copy metadata to the device.
+    let frame_ptrs_handle = ctx.copy_to_device(&frame_ptrs)?;
+    let frame_sizes_handle = ctx.copy_to_device(&frame_sizes)?;
+    let output_sizes_handle = ctx.copy_to_device(&output_sizes)?;
+    let output_ptrs_handle = ctx.copy_to_device(&output_ptrs)?;
 
     // Allocate working buffers
     let device_actual_sizes: CudaSlice<usize> = ctx.device_alloc(num_frames)?;
