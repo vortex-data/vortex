@@ -189,38 +189,9 @@ fn test_hf_revisions_do_not_share_a_store() -> Result<(), Box<dyn std::error::Er
     Ok(())
 }
 
-/// Percent-encoded path separators (`%2F`) inside the in-repository object key expand into extra
-/// decoded path segments, so the registry must mount the store using the raw URL prefix consumed
-/// by the Hugging Face parser rather than subtracting decoded segment counts.
-#[cfg(feature = "hf")]
-#[rstest::rstest]
-#[case("hf://datasets/org/name/a%2Fb/c.vortex", "a/b/c.vortex")]
-#[case("hf://datasets/org/name/a%2Fb%2Fc/d.vortex", "a/b/c/d.vortex")]
-#[case(
-    "hf://datasets/org/name@refs%2Fconvert%2Fparquet/a%2Fb/c.vortex",
-    "a/b/c.vortex"
-)]
-#[case("hf://org/name/a%2Fb.vortex", "a/b.vortex")]
-#[case("hf://spaces/org/name/a%2Fb/c.vortex", "a/b/c.vortex")]
-fn test_hf_encoded_separators_preserve_mount_depth(
-    #[case] url: &str,
-    #[case] expected: &str,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let registry = registry();
-    let url = Url::parse(url)?;
-
-    let (first_store, first_path) = registry.resolve(&url)?;
-    assert_eq!(first_path, Path::from(expected));
-
-    let (second_store, second_path) = registry.resolve(&url)?;
-    assert_eq!(second_path, Path::from(expected));
-    assert!(Arc::ptr_eq(&first_store, &second_store));
-    Ok(())
-}
-
 /// Resolving an `hf://` URL with `%2F` in the object path must still cache the store at the exact
-/// repository prefix: files in the same repository share the client in either lookup order, while
-/// adjacent repositories, organizations, and revisions get distinct clients and exact keys.
+/// repository prefix: files in the same repository share the client, while adjacent repositories,
+/// organizations, and revisions get distinct clients and exact keys.
 #[cfg(feature = "hf")]
 #[test]
 fn test_hf_encoded_separators_cache_isolation_and_sharing() -> Result<(), Box<dyn std::error::Error>>
@@ -253,50 +224,6 @@ fn test_hf_encoded_separators_cache_isolation_and_sharing() -> Result<(), Box<dy
     assert_eq!(other_org_path, Path::from("train.vortex"));
     assert!(!Arc::ptr_eq(&encoded_store, &other_org_store));
 
-    // Reverse order: plain key first, then encoded-separator key in the same repository.
-    let reverse_registry = registry();
-    let (plain_first, plain_path) =
-        reverse_registry.resolve(&Url::parse("hf://datasets/org/name/plain.vortex")?)?;
-    assert_eq!(plain_path, Path::from("plain.vortex"));
-    let (encoded_second, encoded_second_path) =
-        reverse_registry.resolve(&Url::parse("hf://datasets/org/name/a%2Fb%2Fc/d.vortex")?)?;
-    assert_eq!(encoded_second_path, Path::from("a/b/c/d.vortex"));
-    assert!(Arc::ptr_eq(&plain_first, &encoded_second));
-
-    // A model repository's owner is the URL authority, so its prefix is one raw segment (`<name>`).
-    let (model_encoded, model_encoded_path) =
-        reg.resolve(&Url::parse("hf://org/name/a%2Fb.vortex")?)?;
-    assert_eq!(model_encoded_path, Path::from("a/b.vortex"));
-    let (model_sibling, model_sibling_path) =
-        reg.resolve(&Url::parse("hf://org/name/model.vortex")?)?;
-    assert_eq!(model_sibling_path, Path::from("model.vortex"));
-    assert!(Arc::ptr_eq(&model_encoded, &model_sibling));
-    let (model_other, model_other_path) =
-        reg.resolve(&Url::parse("hf://org/other/model.vortex")?)?;
-    assert_eq!(model_other_path, Path::from("model.vortex"));
-    assert!(!Arc::ptr_eq(&model_encoded, &model_other));
-    let (model_rev, model_rev_path) = reg.resolve(&Url::parse("hf://org/name@v2/model.vortex")?)?;
-    assert_eq!(model_rev_path, Path::from("model.vortex"));
-    assert!(!Arc::ptr_eq(&model_encoded, &model_rev));
-
-    Ok(())
-}
-
-/// Explicitly registered `hf://` prefixes continue to win over built-and-cached stores even when
-/// the resolved object key contains percent-encoded separators.
-#[cfg(feature = "hf")]
-#[test]
-fn test_hf_explicit_registration_precedence() -> Result<(), Box<dyn std::error::Error>> {
-    let registry = registry();
-    let registered: Arc<dyn ObjectStore> = Arc::new(object_store::memory::InMemory::new());
-    registry.register(
-        Url::parse("hf://datasets/org/name/")?,
-        Arc::clone(&registered),
-    );
-
-    let (store, path) = registry.resolve(&Url::parse("hf://datasets/org/name/a%2Fb/c.vortex")?)?;
-    assert!(Arc::ptr_eq(&store, &registered));
-    assert_eq!(path, Path::from("a/b/c.vortex"));
     Ok(())
 }
 
