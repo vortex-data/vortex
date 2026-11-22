@@ -178,7 +178,7 @@ impl ArrayBuiltins for ArrayRef {
     fn fill_null(&self, fill_value: impl Into<Scalar>) -> VortexResult<ArrayRef> {
         let fill_value = fill_value.into();
         if !self.dtype().is_nullable() {
-            return self.cast(fill_value.dtype().clone());
+            return self.cast(FillNull::output_dtype(self.dtype(), fill_value.dtype())?);
         }
         Ok(FillNull::try_new(
             self.clone(),

@@ -26,6 +26,7 @@ on:
         default: "pr"
         options:
           - "pr"
+          - "pr-scan"
           - "pr-compact"
           - "pr-all"
           - "pr-full"

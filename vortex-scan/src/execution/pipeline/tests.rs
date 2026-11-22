@@ -423,21 +423,21 @@ fn two_columns(store: &Store) -> VortexResult<(PlanRef, ArrayRef)> {
     Ok((layout, expected))
 }
 
-/// Fields chunked differently are split at their front batch boundaries, in row order,
-/// however the reads complete.
+/// Fields chunked differently are coalesced up to the longest front batch rather than cut at
+/// every batch boundary, however the reads complete.
 ///
 /// Segments: a0=0, a1=1, a2=2, b=3.
 #[rstest]
 #[case::b_last(&[1, 0, 2, 3])]
 #[case::a_chunk_last(&[3, 0, 2, 1])]
 #[case::in_order(&[3, 0, 1, 2])]
-fn pack_splits_misaligned_fields(#[case] order: &[u32]) -> VortexResult<()> {
+fn pack_coalesces_misaligned_fields(#[case] order: &[u32]) -> VortexResult<()> {
     let store = Store::default();
     let (plan, expected) = two_columns(&store)?;
     let mask = Mask::new_true(ROWS as usize);
 
     let run = run(&store, &plan, 0..ROWS, mask.clone(), scripted(order))?;
-    assert_eq!(pieces(&run.events), [7, 5, 8]);
+    assert_eq!(pieces(&run.events), [ROWS as usize]);
     assert_view(&expected, &(0..ROWS), &mask, run.arrays)
 }
 
@@ -479,9 +479,10 @@ fn nullable_pack_reads_validity_from_its_first_slot() -> VortexResult<()> {
     assert_view(&expected, &rows, &mask, run.arrays)
 }
 
-/// Pack emits as soon as every inlet has a batch, without waiting for an inlet to fill.
+/// Pack coalesces a field of short batches only until its inlet is full, so its sink is never
+/// blocked waiting on the pack.
 #[test]
-fn pack_emits_when_every_field_has_data() -> VortexResult<()> {
+fn pack_coalesces_until_an_inlet_is_full() -> VortexResult<()> {
     let store = Store::default();
     let a = PrimitiveArray::from_iter(0..ROWS as i32).into_array();
     let b = PrimitiveArray::from_iter((0..ROWS as i64).map(|v| v * 10)).into_array();
@@ -507,8 +508,14 @@ fn pack_emits_when_every_field_has_data() -> VortexResult<()> {
             _ => None,
         })
         .collect::<Vec<_>>();
-    assert_eq!(delivered_before_output, [ROWS as u32, 0]);
-    assert_eq!(pieces(&run.events), vec![1; ROWS as usize]);
+    let full = DEFAULT_CAPACITY as u32;
+    assert_eq!(
+        delivered_before_output,
+        std::iter::once(ROWS as u32)
+            .chain(0..full)
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(pieces(&run.events), [8, 8, 4]);
     assert_view(&expected, &(0..ROWS), &mask, run.arrays)
 }
 

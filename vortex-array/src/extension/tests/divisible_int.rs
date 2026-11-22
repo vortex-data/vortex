@@ -10,6 +10,8 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
 
+use crate::dtype::Claim;
+use crate::dtype::Claims;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
@@ -66,6 +68,10 @@ impl ExtVTable for DivisibleInt {
 
     fn storage_dtype(_metadata: &Self::Metadata) -> DType {
         DType::Primitive(PType::U64, Nullability::NonNullable)
+    }
+
+    fn claims(_metadata: &Self::Metadata) -> Claims {
+        Claims::none().with(Claim::Ord)
     }
 
     fn unpack_native<'a>(
