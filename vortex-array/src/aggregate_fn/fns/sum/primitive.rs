@@ -223,15 +223,6 @@ where
     sum_masked(values, valid, |chunk_sum| checked_add_u64(acc, chunk_sum))
 }
 
-fn sum_signed_masked<T>(acc: &mut i64, values: &[T], valid: &BitBuffer) -> bool
-where
-    T: NativePType + AsPrimitive<i64>,
-{
-    if T::PTYPE == PType::I64 {
-        return sum_wide(acc, values, Some(valid));
-    }
-    sum_masked(values, valid, |chunk_sum| checked_add_i64(acc, chunk_sum))
-}
 /// Sum the valid values of an integer slice narrower than 64 bits in chunks of [`SUM_CHUNK`],
 /// reading null lanes as zero, and hand each chunk's sum to `add`, which returns `true` on
 /// overflow. A chunk cannot overflow its 64-bit sum, as in [`sum_unsigned_all`].

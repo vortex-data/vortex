@@ -109,7 +109,13 @@ fn decimal_i64_values() -> Buffer<i64> {
 fn min_max_decimal_i64_nulls_scattered(bencher: Bencher) {
     let (values, validity) = (decimal_i64_values(), scattered_validity());
     bench_min_max(bencher, || {
-        DecimalArray::new(values.clone(), DecimalDType::new(18, 2), validity.clone()).into_array()
+        DecimalArray::new(
+            values.clone(),
+            DecimalDType::new(18, 2),
+            validity.clone(),
+            &mut SESSION.create_execution_ctx(),
+        )
+        .into_array()
     });
 }
 
@@ -139,6 +145,7 @@ fn sum_decimal_i64_all_valid(bencher: Bencher) {
             values.clone(),
             DecimalDType::new(18, 2),
             Validity::NonNullable,
+            &mut SESSION.create_execution_ctx(),
         )
         .into_array()
     });
@@ -148,7 +155,13 @@ fn sum_decimal_i64_all_valid(bencher: Bencher) {
 fn sum_decimal_i64_nulls_scattered(bencher: Bencher) {
     let (values, validity) = (decimal_i64_values(), scattered_validity());
     bench_sum(bencher, || {
-        DecimalArray::new(values.clone(), DecimalDType::new(18, 2), validity.clone()).into_array()
+        DecimalArray::new(
+            values.clone(),
+            DecimalDType::new(18, 2),
+            validity.clone(),
+            &mut SESSION.create_execution_ctx(),
+        )
+        .into_array()
     });
 }
 

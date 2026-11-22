@@ -314,6 +314,7 @@ mod tests {
             values.collect::<Buffer<_>>(),
             DecimalDType::new(9, 0),
             validity,
+            &mut SESSION.create_execution_ctx(),
         );
 
         let result = sum(&decimal.into_array(), &mut SESSION.create_execution_ctx())?;
@@ -336,6 +337,7 @@ mod tests {
             values.collect::<Buffer<_>>(),
             DecimalDType::new(18, 0),
             Validity::from_iter((0..12).map(|i| i != 5)),
+            &mut SESSION.create_execution_ctx(),
         );
 
         let result = sum(&decimal.into_array(), &mut SESSION.create_execution_ctx())?;

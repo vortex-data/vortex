@@ -3,18 +3,13 @@
 
 //! Reductions that the compiler cannot reassociate on its own, folded with
 //! [`IndexedFoldExt::fold_lanes`] and [`IndexedFoldExt::fold_lanes_masked`], against in-order
-//! folds and the arrow-rs aggregate kernels over the same data.
+//! folds.
 //!
 //! The folds are the shapes the aggregate functions use: a float sum, float extrema by float
 //! comparison with one fold per extremum, and a 64-bit sum with a magnitude bound in place of a
 //! checked add per element. The
 //! `masked_runs` baselines walk the runs of valid values in order, as the aggregates did before.
 
-#![expect(clippy::unwrap_used)]
-
-use arrow_arith::aggregate;
-use arrow_array::Float64Array;
-use arrow_buffer::NullBuffer;
 use divan::Bencher;
 use mimalloc::MiMalloc;
 use rand::SeedableRng;
@@ -105,12 +100,6 @@ fn sum_f64_lanes(bencher: Bencher) {
     });
 }
 
-#[divan::bench]
-fn sum_f64_arrow(bencher: Bencher) {
-    let array = Float64Array::from(floats());
-    bencher.bench(|| aggregate::sum(divan::black_box(&array)).unwrap());
-}
-
 #[divan::bench(args = DENSITIES)]
 fn sum_f64_masked_runs(bencher: Bencher, density: f64) {
     let (values, runs) = (floats(), runs(&valid(density)));
@@ -134,16 +123,6 @@ fn sum_f64_masked_lanes(bencher: Bencher, density: f64) {
             |a, b| a + b,
         )
     });
-}
-
-#[divan::bench(args = DENSITIES)]
-fn sum_f64_masked_arrow(bencher: Bencher, density: f64) {
-    let valid = valid(density);
-    let array = Float64Array::new(
-        floats().into(),
-        Some(NullBuffer::from_iter((0..N).map(|i| valid.value(i)))),
-    );
-    bencher.bench(|| aggregate::sum(divan::black_box(&array)).unwrap());
 }
 
 /// Float extrema under the total order, as the aggregate computed them before.
