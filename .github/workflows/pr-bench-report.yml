@@ -42,12 +42,21 @@ jobs:
           RUN_ID: ${{ github.event.workflow_run.id }}
           HEAD_OWNER: ${{ github.event.workflow_run.head_repository.owner.login }}
           HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          RUN_TITLE: ${{ github.event.workflow_run.display_title }}
         run: |
           set -Eeu -o pipefail
 
-          # A fork's `workflow_run` event lists no pull requests, so look the PR up by its head.
-          PR_NUMBER=$(gh api -X GET "repos/${REPO}/pulls" -f state=open -f "head=${HEAD_OWNER}:${HEAD_BRANCH}" \
-            --jq '.[0].number // empty')
+          # A fork's `workflow_run` event lists no pull requests, so look up open PRs with this
+          # head and prefer the PR number named in the dispatch run title when more than one matches.
+          OPEN_PRS=$(gh api -X GET "repos/${REPO}/pulls" -f state=open -f "head=${HEAD_OWNER}:${HEAD_BRANCH}" \
+            --jq '[.[].number]')
+          RUN_PR=""
+          if [[ "$RUN_TITLE" =~ ^PR\ \#([0-9]+)\  ]]; then
+            RUN_PR="${BASH_REMATCH[1]}"
+          fi
+          PR_NUMBER=$(jq -r --arg run_pr "$RUN_PR" \
+            'if ($run_pr != "" and any(.[]; tostring == $run_pr)) then $run_pr else (.[0] // empty | tostring) end' \
+            <<<"$OPEN_PRS")
           REPORTS=$(gh api --paginate "repos/${REPO}/actions/runs/${RUN_ID}/artifacts" \
             --jq '.artifacts[] | select(.name | startswith("fork-bench-report-")) | .name' \
             | jq -R -s -c 'split("\n") | map(select(. != ""))')
@@ -135,9 +144,18 @@ jobs:
           : > comment.md
           if [[ -s "$REPORT/missing.txt" ]]; then
             MISSING=$(head -c 2000 "$REPORT/missing.txt" | tr -d '\r\n')
+            if [[ ! "$MISSING" =~ ^\`[A-Za-z0-9._-]+\`(\ \`[A-Za-z0-9._-]+\`)*$ ]]; then
+              echo "::error::The report has unexpected missing entry names."
+              exit 1
+            fi
             PRESET=""
             if [[ -s "$REPORT/matrix-preset.txt" ]]; then
-              PRESET=" ($(head -c 100 "$REPORT/matrix-preset.txt" | tr -d '\r\n'))"
+              PRESET_VAL=$(head -c 100 "$REPORT/matrix-preset.txt" | tr -d '\r\n')
+              if [[ ! "$PRESET_VAL" =~ ^[A-Za-z0-9._-]+$ ]]; then
+                echo "::error::The report has an unexpected matrix preset."
+                exit 1
+              fi
+              PRESET=" (${PRESET_VAL})"
             fi
             echo "# 🚨🚨🚨❌❌❌ SQL BENCHMARK FAILED ❌❌❌🚨🚨🚨" >> comment.md
             echo >> comment.md
