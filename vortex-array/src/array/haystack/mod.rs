@@ -241,11 +241,13 @@ impl<T: NativePType + SetInteger> HaystackState for PrimitiveSet<T> {
 /// Whether every remaining `Slice` node in `array` is handled by a slice kernel rather than
 /// falling back to `Slice::execute`, which materializes the full child column.
 fn slices_without_full_decode(array: &ArrayRef, ctx: &ExecutionCtx) -> bool {
-    array.depth_first_traversal().all(|node| {
-        node.as_opt::<Slice>().is_none_or(|slice| {
-            ctx.has_execute_parent_kernel(Slice.id(), slice.child().encoding_id())
-        })
-    })
+    if let Some(slice) = array.as_opt::<Slice>() {
+        return ctx.has_execute_parent_kernel(Slice.id(), slice.child().encoding_id());
+    }
+    array
+        .children()
+        .iter()
+        .all(|child| slices_without_full_decode(child, ctx))
 }
 
 /// Unscaled decimal values at the canonical width shared by the elements and needles.
