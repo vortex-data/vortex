@@ -64,7 +64,10 @@ from ._lib.dtype import (
     utf8,
 )
 from ._lib.iter import ArrayIterator
-from ._lib.runtime import set_worker_threads, worker_threads
+from ._lib.runtime import (
+    set_worker_threads,
+    worker_threads,
+)
 from ._lib.scalar import (
     BinaryScalar,
     BoolScalar,
