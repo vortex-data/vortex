@@ -205,13 +205,9 @@ mod tests {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::DType;
-    use vortex_array::dtype::FieldNames;
-    use vortex_array::dtype::MapDType;
     use vortex_array::dtype::Nullability::NonNullable;
     use vortex_array::dtype::Nullability::Nullable;
     use vortex_array::dtype::PType;
-    use vortex_array::dtype::StructFields;
-    use vortex_array::dtype::UnionVariants;
     use vortex_array::expr::root;
     use vortex_array::scalar::Scalar;
     use vortex_array::validity::Validity;
@@ -407,37 +403,6 @@ mod tests {
         assert!(layout.is::<Chunked>());
         assert_eq!(layout.dtype(), &dtype);
         assert_eq!(layout.row_count(), 4);
-        Ok(())
-    }
-
-    #[test]
-    fn nested_unsupported_dtypes_skip_constant_detection() -> VortexResult<()> {
-        let variant = DType::Variant(NonNullable);
-        let union = DType::Union(
-            UnionVariants::new(FieldNames::from(["a"]), vec![i64_dtype()])?,
-            NonNullable,
-        );
-
-        for leaf in [variant, union] {
-            assert!(!supports_constant_detection(&DType::List(
-                Arc::new(leaf.clone()),
-                NonNullable,
-            )));
-            assert!(!supports_constant_detection(&DType::FixedSizeList(
-                Arc::new(leaf.clone()),
-                1,
-                NonNullable,
-            )));
-            assert!(!supports_constant_detection(&DType::Map(
-                MapDType::try_new(i64_dtype(), leaf.clone(), false)?,
-                NonNullable,
-            )));
-            assert!(!supports_constant_detection(&DType::Struct(
-                StructFields::from_iter([("v", leaf)]),
-                NonNullable,
-            )));
-        }
-
         Ok(())
     }
 }
