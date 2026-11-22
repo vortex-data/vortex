@@ -544,3 +544,14 @@ def test_filter_is_in_with_a_null_member_is_unsupported(tmp_path: Path) -> None:
     # Substrait does not carry whether PyArrow skips nulls, which decides a null row.
     with pytest.raises(NotImplementedError):
         vx.open(str(path)).to_dataset().to_table(filter=pc.field("x").isin([1, None]))
+
+
+def test_zero_batch_size_rejected(ds: vx.dataset.VortexDataset) -> None:
+    with pytest.raises(ValueError, match="batch_size must be greater than zero"):
+        ds.to_record_batch_reader(batch_size=0)
+    with pytest.raises(ValueError, match="batch_size must be greater than zero"):
+        list(ds.to_batches(batch_size=0))
+    with pytest.raises(ValueError, match="batch_size must be greater than zero"):
+        ds.count_rows(batch_size=0)
+    with pytest.raises(ValueError, match="batch_size must be greater than zero"):
+        ds.count_rows(filter=pc.field("index") >= 0, batch_size=0)

@@ -652,6 +652,13 @@ pub(crate) fn row_indices(
     if detach { py.detach(decode) } else { decode() }
 }
 
+pub(crate) fn validate_positive_split_size(size: Option<usize>) -> PyVortexResult<Option<usize>> {
+    if size == Some(0) {
+        return Err(PyValueError::new_err("batch_size must be greater than zero").into());
+    }
+    Ok(size)
+}
+
 /// Check a `concurrency` argument from Python, which must be at least 1 when given.
 pub(crate) fn check_concurrency(concurrency: Option<usize>) -> PyResult<Option<usize>> {
     match concurrency {
@@ -668,7 +675,8 @@ fn scan_builder(
     indices: Option<StrictSortedBuffer<u64>>,
     batch_size: Option<usize>,
     concurrency: Option<usize>,
-) -> VortexResult<ScanBuilder<ArrayRef>> {
+) -> PyVortexResult<ScanBuilder<ArrayRef>> {
+    let batch_size = validate_positive_split_size(batch_size)?;
     let projection = projection
         .unwrap_or_else(root)
         .bind(vxf.dtype())?
