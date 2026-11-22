@@ -64,6 +64,7 @@ use crate::current_runtime;
 use crate::error::PyVortexResult;
 use crate::expr::PyExpr;
 use crate::file::row_indices;
+use crate::file::validate_positive_split_size;
 use crate::install_module;
 use crate::io::AnyVortexStore;
 use crate::object_store::resolve::ResolvedStore;
@@ -568,6 +569,7 @@ impl PyVortexDataset {
         limit: Option<u64>,
         concurrency: Option<usize>,
     ) -> PyVortexResult<Py<PyAny>> {
+        let split_by = validate_positive_split_size(split_by)?;
         let projection = projection_from_python(columns, self_.dtype())?;
         let filter = filter_from_python(row_filter);
         let concurrency = check_concurrency(concurrency)?;
@@ -613,6 +615,7 @@ impl PyVortexDataset {
         row_range: Option<(u64, u64)>,
         concurrency: Option<usize>,
     ) -> PyVortexResult<usize> {
+        let split_by = validate_positive_split_size(split_by)?;
         let concurrency = check_concurrency(concurrency)?;
         if row_filter.is_none() {
             let source = self_.source.clone();

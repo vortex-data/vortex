@@ -499,8 +499,9 @@ jobs:
           done < <(jq -r '.[]' <<<"$IDS")
           echo "missing=${missing[*]}" >> "$GITHUB_OUTPUT"
           echo "reported=$([[ -s results.ingest.jsonl ]] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+      # A fork PR's job has no OIDC token, so pr-bench-report.yml reads its baseline.
       - name: Fetch baseline from the benchmarks database
-        if: steps.merge.outputs.reported == 'true'
+        if: steps.merge.outputs.reported == 'true' && github.event.pull_request.head.repo.fork != true
         uses: ./.github/actions/fetch-bench-baseline
         with:
           role-arn: ${{ vars.GH_BENCH_READ_ROLE_ARN }}
@@ -527,6 +528,15 @@ jobs:
               "${{ matrix.name }}" --pr-records results.ingest.jsonl >> comment.md
           fi
           cat comment.md >> "$GITHUB_STEP_SUMMARY"
+      # A fork PR's job has no OIDC token, so pr-bench-report.yml reads its baseline and comments.
+      - name: Upload report for pr-bench-report.yml
+        if: github.event.pull_request.head.repo.fork == true
+        uses: ./.github/actions/upload-fork-bench-report
+        with:
+          benchmark-name: ${{ matrix.name }}
+          comment-tag: bench-pr-comment-${{ matrix.group }}-${{ inputs.matrix_preset }}
+          matrix-preset: ${{ inputs.matrix_preset }}
+          missing-entries: ${{ steps.merge.outputs.missing }}
       - name: Comment PR
         if: github.event.pull_request.head.repo.fork == false
         uses: thollander/actions-comment-pull-request@24bffb9b452ba05a4f3f77933840a6a841d1b32b  # v3

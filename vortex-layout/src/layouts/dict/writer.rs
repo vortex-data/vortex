@@ -27,9 +27,11 @@ use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
+use vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::uncompressed_size_in_bytes;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::Dict;
 use vortex_array::arrays::WidenArray;
+use vortex_array::arrays::dict::DictArraySlotsExt;
 use vortex_array::builders::dict::DictConstraints;
 use vortex_array::builders::dict::DictEncoder;
 use vortex_array::builders::dict::dict_encoder_in;
@@ -176,16 +178,30 @@ impl LayoutStrategy for DictStrategy {
         let (stream, sample) = peek_probe_sample(stream, options.probe_len).await?;
         let stream = SequentialStreamAdapter::new(dtype.clone(), stream).sendable();
 
-        let should_fallback = match sample {
-            None => true, // empty stream
+        // The probe is the first compression of the column, long before the first full chunk.
+        // Record it, so that the size estimate of the write has a ratio early. The codes have
+        // a different form and ratio than the values, so keep the codes part of the probe for
+        // the codes scopes.
+        let codes_probe = match sample {
+            None => None, // empty stream
             Some(sample) => {
                 let mut exec_ctx = session.create_execution_ctx();
                 let compressed = self
                     .probe_compressor
                     .compress_chunk(&sample, &mut exec_ctx)?;
-                !is_dictionary(&compressed)
+                let sample_size =
+                    u64::try_from(uncompressed_size_in_bytes(&sample, &mut exec_ctx)?)
+                        .map_err(|e| vortex_err!("probe size does not fit in u64: {e}"))?;
+                ctx.size_scope()
+                    .record_probe(sample_size, compressed.nbytes());
+
+                probe_dict_codes(&compressed).map(|codes| {
+                    let element_size = codes.dtype().element_size().unwrap_or(1) as u64;
+                    (codes.len() as u64 * element_size, codes.nbytes())
+                })
             }
         };
+        let should_fallback = codes_probe.is_none();
         if should_fallback {
             // first chunk did not compress to dict, or did not exist. Skip dict layout
             return self
@@ -215,7 +231,10 @@ impl LayoutStrategy for DictStrategy {
             while let Some((codes_stream, values_fut)) = runs.next().await {
                 let codes = Arc::clone(&self.codes);
                 let codes_eof = eof.split_off();
-                let ctx2 = ctx.clone();
+                let ctx2 = ctx.clone().with_child_size_scope();
+                if let Some((uncompressed, compressed)) = codes_probe {
+                    ctx2.size_scope().record_probe(uncompressed, compressed);
+                }
                 let segment_sink2 = Arc::clone(&segment_sink);
                 let session2 = session.clone();
                 let codes_fut = handle.spawn_nested(move |_| async move {
@@ -230,7 +249,7 @@ impl LayoutStrategy for DictStrategy {
 
                 let values = Arc::clone(&self.values);
                 let values_eof = eof.split_off();
-                let ctx2 = ctx.clone();
+                let ctx2 = ctx.clone().with_child_size_scope();
                 let segment_sink2 = Arc::clone(&segment_sink);
                 let dtype2 = dtype2.clone();
                 let session2 = session.clone();
@@ -562,23 +581,25 @@ async fn peek_probe_sample(
     Ok((stream, Some(sample)))
 }
 
-/// Returns whether the probe compressor chose a dictionary for a sample.
+/// Returns the probe dictionary's codes array when the probe compressor chose a dictionary.
 ///
 /// Byte parts with only a most significant part can also hold the dictionary, under an integer
 /// `Widen` when compression narrowed that part. The dictionary then holds the unscaled decimals
 /// with the same codes, so the column gets a dict layout either way. Byte parts with lower parts
 /// do not count, because a dictionary of one part says little about the distinct count of the
 /// whole decimals.
-fn is_dictionary(compressed: &ArrayRef) -> bool {
-    if compressed.is::<Dict>() {
-        return true;
+fn probe_dict_codes(compressed: &ArrayRef) -> Option<ArrayRef> {
+    if let Some(dict) = compressed.as_opt::<Dict>() {
+        return Some(dict.codes().clone());
     }
 
-    let Some(parts) = compressed.as_opt::<DecimalByteParts>() else {
-        return false;
-    };
+    let parts = compressed.as_opt::<DecimalByteParts>()?;
+    if !parts.lower_parts().is_empty() {
+        return None;
+    }
 
-    parts.lower_parts().is_empty() && WidenArray::to_stored_integer(parts.msp()).is::<Dict>()
+    let stored = WidenArray::to_stored_integer(parts.msp());
+    stored.as_opt::<Dict>().map(|dict| dict.codes().clone())
 }
 
 pub fn dict_layout_supported(dtype: &DType) -> bool {
@@ -675,7 +696,7 @@ mod tests {
     use super::DictionaryChunk;
     use super::DictionaryTransformer;
     use super::dict_encode_stream;
-    use super::is_dictionary;
+    use super::probe_dict_codes;
     use crate::LayoutStrategy;
     use crate::layouts::chunked::writer::ChunkedLayoutStrategy;
     use crate::layouts::dict::Dict;
@@ -950,7 +971,7 @@ mod tests {
             DecimalByteParts::try_new(msp, DecimalDType::new(18, 2))?
         };
 
-        assert_eq!(is_dictionary(&parts.into_array()), expected);
+        assert_eq!(probe_dict_codes(&parts.into_array()).is_some(), expected);
 
         Ok(())
     }

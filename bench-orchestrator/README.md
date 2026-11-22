@@ -130,7 +130,7 @@ vx-bench show <run-ref>
 
 **Arguments:**
 
-- `run-ref`: Run ID, label, or `latest`
+- `run-ref`: Run ID, label, or `latest` (most recent non-partial run)
 
 ### `build` - Build Binaries
 
