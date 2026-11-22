@@ -64,10 +64,7 @@ pub trait FillNullKernel: VTable {
 /// **must** execute it.
 ///
 /// [`ScalarFn`]: crate::arrays::ScalarFn
-pub(super) fn short_circuit(
-    array: &ArrayRef,
-    fill_value: &Scalar,
-) -> VortexResult<Option<ArrayRef>> {
+pub fn short_circuit(array: &ArrayRef, fill_value: &Scalar) -> VortexResult<Option<ArrayRef>> {
     vortex_ensure!(
         !fill_value.is_null(),
         "fill_null requires a non-null fill value"

@@ -21,6 +21,7 @@ use crate::IntoArray;
 use crate::arrays::Bool;
 use crate::arrays::Constant;
 use crate::arrays::Decimal;
+use crate::arrays::Extension;
 use crate::arrays::Primitive;
 use crate::arrays::ScalarFnArray;
 use crate::arrays::VarBinView;
@@ -66,18 +67,15 @@ impl FillNull {
 
     /// Returns whether fill_null can execute inputs of `dtype`.
     ///
-    /// These are the dtypes whose canonical arrays have a [`FillNullKernel`], so update this list
-    /// whenever `fill_null_canonical` gains or loses one. Rewrites into fill_null, such as the
-    /// CASE WHEN simplification, check it first because other dtypes fail at execution time.
+    /// These are the dtypes that `fill_null_canonical` and the `vortex-functions` fill_null
+    /// kernels can fill, so update this function whenever they gain or lose one. Rewrites into
+    /// fill_null, such as the CASE WHEN simplification, check it first because other dtypes fail
+    /// at execution time.
+    ///
+    /// A null dtype has no non-null fill value. Union and variant values have no zip, so any dtype
+    /// that contains one of them is rejected, even where its fill does not zip those values.
     pub fn supports_dtype(dtype: &DType) -> bool {
-        matches!(
-            dtype,
-            DType::Bool(_)
-                | DType::Primitive(..)
-                | DType::Decimal(..)
-                | DType::Utf8(_)
-                | DType::Binary(_)
-        )
+        !matches!(dtype, DType::Null) && !contains_union_or_variant(dtype)
     }
 }
 
@@ -152,14 +150,15 @@ impl ScalarFnVTable for FillNull {
             "fill_null requires a non-null fill value"
         );
 
+        if fill_was_lazy {
+            // Hand the rebuilt node back with a constant fill so the input's FillNull
+            // kernels (including those registered by vortex-functions) get a chance.
+            return FillNull::try_new(input, fill_value)?
+                .into_array()
+                .optimize_ctx(ctx);
+        }
+
         let Some(columnar) = input.as_opt::<AnyColumnar>() else {
-            if fill_was_lazy {
-                // Hand the rebuilt node back with a constant fill so the input's FillNull
-                // kernels get a chance before we decode the input.
-                return FillNull::try_new(input, fill_value)?
-                    .into_array()
-                    .optimize_ctx(ctx);
-            }
             let input = input.execute::<ArrayRef>(ctx)?;
             return Ok(FillNull::try_new(input, fill_value)?.into_array());
         };
@@ -219,9 +218,33 @@ impl ScalarFnVTable for FillNull {
     }
 }
 
+/// Returns whether `dtype` is or contains a union or a variant.
+fn contains_union_or_variant(dtype: &DType) -> bool {
+    match dtype {
+        DType::Union(..) | DType::Variant(_) => true,
+        DType::List(element, _) | DType::FixedSizeList(element, ..) => {
+            contains_union_or_variant(element)
+        }
+        DType::Map(map, _) => {
+            contains_union_or_variant(&map.key_dtype())
+                || contains_union_or_variant(&map.value_dtype())
+        }
+        DType::Struct(fields, _) => fields
+            .fields()
+            .any(|field| contains_union_or_variant(&field)),
+        DType::Extension(ext) => contains_union_or_variant(ext.storage_dtype()),
+        DType::Null
+        | DType::Bool(_)
+        | DType::Primitive(..)
+        | DType::Decimal(..)
+        | DType::Utf8(_)
+        | DType::Binary(_) => false,
+    }
+}
+
 /// Fill nulls on a canonical array by directly dispatching to the appropriate kernel.
 ///
-/// Returns the filled array, or bails if no kernel is registered for the canonical type.
+/// Returns the filled array, or bails if the canonical type cannot be filled.
 fn fill_null_canonical(
     canonical: CanonicalView<'_>,
     fill_value: &Scalar,
@@ -230,6 +253,9 @@ fn fill_null_canonical(
     let arr = canonical.to_array_ref();
     if let Some(result) = short_circuit(&arr, fill_value)? {
         return Ok(result);
+    }
+    if !FillNull::supports_dtype(arr.dtype()) {
+        vortex_bail!("fill_null is not supported for {} arrays", arr.dtype());
     }
     match canonical {
         CanonicalView::Bool(a) => <Bool as FillNullKernel>::fill_null(a, fill_value, ctx)?
@@ -244,18 +270,30 @@ fn fill_null_canonical(
             <VarBinView as FillNullKernel>::fill_null(a, fill_value, ctx)?
                 .ok_or_else(|| vortex_err!("FillNullKernel for VarBinViewArray returned None"))
         }
-        other => vortex_bail!(
-            "No FillNullKernel for canonical array {}",
-            other.to_array_ref().encoding_id()
-        ),
+        CanonicalView::Extension(a) => {
+            <Extension as FillNullKernel>::fill_null(a, fill_value, ctx)?
+                .ok_or_else(|| vortex_err!("FillNullKernel for ExtensionArray returned None"))
+        }
+        CanonicalView::Struct(_)
+        | CanonicalView::List(_)
+        | CanonicalView::FixedSizeList(_)
+        | CanonicalView::Map(_) => {
+            vortex_bail!(
+                "fill_null for {} arrays requires vortex_functions::initialize",
+                arr.dtype()
+            )
+        }
+        CanonicalView::Null(_) | CanonicalView::Union(_) | CanonicalView::Variant(_) => {
+            vortex_bail!("fill_null is not supported for {} arrays", arr.dtype())
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
     use std::sync::LazyLock;
 
+    use rstest::rstest;
     use vortex_buffer::buffer;
     use vortex_error::VortexExpect;
     use vortex_session::VortexSession;
@@ -273,16 +311,15 @@ mod tests {
     use crate::arrays::PrimitiveArray;
     use crate::arrays::ScalarFnArray;
     use crate::arrays::StructArray;
+    use crate::arrays::VariantArray;
     use crate::arrays::scalar_fn::ExactScalarFn;
     use crate::assert_arrays_eq;
     use crate::builders::builder_with_capacity_in;
     use crate::builtins::ArrayBuiltins;
     use crate::dtype::DType;
     use crate::dtype::DecimalDType;
-    use crate::dtype::MapDType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
-    use crate::dtype::StructFields;
     use crate::expr::fill_null;
     use crate::expr::get_item;
     use crate::expr::lit;
@@ -508,54 +545,74 @@ mod tests {
         assert_arrays_eq!(result, PrimitiveArray::from_iter([1i32, 2, 3]), &mut ctx);
     }
 
-    /// Inputs with both valid and null rows execute exactly for the dtypes that `supports_dtype`
-    /// accepts, so adding a kernel without updating `supports_dtype` fails here.
-    #[test]
-    fn supports_dtype_matches_kernels() -> VortexResult<()> {
+    /// Inputs with both valid and null rows execute for every non-zip dtype that `supports_dtype`
+    /// accepts, with a nullable or a non-nullable fill value.
+    #[rstest]
+    #[case::bool(DType::Bool(Nullability::Nullable))]
+    #[case::primitive(DType::Primitive(PType::I32, Nullability::Nullable))]
+    #[case::decimal(DType::Decimal(DecimalDType::new(19, 2), Nullability::Nullable))]
+    #[case::utf8(DType::Utf8(Nullability::Nullable))]
+    #[case::binary(DType::Binary(Nullability::Nullable))]
+    #[case::date(DType::Extension(Date::new(TimeUnit::Days, Nullability::Nullable).erased()))]
+    fn supported_dtypes_fill_mixed_validity(
+        #[case] dtype: DType,
+        #[values(Nullability::NonNullable, Nullability::Nullable)] fill_nullability: Nullability,
+    ) -> VortexResult<()> {
+        assert!(FillNull::supports_dtype(&dtype), "{dtype}");
+
         let mut ctx = SESSION.create_execution_ctx();
-        let i32_dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
-        let dtypes = [
-            DType::Bool(Nullability::Nullable),
-            DType::Primitive(PType::I32, Nullability::Nullable),
-            DType::Decimal(DecimalDType::new(19, 2), Nullability::Nullable),
-            DType::Utf8(Nullability::Nullable),
-            DType::Binary(Nullability::Nullable),
-            DType::List(Arc::new(i32_dtype.clone()), Nullability::Nullable),
-            DType::FixedSizeList(Arc::new(i32_dtype.clone()), 2, Nullability::Nullable),
-            DType::Struct(
-                StructFields::from_iter([("value", i32_dtype.clone())]),
-                Nullability::Nullable,
-            ),
-            DType::Map(
-                MapDType::try_new(i32_dtype.clone(), i32_dtype, false)?,
-                Nullability::Nullable,
-            ),
-            DType::Extension(Date::new(TimeUnit::Days, Nullability::Nullable).erased()),
-        ];
+        let fill = Scalar::default_value(&dtype.as_nonnullable())
+            .cast(&dtype.with_nullability(fill_nullability))?;
+        let mut builder = builder_with_capacity_in(&dtype, 2, ctx.allocator());
+        builder.append_scalar(&fill.cast(&dtype)?)?;
+        builder.append_null();
+        let filled = builder
+            .finish()
+            .fill_null(fill.clone())?
+            .execute::<Canonical>(&mut ctx)?
+            .into_array();
 
-        let supported = [
-            true, true, true, true, true, false, false, false, false, false,
-        ];
-        for (dtype, supported) in dtypes.into_iter().zip(supported) {
-            assert_eq!(FillNull::supports_dtype(&dtype), supported, "{dtype}");
-            let fill = Scalar::default_value(&dtype.as_nonnullable());
-            let mut builder = builder_with_capacity_in(&dtype, 2, ctx.allocator());
-            builder.append_scalar(&fill.cast(&dtype)?)?;
-            builder.append_null();
-            let filled = builder
-                .finish()
-                .fill_null(fill.clone())?
-                .execute::<Canonical>(&mut ctx);
+        assert_eq!(filled.dtype(), fill.dtype(), "{dtype}");
+        assert_eq!(filled.execute_scalar(1, &mut ctx)?, fill, "{dtype}");
+        assert_arrays_eq!(filled, ConstantArray::new(fill, 2), &mut ctx);
+        Ok(())
+    }
 
-            if supported {
-                let filled = filled?.into_array();
-                assert_eq!(filled.dtype(), fill.dtype(), "{dtype}");
-                assert_eq!(filled.execute_scalar(1, &mut ctx)?, fill, "{dtype}");
-                assert_arrays_eq!(filled, ConstantArray::new(fill, 2), &mut ctx);
-            } else {
-                assert!(filled.is_err(), "{dtype} executes but is not supported");
-            }
-        }
+    #[rstest]
+    #[case::null(DType::Null)]
+    #[case::variant(DType::Variant(Nullability::Nullable))]
+    #[case::nested_variant(DType::struct_(
+        [("value", DType::Variant(Nullability::Nullable))],
+        Nullability::Nullable,
+    ))]
+    fn unsupported_dtypes(#[case] dtype: DType) {
+        assert!(!FillNull::supports_dtype(&dtype), "{dtype}");
+    }
+
+    /// A variant input with mixed validity fails with an error instead of a panic.
+    #[test]
+    fn variant_with_mixed_validity_errors() -> VortexResult<()> {
+        let dtype = DType::Variant(Nullability::Nullable);
+        let value = Scalar::variant(Scalar::primitive(1i32, Nullability::NonNullable));
+        let core_storage = ChunkedArray::try_new(
+            vec![
+                ConstantArray::new(value.cast(&dtype)?, 1).into_array(),
+                ConstantArray::new(Scalar::null(dtype.clone()), 1).into_array(),
+            ],
+            dtype,
+        )?
+        .into_array();
+        let input = VariantArray::try_new(core_storage, None)?.into_array();
+
+        let mut ctx = SESSION.create_execution_ctx();
+        let error = input
+            .fill_null(value)?
+            .execute::<Canonical>(&mut ctx)
+            .unwrap_err();
+        assert!(
+            error.to_string().contains("fill_null is not supported"),
+            "{error}"
+        );
         Ok(())
     }
 

@@ -29,6 +29,7 @@ pub mod dynamic;
 pub mod dynamic_expression;
 pub mod expr;
 pub mod ext_storage;
+mod fill_null;
 pub mod is_nan;
 pub mod like;
 pub mod list_contains;
@@ -50,6 +51,7 @@ mod tests;
 /// Register this crate's scalar functions with the given session.
 pub fn initialize(session: &VortexSession) {
     between::initialize(session);
+    fill_null::initialize(session);
     like::initialize(session);
     list_contains::initialize(session);
     variant_get::initialize(session);

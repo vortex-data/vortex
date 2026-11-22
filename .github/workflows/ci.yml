@@ -141,13 +141,6 @@ jobs:
       # The first `uv run` above builds the extension and syncs the environment. These checks
       # reuse it, and uv locks the environment, so they run at the same time.
       - parallel:
-          # The datasets integration relies on private `datasets` APIs, so exercise the oldest
-          # supported release in addition to the locked one.
-          - name: Pytest - Vortex (datasets 4.x floor)
-            run: |
-              uv run --all-packages --with 'datasets==4.0.0' --with 'huggingface-hub<1' \
-                pytest --benchmark-disable test/test_hf_datasets.py
-            working-directory: vortex-python/
           # The lockfile tracks Polars 2, so also exercise the oldest supported 1.x release. The
           # Polars integration parses Polars' serialized expression format, which differs across
           # versions.

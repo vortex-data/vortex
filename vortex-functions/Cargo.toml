@@ -81,3 +81,7 @@ harness = false
 [[bench]]
 name = "primitive_zip"
 harness = false
+
+[[bench]]
+name = "zip_dtypes"
+harness = false

@@ -48,6 +48,8 @@ use vortex_functions::expr::bound::dynamic_with_options;
 use vortex_functions::is_nan::IsNan;
 use vortex_functions::like::Like;
 use vortex_functions::list_contains::ListContains;
+use vortex_functions::list_contains::PreparedSet;
+use vortex_functions::list_contains::PreparedSetData;
 use vortex_functions::lower::Lower;
 use vortex_functions::lower_bound::LowerBound;
 use vortex_functions::lower_bound::LowerBoundKind;
@@ -553,12 +555,11 @@ fn list_contains_falsify<P: NonNanProof>(
     let list = expr.child(0);
     let needle = expr.child(1);
 
-    let Some(list_scalar) = literal_stat(list, Stat::Min) else {
-        return Ok(None);
-    };
-    let elements = list_scalar
+    // Reduction replaces a literal list with a set prepared from it.
+    let elements = list
         .as_opt::<Literal>()
-        .and_then(|literal| literal.as_list_opt())
+        .or_else(|| list.as_opt::<PreparedSet>().map(PreparedSetData::list))
+        .and_then(|list| list.as_list_opt())
         .and_then(|list| list.elements());
     let Some(elements) = elements else {
         return Ok(None);
@@ -907,6 +908,10 @@ mod tests {
     use vortex_functions::expr::is_nan;
     use vortex_functions::expr::like;
     use vortex_functions::expr::list_contains;
+    use vortex_functions::list_contains::ListContains;
+    use vortex_functions::list_contains::ListContainsOptions;
+    use vortex_functions::list_contains::PreparedSet;
+    use vortex_functions::list_contains::PreparedSetData;
     use vortex_session::VortexSession;
 
     use crate::stats::expr::StatFn;
@@ -1252,6 +1257,32 @@ mod tests {
             Some(or(
                 lt(stat(col("a"), Stat::Max), lit(Scalar::from(Some(0i32)))),
                 gt(stat(col("a"), Stat::Min), lit(Scalar::from(Some(19i32)))),
+            ))
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn rewrites_prepared_set_list_contains_falsifier() -> VortexResult<()> {
+        let list = Scalar::list(
+            Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable)),
+            vec![1.into(), 2.into()],
+            Nullability::NonNullable,
+        );
+        let set = PreparedSet.new_expr(PreparedSetData::try_new(list)?, Vec::<Expression>::new());
+        let expr = ListContains.new_expr(ListContainsOptions::default(), [set, col("a")]);
+
+        assert_rewrite_eq!(
+            falsify(&expr)?,
+            Some(and(
+                or(
+                    lt(stat(col("a"), Stat::Max), lit(1i32)),
+                    gt(stat(col("a"), Stat::Min), lit(1i32)),
+                ),
+                or(
+                    lt(stat(col("a"), Stat::Max), lit(2i32)),
+                    gt(stat(col("a"), Stat::Min), lit(2i32)),
+                ),
             ))
         );
         Ok(())

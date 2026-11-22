@@ -3,8 +3,14 @@
 
 mod bool;
 mod chunked;
+mod decimal;
+mod extension;
+mod fixed_size_list;
+mod fixed_width;
 mod kernel;
 mod listview;
+mod map;
+mod null;
 mod paired_chunks;
 mod primitive;
 mod struct_;
@@ -22,7 +28,12 @@ use vortex_array::IntoArray;
 use vortex_array::arrays::Bool;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::Chunked;
+use vortex_array::arrays::Decimal;
+use vortex_array::arrays::Extension;
+use vortex_array::arrays::FixedSizeList;
 use vortex_array::arrays::ListView;
+use vortex_array::arrays::Map;
+use vortex_array::arrays::Null;
 use vortex_array::arrays::Primitive;
 use vortex_array::arrays::ScalarFnArray;
 use vortex_array::arrays::Struct;
@@ -50,6 +61,7 @@ use vortex_array::scalar_fn::builtin::literal::Literal;
 use vortex_array::scalar_fn::session::ScalarFnSessionExt;
 use vortex_array::validity::Validity;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_mask::Mask;
@@ -65,11 +77,20 @@ pub(crate) fn initialize(session: &VortexSession) {
     let kernels = session.kernels();
     kernels.register_execute_parent_kernel(Zip.id(), Bool, ZipExecuteAdaptor(Bool));
     kernels.register_execute_parent_kernel(Zip.id(), Chunked, ZipExecuteAdaptor(Chunked));
+    kernels.register_execute_parent_kernel(Zip.id(), Decimal, ZipExecuteAdaptor(Decimal));
+    kernels.register_execute_parent_kernel(
+        Zip.id(),
+        FixedSizeList,
+        ZipExecuteAdaptor(FixedSizeList),
+    );
     kernels.register_execute_parent_kernel(Zip.id(), ListView, ZipExecuteAdaptor(ListView));
+    kernels.register_execute_parent_kernel(Zip.id(), Map, ZipExecuteAdaptor(Map));
     kernels.register_execute_parent_kernel(Zip.id(), Primitive, ZipExecuteAdaptor(Primitive));
     kernels.register_execute_parent_kernel(Zip.id(), Struct, ZipExecuteAdaptor(Struct));
     kernels.register_execute_parent_kernel(Zip.id(), VarBinView, ZipExecuteAdaptor(VarBinView));
     kernels.register_execute_parent_kernel(Zip.id(), Widen, ZipExecuteAdaptor(Widen));
+    kernels.register_reduce_parent_rule(Zip, Extension, const { &ZipReduceAdaptor(Extension) });
+    kernels.register_reduce_parent_rule(Zip, Null, const { &ZipReduceAdaptor(Null) });
 }
 
 /// An expression that conditionally selects between two arrays based on a boolean mask.
@@ -241,6 +262,12 @@ fn zip_impl(
     );
 
     let return_type = zip_return_dtype(if_true.dtype(), if_false.dtype())?;
+    if !has_builder(&return_type) {
+        vortex_bail!(
+            "zip of {return_type} arrays with a mixed mask is not supported: the dtype has no \
+             zip kernel and no array builder"
+        );
+    }
 
     // `append_to_builder` requires exact dtype equality, so normalize branch
     // nullability to the output dtype before appending slices into the builder.
@@ -254,6 +281,25 @@ fn zip_impl(
         builder_with_capacity_in(&return_type, if_true.len(), ctx.allocator()),
         ctx,
     )
+}
+
+/// Returns whether [`builder_with_capacity_in`] supports `dtype`, which has no builder when it is
+/// or contains a union.
+fn has_builder(dtype: &DType) -> bool {
+    match dtype {
+        DType::Union(..) => false,
+        DType::List(element, _) | DType::FixedSizeList(element, ..) => has_builder(element),
+        DType::Map(map, _) => has_builder(&map.key_dtype()) && has_builder(&map.value_dtype()),
+        DType::Struct(fields, _) => fields.fields().all(|field| has_builder(&field)),
+        DType::Extension(ext) => has_builder(ext.storage_dtype()),
+        DType::Null
+        | DType::Bool(_)
+        | DType::Primitive(..)
+        | DType::Decimal(..)
+        | DType::Utf8(_)
+        | DType::Binary(_)
+        | DType::Variant(_) => true,
+    }
 }
 
 fn zip_return_dtype(if_true: &DType, if_false: &DType) -> VortexResult<DType> {
@@ -378,6 +424,7 @@ mod tests {
 
     use rstest::rstest;
     use vortex_array::ArrayRef;
+    use vortex_array::Canonical;
     use vortex_array::Columnar;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
@@ -386,8 +433,10 @@ mod tests {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::Struct;
     use vortex_array::arrays::StructArray;
+    use vortex_array::arrays::UnionArray;
     use vortex_array::arrays::VarBinView;
     use vortex_array::arrays::VarBinViewArray;
+    use vortex_array::arrays::VariantArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::builders::ArrayBuilder;
     use vortex_array::builders::BufferGrowthStrategy;
@@ -395,6 +444,7 @@ mod tests {
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
+    use vortex_array::dtype::UnionVariants;
     use vortex_array::expr::Expression;
     use vortex_array::expr::lit;
     use vortex_array::expr::root;
@@ -645,7 +695,6 @@ mod tests {
         }));
         assert_arrays_eq!(zipped.array().clone(), expected, &mut ctx);
     }
-
     #[rstest::rstest]
     #[case::zip_true(
         zip_expr(lit(true), lit(1i32), root()),
@@ -662,6 +711,59 @@ mod tests {
         let original = expr.bind(&scope)?;
         let optimized = expr.bind(&scope)?.optimize_recursive()?;
         assert_eq!(optimized.dtype(), original.dtype());
+        Ok(())
+    }
+
+    /// Unshredded Variant arrays have a builder, so a mixed mask zips them through the fallback.
+    #[test]
+    fn test_zip_variant_mixed_mask() -> VortexResult<()> {
+        let variants = |value: i32| -> VortexResult<ArrayRef> {
+            let scalar = Scalar::variant(Scalar::primitive(value, Nullability::NonNullable));
+            let core_storage = ConstantArray::new(scalar, 4).into_array();
+            Ok(VariantArray::try_new(core_storage, None)?.into_array())
+        };
+
+        let mut ctx = SESSION.create_execution_ctx();
+        let zipped = Mask::from_iter([true, false, true, false])
+            .into_array()
+            .zip(variants(1)?, variants(2)?)?
+            .execute::<Canonical>(&mut ctx)?
+            .into_array();
+
+        for (i, expected) in [1i32, 2, 1, 2].into_iter().enumerate() {
+            assert_eq!(
+                zipped.execute_scalar(i, &mut ctx)?,
+                Scalar::variant(Scalar::primitive(expected, Nullability::NonNullable)),
+            );
+        }
+        Ok(())
+    }
+
+    /// Union arrays have no zip kernel and no builder, so a mixed mask fails with an error
+    /// instead of a panic.
+    #[test]
+    fn test_zip_union_mixed_mask_errors() -> VortexResult<()> {
+        let variants = UnionVariants::try_new(
+            ["num"].into(),
+            vec![DType::Primitive(PType::I32, Nullability::NonNullable)],
+            vec![0],
+        )?;
+        let union_of = |value: i32| -> VortexResult<ArrayRef> {
+            Ok(UnionArray::try_new(
+                PrimitiveArray::from_iter([0u8, 0]).into_array(),
+                variants.clone(),
+                vec![PrimitiveArray::from_iter([value, value]).into_array()],
+            )?
+            .into_array())
+        };
+
+        let mut ctx = SESSION.create_execution_ctx();
+        let error = Mask::from_iter([true, false])
+            .into_array()
+            .zip(union_of(1)?, union_of(2)?)?
+            .execute::<Canonical>(&mut ctx)
+            .unwrap_err();
+        assert!(error.to_string().contains("is not supported"), "{error}");
         Ok(())
     }
 }
