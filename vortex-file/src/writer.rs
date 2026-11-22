@@ -514,6 +514,7 @@ impl VortexWriteOptions {
         Writer {
             arrays: Some(arrays_send),
             future,
+            terminal_error: None,
             bytes_written,
             buffered_bytes,
             deferred_metadata,
@@ -656,6 +657,8 @@ pub struct Writer<'w> {
     arrays: Option<Sender<VortexResult<ArrayRef>>>,
     // The writer task that ultimately produces the footer.
     future: Fuse<LocalBoxFuture<'w, VortexResult<WriteSummary>>>,
+    // The first terminal error observed from the writer task.
+    terminal_error: Option<VortexError>,
     // The bytes written so far.
     bytes_written: Arc<AtomicU64>,
     // The buffered bytes accounting shared with the layout strategies for this write.
@@ -667,6 +670,10 @@ pub struct Writer<'w> {
 impl Writer<'_> {
     /// Push a new chunk into the writer.
     pub async fn push(&mut self, chunk: ArrayRef) -> VortexResult<()> {
+        if let Some(err) = &self.terminal_error {
+            return Err(err.clone());
+        }
+
         let arrays = self.arrays.clone().vortex_expect("missing arrays sender");
         let send_fut = async move { arrays.send(Ok(chunk)).await }.fuse();
         pin_mut!(send_fut);
@@ -683,11 +690,7 @@ impl Writer<'_> {
             result = &mut self.future => {
                 // Under normal operation, the writer future should never complete until
                 // finish() is called. Therefore, we can assume the writer has failed.
-                // The writer future has failed, we need to propagate the error.
-                match result {
-                    Ok(_) => vortex_bail!("Internal error: writer future completed early"),
-                    Err(e) => return Err(e),
-                }
+                return Err(self.record_terminal_outcome(result));
             }
         }
 
@@ -699,6 +702,10 @@ impl Writer<'_> {
     /// A task is spawned to consume the stream and push it into the writer, with the current
     /// thread being used to write buffers to the output.
     pub async fn push_stream(&mut self, mut stream: SendableArrayStream) -> VortexResult<()> {
+        if let Some(err) = &self.terminal_error {
+            return Err(err.clone());
+        }
+
         let arrays = self.arrays.clone().vortex_expect("missing arrays sender");
         let stream_fut = async move {
             while let Some(chunk) = stream.next().await {
@@ -722,11 +729,7 @@ impl Writer<'_> {
             result = &mut self.future => {
                 // Under normal operation, the writer future should never complete until
                 // finish() is called. Therefore, we can assume the writer has failed.
-                // The writer future has failed, we need to propagate the error.
-                match result {
-                    Ok(_) => vortex_bail!("Internal error: writer future completed early"),
-                    Err(e) => return Err(e),
-                }
+                return Err(self.record_terminal_outcome(result));
             }
         }
 
@@ -746,6 +749,10 @@ impl Writer<'_> {
     /// Finish writing the Vortex file, flushing any remaining buffers and returning the
     /// new file's footer.
     pub async fn finish(mut self) -> VortexResult<WriteSummary> {
+        if let Some(err) = self.terminal_error.take() {
+            return Err(err);
+        }
+
         // Drop the input channel to signal EOF.
         drop(self.arrays.take());
 
@@ -766,14 +773,20 @@ impl Writer<'_> {
         self.finish().await
     }
 
+    /// Record the first terminal outcome from the writer future and close the input channel.
+    fn record_terminal_outcome(&mut self, result: VortexResult<WriteSummary>) -> VortexError {
+        let err = match result {
+            Ok(_) => vortex_err!("Internal error: writer future completed early"),
+            Err(e) => e,
+        };
+        drop(self.arrays.take());
+        self.terminal_error.get_or_insert(err).clone()
+    }
+
     /// Assuming the writer task has failed, await it to get the error.
     async fn handle_failed_task(&mut self) -> VortexError {
-        match (&mut self.future).await {
-            Ok(_) => vortex_err!(
-                "Internal error: writer task completed successfully but write future finished early"
-            ),
-            Err(e) => e,
-        }
+        let result = (&mut self.future).await;
+        self.record_terminal_outcome(result)
     }
 }
 
