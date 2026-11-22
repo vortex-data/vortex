@@ -71,8 +71,7 @@ async fn device_validity_buffer(
     let (validity_offset, _, validity_buffer) = validity_bits.into_inner();
     Ok((
         validity_offset,
-        ctx.ensure_on_device(BufferHandle::new_host(validity_buffer))
-            .await?,
+        ctx.ensure_on_device(BufferHandle::new_host(validity_buffer))?,
     ))
 }
 
@@ -82,9 +81,7 @@ async fn primitive_with_device_bool_validity(
     ctx: &mut CudaExecutionCtx,
 ) -> VortexResult<vortex::array::ArrayRef> {
     let values = Buffer::<i32>::from_iter((0..len).map(|idx| idx as i32));
-    let values = ctx
-        .ensure_on_device(BufferHandle::new_host(values.into_byte_buffer()))
-        .await?;
+    let values = ctx.ensure_on_device(BufferHandle::new_host(values.into_byte_buffer()))?;
 
     let (validity_offset, validity_buffer) =
         device_validity_buffer(len, validity_offset, ctx).await?;

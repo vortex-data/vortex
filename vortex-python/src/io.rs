@@ -35,7 +35,7 @@ use crate::classes::record_batch_reader_class;
 use crate::classes::table_class;
 use crate::current_runtime;
 use crate::dataset::ProjectionColumn;
-use crate::dataset::PyVortexDataset;
+use crate::dataset::open_dataset;
 use crate::error::PyVortexResult;
 use crate::expr::PyExpr;
 use crate::hf_store::HfStore;
@@ -66,7 +66,9 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
 /// Parameters
 /// ----------
 /// url : str
-///     The URL to read from.
+///     The URL to read from. Like a source of :func:`vortex.open_dataset`, it can also name a
+///     directory, an object store prefix ending in ``/`` or a glob pattern, and then reads the rows
+///     of every Vortex file it names, in sorted order.
 /// store : vortex.store.AzureStore | vortex.store.CosStore | vortex.store.GCSStore | vortex.store.HfStore | vortex.store.HTTPStore | vortex.store.LocalStore | vortex.store.MemoryStore | vortex.store.S3Store | None
 ///     Pre-configured object store with credentials and settings.
 ///     If provided, uses this store's configuration.
@@ -132,16 +134,12 @@ pub fn read_url<'py>(
     indices: Option<PyArrayRef>,
     row_range: Option<(u64, u64)>,
 ) -> PyVortexResult<PyArrayRef> {
-    let store_arc = if let Some(store_obj) = store {
-        let py_store: AnyVortexStore = store_obj.extract()?;
-        Some(py_store.into_inner())
-    } else {
-        None
-    };
+    let store = store
+        .map(|store| store.extract::<AnyVortexStore>())
+        .transpose()?;
+    let dataset = open_dataset(py, vec![url.to_string()], store, None, true)?;
 
-    let dataset =
-        py.detach(move || current_runtime().block_on(PyVortexDataset::from_url(url, store_arc)))?;
-    dataset.to_array_inner(py, projection, row_filter, indices, row_range)
+    dataset.to_array_inner(py, projection, row_filter, indices, row_range, None)
 }
 
 /// A store object accepted by `read_url` / `write`.
