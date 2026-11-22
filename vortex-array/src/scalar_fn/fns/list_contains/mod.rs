@@ -1865,6 +1865,28 @@ mod tests {
         )
     }
 
+    #[rstest]
+    // Non-strict, so a null code keeps the dictionary rewrite from pushing the function into the
+    // values: the needle is executed into its canonical encoding and looked up in the set.
+    #[case::executed(ListContainsOptions::default(), [Some(false), Some(true), None, Some(true)])]
+    // Strict, so the rewrite looks up the dictionary's two values instead of its four rows.
+    #[case::pushed_into_values(SQL, [Some(false), Some(true), None, Some(true)])]
+    fn constant_set_looks_up_a_dictionary_needle(
+        #[case] options: ListContainsOptions,
+        #[case] expected: [Option<bool>; 4],
+    ) -> VortexResult<()> {
+        let needles = DictArray::try_new(
+            PrimitiveArray::from_option_iter([Some(0u32), Some(1), None, Some(1)]).into_array(),
+            PrimitiveArray::from_iter([1i32, 2]).into_array(),
+        )?
+        .into_array();
+        let set = i32_set(vec![Some(2), Some(4)]);
+        assert_rows_agree(
+            needles.apply(&list_contains_opts(lit(set), root(), options))?,
+            BoolArray::from_iter(expected),
+        )
+    }
+
     #[test]
     fn constant_set_of_strings_looks_up_an_encoded_needle() -> VortexResult<()> {
         let needles = VarBinArray::from_iter(
