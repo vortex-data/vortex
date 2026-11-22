@@ -305,8 +305,8 @@ pub extern "system" fn Java_dev_vortex_jni_NativeFiles_readStatisticsFromReadabl
 /// The natural row splits of a Vortex file read through a `dev.vortex.io.NativeReadable`, as their
 /// boundaries: split `i` holds rows `[boundaries[i], boundaries[i + 1])`.
 ///
-/// The splits follow the file's chunks, so a scan of whole splits reads whole chunks. `name` keys
-/// the file in the session footer cache, as it does for the scan path.
+/// The splits use the default split policy, following the file's chunk boundaries and subdividing
+/// large chunks. `name` keys the file in the session footer cache, as it does for the scan path.
 ///
 /// `columns` names the top-level columns that the scan reads, and the splits then follow the chunks
 /// of those columns only. A null `columns`, or one that names no column of the file, uses every
