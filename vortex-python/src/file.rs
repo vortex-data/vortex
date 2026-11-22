@@ -605,7 +605,7 @@ impl PyVortexFile {
     fn to_dataset(slf: Bound<Self>, concurrency: Option<usize>) -> PyVortexResult<PyVortexDataset> {
         let concurrency = check_concurrency(concurrency)?;
         Ok(PyVortexDataset::try_new(
-            vec![slf.get().vxf.clone()],
+            slf.get().vxf.clone(),
             concurrency,
         )?)
     }

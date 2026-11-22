@@ -18,7 +18,7 @@ from ray.data.datasource.path_util import (
 )
 from typing_extensions import override
 
-from ..dataset import open_dataset
+from ..dataset import _open_exact_files
 from ..expr import Expr as VortexExpr
 
 if TYPE_CHECKING:
@@ -145,7 +145,7 @@ def _read_task(
     if not paths:
         raise ValueError("no paths specified")
 
-    dataset = open_dataset(paths)
+    dataset = _open_exact_files(paths)
     metadata = BlockMetadata(
         num_rows=None if filter is not None else dataset.count_rows(),
         size_bytes=None,
@@ -156,7 +156,7 @@ def _read_task(
 
     def read() -> Iterable[pandas.DataFrame]:
         # A VortexDataset cannot be pickled, so the task opens its files again on the worker.
-        reader = open_dataset(paths).to_record_batch_reader(columns=columns, filter=filter, batch_size=batch_size)
+        reader = _open_exact_files(paths).to_record_batch_reader(columns=columns, filter=filter, batch_size=batch_size)
 
         for rb in reader:
             # We would prefer to generate Arrow, but we run into this issue: https://github.com/apache/arrow/issues/47279

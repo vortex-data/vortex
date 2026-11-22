@@ -156,8 +156,8 @@ class VortexDataset(pyarrow.dataset.Dataset):
     def get_fragments(self, filter: pyarrow.dataset.Expression | Expr | None = None) -> Iterator[VortexFragment]:
         """A fragment for each file in the Dataset."""
 
-        for left, right in self._dataset.splits():
-            yield VortexFragment(self, (left, right))
+        for file_start, row_range in self._dataset.fragment_splits():
+            yield VortexFragment(self, row_range, _file_start=file_start)
 
     @override
     def head(
@@ -688,7 +688,7 @@ def open_dataset(
     The dataset reads the rows of every file in order, with column selection and filters pushed into
     the scan of each file. Reads keep up to ``concurrency`` splits in flight across file boundaries,
     so a dataset of many small files is read as concurrently as one large file. Opening the dataset
-    reads only the footer of each file.
+    reads only the footer of the first file; the remaining files open lazily when scanned.
 
     Parameters
     ----------
@@ -730,6 +730,23 @@ def open_dataset(
     )
 
 
+def _open_exact_files(
+    paths: Sequence[str | os.PathLike[str]],
+    *,
+    store: AzureStore | CosStore | GCSStore | HfStore | HTTPStore | LocalStore | MemoryStore | S3Store | None = None,
+    concurrency: int | None = None,
+) -> VortexDataset:
+    """Open exact file paths without glob or directory expansion."""
+    return VortexDataset(
+        _dataset.dataset_from_sources(
+            [os.fspath(path) for path in paths],
+            store=store,
+            concurrency=concurrency,
+            expand=False,
+        )
+    )
+
+
 @final
 class VortexFragment(pyarrow.dataset.Fragment):
     """Fragment of data from a :class:`.VortexDataset`."""
@@ -738,9 +755,12 @@ class VortexFragment(pyarrow.dataset.Fragment):
         self,
         dataset: VortexDataset,
         _row_range: tuple[int, int],
+        *,
+        _file_start: int = 0,
     ) -> None:
         self._dataset = dataset
         self._row_range = _row_range
+        self._file_start = _file_start
 
     def _check_schema(self, schema: pyarrow.Schema | None) -> None:
         # Engines such as DataFusion pass the dataset schema, which every fragment already reads
@@ -880,8 +900,14 @@ class VortexFragment(pyarrow.dataset.Fragment):
         The indices are indices into *the file*, not indices into this fragment of the file.
 
         """
+        dataset_indices: Any = indices
+        if self._file_start:
+            dataset_indices = pc.add(
+                indices.cast(pa.uint64()),
+                pa.scalar(self._file_start, type=pa.uint64()),
+            )
         return self._dataset.take(
-            indices=indices,
+            indices=dataset_indices,  # ty: ignore[invalid-argument-type]  # pyarrow-stubs types pc.add as Array[Scalar[UInt64Type]]
             columns=columns,
             filter=filter,
             batch_size=batch_size,

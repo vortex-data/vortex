@@ -10,6 +10,7 @@ import polars as pl
 import pyarrow as pa
 import pyarrow.compute as pc
 import pytest
+from vortex.dataset import _open_exact_files
 from vortex.store import LocalStore
 
 import vortex as vx
@@ -21,7 +22,12 @@ FILES = {"a.vortex": range(0, 10), "b/b.vortex": range(10, 25), "c.vortex": rang
 
 
 def table(rows: range) -> pa.Table:
-    return pa.table({"x": pa.array(rows, type=pa.int64()), "even": pa.array([row % 2 == 0 for row in rows])})
+    return pa.table(
+        {
+            "x": pa.array(rows, type=pa.int64()),
+            "even": pa.array([row % 2 == 0 for row in rows], type=pa.bool_()),
+        }
+    )
 
 
 def expected(*names: str) -> pa.Table:
@@ -102,6 +108,50 @@ def test_fragments_cover_every_file(root: Path):
     )
 
 
+def test_fragment_take_uses_file_relative_indices(root: Path):
+    ds = vx.open_dataset(root / "data")
+    fragments = list(ds.get_fragments())
+
+    # Second fragment belongs to b/b.vortex (rows 10..25 in the dataset, 0..15 in the file).
+    second_file_fragment = fragments[1]
+    taken = second_file_fragment.take(pa.array([0, 3, 14], type=pa.uint64()))
+    assert taken == table(FILES["b/b.vortex"]).take([0, 3, 14])
+
+    # Third fragment belongs to c.vortex (rows 25..30 in the dataset, 0..5 in the file).
+    third_file_fragment = fragments[2]
+    taken = third_file_fragment.take(pa.array([1, 4], type=pa.uint64()))
+    assert taken == table(FILES["c.vortex"]).take([1, 4])
+
+
+def test_literal_path_with_glob_characters(tmp_path: Path):
+    bracket_file = tmp_path / "part[1].vortex"
+    other_file = tmp_path / "part1.vortex"
+    vx.io.write(table(range(0, 5)), str(bracket_file))
+    vx.io.write(table(range(10, 15)), str(other_file))
+
+    assert vx.open_dataset(bracket_file).to_table() == table(range(0, 5))
+    assert vx.open_dataset("part[1].vortex", store=LocalStore(prefix=tmp_path)).to_table() == table(range(0, 5))
+    assert _open_exact_files([bracket_file]).to_table() == table(range(0, 5))
+
+
+def test_url_source_with_question_mark_is_rejected(root: Path):
+    with pytest.raises(RuntimeError, match="not supported in URL sources"):
+        vx.open_dataset(f"file://{root}/data/?.vortex")
+
+
+def test_head_stops_without_reading_unneeded_files(tmp_path: Path):
+    first = tmp_path / "a.vortex"
+    second = tmp_path / "b.vortex"
+    vx.io.write(table(range(0, 10)), str(first))
+    # Invalid Vortex bytes: if head(0) or head(5) opens this file eagerly or polls past its limit,
+    # the scan fails.
+    second.write_bytes(b"not a valid vortex file")
+
+    ds = vx.open_dataset([first, second])
+    assert ds.head(0) == table(range(0, 0))
+    assert ds.head(5, concurrency=1) == table(range(0, 5))
+
+
 @pytest.mark.parametrize("concurrency", [1, 2, 64])
 def test_concurrency_does_not_change_the_rows(root: Path, concurrency: int):
     ds = vx.open_dataset(root / "data", concurrency=concurrency)
@@ -160,8 +210,9 @@ def test_concurrency_must_be_positive(root: Path, read):
 def test_files_must_share_a_dtype(root: Path):
     vx.io.write(pa.table({"y": pa.array(["a"])}), str(root / "data" / "z.vortex"))
 
+    ds = vx.open_dataset(root / "data")
     with pytest.raises(RuntimeError, match="same dtype"):
-        vx.open_dataset(root / "data")
+        ds.to_table()
 
 
 def test_a_source_must_name_files(root: Path):

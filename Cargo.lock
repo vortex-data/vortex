@@ -12296,7 +12296,6 @@ dependencies = [
  "async-lock",
  "bytes",
  "futures",
- "glob",
  "itertools 0.14.0",
  "log",
  "memmap2",
