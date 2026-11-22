@@ -158,14 +158,22 @@ impl StructBuilder {
         array: ArrayView<'_, Struct>,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
-        for (field, builder) in array
-            .iter_unmasked_fields()
-            .zip_eq(self.builders.iter_mut())
-        {
-            builder.append_array(field, ctx)?;
+        if array.is_empty() {
+            return Ok(());
         }
 
-        self.nulls.append_validity(array.validity()?, array.len());
+        let validity = array.validity()?;
+
+        let fields = array
+            .iter_unmasked_fields()
+            .map(|field| field.optimize_ctx(ctx))
+            .collect::<VortexResult<Vec<_>>>()?;
+
+        for (field, builder) in fields.into_iter().zip_eq(self.builders.iter_mut()) {
+            builder.append_optimized_array(field);
+        }
+
+        self.nulls.append_validity(validity, array.len());
         Ok(())
     }
 }
@@ -241,10 +249,18 @@ mod tests {
     use std::sync::LazyLock;
 
     use vortex_buffer::BufferAllocatorRef;
+    use vortex_error::VortexResult;
+    use vortex_error::vortex_bail;
     use vortex_session::VortexSession;
 
+    use crate::ArrayRef;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
+    use crate::array::ArrayView;
+    use crate::arrays::Chunked;
+    use crate::arrays::ChunkedArray;
+    use crate::arrays::Constant;
+    use crate::arrays::ConstantArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::VarBinArray;
     use crate::assert_arrays_eq;
@@ -255,6 +271,8 @@ mod tests {
     use crate::dtype::Nullability;
     use crate::dtype::PType::I32;
     use crate::dtype::StructFields;
+    use crate::optimizer::kernels::ArrayKernelsExt;
+    use crate::optimizer::rules::ArrayParentReduceRule;
     use crate::scalar::Scalar;
     use crate::validity::Validity;
 
@@ -410,5 +428,112 @@ mod tests {
         );
         let wrong_scalar = Scalar::from(42i32);
         assert!(builder.append_scalar(&wrong_scalar).is_err());
+    }
+
+    #[derive(Debug)]
+    struct FailingChunkedConstantRule;
+
+    impl ArrayParentReduceRule<Constant> for FailingChunkedConstantRule {
+        type Parent = Chunked;
+
+        fn reduce_parent(
+            &self,
+            _array: ArrayView<'_, Constant>,
+            _parent: ArrayView<'_, Chunked>,
+            _child_idx: usize,
+        ) -> VortexResult<Option<ArrayRef>> {
+            vortex_bail!("simulated optimization error")
+        }
+    }
+
+    fn session_with_failing_optimizer() -> VortexSession {
+        let session = VortexSession::empty();
+        session.kernels().register_reduce_parent_rule(
+            Chunked,
+            Constant,
+            const { &FailingChunkedConstantRule },
+        );
+        session
+    }
+
+    #[test]
+    fn test_append_struct_array_error_preserves_consistency() -> VortexResult<()> {
+        let session = session_with_failing_optimizer();
+        let mut ctx = session.create_execution_ctx();
+        let struct_fields =
+            StructFields::new(["a", "b"].into(), vec![I32.into(), I32.into()]);
+        let mut builder = StructBuilder::with_capacity_in(
+            struct_fields.clone(),
+            Nullability::NonNullable,
+            4,
+            BufferAllocatorRef::static_ref(),
+        );
+
+        // Append one valid struct row: a = [1], b = [2]
+        let valid_a = PrimitiveArray::from_iter([1i32]).into_array();
+        let valid_b = PrimitiveArray::from_iter([2i32]).into_array();
+        let valid_struct = StructArray::try_new(
+            vec![valid_a, valid_b],
+            struct_fields.clone(),
+            1,
+            Validity::NonNullable,
+        )?;
+        builder.append_struct_array(valid_struct.as_view(), &mut ctx)?;
+        assert_eq!(builder.len(), 1);
+
+        // Construct a StructArray where field 'a' is valid but field 'b' has a failing chunk
+        let ok_chunk = ConstantArray::new(10i32, 4).into_array();
+        let failing_chunk = ChunkedArray::try_new(
+            vec![
+                ConstantArray::new(99i32, 2).into_array(),
+                ConstantArray::new(88i32, 2).into_array(),
+            ],
+            DType::from(I32),
+        )?
+        .into_array();
+        let failing_struct = StructArray::try_new(
+            vec![ok_chunk, failing_chunk],
+            struct_fields.clone(),
+            4,
+            Validity::NonNullable,
+        )?;
+
+        let err = builder
+            .append_struct_array(failing_struct.as_view(), &mut ctx)
+            .unwrap_err();
+        assert!(
+            err.to_string().contains("simulated optimization error"),
+            "unexpected error: {err}"
+        );
+
+        // Builder length must not have advanced for the failed append.
+        assert_eq!(builder.len(), 1);
+
+        // Subsequent append must work and produce matching lengths across all fields.
+        let valid_a2 = PrimitiveArray::from_iter([3i32]).into_array();
+        let valid_b2 = PrimitiveArray::from_iter([4i32]).into_array();
+        let valid_struct2 = StructArray::try_new(
+            vec![valid_a2, valid_b2],
+            struct_fields.clone(),
+            1,
+            Validity::NonNullable,
+        )?;
+        builder.append_struct_array(valid_struct2.as_view(), &mut ctx)?;
+        assert_eq!(builder.len(), 2);
+
+        let finished = builder.finish_into_struct();
+        assert_eq!(finished.len(), 2);
+        assert_arrays_eq!(
+            finished.field_by_name("a").unwrap(),
+            PrimitiveArray::from_iter([1i32, 3]),
+            &mut ctx
+        );
+        assert_arrays_eq!(
+            finished.field_by_name("b").unwrap(),
+            PrimitiveArray::from_iter([2i32, 4]),
+            &mut ctx
+        );
+
+        Ok(())
     }
 }

@@ -187,8 +187,9 @@ impl FixedSizeListBuilder {
             return Ok(());
         }
 
+        let validity = array.validity()?;
         self.elements_builder.append_array(array.elements(), ctx)?;
-        self.nulls.append_validity(array.validity()?, array.len());
+        self.nulls.append_validity(validity, array.len());
         Ok(())
     }
 
