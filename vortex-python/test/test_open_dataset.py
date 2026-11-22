@@ -3,8 +3,6 @@
 
 """Reading many Vortex files as one dataset with :func:`vortex.open_dataset`."""
 
-import os
-import sys
 from pathlib import Path
 
 import duckdb
@@ -247,19 +245,6 @@ def test_relative_dataset_ignores_chdir(tmp_path: Path, monkeypatch: pytest.Monk
     assert ds.to_table() == table(range(0, 4))
 
 
-def test_symlinked_files_are_readable(tmp_path: Path):
-    target = tmp_path / "target.vortex"
-    vx.io.write(table(range(0, 5)), str(target))
-
-    data = tmp_path / "data"
-    data.mkdir()
-    link = data / "linked.vortex"
-    link.symlink_to(target)
-
-    assert vx.open_dataset(data).to_table() == table(range(0, 5))
-    assert vx.open_dataset(str(data / "*.vortex")).to_table() == table(range(0, 5))
-
-
 def test_fragment_reads_only_its_own_file(tmp_path: Path):
     first = tmp_path / "a.vortex"
     second = tmp_path / "b.vortex"
@@ -311,26 +296,3 @@ def test_trailing_double_star_glob_reads_files(tmp_path: Path):
     vx.io.write(table(range(3, 6)), str(nested / "b.vortex"))
 
     assert vx.open_dataset(str(data / "**")).to_table() == table(range(0, 6))
-
-
-@pytest.mark.skipif(
-    sys.platform == "win32" or (hasattr(os, "geteuid") and os.geteuid() == 0),
-    reason="POSIX chmod permission test",
-)
-def test_unreadable_symlink_target_propagates_error(tmp_path: Path):
-    locked = tmp_path / "locked"
-    locked.mkdir()
-    secret = locked / "secret.vortex"
-    vx.io.write(table(range(0, 3)), str(secret))
-
-    data = tmp_path / "data"
-    data.mkdir()
-    vx.io.write(table(range(0, 2)), str(data / "ok.vortex"))
-    (data / "bad.vortex").symlink_to(secret)
-
-    locked.chmod(0o000)
-    try:
-        with pytest.raises(RuntimeError, match="failed to inspect"):
-            vx.open_dataset(data)
-    finally:
-        locked.chmod(0o700)
