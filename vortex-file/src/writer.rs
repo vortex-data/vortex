@@ -516,7 +516,7 @@ impl VortexWriteOptions {
         // Assemble the Footer object now that we have all the segments.
         let statistics_encryption =
             StatisticsEncryption::new(self.encryption.as_ref(), &layout, &segment_specs, &dtype)?;
-        let statistics = if omit_statistics {
+        let statistics = if omit_statistics || statistics_encryption.omit_all {
             None
         } else if write_nested_statistics {
             Some(FileStatistics::new_with_dtype(
@@ -628,19 +628,22 @@ impl VortexWriteOptions {
 
 /// Where the file-level statistics of each top-level field are stored, so that no reader sees
 /// the statistics of a field it cannot decrypt.
-struct StatisticsEncryption {
+pub(crate) struct StatisticsEncryption {
     /// Fields whose statistics are encrypted with the key at the given encryption spec index,
     /// in a segment of their own.
-    keyed: Vec<(u32, u16)>,
+    pub(crate) keyed: Vec<(u32, u16)>,
     /// Fields whose statistics are omitted, because their segments use several keys.
-    omitted: Vec<u32>,
+    pub(crate) omitted: Vec<u32>,
+    /// Whether all file statistics must be omitted (e.g. an encrypted non-struct root array with a
+    /// plaintext footer, where there are no struct fields to carry per-field encrypted statistics).
+    pub(crate) omit_all: bool,
 }
 
 impl StatisticsEncryption {
     /// Attribute every segment of the layout tree to its top-level field, and route each field's
     /// statistics by the keys of its segments: a field encrypted with the key that protects the
     /// shared statistics segment, or stored in plaintext, keeps its statistics there.
-    fn new(
+    pub(crate) fn new(
         encryption: Option<&FileEncryption>,
         layout: &LayoutRef,
         segments: &[SegmentSpec],
@@ -649,8 +652,15 @@ impl StatisticsEncryption {
         let mut result = Self {
             keyed: Vec::new(),
             omitted: Vec::new(),
+            omit_all: false,
         };
-        let (Some(encryption), Some(fields)) = (encryption, dtype.as_struct_fields_opt()) else {
+        let Some(encryption) = encryption else {
+            return Ok(result);
+        };
+        let Some(fields) = dtype.as_struct_fields_opt() else {
+            if encryption.is_plaintext_footer() && segments.iter().any(|s| s.encryption != 0) {
+                result.omit_all = true;
+            }
             return Ok(result);
         };
         // The shared statistics segment is readable by the footer's readers.
@@ -698,7 +708,7 @@ impl StatisticsEncryption {
 ///
 /// The encoding tree holds values of the array, such as constants and frame-of-reference bases,
 /// which would be visible to every reader of the footer.
-fn reject_inlined_arrays(
+pub(crate) fn reject_inlined_arrays(
     layout: &LayoutRef,
     segments: &[SegmentSpec],
     footer_spec_index: u16,

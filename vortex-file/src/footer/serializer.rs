@@ -145,6 +145,30 @@ impl FooterSerializer {
                 cipher
             }
         };
+        if encryption.is_plaintext_footer() {
+            crate::writer::reject_inlined_arrays(
+                self.footer.layout(),
+                self.footer.segment_map(),
+                encryption.footer_spec_index(),
+            )?;
+            let stats_encryption = crate::writer::StatisticsEncryption::new(
+                Some(encryption),
+                self.footer.layout(),
+                self.footer.segment_map(),
+                self.footer.dtype(),
+            )?;
+            if stats_encryption.omit_all {
+                self.footer.statistics = None;
+            } else if !stats_encryption.omitted.is_empty() {
+                let dtype = self.footer.dtype().clone();
+                self.footer.statistics = self.footer.statistics.take().map(|statistics| {
+                    statistics.with_field_stats(&stats_encryption.omitted, None, &dtype)
+                });
+            }
+            self.footer = self
+                .footer
+                .with_statistics_encryption(stats_encryption.keyed)?;
+        }
         Ok(self
             .with_cipher(footer_cipher, encryption.is_plaintext_footer())
             .with_key_ciphers(key_ciphers))
