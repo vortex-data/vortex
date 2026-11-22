@@ -119,7 +119,7 @@
     "bitpack_compare": 2,
     "bitpack_compare_sweep": 56,
     "bitpacking_filter": 0,
-    "bitpacking_take": 40,
+    "bitpacking_take": 41,
     "canonicalize_bench": 14,
     "cast_bitpacked": 6,
     "compute_between": 11,
