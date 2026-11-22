@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use itertools::Itertools;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
@@ -12,15 +11,13 @@ use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::array::Array;
 use crate::array::ArrayView;
-use crate::arrays::ChunkedArray;
-use crate::arrays::ConstantArray;
 use crate::arrays::Struct;
 use crate::arrays::Variant;
-use crate::arrays::VariantArray;
 use crate::arrays::scalar_fn::ExactScalarFn;
 use crate::arrays::scalar_fn::ScalarFnArrayView;
 use crate::arrays::struct_::StructArrayExt;
 use crate::arrays::variant::VariantArraySlotsExt;
+use crate::builders::VariantBuilder;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
@@ -32,6 +29,7 @@ use crate::scalar_fn::fns::variant_get::VariantGet;
 use crate::scalar_fn::fns::variant_get::VariantGetOptions;
 use crate::scalar_fn::fns::variant_get::VariantPath;
 use crate::scalar_fn::fns::variant_get::VariantPathElement;
+use crate::validity::Validity;
 
 pub(crate) fn initialize(session: &VortexSession) {
     let kernels = session.kernels();
@@ -70,10 +68,7 @@ impl ExecuteParentKernel<Variant> for VariantGetKernel {
             .shredded()
             .map(|shredded| {
                 typed_shredded_path(shredded, parent.options.path().elements(), ctx)?
-                    .map(|typed| {
-                        let len = typed.len();
-                        typed.mask(core_validity.to_array(len))?.optimize_ctx(ctx)
-                    })
+                    .map(|typed| mask_with_validity(typed, &core_validity)?.optimize_ctx(ctx))
                     .transpose()
             })
             .transpose()?
@@ -145,6 +140,20 @@ impl ExecuteParentKernel<Variant> for VariantGetKernel {
     }
 }
 
+/// Nulls out the rows of `array` that `validity` marks invalid.
+///
+/// A validity without nulls leaves `array` as it is: wrapping it in a mask would hide its
+/// encoding from the kernels that extract from it.
+fn mask_with_validity(array: ArrayRef, validity: &Validity) -> VortexResult<ArrayRef> {
+    match validity {
+        Validity::NonNullable | Validity::AllValid => Ok(array),
+        validity => {
+            let len = array.len();
+            array.mask(validity.to_array(len))
+        }
+    }
+}
+
 fn typed_shredded_path(
     shredded: &ArrayRef,
     path: &[VariantPathElement],
@@ -162,10 +171,7 @@ fn typed_shredded_path(
         let Some(field) = current_struct.unmasked_field_by_name_opt(name.as_ref()) else {
             return Ok(None);
         };
-        let len = current_struct.len();
-        let current_validity = current_struct.validity()?.to_array(len);
-
-        current = field.clone().mask(current_validity.clone())?;
+        current = mask_with_validity(field.clone(), &current_struct.validity()?)?;
     }
 
     Ok(Some(current))
@@ -177,24 +183,17 @@ fn merge_typed_as_variant(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
     let dtype = DType::Variant(Nullability::Nullable);
-    // TODO(variant): replace this with a Variant builder once one exists.
-    // Chunked<Variant> canonicalizes to VariantArray, so this row-wise fallback is safe.
-    let chunks = (0..typed.len()).map(|idx| -> VortexResult<_> {
+    let mut builder = VariantBuilder::new(Nullability::Nullable);
+    for idx in 0..typed.len() {
         let typed_scalar = typed.execute_scalar(idx, ctx)?;
         let fallback_scalar = fallback
             .as_ref()
             .map(|fallback| fallback.execute_scalar(idx, ctx))
             .transpose()?;
         let scalar = merge_typed_scalar_as_variant(typed_scalar, fallback_scalar, &dtype)?;
-
-        Ok(ConstantArray::new(scalar, 1).into_array())
-    });
-    let core_storage = chunks.process_results(|chunks| {
-        // SAFETY: each output scalar is constructed with the requested variant dtype.
-        unsafe { ChunkedArray::new_unchecked_sized(chunks, dtype.clone(), typed.len()) }
-            .into_array()
-    })?;
-    VariantArray::try_new(core_storage, None).map(|array| array.into_array())
+        builder.append_n_scalars(&scalar, 1)?;
+    }
+    builder.finish_into_variant().map(IntoArray::into_array)
 }
 
 fn execute_fallback_variant_get(

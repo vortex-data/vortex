@@ -1,6 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! Well-known binary geometry (`vortex.st.wkb`).
+//!
+//! [`WellKnownBinary`] stores WKB bytes in binary storage. [`SpatialMetadata`] carries an optional
+//! coordinate reference system, while each WKB value encodes its geometry type and dimension.
+
 use std::fmt::Display;
 use std::ops::Deref;
 use std::sync::Arc;
@@ -13,13 +18,12 @@ use geoarrow::array::GenericWkbArray;
 use geoarrow::array::IntoArrow;
 use geoarrow::array::WkbViewArray;
 use geoarrow::datatypes::WkbType;
-use prost::Message;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
-use vortex_array::IntoArray;
 use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::extension::ExtensionArrayExt;
 use vortex_array::dtype::DType;
+use vortex_array::dtype::Nullability;
 use vortex_array::dtype::extension::ExtDType;
 use vortex_array::dtype::extension::ExtId;
 use vortex_array::dtype::extension::ExtVTable;
@@ -33,6 +37,7 @@ use vortex_arrow::ArrowSession;
 use vortex_arrow::ExecuteArrowExt;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_session::registry::CachedId;
@@ -132,6 +137,7 @@ impl<'a> Deref for Wkb<'a> {
 
 impl ExtVTable for WellKnownBinary {
     type Metadata = SpatialMetadata;
+    type StoredMetadata = super::SpatialStoredMetadata;
 
     type NativeValue<'a> = Wkb<'a>;
 
@@ -141,19 +147,31 @@ impl ExtVTable for WellKnownBinary {
     }
 
     fn serialize_metadata(&self, metadata: &Self::Metadata) -> VortexResult<Vec<u8>> {
-        Ok(metadata.encode_to_vec())
+        Ok(metadata.serialize())
     }
 
-    fn deserialize_metadata(&self, metadata: &[u8]) -> VortexResult<Self::Metadata> {
-        Ok(SpatialMetadata::decode(metadata)?)
+    fn deserialize_metadata(&self, metadata: &[u8]) -> VortexResult<Self::StoredMetadata> {
+        super::SpatialStoredMetadata::deserialize(metadata)
     }
 
-    fn validate_dtype(ext_dtype: &ExtDType<Self>) -> VortexResult<()> {
-        vortex_ensure!(
-            ext_dtype.storage_dtype().is_binary(),
-            "vortex.st.wkb must have binary storage type, was {}",
-            ext_dtype.storage_dtype()
-        );
+    fn metadata_from_storage(
+        &self,
+        stored_metadata: Self::StoredMetadata,
+        _storage_dtype: &DType,
+    ) -> VortexResult<Self::Metadata> {
+        Ok(SpatialMetadata::from_stored_metadata(stored_metadata, None))
+    }
+
+    fn storage_dtype(_metadata: &Self::Metadata) -> DType {
+        DType::Binary(Nullability::NonNullable)
+    }
+
+    fn validate_metadata(metadata: &Self::Metadata) -> VortexResult<()> {
+        if let Some(dimension) = metadata.dimension {
+            vortex_bail!(
+                "vortex.st.wkb metadata must not have a coordinate dimension, got {dimension:?}"
+            );
+        }
 
         Ok(())
     }
@@ -242,37 +260,24 @@ impl ArrowExtVTable for WellKnownBinary {
         field: &Field,
         _session: &ArrowSession,
     ) -> VortexResult<Option<ExtDType<Self>>> {
-        let Ok(wkb_meta) = field.try_extension_type::<WkbType>() else {
-            return Ok(None);
-        };
+        let wkb_meta = field.try_extension_type::<WkbType>()?;
 
-        let storage_dtype = DType::Binary(field.is_nullable().into());
         Ok(Some(ExtDType::try_with_vtable(
             WellKnownBinary,
             spatial_metadata(&wkb_meta),
-            storage_dtype,
+            field.is_nullable().into(),
         )?))
     }
 
     fn from_arrow_array(
         array: ArrowArrayRef,
-        field: &Field,
+        _field: &Field,
         ext_dtype: &ExtDType<Self>,
         session: &ArrowSession,
     ) -> VortexResult<ArrowImport> {
-        if field.try_extension_type::<WkbType>().is_err()
-            || !matches!(
-                array.data_type(),
-                DataType::Binary | DataType::LargeBinary | DataType::BinaryView
-            )
-        {
-            return Ok(ArrowImport::Unsupported(array));
-        }
-
-        let storage = session.from_arrow_array(array, field.is_nullable())?;
-        Ok(ArrowImport::Imported(
-            ExtensionArray::new(ext_dtype.clone().erased(), storage).into_array(),
-        ))
+        session
+            .from_arrow_storage(array, &ext_dtype.clone().erased())
+            .map(ArrowImport::Imported)
     }
 }
 

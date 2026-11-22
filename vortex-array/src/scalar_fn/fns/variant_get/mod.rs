@@ -5,7 +5,6 @@ use std::fmt;
 use std::fmt::Display;
 use std::fmt::Formatter;
 
-use itertools::Itertools;
 use prost::Message;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
@@ -17,11 +16,12 @@ use vortex_utils::aliases::StringEscape;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
-use crate::arrays::ChunkedArray;
-use crate::arrays::ConstantArray;
+use crate::arrays::ScalarFn;
 use crate::arrays::ScalarFnArray;
-use crate::arrays::VariantArray;
+use crate::arrays::scalar_fn::ScalarFnArrayExt;
+use crate::builders::VariantBuilder;
 use crate::builders::builder_with_capacity_in;
+use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::FieldName;
 use crate::dtype::Nullability;
@@ -35,6 +35,7 @@ use crate::scalar_fn::ExecutionArgs;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
 use crate::scalar_fn::ScalarFnVTableExt;
+use crate::scalar_fn::fns::mask::Mask;
 
 /// Extracts a field/index path from Variant values.
 ///
@@ -144,6 +145,17 @@ impl ScalarFnVTable for VariantGet {
             .dtype()
             .map_or(DType::Variant(Nullability::Nullable), DType::as_nullable);
 
+        // A mask only nulls rows out, so it commutes with extraction.
+        if let Some(masked) = input.as_opt::<ScalarFn>()
+            && masked.scalar_fn().id() == Mask.id()
+        {
+            return VariantGet::try_new(masked.child_at(0).clone(), options.clone())?
+                .into_array()
+                .execute::<ArrayRef>(ctx)?
+                .mask(masked.child_at(1).clone())?
+                .execute::<ArrayRef>(ctx);
+        }
+
         if !dtype.is_variant() {
             let mut builder = builder_with_capacity_in(&dtype, input.len(), ctx.allocator());
             for idx in 0..input.len() {
@@ -155,19 +167,12 @@ impl ScalarFnVTable for VariantGet {
             return Ok(builder.finish());
         }
 
-        // TODO(variant): replace this with a Variant builder once one exists.
-        // Chunked<Variant> canonicalizes to VariantArray, so this row-wise fallback is safe.
-        let chunks = (0..input.len()).map(|idx| -> VortexResult<_> {
+        let mut builder = VariantBuilder::new(dtype.nullability());
+        for idx in 0..input.len() {
             let scalar = input.execute_scalar(idx, ctx)?;
-            let output = variant_get_scalar(&scalar, options, &dtype)?;
-            Ok(ConstantArray::new(output, 1).into_array())
-        });
-        let array = chunks.process_results(|chunks| {
-            // SAFETY: each output scalar is constructed with the requested variant dtype.
-            unsafe { ChunkedArray::new_unchecked_sized(chunks, dtype.clone(), input.len()) }
-                .into_array()
-        })?;
-        VariantArray::try_new(array, None).map(|array| array.into_array())
+            builder.append_n_scalars(&variant_get_scalar(&scalar, options, &dtype)?, 1)?;
+        }
+        builder.finish_into_variant().map(IntoArray::into_array)
     }
 
     fn is_strict(&self, _options: &Self::Options) -> bool {

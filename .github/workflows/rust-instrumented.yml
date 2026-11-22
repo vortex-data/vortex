@@ -20,7 +20,7 @@ permissions:
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
-  NIGHTLY_TOOLCHAIN: nightly-2026-09-10
+  NIGHTLY_TOOLCHAIN: nightly-2026-11-13
 
 jobs:
   rust-coverage:
@@ -170,6 +170,8 @@ jobs:
       TSAN_OPTIONS: "symbolize=1:suppressions=${{ github.workspace }}/vortex-ffi/tsan_suppressions.txt"
       TSAN_SYMBOLIZER_PATH: "/usr/bin/llvm-symbolizer"
       VORTEX_SKIP_SLOW_TESTS: "1"
+      # VortexError backtrace capture is very slow under the sanitizers.
+      RUST_LIB_BACKTRACE: "0"
       # -Cunsafe-allow-abi-mismatch=sanitizer: libraries like compiler_builtins
       # unset -Zsanitizer flag and we should allow that.
       RUSTFLAGS: "-A warnings -Cunsafe-allow-abi-mismatch=sanitizer -C debuginfo=2 -C opt-level=0 -C strip=none"

@@ -4,9 +4,7 @@
 use std::sync::LazyLock;
 
 use rstest::rstest;
-use vortex_buffer::Buffer;
 use vortex_buffer::buffer;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 
@@ -24,14 +22,12 @@ use crate::arrays::NullArray;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::StructArray;
 use crate::arrays::VarBinViewArray;
-use crate::dtype::BigCast;
+use crate::arrays::WidenArray;
 use crate::dtype::DType;
 use crate::dtype::DecimalDType;
-use crate::dtype::DecimalType;
 use crate::dtype::FieldNames;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
-use crate::match_each_decimal_value_type;
 use crate::validity::Validity;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
@@ -277,73 +273,47 @@ fn strings_nullable(
 #[test]
 fn decimal_identical() -> VortexResult<()> {
     let dtype = DecimalDType::new(5, 2);
-    let a = DecimalArray::new(buffer![100i32, 200, 300], dtype, Validity::NonNullable).into_array();
-    let b = DecimalArray::new(buffer![100i32, 200, 300], dtype, Validity::NonNullable).into_array();
+    let a = DecimalArray::from_iter([100i32, 200, 300], dtype).into_array();
+    let b = DecimalArray::from_iter([100i32, 200, 300], dtype).into_array();
     assert_matches_baseline(&a, &b)
 }
 
 #[test]
 fn decimal_different() -> VortexResult<()> {
     let dtype = DecimalDType::new(5, 2);
-    let a = DecimalArray::new(buffer![100i32, 200, 300], dtype, Validity::NonNullable).into_array();
-    let b = DecimalArray::new(buffer![100i32, 200, 999], dtype, Validity::NonNullable).into_array();
+    let a = DecimalArray::from_iter([100i32, 200, 300], dtype).into_array();
+    let b = DecimalArray::from_iter([100i32, 200, 999], dtype).into_array();
     assert_matches_baseline(&a, &b)
 }
 
 #[test]
-fn decimal_different_value_types() -> VortexResult<()> {
+fn decimal_widened_child() -> VortexResult<()> {
     let dtype = DecimalDType::new(3, 0);
-    let a = DecimalArray::new(buffer![1i8, 2, 3], dtype, Validity::NonNullable).into_array();
-    let b = DecimalArray::new(buffer![1i16, 2, 3], dtype, Validity::NonNullable).into_array();
-    assert_matches_baseline(&a, &b)
+    let canonical = DecimalArray::from_iter([1i16, 2, 3], dtype).into_array();
+    let narrow = DecimalArray::from_iter([1i8, 2, 3], DecimalDType::new(2, 0));
+    let widened = WidenArray::try_new(narrow.into_array(), canonical.dtype().clone())?.into_array();
+    assert_matches_baseline(&canonical, &widened)
 }
 
-/// Decimal values `[1, 2, last]` stored as `values_type`.
-fn decimal_with_storage(values_type: DecimalType, last: i8) -> ArrayRef {
-    let dtype = DecimalDType::new(2, 0);
-    match_each_decimal_value_type!(values_type, |T| {
-        let values = [1i8, 2, last].map(|value| {
-            <T as BigCast>::from(value).vortex_expect("small values fit every decimal type")
-        });
-        DecimalArray::new(Buffer::copy_from(values), dtype, Validity::NonNullable).into_array()
-    })
-}
-
-/// Each pair of storage types selects a different widened comparison.
 #[rstest]
-fn decimal_every_storage_pair(
-    #[values(
-        DecimalType::I8,
-        DecimalType::I16,
-        DecimalType::I32,
-        DecimalType::I64,
-        DecimalType::I128,
-        DecimalType::I256
-    )]
-    lhs: DecimalType,
-    #[values(
-        DecimalType::I8,
-        DecimalType::I16,
-        DecimalType::I32,
-        DecimalType::I64,
-        DecimalType::I128,
-        DecimalType::I256
-    )]
-    rhs: DecimalType,
-) -> VortexResult<()> {
-    assert_matches_baseline(&decimal_with_storage(lhs, 3), &decimal_with_storage(rhs, 3))?;
-    assert_matches_baseline(
-        &decimal_with_storage(lhs, 3),
-        &decimal_with_storage(rhs, -3),
-    )
+fn decimal_canonical_widths(#[values(2, 4, 9, 18, 38, 76)] precision: u8) -> VortexResult<()> {
+    let dtype = DecimalDType::new(precision, 0);
+    let a = DecimalArray::from_iter([1i8, 2, 3], dtype).into_array();
+    let equal = DecimalArray::from_iter([1i8, 2, 3], dtype).into_array();
+    let b = DecimalArray::from_iter([1i8, 2, -3], dtype).into_array();
+
+    assert_matches_baseline(&a, &equal)?;
+    assert_matches_baseline(&a, &b)
 }
 
 #[test]
 fn decimal_nullable() -> VortexResult<()> {
     let dtype = DecimalDType::new(5, 2);
     let validity = Validity::from_iter([true, false, true]);
-    let a = DecimalArray::new(buffer![100i32, 200, 300], dtype, validity.clone()).into_array();
-    let b = DecimalArray::new(buffer![100i32, 999, 300], dtype, validity).into_array();
+    let mut ctx = SESSION.create_execution_ctx();
+    let a = DecimalArray::new(buffer![100i32, 200, 300], dtype, validity.clone(), &mut ctx)
+        .into_array();
+    let b = DecimalArray::new(buffer![100i32, 999, 300], dtype, validity, &mut ctx).into_array();
     assert_matches_baseline(&a, &b)
 }
 

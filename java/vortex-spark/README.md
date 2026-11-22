@@ -6,11 +6,11 @@ extensions or custom catalogs.
 
 Choose the artifact matching both Spark and Scala:
 
-| Artifact                           | Spark         | Scala |
-|------------------------------------|---------------|-------|
-| `dev.vortex:vortex-spark-3.5_2.12` | 3.5.x         | 2.12  |
-| `dev.vortex:vortex-spark-3.5_2.13` | 3.5.x         | 2.13  |
-| `dev.vortex:vortex-spark-4.0_2.13` | 4.0.x and 4.1.x | 2.13 |
+| Artifact                           | Spark          | Scala |
+|------------------------------------|----------------|-------|
+| `dev.vortex:vortex-spark-3.5_2.12` | 3.5.x          | 2.12  |
+| `dev.vortex:vortex-spark-3.5_2.13` | 3.5.x          | 2.13  |
+| `dev.vortex:vortex-spark-4.0_2.13` | 4.0.x to 4.3.x | 2.13  |
 
 Use the `all` classifier JAR. It bundles the Vortex JNI bindings, native libraries, and
 relocated Arrow, Guava, and Jackson dependencies. The unclassified thin JAR is not usable by
@@ -20,6 +20,16 @@ For example, with version `VERSION`:
 
 ```shell
 spark-shell --jars https://repo1.maven.org/maven2/dev/vortex/vortex-spark-4.0_2.13/VERSION/vortex-spark-4.0_2.13-VERSION-all.jar
+```
+
+Or configure it on the session builder, for example in PySpark:
+
+```python
+spark = (
+    SparkSession.builder
+    .config("spark.jars", "/path/to/vortex-spark-4.0_2.13-VERSION-all.jar")
+    .getOrCreate()
+)
 ```
 
 Or add the classified artifact to a JVM project:
@@ -103,4 +113,6 @@ cd java
 ```
 
 See the [Spark user guide](https://docs.vortex.dev/user-guide/spark.html) for supported types,
-options, partitioning, and remote storage details.
+options, partitioning, and remote storage details. The
+[Java quickstart](https://docs.vortex.dev/getting-started/java.html) covers the underlying
+`vortex-jni` API.

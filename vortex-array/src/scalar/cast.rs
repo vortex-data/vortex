@@ -16,9 +16,13 @@ use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::match_each_native_ptype;
 use crate::scalar::Scalar;
+use crate::scalar_fn::fns::cast::check_extension_cast;
 
 impl Scalar {
     /// Cast this scalar to another data type.
+    ///
+    /// A cast can change the top-level nullability of an extension dtype. A scalar of dtype
+    /// [`DType::Null`] can also become a typed null of any nullable dtype.
     ///
     /// # Errors
     ///
@@ -37,6 +41,8 @@ impl Scalar {
             return Scalar::try_new(target_dtype.clone(), self.value().cloned());
         }
 
+        check_extension_cast(self.dtype(), target_dtype)?;
+
         if let (Some(source), Some(target)) = (self.dtype().as_map_opt(), target_dtype.as_map_opt())
             && target.keys_sorted()
             && !source.keys_sorted()
@@ -47,8 +53,7 @@ impl Scalar {
             ));
         }
 
-        // Null can be cast into any nullable type as null.
-        // Note that the `matches` clause is technically unnecessary here, just protective.
+        // Cast nulls after checking the extension dtype restrictions.
         if self.value().is_none() || matches!(self.dtype(), DType::Null) {
             vortex_ensure!(
                 target_dtype.is_nullable(),
@@ -56,13 +61,6 @@ impl Scalar {
             );
 
             return Scalar::try_new(target_dtype.clone(), self.value().cloned());
-        }
-
-        // TODO(connor): This isn't really correct for extension types.
-        // If the target is an extension type, then we want to cast to its storage type.
-        if let Some(ext_dtype) = target_dtype.as_extension_opt() {
-            let cast_storage_scalar_value = self.cast(ext_dtype.storage_dtype())?.into_value();
-            return Scalar::try_new(target_dtype.clone(), cast_storage_scalar_value);
         }
 
         match &self.dtype() {
@@ -97,7 +95,7 @@ impl Scalar {
             DType::Variant(_) => {
                 vortex_bail!("Variant scalars can't be cast to {target_dtype}")
             }
-            DType::Extension(..) => self.as_extension().cast(target_dtype),
+            DType::Extension(..) => unreachable!("Extension casts were checked above"),
         }
     }
 

@@ -146,7 +146,7 @@ pub struct ALPSlots {
     pub patch_chunk_offsets: Option<ArrayRef>,
 }
 
-const PATCH_SLOTS: PatchSlotIndices = PatchSlotIndices {
+pub(crate) const PATCH_SLOTS: PatchSlotIndices = PatchSlotIndices {
     indices: ALPSlots::PATCH_INDICES,
     values: ALPSlots::PATCH_VALUES,
     chunk_offsets: ALPSlots::PATCH_CHUNK_OFFSETS,
@@ -340,7 +340,7 @@ impl ALPData {
     }
 }
 
-pub trait ALPArrayExt: ALPArraySlotsExt {
+pub trait ALPArrayExt: TypedArrayRef<ALP> {
     fn exponents(&self) -> Exponents {
         self.exponents
     }
@@ -408,7 +408,6 @@ mod tests {
 
     use super::*;
     use crate::alp_encode;
-    use crate::decompress_into_array;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
         let session = VortexSession::empty();
@@ -430,11 +429,6 @@ mod tests {
         let values = PrimitiveArray::from_iter((0..size).map(|i| i as f32));
         let encoded = alp_encode(values.as_view(), None, &mut ctx).unwrap();
 
-        // Compare against the traditional array-based decompress path
-        let expected =
-            decompress_into_array(encoded.clone(), &mut SESSION.create_execution_ctx()).unwrap();
-
-        assert_arrays_eq!(expected, values, &mut ctx);
         assert_arrays_eq!(encoded, values, &mut ctx);
     }
 
@@ -453,11 +447,6 @@ mod tests {
             alp_encode(values.as_view(), None, &mut SESSION.create_execution_ctx()).unwrap();
 
         let mut ctx = SESSION.create_execution_ctx();
-        // Compare against the traditional array-based decompress path
-        let expected =
-            decompress_into_array(encoded.clone(), &mut SESSION.create_execution_ctx()).unwrap();
-
-        assert_arrays_eq!(expected, values, &mut ctx);
         assert_arrays_eq!(encoded, values, &mut ctx);
     }
 
@@ -482,11 +471,6 @@ mod tests {
         assert!(encoded.patches().unwrap().array_len() > 0);
 
         let mut ctx = SESSION.create_execution_ctx();
-        // Compare against the traditional array-based decompress path
-        let expected =
-            decompress_into_array(encoded.clone(), &mut SESSION.create_execution_ctx()).unwrap();
-
-        assert_arrays_eq!(expected, array, &mut ctx);
         assert_arrays_eq!(encoded, array, &mut ctx);
     }
 
@@ -509,11 +493,6 @@ mod tests {
             alp_encode(array.as_view(), None, &mut SESSION.create_execution_ctx()).unwrap();
 
         let mut ctx = SESSION.create_execution_ctx();
-        // Compare against the traditional array-based decompress path
-        let expected =
-            decompress_into_array(encoded.clone(), &mut SESSION.create_execution_ctx()).unwrap();
-
-        assert_arrays_eq!(expected, array, &mut ctx);
         assert_arrays_eq!(encoded, array, &mut ctx);
     }
 
@@ -539,11 +518,6 @@ mod tests {
         assert!(encoded.patches().unwrap().array_len() > 0);
 
         let mut ctx = SESSION.create_execution_ctx();
-        // Compare against the traditional array-based decompress path
-        let expected =
-            decompress_into_array(encoded.clone(), &mut SESSION.create_execution_ctx()).unwrap();
-
-        assert_arrays_eq!(expected, array, &mut ctx);
         assert_arrays_eq!(encoded, array, &mut ctx);
     }
 
@@ -579,16 +553,19 @@ mod tests {
     /// Regression test for issue #5948: execute_decompress drops patches when chunk_offsets is
     /// None.
     ///
-    /// When patches exist but do NOT have chunk_offsets, the execute path incorrectly passes
-    /// `None` to `decompress_unchunked_core` instead of the actual patches.
+    /// When patches exist but do NOT have chunk_offsets, the execute path must still apply the
+    /// patches.
     ///
     /// This can happen after file IO serialization/deserialization where chunk_offsets may not
     /// be preserved, or when building ALPArrays manually without chunk_offsets.
     #[test]
     fn test_execute_decompress_with_patches_no_chunk_offsets_regression_5948() {
         let mut ctx = SESSION.create_execution_ctx();
-        // Create an array with values that will produce patches. PI doesn't encode cleanly.
-        let values: Vec<f64> = vec![1.0, 2.0, PI, 4.0, 5.0];
+        // Create an array with values that will produce patches in several chunks. PI doesn't
+        // encode cleanly.
+        let values: Vec<f64> = (0..3000)
+            .map(|i| if i % 7 == 2 { PI } else { i as f64 })
+            .collect();
         let original = PrimitiveArray::from_iter(values);
 
         // First encode normally to get a properly formed ALPArray with patches.
@@ -627,30 +604,12 @@ mod tests {
             Some(patches_without_chunk_offsets),
         );
 
-        // The legacy decompress_into_array path should work correctly.
-        let result_legacy = decompress_into_array(
-            alp_without_chunk_offsets.clone(),
-            &mut SESSION.create_execution_ctx(),
-        )
-        .unwrap();
-        let legacy_slice = result_legacy.as_slice::<f64>();
+        // The executor decompresses the array iteratively and must apply the patches.
+        let result = alp_without_chunk_offsets
+            .into_array()
+            .execute::<PrimitiveArray>(&mut ctx)
+            .unwrap();
 
-        // Verify the legacy path produces correct values.
-        assert!(
-            (legacy_slice[2] - PI).abs() < 1e-10,
-            "Legacy path should have PI at index 2, got {}",
-            legacy_slice[2]
-        );
-
-        // The execute path has the bug - it drops patches when chunk_offsets is None.
-        let result_execute = { execute_decompress(alp_without_chunk_offsets, &mut ctx).unwrap() };
-        let execute_slice = result_execute.as_slice::<f64>();
-
-        // This assertion FAILS until the bug is fixed because execute_decompress drops patches.
-        assert!(
-            (execute_slice[2] - PI).abs() < 1e-10,
-            "Execute path should have PI at index 2, but got {} (patches were dropped!)",
-            execute_slice[2]
-        );
+        assert_arrays_eq!(result, original, &mut ctx);
     }
 }

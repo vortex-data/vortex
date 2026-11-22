@@ -781,8 +781,8 @@ mod tests {
         let sorted = buffer![i100, i200, i200];
         let unsorted = buffer![i200, i100, i200];
 
-        let sorted_array = DecimalArray::new(sorted, dtype, Validity::NonNullable);
-        let unsorted_array = DecimalArray::new(unsorted, dtype, Validity::NonNullable);
+        let sorted_array = DecimalArray::new(sorted, dtype, Validity::NonNullable, &mut ctx);
+        let unsorted_array = DecimalArray::new(unsorted, dtype, Validity::NonNullable, &mut ctx);
 
         assert!(is_sorted(&sorted_array.into_array(), &mut ctx)?);
         assert!(!is_sorted(&unsorted_array.into_array(), &mut ctx)?);
@@ -803,8 +803,9 @@ mod tests {
 
         let dtype = DecimalDType::new(19, 2);
 
-        let strict_sorted_array = DecimalArray::new(strict_sorted, dtype, Validity::NonNullable);
-        let sorted_array = DecimalArray::new(sorted, dtype, Validity::NonNullable);
+        let strict_sorted_array =
+            DecimalArray::new(strict_sorted, dtype, Validity::NonNullable, &mut ctx);
+        let sorted_array = DecimalArray::new(sorted, dtype, Validity::NonNullable, &mut ctx);
 
         assert!(is_strict_sorted(
             &strict_sorted_array.into_array(),
@@ -881,7 +882,7 @@ mod tests {
     #[case::primitive(PrimitiveArray::from_option_iter([None::<i32>]).into_array())]
     #[case::bool(BoolArray::from_iter([None::<bool>]).into_array())]
     #[case::decimal(
-        DecimalArray::new(buffer![0i128], DecimalDType::new(19, 2), Validity::AllInvalid).into_array()
+        DecimalArray::new(buffer![0i128], DecimalDType::new(19, 2), Validity::AllInvalid, &mut SESSION.create_execution_ctx()).into_array()
     )]
     #[case::string(VarBinViewArray::from_iter_nullable_str([None::<&str>]).into_array())]
     #[case::constant(ConstantArray::new(Scalar::null_native::<i32>(), 1).into_array())]
@@ -975,6 +976,46 @@ mod tests {
         acc.accumulate_list(&groups, &mut ctx)?;
 
         assert_arrays_eq!(acc.finish()?, BoolArray::from_iter(expected), &mut ctx);
+        Ok(())
+    }
+
+    /// A bool array must agree with the equivalent integer array: nulls sort first, so a null
+    /// after a valid value is unsorted.
+    #[rstest]
+    #[case::null_between_values([Some(false), None, Some(true)])]
+    #[case::null_first([None, Some(false), Some(true)])]
+    #[case::null_last([Some(false), Some(true), None])]
+    fn bool_nulls_sort_first_like_primitive(#[case] values: [Option<bool>; 3]) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let bools = BoolArray::from_iter(values).into_array();
+        let ints = PrimitiveArray::from_option_iter(values.map(|v| v.map(i32::from))).into_array();
+
+        let expected = values[1..].iter().all(|v| v.is_some());
+        assert_eq!(is_sorted(&ints, &mut ctx)?, expected);
+        assert_eq!(is_sorted(&bools, &mut ctx)?, expected);
+        assert_eq!(
+            is_strict_sorted(&bools, &mut ctx)?,
+            is_strict_sorted(&ints, &mut ctx)?
+        );
+        Ok(())
+    }
+
+    /// Splitting a bool array into chunks must not change the non-strict verdict.
+    #[test]
+    fn bool_valid_then_null_matches_chunked() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let flat = BoolArray::from_iter([Some(true), None]).into_array();
+        let chunked = ChunkedArray::try_new(
+            vec![
+                BoolArray::from_iter([Some(true)]).into_array(),
+                BoolArray::from_iter([None::<bool>]).into_array(),
+            ],
+            flat.dtype().clone(),
+        )?
+        .into_array();
+
+        assert!(!is_sorted(&flat, &mut ctx)?);
+        assert!(!is_sorted(&chunked, &mut ctx)?);
         Ok(())
     }
 }

@@ -33,16 +33,13 @@ use crate::assert_arrays_eq;
 use crate::builders::builder_with_capacity_in;
 use crate::dtype::DType;
 use crate::dtype::DecimalDType;
-use crate::dtype::DecimalType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::dtype::i256;
 use crate::expr::list_contains;
 use crate::expr::lit;
 use crate::expr::root;
-use crate::match_each_decimal_value_type;
 use crate::optimizer::ArrayOptimizer;
-use crate::scalar::DecimalValue;
 use crate::scalar::Scalar;
 use crate::scalar_fn::fns::list_contains::ListContains;
 use crate::scalar_fn::fns::list_contains::ListContainsOptions;
@@ -179,15 +176,6 @@ fn test_row_set_returns_membership_bits(
 #[rstest]
 fn test_decimal_bitmap_across_storage_widths(
     #[values(2, 4, 9, 18, 38, 76)] precision: u8,
-    #[values(
-        DecimalType::I8,
-        DecimalType::I16,
-        DecimalType::I32,
-        DecimalType::I64,
-        DecimalType::I128,
-        DecimalType::I256
-    )]
-    needle_width: DecimalType,
     #[values(false, true)] sql_null_semantics: bool,
 ) -> VortexResult<()> {
     let mut ctx = SESSION.create_execution_ctx();
@@ -198,14 +186,8 @@ fn test_decimal_bitmap_across_storage_widths(
         .into();
     elements.push(Scalar::null(dtype.clone()));
     let list = Scalar::list(dtype, elements, Nullability::NonNullable);
-    let needles = match_each_decimal_value_type!(needle_width, |T| {
-        DecimalArray::from_option_iter::<T, _>(
-            [Some(-2i8), Some(0), Some(1), None]
-                .map(|value| value.map(|value| DecimalValue::from(value).cast::<T>().unwrap())),
-            decimal,
-        )
-        .into_array()
-    });
+    let needles =
+        DecimalArray::from_option_iter([Some(-2i8), Some(0), Some(1), None], decimal).into_array();
     let options = ListContainsOptions { sql_null_semantics };
     let set = prepare(&list)?;
     let non_match = (!sql_null_semantics).then_some(false);

@@ -49,7 +49,7 @@ pub struct ListSlots {
     pub offsets: ArrayRef,
     /// The validity bitmap indicating which list elements are non-null.
     #[slot(2)]
-    pub validity: Option<ArrayRef>,
+    pub validity_child: Option<ArrayRef>,
 }
 
 /// A list array that stores variable-length lists of elements, similar to `Vec<Vec<T>>`.
@@ -134,7 +134,7 @@ impl ListData {
         ListSlots {
             elements: elements.clone(),
             offsets: offsets.clone(),
-            validity: validity_to_child(validity, len),
+            validity_child: validity_to_child(validity, len),
         }
         .into_slots()
     }
@@ -284,7 +284,7 @@ impl ListData {
     // the offset type and manual subtraction.
 }
 
-pub trait ListArrayExt: ListArraySlotsExt {
+pub trait ListArrayExt: TypedArrayRef<List> {
     fn nullability(&self) -> crate::dtype::Nullability {
         match self.dtype() {
             DType::List(_, nullability) => *nullability,
@@ -293,10 +293,7 @@ pub trait ListArrayExt: ListArraySlotsExt {
     }
 
     fn list_validity(&self) -> Validity {
-        child_to_validity(
-            self.slots()[ListSlots::VALIDITY].as_ref(),
-            self.nullability(),
-        )
+        child_to_validity(self.validity_child(), self.nullability())
     }
 
     fn offset_at(&self, index: usize, ctx: &mut ExecutionCtx) -> VortexResult<usize> {
@@ -411,12 +408,8 @@ impl Array<List> {
 
     pub fn into_data_parts(self) -> ListDataParts {
         let dtype = self.dtype().clone();
-        let elements = self.slots()[ListSlots::ELEMENTS]
-            .clone()
-            .vortex_expect("ListArray elements slot");
-        let offsets = self.slots()[ListSlots::OFFSETS]
-            .clone()
-            .vortex_expect("ListArray offsets slot");
+        let elements = self.elements().clone();
+        let offsets = self.offsets().clone();
         let validity = self.list_validity();
         ListDataParts {
             elements,

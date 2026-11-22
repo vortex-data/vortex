@@ -135,7 +135,7 @@ impl DictData {
     }
 }
 
-pub trait DictArrayExt: TypedArrayRef<Dict> + DictArraySlotsExt {
+pub trait DictArrayExt: TypedArrayRef<Dict> {
     #[inline]
     fn has_all_values_referenced(&self) -> bool {
         self.all_values_referenced
@@ -294,7 +294,7 @@ impl DictOwnedExt for Array<Dict> {
                 }
             }
             Err(array) => {
-                let slots = DictSlotsView::from_slots(array.slots());
+                let slots = array.slots_view();
                 DictParts {
                     dtype: array.dtype().clone(),
                     codes: slots.codes.clone(),

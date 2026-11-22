@@ -28,6 +28,7 @@ use crate::array::VTable;
 use crate::array::ValidityVTable;
 use crate::array::with_empty_buffers;
 use crate::arrays::filter::FilterArraySlotsExt;
+use crate::arrays::filter::append::append_filter_to_builder;
 use crate::arrays::filter::array::FilterData;
 use crate::arrays::filter::array::FilterSlots;
 use crate::arrays::filter::execute::contiguous_filter_range;
@@ -35,6 +36,7 @@ use crate::arrays::filter::execute::execute_all_null_filter_fast_path;
 use crate::arrays::filter::execute::execute_filter;
 use crate::arrays::filter::rules::RULES;
 use crate::buffer::BufferHandle;
+use crate::builders::ArrayBuilder;
 use crate::dtype::DType;
 use crate::executor::ExecutionCtx;
 use crate::executor::ExecutionResult;
@@ -123,6 +125,14 @@ impl VTable for Filter {
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         FilterSlots::NAMES[idx].to_string()
+    }
+
+    fn append_to_builder(
+        array: ArrayView<'_, Self>,
+        builder: &mut dyn ArrayBuilder,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
+        append_filter_to_builder(array, builder, ctx)
     }
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {

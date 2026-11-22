@@ -37,7 +37,6 @@ use vortex_array::scalar_fn::fns::case_when::CaseWhen;
 use vortex_array::scalar_fn::fns::case_when::CaseWhenOptions;
 use vortex_array::scalar_fn::fns::operators::Operator;
 use vortex_array::test_harness::mark_optimized;
-use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_session::VortexSession;
 
@@ -58,18 +57,9 @@ fn main() {
 #[divan::bench(args = [1, 8, 64])]
 fn case_when_decimal_product(bencher: Bencher, run_length: usize) {
     let len = 512;
-    let lhs = DecimalArray::new(
-        Buffer::from_iter((0..len).map(|i| i as i64)),
-        DecimalDType::new(15, 2),
-        Validity::NonNullable,
-    )
-    .into_array();
-    let rhs = DecimalArray::new(
-        Buffer::from_iter((0..len).map(|i| (i % 100) as i64)),
-        DecimalDType::new(15, 2),
-        Validity::NonNullable,
-    )
-    .into_array();
+    let dtype = DecimalDType::new(15, 2);
+    let lhs = DecimalArray::from_iter(0..len as i64, dtype).into_array();
+    let rhs = DecimalArray::from_iter((0..len as i64).map(|i| i % 100), dtype).into_array();
     let product = lhs.binary(rhs, Operator::Mul).unwrap();
     let otherwise = ConstantArray::new(Scalar::zero_value(product.dtype()), len).into_array();
     bench_branches(bencher, run_length, product, otherwise);

@@ -16,7 +16,6 @@ use vortex_buffer::BufferMut;
 use vortex_compute::lane_kernels::collect_bits;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_mask::Mask;
 use vortex_utils::aliases::hash_map::HashTable;
 use vortex_utils::aliases::hash_map::HashTableEntry;
 
@@ -27,7 +26,6 @@ use crate::RecursiveCanonical;
 use crate::arrays::DecimalArray;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::VarBinViewArray;
-use crate::arrays::decimal::converted_buffer;
 use crate::arrays::primitive::PrimitiveArrayExt;
 use crate::arrays::varbinview::BinaryView;
 use crate::dtype::DType;
@@ -114,14 +112,11 @@ fn new_state(elements: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Box<dyn
                 Box::new(PrimitiveSet(set)) as Box<dyn HaystackState>
             })
         }
-        DType::Decimal(decimal, _) => {
-            let values_type = decimal.canonical_values_type();
+        DType::Decimal(..) => {
             let elements = elements.execute::<DecimalArray>(ctx)?;
-            let all_valid = Mask::new_true(elements.len());
-            match_each_decimal_value_type!(values_type, |T| {
-                let values = converted_buffer::<T>(&elements, &all_valid)?;
-                Box::new(DecimalSet(IntegerSet::new(values, ctx.allocator())))
-                    as Box<dyn HaystackState>
+            match_each_decimal_value_type!(elements.values_type(), |T| {
+                let set = IntegerSet::new(elements.buffer::<T>(), ctx.allocator());
+                Box::new(DecimalSet(set)) as Box<dyn HaystackState>
             })
         }
         DType::Utf8(_) | DType::Binary(_) => {
@@ -196,11 +191,7 @@ impl<T: NativePType + SetInteger> HaystackState for PrimitiveSet<T> {
     }
 }
 
-/// The unscaled values of decimals, as the narrowest type that holds every value of their
-/// precision.
-///
-/// A needle has the precision of the elements, so a valid needle converts to that type whatever
-/// its own storage width, and a needle stored at that type converts without a copy.
+/// Unscaled decimal values at the canonical width shared by the elements and needles.
 struct DecimalSet<T>(IntegerSet<T>);
 
 impl<T: NativeDecimalType + SetInteger> HaystackState for DecimalSet<T> {
@@ -210,10 +201,8 @@ impl<T: NativeDecimalType + SetInteger> HaystackState for DecimalSet<T> {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<(BitBuffer, Validity)> {
         let needles = needles.clone().execute::<DecimalArray>(ctx)?;
-        let validity = needles.validity()?;
-        let valid = validity.execute_mask(needles.len(), ctx)?;
-        let values = converted_buffer::<T>(&needles, &valid)?;
-        Ok((self.0.contains(&values, ctx.allocator()), validity))
+        let bits = self.0.contains(&needles.buffer::<T>(), ctx.allocator());
+        Ok((bits, needles.validity()?))
     }
 }
 
@@ -380,8 +369,8 @@ impl HaystackState for RowSet {
             .execute::<RecursiveCanonical>(ctx)?
             .0
             .into_array();
-        // The comparator materializes child buffers and validity once, including decimal
-        // widening and nested offsets. Each search then reads those buffers directly.
+        // The comparator materializes child buffers, validity, and nested offsets once. Each
+        // search then reads those buffers directly.
         let compare = build_row_comparator(&self.elements, &needles, ctx)?;
         let bits = BitBuffer::collect_bool_in(
             needles.len(),

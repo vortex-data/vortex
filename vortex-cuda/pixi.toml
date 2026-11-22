@@ -1,0 +1,22 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+[workspace]
+name = "vortex-cuda"
+channels = ["rapidsai", "conda-forge"]
+platforms = [
+  { platform = "linux-64", cuda = "13.0" },
+  { platform = "linux-aarch64", cuda = "13.0" },
+]
+
+[dependencies]
+libcudf = { version = "==26.06.01", build = "cuda13_*" }
+# Keep the compiler and NVRTC compatible with CI GPU drivers.
+cuda-version = "13.0.*"
+cuda-nvrtc = "13.0.*"
+cuda-nvcc = "13.0.*"
+cuda-cudart-dev = "13.0.*"
+cxx-compiler = "*"
+gtest = ">=1.15,<2"
+cmake = ">=3.30.4,<4"
+ninja = ">=1.12,<2"

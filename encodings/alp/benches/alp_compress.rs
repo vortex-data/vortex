@@ -15,7 +15,6 @@ use vortex_alp::ALPRDFloat;
 use vortex_alp::RDEncoder;
 use vortex_alp::RDEncoderExt;
 use vortex_alp::alp_encode;
-use vortex_alp::decompress_into_array;
 use vortex_array::Canonical;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
@@ -138,7 +137,7 @@ fn decompress_alp<T: ALPFloat + NativePType>(bencher: Bencher, args: (usize, f64
 
             (encoded, SESSION.create_execution_ctx())
         })
-        .bench_values(|(v, mut ctx)| decompress_into_array(v, &mut ctx));
+        .bench_values(|(v, mut ctx)| v.into_array().execute::<PrimitiveArray>(&mut ctx));
 }
 
 const RD_BENCH_ARGS: &[(usize, f64)] = if cfg!(codspeed) {

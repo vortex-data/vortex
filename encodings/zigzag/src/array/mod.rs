@@ -128,7 +128,7 @@ impl Display for ZigZagData {
     }
 }
 
-pub trait ZigZagArrayExt: ZigZagArraySlotsExt {
+pub trait ZigZagArrayExt: TypedArrayRef<ZigZag> {
     fn ptype(&self) -> PType {
         PType::try_from(self.encoded().dtype())
             .vortex_expect("ZigZagArray encoded dtype")
