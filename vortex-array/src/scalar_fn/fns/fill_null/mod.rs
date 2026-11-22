@@ -286,9 +286,8 @@ fn fill_null_canonical(
 
 /// Fills nulls by zipping the input with a constant fill over the input validity.
 ///
-/// The zip kernels of the list encodings select whole lists, so this reuses them instead of
-/// rebuilding offsets here. The zip result is nullable like the input, so a cast gives it the
-/// nullability of the fill value. The result is lazy.
+/// Reuses `zip` instead of rebuilding offsets here. The zip result is nullable like the input, so
+/// a cast gives it the nullability of the fill value. The result is lazy.
 fn fill_null_with_zip(array: ArrayRef, fill_value: &Scalar) -> VortexResult<ArrayRef> {
     let len = array.len();
     let result_dtype = array

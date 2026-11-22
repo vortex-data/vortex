@@ -7,7 +7,6 @@ mod fill_null;
 mod fixed_width;
 mod mask;
 pub mod rules;
-mod zip;
 
 #[cfg(test)]
 mod tests {

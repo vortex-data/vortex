@@ -15,8 +15,6 @@ use crate::scalar_fn::fns::cast::Cast;
 use crate::scalar_fn::fns::cast::CastExecuteAdaptor;
 use crate::scalar_fn::fns::fill_null::FillNull;
 use crate::scalar_fn::fns::fill_null::FillNullExecuteAdaptor;
-use crate::scalar_fn::fns::zip::Zip;
-use crate::scalar_fn::fns::zip::ZipExecuteAdaptor;
 
 pub(crate) fn initialize(session: &VortexSession) {
     let kernels = session.kernels();
@@ -24,5 +22,4 @@ pub(crate) fn initialize(session: &VortexSession) {
     kernels.register_execute_parent_kernel(Cast.id(), Decimal, CastExecuteAdaptor(Decimal));
     kernels.register_execute_parent_kernel(FillNull.id(), Decimal, FillNullExecuteAdaptor(Decimal));
     kernels.register_execute_parent_kernel(Dict.id(), Decimal, TakeExecuteAdaptor(Decimal));
-    kernels.register_execute_parent_kernel(Zip.id(), Decimal, ZipExecuteAdaptor(Decimal));
 }
