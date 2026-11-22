@@ -1380,7 +1380,8 @@ where
 /// Choose between sparse searches and bitmap ranks without building the mask indices:
 ///
 /// * Far more patches than selected rows: gallop through the patches.
-/// * Very sparse patches with cached mask indices: gallop through the mask indices.
+/// * Very sparse patches or selections with cached mask indices: gallop the smaller side through
+///   the larger.
 /// * Otherwise: intersect the patches with the bitmap and rank only retained patches.
 fn filter_patches_with_mask<T: IntegerPType>(
     patch_indices: &[T],
@@ -1412,27 +1413,34 @@ fn filter_patches_with_mask<T: IntegerPType>(
             &mut new_patch_indices,
             &mut kept_patches,
         )?;
-    } else {
-        match mask.cached_indices() {
-            Some(mask_indices)
-                if patch_count <= true_count && patch_count.saturating_mul(256) < mask.len() =>
-            {
-                gallop_mask_indices_for_patches(
-                    patch_indices,
-                    offset,
-                    mask_indices,
-                    &mut new_patch_indices,
-                    &mut kept_patches,
-                )?
-            }
-            _ => rank_patches_in_mask_bitmap(
+    } else if let Some(mask_indices) = mask.cached_indices()
+        && expected_matches.saturating_mul(256) < mask.len()
+    {
+        if patch_count <= true_count {
+            gallop_mask_indices_for_patches(
                 patch_indices,
                 offset,
-                mask.bit_buffer(),
+                mask_indices,
                 &mut new_patch_indices,
                 &mut kept_patches,
-            )?,
+            )?;
+        } else {
+            gallop_patches_for_mask_indices(
+                patch_indices,
+                offset,
+                mask,
+                &mut new_patch_indices,
+                &mut kept_patches,
+            )?;
         }
+    } else {
+        rank_patches_in_mask_bitmap(
+            patch_indices,
+            offset,
+            mask.bit_buffer(),
+            &mut new_patch_indices,
+            &mut kept_patches,
+        )?;
     }
 
     let new_patch_values = match new_patch_indices.len() {
