@@ -3,8 +3,6 @@
 
 use std::collections::VecDeque;
 use std::sync::Arc;
-use std::sync::atomic::AtomicU64;
-use std::sync::atomic::Ordering;
 use std::task::Context;
 use std::task::Poll;
 use std::task::Waker;
@@ -12,11 +10,8 @@ use std::task::Waker;
 use futures::FutureExt;
 use futures::StreamExt;
 use futures::TryFutureExt;
-use futures::future::AbortHandle;
-use futures::future::Aborted;
 use futures::future::BoxFuture;
 use futures::future::Shared;
-use futures::future::abortable;
 use futures::stream::FuturesUnordered;
 use parking_lot::Mutex;
 use vortex_array::buffer::BufferHandle;
@@ -83,20 +78,14 @@ impl IoService for SegmentScanIo {
 pub(super) struct SegmentIoSource {
     segments: Arc<dyn SegmentSource>,
     ranges: SegmentRanges,
-    reads: Mutex<FuturesUnordered<PendingRead>>,
+    reads: Mutex<FuturesUnordered<BoxFuture<'static, Completion>>>,
     ready: Mutex<VecDeque<Completion>>,
-    /// Active in-flight `Fetch` subscriptions per owner so `release(owner)` can cancel them.
-    owners: Mutex<HashMap<IoOwnerId, HashMap<u64, AbortHandle>>>,
-    next_subscription: AtomicU64,
     /// Every read the session has started, by segment, shared by later fetches of the segment
     /// until the session is cleared.
     prefetched: Mutex<HashMap<SegmentId, Prefetched>>,
     /// Announced segments, requested and never polled.
     announced: Mutex<HashMap<SegmentId, VecDeque<SegmentFuture>>>,
 }
-
-/// An in-flight fetch subscription that can be cancelled when its owner retires.
-type PendingRead = BoxFuture<'static, Result<(u64, Completion), Aborted>>;
 
 /// A read started ahead of the fetch that needs it.
 type Prefetched = Shared<BoxFuture<'static, Result<BufferHandle, Arc<VortexError>>>>;
@@ -108,20 +97,8 @@ impl SegmentIoSource {
             ranges,
             reads: Mutex::new(FuturesUnordered::new()),
             ready: Mutex::default(),
-            owners: Mutex::default(),
-            next_subscription: AtomicU64::new(0),
             prefetched: Mutex::default(),
             announced: Mutex::default(),
-        }
-    }
-
-    fn finish_subscription(&self, owner: IoOwnerId, subscription: u64) {
-        let mut owners = self.owners.lock();
-        if let Some(subs) = owners.get_mut(&owner) {
-            subs.remove(&subscription);
-            if subs.is_empty() {
-                owners.remove(&owner);
-            }
         }
     }
 }
@@ -130,7 +107,6 @@ impl IoSource for SegmentIoSource {
     fn submit(&self, owner: IoOwnerId, batch: IoBatch) -> VortexResult<()> {
         let reads = self.reads.lock();
         let mut ready = self.ready.lock();
-        let mut owners = self.owners.lock();
         let mut prefetched = self.prefetched.lock();
         for request in batch {
             let IoTarget::Range { offset, len, .. } = request.target else {
@@ -200,22 +176,16 @@ impl IoSource for SegmentIoSource {
                 });
                 continue;
             }
-            let subscription = self.next_subscription.fetch_add(1, Ordering::Relaxed);
-            let (fut, abort_handle) = abortable(async move {
-                (
-                    subscription,
+            reads.push(
+                async move {
                     Completion {
                         owner,
                         request: id,
                         result: bytes.await.map(IoResult::Bytes),
-                    },
-                )
-            });
-            owners
-                .entry(owner)
-                .or_default()
-                .insert(subscription, abort_handle);
-            reads.push(fut.boxed());
+                    }
+                }
+                .boxed(),
+            );
         }
         Ok(())
     }
@@ -227,16 +197,9 @@ impl IoSource for SegmentIoSource {
         // The split's future polls again with its own waker before it waits, so a read that
         // finishes after this check is not missed.
         let mut cx = Context::from_waker(Waker::noop());
-        let mut reads = self.reads.lock();
-        loop {
-            match reads.poll_next_unpin(&mut cx) {
-                Poll::Ready(Some(Ok((subscription, completion)))) => {
-                    self.finish_subscription(completion.owner, subscription);
-                    return Ok(Some(completion));
-                }
-                Poll::Ready(Some(Err(_aborted))) => continue,
-                Poll::Ready(None) | Poll::Pending => return Ok(None),
-            }
+        match self.reads.lock().poll_next_unpin(&mut cx) {
+            Poll::Ready(completion) => Ok(completion),
+            Poll::Pending => Ok(None),
         }
     }
 
@@ -244,21 +207,12 @@ impl IoSource for SegmentIoSource {
         if let Some(completion) = self.ready.lock().pop_front() {
             return Poll::Ready(Ok(completion));
         }
-        let mut reads = self.reads.lock();
-        loop {
-            match reads.poll_next_unpin(cx) {
-                Poll::Ready(Some(Ok((subscription, completion)))) => {
-                    self.finish_subscription(completion.owner, subscription);
-                    return Poll::Ready(Ok(completion));
-                }
-                Poll::Ready(Some(Err(_aborted))) => continue,
-                Poll::Ready(None) => {
-                    return Poll::Ready(Err(vortex_err!(
-                        "The split's driver is waiting with no reads in flight"
-                    )));
-                }
-                Poll::Pending => return Poll::Pending,
-            }
+        match self.reads.lock().poll_next_unpin(cx) {
+            Poll::Ready(Some(completion)) => Poll::Ready(Ok(completion)),
+            Poll::Ready(None) => Poll::Ready(Err(vortex_err!(
+                "The split's driver is waiting with no reads in flight"
+            ))),
+            Poll::Pending => Poll::Pending,
         }
     }
 
@@ -270,17 +224,11 @@ impl IoSource for SegmentIoSource {
         self.ready
             .lock()
             .retain(|completion| completion.owner != owner);
-        if let Some(handles) = self.owners.lock().remove(&owner) {
-            for handle in handles.into_values() {
-                handle.abort();
-            }
-        }
     }
 
     fn clear(&self) {
         self.reads.lock().clear();
         self.ready.lock().clear();
-        self.owners.lock().clear();
         self.prefetched.lock().clear();
         self.announced.lock().clear();
     }
@@ -458,171 +406,26 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
-    async fn release_discards_ready_and_pending_fetches() -> VortexResult<()> {
-        let (sender, receiver) = oneshot::channel();
-        let segments = Arc::new(MixedSegments(Mutex::new(Some(receiver))));
-        let locations = [0, 4].map(|offset| SegmentLocation {
-            offset,
-            length: 4,
-            alignment: Alignment::none(),
-        });
-        let io = SegmentIoSource::new(segments, segment_ranges(&locations));
-
-        // Owner 0 gets an immediate completion (queued in `ready`) and a pending read (in `reads`).
-        let mut pending = request(IoIntent::Fetch, 1);
-        pending.target = IoTarget::range(4, 4);
-        io.submit(IoOwnerId(0), vec![request(IoIntent::Fetch, 0), pending])?;
-        // Owner 1 subscribes to the same pending segment.
-        let mut live_pending = request(IoIntent::Fetch, 2);
-        live_pending.target = IoTarget::range(4, 4);
-        io.submit(IoOwnerId(1), vec![live_pending])?;
-
-        io.release(IoOwnerId(0));
-
-        // Owner 0's queued ready completion must not be delivered.
-        assert!(io.poll()?.is_none());
-
-        sender
-            .send(ByteBuffer::from(vec![9; 4]))
-            .expect("shared pending read is still live for owner 1");
-
-        let completion = std::future::poll_fn(|cx| io.poll_completion(cx)).await?;
-        assert_eq!(completion.owner, IoOwnerId(1));
-        assert_eq!(completion.request, IoRequestId(2));
-        assert!(completion.result.is_ok());
-        assert!(io.poll()?.is_none());
-        assert!(io.owners.lock().is_empty());
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn release_only_owner_leaves_no_reads_in_flight() -> VortexResult<()> {
-        let (sender, receiver) = oneshot::channel();
-        let segments = Arc::new(MixedSegments(Mutex::new(Some(receiver))));
-        let locations = [0, 4].map(|offset| SegmentLocation {
-            offset,
-            length: 4,
-            alignment: Alignment::none(),
-        });
-        let io = SegmentIoSource::new(segments, segment_ranges(&locations));
-
-        let mut pending = request(IoIntent::Fetch, 0);
-        pending.target = IoTarget::range(4, 4);
-        io.submit(IoOwnerId(0), vec![pending])?;
-        assert_eq!(io.owners.lock().len(), 1);
-
-        io.release(IoOwnerId(0));
-        assert!(io.owners.lock().is_empty());
-
-        // Even if the underlying shared read completes, the released subscriber is discarded.
-        drop(sender.send(ByteBuffer::from(vec![7; 4])));
-        assert!(io.poll()?.is_none());
-        let err = std::future::poll_fn(|cx| io.poll_completion(cx))
-            .await
-            .err()
-            .expect("no live reads should remain");
-        assert!(err.to_string().contains("no reads in flight"));
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn release_preserves_optional_announcements_and_prefetches() -> VortexResult<()> {
+    #[test]
+    fn release_drops_queued_ready_completions() -> VortexResult<()> {
         let segments = Arc::new(CountingSegments::default());
-        let locations = [0, 4].map(|offset| SegmentLocation {
-            offset,
+        let location = SegmentLocation {
+            offset: 0,
             length: 4,
             alignment: Alignment::none(),
-        });
-        let io = SegmentIoSource::new(Arc::clone(&segments) as _, segment_ranges(&locations));
-
-        let mut prefetch = request(IoIntent::Prefetch, 1);
-        prefetch.target = IoTarget::range(4, 4);
-        io.submit(IoOwnerId(0), vec![request(IoIntent::Announce, 0), prefetch])?;
-        assert_eq!(segments.0.load(Ordering::Relaxed), 2);
-
-        io.release(IoOwnerId(0));
-
-        let mut fetch_prefetched = request(IoIntent::Fetch, 3);
-        fetch_prefetched.target = IoTarget::range(4, 4);
-        io.submit(
-            IoOwnerId(1),
-            vec![request(IoIntent::Fetch, 2), fetch_prefetched],
-        )?;
-        // Both the announcement and the prefetch survived owner 0's release.
-        assert_eq!(segments.0.load(Ordering::Relaxed), 2);
-
-        let first = std::future::poll_fn(|cx| io.poll_completion(cx)).await?;
-        let second = std::future::poll_fn(|cx| io.poll_completion(cx)).await?;
-        assert_eq!(first.owner, IoOwnerId(1));
-        assert_eq!(second.owner, IoOwnerId(1));
-        assert!(first.result.is_ok());
-        assert!(second.result.is_ok());
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn release_preserves_live_failures() -> VortexResult<()> {
-        let (sender, receiver) = oneshot::channel::<ByteBuffer>();
-        let segments = Arc::new(MixedSegments(Mutex::new(Some(receiver))));
-        let locations = [0, 4].map(|offset| SegmentLocation {
-            offset,
-            length: 4,
-            alignment: Alignment::none(),
-        });
-        let io = SegmentIoSource::new(segments, segment_ranges(&locations));
-
-        let mut fetch_a = request(IoIntent::Fetch, 0);
-        fetch_a.target = IoTarget::range(4, 4);
-        let mut fetch_b = request(IoIntent::Fetch, 1);
-        fetch_b.target = IoTarget::range(4, 4);
-        io.submit(IoOwnerId(0), vec![fetch_a])?;
-        io.submit(IoOwnerId(1), vec![fetch_b])?;
-
-        io.release(IoOwnerId(0));
-        // Dropping the sender causes the underlying read to fail.
-        drop(sender);
-
-        let completion = std::future::poll_fn(|cx| io.poll_completion(cx)).await?;
-        assert_eq!(completion.owner, IoOwnerId(1));
-        assert_eq!(completion.request, IoRequestId(1));
-        assert!(completion.result.is_err());
-        assert!(io.poll()?.is_none());
-        assert!(io.owners.lock().is_empty());
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn clear_drops_pending_owner_subscriptions() -> VortexResult<()> {
-        let (_sender, receiver) = oneshot::channel::<ByteBuffer>();
-        let segments = Arc::new(MixedSegments(Mutex::new(Some(receiver))));
-        let locations = [0, 4].map(|offset| SegmentLocation {
-            offset,
-            length: 4,
-            alignment: Alignment::none(),
-        });
-        let io = SegmentIoSource::new(segments, segment_ranges(&locations));
-
-        let mut fetch = request(IoIntent::Fetch, 0);
-        fetch.target = IoTarget::range(4, 4);
-        io.submit(IoOwnerId(0), vec![fetch])?;
-        assert_eq!(io.owners.lock().len(), 1);
-
-        io.clear();
-        assert!(io.owners.lock().is_empty());
-        assert!(io.poll()?.is_none());
-        let err = match std::future::poll_fn(|cx| io.poll_completion(cx)).await {
-            Ok(_) => {
-                return Err(vortex_err!(
-                    "clearing pending subscriptions should leave no reads in flight"
-                ));
-            }
-            Err(err) => err,
         };
-        assert!(
-            err.to_string().contains("no reads in flight"),
-            "unexpected error: {err}"
-        );
+        let io = SegmentIoSource::new(segments, segment_ranges(&[location]));
+        io.submit(IoOwnerId(0), vec![request(IoIntent::Fetch, 0)])?;
+        io.submit(IoOwnerId(1), vec![request(IoIntent::Fetch, 1)])?;
+
+        io.release(IoOwnerId(0));
+
+        let remaining = io
+            .poll()?
+            .expect("other owner's ready completion must remain");
+        assert_eq!(remaining.owner, IoOwnerId(1));
+        assert_eq!(remaining.request, IoRequestId(1));
+        assert!(io.poll()?.is_none());
         Ok(())
     }
 }
