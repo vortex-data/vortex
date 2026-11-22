@@ -19,6 +19,7 @@ use futures::future::ready;
 use futures::pin_mut;
 use futures::select;
 use itertools::Itertools;
+use parking_lot::Mutex;
 use vortex_array::ArrayContext;
 use vortex_array::ArrayId;
 use vortex_array::ArrayRef;
@@ -94,6 +95,7 @@ pub struct VortexWriteOptions {
     write_nested_statistics: bool,
     write_legacy_statistics: bool,
     metadata: HashMap<String, ByteBuffer>,
+    deferred_metadata: DeferredMetadata,
 }
 
 /// Extension trait for constructing [`VortexWriteOptions`] from a session.
@@ -118,6 +120,7 @@ impl VortexWriteOptions {
             write_nested_statistics: false,
             write_legacy_statistics: true,
             metadata: HashMap::default(),
+            deferred_metadata: DeferredMetadata::default(),
         }
     }
 
@@ -258,6 +261,48 @@ impl VortexWriteOptions {
     pub fn validate_metadata(&self) -> VortexResult<()> {
         validate_metadata_segments(&self.metadata)
     }
+
+    /// Returns a handle that adds metadata segments while the write runs.
+    ///
+    /// The write reads the handle after the input stream ends, immediately before the footer.
+    /// Its segments replace the [`Self::with_metadata_segment`] segments that have the same key,
+    /// and the `MAX_METADATA_*` limits apply to the merged set. The write ignores segments that
+    /// you add after the input ends.
+    pub fn deferred_metadata(&self) -> DeferredMetadata {
+        self.deferred_metadata.clone()
+    }
+}
+
+/// A shared handle that adds metadata segments to a write after the write starts.
+#[derive(Clone, Default)]
+pub struct DeferredMetadata {
+    segments: Arc<Mutex<HashMap<String, ByteBuffer>>>,
+}
+
+impl DeferredMetadata {
+    /// Add a metadata segment. A repeated key replaces the previous value.
+    pub fn insert(&self, key: impl Into<String>, metadata: impl Into<ByteBuffer>) {
+        self.segments.lock().insert(key.into(), metadata.into());
+    }
+
+    /// Add metadata segments. A repeated key replaces the previous value.
+    pub fn extend<I, K, B>(&self, metadata: I)
+    where
+        I: IntoIterator<Item = (K, B)>,
+        K: Into<String>,
+        B: Into<ByteBuffer>,
+    {
+        self.segments.lock().extend(
+            metadata
+                .into_iter()
+                .map(|(key, value)| (key.into(), value.into())),
+        );
+    }
+
+    /// Remove all segments from the handle and return them.
+    fn take(&self) -> HashMap<String, ByteBuffer> {
+        std::mem::take(&mut *self.segments.lock())
+    }
 }
 
 impl VortexWriteOptions {
@@ -397,6 +442,11 @@ impl VortexWriteOptions {
 
         let (layout, segment_specs) = layout_fut.await?;
 
+        // The input stream has ended, so the deferred segments are complete.
+        let mut metadata = self.metadata;
+        metadata.extend(self.deferred_metadata.take());
+        validate_metadata_segments(&metadata)?;
+
         // Assemble the Footer object now that we have all the segments.
         let statistics = if omit_statistics {
             None
@@ -424,7 +474,7 @@ impl VortexWriteOptions {
             .clone()
             .into_serializer(&self.session)
             .with_layout_context(new_layout_context(&self.session, enforce_editions))
-            .with_metadata_segments(self.metadata)
+            .with_metadata_segments(metadata)
             .with_offset(position)
             .with_exclude_dtype(self.exclude_dtype)
             .serialize_with_metadata()?;
@@ -458,6 +508,7 @@ impl VortexWriteOptions {
         let write = CountingVortexWrite::new(write);
         let bytes_written = write.counter();
         let buffered_bytes = self.buffered_bytes.clone();
+        let deferred_metadata = self.deferred_metadata.clone();
         let future = self.write(write, arrays).boxed_local().fuse();
 
         Writer {
@@ -466,6 +517,7 @@ impl VortexWriteOptions {
             terminal_error: None,
             bytes_written,
             buffered_bytes,
+            deferred_metadata,
         }
     }
 }
@@ -611,6 +663,8 @@ pub struct Writer<'w> {
     bytes_written: Arc<AtomicU64>,
     // The buffered bytes accounting shared with the layout strategies for this write.
     buffered_bytes: BufferedBytesTracker,
+    // The metadata segments that the write adds to the footer after the last chunk.
+    deferred_metadata: DeferredMetadata,
 }
 
 impl Writer<'_> {
@@ -706,6 +760,19 @@ impl Writer<'_> {
         self.future.await
     }
 
+    /// Finish writing the Vortex file and add the given metadata segments to its footer.
+    ///
+    /// See [`VortexWriteOptions::deferred_metadata`] for the merge and limit rules.
+    pub async fn finish_with_metadata<I, K, B>(self, metadata: I) -> VortexResult<WriteSummary>
+    where
+        I: IntoIterator<Item = (K, B)>,
+        K: Into<String>,
+        B: Into<ByteBuffer>,
+    {
+        self.deferred_metadata.extend(metadata);
+        self.finish().await
+    }
+
     /// Record the first terminal outcome from the writer future and close the input channel.
     fn record_terminal_outcome(&mut self, result: VortexResult<WriteSummary>) -> VortexError {
         let err = match result {
@@ -715,7 +782,6 @@ impl Writer<'_> {
         drop(self.arrays.take());
         self.terminal_error.get_or_insert(err).clone()
     }
-
     /// Assuming the writer task has failed, await it to get the error.
     async fn handle_failed_task(&mut self) -> VortexError {
         let result = (&mut self.future).await;
@@ -784,6 +850,17 @@ impl<B: BlockingRuntime> BlockingWriter<'_, '_, B> {
     /// Finish writing and return the written file summary.
     pub fn finish(self) -> VortexResult<WriteSummary> {
         self.runtime.block_on(self.writer.finish())
+    }
+
+    /// Blocking version of [`Writer::finish_with_metadata`].
+    pub fn finish_with_metadata<I, K, V>(self, metadata: I) -> VortexResult<WriteSummary>
+    where
+        I: IntoIterator<Item = (K, V)>,
+        K: Into<String>,
+        V: Into<ByteBuffer>,
+    {
+        self.runtime
+            .block_on(self.writer.finish_with_metadata(metadata))
     }
 }
 

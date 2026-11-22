@@ -7,7 +7,8 @@
   },
   "vortex-alp": {
     "alp_compress": 36,
-    "alp_rd_take_chunked": 4
+    "alp_rd_take_chunked": 4,
+    "alp_slice_take": 2
   },
   "vortex-array": {
     "aggregate_grouped": 18,
@@ -38,7 +39,7 @@
     "interleave": 18,
     "kleene_bool": 14,
     "like": 7,
-    "list_contains_set": 4,
+    "list_contains_set": 6,
     "list_length": 6,
     "list_sum": 11,
     "listview_builder_extend": 4,
@@ -67,7 +68,7 @@
     "take_chunked": 0,
     "take_filter": 32,
     "take_fsl": 12,
-    "take_patches": 39,
+    "take_patches": 42,
     "take_primitive": 25,
     "take_struct": 3,
     "take_varbin": 1,
@@ -119,7 +120,7 @@
     "bitpack_compare": 2,
     "bitpack_compare_sweep": 56,
     "bitpacking_filter": 0,
-    "bitpacking_take": 40,
+    "bitpacking_take": 41,
     "canonicalize_bench": 14,
     "cast_bitpacked": 6,
     "compute_between": 11,
