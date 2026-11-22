@@ -246,7 +246,8 @@ async fn open_with_cache(
 #[tokio::test]
 async fn plaintext_cache() -> VortexResult<()> {
     let bytes = write(Some(FileEncryption::new(footer_key()))).await?;
-    let cached_data_segment = |file: &VortexFile, cache: &RecordingCache| {
+    // The cache keeps the plaintext of a segment under its id with the top bit set.
+    let cached_data_segment = |file: &VortexFile, cache: &RecordingCache, cache_id: u32| {
         let segment = file.footer().segment_map()[0];
         let ciphertext = bytes.slice(
             usize::try_from(segment.offset).vortex_expect("offset")
@@ -255,7 +256,7 @@ async fn plaintext_cache() -> VortexResult<()> {
         let cached = cache
             .segments
             .lock()
-            .get(&SegmentId::from(0))
+            .get(&SegmentId::from(cache_id))
             .cloned()
             .vortex_expect("segment 0 cached");
         (ciphertext, cached)
@@ -263,16 +264,58 @@ async fn plaintext_cache() -> VortexResult<()> {
 
     let (file, cache) = open_with_cache(bytes.clone(), decryption()).await?;
     assert_reads_all(&file).await?;
-    let (ciphertext, cached) = cached_data_segment(&file, &cache);
+    let (ciphertext, cached) = cached_data_segment(&file, &cache, 0);
     assert_eq!(cached.as_slice(), ciphertext.as_slice());
 
     let (file, cache) = open_with_cache(bytes.clone(), decryption().with_plaintext_cache()).await?;
     assert_reads_all(&file).await?;
-    let (ciphertext, cached) = cached_data_segment(&file, &cache);
+    let (ciphertext, cached) = cached_data_segment(&file, &cache, 1 << 31);
     assert_eq!(cached.len() + NONCE_TAG_LEN, ciphertext.len());
     assert_ne!(cached.as_slice(), &ciphertext[..cached.len()]);
     // A second scan is served from the plaintext cache.
     assert_reads_all(&file).await
+}
+
+/// A file that opens again with its footer and the same cache, but with the other cache mode,
+/// must not read the entries of the first open as its own.
+#[rstest]
+#[case::ciphertext_then_plaintext(false)]
+#[case::plaintext_then_ciphertext(true)]
+#[tokio::test]
+async fn cache_mode_change_on_reopen(#[case] first_plaintext: bool) -> VortexResult<()> {
+    let bytes = write(Some(FileEncryption::new(footer_key()))).await?;
+    let cache: Arc<dyn SegmentCache> = Arc::new(RecordingCache::default());
+    let with_mode = |plaintext: bool| {
+        let decryption = decryption();
+        if plaintext {
+            decryption.with_plaintext_cache()
+        } else {
+            decryption
+        }
+    };
+
+    let first = SESSION
+        .open_options()
+        .include_metadata()
+        .with_decryption(with_mode(first_plaintext))
+        .with_segment_cache(Arc::clone(&cache))
+        .open_read(bytes.clone())
+        .await?;
+    assert_reads_all(&first).await?;
+
+    let second = SESSION
+        .open_options()
+        .include_metadata()
+        .with_footer(first.footer().clone())
+        .with_decryption(with_mode(!first_plaintext))
+        .with_segment_cache(cache)
+        .open_read(bytes)
+        .await?;
+    assert_eq!(
+        second.metadata_segment("meta").map(ByteBuffer::as_slice),
+        Some(SECRET.as_bytes())
+    );
+    assert_reads_all(&second).await
 }
 
 #[tokio::test]

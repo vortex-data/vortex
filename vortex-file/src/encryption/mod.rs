@@ -312,6 +312,10 @@ impl FileDecryption {
     /// to see every key's data, such as one configured with
     /// [`VortexOpenOptions::with_segment_cache`](crate::VortexOpenOptions::with_segment_cache)
     /// for a single file.
+    ///
+    /// The plaintext entries do not use the keys of the ciphertext entries, so opens of the same
+    /// file with and without this option can share a cache. For a plaintext entry, the cache gets
+    /// the segment id with its top bit set.
     pub fn with_plaintext_cache(mut self) -> Self {
         self.cache_plaintext = true;
         self

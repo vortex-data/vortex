@@ -40,6 +40,7 @@ use crate::segments::BufferSegmentSource;
 use crate::segments::DecryptingSegmentSource;
 use crate::segments::FileSegmentSource;
 use crate::segments::InitialReadSegmentCache;
+use crate::segments::PlaintextSegmentCache;
 use crate::segments::RequestMetrics;
 
 const INITIAL_READ_SIZE: usize = MAX_POSTSCRIPT_SIZE as usize + EOF_SIZE;
@@ -355,6 +356,14 @@ impl VortexOpenOptions {
         } else {
             None
         };
+        // A plaintext cache keeps its entries apart from the ciphertext entries, because opens of
+        // the same file with the other cache mode can share the cache.
+        let segment_cache: Arc<dyn SegmentCache> = if decrypting.is_some() {
+            Arc::new(PlaintextSegmentCache::new(segment_cache))
+        } else {
+            segment_cache
+        };
+
         let (file_source, initial_segments) = match decrypting {
             Some(decrypting) => {
                 let mut decrypted = HashMap::with_capacity(initial_segments.len());
