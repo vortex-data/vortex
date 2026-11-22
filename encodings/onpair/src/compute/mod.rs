@@ -8,3 +8,4 @@ mod filter;
 mod like;
 mod slice;
 mod take;
+pub(crate) mod uncompressed_size_in_bytes;
