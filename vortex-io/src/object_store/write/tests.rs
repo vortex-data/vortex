@@ -236,7 +236,7 @@ mod multipart_lifecycle_tests {
                 tokio::time::sleep(Duration::from_millis(1)).await;
             }
             self.counters.abort_calls.fetch_add(1, Ordering::SeqCst);
-            self.counters.abort_notify.notify_waiters();
+            self.counters.abort_notify.notify_one();
             if self.behavior.fail_abort {
                 return Err(object_store::Error::Generic {
                     store: "test",
@@ -258,8 +258,13 @@ mod multipart_lifecycle_tests {
 
     async fn wait_for_abort(counters: &UploadCounters) {
         timeout(Duration::from_secs(2), async {
-            while counters.abort_calls.load(Ordering::SeqCst) == 0 {
-                counters.abort_notify.notified().await;
+            loop {
+                let mut notified = std::pin::pin!(counters.abort_notify.notified());
+                notified.as_mut().enable();
+                if counters.abort_calls.load(Ordering::SeqCst) > 0 {
+                    break;
+                }
+                notified.await;
             }
         })
         .await
