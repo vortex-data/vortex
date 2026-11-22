@@ -233,6 +233,10 @@ fn with_max_active_mid_scan_preserves_live_slots(
     loop {
         match scan.step()? {
             Turn::Read(read) => {
+                if resized_once && resized < initial {
+                    // With the limit lowered, the last split starts only once the others finish.
+                    assert!(by_split[..3].iter().all(|arrays| arrays.len() == 3));
+                }
                 inflight.push(read);
                 if !resize_on_output && !resized_once && inflight.len() >= initial {
                     scan = scan.with_max_active(resized);
@@ -257,6 +261,89 @@ fn with_max_active_mid_scan_preserves_live_slots(
     for (split, rows) in [(0, 0..3), (1, 3..6), (2, 6..9), (3, 9..12)] {
         assert_rows(indices(rows), std::mem::take(&mut by_split[split]))?;
     }
+    Ok(())
+}
+
+/// Emits one batch and immediately requests a segment in the same pipeline run so `Scan::step`
+/// returns `Turn::Read` while `core.dirty` still holds the slot's output notification.
+struct EmitThenRead {
+    stage: u8,
+}
+
+impl Source for EmitThenRead {
+    fn ready(&mut self, cx: &mut Cx<'_>) -> VortexResult<SourceReady> {
+        match self.stage {
+            0 | 3 => Ok(SourceReady::Ready),
+            1 => {
+                self.stage = 2;
+                cx.request_read(SegmentId::from(1));
+                Ok(SourceReady::Blocked(SourceBlocked::Io))
+            }
+            _ => Ok(if cx.has_bytes() {
+                SourceReady::Ready
+            } else {
+                SourceReady::Blocked(SourceBlocked::Io)
+            }),
+        }
+    }
+}
+
+impl Operator for EmitThenRead {
+    fn compute(&mut self, _input: Input, cx: &mut Cx<'_>) -> VortexResult<Step> {
+        match self.stage {
+            0 => {
+                self.stage = 1;
+                Ok(Step::Final(indices([0])))
+            }
+            2 => {
+                drop(
+                    cx.take_segment()
+                        .ok_or_else(|| vortex_err!("expected delivered segment"))?,
+                );
+                self.stage = 3;
+                Ok(Step::Final(indices([1])))
+            }
+            _ => Ok(Step::End),
+        }
+    }
+}
+
+/// Growing `with_max_active` when `Scan::step` returns `Turn::Read` with a queued output
+/// notification preserves `core.dirty` so the buffered output is emitted before waiting on IO.
+#[test]
+fn with_max_active_grow_on_read_preserves_dirty_notification() -> VortexResult<()> {
+    let plan = SyntheticPlan::new(row_dtype(), 2, Vec::new(), |_, _, _| {
+        Ok(Some(Chain::new(EmitThenRead { stage: 0 })))
+    })
+    .into_plan();
+    let mut scan = Scan::try_new(SESSION.clone(), plan, vec![Split::all(0..2)])?.with_max_active(1);
+    let mut inflight = Vec::new();
+    let mut arrays = Vec::new();
+    let mut resized = false;
+    loop {
+        match scan.step()? {
+            Turn::Read(read) => {
+                inflight.push(read);
+                if !resized {
+                    scan = scan.with_max_active(3);
+                    resized = true;
+                }
+            }
+            Turn::Output(_, array) => arrays.push(array),
+            Turn::Waiting => {
+                assert_eq!(
+                    arrays.len(),
+                    1,
+                    "buffered output notification must survive growing max_active on Turn::Read"
+                );
+                let read: ReadRequest = inflight.remove(0);
+                scan.deliver(read.id, empty_segment())?;
+            }
+            Turn::Done => break,
+        }
+    }
+    assert!(resized, "test did not reach mid-scan grow on Turn::Read");
+    assert_rows(indices(0..2), arrays)?;
     Ok(())
 }
 
