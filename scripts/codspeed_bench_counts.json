@@ -79,7 +79,8 @@
     "varbinview_try_new": 6,
     "varbinview_zip": 2,
     "widen": 17,
-    "widen_decimal": 9
+    "widen_decimal": 9,
+    "zip_dtypes": 9
   },
   "vortex-arrow": {
     "to_arrow": 131
