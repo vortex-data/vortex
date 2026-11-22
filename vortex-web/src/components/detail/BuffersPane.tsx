@@ -47,14 +47,12 @@ export function BuffersPane({ node }: BuffersPaneProps) {
 
   // Auto-select first buffer when node changes and invalidate in-flight reads on cleanup.
   useEffect(() => {
-    requestIdRef.current++;
     setBufferData(null);
     setError(null);
     if (bufferLengths.length > 0) {
       loadBuffer(0);
     } else {
       setSelectedBuffer(null);
-      setLoading(false);
     }
     return () => {
       requestIdRef.current++;
