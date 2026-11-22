@@ -265,12 +265,6 @@ scheme if any wire ID that the scheme declares is not allowed. Child arrays go t
 compressor. The writer still checks every serialized ID, so a forbidden ID in any child fails the
 write.
 
-Under default configuration, the default session enables only the newest frozen `core` edition, so
-the default compressor emits only `core` formats. Schemes that produce draft or optional wire IDs
-are used only when the caller enables an edition that permits them or disables edition checks. As a
-policy, any format that the default compressor is expected to emit by default must move into a
-frozen `core` edition (see [Frozen `core` editions](editions.md#frozen-core-editions)).
-
 A scheme can have variants that write different wire IDs. The compressor picks the variant from the
 allowed wire IDs, so callers do not choose it directly. For example, the decimal scheme uses its v2
 variant, which splits values too wide for one 64-bit child into several children, only when
