@@ -19,6 +19,8 @@ use vortex_error::VortexResult;
 
 use crate::IoBuf;
 use crate::VortexWrite;
+#[cfg(not(target_arch = "wasm32"))]
+use crate::compat::Compat;
 
 /// Adapter type to write data through a [`ObjectStore`] instance.
 ///
@@ -100,10 +102,10 @@ impl ObjectStoreWrite {
         #[cfg(not(target_arch = "wasm32"))]
         {
             let (tx, rx) = oneshot::channel();
-            smol::spawn(async move {
+            smol::spawn(Compat::new(async move {
                 let res = upload.abort().await;
                 drop(tx.send(res));
-            })
+            }))
             .detach();
             match rx.await {
                 Ok(res) => res.map_err(io::Error::from),
@@ -132,6 +134,7 @@ impl ObjectStoreWrite {
 
     fn take_live_tokio_handle(&mut self) -> Option<tokio::runtime::Handle> {
         if let Ok(handle) = tokio::runtime::Handle::try_current()
+            && handle.runtime_flavor() == tokio::runtime::RuntimeFlavor::MultiThread
             && is_tokio_handle_alive(&handle)
         {
             self.cleanup_runtime = None;
@@ -164,7 +167,7 @@ impl ObjectStoreWrite {
 
         #[cfg(not(target_arch = "wasm32"))]
         {
-            smol::spawn(abort_future).detach();
+            smol::spawn(Compat::new(abort_future)).detach();
         }
 
         #[cfg(all(target_arch = "wasm32", feature = "wasm-bindgen"))]
@@ -1214,6 +1217,249 @@ mod tests {
 
             assert_eq!(counters.abort_calls.load(Ordering::SeqCst), 1);
             assert_eq!(counters.abort_completed.load(Ordering::SeqCst), 1);
+            Ok(())
+        }
+
+        #[test]
+        fn test_entered_idle_tokio_runtime_aborts_independently_on_local_fs() -> anyhow::Result<()>
+        {
+            let dir = tempdir()?;
+            let store: Arc<dyn ObjectStore> =
+                Arc::new(LocalFileSystem::new_with_prefix(dir.path())?);
+
+            let tokio_rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()?;
+            let (mut writer_for_abort, writer_for_drop) = tokio_rt.block_on(async {
+                let mut w1 = ObjectStoreWrite::new(
+                    Arc::clone(&store),
+                    &Path::from("entered-idle-abort.vortex"),
+                )
+                .await?;
+                w1.write_all(vec![1u8; 64]).await?;
+                let mut w2 = ObjectStoreWrite::new(
+                    Arc::clone(&store),
+                    &Path::from("entered-idle-drop.vortex"),
+                )
+                .await?;
+                w2.write_all(vec![2u8; 64]).await?;
+                anyhow::Ok((w1, w2))
+            })?;
+
+            // Keep the current-thread Tokio runtime alive and entered on this thread without
+            // driving its scheduler.
+            let _enter_guard = tokio_rt.enter();
+            assert_eq!(
+                std::fs::read_dir(dir.path())?.count(),
+                2,
+                "both local staging files should exist before cleanup"
+            );
+
+            let current_rt = CurrentThreadRuntime::new();
+            current_rt.block_on(async move {
+                writer_for_abort.abort().await?;
+                drop(writer_for_drop);
+
+                let deadline = std::time::Instant::now() + Duration::from_secs(2);
+                while std::fs::read_dir(dir.path())?.count() != 0 {
+                    assert!(
+                        std::time::Instant::now() < deadline,
+                        "local staging files were not removed while Tokio current-thread runtime was entered and idle"
+                    );
+                    smol::Timer::after(Duration::from_millis(5)).await;
+                }
+                anyhow::Ok(())
+            })?;
+
+            drop(_enter_guard);
+            drop(tokio_rt);
+            Ok(())
+        }
+
+        #[test]
+        fn test_tokio_io_dependent_abort_succeeds_on_smol_compat_fallback() -> anyhow::Result<()> {
+            use std::io::Read;
+            use std::io::Write;
+            use std::net::TcpListener;
+
+            use tokio::io::AsyncWriteExt;
+
+            struct TokioTcpAbortStore {
+                addr: std::net::SocketAddr,
+            }
+
+            impl fmt::Debug for TokioTcpAbortStore {
+                fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                    f.debug_struct("TokioTcpAbortStore").finish()
+                }
+            }
+
+            impl fmt::Display for TokioTcpAbortStore {
+                fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                    write!(f, "TokioTcpAbortStore")
+                }
+            }
+
+            #[async_trait]
+            impl ObjectStore for TokioTcpAbortStore {
+                async fn put_opts(
+                    &self,
+                    _location: &Path,
+                    _payload: PutPayload,
+                    _opts: PutOptions,
+                ) -> object_store::Result<PutResult> {
+                    unimplemented!()
+                }
+
+                async fn put_multipart_opts(
+                    &self,
+                    _location: &Path,
+                    _opts: PutMultipartOptions,
+                ) -> object_store::Result<Box<dyn MultipartUpload>> {
+                    Ok(Box::new(TokioTcpAbortUpload { addr: self.addr }))
+                }
+
+                async fn get_opts(
+                    &self,
+                    _location: &Path,
+                    _options: GetOptions,
+                ) -> object_store::Result<GetResult> {
+                    unimplemented!()
+                }
+
+                fn delete_stream(
+                    &self,
+                    _locations: BoxStream<'static, object_store::Result<Path>>,
+                ) -> BoxStream<'static, object_store::Result<Path>> {
+                    unimplemented!()
+                }
+
+                fn list(
+                    &self,
+                    _prefix: Option<&Path>,
+                ) -> BoxStream<'static, object_store::Result<ObjectMeta>> {
+                    unimplemented!()
+                }
+
+                async fn list_with_delimiter(
+                    &self,
+                    _prefix: Option<&Path>,
+                ) -> object_store::Result<ListResult> {
+                    unimplemented!()
+                }
+
+                async fn copy_opts(
+                    &self,
+                    _from: &Path,
+                    _to: &Path,
+                    _options: object_store::CopyOptions,
+                ) -> object_store::Result<()> {
+                    unimplemented!()
+                }
+            }
+
+            #[derive(Debug)]
+            struct TokioTcpAbortUpload {
+                addr: std::net::SocketAddr,
+            }
+
+            #[async_trait]
+            impl MultipartUpload for TokioTcpAbortUpload {
+                fn put_part(&mut self, _data: PutPayload) -> UploadPart {
+                    Box::pin(async { Ok(()) })
+                }
+
+                async fn complete(&mut self) -> object_store::Result<PutResult> {
+                    unimplemented!()
+                }
+
+                async fn abort(&mut self) -> object_store::Result<()> {
+                    // Uses Tokio's TCP reactor directly (panics if no Tokio reactor is active).
+                    let mut stream =
+                        tokio::net::TcpStream::connect(self.addr)
+                            .await
+                            .map_err(|source| object_store::Error::Generic {
+                                store: "TokioTcpAbortUpload",
+                                source: Box::new(source),
+                            })?;
+                    stream
+                        .write_all(b"DELETE /abort HTTP/1.1\r\n\r\n")
+                        .await
+                        .map_err(|source| object_store::Error::Generic {
+                            store: "TokioTcpAbortUpload",
+                            source: Box::new(source),
+                        })?;
+                    stream
+                        .shutdown()
+                        .await
+                        .map_err(|source| object_store::Error::Generic {
+                            store: "TokioTcpAbortUpload",
+                            source: Box::new(source),
+                        })?;
+                    Ok(())
+                }
+            }
+
+            let listener = TcpListener::bind("127.0.0.1:0")?;
+            let addr = listener.local_addr()?;
+            let received = Arc::new(AtomicUsize::new(0));
+            let received_server = Arc::clone(&received);
+            let server_thread = std::thread::spawn(move || {
+                for _ in 0..2 {
+                    if let Ok((mut conn, _)) = listener.accept() {
+                        let mut buf = [0u8; 64];
+                        let n = conn.read(&mut buf).unwrap_or(0);
+                        if std::str::from_utf8(&buf[..n])
+                            .unwrap_or("")
+                            .starts_with("DELETE ")
+                        {
+                            received_server.fetch_add(1, Ordering::SeqCst);
+                        }
+                        drop(conn.write_all(b"HTTP/1.1 204 No Content\r\n\r\n"));
+                    }
+                }
+            });
+
+            let store: Arc<dyn ObjectStore> = Arc::new(TokioTcpAbortStore { addr });
+            let tokio_rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()?;
+            let (mut writer_for_abort, writer_for_drop) = tokio_rt.block_on(async {
+                let mut w1 =
+                    ObjectStoreWrite::new(Arc::clone(&store), &Path::from("tokio-io-abort.vortex"))
+                        .await?;
+                w1.write_all(vec![1u8; 64]).await?;
+                let mut w2 =
+                    ObjectStoreWrite::new(Arc::clone(&store), &Path::from("tokio-io-drop.vortex"))
+                        .await?;
+                w2.write_all(vec![2u8; 64]).await?;
+                anyhow::Ok((w1, w2))
+            })?;
+
+            // Move both writers to Vortex's CurrentThreadRuntime while the originating Tokio
+            // current-thread runtime remains alive and idle.
+            let current_rt = CurrentThreadRuntime::new();
+            let received_client = Arc::clone(&received);
+            current_rt.block_on(async move {
+                writer_for_abort.abort().await?;
+                drop(writer_for_drop);
+                let deadline = std::time::Instant::now() + Duration::from_secs(2);
+                while received_client.load(Ordering::SeqCst) < 2 {
+                    assert!(
+                        std::time::Instant::now() < deadline,
+                        "expected 2 DELETE aborts via Compat Tokio reactor, got {}",
+                        received_client.load(Ordering::SeqCst)
+                    );
+                    smol::Timer::after(Duration::from_millis(5)).await;
+                }
+                anyhow::Ok(())
+            })?;
+
+            server_thread
+                .join()
+                .map_err(|_| anyhow::anyhow!("server thread panicked"))?;
+            assert_eq!(received.load(Ordering::SeqCst), 2);
+            drop(tokio_rt);
             Ok(())
         }
     }
