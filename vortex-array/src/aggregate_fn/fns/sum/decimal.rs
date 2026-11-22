@@ -84,7 +84,7 @@ where
     false
 }
 
-/// Sum values stored in at most 64 bits with the vectorized `i64` integer sums.
+/// Sum values stored in at most 32 bits with the vectorized `i64` integer sums.
 ///
 /// Returns `None` for wider values, or if the `i64` sum overflows, which a wider result type can
 /// still hold. The caller then sums the values in the result type.
@@ -93,8 +93,7 @@ fn sum_narrow_decimal(d: &DecimalArray, validity: Option<&BitBuffer>) -> Option<
         DecimalType::I8 => sum_narrow(&d.buffer::<i8>(), validity),
         DecimalType::I16 => sum_narrow(&d.buffer::<i16>(), validity),
         DecimalType::I32 => sum_narrow(&d.buffer::<i32>(), validity),
-        DecimalType::I64 => sum_narrow(&d.buffer::<i64>(), validity),
-        DecimalType::I128 | DecimalType::I256 => None,
+        DecimalType::I64 | DecimalType::I128 | DecimalType::I256 => None,
     }
 }
 
