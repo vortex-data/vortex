@@ -68,15 +68,7 @@ function App() {
       fileState
         ? {
             ...fileState,
-            fetchEncodingTree: (nodeId: string) =>
-              session.fetchEncodingTree(nodeId, activeGeneration),
-            previewData: (nodeId: string, rowLimit: number) =>
-              session.previewData(nodeId, rowLimit, activeGeneration),
-            expandArrayTree: (nodeId: string) => session.expandArrayTree(nodeId, activeGeneration),
-            fetchArrayBuffer: (layoutNodeId: string, arrayPath: string[], bufferIndex: number) =>
-              session.fetchArrayBuffer(layoutNodeId, arrayPath, bufferIndex, activeGeneration),
-            previewArrayData: (layoutNodeId: string, arrayPath: string[], rowLimit: number) =>
-              session.previewArrayData(layoutNodeId, arrayPath, rowLimit, activeGeneration),
+            ...session.getFileCallbacks(activeGeneration),
           }
         : null,
     [fileState, activeGeneration, session],

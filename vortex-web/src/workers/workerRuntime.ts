@@ -106,17 +106,17 @@ export function createVortexWorkerHandler(deps: WorkerRuntimeDeps) {
     generation: number,
     fn: (handle: VortexWorkerFileHandle) => Promise<T>,
   ): Promise<T> {
-    if (generation !== currentGeneration) {
-      throw new Error(STALE_GENERATION_ERROR);
-    }
     const entry = activeHandle;
-    if (!entry || entry.generation !== generation) {
-      throw new Error('No file open');
+    if (!entry) {
+      throw new Error(generation < currentGeneration ? STALE_GENERATION_ERROR : 'No file open');
+    }
+    if (entry.generation !== generation) {
+      throw new Error(STALE_GENERATION_ERROR);
     }
     entry.inFlight++;
     try {
       const result = await fn(entry.handle);
-      if (generation !== currentGeneration || entry.retired) {
+      if (entry.retired) {
         throw new Error(STALE_GENERATION_ERROR);
       }
       return result;
@@ -128,7 +128,7 @@ export function createVortexWorkerHandler(deps: WorkerRuntimeDeps) {
 
   return async function handleMessage(msg: WorkerRequest): Promise<void> {
     if (msg.type === 'close') {
-      if (msg.generation > currentGeneration) {
+      if (msg.generation >= currentGeneration) {
         currentGeneration = msg.generation;
         retireActiveHandle();
       }
@@ -143,7 +143,6 @@ export function createVortexWorkerHandler(deps: WorkerRuntimeDeps) {
           return;
         }
         currentGeneration = generation;
-        retireActiveHandle();
 
         if (!initialized) {
           await ensureInit();

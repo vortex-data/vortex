@@ -32,6 +32,22 @@ export interface ExplorerSessionSnapshot {
   error: string | null;
 }
 
+export interface ExplorerFileCallbacks {
+  fetchEncodingTree: (nodeId: string) => Promise<ArrayEncodingNode>;
+  previewData: (nodeId: string, rowLimit: number) => Promise<Uint8Array>;
+  expandArrayTree: (nodeId: string) => Promise<void>;
+  fetchArrayBuffer: (
+    layoutNodeId: string,
+    arrayPath: string[],
+    bufferIndex: number,
+  ) => Promise<Uint8Array>;
+  previewArrayData: (
+    layoutNodeId: string,
+    arrayPath: string[],
+    rowLimit: number,
+  ) => Promise<Uint8Array>;
+}
+
 /** Clone a tree, replacing the node at targetId with a modified version. */
 function cloneTreeWithUpdate(
   root: LayoutTreeNode,
@@ -58,9 +74,33 @@ export class ExplorerSession {
   };
   private listeners = new Set<() => void>();
   private worker: ExplorerWorkerClient;
+  private cachedCallbacksGen = -1;
+  private cachedCallbacks: ExplorerFileCallbacks | null = null;
 
   constructor(worker: ExplorerWorkerClient) {
     this.worker = worker;
+  }
+
+  /**
+   * Returns stable context callbacks bound to a single file generation so
+   * in-file state updates (like tree expansion) do not recreate callbacks
+   * and trigger consumer effects such as BuffersPane auto-selection.
+   */
+  getFileCallbacks(generation: number): ExplorerFileCallbacks {
+    if (this.cachedCallbacks && this.cachedCallbacksGen === generation) {
+      return this.cachedCallbacks;
+    }
+    this.cachedCallbacksGen = generation;
+    this.cachedCallbacks = {
+      fetchEncodingTree: (nodeId) => this.fetchEncodingTree(nodeId, generation),
+      previewData: (nodeId, rowLimit) => this.previewData(nodeId, rowLimit, generation),
+      expandArrayTree: (nodeId) => this.expandArrayTree(nodeId, generation),
+      fetchArrayBuffer: (layoutNodeId, arrayPath, bufferIndex) =>
+        this.fetchArrayBuffer(layoutNodeId, arrayPath, bufferIndex, generation),
+      previewArrayData: (layoutNodeId, arrayPath, rowLimit) =>
+        this.previewArrayData(layoutNodeId, arrayPath, rowLimit, generation),
+    };
+    return this.cachedCallbacks;
   }
 
   subscribe = (listener: () => void): (() => void) => {
@@ -102,6 +142,7 @@ export class ExplorerSession {
       });
     } catch (e) {
       if (this.generation !== gen) return;
+      this.worker.closeFile(gen);
       this.update({
         fileState: null,
         activeGeneration: 0,
@@ -152,11 +193,7 @@ export class ExplorerSession {
     nodeId: string,
     generation = this.snapshot.activeGeneration,
   ): Promise<void> {
-    if (
-      generation === 0 ||
-      this.generation !== generation ||
-      this.snapshot.activeGeneration !== generation
-    ) {
+    if (generation === 0 || this.snapshot.activeGeneration !== generation) {
       return;
     }
 
@@ -169,11 +206,7 @@ export class ExplorerSession {
     if (!arrayTree) return;
 
     const current = this.snapshot;
-    if (
-      this.generation !== generation ||
-      current.activeGeneration !== generation ||
-      !current.fileState
-    ) {
+    if (current.activeGeneration !== generation || !current.fileState) {
       return;
     }
 

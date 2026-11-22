@@ -291,4 +291,59 @@ describe('Explorer file generation and handle lifecycle (rank 18)', () => {
     session.closeFile();
     expect(handleA.freeCount).toBe(1);
   });
+
+  it('keeps the still-visible file readable while a replacement open is pending', async () => {
+    const openB = deferred<FakeHandle>();
+    const handleA = makeFakeHandle('file-a');
+    const handleB = makeFakeHandle('file-b');
+
+    const { session } = createHarness((file) =>
+      file.name === 'a.vortex' ? Promise.resolve(handleA) : openB.promise,
+    );
+
+    await session.openFile(new File(['a'], 'a.vortex'));
+    const genA = session.getSnapshot().activeGeneration;
+
+    // Start opening replacement file B without resolving it yet.
+    const pB = session.openFile(new File(['b'], 'b.vortex'));
+    await new Promise((r) => setTimeout(r, 0));
+
+    // File A is still visible in the UI, so reads against A must still succeed.
+    expect(session.getSnapshot().fileState?.fileName).toBe('a.vortex');
+    expect(handleA.freeCount).toBe(0);
+    const tree = await session.fetchEncodingTree('root', genA);
+    expect(tree.encoding).toBe('enc.file-a');
+
+    // Once B completes, A is retired and freed once, and B becomes active.
+    openB.resolve(handleB);
+    await pB;
+
+    expect(handleA.freeCount).toBe(1);
+    expect(handleB.freeCount).toBe(0);
+    expect(session.getSnapshot().fileState?.fileName).toBe('b.vortex');
+    await expect(session.fetchEncodingTree('root', genA)).rejects.toThrow('Stale file generation');
+  });
+
+  it('keeps file callbacks stable across in-file tree expansion so buffer selection is preserved', async () => {
+    const handleA = makeFakeHandle('file-a');
+    const { session } = createHarness(async () => handleA);
+
+    await session.openFile(new File(['a'], 'a.vortex'));
+    const genA = session.getSnapshot().activeGeneration;
+    const callbacksBefore = session.getFileCallbacks(genA);
+
+    // Simulate user selecting buffer 1, then expanding an unrelated node.
+    const buf1 = await callbacksBefore.fetchArrayBuffer('other', [], 1);
+    expect(buf1).toBeInstanceOf(Uint8Array);
+
+    await callbacksBefore.expandArrayTree('root');
+    expect(session.getSnapshot().fileState?.layoutTree.children.length).toBeGreaterThan(0);
+
+    // File generation is unchanged, so callback identities remain identical.
+    expect(session.getSnapshot().activeGeneration).toBe(genA);
+    const callbacksAfter = session.getFileCallbacks(session.getSnapshot().activeGeneration);
+    expect(callbacksAfter.fetchArrayBuffer).toBe(callbacksBefore.fetchArrayBuffer);
+    expect(callbacksAfter.fetchEncodingTree).toBe(callbacksBefore.fetchEncodingTree);
+    expect(callbacksAfter.expandArrayTree).toBe(callbacksBefore.expandArrayTree);
+  });
 });
