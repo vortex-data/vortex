@@ -176,13 +176,14 @@ impl VortexSession {
         Self(SharedSessionVars::default())
     }
 
-    /// Inserts a session variable of type `V`, replacing any existing variable of that type.
+    /// Inserts a session variable of type `V`, unconditionally replacing any existing variable of
+    /// that type.
     ///
-    /// This is the copy-on-write insert primitive behind [`with_some`](Self::with_some) and
-    /// [`get_mut`](SessionExt::get_mut); it is not public, so a variable can only enter the type-map
-    /// through those (or through a value inserted by [`get`](SessionExt::get) or
-    /// [`get_or_insert_with`](SessionExt::get_or_insert_with)). The mutation is applied in place to
-    /// the shared backing store, so it is visible through every clone.
+    /// [`SessionMut`](SessionMut) uses this copy-on-write primitive on drop, while
+    /// [`with_some`](Self::with_some) and [`get_or_insert_with`](SessionExt::get_or_insert_with)
+    /// use [`ArcSwapMap::insert_if_absent`](crate::arc_swap_map::ArcSwapMap::insert_if_absent) so
+    /// that a first registration cannot overwrite another. The mutation is applied in place to the
+    /// shared backing store, so it is visible through every clone.
     pub fn register<V: VortexSessionVar>(&self, var: V) {
         self.0.insert(TypeId::of::<V>(), Arc::new(var));
     }
@@ -540,32 +541,24 @@ mod tests {
                 (h_a.join().unwrap(), h_b.join().unwrap())
             });
 
-            match (res_a, res_b) {
-                (Ok(winner), Err(panic)) => {
-                    let msg = panic
-                        .downcast_ref::<String>()
-                        .map(String::as_str)
-                        .or_else(|| panic.downcast_ref::<&str>().copied())
-                        .unwrap_or("");
-                    assert!(msg.contains("already exists"), "unexpected panic: {msg}");
-                    assert_eq!(winner.get::<Counter>().count, 1);
-                    assert_eq!(session.get::<Counter>().count, 1);
+            let (winner, loser, expected) = match (res_a, res_b) {
+                (Ok(winner), Err(panic)) => (winner, panic, 1),
+                (Err(panic), Ok(winner)) => (winner, panic, 2),
+                (Ok(_), Ok(_)) => {
+                    panic!("both concurrent with_some calls succeeded for same type")
                 }
-                (Err(panic), Ok(winner)) => {
-                    let msg = panic
-                        .downcast_ref::<String>()
-                        .map(String::as_str)
-                        .or_else(|| panic.downcast_ref::<&str>().copied())
-                        .unwrap_or("");
-                    assert!(msg.contains("already exists"), "unexpected panic: {msg}");
-                    assert_eq!(winner.get::<Counter>().count, 2);
-                    assert_eq!(session.get::<Counter>().count, 2);
-                }
-                (Ok(_), Ok(_)) => panic!("both concurrent with_some calls succeeded for same type"),
                 (Err(_), Err(_)) => {
                     panic!("both concurrent with_some calls panicked for same type")
                 }
-            }
+            };
+            let msg = loser
+                .downcast_ref::<String>()
+                .map(String::as_str)
+                .or_else(|| loser.downcast_ref::<&str>().copied())
+                .unwrap_or("");
+            assert!(msg.contains("already exists"), "unexpected panic: {msg}");
+            assert_eq!(winner.get::<Counter>().count, expected);
+            assert_eq!(session.get::<Counter>().count, expected);
         }
     }
 
