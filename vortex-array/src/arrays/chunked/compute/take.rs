@@ -19,6 +19,7 @@ use crate::IntoArray;
 use crate::array::ArrayView;
 use crate::arrays::Chunked;
 use crate::arrays::ChunkedArray;
+use crate::arrays::FixedSizeList;
 use crate::arrays::FixedSizeListArray;
 use crate::arrays::PiecewiseSequence;
 use crate::arrays::PrimitiveArray;
@@ -30,6 +31,7 @@ use crate::arrays::piecewise_sequence::constant_unsigned_usize;
 use crate::arrays::piecewise_sequence::contiguous_runs;
 use crate::arrays::piecewise_sequence::maybe_contiguous_slices;
 use crate::arrays::primitive::PrimitiveArrayExt;
+use crate::arrays::struct_::StructArrayExt;
 use crate::builders::ArrayBuilder;
 use crate::builders::builder_with_capacity_in;
 use crate::builtins::ArrayBuiltins;
@@ -419,19 +421,38 @@ fn take_chunked_struct(
     // chunk to take a few rows of it. Only the chunks that the swizzle visits must be structs.
     match touched_chunks(array, indices, ctx)? {
         Some((chunks, indices)) => {
-            if !chunks.iter().all(|chunk| chunk.is::<Struct>()) {
+            if !chunks.iter().all(is_swizzle_ready_struct) {
                 return Ok(None);
             }
             take_swizzled::<StructArray>(chunks, indices, ctx).map(Some)
         }
         None => {
-            if !array.iter_chunks().all(|chunk| chunk.is::<Struct>()) {
+            if !array.iter_chunks().all(is_swizzle_ready_struct) {
                 return Ok(None);
             }
             let structs = array.as_ref().clone().execute::<StructArray>(ctx)?;
             structs.into_array().take(indices.clone()).map(Some)
         }
     }
+}
+
+/// Returns true if `chunk` is a struct whose fixed-size-list fields are all FSL-encoded.
+///
+/// The list take of the swizzled struct executes each chunk of a fixed-size-list field to a
+/// [`FixedSizeListArray`] before it selects rows. For another encoding, for example a dictionary,
+/// this decodes all rows of the chunk. The per-chunk take selects the rows first, for example only
+/// the dictionary codes, so these chunks use it.
+fn is_swizzle_ready_struct(chunk: &ArrayRef) -> bool {
+    let Some(struct_chunk) = chunk.as_opt::<Struct>() else {
+        return false;
+    };
+
+    struct_chunk
+        .struct_fields()
+        .fields()
+        .enumerate()
+        .filter(|(_, dtype)| matches!(dtype, DType::FixedSizeList(..)))
+        .all(|(idx, _)| struct_chunk.unmasked_field(idx).is::<FixedSizeList>())
 }
 
 /// Takes `indices` from `chunks` through one swizzled array of type `A`, or directly from the
@@ -808,6 +829,7 @@ mod tests {
     use crate::arrays::BoolArray;
     use crate::arrays::ChunkedArray;
     use crate::arrays::ConstantArray;
+    use crate::arrays::DictArray;
     use crate::arrays::FixedSizeListArray;
     use crate::arrays::PiecewiseSequenceArray;
     use crate::arrays::PrimitiveArray;
@@ -1510,6 +1532,74 @@ mod tests {
             buffer![3u64, 0, 5, 2].into_array(),
         ] {
             let result = chunked.take(indices.clone())?;
+            assert_arrays_eq!(result, flat.take(indices)?, &mut ctx);
+        }
+
+        Ok(())
+    }
+
+    /// A take from struct chunks with dictionary-encoded fixed-size-list fields does not swizzle
+    /// them. The swizzle would decode every dictionary code of the chunks that the take touches.
+    #[test]
+    fn test_take_chunked_struct_of_dict_fsl() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+
+        let struct_of_dict_fsl = |values: Vec<u64>, codes: Vec<u32>| -> VortexResult<ArrayRef> {
+            let values_len = values.len() / 2;
+            let values = FixedSizeListArray::try_new(
+                PrimitiveArray::from_iter(values).into_array(),
+                2,
+                Validity::NonNullable,
+                values_len,
+            )?;
+
+            let length = codes.len();
+            let tokens = DictArray::try_new(
+                PrimitiveArray::from_iter(codes).into_array(),
+                values.into_array(),
+            )?;
+
+            Ok(StructArray::try_new(
+                ["tokens"].into(),
+                vec![tokens.into_array()],
+                length,
+                Validity::NonNullable,
+            )?
+            .into_array())
+        };
+
+        let s0 = struct_of_dict_fsl(vec![0, 1, 2, 3], vec![1, 0, 1, 1])?;
+        let s1 = struct_of_dict_fsl(vec![10, 11, 12, 13, 14, 15], vec![2, 0, 1])?;
+        let s2 = struct_of_dict_fsl(vec![20, 21], vec![0, 0])?;
+        let dtype = s0.dtype().clone();
+        let chunked = ChunkedArray::try_new(vec![s0, s1, s2], dtype)?;
+
+        let tokens = FixedSizeListArray::try_new(
+            PrimitiveArray::from_iter([
+                2u64, 3, 0, 1, 2, 3, 2, 3, 14, 15, 10, 11, 12, 13, 20, 21, 20, 21,
+            ])
+            .into_array(),
+            2,
+            Validity::NonNullable,
+            9,
+        )?;
+        let flat = StructArray::try_new(
+            ["tokens"].into(),
+            vec![tokens.into_array()],
+            9,
+            Validity::NonNullable,
+        )?
+        .into_array();
+
+        for indices in [
+            buffer![0u64, 4].into_array(),
+            buffer![6u64, 1, 5].into_array(),
+            buffer![8u64, 0, 4].into_array(),
+        ] {
+            let swizzled = super::take_chunked_struct(chunked.as_view(), &indices, &mut ctx)?;
+            assert!(swizzled.is_none());
+
+            let result = chunked.clone().into_array().take(indices.clone())?;
             assert_arrays_eq!(result, flat.take(indices)?, &mut ctx);
         }
 
