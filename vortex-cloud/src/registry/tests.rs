@@ -324,6 +324,29 @@ fn test_azure_encoded_separators_keep_container_isolation() -> Result<(), Box<dy
     assert_eq!(path_b, Path::from("x.vortex"));
     assert!(!Arc::ptr_eq(&container_a_encoded, &container_b));
 
+    // Redundant `/` or leading `%2F` after the container name must still resolve on a cold registry.
+    let cold_double_slash =
+        Registry::with_vars([("AZURE_STORAGE_SKIP_SIGNATURE".into(), "true".into())]);
+    let (ds_store, ds_path) = cold_double_slash.resolve(&Url::parse(
+        "https://acct.blob.core.windows.net/container-a//dir/file.vortex",
+    )?)?;
+    assert_eq!(ds_path, Path::from("dir/file.vortex"));
+    let (ds_other, _) = cold_double_slash.resolve(&Url::parse(
+        "https://acct.blob.core.windows.net/container-b/file.vortex",
+    )?)?;
+    assert!(!Arc::ptr_eq(&ds_store, &ds_other));
+
+    let cold_encoded_slash =
+        Registry::with_vars([("AZURE_STORAGE_SKIP_SIGNATURE".into(), "true".into())]);
+    let (es_store, es_path) = cold_encoded_slash.resolve(&Url::parse(
+        "https://acct.blob.core.windows.net/container-a/%2Fdir/file.vortex",
+    )?)?;
+    assert_eq!(es_path, Path::from("dir/file.vortex"));
+    let (es_other, _) = cold_encoded_slash.resolve(&Url::parse(
+        "https://acct.blob.core.windows.net/container-b/file.vortex",
+    )?)?;
+    assert!(!Arc::ptr_eq(&es_store, &es_other));
+
     Ok(())
 }
 

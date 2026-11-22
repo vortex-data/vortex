@@ -235,8 +235,16 @@ impl Registry {
         }
 
         let (store, path) = parse_url_opts(to_resolve, self.env.normalized_vars())?;
-        let full = Path::from_url_path(to_resolve.path())?;
-        let depth = num_segments(full.as_ref()).saturating_sub(num_segments(path.as_ref()));
+        // Count decoded segments per non-empty raw segment so `//` or leading `%2F` after the
+        // container/bucket segment do not fail here when `parse_url_opts` accepted them.
+        let decoded_segments: usize = path_segments(to_resolve.path())
+            .map(|seg| {
+                Path::from_url_path(seg)
+                    .map(|p| num_segments(p.as_ref()))
+                    .unwrap_or(1)
+            })
+            .sum();
+        let depth = decoded_segments.saturating_sub(num_segments(path.as_ref()));
         Ok((Arc::from(store), depth))
     }
 }
