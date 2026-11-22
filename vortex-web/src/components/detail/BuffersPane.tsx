@@ -9,23 +9,30 @@ import { BufferSelectionController } from './bufferSelection';
 
 interface BuffersPaneProps {
   node: LayoutTreeNode;
+  controller?: BufferSelectionController;
 }
 
-export function BuffersPane({ node }: BuffersPaneProps) {
+export function BuffersPane({ node, controller: externalController }: BuffersPaneProps) {
   const { fetchArrayBuffer } = useVortexFile();
   const bufferLengths = node.bufferLengths ?? [];
 
   const controllerRef = useRef<BufferSelectionController | null>(null);
-  if (!controllerRef.current) {
+  if (!externalController && !controllerRef.current) {
     controllerRef.current = new BufferSelectionController(fetchArrayBuffer);
   }
-  const controller = controllerRef.current;
+  const controller = externalController ?? controllerRef.current!;
   controller.setFetchArrayBuffer(fetchArrayBuffer);
 
-  const { selectedBuffer, bufferData, loading, error } = useSyncExternalStore(
+  const snapshot = useSyncExternalStore(
     controller.subscribe,
     controller.getSnapshot,
+    controller.getSnapshot,
   );
+  const isCurrentNode = snapshot.nodeId === node.id;
+  const selectedBuffer = isCurrentNode ? snapshot.selectedBuffer : null;
+  const bufferData = isCurrentNode ? snapshot.bufferData : null;
+  const loading = isCurrentNode ? snapshot.loading : false;
+  const error = isCurrentNode ? snapshot.error : null;
 
   const bufferNames: string[] = bufferLengths.map((_, i) => node.bufferNames?.[i] ?? `buffer ${i}`);
 

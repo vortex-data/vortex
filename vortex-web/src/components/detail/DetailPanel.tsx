@@ -179,7 +179,7 @@ export function DetailPanel() {
           />
         )}
         {currentTab === 'buffers' && selection.selectedNode && (
-          <BuffersPane node={selection.selectedNode} />
+          <BuffersPane key={selection.selectedNode.id} node={selection.selectedNode} />
         )}
         {!selection.selectedNode && (
           <p className="vx-label x-empty">

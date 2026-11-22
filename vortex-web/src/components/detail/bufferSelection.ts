@@ -4,6 +4,7 @@
 import { parseArrayNodeId } from '../swimlane/utils';
 
 export interface BufferSelectionState {
+  nodeId: string | null;
   selectedBuffer: number | null;
   bufferData: Uint8Array | null;
   loading: boolean;
@@ -17,6 +18,7 @@ export type FetchArrayBufferFn = (
 ) => Promise<Uint8Array>;
 
 const INITIAL_STATE: BufferSelectionState = {
+  nodeId: null,
   selectedBuffer: null,
   bufferData: null,
   loading: false,
@@ -68,7 +70,13 @@ export class BufferSelectionController {
       return this.selectBuffer(0);
     }
     this.requestId += 1;
-    this.setSnapshot(INITIAL_STATE);
+    this.setSnapshot({
+      nodeId,
+      selectedBuffer: null,
+      bufferData: null,
+      loading: false,
+      error: null,
+    });
     return Promise.resolve();
   }
 
@@ -80,6 +88,7 @@ export class BufferSelectionController {
 
     const requestId = ++this.requestId;
     this.setSnapshot({
+      nodeId,
       selectedBuffer: index,
       bufferData: null,
       loading: true,
@@ -93,6 +102,7 @@ export class BufferSelectionController {
         return;
       }
       this.setSnapshot({
+        nodeId,
         selectedBuffer: index,
         bufferData: data,
         loading: false,
@@ -103,6 +113,7 @@ export class BufferSelectionController {
         return;
       }
       this.setSnapshot({
+        nodeId,
         selectedBuffer: index,
         bufferData: null,
         loading: false,
