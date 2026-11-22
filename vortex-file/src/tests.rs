@@ -459,7 +459,12 @@ async fn low_cardinality_decimal_uses_dict_layout(
                     .vortex_expect("value fits the precision")
             })
             .collect::<Buffer<T>>();
-        DecimalArray::new(values, decimal_dtype, validity)
+        DecimalArray::new(
+            values,
+            decimal_dtype,
+            validity,
+            &mut SESSION.create_execution_ctx(),
+        )
     });
     let array = StructArray::from_fields(&[("decimal", decimal.into_array())])?.into_array();
 

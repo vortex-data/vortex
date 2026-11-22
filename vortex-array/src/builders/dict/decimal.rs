@@ -193,7 +193,12 @@ mod tests {
                 .iter()
                 .map(|&v| <T as BigCast>::from(v).vortex_expect("test value fits"))
                 .collect::<Buffer<T>>();
-            DecimalArray::new(buffer, decimal_dtype, validity)
+            DecimalArray::new(
+                buffer,
+                decimal_dtype,
+                validity,
+                &mut SESSION.create_execution_ctx(),
+            )
         })
     }
 
@@ -263,12 +268,14 @@ mod tests {
             buffer![12i16, -7],
             DecimalDType::new(4, 2),
             Validity::NonNullable,
+            &mut ctx,
         )
         .into_array();
         let other = DecimalArray::new(
             buffer![12i16, 99],
             other_dtype,
             Validity::from(other_nullability),
+            &mut ctx,
         )
         .into_array();
         let mut encoder = dict_encoder_in(&first, &UNCONSTRAINED, ctx.allocator().clone());
@@ -304,6 +311,7 @@ mod tests {
             Buffer::copy_from([big + 1, -big, big + 1, big + 2]),
             DecimalDType::new(38, 0),
             Validity::NonNullable,
+            &mut ctx,
         )
         .into_array();
         let i256_array = DecimalArray::new(
@@ -315,6 +323,7 @@ mod tests {
             ]),
             DecimalDType::new(76, 0),
             Validity::NonNullable,
+            &mut ctx,
         )
         .into_array();
 

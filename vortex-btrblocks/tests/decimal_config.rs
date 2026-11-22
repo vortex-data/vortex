@@ -369,11 +369,13 @@ fn decimal_scheme_part_shapes(
     (0..4096usize).map(|i| [123_456_789_012_345i64, -7, 42][i % 3]).collect::<Buffer<_>>(),
     DecimalDType::new(18, 2),
     Validity::NonNullable,
+    &mut SESSION.create_execution_ctx(),
 ))]
 #[case::i128(DecimalArray::new(
     (0..4096usize).map(|i| [10i128.pow(37) + 1, -(10i128.pow(36)), 5][i % 3]).collect::<Buffer<_>>(),
     DecimalDType::new(38, 2),
     Validity::from_iter((0..4096).map(|i| i % 7 != 0)),
+    &mut SESSION.create_execution_ctx(),
 ))]
 #[case::i256(DecimalArray::new(
     (0..4096usize)
@@ -381,6 +383,7 @@ fn decimal_scheme_part_shapes(
         .collect::<Buffer<_>>(),
     DecimalDType::new(76, 2),
     Validity::NonNullable,
+    &mut SESSION.create_execution_ctx(),
 ))]
 fn low_cardinality_decimal_compresses_to_dict(
     #[case] input: DecimalArray,
@@ -408,6 +411,7 @@ fn high_cardinality_decimal_keeps_byte_parts() -> VortexResult<()> {
         (0..4096i64).map(|i| i * 7919).collect::<Buffer<_>>(),
         DecimalDType::new(18, 2),
         Validity::NonNullable,
+        &mut ctx,
     )
     .into_array();
     let compressed = BtrBlocksCompressorBuilder::from_session(&CORE_SESSION)
@@ -433,6 +437,7 @@ fn low_cardinality_decimal_without_dict_scheme_keeps_byte_parts() -> VortexResul
             .collect::<Buffer<_>>(),
         DecimalDType::new(18, 2),
         Validity::NonNullable,
+        &mut ctx,
     )
     .into_array();
     let compressed = BtrBlocksCompressorBuilder::from_session(&CORE_SESSION)
@@ -471,6 +476,7 @@ fn mostly_null_decimal_is_compressed(
             .collect::<Buffer<_>>(),
         DecimalDType::new(18, 2),
         Validity::from_iter(valid),
+        &mut SESSION.create_execution_ctx(),
     )
     .into_array();
 
@@ -505,6 +511,7 @@ fn many_distinct_wide_decimal_compresses_to_dict() -> VortexResult<()> {
             .collect::<Buffer<i128>>(),
         DecimalDType::new(38, 0),
         Validity::NonNullable,
+        &mut ctx,
     )
     .into_array();
     let compressed = BtrBlocksCompressorBuilder::from_session(&CORE_SESSION)

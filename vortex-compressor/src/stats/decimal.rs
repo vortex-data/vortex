@@ -244,21 +244,25 @@ mod tests {
         buffer![5i64, 7, 5, 9, 7],
         DecimalDType::new(18, 2),
         Validity::NonNullable,
+        &mut SESSION.create_execution_ctx(),
     ), 5, 0, 3)]
     #[case::i128_with_nulls(DecimalArray::new(
         buffer![1i128 << 100, 3, 1i128 << 100, 4, 3],
         DecimalDType::new(38, 2),
         Validity::from_iter([true, true, true, false, false]),
+        &mut SESSION.create_execution_ctx(),
     ), 3, 2, 2)]
     #[case::i256(DecimalArray::new(
         Buffer::copy_from([i256::from_parts(1, 1), i256::from_parts(1, 2), i256::from_parts(1, 1)]),
         DecimalDType::new(76, 0),
         Validity::NonNullable,
+        &mut SESSION.create_execution_ctx(),
     ), 3, 0, 2)]
     #[case::all_null(DecimalArray::new(
         buffer![1i32, 2],
         DecimalDType::new(9, 2),
         Validity::AllInvalid,
+        &mut SESSION.create_execution_ctx(),
     ), 0, 2, 0)]
     fn counts_distinct_valid_values(
         #[case] array: DecimalArray,
@@ -302,6 +306,7 @@ mod tests {
                         .collect::<Buffer<T>>(),
                     DecimalDType::new(T::MAX_PRECISION, 2),
                     validity(),
+                    &mut SESSION.create_execution_ctx(),
                 )
             })
         };
@@ -320,6 +325,7 @@ mod tests {
         buffer![1i64, 1, 1, 2, 2, 3, 3, 3],
         DecimalDType::new(18, 2),
         Validity::NonNullable,
+        &mut SESSION.create_execution_ctx(),
     ))]
     #[case::i256(DecimalArray::new(
         Buffer::copy_from(
@@ -327,11 +333,13 @@ mod tests {
         ),
         DecimalDType::new(76, 2),
         Validity::NonNullable,
+        &mut SESSION.create_execution_ctx(),
     ))]
     #[case::i128(DecimalArray::new(
         buffer![1i128, 1, 1, 2, 2, 3, 3, 3],
         DecimalDType::new(38, 2),
         Validity::NonNullable,
+        &mut SESSION.create_execution_ctx(),
     ))]
     fn counts_runs(#[case] array: DecimalArray) {
         let mut ctx = SESSION.create_execution_ctx();
@@ -346,11 +354,13 @@ mod tests {
         buffer![5i128, 7, 5],
         DecimalDType::new(38, 2),
         Validity::NonNullable,
+        &mut SESSION.create_execution_ctx(),
     ))]
     #[case::i256(DecimalArray::new(
         Buffer::copy_from([5, 7, 5].map(|v| i256::from_parts(v, 1))),
         DecimalDType::new(76, 2),
         Validity::NonNullable,
+        &mut SESSION.create_execution_ctx(),
     ))]
     fn skips_distinct_values_unless_requested(#[case] array: DecimalArray) {
         let mut ctx = SESSION.create_execution_ctx();

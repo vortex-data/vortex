@@ -185,6 +185,7 @@ mod tests {
             values.into_iter().collect::<Buffer<i128>>(),
             DecimalDType::new(38, 2),
             validity,
+            &mut SESSION.create_execution_ctx(),
         )
     }
 
