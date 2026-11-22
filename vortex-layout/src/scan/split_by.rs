@@ -62,6 +62,25 @@ impl Default for SplitBy {
 }
 
 impl SplitBy {
+    /// Validate that the split configuration uses a positive split size.
+    pub(crate) fn validate(&self) -> VortexResult<()> {
+        match *self {
+            SplitBy::Layout => Ok(()),
+            SplitBy::LayoutSubSplitting { max_rows } => {
+                NonZeroU64::new(max_rows).ok_or_else(|| {
+                    vortex_err!("SplitBy::LayoutSubSplitting requires a non-zero max_rows")
+                })?;
+                Ok(())
+            }
+            SplitBy::RowCount(n) => {
+                NonZeroUsize::new(n).ok_or_else(|| {
+                    vortex_err!("SplitBy::RowCount requires a non-zero row count")
+                })?;
+                Ok(())
+            }
+        }
+    }
+
     /// Compute the splits for the given layout.
     // TODO(ngates): remove this once layout readers are stream based.
     pub fn splits(

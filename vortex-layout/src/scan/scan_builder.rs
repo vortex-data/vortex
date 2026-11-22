@@ -382,6 +382,10 @@ impl<A: 'static + Send> ScanBuilder<A> {
         let bound_projection = self.projection;
         let bound_filter = self.filter.map(find_between).transpose()?;
 
+        // Validate split configuration before selecting the range strategy so empty row ranges
+        // and sparse selections fail consistently with full scans.
+        self.split_by.validate()?;
+
         // Compute the row splits of the scan.
         let splits =
             if let Some(ranges) = attempt_split_ranges(&self.selection, self.row_range.as_ref()) {
@@ -562,6 +566,7 @@ mod test {
     use vortex_array::expr::root;
     use vortex_array::scalar_fn::fns::between::BetweenOptions;
     use vortex_array::scalar_fn::fns::between::StrictComparison;
+    use vortex_buffer::Buffer;
     use vortex_error::VortexResult;
     use vortex_error::vortex_bail;
     use vortex_error::vortex_err;
@@ -569,6 +574,8 @@ mod test {
     use vortex_io::runtime::single::SingleThreadRuntime;
     use vortex_io::runtime::tokio::TokioRuntime;
     use vortex_mask::Mask;
+    use vortex_scan::selection::Selection;
+    use vortex_scan::strict_sorted_buffer::StrictSortedBuffer;
     use vortex_session::VortexSession;
 
     use super::ScanBuilder;
@@ -578,6 +585,7 @@ mod test {
     use crate::RowSplits;
     use crate::SplitRange;
     use crate::scan::limit::RowLimit;
+    use crate::scan::split_by::SplitBy;
     use crate::scan::test::SCAN_SESSION;
     use crate::scan::test::TestLayoutReader;
     use crate::scan::test::collect_scan_values;
@@ -1388,6 +1396,52 @@ mod test {
 
         assert_eq!(calls.load(Ordering::Relaxed), 1);
         assert_eq!(values.as_ref(), [1, 2]);
+
+        Ok(())
+    }
+
+    #[test]
+    fn prepare_rejects_zero_split_size_for_empty_range_and_sparse_selection() -> VortexResult<()> {
+        let runtime = SingleThreadRuntime::default();
+        let session = session_with_handle(runtime.handle());
+        let sparse_indices = StrictSortedBuffer::try_new(Buffer::from_iter([0u64, 2u64]))?;
+
+        for split_by in [
+            SplitBy::RowCount(0),
+            SplitBy::LayoutSubSplitting { max_rows: 0 },
+        ] {
+            let full_err = ScanBuilder::new(
+                session.clone(),
+                Arc::new(SplittingLayoutReader::new(Arc::new(AtomicUsize::new(0)))),
+            )
+            .with_split_by(split_by)
+            .prepare()
+            .err()
+            .expect("full scan should reject zero split size");
+
+            let empty_range_err = ScanBuilder::new(
+                session.clone(),
+                Arc::new(SplittingLayoutReader::new(Arc::new(AtomicUsize::new(0)))),
+            )
+            .with_row_range(0..0)
+            .with_split_by(split_by)
+            .prepare()
+            .err()
+            .expect("empty row range should reject zero split size");
+
+            let sparse_err = ScanBuilder::new(
+                session.clone(),
+                Arc::new(SplittingLayoutReader::new(Arc::new(AtomicUsize::new(0)))),
+            )
+            .with_selection(Selection::IncludeByIndex(sparse_indices.clone()))
+            .with_split_by(split_by)
+            .prepare()
+            .err()
+            .expect("sparse index selection should reject zero split size");
+
+            assert_eq!(empty_range_err.to_string(), full_err.to_string());
+            assert_eq!(sparse_err.to_string(), full_err.to_string());
+        }
 
         Ok(())
     }
