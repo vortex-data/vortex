@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::future::ready;
+use std::num::NonZeroUsize;
 use std::ops::Range;
 use std::sync::Arc;
 use std::sync::Weak;
@@ -51,6 +52,7 @@ use vortex::expr::Expression;
 use vortex::expr::and_collect;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::io::InstrumentedReadAt;
+use vortex::io::runtime::Handle;
 use vortex::io::session::RuntimeSessionExt;
 use vortex::layout::LayoutReader;
 use vortex::layout::scan::metrics::ScanMetrics;
@@ -514,20 +516,14 @@ impl FileOpener for VortexOpener {
                 {
                     builder = builder.with_selection(selection.clone());
                 }
-                // Scale per-scan concurrency by the number of DataFusion partitions by default.
-                let concurrency = scan_concurrency.unwrap_or_else(|| {
-                    get_available_parallelism()
-                        .unwrap_or(1)
-                        .div_ceil(partitions)
-                        .max(1)
-                });
                 let handle = vxf.session().handle();
                 // Lowering and planning a wide file is real CPU: it runs where compute runs.
                 let scan = handle
                     .spawn_cpu(move || builder.prepare())
                     .await
                     .map_err(|e| exec_datafusion_err!("Failed to plan Vortex scan: {e}"))?;
-                let driver = ScanDriver::new(handle, concurrency, has_output_ordering);
+                let driver =
+                    v2_scan_driver(handle, scan_concurrency, partitions, has_output_ordering);
                 Ok(driver.run_prepared(scan, map_batch))
             } else {
                 // Share V1 layout readers across partitions of the file.
@@ -845,6 +841,28 @@ fn split_midpoint_to_byte(split_range: &Range<u64>, row_count: u64, total_size: 
     let midpoint_byte = (u128::from(midpoint_row) * u128::from(total_size)) / u128::from(row_count);
 
     u64::try_from(midpoint_byte).vortex_expect("midpoint byte projection should fit into u64")
+}
+
+/// The driver of a V2 scan in one of `partitions` DataFusion partitions. An explicit
+/// `scan_concurrency` is per worker thread, as in V1. By default chunks run beside each other only
+/// as far as the engine's partitions leave cores idle: at one partition per core they run on the
+/// scan's own run.
+fn v2_scan_driver(
+    handle: Handle,
+    scan_concurrency: Option<usize>,
+    partitions: usize,
+    ordered: bool,
+) -> ScanDriver {
+    match scan_concurrency {
+        Some(concurrency) => ScanDriver::new(handle, concurrency, ordered),
+        None => {
+            let idle = get_available_parallelism()
+                .unwrap_or(1)
+                .div_ceil(partitions.max(1));
+            ScanDriver::new(handle, 1, ordered)
+                .with_max_in_flight(NonZeroUsize::new(idle).unwrap_or(NonZeroUsize::MIN))
+        }
+    }
 }
 
 #[cfg(test)]
@@ -2473,5 +2491,21 @@ mod tests {
             .await?;
         assert_eq!(actual.iter().map(RecordBatch::num_rows).sum::<usize>(), 0);
         Ok(())
+    }
+
+    /// By default, the V2 scans of all partitions together run about one chunk per core.
+    #[tokio::test]
+    async fn v2_default_concurrency_fills_only_idle_cores() {
+        let cores = get_available_parallelism().unwrap_or(1);
+        for partitions in [1, 2, cores, 2 * cores] {
+            let driver = v2_scan_driver(SESSION.handle(), None, partitions, false);
+            assert_eq!(
+                driver.in_flight(),
+                cores.div_ceil(partitions),
+                "{partitions} partitions on {cores} cores"
+            );
+        }
+        let explicit = v2_scan_driver(SESSION.handle(), Some(2), cores, false);
+        assert_eq!(explicit.in_flight(), 2 * cores);
     }
 }

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::num::NonZeroUsize;
 use std::sync::Arc;
 use std::thread;
 
@@ -21,6 +22,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_io::session::RuntimeSessionExt;
 use vortex_session::VortexSession;
+use vortex_utils::parallelism::get_available_parallelism;
 
 use super::ScanDriver;
 use crate::execution::cache::ScanCache;
@@ -105,4 +107,13 @@ async fn prepared_batches_are_mapped_off_the_polling_thread(
     assert_eq!(mapped_on.len(), batches.len());
     assert!(mapped_on.iter().all(|thread| *thread != polling));
     Ok(())
+}
+
+#[tokio::test]
+async fn max_in_flight_bounds_the_per_worker_limit() {
+    let cores = get_available_parallelism().unwrap_or(1);
+    let session = VortexSession::empty().with_tokio();
+    let driver = ScanDriver::new(session.handle(), 4, true);
+    assert_eq!(driver.in_flight(), 4 * cores);
+    assert_eq!(driver.with_max_in_flight(NonZeroUsize::MIN).in_flight(), 1);
 }

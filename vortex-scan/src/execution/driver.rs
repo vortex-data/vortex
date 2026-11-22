@@ -12,6 +12,7 @@
 //! produced the batch, beside the scan's other chunks.
 
 use std::future;
+use std::num::NonZeroUsize;
 use std::sync::Arc;
 use std::task::Poll;
 
@@ -42,6 +43,7 @@ use crate::prepare::ScanBuilder;
 pub struct ScanDriver {
     handle: Handle,
     concurrency: usize,
+    max_in_flight: Option<NonZeroUsize>,
     ordered: bool,
 }
 
@@ -54,8 +56,25 @@ impl ScanDriver {
         Self {
             handle,
             concurrency,
+            max_in_flight: None,
             ordered,
         }
+    }
+
+    /// Bounds the chunks in flight at once to `max` in all, whatever the per-worker concurrency
+    /// and the machine's core count.
+    pub fn with_max_in_flight(mut self, max: NonZeroUsize) -> Self {
+        self.max_in_flight = Some(max);
+        self
+    }
+
+    /// The most chunks this driver runs at once. At most one, they run inline on the root run.
+    pub fn in_flight(&self) -> usize {
+        let scaled = self
+            .concurrency
+            .saturating_mul(get_available_parallelism().unwrap_or(1));
+        self.max_in_flight
+            .map_or(scaled, |max| scaled.min(max.get()))
     }
 
     /// Prepares `builder` where compute runs, composes its planners, and streams their batches.
@@ -100,7 +119,7 @@ impl ScanDriver {
     ) -> BoxStream<'static, VortexResult<A>> {
         let scan = Arc::new(scan);
         let map_fn: MapFn<A> = Arc::new(map_fn);
-        let in_flight = self.concurrency * get_available_parallelism().unwrap_or(1);
+        let in_flight = self.in_flight();
         let inline = in_flight <= 1;
         let scope = WorkScope {
             file_ordinal: 0,
