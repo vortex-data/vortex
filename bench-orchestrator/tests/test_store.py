@@ -141,3 +141,32 @@ def test_empty_store_latest_fallback_excludes_partial_runs(tmp_path: Path, monke
     partial_meta = store.get_run(partial_id)
     assert partial_meta is not None
     assert partial_meta.partial is True
+
+
+def test_malformed_metadata_is_skipped_by_discovery_and_lookups(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _patch_store_env(monkeypatch)
+    store = ResultStore(base_dir=tmp_path / "runs")
+    config, build_config = _make_configs(label="good-run")
+
+    with store.create_run(config, build_config) as ctx:
+        valid_id = ctx.metadata.run_id
+        ctx.write_raw_json(json.dumps({"query": "q1", "value": 1}))
+
+    # Place a malformed metadata.json (JSON null) beside the valid run and remove the latest symlink.
+    bad_dir = store.base_dir / "2026-11-21T12-00-01_tpch_bad"
+    bad_dir.mkdir()
+    (bad_dir / "metadata.json").write_text("null\n", encoding="utf-8")
+    (store.base_dir / "latest").unlink()
+
+    runs = store.list_runs()
+    assert [r.run_id for r in runs] == [valid_id]
+
+    latest = store.get_run("latest")
+    assert latest is not None and latest.run_id == valid_id
+
+    by_label = store.get_run("good-run")
+    assert by_label is not None and by_label.run_id == valid_id
+
+    assert store.get_run(bad_dir.name) is None

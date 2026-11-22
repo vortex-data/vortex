@@ -64,6 +64,25 @@ def _get_env_triple() -> EnvTriple:
     )
 
 
+def _read_metadata(metadata_path: Path) -> RunMetadata | None:
+    """Read and validate a run metadata file, returning None if malformed."""
+    try:
+        with open(metadata_path) as f:
+            data = json.load(f)
+        if not isinstance(data, dict):
+            return None
+        metadata = RunMetadata.from_dict(data)
+    except (OSError, json.JSONDecodeError, KeyError, TypeError, ValueError, AttributeError):
+        return None
+    if (
+        not isinstance(metadata.run_id, str)
+        or not isinstance(metadata.benchmark, str)
+        or (metadata.label is not None and not isinstance(metadata.label, str))
+    ):
+        return None
+    return metadata
+
+
 class RunContext:
     """Context manager for writing results to a run."""
 
@@ -214,27 +233,24 @@ class ResultStore:
             if not metadata_path.exists():
                 continue
 
-            try:
-                with open(metadata_path) as f:
-                    data = json.load(f)
-                metadata = RunMetadata.from_dict(data)
-
-                # Apply filters
-                if benchmark and metadata.benchmark != benchmark:
-                    continue
-                if since and metadata.timestamp < since:
-                    continue
-
-                # Count results
-                results_path = run_dir / "results.jsonl"
-                result_count = 0
-                if results_path.exists():
-                    with open(results_path) as f:
-                        result_count = sum(1 for _ in f)
-
-                summaries.append(RunSummary.from_metadata(metadata, result_count))
-            except (json.JSONDecodeError, KeyError, ValueError):
+            metadata = _read_metadata(metadata_path)
+            if metadata is None:
                 continue
+
+            # Apply filters
+            if benchmark and metadata.benchmark != benchmark:
+                continue
+            if since and metadata.timestamp < since:
+                continue
+
+            # Count results
+            results_path = run_dir / "results.jsonl"
+            result_count = 0
+            if results_path.exists():
+                with open(results_path) as f:
+                    result_count = sum(1 for _ in f)
+
+            summaries.append(RunSummary.from_metadata(metadata, result_count))
 
         # Sort by timestamp descending
         summaries.sort(key=lambda s: s.timestamp, reverse=True)
@@ -261,8 +277,7 @@ class ResultStore:
         if run_dir.exists():
             metadata_path = run_dir / "metadata.json"
             if metadata_path.exists():
-                with open(metadata_path) as f:
-                    return RunMetadata.from_dict(json.load(f))
+                return _read_metadata(metadata_path)
 
         # Try to find by label
         if not self.base_dir.exists():
@@ -273,13 +288,9 @@ class ResultStore:
             metadata_path = run_dir / "metadata.json"
             if not metadata_path.exists():
                 continue
-            try:
-                with open(metadata_path) as f:
-                    data = json.load(f)
-                if data.get("label") == run_id_or_label:
-                    return RunMetadata.from_dict(data)
-            except (json.JSONDecodeError, KeyError, ValueError):
-                continue
+            metadata = _read_metadata(metadata_path)
+            if metadata is not None and metadata.label == run_id_or_label:
+                return metadata
 
         return None
 
