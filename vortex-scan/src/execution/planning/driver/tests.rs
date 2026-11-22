@@ -9,11 +9,19 @@ use std::task::Waker;
 use parking_lot::Mutex;
 use rstest::rstest;
 use vortex_array::assert_arrays_eq;
+use vortex_buffer::Alignment;
 use vortex_buffer::buffer;
 use vortex_error::VortexResult;
 use vortex_io::request::IoRequest;
+use vortex_io::segments::FileSegmentSource;
+use vortex_io::segments::RequestMetrics;
+use vortex_io::segments::SegmentLocation;
+use vortex_io::segments::SegmentSource;
+use vortex_metrics::DefaultMetricsRegistry;
 
 use super::*;
+use crate::execution::io::SegmentScanIo;
+use crate::execution::io::segment_ranges;
 use crate::execution::planning::tests::scripted::Log;
 use crate::execution::planning::tests::scripted::MorselStep;
 use crate::execution::planning::tests::scripted::PlannerStep;
@@ -999,4 +1007,50 @@ fn single_session_driver_rejects_spawned_independent_root() {
         err.to_string().contains("Driver::with_service"),
         "unexpected error: {err}"
     );
+}
+
+#[test]
+fn service_driver_completes_file_segment_source_on_caller_runtime() -> VortexResult<()> {
+    let runtime = SingleThreadRuntime::default();
+    let locations: Arc<[SegmentLocation]> = Arc::from([
+        SegmentLocation {
+            offset: 0,
+            length: 4,
+            alignment: Alignment::none(),
+        },
+        SegmentLocation {
+            offset: 4,
+            length: 4,
+            alignment: Alignment::none(),
+        },
+    ]);
+    let data = buffer![0u8, 1, 2, 3, 4, 5, 6, 7].into_byte_buffer();
+    let metrics = DefaultMetricsRegistry::default();
+    let file_source: Arc<dyn SegmentSource> = Arc::new(FileSegmentSource::open(
+        Arc::clone(&locations),
+        data,
+        runtime.handle(),
+        RequestMetrics::new(&metrics, Vec::new()),
+    ));
+    let service: Arc<dyn IoService> =
+        Arc::new(SegmentScanIo::new(file_source, segment_ranges(&locations)));
+    let driver = Driver::with_service(service).with_step_limit(1_000);
+
+    let log = Log::default();
+    let root = reading_root("single", &log, 0..2);
+    let batches = driver.run_on(&runtime, root)?;
+    assert_eq!(batches.len(), 1);
+    assert_eq!(batches[0].scope.rows, 0..2);
+
+    let child = reading_root("child", &log, 2..4);
+    let spawning = Box::new(SpawningRoot {
+        spawned: Some((scope(2..4), child)),
+        inner: reading_root("parent", &log, 0..2),
+    });
+    let batches = runtime.block_on(driver.run_async(spawning))?;
+    assert_eq!(batches.len(), 2);
+    let mut scopes: Vec<Range<u64>> = batches.into_iter().map(|b| b.scope.rows).collect();
+    scopes.sort_by_key(|r| r.start);
+    assert_eq!(scopes, vec![0..2, 2..4]);
+    Ok(())
 }

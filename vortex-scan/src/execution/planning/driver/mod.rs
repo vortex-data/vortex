@@ -557,7 +557,72 @@ impl Driver {
     /// Runs `root` and everything it spawns, returning batches in emission order. A planner
     /// spawned as independent runs as another root of the same run with its own IO session when
     /// constructed with [`Driver::with_service`].
+    ///
+    /// When `self` was created with [`Driver::with_service`] and the service schedules IO tasks
+    /// on a caller-owned [`SingleThreadRuntime`] (such as `FileSegmentSource`), use
+    /// [`Driver::run_on`] with that runtime or [`Driver::run_async`] on it so those tasks make
+    /// progress.
     pub fn run(&self, root: Box<dyn Planner>) -> VortexResult<Vec<Batch>> {
+        match &self.io {
+            DriverIo::Single(_) => self.run_single(root),
+            DriverIo::Service(_) => self.run_on(&SingleThreadRuntime::default(), root),
+        }
+    }
+
+    /// Runs `root` on `runtime`, returning batches in emission order.
+    ///
+    /// Prefer this over [`Driver::run`] when [`Driver::with_service`] wraps an IO service whose
+    /// background tasks are spawned on `runtime`.
+    pub fn run_on<R: BlockingRuntime>(
+        &self,
+        runtime: &R,
+        root: Box<dyn Planner>,
+    ) -> VortexResult<Vec<Batch>> {
+        match &self.io {
+            DriverIo::Single(_) => self.run_single(root),
+            DriverIo::Service(_) => runtime.block_on(self.run_async(root)),
+        }
+    }
+
+    /// Drives `root` and every independent root it spawns asynchronously, polling completions
+    /// across all live IO sessions on the caller's executor.
+    pub async fn run_async(&self, root: Box<dyn Planner>) -> VortexResult<Vec<Batch>> {
+        let mut run = self.start_run(root);
+        let mut batches = Vec::new();
+        loop {
+            match run.advance()? {
+                Progress::Batch(batch) => batches.push(batch),
+                Progress::Spawn(scope, child) => self.admit_spawn(&mut run, scope, child)?,
+                Progress::RootDone(_) if run.live_roots() > 0 => {}
+                Progress::RootDone(_) | Progress::Idle => return Ok(batches),
+                Progress::Waiting => match &self.io {
+                    DriverIo::Single(io) => run.complete(io.wait()?)?,
+                    DriverIo::Service(_) => {
+                        futures::future::poll_fn(|cx| run.poll_completion(cx)).await?;
+                    }
+                },
+            }
+        }
+    }
+
+    fn run_single(&self, root: Box<dyn Planner>) -> VortexResult<Vec<Batch>> {
+        let DriverIo::Single(io) = &self.io else {
+            unreachable!("run_single called on DriverIo::Service");
+        };
+        let mut run = self.start_run(root);
+        let mut batches = Vec::new();
+        loop {
+            match run.advance()? {
+                Progress::Batch(batch) => batches.push(batch),
+                Progress::Spawn(scope, child) => self.admit_spawn(&mut run, scope, child)?,
+                Progress::RootDone(_) if run.live_roots() > 0 => {}
+                Progress::RootDone(_) | Progress::Idle => return Ok(batches),
+                Progress::Waiting => run.complete(io.wait()?)?,
+            }
+        }
+    }
+
+    fn start_run(&self, root: Box<dyn Planner>) -> Run {
         let mut run = Run::new();
         run.step_limit = self.step_limit;
         let scope = WorkScope {
@@ -569,31 +634,24 @@ impl Driver {
             DriverIo::Service(service) => service.session(),
         };
         run.admit(root, scope, initial_io);
-        let mut batches = Vec::new();
-        let mut runtime: Option<SingleThreadRuntime> = None;
-        loop {
-            match run.advance()? {
-                Progress::Batch(batch) => batches.push(batch),
-                Progress::Spawn(scope, child) => match &self.io {
-                    DriverIo::Service(service) => {
-                        run.admit(child, scope, service.session());
-                    }
-                    DriverIo::Single(_) => vortex_bail!(
-                        "Driver::new cannot admit spawned independent roots on a shared IoSource; \
-                         use Driver::with_service with an IoService"
-                    ),
-                },
-                Progress::RootDone(_) if run.live_roots() > 0 => {}
-                Progress::RootDone(_) | Progress::Idle => return Ok(batches),
-                Progress::Waiting => match &self.io {
-                    DriverIo::Single(io) => run.complete(io.wait()?)?,
-                    DriverIo::Service(_) => {
-                        runtime
-                            .get_or_insert_with(SingleThreadRuntime::default)
-                            .block_on(futures::future::poll_fn(|cx| run.poll_completion(cx)))?;
-                    }
-                },
+        run
+    }
+
+    fn admit_spawn(
+        &self,
+        run: &mut Run,
+        scope: WorkScope,
+        child: Box<dyn Planner>,
+    ) -> VortexResult<()> {
+        match &self.io {
+            DriverIo::Service(service) => {
+                run.admit(child, scope, service.session());
+                Ok(())
             }
+            DriverIo::Single(_) => vortex_bail!(
+                "Driver::new cannot admit spawned independent roots on a shared IoSource; \
+                 use Driver::with_service with an IoService"
+            ),
         }
     }
 }
