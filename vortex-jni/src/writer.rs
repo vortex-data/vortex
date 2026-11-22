@@ -275,7 +275,13 @@ pub extern "system" fn Java_dev_vortex_jni_NativeWriter_create(
                 let mut write = CountingVortexWrite::new(object_write);
                 let bytes_written = write.counter();
                 let handle = session.handle().spawn(async move {
-                    let summary = write_options.write(&mut write, stream).await?;
+                    let summary = match write_options.write(&mut write, stream).await {
+                        Ok(summary) => summary,
+                        Err(err) => {
+                            drop(write.inner_mut().abort().await);
+                            return Err(err);
+                        }
+                    };
                     write.shutdown().await?;
                     Ok(summary)
                 });

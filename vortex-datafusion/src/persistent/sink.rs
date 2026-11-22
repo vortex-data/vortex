@@ -157,11 +157,23 @@ impl FileSink for VortexSink {
                     .await
                     .map_err(|e| exec_datafusion_err!("Failed to create ObjectStoreWrite: {e}"))?;
 
-                let summary = session
+                let summary = match session
                     .write_options()
                     .write(&mut object_writer, stream_adapter)
                     .await
-                    .map_err(|e| exec_datafusion_err!("Failed to write Vortex file: {e}"))?;
+                {
+                    Ok(summary) => summary,
+                    Err(e) => {
+                        if let Err(abort_err) = object_writer.abort().await {
+                            tracing::warn!(
+                                %abort_err,
+                                path = %path,
+                                "Failed to abort multipart upload after write error"
+                            );
+                        }
+                        return Err(exec_datafusion_err!("Failed to write Vortex file: {e}"));
+                    }
+                };
 
                 object_writer
                     .shutdown()
@@ -563,5 +575,216 @@ mod tests {
         │         EmptyExec         │
         └───────────────────────────┘
         ");
+    }
+
+    #[allow(clippy::unimplemented)]
+    mod abort_tests {
+        use std::fmt;
+        use std::sync::Arc;
+        use std::sync::atomic::AtomicUsize;
+        use std::sync::atomic::Ordering;
+        use std::time::Duration;
+
+        use datafusion::arrow::array::Int64Array;
+        use datafusion::execution::context::SessionContext;
+        use datafusion_datasource::ListingTableUrl;
+        use datafusion_physical_plan::stream::RecordBatchStreamAdapter;
+        use futures::stream::BoxStream;
+        use object_store::GetOptions;
+        use object_store::GetResult;
+        use object_store::ListResult;
+        use object_store::MultipartUpload;
+        use object_store::ObjectMeta;
+        use object_store::PutMultipartOptions;
+        use object_store::PutOptions;
+        use object_store::PutPayload;
+        use object_store::PutResult;
+        use object_store::UploadPart;
+        use tokio::sync::Notify;
+        use tokio::time::timeout;
+        use vortex::VortexSessionDefault;
+
+        use super::*;
+
+        #[derive(Default)]
+        struct Counters {
+            complete_calls: AtomicUsize,
+            abort_calls: AtomicUsize,
+            abort_notify: Notify,
+        }
+
+        struct RecordingStore {
+            counters: Arc<Counters>,
+        }
+
+        impl fmt::Debug for RecordingStore {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                f.debug_struct("RecordingStore").finish()
+            }
+        }
+
+        impl fmt::Display for RecordingStore {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                write!(f, "RecordingStore")
+            }
+        }
+
+        #[async_trait]
+        impl ObjectStore for RecordingStore {
+            async fn put_opts(
+                &self,
+                _location: &Path,
+                _payload: PutPayload,
+                _opts: PutOptions,
+            ) -> object_store::Result<PutResult> {
+                unimplemented!()
+            }
+
+            async fn put_multipart_opts(
+                &self,
+                _location: &Path,
+                _opts: PutMultipartOptions,
+            ) -> object_store::Result<Box<dyn MultipartUpload>> {
+                Ok(Box::new(RecordingUpload {
+                    counters: Arc::clone(&self.counters),
+                }))
+            }
+
+            async fn get_opts(
+                &self,
+                _location: &Path,
+                _options: GetOptions,
+            ) -> object_store::Result<GetResult> {
+                unimplemented!()
+            }
+
+            fn delete_stream(
+                &self,
+                _locations: BoxStream<'static, object_store::Result<Path>>,
+            ) -> BoxStream<'static, object_store::Result<Path>> {
+                unimplemented!()
+            }
+
+            fn list(
+                &self,
+                _prefix: Option<&Path>,
+            ) -> BoxStream<'static, object_store::Result<ObjectMeta>> {
+                unimplemented!()
+            }
+
+            async fn list_with_delimiter(
+                &self,
+                _prefix: Option<&Path>,
+            ) -> object_store::Result<ListResult> {
+                unimplemented!()
+            }
+
+            async fn copy_opts(
+                &self,
+                _from: &Path,
+                _to: &Path,
+                _options: object_store::CopyOptions,
+            ) -> object_store::Result<()> {
+                unimplemented!()
+            }
+        }
+
+        struct RecordingUpload {
+            counters: Arc<Counters>,
+        }
+
+        impl fmt::Debug for RecordingUpload {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                f.debug_struct("RecordingUpload").finish()
+            }
+        }
+
+        #[async_trait]
+        impl MultipartUpload for RecordingUpload {
+            fn put_part(&mut self, _data: PutPayload) -> UploadPart {
+                Box::pin(async { Ok(()) })
+            }
+
+            async fn complete(&mut self) -> object_store::Result<PutResult> {
+                self.counters.complete_calls.fetch_add(1, Ordering::SeqCst);
+                Ok(PutResult {
+                    e_tag: None,
+                    version: None,
+                })
+            }
+
+            async fn abort(&mut self) -> object_store::Result<()> {
+                self.counters.abort_calls.fetch_add(1, Ordering::SeqCst);
+                self.counters.abort_notify.notify_waiters();
+                Ok(())
+            }
+        }
+
+        #[tokio::test]
+        async fn test_sink_input_error_aborts_multipart_upload() -> DFResult<()> {
+            let counters = Arc::new(Counters::default());
+            let store: Arc<dyn ObjectStore> = Arc::new(RecordingStore {
+                counters: Arc::clone(&counters),
+            });
+
+            let session_ctx = SessionContext::new();
+            let store_url = ObjectStoreUrl::parse("test://bucket")?;
+            session_ctx
+                .runtime_env()
+                .register_object_store(store_url.as_ref(), store);
+
+            let schema = Arc::new(Schema::new(vec![Field::new("a", DataType::Int64, false)]));
+            let extra_col_schema = Arc::new(Schema::new(vec![
+                Field::new("a", DataType::Int64, false),
+                Field::new("b", DataType::Int64, false),
+            ]));
+            let bad_batch = RecordBatch::try_new(
+                extra_col_schema,
+                vec![
+                    Arc::new(Int64Array::from(vec![1, 2])),
+                    Arc::new(Int64Array::from(vec![3, 4])),
+                ],
+            )?;
+
+            let config = FileSinkConfig {
+                original_url: "test://bucket/out.vortex".to_owned(),
+                object_store_url: store_url,
+                file_group: FileGroup::new(Vec::new()),
+                table_paths: vec![ListingTableUrl::parse("test://bucket/out.vortex")?],
+                output_schema: Arc::clone(&schema),
+                table_partition_cols: Vec::new(),
+                insert_op: InsertOp::Overwrite,
+                keep_partition_by_columns: false,
+                file_extension: VORTEX_FILE_EXTENSION.to_owned(),
+                file_output_mode: FileOutputMode::SingleFile,
+            };
+
+            let sink = VortexSink::new(config, Arc::clone(&schema), VortexSession::default());
+
+            let stream: SendableRecordBatchStream = Box::pin(RecordBatchStreamAdapter::new(
+                Arc::clone(&schema),
+                futures::stream::iter(vec![Ok(bad_batch)]),
+            ));
+
+            let err = DataSink::write_all(&sink, stream, &session_ctx.task_ctx())
+                .await
+                .expect_err("null in non-nullable column must fail sink write before shutdown");
+            assert!(
+                err.to_string().contains("Failed to write Vortex file"),
+                "unexpected error: {err}"
+            );
+
+            timeout(Duration::from_secs(2), async {
+                while counters.abort_calls.load(Ordering::SeqCst) == 0 {
+                    counters.abort_notify.notified().await;
+                }
+            })
+            .await
+            .expect("input error before shutdown must abort multipart upload");
+
+            assert_eq!(counters.abort_calls.load(Ordering::SeqCst), 1);
+            assert_eq!(counters.complete_calls.load(Ordering::SeqCst), 0);
+            Ok(())
+        }
     }
 }

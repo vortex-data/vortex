@@ -261,10 +261,14 @@ pub fn write(
             match resolve_store(path, store.map(|x| x.into_inner()))? {
                 ResolvedStore::ObjectStore(store, path) => {
                     let mut store = ObjectStoreWrite::new(store, &path).await?;
-                    session
+                    if let Err(err) = session
                         .write_options()
                         .write(&mut store, iter.into_inner().into_array_stream())
-                        .await?;
+                        .await
+                    {
+                        drop(store.abort().await);
+                        return Err(err);
+                    }
                     store.shutdown().await?;
                     VortexResult::Ok(())
                 }
@@ -428,11 +432,15 @@ impl PyVortexWriteOptions {
                 match resolve_store(path, store.map(|x| x.into_inner()))? {
                     ResolvedStore::ObjectStore(store, path) => {
                         let mut store = ObjectStoreWrite::new(store, &path).await?;
-                        session
+                        if let Err(err) = session
                             .write_options()
                             .with_strategy(strategy)
                             .write(&mut store, iter.into_inner().into_array_stream())
-                            .await?;
+                            .await
+                        {
+                            drop(store.abort().await);
+                            return Err(err);
+                        }
                         store.shutdown().await?;
                         VortexResult::Ok(())
                     }

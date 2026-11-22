@@ -451,11 +451,18 @@ pub fn copy_to_initialize_global(
         let object_store = Arc::new(Compat::new(object_store)) as Arc<dyn ObjectStore>;
         handle.spawn(async move {
             let mut writer = ObjectStoreWrite::new(object_store, &path).await?;
-            let summary = SESSION
+            let summary = match SESSION
                 .write_options()
                 .include_nested_statistics()
                 .write(&mut writer, array_stream)
-                .await?;
+                .await
+            {
+                Ok(summary) => summary,
+                Err(err) => {
+                    drop(writer.abort().await);
+                    return Err(err);
+                }
+            };
             writer.shutdown().await?;
             Ok(summary)
         })
