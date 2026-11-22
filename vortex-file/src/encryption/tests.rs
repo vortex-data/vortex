@@ -794,18 +794,10 @@ async fn plaintext_footer_signature() -> VortexResult<()> {
     ))
     .await?;
 
-    // A wrong footer key fails verification, unless verification is disabled.
+    // A wrong footer key fails verification.
     let wrong_keys: Arc<dyn KeyRetriever> = Arc::new(EncryptionKey::from([0; 32]));
     let wrong = FileDecryption::new(wrong_keys);
-    expect_err(
-        open(bytes.clone(), Some(wrong.clone())),
-        "verify the signature",
-    );
-    let file = SESSION
-        .open_options()
-        .with_decryption(wrong.without_footer_verification())
-        .open_buffer(bytes.clone())?;
-    read_field(&file, "numbers").await?;
+    expect_err(open(bytes.clone(), Some(wrong)), "verify the signature");
 
     // A modified schema fails verification.
     let offset = bytes
@@ -902,14 +894,6 @@ async fn rejects_stripped_footer_signatures() -> VortexResult<()> {
     })?;
     expect_err(
         open(stripped.clone(), Some(decryption())),
-        "not protected by its footer key",
-    );
-    // Signature verification can be skipped, but not the protection itself.
-    expect_err(
-        open(
-            stripped.clone(),
-            Some(decryption().without_footer_verification()),
-        ),
         "not protected by its footer key",
     );
     // A reader without keys cannot tell, as for any plaintext footer it cannot verify.

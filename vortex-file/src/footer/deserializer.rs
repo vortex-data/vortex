@@ -107,20 +107,13 @@ impl FooterDeserializer {
         drop(join_all(specs.iter().map(|(spec, _)| self.resolver.cipher(spec))).await);
     }
 
-    /// Whether signed plaintext segments are verified.
-    fn verify(&self) -> bool {
-        self.resolver
-            .decryption()
-            .is_some_and(|decryption| decryption.verify_footer)
-    }
-
     /// The encryption specs of the footer segments that must be decrypted or verified, and
     /// whether the footer can be read without them.
     fn footer_specs(&self) -> Vec<(EncryptionSpec, bool)> {
         let Some(postscript) = &self.postscript else {
             return Vec::new();
         };
-        let verify = self.verify();
+        let verify = self.resolver.decryption().is_some();
         let dtype = self
             .dtype
             .is_none()
@@ -278,7 +271,6 @@ impl FooterDeserializer {
             initial_offset,
             initial_read: &self.buffer,
             resolver: &self.resolver,
-            verify: self.verify(),
         };
         let dtype = dtype_segment
             .map(|segment| {
@@ -559,8 +551,6 @@ struct InitialSegments<'a> {
     initial_offset: u64,
     initial_read: &'a [u8],
     resolver: &'a CipherResolver,
-    /// Whether to verify the signatures of signed plaintext segments.
-    verify: bool,
 }
 
 impl<'a> InitialSegments<'a> {
@@ -595,14 +585,14 @@ impl<'a> InitialSegments<'a> {
         if !segment.encryption.is_encrypted() {
             return Ok(SegmentBytes::Borrowed(bytes));
         }
-        if segment.signature.is_some() && !self.verify {
+        if let Some(signature) = &segment.signature {
+            if self.resolver.decryption().is_some() {
+                self.cipher(&segment.encryption)?
+                    .verify(role, bytes, signature)?;
+            }
             return Ok(SegmentBytes::Borrowed(bytes));
         }
         let cipher = self.cipher(&segment.encryption)?;
-        if let Some(signature) = &segment.signature {
-            cipher.verify(role, bytes, signature)?;
-            return Ok(SegmentBytes::Borrowed(bytes));
-        }
         let plaintext = cipher.decrypt(role, ByteBuffer::copy_from(bytes), segment.alignment)?;
         Ok(SegmentBytes::Decrypted(plaintext))
     }

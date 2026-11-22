@@ -367,12 +367,12 @@ impl FileEncryption {
     }
 
     /// Whether the footer is stored in plaintext and signed.
-    pub fn is_plaintext_footer(&self) -> bool {
+    pub(crate) fn is_plaintext_footer(&self) -> bool {
         self.plaintext_footer
     }
 
     /// Whether fields without a key of their own are stored in plaintext.
-    pub fn is_plaintext_fields(&self) -> bool {
+    pub(crate) fn is_plaintext_fields(&self) -> bool {
         self.plaintext_fields
     }
 
@@ -414,7 +414,6 @@ impl FileEncryption {
 pub struct FileDecryption {
     pub(crate) keys: Arc<dyn KeyRetriever>,
     pub(crate) aad_prefix: Option<Arc<[u8]>>,
-    pub(crate) verify_footer: bool,
     pub(crate) allow_plaintext_files: bool,
     pub(crate) cache_plaintext: bool,
     pub(crate) field_key_statistics: bool,
@@ -426,7 +425,6 @@ impl FileDecryption {
         Self {
             keys,
             aad_prefix: None,
-            verify_footer: true,
             allow_plaintext_files: false,
             cache_plaintext: false,
             field_key_statistics: true,
@@ -439,20 +437,6 @@ impl FileDecryption {
     /// reading fails for files without a prefix. A wrong prefix fails decryption.
     pub fn with_aad_prefix(mut self, aad_prefix: impl Into<Arc<[u8]>>) -> Self {
         self.aad_prefix = Some(aad_prefix.into());
-        self
-    }
-
-    /// Do not verify the signature of a plaintext footer.
-    ///
-    /// By default, the footer key of a file written with [`FileEncryption::with_plaintext_footer`]
-    /// is retrieved to verify that the footer was not modified.
-    ///
-    /// This removes the integrity protection of the whole file, not only of its schema and
-    /// statistics: the footer lists every segment and the encryption spec of each, so an
-    /// unverified footer can mark encrypted segments as plaintext, or point them at other keys
-    /// and at data of an attacker's choice. Decryption still keeps encrypted segments secret.
-    pub fn without_footer_verification(mut self) -> Self {
-        self.verify_footer = false;
         self
     }
 
@@ -512,7 +496,6 @@ impl Debug for FileDecryption {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.debug_struct("FileDecryption")
             .field("aad_prefix", &self.aad_prefix)
-            .field("verify_footer", &self.verify_footer)
             .field("allow_plaintext_files", &self.allow_plaintext_files)
             .field("cache_plaintext", &self.cache_plaintext)
             .field("field_key_statistics", &self.field_key_statistics)

@@ -144,8 +144,7 @@ its length is 0.
   `signature` of `nonce || tag`, computed with AES-GMAC over the segment's additional authenticated data, a `0xFF` byte,
   and the segment's bytes. Readers with the footer key verify the signatures. User metadata segments remain encrypted.
   The layout tree reveals the row count, and the number and sizes of the segments, of encrypted fields too, and the
-  footer lists every array encoding used in the file. Readers that skip the verification of the signatures lose the
-  integrity protection of the whole file, since the footer records the encryption of every segment.
+  footer lists every array encoding used in the file.
 
 ### Field keys
 
