@@ -1403,8 +1403,8 @@ fn filter_patches_with_mask<T: IntegerPType>(
         patch_count,
     );
 
-    // Bitmap membership beats repeated searches at moderate ratios. Extremely sparse masks
-    // still benefit from searching only the selected rows.
+    // Gallop when patches far outnumber selected rows or when cached mask indices are very
+    // sparse; otherwise intersect with the bitmap and rank only retained patches.
     if patch_count > true_count.saturating_mul(16) {
         gallop_patches_for_mask_indices(
             patch_indices,
@@ -2442,6 +2442,7 @@ mod test {
     #[case::no_overlap((0..500).collect(), (500..1000).step_by(50).collect())]
     #[case::no_overlap_sparse_patches((500..1000).step_by(100).collect(), (0..500).collect())]
     #[case::edges(vec![0, 1, 998, 999], vec![0, 999])]
+    #[case::sparse_cached_mask_late_match((0..1000).step_by(100).collect(), vec![3, 900])]
     #[case::all_patches_kept((0..1000).step_by(100).collect(), (0..1000).step_by(2).collect())]
     fn test_filter_matches_naive(
         #[case] patch_indices: Vec<usize>,
