@@ -215,6 +215,7 @@ impl Registry {
         // the whole URL path is the object key (depth 0).
         #[cfg(any(feature = "cos", feature = "goosefs", feature = "oss"))]
         if crate::opendal::supports_scheme(to_resolve.scheme()) {
+            Path::from_url_path(to_resolve.path())?;
             let store =
                 crate::opendal::make_opendal_store_with_env(to_resolve, &HashMap::new(), |key| {
                     self.env.lookup(key)

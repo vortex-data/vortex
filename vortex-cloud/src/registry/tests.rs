@@ -411,3 +411,25 @@ async fn test_resolved_key_reaches_the_object(
     );
     Ok(())
 }
+
+/// Cold resolution of an OpenDAL-backed URL must validate the URL path via `Path::from_url_path`
+/// before caching the store, so empty path segments (`a//b`) are rejected while valid paths
+/// (`a/b`) resolve normally.
+#[cfg(feature = "cos")]
+#[test]
+fn test_cos_cold_lookup_validates_url_path() -> Result<(), Box<dyn std::error::Error>> {
+    let vars = [(
+        "COS_ENDPOINT".to_string(),
+        "https://cos.ap-guangzhou.myqcloud.com".to_string(),
+    )];
+    let reg = Registry::with_vars(vars.clone());
+    assert!(
+        reg.resolve(&Url::parse("cos://bucket/a//b")?).is_err(),
+        "empty segment in cos://bucket/a//b must be rejected on cold lookup"
+    );
+
+    let fresh = Registry::with_vars(vars);
+    let (_store, path) = fresh.resolve(&Url::parse("cos://bucket/a/b")?)?;
+    assert_eq!(path, Path::from("a/b"));
+    Ok(())
+}
