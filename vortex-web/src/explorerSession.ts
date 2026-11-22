@@ -200,8 +200,11 @@ export class ExplorerSession {
     let arrayTree: ArrayEncodingNode;
     try {
       arrayTree = await this.worker.fetchEncodingTree(nodeId, generation);
-    } catch {
-      return;
+    } catch (e) {
+      if (this.snapshot.activeGeneration !== generation) {
+        return;
+      }
+      throw e;
     }
     if (!arrayTree) return;
 

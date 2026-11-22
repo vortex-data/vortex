@@ -128,7 +128,7 @@ function createHarness(openImpl: (file: File) => Promise<VortexWorkerFileHandle>
   return { client, session };
 }
 
-describe('Explorer file generation and handle lifecycle (rank 18)', () => {
+describe('Explorer file generation and handle lifecycle', () => {
   it('keeps the newer file active and disposes the stale handle once when an older open resolves late', async () => {
     const openA = deferred<FakeHandle>();
     const openB = deferred<FakeHandle>();
