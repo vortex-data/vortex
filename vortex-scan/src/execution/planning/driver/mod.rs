@@ -13,8 +13,9 @@
 //!
 //! A run never blocks: [`Run::advance`] returns [`Progress::Waiting`] when every live item waits
 //! for IO, and the caller decides how to wait, by awaiting [`Run::poll_completion`] or by handing
-//! a completion it took from a source to [`Run::complete`]. [`Driver::run`] is the blocking
-//! convenience for one root.
+//! a completion it took from a source to [`Run::complete`]. [`Driver`] provides blocking
+//! ([`Driver::run`], [`Driver::run_on`]) and async ([`Driver::run_async`]) entry points for
+//! driving an initial root and any independent roots it spawns.
 
 use std::collections::BTreeMap;
 use std::collections::VecDeque;
@@ -518,7 +519,8 @@ enum DriverIo {
     Service(Arc<dyn IoService>),
 }
 
-/// Drives one root to completion on the calling thread, blocking while it waits for IO.
+/// Drives an initial root and any independent roots it spawns to completion, via blocking or
+/// async entry points.
 pub struct Driver {
     io: DriverIo,
     step_limit: Option<usize>,
@@ -558,13 +560,12 @@ impl Driver {
     /// spawned as independent runs as another root of the same run with its own IO session when
     /// constructed with [`Driver::with_service`].
     ///
-    /// When `self` was created with [`Driver::with_service`] and the service schedules IO tasks
-    /// on a caller-owned [`SingleThreadRuntime`] (such as `FileSegmentSource`), use
-    /// [`Driver::run_on`] with that runtime or [`Driver::run_async`] on it so those tasks make
-    /// progress.
+    /// If the IO source does not implement blocking [`IoSource::wait`], or its reads run as tasks
+    /// on a caller-owned runtime (such as `FileSegmentSource`), use [`Driver::run_on`] with that
+    /// runtime or await [`Driver::run_async`].
     pub fn run(&self, root: Box<dyn Planner>) -> VortexResult<Vec<Batch>> {
         match &self.io {
-            DriverIo::Single(_) => self.run_single(root),
+            DriverIo::Single(io) => self.run_single(io, root),
             DriverIo::Service(_) => self.run_on(&SingleThreadRuntime::default(), root),
         }
     }
@@ -599,10 +600,11 @@ impl Driver {
         }
     }
 
-    fn run_single(&self, root: Box<dyn Planner>) -> VortexResult<Vec<Batch>> {
-        let DriverIo::Single(io) = &self.io else {
-            unreachable!("run_single called on DriverIo::Service");
-        };
+    fn run_single(
+        &self,
+        io: &Arc<dyn IoSource>,
+        root: Box<dyn Planner>,
+    ) -> VortexResult<Vec<Batch>> {
         let mut run = self.start_run(root);
         let mut batches = Vec::new();
         loop {
