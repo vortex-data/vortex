@@ -729,3 +729,11 @@ def test_integer_comparisons_are_unchanged() -> None:
     """The float rewrite must not alter the translation (or serialization) of other comparisons."""
     assert polars_to_vortex(pl.col("c") > 10000).serialize() == (ve.column("c") > 10000).serialize()
     assert polars_to_vortex(pl.col("c") == 0).serialize() == (ve.column("c") == 0).serialize()
+
+
+@pytest.mark.parametrize("members", [[0.0], [-0.0, 1.0], [float("nan"), 5.0]])
+def test_float_is_in_is_left_to_polars(float_files, members) -> None:
+    """``is_in`` compares like ``==``, so floats are left to Polars, which treats NaN as equal to NaN."""
+    df, vxf = float_files[64]
+    for predicate in (pl.col("x").is_in(members), ~pl.col("x").is_in(members)):
+        assert vxf.to_polars().filter(predicate).collect()["i"].to_list() == df.filter(predicate)["i"].to_list()

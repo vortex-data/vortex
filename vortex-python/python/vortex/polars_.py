@@ -315,8 +315,8 @@ def _polars_to_vortex(expr: dict[str, Any], scope: Array | None = None) -> ve.Ex
     raise NotImplementedError(f"Unsupported Polars expression: {expr}")
 
 
-_COMPARISONS = frozenset({"Eq", "NotEq", "Lt", "LtEq", "Gt", "GtEq"})
-_FLIPPED = {"Lt": "Gt", "LtEq": "GtEq", "Gt": "Lt", "GtEq": "LtEq"}
+# Each comparison, mapped to the one that holds with its operands swapped.
+_COMPARISONS = {"Eq": "Eq", "NotEq": "NotEq", "Lt": "Gt", "LtEq": "GtEq", "Gt": "Lt", "GtEq": "LtEq"}
 
 
 def _compare(op: str, left: dict[str, Any], right: dict[str, Any], scope: Array | None) -> ve.Expr:
@@ -324,41 +324,21 @@ def _compare(op: str, left: dict[str, Any], right: dict[str, Any], scope: Array 
 
     Polars treats ``-0.0 == 0.0`` and every NaN as the largest value. Vortex compares floats with a
     total order instead: ``-0.0 < 0.0``, and a NaN with its sign bit set sorts below every number.
-    The two disagree on exactly those values, and Polars does not re-apply a predicate that was
-    pushed into the scan, so a plain comparison silently returns the wrong rows.
-
-    A float compared with a literal is rewritten (see :func:`_float_vs_literal`). A comparison
-    between two float expressions cannot be rewritten simply, so it is left to Polars.
+    Polars does not re-apply a predicate that was pushed into the scan, so a plain comparison
+    silently returns the wrong rows. A float compared with a literal is rewritten; a comparison of
+    two float expressions is left to Polars.
     """
-    left_float, right_float = _float_literal(left), _float_literal(right)
+    if "Literal" in left:
+        left, right, op = right, left, _COMPARISONS[op]
     lhs, rhs = _polars_to_vortex(left, scope), _polars_to_vortex(right, scope)
 
-    if left_float is None and right_float is None:
-        if scope is not None and (_is_float(lhs, scope) or _is_float(rhs, scope)):
-            raise NotImplementedError("Comparison of two float expressions differs between Polars and Vortex")
-        return cast(ve.Expr, _OPS[op](lhs, rhs))
-    if left_float is not None and right_float is not None:
-        return cast(ve.Expr, _OPS[op](lhs, rhs))
-    if right_float is not None:
-        return _float_vs_literal(op, lhs, *right_float)
-    assert left_float is not None
-    return _float_vs_literal(_FLIPPED.get(op, op), rhs, *left_float)
-
-
-def _float_literal(node: dict[str, Any]) -> tuple[float | None, int] | None:
-    """``(value, bit width)`` if ``node`` is a float literal, else ``None``. NaN and inf have no value."""
-    scalar = node.get("Literal")
-    if not isinstance(scalar, dict):
-        return None
-    scalar = scalar.get("Scalar", scalar)
-    scalar = scalar.get("Dyn", scalar) if isinstance(scalar, dict) else scalar
-    if not isinstance(scalar, dict):
-        return None
-    for key, width in (("Float32", 32), ("Float64", 64), ("Float", 64)):
-        if key in scalar:
-            value = scalar[key]
-            return (float(value) if value is not None and math.isfinite(value) else None), width
-    return None
+    scalar = right.get("Literal", {}).get("Scalar", {})
+    width = 32 if "Float32" in scalar else 64 if "Float64" in scalar else None
+    if width is not None:
+        return _float_vs_literal(op, lhs, scalar[f"Float{width}"], width)
+    if scope is not None and "Literal" not in right and (_is_float(lhs, scope) or _is_float(rhs, scope)):
+        raise NotImplementedError("Comparison of two float expressions differs between Polars and Vortex")
+    return cast(ve.Expr, _OPS[op](lhs, rhs))
 
 
 def _is_float(expr: ve.Expr, scope: Array) -> bool:
@@ -369,31 +349,29 @@ def _is_float(expr: ve.Expr, scope: Array) -> bool:
 
 
 def _float_vs_literal(op: str, expr: ve.Expr, value: float | None, width: int) -> ve.Expr:
-    """``expr <op> value`` for a float ``expr`` and a finite float literal, with Polars' semantics.
+    """``expr <op> value`` for a float ``expr`` and a float literal, with Polars' semantics.
 
-    The zero literal is chosen so that Vortex's ordering of zeros matches IEEE (``==`` tests both
-    zeros), and the ordering operators handle NaN explicitly, because Vortex sorts a NaN whose sign
-    bit is set below every number. Nulls still propagate, so negating the result is safe.
+    Polars' order is Vortex's with ``-0.0`` merged into ``0.0``, and with a NaN whose sign bit is set
+    (the only value Vortex puts below ``-inf``) moved up beside the other NaNs. Nulls still
+    propagate, so negating the result is safe.
     """
     if value is None:
-        raise NotImplementedError("NaN or infinite float literals are left to Polars")
+        raise NotImplementedError("Polars serializes NaN and infinite literals as null")
 
     def literal(v: float) -> ve.Expr:
         return ve.literal(_dtype.float_(cast("Literal[32, 64]", width)), v)
 
-    zero = value == 0.0
-    nan = ve.is_nan(expr)
-    if op == "Eq":
-        return (expr == literal(0.0)) | (expr == literal(-0.0)) if zero else expr == literal(value)
-    if op == "NotEq":
-        return (expr != literal(0.0)) & (expr != literal(-0.0)) if zero else expr != literal(value)
-    if op == "Gt":
-        return (expr > literal(0.0 if zero else value)) | nan
-    if op == "GtEq":
-        return (expr >= literal(-0.0 if zero else value)) | nan
-    if op == "Lt":
-        return (expr < literal(-0.0 if zero else value)) & ~nan
-    return (expr <= literal(0.0 if zero else value)) & ~nan
+    if value == 0.0 and op in ("Eq", "NotEq"):
+        zero = ve.between(expr, literal(-0.0), literal(0.0))
+        return zero if op == "Eq" else ~zero
+    if value == 0.0:
+        value = 0.0 if op in ("Gt", "LtEq") else -0.0
+    compared = cast(ve.Expr, _OPS[op](expr, literal(value)))
+    if op in ("Gt", "GtEq"):
+        return compared | (expr < literal(-math.inf))
+    if op in ("Lt", "LtEq"):
+        return compared & (expr >= literal(-math.inf))
+    return compared
 
 
 def _is_in(needle: ve.Expr, members: dict[str, Any], *, nulls_equal: bool) -> ve.Expr:
@@ -405,6 +383,8 @@ def _is_in(needle: ve.Expr, members: dict[str, Any], *, nulls_equal: bool) -> ve
     a member exactly when the list holds a null.
     """
     values = _literal_list(members)
+    if pa.types.is_floating(values.type):
+        raise NotImplementedError("Polars and Vortex disagree on which floats are equal, see _compare")
     has_null = values.null_count > 0
     dtype = _dtype.list_(_dtype.DType.from_arrow(values.type))
     members_expr = ve.literal(dtype, values.to_pylist())

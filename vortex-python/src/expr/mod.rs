@@ -69,7 +69,6 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
     // Nullability
     m.add_function(wrap_pyfunction!(is_null, &m)?)?;
     m.add_function(wrap_pyfunction!(is_not_null, &m)?)?;
-    m.add_function(wrap_pyfunction!(is_nan, &m)?)?;
     m.add_function(wrap_pyfunction!(fill_null, &m)?)?;
 
     // Strings
@@ -858,26 +857,6 @@ pub fn is_null(child: PyIntoExpr) -> PyExpr {
 pub fn is_not_null(child: PyIntoExpr) -> PyExpr {
     PyExpr {
         inner: expr::is_not_null(child.into_inner()),
-    }
-}
-
-/// Checks which elements of a floating-point expression are NaN.
-///
-/// A NaN of either sign is NaN, which a comparison cannot tell you: Vortex compares floats with a
-/// total order in which a NaN with its sign bit set sorts below every number.
-///
-/// Parameters
-/// ----------
-/// child : :class:`vortex.Expr`
-///     A floating-point expression.
-///
-/// Returns
-/// -------
-/// :class:`vortex.Expr`
-#[pyfunction]
-pub fn is_nan(child: PyIntoExpr) -> PyExpr {
-    PyExpr {
-        inner: expr::is_nan(child.into_inner()),
     }
 }
 
