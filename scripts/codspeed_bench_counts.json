@@ -3,11 +3,14 @@
     "common_encoding_tree_throughput": 8,
     "pipeline": 0,
     "single_encoding_throughput": 28,
-    "take_union": 4
+    "take_union": 4,
+    "write_compression": 3
   },
   "vortex-alp": {
     "alp_compress": 36,
-    "alp_rd_take_chunked": 4
+    "alp_fsl_take": 2,
+    "alp_rd_take_chunked": 4,
+    "alp_slice_take": 2
   },
   "vortex-array": {
     "aggregate_grouped": 18,
@@ -25,7 +28,7 @@
     "compare_sorted": 3,
     "copy_to_canonical_width": 0,
     "dict_compare": 16,
-    "dict_compress": 25,
+    "dict_compress": 31,
     "dict_mask": 16,
     "dict_unreferenced_mask": 10,
     "expr_case_when": 28,
@@ -38,7 +41,7 @@
     "interleave": 18,
     "kleene_bool": 14,
     "like": 7,
-    "list_contains_set": 4,
+    "list_contains_set": 9,
     "list_length": 6,
     "list_sum": 11,
     "listview_builder_extend": 4,
@@ -67,7 +70,7 @@
     "take_chunked": 0,
     "take_filter": 32,
     "take_fsl": 12,
-    "take_patches": 39,
+    "take_patches": 43,
     "take_primitive": 25,
     "take_struct": 3,
     "take_varbin": 1,
@@ -77,7 +80,8 @@
     "varbinview_try_new": 6,
     "varbinview_zip": 2,
     "widen": 17,
-    "widen_decimal": 9
+    "widen_decimal": 9,
+    "zip_dtypes": 9
   },
   "vortex-arrow": {
     "to_arrow": 131
@@ -119,9 +123,10 @@
     "bitpack_compare": 2,
     "bitpack_compare_sweep": 56,
     "bitpacking_filter": 0,
-    "bitpacking_take": 40,
+    "bitpacking_take": 41,
     "canonicalize_bench": 14,
     "cast_bitpacked": 6,
+    "chunked_fsl_take": 2,
     "compute_between": 11,
     "delta_decode": 6,
     "for_decode": 0,

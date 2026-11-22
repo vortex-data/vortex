@@ -47,6 +47,7 @@ use vortex_array::assert_arrays_eq;
 use vortex_array::builders::MapBuilder;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::DecimalDType;
+use vortex_array::dtype::FieldMask;
 use vortex_array::dtype::FieldPath;
 use vortex_array::dtype::MapDType;
 use vortex_array::dtype::Nullability;
@@ -126,6 +127,7 @@ use vortex_session::VortexSession;
 use vortex_session::registry::Id;
 use vortex_zigzag::ZigZag;
 
+use crate::MAX_METADATA_SEGMENTS;
 use crate::MAX_POSTSCRIPT_SIZE;
 use crate::OpenOptionsSessionExt;
 use crate::V1_FOOTER_FBS_SIZE;
@@ -2868,6 +2870,123 @@ async fn test_file_metadata_roundtrip() -> VortexResult<()> {
     Ok(())
 }
 
+#[tokio::test]
+async fn test_file_metadata_added_at_finish() -> VortexResult<()> {
+    let dtype = DType::Struct(
+        StructFields::from_iter([("numbers", DType::from(PType::U32))]),
+        Nullability::NonNullable,
+    );
+
+    let mut buf = ByteBufferMut::empty();
+    let mut writer = SESSION
+        .write_options()
+        .with_metadata_segment("schema", ByteBuffer::copy_from(b"create"))
+        .with_metadata_segment("bloom", ByteBuffer::copy_from(b"placeholder"))
+        .writer(&mut buf, dtype);
+
+    writer
+        .push(
+            StructArray::from_fields(&[("numbers", buffer![1u32, 2, 3].into_array())])?
+                .into_array(),
+        )
+        .await?;
+
+    // The finish-time value replaces the create-time value for the same key.
+    let summary = writer
+        .finish_with_metadata([
+            ("bloom", ByteBuffer::copy_from(b"bloom-bits")),
+            ("min_key", ByteBuffer::copy_from(b"a")),
+        ])
+        .await?;
+    assert_eq!(summary.footer().metadata_segments().count(), 3);
+
+    let file = SESSION
+        .open_options()
+        .include_metadata()
+        .open_buffer(ByteBuffer::from(buf))?;
+    assert_eq!(file.row_count(), 3);
+    assert_eq!(file.metadata_segments().count(), 3);
+    assert_eq!(
+        file.metadata_segment("schema").map(ByteBuffer::as_slice),
+        Some(b"create".as_slice())
+    );
+    assert_eq!(
+        file.metadata_segment("bloom").map(ByteBuffer::as_slice),
+        Some(b"bloom-bits".as_slice())
+    );
+    assert_eq!(
+        file.metadata_segment("min_key").map(ByteBuffer::as_slice),
+        Some(b"a".as_slice())
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_deferred_metadata_with_stream_write() -> VortexResult<()> {
+    let array =
+        StructArray::from_fields(&[("numbers", buffer![1u32, 2, 3].into_array())])?.into_array();
+
+    let options = SESSION.write_options();
+    let deferred = options.deferred_metadata();
+
+    // The write reads the handle only after the input stream ends, so a stream can add segments
+    // while it produces chunks.
+    let stream = array.to_array_stream().map(move |chunk| {
+        deferred.insert("seen", ByteBuffer::copy_from(b"yes"));
+        chunk
+    });
+    let stream = ArrayStreamAdapter::new(array.dtype().clone(), stream);
+
+    let mut buf = ByteBufferMut::empty();
+    options.write(&mut buf, stream).await?;
+
+    let file = SESSION
+        .open_options()
+        .include_metadata()
+        .open_buffer(ByteBuffer::from(buf))?;
+    assert_eq!(
+        file.metadata_segment("seen").map(ByteBuffer::as_slice),
+        Some(b"yes".as_slice())
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_file_metadata_added_at_finish_is_validated() -> VortexResult<()> {
+    let dtype = DType::Struct(
+        StructFields::from_iter([("numbers", DType::from(PType::U32))]),
+        Nullability::NonNullable,
+    );
+
+    // Each set is in the limits, but the merged set has one segment too many.
+    let mut buf = ByteBufferMut::empty();
+    let mut writer = SESSION
+        .write_options()
+        .with_metadata_segments(
+            (0..MAX_METADATA_SEGMENTS).map(|idx| (format!("create-{idx}"), ByteBuffer::empty())),
+        )
+        .writer(&mut buf, dtype);
+
+    writer
+        .push(StructArray::from_fields(&[("numbers", buffer![1u32].into_array())])?.into_array())
+        .await?;
+
+    let Err(error) = writer
+        .finish_with_metadata([("finish", ByteBuffer::empty())])
+        .await
+    else {
+        panic!("the merged metadata must be rejected");
+    };
+    assert!(
+        error.to_string().contains("metadata segments"),
+        "unexpected error: {error}"
+    );
+
+    Ok(())
+}
+
 fn with_invalid_metadata_alignment(bytes: &ByteBuffer, exponent: u8) -> ByteBuffer {
     let eof_offset = bytes.len() - crate::EOF_SIZE;
     let postscript_len =
@@ -3726,5 +3845,48 @@ async fn null_dominated_clustered_f32_writes() -> VortexResult<()> {
         .write_options()
         .write(&mut ByteBufferMut::empty(), stream)
         .await?;
+    Ok(())
+}
+
+#[tokio::test]
+#[cfg_attr(miri, ignore)]
+async fn test_splits_follow_only_the_masked_fields() -> VortexResult<()> {
+    // The strings chunk at a few thousand rows, and the integers fit in one chunk. The splits of
+    // the integer column alone must not follow the chunks of the strings.
+    const N_ROWS: usize = 40_000;
+    let strings = VarBinArray::from_iter(
+        (0..N_ROWS).map(|i| Some(format!("{i:0>120}"))),
+        DType::Utf8(Nullability::Nullable),
+    )
+    .into_array();
+    let numbers = Buffer::from_iter(0..N_ROWS as i32).into_array();
+    let st = StructArray::from_fields(&[("s", strings), ("n", numbers)])?.into_array();
+
+    let mut buf = ByteBufferMut::empty();
+    SESSION
+        .write_options()
+        .write(&mut buf, st.to_array_stream())
+        .await?;
+
+    let file = SESSION.open_options().open_buffer(buf)?;
+
+    let strings_only = file.splits_for(&[FieldMask::Prefix(FieldPath::from_name("s"))])?;
+    let numbers_only = file.splits_for(&[FieldMask::Prefix(FieldPath::from_name("n"))])?;
+
+    assert!(
+        strings_only.len() > 1,
+        "expected multiple string chunks: {strings_only:?}"
+    );
+    assert!(
+        numbers_only.len() < strings_only.len(),
+        "the splits of `n` should not follow the chunks of `s`: {numbers_only:?}"
+    );
+
+    for splits in [&strings_only, &numbers_only] {
+        assert_eq!(splits.first().map(|r| r.start), Some(0));
+        assert_eq!(splits.last().map(|r| r.end), Some(N_ROWS as u64));
+        assert!(splits.windows(2).all(|w| w[0].end == w[1].start));
+    }
+
     Ok(())
 }

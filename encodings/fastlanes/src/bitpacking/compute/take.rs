@@ -387,12 +387,14 @@ mod tests {
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::ConstantArray;
+    use vortex_array::arrays::DictArray;
     use vortex_array::arrays::FixedSizeListArray;
     use vortex_array::arrays::PiecewiseSequenceArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::dict::TakeExecute;
     use vortex_array::arrays::slice::SliceKernel;
     use vortex_array::assert_arrays_eq;
+    use vortex_array::builders::builder_with_capacity_in;
     use vortex_array::builtins::ArrayBuiltins;
     use vortex_array::compute::conformance::take::test_take_conformance;
     use vortex_array::dtype::DType;
@@ -811,6 +813,31 @@ mod tests {
             expected.take(indices)?,
             &mut ctx
         );
+        Ok(())
+    }
+
+    /// A lazy take of runs, as a fixed-size-list take makes, is appended to a builder through the
+    /// take kernel with the runs, not with the runs expanded into one index per value.
+    #[rstest]
+    fn test_append_lazy_piecewise_take(#[values(0, 1000)] first_start: u64) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let values = PrimitiveArray::from_iter((0u32..65536).map(|i| i % 1000)).into_array();
+        let packed = BitPackedData::encode(&values, 10, &mut ctx)?.into_array();
+
+        let indices = PiecewiseSequenceArray::try_new(
+            buffer![first_start, 30720, 2048].into_array(),
+            ConstantArray::new(1024u64, 3).into_array(),
+            ConstantArray::new(1u64, 3).into_array(),
+            3072,
+        )?
+        .into_array();
+        let lazy = DictArray::try_new(indices.clone(), packed)?.into_array();
+
+        let mut builder = builder_with_capacity_in(lazy.dtype(), lazy.len(), ctx.allocator());
+        lazy.append_to_builder(builder.as_mut(), &mut ctx)?;
+
+        let expanded = indices.execute::<PrimitiveArray>(&mut ctx)?.into_array();
+        assert_arrays_eq!(builder.finish(), values.take(expanded)?, &mut ctx);
         Ok(())
     }
 

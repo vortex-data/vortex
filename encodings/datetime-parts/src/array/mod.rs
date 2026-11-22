@@ -6,7 +6,7 @@ use std::fmt::Display;
 use std::fmt::Formatter;
 use std::hash::Hasher;
 
-use vortex_array::AnyCanonical;
+use vortex_array::AnyColumnar;
 use vortex_array::Array;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
@@ -132,10 +132,16 @@ impl VTable for DateTimeParts {
     }
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+        // Seconds and subseconds are often constant, so they stay constant to keep the decode
+        // fast path.
         let array = require_child!(array, array.days(), DateTimePartsSlots::DAYS => Primitive);
         let array =
-            require_child!(array, array.seconds(), DateTimePartsSlots::SECONDS => AnyCanonical);
-        let array = require_child!(array, array.subseconds(), DateTimePartsSlots::SUBSECONDS => AnyCanonical);
+            require_child!(array, array.seconds(), DateTimePartsSlots::SECONDS => AnyColumnar);
+        let array = require_child!(
+            array,
+            array.subseconds(),
+            DateTimePartsSlots::SUBSECONDS => AnyColumnar
+        );
 
         let dtype = array.dtype().clone();
         let parts = array.into_parts();
