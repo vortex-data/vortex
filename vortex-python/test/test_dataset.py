@@ -301,6 +301,31 @@ def test_closing_inherited_reader_after_fork_does_not_corrupt_leases(monkeypatch
     assert pool.workers == 4
 
 
+@pytest.mark.parametrize("close_first_then_second", [True, False])
+def test_public_record_batch_reader_close_restores_worker_count_while_alive(
+    ds: vx_dataset.VortexDataset, monkeypatch: pytest.MonkeyPatch, close_first_then_second: bool
+) -> None:
+    pool = _patch_worker_pool(monkeypatch, initial=4, parallel=11)
+    reader1 = ds.to_record_batch_reader(batch_size=1024, use_threads=False)
+    reader2 = ds.to_record_batch_reader(batch_size=1024, use_threads=False)
+
+    assert isinstance(reader1, pa.RecordBatchReader)
+    assert reader1.read_next_batch().num_rows > 0
+    assert pool.workers == 0
+
+    assert reader2.read_next_batch().num_rows > 0
+    assert pool.workers == 0
+
+    first_to_close, second_to_close = (reader1, reader2) if close_first_then_second else (reader2, reader1)
+    first_to_close.close()
+    assert pool.workers == 0
+
+    second_to_close.close()
+    assert pool.workers == 4
+    # Keep both closed reader objects alive across the restored-count assertion.
+    assert reader1 is not None and reader2 is not None
+
+
 @pytest.mark.parametrize("batch_size", [1234, 8192, 1 << 31])
 def test_to_batch_size(ds: pd.Dataset, batch_size: int) -> None:
     batch_sizes = [len(x) for x in ds.to_batches(batch_size=batch_size)]

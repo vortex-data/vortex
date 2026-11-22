@@ -9,7 +9,7 @@ import warnings
 from collections.abc import Generator, Iterator
 from contextlib import contextmanager
 from functools import reduce
-from typing import Any, final
+from typing import Any, Self, final
 
 import pyarrow as pa
 import pyarrow.compute as pc
@@ -167,6 +167,74 @@ def _read_batches_with_temporary_worker_threads(
 ) -> Generator[pyarrow.RecordBatch]:
     with _temporary_worker_threads(use_threads):
         yield from reader
+
+
+class _WorkerThreadLeaseRecordBatchReader(pyarrow.RecordBatchReader):
+    """RecordBatchReader wrapper that releases its worker-thread lease on close()."""
+
+    def __init__(
+        self,
+        inner: pyarrow.RecordBatchReader,
+        batches: Generator[pyarrow.RecordBatch],
+    ) -> None:
+        self._inner = inner
+        self._batches = batches
+
+    @property
+    @override
+    def schema(self) -> pyarrow.Schema:
+        return self._inner.schema
+
+    @override
+    def read_next_batch(self) -> pyarrow.RecordBatch:
+        return self._inner.read_next_batch()
+
+    @override
+    def read_next_batch_with_custom_metadata(self) -> Any:
+        return self._inner.read_next_batch_with_custom_metadata()
+
+    @override
+    def read_all(self) -> pyarrow.Table:
+        return self._inner.read_all()
+
+    @override
+    def read_pandas(self, **options: Any) -> Any:
+        return self._inner.read_pandas(**options)
+
+    @override
+    def cast(self, target_schema: pyarrow.Schema) -> Self:
+        return type(self)(self._inner.cast(target_schema), self._batches)
+
+    @override
+    def close(self) -> None:
+        try:
+            self._inner.close()
+        finally:
+            self._batches.close()
+
+    @override
+    def __iter__(self) -> Self:
+        return self
+
+    @override
+    def __next__(self) -> pyarrow.RecordBatch:
+        return self._inner.__next__()
+
+    @override
+    def __enter__(self) -> Self:
+        return self
+
+    @override
+    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+        self.close()
+
+    @override
+    def __arrow_c_stream__(self, requested_schema: Any = None) -> Any:
+        return self._inner.__arrow_c_stream__(requested_schema=requested_schema)
+
+    @override
+    def _export_to_c(self, out_ptr: int) -> None:
+        self._inner._export_to_c(out_ptr)
 
 
 @final
@@ -549,8 +617,10 @@ class VortexDataset(pyarrow.dataset.Dataset):
         reader = self._dataset.to_record_batch_reader(
             columns=columns, row_filter=self._filter_expression(filter), split_by=batch_size, row_range=_row_range
         )
-        return pyarrow.RecordBatchReader.from_batches(
-            reader.schema, _read_batches_with_temporary_worker_threads(reader, use_threads)
+        batches = _read_batches_with_temporary_worker_threads(reader, use_threads)
+        return _WorkerThreadLeaseRecordBatchReader(
+            pyarrow.RecordBatchReader.from_batches(reader.schema, batches),
+            batches,
         )
 
     @override
@@ -597,7 +667,7 @@ class VortexDataset(pyarrow.dataset.Dataset):
         table : :class:`.pyarrow.Table`
 
         """
-        record_batch_reader = self.to_record_batch_reader(
+        with self.to_record_batch_reader(
             columns,
             filter,
             batch_size,
@@ -608,8 +678,8 @@ class VortexDataset(pyarrow.dataset.Dataset):
             cache_metadata,
             memory_pool,
             _row_range,
-        )
-        yield from record_batch_reader
+        ) as record_batch_reader:
+            yield from record_batch_reader
 
     @override
     def to_table(
