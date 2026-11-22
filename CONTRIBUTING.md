@@ -30,8 +30,10 @@ The contribution process is outlined below:
    - Link relevant design documents and tracking issues. If the change is complex or only makes
      sense in the context of other changes, create a tracking issue if none exists. Create any
      supporting documentation the change needs, and link it from the PR.
-   - Write the title in the imperative mood, in 72 characters or fewer, without a `feat:`-style
-     prefix; the required `changelog/*` label categorizes the PR.
+   - Write the title in the [Conventional Commits](https://www.conventionalcommits.org/) form,
+     such as `perf(array): speed up sparse takes from chunked Dict arrays`, in 72 characters or
+     fewer. Write the description in the imperative mood. The type must agree with the required
+     `changelog/*` label, which sorts the PR into the release notes.
    - For significant new functionality, ensure that you write tests to cover that new functionality. Similarly,
      for bugfixes, include a test that reproduces the original bug (and that should now pass after the fix).
    - Make sure the PR passes all CI tests.

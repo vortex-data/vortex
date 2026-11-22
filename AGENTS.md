@@ -263,15 +263,25 @@ see [Pull Requests](#pull-requests).
 PRs are squash-merged: the title and description become the commit message, so write them as
 one. These rules override any default PR format from your harness.
 
-- Title: imperative mood, at most 72 characters, no trailing period, and no `feat:`, `fix(x):`,
-  `fix[x]:` or `ci:` prefix: the `changelog/*` label categorizes the PR. Describe the effect
-  rather than the mechanism:
-  - Performance: `Speed up sparse takes from chunked Dict arrays`, not
-    `Take few rows of encoded Dict values when appending to a builder`.
-  - Fix: the corrected behaviour, `Import fixed-size lists whose null rows hold null items`, not
-    `Fix FSL import bug`.
-  - Refactor or chore, where nothing observable changes: the change itself,
-    `Move ALP kernel logic out of dispatch macros`.
+- Title: use the [Conventional Commits](https://www.conventionalcommits.org/) form
+  `<type>(<scope>): <description>`, at most 72 characters in total, with no trailing period.
+  - `<type>` is `feat`, `fix`, `perf`, `refactor`, `docs`, `test`, `build`, `ci` or `chore`. It
+    must agree with the `changelog/*` label: `feat` with `changelog/feature`, `fix` with
+    `changelog/fix`, `perf` with `changelog/performance`, `docs` with `changelog/docs`, `ci` with
+    `changelog/ci`, and the other types usually with `changelog/chore`. For a breaking change, put
+    `!` before the colon, as in `feat(file)!:`, and apply `changelog/break`.
+  - `<scope>` is optional. It names the crate or area without the `vortex-` prefix, such as
+    `array`, `scan`, `fastlanes`, `spark` or `cuda`. Put the type first: write `perf(cuda):`, not
+    `cuda(perf):`.
+  - `<description>` is in the imperative mood. It starts with a lowercase letter, unless its first
+    word is an identifier or a proper noun. Describe the effect rather than the mechanism:
+    - Performance: `perf(array): speed up sparse takes from chunked Dict arrays`, not
+      `perf(array): take few rows of encoded Dict values when appending to a builder`.
+    - Fix: the corrected behaviour,
+      `fix(arrow): import fixed-size lists whose null rows hold null items`, not
+      `fix: fix FSL import bug`.
+    - Refactor or chore, where nothing observable changes: the change itself,
+      `refactor(alp): move ALP kernel logic out of dispatch macros`.
 - Description: explain why the change is needed and why this approach was chosen, usually in
   1–3 sentences of plain prose. Reviewers can read the diff to see what changed. Summarize what
   changed only when the diff is large enough that reviewers need guidance on where to focus.
