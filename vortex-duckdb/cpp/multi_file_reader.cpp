@@ -205,13 +205,13 @@ VortexReaderInterface::InitializeLocalState(ClientContext &, GlobalTableFunction
     return result;
 }
 
-static shared_ptr<BaseFileReader> OpenReader(const void *ffi_bind, const OpenFileInfo &file) {
+static shared_ptr<BaseFileReader> OpenReader(const OpenFileInfo &file) {
     duckdb_vx_error error = nullptr;
 
     const char *const ffi_file_path = file.path.c_str();
     const size_t ffi_file_size = file.path.size();
 
-    duckdb_vx_data ffi_file = duckdb_reader_open(ffi_bind, ffi_file_path, ffi_file_size, &error);
+    duckdb_vx_data ffi_file = duckdb_reader_open(ffi_file_path, ffi_file_size, &error);
     if (error) {
         throw IOException(IntoErrString(error));
     }
@@ -224,19 +224,15 @@ shared_ptr<BaseFileReader> VortexReaderInterface::CreateReader(ClientContext &,
                                                                GlobalTableFunctionState &,
                                                                const OpenFileInfo &file,
                                                                idx_t,
-                                                               const MultiFileBindData &bind_data) {
-    const void *ffi_bind = nullptr;
-    if (bind_data.bind_data) {
-        ffi_bind = bind_data.bind_data->Cast<VortexBindData>().ffi_bind_data->DataPtr();
-    }
-    return OpenReader(ffi_bind, file);
+                                                               const MultiFileBindData &) {
+    return OpenReader(file);
 }
 
 shared_ptr<BaseFileReader> VortexReaderInterface::CreateReader(ClientContext &,
                                                                const OpenFileInfo &file,
                                                                BaseFileReaderOptions &,
                                                                const MultiFileOptions &) {
-    return OpenReader(nullptr, file);
+    return OpenReader(file);
 }
 
 unique_ptr<NodeStatistics> VortexReaderInterface::GetCardinality(const MultiFileBindData &data,

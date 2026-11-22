@@ -46,7 +46,7 @@ use crate::file_reader::reader_bind;
 use crate::file_reader::reader_get_progress_in_file;
 use crate::file_reader::reader_get_statistics;
 use crate::file_reader::reader_initialize;
-use crate::file_reader::reader_open_with_bind;
+use crate::file_reader::reader_open;
 use crate::file_reader::reader_scan;
 use crate::file_reader::reader_try_initialize_scan;
 use crate::table_function::BindState;
@@ -233,17 +233,15 @@ pub unsafe extern "C-unwind" fn duckdb_reader_bind(
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn duckdb_reader_open(
-    bind: *const c_void,
     file_path: *const c_char,
     file_path_len: usize,
     error: *mut cpp::duckdb_vx_error,
 ) -> cpp::duckdb_vx_data {
-    let bind = unsafe { bind.cast::<BindState>().as_ref() };
     let path = unsafe { std::slice::from_raw_parts(file_path.cast::<u8>(), file_path_len) };
 
     try_or_null(error, || {
         let path = str::from_utf8(path).map_err(|_| vortex_err!("invalid utf-8"))?;
-        let file = reader_open_with_bind(bind, path)?;
+        let file = reader_open(path)?;
         Ok(Data::from(Box::new(file)).as_ptr())
     })
 }

@@ -38,7 +38,6 @@ use vortex::expr::BoundExpression;
 use vortex::expr::Expression;
 use vortex::expr::col;
 use vortex::expr::proto::ExprSerializeProtoExt;
-use vortex::file::VortexFile;
 #[cfg(unix)]
 use vortex::metrics::tracing::get_global_labels;
 use vortex::proto::expr as expr_pb;
@@ -101,8 +100,6 @@ pub(crate) struct BindState {
     pub aggregates: Vec<ColumnAggregate>,
     // Any of files present in scan lack a footer
     pub no_footer_caches: bool,
-    // Opened file handles retained from planning so execution reads the same object generation.
-    pub planned_files: Arc<Mutex<HashMap<String, VortexFile>>>,
 }
 assert_impl_all!(BindState: Send, Clone);
 
@@ -116,7 +113,6 @@ impl BindState {
             has_non_optional_filter: AtomicBool::new(false),
             aggregates: vec![],
             no_footer_caches: true,
-            planned_files: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 }
@@ -133,7 +129,6 @@ impl Clone for BindState {
             ),
             aggregates: self.aggregates.clone(),
             no_footer_caches: false,
-            planned_files: Arc::clone(&self.planned_files),
         }
     }
 }
