@@ -46,9 +46,9 @@ pub struct ScanDriver {
 
 impl ScanDriver {
     /// A driver spawning on `handle`, with at most `concurrency` chunks in flight at once, whatever
-    /// the machine's core count. If `concurrency` is at most one, chunks run inline on the root
-    /// run. When `ordered`, the driver holds batches until the scan is done and yields them in
-    /// row order.
+    /// the machine's core count. If `concurrency` is zero, chunks run inline on the root run,
+    /// which interleaves every chunk's reads. When `ordered`, the driver holds batches until the
+    /// scan is done and yields them in row order.
     pub fn new(handle: Handle, concurrency: usize, ordered: bool) -> Self {
         Self {
             handle,
@@ -100,7 +100,7 @@ impl ScanDriver {
         let scan = Arc::new(scan);
         let map_fn: MapFn<A> = Arc::new(map_fn);
         let in_flight = self.concurrency;
-        let inline = in_flight <= 1;
+        let inline = in_flight == 0;
         let scope = WorkScope {
             file_ordinal: 0,
             rows: scan.rows().clone(),
