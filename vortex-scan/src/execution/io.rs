@@ -238,7 +238,8 @@ impl IoSource for SegmentIoSource {
     }
 
     fn release(&self, owner: IoOwnerId) {
-        if let Some(handles) = self.owners.lock().remove(&owner) {
+        let handles = self.owners.lock().remove(&owner);
+        if let Some(handles) = handles {
             for handle in handles {
                 handle.abort();
             }
@@ -263,6 +264,9 @@ mod tests {
     use std::sync::Arc;
     use std::sync::atomic::AtomicUsize;
     use std::sync::atomic::Ordering;
+    use std::task::Context;
+    use std::task::Poll;
+    use std::task::Waker;
 
     use futures::FutureExt;
     use futures::channel::oneshot;
@@ -282,6 +286,7 @@ mod tests {
     use vortex_buffer::Buffer;
     use vortex_buffer::ByteBuffer;
     use vortex_error::VortexResult;
+    use vortex_error::vortex_bail;
     use vortex_error::vortex_err;
     use vortex_io::request::IoConsumer;
     use vortex_io::request::IoIntent;
@@ -684,8 +689,8 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
-    async fn release_drops_inflight_subscription_without_waiting_for_read() -> VortexResult<()> {
+    #[test]
+    fn release_drops_inflight_subscription_without_waiting_for_read() -> VortexResult<()> {
         let (_sender, receiver) = oneshot::channel();
         let segments = Arc::new(MixedSegments(Mutex::new(Some(receiver))));
         let locations = [0, 4].map(|offset| SegmentLocation {
@@ -700,10 +705,10 @@ mod tests {
         io.submit(IoOwnerId(0), vec![pending])?;
         io.release(IoOwnerId(0));
 
-        let err = std::future::poll_fn(|cx| io.poll_completion(cx))
-            .await
-            .err()
-            .expect("releasing the only subscriber leaves no reads in flight");
+        let mut cx = Context::from_waker(Waker::noop());
+        let Poll::Ready(Err(err)) = io.poll_completion(&mut cx) else {
+            vortex_bail!("releasing the only subscriber leaves no reads in flight");
+        };
         assert!(
             err.to_string().contains("no reads in flight"),
             "unexpected error: {err}"
