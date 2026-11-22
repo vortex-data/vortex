@@ -342,7 +342,7 @@ impl QueryState {
     /// Parse SQL to extract base query, ORDER BY clause, and LIMIT value.
     fn parse_sql_parts(&self) -> (String, Option<String>, Option<usize>) {
         let sql = &self.sql_input;
-        let sql_upper = sql.to_uppercase();
+        let sql_upper = sql.to_ascii_uppercase();
 
         // Find positions of clauses
         let order_idx = sql_upper.find(" ORDER BY ");
@@ -715,7 +715,7 @@ fn truncate_str(s: &str, max_len: usize) -> &str {
     if s.len() <= max_len {
         s
     } else {
-        &s[..max_len.saturating_sub(3)]
+        &s[..s.floor_char_boundary(max_len.saturating_sub(3))]
     }
 }
 
@@ -794,5 +794,41 @@ mod tests {
         // Clear resets text and cursor.
         state.clear_input();
         assert_cursor_valid(&state, "", 0);
+    }
+
+    #[test]
+    fn truncate_str_stays_on_utf8_char_boundary() {
+        let cell = format!("{}éabcd", "a".repeat(26));
+        assert_eq!(cell.len(), 32);
+        assert_eq!(truncate_str(&cell, 30), "a".repeat(26));
+
+        assert_eq!(truncate_str("🦀🦀", 4), "");
+        assert_eq!(truncate_str("é", 2), "é");
+    }
+
+    #[test]
+    fn parse_sql_parts_preserves_utf8_offsets() {
+        let mut state = QueryState {
+            sql_input: "SELECT * FROM data WHERE name = 'ı' LIMIT 10".to_string(),
+            ..Default::default()
+        };
+        assert_eq!(
+            state.parse_sql_parts(),
+            (
+                "SELECT * FROM data WHERE name = 'ı'".to_string(),
+                None,
+                Some(10),
+            )
+        );
+
+        state.sql_input = "SELECT 'ı', é ORDER BY id LIMIT 5 OFFSET 2".to_string();
+        assert_eq!(
+            state.parse_sql_parts(),
+            (
+                "SELECT 'ı', é".to_string(),
+                Some("ORDER BY id".to_string()),
+                Some(5),
+            )
+        );
     }
 }

@@ -40,7 +40,6 @@ mod tests {
     use vortex_array::scalar::Scalar;
     use vortex_array::validity::Validity;
     use vortex_arrow::ExecuteArrowExt;
-    use vortex_arrow::test_harness::DefaultExport;
     use vortex_arrow::test_harness::StorageCase;
     use vortex_arrow::test_harness::check_arrow;
     use vortex_arrow::test_harness::check_canonical_field;
@@ -207,7 +206,7 @@ mod tests {
                 check_arrow(array.clone(), &target, expected, &mut ctx)?;
             }
             check_canonical_field(&array, &field, &mut ctx)?;
-            check_generated(tc, array, DefaultExport::Supported, &mut ctx)
+            check_generated(tc, array, &mut ctx)
         } else {
             let source = (0..len)
                 .map(|_| {
@@ -225,7 +224,7 @@ mod tests {
             let default = array.clone().execute_arrow(None, &mut ctx)?;
             assert_eq!(default.to_data(), storage.arrow.to_data());
             check_canonical_field(&array, &field, &mut ctx)?;
-            check_generated(tc, array, DefaultExport::Supported, &mut ctx)
+            check_generated(tc, array, &mut ctx)
         }
     }
 

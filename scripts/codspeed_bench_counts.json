@@ -3,7 +3,8 @@
     "common_encoding_tree_throughput": 8,
     "pipeline": 0,
     "single_encoding_throughput": 28,
-    "take_union": 4
+    "take_union": 4,
+    "write_compression": 3
   },
   "vortex-alp": {
     "alp_compress": 36,
@@ -40,7 +41,7 @@
     "interleave": 18,
     "kleene_bool": 14,
     "like": 7,
-    "list_contains_set": 6,
+    "list_contains_set": 9,
     "list_length": 6,
     "list_sum": 11,
     "listview_builder_extend": 4,
@@ -69,7 +70,7 @@
     "take_chunked": 0,
     "take_filter": 32,
     "take_fsl": 12,
-    "take_patches": 42,
+    "take_patches": 43,
     "take_primitive": 25,
     "take_struct": 3,
     "take_varbin": 1,
@@ -79,7 +80,8 @@
     "varbinview_try_new": 6,
     "varbinview_zip": 2,
     "widen": 17,
-    "widen_decimal": 9
+    "widen_decimal": 9,
+    "zip_dtypes": 9
   },
   "vortex-arrow": {
     "to_arrow": 131
