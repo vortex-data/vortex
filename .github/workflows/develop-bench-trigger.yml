@@ -2,9 +2,8 @@
 # SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 # Polls `develop` every 10 minutes and dispatches `develop-bench.yml` when HEAD has moved past
-# the latest non-cancelled Develop Benchmarks run. This caps benchmark runs to at most 6/hour
-# with uniform cadence even when individual runs take 30+ minutes, while keeping
-# `develop-bench.yml` free of skipped no-op runs.
+# the latest non-cancelled Develop Benchmarks run. This caps triggers to at most one dispatch
+# per 10 minutes while keeping `develop-bench.yml` free of skipped no-op runs.
 
 name: Develop Benchmarks Trigger
 
@@ -14,7 +13,7 @@ concurrency:
 
 on:
   schedule:
-    - cron: "*/10 * * * *"
+    - cron: "7-59/10 * * * *"
   workflow_dispatch: { }
 
 permissions:
