@@ -98,8 +98,10 @@ class _WorkerThreadLeaseManager:
 
     def _finish_locked(self) -> None:
         while True:
-            self._drain_pending_releases_locked()
-            self._busy = False
+            try:
+                self._drain_pending_releases_locked()
+            finally:
+                self._busy = False
             if not self._pending_releases:
                 return
             self._busy = True
