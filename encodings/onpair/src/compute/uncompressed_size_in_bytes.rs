@@ -3,7 +3,7 @@
 
 use std::mem::size_of;
 
-use num_traits::AsPrimitive;
+use num_traits::ToPrimitive;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
@@ -72,12 +72,12 @@ fn referenced_len(lengths: &PrimitiveArray, validity: &Mask) -> VortexResult<usi
     match_each_integer_ptype!(lengths.ptype(), |P| {
         referenced_len_typed(lengths.as_slice::<P>(), validity)
     })
-    .ok_or_else(|| vortex_err!("OnPair uncompressed lengths overflow"))
+    .ok_or_else(|| vortex_err!("OnPair uncompressed lengths are negative or overflow"))
 }
 
-fn referenced_len_typed<P: AsPrimitive<usize>>(lengths: &[P], validity: &Mask) -> Option<usize> {
+fn referenced_len_typed<P: ToPrimitive + Copy>(lengths: &[P], validity: &Mask) -> Option<usize> {
     let out_of_line = |acc: usize, &length: &P| {
-        let length: usize = length.as_();
+        let length = length.to_usize()?;
         if length > BinaryView::MAX_INLINED_SIZE {
             acc.checked_add(length)
         } else {
@@ -122,8 +122,10 @@ mod tests {
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_error::VortexResult;
+    use vortex_mask::Mask;
     use vortex_session::VortexSession;
 
+    use super::referenced_len;
     use crate::DEFAULT_CONFIG;
     use crate::OnPair;
     use crate::canonical::total_uncompressed_len;
@@ -191,8 +193,9 @@ mod tests {
 
     #[rstest]
     #[case::negative(PrimitiveArray::from_iter([-1i64]))]
-    #[case::overflow(PrimitiveArray::from_iter([u64::MAX, 1]))]
+    #[case::overflow(PrimitiveArray::from_iter([u64::MAX, u64::MAX]))]
     fn rejects_invalid_lengths(#[case] lengths: PrimitiveArray) {
         assert!(total_uncompressed_len(&lengths).is_err());
+        assert!(referenced_len(&lengths, &Mask::AllTrue(lengths.len())).is_err());
     }
 }
