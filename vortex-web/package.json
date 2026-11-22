@@ -19,7 +19,6 @@
     "lint": "biome lint",
     "lint:fix": "biome lint --write",
     "typecheck": "tsc -b --noEmit",
-    "test": "bun test",
     "storybook": "storybook dev -p 6006",
     "build-storybook": "storybook build"
   },

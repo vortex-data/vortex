@@ -1,47 +1,65 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { LayoutTreeNode } from '../swimlane/types';
-import { formatBytes } from '../swimlane/utils';
+import { formatBytes, parseArrayNodeId } from '../swimlane/utils';
 import { useVortexFile } from '../../contexts/VortexFileContextCore';
-import { BufferSelectionController } from './bufferSelection';
 
 interface BuffersPaneProps {
   node: LayoutTreeNode;
-  controller?: BufferSelectionController;
 }
 
-export function BuffersPane({ node, controller: externalController }: BuffersPaneProps) {
+export function BuffersPane({ node }: BuffersPaneProps) {
   const { fetchArrayBuffer } = useVortexFile();
   const bufferLengths = node.bufferLengths ?? [];
-
-  const controllerRef = useRef<BufferSelectionController | null>(null);
-  if (!externalController && !controllerRef.current) {
-    controllerRef.current = new BufferSelectionController(fetchArrayBuffer);
-  }
-  const controller = externalController ?? controllerRef.current!;
-
-  const snapshot = useSyncExternalStore(
-    controller.subscribe,
-    controller.getSnapshot,
-    controller.getSnapshot,
-  );
-  const isCurrentNode = snapshot.nodeId === node.id;
-  const selectedBuffer = isCurrentNode ? snapshot.selectedBuffer : null;
-  const bufferData = isCurrentNode ? snapshot.bufferData : null;
-  const loading = isCurrentNode ? snapshot.loading : false;
-  const error = isCurrentNode ? snapshot.error : null;
+  const [selectedBuffer, setSelectedBuffer] = useState<number | null>(null);
+  const [bufferData, setBufferData] = useState<Uint8Array | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const requestIdRef = useRef(0);
 
   const bufferNames: string[] = bufferLengths.map((_, i) => node.bufferNames?.[i] ?? `buffer ${i}`);
 
-  // Auto-select first buffer when node changes and invalidate stale reads on change/unmount.
+  const loadBuffer = useCallback(
+    async (index: number) => {
+      const requestId = ++requestIdRef.current;
+      setSelectedBuffer(index);
+      setBufferData(null);
+      setError(null);
+      setLoading(true);
+      try {
+        const { layoutNodeId, arrayPath } = parseArrayNodeId(node.id);
+        const data = await fetchArrayBuffer(layoutNodeId, arrayPath, index);
+        if (requestIdRef.current !== requestId) return;
+        setBufferData(data);
+      } catch (e) {
+        if (requestIdRef.current !== requestId) return;
+        setError(e instanceof Error ? e.message : String(e));
+      } finally {
+        if (requestIdRef.current === requestId) {
+          setLoading(false);
+        }
+      }
+    },
+    [node.id, fetchArrayBuffer],
+  );
+
+  // Auto-select first buffer when node changes and invalidate in-flight reads on cleanup.
   useEffect(() => {
-    void controller.selectNode(node.id, bufferLengths.length, fetchArrayBuffer);
+    requestIdRef.current++;
+    setBufferData(null);
+    setError(null);
+    if (bufferLengths.length > 0) {
+      loadBuffer(0);
+    } else {
+      setSelectedBuffer(null);
+      setLoading(false);
+    }
     return () => {
-      controller.invalidate();
+      requestIdRef.current++;
     };
-  }, [controller, node.id, bufferLengths.length, fetchArrayBuffer]);
+  }, [node.id, bufferLengths.length, loadBuffer]);
 
   if (bufferLengths.length === 0) {
     return <p className="vx-label x-pad">This node has no buffers.</p>;
@@ -56,7 +74,7 @@ export function BuffersPane({ node, controller: externalController }: BuffersPan
             type="button"
             key={i}
             aria-pressed={selectedBuffer === i}
-            onClick={() => void controller.selectBuffer(i, fetchArrayBuffer)}
+            onClick={() => loadBuffer(i)}
           >
             <span className="x-buffer-name">{bufferNames[i]}</span>
             <span className="vx-label-sm vx-num">{formatBytes(len)}</span>
