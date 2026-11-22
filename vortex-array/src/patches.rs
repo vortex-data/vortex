@@ -5,6 +5,10 @@ use std::fmt::Debug;
 use std::hash::Hash;
 use std::ops::Range;
 
+use fearless_simd::Level;
+use fearless_simd::Simd;
+use fearless_simd::dispatch;
+use fearless_simd_macros::simd;
 use num_traits::NumCast;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::BitBufferMut;
@@ -215,6 +219,16 @@ impl PatchesData {
     }
 }
 
+/// The owned components of [`Patches`], as returned by [`Patches::into_parts`].
+pub struct PatchesParts {
+    pub array_len: usize,
+    pub offset: usize,
+    pub indices: ArrayRef,
+    pub values: ArrayRef,
+    pub chunk_offsets: Option<ArrayRef>,
+    pub offset_within_chunk: Option<usize>,
+}
+
 /// A helper for working with patched arrays.
 #[derive(Debug, Clone)]
 pub struct Patches {
@@ -393,6 +407,19 @@ impl Patches {
     #[inline]
     pub fn indices(&self) -> &ArrayRef {
         &self.indices
+    }
+
+    /// Consumes the patches and returns their components.
+    #[inline]
+    pub fn into_parts(self) -> PatchesParts {
+        PatchesParts {
+            array_len: self.array_len,
+            offset: self.offset,
+            indices: self.indices,
+            values: self.values,
+            chunk_offsets: self.chunk_offsets,
+            offset_within_chunk: self.offset_within_chunk,
+        }
     }
 
     #[inline]
@@ -1294,12 +1321,11 @@ where
 /// is a new set of `Patches` with the indices relative to the provided `mask` rank, and the
 /// patch values.
 ///
-/// We search the larger side for each element of the smaller side, without building the mask
-/// indices:
+/// Choose between sparse searches and bitmap ranks without building the mask indices:
 ///
-/// * More patches than mask indices: gallop through the patches.
-/// * Cached mask indices: gallop through the mask indices.
-/// * Otherwise: rank each patch in the mask bitmap.
+/// * Far more patches than selected rows: gallop through the patches.
+/// * Very sparse patches with cached mask indices: gallop through the mask indices.
+/// * Otherwise: intersect the patches with the bitmap and rank only retained patches.
 fn filter_patches_with_mask<T: IntegerPType>(
     patch_indices: &[T],
     offset: usize,
@@ -1320,7 +1346,9 @@ fn filter_patches_with_mask<T: IntegerPType>(
         patch_count,
     );
 
-    if patch_count > true_count {
+    // Bitmap membership beats repeated searches at moderate ratios. Extremely sparse masks
+    // still benefit from searching only the selected rows.
+    if patch_count > true_count.saturating_mul(16) {
         gallop_patches_for_mask_indices(
             patch_indices,
             offset,
@@ -1330,14 +1358,18 @@ fn filter_patches_with_mask<T: IntegerPType>(
         )?;
     } else {
         match mask.cached_indices() {
-            Some(mask_indices) => gallop_mask_indices_for_patches(
-                patch_indices,
-                offset,
-                mask_indices,
-                &mut new_patch_indices,
-                &mut kept_patches,
-            )?,
-            None => rank_patches_in_mask_bitmap(
+            Some(mask_indices)
+                if patch_count <= true_count && patch_count.saturating_mul(256) < mask.len() =>
+            {
+                gallop_mask_indices_for_patches(
+                    patch_indices,
+                    offset,
+                    mask_indices,
+                    &mut new_patch_indices,
+                    &mut kept_patches,
+                )?
+            }
+            _ => rank_patches_in_mask_bitmap(
                 patch_indices,
                 offset,
                 mask.bit_buffer(),
@@ -1466,7 +1498,8 @@ fn gallop_mask_indices_for_patches<T: IntegerPType>(
 
 /// Finds the mask position of each patch from the mask bitmap, without building the mask indices.
 ///
-/// The mask position is the number of set bits before the patch, counted between adjacent patches.
+/// Each bitmap word is counted once. Rejected patches need no rank query; retained patches add
+/// the population count of the bits preceding them in the current word.
 fn rank_patches_in_mask_bitmap<T: IntegerPType>(
     patch_indices: &[T],
     offset: usize,
@@ -1474,17 +1507,42 @@ fn rank_patches_in_mask_bitmap<T: IntegerPType>(
     new_patch_indices: &mut BufferMut<u64>,
     kept_patches: &mut BitBufferMut,
 ) -> VortexResult<()> {
+    // Compile scalar population counts with the CPU's features, including POPCNT on x86.
+    dispatch!(Level::new(), simd => {
+        rank_patches_in_mask_bitmap_simd(
+            simd, patch_indices, offset, mask, new_patch_indices, kept_patches,
+        )
+    })
+}
+
+#[simd]
+fn rank_patches_in_mask_bitmap_simd<S: Simd, T: IntegerPType>(
+    _: S,
+    patch_indices: &[T],
+    offset: usize,
+    mask: &BitBuffer,
+    new_patch_indices: &mut BufferMut<u64>,
+    kept_patches: &mut BitBufferMut,
+) -> VortexResult<()> {
+    let chunks = mask.chunks();
+    let mut words = chunks
+        .iter()
+        .chain(std::iter::once(chunks.remainder_bits()));
+    let mut word = words.next().unwrap_or(0);
+    let mut word_start = 0;
     let mut rank = 0;
-    let mut previous_index = 0;
 
     for (patch_position, patch_index) in patch_indices.iter().enumerate() {
         let index = patch_index_to_usize(*patch_index, offset)?;
 
-        rank += mask.count_range(previous_index, index);
-        previous_index = index;
-
         if mask.value(index) {
-            new_patch_indices.push(rank as u64);
+            while index - word_start >= 64 {
+                rank += word.count_ones() as u64;
+                word = words.next().vortex_expect("patch is within the mask");
+                word_start += 64;
+            }
+            let preceding = word & ((1u64 << (index - word_start)) - 1);
+            new_patch_indices.push(rank + preceding.count_ones() as u64);
             kept_patches.set(patch_position);
         }
     }
@@ -2120,7 +2178,9 @@ mod test {
     #[rstest]
     #[case::sparse_mask((0..1000).step_by(2).collect(), (0..1000).step_by(97).collect())]
     #[case::sparse_patches((0..1000).step_by(97).collect(), (0..1000).step_by(2).collect())]
+    #[case::very_sparse_patches(vec![2, 998], (0..1000).step_by(2).collect())]
     #[case::similar_sizes((0..1000).step_by(3).collect(), (0..1000).step_by(2).collect())]
+    #[case::moderately_sparse_mask((0..1000).step_by(2).collect(), (0..1000).step_by(17).collect())]
     #[case::no_overlap((0..500).collect(), (500..1000).step_by(50).collect())]
     #[case::no_overlap_sparse_patches((500..1000).step_by(100).collect(), (0..500).collect())]
     #[case::edges(vec![0, 1, 998, 999], vec![0, 999])]
@@ -2130,6 +2190,7 @@ mod test {
         #[case] mask_indices: Vec<usize>,
         #[values(0, 5)] offset: usize,
         #[values(true, false)] cache_mask_indices: bool,
+        #[values(0, 3)] mask_offset: usize,
     ) -> VortexResult<()> {
         const LEN: usize = 1000;
         let mut ctx = SESSION.create_execution_ctx();
@@ -2150,12 +2211,17 @@ mod test {
             &mut ctx,
         )?;
 
-        let mask = if cache_mask_indices {
+        let mask = if cache_mask_indices && mask_offset == 0 {
             Mask::from_indices(LEN, mask_indices.iter().copied())
         } else {
-            Mask::from_buffer(BitBuffer::from_iter(
-                (0..LEN).map(|index| mask_indices.binary_search(&index).is_ok()),
-            ))
+            let bits = BitBuffer::from_iter((0..LEN + mask_offset).map(|index| {
+                index >= mask_offset && mask_indices.binary_search(&(index - mask_offset)).is_ok()
+            }));
+            let mask = Mask::from_buffer(bits.slice(mask_offset..));
+            if cache_mask_indices {
+                mask.values().vortex_expect("partial mask").indices();
+            }
+            mask
         };
 
         let (expected_indices, expected_values): (Vec<u64>, Vec<i32>) = mask_indices

@@ -111,6 +111,7 @@ fn encode_varbinview(bencher: Bencher, (len, unique_values): (usize, usize)) {
 fn encode_varbinview_inlined(bencher: Bencher, (len, unique_values): (usize, usize)) {
     let varbinview_arr =
         VarBinViewArray::from_iter_str(gen_varbin_words_of_len(len, unique_values, 8)).into_array();
+    mark_optimized(&varbinview_arr, &SESSION).unwrap();
 
     bencher
         .with_inputs(|| (&varbinview_arr, SESSION.create_execution_ctx()))
@@ -120,6 +121,7 @@ fn encode_varbinview_inlined(bencher: Bencher, (len, unique_values): (usize, usi
 #[divan::bench(args = BENCH_ARGS)]
 fn encode_varbin_inlined(bencher: Bencher, (len, unique_values): (usize, usize)) {
     let varbin_arr = VarBinArray::from(gen_varbin_words_of_len(len, unique_values, 8)).into_array();
+    mark_optimized(&varbin_arr, &SESSION).unwrap();
 
     bencher
         .with_inputs(|| (&varbin_arr, SESSION.create_execution_ctx()))
