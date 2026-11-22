@@ -56,12 +56,14 @@ const BUFFER_SIZE: usize = 128 * 1024 * 1024;
 impl ObjectStoreWrite {
     pub async fn new(object_store: Arc<dyn ObjectStore>, location: &Path) -> VortexResult<Self> {
         let upload = object_store.put_multipart(location).await?;
-        // Only capture a multi-thread Tokio runtime for off-runtime cleanup: it has its own worker
-        // threads and can make progress independently, whereas a current-thread Tokio runtime may
-        // be alive and idle with nothing polling it.
+        // On non-wasm targets, only capture a multi-thread Tokio runtime for off-runtime cleanup:
+        // it has its own worker threads and can make progress independently, whereas a
+        // current-thread Tokio runtime may be alive and idle with nothing polling it (we fall back
+        // to `smol` + `Compat` instead). On wasm32, there is no multi-thread runtime or `smol`, so
+        // capture any active Tokio handle.
         let cleanup_runtime = tokio::runtime::Handle::try_current()
             .ok()
-            .filter(|handle| handle.runtime_flavor() == tokio::runtime::RuntimeFlavor::MultiThread);
+            .filter(is_independent_tokio_handle);
         Ok(Self {
             state: UploadState::Active(upload),
             buffer: BytesMut::with_capacity(CHUNK_SIZE),
@@ -134,7 +136,7 @@ impl ObjectStoreWrite {
 
     fn take_live_tokio_handle(&mut self) -> Option<tokio::runtime::Handle> {
         if let Ok(handle) = tokio::runtime::Handle::try_current()
-            && handle.runtime_flavor() == tokio::runtime::RuntimeFlavor::MultiThread
+            && is_independent_tokio_handle(&handle)
             && is_tokio_handle_alive(&handle)
         {
             self.cleanup_runtime = None;
@@ -198,6 +200,24 @@ impl ObjectStoreWrite {
         if let Err(abort_err) = self.abort().await {
             tracing::warn!(%abort_err, "failed to abort multipart upload after write error");
         }
+    }
+}
+
+/// Returns whether a Tokio handle should be selected for detached cleanup.
+///
+/// On non-wasm targets, only `MultiThread` runtimes make progress independently (an entered or
+/// captured `CurrentThread` runtime can sit idle with nothing polling it; those cases fall back to
+/// `smol` + `Compat`). On wasm32, neither `MultiThread` nor `smol` exists, so any Tokio handle is
+/// accepted.
+fn is_independent_tokio_handle(handle: &tokio::runtime::Handle) -> bool {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        handle.runtime_flavor() == tokio::runtime::RuntimeFlavor::MultiThread
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        let _ = handle;
+        true
     }
 }
 
