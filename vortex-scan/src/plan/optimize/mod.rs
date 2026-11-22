@@ -20,12 +20,24 @@ use crate::plan::LazyPlanRef;
 use crate::plan::PlanRef;
 use crate::plan::PlanSlots;
 
-fn reduce(plan: &PlanRef, session: &VortexSession) -> VortexResult<Option<PlanRef>> {
+#[derive(Clone, Copy)]
+enum OptimizeMode {
+    /// Preserves the result of the plan at each row.
+    Exact,
+    /// Allows weaker falsifiers as long as true still proves that a row can be discarded.
+    Pruning,
+}
+
+fn reduce(
+    plan: &PlanRef,
+    session: &VortexSession,
+    mode: OptimizeMode,
+) -> VortexResult<Option<PlanRef>> {
     if let Some(rewritten) = reduce_plan(plan, session)? {
         return Ok(Some(rewritten));
     }
     for (slot, child) in plan.slots().present() {
-        if let Some(rewritten) = reduce_parent(child.get()?, plan, slot, session)? {
+        if let Some(rewritten) = reduce_parent(child.get()?, plan, slot, session, mode)? {
             return Ok(Some(rewritten));
         }
     }
@@ -34,16 +46,34 @@ fn reduce(plan: &PlanRef, session: &VortexSession) -> VortexResult<Option<PlanRe
 
 /// Optimizes `plan`, preserving its dtype and row domain.
 pub fn optimize(plan: PlanRef, session: &VortexSession) -> VortexResult<PlanRef> {
+    optimize_with_mode(plan, session, OptimizeMode::Exact)
+}
+
+/// Optimizes a proof that rows cannot match a filter.
+///
+/// A true result lets the scan discard rows. A rewrite may make the proof harder to satisfy,
+/// which leaves more rows for exact evaluation.
+pub(crate) fn optimize_pruning(plan: PlanRef, session: &VortexSession) -> VortexResult<PlanRef> {
+    optimize_with_mode(plan, session, OptimizeMode::Pruning)
+}
+
+fn optimize_with_mode(
+    plan: PlanRef,
+    session: &VortexSession,
+    mode: OptimizeMode,
+) -> VortexResult<PlanRef> {
     // Concat has no local rewrites. Optimizing its independent chunks eagerly traverses the
     // entire file even when a partition only scans a small row range.
     if let Some(concat) = plan.as_opt::<Concat>() {
         let session = session.clone();
         return Ok(concat
-            .map_chunks(plan.dtype().clone(), move |chunk| optimize(chunk, &session))
+            .map_chunks(plan.dtype().clone(), move |chunk| {
+                optimize_with_mode(chunk, &session, mode)
+            })
             .into_plan());
     }
-    if let Some(rewritten) = reduce(&plan, session)? {
-        return optimize(rewritten, session);
+    if let Some(rewritten) = reduce(&plan, session, mode)? {
+        return optimize_with_mode(rewritten, session, mode);
     }
 
     // Absent slots stay absent, and unchanged slots keep their shared lazy slot.
@@ -56,7 +86,7 @@ pub fn optimize(plan: PlanRef, session: &VortexSession) -> VortexResult<PlanRef>
                 return Ok(None);
             };
             let child = lazy.get()?;
-            let optimized = optimize(child.clone(), session)?;
+            let optimized = optimize_with_mode(child.clone(), session, mode)?;
             if PlanRef::ptr_eq(child, &optimized) {
                 return Ok(Some(lazy.clone()));
             }
@@ -69,8 +99,8 @@ pub fn optimize(plan: PlanRef, session: &VortexSession) -> VortexResult<PlanRef>
     }
 
     let plan = plan.with_slots(slots)?;
-    if let Some(rewritten) = reduce(&plan, session)? {
-        return optimize(rewritten, session);
+    if let Some(rewritten) = reduce(&plan, session, mode)? {
+        return optimize_with_mode(rewritten, session, mode);
     }
     Ok(plan)
 }
