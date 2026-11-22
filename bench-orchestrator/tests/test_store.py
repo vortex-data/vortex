@@ -178,9 +178,7 @@ def test_temporary_symlinks_excluded_from_run_discovery(tmp_path: Path, monkeypa
     assert [r.run_id for r in runs] == [run_id]
 
 
-def test_slash_label_creates_intermediate_directories_and_lookups(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_slash_label_runs_are_flat_and_found_by_label(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     _patch_store_env(monkeypatch)
     store = ResultStore(base_dir=tmp_path / "runs")
     config, build_config = _make_configs(label="feature/experiment")

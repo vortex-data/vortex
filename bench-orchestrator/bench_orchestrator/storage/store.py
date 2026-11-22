@@ -67,16 +67,14 @@ def _get_env_triple() -> EnvTriple:
 class RunContext:
     """Context manager for writing results to a run."""
 
-    def __init__(self, run_dir: Path, metadata: RunMetadata, *, _reserved: bool = False) -> None:
+    def __init__(self, run_dir: Path, metadata: RunMetadata) -> None:
         self.run_dir = run_dir
         self.metadata = metadata
-        self._reserved = _reserved
         self._results_file: TextIO | None = None
         self._result_count = 0
 
     def __enter__(self) -> "RunContext":
-        if not self._reserved:
-            self.run_dir.mkdir(parents=True, exist_ok=False)
+        self.run_dir.mkdir(parents=True, exist_ok=True)
         self._results_file = open(self.run_dir / "results.jsonl", "x")
         return self
 
@@ -165,11 +163,11 @@ class ResultStore:
     def create_run(self, config: RunConfig, build_config: BuildConfig) -> Iterator[RunContext]:
         """Create a new run and return a context for writing results."""
         now = datetime.now()
-        base_run_id = self._generate_run_id(config, timestamp=now)
-        run_id, run_dir = self._reserve_run_dir(base_run_id)
-
         git_commit, git_branch, git_dirty = _get_git_info()
         env_triple = _get_env_triple()
+
+        base_run_id = self._generate_run_id(config, timestamp=now)
+        run_id, run_dir = self._reserve_run_dir(base_run_id)
 
         metadata = RunMetadata(
             run_id=run_id,
@@ -190,7 +188,7 @@ class ResultStore:
             profile=build_config.profile,
         )
 
-        ctx = RunContext(run_dir, metadata, _reserved=True)
+        ctx = RunContext(run_dir, metadata)
         with ctx:
             yield ctx
 

@@ -546,6 +546,8 @@ def run(
 
     metadata = ctx.metadata
     console.print(f"\n[green]Results saved to run: {metadata.run_id}[/green]")
+    if metadata.partial:
+        console.print("[yellow]Run is partial; 'latest' was not updated.[/yellow]")
 
     # Show comparison table if we have multiple engine:format combinations
     df = store.load_results(metadata.run_id)
