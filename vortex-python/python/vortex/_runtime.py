@@ -44,9 +44,11 @@ class _UnthreadedLeaseManager:
             self._unthreaded_leases -= 1
             if self._unthreaded_leases == 0:
                 saved = self._saved_workers
-                self._saved_workers = None
-                if saved is not None:
-                    _set_worker_threads(saved)
+                try:
+                    if saved is not None:
+                        _set_worker_threads(saved)
+                finally:
+                    self._saved_workers = None
 
     def reset_after_fork(self) -> None:
         saved = self._saved_workers
