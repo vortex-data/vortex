@@ -20,7 +20,9 @@ use vortex::array::Canonical;
 use vortex::array::arrays::DecimalArray;
 use vortex::array::arrays::WidenArray;
 use vortex::array::arrays::primitive::PrimitiveDataParts;
+use vortex::dtype::DType;
 use vortex::dtype::DecimalType;
+use vortex::dtype::PType;
 use vortex::encodings::decimal_byte_parts::DecimalByteParts;
 use vortex::encodings::decimal_byte_parts::DecimalBytePartsArraySlotsExt;
 use vortex::error::VortexExpect;
@@ -61,31 +63,52 @@ impl CudaExecute for DecimalBytePartsExecutor {
 
         // Decode the child of a `Widen` MSP directly, so the values widen once, straight to the
         // canonical width. Executing the `Widen` would first copy them to the logical MSP width.
+        // Canonical widths of up to 64 bits widen in the same kernel that decodes the child.
+        let canonical_type = decimal_dtype.canonical_values_type();
+        let stored = WidenArray::to_stored_integer(array.msp());
+        let msp = match integer_ptype(canonical_type) {
+            Some(ptype) => WidenArray::from_stored_integer(
+                stored.clone(),
+                DType::Primitive(ptype, stored.dtype().nullability()),
+            )?,
+            None => stored,
+        };
         let PrimitiveDataParts {
             buffer,
             ptype,
             validity,
             ..
-        } = WidenArray::to_stored_integer(array.msp())
+        } = msp
             .execute_cuda(ctx)
             .await?
             .into_primitive()
             .into_data_parts();
-
         let values_type = DecimalType::try_from(ptype)?;
-        let canonical_type = decimal_dtype.canonical_values_type();
         let values = if values_type == canonical_type {
             buffer
         } else {
             widen_decimal_values(buffer, values_type, canonical_type, array.len(), ctx).await?
         };
 
-        // SAFETY: The buffer holds `array.len()` values of `canonical_type`, either the executed
-        // MSP buffer at that width or the output of `widen_decimal_values`. The decimal dtype is
-        // the array's own dtype, and the MSP's validity is the array's validity.
-        Ok(Canonical::Decimal(unsafe {
-            DecimalArray::new_unchecked_handle(values, canonical_type, decimal_dtype, validity)
-        }))
+        Ok(Canonical::Decimal(
+            DecimalArray::try_new_handle_from_trusted_values(
+                values,
+                canonical_type,
+                decimal_dtype,
+                validity,
+            )?,
+        ))
+    }
+}
+
+/// The integer ptype of a decimal values type, if it has one.
+fn integer_ptype(decimal_type: DecimalType) -> Option<PType> {
+    match decimal_type {
+        DecimalType::I8 => Some(PType::I8),
+        DecimalType::I16 => Some(PType::I16),
+        DecimalType::I32 => Some(PType::I32),
+        DecimalType::I64 => Some(PType::I64),
+        DecimalType::I128 | DecimalType::I256 => None,
     }
 }
 

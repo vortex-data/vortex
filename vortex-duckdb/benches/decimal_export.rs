@@ -140,7 +140,13 @@ fn spread_values<T: TryFrom<i64>>(min: i64, max: i64) -> Buffer<T> {
 }
 
 fn canonical<T: NativeDecimalType>(values: Buffer<T>, decimal_dtype: DecimalDType) -> ArrayRef {
-    DecimalArray::new(values, decimal_dtype, Validity::NonNullable).into_array()
+    DecimalArray::new(
+        values,
+        decimal_dtype,
+        Validity::NonNullable,
+        &mut SESSION.create_execution_ctx(),
+    )
+    .into_array()
 }
 
 fn decimal_byte_parts<T: NativePType>(msp: Buffer<T>, decimal_dtype: DecimalDType) -> ArrayRef {

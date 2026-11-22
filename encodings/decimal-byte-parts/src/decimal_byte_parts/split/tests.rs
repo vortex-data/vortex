@@ -29,6 +29,7 @@ use super::lower_part_count;
 use super::split_decimal;
 use crate::decimal_byte_parts::DecimalByteParts;
 use crate::decimal_byte_parts::MAX_LOWER_PARTS;
+use crate::decimal_byte_parts::testing::stored_decimal;
 use crate::decimal_byte_parts::testing::validity_mask;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
@@ -42,7 +43,8 @@ const I256_ABOVE_I128: i256 = i256::from_parts(1 << 127, 0);
 
 /// A decimal of `values` at the largest precision of their storage width.
 fn decimal<T: NativeDecimalType>(values: Buffer<T>, validity: Validity) -> DecimalArray {
-    DecimalArray::new(values, DecimalDType::new(T::MAX_PRECISION, 0), validity)
+    stored_decimal(values, DecimalDType::new(T::MAX_PRECISION, 0), validity)
+        .vortex_expect("the native buffer has the canonical width and fixture validity length")
 }
 
 /// Runs splitting through validation and checks the reported requirement.
@@ -230,6 +232,7 @@ fn test_split_i256_into_one_lower_part_round_trips() -> VortexResult<()> {
         ],
         DecimalDType::new(76, 0),
         Validity::from_iter([true, false, true, true, true]),
+        &mut ctx,
     );
     let parts = split_decimal(&decimal, &validity_mask(&decimal)?, 1)?;
     assert_arrays_eq!(
@@ -273,6 +276,7 @@ fn test_split_i256_part_order(
         ],
         DecimalDType::new(76, 0),
         validity.clone(),
+        &mut ctx,
     );
     let parts = split_decimal(&decimal, &validity_mask(&decimal)?, MAX_LOWER_PARTS)?;
     assert_arrays_eq!(
@@ -324,7 +328,7 @@ fn test_split_uses_logical_msp(
             values[1] = T::MAX;
         }
 
-        DecimalArray::new(Buffer::copy_from(values), decimal_dtype, validity)
+        DecimalArray::new(Buffer::copy_from(values), decimal_dtype, validity, &mut ctx)
     });
     let parts = split_decimal(&decimal, &validity_mask(&decimal)?, 0)?;
     assert!(parts.lower_parts.is_empty());

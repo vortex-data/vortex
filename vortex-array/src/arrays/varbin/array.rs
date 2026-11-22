@@ -14,6 +14,7 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
+use vortex_mask::Mask;
 
 use crate::ArrayRef;
 use crate::ArraySlots;
@@ -343,6 +344,56 @@ impl VarBinData {
         validity: &Validity,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
+        // TODO(joe): update the created VarBin with this decompressed Array.
+        let primitive_offsets = offsets.clone().execute::<PrimitiveArray>(ctx)?;
+
+        // Array-backed validity is the only variant that needs an execution context: execute it into
+        // a mask once. The constant variants resolve null-ness without one. Resolving this before
+        // the per-type dispatch keeps the dtype loop simple.
+        let mask = match validity {
+            Validity::Array(_) => {
+                Some(validity.execute_mask(primitive_offsets.len().saturating_sub(1), ctx)?)
+            }
+            _ => None,
+        };
+        let all_invalid = validity.definitely_all_null();
+
+        match_each_integer_ptype!(primitive_offsets.dtype().as_ptype(), |O| {
+            Self::validate_utf8_offsets(
+                offsets,
+                primitive_offsets.as_slice::<O>(),
+                bytes,
+                mask.as_ref(),
+                all_invalid,
+                ctx,
+            )
+        })
+    }
+
+    fn validate_utf8_offsets<O: AsPrimitive<usize> + PartialOrd>(
+        offsets: &ArrayRef,
+        offsets_slice: &[O],
+        bytes: &[u8],
+        mask: Option<&Mask>,
+        all_invalid: bool,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
+        let last_offset: usize = offsets_slice[offsets_slice.len() - 1].as_();
+        vortex_ensure!(
+            last_offset <= bytes.len(),
+            "Last offset {} exceeds bytes length {}",
+            last_offset,
+            bytes.len()
+        );
+
+        if offsets_tile_utf8(offsets_slice, bytes) {
+            return Ok(());
+        }
+
+        // The fast path proves the offsets are valid. The per-string check below skips null
+        // rows, so it cannot find bad offsets at those rows.
+        Self::validate_offsets(offsets, bytes.len(), ctx)?;
+
         let validate_at = |i: usize, start: usize, end: usize| -> VortexResult<()> {
             let string_bytes = bytes.get(start..end).ok_or_else(|| {
                 vortex_err!(
@@ -359,51 +410,17 @@ impl VarBinData {
             Ok(())
         };
 
-        // TODO(joe): update the created VarBin with this decompressed Array.
-        let primitive_offsets = offsets.clone().execute::<PrimitiveArray>(ctx)?;
-
-        // Array-backed validity is the only variant that needs an execution context: execute it into
-        // a mask once. The constant variants resolve null-ness without one. Resolving this before
-        // the per-type dispatch keeps the dtype loop simple.
-        let mask = match validity {
-            Validity::Array(_) => {
-                Some(validity.execute_mask(primitive_offsets.len().saturating_sub(1), ctx)?)
+        // Invalid bytes at a null row fail the check above, so check valid strings one by one.
+        for (i, (start, end)) in offsets_slice
+            .windows(2)
+            .map(|o| (o[0].as_(), o[1].as_()))
+            .enumerate()
+        {
+            let valid = mask.map_or(!all_invalid, |mask| mask.value(i));
+            if valid {
+                validate_at(i, start, end)?;
             }
-            _ => None,
-        };
-        let all_invalid = validity.definitely_all_null();
-
-        match_each_integer_ptype!(primitive_offsets.dtype().as_ptype(), |O| {
-            let offsets_slice = primitive_offsets.as_slice::<O>();
-
-            let last_offset: usize = offsets_slice[offsets_slice.len() - 1].as_();
-            vortex_ensure!(
-                last_offset <= bytes.len(),
-                "Last offset {} exceeds bytes length {}",
-                last_offset,
-                bytes.len()
-            );
-
-            if offsets_tile_utf8(offsets_slice, bytes) {
-                return Ok(());
-            }
-
-            // The fast path proves the offsets are valid. The per-string check below skips null
-            // rows, so it cannot find bad offsets at those rows.
-            Self::validate_offsets(offsets, bytes.len(), ctx)?;
-
-            // Invalid bytes at a null row fail the check above, so check valid strings one by one.
-            for (i, (start, end)) in offsets_slice
-                .windows(2)
-                .map(|o| (o[0].as_(), o[1].as_()))
-                .enumerate()
-            {
-                let valid = mask.as_ref().map_or(!all_invalid, |mask| mask.value(i));
-                if valid {
-                    validate_at(i, start, end)?;
-                }
-            }
-        });
+        }
         Ok(())
     }
 
@@ -444,10 +461,7 @@ pub trait VarBinArrayExt: TypedArrayRef<VarBin> {
     }
 
     fn varbin_validity(&self) -> Validity {
-        child_to_validity(
-            self.slots()[VarBinSlots::VALIDITY_CHILD].as_ref(),
-            self.nullability(),
-        )
+        child_to_validity(self.validity_child(), self.nullability())
     }
 
     fn offset_at(&self, index: usize, ctx: &mut ExecutionCtx) -> usize {

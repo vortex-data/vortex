@@ -45,7 +45,7 @@ use crate::validity::Validity;
 #[case::i128(DecimalArray::from_iter([12i128, -12], DecimalDType::new(38, 0)), 76, vec![12, -12])]
 #[case::empty(DecimalArray::from_iter(Vec::<i8>::new(), DecimalDType::new(2, 0)), 4, vec![])]
 #[case::all_null(
-    DecimalArray::new(buffer![12i8, -12], DecimalDType::new(2, 0), Validity::AllInvalid),
+    DecimalArray::new(buffer![12i8, -12], DecimalDType::new(2, 0), Validity::AllInvalid, &mut SESSION.create_execution_ctx()),
     4,
     vec![0, 0],
 )]
@@ -99,7 +99,12 @@ fn test_precision_growth_sets_child_nullability(
     #[case] nullability: Nullability,
 ) -> VortexResult<()> {
     let mut ctx = SESSION.create_execution_ctx();
-    let array = DecimalArray::new(buffer![12i8, -12], DecimalDType::new(2, 0), validity);
+    let array = DecimalArray::new(
+        buffer![12i8, -12],
+        DecimalDType::new(2, 0),
+        validity,
+        &mut ctx,
+    );
     let target_decimal = DecimalDType::new(4, 0);
     let target = DType::Decimal(target_decimal, nullability);
 
@@ -114,7 +119,12 @@ fn test_precision_growth_sets_child_nullability(
         Nullability::Nullable => Validity::AllValid,
         Nullability::NonNullable => Validity::NonNullable,
     };
-    let expected = DecimalArray::new(buffer![12i16, -12], target_decimal, expected_validity);
+    let expected = DecimalArray::new(
+        buffer![12i16, -12],
+        target_decimal,
+        expected_validity,
+        &mut ctx,
+    );
     assert_arrays_eq!(casted, expected, &mut ctx);
 
     Ok(())
@@ -174,6 +184,7 @@ fn test_encoded_validity_falls_back_to_kernel(#[case] second_valid: bool) -> Vor
         buffer![12i8, -12],
         DecimalDType::new(2, 0),
         Validity::Array(validity.into_array()),
+        &mut ctx,
     );
     let target_decimal = DecimalDType::new(4, 0);
     let target = DType::Decimal(target_decimal, Nullability::NonNullable);

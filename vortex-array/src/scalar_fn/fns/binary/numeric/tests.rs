@@ -541,6 +541,7 @@ fn test_decimal_out_of_precision_null_payload_ignored() -> VortexResult<()> {
         buffer![i8::MAX, 1],
         dtype,
         Validity::from_iter([false, true]),
+        &mut ctx,
     )
     .into_array();
     let rhs = decimal_constant(i256::from_i128(1), dtype, 2);
@@ -561,8 +562,13 @@ fn test_decimal_overflow_on_null_lane_ignored() {
     let max = <i256 as NativeDecimalType>::MAX_BY_PRECISION[76];
     let one = i256::from_i128(1);
     // The null lane holds the maximum value, so adding one overflows there but is ignored.
-    let lhs = DecimalArray::new(buffer![max, one], dtype, Validity::from_iter([false, true]))
-        .into_array();
+    let lhs = DecimalArray::new(
+        buffer![max, one],
+        dtype,
+        Validity::from_iter([false, true]),
+        &mut ctx,
+    )
+    .into_array();
     let rhs = decimal_constant(one, dtype, 2);
 
     let result = decimal_binary(lhs, rhs, Operator::Add).unwrap();
@@ -581,6 +587,7 @@ fn test_decimal_divide_by_zero_on_null_lane_ignored() -> VortexResult<()> {
         buffer![100i64, 1_000],
         dtype,
         Validity::from_iter([false, true]),
+        &mut ctx,
     )
     .into_array();
     let rhs = DecimalArray::from_iter::<i64, _>([0, 200], dtype).into_array();

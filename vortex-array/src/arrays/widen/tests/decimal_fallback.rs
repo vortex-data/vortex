@@ -39,6 +39,7 @@ fn decimal_widen(validity: Validity) -> VortexResult<ArrayRef> {
         buffer![-125i16, 50, 50, 250, 900],
         DecimalDType::new(4, 2),
         validity,
+        &mut SESSION.create_execution_ctx(),
     );
     let dtype = DType::Decimal(DecimalDType::new(18, 2), values.dtype().nullability());
 

@@ -294,7 +294,7 @@ mod tests {
 
         assert!(casted.is::<Dict>());
         let error = casted.execute::<Canonical>(ctx).unwrap_err();
-        assert!(error.to_string().contains("value exceeds target range"));
+        assert!(error.to_string().contains("values exceed target range"));
         Ok(())
     }
 }

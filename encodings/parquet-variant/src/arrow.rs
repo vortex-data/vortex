@@ -17,6 +17,7 @@ use parquet_variant_compute::GetOptions;
 use parquet_variant_compute::VariantArray as ArrowVariantArray;
 use parquet_variant_compute::unshred_variant;
 use vortex_array::ArrayRef;
+use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VTable;
@@ -145,7 +146,8 @@ impl Matcher for ParquetVariantExportable {
     type Match<'a> = &'a ArrayRef;
 
     fn try_match(array: &ArrayRef) -> Option<Self::Match<'_>> {
-        (array.is::<ParquetVariant>()
+        (array.is_empty()
+            || array.is::<ParquetVariant>()
             || array.is::<Constant>()
             || array.is::<Masked>()
             || is_non_empty_chunked(array))
@@ -189,6 +191,12 @@ pub(crate) fn prepare_variant_for_export(
 
     if array.is::<ParquetVariant>() {
         return attach_typed_value(array, typed_value);
+    }
+
+    // Empty storage, such as the empty chunked storage of an empty canonical Variant, has no
+    // chunk to take Parquet Variant children from.
+    if array.is_empty() {
+        return empty_variant_storage(array.dtype(), typed_value);
     }
 
     if is_non_empty_chunked(&array) {
@@ -265,6 +273,17 @@ fn attach_typed_value(storage: ArrayRef, typed_value: Option<ArrayRef>) -> Vorte
         storage.metadata().clone(),
         storage.value().cloned(),
         Some(typed_value),
+    )
+    .map(IntoArray::into_array)
+}
+
+fn empty_variant_storage(dtype: &DType, typed_value: Option<ArrayRef>) -> VortexResult<ArrayRef> {
+    let empty_binary = || Canonical::empty(&DType::Binary(Nullability::NonNullable)).into_array();
+    ParquetVariant::try_new(
+        Validity::from(dtype.nullability()),
+        empty_binary(),
+        Some(empty_binary()),
+        typed_value,
     )
     .map(IntoArray::into_array)
 }
@@ -474,12 +493,13 @@ impl ArrowImportVTable for ParquetVariant {
         }
 
         let arrow_variant = ArrowVariantArray::try_new(array.as_struct())?;
-        let imported = if dtype.is_nullable() {
-            ParquetVariant::from_arrow_variant_nullable(&arrow_variant, session)?
-        } else {
-            ParquetVariant::from_arrow_variant(&arrow_variant, session)?
-        };
-        Ok(ArrowImport::Imported(imported.into_array()))
+        let imported = ParquetVariant::from_arrow_variant_with_nullability(
+            &arrow_variant,
+            dtype.is_nullable(),
+            session,
+        )?;
+
+        Ok(ArrowImport::Imported(imported))
     }
 }
 
@@ -491,6 +511,7 @@ mod tests {
     use arrow_array::ArrayRef as ArrowArrayRef;
     use arrow_array::StructArray;
     use arrow_array::cast::AsArray;
+    use arrow_buffer::NullBuffer;
     use arrow_schema::DataType;
     use arrow_schema::Field;
     use arrow_schema::extension::EXTENSION_TYPE_NAME_KEY;
@@ -834,6 +855,27 @@ mod tests {
         let exported = exported.as_struct();
 
         assert_struct_arrays_eq(exported, &storage);
+        Ok(())
+    }
+
+    #[rstest]
+    fn test_import_non_nullable_variant_keeps_storage_under_null_row(
+        session: VortexSession,
+    ) -> VortexResult<()> {
+        let storage = arrow_variant_storage();
+        let field = arrow_variant_field(&storage);
+        let arrow = StructArray::try_new(
+            storage.fields().clone(),
+            storage.columns().to_vec(),
+            Some(NullBuffer::from(vec![true, false, true])),
+        )?;
+
+        let imported = session.arrow().from_arrow_array(Arc::new(arrow), &field)?;
+        let expected = ParquetVariant::from_arrow_variant(
+            &ArrowVariantArray::try_new(&storage)?,
+            &session.arrow(),
+        )?;
+        assert_arrays_eq!(imported, expected, &mut session.create_execution_ctx());
         Ok(())
     }
 

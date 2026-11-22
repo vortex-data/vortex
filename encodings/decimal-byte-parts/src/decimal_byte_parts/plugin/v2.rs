@@ -1,7 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Serde for DBP values with unsigned lower parts.
+//! Wire format for DecimalByteParts arrays with unsigned lower parts.
+//!
+//! A `vortex.decimal_byte_parts.v2` node has no buffers. Its parent supplies the decimal dtype
+//! and length. The first child holds the signed most significant word and has the decimal
+//! array's nullability. One to three non-nullable `u64` children follow, most significant first.
+//! All children have the same length. The decimal precision limits how many lower parts fit: one
+//! through precision 38, and three above precision 38. An array without lower parts uses the v1
+//! ID instead.
+//!
+//! The metadata records the stored integer type of each child. The reader restores the logical
+//! type of the most significant part from the decimal precision, independently of its stored
+//! width.
 
 use prost::Message as _;
 use vortex_array::Array;
@@ -30,8 +41,8 @@ use crate::decimal_byte_parts::MAX_LOWER_PARTS;
 /// Metadata for decimal byte parts with lower parts.
 #[derive(Clone, prost::Message)]
 pub struct DecimalBytePartsV2Metadata {
-    /// The stored MSP type. It can be narrower than its logical dtype, and a legacy writer could
-    /// also store it wider.
+    /// The stored MSP type. It can be narrower than its logical dtype, which is always `i64`,
+    /// because lower parts exist only above precision 18.
     #[prost(enumeration = "PType", tag = "1")]
     pub(super) msp_ptype: i32,
     /// Ptypes of the lower parts, ordered most significant first. Readers accept only `U64`.
@@ -70,6 +81,7 @@ pub(super) fn deserialize(
     parts: ArrayDeserialization<'_>,
     session: &VortexSession,
 ) -> VortexResult<DecimalBytePartsArray> {
+    vortex_ensure!(parts.buffers.is_empty(), "v2 must not carry node buffers");
     let metadata = DecimalBytePartsV2Metadata::decode(parts.metadata)?;
     let decimal_dtype = *parts
         .dtype
@@ -77,9 +89,12 @@ pub(super) fn deserialize(
         .ok_or_else(|| vortex_err!("expected a decimal dtype, got {}", parts.dtype))?;
 
     let lower_part_count = metadata.lower_part_ptypes.len();
+    // NB: The writer uses v1 when there are no lower parts. Lower parts exist only above
+    // precision 18, where the logical MSP is `i64`, so a valid v2 MSP is never wider than its
+    // logical dtype and never takes the legacy copy in `read_msp`.
     vortex_ensure!(
-        lower_part_count <= MAX_LOWER_PARTS,
-        "v2 carries at most {MAX_LOWER_PARTS} lower parts, got {lower_part_count}"
+        (1..=MAX_LOWER_PARTS).contains(&lower_part_count),
+        "v2 carries 1 to {MAX_LOWER_PARTS} lower parts, got {lower_part_count}"
     );
     vortex_ensure_eq!(
         parts.children.len(),

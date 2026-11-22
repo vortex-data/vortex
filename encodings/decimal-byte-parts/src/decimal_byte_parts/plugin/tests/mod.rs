@@ -20,6 +20,7 @@ use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::Widen;
 use vortex_array::assert_arrays_eq;
+use vortex_array::buffer::BufferHandle;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::DecimalDType;
@@ -32,6 +33,7 @@ use vortex_array::serde::SerializedArray;
 use vortex_array::session::ArraySessionExt;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
+use vortex_buffer::ByteBuffer;
 use vortex_buffer::ByteBufferMut;
 use vortex_buffer::buffer;
 use vortex_error::VortexExpect;
@@ -109,36 +111,33 @@ fn store_msp(
         .into_array())
 }
 
-/// Reads a stored MSP with no lower parts through the plugin, as v1 or v2.
+/// Reads a stored MSP with no lower parts through the plugin, as v1.
 ///
 /// The decimal dtype takes the nullability of `msp`, and the metadata names the stored ptype of
 /// `msp`.
 fn deserialize_stored_msp(
     msp: ArrayRef,
     decimal_dtype: DecimalDType,
-    v2: bool,
     session: &VortexSession,
 ) -> VortexResult<ArrayRef> {
     let dtype = DType::Decimal(decimal_dtype, msp.dtype().nullability());
-    let stored_ptype = msp.dtype().as_ptype() as i32;
-    let (serialized_id, metadata) = if v2 {
-        let metadata = DecimalBytePartsV2Metadata {
-            msp_ptype: stored_ptype,
-            lower_part_ptypes: vec![],
-        };
-        (decimal_byte_parts_v2_id(), metadata.encode_to_vec())
-    } else {
-        let metadata = v1::DecimalBytePartsMetadata {
-            zeroth_child_ptype: stored_ptype,
-            lower_part_count: 0,
-        };
-        (decimal_byte_parts_v1_id(), metadata.encode_to_vec())
-    };
+    let metadata = v1::DecimalBytePartsMetadata {
+        zeroth_child_ptype: msp.dtype().as_ptype() as i32,
+        lower_part_count: 0,
+    }
+    .encode_to_vec();
 
     let len = msp.len();
     let children = vec![msp];
     DecimalBytePartsPlugin.deserialize(
-        ArrayDeserialization::new(serialized_id, &dtype, len, &metadata, &[], &children),
+        ArrayDeserialization::new(
+            decimal_byte_parts_v1_id(),
+            &dtype,
+            len,
+            &metadata,
+            &[],
+            &children,
+        ),
         session,
     )
 }
@@ -172,6 +171,7 @@ fn serialize_and_decode(array: &ArrayRef, session: &VortexSession) -> VortexResu
     &DecimalArray::new(
         buffer![i256::from_parts(1 << 127, 0); 3],
         DecimalDType::new(76, 0), Validity::AllInvalid,
+        &mut SESSION.create_execution_ctx(),
     ),
     &mut SESSION.create_execution_ctx(),
 ))]
@@ -355,6 +355,12 @@ fn take_keeps_widen_msp_on_top(
     vec![msp(), lower_part()],
     "exactly one child"
 )]
+#[case::v2_no_lower_parts(
+    decimal_byte_parts_v2_id(),
+    v2_metadata(vec![]),
+    vec![msp()],
+    "lower parts, got 0"
+)]
 #[case::v2_missing_child(
     decimal_byte_parts_v2_id(),
     v2_metadata(vec![PType::U64 as i32]),
@@ -404,6 +410,26 @@ fn decoder_rejects_malformed_payloads(
             .is_err_and(|err| err.to_string().contains(expected_error)),
         "expected {expected_error}, got {result:?}"
     );
+}
+
+#[test]
+fn v2_rejects_node_buffers() {
+    let dtype = DType::Decimal(DecimalDType::new(38, 2), Nullability::NonNullable);
+    let metadata = v2_metadata(vec![PType::U64 as i32]);
+    let buffers = [BufferHandle::new_host(ByteBuffer::copy_from([1]))];
+    let children = vec![msp(), lower_part()];
+    let parts = ArrayDeserialization::new(
+        decimal_byte_parts_v2_id(),
+        &dtype,
+        3,
+        &metadata,
+        &buffers,
+        &children,
+    );
+    let error = DecimalBytePartsPlugin
+        .deserialize(parts, &SESSION)
+        .expect_err("v2 has only child arrays");
+    assert!(error.to_string().contains("v2 must not carry node buffers"));
 }
 
 #[test]
@@ -466,7 +492,7 @@ fn legacy_msp_widths(
         },
     );
     let msp = store_msp(msp, stored_ptype, &mut ctx)?;
-    let decoded = deserialize_stored_msp(msp, DecimalDType::new(precision, 0), false, &session)?;
+    let decoded = deserialize_stored_msp(msp, DecimalDType::new(precision, 0), &session)?;
     let array = decoded
         .as_opt::<DecimalByteParts>()
         .vortex_expect("byte parts array");
@@ -514,7 +540,6 @@ fn legacy_msp_widths(
 fn wider_legacy_msp_checks_precision(
     #[case] stored_ptype: PType,
     #[case] precision: u8,
-    #[values(false, true)] v2: bool,
 ) -> VortexResult<()> {
     let session = session();
     let mut ctx = session.create_execution_ctx();
@@ -528,7 +553,7 @@ fn wider_legacy_msp_checks_precision(
         stored_ptype,
         &mut ctx,
     )?;
-    let decoded = deserialize_stored_msp(msp, decimal_dtype, v2, &session)?;
+    let decoded = deserialize_stored_msp(msp, decimal_dtype, &session)?;
     let msp = decoded
         .as_opt::<DecimalByteParts>()
         .vortex_expect("byte parts array")
@@ -547,7 +572,7 @@ fn wider_legacy_msp_checks_precision(
             stored_ptype,
             &mut ctx,
         )?;
-        let err = deserialize_stored_msp(msp, decimal_dtype, v2, &session)
+        let err = deserialize_stored_msp(msp, decimal_dtype, &session)
             .expect_err("a valid value outside the precision must fail");
         assert!(
             err.to_string().contains("must be within the precision of"),
@@ -580,14 +605,13 @@ fn wider_legacy_msp_zeroes_null_slots(
     #[case] stored: Buffer<i64>,
     #[case] validity: Validity,
     #[case] expected_slots: Buffer<i16>,
-    #[values(false, true)] v2: bool,
 ) -> VortexResult<()> {
     let session = session();
     let mut ctx = session.create_execution_ctx();
     let decimal_dtype = DecimalDType::new(4, 2);
 
     let msp = PrimitiveArray::new(stored, validity.clone()).into_array();
-    let decoded = deserialize_stored_msp(msp, decimal_dtype, v2, &session)?;
+    let decoded = deserialize_stored_msp(msp, decimal_dtype, &session)?;
     let msp = decoded
         .as_opt::<DecimalByteParts>()
         .vortex_expect("byte parts array")
@@ -596,20 +620,18 @@ fn wider_legacy_msp_zeroes_null_slots(
         .execute::<PrimitiveArray>(&mut ctx)?;
     assert_eq!(msp.as_slice::<i16>(), expected_slots.as_slice());
 
-    let expected = DecimalArray::new(expected_slots, decimal_dtype, validity);
+    let expected = DecimalArray::new(expected_slots, decimal_dtype, validity, &mut ctx);
     assert_arrays_eq!(decoded, expected, &mut ctx);
 
     Ok(())
 }
 
-#[rstest]
-fn wider_legacy_msp_rejects_valid_value_outside_width(
-    #[values(false, true)] v2: bool,
-) -> VortexResult<()> {
+#[test]
+fn wider_legacy_msp_rejects_valid_value_outside_width() -> VortexResult<()> {
     let session = session();
     let msp = buffer![99i64, i64::MAX, -99].into_array();
 
-    let err = deserialize_stored_msp(msp, DecimalDType::new(4, 2), v2, &session)
+    let err = deserialize_stored_msp(msp, DecimalDType::new(4, 2), &session)
         .expect_err("a valid value outside the logical width must fail");
     assert!(
         err.to_string().contains("must be within the precision of"),

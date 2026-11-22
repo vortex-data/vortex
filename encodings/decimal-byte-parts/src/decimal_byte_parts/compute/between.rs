@@ -179,6 +179,7 @@ mod tests {
             Buffer::from_iter(values.into_iter().map(i64::from)),
             decimal_dtype,
             validity,
+            &mut ctx,
         )
         .into_array();
 

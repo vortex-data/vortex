@@ -37,6 +37,7 @@ use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::PType;
 use vortex_array::dtype::half;
+use vortex_array::require_validity;
 use vortex_array::scalar::Scalar;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::OperationsVTable;
@@ -197,6 +198,8 @@ impl VTable for Pco {
     }
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+        require_validity!(array, PcoSlots::VALIDITY_CHILD);
+
         let unsliced_validity = array.unsliced_validity();
         Ok(ExecutionResult::done(
             array
@@ -306,10 +309,7 @@ pub struct PcoSlots {
 pub trait PcoArrayExt: TypedArrayRef<Pco> {
     /// Reconstruct the unsliced [`Validity`] from the validity slot.
     fn unsliced_validity(&self) -> Validity {
-        child_to_validity(
-            self.slots()[PcoSlots::VALIDITY_CHILD].as_ref(),
-            self.dtype().nullability(),
-        )
+        child_to_validity(self.validity_child(), self.dtype().nullability())
     }
 }
 impl<T: TypedArrayRef<Pco>> PcoArrayExt for T {}
@@ -728,6 +728,7 @@ mod tests {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::validity::Validity;
+    use vortex_buffer::Buffer;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
@@ -800,6 +801,16 @@ mod tests {
             data.validate(pco.dtype(), pco.len(), &Validity::NonNullable)
                 .is_err()
         );
+        Ok(())
+    }
+
+    #[test]
+    fn test_all_null_slice_keeps_all_invalid_validity() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let values = PrimitiveArray::new(Buffer::<u32>::zeroed(1024), Validity::AllInvalid);
+        let pco = Pco::from_primitive(values.as_view(), 0, 128, &mut ctx)?;
+        let decoded = pco.slice(10..20)?.execute::<PrimitiveArray>(&mut ctx)?;
+        assert!(matches!(decoded.validity()?, Validity::AllInvalid));
         Ok(())
     }
 }

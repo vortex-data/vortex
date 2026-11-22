@@ -23,6 +23,8 @@ use crate::scalar_fn::fns::cast::Cast;
 use crate::scalar_fn::fns::cast::CastReduceAdaptor;
 use crate::scalar_fn::fns::fill_null::FillNull;
 use crate::scalar_fn::fns::fill_null::FillNullReduceAdaptor;
+use crate::scalar_fn::fns::list_contains::ListContains;
+use crate::scalar_fn::fns::list_contains::ListContainsElementReduceAdaptor;
 
 pub(crate) fn register_parent_rules(session: &VortexSession) {
     let kernels = session.kernels();
@@ -30,6 +32,11 @@ pub(crate) fn register_parent_rules(session: &VortexSession) {
     // eagerly (surfacing out-of-range errors immediately) rather than being pushed lazily into
     // the values array by the generic scalar function push-down rule.
     kernels.register_reduce_parent_rule(Cast, RunEnd, const { &CastReduceAdaptor(RunEnd) });
+    kernels.register_reduce_parent_rule(
+        ListContains,
+        RunEnd,
+        const { &ListContainsElementReduceAdaptor(RunEnd) },
+    );
     kernels.register_reduce_parent_rule(AnyScalarFn, RunEnd, const { &RunEndScalarFnRule });
     kernels.register_reduce_parent_rule(FillNull, RunEnd, const { &FillNullReduceAdaptor(RunEnd) });
 }

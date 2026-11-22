@@ -236,6 +236,7 @@ mod tests {
             buffer![-125i32, 50, 900],
             DecimalDType::new(9, 2),
             Validity::from_iter([true, false, true]),
+            &mut SESSION.create_execution_ctx(),
         );
         let dtype = DType::Decimal(DecimalDType::new(38, 2), Nullability::Nullable);
         let array = WidenArray::try_new(values.into_array(), dtype)?.into_array();

@@ -46,6 +46,7 @@ impl FlatLayoutFixture for DecimalBytePartsV2Fixture {
                 .collect::<Buffer<i128>>(),
             wide_128_dtype,
             Validity::NonNullable,
+            ctx,
         );
         let wide_128_arr = DecimalByteParts::encode(&wide_128, ctx)?;
 
@@ -56,6 +57,7 @@ impl FlatLayoutFixture for DecimalBytePartsV2Fixture {
                 .collect::<Buffer<i128>>(),
             wide_128_dtype,
             Validity::NonNullable,
+            ctx,
         );
         let wide_128_negative_arr = DecimalByteParts::encode(&wide_128_negative, ctx)?;
 
@@ -69,6 +71,7 @@ impl FlatLayoutFixture for DecimalBytePartsV2Fixture {
                 .collect::<Buffer<i256>>(),
             wide_256_dtype,
             Validity::from_iter((0..N).map(|i| i % 7 != 0)),
+            ctx,
         );
         let wide_256_arr = DecimalByteParts::encode(&wide_256, ctx)?;
 

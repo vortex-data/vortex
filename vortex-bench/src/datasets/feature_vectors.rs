@@ -21,12 +21,14 @@ use rand::rngs::StdRng;
 
 use crate::CompactionStrategy;
 use crate::Format;
+use crate::IdempotentPath;
 use crate::conversions::write_parquet_as_vortex;
 use crate::idempotent_async;
 use crate::random_access::BenchDataset;
 use crate::random_access::data_path;
 use crate::random_access::parquet_to_arrow_file;
 use crate::random_access::random_access_writer_properties;
+use crate::utils::parquet::remove_stale_parquet;
 
 /// Dataset identifier used for data path generation.
 pub const DATASET: &str = "feature_vectors";
@@ -71,6 +73,7 @@ const BATCH_SIZE: usize = 100_000;
 /// Schema: `id: Int64, embedding: FixedSizeList<Float32, VECTOR_DIM>`.
 /// This simulates a table of embedding vectors, common in ML workloads.
 pub async fn feature_vectors_parquet() -> Result<PathBuf> {
+    remove_stale_parquet(&data_path(DATASET, Format::Parquet).to_data_path())?;
     idempotent_async(
         data_path(DATASET, Format::Parquet),
         |temp_path| async move {
@@ -90,7 +93,7 @@ pub async fn feature_vectors_parquet() -> Result<PathBuf> {
             let mut writer = ArrowWriter::try_new(
                 file,
                 Arc::clone(&schema),
-                Some(random_access_writer_properties()?),
+                Some(random_access_writer_properties()),
             )?;
             let mut rng = StdRng::seed_from_u64(42);
 

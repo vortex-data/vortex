@@ -9,6 +9,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use futures::future::BoxFuture;
 use futures::future::join;
+use futures::future::join_all;
 use tracing::error;
 use vortex::array::ArrayRef;
 use vortex::array::Canonical;
@@ -48,10 +49,10 @@ use vortex::array::optimizer::ArrayOptimizer;
 use vortex::array::validity::Validity;
 use vortex::buffer::Buffer;
 use vortex::dtype::DType;
-use vortex::dtype::DecimalType;
 use vortex::dtype::Nullability;
 use vortex::dtype::PType;
 use vortex::encodings::fsst::FSST;
+use vortex::error::VortexError;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::error::vortex_ensure;
@@ -432,11 +433,8 @@ async fn export_dictionary_codes(
     Ok(parts)
 }
 
-/// Exports decimals with value buffers cast to Arrow's Decimal32/64/128/256 layout.
-///
-/// Decimal values are already decoded; this only adapts the physical buffer width. Storage-to-Arrow
-/// narrowing is rejected instead of checked on-device to avoid a device-to-host synchronization
-/// point.
+/// Exports decimal values in the Arrow layout for their precision. Arrow's smallest decimal
+/// uses `i32`, so only `i8` and `i16` buffers need widening.
 async fn export_decimal(
     decimal: DecimalArray,
     ctx: &mut CudaExecutionCtx,
@@ -451,32 +449,13 @@ async fn export_decimal(
 
     let (validity_buffer, null_count) = export_arrow_validity_buffer(validity, len, 0, ctx).await?;
     let target_type = cuda_decimal_value_type(decimal_dtype);
-    let values = export_decimal_values(values, values_type, target_type, len, ctx).await?;
+    let values = if values_type == target_type {
+        ctx.ensure_on_device(values).await?
+    } else {
+        widen_decimal_values(values, values_type, target_type, len, ctx).await?
+    };
 
     export_fixed_size(values, len, 0, validity_buffer, null_count, ctx)
-}
-
-/// Ensure the values buffer is on-device and has the Arrow-required decimal width.
-///
-/// Storage wider than the precision-implied Arrow width is rejected. Callers that hit this
-/// should narrow the storage via a decimal cast before exporting.
-async fn export_decimal_values(
-    values: BufferHandle,
-    values_type: DecimalType,
-    target_type: DecimalType,
-    len: usize,
-    ctx: &mut CudaExecutionCtx,
-) -> VortexResult<BufferHandle> {
-    if values_type.byte_width() > target_type.byte_width() {
-        vortex_bail!(
-            "cannot export decimal values from {values_type} storage to Arrow {target_type}: narrowing would require a device-to-host overflow check",
-        );
-    }
-    if values_type == target_type {
-        return ctx.ensure_on_device(values).await;
-    }
-
-    widen_decimal_values(values, values_type, target_type, len, ctx).await
 }
 
 /// Export Vortex binary views as an Arrow Device array with `Utf8View`/`BinaryView` layout.
@@ -620,7 +599,7 @@ async fn export_binary_buffers(
     let mut ptr_values = Vec::with_capacity(device_data_buffers.len());
     let mut len_values = Vec::with_capacity(device_data_buffers.len());
     for buffer in &device_data_buffers {
-        ptr_values.push(buffer.cuda_device_ptr()?);
+        ptr_values.push(buffer.cuda_device_ptr(ctx.stream())?);
         len_values.push(u64::try_from(buffer.len())?);
     }
     if device_data_buffers.is_empty() {
@@ -714,7 +693,7 @@ fn init_binary_scan(
     let views_view = views.cuda_view::<u8>()?;
     // A null pointer signals an all-valid array to the kernel.
     let validity_ptr = validity
-        .map(|v| v.cuda_device_ptr())
+        .map(|v| v.cuda_device_ptr(ctx.stream()))
         .transpose()?
         .unwrap_or(0);
     let lens_view = data_buffer_lens.cuda_view::<u64>()?;
@@ -882,7 +861,7 @@ fn export_arrow_bitmap(
     let allocation_bytes = output_bytes.next_multiple_of(CUDF_VALIDITY_BUFFER_PADDING);
     // cuDF reads both validity and bool values as 4-byte-aligned mask words.
     if bitmap
-        .cuda_device_ptr()?
+        .cuda_device_ptr(ctx.stream())?
         .is_multiple_of(size_of::<u32>() as u64)
         && bitmap.has_zeroed_tail_padding(output_bytes, allocation_bytes)?
     {
@@ -1276,9 +1255,51 @@ async fn export_struct(
         dictionary: None,
     };
 
-    for field in fields.iter() {
-        let (arrow_field, _) = export_array(field.clone(), ctx).await?;
-        pending.children.push(arrow_field);
+    // Export the fields concurrently, each on its own stream, so that while one field waits for
+    // a readback (e.g. a string total that sizes its output) the others keep the GPU busy.
+    let mut field_ctxs = fields
+        .iter()
+        .map(|_| ctx.fork())
+        .collect::<VortexResult<Vec<_>>>()?;
+    let exports = join_all(fields.iter().zip(field_ctxs.iter_mut()).map(
+        |(field, field_ctx)| async move {
+            let (arrow_field, _) = export_array(field.clone(), field_ctx).await?;
+            // Release the field if a sibling fails or the join is cancelled.
+            let exported = PendingArrowChildren {
+                children: vec![arrow_field],
+                dictionary: None,
+            };
+            let done = field_ctx
+                .stream()
+                .record_event(None)
+                .map_err(|err| vortex_err!("Failed to record CUDA field export event: {err}"));
+            Ok::<_, VortexError>((exported, done))
+        },
+    ))
+    .await;
+
+    // Keep every exported field for release before reporting the first error.
+    let mut first_error = None;
+    let mut field_events = Vec::with_capacity(fields.len());
+    for export in exports {
+        match export {
+            Ok((mut exported, done)) => {
+                pending.children.append(&mut exported.children);
+                field_events.push(done);
+            }
+            Err(err) => {
+                first_error.get_or_insert(err);
+            }
+        }
+    }
+    if let Some(err) = first_error {
+        return Err(err);
+    }
+    // The struct's sync event, recorded on this stream, must cover every field's stream.
+    for done in field_events {
+        ctx.stream()
+            .wait(&done?)
+            .map_err(|err| vortex_err!("Failed to wait for CUDA field export: {err}"))?;
     }
 
     let mut private_data =
@@ -1475,7 +1496,8 @@ mod tests {
     use crate::arrow::dictionary_tests::upload;
     use crate::arrow::tests::private_data_buffer_bytes;
     use crate::device_buffer::CUDF_VALIDITY_BUFFER_PADDING;
-    use crate::device_buffer::cuda_backing_allocation;
+    use crate::device_buffer::test_support::cuda_address;
+    use crate::device_buffer::test_support::cuda_backing_allocation;
     use crate::executor::CudaArrayExt;
     use crate::session::CudaSession;
     use crate::session::VarBinExportLayout;
@@ -1782,11 +1804,11 @@ mod tests {
     ) -> VortexResult<ByteBuffer> {
         assert!(buffer.is_on_device());
         assert_eq!(buffer.len(), logical_bytes);
-        let pointer = buffer.cuda_device_ptr()?;
+        let pointer = cuda_address(buffer)?;
         assert!(pointer.is_multiple_of(size_of::<u32>() as u64));
         let padded_bytes = logical_bytes.next_multiple_of(CUDF_VALIDITY_BUFFER_PADDING);
         let backing = cuda_backing_allocation(buffer)?;
-        let start = usize::try_from(pointer - backing.cuda_device_ptr()?)?;
+        let start = usize::try_from(pointer - cuda_address(&backing)?)?;
         // Sliced exports may retain a larger allocation; repacked outputs must be exact-sized.
         if exact_allocation {
             assert_eq!(backing.len(), padded_bytes);
@@ -2239,6 +2261,7 @@ mod tests {
                 Buffer::<i32>::empty(),
                 DecimalDType::new(9, 2),
                 Validity::NonNullable,
+                &mut SESSION.create_execution_ctx(),
             )
             .into_array(),
             DataType::Decimal32(9, 2),
@@ -2254,6 +2277,7 @@ mod tests {
                 Buffer::<i8>::empty(),
                 DecimalDType::new(2, 2),
                 Validity::NonNullable,
+                &mut SESSION.create_execution_ctx(),
             )
             .into_array(),
             DataType::Decimal32(2, 2),
@@ -2360,7 +2384,7 @@ mod tests {
             let values = private.buffers[1]
                 .as_ref()
                 .ok_or_else(|| vortex_err!("expected exported bool values"))?;
-            assert_eq!(values.cuda_device_ptr()?, input_values.cuda_device_ptr()?);
+            assert_eq!(cuda_address(values)?, cuda_address(&input_values)?);
         }
 
         assert_eq!(
@@ -3718,7 +3742,7 @@ mod tests {
         let input_buffer =
             upload_unpadded(input_bytes, &ctx)?.slice(byte_offset..input_bytes.len());
         assert_eq!(
-            input_buffer.cuda_device_ptr()? % 8,
+            cuda_address(&input_buffer)? % 8,
             u64::try_from(byte_offset % 8)?
         );
         let output_bits = len + arrow_offset;
@@ -3849,7 +3873,7 @@ mod tests {
             std::iter::repeat_n(true, byte_offset * 8).chain(logical_bits.clone()),
         );
         let input = ctx.stream().copy_to_device_sync(source.inner().as_ref())?;
-        let input_ptr = input.cuda_device_ptr()? + byte_offset as u64;
+        let input_ptr = cuda_address(&input)? + byte_offset as u64;
         // Slicing to the end preserves the zeroed tail, measured from the allocation base.
         let input = input.slice(byte_offset..input.len());
         let validity =
@@ -3862,7 +3886,7 @@ mod tests {
             i64::try_from(logical_bits.clone().filter(|bit| !bit).count())?
         );
         let buffer = buffer.vortex_expect("nullable validity should export a null buffer");
-        assert_eq!(buffer.cuda_device_ptr()?, input_ptr);
+        assert_eq!(cuda_address(&buffer)?, input_ptr);
         let bytes = assert_bitmap_padding(&buffer, len.div_ceil(8), false)?;
         assert_eq!(
             BitBuffer::new(bytes, len),
@@ -3883,7 +3907,7 @@ mod tests {
         let input_buffer = ctx
             .ensure_on_device(BufferHandle::new_host(input_buffer))
             .await?;
-        let input_ptr = input_buffer.cuda_device_ptr()?;
+        let input_ptr = cuda_address(&input_buffer)?;
         let validity = BoolArray::new_handle(
             input_buffer.clone(),
             input_offset,
@@ -3899,7 +3923,7 @@ mod tests {
 
         assert_eq!(null_count, 1);
         let buffer = buffer.vortex_expect("nullable validity should export a null buffer");
-        assert_ne!(buffer.cuda_device_ptr()?, input_ptr);
+        assert_ne!(cuda_address(&buffer)?, input_ptr);
         let output_bytes = (len + input_offset).div_ceil(8);
         let bytes = assert_bitmap_padding(&buffer, output_bytes, true)?;
         assert_eq!(

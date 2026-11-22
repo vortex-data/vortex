@@ -72,6 +72,7 @@ fn test_rejects_invalid_decimal_dtypes(
         buffer![i32::MIN, 999, i32::MAX],
         DecimalDType::new(9, 2),
         Validity::from_iter([false, true, false]),
+        &mut SESSION.create_execution_ctx(),
     ),
     [0, 999, 0],
 )]
@@ -86,6 +87,7 @@ fn test_decimal_execute_widens_and_terminates(
         expected.into_iter().collect::<Buffer<i64>>(),
         DecimalDType::new(18, 2),
         validity,
+        &mut ctx,
     );
 
     let widened = WidenArray::try_new(child.into_array(), parent.clone())?.into_array();
@@ -141,6 +143,7 @@ fn test_encode_decimal_ignores_null_payloads() -> VortexResult<()> {
         buffer![i64::MIN, -128, i64::MAX],
         DecimalDType::new(18, 0),
         Validity::from_iter([false, true, false]),
+        &mut ctx,
     );
 
     let encoded = WidenArray::encode_decimal(input.clone(), &mut ctx)?;

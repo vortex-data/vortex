@@ -32,6 +32,7 @@ use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
+use vortex_io::segments::SegmentLocation;
 use vortex_layout::LayoutId;
 use vortex_layout::LayoutRef;
 use vortex_layout::layout_from_flatbuffer_with_options;
@@ -223,6 +224,18 @@ impl Footer {
 
     pub(crate) fn segment_specs_with_metadata(&self) -> Arc<[SegmentSpec]> {
         Arc::clone(&self.segments_with_metadata)
+    }
+
+    /// Where every segment of the file lives, metadata segments included, indexed by id.
+    pub(crate) fn segment_locations(&self) -> Arc<[SegmentLocation]> {
+        self.segments_with_metadata
+            .iter()
+            .map(|spec| SegmentLocation {
+                offset: spec.offset,
+                length: spec.length,
+                alignment: spec.alignment,
+            })
+            .collect()
     }
 
     /// Computes the compressed size in bytes of every field in the file, keyed by field path.

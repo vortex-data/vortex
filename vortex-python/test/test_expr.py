@@ -307,8 +307,8 @@ def test_serialize_is_stable() -> None:
 @pytest.mark.parametrize("value", [1_705_320_000_000_000_123, None])
 @pytest.mark.parametrize(("target", "offset_seconds"), [("America/New_York", 18_000), ("+05:30", -19_800)])
 def test_replace_time_zone_constant(value, target, offset_seconds):
-    dtype = vx.timestamp("ns", nullable=value is None)
-    expression = ve.replace_time_zone(ve.literal(dtype, value), target)
+    timestamp = vx.array(pa.array([value], type=pa.timestamp("ns")))
+    expression = ve.replace_time_zone(ve.literal(timestamp.dtype, timestamp.scalar_at(0)), target)
     expected_value = None if value is None else value + offset_seconds * 1_000_000_000
     expected = pa.array([expected_value] * 3, type=pa.timestamp("ns", tz=target))
     actual = vx.array(pa.array([0, 1, 2])).apply(expression).to_arrow_array()

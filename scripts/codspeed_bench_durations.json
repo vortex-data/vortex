@@ -32,7 +32,7 @@
       "expr_case_when": 5.956,
       "expr_large_struct_pack": 2.408,
       "expr_optimize": 2.377,
-      "filter_bool": 5.08,
+      "filter_bool": 5.51,
       "filter_fixed_width": 3.863,
       "filter_fsl": 2.687,
       "filter_list": 3.708,

@@ -139,8 +139,9 @@ fn compress_dictionary(
     let compressed_values =
         compressor.compress_child(dict.values(), &compress_ctx, scheme.id(), 0, exec_ctx)?;
 
-    // Codes = child 1. `dict_encode` and `dict_encode_with_constraints` already hand back the
-    // narrowest codes that can address the dictionary, so there is nothing left to narrow here.
+    // Codes = child 1. Every dictionary reaching here came from `dict_encode` or
+    // `dict_encode_with_constraints`, which already hand back the narrowest codes that can
+    // address the dictionary, so there is nothing left to narrow here.
     let compressed_codes =
         compressor.compress_child(dict.codes(), &compress_ctx, scheme.id(), 1, exec_ctx)?;
 

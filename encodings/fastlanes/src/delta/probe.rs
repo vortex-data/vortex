@@ -419,41 +419,60 @@ where
     // which sits `shift` into its first block; positions here count from the start of the block.
     let shift = patches.shift;
     let block_start = block_index * FL_CHUNK_SIZE + patches.offset;
-    let (lane, row) = fastlanes::delta_lane_row::<T>(position);
     let mut correction = T::zero();
-    let mut correct = |patched: usize, delta: T| {
+    let correct = |patched: usize, delta: T| {
         // SAFETY: `LaneDeltas::packed` checked the block holds 1024 values of `width` bits, and
         // `patched` is within the block.
         let packed = unsafe { BitPacking::unchecked_unpack_single(width, block, patched) };
         correction = correction.wrapping_add(&delta).wrapping_sub(&packed);
     };
     match_each_unsigned_integer_ptype!(indices.ptype(), |P| {
-        let indices = indices.as_slice::<P>();
-        let index_of = |index: P| AsPrimitive::<usize>::as_(index) + shift;
-        let lo = indices.partition_point(|&index| index_of(index) < block_start);
-        let hi = indices.partition_point(|&index| index_of(index) < block_start + FL_CHUNK_SIZE);
-        let (indices, values) = (&indices[lo..hi], &values[lo..hi]);
-        if indices.len() <= row + 1 {
-            // Few patches: check each one's lane and row.
-            for (&index, &delta) in indices.iter().zip(values) {
-                let patched = index_of(index) - block_start;
-                let (patch_lane, patch_row) = fastlanes::delta_lane_row::<T>(patched);
-                if patch_lane == lane && patch_row <= row {
-                    correct(patched, delta);
-                }
-            }
-        } else {
-            // Many patches: look up each position of the lane prefix.
-            for k in 0..=row {
-                let patched = fastlanes::delta_index::<T>(lane, k);
-                let target = block_start + patched;
-                if let Ok(i) = indices.binary_search_by(|&index| index_of(index).cmp(&target)) {
-                    correct(patched, values[i]);
-                }
-            }
-        }
+        apply_lane_patches(
+            indices.as_slice::<P>(),
+            values,
+            shift,
+            block_start,
+            position,
+            correct,
+        )
     });
     Some(correction)
+}
+
+#[inline]
+fn apply_lane_patches<P: AsPrimitive<usize>, T: BitPacking>(
+    indices: &[P],
+    values: &[T],
+    shift: usize,
+    block_start: usize,
+    position: usize,
+    mut correct: impl FnMut(usize, T),
+) {
+    let (lane, row) = fastlanes::delta_lane_row::<T>(position);
+    let index_of = |index: P| index.as_() + shift;
+    let lo = indices.partition_point(|&index| index_of(index) < block_start);
+    let hi = indices.partition_point(|&index| index_of(index) < block_start + FL_CHUNK_SIZE);
+    let (indices, values) = (&indices[lo..hi], &values[lo..hi]);
+
+    if indices.len() <= row + 1 {
+        // Few patches: check each one's lane and row.
+        for (&index, &delta) in indices.iter().zip(values) {
+            let patched = index_of(index) - block_start;
+            let (patch_lane, patch_row) = fastlanes::delta_lane_row::<T>(patched);
+            if patch_lane == lane && patch_row <= row {
+                correct(patched, delta);
+            }
+        }
+    } else {
+        // Many patches: look up each position of the lane prefix.
+        for k in 0..=row {
+            let patched = fastlanes::delta_index::<T>(lane, k);
+            let target = block_start + patched;
+            if let Ok(i) = indices.binary_search_by(|&index| index_of(index).cmp(&target)) {
+                correct(patched, values[i]);
+            }
+        }
+    }
 }
 
 /// The values of a host-backed primitive array as `T`, the unsigned type of the same width.

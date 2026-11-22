@@ -273,16 +273,16 @@ fn strings_nullable(
 #[test]
 fn decimal_identical() -> VortexResult<()> {
     let dtype = DecimalDType::new(5, 2);
-    let a = DecimalArray::new(buffer![100i32, 200, 300], dtype, Validity::NonNullable).into_array();
-    let b = DecimalArray::new(buffer![100i32, 200, 300], dtype, Validity::NonNullable).into_array();
+    let a = DecimalArray::from_iter([100i32, 200, 300], dtype).into_array();
+    let b = DecimalArray::from_iter([100i32, 200, 300], dtype).into_array();
     assert_matches_baseline(&a, &b)
 }
 
 #[test]
 fn decimal_different() -> VortexResult<()> {
     let dtype = DecimalDType::new(5, 2);
-    let a = DecimalArray::new(buffer![100i32, 200, 300], dtype, Validity::NonNullable).into_array();
-    let b = DecimalArray::new(buffer![100i32, 200, 999], dtype, Validity::NonNullable).into_array();
+    let a = DecimalArray::from_iter([100i32, 200, 300], dtype).into_array();
+    let b = DecimalArray::from_iter([100i32, 200, 999], dtype).into_array();
     assert_matches_baseline(&a, &b)
 }
 
@@ -310,8 +310,10 @@ fn decimal_canonical_widths(#[values(2, 4, 9, 18, 38, 76)] precision: u8) -> Vor
 fn decimal_nullable() -> VortexResult<()> {
     let dtype = DecimalDType::new(5, 2);
     let validity = Validity::from_iter([true, false, true]);
-    let a = DecimalArray::new(buffer![100i32, 200, 300], dtype, validity.clone()).into_array();
-    let b = DecimalArray::new(buffer![100i32, 999, 300], dtype, validity).into_array();
+    let mut ctx = SESSION.create_execution_ctx();
+    let a = DecimalArray::new(buffer![100i32, 200, 300], dtype, validity.clone(), &mut ctx)
+        .into_array();
+    let b = DecimalArray::new(buffer![100i32, 999, 300], dtype, validity, &mut ctx).into_array();
     assert_matches_baseline(&a, &b)
 }
 

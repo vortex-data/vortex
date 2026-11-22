@@ -11,8 +11,8 @@
 //! need `_test-harness`, so they do not link Hegel's native backend under libFuzzer coverage flags.
 //!
 //! Hegel suites run 100 cases with at most 32 rows and three extra nesting levels. Failures print
-//! a replay blob for `#[hegel::reproduce_failure("...")]`. Variant is excluded pending
-//! <https://github.com/vortex-data/vortex/issues/11359>.
+//! a replay blob for `#[hegel::reproduce_failure("...")]`. Variant transport needs the Parquet
+//! Variant plugin, so its suite lives in `vortex-parquet-variant`.
 
 /// Expected behavior when an array is exported without a target Arrow field.
 #[derive(Clone, Copy, Debug)]

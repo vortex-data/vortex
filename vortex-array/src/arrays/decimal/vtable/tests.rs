@@ -11,9 +11,11 @@ use crate::ArrayParts;
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::VortexSessionExecute;
+use crate::arrays::BoolArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::Decimal;
 use crate::arrays::DecimalArray;
+use crate::arrays::DictArray;
 use crate::assert_arrays_eq;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
@@ -36,7 +38,12 @@ fn typed_buffer_must_have_the_canonical_width(
 ) {
     let dtype = DecimalDType::new(precision, 0);
     let result = match_each_decimal_value_type!(values_type, |D| {
-        DecimalArray::try_new(Buffer::<D>::empty(), dtype, Validity::NonNullable)
+        DecimalArray::try_new(
+            Buffer::<D>::empty(),
+            dtype,
+            Validity::NonNullable,
+            &mut VortexSession::empty().create_execution_ctx(),
+        )
     });
     let expected = dtype.canonical_values_type();
     let error = result.unwrap_err().to_string();
@@ -80,7 +87,8 @@ fn iterators_convert_to_the_canonical_width() -> VortexResult<()> {
         DecimalArray::try_new(
             buffer![-17i32, 0, 99],
             dtype,
-            Validity::from_iter([true, false, true])
+            Validity::from_iter([true, false, true]),
+            &mut VortexSession::empty().create_execution_ctx()
         )?,
         &mut VortexSession::empty().create_execution_ctx()
     );
@@ -89,16 +97,21 @@ fn iterators_convert_to_the_canonical_width() -> VortexResult<()> {
 }
 
 #[test]
-#[should_panic(expected = "Decimal value must fit in i8, got 128")]
+#[should_panic(expected = "decimal value 128 exceeds the precision of decimal(2,0)")]
 fn iterators_reject_values_outside_the_canonical_integer_type() {
     DecimalArray::from_iter([128i16], DecimalDType::new(2, 0));
 }
 
 /// Parts with one valid value, for tests that replace one part with an invalid one.
 fn decimal_parts() -> ArrayParts<Decimal> {
-    DecimalArray::new(buffer![1i32], DecimalDType::new(5, 2), Validity::AllValid)
-        .try_into_parts()
-        .unwrap()
+    DecimalArray::new(
+        buffer![1i32],
+        DecimalDType::new(5, 2),
+        Validity::AllValid,
+        &mut VortexSession::empty().create_execution_ctx(),
+    )
+    .try_into_parts()
+    .unwrap()
 }
 
 #[rstest]
@@ -124,11 +137,7 @@ fn parts_reject_a_partial_integer_after_the_last_row() {
 
 #[test]
 fn buffer_replacement_requires_alignment() {
-    let array = DecimalArray::new(
-        buffer![0i32],
-        DecimalDType::new(5, 2),
-        Validity::NonNullable,
-    );
+    let array = DecimalArray::from_iter([0i32], DecimalDType::new(5, 2));
     let unaligned = buffer![0i32, 0].into_byte_buffer().slice_unaligned(1..5);
     let buffers = [BufferHandle::new_host(unaligned)];
 
@@ -162,4 +171,69 @@ fn parts_require_the_validity_slot() {
 
     let error = DecimalArray::try_from_parts(parts).unwrap_err().to_string();
     assert!(error.contains("one validity slot"), "{error}");
+}
+
+#[rstest]
+#[case::non_nullable(Validity::NonNullable, 0, 100)]
+#[case::all_valid(Validity::AllValid, 0, 100)]
+#[case::bitmap(Validity::from_iter([false, true, true]), 2, -100)]
+fn checked_constructor_reports_first_invalid_valid_row(
+    #[case] validity: Validity,
+    #[case] row: usize,
+    #[case] value: i8,
+) {
+    let dtype = DecimalDType::new(2, 0);
+    let error = DecimalArray::try_new(
+        buffer![100i8, 99, -100],
+        dtype,
+        validity,
+        &mut VortexSession::empty().create_execution_ctx(),
+    )
+    .unwrap_err()
+    .to_string();
+
+    assert!(
+        error.contains(&format!(
+            "decimal value at row {row} must be within the precision of {dtype}, got {value}"
+        )),
+        "{error}"
+    );
+}
+
+#[test]
+fn checked_constructor_honors_encoded_validity() -> VortexResult<()> {
+    let dtype = DecimalDType::new(2, 1);
+    // Dictionary codes select false for the out-of-precision payloads at both ends.
+    let validity = DictArray::try_new(
+        buffer![0u8, 1, 1, 0].into_array(),
+        BoolArray::from_iter([false, true]).into_array(),
+    )?;
+    let mut ctx = VortexSession::empty().create_execution_ctx();
+    let array = DecimalArray::try_new(
+        buffer![100i8, -99, 99, -100],
+        dtype,
+        Validity::Array(validity.into_array()),
+        &mut ctx,
+    )?;
+
+    assert_eq!(array.buffer::<i8>(), buffer![100i8, -99, 99, -100]);
+    assert_arrays_eq!(
+        array,
+        DecimalArray::from_option_iter([None, Some(-99i8), Some(99), None], dtype),
+        &mut ctx
+    );
+
+    let all_null = DecimalArray::try_new(buffer![100i8], dtype, Validity::AllInvalid, &mut ctx)?;
+    assert_eq!(all_null.buffer::<i8>(), buffer![100i8]);
+    Ok(())
+}
+
+#[rstest]
+#[case::non_nullable(|| DecimalArray::from_iter([99i64, 100], DecimalDType::new(2, 0)))]
+#[case::nullable(|| DecimalArray::from_option_iter([None, Some(100i64)], DecimalDType::new(2, 0)))]
+#[should_panic(expected = "decimal value 100 exceeds the precision of decimal(2,0)")]
+fn iterators_check_values_that_fit_the_canonical_integer_type(
+    #[case] collect: fn() -> DecimalArray,
+) {
+    collect();
 }
