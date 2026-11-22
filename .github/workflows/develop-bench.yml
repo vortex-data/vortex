@@ -1,10 +1,17 @@
-# Runs after every commit to `develop` (or in other words, _after_ every pull request merges).
+# Runs on commits to `develop` (i.e. after pull requests merge), debounced via a single
+# concurrency group: at most one run executes and one latest push queues behind it, so rapid
+# bursts of merges collapse into the newest commit without cancelling in-progress benchmarks.
 
 name: Develop Benchmarks
+
+concurrency:
+  group: develop-bench
+  cancel-in-progress: false
 
 on:
   push:
     branches: [develop]
+  workflow_dispatch: { }
 
 permissions:
   id-token: write  # enables AWS-GitHub OIDC
