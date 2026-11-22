@@ -35,6 +35,7 @@ use vortex_error::vortex_err;
 
 use super::CascadingCompressor;
 use super::constant;
+use super::select::WinnerEstimate;
 use crate::scheme::CompressorContext;
 use crate::scheme::Scheme;
 use crate::scheme::SchemeExt;
@@ -336,11 +337,12 @@ impl CascadingCompressor {
     /// The winner's [`encode`] output has its registered children compressed by
     /// [`compress_encoded`](Self::compress_encoded).
     ///
-    /// If a winner is found and its compressed output is actually smaller than the exact
-    /// uncompressed size, that output is returned as [`Selection::Compressed`]. Otherwise, the
-    /// original array is returned as [`Selection::Unchanged`], and the caller decides whether it
-    /// is a valid result: it is for leaf arrays, but not for arrays like extensions whose children
-    /// have yet to be compressed.
+    /// Candidates are tried best estimate first. The first output that is actually smaller than
+    /// the exact uncompressed size is returned as [`Selection::Compressed`], so a scheme whose
+    /// estimate was too optimistic costs one wasted compression rather than the whole selection.
+    /// If no candidate shrinks the array, the original array is returned as
+    /// [`Selection::Unchanged`], and the caller decides whether it is a valid result: it is for
+    /// leaf arrays, but not for arrays like extensions whose children have yet to be compressed.
     ///
     /// Empty, all-null, and constant arrays are handled by the compressor itself before any
     /// scheme evaluation (constant detection is skipped while compressing samples).
@@ -404,31 +406,54 @@ impl CascadingCompressor {
 
         let data = ArrayAndStats::new(array, merged_opts);
 
-        if eligible_schemes.is_empty() {
-            return Ok(Selection::unchanged(data));
+        // Estimates can be too optimistic, so a scheme whose output does not beat the input hands
+        // over to the next-best candidate instead of ending selection.
+        for (scheme, estimate) in
+            self.rank_schemes(&eligible_schemes, &data, compress_ctx.clone(), exec_ctx)?
+        {
+            if let Some(compressed) = self.try_scheme(
+                scheme,
+                estimate,
+                &data,
+                &compress_ctx,
+                before_nbytes,
+                exec_ctx,
+            )? {
+                return Ok(Selection::Compressed(compressed));
+            }
         }
 
-        let Some((winner, winner_estimate)) =
-            self.choose_best_scheme(&eligible_schemes, &data, compress_ctx.clone(), exec_ctx)?
-        else {
-            return Ok(Selection::unchanged(data));
-        };
+        Ok(Selection::unchanged(data))
+    }
 
-        // Run the winning scheme's `encode` and compress the children it registers, unless an
-        // estimate already produced its complete output. On failure, emit an ERROR event carrying
-        // the scheme name and cascade history before propagating.
-        let error_ctx = trace::enabled_error_context(&compress_ctx);
-        let _winner_span = trace::winner_compress_span(winner.id(), before_nbytes).entered();
+    /// Compresses `data` with `scheme`, returning the output only if it is smaller than
+    /// `before_nbytes`.
+    ///
+    /// A [`TrialOutput`] that is smaller than the scheme's output replaces it: the scheme was
+    /// picked on an estimate, while the trial output's size is a measurement.
+    fn try_scheme(
+        &self,
+        scheme: &'static dyn Scheme,
+        estimate: WinnerEstimate,
+        data: &ArrayAndStats,
+        compress_ctx: &CompressorContext,
+        before_nbytes: u64,
+        exec_ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
+        // Run the scheme's `encode` and compress the children it registers, unless an estimate
+        // already produced its complete output. On failure, emit an ERROR event carrying the
+        // scheme name and cascade history before propagating.
+        let error_ctx = trace::enabled_error_context(compress_ctx);
+        let _winner_span = trace::winner_compress_span(scheme.id(), before_nbytes).entered();
         let compressed = self
-            .compress_with_scheme(winner, &data, &compress_ctx, exec_ctx)
+            .compress_with_scheme(scheme, data, compress_ctx, exec_ctx)
             .inspect_err(|err| {
                 // NB: this is the only way we can tell which scheme panicked / bailed on their
                 // data, especially for third-party schemes where the error site may not carry any
                 // compressor context.
-                trace::scheme_compress_failed(winner.id(), before_nbytes, error_ctx.as_ref(), err);
+                trace::scheme_compress_failed(scheme.id(), before_nbytes, error_ctx.as_ref(), err);
             })?;
 
-        // The winner was picked on estimates. A trial output is measured, so it wins when smaller.
         let compressed = match data.get::<TrialOutput>() {
             Some(trial) if trial.array.nbytes() < compressed.nbytes() => trial.array.clone(),
             _ => compressed,
@@ -441,16 +466,12 @@ impl CascadingCompressor {
 
         trace::record_winner_compress_result(
             after_nbytes,
-            winner_estimate.trace_ratio(),
+            estimate.trace_ratio(),
             actual_ratio,
             accepted,
         );
 
-        if accepted {
-            Ok(Selection::Compressed(compressed))
-        } else {
-            Ok(Selection::unchanged(data))
-        }
+        Ok(accepted.then_some(compressed))
     }
 }
 

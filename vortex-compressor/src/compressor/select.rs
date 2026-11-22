@@ -39,16 +39,58 @@ impl WinnerEstimate {
 }
 
 /// Returns `true` if `score` beats the current best estimate.
-fn is_better_score(
+fn is_better_score(score: EstimateScore, best: Option<EstimateScore>) -> bool {
+    score.is_valid() && best.is_none_or(|best| score.beats(best))
+}
+
+/// Records a valid `score` as a candidate and as the running best if it beats it.
+fn push_score(
+    best: &mut Option<EstimateScore>,
+    ranked: &mut Vec<(&'static dyn Scheme, EstimateScore)>,
+    scheme: &'static dyn Scheme,
     score: EstimateScore,
-    best: Option<&(&'static dyn Scheme, EstimateScore)>,
-) -> bool {
-    score.is_valid() && best.is_none_or(|(_, best_score)| score.beats(*best_score))
+) {
+    if !score.is_valid() {
+        return;
+    }
+    if is_better_score(score, *best) {
+        *best = Some(score);
+    }
+    ranked.push((scheme, score));
+}
+
+/// Orders `ranked` best first, keeping evaluation order among equal scores.
+fn sort_ranked(ranked: &mut [(&'static dyn Scheme, EstimateScore)]) {
+    // Every ranked score is valid, so it has a finite ratio greater than one.
+    ranked.sort_by(|(_, a), (_, b)| {
+        let a = a.finite_ratio().unwrap_or(f64::NEG_INFINITY);
+        let b = b.finite_ratio().unwrap_or(f64::NEG_INFINITY);
+        b.total_cmp(&a)
+    });
+}
+
+/// Puts an [`EstimateVerdict::AlwaysUse`] scheme ahead of the candidates ranked before it.
+fn always_use_first(
+    scheme: &'static dyn Scheme,
+    mut ranked: Vec<(&'static dyn Scheme, EstimateScore)>,
+) -> Vec<(&'static dyn Scheme, WinnerEstimate)> {
+    sort_ranked(&mut ranked);
+    std::iter::once((scheme, WinnerEstimate::AlwaysUse))
+        .chain(
+            ranked
+                .into_iter()
+                .map(|(scheme, score)| (scheme, WinnerEstimate::Score(score))),
+        )
+        .collect()
 }
 
 impl CascadingCompressor {
-    /// Calls [`expected_compression_ratio`] on each candidate and returns the winning scheme along
-    /// with its resolved winner estimate, or `None` if no scheme beats the canonical encoding.
+    /// Calls [`expected_compression_ratio`] on each candidate and returns every scheme expected
+    /// to beat the canonical encoding, best first, along with its winner estimate. The list is
+    /// empty if no scheme is expected to beat it.
+    ///
+    /// The caller compresses with the first scheme and falls back to the next one when an
+    /// estimate turns out to be too optimistic, so the order matters beyond the first entry.
     ///
     /// Selection runs in two passes. Pass 1 evaluates every immediate
     /// [`CompressionEstimate::Verdict`] and tracks the running best. [`Scheme`]s returning
@@ -57,25 +99,31 @@ impl CascadingCompressor {
     ///
     /// The first scheme returning [`EstimateVerdict::AlwaysUse`] in pass 1 is the default. It wins
     /// at once when every other candidate skips. Otherwise it is sampled in pass 2 like a
-    /// [`DeferredEstimate::Sample`], and it is also chosen when no candidate has a valid estimate.
+    /// [`DeferredEstimate::Sample`] and ranked by that estimate. If its sample is not a valid
+    /// estimate, it is ranked last, so it is still tried when every other candidate fails.
     ///
     /// Pass 2 evaluates the deferred work. Every [`DeferredEstimate::Sample`] runs before any
     /// [`DeferredEstimate::Callback`], and each callback receives the current best
     /// [`EstimateScore`] as an early-exit hint so it can return [`EstimateVerdict::Skip`] without
-    /// doing expensive work when it cannot beat the threshold.
+    /// doing expensive work when it cannot beat the threshold. A callback that skips is not
+    /// ranked, so it is never a fallback.
+    ///
+    /// A callback returning [`EstimateVerdict::AlwaysUse`] stops evaluation: that scheme comes
+    /// first, followed by the schemes ranked before it. Remaining schemes are not evaluated.
     ///
     /// Ties are broken by evaluation order: immediate verdicts, then samples, then the default, then
     /// callbacks, each in registration order.
     ///
     /// [`expected_compression_ratio`]: Scheme::expected_compression_ratio
-    pub(super) fn choose_best_scheme(
+    pub(super) fn rank_schemes(
         &self,
         schemes: &[&'static dyn Scheme],
         data: &ArrayAndStats,
         compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Option<(&'static dyn Scheme, WinnerEstimate)>> {
-        let mut best: Option<(&'static dyn Scheme, EstimateScore)> = None;
+    ) -> VortexResult<Vec<(&'static dyn Scheme, WinnerEstimate)>> {
+        let mut best: Option<EstimateScore> = None;
+        let mut ranked: Vec<(&'static dyn Scheme, EstimateScore)> = Vec::new();
         let mut deferred: Vec<(&'static dyn Scheme, DeferredEstimate)> = Vec::new();
         // The first `AlwaysUse` scheme is the default, which the other candidates have to beat.
         let mut default: Option<&'static dyn Scheme> = None;
@@ -90,11 +138,12 @@ impl CascadingCompressor {
                         default.get_or_insert(scheme);
                     }
                     CompressionEstimate::Verdict(EstimateVerdict::Ratio(ratio)) => {
-                        let score = EstimateScore::FiniteCompression(ratio);
-
-                        if is_better_score(score, best.as_ref()) {
-                            best = Some((scheme, score));
-                        }
+                        push_score(
+                            &mut best,
+                            &mut ranked,
+                            scheme,
+                            EstimateScore::FiniteCompression(ratio),
+                        );
                     }
                     CompressionEstimate::Deferred(deferred_estimate) => {
                         deferred.push((scheme, deferred_estimate));
@@ -106,7 +155,7 @@ impl CascadingCompressor {
         if let Some(default) = default {
             // Without other candidates, the default wins without being estimated.
             if best.is_none() && deferred.is_empty() {
-                return Ok(Some((default, WinnerEstimate::AlwaysUse)));
+                return Ok(vec![(default, WinnerEstimate::AlwaysUse)]);
             }
             // Otherwise it competes on a sample, after the candidates that already have scores, so
             // that it has to beat them.
@@ -118,7 +167,6 @@ impl CascadingCompressor {
         deferred.sort_by_key(|(_, estimate)| matches!(estimate, DeferredEstimate::Callback(_)));
         for (scheme, deferred_estimate) in deferred {
             let _span = trace::scheme_eval_span(scheme.id()).entered();
-            let threshold: Option<EstimateScore> = best.map(|(_, score)| score);
             match deferred_estimate {
                 DeferredEstimate::Sample => {
                     let score = estimate_compression_ratio_with_sampling(
@@ -128,35 +176,41 @@ impl CascadingCompressor {
                         compress_ctx.clone(),
                         exec_ctx,
                     )?;
-
-                    if is_better_score(score, best.as_ref()) {
-                        best = Some((scheme, score));
-                    }
+                    push_score(&mut best, &mut ranked, scheme, score);
                 }
                 DeferredEstimate::Callback(callback) => {
+                    let threshold = best;
                     match callback(self, data, threshold, compress_ctx.clone(), exec_ctx)? {
                         EstimateVerdict::Skip => {}
                         EstimateVerdict::AlwaysUse => {
-                            return Ok(Some((scheme, WinnerEstimate::AlwaysUse)));
+                            return Ok(always_use_first(scheme, ranked));
                         }
                         EstimateVerdict::Ratio(ratio) => {
-                            let score = EstimateScore::FiniteCompression(ratio);
-
-                            if is_better_score(score, best.as_ref()) {
-                                best = Some((scheme, score));
-                            }
+                            push_score(
+                                &mut best,
+                                &mut ranked,
+                                scheme,
+                                EstimateScore::FiniteCompression(ratio),
+                            );
                         }
                     }
                 }
             }
         }
 
-        // The default is used when no candidate has a valid estimate, e.g. when every sample holds
-        // only nulls.
-        Ok(match best {
-            Some((scheme, score)) => Some((scheme, WinnerEstimate::Score(score))),
-            None => default.map(|scheme| (scheme, WinnerEstimate::AlwaysUse)),
-        })
+        sort_ranked(&mut ranked);
+        let mut ranked: Vec<_> = ranked
+            .into_iter()
+            .map(|(scheme, score)| (scheme, WinnerEstimate::Score(score)))
+            .collect();
+        // A default without a valid estimate, e.g. because every sample holds only nulls, is the
+        // last resort, and the only candidate when nothing else has a valid estimate.
+        if let Some(default) = default
+            && !ranked.iter().any(|(scheme, _)| scheme.id() == default.id())
+        {
+            ranked.push((default, WinnerEstimate::AlwaysUse));
+        }
+        Ok(ranked)
     }
 
     // TODO(connor): Lots of room for optimization here.
