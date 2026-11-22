@@ -21,8 +21,6 @@ use vortex_array::dtype::FieldMask;
 use vortex_array::dtype::Nullability;
 use vortex_array::expr::BoundExpression;
 use vortex_array::expr::ExactBoundExpr;
-use vortex_array::expr::ExactKey;
-use vortex_array::expr::WeakBoundExprKey;
 use vortex_array::expr::bound::pack as bound_pack;
 use vortex_array::expr::root;
 use vortex_array::optimizer::ArrayOptimizer;
@@ -35,7 +33,6 @@ use vortex_expr::label_bound_tree;
 use vortex_expr::transform::partition_bound_annotations;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
-use vortex_utils::aliases::dash_map::DashMap;
 
 use super::DictLayout;
 use crate::LayoutReader;
@@ -43,6 +40,7 @@ use crate::LayoutReaderRef;
 use crate::RowSplits;
 use crate::SplitRange;
 use crate::arrays::shared::Shared;
+use crate::expr_cache::WeakExprCache;
 use crate::layouts::SharedArrayFuture;
 use crate::segments::SegmentSource;
 
@@ -56,7 +54,7 @@ pub struct DictReader {
     /// Cached dict values array
     values_array: OnceLock<SharedArrayFuture>,
     /// Cache of expression evaluation results on the values array by expression
-    values_evals: DashMap<WeakBoundExprKey, SharedArrayFuture>,
+    values_evals: WeakExprCache<SharedArrayFuture>,
 
     values: LayoutReaderRef,
     codes: LayoutReaderRef,
@@ -96,7 +94,7 @@ impl DictReader {
             session,
             values_len,
             values_array: Default::default(),
-            values_evals: DashMap::with_hasher_and_shard_amount(Default::default(), 8),
+            values_evals: WeakExprCache::with_shard_amount(8),
             values,
             codes,
         })
@@ -154,25 +152,16 @@ impl DictReader {
         // shouldn't.
         // TODO(joe): fixme
 
-        // Check cache first with read-only lock
-        if let Some(fut) = self.values_evals.get(expr as &dyn ExactKey) {
-            return fut.clone();
-        }
-
-        self.values_evals.retain(|key, _| key.is_live());
-        self.values_evals
-            .entry(WeakBoundExprKey::new(expr))
-            .or_insert_with(|| {
-                let expr = expr.clone();
-                self.values_array_uncanonical()
-                    .map(move |array| {
-                        let array = array?.apply_bound(&expr)?;
-                        Ok(Shared::new(array).into_array())
-                    })
-                    .boxed()
-                    .shared()
-            })
-            .clone()
+        self.values_evals.get_or_insert_with(expr, || {
+            let expr = expr.clone();
+            self.values_array_uncanonical()
+                .map(move |array| {
+                    let array = array?.apply_bound(&expr)?;
+                    Ok(Shared::new(array).into_array())
+                })
+                .boxed()
+                .shared()
+        })
     }
 }
 

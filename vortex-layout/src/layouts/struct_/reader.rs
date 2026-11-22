@@ -17,8 +17,6 @@ use vortex_array::dtype::Nullability;
 use vortex_array::dtype::RESERVED_VALIDITY_FIELD_NAME;
 use vortex_array::dtype::StructFields;
 use vortex_array::expr::BoundExpression;
-use vortex_array::expr::ExactKey;
-use vortex_array::expr::WeakBoundExprKey;
 use vortex_array::expr::bound::get_item;
 use vortex_array::expr::bound::is_not_null;
 use vortex_array::expr::bound::mask;
@@ -42,7 +40,6 @@ use vortex_expr::make_bound_free_field_annotator;
 use vortex_expr::transform::partition_bound;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
-use vortex_utils::aliases::dash_map::DashMap;
 use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::ArrayFuture;
@@ -52,6 +49,7 @@ use crate::LayoutReaderRef;
 use crate::LazyReaderChildren;
 use crate::RowSplits;
 use crate::SplitRange;
+use crate::expr_cache::WeakExprCache;
 use crate::layouts::partitioned::PartitionedEval;
 use crate::layouts::struct_::StructLayout;
 use crate::segments::SegmentSource;
@@ -92,7 +90,7 @@ pub struct StructReader {
     expanded_root_expr: BoundExpression,
 
     field_lookup: Option<HashMap<FieldName, usize>>,
-    partitioned_expr_cache: DashMap<WeakBoundExprKey, Arc<OnceLock<Partitioned>>>,
+    partitioned_expr_cache: WeakExprCache<Arc<OnceLock<Partitioned>>>,
 }
 
 impl StructReader {
@@ -148,7 +146,7 @@ impl StructReader {
             expanded_root_expr,
             lazy_children,
             field_lookup,
-            partitioned_expr_cache: DashMap::with_hasher_and_shard_amount(Default::default(), 8),
+            partitioned_expr_cache: WeakExprCache::with_shard_amount(8),
         })
     }
 
@@ -197,20 +195,11 @@ impl StructReader {
 
     /// Utility for partitioning an expression over the fields of a struct.
     fn partition_expr(&self, expr: &BoundExpression) -> VortexResult<CachedPartitioned> {
-        // Look up the cell under a shared shard lock; only a miss takes the write lock, and
-        // only for as long as it takes to insert an empty cell.
-        let cell = match self.partitioned_expr_cache.get(expr as &dyn ExactKey) {
-            Some(entry) => Arc::clone(entry.value()),
-            None => {
-                self.partitioned_expr_cache.retain(|key, _| key.is_live());
-                Arc::clone(
-                    self.partitioned_expr_cache
-                        .entry(WeakBoundExprKey::new(expr))
-                        .or_insert_with(|| Arc::new(OnceLock::new()))
-                        .value(),
-                )
-            }
-        };
+        // Look up the cell under a shared shard lock; only a miss takes a write lock to insert an
+        // empty cell (and periodically sweeps dead keys).
+        let cell = self
+            .partitioned_expr_cache
+            .get_or_insert_with(expr, || Arc::new(OnceLock::new()));
         // All map guards are dropped here, so partitioning runs outside any shard lock.
         // Concurrent misses may compute redundantly; `get_or_init` keeps a single winner.
 

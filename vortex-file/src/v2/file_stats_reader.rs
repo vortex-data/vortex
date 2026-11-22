@@ -14,8 +14,6 @@ use vortex_array::MaskFuture;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldMask;
 use vortex_array::expr::BoundExpression;
-use vortex_array::expr::ExactKey;
-use vortex_array::expr::WeakBoundExprKey;
 use vortex_array::scalar_fn::fns::dynamic::DynamicExprUpdates;
 use vortex_error::VortexResult;
 use vortex_layout::ArrayFuture;
@@ -23,9 +21,9 @@ use vortex_layout::LayoutReader;
 use vortex_layout::LayoutReaderRef;
 use vortex_layout::RowSplits;
 use vortex_layout::SplitRange;
+use vortex_layout::expr_cache::WeakExprCache;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
-use vortex_utils::aliases::dash_map::DashMap;
 
 use crate::FileStatistics;
 use crate::pruning::is_falsified_by_file_stats;
@@ -44,8 +42,8 @@ pub struct FileStatsLayoutReader {
     child: LayoutReaderRef,
     file_stats: FileStatistics,
     session: VortexSession,
-    prune_cache: Arc<DashMap<WeakBoundExprKey, CachedProof>>,
-    satisfaction_cache: Arc<DashMap<WeakBoundExprKey, CachedProof>>,
+    prune_cache: Arc<WeakExprCache<CachedProof>>,
+    satisfaction_cache: Arc<WeakExprCache<CachedProof>>,
 }
 
 impl FileStatsLayoutReader {
@@ -55,11 +53,8 @@ impl FileStatsLayoutReader {
             child,
             file_stats,
             session,
-            prune_cache: Arc::new(DashMap::with_hasher_and_shard_amount(Default::default(), 8)),
-            satisfaction_cache: Arc::new(DashMap::with_hasher_and_shard_amount(
-                Default::default(),
-                8,
-            )),
+            prune_cache: Arc::new(WeakExprCache::with_shard_amount(8)),
+            satisfaction_cache: Arc::new(WeakExprCache::with_shard_amount(8)),
         }
     }
 
@@ -182,7 +177,7 @@ impl LayoutReader for FileStatsLayoutReader {
 
 /// Returns whether file statistics falsify `expr`, with a cache for each dynamic producer version.
 fn is_falsified_cached(
-    cache: &DashMap<WeakBoundExprKey, CachedProof>,
+    cache: &WeakExprCache<CachedProof>,
     child: &LayoutReaderRef,
     file_stats: &FileStatistics,
     session: &VortexSession,
@@ -195,23 +190,18 @@ fn is_falsified_cached(
 
 /// Evaluates `proof` through the cached proof of `expr`.
 ///
-/// A hit probes the cache with the borrowed expression. A miss first drops the entries of
-/// expressions that no scan holds any more, then inserts a key for `expr`.
+/// A hit probes the cache with the borrowed expression. Misses insert a weak key and periodically
+/// sweep entries whose expressions no scan holds anymore.
 fn evaluate_cached(
-    cache: &DashMap<WeakBoundExprKey, CachedProof>,
+    cache: &WeakExprCache<CachedProof>,
     expr: &BoundExpression,
     proof: impl FnOnce() -> VortexResult<bool>,
 ) -> VortexResult<bool> {
-    if let Some(mut entry) = cache.get_mut(expr as &dyn ExactKey) {
-        return entry.evaluate(proof);
-    }
-
-    cache.retain(|key, _| key.is_live());
-
-    cache
-        .entry(WeakBoundExprKey::new(expr))
-        .or_insert_with(|| CachedProof::new(expr))
-        .evaluate(proof)
+    cache.with_entry_mut(
+        expr,
+        || CachedProof::new(expr),
+        |entry| entry.evaluate(proof),
+    )
 }
 
 struct CachedProof {
@@ -443,7 +433,7 @@ mod tests {
             let reader = FileStatsLayoutReader::new(child, test_file_stats(1, 5), session);
 
             // A reader that outlives its scans sees a new expression from every scan.
-            for _ in 0..3 {
+            for _ in 0..WeakExprCache::<CachedProof>::EVICT_INTERVAL {
                 let expr = gt(get_item("col", root()), lit(10i32)).bind(reader.dtype())?;
                 for _ in 0..2 {
                     let result = reader
