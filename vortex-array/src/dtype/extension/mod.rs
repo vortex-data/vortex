@@ -34,6 +34,11 @@ mod plugin;
 pub use plugin::*;
 
 mod foreign;
+// Tests in other crates use it to build extension dtypes over arbitrary storage without
+// defining a vtable for each storage shape.
+#[cfg(feature = "_test-harness")]
+pub use foreign::ForeignExtDType;
+#[cfg(not(feature = "_test-harness"))]
 pub(crate) use foreign::*;
 
 mod typed;

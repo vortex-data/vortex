@@ -24,10 +24,15 @@ use crate::footer::SegmentSpec;
 /// split).
 ///
 /// Fields nested inside non-struct types (e.g. structs within lists) are not split into separate
-/// layout subtrees by the writer, so their bytes are attributed to the enclosing field.
+/// layout subtrees by the writer, so their bytes are attributed to the enclosing field. The
+/// exception is a struct-backed extension written with the [extension layout], whose storage
+/// fields get their own paths, such as `point.x`. These paths do not resolve against the file's
+/// logical dtype, because [`FieldPath::resolve`] cannot step into an extension.
 ///
 /// File-level metadata, alignment padding, and the footer are not part of any segment and are
 /// never attributed.
+///
+/// [extension layout]: vortex_layout::layouts::extension
 #[derive(Debug, Clone)]
 pub struct CompressedFieldSizes {
     sizes: HashMap<FieldPath, u64>,

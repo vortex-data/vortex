@@ -11,8 +11,12 @@ use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::aggregate_fn::AggregateFnVTableExt;
+use vortex_array::aggregate_fn::EmptyOptions;
 use vortex_array::aggregate_fn::NumericalAggregateOpts;
 use vortex_array::aggregate_fn::fns::max::Max;
+use vortex_array::aggregate_fn::fns::min::Min;
+use vortex_array::aggregate_fn::fns::null_count::NullCount;
+use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::ListArray;
 use vortex_array::arrays::PrimitiveArray;
@@ -21,17 +25,23 @@ use vortex_array::arrays::VarBinArray;
 use vortex_array::arrays::struct_::StructArrayExt;
 use vortex_array::assert_arrays_eq;
 use vortex_array::dtype::DType;
+use vortex_array::dtype::Nullability;
+use vortex_array::dtype::PType;
+use vortex_array::dtype::StructFields;
 use vortex_array::expr::Expression;
 use vortex_array::expr::dynamic;
 use vortex_array::expr::eq;
 use vortex_array::expr::get_item;
 use vortex_array::expr::gt;
+use vortex_array::expr::is_null;
 use vortex_array::expr::lit;
+use vortex_array::expr::lt;
 use vortex_array::expr::root;
 use vortex_array::scalar_fn::fns::operators::CompareOperator;
 use vortex_array::validity::Validity;
 use vortex_buffer::Alignment;
 use vortex_buffer::Buffer;
+use vortex_buffer::buffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_io::session::RuntimeSessionExt;
@@ -342,7 +352,7 @@ async fn dictionary_values_are_reused_between_splits() -> VortexResult<()> {
             segments.flat(&PrimitiveArray::from_iter(start..end).into_array())
         })
         .collect::<VortexResult<Vec<_>>>()?;
-    let dtype = DType::Primitive(vortex_array::dtype::PType::I32, false.into());
+    let dtype = DType::Primitive(PType::I32, false.into());
     let ints = ConcatPlan::try_new(dtype, arrays)?.into_plan();
     // Codes index the same values across fixed work chunks and stored chunk boundaries.
     let layout = dict(ints.clone(), ints);
@@ -433,7 +443,7 @@ async fn primitive_column() -> VortexResult<()> {
     let (segments, layout) = source(&session, Strategy::Table).await?;
     let dtype = layout.dtype().clone();
     let actual = collect_scan(
-        DType::Primitive(vortex_array::dtype::PType::I32, false.into()),
+        DType::Primitive(PType::I32, false.into()),
         builder(&session, &segments, &layout)?
             .with_projection(get_item("ints", root()).bind(&dtype)?)
             .with_row_range(990..1010),
@@ -472,7 +482,7 @@ async fn chunked_ints(_session: &VortexSession, segments: &Arc<Store>) -> Vortex
             segments.flat(&PrimitiveArray::from_iter(index * 10..index * 10 + 10).into_array())
         })
         .collect::<VortexResult<Vec<_>>>()?;
-    let dtype = DType::Primitive(vortex_array::dtype::PType::I32, false.into());
+    let dtype = DType::Primitive(PType::I32, false.into());
     Ok(ConcatPlan::try_new(dtype, arrays)?.into_plan())
 }
 
@@ -563,7 +573,7 @@ async fn repeated_projections_reuse_their_values() -> VortexResult<()> {
         let actual = collect_scan(projection.dtype().clone(), scan).await?;
         assert_arrays_eq!(
             actual,
-            vortex_array::arrays::BoolArray::from_iter([false, true]),
+            BoolArray::from_iter([false, true]),
             &mut session.create_execution_ctx()
         );
         reads.push(counted.requests() - before);
@@ -849,5 +859,80 @@ async fn shared_cache_prunes_zones_once() -> VortexResult<()> {
     assert_eq!(plans.pruning().count(), 1);
     // Each scan reads the one chunk pruning keeps; only the first reads the zone map.
     assert_eq!(reads, vec![2, 1]);
+    Ok(())
+}
+
+/// A table with one nullable struct `s`, whose non-nullable field `x` has a zone map with a
+/// minimum, a maximum, and a stored null count.
+fn nullable_struct_with_zones(store: &Store) -> VortexResult<PlanRef> {
+    let zones = 2;
+    let rows = (zones * CHUNK_ROWS) as u64;
+    let x_dtype = DType::Primitive(PType::I64, Nullability::NonNullable);
+
+    let validity = (0..zones)
+        .map(|_| {
+            store.flat(&BoolArray::from_iter((0..CHUNK_ROWS).map(|row| row % 2 == 0)).into_array())
+        })
+        .collect::<VortexResult<Vec<_>>>()?;
+    let validity =
+        ConcatPlan::try_new(DType::Bool(Nullability::NonNullable), validity)?.into_plan();
+
+    let data = (0..zones)
+        .map(|zone| {
+            let first_row = i64::try_from(zone * CHUNK_ROWS)?;
+            let values = Buffer::from_iter(first_row..first_row + i64::try_from(CHUNK_ROWS)?);
+            store.flat(&values.into_array())
+        })
+        .collect::<VortexResult<Vec<_>>>()?;
+    let data = ConcatPlan::try_new(x_dtype.clone(), data)?.into_plan();
+
+    let min = Min.bind(NumericalAggregateOpts::skip_nans());
+    let max = Max.bind(NumericalAggregateOpts::skip_nans());
+    let null_count = NullCount.bind(EmptyOptions);
+    let table = StructArray::from_fields(&[
+        (min.to_string().as_str(), buffer![0i64, 1000].into_array()),
+        (max.to_string().as_str(), buffer![999i64, 1999].into_array()),
+        (
+            null_count.to_string().as_str(),
+            buffer![0u64, 0].into_array(),
+        ),
+    ])?
+    .into_array();
+    let x = ZonedPlan::new(
+        data,
+        store.flat(&table)?,
+        CHUNK_ROWS as u64,
+        vec![min, max, null_count].into(),
+    )
+    .into_plan();
+
+    let s_dtype = DType::Struct(
+        StructFields::new(["x"].into(), vec![x_dtype]),
+        Nullability::Nullable,
+    );
+    let s = struct_plan(rows, s_dtype.clone(), vec![validity, x]);
+    let root_dtype = DType::Struct(
+        StructFields::new(["s"].into(), vec![s_dtype]),
+        Nullability::NonNullable,
+    );
+
+    Ok(struct_plan(rows, root_dtype, vec![s]))
+}
+
+/// Beneath a nullable struct, the scan drops proofs that use the stored null count, because that
+/// count misses the struct's nulls. A filter with no other proof gets no pruning plan. A proof
+/// that folds to true still discards every zone without reading it.
+#[rstest]
+#[case::null_check(is_null(get_item("x", get_item("s", root()))), 0)]
+#[case::bound(lt(get_item("x", get_item("s", root())), lit(10i64)), 1)]
+#[case::always_false(lit(false), 1)]
+fn nullable_struct_pruning_plans(
+    #[case] filter: Expression,
+    #[case] pruning_plans: usize,
+) -> VortexResult<()> {
+    let store = Store::default();
+    let root = nullable_struct_with_zones(&store)?;
+    let plans = FilterPlans::new(filter.bind(root.dtype())?, &root, &new_session(), false)?;
+    assert_eq!(plans.pruning().count(), pruning_plans);
     Ok(())
 }

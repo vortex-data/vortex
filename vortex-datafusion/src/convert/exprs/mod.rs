@@ -7,6 +7,7 @@
 //! extension metadata, or inherit missing metadata from the operand they are compared with. This
 //! supplies the logical dtype that Vortex requires without adding implicit casts.
 
+mod projection_fields;
 use std::sync::Arc;
 
 use arrow_schema::DataType;
@@ -40,6 +41,7 @@ use datafusion_physical_expr::projection::ProjectionExprs;
 use datafusion_physical_expr::utils::collect_columns;
 use datafusion_physical_plan::expressions as df_expr;
 use itertools::Itertools;
+pub(crate) use projection_fields::push_down_projection_fields;
 use vortex::VortexSessionDefault;
 use vortex::aggregate_fn::NumericalAggregateOpts;
 use vortex::array::VortexSessionExecute;
@@ -51,6 +53,7 @@ use vortex::expr::Expression;
 use vortex::expr::Lambda;
 use vortex::expr::byte_length;
 use vortex::expr::cast;
+use vortex::expr::ext_storage;
 use vortex::expr::get_item;
 use vortex::expr::in_list_of;
 use vortex::expr::is_not_null;
@@ -173,6 +176,14 @@ pub trait ExpressionConverter: Send + Sync {
         })
     }
 
+    /// Allow scans to refine the raw fallback returned by [`Self::split_projection`].
+    ///
+    /// Defaults to `false`. Opt in if scans may replace whole struct inputs with the plain fields
+    /// the remaining DataFusion projection needs.
+    fn allows_projection_field_pushdown(&self) -> bool {
+        false
+    }
+
     /// Create a projection that reads only the required columns without pushing down
     /// any expressions. All projection logic is applied after the scan.
     fn no_pushdown_projection(
@@ -266,6 +277,7 @@ type Conversion<T> = Result<T, Unconverted>;
 /// Nested struct field access also uses Vortex semantics: a null parent produces a null child,
 /// whereas DataFusion extracts the child without applying parent validity. These differences
 /// are accepted for both filters and projections.
+/// Field access through an extension can run natively when Arrow exposes its Vortex storage.
 /// Searched `CASE WHEN` expressions preserve short-circuit evaluation: conditions and
 /// branch values only execute on the rows that reach them, including fallible branches.
 /// Other expressions require compatible SQL semantics or remain in DataFusion.
@@ -746,40 +758,7 @@ impl DefaultExpressionConverter {
         }
 
         if ScalarFunctionExpr::try_downcast_func::<GetFieldFunc>(scalar_fn).is_some() {
-            // DataFusion's GetFieldFunc flattens nested field access into a single call
-            // with multiple field name arguments, e.g. `outer.inner.leaf` becomes
-            // get_field(Column("outer"), "inner", "leaf").
-            let [source, paths @ ..] = scalar_fn.args() else {
-                return Err(
-                    exec_datafusion_err!("get_field requires a source and field path").into(),
-                );
-            };
-            if paths.is_empty() {
-                return Err(exec_datafusion_err!("get_field requires a field path").into());
-            }
-            let mut source_type = source.data_type(schema)?;
-            let mut names = Vec::with_capacity(paths.len());
-            for path in paths {
-                let name = path
-                    .downcast_ref::<df_expr::Literal>()
-                    .and_then(|literal| literal.value().try_as_str().flatten())
-                    .ok_or_else(|| {
-                        exec_datafusion_err!("get_field path must be a non-null string literal")
-                    })?;
-                let DataType::Struct(fields) = &source_type else {
-                    return Err(Unconverted::Unsupported);
-                };
-                let (_, field) = fields.find(name).ok_or_else(|| {
-                    exec_datafusion_err!("get_field references missing field {name}")
-                })?;
-                source_type = field.data_type().clone();
-                names.push(name);
-            }
-            let mut result = self.convert_expr(source, schema, input_dtype)?;
-            for name in names {
-                result = get_item(name, result);
-            }
-            return Ok(result);
+            return self.convert_get_field(scalar_fn, schema, input_dtype);
         }
 
         if ScalarFunctionExpr::try_downcast_func::<ArraySum>(scalar_fn).is_some() {
@@ -821,6 +800,62 @@ impl DefaultExpressionConverter {
             scalar_fn.nullable(),
         ))?;
         Ok(cast(length(input), return_dtype))
+    }
+
+    fn convert_get_field(
+        &self,
+        scalar_fn: &ScalarFunctionExpr,
+        schema: &Schema,
+        input_dtype: &DType,
+    ) -> Conversion<Expression> {
+        let [source, paths @ ..] = scalar_fn.args() else {
+            return Err(exec_datafusion_err!("get_field requires a source and field path").into());
+        };
+        if paths.is_empty() {
+            return Err(exec_datafusion_err!("get_field requires a field path").into());
+        }
+
+        // DataFusion can flatten nested accesses into one call, so each step needs its own
+        // Arrow field metadata to identify the representation that DataFusion sees.
+        let source_field = source.return_field(schema)?;
+        let mut parent_field = source_field.as_ref();
+        let mut steps = Vec::with_capacity(paths.len());
+        for path in paths {
+            let name = path
+                .downcast_ref::<df_expr::Literal>()
+                .and_then(|literal| literal.value().try_as_str().flatten())
+                .ok_or_else(|| {
+                    exec_datafusion_err!("get_field path must be a non-null string literal")
+                })?;
+            let DataType::Struct(fields) = parent_field.data_type() else {
+                return Err(Unconverted::Unsupported);
+            };
+            let (_, child_field) = fields
+                .find(name)
+                .ok_or_else(|| exec_datafusion_err!("get_field references missing field {name}"))?;
+            steps.push((parent_field, name));
+            parent_field = child_field.as_ref();
+        }
+
+        let mut result = self.convert_expr(source, schema, input_dtype)?;
+        for (parent_field, name) in steps {
+            if parent_field.extension_type_name().is_some() {
+                let DType::Extension(ext_dtype) = converted_dtype(&result, input_dtype)? else {
+                    return Err(Unconverted::Unsupported);
+                };
+                if !self
+                    .session
+                    .arrow()
+                    .is_extension_storage_field(parent_field, &ext_dtype)
+                {
+                    return Err(Unconverted::Unsupported);
+                }
+                result = ext_storage(result);
+            }
+            result = get_item(name, result);
+        }
+
+        Ok(result)
     }
 
     /// Converts `array_sum` to `list_sum`.
@@ -925,6 +960,10 @@ impl ExpressionConverter for DefaultExpressionConverter {
             Err(Unconverted::Unsupported) => Ok(None),
             Err(Unconverted::Failed(error)) => Err(error),
         }
+    }
+
+    fn allows_projection_field_pushdown(&self) -> bool {
+        true
     }
 }
 

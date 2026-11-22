@@ -6,9 +6,11 @@
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 
+use super::OptimizeMode;
 use super::rules::*;
 use crate::plan::Concat;
 use crate::plan::Eval;
+use crate::plan::ListPack;
 use crate::plan::Pack;
 use crate::plan::PlanRef;
 use crate::plan::Take;
@@ -17,6 +19,7 @@ use crate::plan::builtins::EvalEvalRule;
 use crate::plan::builtins::EvalIdentityRule;
 use crate::plan::builtins::EvalPackRule;
 use crate::plan::builtins::ExpressionConcatRule;
+use crate::plan::builtins::ExpressionListPackRule;
 use crate::plan::builtins::ExpressionPackRule;
 use crate::plan::builtins::ExpressionTakeRule;
 use crate::plan::builtins::ExpressionZonedRule;
@@ -34,21 +37,36 @@ static PLAN_RULES: PlanRuleSet = PlanRuleSet::new(&[
     &ZONED_DATA_RULE,
 ]);
 
+static EVAL_EVAL_RULE: PlanParentReduceRuleAdapter<Eval, EvalEvalRule> =
+    PlanParentReduceRuleAdapter::new(EvalEvalRule);
 static EXPRESSION_CONCAT_RULE: PlanParentReduceRuleAdapter<Concat, ExpressionConcatRule> =
     PlanParentReduceRuleAdapter::new(ExpressionConcatRule);
 static EXPRESSION_TAKE_RULE: PlanParentReduceRuleAdapter<Take, ExpressionTakeRule> =
     PlanParentReduceRuleAdapter::new(ExpressionTakeRule);
-static EXPRESSION_PACK_RULE: PlanParentReduceRuleAdapter<Pack, ExpressionPackRule> =
-    PlanParentReduceRuleAdapter::new(ExpressionPackRule);
+static EXACT_PACK_RULE: PlanParentReduceRuleAdapter<Pack, ExpressionPackRule> =
+    PlanParentReduceRuleAdapter::new(ExpressionPackRule::Exact);
+static PRUNING_PACK_RULE: PlanParentReduceRuleAdapter<Pack, ExpressionPackRule> =
+    PlanParentReduceRuleAdapter::new(ExpressionPackRule::Pruning);
 static EXPRESSION_ZONED_RULE: PlanParentReduceRuleAdapter<Zoned, ExpressionZonedRule> =
     PlanParentReduceRuleAdapter::new(ExpressionZonedRule);
-static PARENT_RULES: PlanParentRuleSet = PlanParentRuleSet::new(&[
-    &PlanParentReduceRuleAdapter::new(EvalEvalRule),
-    &EXPRESSION_CONCAT_RULE,
-    &EXPRESSION_TAKE_RULE,
-    &EXPRESSION_PACK_RULE,
-    &EXPRESSION_ZONED_RULE,
-]);
+static EXPRESSION_LIST_PACK_RULE: PlanParentReduceRuleAdapter<ListPack, ExpressionListPackRule> =
+    PlanParentReduceRuleAdapter::new(ExpressionListPackRule);
+
+const fn parent_rules(
+    pack_rule: &'static dyn DynPlanParentReduceRule,
+) -> [&'static dyn DynPlanParentReduceRule; 6] {
+    [
+        &EVAL_EVAL_RULE,
+        &EXPRESSION_CONCAT_RULE,
+        &EXPRESSION_TAKE_RULE,
+        pack_rule,
+        &EXPRESSION_ZONED_RULE,
+        &EXPRESSION_LIST_PACK_RULE,
+    ]
+}
+
+static EXACT_PARENT_RULES: [&dyn DynPlanParentReduceRule; 6] = parent_rules(&EXACT_PACK_RULE);
+static PRUNING_PARENT_RULES: [&dyn DynPlanParentReduceRule; 6] = parent_rules(&PRUNING_PACK_RULE);
 
 /// Attempts a static rewrite for `plan`.
 pub(crate) fn reduce_plan(
@@ -62,13 +80,18 @@ pub(crate) fn reduce_plan(
 }
 
 /// Attempts a static rewrite for `parent` and `child`, its child in `slot`.
-pub(crate) fn reduce_parent(
+pub(super) fn reduce_parent(
     child: &PlanRef,
     parent: &PlanRef,
     slot: usize,
     session: &VortexSession,
+    mode: OptimizeMode,
 ) -> VortexResult<Option<PlanRef>> {
-    match PARENT_RULES.evaluate(child, parent, slot, session)? {
+    let rules = match mode {
+        OptimizeMode::Exact => &EXACT_PARENT_RULES,
+        OptimizeMode::Pruning => &PRUNING_PARENT_RULES,
+    };
+    match PlanParentRuleSet::new(rules).evaluate(child, parent, slot, session)? {
         Some(plan) => Ok(Some(plan)),
         None => child.reduce_parent(parent, slot, session),
     }
