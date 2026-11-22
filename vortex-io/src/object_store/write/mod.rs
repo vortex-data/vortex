@@ -6,8 +6,6 @@ use std::sync::Arc;
 
 use bytes::BytesMut;
 use futures::TryStreamExt;
-#[cfg(any(not(target_arch = "wasm32"), feature = "wasm-bindgen"))]
-use futures::channel::oneshot;
 use futures::stream::FuturesUnordered;
 use object_store::MultipartUpload;
 use object_store::ObjectStore;
@@ -75,30 +73,16 @@ impl ObjectStoreWrite {
         }
     }
 
-    /// Explicitly abort the multipart upload if it is still active.
-    ///
-    /// Calling `abort` on an already-aborted or completed writer is a no-op.
-    pub async fn abort(&mut self) -> io::Result<()> {
-        let Some(upload) = self.take_active_for_abort() else {
-            return Ok(());
-        };
-        run_abort(upload).await
-    }
-
-    fn take_active_for_abort(&mut self) -> Option<Box<dyn MultipartUpload>> {
-        if !matches!(self.state, UploadState::Active { .. }) {
-            return None;
-        }
-        match std::mem::replace(&mut self.state, UploadState::Aborted) {
-            UploadState::Active { upload, .. } => Some(upload),
-            _ => unreachable!("checked active state above"),
-        }
-    }
-
-    /// Schedule detached cleanup when `Drop` or [`AbortOnCancel`] fires.
+    /// Schedule detached cleanup when a part/completion fails, a future is cancelled, or the
+    /// writer is dropped before completing.
     fn abort_in_background(&mut self) {
-        let Some(mut upload) = self.take_active_for_abort() else {
+        if !matches!(self.state, UploadState::Active { .. }) {
             return;
+        }
+        let UploadState::Active { mut upload, .. } =
+            std::mem::replace(&mut self.state, UploadState::Aborted)
+        else {
+            unreachable!("checked active state above");
         };
         spawn_detached_cleanup(async move {
             if let Err(err) = upload.abort().await {
@@ -142,39 +126,12 @@ impl ObjectStoreWrite {
         };
 
         if let Err(err) = part_result {
-            drop(guard.writer.abort().await);
+            guard.writer.abort_in_background();
             guard.disarm();
             return Err(err.into());
         }
         guard.disarm();
         Ok(())
-    }
-}
-
-async fn run_abort(mut upload: Box<dyn MultipartUpload>) -> io::Result<()> {
-    #[cfg(any(not(target_arch = "wasm32"), feature = "wasm-bindgen"))]
-    {
-        let (tx, rx) = oneshot::channel();
-        spawn_detached_cleanup(async move {
-            let result = upload.abort().await;
-            if let Err(err) = &result {
-                tracing::warn!(%err, "failed to abort multipart upload");
-            }
-            drop(tx.send(result));
-        });
-        match rx.await {
-            Ok(res) => res.map_err(io::Error::from),
-            Err(_) => Err(io::Error::other("abort task cancelled")),
-        }
-    }
-
-    #[cfg(all(target_arch = "wasm32", not(feature = "wasm-bindgen")))]
-    {
-        let result = upload.abort().await;
-        if let Err(err) = &result {
-            tracing::warn!(%err, "failed to abort multipart upload");
-        }
-        result.map_err(io::Error::from)
     }
 }
 
@@ -266,7 +223,7 @@ impl VortexWrite for ObjectStoreWrite {
                 Ok(())
             }
             Err(err) => {
-                drop(guard.writer.abort().await);
+                guard.writer.abort_in_background();
                 guard.disarm();
                 Err(err.into())
             }

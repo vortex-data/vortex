@@ -32,8 +32,6 @@ use tokio::sync::Notify;
 use tokio::time::timeout;
 
 use super::*;
-use crate::runtime::BlockingRuntime;
-use crate::runtime::current::CurrentThreadRuntime;
 
 // Note: Concurrent writes test removed because &mut self in write_all already ensures
 // exclusive access. Multiple writers would need to be created with separate buffers,
@@ -291,13 +289,13 @@ mod multipart_lifecycle_tests {
             err.to_string().contains("synthetic part failure"),
             "primary part error must not be masked by abort failure: {err}"
         );
+        wait_for_abort(&counters).await;
         assert_eq!(counters.abort_calls.load(Ordering::SeqCst), 1);
 
         // Subsequent operations fail immediately without calling abort or complete again.
         assert!(writer.write_all(b"more".to_vec()).await.is_err());
         assert!(writer.flush().await.is_err());
         assert!(writer.shutdown().await.is_err());
-        writer.abort().await?;
         drop(writer);
 
         assert_eq!(counters.abort_calls.load(Ordering::SeqCst), 1);
@@ -325,38 +323,25 @@ mod multipart_lifecycle_tests {
             "primary complete error must not be masked by abort failure: {err}"
         );
         assert!(writer.put_result().is_none());
+        wait_for_abort(&counters).await;
         assert_eq!(counters.abort_calls.load(Ordering::SeqCst), 1);
 
-        // Repeated abort and Drop must not trigger a second abort.
-        writer.abort().await?;
+        // Dropping the failed writer must not trigger a second abort.
         drop(writer);
         assert_eq!(counters.abort_calls.load(Ordering::SeqCst), 1);
         Ok(())
     }
 
     #[tokio::test]
-    async fn test_explicit_abort_and_completed_drop_behavior() -> anyhow::Result<()> {
-        let (store1, counters1) = make_store(UploadBehavior::default());
-        let mut writer1 = ObjectStoreWrite::new(store1, &Path::from("abort.vortex")).await?;
-        writer1.write_all(b"partial".to_vec()).await?;
-        writer1.abort().await?;
-        writer1.abort().await?;
-        assert!(writer1.write_all(b"after".to_vec()).await.is_err());
-        assert!(writer1.shutdown().await.is_err());
-        drop(writer1);
-        assert_eq!(counters1.abort_calls.load(Ordering::SeqCst), 1);
-        assert_eq!(counters1.complete_calls.load(Ordering::SeqCst), 0);
-
-        // Completed uploads must never be aborted on explicit abort or Drop.
-        let (store2, counters2) = make_store(UploadBehavior::default());
-        let mut writer2 = ObjectStoreWrite::new(store2, &Path::from("ok.vortex")).await?;
-        writer2.write_all(b"complete".to_vec()).await?;
-        writer2.shutdown().await?;
-        assert!(writer2.put_result().is_some());
-        writer2.abort().await?;
-        drop(writer2);
-        assert_eq!(counters2.complete_calls.load(Ordering::SeqCst), 1);
-        assert_eq!(counters2.abort_calls.load(Ordering::SeqCst), 0);
+    async fn test_completed_drop_does_not_abort() -> anyhow::Result<()> {
+        let (store, counters) = make_store(UploadBehavior::default());
+        let mut writer = ObjectStoreWrite::new(store, &Path::from("ok.vortex")).await?;
+        writer.write_all(b"complete".to_vec()).await?;
+        writer.shutdown().await?;
+        assert!(writer.put_result().is_some());
+        drop(writer);
+        assert_eq!(counters.complete_calls.load(Ordering::SeqCst), 1);
+        assert_eq!(counters.abort_calls.load(Ordering::SeqCst), 0);
         Ok(())
     }
 
@@ -418,79 +403,29 @@ mod multipart_lifecycle_tests {
         Ok(())
     }
 
-    #[derive(Clone, Copy)]
-    enum CleanupRuntimeSetup {
-        StoppedTokioRuntime,
-        IdleTokioRuntime,
-        MultiThreadTokioRuntime,
-        EnteredShutdownTokioHandle,
-        EnteredIdleTokioHandle,
-    }
-
-    #[rstest]
-    #[case(CleanupRuntimeSetup::StoppedTokioRuntime)]
-    #[case(CleanupRuntimeSetup::IdleTokioRuntime)]
-    #[case(CleanupRuntimeSetup::MultiThreadTokioRuntime)]
-    #[case(CleanupRuntimeSetup::EnteredShutdownTokioHandle)]
-    #[case(CleanupRuntimeSetup::EnteredIdleTokioHandle)]
-    fn test_drop_and_abort_succeed_across_runtime_setups(
-        #[case] setup: CleanupRuntimeSetup,
-    ) -> anyhow::Result<()> {
-        let (store_drop, counters_drop) = make_store(UploadBehavior {
-            abort_uses_tokio_timer: true,
-            ..Default::default()
-        });
-        let (store_abort, counters_abort) = make_store(UploadBehavior {
+    #[test]
+    fn test_drop_aborts_after_caller_tokio_runtime_stops() -> anyhow::Result<()> {
+        let (store, counters) = make_store(UploadBehavior {
             abort_uses_tokio_timer: true,
             ..Default::default()
         });
 
-        let tokio_rt = match setup {
-            CleanupRuntimeSetup::MultiThreadTokioRuntime => {
-                tokio::runtime::Builder::new_multi_thread()
-                    .worker_threads(2)
-                    .enable_all()
-                    .build()?
-            }
-            _ => tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()?,
-        };
-        let handle = tokio_rt.handle().clone();
+        let tokio_rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()?;
 
-        let (writer_drop, mut writer_abort) = tokio_rt.block_on(async {
-            let mut w1 = ObjectStoreWrite::new(store_drop, &Path::from("rt-drop.vortex")).await?;
-            w1.write_all(b"staged".to_vec()).await?;
-            let mut w2 = ObjectStoreWrite::new(store_abort, &Path::from("rt-abort.vortex")).await?;
-            w2.write_all(b"staged".to_vec()).await?;
-            Ok::<_, anyhow::Error>((w1, w2))
+        let writer = tokio_rt.block_on(async {
+            let mut w = ObjectStoreWrite::new(store, &Path::from("rt-drop.vortex")).await?;
+            w.write_all(b"staged".to_vec()).await?;
+            Ok::<_, anyhow::Error>(w)
         })?;
 
-        let maybe_rt = match setup {
-            CleanupRuntimeSetup::StoppedTokioRuntime
-            | CleanupRuntimeSetup::EnteredShutdownTokioHandle => {
-                drop(tokio_rt);
-                None
-            }
-            CleanupRuntimeSetup::IdleTokioRuntime
-            | CleanupRuntimeSetup::MultiThreadTokioRuntime
-            | CleanupRuntimeSetup::EnteredIdleTokioHandle => Some(tokio_rt),
-        };
+        drop(tokio_rt);
 
-        let _entered = match setup {
-            CleanupRuntimeSetup::EnteredShutdownTokioHandle
-            | CleanupRuntimeSetup::EnteredIdleTokioHandle => Some(handle.enter()),
-            _ => None,
-        };
-
-        // Native cleanup runs on smol + Compat independently of the caller's Tokio runtime state.
-        drop(writer_drop);
-        CurrentThreadRuntime::new().block_on(async {
-            writer_abort.abort().await?;
-            Ok::<_, anyhow::Error>(())
-        })?;
+        // Native cleanup runs on smol + Compat even after the caller's Tokio runtime stops.
+        drop(writer);
         let deadline = std::time::Instant::now() + Duration::from_secs(2);
-        while counters_drop.abort_calls.load(Ordering::SeqCst) == 0 {
+        while counters.abort_calls.load(Ordering::SeqCst) == 0 {
             assert!(
                 std::time::Instant::now() < deadline,
                 "timed out waiting for background multipart abort"
@@ -498,47 +433,7 @@ mod multipart_lifecycle_tests {
             std::thread::sleep(Duration::from_millis(5));
         }
 
-        assert_eq!(counters_drop.abort_calls.load(Ordering::SeqCst), 1);
-        assert_eq!(counters_abort.abort_calls.load(Ordering::SeqCst), 1);
-        drop(_entered);
-        drop(maybe_rt);
-        Ok(())
-    }
-
-    #[test]
-    fn test_local_fs_staging_file_cleaned_up_on_drop_outside_tokio() -> anyhow::Result<()> {
-        let temp_dir = tempdir()?;
-        let store =
-            Arc::new(LocalFileSystem::new_with_prefix(temp_dir.path())?) as Arc<dyn ObjectStore>;
-        let path = Path::from("staged-cleanup.vortex");
-
-        let tokio_rt = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()?;
-        let writer = tokio_rt.block_on(async {
-            let mut w = ObjectStoreWrite::new(Arc::clone(&store), &path).await?;
-            w.write_all(vec![42u8; CHUNK_SIZE + 1]).await?;
-            w.flush().await?;
-            Ok::<_, anyhow::Error>(w)
-        })?;
-
-        // Drop the writer while the originating Tokio runtime stays idle.
-        drop(writer);
-
-        let deadline = std::time::Instant::now() + Duration::from_secs(3);
-        loop {
-            let entries: Vec<_> = std::fs::read_dir(temp_dir.path())?.collect::<Result<_, _>>()?;
-            if entries.is_empty() {
-                break;
-            }
-            assert!(
-                std::time::Instant::now() < deadline,
-                "staged local_fs file was not cleaned up on drop: {entries:?}"
-            );
-            std::thread::sleep(Duration::from_millis(5));
-        }
-
-        drop(tokio_rt);
+        assert_eq!(counters.abort_calls.load(Ordering::SeqCst), 1);
         Ok(())
     }
 }

@@ -128,23 +128,9 @@ pub struct NativeWriter {
     sender: mpsc::Sender<VortexResult<ArrayRef>>,
 }
 
-trait NativeWriteSink: VortexWrite + Unpin + Send + 'static {
-    fn abort_on_error(&mut self) -> impl Future<Output = ()> + Send {
-        async {}
-    }
-}
-
-impl NativeWriteSink for File {}
-impl NativeWriteSink for JavaWrite {}
-impl NativeWriteSink for ObjectStoreWrite {
-    async fn abort_on_error(&mut self) {
-        drop(self.abort().await);
-    }
-}
-
 impl NativeWriter {
     /// Spawn the write task into `write` and return the writer that sends batches to it.
-    fn start<W: NativeWriteSink>(
+    fn start<W: VortexWrite + Unpin + Send + 'static>(
         session: &VortexSession,
         arrow_schema: SchemaRef,
         write_schema: DType,
@@ -160,13 +146,7 @@ impl NativeWriter {
         let mut write = CountingVortexWrite::new(write);
         let bytes_written = write.counter();
         let handle = session.handle().spawn(async move {
-            let summary = match write_options.write(&mut write, stream).await {
-                Ok(summary) => summary,
-                Err(err) => {
-                    write.inner_mut().abort_on_error().await;
-                    return Err(err);
-                }
-            };
+            let summary = write_options.write(&mut write, stream).await?;
             write.shutdown().await?;
             Ok(summary)
         });

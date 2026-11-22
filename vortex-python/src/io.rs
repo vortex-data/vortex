@@ -261,18 +261,10 @@ pub fn write(
             match resolve_store(path, store.map(|x| x.into_inner()))? {
                 ResolvedStore::ObjectStore(store, path) => {
                     let mut store = ObjectStoreWrite::new(store, &path).await?;
-                    if let Err(err) = session
+                    session
                         .write_options()
                         .write(&mut store, iter.into_inner().into_array_stream())
-                        .await
-                    {
-                        if let Err(abort_err) = store.abort().await {
-                            log::warn!(
-                                "failed to abort multipart upload after write error: {abort_err}"
-                            );
-                        }
-                        return Err(err);
-                    }
+                        .await?;
                     store.shutdown().await?;
                     VortexResult::Ok(())
                 }
@@ -436,19 +428,11 @@ impl PyVortexWriteOptions {
                 match resolve_store(path, store.map(|x| x.into_inner()))? {
                     ResolvedStore::ObjectStore(store, path) => {
                         let mut store = ObjectStoreWrite::new(store, &path).await?;
-                        if let Err(err) = session
+                        session
                             .write_options()
                             .with_strategy(strategy)
                             .write(&mut store, iter.into_inner().into_array_stream())
-                            .await
-                        {
-                            if let Err(abort_err) = store.abort().await {
-                                log::warn!(
-                                    "failed to abort multipart upload after write error: {abort_err}"
-                                );
-                            }
-                            return Err(err);
-                        }
+                            .await?;
                         store.shutdown().await?;
                         VortexResult::Ok(())
                     }

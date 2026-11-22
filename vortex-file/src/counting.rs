@@ -28,11 +28,6 @@ impl<W: VortexWrite> CountingVortexWrite<W> {
     pub fn counter(&self) -> Arc<AtomicU64> {
         Arc::clone(&self.bytes_written)
     }
-
-    /// Returns a mutable reference to the wrapped writer.
-    pub fn inner_mut(&mut self) -> &mut W {
-        &mut self.inner
-    }
 }
 
 impl<W: VortexWrite + Unpin> VortexWrite for CountingVortexWrite<W> {

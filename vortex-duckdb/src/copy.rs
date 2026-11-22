@@ -451,20 +451,11 @@ pub fn copy_to_initialize_global(
         let object_store = Arc::new(Compat::new(object_store)) as Arc<dyn ObjectStore>;
         handle.spawn(async move {
             let mut writer = ObjectStoreWrite::new(object_store, &path).await?;
-            let summary = match SESSION
+            let summary = SESSION
                 .write_options()
                 .include_nested_statistics()
                 .write(&mut writer, array_stream)
-                .await
-            {
-                Ok(summary) => summary,
-                Err(err) => {
-                    if let Err(abort_err) = writer.abort().await {
-                        tracing::warn!(%abort_err, "failed to abort multipart upload after write error");
-                    }
-                    return Err(err);
-                }
-            };
+                .await?;
             writer.shutdown().await?;
             Ok(summary)
         })
