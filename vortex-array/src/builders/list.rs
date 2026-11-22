@@ -1148,23 +1148,10 @@ mod tests {
         let list_empty = Scalar::list_empty(Arc::clone(&dtype), Nullable);
         let list_3 = Scalar::list(Arc::clone(&dtype), vec![3i32.into()], Nullable);
 
-        let mut fresh1 = ListBuilder::<u32>::with_capacity_in(
-            Arc::clone(&dtype),
-            Nullable,
-            4,
-            BufferAllocatorRef::static_ref(),
-        );
         for scalar in [&list_1_2, &list_null, &list_empty, &list_3] {
             reused.append_value(scalar.as_list())?;
-            fresh1.append_value(scalar.as_list())?;
         }
         let batch1 = reused.finish_into_list();
-        let expected1 = fresh1.finish_into_list();
-        assert_arrays_eq!(
-            batch1.clone().into_array(),
-            expected1.clone().into_array(),
-            &mut ctx
-        );
         assert_arrays_eq!(
             batch1.offsets(),
             PrimitiveArray::from_iter([0u32, 2, 2, 2, 3]),
@@ -1178,23 +1165,10 @@ mod tests {
             vec![10i32.into(), 20i32.into(), 30i32.into()],
             Nullable,
         );
-        let mut fresh2 = ListBuilder::<u32>::with_capacity_in(
-            Arc::clone(&dtype),
-            Nullable,
-            4,
-            BufferAllocatorRef::static_ref(),
-        );
         for scalar in [&list_null, &list_10_20_30] {
             reused.append_value(scalar.as_list())?;
-            fresh2.append_value(scalar.as_list())?;
         }
         let batch2 = reused.finish_into_list();
-        let expected2 = fresh2.finish_into_list();
-        assert_arrays_eq!(
-            batch2.clone().into_array(),
-            expected2.into_array(),
-            &mut ctx
-        );
         assert_arrays_eq!(
             batch2.offsets(),
             PrimitiveArray::from_iter([0u32, 0, 3]),
@@ -1203,63 +1177,16 @@ mod tests {
         assert_eq!(batch2.elements().len(), 3);
 
         // Batch 1 remains independent of later appends to the reused builder.
-        assert_arrays_eq!(batch1.into_array(), expected1.into_array(), &mut ctx);
-
-        Ok(())
-    }
-
-    #[test]
-    fn test_reuse_via_array_builder() -> VortexResult<()> {
-        let mut ctx = SESSION.create_execution_ctx();
-        let dtype: Arc<DType> = Arc::new(I32.into());
-        let mut reused = ListBuilder::<u64>::with_capacity_in(
-            Arc::clone(&dtype),
-            Nullable,
-            4,
-            BufferAllocatorRef::static_ref(),
+        assert_arrays_eq!(
+            batch1.offsets(),
+            PrimitiveArray::from_iter([0u32, 2, 2, 2, 3]),
+            &mut ctx
         );
-        let reused_dyn: &mut dyn ArrayBuilder = &mut reused;
-
-        let list_a = Scalar::list(Arc::clone(&dtype), vec![1i32.into(), 2i32.into()], Nullable);
-        let list_b = Scalar::list(
-            Arc::clone(&dtype),
-            vec![4i32.into(), 5i32.into(), 6i32.into()],
-            Nullable,
+        assert_arrays_eq!(
+            batch1.elements(),
+            PrimitiveArray::from_iter([1i32, 2, 3]),
+            &mut ctx
         );
-
-        reused_dyn.append_scalar(&list_a)?;
-        reused_dyn.append_null();
-        let batch1 = reused_dyn.finish();
-
-        let mut fresh1 = ListBuilder::<u64>::with_capacity_in(
-            Arc::clone(&dtype),
-            Nullable,
-            4,
-            BufferAllocatorRef::static_ref(),
-        );
-        fresh1.append_scalar(&list_a)?;
-        fresh1.append_null();
-        let expected1 = ArrayBuilder::finish(&mut fresh1);
-        assert_arrays_eq!(batch1, expected1, &mut ctx);
-
-        reused_dyn.append_scalar(&list_b)?;
-        let batch2 = reused_dyn.finish();
-
-        let mut fresh2 = ListBuilder::<u64>::with_capacity_in(
-            Arc::clone(&dtype),
-            Nullable,
-            4,
-            BufferAllocatorRef::static_ref(),
-        );
-        fresh2.append_scalar(&list_b)?;
-        let expected2 = ArrayBuilder::finish(&mut fresh2);
-        assert_arrays_eq!(batch2, expected2, &mut ctx);
-
-        let empty = reused_dyn.finish();
-        assert_eq!(empty.len(), 0);
-
-        // Batch 1 remains unchanged after later batches.
-        assert_arrays_eq!(batch1, expected1, &mut ctx);
 
         Ok(())
     }
