@@ -562,7 +562,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn release_preserves_live_failures_and_clear_drops_scope() -> VortexResult<()> {
+    async fn release_preserves_live_failures() -> VortexResult<()> {
         let (sender, receiver) = oneshot::channel::<ByteBuffer>();
         let segments = Arc::new(MixedSegments(Mutex::new(Some(receiver))));
         let locations = [0, 4].map(|offset| SegmentLocation {
@@ -589,12 +589,40 @@ mod tests {
         assert!(completion.result.is_err());
         assert!(io.poll()?.is_none());
         assert!(io.owners.lock().is_empty());
+        Ok(())
+    }
 
-        // Clear drops all queued/pending state across owners.
-        io.submit(IoOwnerId(2), vec![request(IoIntent::Fetch, 2)])?;
+    #[tokio::test]
+    async fn clear_drops_pending_owner_subscriptions() -> VortexResult<()> {
+        let (_sender, receiver) = oneshot::channel::<ByteBuffer>();
+        let segments = Arc::new(MixedSegments(Mutex::new(Some(receiver))));
+        let locations = [0, 4].map(|offset| SegmentLocation {
+            offset,
+            length: 4,
+            alignment: Alignment::none(),
+        });
+        let io = SegmentIoSource::new(segments, segment_ranges(&locations));
+
+        let mut fetch = request(IoIntent::Fetch, 0);
+        fetch.target = IoTarget::range(4, 4);
+        io.submit(IoOwnerId(0), vec![fetch])?;
+        assert_eq!(io.owners.lock().len(), 1);
+
         io.clear();
-        assert!(io.poll()?.is_none());
         assert!(io.owners.lock().is_empty());
+        assert!(io.poll()?.is_none());
+        let err = match std::future::poll_fn(|cx| io.poll_completion(cx)).await {
+            Ok(_) => {
+                return Err(vortex_err!(
+                    "clearing pending subscriptions should leave no reads in flight"
+                ));
+            }
+            Err(err) => err,
+        };
+        assert!(
+            err.to_string().contains("no reads in flight"),
+            "unexpected error: {err}"
+        );
         Ok(())
     }
 }
