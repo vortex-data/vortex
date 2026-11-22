@@ -17,14 +17,12 @@ import hashlib
 import json
 import os
 import shutil
-import uuid
 from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from types import ModuleType
 from typing import BinaryIO, Protocol, cast
 from urllib.parse import urlparse
 
@@ -35,12 +33,6 @@ from botocore.exceptions import BotoCoreError, ClientError
 from rich.console import Console
 
 from .config import Benchmark
-
-fcntl: ModuleType | None
-try:
-    import fcntl
-except ImportError:  # pragma: no cover - non-POSIX
-    fcntl = None
 
 # Cached entries older than this are treated as missing and overwritten by the next upload.
 RETENTION = timedelta(days=1)
@@ -79,33 +71,6 @@ def _marker_path(dataset: CachedDataset) -> Path:
     return dataset.directory.with_name(f".{dataset.directory.name}.cache-key")
 
 
-def _lock_path(dataset: CachedDataset) -> Path:
-    """Path to the advisory lockfile coordinating writers for ``dataset.directory``."""
-    return dataset.directory.with_name(f".{dataset.directory.name}.cache.lock")
-
-
-@contextmanager
-def _dataset_lock(dataset: CachedDataset) -> Iterator[bool]:
-    """Serialize access to ``dataset.directory`` using an exclusive ``flock`` when available.
-
-    Yields ``True`` when cross-process file locking is active, ``False`` otherwise.
-    """
-    if fcntl is None:
-        yield False
-        return
-    lock_file = _lock_path(dataset)
-    lock_file.parent.mkdir(parents=True, exist_ok=True)
-    fd = os.open(lock_file, os.O_CREAT | os.O_RDWR, 0o666)
-    try:
-        fcntl.flock(fd, fcntl.LOCK_EX)
-        try:
-            yield True
-        finally:
-            fcntl.flock(fd, fcntl.LOCK_UN)
-    finally:
-        os.close(fd)
-
-
 def _has_matching_local_cache(dataset: CachedDataset) -> bool:
     """Return whether ``dataset.directory`` exists and its sibling marker matches ``dataset.key``."""
     if not dataset.directory.is_dir():
@@ -120,16 +85,10 @@ def _has_matching_local_cache(dataset: CachedDataset) -> bool:
 
 
 def _write_marker(dataset: CachedDataset) -> None:
-    """Atomically write the completed fingerprint marker beside ``dataset.directory``."""
+    """Write the completed fingerprint marker beside ``dataset.directory``."""
     marker = _marker_path(dataset)
     marker.parent.mkdir(parents=True, exist_ok=True)
-    tmp_marker = marker.with_name(f".{dataset.directory.name}.cache-key.{os.getpid()}.{uuid.uuid4().hex}.tmp")
-    try:
-        tmp_marker.write_text(f"{dataset.key}\n", encoding="utf-8")
-        os.replace(tmp_marker, marker)
-    except BaseException:
-        tmp_marker.unlink(missing_ok=True)
-        raise
+    marker.write_text(f"{dataset.key}\n", encoding="utf-8")
 
 
 def _remove_stale_derived_dirs(dataset: CachedDataset) -> None:
@@ -146,21 +105,6 @@ def _remove_stale_derived_dirs(dataset: CachedDataset) -> None:
             shutil.rmtree(entry)
 
 
-def _scavenge_abandoned_staging(dataset: CachedDataset) -> None:
-    """Remove leftover staging/old directories from killed restores (must hold dataset lock)."""
-    parent = dataset.directory.parent
-    if not parent.is_dir():
-        return
-    prefixes = (f".{dataset.directory.name}.staging.", f".{dataset.directory.name}.old.")
-    for entry in parent.iterdir():
-        if not entry.name.startswith(prefixes):
-            continue
-        if entry.is_symlink() or entry.is_file():
-            entry.unlink(missing_ok=True)
-        elif entry.is_dir():
-            shutil.rmtree(entry, ignore_errors=True)
-
-
 def _invalidate_local(dataset: CachedDataset) -> None:
     """Clear marker, obsolete base directory, and sibling derived-format directories."""
     _marker_path(dataset).unlink(missing_ok=True)
@@ -171,24 +115,6 @@ def _invalidate_local(dataset: CachedDataset) -> None:
         shutil.rmtree(dataset.directory)
 
 
-def _publish_staging(dataset: CachedDataset, staging: Path) -> None:
-    """Publish a staged directory and its fingerprint marker under the dataset lock."""
-    _marker_path(dataset).unlink(missing_ok=True)
-    _remove_stale_derived_dirs(dataset)
-    old_dir: Path | None = None
-    if dataset.directory.is_symlink() or dataset.directory.is_file():
-        dataset.directory.unlink()
-    elif dataset.directory.exists():
-        old_dir = dataset.directory.with_name(f".{dataset.directory.name}.old.{os.getpid()}.{uuid.uuid4().hex}")
-        os.replace(dataset.directory, old_dir)
-    try:
-        os.replace(staging, dataset.directory)
-        _write_marker(dataset)
-    finally:
-        if old_dir is not None:
-            shutil.rmtree(old_dir, ignore_errors=True)
-
-
 @contextmanager
 def prepare_dataset(dataset: CachedDataset, cache: S3DataCache | None = None) -> Iterator[bool]:
     """Coordinate local cache validation, optional S3 restore/save, and clean regeneration.
@@ -196,23 +122,22 @@ def prepare_dataset(dataset: CachedDataset, cache: S3DataCache | None = None) ->
     Yields ``True`` when the local dataset already matches ``dataset.key`` (or was restored from
     S3), and ``False`` when the caller must generate ``dataset.directory`` from scratch.
     """
-    with _dataset_lock(dataset) as cross_process_locked:
+    if cache is not None:
+        restored = cache.restore(dataset)
+    elif _has_matching_local_cache(dataset):
+        console.print(f"{dataset.directory} already matches {dataset.key}")
+        restored = True
+    else:
+        _invalidate_local(dataset)
+        restored = False
+
+    yield restored
+
+    if not restored:
         if cache is not None:
-            restored = cache._restore_unlocked(dataset, cross_process_locked=cross_process_locked)
-        elif _has_matching_local_cache(dataset):
-            console.print(f"{dataset.directory} already matches {dataset.key}")
-            restored = True
-        else:
-            _invalidate_local(dataset)
-            restored = False
-
-        yield restored
-
-        if not restored:
-            if cache is not None:
-                cache._save_unlocked(dataset)
-            elif dataset.directory.is_dir():
-                _write_marker(dataset)
+            cache.save(dataset)
+        elif dataset.directory.is_dir():
+            _write_marker(dataset)
 
 
 class S3Client(Protocol):
@@ -318,29 +243,25 @@ class S3DataCache:
         """Download the dataset if a fresh entry exists. Return whether ``data-gen`` can skip it.
 
         Only a local directory whose sibling fingerprint marker matches ``dataset.key`` counts as
-        restored. On a mismatch or unmarked directory, stale data is cleared on miss so ``data-gen``
-        sees an empty destination, or atomically replaced from private staging on hit. S3 errors
-        are reported and treated as a miss, so a cache outage only costs regeneration.
+        restored. Stale or unmarked local data is invalidated before downloading, and the directory
+        only appears once every file is downloaded. S3 errors are reported and treated as a miss,
+        so a cache outage only costs regeneration.
         """
-        with _dataset_lock(dataset) as cross_process_locked:
-            return self._restore_unlocked(dataset, cross_process_locked=cross_process_locked)
-
-    def _restore_unlocked(self, dataset: CachedDataset, *, cross_process_locked: bool) -> bool:
         if _has_matching_local_cache(dataset):
             console.print(f"{dataset.directory} already matches {dataset.key}")
             return True
 
-        if cross_process_locked:
-            _scavenge_abandoned_staging(dataset)
-        staging = dataset.directory.with_name(f".{dataset.directory.name}.staging.{os.getpid()}.{uuid.uuid4().hex}")
+        _invalidate_local(dataset)
+
+        staging = dataset.directory.with_name(f".{dataset.directory.name}.partial")
         try:
             files = self._cached_files(dataset)
             if files is None:
                 console.print(f"No complete cache for {dataset.key} newer than {RETENTION}")
-                _invalidate_local(dataset)
                 return False
 
             console.print(f"Restoring {len(files)} cached file(s) for {dataset.key}")
+            shutil.rmtree(staging, ignore_errors=True)
             staging.mkdir(parents=True, exist_ok=True)
 
             def download(file: str) -> None:
@@ -352,17 +273,12 @@ class S3DataCache:
 
             with ThreadPoolExecutor(_FILE_CONCURRENCY) as pool:
                 list(pool.map(download, files))
+            os.replace(staging, dataset.directory)
+            _write_marker(dataset)
         except (BotoCoreError, ClientError, OSError) as exc:
             shutil.rmtree(staging, ignore_errors=True)
-            _invalidate_local(dataset)
             console.print(f"[yellow]S3 cache restore failed for {dataset.key}, regenerating: {exc}[/yellow]")
             return False
-
-        try:
-            _publish_staging(dataset, staging)
-        finally:
-            if staging.exists():
-                shutil.rmtree(staging, ignore_errors=True)
         return True
 
     def save(self, dataset: CachedDataset) -> None:
@@ -370,10 +286,6 @@ class S3DataCache:
 
         S3 errors are reported but do not fail data generation.
         """
-        with _dataset_lock(dataset):
-            self._save_unlocked(dataset)
-
-    def _save_unlocked(self, dataset: CachedDataset) -> None:
         if not dataset.directory.is_dir():
             raise FileNotFoundError(f"data-gen did not write {dataset.directory}")
         _write_marker(dataset)

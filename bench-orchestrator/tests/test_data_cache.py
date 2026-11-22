@@ -5,13 +5,9 @@
 
 import io
 import json
-import shutil
-import threading
-import time
 from datetime import UTC, datetime
 from pathlib import Path
 
-import pytest
 from bench_orchestrator.config import Benchmark
 from bench_orchestrator.data_cache import (
     MANIFEST,
@@ -187,42 +183,6 @@ def test_interrupted_replacement_does_not_qualify_as_hit_and_retry_succeeds(tmp_
     assert (ds_v2.directory / "b.parquet").read_bytes() == b"v2-b"
 
 
-def test_concurrent_prepare_serializes_writers(tmp_path: Path) -> None:
-    fake = FakeS3Client()
-    cache = S3DataCache("s3://bucket/prefix", client=fake)
-    ds = _make_dataset(tmp_path, "clickbench-sorted-cccc3333")
-
-    gen_count = 0
-    gen_lock = threading.Lock()
-    barrier = threading.Barrier(2)
-    errors: list[BaseException] = []
-
-    def worker() -> None:
-        nonlocal gen_count
-        try:
-            barrier.wait(timeout=5)
-            with prepare_dataset(ds, cache=cache) as hit:
-                if not hit:
-                    with gen_lock:
-                        gen_count += 1
-                    time.sleep(0.05)
-                    ds.directory.mkdir(parents=True, exist_ok=True)
-                    (ds.directory / "hits.parquet").write_bytes(b"generated-once")
-        except BaseException as exc:
-            errors.append(exc)
-
-    t1 = threading.Thread(target=worker)
-    t2 = threading.Thread(target=worker)
-    t1.start()
-    t2.start()
-    t1.join(timeout=10)
-    t2.join(timeout=10)
-
-    assert not errors
-    assert gen_count == 1
-    assert (ds.directory / "hits.parquet").read_bytes() == b"generated-once"
-
-
 def test_statpopgen_fingerprint_change_invalidates_local_cache(tmp_path: Path) -> None:
     # Build a minimal fake workspace with statpopgen and parquet sources.
     spg_dir = tmp_path / "vortex-bench" / "src" / "statpopgen"
@@ -290,42 +250,3 @@ def test_local_refresh_preserves_unrelated_sibling_and_unlinks_managed_symlink(t
 
     assert notes.read_text(encoding="utf-8") == "keep me\n"
     assert target_file.read_bytes() == b"stale-vortex"
-
-
-def test_restore_scavenges_abandoned_staging_and_aborts_on_undeletable_derived_dir(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    fake = FakeS3Client()
-    cache = S3DataCache("s3://bucket/prefix", client=fake)
-
-    ds_v1 = _make_dataset(tmp_path, "clickbench-sorted-v1")
-    fake.put_dataset(cache, ds_v1, {"hits.parquet": b"v1"})
-    assert cache.restore(ds_v1) is True
-
-    # Abandoned staging directory left behind by a killed restore.
-    abandoned = ds_v1.directory.with_name(f".{ds_v1.directory.name}.staging.99999.deadbeef")
-    abandoned.mkdir()
-    (abandoned / "partial.parquet").write_bytes(b"abandoned")
-
-    derived = ds_v1.directory.parent / "vortex-compact"
-    derived.mkdir()
-    (derived / "hits.vortex").write_bytes(b"stale-vortex")
-
-    ds_v2 = _make_dataset(tmp_path, "clickbench-sorted-v2")
-    fake.put_dataset(cache, ds_v2, {"hits.parquet": b"v2"})
-
-    real_rmtree = shutil.rmtree
-
-    def fail_on_derived(path: Path | str, *args: object, **kwargs: object) -> None:
-        if Path(path) == derived:
-            raise PermissionError("cannot remove derived dir")
-        real_rmtree(path, *args, **kwargs)  # type: ignore[arg-type]
-
-    monkeypatch.setattr("bench_orchestrator.data_cache.shutil.rmtree", fail_on_derived)
-    with pytest.raises(PermissionError, match="cannot remove derived dir"):
-        cache.restore(ds_v2)
-
-    # Abandoned staging was scavenged, and v2 marker was NOT certified.
-    assert not abandoned.exists()
-    marker = ds_v2.directory.with_name(f".{ds_v2.directory.name}.cache-key")
-    assert not marker.exists()
