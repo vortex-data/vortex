@@ -15,6 +15,9 @@ use tokio::sync::OwnedSemaphorePermit;
 use tokio::sync::Semaphore;
 use tokio::sync::TryAcquireError;
 use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
+use vortex_error::vortex_ensure;
+use vortex_error::vortex_err;
 
 pin_project! {
     /// [`Future`] that carries the amount of memory it will require to hold the completed value.
@@ -53,6 +56,7 @@ pin_project! {
         #[pin]
         inflight: FuturesUnordered<SizedFut<Fut>>,
         bytes_available: Arc<Semaphore>,
+        max_bytes: usize,
     }
 }
 
@@ -61,6 +65,7 @@ impl<Fut> SizeLimitedStream<Fut> {
         Self {
             inflight: FuturesUnordered::new(),
             bytes_available: Arc::new(Semaphore::new(max_bytes)),
+            max_bytes,
         }
     }
 
@@ -77,12 +82,23 @@ where
     ///
     /// This call may need to wait until there is sufficient capacity available in the stream to
     /// begin work on this future.
-    pub async fn push(&self, fut: Fut, bytes: usize) {
+    ///
+    /// Returns an error without polling `fut` if `bytes` exceeds the stream's configured
+    /// `max_bytes` capacity (or cannot be represented as a semaphore permit count).
+    pub async fn push(&self, fut: Fut, bytes: usize) -> VortexResult<()> {
+        vortex_ensure!(
+            bytes <= self.max_bytes,
+            "reservation of {bytes} bytes exceeds SizeLimitedStream capacity of {} bytes",
+            self.max_bytes
+        );
+        let permits = u32::try_from(bytes).map_err(|_| {
+            vortex_err!("reservation of {bytes} bytes exceeds maximum semaphore permit count")
+        })?;
         // Attempt to acquire enough permits to begin working on a request that will occupy
         // `bytes` amount of memory when it completes.
         // Acquiring the permits is what creates backpressure for the producer.
         let permits = Arc::clone(&self.bytes_available)
-            .acquire_many_owned(bytes.try_into().vortex_expect("bytes must fit in u32"))
+            .acquire_many_owned(permits)
             .await
             .unwrap_or_else(|_| unreachable!("pushing to closed semaphore"));
 
@@ -93,6 +109,7 @@ where
 
         // push into the pending queue
         self.inflight.push(sized_fut);
+        Ok(())
     }
 
     /// Synchronous push method. This method will attempt to push if there is enough capacity
@@ -100,9 +117,11 @@ where
     ///
     /// If there is not enough capacity, the original future is returned to the caller.
     pub fn try_push(&self, fut: Fut, bytes: usize) -> Result<(), Fut> {
-        match Arc::clone(&self.bytes_available)
-            .try_acquire_many_owned(bytes.try_into().vortex_expect("bytes must fit in u32"))
-        {
+        let permits: u32 = bytes.try_into().vortex_expect("bytes must fit in u32");
+        if bytes > self.max_bytes {
+            return Err(fut);
+        }
+        match Arc::clone(&self.bytes_available).try_acquire_many_owned(permits) {
             Ok(permits) => {
                 let sized_fut = SizedFut {
                     inner: fut,
@@ -149,11 +168,14 @@ mod tests {
     use std::future;
     use std::io;
     use std::sync::Arc;
+    use std::sync::atomic::AtomicBool;
+    use std::sync::atomic::Ordering;
 
     use bytes::Bytes;
     use futures::FutureExt;
     use futures::StreamExt;
     use futures::future::BoxFuture;
+    use vortex_error::VortexResult;
 
     use crate::limit::SizeLimitedStream;
 
@@ -162,10 +184,10 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_size_limit() {
+    async fn test_size_limit() -> VortexResult<()> {
         let mut size_limited = SizeLimitedStream::new(10);
-        size_limited.push(make_future(5), 5).await;
-        size_limited.push(make_future(5), 5).await;
+        size_limited.push(make_future(5), 5).await?;
+        size_limited.push(make_future(5), 5).await?;
 
         // Pushing last request should fail, because we have 10 bytes outstanding.
         assert!(size_limited.try_push(make_future(1), 1).is_err());
@@ -173,10 +195,11 @@ mod tests {
         // but, we can pop off a finished work item, and then enqueue.
         assert!(size_limited.next().await.is_some());
         assert!(size_limited.try_push(make_future(1), 1).is_ok());
+        Ok(())
     }
 
     #[tokio::test]
-    async fn test_does_not_leak_permits() {
+    async fn test_does_not_leak_permits() -> VortexResult<()> {
         let bad_fut: BoxFuture<'static, io::Result<Bytes>> =
             future::ready(Err(io::Error::other("badness"))).boxed();
 
@@ -184,7 +207,7 @@ mod tests {
             future::ready(Ok(Bytes::from("aaaaa"))).boxed();
 
         let mut size_limited = SizeLimitedStream::new(10);
-        size_limited.push(bad_fut, 10).await;
+        size_limited.push(bad_fut, 10).await?;
 
         // attempt to push should fail, as all 10 bytes of capacity is occupied by bad_fut.
         let good_fut = size_limited
@@ -198,19 +221,31 @@ mod tests {
 
         assert_eq!(size_limited.bytes_available(), 10);
         assert!(size_limited.try_push(good_fut, 5).is_ok());
+        Ok(())
     }
 
     #[tokio::test]
-    async fn test_size_limited_stream_zero_capacity() {
-        let stream = SizeLimitedStream::new(0);
+    async fn test_size_limited_stream_zero_capacity() -> VortexResult<()> {
+        let mut stream = SizeLimitedStream::new(0);
 
-        // Should not be able to push anything
-        let result = stream.try_push(async { vec![1u8] }, 1);
+        // Non-zero reservations are rejected immediately without hanging or polling.
+        let result = stream.try_push(make_future(1), 1);
         assert!(result.is_err());
+        assert!(
+            stream
+                .push(make_future(1), 1)
+                .now_or_never()
+                .is_some_and(|r| r.is_err())
+        );
+
+        // Zero-byte work still succeeds even with zero capacity.
+        stream.push(make_future(0), 0).await?;
+        assert_eq!(stream.next().await, Some(Bytes::new()));
+        Ok(())
     }
 
     #[tokio::test]
-    async fn test_size_limited_stream_dropped_future_releases_permits() {
+    async fn test_size_limited_stream_dropped_future_releases_permits() -> VortexResult<()> {
         use futures::future::BoxFuture;
 
         let stream = SizeLimitedStream::<BoxFuture<'static, Vec<u8>>>::new(10);
@@ -224,10 +259,10 @@ mod tests {
                 }),
                 5,
             )
-            .await;
+            .await?;
 
         // Push another future
-        stream.push(Box::pin(async { vec![1u8; 3] }), 3).await;
+        stream.push(Box::pin(async { vec![1u8; 3] }), 3).await?;
 
         // We should have 2 bytes available now
         assert_eq!(stream.bytes_available(), 2);
@@ -235,16 +270,17 @@ mod tests {
         let permits = Arc::clone(&stream.bytes_available);
         drop(stream);
         assert_eq!(permits.available_permits(), 10);
+        Ok(())
     }
 
     #[tokio::test]
-    async fn test_size_limited_stream_exact_capacity() {
+    async fn test_size_limited_stream_exact_capacity() -> VortexResult<()> {
         use futures::future::BoxFuture;
 
         let mut stream = SizeLimitedStream::<BoxFuture<'static, Vec<u8>>>::new(10);
 
         // Push exactly the capacity
-        stream.push(Box::pin(async { vec![0u8; 10] }), 10).await;
+        stream.push(Box::pin(async { vec![0u8; 10] }), 10).await?;
 
         // Should not be able to push more
         let result = stream.try_push(Box::pin(async { vec![1u8] }), 1);
@@ -259,16 +295,17 @@ mod tests {
 
         let result = stream.try_push(Box::pin(async { vec![1u8; 5] }), 5);
         assert!(result.is_ok());
+        Ok(())
     }
 
     #[tokio::test]
-    async fn test_size_limited_stream_multiple_small_pushes() {
+    async fn test_size_limited_stream_multiple_small_pushes() -> VortexResult<()> {
         let mut stream = SizeLimitedStream::new(100);
 
         // Push many small items
         for i in 0..10 {
             #[expect(clippy::cast_possible_truncation)]
-            stream.push(async move { vec![i as u8; 5] }, 5).await;
+            stream.push(async move { vec![i as u8; 5] }, 5).await?;
         }
 
         // Should have used 50 bytes
@@ -285,6 +322,7 @@ mod tests {
 
         assert_eq!(count, 10);
         assert_eq!(stream.bytes_available(), 100);
+        Ok(())
     }
 
     #[cfg(target_pointer_width = "64")]
@@ -293,5 +331,42 @@ mod tests {
     fn test_size_overflow_protection() {
         let stream = SizeLimitedStream::new(100);
         let _result = stream.try_push(async {}, (u32::MAX as usize) + 1);
+    }
+
+    #[tokio::test]
+    async fn test_push_above_capacity_rejects_immediately_without_polling() {
+        let stream = SizeLimitedStream::new(10);
+        let polled = Arc::new(AtomicBool::new(false));
+        let polled_in_fut = Arc::clone(&polled);
+        let fut = async move {
+            polled_in_fut.store(true, Ordering::SeqCst);
+            Bytes::from_static(b"too big")
+        };
+
+        let result = stream
+            .push(fut, 11)
+            .now_or_never()
+            .expect("pushing above max_bytes must resolve immediately");
+        assert!(result.is_err());
+        assert!(!polled.load(Ordering::SeqCst));
+        assert_eq!(stream.bytes_available(), 10);
+    }
+
+    #[tokio::test]
+    async fn test_push_waits_for_temporary_backpressure() -> VortexResult<()> {
+        let mut stream = SizeLimitedStream::new(10);
+        stream.push(make_future(6), 6).await?;
+        assert_eq!(stream.bytes_available(), 4);
+
+        // 8 <= max_bytes (10), so this is temporary backpressure (Pending) rather than an error.
+        assert!(stream.push(make_future(8), 8).now_or_never().is_none());
+
+        // Consuming the 6-byte item releases its permits and unblocks the 8-byte reservation.
+        assert_eq!(stream.next().await, Some(Bytes::from("aaaaaa")));
+        stream.push(make_future(8), 8).await?;
+        assert_eq!(stream.bytes_available(), 2);
+        assert_eq!(stream.next().await, Some(Bytes::from("aaaaaaaa")));
+        assert_eq!(stream.bytes_available(), 10);
+        Ok(())
     }
 }
