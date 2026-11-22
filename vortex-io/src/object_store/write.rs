@@ -80,10 +80,9 @@ impl ObjectStoreWrite {
             unreachable!("checked active state above");
         };
 
-        if let Some(handle) = self
-            .cleanup_runtime
-            .take()
-            .or_else(|| tokio::runtime::Handle::try_current().ok())
+        if let Some(handle) = tokio::runtime::Handle::try_current()
+            .ok()
+            .or_else(|| self.cleanup_runtime.take())
         {
             let join_handle = handle.spawn(async move { upload.abort().await });
             return match join_handle.await {
@@ -128,10 +127,9 @@ impl Drop for ObjectStoreWrite {
             }
         };
 
-        if let Some(handle) = self
-            .cleanup_runtime
-            .take()
-            .or_else(|| tokio::runtime::Handle::try_current().ok())
+        if let Some(handle) = tokio::runtime::Handle::try_current()
+            .ok()
+            .or_else(|| self.cleanup_runtime.take())
         {
             handle.spawn(abort_future);
             return;
