@@ -16,7 +16,6 @@ use crate::SESSION;
 use crate::conversions::parquet_to_vortex_chunks;
 use crate::datasets::Dataset;
 use crate::datasets::data_downloads::download_data;
-use crate::datasets::scan_array_stream;
 use crate::idempotent_async;
 
 /// Datasets which can be downloaded over HTTP in Parquet format.
@@ -91,7 +90,7 @@ impl Dataset for DownloadableDataset {
                 ..Default::default()
             })
             .await?;
-        Ok(scan_array_stream(scan).read_all().await?)
+        Ok(scan.into_array_stream().read_all().await?)
     }
 
     async fn to_parquet_path(&self) -> anyhow::Result<PathBuf> {

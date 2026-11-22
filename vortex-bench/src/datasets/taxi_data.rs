@@ -22,7 +22,6 @@ use crate::SESSION;
 use crate::conversions::parquet_to_vortex_chunks;
 use crate::datasets::Dataset;
 use crate::datasets::data_downloads::download_data;
-use crate::datasets::scan_array_stream;
 use crate::idempotent;
 use crate::idempotent_async;
 use crate::random_access::BenchDataset;
@@ -112,7 +111,7 @@ pub async fn fetch_taxi_data() -> Result<ArrayRef> {
             ..Default::default()
         })
         .await?;
-    Ok(scan_array_stream(scan).read_all().await?)
+    Ok(scan.into_array_stream().read_all().await?)
 }
 
 pub async fn taxi_data_vortex() -> Result<PathBuf> {

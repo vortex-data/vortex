@@ -7,11 +7,8 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use futures::StreamExt;
-use futures::TryStreamExt;
 use serde::Serialize;
 use vortex::array::ArrayRef;
-use vortex::array::stream::ArrayStreamAdapter;
 use vortex::array::stream::ArrayStreamExt;
 use vortex::dtype::DType;
 use vortex::dtype::Nullability;
@@ -118,12 +115,7 @@ async fn read_array_tree(file: &VortexFile) -> VortexResult<ArrayRef> {
             ..Default::default()
         })
         .await?;
-    let dtype = scan.dtype().clone();
-    let arrays = scan
-        .partitions()
-        .map(|partition| partition?.execute())
-        .try_flatten();
-    ArrayStreamAdapter::new(dtype, arrays).read_all().await
+    scan.into_array_stream().read_all().await
 }
 
 async fn exec_layout_tree(

@@ -29,7 +29,6 @@ use crate::Format;
 use crate::IdempotentPath;
 use crate::SESSION;
 use crate::datasets::Dataset;
-use crate::datasets::scan_array_stream;
 use crate::datasets::tpch_sf1::TpchSf1Table;
 use crate::idempotent;
 use crate::utils::parquet::parquet_writer_properties;
@@ -95,7 +94,8 @@ impl Dataset for TPCHLCommentChunked {
                 ..Default::default()
             })
             .await?;
-        let chunks: Vec<_> = scan_array_stream(scan)
+        let chunks: Vec<_> = scan
+            .into_array_stream()
             .map(|array| {
                 let mut ctx = ctx.clone();
                 array?

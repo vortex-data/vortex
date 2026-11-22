@@ -46,7 +46,6 @@ use crate::conversions::parquet_to_vortex_chunks;
 use crate::datasets::Dataset;
 use crate::datasets::data_downloads::decompress_bz2;
 use crate::datasets::data_downloads::download_many;
-use crate::datasets::scan_array_stream;
 use crate::idempotent_async;
 use crate::workspace_root;
 
@@ -485,7 +484,7 @@ impl Dataset for PBIBenchmark {
                 ..Default::default()
             })
             .await?;
-        Ok(scan_array_stream(scan).read_all().await?)
+        Ok(scan.into_array_stream().read_all().await?)
     }
 
     async fn to_parquet_path(&self) -> anyhow::Result<PathBuf> {
