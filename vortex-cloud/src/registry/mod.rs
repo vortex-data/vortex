@@ -204,9 +204,10 @@ impl Registry {
     /// Builds the [`ObjectStore`] that serves `to_resolve`, along with how many raw URL path
     /// segments form the prefix where the store is mounted.
     ///
-    /// Reporting the raw prefix depth directly avoids inferring it by subtracting decoded object
-    /// path segment counts from raw URL segment counts, which breaks when the object key contains
-    /// percent-encoded separators (`%2F`).
+    /// Schemes handled directly (`hf://`, OpenDAL) return their raw prefix depth without
+    /// subtraction. For `parse_url_opts`, we subtract decoded key segments from the total decoded
+    /// segment count rather than raw segment count, which works because bucket and container names
+    /// cannot contain `/`.
     fn build_store(&self, to_resolve: &Url) -> object_store::Result<(Arc<dyn ObjectStore>, usize)> {
         // OpenDAL-backed schemes (Tencent COS, Alibaba OSS, Tencent GooseFS) are not recognized
         // by `object_store`, so build them from OpenDAL's own environment-variable configuration
@@ -239,6 +240,7 @@ impl Registry {
         // container/bucket segment do not fail here when `parse_url_opts` accepted them.
         let decoded_segments: usize = path_segments(to_resolve.path())
             .map(|seg| {
+                // `parse_url_opts` already validated the URL path; fall back to 1 defensively.
                 Path::from_url_path(seg)
                     .map(|p| num_segments(p.as_ref()))
                     .unwrap_or(1)
