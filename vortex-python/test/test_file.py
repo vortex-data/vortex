@@ -75,7 +75,7 @@ def test_zero_batch_size_rejected(vxf: VortexFile, tmp_path) -> None:
         with pytest.raises(ValueError, match="batch_size must be greater than zero"):
             file.scan(batch_size=0)
         with pytest.raises(ValueError, match="batch_size must be greater than zero"):
-            file.prepare(batch_size=0)
+            file.to_repeated_scan(batch_size=0)
         with pytest.raises(ValueError, match="batch_size must be greater than zero"):
             file.to_arrow(batch_size=0)
 
