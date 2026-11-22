@@ -5,6 +5,10 @@ use std::fmt::Debug;
 use std::hash::Hash;
 use std::ops::Range;
 
+use fearless_simd::Level;
+use fearless_simd::Simd;
+use fearless_simd::dispatch;
+use fearless_simd_macros::simd;
 use num_traits::NumCast;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::BitBufferMut;
@@ -215,6 +219,16 @@ impl PatchesData {
     }
 }
 
+/// The owned components of [`Patches`], as returned by [`Patches::into_parts`].
+pub struct PatchesParts {
+    pub array_len: usize,
+    pub offset: usize,
+    pub indices: ArrayRef,
+    pub values: ArrayRef,
+    pub chunk_offsets: Option<ArrayRef>,
+    pub offset_within_chunk: Option<usize>,
+}
+
 /// A helper for working with patched arrays.
 #[derive(Debug, Clone)]
 pub struct Patches {
@@ -393,6 +407,19 @@ impl Patches {
     #[inline]
     pub fn indices(&self) -> &ArrayRef {
         &self.indices
+    }
+
+    /// Consumes the patches and returns their components.
+    #[inline]
+    pub fn into_parts(self) -> PatchesParts {
+        PatchesParts {
+            array_len: self.array_len,
+            offset: self.offset,
+            indices: self.indices,
+            values: self.values,
+            chunk_offsets: self.chunk_offsets,
+            offset_within_chunk: self.offset_within_chunk,
+        }
     }
 
     #[inline]
@@ -613,7 +640,7 @@ impl Patches {
         // Patch index offsets are absolute and need to be offset by the first chunk of the current slice.
         let base_offset = chunk_offset_at(0)?;
 
-        let patches_start_idx = (chunk_offset_at(chunk_idx)? - base_offset)
+        let patches_start_idx = relative_chunk_offset(chunk_offset_at(chunk_idx)?, base_offset)?
             // Chunk offsets are only sliced off in case the slice is fully
             // outside of the chunk range.
             //
@@ -622,8 +649,8 @@ impl Patches {
             // saturating sub when adjusting the indices based on the chunk offset.
             .saturating_sub(offset_within_chunk);
 
-        let patches_end_idx = if chunk_idx < num_chunks - 1 {
-            (chunk_offset_at(chunk_idx + 1)? - base_offset)
+        let patches_end_idx = if chunk_idx + 1 < num_chunks {
+            relative_chunk_offset(chunk_offset_at(chunk_idx + 1)?, base_offset)?
                 .saturating_sub(offset_within_chunk)
                 .min(self.indices.len())
         } else {
@@ -706,9 +733,17 @@ impl Patches {
             (index + self.offset % PATCH_CHUNK_SIZE) / PATCH_CHUNK_SIZE
         };
 
+        let chunk_offset_at = |idx: usize| -> VortexResult<usize> {
+            let offset = *chunk_offsets
+                .get(idx)
+                .ok_or_else(|| vortex_err!("Patch chunk offsets have no entry for chunk {idx}"))?;
+            usize::try_from(offset)
+                .map_err(|_| vortex_err!("Patch chunk offset does not fit in usize"))
+        };
+
         // Patch index offsets are absolute and need to be offset by the first chunk of the current slice.
-        let chunk_offset = usize::try_from(chunk_offsets[chunk_idx] - chunk_offsets[0])
-            .map_err(|_| vortex_err!("chunk_offset failed to convert to usize"))?;
+        let base_offset = chunk_offset_at(0)?;
+        let chunk_offset = relative_chunk_offset(chunk_offset_at(chunk_idx)?, base_offset)?;
 
         let patches_start_idx = chunk_offset
             // Chunk offsets are only sliced off in case the slice is fully
@@ -719,9 +754,8 @@ impl Patches {
             // saturating sub when adjusting the indices based on the chunk offset.
             .saturating_sub(offset_within_chunk);
 
-        let patches_end_idx = if chunk_idx < chunk_offsets.len() - 1 {
-            usize::try_from(chunk_offsets[chunk_idx + 1] - chunk_offsets[0])
-                .map_err(|_| vortex_err!("patches_end_idx failed to convert to usize"))?
+        let patches_end_idx = if chunk_idx + 1 < chunk_offsets.len() {
+            relative_chunk_offset(chunk_offset_at(chunk_idx + 1)?, base_offset)?
                 .saturating_sub(offset_within_chunk)
                 .min(indices.len())
         } else {
@@ -904,7 +938,9 @@ impl Patches {
                     .ok_or_else(|| vortex_err!("chunk offset does not fit in usize"))?;
                 let parent_chunk_base = self.chunk_offset_at(0, ctx)?;
                 let parent_within = self.offset_within_chunk.unwrap_or(0);
-                Ok(parent_chunk_base + parent_within + slice_start_idx - new_chunk_base)
+                (parent_chunk_base + parent_within + slice_start_idx)
+                    .checked_sub(new_chunk_base)
+                    .ok_or_else(|| vortex_err!("Patch chunk offsets are not non-decreasing"))
             })
             .transpose()?;
 
@@ -1165,6 +1201,16 @@ impl Patches {
     }
 }
 
+/// Returns `chunk_offset` relative to `base_offset`, the first chunk's offset.
+///
+/// Offsets read from a file are untrusted, and a later chunk whose offset is below the first
+/// would otherwise underflow.
+fn relative_chunk_offset(chunk_offset: usize, base_offset: usize) -> VortexResult<usize> {
+    chunk_offset
+        .checked_sub(base_offset)
+        .ok_or_else(|| vortex_err!("Patch chunk offsets are not non-decreasing"))
+}
+
 /// Binary searches for each of `needles` in the indices array, sharing one searcher.
 ///
 /// # Returns
@@ -1275,12 +1321,11 @@ where
 /// is a new set of `Patches` with the indices relative to the provided `mask` rank, and the
 /// patch values.
 ///
-/// We search the larger side for each element of the smaller side, without building the mask
-/// indices:
+/// Choose between sparse searches and bitmap ranks without building the mask indices:
 ///
-/// * More patches than mask indices: gallop through the patches.
-/// * Cached mask indices: gallop through the mask indices.
-/// * Otherwise: rank each patch in the mask bitmap.
+/// * Far more patches than selected rows: gallop through the patches.
+/// * Very sparse patches with cached mask indices: gallop through the mask indices.
+/// * Otherwise: intersect the patches with the bitmap and rank only retained patches.
 fn filter_patches_with_mask<T: IntegerPType>(
     patch_indices: &[T],
     offset: usize,
@@ -1301,7 +1346,9 @@ fn filter_patches_with_mask<T: IntegerPType>(
         patch_count,
     );
 
-    if patch_count > true_count {
+    // Bitmap membership beats repeated searches at moderate ratios. Extremely sparse masks
+    // still benefit from searching only the selected rows.
+    if patch_count > true_count.saturating_mul(16) {
         gallop_patches_for_mask_indices(
             patch_indices,
             offset,
@@ -1311,14 +1358,18 @@ fn filter_patches_with_mask<T: IntegerPType>(
         )?;
     } else {
         match mask.cached_indices() {
-            Some(mask_indices) => gallop_mask_indices_for_patches(
-                patch_indices,
-                offset,
-                mask_indices,
-                &mut new_patch_indices,
-                &mut kept_patches,
-            )?,
-            None => rank_patches_in_mask_bitmap(
+            Some(mask_indices)
+                if patch_count <= true_count && patch_count.saturating_mul(256) < mask.len() =>
+            {
+                gallop_mask_indices_for_patches(
+                    patch_indices,
+                    offset,
+                    mask_indices,
+                    &mut new_patch_indices,
+                    &mut kept_patches,
+                )?
+            }
+            _ => rank_patches_in_mask_bitmap(
                 patch_indices,
                 offset,
                 mask.bit_buffer(),
@@ -1447,7 +1498,8 @@ fn gallop_mask_indices_for_patches<T: IntegerPType>(
 
 /// Finds the mask position of each patch from the mask bitmap, without building the mask indices.
 ///
-/// The mask position is the number of set bits before the patch, counted between adjacent patches.
+/// Each bitmap word is counted once. Rejected patches need no rank query; retained patches add
+/// the population count of the bits preceding them in the current word.
 fn rank_patches_in_mask_bitmap<T: IntegerPType>(
     patch_indices: &[T],
     offset: usize,
@@ -1455,17 +1507,42 @@ fn rank_patches_in_mask_bitmap<T: IntegerPType>(
     new_patch_indices: &mut BufferMut<u64>,
     kept_patches: &mut BitBufferMut,
 ) -> VortexResult<()> {
+    // Compile scalar population counts with the CPU's features, including POPCNT on x86.
+    dispatch!(Level::new(), simd => {
+        rank_patches_in_mask_bitmap_simd(
+            simd, patch_indices, offset, mask, new_patch_indices, kept_patches,
+        )
+    })
+}
+
+#[simd]
+fn rank_patches_in_mask_bitmap_simd<S: Simd, T: IntegerPType>(
+    _: S,
+    patch_indices: &[T],
+    offset: usize,
+    mask: &BitBuffer,
+    new_patch_indices: &mut BufferMut<u64>,
+    kept_patches: &mut BitBufferMut,
+) -> VortexResult<()> {
+    let chunks = mask.chunks();
+    let mut words = chunks
+        .iter()
+        .chain(std::iter::once(chunks.remainder_bits()));
+    let mut word = words.next().unwrap_or(0);
+    let mut word_start = 0;
     let mut rank = 0;
-    let mut previous_index = 0;
 
     for (patch_position, patch_index) in patch_indices.iter().enumerate() {
         let index = patch_index_to_usize(*patch_index, offset)?;
 
-        rank += mask.count_range(previous_index, index);
-        previous_index = index;
-
         if mask.value(index) {
-            new_patch_indices.push(rank as u64);
+            while index - word_start >= 64 {
+                rank += word.count_ones() as u64;
+                word = words.next().vortex_expect("patch is within the mask");
+                word_start += 64;
+            }
+            let preceding = word & ((1u64 << (index - word_start)) - 1);
+            new_patch_indices.push(rank + preceding.count_ones() as u64);
             kept_patches.set(patch_position);
         }
     }
@@ -2101,7 +2178,9 @@ mod test {
     #[rstest]
     #[case::sparse_mask((0..1000).step_by(2).collect(), (0..1000).step_by(97).collect())]
     #[case::sparse_patches((0..1000).step_by(97).collect(), (0..1000).step_by(2).collect())]
+    #[case::very_sparse_patches(vec![2, 998], (0..1000).step_by(2).collect())]
     #[case::similar_sizes((0..1000).step_by(3).collect(), (0..1000).step_by(2).collect())]
+    #[case::moderately_sparse_mask((0..1000).step_by(2).collect(), (0..1000).step_by(17).collect())]
     #[case::no_overlap((0..500).collect(), (500..1000).step_by(50).collect())]
     #[case::no_overlap_sparse_patches((500..1000).step_by(100).collect(), (0..500).collect())]
     #[case::edges(vec![0, 1, 998, 999], vec![0, 999])]
@@ -2111,6 +2190,7 @@ mod test {
         #[case] mask_indices: Vec<usize>,
         #[values(0, 5)] offset: usize,
         #[values(true, false)] cache_mask_indices: bool,
+        #[values(0, 3)] mask_offset: usize,
     ) -> VortexResult<()> {
         const LEN: usize = 1000;
         let mut ctx = SESSION.create_execution_ctx();
@@ -2131,12 +2211,17 @@ mod test {
             &mut ctx,
         )?;
 
-        let mask = if cache_mask_indices {
+        let mask = if cache_mask_indices && mask_offset == 0 {
             Mask::from_indices(LEN, mask_indices.iter().copied())
         } else {
-            Mask::from_buffer(BitBuffer::from_iter(
-                (0..LEN).map(|index| mask_indices.binary_search(&index).is_ok()),
-            ))
+            let bits = BitBuffer::from_iter((0..LEN + mask_offset).map(|index| {
+                index >= mask_offset && mask_indices.binary_search(&(index - mask_offset)).is_ok()
+            }));
+            let mask = Mask::from_buffer(bits.slice(mask_offset..));
+            if cache_mask_indices {
+                mask.values().vortex_expect("partial mask").indices();
+            }
+            mask
         };
 
         let (expected_indices, expected_values): (Vec<u64>, Vec<i32>) = mask_indices
@@ -3025,5 +3110,55 @@ mod test {
             patches.search_index(2048, &mut ctx).unwrap(),
             SearchResult::NotFound(1)
         );
+    }
+
+    /// What a lookup into patches with corrupt chunk offsets does.
+    #[derive(Clone, Copy, Debug)]
+    enum CorruptOffsetLookup {
+        SearchIndex,
+        GetPatched,
+        Take,
+        Slice,
+    }
+
+    /// Chunk offsets that can come from a corrupt file but that no writer produces.
+    #[rstest]
+    #[case::later_offset_below_the_first(buffer![2u64, 0, 0])]
+    #[case::empty(Buffer::<u64>::empty())]
+    #[case::fewer_than_the_chunks(buffer![0u64])]
+    fn corrupt_chunk_offsets_return_errors(
+        #[case] chunk_offsets: Buffer<u64>,
+        #[values(
+            CorruptOffsetLookup::SearchIndex,
+            CorruptOffsetLookup::GetPatched,
+            CorruptOffsetLookup::Take,
+            CorruptOffsetLookup::Slice
+        )]
+        lookup: CorruptOffsetLookup,
+    ) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        // Ten patches for one taken index, so `take` searches by chunk rather than through a map.
+        let patches = Patches::new(
+            3000,
+            0,
+            buffer![5u64, 100, 1500, 1600, 1700, 1800, 1900, 2100, 2500, 2999].into_array(),
+            buffer![1i32, 2, 3, 4, 5, 6, 7, 8, 9, 10].into_array(),
+            Some(chunk_offsets.into_array()),
+            &mut ctx,
+        )?;
+        // The lookups land in the third chunk, which corrupt offsets describe wrongly or not at all.
+        let result = match lookup {
+            CorruptOffsetLookup::SearchIndex => patches.search_index(2100, &mut ctx).map(|_| ()),
+            CorruptOffsetLookup::GetPatched => patches.get_patched(2100, &mut ctx).map(|_| ()),
+            CorruptOffsetLookup::Take => patches
+                .take(&buffer![2100u64].into_array(), &mut ctx)
+                .map(|_| ()),
+            CorruptOffsetLookup::Slice => patches.slice(2000..3000, &mut ctx).map(|_| ()),
+        };
+        assert!(
+            result.is_err(),
+            "{lookup:?} should reject corrupt chunk offsets"
+        );
+        Ok(())
     }
 }

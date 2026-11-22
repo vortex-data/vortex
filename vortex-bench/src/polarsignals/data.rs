@@ -20,9 +20,6 @@ use arrow_schema::DataType;
 use arrow_schema::Field;
 use arrow_schema::Schema;
 use parquet::arrow::ArrowWriter;
-use parquet::basic::Compression;
-use parquet::basic::ZstdLevel;
-use parquet::file::properties::WriterProperties;
 use rand::RngExt;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
@@ -36,6 +33,8 @@ use super::schema::UInt64DictBuilder;
 use super::schema::label_fields;
 use super::schema::lines_fields;
 use super::schema::location_fields;
+use crate::utils::parquet::LOCAL_ROW_GROUP_ROWS;
+use crate::utils::parquet::parquet_writer_properties;
 
 pub const BASE_TIMESTAMP_NS: i64 = 0;
 
@@ -142,8 +141,8 @@ pub fn generate_polarsignals_parquet(n_rows: usize, output_path: &Path) -> Resul
     let label_sets = Arc::new(label_sets);
 
     let file = std::fs::File::create(output_path)?;
-    let props = WriterProperties::builder()
-        .set_compression(Compression::ZSTD(ZstdLevel::try_new(3)?))
+    let props = parquet_writer_properties()
+        .set_max_row_group_row_count(Some(LOCAL_ROW_GROUP_ROWS))
         .build();
     let mut writer = ArrowWriter::try_new(file, Arc::clone(&schema), Some(props))?;
 

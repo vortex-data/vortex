@@ -685,7 +685,7 @@ mod tests {
     use crate::arrow::DeviceArrayExt;
     use crate::arrow::release_device_array;
     use crate::arrow::release_schema;
-    use crate::device_buffer::cuda_backing_allocation;
+    use crate::device_buffer::test_support::cuda_backing_allocation;
     use crate::session::CudaSession;
     use crate::session::VarBinExportLayout;
 
