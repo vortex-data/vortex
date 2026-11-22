@@ -3949,7 +3949,7 @@ mod writer_terminal_error_tests {
     }
 
     #[tokio::test]
-    async fn writer_push_replays_terminal_error_without_hanging() -> VortexResult<()> {
+    async fn test_writer_push_replays_terminal_error() -> VortexResult<()> {
         let chunk = make_chunk(&[1, 2, 3])?;
         let dtype = chunk.dtype().clone();
         let write_calls = Arc::new(AtomicUsize::new(0));
@@ -3961,6 +3961,8 @@ mod writer_terminal_error_tests {
 
         let mut writer = SESSION.write_options().writer(sink, dtype.clone());
         let mut first_err = None;
+        // `bounded(1)` plus `futures::select!` branch order can let the first push buffer before
+        // the writer task polls the failing sink, so push until the terminal error surfaces.
         for _ in 0..4 {
             if let Err(err) = writer.push(chunk.clone()).await {
                 first_err = Some(err);
