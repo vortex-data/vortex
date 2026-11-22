@@ -161,8 +161,8 @@ Many files
 ----------
 
 :func:`~vortex.open_dataset` opens a directory, a glob pattern, an object store prefix or a list of
-files as one :class:`~vortex.dataset.VortexDataset`. Every file must have the same schema, and
-opening the dataset reads only the footer of each file:
+files as one :class:`~vortex.dataset.VortexDataset`. Every file must have the same schema; opening
+the dataset reads only the footer of the first file and opens the rest lazily when scanned:
 
 .. doctest::
 
