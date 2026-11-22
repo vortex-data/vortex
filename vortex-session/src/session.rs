@@ -210,13 +210,12 @@ impl VortexSession {
     ///
     /// If a variable of that type already exists.
     pub fn with_some<V: VortexSessionVar>(self, var: V) -> Self {
-        if self.get_opt::<V>().is_some() {
+        if !self.0.insert_if_absent(TypeId::of::<V>(), Arc::new(var)) {
             vortex_panic!(
                 "Session variable of type {} already exists",
                 type_name::<V>()
             );
         }
-        self.register(var);
         self
     }
 
@@ -283,6 +282,10 @@ impl SessionExt for VortexSession {
 #[cfg(test)]
 mod tests {
     use std::any::Any;
+    use std::panic::AssertUnwindSafe;
+    use std::panic::catch_unwind;
+    use std::sync::Barrier;
+    use std::thread;
 
     use super::VortexSession;
     use crate::SessionExt;
@@ -515,5 +518,83 @@ mod tests {
 
         // The mutated value is published copy-on-write to the shared backing store.
         assert_eq!(clone.get::<Counter>().count, 9);
+    }
+
+    #[test]
+    fn concurrent_with_some_same_type_allows_only_one_winner() {
+        for _ in 0..200 {
+            let session = VortexSession::empty();
+            let clone_a = session.clone();
+            let clone_b = session.clone();
+            let barrier = Barrier::new(2);
+
+            let (res_a, res_b) = thread::scope(|s| {
+                let h_a = s.spawn(|| {
+                    barrier.wait();
+                    catch_unwind(AssertUnwindSafe(|| clone_a.with_some(Counter { count: 1 })))
+                });
+                let h_b = s.spawn(|| {
+                    barrier.wait();
+                    catch_unwind(AssertUnwindSafe(|| clone_b.with_some(Counter { count: 2 })))
+                });
+                (h_a.join().unwrap(), h_b.join().unwrap())
+            });
+
+            match (res_a, res_b) {
+                (Ok(winner), Err(panic)) => {
+                    let msg = panic
+                        .downcast_ref::<String>()
+                        .map(String::as_str)
+                        .or_else(|| panic.downcast_ref::<&str>().copied())
+                        .unwrap_or("");
+                    assert!(msg.contains("already exists"), "unexpected panic: {msg}");
+                    assert_eq!(winner.get::<Counter>().count, 1);
+                    assert_eq!(session.get::<Counter>().count, 1);
+                }
+                (Err(panic), Ok(winner)) => {
+                    let msg = panic
+                        .downcast_ref::<String>()
+                        .map(String::as_str)
+                        .or_else(|| panic.downcast_ref::<&str>().copied())
+                        .unwrap_or("");
+                    assert!(msg.contains("already exists"), "unexpected panic: {msg}");
+                    assert_eq!(winner.get::<Counter>().count, 2);
+                    assert_eq!(session.get::<Counter>().count, 2);
+                }
+                (Ok(_), Ok(_)) => panic!("both concurrent with_some calls succeeded for same type"),
+                (Err(_), Err(_)) => {
+                    panic!("both concurrent with_some calls panicked for same type")
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn concurrent_with_some_distinct_types_both_succeed() {
+        for _ in 0..50 {
+            let session = VortexSession::empty();
+            let clone_a = session.clone();
+            let clone_b = session.clone();
+            let barrier = Barrier::new(2);
+
+            let (res_a, res_b) = thread::scope(|s| {
+                let h_a = s.spawn(|| {
+                    barrier.wait();
+                    clone_a.with_some(Counter { count: 42 })
+                });
+                let h_b = s.spawn(|| {
+                    barrier.wait();
+                    clone_b.with_some(Other)
+                });
+                (h_a.join().unwrap(), h_b.join().unwrap())
+            });
+
+            assert_eq!(res_a.get::<Counter>().count, 42);
+            assert!(res_a.get_opt::<Other>().is_some());
+            assert_eq!(res_b.get::<Counter>().count, 42);
+            assert!(res_b.get_opt::<Other>().is_some());
+            assert_eq!(session.get::<Counter>().count, 42);
+            assert!(session.get_opt::<Other>().is_some());
+        }
     }
 }
