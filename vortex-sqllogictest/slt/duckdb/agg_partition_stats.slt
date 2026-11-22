@@ -11,17 +11,25 @@ COPY (
 )
 TO '${WORK_DIR}/agg_partition_stats.vortex';
 
+# Unversioned paths cannot guarantee that planning and execution read the same file generation,
+# so DuckDB must fall back to scanning rather than answering aggregates from cached metadata.
 query TT
 EXPLAIN SELECT count(*)
 FROM '${WORK_DIR}/agg_partition_stats.vortex';
 ----
-<REGEX>:.*Column Data Scan.*
+<REGEX>:.*Ungrouped Aggregate.*
 
 query TT
 EXPLAIN SELECT count(*)
 FROM '${WORK_DIR}/agg_partition_stats.vortex';
 ----
-<!REGEX>:.*(Read Vortex|AGGREGATE).*
+<REGEX>:.*Read Vortex.*
+
+query TT
+EXPLAIN SELECT count(*)
+FROM '${WORK_DIR}/agg_partition_stats.vortex';
+----
+<!REGEX>:.*Column Data Scan.*
 
 query I
 SELECT count(*)
@@ -33,13 +41,13 @@ query TT
 EXPLAIN SELECT min(i), max(i)
 FROM '${WORK_DIR}/agg_partition_stats.vortex';
 ----
-<REGEX>:.*Column Data Scan.*
+<REGEX>:.*Read Vortex.*
 
 query TT
 EXPLAIN SELECT min(i), max(i)
 FROM '${WORK_DIR}/agg_partition_stats.vortex';
 ----
-<!REGEX>:.*(Read Vortex|AGGREGATE).*
+<!REGEX>:.*Column Data Scan.*
 
 query II
 SELECT min(i), max(i) FROM '${WORK_DIR}/agg_partition_stats.vortex';
@@ -62,7 +70,7 @@ query TT
 EXPLAIN SELECT min(d), max(d)
 FROM '${WORK_DIR}/agg_partition_stats-date.vortex';
 ----
-<REGEX>:.*Column Data Scan.*
+<REGEX>:.*Read Vortex.*
 
 query DD
 SELECT min(d), max(d) FROM '${WORK_DIR}/agg_partition_stats-date.vortex';
@@ -76,7 +84,7 @@ TO '${WORK_DIR}/agg_partition_stats-double.vortex';
 query TT
 EXPLAIN SELECT max(x) FROM '${WORK_DIR}/agg_partition_stats-double.vortex';
 ----
-<REGEX>:.*Column Data Scan.*
+<REGEX>:.*Read Vortex.*
 
 query R
 SELECT max(x) FROM '${WORK_DIR}/agg_partition_stats-double.vortex';
@@ -90,7 +98,7 @@ TO '${WORK_DIR}/agg_partition_stats-double-nan.vortex';
 query TT
 EXPLAIN SELECT min(x), max(x) FROM '${WORK_DIR}/agg_partition_stats-double-nan.vortex';
 ----
-<REGEX>:.*Column Data Scan.*
+<REGEX>:.*Read Vortex.*
 
 query RR
 SELECT min(x), max(x) FROM '${WORK_DIR}/agg_partition_stats-double-nan.vortex';
@@ -120,7 +128,7 @@ query TT
 EXPLAIN SELECT min(d), max(d), min(h), max(h)
 FROM '${WORK_DIR}/agg_partition_stats-decimal.vortex';
 ----
-<REGEX>:.*Column Data Scan.*
+<REGEX>:.*Read Vortex.*
 
 query RRRR
 SELECT min(d), max(d), min(h), max(h)
@@ -140,7 +148,7 @@ query TT
 EXPLAIN SELECT min(tn), max(tn)
 FROM '${WORK_DIR}/agg_partition_stats-time_ns.vortex';
 ----
-<REGEX>:.*Column Data Scan.*
+<REGEX>:.*Read Vortex.*
 
 query ??
 SELECT min(tn), max(tn) FROM '${WORK_DIR}/agg_partition_stats-time_ns.vortex';

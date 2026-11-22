@@ -16,15 +16,22 @@ SELECT count(*) FROM '${WORK_DIR}/agg_partition_stats_*.vortex';
 ----
 6
 
+# Unversioned paths cannot guarantee that planning and execution read the same file generation,
+# so DuckDB must fall back to scanning rather than answering aggregates from cached metadata.
 query TT
 EXPLAIN SELECT count(*) FROM '${WORK_DIR}/agg_partition_stats_*.vortex';
 ----
-<REGEX>:.*Column Data Scan.*
+<REGEX>:.*Ungrouped Aggregate.*
 
 query TT
 EXPLAIN SELECT count(*) FROM '${WORK_DIR}/agg_partition_stats_*.vortex';
 ----
-<!REGEX>:.*(Read Vortex|AGGREGATE).*
+<REGEX>:.*Read Vortex.*
+
+query TT
+EXPLAIN SELECT count(*) FROM '${WORK_DIR}/agg_partition_stats_*.vortex';
+----
+<!REGEX>:.*Column Data Scan.*
 
 query III
 SELECT count(*), min(i), max(i)
@@ -48,7 +55,7 @@ SELECT a FROM '${WORK_DIR}/reordered_*.vortex' ORDER BY a;
 query TT
 EXPLAIN SELECT max(a), min(b) FROM '${WORK_DIR}/reordered_*.vortex';
 ----
-<REGEX>:.*Column Data Scan.*
+<REGEX>:.*Read Vortex.*
 
 query II
 SELECT max(a), min(b) FROM '${WORK_DIR}/reordered_*.vortex';
@@ -96,7 +103,7 @@ SELECT min(f), max(f) FROM read_vortex('${WORK_DIR}/hive/**/*.vortex');
 query TT
 EXPLAIN SELECT min(j), max(j) FROM read_vortex('${WORK_DIR}/hive/**/*.vortex');
 ----
-<REGEX>:.*Column Data Scan.*
+<REGEX>:.*Read Vortex.*
 
 query TTBB
 SELECT d, f, d = '11', f = '11' FROM read_vortex('${WORK_DIR}/hive/k=1/d=1.50/f=1.5/*.vortex') LIMIT 1;
