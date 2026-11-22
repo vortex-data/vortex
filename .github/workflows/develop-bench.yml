@@ -5,7 +5,7 @@
 name: Develop Benchmarks
 
 concurrency:
-  group: develop-bench
+  group: develop-bench-${{ github.ref }}
   cancel-in-progress: false
 
 on:
