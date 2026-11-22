@@ -38,42 +38,34 @@ fn check_data_generation_allowed(data_path: &Path) -> Result<()> {
 }
 
 struct TempPathGuard {
+    dir: PathBuf,
     path: PathBuf,
-    armed: bool,
 }
 
 impl TempPathGuard {
-    fn new(path: PathBuf) -> Self {
-        Self { path, armed: true }
+    fn new() -> Result<Self> {
+        let dir = workspace_root()
+            .join("target")
+            .join(format!("download_{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&dir).context("Failed to create temp directory")?;
+        let path = dir.join("payload.file");
+        Ok(Self { dir, path })
     }
 
     fn path(&self) -> &Path {
         &self.path
     }
-
-    fn disarm(mut self) {
-        self.armed = false;
-    }
 }
 
 impl Drop for TempPathGuard {
     fn drop(&mut self) {
-        if !self.armed {
-            return;
-        }
-        let result = match fs::symlink_metadata(&self.path) {
-            Ok(meta) if meta.is_dir() => fs::remove_dir_all(&self.path),
-            Ok(_) => fs::remove_file(&self.path),
-            Err(err) if err.kind() == std::io::ErrorKind::NotFound => return,
-            Err(err) => Err(err),
-        };
-        if let Err(err) = result
+        if let Err(err) = fs::remove_dir_all(&self.dir)
             && err.kind() != std::io::ErrorKind::NotFound
         {
             tracing::warn!(
-                path = %self.path.display(),
+                path = %self.dir.display(),
                 error = %err,
-                "Failed to clean up temporary file"
+                "Failed to clean up temporary directory"
             );
         }
     }
@@ -92,10 +84,9 @@ pub fn idempotent<T, P: IdempotentPath + ?Sized>(
         if let Some(parent) = data_path.parent() {
             fs::create_dir_all(parent).context("Failed to create parent directories")?;
         }
-        let temp_path = TempPathGuard::new(temp_download_filepath());
+        let temp_path = TempPathGuard::new()?;
         f(temp_path.path())?;
         fs::rename(temp_path.path(), &data_path).context("Failed to rename temp file")?;
-        temp_path.disarm();
     }
     Ok(data_path)
 }
@@ -113,10 +104,9 @@ where
         if let Some(parent) = data_path.parent() {
             fs::create_dir_all(parent).context("Failed to create parent directories")?;
         }
-        let temp_path = TempPathGuard::new(temp_download_filepath());
+        let temp_path = TempPathGuard::new()?;
         f(temp_path.path().to_path_buf()).await?;
         fs::rename(temp_path.path(), &data_path).context("Failed to rename temp file")?;
-        temp_path.disarm();
     }
     Ok(data_path)
 }
@@ -257,6 +247,7 @@ mod tests {
     use std::pin::Pin;
     use std::rc::Rc;
     use std::sync::Arc;
+    use std::sync::mpsc;
     use std::task::Context;
     use std::task::Poll;
     use std::task::Waker;
@@ -426,6 +417,68 @@ mod tests {
             !temp_path.exists(),
             "temp file leaked after future drop: {}",
             temp_path.display()
+        );
+        assert!(!final_path.exists());
+        Ok(())
+    }
+
+    #[test]
+    fn idempotent_async_cancels_before_async_file_create_completes() -> Result<()> {
+        let dir = tempdir()?;
+        let final_path = dir.path().join("cancelled_before_create.vortex");
+        let observed_temp = Arc::new(Mutex::new(None::<PathBuf>));
+        let observed_clone = Arc::clone(&observed_temp);
+
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .max_blocking_threads(1)
+            .enable_all()
+            .build()?;
+
+        rt.block_on(async {
+            let (entered_tx, entered_rx) = mpsc::channel();
+            let (release_tx, release_rx) = mpsc::channel();
+
+            // Occupy the single blocking worker so tokio::fs::File::create stays queued.
+            let blocker = tokio::task::spawn_blocking(move || {
+                let _ = entered_tx.send(());
+                let _ = release_rx.recv();
+            });
+            entered_rx.recv().expect("blocking worker started");
+
+            {
+                let mut fut = Box::pin(idempotent_async(&final_path, move |temp_path| {
+                    let observed_clone = Arc::clone(&observed_clone);
+                    async move {
+                        *observed_clone.lock() = Some(temp_path.clone());
+                        tokio::fs::File::create(&temp_path).await?;
+                        Ok::<(), anyhow::Error>(())
+                    }
+                }));
+                let waker = Waker::noop();
+                let mut cx = Context::from_waker(waker);
+                assert!(fut.as_mut().poll(&mut cx).is_pending());
+                // Drop while File::create is still queued on the blocking pool.
+            }
+
+            // Unblock the blocking pool and wait for the queued File::create to run.
+            let _ = release_tx.send(());
+            blocker.await.expect("blocker finished");
+            tokio::task::spawn_blocking(|| ())
+                .await
+                .expect("blocking queue drained");
+        });
+
+        let temp_path = observed_temp.lock().clone().expect("temp path recorded");
+        let temp_dir = temp_path.parent().expect("temp path has parent dir");
+        assert!(
+            !temp_path.exists(),
+            "temp file leaked after queued File::create ran: {}",
+            temp_path.display()
+        );
+        assert!(
+            !temp_dir.exists(),
+            "temp attempt directory leaked: {}",
+            temp_dir.display()
         );
         assert!(!final_path.exists());
         Ok(())
