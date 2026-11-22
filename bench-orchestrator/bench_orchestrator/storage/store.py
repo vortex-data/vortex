@@ -247,8 +247,11 @@ class ResultStore:
             results_path = run_dir / "results.jsonl"
             result_count = 0
             if results_path.exists():
-                with open(results_path) as f:
-                    result_count = sum(1 for _ in f)
+                try:
+                    with open(results_path, "rb") as f:
+                        result_count = sum(1 for _ in f)
+                except OSError:
+                    continue
 
             summaries.append(RunSummary.from_metadata(metadata, result_count))
 
