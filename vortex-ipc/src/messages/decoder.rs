@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::fmt::Debug;
+use std::io;
 use std::sync::Arc;
 
 use bytes::Buf;
@@ -164,10 +165,49 @@ impl MessageDecoder {
             }
         }
     }
+
+    /// Check whether the decoder is at a clean end-of-input boundary.
+    ///
+    /// Returns `Ok(())` only when the decoder is waiting for a new message with no buffered
+    /// prefix bytes. Otherwise returns an [`io::ErrorKind::UnexpectedEof`] error describing the
+    /// unfinished frame.
+    pub fn finish_eof(&self, buffered_bytes: usize) -> VortexResult<()> {
+        match &self.state {
+            State::Length if buffered_bytes == 0 => Ok(()),
+            State::Length => Err(io::Error::new(
+                io::ErrorKind::UnexpectedEof,
+                format!(
+                    "unexpected EOF reading IPC message length: read {buffered_bytes} of 4 expected bytes"
+                ),
+            )
+            .into()),
+            State::Header(msg_length) => Err(io::Error::new(
+                io::ErrorKind::UnexpectedEof,
+                format!(
+                    "unexpected EOF reading IPC message header: read {buffered_bytes} of {msg_length} expected bytes"
+                ),
+            )
+            .into()),
+            State::Reading(msg_bytes) => {
+                // SAFETY: we've already validated the header in the previous state
+                let msg = unsafe { root_unchecked::<fb::Message>(msg_bytes.as_ref()) };
+                let body_length = msg.body_size();
+                Err(io::Error::new(
+                    io::ErrorKind::UnexpectedEof,
+                    format!(
+                        "unexpected EOF reading IPC message body: read {buffered_bytes} of {body_length} expected bytes"
+                    ),
+                )
+                .into())
+            }
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::error::Error as _;
+
     use bytes::BytesMut;
     use vortex_array::ArrayRef;
     use vortex_array::ArrayVTable;
@@ -256,6 +296,76 @@ mod tests {
 
         assert!(!ctx.ids().contains(&ArrayVTable::id(&Widen)));
         assert_arrays_eq!(actual, array, &mut SESSION.create_execution_ctx());
+
+        Ok(())
+    }
+
+    fn assert_unexpected_eof(err: &vortex_error::VortexError) {
+        let io_err = err
+            .source()
+            .and_then(|s| s.downcast_ref::<io::Error>())
+            .vortex_expect("expected io::Error source");
+        assert_eq!(io_err.kind(), io::ErrorKind::UnexpectedEof);
+    }
+
+    #[test]
+    fn finish_eof_each_state() -> VortexResult<()> {
+        let array = buffer![0i32, 1, 2, 3].into_array();
+        let mut encoder = MessageEncoder::new(SESSION.clone());
+        let encoded = encoder.encode(EncoderMessage::Array(&array))?;
+        let length_bytes = &encoded[0];
+        let header_bytes = &encoded[1];
+        let body_bytes: Vec<u8> = encoded[2..]
+            .iter()
+            .flat_map(|b| b.as_ref())
+            .copied()
+            .collect();
+
+        let mut decoder = MessageDecoder::default();
+        // Clean boundary before any message.
+        decoder.finish_eof(0)?;
+        // Partial length prefix in State::Length.
+        assert_unexpected_eof(&decoder.finish_eof(2).unwrap_err());
+
+        // Advance to State::Header.
+        let mut buf = BytesMut::from(length_bytes.as_ref());
+        assert!(matches!(
+            decoder.read_next(&mut buf)?,
+            PollRead::NeedMore(_)
+        ));
+        assert_unexpected_eof(&decoder.finish_eof(0).unwrap_err());
+        assert_unexpected_eof(&decoder.finish_eof(1).unwrap_err());
+
+        // Advance to State::Reading.
+        buf.extend_from_slice(header_bytes.as_ref());
+        assert!(matches!(
+            decoder.read_next(&mut buf)?,
+            PollRead::NeedMore(_)
+        ));
+        assert_unexpected_eof(&decoder.finish_eof(0).unwrap_err());
+        assert_unexpected_eof(&decoder.finish_eof(1).unwrap_err());
+
+        // Complete the body -> back to State::Length.
+        buf.extend_from_slice(&body_bytes);
+        assert!(matches!(
+            decoder.read_next(&mut buf)?,
+            PollRead::Some(DecoderMessage::Array(_))
+        ));
+        decoder.finish_eof(0)?;
+
+        // Empty message body completes without waiting in State::Reading.
+        let empty = ByteBuffer::empty();
+        let mut empty_bytes = BytesMut::new();
+        for part in encoder.encode(EncoderMessage::Buffer(&empty))? {
+            empty_bytes.extend_from_slice(part.as_ref());
+        }
+        let PollRead::Some(DecoderMessage::Buffer(decoded)) =
+            decoder.read_next(&mut empty_bytes)?
+        else {
+            vortex_panic!("expected empty buffer message");
+        };
+        assert!(decoded.is_empty());
+        decoder.finish_eof(0)?;
 
         Ok(())
     }
