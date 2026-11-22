@@ -60,6 +60,7 @@ _MANAGED_FORMAT_DIRS: frozenset[str] = frozenset(
         "arrow-ipc",
         "csv",
         "parquet",
+        "parquet-snappy",
         "vortex",
         "vortex-file-compressed",
         "vortex-compact",

@@ -267,12 +267,16 @@ def test_local_refresh_preserves_unrelated_sibling_and_unlinks_managed_symlink(t
     target_file.write_bytes(b"stale-vortex")
     derived_link = ds_v1.directory.parent / "vortex-compact"
     derived_link.symlink_to(external)
+    snappy_dir = ds_v1.directory.parent / "parquet-snappy"
+    snappy_dir.mkdir()
+    (snappy_dir / "hits.parquet").write_bytes(b"stale-snappy")
 
     # Local refresh for v2 without S3 must preserve analysis/notes.txt and unlink vortex-compact.
     ds_v2 = _make_dataset(tmp_path, "clickbench-sorted-v2")
     with prepare_dataset(ds_v2, cache=None) as restored:
         assert restored is False
         assert not derived_link.exists() and not derived_link.is_symlink()
+        assert not snappy_dir.exists()
         assert target_file.read_bytes() == b"stale-vortex"
         assert notes.read_text(encoding="utf-8") == "keep me\n"
         ds_v2.directory.mkdir(parents=True, exist_ok=True)
