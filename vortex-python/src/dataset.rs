@@ -33,6 +33,7 @@ use crate::current_runtime;
 use crate::error::PyVortexResult;
 use crate::expr::PyExpr;
 use crate::file::row_indices;
+use crate::file::validate_positive_split_size;
 use crate::install_module;
 use crate::object_store::resolve::ResolvedStore;
 use crate::object_store::resolve::resolve_store;
@@ -196,6 +197,7 @@ impl PyVortexDataset {
         row_range: Option<(u64, u64)>,
         limit: Option<u64>,
     ) -> PyVortexResult<Py<PyAny>> {
+        let split_by = validate_positive_split_size(split_by, "split_by")?;
         let vxf = &self_.vxf;
         let projection = projection_from_python(columns, vxf.dtype())?;
         let filter = filter_from_python(row_filter);
@@ -211,7 +213,11 @@ impl PyVortexDataset {
             .with_projection(projection)
             .with_some_filter(filter)
             .with_some_limit(limit)
-            .with_split_by(split_by.map(SplitBy::RowCount).unwrap_or_default());
+            .with_split_by(
+                split_by
+                    .map(|n| SplitBy::RowCount(n.get()))
+                    .unwrap_or_default(),
+            );
         if let Some((l, r)) = row_range {
             scan = scan.with_row_range(l..r);
         }
@@ -231,6 +237,7 @@ impl PyVortexDataset {
         split_by: Option<usize>,
         row_range: Option<(u64, u64)>,
     ) -> PyVortexResult<usize> {
+        let split_by = validate_positive_split_size(split_by, "split_by")?;
         if row_filter.is_none() {
             let row_count = match row_range {
                 Some(range) => range.1 - range.0,
@@ -254,7 +261,11 @@ impl PyVortexDataset {
                 .scan()?
                 .with_projection(projection)
                 .with_some_filter(filter)
-                .with_split_by(split_by.map(SplitBy::RowCount).unwrap_or_default());
+                .with_split_by(
+                    split_by
+                        .map(|n| SplitBy::RowCount(n.get()))
+                        .unwrap_or_default(),
+                );
             if let Some((l, r)) = row_range {
                 scan = scan.with_row_range(l..r);
             }

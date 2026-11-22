@@ -2,12 +2,14 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::iter::once;
+use std::num::NonZeroU64;
+use std::num::NonZeroUsize;
 use std::ops::Range;
 
 use vortex_array::dtype::FieldMask;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_ensure;
+use vortex_error::vortex_err;
 
 use crate::BoundaryMode;
 use crate::LayoutReader;
@@ -71,10 +73,9 @@ impl SplitBy {
         Ok(match *self {
             SplitBy::Layout => layout_boundaries(layout_reader, row_range, field_mask)?,
             SplitBy::LayoutSubSplitting { max_rows } => {
-                vortex_ensure!(
-                    max_rows > 0,
-                    "SplitBy::LayoutSubSplitting requires a non-zero max_rows"
-                );
+                let max_rows = NonZeroU64::new(max_rows).ok_or_else(|| {
+                    vortex_err!("SplitBy::LayoutSubSplitting requires a non-zero max_rows")
+                })?;
                 let (boundaries, soft) = register_boundaries(
                     layout_reader,
                     row_range,
@@ -86,17 +87,22 @@ impl SplitBy {
                     merge_small_spans(
                         boundaries,
                         &soft,
-                        DEFAULT_MIN_SPLIT_ROWS.min(max_rows),
-                        max_rows,
+                        DEFAULT_MIN_SPLIT_ROWS.min(max_rows.get()),
+                        max_rows.get(),
                     ),
-                    max_rows,
+                    max_rows.get(),
                 )
             }
-            SplitBy::RowCount(n) => row_range
-                .clone()
-                .step_by(n)
-                .chain(once(row_range.end))
-                .collect(),
+            SplitBy::RowCount(n) => {
+                let n = NonZeroUsize::new(n).ok_or_else(|| {
+                    vortex_err!("SplitBy::RowCount requires a non-zero row count")
+                })?;
+                row_range
+                    .clone()
+                    .step_by(n.get())
+                    .chain(once(row_range.end))
+                    .collect()
+            }
         })
     }
 }
@@ -318,17 +324,41 @@ mod test {
     }
 
     #[test]
-    fn test_row_count_splits() {
+    fn test_row_count_splits() -> VortexResult<()> {
         let reader = reader();
+        let field_mask = [FieldMask::Exact(FieldPath::root())];
 
-        let splits = SplitBy::RowCount(3)
-            .splits(
-                reader.as_ref(),
-                &(0..10),
-                &[FieldMask::Exact(FieldPath::root())],
-            )
-            .unwrap();
+        // Short final split.
+        let splits = SplitBy::RowCount(3).splits(reader.as_ref(), &(0..10), &field_mask)?;
         assert_eq!(splits, vec![0u64, 3, 6, 9, 10]);
+
+        // Exact multiple avoids duplicating the end boundary.
+        let splits = SplitBy::RowCount(3).splits(reader.as_ref(), &(0..9), &field_mask)?;
+        assert_eq!(splits, vec![0u64, 3, 6, 9]);
+
+        // Single-row splits and splits larger than the range.
+        let splits = SplitBy::RowCount(1).splits(reader.as_ref(), &(2..5), &field_mask)?;
+        assert_eq!(splits, vec![2u64, 3, 4, 5]);
+        let splits = SplitBy::RowCount(100).splits(reader.as_ref(), &(0..10), &field_mask)?;
+        assert_eq!(splits, vec![0u64, 10]);
+
+        // Empty range with positive stride.
+        let splits = SplitBy::RowCount(3).splits(reader.as_ref(), &(0..0), &field_mask)?;
+        assert_eq!(splits, vec![0u64]);
+
+        // Zero row count is rejected promptly for both nonempty and empty inputs.
+        assert!(
+            SplitBy::RowCount(0)
+                .splits(reader.as_ref(), &(0..10), &field_mask)
+                .is_err()
+        );
+        assert!(
+            SplitBy::RowCount(0)
+                .splits(reader.as_ref(), &(0..0), &field_mask)
+                .is_err()
+        );
+
+        Ok(())
     }
 
     /// A reader that registers a fixed set of interior split points (which may repeat) plus the
@@ -438,13 +468,18 @@ mod test {
 
     #[test]
     fn test_layout_sub_splitting_rejects_zero_max_rows() {
-        let reader = StubReader::new(10, vec![]);
+        let nonempty = StubReader::new(10, vec![]);
         let result = SplitBy::LayoutSubSplitting { max_rows: 0 }.splits(
-            &reader,
+            &nonempty,
             &(0..10),
             &[FieldMask::All],
         );
         assert!(result.is_err());
+
+        let empty = StubReader::new(0, vec![]);
+        let empty_result =
+            SplitBy::LayoutSubSplitting { max_rows: 0 }.splits(&empty, &(0..0), &[FieldMask::All]);
+        assert!(empty_result.is_err());
     }
 
     #[test]

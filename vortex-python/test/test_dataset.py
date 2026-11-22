@@ -402,3 +402,17 @@ def test_filter_is_in_with_a_null_member_is_unsupported(tmp_path: Path) -> None:
     # Substrait does not carry whether PyArrow skips nulls, which decides a null row.
     with pytest.raises(NotImplementedError):
         vx.open(str(path)).to_dataset().to_table(filter=pc.field("x").isin([1, None]))
+
+
+def test_zero_batch_size_rejected(ds: vx.dataset.VortexDataset, tmp_path: Path) -> None:
+    empty_path = tmp_path / "empty.vortex"
+    vx.io.write(vx.array(pa.Table.from_pydict({"a": pa.array([], type=pa.int64())})), str(empty_path))
+    empty_ds = vx.dataset.VortexDataset.from_path(str(empty_path))
+
+    for dataset in (ds, empty_ds):
+        with pytest.raises(ValueError, match="split_by must be greater than zero"):
+            dataset.to_batches(batch_size=0)
+        with pytest.raises(ValueError, match="split_by must be greater than zero"):
+            dataset.count_rows(batch_size=0)
+        with pytest.raises(ValueError, match="split_by must be greater than zero"):
+            dataset.count_rows(filter=pc.field(dataset.schema.names[0]).is_valid(), batch_size=0)

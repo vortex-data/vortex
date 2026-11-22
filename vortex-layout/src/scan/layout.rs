@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::any::Any;
+use std::num::NonZeroU64;
 use std::num::NonZeroUsize;
 use std::ops::Range;
 use std::pin::Pin;
@@ -28,6 +29,7 @@ use vortex_array::stream::ArrayStreamExt;
 use vortex_array::stream::SendableArrayStream;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_err;
 use vortex_mask::Mask;
 use vortex_metrics::MetricsRegistry;
 use vortex_scan::DataSource;
@@ -116,6 +118,8 @@ impl DataSource for LayoutReaderDataSource {
     }
 
     async fn scan(&self, scan_request: ScanRequest) -> VortexResult<DataSourceScanRef> {
+        let split_size = NonZeroU64::new(self.split_max_row_count)
+            .ok_or_else(|| vortex_err!("split_max_row_count must be greater than zero"))?;
         let total_rows = self.reader.row_count();
         let row_range = scan_request.row_range.unwrap_or(0..total_rows);
 
@@ -209,7 +213,7 @@ impl DataSource for LayoutReaderDataSource {
             metrics: self.metrics.clone(),
             next_row: row_range.start,
             end_row: row_range.end,
-            split_size: self.split_max_row_count,
+            split_size,
         }))
     }
 
@@ -236,7 +240,7 @@ struct LayoutReaderScan {
     metrics: Option<ScanMetrics>,
     next_row: u64,
     end_row: u64,
-    split_size: u64,
+    split_size: NonZeroU64,
 }
 
 impl DataSourceScan for LayoutReaderScan {
@@ -277,7 +281,7 @@ impl Stream for LayoutReaderScan {
 
         let split_end = this
             .next_row
-            .saturating_add(this.split_size)
+            .saturating_add(this.split_size.get())
             .min(this.end_row);
         let row_range = this.next_row..split_end;
 
@@ -320,7 +324,7 @@ impl Stream for LayoutReaderScan {
             return (0, Some(0));
         }
         let remaining_rows = self.end_row - self.next_row;
-        let splits = remaining_rows.div_ceil(self.split_size);
+        let splits = remaining_rows.div_ceil(self.split_size.get());
         (0, Some(usize::try_from(splits).unwrap_or(usize::MAX)))
     }
 }
@@ -617,6 +621,64 @@ mod tests {
         }
 
         assert_eq!(values, [0, 2, 4]);
+        Ok(())
+    }
+
+    #[test]
+    fn zero_split_max_row_count_is_rejected_for_empty_and_nonempty_inputs() -> VortexResult<()> {
+        let runtime = SingleThreadRuntime::default();
+        let empty_proj = vortex_array::expr::pack(
+            std::iter::empty::<(&str, vortex_array::expr::Expression)>(),
+            vortex_array::dtype::Nullability::NonNullable,
+        );
+
+        for row_count in [0, 10] {
+            let source = LayoutReaderDataSource::new(
+                Arc::new(TestLayoutReader::new(row_count)),
+                session_with_handle(runtime.handle()),
+            )
+            .with_split_max_row_count(0);
+
+            assert!(
+                runtime
+                    .block_on(source.scan(ScanRequest::default()))
+                    .is_err()
+            );
+            assert!(
+                runtime
+                    .block_on(source.scan(ScanRequest {
+                        projection: empty_proj.clone(),
+                        ..Default::default()
+                    }))
+                    .is_err()
+            );
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn positive_split_max_row_count_preserves_boundaries_and_short_final_split() -> VortexResult<()>
+    {
+        let runtime = SingleThreadRuntime::default();
+        let source = LayoutReaderDataSource::new(
+            Arc::new(TestLayoutReader::new(10)),
+            session_with_handle(runtime.handle()),
+        )
+        .with_split_max_row_count(3);
+
+        let scan = runtime.block_on(source.scan(ScanRequest::default()))?;
+        let partitions = runtime.block_on(scan.partitions().try_collect::<Vec<_>>())?;
+        let lengths: Vec<usize> = partitions
+            .into_iter()
+            .map(|partition| {
+                runtime
+                    .block_on(partition.execute()?.try_collect::<Vec<_>>())
+                    .map(|arrays| arrays.iter().map(|a| a.len()).sum())
+            })
+            .collect::<VortexResult<_>>()?;
+        assert_eq!(lengths, vec![3, 3, 3, 1]);
+
         Ok(())
     }
 }

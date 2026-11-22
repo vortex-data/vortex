@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::num::NonZeroUsize;
 use std::sync::Arc;
 
 use arrow_array::RecordBatchReader;
@@ -611,6 +612,18 @@ pub(crate) fn row_indices(
     if detach { py.detach(decode) } else { decode() }
 }
 
+pub(crate) fn validate_positive_split_size(
+    size: Option<usize>,
+    param_name: &str,
+) -> PyVortexResult<Option<NonZeroUsize>> {
+    size.map(|n| {
+        NonZeroUsize::new(n).ok_or_else(|| {
+            PyValueError::new_err(format!("{param_name} must be greater than zero")).into()
+        })
+    })
+    .transpose()
+}
+
 fn scan_builder(
     vxf: &VortexFile,
     projection: Option<Expression>,
@@ -618,7 +631,8 @@ fn scan_builder(
     limit: Option<u64>,
     indices: Option<StrictSortedBuffer<u64>>,
     batch_size: Option<usize>,
-) -> VortexResult<ScanBuilder<ArrayRef>> {
+) -> PyVortexResult<ScanBuilder<ArrayRef>> {
+    let batch_size = validate_positive_split_size(batch_size, "batch_size")?;
     let projection = projection
         .unwrap_or_else(root)
         .bind(vxf.dtype())?
@@ -640,7 +654,7 @@ fn scan_builder(
     }
 
     if let Some(batch_size) = batch_size {
-        builder = builder.with_split_by(SplitBy::RowCount(batch_size));
+        builder = builder.with_split_by(SplitBy::RowCount(batch_size.get()));
     }
 
     Ok(builder)
