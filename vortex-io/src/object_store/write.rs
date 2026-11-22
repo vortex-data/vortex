@@ -57,30 +57,39 @@ const BUFFER_SIZE: usize = 128 * 1024 * 1024;
 impl ObjectStoreWrite {
     pub async fn new(object_store: Arc<dyn ObjectStore>, location: &Path) -> VortexResult<Self> {
         #[cfg(not(target_arch = "wasm32"))]
-        let upload = {
+        {
             let location = location.clone();
             let (tx, rx) = oneshot::channel();
             smol::spawn(Compat::new(async move {
-                let res = object_store.put_multipart(&location).await;
-                if let Err(Ok(mut upload)) = tx.send(res)
-                    && let Err(err) = upload.abort().await
-                {
-                    tracing::warn!(%err, "failed to abort multipart upload after cancelled initiation");
-                }
+                // Construct `ObjectStoreWrite` before sending through the channel so cancelling
+                // `new()` on either side of delivery drops a writer whose `Drop` aborts the
+                // initiated upload.
+                let res = object_store
+                    .put_multipart(&location)
+                    .await
+                    .map(|upload| Self {
+                        state: UploadState::Active(upload),
+                        buffer: BytesMut::with_capacity(CHUNK_SIZE),
+                        put_result: None,
+                    });
+                drop(tx.send(res));
             }))
             .detach();
             rx.await
-                .map_err(|_| vortex_error::vortex_err!("multipart initiation task cancelled"))??
-        };
+                .map_err(|_| vortex_error::vortex_err!("multipart initiation task cancelled"))?
+                .map_err(Into::into)
+        }
         #[cfg(target_arch = "wasm32")]
-        let upload = object_store.put_multipart(location).await?;
-        Ok(Self {
-            state: UploadState::Active(upload),
-            buffer: BytesMut::with_capacity(CHUNK_SIZE),
-            put_result: None,
-            #[cfg(all(target_arch = "wasm32", not(feature = "wasm-bindgen")))]
-            cleanup_runtime: tokio::runtime::Handle::try_current().ok(),
-        })
+        {
+            let upload = object_store.put_multipart(location).await?;
+            Ok(Self {
+                state: UploadState::Active(upload),
+                buffer: BytesMut::with_capacity(CHUNK_SIZE),
+                put_result: None,
+                #[cfg(not(feature = "wasm-bindgen"))]
+                cleanup_runtime: tokio::runtime::Handle::try_current().ok(),
+            })
+        }
     }
 
     pub fn put_result(&self) -> Option<&PutResult> {
@@ -223,6 +232,19 @@ fn is_tokio_handle_alive(handle: &tokio::runtime::Handle) -> bool {
     alive
 }
 
+/// Runs a part upload on the independent `Compat` runtime on native targets so any pooled HTTP
+/// connections opened during part uploads remain usable by cleanup after a caller's Tokio runtime
+/// goes idle or shuts down.
+#[cfg(not(target_arch = "wasm32"))]
+fn spawn_part(part: object_store::UploadPart) -> smol::Task<object_store::Result<()>> {
+    smol::spawn(Compat::new(part))
+}
+
+#[cfg(target_arch = "wasm32")]
+fn spawn_part(part: object_store::UploadPart) -> object_store::UploadPart {
+    part
+}
+
 /// Drop guard that aborts an active upload if an in-flight `write_all`, `flush`, or `shutdown`
 /// future is cancelled after buffered bytes have been removed or a remote call has started.
 struct AbortOnCancel<'a> {
@@ -273,7 +295,7 @@ impl VortexWrite for ObjectStoreWrite {
                 // Split off chunks while buffer is larger than CHUNK_SIZE
                 while guard.writer.buffer.len() > CHUNK_SIZE {
                     let payload = guard.writer.buffer.split_to(CHUNK_SIZE).freeze();
-                    let part_fut = upload.put_part(PutPayload::from_bytes(payload));
+                    let part_fut = spawn_part(upload.put_part(PutPayload::from_bytes(payload)));
 
                     parts.push(part_fut);
                 }
@@ -306,7 +328,7 @@ impl VortexWrite for ObjectStoreWrite {
 
             while guard.writer.buffer.len() > CHUNK_SIZE {
                 let payload = guard.writer.buffer.split_to(CHUNK_SIZE).freeze();
-                let part_fut = upload.put_part(PutPayload::from_bytes(payload));
+                let part_fut = spawn_part(upload.put_part(PutPayload::from_bytes(payload)));
 
                 parts.push(part_fut);
             }
@@ -334,11 +356,13 @@ impl VortexWrite for ObjectStoreWrite {
 
         if !guard.writer.buffer.is_empty() {
             let payload = std::mem::take(&mut guard.writer.buffer).freeze();
-            let part_result = guard
-                .writer
-                .active_upload_mut()?
-                .put_part(PutPayload::from_bytes(payload))
-                .await;
+            let part_fut = spawn_part(
+                guard
+                    .writer
+                    .active_upload_mut()?
+                    .put_part(PutPayload::from_bytes(payload)),
+            );
+            let part_result = part_fut.await;
             if let Err(err) = part_result {
                 guard.writer.abort_after_error().await;
                 guard.disarm();
@@ -463,6 +487,7 @@ mod tests {
             fail_part_at: Option<usize>,
             fail_complete: bool,
             fail_abort: bool,
+            gate_new: Option<(Arc<Notify>, Arc<Notify>)>,
             gate_part_at: Option<(usize, Arc<Notify>, Arc<Notify>)>,
             gate_abort: Option<(Arc<Notify>, Arc<Notify>)>,
         }
@@ -513,6 +538,10 @@ mod tests {
                 _location: &Path,
                 _opts: PutMultipartOptions,
             ) -> object_store::Result<Box<dyn MultipartUpload>> {
+                if let Some((entered, release)) = &self.behavior.gate_new {
+                    entered.notify_one();
+                    release.notified().await;
+                }
                 Ok(Box::new(RecordingUpload {
                     behavior: Arc::clone(&self.behavior),
                     counters: Arc::clone(&self.counters),
@@ -1548,6 +1577,74 @@ mod tests {
             })?;
 
             assert_eq!(std::fs::read_dir(dir.path())?.count(), 0);
+            Ok(())
+        }
+
+        #[tokio::test]
+        async fn test_cancelled_new_before_and_after_delivery_aborts_upload() -> anyhow::Result<()>
+        {
+            // Case 1: cancel `ObjectStoreWrite::new` while `put_multipart` is still in flight
+            // (before channel delivery).
+            let entered = Arc::new(Notify::new());
+            let release = Arc::new(Notify::new());
+            let counters = Arc::new(UploadCounters::default());
+            let store: Arc<dyn ObjectStore> = Arc::new(RecordingStore {
+                behavior: Arc::new(UploadBehavior {
+                    gate_new: Some((Arc::clone(&entered), Arc::clone(&release))),
+                    ..Default::default()
+                }),
+                counters: Arc::clone(&counters),
+            });
+
+            let aborted = counters.abort_completed_notify.notified();
+            {
+                let path = Path::from("cancel-new-before.vortex");
+                let mut new_fut = Box::pin(ObjectStoreWrite::new(Arc::clone(&store), &path));
+                let first_poll = poll_fn(|cx| Poll::Ready(new_fut.as_mut().poll(cx))).await;
+                assert!(first_poll.is_pending());
+                timeout(Duration::from_secs(2), entered.notified()).await?;
+                drop(new_fut);
+                release.notify_one();
+            }
+
+            if counters.abort_completed.load(Ordering::SeqCst) == 0 {
+                timeout(Duration::from_secs(2), aborted).await?;
+            }
+            assert_eq!(counters.abort_calls.load(Ordering::SeqCst), 1);
+            assert_eq!(counters.abort_completed.load(Ordering::SeqCst), 1);
+
+            // Case 2: cancel `ObjectStoreWrite::new` after `put_multipart` finishes and delivers
+            // the writer into the oneshot channel, before the caller polls `new()` again.
+            let entered = Arc::new(Notify::new());
+            let release = Arc::new(Notify::new());
+            let counters = Arc::new(UploadCounters::default());
+            let store: Arc<dyn ObjectStore> = Arc::new(RecordingStore {
+                behavior: Arc::new(UploadBehavior {
+                    gate_new: Some((Arc::clone(&entered), Arc::clone(&release))),
+                    ..Default::default()
+                }),
+                counters: Arc::clone(&counters),
+            });
+
+            let aborted = counters.abort_completed_notify.notified();
+            {
+                let path = Path::from("cancel-new-after.vortex");
+                let mut new_fut = Box::pin(ObjectStoreWrite::new(Arc::clone(&store), &path));
+                let first_poll = poll_fn(|cx| Poll::Ready(new_fut.as_mut().poll(cx))).await;
+                assert!(first_poll.is_pending());
+                timeout(Duration::from_secs(2), entered.notified()).await?;
+                release.notify_one();
+                // Allow the detached initiation task to finish `put_multipart` and send the
+                // constructed `ObjectStoreWrite` into the oneshot channel before dropping `new_fut`.
+                tokio::time::sleep(Duration::from_millis(50)).await;
+                drop(new_fut);
+            }
+
+            if counters.abort_completed.load(Ordering::SeqCst) == 0 {
+                timeout(Duration::from_secs(2), aborted).await?;
+            }
+            assert_eq!(counters.abort_calls.load(Ordering::SeqCst), 1);
+            assert_eq!(counters.abort_completed.load(Ordering::SeqCst), 1);
             Ok(())
         }
     }

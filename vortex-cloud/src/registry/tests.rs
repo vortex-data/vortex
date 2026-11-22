@@ -323,16 +323,19 @@ fn test_unwrapped_s3_multipart_abort_and_drop_succeed_outside_idle_tokio_runtime
     let listener = TcpListener::bind("127.0.0.1:0")?;
     let addr = listener.local_addr()?;
     let post_count = Arc::new(AtomicUsize::new(0));
+    let put_count = Arc::new(AtomicUsize::new(0));
     let delete_count = Arc::new(AtomicUsize::new(0));
     let stop = Arc::new(AtomicBool::new(false));
     let posts_server = Arc::clone(&post_count);
+    let puts_server = Arc::clone(&put_count);
     let deletes_server = Arc::clone(&delete_count);
     let stop_server = Arc::clone(&stop);
 
     // Keep-alive HTTP fixture: each accepted connection is served on its own thread and stays open
-    // across requests so hyper's connection pool reuses the connection opened during initiation.
+    // across POST (initiate), PUT (upload part), and DELETE (abort) requests so hyper's connection
+    // pool reuses connections opened during initiation and multipart part uploads.
     let server_thread = std::thread::spawn(move || {
-        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        let deadline = std::time::Instant::now() + Duration::from_secs(15);
         drop(listener.set_nonblocking(true));
         let mut conn_threads = Vec::new();
         while !stop_server.load(Ordering::SeqCst)
@@ -342,54 +345,121 @@ fn test_unwrapped_s3_multipart_abort_and_drop_succeed_outside_idle_tokio_runtime
             match listener.accept() {
                 Ok((mut conn, _)) => {
                     let posts_conn = Arc::clone(&posts_server);
+                    let puts_conn = Arc::clone(&puts_server);
                     let deletes_conn = Arc::clone(&deletes_server);
                     let stop_conn = Arc::clone(&stop_server);
                     conn_threads.push(std::thread::spawn(move || {
                         drop(conn.set_read_timeout(Some(Duration::from_millis(50))));
-                        let mut buf = [0u8; 4096];
+                        let mut pending = Vec::new();
+                        let mut chunk = [0u8; 64 * 1024];
                         while !stop_conn.load(Ordering::SeqCst)
                             && deletes_conn.load(Ordering::SeqCst) < 2
                             && std::time::Instant::now() < deadline
                         {
-                            match conn.read(&mut buf) {
-                                Ok(0) => break,
-                                Ok(n) => {
-                                    let req = String::from_utf8_lossy(&buf[..n]);
-                                    let first_line = req.lines().next().unwrap_or("");
-                                    if first_line.starts_with("POST ") {
-                                        let id = posts_conn.fetch_add(1, Ordering::SeqCst) + 1;
-                                        let body = format!(
-                                            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\
-                                             <InitiateMultipartUploadResult>\
-                                             <Bucket>test-bucket</Bucket>\
-                                             <Key>file-{id}.vortex</Key>\
-                                             <UploadId>upload-{id}</UploadId>\
-                                             </InitiateMultipartUploadResult>"
-                                        );
-                                        let resp = format!(
-                                            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nContent-Type: application/xml\r\nConnection: keep-alive\r\n\r\n{}",
-                                            body.len(),
-                                            body
-                                        );
-                                        if conn.write_all(resp.as_bytes()).is_err() {
-                                            break;
-                                        }
-                                    } else if first_line.starts_with("DELETE ") {
-                                        deletes_conn.fetch_add(1, Ordering::SeqCst);
-                                        let resp = "HTTP/1.1 204 No Content\r\nContent-Length: 0\r\nConnection: keep-alive\r\n\r\n";
-                                        if conn.write_all(resp.as_bytes()).is_err() {
-                                            break;
-                                        }
-                                    } else {
-                                        let resp = "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
-                                        drop(conn.write_all(resp.as_bytes()));
-                                        break;
-                                    }
+                            // Read until we have full HTTP headers (`\r\n\r\n`).
+                            let header_end = loop {
+                                if let Some(pos) =
+                                    pending.windows(4).position(|window| window == b"\r\n\r\n")
+                                {
+                                    break Some(pos + 4);
                                 }
-                                Err(err)
-                                    if err.kind() == std::io::ErrorKind::WouldBlock
-                                        || err.kind() == std::io::ErrorKind::TimedOut => {}
-                                Err(_) => break,
+                                if stop_conn.load(Ordering::SeqCst)
+                                    || deletes_conn.load(Ordering::SeqCst) >= 2
+                                    || std::time::Instant::now() >= deadline
+                                {
+                                    break None;
+                                }
+                                match conn.read(&mut chunk) {
+                                    Ok(0) => break None,
+                                    Ok(n) => pending.extend_from_slice(&chunk[..n]),
+                                    Err(err)
+                                        if err.kind() == std::io::ErrorKind::WouldBlock
+                                            || err.kind() == std::io::ErrorKind::TimedOut => {}
+                                    Err(_) => break None,
+                                }
+                            };
+                            let Some(header_end) = header_end else {
+                                break;
+                            };
+
+                            let headers = String::from_utf8_lossy(&pending[..header_end]).into_owned();
+                            let first_line = headers.lines().next().unwrap_or("");
+                            let content_len: usize = headers
+                                .lines()
+                                .find_map(|line| {
+                                    let (name, value) = line.split_once(':')?;
+                                    name.eq_ignore_ascii_case("content-length")
+                                        .then(|| value.trim().parse::<usize>().ok())
+                                        .flatten()
+                                })
+                                .unwrap_or(0);
+
+                            // Drain the exact request body so keep-alive stays synchronized.
+                            let mut remaining = content_len;
+                            let already_buffered = pending.len() - header_end;
+                            if already_buffered >= remaining {
+                                pending.drain(..header_end + remaining);
+                                remaining = 0;
+                            } else {
+                                pending.clear();
+                                remaining -= already_buffered;
+                            }
+                            while remaining > 0 {
+                                let to_read = remaining.min(chunk.len());
+                                match conn.read(&mut chunk[..to_read]) {
+                                    Ok(0) => break,
+                                    Ok(n) => remaining -= n,
+                                    Err(err)
+                                        if err.kind() == std::io::ErrorKind::WouldBlock
+                                            || err.kind() == std::io::ErrorKind::TimedOut =>
+                                    {
+                                        if std::time::Instant::now() >= deadline {
+                                            break;
+                                        }
+                                    }
+                                    Err(_) => break,
+                                }
+                            }
+                            if remaining > 0 {
+                                break;
+                            }
+
+                            if first_line.starts_with("POST ") {
+                                let id = posts_conn.fetch_add(1, Ordering::SeqCst) + 1;
+                                let body = format!(
+                                    "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\
+                                     <InitiateMultipartUploadResult>\
+                                     <Bucket>test-bucket</Bucket>\
+                                     <Key>file-{id}.vortex</Key>\
+                                     <UploadId>upload-{id}</UploadId>\
+                                     </InitiateMultipartUploadResult>"
+                                );
+                                let resp = format!(
+                                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nContent-Type: application/xml\r\nConnection: keep-alive\r\n\r\n{}",
+                                    body.len(),
+                                    body
+                                );
+                                if conn.write_all(resp.as_bytes()).is_err() {
+                                    break;
+                                }
+                            } else if first_line.starts_with("PUT ") {
+                                let part_id = puts_conn.fetch_add(1, Ordering::SeqCst) + 1;
+                                let resp = format!(
+                                    "HTTP/1.1 200 OK\r\nETag: \"etag-{part_id}\"\r\nContent-Length: 0\r\nConnection: keep-alive\r\n\r\n"
+                                );
+                                if conn.write_all(resp.as_bytes()).is_err() {
+                                    break;
+                                }
+                            } else if first_line.starts_with("DELETE ") {
+                                deletes_conn.fetch_add(1, Ordering::SeqCst);
+                                let resp = "HTTP/1.1 204 No Content\r\nContent-Length: 0\r\nConnection: keep-alive\r\n\r\n";
+                                if conn.write_all(resp.as_bytes()).is_err() {
+                                    break;
+                                }
+                            } else {
+                                let resp = "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+                                drop(conn.write_all(resp.as_bytes()));
+                                break;
                             }
                         }
                     }));
@@ -432,14 +502,20 @@ fn test_unwrapped_s3_multipart_abort_and_drop_succeed_outside_idle_tokio_runtime
     let tokio_rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()?;
+    // 32 MiB + 1 byte forces `flush()` to upload two 16 MiB parts concurrently per writer, opening
+    // multiple persistent connections in each client's pool.
+    let two_parts_plus_one = 32 * 1024 * 1024 + 1;
     let (mut writer_for_abort, writer_for_drop) = tokio_rt.block_on(async {
         let mut w1 = ObjectStoreWrite::new(s3_abort, &Path::from("s3-abort.vortex")).await?;
-        w1.write_all(vec![1u8; 64]).await?;
+        w1.write_all(vec![1u8; two_parts_plus_one]).await?;
+        w1.flush().await?;
         let mut w2 = ObjectStoreWrite::new(s3_drop, &Path::from("s3-drop.vortex")).await?;
-        w2.write_all(vec![2u8; 64]).await?;
+        w2.write_all(vec![2u8; two_parts_plus_one]).await?;
+        w2.flush().await?;
         Ok::<_, Box<dyn std::error::Error>>((w1, w2))
     })?;
     assert_eq!(post_count.load(Ordering::SeqCst), 2);
+    assert_eq!(put_count.load(Ordering::SeqCst), 4);
 
     // Move both unwrapped S3 writers onto Vortex's CurrentThreadRuntime while the originating
     // Tokio current-thread runtime stays alive and idle. With retries disabled and keep-alive
