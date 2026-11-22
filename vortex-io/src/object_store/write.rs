@@ -37,6 +37,14 @@ use crate::compat::Compat;
 /// schedules an asynchronous abort on a process-lifetime executor (`smol` with a `Compat` Tokio
 /// context on native targets) so cleanup survives both file-task cancellation and shutdown of the
 /// caller's Tokio runtime. Process termination can still prevent cleanup.
+///
+/// On native targets, `ObjectStoreWrite` also runs multipart initiation, part uploads, and
+/// completion on that dedicated `Compat` Tokio runtime so pooled HTTP connections opened by
+/// `ObjectStoreWrite` remain usable for cleanup even if the caller's Tokio runtime goes idle or
+/// shuts down. If the provided [`ObjectStore`] already holds pooled keep-alive connections opened
+/// outside `ObjectStoreWrite` on another Tokio runtime, cleanup that reuses those pre-existing
+/// connections still depends on that runtime remaining driven (unless retries open a new
+/// connection).
 pub struct ObjectStoreWrite {
     state: UploadState,
     buffer: BytesMut,
@@ -370,19 +378,61 @@ impl VortexWrite for ObjectStoreWrite {
             }
         }
 
-        let complete_result = guard.writer.active_upload_mut()?.complete().await;
-        match complete_result {
-            Ok(put_result) => {
-                // Release upload ownership without aborting now that the object is published.
-                guard.writer.state = UploadState::Completed;
-                guard.writer.put_result = Some(put_result);
-                guard.disarm();
-                Ok(())
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            // Move upload ownership into the detached `Compat` task so any HTTP connection opened
+            // by `complete()` belongs to `Compat`'s runtime and cancellation while `complete()` is
+            // in flight preserves upload ownership (aborting if `complete()` fails).
+            let UploadState::Active(mut upload) =
+                std::mem::replace(&mut guard.writer.state, UploadState::Aborted)
+            else {
+                return Err(io::Error::other(
+                    "multipart upload already failed or aborted",
+                ));
+            };
+            let (tx, rx) = oneshot::channel();
+            smol::spawn(Compat::new(async move {
+                let res = upload.complete().await;
+                if res.is_err()
+                    && let Err(abort_err) = upload.abort().await
+                {
+                    tracing::warn!(
+                        %abort_err,
+                        "failed to abort multipart upload after completion error"
+                    );
+                }
+                drop(tx.send(res));
+            }))
+            .detach();
+            guard.disarm();
+
+            match rx.await {
+                Ok(Ok(put_result)) => {
+                    self.state = UploadState::Completed;
+                    self.put_result = Some(put_result);
+                    Ok(())
+                }
+                Ok(Err(err)) => Err(err.into()),
+                Err(_) => Err(io::Error::other("completion task cancelled")),
             }
-            Err(err) => {
-                guard.writer.abort_after_error().await;
-                guard.disarm();
-                Err(err.into())
+        }
+
+        #[cfg(target_arch = "wasm32")]
+        {
+            let complete_result = guard.writer.active_upload_mut()?.complete().await;
+            match complete_result {
+                Ok(put_result) => {
+                    // Release upload ownership without aborting now that the object is published.
+                    guard.writer.state = UploadState::Completed;
+                    guard.writer.put_result = Some(put_result);
+                    guard.disarm();
+                    Ok(())
+                }
+                Err(err) => {
+                    guard.writer.abort_after_error().await;
+                    guard.disarm();
+                    Err(err.into())
+                }
             }
         }
     }
