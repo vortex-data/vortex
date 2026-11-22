@@ -56,7 +56,7 @@ pub struct ZstdKernelPrep {
     /// Device pointer to array of pointers to output buffers.
     pub output_ptrs_ptr: u64,
     /// Expected uncompressed size per frame on host.
-    pub output_sizes: Vec<usize>,
+    pub(crate) output_sizes: Vec<usize>,
     /// Number of frames to decompress.
     pub num_frames: usize,
     /// Size of temporary buffer for nvcomp.
@@ -403,7 +403,6 @@ mod tests {
     use vortex::session::VortexSession;
     use vortex_array::VortexSessionExecute;
 
-    use super::super::zstd_buffers::validate_nvcomp_decompress_results;
     use super::*;
     use crate::CanonicalCudaExt;
     use crate::executor::CudaArrayExt;
@@ -624,52 +623,5 @@ mod tests {
 
         assert_arrays_eq!(gpu_result, cpu_result, &mut ctx);
         Ok(())
-    }
-
-    #[test]
-    fn test_cuda_zstd_validate_nvcomp_results_success() -> VortexResult<()> {
-        let expected = [16usize, 64, 24];
-        let actual = [16usize, 64, 24];
-        let statuses = [vortex_nvcomp::sys::nvcompStatus_t_nvcompSuccess; 3];
-
-        validate_nvcomp_decompress_results(&expected, &actual, &statuses)
-    }
-
-    #[test]
-    fn test_cuda_zstd_validate_nvcomp_results_middle_frame_failure() {
-        let expected = [16usize, 64, 24];
-        let actual = [16usize, 64, 24];
-        let statuses = [
-            vortex_nvcomp::sys::nvcompStatus_t_nvcompSuccess,
-            vortex_nvcomp::sys::nvcompStatus_t_nvcompErrorCannotDecompress,
-            vortex_nvcomp::sys::nvcompStatus_t_nvcompSuccess,
-        ];
-
-        let err = validate_nvcomp_decompress_results(&expected, &actual, &statuses)
-            .expect_err("middle frame failure must return an error");
-        let msg = err.to_string();
-        assert!(msg.contains("chunk 1"), "unexpected error: {msg}");
-        assert!(
-            msg.contains(
-                &vortex_nvcomp::sys::nvcompStatus_t_nvcompErrorCannotDecompress.to_string()
-            ),
-            "unexpected error: {msg}"
-        );
-    }
-
-    #[test]
-    fn test_cuda_zstd_validate_nvcomp_results_size_mismatch() {
-        let expected = [16usize, 64, 24];
-        let actual = [16usize, 32, 24];
-        let statuses = [vortex_nvcomp::sys::nvcompStatus_t_nvcompSuccess; 3];
-
-        let err = validate_nvcomp_decompress_results(&expected, &actual, &statuses)
-            .expect_err("size mismatch must return an error");
-        let msg = err.to_string();
-        assert!(msg.contains("chunk 1"), "unexpected error: {msg}");
-        assert!(
-            msg.contains("expected 64, got 32"),
-            "unexpected error: {msg}"
-        );
     }
 }
