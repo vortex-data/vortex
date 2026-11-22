@@ -18,6 +18,8 @@ use futures::future;
 use futures::ready;
 use futures::stream;
 use futures::stream::BoxStream;
+use glob::MatchOptions;
+use glob::Pattern;
 use object_store::ObjectStore;
 use pyo3::exceptions::PyIndexError;
 use pyo3::exceptions::PyTypeError;
@@ -357,6 +359,16 @@ where
     Ok(Some(scan.map(map_fn.clone())))
 }
 
+struct LazyOffsetState<F> {
+    idx: usize,
+    file_start: u64,
+    files: Arc<[(FileSystemRef, FileListing)]>,
+    dtype: DType,
+    first_name: String,
+    params: ScanParams,
+    map_fn: F,
+}
+
 /// Produce one [`ScanBuilder`] per covered file lazily, opening each file only when its turn
 /// arrives and stopping early once `row_range` or `indices` can no longer match later files.
 fn lazy_scan_stream<A, F>(
@@ -375,87 +387,75 @@ where
             Err(e) => stream::once(future::ready(Err(e))).boxed(),
         },
         DatasetSource::Lazy { files, dtype } => {
-            let needs_offsets = params.row_range.is_some() || params.indices.is_some();
-            if !needs_offsets {
-                let first_name = files[0].1.path.clone();
+            let first_name = files[0].1.path.clone();
+            if params.row_range.is_none() && params.indices.is_none() {
                 return stream::iter(0..files.len())
                     .then(move |idx| {
-                        let files = Arc::clone(&files);
-                        let dtype = dtype.clone();
-                        let first_name = first_name.clone();
-                        let params = params.clone();
-                        let map_fn = map_fn.clone();
+                        let (files, dtype, first_name, params, map_fn) = (
+                            Arc::clone(&files),
+                            dtype.clone(),
+                            first_name.clone(),
+                            params.clone(),
+                            map_fn.clone(),
+                        );
                         async move {
                             let (fs, listing) = &files[idx];
                             let file =
                                 open_lazy_file(fs, listing, Some(&dtype), &first_name).await?;
-                            let scan = file
-                                .scan()?
-                                .with_projection(params.projection)
-                                .with_some_filter(params.filter)
-                                .with_split_by(params.split_by)
-                                .map(map_fn);
-                            Ok::<_, VortexError>(scan)
+                            Ok::<_, VortexError>(
+                                file.scan()?
+                                    .with_projection(params.projection)
+                                    .with_some_filter(params.filter)
+                                    .with_split_by(params.split_by)
+                                    .map(map_fn),
+                            )
                         }
                     })
                     .boxed();
             }
 
-            let max_index = params.indices.as_ref().and_then(|idx| idx.last().copied());
-            let range_end = params.row_range.map(|(_, end)| end);
-            let first_name = files[0].1.path.clone();
-
-            stream::unfold(
-                (0usize, 0u64, files, dtype, first_name, params, map_fn),
-                move |(mut idx, mut file_start, files, dtype, first_name, params, map_fn)| async move {
-                    while idx < files.len() {
-                        if let Some(end) = range_end
-                            && file_start >= end
-                        {
-                            return None;
-                        }
-                        if let Some(last_idx) = max_index
-                            && file_start > last_idx
-                        {
-                            return None;
-                        }
-
-                        let (fs, listing) = &files[idx];
-                        idx += 1;
-                        let file =
-                            match open_lazy_file(fs, listing, Some(&dtype), &first_name).await {
-                                Ok(file) => file,
-                                Err(e) => {
-                                    return Some((
-                                        Err(e),
-                                        (files.len(), file_start, files, dtype, first_name, params, map_fn),
-                                    ));
-                                }
-                            };
-
-                        let file_rows = file.row_count();
-                        let scan = build_file_scan(&file, file_start, &params, &map_fn);
-                        file_start += file_rows;
-
-                        match scan {
-                            Ok(Some(scan)) => {
-                                return Some((
-                                    Ok(scan),
-                                    (idx, file_start, files, dtype, first_name, params, map_fn),
-                                ));
-                            }
-                            Ok(None) => continue,
+            let state = LazyOffsetState {
+                idx: 0,
+                file_start: 0,
+                files,
+                dtype,
+                first_name,
+                params,
+                map_fn,
+            };
+            stream::unfold(state, |mut st| async move {
+                let max_index = st.params.indices.as_ref().and_then(|i| i.last().copied());
+                let range_end = st.params.row_range.map(|(_, end)| end);
+                while st.idx < st.files.len() {
+                    if range_end.is_some_and(|end| st.file_start >= end)
+                        || max_index.is_some_and(|last| st.file_start > last)
+                    {
+                        return None;
+                    }
+                    let (fs, listing) = &st.files[st.idx];
+                    st.idx += 1;
+                    let file =
+                        match open_lazy_file(fs, listing, Some(&st.dtype), &st.first_name).await {
+                            Ok(file) => file,
                             Err(e) => {
-                                return Some((
-                                    Err(e),
-                                    (files.len(), file_start, files, dtype, first_name, params, map_fn),
-                                ));
+                                st.idx = st.files.len();
+                                return Some((Err(e), st));
                             }
+                        };
+                    let file_rows = file.row_count();
+                    let scan = build_file_scan(&file, st.file_start, &st.params, &st.map_fn);
+                    st.file_start += file_rows;
+                    match scan {
+                        Ok(Some(scan)) => return Some((Ok(scan), st)),
+                        Ok(None) => continue,
+                        Err(e) => {
+                            st.idx = st.files.len();
+                            return Some((Err(e), st));
                         }
                     }
-                    None
-                },
-            )
+                }
+                None
+            })
             .boxed()
         }
     }
@@ -648,98 +648,126 @@ impl PyVortexDataset {
     /// The natural splits of this Dataset, as ranges of dataset rows.
     #[pyo3(signature = (*))]
     pub fn splits(&self, py: Python<'_>) -> PyVortexResult<Vec<(u64, u64)>> {
-        Ok(self
-            .fragment_splits(py)?
-            .into_iter()
-            .map(|(_, range)| range)
-            .collect())
+        let source = self.source.clone();
+        let per_file =
+            py.detach(move || current_runtime().block_on(collect_file_splits(source)))?;
+        let mut out = Vec::new();
+        let mut file_start = 0u64;
+        for (row_count, splits) in per_file {
+            for rows in splits {
+                out.push((file_start + rows.start, file_start + rows.end));
+            }
+            file_start += row_count;
+        }
+        Ok(out)
     }
 
-    /// The natural splits of this Dataset, each paired with its owning file's starting dataset row.
+    /// The natural splits of this Dataset, each paired with its owning file index and file-local row range.
     #[pyo3(signature = (*))]
-    pub fn fragment_splits(&self, py: Python<'_>) -> PyVortexResult<Vec<(u64, (u64, u64))>> {
+    pub fn fragment_splits(&self, py: Python<'_>) -> PyVortexResult<Vec<(usize, (u64, u64))>> {
         let source = self.source.clone();
-        Ok(py.detach(move || current_runtime().block_on(collect_fragment_splits(source)))?)
+        let per_file =
+            py.detach(move || current_runtime().block_on(collect_file_splits(source)))?;
+        let mut out = Vec::new();
+        for (file_idx, (_, splits)) in per_file.into_iter().enumerate() {
+            for rows in splits {
+                out.push((file_idx, (rows.start, rows.end)));
+            }
+        }
+        Ok(out)
     }
+
+    /// Return a single-file dataset view over the `file_idx`-th file of this dataset.
+    pub fn for_file(&self, file_idx: usize) -> PyVortexResult<Self> {
+        let source = match &self.source {
+            DatasetSource::Opened(file) if file_idx == 0 => DatasetSource::Opened(file.clone()),
+            DatasetSource::Lazy { files, dtype } => {
+                let entry = files.get(file_idx).ok_or_else(|| {
+                    vortex_err!(
+                        "file index {file_idx} out of range for dataset with {} files",
+                        files.len()
+                    )
+                })?;
+                DatasetSource::Lazy {
+                    files: Arc::from([entry.clone()]),
+                    dtype: dtype.clone(),
+                }
+            }
+            DatasetSource::Opened(_) => {
+                return Err(vortex_err!(
+                    "file index {file_idx} out of range for single-file dataset"
+                )
+                .into());
+            }
+        };
+        Ok(Self {
+            source,
+            schema: Arc::clone(&self.schema),
+            concurrency: self.concurrency,
+        })
+    }
+}
+
+async fn map_lazy_files<T, F>(
+    files: Arc<[(FileSystemRef, FileListing)]>,
+    dtype: DType,
+    f: F,
+) -> VortexResult<Vec<T>>
+where
+    F: Fn(&VortexFile) -> VortexResult<T> + Send + Sync + Clone,
+{
+    let first_name = files[0].1.path.clone();
+    stream::iter(0..files.len())
+        .map(|idx| {
+            let (files, dtype, first_name, f) = (
+                Arc::clone(&files),
+                dtype.clone(),
+                first_name.clone(),
+                f.clone(),
+            );
+            async move {
+                let (fs, listing) = &files[idx];
+                let file = open_lazy_file(fs, listing, Some(&dtype), &first_name).await?;
+                f(&file)
+            }
+        })
+        .buffered(OPEN_CONCURRENCY)
+        .try_collect()
+        .await
 }
 
 async fn count_rows_metadata(
     source: DatasetSource,
     row_range: Option<(u64, u64)>,
 ) -> VortexResult<u64> {
-    match source {
-        DatasetSource::Opened(file) => {
-            let (start, end) = row_range.unwrap_or((0, u64::MAX));
-            let last = end.min(file.row_count());
-            Ok(last.saturating_sub(start))
-        }
+    let counts = match source {
+        DatasetSource::Opened(file) => vec![file.row_count()],
         DatasetSource::Lazy { files, dtype } => {
-            let first_name = files[0].1.path.clone();
-            let counts: Vec<u64> = stream::iter(0..files.len())
-                .map(|idx| {
-                    let files = Arc::clone(&files);
-                    let dtype = dtype.clone();
-                    let first_name = first_name.clone();
-                    async move {
-                        let (fs, listing) = &files[idx];
-                        let file = open_lazy_file(fs, listing, Some(&dtype), &first_name).await?;
-                        Ok::<_, VortexError>(file.row_count())
-                    }
-                })
-                .buffered(OPEN_CONCURRENCY)
-                .try_collect()
-                .await?;
-
-            let (start, end) = row_range.unwrap_or((0, u64::MAX));
-            let mut total = 0u64;
-            let mut file_start = 0u64;
-            for count in counts {
-                let file_end = file_start + count;
-                let first = start.max(file_start);
-                let last = end.min(file_end);
-                total += last.saturating_sub(first);
-                file_start = file_end;
-            }
-            Ok(total)
+            map_lazy_files(files, dtype, |file| Ok(file.row_count())).await?
         }
+    };
+    let (start, end) = row_range.unwrap_or((0, u64::MAX));
+    let mut total = 0u64;
+    let mut file_start = 0u64;
+    for count in counts {
+        let file_end = file_start + count;
+        total += end.min(file_end).saturating_sub(start.max(file_start));
+        file_start = file_end;
     }
+    Ok(total)
 }
 
-async fn collect_fragment_splits(source: DatasetSource) -> VortexResult<Vec<(u64, (u64, u64))>> {
+async fn collect_file_splits(source: DatasetSource) -> VortexResult<Vec<(u64, Vec<Range<u64>>)>> {
     match source {
-        DatasetSource::Opened(file) => Ok(file
-            .splits()?
-            .into_iter()
-            .map(|rows| (0, (rows.start, rows.end)))
-            .collect()),
+        DatasetSource::Opened(file) => Ok(vec![(
+            file.row_count(),
+            file.splits()?.into_iter().collect(),
+        )]),
         DatasetSource::Lazy { files, dtype } => {
-            let first_name = files[0].1.path.clone();
-            let per_file: Vec<(u64, Vec<Range<u64>>)> = stream::iter(0..files.len())
-                .map(|idx| {
-                    let files = Arc::clone(&files);
-                    let dtype = dtype.clone();
-                    let first_name = first_name.clone();
-                    async move {
-                        let (fs, listing) = &files[idx];
-                        let file = open_lazy_file(fs, listing, Some(&dtype), &first_name).await?;
-                        let row_count = file.row_count();
-                        let splits = file.splits()?.into_iter().collect::<Vec<_>>();
-                        Ok::<_, VortexError>((row_count, splits))
-                    }
-                })
-                .buffered(OPEN_CONCURRENCY)
-                .try_collect()
-                .await?;
-
-            let mut out = Vec::new();
-            let mut file_start = 0u64;
-            for (row_count, splits) in per_file {
-                for rows in splits {
-                    out.push((file_start, (file_start + rows.start, file_start + rows.end)));
-                }
-                file_start += row_count;
-            }
-            Ok(out)
+            map_lazy_files(files, dtype, |file| {
+                Ok((file.row_count(), file.splits()?.into_iter().collect()))
+            })
+            .await
         }
     }
 }
@@ -804,33 +832,47 @@ async fn discover_sources(
     Ok((files, dtype))
 }
 
-fn is_url_source(source: &str) -> bool {
-    source.contains("://")
+fn has_glob(pattern: &str) -> bool {
+    pattern.contains(['*', '?', '['])
 }
 
-/// Normalize a relative local glob pattern whose prefix before the first glob character has no
-/// directory separator (e.g. `*.vortex` -> `./*.vortex`) so `StdFileSystem::list` lists `.`.
-fn normalize_local_glob(pattern: &str) -> String {
-    let glob_pos = pattern.find(['*', '?', '[']).unwrap_or(pattern.len());
-    if !Path::new(pattern).is_absolute() && !pattern[..glob_pos].contains('/') {
-        format!("./{pattern}")
-    } else {
-        pattern.to_string()
+fn glob_match_options() -> MatchOptions {
+    MatchOptions {
+        require_literal_separator: true,
+        ..MatchOptions::new()
     }
+}
+
+/// Resolve `path` to a regular file listing, following symlinks so `size` is the target's length.
+fn regular_file_listing(path: &Path) -> VortexResult<Option<FileListing>> {
+    let Ok(meta) = std::fs::metadata(path) else {
+        return Ok(None);
+    };
+    if !meta.is_file() {
+        return Ok(None);
+    }
+    let path_str = path
+        .to_str()
+        .ok_or_else(|| vortex_err!("{} is not a UTF-8 path", path.display()))?;
+    Ok(Some(FileListing {
+        path: path_str.to_string(),
+        size: Some(meta.len()),
+    }))
 }
 
 /// Resolve `source` to `(FileSystemRef, FileListing)` pairs in sorted path order.
 ///
 /// When `expand` is true, existing literal files are taken literally before globbing, directories
-/// and trailing-`/` prefixes list all `.vortex` files below them, and other patterns resolve
-/// through [`vortex::io::filesystem::FileSystem::glob`]. When `expand` is false, each source is treated as an exact
-/// file path without glob expansion.
+/// and trailing-`/` prefixes list all `.vortex` files below them, and globs require literal path
+/// separators (`*` does not cross `/`). Local paths are anchored to the current working directory
+/// at discovery time so later `os.chdir()` calls cannot redirect lazy opens. When `expand` is
+/// false, each source is treated as an exact file path without glob expansion.
 async fn discover_source(
     source: &str,
     store: Option<Arc<dyn ObjectStore>>,
     expand: bool,
 ) -> VortexResult<Vec<(FileSystemRef, FileListing)>> {
-    if store.is_none() && is_url_source(source) && source.contains('?') {
+    if store.is_none() && source.contains("://") && source.contains('?') {
         vortex_bail!(
             "URL source {source:?} contains '?'; '?' is not supported in URL sources because URL parsing treats it as a query string"
         );
@@ -838,35 +880,56 @@ async fn discover_source(
 
     match resolve_store(source, store)? {
         ResolvedStore::Path(path) => {
-            let fs: FileSystemRef = Arc::new(StdFileSystem::new(session().handle()));
-            let path_str = path
+            let abs = if path.is_relative() {
+                std::env::current_dir()?.join(&path)
+            } else {
+                path
+            };
+            let abs_str = abs
                 .to_str()
-                .ok_or_else(|| vortex_err!("{} is not a UTF-8 path", path.display()))?;
+                .ok_or_else(|| vortex_err!("{} is not a UTF-8 path", abs.display()))?;
+            let fs: FileSystemRef = Arc::new(StdFileSystem::new(session().handle()));
 
             if !expand {
                 return Ok(vec![(
                     fs,
                     FileListing {
-                        path: path_str.to_string(),
+                        path: abs_str.to_string(),
                         size: None,
                     },
                 )]);
             }
 
-            // Take an existing file literally before treating metacharacters like `[` as a glob.
-            if let Some(listing) = fs.head(path_str).await? {
+            if let Some(listing) = regular_file_listing(&abs)? {
                 return Ok(vec![(fs, listing)]);
             }
 
-            let mut listings: Vec<FileListing> = if path.is_dir() {
+            let mut listings = if abs.is_dir() {
                 let suffix = format!(".{VORTEX_FILE_EXTENSION}");
-                fs.list(path_str)
+                let raw: Vec<FileListing> = fs
+                    .list(abs_str)
                     .try_filter(|listing| future::ready(listing.path.ends_with(&suffix)))
                     .try_collect()
-                    .await?
+                    .await?;
+                let mut out = Vec::with_capacity(raw.len());
+                for listing in raw {
+                    if let Some(resolved) = regular_file_listing(Path::new(&listing.path))? {
+                        out.push(resolved);
+                    }
+                }
+                out
             } else {
-                let pattern = normalize_local_glob(path_str);
-                fs.glob(&pattern)?.try_collect().await?
+                let mut out = Vec::new();
+                for entry in glob::glob_with(abs_str, glob_match_options())
+                    .map_err(|e| vortex_err!("invalid glob pattern {source:?}: {e}"))?
+                {
+                    let matched =
+                        entry.map_err(|e| vortex_err!("failed to read glob match: {e}"))?;
+                    if let Some(listing) = regular_file_listing(&matched)? {
+                        out.push(listing);
+                    }
+                }
+                out
             };
 
             listings.sort_by(|a, b| a.path.cmp(&b.path));
@@ -876,10 +939,7 @@ async fn discover_source(
                 .collect())
         }
         ResolvedStore::ObjectStore(store, path) => {
-            let fs: FileSystemRef = Arc::new(ObjectStoreFileSystem::new(
-                Arc::clone(&store),
-                session().handle(),
-            ));
+            let fs: FileSystemRef = Arc::new(ObjectStoreFileSystem::new(store, session().handle()));
             let key = path.as_ref();
 
             if !expand {
@@ -892,7 +952,6 @@ async fn discover_source(
                 )]);
             }
 
-            // Object store paths drop a trailing `/`, so the source says whether it is a prefix.
             let is_prefix = source.ends_with('/') || key.is_empty();
             let mut listings: Vec<FileListing> = if is_prefix {
                 let suffix = format!(".{VORTEX_FILE_EXTENSION}");
@@ -900,11 +959,20 @@ async fn discover_source(
                     .try_filter(|listing| future::ready(listing.path.ends_with(&suffix)))
                     .try_collect()
                     .await?
-            } else if let Some(listing) = fs.head(key).await? {
-                // Take an existing object literally before treating metacharacters like `[` as a glob.
+            } else if !has_glob(key) {
+                fs.head(key).await?.into_iter().collect()
+            } else if let Ok(Some(listing)) = fs.head(key).await {
+                // Take an existing object literally before globbing; ignore HEAD errors (e.g.
+                // S3 403 on prefix-scoped roles) so authorized glob listings still run.
                 return Ok(vec![(fs, listing)]);
             } else {
-                fs.glob(key)?.try_collect().await?
+                let compiled = Pattern::new(key)
+                    .map_err(|e| vortex_err!("invalid glob pattern {source:?}: {e}"))?;
+                let options = glob_match_options();
+                let raw: Vec<FileListing> = fs.glob(key)?.try_collect().await?;
+                raw.into_iter()
+                    .filter(|listing| compiled.matches_with(&listing.path, options))
+                    .collect()
             };
 
             listings.sort_by(|a, b| a.path.cmp(&b.path));

@@ -156,8 +156,8 @@ class VortexDataset(pyarrow.dataset.Dataset):
     def get_fragments(self, filter: pyarrow.dataset.Expression | Expr | None = None) -> Iterator[VortexFragment]:
         """A fragment for each file in the Dataset."""
 
-        for file_start, row_range in self._dataset.fragment_splits():
-            yield VortexFragment(self, row_range, _file_start=file_start)
+        for file_idx, row_range in self._dataset.fragment_splits():
+            yield VortexFragment(VortexDataset(self._dataset.for_file(file_idx), filters=self._filters), row_range)
 
     @override
     def head(
@@ -751,16 +751,9 @@ def _open_exact_files(
 class VortexFragment(pyarrow.dataset.Fragment):
     """Fragment of data from a :class:`.VortexDataset`."""
 
-    def __init__(
-        self,
-        dataset: VortexDataset,
-        _row_range: tuple[int, int],
-        *,
-        _file_start: int = 0,
-    ) -> None:
+    def __init__(self, dataset: VortexDataset, _row_range: tuple[int, int]) -> None:
         self._dataset = dataset
         self._row_range = _row_range
-        self._file_start = _file_start
 
     def _check_schema(self, schema: pyarrow.Schema | None) -> None:
         # Engines such as DataFusion pass the dataset schema, which every fragment already reads
@@ -900,14 +893,8 @@ class VortexFragment(pyarrow.dataset.Fragment):
         The indices are indices into *the file*, not indices into this fragment of the file.
 
         """
-        dataset_indices: Any = indices
-        if self._file_start:
-            dataset_indices = pc.add(
-                indices.cast(pa.uint64()),
-                pa.scalar(self._file_start, type=pa.uint64()),
-            )
         return self._dataset.take(
-            indices=dataset_indices,  # ty: ignore[invalid-argument-type]  # pyarrow-stubs types pc.add as Array[Scalar[UInt64Type]]
+            indices=indices,
             columns=columns,
             filter=filter,
             batch_size=batch_size,
@@ -963,6 +950,22 @@ class VortexFragment(pyarrow.dataset.Fragment):
         memory_pool: pyarrow.MemoryPool | None = None,
     ) -> int:
         """See :class:`vortex.dataset.VortexDataset.count_rows`"""
+        if (
+            filter is None
+            and not self._dataset._filters
+            and all(
+                arg is None
+                for arg in (
+                    batch_size,
+                    batch_readahead,
+                    fragment_readahead,
+                    fragment_scan_options,
+                    cache_metadata,
+                    memory_pool,
+                )
+            )
+        ):
+            return self._row_range[1] - self._row_range[0]
         return self._dataset.count_rows(
             filter=filter,
             batch_size=batch_size,

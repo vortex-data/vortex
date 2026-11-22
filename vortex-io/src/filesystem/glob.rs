@@ -39,10 +39,6 @@ impl dyn FileSystem + '_ {
 
         let glob_pattern = glob::Pattern::new(pattern)
             .map_err(|e| vortex_err!("Invalid glob pattern '{}': {}", pattern, e))?;
-        let match_options = glob::MatchOptions {
-            require_literal_separator: true,
-            ..Default::default()
-        };
 
         let listing_prefix = glob_list_prefix(pattern).trim_end_matches('/');
 
@@ -54,7 +50,7 @@ impl dyn FileSystem + '_ {
         let stream = self
             .list(listing_prefix)
             .try_filter(move |listing| {
-                let matches = glob_pattern.matches_with(&listing.path, match_options);
+                let matches = glob_pattern.matches(&listing.path);
                 async move { matches }
             })
             .into_stream()

@@ -218,3 +218,57 @@ def test_files_must_share_a_dtype(root: Path):
 def test_a_source_must_name_files(root: Path):
     with pytest.raises(RuntimeError, match="no Vortex files found"):
         vx.open_dataset(str(root / "data" / "*.parquet"))
+
+
+def test_glob_is_case_sensitive(tmp_path: Path):
+    vx.io.write(table(range(0, 3)), str(tmp_path / "Train-1.vortex"))
+    vx.io.write(table(range(3, 6)), str(tmp_path / "train-2.vortex"))
+
+    assert vx.open_dataset(str(tmp_path / "Train-*.vortex")).to_table() == table(range(0, 3))
+
+    store = LocalStore(prefix=str(tmp_path))
+    assert vx.open_dataset("Train-*.vortex", store=store).to_table() == table(range(0, 3))
+
+
+def test_relative_dataset_ignores_chdir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    dir_a = tmp_path / "a"
+    dir_b = tmp_path / "b"
+    dir_a.mkdir()
+    dir_b.mkdir()
+    vx.io.write(table(range(0, 4)), str(dir_a / "part.vortex"))
+    vx.io.write(table(range(10, 14)), str(dir_b / "part.vortex"))
+
+    monkeypatch.chdir(dir_a)
+    ds = vx.open_dataset("part.vortex")
+    monkeypatch.chdir(dir_b)
+
+    assert ds.to_table() == table(range(0, 4))
+
+
+def test_symlinked_files_are_readable(tmp_path: Path):
+    target = tmp_path / "target.vortex"
+    vx.io.write(table(range(0, 5)), str(target))
+
+    data = tmp_path / "data"
+    data.mkdir()
+    link = data / "linked.vortex"
+    link.symlink_to(target)
+
+    assert vx.open_dataset(data).to_table() == table(range(0, 5))
+    assert vx.open_dataset(str(data / "*.vortex")).to_table() == table(range(0, 5))
+
+
+def test_fragment_reads_only_its_own_file(tmp_path: Path):
+    first = tmp_path / "a.vortex"
+    second = tmp_path / "b.vortex"
+    vx.io.write(table(range(0, 5)), str(first))
+    vx.io.write(table(range(5, 11)), str(second))
+
+    ds = vx.open_dataset([first, second])
+    fragments = list(ds.get_fragments())
+    assert len(fragments) == 2
+
+    # Remove the first file after getting fragments; reading the second fragment must not touch it.
+    first.unlink()
+    assert fragments[1].count_rows() == 6
+    assert fragments[1].to_table() == table(range(5, 11))
