@@ -37,6 +37,7 @@ use vortex_array::builders::VarBinViewBuilder;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::OffsetBuilderPType;
 use vortex_array::match_each_varbin_builder;
+use vortex_array::require_validity;
 use vortex_array::scalar::Scalar;
 use vortex_array::smallvec::smallvec;
 use vortex_array::validity::Validity;
@@ -224,12 +225,13 @@ impl VTable for Zstd {
     }
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+        require_validity!(array, ZstdSlots::VALIDITY_CHILD);
+
         let unsliced_validity =
             child_to_validity(array.validity_child(), array.dtype().nullability());
         array
             .data()
-            .decompress(array.dtype(), &unsliced_validity, ctx)?
-            .execute::<ArrayRef>(ctx)
+            .decompress(array.dtype(), &unsliced_validity, ctx)
             .map(ExecutionResult::done)
     }
 
@@ -1539,11 +1541,13 @@ mod tests {
 
     use rstest::rstest;
     use vortex_array::VortexSessionExecute;
+    use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::varbin::VarBinArrayExt as _;
     use vortex_array::builders::VarBinBuilder;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability::NonNullable;
     use vortex_array::validity::Validity;
+    use vortex_buffer::Buffer;
     use vortex_buffer::ByteBuffer;
     use vortex_error::VortexResult;
     use vortex_mask::Mask;
@@ -1556,6 +1560,7 @@ mod tests {
     use super::try_reconstruct_views;
     use super::zstd_value_len;
     use super::zstd_value_offset;
+    use crate::Zstd;
     use crate::array::BinaryView;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
@@ -1739,5 +1744,15 @@ mod tests {
         assert!(append_slice_to_varbin(&slice, &Mask::new_true(2), &mut builder).is_err());
         // The builder rejected the values before committing any of them.
         assert_eq!(builder.finish_into_varbin().len(), 0);
+    }
+
+    #[test]
+    fn test_all_null_slice_keeps_all_invalid_validity() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let values = PrimitiveArray::new(Buffer::<u32>::zeroed(1024), Validity::AllInvalid);
+        let zstd = Zstd::from_primitive(&values, 0, 128, &mut ctx)?;
+        let decoded = zstd.slice(10..20)?.execute::<PrimitiveArray>(&mut ctx)?;
+        assert!(matches!(decoded.validity()?, Validity::AllInvalid));
+        Ok(())
     }
 }

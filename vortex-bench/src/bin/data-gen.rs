@@ -24,6 +24,8 @@ use vortex_bench::Opts;
 use vortex_bench::conversions::convert_parquet_directory_to_vortex;
 use vortex_bench::create_benchmark;
 use vortex_bench::generate_duckdb_registration_sql;
+use vortex_bench::parquet_copies::SizeFormat;
+use vortex_bench::parquet_copies::write_size_format;
 use vortex_bench::setup_logging_and_tracing_with_format;
 
 #[derive(Parser)]
@@ -46,6 +48,11 @@ struct Args {
 
     #[arg(long, value_delimiter = ',', value_parser = value_parser!(Format))]
     formats: Vec<Format>,
+
+    /// Formats to write only for their file sizes, from the base Parquet files. No query reads
+    /// them.
+    #[arg(long, value_delimiter = ',', value_enum)]
+    size_formats: Vec<SizeFormat>,
 
     #[arg(long = "opt", value_delimiter = ',', value_parser = value_parser!(Opt))]
     options: Vec<Opt>,
@@ -100,6 +107,11 @@ async fn main() -> anyhow::Result<()> {
 
         for format in args.formats.iter().copied() {
             benchmark.prepare_format(format, &base_path).await?;
+        }
+
+        for format in args.size_formats.iter().copied() {
+            let base_path = base_path.clone();
+            tokio::task::spawn_blocking(move || write_size_format(&base_path, format)).await??;
         }
     }
 

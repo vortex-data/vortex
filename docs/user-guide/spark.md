@@ -61,6 +61,19 @@ Maven:
 The connector registers itself as `vortex`; no session extension or catalog configuration is
 required.
 
+### Session Extensions
+
+The optional session extensions add an optimizer rule for dynamic pruning:
+
+```shell
+spark-shell --conf spark.sql.extensions=dev.vortex.spark.VortexSparkSessionExtensions
+```
+
+The rule drops each dynamic pruning filter whose filtering plan holds dynamic pruning filters of
+its own. Without the rule, a common table expression joined with itself makes the query plan grow
+exponentially with the depth of the joins. A dynamic pruning filter only skips rows that the join
+drops, so the result does not change.
+
 ## Reading Vortex Files
 
 Read a file, directory, or set of paths with the DataFrame API:

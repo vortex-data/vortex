@@ -539,7 +539,8 @@ fn test_scan_dtype_export_errors_and_panics_are_terminal() -> VortexResult<()> {
         let message = match failure {
             "scan" => "injected scan failure",
             "dtype" => "logical dtype changed",
-            "export" => "exceeds target range",
+            // "value exceeds" or "values exceed", as the cast's wording has been.
+            "export" => "target range",
             "panic" => "injected polling panic",
             _ => unreachable!(),
         };

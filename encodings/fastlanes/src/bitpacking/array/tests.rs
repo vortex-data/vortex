@@ -390,3 +390,22 @@ fn into_parts_preserves_block_offsets(#[case] offsets: ArrayRef) -> VortexResult
     assert_eq!(rebuilt.offset(), 17);
     Ok(())
 }
+
+#[test]
+fn test_all_null_slice_keeps_all_invalid_validity() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let bitpacked = BitPacked::try_new(
+        BufferHandle::new_host(ByteBuffer::zeroed(1024)),
+        PType::U32,
+        Validity::AllInvalid,
+        None,
+        8,
+        1024,
+        0,
+    )?;
+    let decoded = bitpacked
+        .slice(10..20)?
+        .execute::<PrimitiveArray>(&mut ctx)?;
+    assert!(matches!(decoded.validity()?, Validity::AllInvalid));
+    Ok(())
+}

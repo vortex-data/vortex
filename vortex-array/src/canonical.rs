@@ -23,7 +23,6 @@ use crate::array::VTable;
 use crate::array::child_to_validity;
 use crate::arrays::Bool;
 use crate::arrays::BoolArray;
-use crate::arrays::ConstantArray;
 use crate::arrays::Decimal;
 use crate::arrays::DecimalArray;
 use crate::arrays::Extension;
@@ -60,7 +59,7 @@ use crate::arrays::struct_::StructDataParts;
 use crate::arrays::union::UnionDataParts;
 use crate::arrays::varbinview::VarBinViewDataParts;
 use crate::arrays::variant::VariantArraySlotsExt;
-use crate::builtins::ArrayBuiltins;
+use crate::builders::VariantBuilder;
 use crate::dtype::DType;
 use crate::dtype::NativePType;
 use crate::dtype::Nullability;
@@ -68,7 +67,6 @@ use crate::dtype::PType;
 use crate::match_each_decimal_value_type;
 use crate::match_each_native_ptype;
 use crate::matcher::Matcher;
-use crate::scalar::Scalar;
 use crate::validity::Validity;
 
 /// An enum capturing the default uncompressed encodings for each [Vortex type](DType).
@@ -256,28 +254,11 @@ impl Canonical {
             DType::Union(variants, nullability) => {
                 Canonical::Union(UnionArray::empty(variants.clone(), *nullability))
             }
-            DType::Variant(_) => {
-                // A Variant array needs Variant-typed core storage, and the core
-                // storage must not be a `VariantArray` (that would recurse back
-                // here). A zero-length constant of a null Variant scalar is the
-                // cheapest valid core storage; a non-nullable Variant empty
-                // casts from the nullable one, which is safe because it has no
-                // null values to drop.
-                let core_storage =
-                    ConstantArray::new(Scalar::null(DType::Variant(Nullability::Nullable)), 0)
-                        .into_array();
-                let core_storage = if core_storage.dtype() == dtype {
-                    core_storage
-                } else {
-                    core_storage
-                        .cast(dtype.clone())
-                        .vortex_expect("empty Variant core storage must accept the outer dtype")
-                };
-                Canonical::Variant(
-                    VariantArray::try_new(core_storage, None)
-                        .vortex_expect("empty Variant core storage must be valid"),
-                )
-            }
+            DType::Variant(n) => Canonical::Variant(
+                VariantBuilder::new(*n)
+                    .finish_into_variant()
+                    .vortex_expect("an empty VariantBuilder finishes into an empty Variant"),
+            ),
             DType::Extension(ext_dtype) => Canonical::Extension(ExtensionArray::new(
                 ext_dtype.clone(),
                 Canonical::empty(ext_dtype.storage_dtype()).into_array(),

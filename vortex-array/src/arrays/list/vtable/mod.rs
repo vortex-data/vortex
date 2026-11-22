@@ -25,6 +25,8 @@ use crate::array::ArrayParts;
 use crate::array::ArrayView;
 use crate::array::VTable;
 use crate::array::with_empty_buffers;
+use crate::arrays::Primitive;
+use crate::arrays::list::ListArraySlotsExt;
 use crate::arrays::list::ListData;
 use crate::arrays::list::ListSlots;
 use crate::arrays::listview::list_view_from_list;
@@ -33,6 +35,7 @@ use crate::builders::ArrayBuilder;
 use crate::dtype::DType;
 use crate::dtype::PType;
 use crate::match_each_list_builder;
+use crate::require_child;
 mod operations;
 mod plugin;
 mod validity;
@@ -133,6 +136,8 @@ impl VTable for List {
     }
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+        let array = require_child!(array, array.offsets(), ListSlots::OFFSETS => Primitive);
+
         Ok(ExecutionResult::done(
             list_view_from_list(array, ctx)?.into_array(),
         ))

@@ -26,6 +26,8 @@
 
 mod array;
 mod arrow;
+#[cfg(test)]
+mod arrow_properties;
 mod builder;
 mod compute;
 #[cfg(test)]

@@ -26,12 +26,14 @@ use crate::tpch::schema::SUPPLIER;
 use crate::tpch::tpch_queries;
 use crate::tpch::tpchgen;
 use crate::tpch::tpchgen::TpchGenOptions;
+use crate::utils::parquet::LOCAL_ROW_GROUP_ROWS;
 use crate::utils::split;
 
 /// TPCH benchmark implementation
 pub struct TpcHBenchmark {
     pub scale_factor: String,
     pub data_url: Url,
+    row_group_rows: usize,
 }
 
 impl TpcHBenchmark {
@@ -39,7 +41,14 @@ impl TpcHBenchmark {
         Ok(Self {
             scale_factor: scale_factor.clone(),
             data_url: Self::create_data_url(use_remote_data_dir.as_deref(), &scale_factor)?,
+            row_group_rows: LOCAL_ROW_GROUP_ROWS,
         })
+    }
+
+    /// Generate Parquet in row groups of `row_group_rows` rows.
+    pub fn with_row_group_rows(mut self, row_group_rows: usize) -> Self {
+        self.row_group_rows = row_group_rows;
+        self
     }
 
     fn create_data_url(remote_data_dir: Option<&str>, scale_factor: &str) -> anyhow::Result<Url> {
@@ -94,7 +103,8 @@ impl Benchmark for TpcHBenchmark {
             .to_file_path()
             .map_err(|_| anyhow::anyhow!("Invalid file URL: {}", self.data_url.as_str()))?;
 
-        let options = TpchGenOptions::new(self.scale_factor.clone(), base_data_dir);
+        let options = TpchGenOptions::new(self.scale_factor.clone(), base_data_dir)
+            .with_row_group_rows(self.row_group_rows);
 
         tpchgen::generate_tpch_tables(options).await?;
 
