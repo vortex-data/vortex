@@ -162,21 +162,24 @@ impl<T: SetInteger> IntegerSet<T> {
         let Some(span) = max.offset_from(min) else {
             return Self::Sorted(sorted_values(values));
         };
-        if (span as u128) < L1_BITMAP_MIN_BITS {
+        if span == usize::MAX {
+            return Self::Sorted(sorted_values(values));
+        }
+        let span_u128 = span as u128;
+        if span_u128 < L1_BITMAP_MIN_BITS
+            || (span_u128 < BITMAP_MIN_BITS
+                && has_at_least_distinct(&values, L2_BITMAP_MIN_ELEMENTS))
+        {
             return Self::Bitmap {
                 min,
                 bitmap: build_integer_bitmap(min, span, &values, allocator),
             };
         }
+        if span_u128 >= values.len() as u128 * BITMAP_BITS_PER_ELEMENT {
+            return Self::Sorted(sorted_values(values));
+        }
         let distinct = sorted_values(values);
-        let min_bits = if distinct.len() >= L2_BITMAP_MIN_ELEMENTS {
-            BITMAP_MIN_BITS
-        } else {
-            L1_BITMAP_MIN_BITS
-        };
-        if span == usize::MAX
-            || span as u128 >= (distinct.len() as u128 * BITMAP_BITS_PER_ELEMENT).max(min_bits)
-        {
+        if span_u128 >= distinct.len() as u128 * BITMAP_BITS_PER_ELEMENT {
             return Self::Sorted(distinct);
         }
         Self::Bitmap {
@@ -536,6 +539,29 @@ impl SetInteger for i256 {
     fn offset_from(self, min: Self) -> Option<usize> {
         self.wrapping_sub(&min).to_usize()
     }
+}
+
+/// Whether `values` contains at least `min_distinct` distinct values, without allocating or sorting.
+fn has_at_least_distinct<T: Copy + PartialEq>(values: &[T], min_distinct: usize) -> bool {
+    debug_assert!(min_distinct <= L2_BITMAP_MIN_ELEMENTS);
+    if values.len() < min_distinct {
+        return false;
+    }
+    let Some(&first) = values.first() else {
+        return min_distinct == 0;
+    };
+    let mut seen = [first; L2_BITMAP_MIN_ELEMENTS];
+    let mut count = 1;
+    for &value in &values[1..] {
+        if !seen[..count].contains(&value) {
+            if count + 1 >= min_distinct {
+                return true;
+            }
+            seen[count] = value;
+            count += 1;
+        }
+    }
+    count >= min_distinct
 }
 
 fn build_integer_bitmap<T: SetInteger>(
