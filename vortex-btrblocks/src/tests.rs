@@ -28,6 +28,7 @@ use vortex_array::VortexSessionExecute;
 use vortex_array::aggregate_fn::fns::sum::sum;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::DecimalArray;
+use vortex_array::arrays::Dict;
 use vortex_array::arrays::FixedSizeListArray;
 use vortex_array::arrays::ListArray;
 use vortex_array::arrays::ListViewArray;
@@ -750,5 +751,45 @@ fn test_child_policy_overrides_schemes(#[case] keep: bool) -> VortexResult<()> {
         .flatten()
         .all(ArrayRef::is_canonical);
     assert_eq!(children_canonical, keep);
+    Ok(())
+}
+
+/// With the real schemes, `may_compress_to` agrees with `compress`: it accepts the encoding of the
+/// compressed array, and it accepts `Dict` only when that array is a dictionary. The dict layout
+/// writer relies on the second property.
+#[rstest]
+#[case::unique_strings(
+    VarBinViewArray::from_iter_str((0..4096).map(|i| format!("{i:04} is a unique story"))).into_array(),
+)]
+#[case::few_strings(
+    VarBinViewArray::from_iter_str((0..4096).map(|i| ["red", "green", "blue"][i % 3])).into_array(),
+)]
+#[case::constant_strings(VarBinViewArray::from_iter_str(iter::repeat_n("same", 4096)).into_array())]
+#[case::null_strings(
+    VarBinViewArray::from_iter(iter::repeat_n(None::<&str>, 4096), DType::Utf8(Nullability::Nullable))
+        .into_array(),
+)]
+#[case::few_integers(PrimitiveArray::from_iter((0..4096i64).map(|i| (i % 3) * 1_000_000)).into_array())]
+#[case::unique_integers(PrimitiveArray::from_iter(0..4096i64).into_array())]
+fn test_may_compress_to(#[case] input: ArrayRef) -> VortexResult<()> {
+    let compressor = BtrBlocksCompressorBuilder::from_session(&SESSION)
+        .unrestricted()
+        .build();
+    let mut ctx = SESSION.create_execution_ctx();
+
+    let compressed = compressor.compress(&input, &mut ctx)?;
+
+    assert!(
+        compressor
+            .0
+            .may_compress_to(&input, &compressed.encoding_id(), &mut ctx)?
+    );
+    assert_eq!(
+        compressor
+            .0
+            .may_compress_to(&input, &vortex_array::VTable::id(&Dict), &mut ctx)?,
+        compressed.is::<Dict>()
+    );
+
     Ok(())
 }

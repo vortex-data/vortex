@@ -45,6 +45,10 @@ impl Scheme for BinaryDictScheme {
         vec![Dict.id()]
     }
 
+    fn top_level_encodings(&self) -> Vec<ArrayId> {
+        vec![Dict.id()]
+    }
+
     /// Children: values=0, codes=1.
     fn num_children(&self) -> usize {
         2

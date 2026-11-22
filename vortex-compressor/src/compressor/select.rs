@@ -3,10 +3,12 @@
 
 //! Scheme selection: estimating each eligible scheme and choosing the winner.
 
+use vortex_array::ArrayId;
 use vortex_array::ExecutionCtx;
 use vortex_error::VortexResult;
 
 use super::ROOT_SCHEME_ID;
+use super::TrialOutput;
 use super::sample::estimate_compression_ratio_with_sampling;
 use crate::CascadingCompressor;
 use crate::scheme::CompressionEstimate;
@@ -38,6 +40,39 @@ impl WinnerEstimate {
     }
 }
 
+/// Returns `true` if `target` is set and no scheme that can return `target` can win: the current
+/// best scheme cannot return it, no trial output already matches it, and no scheme that is not
+/// evaluated yet can return it.
+///
+/// A scheme that is not evaluated can make a scheme that can return `target` lose, but it cannot
+/// make it win. Thus the remaining evaluations cannot change the answer.
+fn target_cannot_win(
+    target: Option<&ArrayId>,
+    data: &ArrayAndStats,
+    best: Option<&(&'static dyn Scheme, EstimateScore)>,
+    pending: &[(&'static dyn Scheme, DeferredEstimate)],
+) -> bool {
+    let Some(target) = target else {
+        return false;
+    };
+
+    if best.is_some()
+        && data
+            .get::<TrialOutput>()
+            .is_some_and(|trial| trial.array.encoding_id() == *target)
+    {
+        return false;
+    }
+
+    let can_return_target = |scheme: &dyn Scheme| {
+        let declared = scheme.top_level_encodings();
+        declared.is_empty() || declared.contains(target)
+    };
+
+    best.is_none_or(|(scheme, _)| !can_return_target(*scheme))
+        && !pending.iter().any(|(scheme, _)| can_return_target(*scheme))
+}
+
 /// Returns `true` if `score` beats the current best estimate.
 fn is_better_score(
     score: EstimateScore,
@@ -67,11 +102,17 @@ impl CascadingCompressor {
     /// Ties are broken by evaluation order: immediate verdicts, then samples, then the default, then
     /// callbacks, each in registration order.
     ///
+    /// If `target` is set, the selection stops when no scheme that can return `target` (see
+    /// [`Scheme::top_level_encodings`]) can win, and returns `None`. Thus, with a `target`, `None`
+    /// does not tell that no scheme beats the canonical encoding. Use a `target` only to find out
+    /// if the result can have that encoding.
+    ///
     /// [`expected_compression_ratio`]: Scheme::expected_compression_ratio
     pub(super) fn choose_best_scheme(
         &self,
         schemes: &[&'static dyn Scheme],
         data: &ArrayAndStats,
+        target: Option<&ArrayId>,
         compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<(&'static dyn Scheme, WinnerEstimate)>> {
@@ -116,7 +157,16 @@ impl CascadingCompressor {
         // Pass 2: run deferred work. Callbacks receive the current best as a threshold so they can
         // short-circuit with `Skip` when they cannot beat it, so samples run first to tighten it.
         deferred.sort_by_key(|(_, estimate)| matches!(estimate, DeferredEstimate::Callback(_)));
-        for (scheme, deferred_estimate) in deferred {
+        let mut pending = deferred.into_iter();
+
+        loop {
+            if target_cannot_win(target, data, best.as_ref(), pending.as_slice()) {
+                return Ok(None);
+            }
+
+            let Some((scheme, deferred_estimate)) = pending.next() else {
+                break;
+            };
             let _span = trace::scheme_eval_span(scheme.id()).entered();
             let threshold: Option<EstimateScore> = best.map(|(_, score)| score);
             match deferred_estimate {

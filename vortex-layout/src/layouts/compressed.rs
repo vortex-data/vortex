@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use futures::StreamExt as _;
+use vortex_array::ArrayId;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::VortexSessionExecute;
@@ -32,11 +33,35 @@ use crate::sequence::SequentialStreamExt;
 /// API consumers are free to implement this trait to provide new plugin compressors.
 pub trait CompressorPlugin: Send + Sync + 'static {
     fn compress_chunk(&self, chunk: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef>;
+
+    /// Returns `true` if the array that [`compress_chunk`](Self::compress_chunk) returns for
+    /// `chunk` can have the encoding `encoding`.
+    ///
+    /// A writer can use this to choose a layout from the encoding the plugin can produce. The
+    /// default compresses `chunk` and compares the encoding of the result. A plugin can override
+    /// it to give the answer without a full compression.
+    fn may_compress_to(
+        &self,
+        chunk: &ArrayRef,
+        encoding: &ArrayId,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<bool> {
+        Ok(self.compress_chunk(chunk, ctx)?.encoding_id() == *encoding)
+    }
 }
 
 impl CompressorPlugin for Arc<dyn CompressorPlugin> {
     fn compress_chunk(&self, chunk: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
         self.as_ref().compress_chunk(chunk, ctx)
+    }
+
+    fn may_compress_to(
+        &self,
+        chunk: &ArrayRef,
+        encoding: &ArrayId,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<bool> {
+        self.as_ref().may_compress_to(chunk, encoding, ctx)
     }
 }
 
@@ -52,6 +77,15 @@ where
 impl CompressorPlugin for BtrBlocksCompressor {
     fn compress_chunk(&self, chunk: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
         self.compress(chunk, ctx)
+    }
+
+    fn may_compress_to(
+        &self,
+        chunk: &ArrayRef,
+        encoding: &ArrayId,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<bool> {
+        self.0.may_compress_to(chunk, encoding, ctx)
     }
 }
 

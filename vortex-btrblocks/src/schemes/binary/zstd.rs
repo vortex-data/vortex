@@ -37,6 +37,10 @@ impl Scheme for ZstdScheme {
         vec![vortex_zstd::Zstd.id()]
     }
 
+    fn top_level_encodings(&self) -> Vec<ArrayId> {
+        vec![vortex_zstd::Zstd.id()]
+    }
+
     fn expected_compression_ratio(
         &self,
         _data: &ArrayAndStats,

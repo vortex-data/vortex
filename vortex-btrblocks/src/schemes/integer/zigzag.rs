@@ -52,6 +52,10 @@ impl Scheme for ZigZagScheme {
         vec![ZigZag.id()]
     }
 
+    fn top_level_encodings(&self) -> Vec<ArrayId> {
+        vec![ZigZag.id()]
+    }
+
     /// Children: encoded=0.
     fn num_children(&self) -> usize {
         1

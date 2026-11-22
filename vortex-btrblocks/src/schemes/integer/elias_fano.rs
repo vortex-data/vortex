@@ -65,6 +65,10 @@ impl Scheme for EliasFanoScheme {
         encodings
     }
 
+    fn top_level_encodings(&self) -> Vec<ArrayId> {
+        vec![FoR.id()]
+    }
+
     fn expected_compression_ratio(
         &self,
         data: &ArrayAndStats,
