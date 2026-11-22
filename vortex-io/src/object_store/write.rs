@@ -34,13 +34,14 @@ use crate::compat::Compat;
 /// returns the original completion error.
 ///
 /// Dropping an uncompleted writer (for example on an upstream input error or task cancellation)
-/// schedules an asynchronous abort on a live executor (the current Tokio runtime, a captured
-/// multi-thread Tokio runtime, or the global `smol` executor) so cleanup survives cancellation of
-/// the file task. Process termination can still prevent cleanup.
+/// schedules an asynchronous abort on a process-lifetime executor (`smol` with a `Compat` Tokio
+/// context on native targets) so cleanup survives both file-task cancellation and shutdown of the
+/// caller's Tokio runtime. Process termination can still prevent cleanup.
 pub struct ObjectStoreWrite {
     state: UploadState,
     buffer: BytesMut,
     put_result: Option<PutResult>,
+    #[cfg(all(target_arch = "wasm32", not(feature = "wasm-bindgen")))]
     cleanup_runtime: Option<tokio::runtime::Handle>,
 }
 
@@ -56,19 +57,12 @@ const BUFFER_SIZE: usize = 128 * 1024 * 1024;
 impl ObjectStoreWrite {
     pub async fn new(object_store: Arc<dyn ObjectStore>, location: &Path) -> VortexResult<Self> {
         let upload = object_store.put_multipart(location).await?;
-        // On non-wasm targets, only capture a multi-thread Tokio runtime for off-runtime cleanup:
-        // it has its own worker threads and can make progress independently, whereas a
-        // current-thread Tokio runtime may be alive and idle with nothing polling it (we fall back
-        // to `smol` + `Compat` instead). On wasm32, there is no multi-thread runtime or `smol`, so
-        // capture any active Tokio handle.
-        let cleanup_runtime = tokio::runtime::Handle::try_current()
-            .ok()
-            .filter(is_independent_tokio_handle);
         Ok(Self {
             state: UploadState::Active(upload),
             buffer: BytesMut::with_capacity(CHUNK_SIZE),
             put_result: None,
-            cleanup_runtime,
+            #[cfg(all(target_arch = "wasm32", not(feature = "wasm-bindgen")))]
+            cleanup_runtime: tokio::runtime::Handle::try_current().ok(),
         })
     }
 
@@ -78,10 +72,9 @@ impl ObjectStoreWrite {
 
     /// Explicitly abort the multipart upload if it is still active.
     ///
-    /// Calling `abort` on an already-aborted or completed writer is a no-op. Cleanup is spawned on
-    /// a live executor (the current Tokio runtime, a captured multi-thread Tokio runtime, or the
-    /// global `smol` executor) so cancelling the caller while `abort` is in flight does not drop
-    /// the upload before remote cleanup completes.
+    /// Calling `abort` on an already-aborted or completed writer is a no-op. On native targets,
+    /// cleanup is spawned on the global `smol` executor wrapped in [`Compat`] so it outlives both
+    /// caller task cancellation and shutdown of the caller's Tokio runtime.
     pub async fn abort(&mut self) -> io::Result<()> {
         if !matches!(self.state, UploadState::Active(_)) {
             return Ok(());
@@ -92,14 +85,6 @@ impl ObjectStoreWrite {
         else {
             unreachable!("checked active state above");
         };
-
-        if let Some(handle) = self.take_live_tokio_handle() {
-            let join_handle = handle.spawn(async move { upload.abort().await });
-            return match join_handle.await {
-                Ok(res) => res.map_err(io::Error::from),
-                Err(err) => Err(io::Error::other(format!("abort task failed: {err}"))),
-            };
-        }
 
         #[cfg(not(target_arch = "wasm32"))]
         {
@@ -130,13 +115,20 @@ impl ObjectStoreWrite {
 
         #[cfg(all(target_arch = "wasm32", not(feature = "wasm-bindgen")))]
         {
+            if let Some(handle) = self.take_live_tokio_handle() {
+                let join_handle = handle.spawn(async move { upload.abort().await });
+                return match join_handle.await {
+                    Ok(res) => res.map_err(io::Error::from),
+                    Err(err) => Err(io::Error::other(format!("abort task failed: {err}"))),
+                };
+            }
             upload.abort().await.map_err(io::Error::from)
         }
     }
 
+    #[cfg(all(target_arch = "wasm32", not(feature = "wasm-bindgen")))]
     fn take_live_tokio_handle(&mut self) -> Option<tokio::runtime::Handle> {
         if let Ok(handle) = tokio::runtime::Handle::try_current()
-            && is_independent_tokio_handle(&handle)
             && is_tokio_handle_alive(&handle)
         {
             self.cleanup_runtime = None;
@@ -145,9 +137,9 @@ impl ObjectStoreWrite {
         self.cleanup_runtime.take().filter(is_tokio_handle_alive)
     }
 
-    /// Transition an active upload to `Aborted` and schedule detached remote cleanup on a live
-    /// executor. Used by `Drop` and by [`AbortOnCancel`] when an in-flight write, flush, or
-    /// shutdown future is cancelled while the caller still owns the writer.
+    /// Transition an active upload to `Aborted` and schedule detached remote cleanup on a
+    /// process-lifetime executor. Used by `Drop` and by [`AbortOnCancel`] when an in-flight write,
+    /// flush, or shutdown future is cancelled while the caller still owns the writer.
     fn abort_in_background(&mut self) {
         self.buffer.clear();
         let UploadState::Active(mut upload) =
@@ -162,11 +154,6 @@ impl ObjectStoreWrite {
             }
         };
 
-        if let Some(handle) = self.take_live_tokio_handle() {
-            handle.spawn(abort_future);
-            return;
-        }
-
         #[cfg(not(target_arch = "wasm32"))]
         {
             smol::spawn(Compat::new(abort_future)).detach();
@@ -179,6 +166,10 @@ impl ObjectStoreWrite {
 
         #[cfg(all(target_arch = "wasm32", not(feature = "wasm-bindgen")))]
         {
+            if let Some(handle) = self.take_live_tokio_handle() {
+                handle.spawn(abort_future);
+                return;
+            }
             drop(abort_future);
             tracing::warn!("no async runtime available to abort multipart upload on drop");
         }
@@ -203,28 +194,11 @@ impl ObjectStoreWrite {
     }
 }
 
-/// Returns whether a Tokio handle should be selected for detached cleanup.
-///
-/// On non-wasm targets, only `MultiThread` runtimes make progress independently (an entered or
-/// captured `CurrentThread` runtime can sit idle with nothing polling it; those cases fall back to
-/// `smol` + `Compat`). On wasm32, neither `MultiThread` nor `smol` exists, so any Tokio handle is
-/// accepted.
-fn is_independent_tokio_handle(handle: &tokio::runtime::Handle) -> bool {
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        handle.runtime_flavor() == tokio::runtime::RuntimeFlavor::MultiThread
-    }
-    #[cfg(target_arch = "wasm32")]
-    {
-        let _ = handle;
-        true
-    }
-}
-
 /// Checks whether a Tokio runtime handle can still execute spawned tasks.
 ///
 /// On a shut-down runtime, `Handle::spawn` cancels the task immediately so `is_finished()` is
 /// already true even for a future that never resolves.
+#[cfg(all(target_arch = "wasm32", not(feature = "wasm-bindgen")))]
 fn is_tokio_handle_alive(handle: &tokio::runtime::Handle) -> bool {
     let probe = handle.spawn(std::future::pending::<()>());
     let alive = !probe.is_finished();
@@ -440,6 +414,7 @@ mod tests {
         use std::sync::Arc;
         use std::sync::atomic::AtomicUsize;
         use std::sync::atomic::Ordering;
+        use std::sync::mpsc;
         use std::time::Duration;
 
         use async_trait::async_trait;
@@ -1480,6 +1455,75 @@ mod tests {
                 .map_err(|_| anyhow::anyhow!("server thread panicked"))?;
             assert_eq!(received.load(Ordering::SeqCst), 2);
             drop(tokio_rt);
+            Ok(())
+        }
+
+        #[test]
+        fn test_busy_multithread_tokio_runtime_shutdown_does_not_cancel_cleanup()
+        -> anyhow::Result<()> {
+            let dir = tempdir()?;
+            let store: Arc<dyn ObjectStore> =
+                Arc::new(LocalFileSystem::new_with_prefix(dir.path())?);
+            let tokio_rt = tokio::runtime::Builder::new_multi_thread()
+                .worker_threads(1)
+                .enable_all()
+                .build()?;
+
+            let (mut writer_for_abort, writer_for_drop) = tokio_rt.block_on(async {
+                let mut w1 =
+                    ObjectStoreWrite::new(Arc::clone(&store), &Path::from("busy-mt-abort.vortex"))
+                        .await?;
+                w1.write_all(vec![1u8; 64]).await?;
+                w1.flush().await?;
+
+                let mut w2 =
+                    ObjectStoreWrite::new(Arc::clone(&store), &Path::from("busy-mt-drop.vortex"))
+                        .await?;
+                w2.write_all(vec![2u8; 64]).await?;
+                w2.flush().await?;
+
+                anyhow::Ok((w1, w2))
+            })?;
+
+            assert_eq!(
+                std::fs::read_dir(dir.path())?.count(),
+                2,
+                "expected 2 staged multipart files before cleanup"
+            );
+
+            // Occupy the single Tokio worker so any task queued on `tokio_rt` cannot run before
+            // `tokio_rt` is shut down.
+            let (busy_tx, busy_rx) = mpsc::channel::<()>();
+            let (release_tx, release_rx) = mpsc::channel::<()>();
+            tokio_rt.spawn(async move {
+                let _ = busy_tx.send(());
+                let _ = release_rx.recv();
+            });
+            busy_rx.recv()?;
+
+            // Request both explicit abort and drop cleanup from a separate Vortex runtime while
+            // shutting down the busy Tokio runtime immediately.
+            let current_rt = CurrentThreadRuntime::new();
+            let dir_path = dir.path().to_path_buf();
+            current_rt.block_on(async move {
+                let abort_fut = writer_for_abort.abort();
+                drop(writer_for_drop);
+                tokio_rt.shutdown_timeout(Duration::ZERO);
+                let _ = release_tx.send(());
+
+                abort_fut.await?;
+                let deadline = std::time::Instant::now() + Duration::from_secs(2);
+                while std::fs::read_dir(&dir_path)?.count() > 0 {
+                    assert!(
+                        std::time::Instant::now() < deadline,
+                        "staging files remained after busy Tokio runtime shutdown"
+                    );
+                    smol::Timer::after(Duration::from_millis(5)).await;
+                }
+                anyhow::Ok(())
+            })?;
+
+            assert_eq!(std::fs::read_dir(dir.path())?.count(), 0);
             Ok(())
         }
     }
