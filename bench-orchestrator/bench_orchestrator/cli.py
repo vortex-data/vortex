@@ -36,7 +36,7 @@ from .config import (
     parse_targets_json,
     resolve_axis_targets,
 )
-from .data_cache import S3DataCache, cached_dataset
+from .data_cache import S3DataCache, cached_dataset, prepare_dataset
 from .runner.builder import BenchmarkBuilder
 from .runner.executor import BenchmarkExecutor
 from .runner.labels import label_ingest_file, label_result_line
@@ -272,11 +272,12 @@ def prepare_data(
 
     try:
         cache = S3DataCache(s3_cache) if s3_cache else None
-        dataset = cached_dataset(benchmark, bench_opts, builder.workspace_root) if cache else None
-        restored = cache is not None and dataset is not None and cache.restore(dataset)
-        subprocess.run(cmd, check=True)
-        if cache is not None and dataset is not None and not restored:
-            cache.save(dataset)
+        dataset = cached_dataset(benchmark, bench_opts, builder.workspace_root)
+        if dataset is not None:
+            with prepare_dataset(dataset, cache=cache):
+                subprocess.run(cmd, check=True)
+        else:
+            subprocess.run(cmd, check=True)
     except (subprocess.CalledProcessError, ValueError, FileNotFoundError) as exc:
         console.print(f"[red]Data generation failed: {exc}[/red]")
         raise typer.Exit(1) from exc
