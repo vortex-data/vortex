@@ -307,10 +307,13 @@ fn test_unwrapped_s3_multipart_abort_and_drop_succeed_outside_idle_tokio_runtime
     use std::io::Read;
     use std::io::Write;
     use std::net::TcpListener;
+    use std::sync::atomic::AtomicBool;
     use std::sync::atomic::AtomicUsize;
     use std::sync::atomic::Ordering;
     use std::time::Duration;
 
+    use object_store::ClientOptions;
+    use object_store::RetryConfig;
     use object_store::aws::AmazonS3Builder;
     use vortex_io::VortexWrite;
     use vortex_io::object_store::ObjectStoreWrite;
@@ -321,48 +324,75 @@ fn test_unwrapped_s3_multipart_abort_and_drop_succeed_outside_idle_tokio_runtime
     let addr = listener.local_addr()?;
     let post_count = Arc::new(AtomicUsize::new(0));
     let delete_count = Arc::new(AtomicUsize::new(0));
+    let stop = Arc::new(AtomicBool::new(false));
     let posts_server = Arc::clone(&post_count);
     let deletes_server = Arc::clone(&delete_count);
+    let stop_server = Arc::clone(&stop);
 
+    // Keep-alive HTTP fixture: each accepted connection is served on its own thread and stays open
+    // across requests so hyper's connection pool reuses the connection opened during initiation.
     let server_thread = std::thread::spawn(move || {
-        // Handle 2 multipart initiation POST requests + 2 abort DELETE requests.
         let deadline = std::time::Instant::now() + Duration::from_secs(5);
         drop(listener.set_nonblocking(true));
-        while deletes_server.load(Ordering::SeqCst) < 2 && std::time::Instant::now() < deadline {
+        let mut conn_threads = Vec::new();
+        while !stop_server.load(Ordering::SeqCst)
+            && deletes_server.load(Ordering::SeqCst) < 2
+            && std::time::Instant::now() < deadline
+        {
             match listener.accept() {
                 Ok((mut conn, _)) => {
-                    drop(conn.set_read_timeout(Some(Duration::from_millis(200))));
-                    let mut buf = [0u8; 4096];
-                    if let Ok(n) = conn.read(&mut buf)
-                        && n > 0
-                    {
-                        let req = String::from_utf8_lossy(&buf[..n]);
-                        let first_line = req.lines().next().unwrap_or("");
-                        if first_line.starts_with("POST ") {
-                            let id = posts_server.fetch_add(1, Ordering::SeqCst) + 1;
-                            let body = format!(
-                                "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\
-                                 <InitiateMultipartUploadResult>\
-                                 <Bucket>test-bucket</Bucket>\
-                                 <Key>file-{id}.vortex</Key>\
-                                 <UploadId>upload-{id}</UploadId>\
-                                 </InitiateMultipartUploadResult>"
-                            );
-                            let resp = format!(
-                                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nContent-Type: application/xml\r\nConnection: close\r\n\r\n{}",
-                                body.len(),
-                                body
-                            );
-                            drop(conn.write_all(resp.as_bytes()));
-                        } else if first_line.starts_with("DELETE ") {
-                            deletes_server.fetch_add(1, Ordering::SeqCst);
-                            let resp = "HTTP/1.1 204 No Content\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
-                            drop(conn.write_all(resp.as_bytes()));
-                        } else {
-                            let resp = "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
-                            drop(conn.write_all(resp.as_bytes()));
+                    let posts_conn = Arc::clone(&posts_server);
+                    let deletes_conn = Arc::clone(&deletes_server);
+                    let stop_conn = Arc::clone(&stop_server);
+                    conn_threads.push(std::thread::spawn(move || {
+                        drop(conn.set_read_timeout(Some(Duration::from_millis(50))));
+                        let mut buf = [0u8; 4096];
+                        while !stop_conn.load(Ordering::SeqCst)
+                            && deletes_conn.load(Ordering::SeqCst) < 2
+                            && std::time::Instant::now() < deadline
+                        {
+                            match conn.read(&mut buf) {
+                                Ok(0) => break,
+                                Ok(n) => {
+                                    let req = String::from_utf8_lossy(&buf[..n]);
+                                    let first_line = req.lines().next().unwrap_or("");
+                                    if first_line.starts_with("POST ") {
+                                        let id = posts_conn.fetch_add(1, Ordering::SeqCst) + 1;
+                                        let body = format!(
+                                            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\
+                                             <InitiateMultipartUploadResult>\
+                                             <Bucket>test-bucket</Bucket>\
+                                             <Key>file-{id}.vortex</Key>\
+                                             <UploadId>upload-{id}</UploadId>\
+                                             </InitiateMultipartUploadResult>"
+                                        );
+                                        let resp = format!(
+                                            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nContent-Type: application/xml\r\nConnection: keep-alive\r\n\r\n{}",
+                                            body.len(),
+                                            body
+                                        );
+                                        if conn.write_all(resp.as_bytes()).is_err() {
+                                            break;
+                                        }
+                                    } else if first_line.starts_with("DELETE ") {
+                                        deletes_conn.fetch_add(1, Ordering::SeqCst);
+                                        let resp = "HTTP/1.1 204 No Content\r\nContent-Length: 0\r\nConnection: keep-alive\r\n\r\n";
+                                        if conn.write_all(resp.as_bytes()).is_err() {
+                                            break;
+                                        }
+                                    } else {
+                                        let resp = "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+                                        drop(conn.write_all(resp.as_bytes()));
+                                        break;
+                                    }
+                                }
+                                Err(err)
+                                    if err.kind() == std::io::ErrorKind::WouldBlock
+                                        || err.kind() == std::io::ErrorKind::TimedOut => {}
+                                Err(_) => break,
+                            }
                         }
-                    }
+                    }));
                 }
                 Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => {
                     std::thread::sleep(Duration::from_millis(5));
@@ -370,34 +400,50 @@ fn test_unwrapped_s3_multipart_abort_and_drop_succeed_outside_idle_tokio_runtime
                 Err(_) => break,
             }
         }
+        for handle in conn_threads {
+            drop(handle.join());
+        }
     });
 
-    let s3: Arc<dyn ObjectStore> = Arc::new(
-        AmazonS3Builder::new()
-            .with_endpoint(format!("http://{addr}"))
-            .with_bucket_name("test-bucket")
-            .with_region("us-east-1")
-            .with_access_key_id("test")
-            .with_secret_access_key("test")
-            .with_allow_http(true)
-            .with_virtual_hosted_style_request(false)
-            .build()?,
-    );
+    let build_s3 = || -> Result<Arc<dyn ObjectStore>, object_store::Error> {
+        Ok(Arc::new(
+            AmazonS3Builder::new()
+                .with_endpoint(format!("http://{addr}"))
+                .with_bucket_name("test-bucket")
+                .with_region("us-east-1")
+                .with_access_key_id("test")
+                .with_secret_access_key("test")
+                .with_virtual_hosted_style_request(false)
+                .with_retry(RetryConfig {
+                    max_retries: 0,
+                    ..Default::default()
+                })
+                .with_client_options(
+                    ClientOptions::new()
+                        .with_allow_http(true)
+                        .with_timeout(Duration::from_millis(1500)),
+                )
+                .build()?,
+        ))
+    };
+    let s3_abort = build_s3()?;
+    let s3_drop = build_s3()?;
 
     let tokio_rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()?;
     let (mut writer_for_abort, writer_for_drop) = tokio_rt.block_on(async {
-        let mut w1 = ObjectStoreWrite::new(Arc::clone(&s3), &Path::from("s3-abort.vortex")).await?;
+        let mut w1 = ObjectStoreWrite::new(s3_abort, &Path::from("s3-abort.vortex")).await?;
         w1.write_all(vec![1u8; 64]).await?;
-        let mut w2 = ObjectStoreWrite::new(Arc::clone(&s3), &Path::from("s3-drop.vortex")).await?;
+        let mut w2 = ObjectStoreWrite::new(s3_drop, &Path::from("s3-drop.vortex")).await?;
         w2.write_all(vec![2u8; 64]).await?;
         Ok::<_, Box<dyn std::error::Error>>((w1, w2))
     })?;
     assert_eq!(post_count.load(Ordering::SeqCst), 2);
 
     // Move both unwrapped S3 writers onto Vortex's CurrentThreadRuntime while the originating
-    // Tokio current-thread runtime stays alive and idle.
+    // Tokio current-thread runtime stays alive and idle. With retries disabled and keep-alive
+    // connections held open, both DELETE aborts must still reach the server immediately.
     let current_rt = CurrentThreadRuntime::new();
     let deletes_client = Arc::clone(&delete_count);
     current_rt.block_on(async move {
@@ -415,6 +461,7 @@ fn test_unwrapped_s3_multipart_abort_and_drop_succeed_outside_idle_tokio_runtime
         Ok::<_, Box<dyn std::error::Error>>(())
     })?;
 
+    stop.store(true, Ordering::SeqCst);
     server_thread
         .join()
         .map_err(|_| "HTTP fixture thread panicked")?;

@@ -56,6 +56,15 @@ const BUFFER_SIZE: usize = 128 * 1024 * 1024;
 
 impl ObjectStoreWrite {
     pub async fn new(object_store: Arc<dyn ObjectStore>, location: &Path) -> VortexResult<Self> {
+        #[cfg(not(target_arch = "wasm32"))]
+        let upload = {
+            let location = location.clone();
+            smol::spawn(Compat::new(async move {
+                object_store.put_multipart(&location).await
+            }))
+            .await?
+        };
+        #[cfg(target_arch = "wasm32")]
         let upload = object_store.put_multipart(location).await?;
         Ok(Self {
             state: UploadState::Active(upload),
@@ -411,10 +420,12 @@ mod tests {
     #[allow(clippy::unimplemented)]
     mod multipart_lifecycle_tests {
         use std::fmt;
+        use std::future::poll_fn;
         use std::sync::Arc;
         use std::sync::atomic::AtomicUsize;
         use std::sync::atomic::Ordering;
         use std::sync::mpsc;
+        use std::task::Poll;
         use std::time::Duration;
 
         use async_trait::async_trait;
@@ -1501,17 +1512,22 @@ mod tests {
             });
             busy_rx.recv()?;
 
-            // Request both explicit abort and drop cleanup from a separate Vortex runtime while
-            // shutting down the busy Tokio runtime immediately.
+            // Request both explicit abort and drop cleanup from a separate Vortex runtime, polling
+            // the explicit abort once before shutting down the busy Tokio runtime so both cleanups
+            // are already in progress when shutdown runs.
             let current_rt = CurrentThreadRuntime::new();
             let dir_path = dir.path().to_path_buf();
             current_rt.block_on(async move {
-                let abort_fut = writer_for_abort.abort();
+                let mut abort_fut = Box::pin(writer_for_abort.abort());
+                let first_poll = poll_fn(|cx| Poll::Ready(abort_fut.as_mut().poll(cx))).await;
                 drop(writer_for_drop);
                 tokio_rt.shutdown_timeout(Duration::ZERO);
                 let _ = release_tx.send(());
 
-                abort_fut.await?;
+                match first_poll {
+                    Poll::Ready(res) => res?,
+                    Poll::Pending => abort_fut.await?,
+                }
                 let deadline = std::time::Instant::now() + Duration::from_secs(2);
                 while std::fs::read_dir(&dir_path)?.count() > 0 {
                     assert!(
