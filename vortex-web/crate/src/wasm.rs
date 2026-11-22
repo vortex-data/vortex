@@ -40,6 +40,7 @@ use vortex::layout::scan::scan_builder::ScanBuilder;
 use vortex::session::VortexSession;
 use vortex::session::registry::ReadContext;
 use vortex_arrow::ArrowSessionExt;
+use vortex_arrow::ExecuteArrowExt;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::JsFuture;
 
@@ -781,9 +782,7 @@ fn array_to_record_batch(
     };
     let target = Field::new("", data_type, array.dtype().is_nullable());
     let mut ctx = session.create_execution_ctx();
-    let arrow = session
-        .arrow()
-        .execute_arrow(array, Some(&target), &mut ctx)?;
+    let arrow = array.execute_arrow(Some(&target), &mut ctx)?;
     match dtype {
         DType::Struct(..) => Ok(RecordBatch::from(arrow.as_struct().clone())),
         _ => Ok(RecordBatch::try_new(schema.clone(), vec![arrow])?),

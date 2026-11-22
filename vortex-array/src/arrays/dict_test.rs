@@ -56,11 +56,22 @@ where
 }
 
 pub fn gen_varbin_words(len: usize, unique_count: usize) -> Vec<String> {
+    gen_varbin_words_of_len(len, unique_count, 16)
+}
+
+/// [`gen_varbin_words`] with a chosen word length.
+///
+/// Words of at most [`BinaryView::MAX_INLINED_SIZE`] bytes are held inline in their view, which
+/// is a materially different path through the dictionary builder than longer words that live on
+/// a separate value heap.
+///
+/// [`BinaryView::MAX_INLINED_SIZE`]: crate::arrays::varbinview::BinaryView::MAX_INLINED_SIZE
+pub fn gen_varbin_words_of_len(len: usize, unique_count: usize, word_len: usize) -> Vec<String> {
     let rng = &mut StdRng::seed_from_u64(0);
     let dict: Vec<String> = (0..unique_count)
         .map(|_| {
             rng.sample_iter(&Alphanumeric)
-                .take(16)
+                .take(word_len)
                 .map(char::from)
                 .collect()
         })

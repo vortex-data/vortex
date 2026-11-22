@@ -8,8 +8,6 @@
 //! geometries from different rows, so a query over individual geometry rows must group them
 //! first with `ARRAY_AGG` or `list`.
 
-use std::sync::Arc;
-
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
@@ -66,27 +64,20 @@ fn collect_dtype(dtypes: &[DType]) -> VortexResult<ExtDTypeRef> {
     let DType::List(element_dtype, nullability) = &dtypes[0] else {
         vortex_bail!("spatial: collect operand {} is not a list", dtypes[0]);
     };
-    // Execution ignores null list elements, so the result's element storage is non-nullable.
-    let multi_storage = |element: &ExtDTypeRef| {
-        DType::List(
-            Arc::new(element.storage_dtype().as_nonnullable()),
-            *nullability,
-        )
-    };
     match element_dtype.as_extension_opt() {
         Some(element) if element.is::<Point>() => Ok(ExtDType::<MultiPoint>::try_new(
             element.metadata::<Point>().clone(),
-            multi_storage(element),
+            *nullability,
         )?
         .erased()),
         Some(element) if element.is::<LineString>() => Ok(ExtDType::<MultiLineString>::try_new(
             element.metadata::<LineString>().clone(),
-            multi_storage(element),
+            *nullability,
         )?
         .erased()),
         Some(element) if element.is::<Polygon>() => Ok(ExtDType::<MultiPolygon>::try_new(
             element.metadata::<Polygon>().clone(),
-            multi_storage(element),
+            *nullability,
         )?
         .erased()),
         _ => vortex_bail!(

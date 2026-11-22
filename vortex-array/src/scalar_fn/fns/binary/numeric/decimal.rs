@@ -3,23 +3,16 @@
 
 //! Native execution of the arithmetic operators over decimal arrays.
 //!
-//! Both operands share a logical [`DecimalDType`] (equal precision and scale). Add and Sub apply
-//! directly to the unscaled stored integers and are exact at that shared scale. Mul takes the raw
-//! product, which the doubled result scale leaves correctly scaled, and Div rescales the dividend
-//! (or the divisor, for a negative result scale) before integer division. Result precision and
-//! scale follow Arrow's rules — see [`decimal_numeric_result_dtype`].
+//! Both operands share a [`DecimalDType`], so their canonical arrays store unscaled integers at
+//! the same width. Add and Sub are exact at the shared scale. Mul takes the raw product, which the
+//! doubled result scale leaves correctly scaled. Div rescales the dividend (or the divisor, for a
+//! negative result scale) before integer division. [`decimal_numeric_result_dtype`] selects the
+//! result precision and scale using Arrow's rules.
 //!
-//! Lanes execute in a working width wide enough that in-precision inputs cannot spuriously
-//! overflow an intermediate, then narrow to the result's own storage width. Every lane is still
-//! checked at that width: [`DecimalArray`] does not validate its stored values against the
-//! declared precision, so an out-of-precision value can reach a kernel and must not be able to
-//! overflow it. An operation that overflows the result precision on a valid lane is an error;
-//! invalid lanes never error.
-//!
-//! Storage width is independent of precision, so two arrays sharing a dtype may still be stored
-//! at different widths. A mismatched pair is widened to the wider of the two before the lane
-//! loop, zero-copy when they already match, so each working width and operator monomorphizes
-//! one array kernel per storage width rather than one per pair of storage widths.
+//! Arithmetic uses a working width that accommodates intermediate values, then narrows to the
+//! result's canonical width. File reads trust the stored precision, so a valid row can contain an
+//! out-of-precision input. The kernel checks each valid row for native overflow and for a result
+//! outside the declared result precision. Null rows never report an arithmetic error.
 
 use std::ops::Mul;
 
@@ -45,7 +38,6 @@ use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
 use crate::arrays::DecimalArray;
 use crate::arrays::decimal::DecimalArrayExt;
-use crate::arrays::decimal::widened_buffer;
 use crate::dtype::BigCast;
 use crate::dtype::DType;
 use crate::dtype::DecimalDType;
@@ -346,7 +338,15 @@ where
 
     let values = match (lhs, rhs) {
         (DecimalOperand::Array { values: lhs, .. }, DecimalOperand::Array { values: rhs, .. }) => {
-            checked_decimal_arrays::<W, Op>(lhs, rhs, constants, valid_rows, allocator)
+            match_each_decimal_value_type!(lhs.values_type(), |T| {
+                checked_decimal_slices::<T, W, Op>(
+                    &lhs.buffer::<T>(),
+                    &rhs.buffer::<T>(),
+                    constants,
+                    valid_rows,
+                    allocator,
+                )
+            })
         }
         (DecimalOperand::Array { values: lhs, .. }, DecimalOperand::Constant { value, .. }) => {
             let rhs = typed_constant::<W>(value);
@@ -411,7 +411,9 @@ fn decimal_array_narrowed<W: NativeDecimalType>(
 ) -> ArrayRef {
     let target = decimal_dtype.canonical_values_type();
     if target == W::DECIMAL_TYPE {
-        return DecimalArray::new(values, decimal_dtype, validity).into_array();
+        // SAFETY: The arithmetic kernel checks each valid result against the declared precision.
+        return unsafe { DecimalArray::new_unchecked(values, decimal_dtype, validity) }
+            .into_array();
     }
 
     match_each_decimal_value_type!(target, |O| {
@@ -420,41 +422,38 @@ fn decimal_array_narrowed<W: NativeDecimalType>(
             <O as BigCast>::from(value)
                 .vortex_expect("precision-checked decimal result must fit the output width")
         }));
-        DecimalArray::new(narrowed.freeze(), decimal_dtype, validity).into_array()
+        // SAFETY: Narrowing preserves the checked results, their length, and their validity.
+        unsafe { DecimalArray::new_unchecked(narrowed.freeze(), decimal_dtype, validity) }
+            .into_array()
     })
 }
 
-fn checked_decimal_arrays<W, Op>(
-    lhs: &DecimalArray,
-    rhs: &DecimalArray,
+fn checked_decimal_slices<T, W, Op>(
+    lhs: &[T],
+    rhs: &[T],
     constants: &DecimalOpConstants<W>,
     valid_rows: &Mask,
     allocator: &BufferAllocatorRef,
 ) -> Result<Buffer<W>, usize>
 where
+    T: NativeDecimalType,
     W: NativeDecimalType + CheckedAdd + CheckedSub + CheckedMul + CheckedDiv + Mul<Output = W>,
     Op: CheckedDecimalOp,
 {
     debug_assert_eq!(lhs.len(), rhs.len());
-    // Dispatch on one storage width, not a pair: a mismatched pair is widened to the wider side
-    // first, which is a copy only in that rare case.
-    let storage = lhs.values_type().max(rhs.values_type());
-    match_each_decimal_value_type!(storage, |L| {
-        let lhs = widened_buffer::<L>(lhs);
-        let rhs = widened_buffer::<L>(rhs);
-        checked_lanes(
-            LaneZip::new(lhs.as_slice(), rhs.as_slice()),
-            valid_rows,
-            |(lhs, rhs)| {
-                Op::apply(
-                    <W as BigCast>::from(lhs)?,
-                    <W as BigCast>::from(rhs)?,
-                    constants,
-                )
-            },
-            allocator,
-        )
-    })
+
+    checked_lanes(
+        LaneZip::new(lhs, rhs),
+        valid_rows,
+        |(lhs, rhs)| {
+            Op::apply(
+                <W as BigCast>::from(lhs)?,
+                <W as BigCast>::from(rhs)?,
+                constants,
+            )
+        },
+        allocator,
+    )
 }
 
 fn typed_constant<W: NativeDecimalType>(value: &DecimalValue) -> W {

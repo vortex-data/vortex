@@ -152,7 +152,7 @@ impl ScalarFnVTable for GetItem {
     fn serialize(&self, instance: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
         Ok(Some(
             pb::GetItemOpts {
-                path: instance.to_string(),
+                path: instance.as_ref().to_owned(),
             }
             .encode_to_vec(),
         ))
@@ -280,6 +280,7 @@ mod tests {
     use crate::expr::get_item;
     use crate::expr::lit;
     use crate::expr::pack;
+    use crate::expr::proto::ExprSerializeProtoExt;
     use crate::expr::root;
     use crate::expr::select;
     use crate::expr::select_exclude;
@@ -299,6 +300,27 @@ mod tests {
             ("b", buffer![4i64, 5, 6].into_array()),
         ])
         .unwrap()
+    }
+
+    #[test]
+    fn test_roundtrip_preserves_field_names() -> VortexResult<()> {
+        let name = "quote\"slash\\line\n\t\r\0 ♡";
+        let escaped_name = name.escape_debug().to_string();
+        let expected = buffer![1i32, 2].into_array();
+        let input = StructArray::from_fields(&[
+            (name, expected.clone()),
+            (escaped_name.as_str(), buffer![3i32, 4].into_array()),
+        ])?
+        .into_array();
+        let expression = get_item(name, root());
+        let restored = Expression::from_proto(&expression.serialize_proto()?, &SESSION)?;
+
+        assert_arrays_eq!(
+            input.apply(&restored)?,
+            expected,
+            &mut SESSION.create_execution_ctx()
+        );
+        Ok(())
     }
 
     #[test]

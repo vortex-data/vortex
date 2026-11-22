@@ -13,39 +13,40 @@
 #include "bit_unpack_64_lanes.cuh"
 #include "patches.h"
 
-/// Decodes a single lane of packed data.
+/// Number of 16-row slices each FastLanes lane is split into.
 ///
-/// This is a template function that dispatches to the appropriate bitunpack kernel
-/// for the element type. Each lane represents a chunk of packed data that must be
-/// unpacked in parallel by multiple threads within a block.
+/// A 1024-element chunk has 1024 / bits lanes of `bits` rows each. 8- and
+/// 16-bit chunks have 128 and 64 lanes, enough to keep a 64-thread block
+/// busy, so their lanes stay whole. 32- and 64-bit chunks have only 32 and 16
+/// lanes, so their lanes are split into 2 and 4 slices that separate threads
+/// decode.
+template <typename T>
+constexpr uint32_t LANE_SLICES = sizeof(T) >= 4 ? sizeof(T) * 8 / 16 : 1;
+
+/// Decodes rows `[slice * 16, (slice + 1) * 16)` of one lane of a FastLanes
+/// chunk into `output_buffer`, or the whole lane when `LANE_SLICES<T> == 1`.
 ///
 /// # Parameters
 ///
 /// * `packed_chunk` - Pointer to the start of the packed data chunk
 /// * `output_buffer` - Pointer to the output buffer to which the unpacked data is written
-/// * `lane` - Lane index within the block (used to determine which packed words to process)
+/// * `lane` - Lane index within the chunk (used to determine which packed words to process)
 /// * `bit_width` - Number of bits with which each value is encoded
+/// * `slice` - Slice of the lane to decode, less than `LANE_SLICES<T>`
 template <typename T>
-__device__ __noinline__ void bit_unpack_lane(const T *__restrict packed_chunk,
+__device__ inline void bit_unpack_lane_slice(const T *__restrict packed_chunk,
                                              T *__restrict output_buffer,
-                                             T reference,
                                              unsigned int lane,
-                                             uint32_t bit_width);
-
-/// Template specializations for `bitunpack_lane_to_smem` for different integer types.
-///
-/// Generates template specializations for each supported integer size (8, 16, 32, 64 bits).
-#define BIT_UNPACK_LANE(bits)                                                                                \
-    template <>                                                                                              \
-    __device__ __noinline__ void bit_unpack_lane<uint##bits##_t>(const uint##bits##_t *in,                   \
-                                                                 uint##bits##_t *out,                        \
-                                                                 uint##bits##_t reference,                   \
-                                                                 unsigned int lane,                          \
-                                                                 uint32_t bw) {                              \
-        bit_unpack_##bits##_lane(in, out, reference, lane, bw);                                              \
+                                             uint32_t bit_width,
+                                             uint32_t slice) {
+    if constexpr (sizeof(T) == 1) {
+        bit_unpack_8_lane(packed_chunk, output_buffer, 0, lane, bit_width);
+    } else if constexpr (sizeof(T) == 2) {
+        bit_unpack_16_lane(packed_chunk, output_buffer, 0, lane, bit_width);
+    } else if constexpr (sizeof(T) == 4) {
+        bit_unpack_32_lane_slice(packed_chunk, output_buffer, 0, lane, bit_width, slice);
+    } else {
+        static_assert(sizeof(T) == 8);
+        bit_unpack_64_lane_slice(packed_chunk, output_buffer, 0, lane, bit_width, slice);
     }
-
-BIT_UNPACK_LANE(8)
-BIT_UNPACK_LANE(16)
-BIT_UNPACK_LANE(32)
-BIT_UNPACK_LANE(64)
+}

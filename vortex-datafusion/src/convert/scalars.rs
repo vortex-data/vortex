@@ -987,7 +987,7 @@ mod tests {
         #[case] nested: bool,
     ) -> VortexResult<()> {
         let dtype = DType::Extension(
-            ExtDType::<Json>::try_new(EmptyMetadata, DType::Utf8(Nullability::Nullable))?.erased(),
+            ExtDType::<Json>::try_new(EmptyMetadata, Nullability::Nullable)?.erased(),
         );
         let scalar = Scalar::try_new(
             dtype.clone(),

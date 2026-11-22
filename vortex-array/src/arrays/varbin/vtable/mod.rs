@@ -21,8 +21,10 @@ use crate::array::Array;
 use crate::array::ArrayId;
 use crate::array::ArrayView;
 use crate::array::VTable;
+use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::varbin::VarBinArrayExt;
+use crate::arrays::varbin::VarBinArraySlotsExt;
 use crate::arrays::varbin::VarBinData;
 use crate::arrays::varbin::VarBinSlots;
 use crate::buffer::BufferHandle;
@@ -32,6 +34,7 @@ use crate::dtype::DType;
 use crate::dtype::PType;
 use crate::match_each_integer_ptype;
 use crate::match_each_varbin_builder;
+use crate::require_child;
 pub(crate) mod canonical;
 mod kernel;
 mod operations;
@@ -172,9 +175,11 @@ impl VTable for VarBin {
         append_to_varbinview(array, builder, ctx)
     }
 
-    fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+    fn execute(array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+        let array = require_child!(array, array.offsets(), VarBinSlots::OFFSETS => Primitive);
+
         Ok(ExecutionResult::done(
-            varbin_to_canonical(array.as_view(), ctx)?.into_array(),
+            varbin_to_canonical(array)?.into_array(),
         ))
     }
 }

@@ -19,6 +19,7 @@ use futures::future::ready;
 use futures::pin_mut;
 use futures::select;
 use itertools::Itertools;
+use parking_lot::Mutex;
 use vortex_array::ArrayContext;
 use vortex_array::ArrayId;
 use vortex_array::ArrayRef;
@@ -52,6 +53,7 @@ use vortex_layout::BufferedBytesTracker;
 use vortex_layout::LayoutContext;
 use vortex_layout::LayoutStrategy;
 use vortex_layout::LayoutWriterContext;
+use vortex_layout::layouts::file_stats::FileStatsSelection;
 use vortex_layout::layouts::file_stats::accumulate_stats;
 use vortex_layout::sequence::SequenceId;
 use vortex_layout::sequence::SequentialStreamAdapter;
@@ -88,13 +90,14 @@ pub struct VortexWriteOptions {
     disable_editions: bool,
     size: WriteSizeEstimator,
     exclude_dtype: bool,
-    /// The aggregates to compute for file-level statistics.
+    /// The aggregates to compute for file-level statistics, per field.
     ///
-    /// If unset, the writer chooses pruning aggregates from the file dtype.
-    file_statistics: Option<Vec<AggregateFnRef>>,
+    /// Fields without an explicit selection get pruning aggregates chosen from their dtype.
+    file_statistics: FileStatsSelection,
     write_nested_statistics: bool,
     write_legacy_statistics: bool,
     metadata: HashMap<String, ByteBuffer>,
+    deferred_metadata: DeferredMetadata,
 }
 
 /// Extension trait for constructing [`VortexWriteOptions`] from a session.
@@ -115,10 +118,11 @@ impl VortexWriteOptions {
             size: WriteSizeEstimator::default(),
             session,
             exclude_dtype: false,
-            file_statistics: None,
+            file_statistics: FileStatsSelection::new(),
             write_nested_statistics: false,
             write_legacy_statistics: true,
             metadata: HashMap::default(),
+            deferred_metadata: DeferredMetadata::default(),
         }
     }
 
@@ -177,15 +181,35 @@ impl VortexWriteOptions {
         self
     }
 
-    /// Configure which statistics to compute at the file level.
+    /// Configure which statistics to compute at the file level for every field that
+    /// [`Self::with_field_file_statistics`] does not configure.
     ///
-    /// Pass an empty vector to omit file-level statistics. If left unset, the writer chooses
-    /// pruning aggregates from the file dtype.
+    /// Pass an empty vector to record no statistics outside those fields; with no field
+    /// configured either, file-level statistics are omitted. If left unset, the writer chooses
+    /// pruning aggregates from each field's dtype.
     ///
     /// Like zone maps, file statistics only record aggregates the enabled editions include: the
     /// write fails if this asks for one they don't, while the defaults leave such aggregates out.
     pub fn with_file_statistics(mut self, file_statistics: Vec<AggregateFnRef>) -> Self {
-        self.file_statistics = Some(file_statistics);
+        self.file_statistics = self.file_statistics.with_default(file_statistics);
+        self
+    }
+
+    /// Configure which statistics to compute at the file level for the field at `path` and every
+    /// field nested beneath it, in place of those from [`Self::with_file_statistics`].
+    ///
+    /// A deeper path takes precedence over a shallower one, and a repeated path replaces the
+    /// previous statistics. Pass an empty vector to record nothing for the field. Fields nested
+    /// beneath a nullable struct record no statistics regardless.
+    ///
+    /// The write fails if `path` does not name a field reachable through struct fields of the
+    /// file dtype, or if it asks for an aggregate the enabled editions don't include.
+    pub fn with_field_file_statistics(
+        mut self,
+        path: impl Into<FieldPath>,
+        file_statistics: Vec<AggregateFnRef>,
+    ) -> Self {
+        self.file_statistics = self.file_statistics.with_field(path, file_statistics);
         self
     }
 
@@ -251,6 +275,48 @@ impl VortexWriteOptions {
     /// reject an invalid set before any bytes are produced.
     pub fn validate_metadata(&self) -> VortexResult<()> {
         validate_metadata_segments(&self.metadata)
+    }
+
+    /// Returns a handle that adds metadata segments while the write runs.
+    ///
+    /// The write reads the handle after the input stream ends, immediately before the footer.
+    /// Its segments replace the [`Self::with_metadata_segment`] segments that have the same key,
+    /// and the `MAX_METADATA_*` limits apply to the merged set. The write ignores segments that
+    /// you add after the input ends.
+    pub fn deferred_metadata(&self) -> DeferredMetadata {
+        self.deferred_metadata.clone()
+    }
+}
+
+/// A shared handle that adds metadata segments to a write after the write starts.
+#[derive(Clone, Default)]
+pub struct DeferredMetadata {
+    segments: Arc<Mutex<HashMap<String, ByteBuffer>>>,
+}
+
+impl DeferredMetadata {
+    /// Add a metadata segment. A repeated key replaces the previous value.
+    pub fn insert(&self, key: impl Into<String>, metadata: impl Into<ByteBuffer>) {
+        self.segments.lock().insert(key.into(), metadata.into());
+    }
+
+    /// Add metadata segments. A repeated key replaces the previous value.
+    pub fn extend<I, K, B>(&self, metadata: I)
+    where
+        I: IntoIterator<Item = (K, B)>,
+        K: Into<String>,
+        B: Into<ByteBuffer>,
+    {
+        self.segments.lock().extend(
+            metadata
+                .into_iter()
+                .map(|(key, value)| (key.into(), value.into())),
+        );
+    }
+
+    /// Remove all segments from the handle and return them.
+    fn take(&self) -> HashMap<String, ByteBuffer> {
+        std::mem::take(&mut *self.segments.lock())
     }
 }
 
@@ -327,12 +393,12 @@ impl VortexWriteOptions {
                 .map(move |result| result.map(|chunk| (ptr.advance(), chunk))),
         )
         .sendable();
-        let omit_statistics = matches!(&self.file_statistics, Some(stats) if stats.is_empty())
+        let omit_statistics = self.file_statistics.is_empty()
             || (!self.write_nested_statistics && !self.write_legacy_statistics);
-        let file_statistics: Option<Arc<[AggregateFnRef]>> = if omit_statistics {
-            Some(Arc::from([]))
+        let file_statistics = if omit_statistics {
+            FileStatsSelection::new().with_default(vec![])
         } else {
-            self.file_statistics.clone().map(Arc::from)
+            self.file_statistics.clone()
         };
         // When unset, `accumulate_stats` resolves each leaf's own default from its dtype, the way
         // `default_zoned_aggregate_fns` does for zoned layouts (e.g. bounded min/max for
@@ -397,6 +463,11 @@ impl VortexWriteOptions {
 
         let (layout, segment_specs) = layout_fut.await?;
 
+        // The input stream has ended, so the deferred segments are complete.
+        let mut metadata = self.metadata;
+        metadata.extend(self.deferred_metadata.take());
+        validate_metadata_segments(&metadata)?;
+
         // Assemble the Footer object now that we have all the segments.
         let statistics = if omit_statistics {
             None
@@ -424,7 +495,7 @@ impl VortexWriteOptions {
             .clone()
             .into_serializer(&self.session)
             .with_layout_context(new_layout_context(&self.session, enforce_editions))
-            .with_metadata_segments(self.metadata)
+            .with_metadata_segments(metadata)
             .with_offset(position)
             .with_exclude_dtype(self.exclude_dtype)
             .serialize_with_metadata()?;
@@ -464,6 +535,7 @@ impl VortexWriteOptions {
         let write = CountingVortexWrite::new(write);
         let bytes_written = write.counter();
         let size = self.size.clone();
+        let deferred_metadata = self.deferred_metadata.clone();
         let future = self.write(write, arrays).boxed_local().fuse();
 
         Writer {
@@ -471,6 +543,7 @@ impl VortexWriteOptions {
             future,
             bytes_written,
             size,
+            deferred_metadata,
         }
     }
 }
@@ -618,6 +691,8 @@ pub struct Writer<'w> {
     bytes_written: Arc<AtomicU64>,
     // The size accounting shared with the layout strategies for this write.
     size: WriteSizeEstimator,
+    // The metadata segments that the write adds to the footer after the last chunk.
+    deferred_metadata: DeferredMetadata,
 }
 
 impl Writer<'_> {
@@ -730,6 +805,19 @@ impl Writer<'_> {
         self.future.await
     }
 
+    /// Finish writing the Vortex file and add the given metadata segments to its footer.
+    ///
+    /// See [`VortexWriteOptions::deferred_metadata`] for the merge and limit rules.
+    pub async fn finish_with_metadata<I, K, B>(self, metadata: I) -> VortexResult<WriteSummary>
+    where
+        I: IntoIterator<Item = (K, B)>,
+        K: Into<String>,
+        B: Into<ByteBuffer>,
+    {
+        self.deferred_metadata.extend(metadata);
+        self.finish().await
+    }
+
     /// Assuming the writer task has failed, await it to get the error.
     async fn handle_failed_task(&mut self) -> VortexError {
         match (&mut self.future).await {
@@ -809,6 +897,17 @@ impl<B: BlockingRuntime> BlockingWriter<'_, '_, B> {
     /// Finish writing and return the written file summary.
     pub fn finish(self) -> VortexResult<WriteSummary> {
         self.runtime.block_on(self.writer.finish())
+    }
+
+    /// Blocking version of [`Writer::finish_with_metadata`].
+    pub fn finish_with_metadata<I, K, V>(self, metadata: I) -> VortexResult<WriteSummary>
+    where
+        I: IntoIterator<Item = (K, V)>,
+        K: Into<String>,
+        V: Into<ByteBuffer>,
+    {
+        self.runtime
+            .block_on(self.writer.finish_with_metadata(metadata))
     }
 }
 

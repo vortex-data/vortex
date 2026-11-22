@@ -21,6 +21,8 @@ use crate::arrays::Chunked;
 use crate::arrays::ChunkedArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::DecimalArray;
+use crate::arrays::Dict;
+use crate::arrays::DictArray;
 use crate::arrays::FixedSizeListArray;
 use crate::arrays::ListArray;
 use crate::arrays::PrimitiveArray;
@@ -28,21 +30,19 @@ use crate::arrays::ScalarFn;
 use crate::arrays::StructArray;
 use crate::arrays::VarBinViewArray;
 use crate::arrays::chunked::ChunkedArrayExt;
+use crate::arrays::dict::DictArraySlotsExt;
 use crate::arrays::scalar_fn::ScalarFnArrayExt;
 use crate::assert_arrays_eq;
 use crate::builders::builder_with_capacity_in;
 use crate::dtype::DType;
 use crate::dtype::DecimalDType;
-use crate::dtype::DecimalType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::dtype::i256;
 use crate::expr::list_contains;
 use crate::expr::lit;
 use crate::expr::root;
-use crate::match_each_decimal_value_type;
 use crate::optimizer::ArrayOptimizer;
-use crate::scalar::DecimalValue;
 use crate::scalar::Scalar;
 use crate::scalar_fn::fns::list_contains::ListContains;
 use crate::scalar_fn::fns::list_contains::ListContainsOptions;
@@ -179,15 +179,6 @@ fn test_row_set_returns_membership_bits(
 #[rstest]
 fn test_decimal_bitmap_across_storage_widths(
     #[values(2, 4, 9, 18, 38, 76)] precision: u8,
-    #[values(
-        DecimalType::I8,
-        DecimalType::I16,
-        DecimalType::I32,
-        DecimalType::I64,
-        DecimalType::I128,
-        DecimalType::I256
-    )]
-    needle_width: DecimalType,
     #[values(false, true)] sql_null_semantics: bool,
 ) -> VortexResult<()> {
     let mut ctx = SESSION.create_execution_ctx();
@@ -198,14 +189,8 @@ fn test_decimal_bitmap_across_storage_widths(
         .into();
     elements.push(Scalar::null(dtype.clone()));
     let list = Scalar::list(dtype, elements, Nullability::NonNullable);
-    let needles = match_each_decimal_value_type!(needle_width, |T| {
-        DecimalArray::from_option_iter::<T, _>(
-            [Some(-2i8), Some(0), Some(1), None]
-                .map(|value| value.map(|value| DecimalValue::from(value).cast::<T>().unwrap())),
-            decimal,
-        )
-        .into_array()
-    });
+    let needles =
+        DecimalArray::from_option_iter([Some(-2i8), Some(0), Some(1), None], decimal).into_array();
     let options = ListContainsOptions { sql_null_semantics };
     let set = prepare(&list)?;
     let non_match = (!sql_null_semantics).then_some(false);
@@ -559,4 +544,66 @@ fn test_optimized_expression_over_chunked_needles() -> VortexResult<()> {
         &mut ctx
     );
     Ok(())
+}
+
+/// Dictionary needles with a null code or a null value, against a set that is empty or not.
+#[rstest]
+#[case::default(null_code_needles(), ListContainsOptions::default(), set_with_null(), vec![Some(true), Some(false), None, Some(true)])]
+#[case::sql(null_code_needles(), ListContainsOptions { sql_null_semantics: true }, set_with_null(), vec![Some(true), None, None, Some(true)])]
+// Off SQL null semantics an empty list answers `false` even for the null code.
+#[case::empty(null_code_needles(), ListContainsOptions::default(), empty_i32_set(), vec![Some(false); 4])]
+#[case::empty_sql(null_code_needles(), ListContainsOptions { sql_null_semantics: true }, empty_i32_set(), vec![Some(false), Some(false), None, Some(false)])]
+#[case::null_value(null_value_needles(), ListContainsOptions::default(), set_with_null(), vec![Some(true), Some(false), Some(true), None, Some(false)])]
+fn test_dictionary_needles(
+    #[case] needles: VortexResult<ArrayRef>,
+    #[case] options: ListContainsOptions,
+    #[case] set: Scalar,
+    #[case] expected: Vec<Option<bool>>,
+) -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let needles = needles?;
+    let list = ConstantArray::new(set, needles.len()).into_array();
+
+    let array = ListContains::try_new_opts(list, needles, options)?
+        .into_array()
+        .optimize_ctx(&SESSION)?;
+
+    // The rule took the node: it is a dictionary of answers, or a constant for the empty list.
+    assert!(!array.is::<ScalarFn>());
+
+    // The prepared list still lets the function into the values of the dictionary.
+    if let Some(dict) = array.as_opt::<Dict>() {
+        let values = dict.values().clone();
+        assert!(PreparedSet::set_of(values.as_::<ScalarFn>().get_child(0)).is_some());
+    }
+
+    assert_arrays_eq!(array, BoolArray::from_iter(expected), &mut ctx);
+    Ok(())
+}
+
+/// Dictionary needles of `i32` with a null code.
+fn null_code_needles() -> VortexResult<ArrayRef> {
+    Ok(DictArray::try_new(
+        PrimitiveArray::from_option_iter([Some(0u8), Some(1), None, Some(0)]).into_array(),
+        buffer![2i32, 3].into_array(),
+    )?
+    .into_array())
+}
+
+/// Dictionary needles of `i32` with a null value.
+fn null_value_needles() -> VortexResult<ArrayRef> {
+    Ok(DictArray::try_new(
+        buffer![0u8, 1, 0, 2, 1].into_array(),
+        PrimitiveArray::from_option_iter([Some(2i32), Some(3), None]).into_array(),
+    )?
+    .into_array())
+}
+
+/// The empty set of nullable `i32`.
+fn empty_i32_set() -> Scalar {
+    Scalar::list(
+        DType::Primitive(PType::I32, Nullability::Nullable),
+        vec![],
+        Nullability::NonNullable,
+    )
 }

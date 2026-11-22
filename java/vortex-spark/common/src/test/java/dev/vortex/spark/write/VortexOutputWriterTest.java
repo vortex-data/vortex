@@ -87,6 +87,17 @@ final class VortexOutputWriterTest {
                 .contains("vortex.write.batch.size"));
     }
 
+    @Test
+    void aMalformedCompactOptionFailsWhenSparkBuildsTheFactory() {
+        StructType schema = new StructType().add("id", DataTypes.LongType, false);
+        VortexOptions options = options(Map.of("vortex.write.compact", "maybe"));
+
+        // Spark builds the factory on the driver, so a malformed value fails before any task starts.
+        assertTrue(assertThrows(IllegalArgumentException.class, () -> new VortexOutputWriterFactory(schema, options))
+                .getMessage()
+                .contains("vortex.write.compact"));
+    }
+
     /**
      * The native writer keeps every batch it receives until a row block is complete, so the memory each batch takes
      * must be proportional to its rows, not to Arrow's default vector capacity of a few thousand values.

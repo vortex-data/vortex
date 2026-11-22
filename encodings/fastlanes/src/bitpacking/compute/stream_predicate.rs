@@ -36,6 +36,7 @@ use crate::BitPacked;
 use crate::BitPackedArrayExt;
 use crate::FL_CHUNK_SIZE;
 use crate::unpack_iter::BitPacked as BitPackedIter;
+use crate::unpack_iter::BitUnpackedChunks;
 
 /// Stream `predicate` over the unpacked values of a [`BitPackedArray`](crate::BitPackedArray), one FastLanes
 /// block at a time, producing a [`BoolArray`].
@@ -62,13 +63,14 @@ where
             let p_val_arr = p.values().clone().execute::<PrimitiveArray>(ctx)?;
             let p_off = p.offset();
             match_each_unsigned_integer_ptype!(p_idx_arr.ptype(), |I| {
-                let p_idx = p_idx_arr.as_slice::<I>();
-                let p_val = p_val_arr.as_slice::<T>();
-                let mut p_cur: usize = 0;
-                chunks.for_each_unpacked_chunk(|block, range| {
-                    p_cur = splice_patches::<T, I>(block, range.start, p_cur, p_idx, p_val, p_off);
-                    pack_bools_into_words(words, range.start, block.len(), |i| predicate(block[i]));
-                });
+                stream_patched_predicate::<T, I, P>(
+                    &mut chunks,
+                    words,
+                    p_idx_arr.as_slice::<I>(),
+                    p_val_arr.as_slice::<T>(),
+                    p_off,
+                    &predicate,
+                )
             });
         } else {
             chunks.for_each_unpacked_chunk(|block, range| {
@@ -80,6 +82,27 @@ where
     let bits = BitBufferMut::from_buffer(words.into_byte_buffer(), 0, len);
     let validity = array.validity()?.union_nullability(nullability);
     Ok(BoolArray::new(bits.freeze(), validity).into_array())
+}
+
+/// Splice the patches into each unpacked chunk, then pack `predicate` of the chunk's values into
+/// `words`.
+fn stream_patched_predicate<T, I, P>(
+    chunks: &mut BitUnpackedChunks<'_, T>,
+    words: &mut [u64],
+    indices: &[I],
+    values: &[T],
+    patch_offset: usize,
+    predicate: &P,
+) where
+    T: BitPackedIter + Copy,
+    I: AsPrimitive<usize>,
+    P: Fn(T) -> bool,
+{
+    let mut p_cur: usize = 0;
+    chunks.for_each_unpacked_chunk(|block, range| {
+        p_cur = splice_patches::<T, I>(block, range.start, p_cur, indices, values, patch_offset);
+        pack_bools_into_words(words, range.start, block.len(), |i| predicate(block[i]));
+    });
 }
 
 /// Overwrite the unpacked block in place with any patches falling in

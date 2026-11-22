@@ -205,7 +205,7 @@ mod tests {
     use vortex_onpair::onpair_compress;
     use vortex_session::VortexSession;
 
-    use crate::ArrowSessionExt;
+    use crate::ExecuteArrowExt;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
         let session = VortexSession::empty();
@@ -270,16 +270,9 @@ mod tests {
                 TraceOptions {
                     resolution: TraceResolution::Attempts,
                 },
-                || {
-                    SESSION
-                        .arrow()
-                        .execute_arrow(source, Some(&field), &mut ctx)
-                },
+                || source.execute_arrow(Some(&field), &mut ctx),
             )?;
-            let expected =
-                SESSION
-                    .arrow()
-                    .execute_arrow(input.slice(range)?, Some(&field), &mut ctx)?;
+            let expected = input.slice(range)?.execute_arrow(Some(&field), &mut ctx)?;
             assert_eq!(trace.output.to_data(), expected.to_data());
             // CodSpeed disables tracing; normal tests check that export avoids executing
             // the root encoding to an intermediate string view.
@@ -308,9 +301,7 @@ mod tests {
         let masked = MaskFn::try_new(varbin.into_array(), mask.into_array())?.into_array();
 
         let field = Field::new("s", DataType::Utf8, true);
-        let arrow = SESSION
-            .arrow()
-            .execute_arrow(masked, Some(&field), &mut ctx)?;
+        let arrow = masked.execute_arrow(Some(&field), &mut ctx)?;
 
         let strings = arrow.as_string::<i32>();
         assert_eq!(strings.len(), 3);
@@ -357,9 +348,9 @@ mod tests {
     ) {
         let mut ctx = SESSION.create_execution_ctx();
         let field = Field::new("test_field", target_dtype.clone(), true);
-        let arrow = SESSION
-            .arrow()
-            .execute_arrow(vortex_array.into_array(), Some(&field), &mut ctx)
+        let arrow = vortex_array
+            .into_array()
+            .execute_arrow(Some(&field), &mut ctx)
             .unwrap();
 
         assert_eq!(arrow.data_type(), &target_dtype);
@@ -405,9 +396,9 @@ mod tests {
 
         let mut ctx = SESSION.create_execution_ctx();
         let field = Field::new("test_field", target_dtype.clone(), true);
-        let arrow = SESSION
-            .arrow()
-            .execute_arrow(vortex_array.into_array(), Some(&field), &mut ctx)
+        let arrow = vortex_array
+            .into_array()
+            .execute_arrow(Some(&field), &mut ctx)
             .unwrap();
 
         assert_eq!(arrow.data_type(), &target_dtype);
@@ -441,10 +432,9 @@ mod tests {
 
         let mut ctx = SESSION.create_execution_ctx();
         let field = Field::new("test_field", target_dtype, true);
-        let result =
-            SESSION
-                .arrow()
-                .execute_arrow(vortex_array.into_array(), Some(&field), &mut ctx);
+        let result = vortex_array
+            .into_array()
+            .execute_arrow(Some(&field), &mut ctx);
 
         assert!(result.is_err());
     }
@@ -465,9 +455,7 @@ mod tests {
             &mut ctx,
         );
         let field = Field::new("test_field", target_dtype, false);
-        let result = SESSION
-            .arrow()
-            .execute_arrow(array.into_array(), Some(&field), &mut ctx);
+        let result = array.into_array().execute_arrow(Some(&field), &mut ctx);
 
         assert!(result.is_err());
     }
@@ -488,9 +476,7 @@ mod tests {
             &mut ctx,
         );
         let field = Field::new("test_field", target_dtype.clone(), false);
-        let arrow = SESSION
-            .arrow()
-            .execute_arrow(array.into_array(), Some(&field), &mut ctx)?;
+        let arrow = array.into_array().execute_arrow(Some(&field), &mut ctx)?;
 
         assert_eq!(arrow.len(), 2);
         assert_eq!(arrow.null_count(), 0);
@@ -520,9 +506,7 @@ mod tests {
             &mut ctx,
         );
         let field = Field::new("test_field", target_dtype, true);
-        let arrow = SESSION
-            .arrow()
-            .execute_arrow(array.into_array(), Some(&field), &mut ctx)?;
+        let arrow = array.into_array().execute_arrow(Some(&field), &mut ctx)?;
 
         assert_eq!(arrow.len(), 3);
         let values = match arrow.data_type() {
@@ -542,11 +526,9 @@ mod tests {
     fn incompatible_vortex_dtype_returns_error(#[case] target_dtype: DataType) {
         let mut ctx = SESSION.create_execution_ctx();
         let field = Field::new("test_field", target_dtype, true);
-        let result = SESSION.arrow().execute_arrow(
-            PrimitiveArray::from_iter([1i32, 2, 3]).into_array(),
-            Some(&field),
-            &mut ctx,
-        );
+        let result = PrimitiveArray::from_iter([1i32, 2, 3])
+            .into_array()
+            .execute_arrow(Some(&field), &mut ctx);
 
         assert!(result.is_err());
     }
@@ -561,9 +543,7 @@ mod tests {
             .filter(Mask::from_iter([true, false, false]))?;
 
         let mut ctx = SESSION.create_execution_ctx();
-        let arrow = SESSION
-            .arrow()
-            .execute_arrow(filtered.into_array(), None, &mut ctx)?;
+        let arrow = filtered.into_array().execute_arrow(None, &mut ctx)?;
 
         assert_eq!(arrow.as_string_view().value(0), "selected");
         assert!(

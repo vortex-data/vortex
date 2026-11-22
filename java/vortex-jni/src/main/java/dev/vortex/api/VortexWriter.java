@@ -28,12 +28,16 @@ import org.apache.arrow.vector.types.pojo.Schema;
  *
  * <p>Use {@link #writeBatch(VectorSchemaRoot, BufferAllocator)} for zero-copy Java batches with independent buffer
  * lifetimes. Batches are also accepted via the Arrow C Data Interface: callers export an Arrow record batch to an
- * {@code ArrowArray} / {@code ArrowSchema} pair and pass the addresses to {@link #writeBatch(long, long)}. The writer
- * accepts up to four in-flight batches on the session's runtime thread before back-pressuring the caller.
+ * {@code ArrowArray} / {@code ArrowSchema} pair and pass the addresses to {@link #writeBatch(long, long)}, or export
+ * only the {@code ArrowArray} and pass its address to {@link #writeBatch(long)}. The writer accepts up to four
+ * in-flight batches on the session's runtime thread before back-pressuring the caller.
  *
- * <p>Call {@link #close()} to flush remaining batches and finalize the file. If the writer becomes unreachable without
- * an explicit {@code close()}, {@link VortexCleaner} will flush and release native resources as a backstop — but
- * callers should always finalize explicitly so that I/O errors surface through the normal call path.
+ * <p>Call {@link #close()} to flush remaining batches and finalize the file. Call {@link #finish(Map)} instead to add
+ * metadata segments that are known only after the last batch, for example a bloom filter of the written keys.
+ *
+ * <p>If the writer becomes unreachable without an explicit {@code close()}, {@link VortexCleaner} will flush and
+ * release native resources as a backstop — but callers should always finalize explicitly so that I/O errors surface
+ * through the normal call path.
  */
 public final class VortexWriter implements AutoCloseable {
     private final long pointer;
@@ -93,6 +97,7 @@ public final class VortexWriter implements AutoCloseable {
         private final BufferAllocator allocator;
         private final Map<String, String> options = new HashMap<>();
         private final Map<String, byte[]> metadata = new HashMap<>();
+        private boolean compact;
 
         private Builder(
                 Session session, String uri, NativeWritable writable, Schema arrowSchema, BufferAllocator allocator) {
@@ -147,6 +152,16 @@ public final class VortexWriter implements AutoCloseable {
         }
 
         /**
+         * Write with the compact strategy, which prefers a smaller file over read throughput and latency. It is what
+         * {@code vortex.io.VortexWriteOptions.compact()} selects in Python, and is off by default. The file is read
+         * like any other.
+         */
+        public Builder compact(boolean compact) {
+            this.compact = compact;
+            return this;
+        }
+
+        /**
          * Open the writer.
          *
          * @throws IOException if the writer cannot be opened, including when the native side rejects the configured
@@ -159,9 +174,10 @@ public final class VortexWriter implements AutoCloseable {
                 final long pointer;
                 try {
                     pointer = uri != null
-                            ? NativeWriter.create(session.nativePointer(), uri, ffi.memoryAddress(), options, metadata)
+                            ? NativeWriter.create(
+                                    session.nativePointer(), uri, ffi.memoryAddress(), options, metadata, compact)
                             : NativeWriter.createStream(
-                                    session.nativePointer(), writable, ffi.memoryAddress(), metadata);
+                                    session.nativePointer(), writable, ffi.memoryAddress(), metadata, compact);
                 } catch (RuntimeException e) {
                     // Native failures arrive as RuntimeException. Wrap them so callers can handle every
                     // failure to open a writer as an IOException, as writeBatch and finish already do.
@@ -229,6 +245,33 @@ public final class VortexWriter implements AutoCloseable {
         } catch (RuntimeException e) {
             throw new IOException("failed to write batch", e);
         }
+        if (!ok) {
+            throw new IOException("failed to write batch");
+        }
+    }
+
+    /**
+     * Write a batch from an Arrow C Data Interface array. Native code imports it with the schema of this writer.
+     *
+     * <p>The array must be a struct array that agrees with the writer schema. Native code rejects incorrect buffer or
+     * child counts with an {@link IOException}, but it cannot find all type mismatches (for example {@code Int64} in
+     * the place of {@code Int32}), and such an array can cause incorrect data or a crash.
+     *
+     * <p>Native code takes the array struct and releases it, also when the call fails.
+     *
+     * @param arrowArrayAddr address of an exported {@code ArrowArray} struct
+     */
+    public synchronized void writeBatch(long arrowArrayAddr) throws IOException {
+        Preconditions.checkState(!closed.get(), "writer already closed");
+        Preconditions.checkArgument(arrowArrayAddr != 0, "null arrow array address");
+
+        final boolean ok;
+        try {
+            ok = NativeWriter.writeArray(pointer, arrowArrayAddr);
+        } catch (RuntimeException e) {
+            throw new IOException("failed to write batch", e);
+        }
+
         if (!ok) {
             throw new IOException("failed to write batch");
         }
@@ -315,17 +358,49 @@ public final class VortexWriter implements AutoCloseable {
      * <p>This method is idempotent. Later calls return the same immutable summary.
      */
     public synchronized VortexWriteSummary finish() throws IOException {
+        return finishWith(null);
+    }
+
+    /**
+     * Flush pending batches, add {@code metadata} to the file footer, finalize the file, and return its statistics and
+     * physical sizes.
+     *
+     * <p>The segments merge with the segments from {@link Builder#metadata(Map)}, and a key in {@code metadata}
+     * replaces the builder segment with the same key. The native limits apply to the merged set.
+     *
+     * <p>This method is not idempotent: a call after the writer is finished or closed throws
+     * {@link IllegalStateException}.
+     *
+     * @param metadata the segments to add; keys and values must not be null
+     * @throws IllegalStateException if the writer is already finished or closed
+     * @throws IOException if the file cannot be finalized
+     */
+    public synchronized VortexWriteSummary finish(Map<String, byte[]> metadata) throws IOException {
+        Objects.requireNonNull(metadata, "metadata");
+        Preconditions.checkState(!closed.get(), "writer already finished; metadata must be given to the first finish");
+
+        // Check and copy the entries before the native call consumes the writer.
+        Map<String, byte[]> segments = new HashMap<>();
+        metadata.forEach((key, value) -> segments.put(
+                Objects.requireNonNull(key, "metadata key"), Objects.requireNonNull(value, "metadata value")));
+
+        return finishWith(segments);
+    }
+
+    private VortexWriteSummary finishWith(Map<String, byte[]> metadata) throws IOException {
         if (closed.compareAndSet(false, true)) {
             try {
                 finalCompressionRatio = NativeWriter.compressionRatio(pointer);
-                summary = NativeWriter.finish(pointer);
+                summary = NativeWriter.finish(pointer, metadata);
             } catch (RuntimeException e) {
                 throw new IOException("failed to close writer", e);
             }
         }
+
         if (summary == null) {
             throw new IOException("writer was closed without retaining its write summary");
         }
+
         return summary;
     }
 

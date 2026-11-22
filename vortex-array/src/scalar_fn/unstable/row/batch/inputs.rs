@@ -11,7 +11,10 @@ use crate::ArrayRef;
 use crate::dtype::DType;
 
 /// The same-length input columns of one row-function execution, borrowed by index.
-pub(crate) trait RowInputs {
+///
+/// The sealed indexed-tuple implementation uses this trait as a public method bound, which
+/// requires a public declaration. The private `batch` module keeps it out of the public API.
+pub trait RowInputs {
     /// Return the number of input columns.
     fn num_inputs(&self) -> usize;
 

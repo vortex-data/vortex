@@ -27,6 +27,8 @@ use crate::scalar_fn::fns::cast::Cast;
 use crate::scalar_fn::fns::cast::CastReduceAdaptor;
 use crate::scalar_fn::fns::mask::Mask as MaskFn;
 use crate::scalar_fn::fns::mask::MaskReduceAdaptor;
+use crate::scalar_fn::fns::zip::Zip;
+use crate::scalar_fn::fns::zip::ZipReduceAdaptor;
 
 pub(crate) const RULES: ReduceRuleSet<Extension> = ReduceRuleSet::new(&[&ExtensionConstantRule]);
 
@@ -65,6 +67,7 @@ pub(crate) fn register_parent_rules(session: &VortexSession) {
     kernels.register_reduce_parent_rule(MaskFn, Extension, const { &MaskReduceAdaptor(Extension) });
     kernels.register_reduce_parent_rule(Slice, Extension, const { &SliceReduceAdaptor(Extension) });
     kernels.register_reduce_parent_rule(Dict, Extension, const { &TakeReduceAdaptor(Extension) });
+    kernels.register_reduce_parent_rule(Zip, Extension, const { &ZipReduceAdaptor(Extension) });
 }
 
 /// Push filter operations into the storage array of an extension array.
@@ -132,6 +135,7 @@ mod tests {
     struct TestExt;
     impl ExtVTable for TestExt {
         type Metadata = EmptyMetadata;
+        type StoredMetadata = Self::Metadata;
         type NativeValue<'a> = &'a str;
 
         #[expect(clippy::disallowed_methods, reason = "test-only id")]
@@ -143,12 +147,20 @@ mod tests {
             Ok(vec![])
         }
 
-        fn deserialize_metadata(&self, _data: &[u8]) -> VortexResult<Self::Metadata> {
+        fn deserialize_metadata(&self, _data: &[u8]) -> VortexResult<Self::StoredMetadata> {
             Ok(EmptyMetadata)
         }
 
-        fn validate_dtype(_extension_dtype: &ExtDType<Self>) -> VortexResult<()> {
-            Ok(())
+        fn metadata_from_storage(
+            &self,
+            stored_metadata: Self::StoredMetadata,
+            _storage_dtype: &DType,
+        ) -> VortexResult<Self::Metadata> {
+            Ok(stored_metadata)
+        }
+
+        fn storage_dtype(_metadata: &Self::Metadata) -> DType {
+            DType::Primitive(PType::I64, Nullability::NonNullable)
         }
 
         fn unpack_native<'a>(
@@ -160,12 +172,9 @@ mod tests {
     }
 
     fn test_ext_dtype() -> ExtDTypeRef {
-        ExtDType::<TestExt>::try_new(
-            EmptyMetadata,
-            DType::Primitive(PType::I64, Nullability::NonNullable),
-        )
-        .unwrap()
-        .erased()
+        ExtDType::<TestExt>::try_new(EmptyMetadata, Nullability::NonNullable)
+            .unwrap()
+            .erased()
     }
 
     #[test]
@@ -204,12 +213,9 @@ mod tests {
 
     #[test]
     fn test_filter_pushdown_nullable() {
-        let ext_dtype = ExtDType::<TestExt>::try_new(
-            EmptyMetadata,
-            DType::Primitive(PType::I64, Nullability::Nullable),
-        )
-        .unwrap()
-        .erased();
+        let ext_dtype = ExtDType::<TestExt>::try_new(EmptyMetadata, Nullability::Nullable)
+            .unwrap()
+            .erased();
         let storage = PrimitiveArray::from_option_iter([Some(1i64), None, Some(3), Some(4), None])
             .into_array();
         let ext_array = ExtensionArray::new(ext_dtype, storage).into_array();

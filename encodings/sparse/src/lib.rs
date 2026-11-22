@@ -17,6 +17,7 @@ use vortex_array::ArrayRef;
 use vortex_array::ArraySlots;
 use vortex_array::ArrayView;
 use vortex_array::Canonical;
+use vortex_array::CanonicalValidity;
 use vortex_array::EqMode;
 use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
@@ -147,19 +148,15 @@ pub(crate) trait SparseOwnedExt {
 
 impl SparseOwnedExt for Array<Sparse> {
     fn into_parts(self) -> VortexResult<SparseParts> {
-        let chunk_offsets = self.slots()[SparseSlots::PATCH_CHUNK_OFFSETS].clone();
+        let chunk_offsets = self.patch_chunk_offsets().cloned();
         let offset_within_chunk = chunk_offsets.as_ref().map(|_| 0);
         // SAFETY: the patch slots come from a valid sparse array.
         let patches = unsafe {
             Patches::new_unchecked(
                 self.len(),
                 self.patches().offset(),
-                self.slots()[SparseSlots::PATCH_INDICES]
-                    .clone()
-                    .vortex_expect("indices"),
-                self.slots()[SparseSlots::PATCH_VALUES]
-                    .clone()
-                    .vortex_expect("values"),
+                self.patch_indices().clone(),
+                self.patch_values().clone(),
                 chunk_offsets,
                 offset_within_chunk,
             )
@@ -512,9 +509,12 @@ impl SparseData {
             );
         } else if mask.false_count() as f64 > (0.9 * mask.len() as f64) {
             // Array is dominated by NULL but has non-NULL values
+            // The values are stored as they are, so their validity must not stay a lazy filter
+            // over the input's bitmap, which may itself be compressed.
             let non_null_values = array
                 .filter(mask.clone())?
-                .execute::<Canonical>(ctx)?
+                .execute::<CanonicalValidity>(ctx)?
+                .0
                 .into_array();
             let non_null_indices = match mask.indices() {
                 AllOr::All => {
@@ -566,7 +566,8 @@ impl SparseData {
 
         let non_top_values = array
             .filter(non_top_mask.clone())?
-            .execute::<Canonical>(ctx)?
+            .execute::<CanonicalValidity>(ctx)?
+            .0
             .into_array();
 
         let indices: Buffer<u64> = match non_top_mask {

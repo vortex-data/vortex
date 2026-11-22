@@ -48,6 +48,7 @@ use vortex::scan::ScanRequest;
 use vortex::scan::selection::Selection;
 use vortex::scan::strict_sorted_buffer::StrictSortedBuffer;
 use vortex_arrow::ArrowSessionExt;
+use vortex_arrow::ExecuteArrowExt;
 
 use crate::POOL;
 use crate::RUNTIME;
@@ -376,7 +377,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativePartition_scanArrow(
         let array_stream = partition.execute()?;
         let dtype = array_stream.dtype().clone();
 
-        let session = unsafe { session_ref(session_ptr) };
+        let session = unsafe { session_ref(session_ptr) }.clone();
         let schema = Arc::new(session.arrow().to_arrow_schema(&dtype)?);
         let target = Arc::new(Field::new_struct("", schema.fields().clone(), false));
 
@@ -388,10 +389,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativePartition_scanArrow(
                 handle.spawn(async move {
                     let chunk = chunk?;
                     let mut ctx = session.create_execution_ctx();
-                    let arrow =
-                        session
-                            .arrow()
-                            .execute_arrow(chunk, Some(target.as_ref()), &mut ctx)?;
+                    let arrow = chunk.execute_arrow(Some(target.as_ref()), &mut ctx)?;
                     rebase_offsets(RecordBatch::from(arrow.as_struct().clone()))
                 })
             })

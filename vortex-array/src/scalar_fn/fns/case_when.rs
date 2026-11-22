@@ -311,7 +311,9 @@ impl ScalarFnVTable for CaseWhen {
             return Ok(Some(x.clone()));
         }
 
-        if !FillNull::supports_dtype(x.dtype()) {
+        if !FillNull::supports_dtype(x.dtype())
+            || x.dtype().as_nullable() != expr.dtype().as_nullable()
+        {
             return Ok(None);
         }
 
@@ -523,6 +525,7 @@ mod tests {
 
     #[test]
     fn compact_and_run_merges_agree_for_nested_and_nullable_values() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
         let primitive =
             PrimitiveArray::from_option_iter([Some(1i64), None, Some(3), Some(4)]).into_array();
         let fixtures = vec![
@@ -531,14 +534,11 @@ mod tests {
                 buffer![100i64, -200, 300, 400],
                 DecimalDType::new(15, 2),
                 Validity::from_iter([true, false, true, true]),
+                &mut ctx,
             )
             .into_array(),
-            DecimalArray::new(
-                buffer![1i128 << 100, -2, 3, 4],
-                DecimalDType::new(38, 0),
-                Validity::NonNullable,
-            )
-            .into_array(),
+            DecimalArray::from_iter([1i128 << 100, -2, 3, 4], DecimalDType::new(38, 0))
+                .into_array(),
             VarBinViewArray::from_iter(
                 [
                     Some("long out-of-line value"),
@@ -561,7 +561,6 @@ mod tests {
             &[[false, false, false, true], [false, true, false, false]],
         ];
 
-        let mut ctx = SESSION.create_execution_ctx();
         for value in fixtures {
             let reorder =
                 |indices: Buffer<u32>, ctx: &mut ExecutionCtx| -> VortexResult<ArrayRef> {
@@ -1790,8 +1789,8 @@ mod tests {
     }
 
     #[test]
-    fn test_simplify_list_coalesce_keeps_case_when() -> VortexResult<()> {
-        // Lists have no fill_null kernel, so the COALESCE shape must stay a CASE WHEN.
+    fn test_simplify_list_coalesce_rewrites_to_fill_null() -> VortexResult<()> {
+        // Lists can fill nulls, so the COALESCE shape becomes fill_null like other dtypes.
         let mut ctx = SESSION.create_execution_ctx();
         let element_dtype = Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable));
         let input_dtype = DType::List(Arc::clone(&element_dtype), Nullability::Nullable);
@@ -1812,6 +1811,48 @@ mod tests {
         let optimized = case_when(is_null(root()), lit(fill.clone()), root())
             .bind(input.dtype())?
             .optimize_recursive()?;
+        assert!(optimized.is::<FillNull>(), "{optimized}");
+        let result = input
+            .clone()
+            .apply_bound(&optimized)?
+            .execute::<Canonical>(&mut ctx)?
+            .into_array();
+        assert_eq!(
+            result.execute_scalar(0, &mut ctx)?,
+            input.execute_scalar(0, &mut ctx)?.cast(result.dtype())?
+        );
+        assert_eq!(
+            result.execute_scalar(1, &mut ctx)?,
+            fill.cast(result.dtype())?
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_simplify_list_coalesce_with_nullable_elements_keeps_case_when() -> VortexResult<()> {
+        // FillNull keeps the input's child dtype, so a literal with nullable elements must stay a
+        // CASE WHEN when the input list has non-nullable elements.
+        let mut ctx = SESSION.create_execution_ctx();
+        let non_nullable_elem = Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable));
+        let nullable_elem = Arc::new(DType::Primitive(PType::I32, Nullability::Nullable));
+        let input_dtype = DType::List(Arc::clone(&non_nullable_elem), Nullability::Nullable);
+        let mut builder = builder_with_capacity_in(&input_dtype, 2, ctx.allocator());
+        builder.append_scalar(&Scalar::list(
+            non_nullable_elem,
+            vec![Scalar::from(1i32)],
+            Nullability::Nullable,
+        ))?;
+        builder.append_scalar(&Scalar::null(input_dtype))?;
+        let input = builder.finish();
+        let fill = Scalar::list(
+            Arc::clone(&nullable_elem),
+            vec![Scalar::null(nullable_elem.as_ref().clone())],
+            Nullability::NonNullable,
+        );
+
+        let optimized = case_when(is_null(root()), lit(fill.clone()), root())
+            .bind(input.dtype())?
+            .optimize_recursive()?;
         assert!(optimized.is::<CaseWhen>(), "{optimized}");
         let result = input
             .clone()
@@ -1820,7 +1861,7 @@ mod tests {
             .into_array();
         assert_eq!(
             result.execute_scalar(0, &mut ctx)?,
-            input.execute_scalar(0, &mut ctx)?
+            input.execute_scalar(0, &mut ctx)?.cast(result.dtype())?
         );
         assert_eq!(
             result.execute_scalar(1, &mut ctx)?,

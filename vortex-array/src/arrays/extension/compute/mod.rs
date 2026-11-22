@@ -3,11 +3,13 @@
 
 mod cast;
 mod compare;
+mod fill_null;
 mod filter;
 mod mask;
 pub(crate) mod rules;
 mod slice;
 mod take;
+mod zip;
 
 #[cfg(test)]
 mod test {

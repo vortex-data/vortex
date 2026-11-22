@@ -12,6 +12,7 @@ use futures::StreamExt;
 use futures::future::BoxFuture;
 use futures::stream;
 use futures::stream::BoxStream;
+use jni::Env;
 use jni::JValue;
 use jni::JavaVM;
 use jni::objects::JObject;
@@ -30,7 +31,46 @@ use vortex::io::runtime::Handle;
 use vortex::utils::aliases::hash_map::EntryRef;
 use vortex::utils::aliases::hash_map::HashMap;
 
+use crate::errors::JNIError;
 use crate::io::with_jvm;
+
+/// Capture and validate a Java readable's coalescing limits before registering it.
+pub(crate) fn read_coalesce_config(
+    env: &mut Env,
+    readable: &JObject,
+) -> Result<CoalesceConfig, JNIError> {
+    let distance = env
+        .call_method(
+            readable,
+            jni::jni_str!("coalesceDistance"),
+            jni::jni_sig!("()I"),
+            &[],
+        )?
+        .i()?;
+    let max_size = env
+        .call_method(
+            readable,
+            jni::jni_str!("coalesceMaxSize"),
+            jni::jni_sig!("()I"),
+            &[],
+        )?
+        .i()?;
+    Ok(checked_coalesce_config(distance, max_size)?)
+}
+
+fn checked_coalesce_config(distance: i32, max_size: i32) -> VortexResult<CoalesceConfig> {
+    if distance < 0 {
+        vortex_bail!("coalesceDistance must be >= 0, got {distance}");
+    }
+    if max_size <= 0 {
+        vortex_bail!("coalesceMaxSize must be > 0, got {max_size}");
+    }
+    // FileSegmentSource adds leading alignment padding to the coalescing window. Reserve
+    // headroom for every alignment accepted from a file so merged reads still fit a ByteBuffer.
+    let max_padding = Alignment::MAX_UNTRUSTED.as_usize() as u64 - 1;
+    let max_size = (max_size as u64).min(i32::MAX as u64 - max_padding);
+    Ok(CoalesceConfig::new(distance as u64, max_size))
+}
 
 /// Default number of concurrent `readFully` upcalls to allow across all files of one
 /// [`JavaFileSystem`]. Matches the object-store default since the backing storage is
@@ -67,6 +107,7 @@ pub(crate) struct JavaReadable {
     vm: JavaVM,
     readable: Arc<Global<JObject<'static>>>,
     len: u64,
+    coalesce_config: CoalesceConfig,
     handle: Handle,
     limiter: UpcallLimiter,
 }
@@ -76,6 +117,7 @@ impl JavaReadable {
         vm: JavaVM,
         readable: Arc<Global<JObject<'static>>>,
         len: u64,
+        coalesce_config: CoalesceConfig,
         handle: Handle,
         limiter: UpcallLimiter,
     ) -> Self {
@@ -83,6 +125,7 @@ impl JavaReadable {
             vm,
             readable,
             len,
+            coalesce_config,
             handle,
             limiter,
         }
@@ -91,9 +134,7 @@ impl JavaReadable {
 
 impl VortexReadAt for JavaReadable {
     fn coalesce_config(&self) -> Option<CoalesceConfig> {
-        // Upcalls have a fixed JNI overhead and the backing storage is usually
-        // remote, so favor fewer, larger reads.
-        Some(CoalesceConfig::object_storage())
+        Some(self.coalesce_config)
     }
 
     fn concurrency(&self) -> usize {
@@ -204,12 +245,14 @@ pub(crate) fn java_readable(
     vm: JavaVM,
     readable: Arc<Global<JObject<'static>>>,
     len: u64,
+    coalesce_config: CoalesceConfig,
     handle: Handle,
 ) -> Arc<dyn VortexReadAt> {
     Arc::new(JavaReadable::new(
         vm,
         readable,
         len,
+        coalesce_config,
         handle,
         UpcallLimiter::new(DEFAULT_CONCURRENCY),
     ))
@@ -218,6 +261,7 @@ pub(crate) fn java_readable(
 struct JavaFileEntry {
     readable: Arc<Global<JObject<'static>>>,
     size: u64,
+    coalesce_config: CoalesceConfig,
 }
 
 /// A [`FileSystem`] over a fixed set of Java-provided readables, keyed by path.
@@ -249,12 +293,17 @@ impl JavaFileSystem {
         path: String,
         readable: Arc<Global<JObject<'static>>>,
         size: u64,
+        coalesce_config: CoalesceConfig,
     ) -> VortexResult<()> {
         match self.files.entry_ref(&path) {
             EntryRef::Occupied(_) => {
                 vortex_bail!("multiple Java readables normalize to path '{path}'");
             }
-            EntryRef::Vacant(v) => v.insert(JavaFileEntry { readable, size }),
+            EntryRef::Vacant(v) => v.insert(JavaFileEntry {
+                readable,
+                size,
+                coalesce_config,
+            }),
         };
 
         Ok(())
@@ -302,6 +351,7 @@ impl FileSystem for JavaFileSystem {
             self.vm.clone(),
             Arc::clone(&entry.readable),
             entry.size,
+            entry.coalesce_config,
             self.handle.clone(),
             self.limiter.clone(),
         )))
@@ -309,5 +359,42 @@ impl FileSystem for JavaFileSystem {
 
     async fn delete(&self, path: &str) -> VortexResult<()> {
         vortex_bail!("delete('{path}') is not supported by a Java-readable file system")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+    use vortex::error::VortexResult;
+
+    use super::checked_coalesce_config;
+
+    #[rstest]
+    #[case(0, 1, 1)]
+    #[case(64 * 1024, 16 * 1024 * 1024, 16 * 1024 * 1024)]
+    #[case(i32::MAX, i32::MAX, 2_147_418_112)]
+    fn test_coalescing_limits(
+        #[case] distance: i32,
+        #[case] max_size: i32,
+        #[case] expected_max_size: u64,
+    ) -> VortexResult<()> {
+        let config = checked_coalesce_config(distance, max_size)?;
+        assert_eq!(config.distance, distance as u64);
+        assert_eq!(config.max_size, expected_max_size);
+        Ok(())
+    }
+
+    #[rstest]
+    #[case(-1, 1024, "coalesceDistance")]
+    #[case(0, 0, "coalesceMaxSize")]
+    #[case(0, -1, "coalesceMaxSize")]
+    fn test_invalid_coalescing_limits(
+        #[case] distance: i32,
+        #[case] max_size: i32,
+        #[case] setting: &str,
+    ) {
+        let error =
+            checked_coalesce_config(distance, max_size).expect_err("invalid coalescing limits");
+        assert!(error.to_string().contains(setting));
     }
 }

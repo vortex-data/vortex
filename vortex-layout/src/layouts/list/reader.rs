@@ -623,6 +623,7 @@ mod tests {
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::ChunkedArray;
     use vortex_array::arrays::ListArray;
+    use vortex_array::arrays::ListViewArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::expr::Expression;
@@ -1283,16 +1284,27 @@ mod tests {
     }
 
     #[rstest]
-    #[case::one_cut(&[2], false)]
-    #[case::two_cuts(&[1, 3], false)]
-    #[case::null_and_empty_at_cuts(&[1, 3], true)]
+    #[case::one_cut(&[2], false, false)]
+    #[case::two_cuts(&[1, 3], false, false)]
+    #[case::null_and_empty_at_cuts(&[1, 3], true, false)]
+    #[case::list_view_chunks(&[1, 3], true, true)]
+    #[case::non_nullable_list_view_chunks(&[1, 3], false, true)]
     #[tokio::test]
     async fn sliced_list_chunks_round_trip(
         #[case] cuts: &[usize],
         #[case] nullable: bool,
+        #[case] as_list_view: bool,
     ) -> VortexResult<()> {
         let list = create_ten_element_list_array(nullable);
-        let chunks = sliced_chunks(&list, cuts)?;
+        let source = if as_list_view {
+            let mut ctx = SESSION.create_execution_ctx();
+            list.clone()
+                .execute::<ListViewArray>(&mut ctx)?
+                .into_array()
+        } else {
+            list.clone()
+        };
+        let chunks = sliced_chunks(&source, cuts)?;
         assert_round_trips(&chunked_list_strategy(), chunks, list).await
     }
 

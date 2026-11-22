@@ -19,8 +19,8 @@ use crate::arrays::BoolArray;
 use crate::arrays::bool::BoolArrayExt;
 use crate::arrays::filter::FilterReduce;
 
-/// Below this density threshold, use the sparse path which iterates only set
-/// bits in the mask. Above it, the word-level PEXT approach is faster.
+/// Mixed boolean data uses the sparse path below this density. Mostly-uniform bitmaps
+/// switch to word-level extraction earlier because their output often needs no byte lookups.
 const SPARSE_DENSITY_THRESHOLD: f64 = 0.05;
 
 impl FilterReduce for Bool {
@@ -33,13 +33,31 @@ impl FilterReduce for Bool {
 
         let src = array.to_bit_buffer();
         let density = mask_values.density();
-        let buffer = if density < SPARSE_DENSITY_THRESHOLD {
+        let sparse = density < SPARSE_DENSITY_THRESHOLD
+            && (density < 0.01 || !early_word_extraction() || !mostly_uniform(&src));
+        let buffer = if sparse {
             filter_sparse(&src, mask_values, mask.true_count())
         } else {
             filter_bitbuffer_by_mask(&src, mask_values.bit_buffer(), mask.true_count())
         };
 
         Ok(Some(BoolArray::new(buffer, validity).into_array()))
+    }
+}
+
+/// Whether mostly-uniform bitmaps should leave the sparse path early.
+///
+/// Hardware PEXT and the aarch64 software kernel are faster than the sparse path there.
+/// The x86 software kernel is slower, so x86 without BMI2 keeps the sparse path.
+fn early_word_extraction() -> bool {
+    #[cfg(target_arch = "x86_64")]
+    {
+        std::arch::is_x86_feature_detected!("bmi2")
+    }
+
+    #[cfg(not(target_arch = "x86_64"))]
+    {
+        true
     }
 }
 
@@ -122,7 +140,51 @@ unsafe fn filter_pext_bmi2(src: &BitBuffer, mask_buf: &BitBuffer, true_count: us
 
 /// Software fallback filter using byte-LUT PEXT.
 fn filter_pext_fallback(src: &BitBuffer, mask_buf: &BitBuffer, true_count: usize) -> BitBuffer {
+    if src.len() - true_count <= src.len() / 50 {
+        filter_pext_dense(src, mask_buf, true_count)
+    } else if true_count <= src.len() / 16 || mostly_uniform(src) {
+        // Below 1/16 density, most mask bytes are zero, so skipping them is cheaper than
+        // looking up every byte, even for mixed source data.
+        filter_pext_skip_empty(src, mask_buf, true_count)
+    } else {
+        filter_pext_mixed(src, mask_buf, true_count)
+    }
+}
+
+// Keep the loops separate so their register allocation does not penalize the all-selected
+// word path.
+#[inline(never)]
+fn filter_pext_skip_empty(src: &BitBuffer, mask_buf: &BitBuffer, true_count: usize) -> BitBuffer {
     filter_inner(src, mask_buf, true_count, pext_fallback)
+}
+
+#[inline(never)]
+fn filter_pext_mixed(src: &BitBuffer, mask_buf: &BitBuffer, true_count: usize) -> BitBuffer {
+    filter_inner(src, mask_buf, true_count, pext_byte_lut::<false>)
+}
+
+// Keep byte extraction out of the nearly-full mask loop: inlining it spills the state of
+// the much more frequent full-word copy path.
+#[inline(never)]
+fn filter_pext_dense(src: &BitBuffer, mask_buf: &BitBuffer, true_count: usize) -> BitBuffer {
+    filter_inner(src, mask_buf, true_count, pext_dense)
+}
+
+#[inline(never)]
+fn pext_dense(src: u64, mask: u64) -> u64 {
+    pext_byte_lut::<false>(src, mask)
+}
+
+fn mostly_uniform(src: &BitBuffer) -> bool {
+    // Avoid per-word uniformity branches for mixed boolean data. Sampling affects only which
+    // equivalent kernel runs; it need not predict the rest of the bitmap exactly.
+    src.len() >= 256 && {
+        let sample_ones = src.inner().as_slice()[src.offset() / 8..][..32]
+            .iter()
+            .map(|byte| byte.count_ones())
+            .sum::<u32>();
+        !(16..=240).contains(&sample_ones)
+    }
 }
 
 /// Core filter loop parameterized by the PEXT implementation.
@@ -159,13 +221,11 @@ fn filter_inner(
         if mask_word == u64::MAX {
             // All 64 bits selected — copy source word directly, no PEXT needed.
             accum |= (src_word as u128) << accum_bits;
-            accum_bits += 64;
-            if accum_bits >= 64 {
-                unsafe { out_ptr.add(out_idx).write(accum as u64) };
-                out_idx += 1;
-                accum >>= 64;
-                accum_bits -= 64;
-            }
+            // A full word always flushes one word and leaves the pending bit count unchanged.
+            // SAFETY: each write consumes 64 selected bits, so out_idx stays below out_u64s.
+            unsafe { out_ptr.add(out_idx).write(accum as u64) };
+            out_idx += 1;
+            accum >>= 64;
             continue;
         }
 
@@ -227,7 +287,16 @@ fn filter_inner(
 #[allow(clippy::inline_always)]
 #[inline(always)]
 pub fn pext_fallback(src: u64, mask: u64) -> u64 {
-    pext_byte_lut(src, mask)
+    let selected = src & mask;
+    if selected == 0 {
+        return 0;
+    }
+    // Validity bitmaps often select only valid rows. Their packed result is known without
+    // looking up each byte, even when the source word contains unselected nulls.
+    if selected == mask {
+        return u64::MAX >> (64 - mask.count_ones());
+    }
+    pext_byte_lut::<true>(src, mask)
 }
 
 /// Precomputed lookup table for 8-bit PEXT.
@@ -268,7 +337,7 @@ static BYTE_PEXT_LUT: &[u8; 256 * 256] = &{
 /// Byte-level PEXT using precomputed lookup table.
 #[allow(clippy::inline_always)]
 #[inline(always)]
-fn pext_byte_lut(src: u64, mask: u64) -> u64 {
+fn pext_byte_lut<const SKIP_EMPTY: bool>(src: u64, mask: u64) -> u64 {
     let src_bytes = src.to_le_bytes();
     let mask_bytes = mask.to_le_bytes();
 
@@ -279,7 +348,9 @@ fn pext_byte_lut(src: u64, mask: u64) -> u64 {
     macro_rules! process_byte {
         ($i:expr) => {
             let m = mask_bytes[$i];
-            if m != 0 {
+            // A zero mask byte already maps to zero. Mixed data avoids unpredictable byte
+            // branches; the uniform-source kernel keeps them to reduce register pressure.
+            if !SKIP_EMPTY || m != 0 {
                 let extracted = BYTE_PEXT_LUT[(m as usize) * 256 + (src_bytes[$i] as usize)];
                 result |= (extracted as u64) << bit_offset;
                 bit_offset += m.count_ones();
@@ -374,19 +445,49 @@ mod tests {
     #[case(BoolArray::from_iter([false, false]))]
     #[case(BoolArray::from_iter((0..100).map(|i| i % 2 == 0)))]
     #[case(BoolArray::from_iter((0..1024).map(|i| i % 3 != 0)))]
+    #[case(BoolArray::from_iter((0..1024).map(|i| i % 97 != 0)))]
     fn test_filter_bool_conformance(#[case] array: BoolArray) {
         test_filter_conformance(&array.into_array(), &mut SESSION.create_execution_ctx());
     }
 
-    #[cfg(target_arch = "x86_64")]
+    #[rstest]
+    fn test_portable_filter_with_sliced_bitmaps(
+        #[values(1, 2, 97)] source_period: usize,
+        #[values(2, 17, 1000)] selection_period: usize,
+        #[values(0, 3)] offset: usize,
+        #[values(false, true)] invert_mask: bool,
+    ) {
+        let len = 2057;
+        let source = BitBuffer::from_iter((0..len + offset).map(|i| i % source_period != 0))
+            .slice(offset..len + offset);
+        let mask = BitBuffer::from_iter(
+            (0..len + offset + 2).map(|i| (i % selection_period != 0) ^ invert_mask),
+        )
+        .slice(offset + 2..len + offset + 2);
+        let expected = BitBuffer::from_iter(
+            source
+                .iter()
+                .zip(mask.iter())
+                .filter_map(|(value, keep)| keep.then_some(value)),
+        );
+        assert_eq!(
+            filter_pext_fallback(&source, &mask, expected.len()),
+            expected
+        );
+    }
+
     #[test]
-    fn test_pext_fallback_matches_hardware() {
-        use std::arch::x86_64::_pext_u64;
-
-        use super::pext_fallback;
-
-        if !std::arch::is_x86_feature_detected!("bmi2") {
-            return;
+    fn test_pext_fallback_matches_bit_selection() {
+        fn selected_bits(src: u64, mask: u64) -> u64 {
+            let mut output = 0;
+            let mut output_bit = 0;
+            for bit in 0..64 {
+                if mask & (1 << bit) != 0 {
+                    output |= ((src >> bit) & 1) << output_bit;
+                    output_bit += 1;
+                }
+            }
+            output
         }
         let test_cases: Vec<(u64, u64)> = vec![
             (0, 0),
@@ -402,9 +503,12 @@ mod tests {
             (0x8000_0000_0000_0001, 0x8000_0000_0000_0001),
         ];
         for (src, mask) in test_cases {
-            let hw = unsafe { _pext_u64(src, mask) };
             let sw = pext_fallback(src, mask);
-            assert_eq!(hw, sw, "mismatch for src={src:#018x} mask={mask:#018x}");
+            assert_eq!(
+                sw,
+                selected_bits(src, mask),
+                "src={src:#018x} mask={mask:#018x}"
+            );
         }
         let mut rng = 0xDEAD_BEEF_u64;
         for _ in 0..1000 {
@@ -416,9 +520,12 @@ mod tests {
             rng ^= rng >> 7;
             rng ^= rng << 17;
             let mask = rng;
-            let hw = unsafe { _pext_u64(src, mask) };
             let sw = pext_fallback(src, mask);
-            assert_eq!(hw, sw, "mismatch for src={src:#018x} mask={mask:#018x}");
+            assert_eq!(
+                sw,
+                selected_bits(src, mask),
+                "src={src:#018x} mask={mask:#018x}"
+            );
         }
     }
 }

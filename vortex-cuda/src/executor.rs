@@ -6,6 +6,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
+use futures::FutureExt;
+use futures::future;
 use futures::future::BoxFuture;
 use tracing::debug;
 use tracing::trace;
@@ -14,6 +16,7 @@ use vortex::array::ArrayVTable;
 use vortex::array::Canonical;
 use vortex::array::ExecutionCtx;
 use vortex::array::IntoArray;
+use vortex::array::VortexSessionExecute;
 use vortex::array::arrays::BoolArray;
 use vortex::array::arrays::Extension;
 use vortex::array::arrays::ExtensionArray;
@@ -118,6 +121,18 @@ impl CudaExecutionCtx {
     /// Get a mutable handle to the CPU execution context.
     pub fn execution_ctx(&mut self) -> &mut ExecutionCtx {
         &mut self.ctx
+    }
+
+    /// A context with the same settings on another stream from the session's pool, so that work
+    /// enqueued on each can run concurrently. Order work across the two with events.
+    pub fn fork(&self) -> VortexResult<Self> {
+        Ok(Self {
+            stream: self.cuda_session.stream()?,
+            ctx: self.ctx.session().create_execution_ctx(),
+            cuda_session: self.cuda_session.clone(),
+            strategy: Arc::clone(&self.strategy),
+            dispatch_mode: self.dispatch_mode,
+        })
     }
 
     /// Set the launch strategy for the execution context.
@@ -268,9 +283,10 @@ impl CudaExecutionCtx {
 
     /// Copies host data to the device.
     ///
-    /// For **pageable** host memory the source is staged synchronously; for
-    /// **pinned** memory the transfer is async. In both cases `data` is
-    /// kept alive by the returned future until the copy completes.
+    /// The copy is enqueued on this context's stream, so later work on the stream reads the
+    /// copied values, and other streams wait for it through the buffer's access tracking. The
+    /// returned future is ready immediately: waiting for the copy would also wait for all earlier
+    /// work on the stream. The source is no longer read once this returns.
     pub fn copy_to_device<T, D>(
         &self,
         data: D,
@@ -279,31 +295,22 @@ impl CudaExecutionCtx {
         T: DeviceRepr + ValidAsZeroBits + Debug + Send + Sync + 'static,
         D: AsRef<[T]> + Send + 'static,
     {
-        self.stream.copy_to_device(data)
+        let buffer = self.stream.copy_to_device_sync(data.as_ref())?;
+        Ok(future::ready(Ok(buffer)).boxed())
     }
 
     /// Ensures a buffer is resident on the device, copying from host if necessary.
     ///
     /// If the buffer is already on the device it is returned as-is. Otherwise copies from host
-    /// to device, preserving the source alignment with a metadata-only update.
+    /// to device like [`copy_to_device`](Self::copy_to_device), preserving the source alignment
+    /// with a metadata-only update.
     ///
     /// # Errors
     ///
     /// Returns an error if the transfer fails or the device allocation cannot satisfy the source
     /// alignment. No additional copy is performed to realign the buffer.
     pub async fn ensure_on_device(&self, handle: BufferHandle) -> VortexResult<BufferHandle> {
-        if handle.is_on_device() {
-            return Ok(handle);
-        }
-        let host_buffer = handle
-            .as_host_opt()
-            .ok_or_else(|| vortex_err!("Buffer is not on host"))?
-            .clone();
-        let alignment = host_buffer.alignment();
-        self.stream
-            .copy_to_device(host_buffer)?
-            .await?
-            .ensure_aligned(alignment)
+        self.ensure_on_device_sync(handle)
     }
 
     /// Synchronous variant of [`ensure_on_device`](Self::ensure_on_device).
@@ -567,6 +574,7 @@ mod tests {
                     .slice(range),
                 DecimalDType::new(precision, 0),
                 Validity::NonNullable,
+                ctx.execution_ctx(),
             )
         });
         let parts = expected.clone().into_data_parts();
@@ -595,6 +603,7 @@ mod tests {
             parts.values_type,
             parts.decimal_dtype,
             parts.validity,
+            ctx.execution_ctx(),
         )?)
         .into_host(ctx.execution_ctx())
         .await?

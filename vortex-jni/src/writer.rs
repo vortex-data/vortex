@@ -15,6 +15,7 @@ use arrow_array::RecordBatch;
 use arrow_array::StructArray;
 use arrow_array::ffi::FFI_ArrowArray;
 use arrow_array::ffi::FFI_ArrowSchema;
+use arrow_data::layout;
 use arrow_schema::DataType;
 use arrow_schema::Schema;
 use arrow_schema::SchemaRef;
@@ -39,13 +40,19 @@ use object_store::ObjectStore;
 use object_store::path::Path as ObjectStorePath;
 use vortex::array::ArrayRef;
 use vortex::array::stream::ArrayStreamAdapter;
+use vortex::buffer::ByteBuffer;
+use vortex::compressor::BtrBlocksCompressorBuilder;
 use vortex::dtype::DType;
 use vortex::error::VortexError;
 use vortex::error::VortexResult;
+use vortex::error::vortex_ensure;
 use vortex::error::vortex_err;
 use vortex::file::CountingVortexWrite;
+use vortex::file::DeferredMetadata;
+use vortex::file::VortexWriteOptions;
 use vortex::file::WriteOptionsSessionExt;
 use vortex::file::WriteSizeEstimator;
+use vortex::file::WriteStrategyBuilder;
 use vortex::file::WriteSummary;
 use vortex::file::multi::parse_uri_or_path;
 use vortex::io::VortexWrite;
@@ -119,6 +126,21 @@ fn write_queue(
     (tx, ArrayStreamAdapter::new(write_schema, rx))
 }
 
+/// Write options for `session`: its defaults, or the compact strategy, which trades read throughput
+/// for file size as Python's `VortexWriteOptions.compact()` does.
+fn session_write_options(session: &VortexSession, compact: bool) -> VortexWriteOptions {
+    let options = session.write_options();
+    if !compact {
+        return options;
+    }
+    let compressor = BtrBlocksCompressorBuilder::from_session(session).with_compact();
+    options.with_strategy(
+        WriteStrategyBuilder::from_session(session)
+            .with_btrblocks_builder(compressor)
+            .build(),
+    )
+}
+
 /// Native writer holding a write-task handle and a sender that Java pushes batches into.
 pub struct NativeWriter {
     handle: Option<Task<VortexResult<WriteSummary>>>,
@@ -127,26 +149,40 @@ pub struct NativeWriter {
     write_schema: DType,
     bytes_written: Arc<AtomicU64>,
     size: WriteSizeEstimator,
+    deferred_metadata: DeferredMetadata,
     sender: mpsc::Sender<QueuedBatch>,
 }
 
 impl NativeWriter {
-    pub fn new(
-        session: VortexSession,
+    /// Spawn the write task into `write` and return the writer that sends batches to it.
+    fn start<W: VortexWrite + Unpin + Send + 'static>(
+        session: &VortexSession,
         arrow_schema: SchemaRef,
         write_schema: DType,
-        bytes_written: Arc<AtomicU64>,
-        size: WriteSizeEstimator,
-        handle: Task<VortexResult<WriteSummary>>,
-        sender: mpsc::Sender<QueuedBatch>,
+        write_options: VortexWriteOptions,
+        write: W,
     ) -> Self {
+        let (sender, stream) = write_queue(write_schema.clone());
+
+        let size = write_options.size_estimator();
+        let deferred_metadata = write_options.deferred_metadata();
+
+        let mut write = CountingVortexWrite::new(write);
+        let bytes_written = write.counter();
+        let handle = session.handle().spawn(async move {
+            let summary = write_options.write(&mut write, stream).await?;
+            write.shutdown().await?;
+            Ok(summary)
+        });
+
         Self {
             handle: Some(handle),
-            session,
+            session: session.clone(),
             arrow_schema,
             write_schema,
             bytes_written,
             size,
+            deferred_metadata,
             sender,
         }
     }
@@ -201,7 +237,11 @@ impl NativeWriter {
         self.size.compression_ratio()
     }
 
-    fn close(mut self) -> VortexResult<WriteSummary> {
+    /// Close the input and wait for the write task. The task adds `metadata` to the footer.
+    fn close(mut self, metadata: HashMap<String, ByteBuffer>) -> VortexResult<WriteSummary> {
+        // The write task reads the metadata after the input ends, so add it first.
+        self.deferred_metadata.extend(metadata);
+
         self.sender.disconnect();
         let handle = self
             .handle
@@ -238,6 +278,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeWriter_create(
     arrow_schema_addr: jlong,
     options: JObject,
     metadata: JObject,
+    compact: jboolean,
 ) -> jlong {
     try_or_throw(&mut env, |env| {
         if session_ptr == 0 {
@@ -258,14 +299,13 @@ pub extern "system" fn Java_dev_vortex_jni_NativeWriter_create(
         let properties: HashMap<String, String> = extract_properties(env, &options)?;
         let metadata = extract_metadata(env, &metadata)?;
         let resolved = resolve_store(&file_path, &properties)?;
-        let (tx, stream) = write_queue(write_schema.clone());
-        let write_options = session.write_options().with_metadata_segments(metadata);
+        let write_options =
+            session_write_options(session, compact).with_metadata_segments(metadata);
         // The same check runs inside `write`, but only once the write task is under way, where
         // it would surface as an opaque send failure on the first batch.
         write_options.validate_metadata()?;
-        let size = write_options.size_estimator();
 
-        let (bytes_written, handle) = match resolved {
+        let writer = match resolved {
             ResolvedStore::Path(path) => {
                 let file = RUNTIME.block_on(async {
                     if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
@@ -273,39 +313,22 @@ pub extern "system" fn Java_dev_vortex_jni_NativeWriter_create(
                     }
                     Ok::<_, VortexError>(File::create(path).await?)
                 })?;
-                let mut write = CountingVortexWrite::new(file);
-                let bytes_written = write.counter();
-                let handle = session.handle().spawn(async move {
-                    let summary = write_options.write(&mut write, stream).await?;
-                    write.shutdown().await?;
-                    Ok(summary)
-                });
-                (bytes_written, handle)
+                NativeWriter::start(session, arrow_schema, write_schema, write_options, file)
             }
             ResolvedStore::ObjectStore(store, path) => {
                 let object_write =
                     RUNTIME.block_on(ObjectStoreWrite::new(Arc::new(Compat::new(store)), &path))?;
-                let mut write = CountingVortexWrite::new(object_write);
-                let bytes_written = write.counter();
-                let handle = session.handle().spawn(async move {
-                    let summary = write_options.write(&mut write, stream).await?;
-                    write.shutdown().await?;
-                    Ok(summary)
-                });
-                (bytes_written, handle)
+                NativeWriter::start(
+                    session,
+                    arrow_schema,
+                    write_schema,
+                    write_options,
+                    object_write,
+                )
             }
         };
 
-        Ok(Box::new(NativeWriter::new(
-            session.clone(),
-            arrow_schema,
-            write_schema,
-            bytes_written,
-            size,
-            handle,
-            tx,
-        ))
-        .into_raw())
+        Ok(Box::new(writer).into_raw())
     })
 }
 
@@ -323,6 +346,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeWriter_createStream(
     writable: JObject,
     arrow_schema_addr: jlong,
     metadata: JObject,
+    compact: jboolean,
 ) -> jlong {
     try_or_throw(&mut env, |env| {
         if session_ptr == 0 {
@@ -345,30 +369,20 @@ pub extern "system" fn Java_dev_vortex_jni_NativeWriter_createStream(
         let metadata = extract_metadata(env, &metadata)?;
         let vm = env.get_java_vm()?;
         let writable = Arc::new(env.new_global_ref(&writable)?);
-        let (tx, stream) = write_queue(write_schema.clone());
-        let write_options = session.write_options().with_metadata_segments(metadata);
+        let write_options =
+            session_write_options(session, compact).with_metadata_segments(metadata);
         // See the note in `create`: validate before the write task can start.
         write_options.validate_metadata()?;
-        let size = write_options.size_estimator();
 
-        let mut write = CountingVortexWrite::new(JavaWrite::new(vm, writable));
-        let bytes_written = write.counter();
-        let handle = session.handle().spawn(async move {
-            let summary = write_options.write(&mut write, stream).await?;
-            write.shutdown().await?;
-            Ok(summary)
-        });
-
-        Ok(Box::new(NativeWriter::new(
-            session.clone(),
+        let writer = NativeWriter::start(
+            session,
             arrow_schema,
             write_schema,
-            bytes_written,
-            size,
-            handle,
-            tx,
-        ))
-        .into_raw())
+            write_options,
+            JavaWrite::new(vm, writable),
+        );
+
+        Ok(Box::new(writer).into_raw())
     })
 }
 
@@ -396,6 +410,104 @@ pub extern "system" fn Java_dev_vortex_jni_NativeWriter_writeBatch(
             unsafe { FFI_ArrowSchema::from_raw(arrow_schema_addr as *mut FFI_ArrowSchema) };
 
         let array_data = unsafe { arrow_array::ffi::from_ffi(ffi_array, &ffi_schema) }
+            .map_err(|e| JNIError::Vortex(vortex_err!("failed to import Arrow FFI data: {e}")))?;
+
+        let batch = RecordBatch::from(StructArray::from(array_data));
+        writer.write_record_batch(batch)?;
+        Ok(JNI_TRUE)
+    })
+}
+
+/// Check that the buffer, child and dictionary counts of `array` agree with `data_type`.
+///
+/// The Arrow import does not validate, so a mismatch can panic or read out of bounds. This check
+/// cannot find a different value width, for example `Int64` in the place of `Int32`.
+fn check_ffi_layout(array: &FFI_ArrowArray, data_type: &DataType) -> VortexResult<()> {
+    let expected = layout(data_type);
+    let fixed_buffers = expected.buffers.len() + usize::from(expected.can_contain_null_mask);
+
+    // View types have a variable count of data buffers.
+    if expected.variadic {
+        vortex_ensure!(
+            array.num_buffers() > fixed_buffers,
+            "Arrow array for {data_type} has {} buffers, expected more than {fixed_buffers}",
+            array.num_buffers()
+        );
+    } else {
+        vortex_ensure!(
+            array.num_buffers() == fixed_buffers,
+            "Arrow array for {data_type} has {} buffers, expected {fixed_buffers}",
+            array.num_buffers()
+        );
+    }
+
+    let children: Vec<&DataType> = match data_type {
+        DataType::List(field)
+        | DataType::LargeList(field)
+        | DataType::FixedSizeList(field, _)
+        | DataType::ListView(field)
+        | DataType::LargeListView(field)
+        | DataType::Map(field, _) => vec![field.data_type()],
+        DataType::Struct(fields) => fields.iter().map(|field| field.data_type()).collect(),
+        DataType::Union(fields, _) => fields.iter().map(|(_, field)| field.data_type()).collect(),
+        DataType::RunEndEncoded(run_ends, values) => {
+            vec![run_ends.data_type(), values.data_type()]
+        }
+        _ => Vec::new(),
+    };
+    vortex_ensure!(
+        array.num_children() == children.len(),
+        "Arrow array for {data_type} has {} children, expected {}",
+        array.num_children(),
+        children.len()
+    );
+
+    for (index, child_type) in children.into_iter().enumerate() {
+        check_ffi_layout(array.child(index), child_type)?;
+    }
+
+    match (data_type, array.dictionary()) {
+        (DataType::Dictionary(_, value_type), Some(dictionary)) => {
+            check_ffi_layout(dictionary, value_type)
+        }
+        (DataType::Dictionary(..), None) => {
+            Err(vortex_err!("Arrow array for {data_type} has no dictionary"))
+        }
+        (_, Some(_)) => Err(vortex_err!(
+            "Arrow array for {data_type} has a dictionary, expected none"
+        )),
+        (_, None) => Ok(()),
+    }
+}
+
+/// Write a batch from an Arrow C Data Interface array that agrees with the writer schema.
+///
+/// Native code takes the array and releases it, also when the call fails.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_vortex_jni_NativeWriter_writeArray(
+    mut env: EnvUnowned,
+    _class: JClass,
+    writer_ptr: jlong,
+    arrow_array_addr: jlong,
+) -> jboolean {
+    if writer_ptr <= 0 {
+        return JNI_FALSE;
+    }
+
+    try_or_throw(&mut env, |_env| {
+        if arrow_array_addr == 0 {
+            throw_runtime!("null arrow array address");
+        }
+        let writer = unsafe { NativeWriter::from_ptr(writer_ptr) };
+
+        // Take the array first, so that each path below releases it.
+        let ffi_array =
+            unsafe { FFI_ArrowArray::from_raw(arrow_array_addr as *mut FFI_ArrowArray) };
+        let dtype = DataType::Struct(writer.arrow_schema.fields().clone());
+        check_ffi_layout(&ffi_array, &dtype)?;
+
+        // SAFETY: `check_ffi_layout` passed, and the caller guarantees the value types.
+        let array_data = unsafe { arrow_array::ffi::from_ffi_and_data_type(ffi_array, dtype) }
             .map_err(|e| JNIError::Vortex(vortex_err!("failed to import Arrow FFI data: {e}")))?;
 
         let batch = RecordBatch::from(StructArray::from(array_data));
@@ -495,18 +607,23 @@ pub extern "system" fn Java_dev_vortex_jni_NativeWriter_compressionRatio(
     writer.compression_ratio()
 }
 
+/// Finish the writer and return its summary.
+///
+/// `metadata` is a nullable `Map<String, byte[]>` that merges with the create-time segments.
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_dev_vortex_jni_NativeWriter_finish(
     mut env: EnvUnowned,
     _class: JClass,
     writer_ptr: jlong,
+    metadata: JObject,
 ) -> jobject {
     if writer_ptr <= 0 {
         return JObject::null().into_raw();
     }
     let writer = unsafe { NativeWriter::from_raw(writer_ptr) };
     try_or_throw(&mut env, |env| {
-        let summary = writer.close()?;
+        let metadata = extract_metadata(env, &metadata)?;
+        let summary = writer.close(metadata)?;
         Ok(write_summary_to_java(env, &summary)?.into_raw())
     })
 }
@@ -522,7 +639,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeWriter_close(
     }
     let writer = unsafe { NativeWriter::from_raw(writer_ptr) };
     try_or_throw(&mut env, |_env| {
-        writer.close()?;
+        writer.close(HashMap::new())?;
         Ok(())
     });
 }

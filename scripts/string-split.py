@@ -27,6 +27,7 @@ COLUMNS = [
     "news/headlines",
     "twitter/sentiment140",
     "fineweb/text",
+    "tinystories/text",
 ]
 ENCODERS = ["onpair", "fsst"]
 
