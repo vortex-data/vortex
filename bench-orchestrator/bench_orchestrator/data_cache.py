@@ -13,7 +13,6 @@ which is written last so that an entry without it is incomplete.
 
 from __future__ import annotations
 
-import fcntl
 import hashlib
 import json
 import os
@@ -55,6 +54,22 @@ _THREAD_LOCKS: dict[Path, threading.RLock] = {}
 _LOCK_DEPTH: dict[Path, int] = {}
 _LOCK_FDS: dict[Path, int] = {}
 
+# Sibling format directories written by ``vortex-bench`` beside the cached base directory.
+_MANAGED_FORMAT_DIRS: frozenset[str] = frozenset(
+    {
+        "arrow-ipc",
+        "csv",
+        "parquet",
+        "vortex",
+        "vortex-file-compressed",
+        "vortex-compact",
+        "vortex-spatial-native",
+        "duckdb",
+        "lance",
+        "litdata",
+    }
+)
+
 
 def _marker_path(dataset: CachedDataset) -> Path:
     """Path to the fingerprint marker stored beside ``dataset.directory``."""
@@ -69,6 +84,11 @@ def _lock_path(dataset: CachedDataset) -> Path:
 @contextmanager
 def _dataset_lock(dataset: CachedDataset) -> Iterator[None]:
     """Serialize in-process and cross-process access to ``dataset.directory``."""
+    try:
+        import fcntl
+    except ImportError:  # pragma: no cover - Windows
+        fcntl = None  # type: ignore[assignment]
+
     lock_file = _lock_path(dataset)
     lock_file.parent.mkdir(parents=True, exist_ok=True)
     lock_key = lock_file.resolve()
@@ -76,7 +96,7 @@ def _dataset_lock(dataset: CachedDataset) -> Iterator[None]:
         rlock = _THREAD_LOCKS.setdefault(lock_key, threading.RLock())
     with rlock:
         depth = _LOCK_DEPTH.get(lock_key, 0)
-        if depth == 0:
+        if depth == 0 and fcntl is not None:
             fd = os.open(lock_file, os.O_CREAT | os.O_RDWR, 0o666)
             try:
                 fcntl.flock(fd, fcntl.LOCK_EX)
@@ -90,11 +110,12 @@ def _dataset_lock(dataset: CachedDataset) -> Iterator[None]:
         finally:
             _LOCK_DEPTH[lock_key] -= 1
             if _LOCK_DEPTH[lock_key] == 0:
-                fd = _LOCK_FDS.pop(lock_key)
-                try:
-                    fcntl.flock(fd, fcntl.LOCK_UN)
-                finally:
-                    os.close(fd)
+                fd = _LOCK_FDS.pop(lock_key, None)
+                if fd is not None and fcntl is not None:
+                    try:
+                        fcntl.flock(fd, fcntl.LOCK_UN)
+                    finally:
+                        os.close(fd)
 
 
 def _has_matching_local_cache(dataset: CachedDataset) -> bool:
@@ -124,14 +145,31 @@ def _write_marker(dataset: CachedDataset) -> None:
 
 
 def _remove_stale_derived_dirs(dataset: CachedDataset) -> None:
-    """Remove sibling derived-format directories that were built from previous base data."""
+    """Remove sibling derived-format directories owned by the generator."""
     parent = dataset.directory.parent
     if not parent.is_dir():
         return
     for entry in parent.iterdir():
-        if entry.name == dataset.directory.name or entry.name.startswith("."):
+        if entry.name == dataset.directory.name or entry.name not in _MANAGED_FORMAT_DIRS:
             continue
-        if entry.is_dir() and not entry.is_symlink():
+        if entry.is_symlink():
+            entry.unlink()
+        elif entry.is_dir():
+            shutil.rmtree(entry)
+
+
+def _scavenge_abandoned_staging(dataset: CachedDataset) -> None:
+    """Remove leftover staging/old directories from killed restores (must hold dataset lock)."""
+    parent = dataset.directory.parent
+    if not parent.is_dir():
+        return
+    prefixes = (f".{dataset.directory.name}.staging.", f".{dataset.directory.name}.old.")
+    for entry in parent.iterdir():
+        if not entry.name.startswith(prefixes):
+            continue
+        if entry.is_symlink() or entry.is_file():
+            entry.unlink(missing_ok=True)
+        elif entry.is_dir():
             shutil.rmtree(entry, ignore_errors=True)
 
 
@@ -307,6 +345,7 @@ class S3DataCache:
                 console.print(f"{dataset.directory} already matches {dataset.key}")
                 return True
 
+            _scavenge_abandoned_staging(dataset)
             staging = dataset.directory.with_name(f".{dataset.directory.name}.staging.{os.getpid()}.{uuid.uuid4().hex}")
             try:
                 files = self._cached_files(dataset)
@@ -327,12 +366,17 @@ class S3DataCache:
 
                 with ThreadPoolExecutor(_FILE_CONCURRENCY) as pool:
                     list(pool.map(download, files))
-                _publish_staging(dataset, staging)
             except (BotoCoreError, ClientError, OSError) as exc:
                 shutil.rmtree(staging, ignore_errors=True)
                 _invalidate_local(dataset)
                 console.print(f"[yellow]S3 cache restore failed for {dataset.key}, regenerating: {exc}[/yellow]")
                 return False
+
+            try:
+                _publish_staging(dataset, staging)
+            finally:
+                if staging.exists():
+                    shutil.rmtree(staging, ignore_errors=True)
             return True
 
     def save(self, dataset: CachedDataset) -> None:

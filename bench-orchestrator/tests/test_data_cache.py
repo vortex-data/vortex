@@ -5,13 +5,15 @@
 
 import io
 import json
+import shutil
 import threading
 import time
 from datetime import UTC, datetime
 from pathlib import Path
 
+import pytest
 from bench_orchestrator.config import Benchmark
-from bench_orchestrator.data_cache import MANIFEST, CachedDataset, S3DataCache, cached_dataset
+from bench_orchestrator.data_cache import MANIFEST, CachedDataset, S3DataCache, cached_dataset, prepare_dataset
 from botocore.exceptions import ClientError
 
 
@@ -243,3 +245,77 @@ def test_statpopgen_fingerprint_change_invalidates_local_cache(tmp_path: Path) -
 
     assert cache.restore(ds_v2) is False
     assert not ds_v2.directory.exists()
+
+
+def test_local_refresh_preserves_unrelated_sibling_and_unlinks_managed_symlink(tmp_path: Path) -> None:
+    ds_v1 = _make_dataset(tmp_path, "clickbench-sorted-v1")
+    with prepare_dataset(ds_v1, cache=None) as restored:
+        assert restored is False
+        ds_v1.directory.mkdir(parents=True, exist_ok=True)
+        (ds_v1.directory / "hits.parquet").write_bytes(b"v1")
+
+    # Create an unrelated sibling directory that must be preserved.
+    unrelated = ds_v1.directory.parent / "analysis"
+    unrelated.mkdir()
+    notes = unrelated / "notes.txt"
+    notes.write_text("keep me\n", encoding="utf-8")
+
+    # Create a managed derived-format symlink pointing outside the cache dir.
+    external = tmp_path / "external_vortex"
+    external.mkdir()
+    target_file = external / "hits.vortex"
+    target_file.write_bytes(b"stale-vortex")
+    derived_link = ds_v1.directory.parent / "vortex-compact"
+    derived_link.symlink_to(external)
+
+    # Local refresh for v2 without S3 must preserve analysis/notes.txt and unlink vortex-compact.
+    ds_v2 = _make_dataset(tmp_path, "clickbench-sorted-v2")
+    with prepare_dataset(ds_v2, cache=None) as restored:
+        assert restored is False
+        assert not derived_link.exists() and not derived_link.is_symlink()
+        assert target_file.read_bytes() == b"stale-vortex"
+        assert notes.read_text(encoding="utf-8") == "keep me\n"
+        ds_v2.directory.mkdir(parents=True, exist_ok=True)
+        (ds_v2.directory / "hits.parquet").write_bytes(b"v2")
+
+    assert notes.read_text(encoding="utf-8") == "keep me\n"
+    assert target_file.read_bytes() == b"stale-vortex"
+
+
+def test_restore_scavenges_abandoned_staging_and_aborts_on_undeletable_derived_dir(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fake = FakeS3Client()
+    cache = S3DataCache("s3://bucket/prefix", client=fake)
+
+    ds_v1 = _make_dataset(tmp_path, "clickbench-sorted-v1")
+    fake.put_dataset(cache, ds_v1, {"hits.parquet": b"v1"})
+    assert cache.restore(ds_v1) is True
+
+    # Abandoned staging directory left behind by a killed restore.
+    abandoned = ds_v1.directory.with_name(f".{ds_v1.directory.name}.staging.99999.deadbeef")
+    abandoned.mkdir()
+    (abandoned / "partial.parquet").write_bytes(b"abandoned")
+
+    derived = ds_v1.directory.parent / "vortex-compact"
+    derived.mkdir()
+    (derived / "hits.vortex").write_bytes(b"stale-vortex")
+
+    ds_v2 = _make_dataset(tmp_path, "clickbench-sorted-v2")
+    fake.put_dataset(cache, ds_v2, {"hits.parquet": b"v2"})
+
+    real_rmtree = shutil.rmtree
+
+    def fail_on_derived(path: Path | str, *args: object, **kwargs: object) -> None:
+        if Path(path) == derived:
+            raise PermissionError("cannot remove derived dir")
+        real_rmtree(path, *args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr("bench_orchestrator.data_cache.shutil.rmtree", fail_on_derived)
+    with pytest.raises(PermissionError, match="cannot remove derived dir"):
+        cache.restore(ds_v2)
+
+    # Abandoned staging was scavenged, and v2 marker was NOT certified.
+    assert not abandoned.exists()
+    marker = ds_v2.directory.with_name(f".{ds_v2.directory.name}.cache-key")
+    assert not marker.exists()
