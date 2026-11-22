@@ -374,13 +374,12 @@ mod native {
     }
 
     async fn run(mut terminal: DefaultTerminal, mut app: AppState) -> VortexResult<()> {
-        let mut events = EventStream::new();
-
         // Eagerly load data if the initial layout is flat.
         if app.cursor.layout().is::<Flat>() {
             app.load_flat_data().await;
         }
 
+        let mut events = EventStream::new();
         loop {
             terminal.draw(|frame| render_app(&mut app, frame))?;
 
