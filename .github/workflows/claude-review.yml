@@ -20,6 +20,8 @@ name: Claude Code (Review)
 #   a maintainer should restate the task on an issue and use claude-write.yml.
 # - PR conversation comments on PRs already opened by the Claude App are handled by
 #   claude-write.yml so maintainers can ask Claude to make follow-up changes there.
+# - `devin-ai-integration[bot]` is the only bot allowed to trigger this workflow,
+#   and only via PR `issue_comment` comments starting with `@claude review`.
 
 on:
   issue_comment:
@@ -53,11 +55,16 @@ jobs:
             const sender = context.payload.sender?.login ?? '';
             const senderType = context.payload.sender?.type ?? '';
             const trustedClaudeLogin = process.env.CLAUDE_APP_LOGIN ?? '';
+            // Keep in sync with `allowed_bots` in the `claude` job below.
+            // GitHub's collaborator permission API returns 404 for App `[bot]` logins,
+            // and only the `vortex-data` installation can post as this login, so it
+            // skips the collaborator lookup for `@claude review` PR issue comments.
             const allowedBotLogins = new Set(['devin-ai-integration[bot]']);
             const isAllowedBot =
               senderType === 'Bot' &&
               context.eventName === 'issue_comment' &&
-              allowedBotLogins.has(sender);
+              allowedBotLogins.has(sender) &&
+              /^@claude review\b/.test((context.payload.comment?.body ?? '').trim());
 
             async function getPermission(username) {
               try {
@@ -239,6 +246,9 @@ jobs:
       actions: read
       # Requests the OIDC token exchanged for an Anthropic one. No repo access.
       id-token: write
+    env:
+      # Scrub GitHub Actions / cloud / Anthropic secrets from Claude subprocesses.
+      CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "1"
     steps:
       - name: Checkout same-repo PR contents
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
@@ -262,6 +272,7 @@ jobs:
           # to read repository state and post review comments. It cannot write repo
           # contents, and it has no access to the GitHub App private key.
           github_token: ${{ github.token }}
+          # Keep in sync with `allowedBotLogins` in the `gate` job above.
           allowed_bots: "devin-ai-integration[bot]"
 
           additional_permissions: |
@@ -269,5 +280,5 @@ jobs:
 
           claude_args: |
             --model claude-opus-5-5
-            --allowedTools "Read,Grep,Glob,Bash(git diff:*),Bash(git show:*),Bash(git log:*),Bash(head:*),Bash(jq:*),Bash(rg:*)"
+            --allowedTools "Read,Grep,Glob,Bash(git diff:*),Bash(git show:*),Bash(git log:*),Bash(rg:*)"
             --system-prompt "You review same-repository pull requests for this repository and reply in GitHub. This workflow is read-only: you can read the code and post comments, but you cannot change files, commits, branches or pull requests. If a request needs code changes, tell the maintainer to restate the task on an issue for the write workflow."
