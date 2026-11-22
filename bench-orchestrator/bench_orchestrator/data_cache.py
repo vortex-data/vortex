@@ -13,6 +13,7 @@ which is written last so that an entry without it is incomplete.
 
 from __future__ import annotations
 
+import errno
 import hashlib
 import json
 import os
@@ -82,14 +83,62 @@ def _lock_path(dataset: CachedDataset) -> Path:
     return dataset.directory.with_name(f".{dataset.directory.name}.cache.lock")
 
 
-@contextmanager
-def _dataset_lock(dataset: CachedDataset) -> Iterator[None]:
-    """Serialize in-process and cross-process access to ``dataset.directory``."""
+def _acquire_file_lock(fd: int) -> bool:
+    """Acquire an exclusive cross-process lock on ``fd``. Returns False if unsupported."""
     try:
         import fcntl
-    except ImportError:  # pragma: no cover - Windows
+    except ImportError:
         fcntl = None  # type: ignore[assignment]
 
+    if fcntl is not None:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        return True
+
+    try:
+        import msvcrt
+    except ImportError:  # pragma: no cover - non-POSIX, non-Windows
+        return False
+
+    # Ensure byte 0 exists, then block until the exclusive lock on byte 0 is acquired.
+    if os.fstat(fd).st_size == 0:
+        os.write(fd, b"\0")
+    while True:
+        os.lseek(fd, 0, os.SEEK_SET)
+        try:
+            msvcrt.locking(fd, msvcrt.LK_LOCK, 1)  # type: ignore[attr-defined]
+            return True
+        except OSError as exc:
+            if exc.errno in (errno.EDEADLK, errno.EACCES):
+                continue
+            raise
+
+
+def _release_file_lock(fd: int) -> None:
+    """Release an exclusive cross-process lock acquired by ``_acquire_file_lock``."""
+    try:
+        import fcntl
+    except ImportError:
+        fcntl = None  # type: ignore[assignment]
+
+    if fcntl is not None:
+        fcntl.flock(fd, fcntl.LOCK_UN)
+        return
+
+    try:
+        import msvcrt
+    except ImportError:  # pragma: no cover - non-POSIX, non-Windows
+        return
+
+    os.lseek(fd, 0, os.SEEK_SET)
+    msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)  # type: ignore[attr-defined]
+
+
+@contextmanager
+def _dataset_lock(dataset: CachedDataset) -> Iterator[bool]:
+    """Serialize in-process and cross-process access to ``dataset.directory``.
+
+    Yields ``True`` when cross-process file locking is active, ``False`` otherwise.
+    """
     lock_file = _lock_path(dataset)
     lock_file.parent.mkdir(parents=True, exist_ok=True)
     lock_key = lock_file.resolve()
@@ -97,24 +146,27 @@ def _dataset_lock(dataset: CachedDataset) -> Iterator[None]:
         rlock = _THREAD_LOCKS.setdefault(lock_key, threading.RLock())
     with rlock:
         depth = _LOCK_DEPTH.get(lock_key, 0)
-        if depth == 0 and fcntl is not None:
+        if depth == 0:
             fd = os.open(lock_file, os.O_CREAT | os.O_RDWR, 0o666)
             try:
-                fcntl.flock(fd, fcntl.LOCK_EX)
+                locked = _acquire_file_lock(fd)
             except BaseException:
                 os.close(fd)
                 raise
-            _LOCK_FDS[lock_key] = fd
+            if locked:
+                _LOCK_FDS[lock_key] = fd
+            else:
+                os.close(fd)
         _LOCK_DEPTH[lock_key] = depth + 1
         try:
-            yield
+            yield lock_key in _LOCK_FDS
         finally:
             _LOCK_DEPTH[lock_key] -= 1
             if _LOCK_DEPTH[lock_key] == 0:
                 fd = _LOCK_FDS.pop(lock_key, None)
-                if fd is not None and fcntl is not None:
+                if fd is not None:
                     try:
-                        fcntl.flock(fd, fcntl.LOCK_UN)
+                        _release_file_lock(fd)
                     finally:
                         os.close(fd)
 
@@ -341,12 +393,13 @@ class S3DataCache:
         sees an empty destination, or atomically replaced from private staging on hit. S3 errors
         are reported and treated as a miss, so a cache outage only costs regeneration.
         """
-        with _dataset_lock(dataset):
+        with _dataset_lock(dataset) as cross_process_locked:
             if _has_matching_local_cache(dataset):
                 console.print(f"{dataset.directory} already matches {dataset.key}")
                 return True
 
-            _scavenge_abandoned_staging(dataset)
+            if cross_process_locked:
+                _scavenge_abandoned_staging(dataset)
             staging = dataset.directory.with_name(f".{dataset.directory.name}.staging.{os.getpid()}.{uuid.uuid4().hex}")
             try:
                 files = self._cached_files(dataset)
