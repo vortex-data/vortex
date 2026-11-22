@@ -145,9 +145,12 @@ class VortexDataset(pyarrow.dataset.Dataset):
         fragment_scan_options : :class:`.pyarrow.dataset.FragmentScanOptions`
             Not implemented.
         use_threads : bool
-            If ``True``, temporarily use available parallelism. If ``False``,
-            temporarily disable Vortex background workers unless another active
-            reader has ``use_threads=True``.
+            If ``True``, leave the configured Vortex worker pool unchanged
+            (respecting :func:`vortex.set_worker_threads` and
+            ``VORTEX_MAX_THREADS`` rather than forcing the default pool size).
+            If ``False``, temporarily set worker threads to ``0`` until the
+            last ``use_threads=False`` reader closes; while any such reader is
+            open, other reads in the process run on their calling threads.
         memory_pool : :class:`.pyarrow.MemoryPool` | None
             Not implemented.
 
@@ -244,9 +247,12 @@ class VortexDataset(pyarrow.dataset.Dataset):
         fragment_scan_options : :class:`.pyarrow.dataset.FragmentScanOptions`
             Not implemented.
         use_threads : bool
-            If ``True``, temporarily use available parallelism. If ``False``,
-            temporarily disable Vortex background workers unless another active
-            reader has ``use_threads=True``.
+            If ``True``, leave the configured Vortex worker pool unchanged
+            (respecting :func:`vortex.set_worker_threads` and
+            ``VORTEX_MAX_THREADS`` rather than forcing the default pool size).
+            If ``False``, temporarily set worker threads to ``0`` until the
+            last ``use_threads=False`` reader closes; while any such reader is
+            open, other reads in the process run on their calling threads.
         memory_pool : :class:`.pyarrow.MemoryPool` | None
             Not implemented.
 
@@ -322,9 +328,12 @@ class VortexDataset(pyarrow.dataset.Dataset):
         fragment_scan_options : :class:`.pyarrow.dataset.FragmentScanOptions`
             Not implemented.
         use_threads : bool
-            If ``True``, temporarily use available parallelism. If ``False``,
-            temporarily disable Vortex background workers unless another active
-            reader has ``use_threads=True``.
+            If ``True``, leave the configured Vortex worker pool unchanged
+            (respecting :func:`vortex.set_worker_threads` and
+            ``VORTEX_MAX_THREADS`` rather than forcing the default pool size).
+            If ``False``, temporarily set worker threads to ``0`` until the
+            last ``use_threads=False`` reader closes; while any such reader is
+            open, other reads in the process run on their calling threads.
         cache_metadata : bool
             Not implemented.
         memory_pool : :class:`.pyarrow.MemoryPool` | None
@@ -391,9 +400,12 @@ class VortexDataset(pyarrow.dataset.Dataset):
         fragment_scan_options : :class:`.pyarrow.dataset.FragmentScanOptions`
             Not implemented.
         use_threads : bool
-            If ``True``, temporarily use available parallelism. If ``False``,
-            temporarily disable Vortex background workers unless another active
-            reader has ``use_threads=True``.
+            If ``True``, leave the configured Vortex worker pool unchanged
+            (respecting :func:`vortex.set_worker_threads` and
+            ``VORTEX_MAX_THREADS`` rather than forcing the default pool size).
+            If ``False``, temporarily set worker threads to ``0`` until the
+            last ``use_threads=False`` reader closes; while any such reader is
+            open, other reads in the process run on their calling threads.
         memory_pool : :class:`.pyarrow.MemoryPool` | None
             Not implemented.
 
@@ -458,9 +470,12 @@ class VortexDataset(pyarrow.dataset.Dataset):
         fragment_scan_options : :class:`.pyarrow.dataset.FragmentScanOptions`
             Not implemented.
         use_threads : bool
-            If ``True``, temporarily use available parallelism. If ``False``,
-            temporarily disable Vortex background workers unless another active
-            reader has ``use_threads=True``.
+            If ``True``, leave the configured Vortex worker pool unchanged
+            (respecting :func:`vortex.set_worker_threads` and
+            ``VORTEX_MAX_THREADS`` rather than forcing the default pool size).
+            If ``False``, temporarily set worker threads to ``0`` until the
+            last ``use_threads=False`` reader closes; while any such reader is
+            open, other reads in the process run on their calling threads.
         cache_metadata : bool
             Not implemented.
         memory_pool : :class:`.pyarrow.MemoryPool` | None
@@ -517,9 +532,12 @@ class VortexDataset(pyarrow.dataset.Dataset):
         fragment_scan_options : :class:`.pyarrow.dataset.FragmentScanOptions`
             Not implemented.
         use_threads : bool
-            If ``True``, temporarily use available parallelism. If ``False``,
-            temporarily disable Vortex background workers unless another active
-            reader has ``use_threads=True``.
+            If ``True``, leave the configured Vortex worker pool unchanged
+            (respecting :func:`vortex.set_worker_threads` and
+            ``VORTEX_MAX_THREADS`` rather than forcing the default pool size).
+            If ``False``, temporarily set worker threads to ``0`` until the
+            last ``use_threads=False`` reader closes; while any such reader is
+            open, other reads in the process run on their calling threads.
         memory_pool : :class:`.pyarrow.MemoryPool` | None
             Not implemented.
 
@@ -799,9 +817,12 @@ class VortexScanner(pyarrow.dataset.Scanner):
     fragment_scan_options : :class:`.pyarrow.dataset.FragmentScanOptions`
         Not implemented.
     use_threads : bool
-        If ``True``, temporarily use available parallelism. If ``False``,
-        temporarily disable Vortex background workers unless another active
-        reader has ``use_threads=True``.
+        If ``True``, leave the configured Vortex worker pool unchanged
+        (respecting :func:`vortex.set_worker_threads` and
+        ``VORTEX_MAX_THREADS`` rather than forcing the default pool size).
+        If ``False``, temporarily set worker threads to ``0`` until the last
+        ``use_threads=False`` reader closes; while any such reader is open,
+        other reads in the process run on their calling threads.
     memory_pool : :class:`.pyarrow.MemoryPool` | None
         Not implemented.
 
