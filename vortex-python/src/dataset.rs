@@ -197,7 +197,7 @@ impl PyVortexDataset {
         row_range: Option<(u64, u64)>,
         limit: Option<u64>,
     ) -> PyVortexResult<Py<PyAny>> {
-        let split_by = validate_positive_split_size(split_by, "split_by")?;
+        let split_by = validate_positive_split_size(split_by, "batch_size")?;
         let vxf = &self_.vxf;
         let projection = projection_from_python(columns, vxf.dtype())?;
         let filter = filter_from_python(row_filter);
@@ -237,7 +237,7 @@ impl PyVortexDataset {
         split_by: Option<usize>,
         row_range: Option<(u64, u64)>,
     ) -> PyVortexResult<usize> {
-        let split_by = validate_positive_split_size(split_by, "split_by")?;
+        let split_by = validate_positive_split_size(split_by, "batch_size")?;
         if row_filter.is_none() {
             let row_count = match row_range {
                 Some(range) => range.1 - range.0,

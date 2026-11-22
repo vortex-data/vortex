@@ -410,11 +410,11 @@ def test_zero_batch_size_rejected(ds: vx.dataset.VortexDataset, tmp_path: Path) 
     empty_ds = vx.dataset.VortexDataset.from_path(str(empty_path))
 
     for dataset, col in ((ds, "index"), (empty_ds, "a")):
-        with pytest.raises(ValueError, match="split_by must be greater than zero"):
+        with pytest.raises(ValueError, match="batch_size must be greater than zero"):
             dataset.to_record_batch_reader(batch_size=0)
-        with pytest.raises(ValueError, match="split_by must be greater than zero"):
+        with pytest.raises(ValueError, match="batch_size must be greater than zero"):
             list(dataset.to_batches(batch_size=0))
-        with pytest.raises(ValueError, match="split_by must be greater than zero"):
+        with pytest.raises(ValueError, match="batch_size must be greater than zero"):
             dataset.count_rows(batch_size=0)
-        with pytest.raises(ValueError, match="split_by must be greater than zero"):
+        with pytest.raises(ValueError, match="batch_size must be greater than zero"):
             dataset.count_rows(filter=pc.field(col) >= 0, batch_size=0)

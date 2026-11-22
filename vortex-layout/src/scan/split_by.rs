@@ -2,14 +2,12 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::iter::once;
-use std::num::NonZeroU64;
-use std::num::NonZeroUsize;
 use std::ops::Range;
 
 use vortex_array::dtype::FieldMask;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_err;
+use vortex_error::vortex_ensure;
 
 use crate::BoundaryMode;
 use crate::LayoutReader;
@@ -67,15 +65,14 @@ impl SplitBy {
         match *self {
             SplitBy::Layout => Ok(()),
             SplitBy::LayoutSubSplitting { max_rows } => {
-                NonZeroU64::new(max_rows).ok_or_else(|| {
-                    vortex_err!("SplitBy::LayoutSubSplitting requires a non-zero max_rows")
-                })?;
+                vortex_ensure!(
+                    max_rows > 0,
+                    "SplitBy::LayoutSubSplitting requires a non-zero max_rows"
+                );
                 Ok(())
             }
             SplitBy::RowCount(n) => {
-                NonZeroUsize::new(n).ok_or_else(|| {
-                    vortex_err!("SplitBy::RowCount requires a non-zero row count")
-                })?;
+                vortex_ensure!(n > 0, "SplitBy::RowCount requires a non-zero row count");
                 Ok(())
             }
         }
@@ -89,12 +86,10 @@ impl SplitBy {
         row_range: &Range<u64>,
         field_mask: &[FieldMask],
     ) -> VortexResult<Vec<u64>> {
+        self.validate()?;
         Ok(match *self {
             SplitBy::Layout => layout_boundaries(layout_reader, row_range, field_mask)?,
             SplitBy::LayoutSubSplitting { max_rows } => {
-                let max_rows = NonZeroU64::new(max_rows).ok_or_else(|| {
-                    vortex_err!("SplitBy::LayoutSubSplitting requires a non-zero max_rows")
-                })?;
                 let (boundaries, soft) = register_boundaries(
                     layout_reader,
                     row_range,
@@ -106,22 +101,17 @@ impl SplitBy {
                     merge_small_spans(
                         boundaries,
                         &soft,
-                        DEFAULT_MIN_SPLIT_ROWS.min(max_rows.get()),
-                        max_rows.get(),
+                        DEFAULT_MIN_SPLIT_ROWS.min(max_rows),
+                        max_rows,
                     ),
-                    max_rows.get(),
+                    max_rows,
                 )
             }
-            SplitBy::RowCount(n) => {
-                let n = NonZeroUsize::new(n).ok_or_else(|| {
-                    vortex_err!("SplitBy::RowCount requires a non-zero row count")
-                })?;
-                row_range
-                    .clone()
-                    .step_by(n.get())
-                    .chain(once(row_range.end))
-                    .collect()
-            }
+            SplitBy::RowCount(n) => row_range
+                .clone()
+                .step_by(n)
+                .chain(once(row_range.end))
+                .collect(),
         })
     }
 }
