@@ -62,11 +62,16 @@ export class VortexWorker {
     };
   }
 
+  get pendingCount(): number {
+    return this.pending.size;
+  }
+
   private failAllPending(err: Error): void {
     if (this.closedError) return;
     this.closedError = err;
     const inflight = Array.from(this.pending.values());
     this.pending.clear();
+    this.worker.terminate();
     for (const req of inflight) {
       req.reject(err);
     }
@@ -133,6 +138,5 @@ export class VortexWorker {
 
   terminate(): void {
     this.failAllPending(new Error('Worker terminated'));
-    this.worker.terminate();
   }
 }

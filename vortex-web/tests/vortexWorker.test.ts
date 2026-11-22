@@ -37,47 +37,26 @@ class FakeWorker implements WorkerLike {
 }
 
 describe('VortexWorker request settlement', () => {
-  test('rejects all pending requests and future requests on worker error, settling each once', async () => {
+  test('rejects all pending requests and future requests on worker error and terminates the worker', async () => {
     const fake = new FakeWorker();
     const client = new VortexWorker(fake);
 
-    let settleA = 0;
-    let settleB = 0;
-    const pA = client.fetchEncodingTree('node-a').then(
-      () => {
-        settleA++;
-        return 'resolved';
-      },
-      (err: Error) => {
-        settleA++;
-        return err.message;
-      },
-    );
-    const pB = client.previewData('node-b', 10).then(
-      () => {
-        settleB++;
-        return 'resolved';
-      },
-      (err: Error) => {
-        settleB++;
-        return err.message;
-      },
-    );
+    const pA = client.fetchEncodingTree('node-a');
+    const pB = client.previewData('node-b', 10);
 
     const idA = fake.posted[0].id as number;
     const idB = fake.posted[1].id as number;
 
     fake.emitError('WASM unreachable');
+    expect(fake.terminated).toBe(true);
+    expect(client.pendingCount).toBe(0);
     // Late replies and duplicate errors after terminal failure must be ignored.
     fake.emitMessage({ type: 'result', id: idA, data: {} });
     fake.emitMessage({ type: 'error', id: idB, error: 'late' });
     fake.emitError('duplicate');
 
-    expect(await pA).toContain('WASM unreachable');
-    expect(await pB).toContain('WASM unreachable');
-    expect(settleA).toBe(1);
-    expect(settleB).toBe(1);
-
+    await expect(pA).rejects.toThrow('WASM unreachable');
+    await expect(pB).rejects.toThrow('WASM unreachable');
     await expect(client.previewData('node-c', 5)).rejects.toThrow('WASM unreachable');
   });
 
@@ -89,6 +68,8 @@ describe('VortexWorker request settlement', () => {
     const pB = client.fetchArrayBuffer('node-b', [], 0);
 
     fake.emitMessageError();
+    expect(fake.terminated).toBe(true);
+    expect(client.pendingCount).toBe(0);
 
     await expect(pA).rejects.toThrow('Worker message deserialization failed');
     await expect(pB).rejects.toThrow('Worker message deserialization failed');
@@ -132,10 +113,12 @@ describe('VortexWorker request settlement', () => {
     fake.postMessageImpl = undefined;
 
     await expect(pFail).rejects.toThrow('DataCloneError');
+    expect(client.pendingCount).toBe(1);
 
     const payload = new Uint8Array([1, 2, 3]);
     fake.emitMessage({ type: 'result', id: okId, data: payload });
     expect(await pOk).toEqual(payload);
+    expect(client.pendingCount).toBe(0);
 
     // Subsequent requests still work.
     const pAfter = client.previewData('node-after', 5);
