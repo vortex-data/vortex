@@ -28,22 +28,23 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::StructFields;
 use vortex_array::expr::BoundExpression;
-use vortex_array::expr::Expression;
-use vortex_array::expr::eq;
-use vortex_array::expr::get_item;
-use vortex_array::expr::lit;
-use vortex_array::expr::root;
-use vortex_array::stats::Stat;
 use vortex_array::scalar_fn::EmptyOptions;
-use vortex_array::scalar_fn::ScalarFnVTableExt;
-use vortex_array::scalar_fn::internal::row_count::RowCount;
-use vortex_array::scalar_fn::internal::row_count::contains_row_count;
-use vortex_array::scalar_fn::internal::row_count::substitute_row_count;
+use vortex_array::stats::Stat;
 use vortex_array::validity::Validity;
 use vortex_buffer::buffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure_eq;
+use vortex_expr::ArrayExprExt;
+use vortex_expr::Expression;
+use vortex_expr::ScalarFnExprExt;
+use vortex_expr::eq;
+use vortex_expr::get_item;
+use vortex_expr::lambda::row_count::RowCount;
+use vortex_expr::lambda::row_count::contains_row_count;
+use vortex_expr::lambda::row_count::substitute_row_count;
+use vortex_expr::lit;
+use vortex_expr::root;
 use vortex_expr::stats::bind::StatBinder;
 use vortex_expr::stats::bind::bind_stats;
 use vortex_mask::Mask;
@@ -112,7 +113,7 @@ impl ZoneMap {
     /// [`BoundExpressionPruneExt::falsify`]. The returned mask has one value per zone, where
     /// `true` means the zone cannot contain matching rows and can be skipped.
     ///
-    /// If the predicate contains [`row_count`][vortex_array::scalar_fn::internal::row_count]
+    /// If the predicate contains [`row_count`][vortex_expr::lambda::row_count]
     /// placeholders, they are replaced after [`ArrayRef::apply_bound`] with per-zone
     /// counts derived from `zone_len` and `row_count`. Uniform zones use a
     /// [`ConstantArray`]; a short final zone uses a run-end encoded array.

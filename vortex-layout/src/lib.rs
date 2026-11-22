@@ -29,7 +29,7 @@ pub use strategy::*;
 use vortex_session::registry::Interner;
 pub use vtable::*;
 pub mod aliases;
-pub mod analysis;
+pub use vortex_scan::analysis;
 mod children;
 pub mod display;
 mod encoding;

@@ -22,6 +22,7 @@
 //! * We should add a way for the client to negotiate capabilities with the data source, for
 //!   example which encodings it knows about.
 
+pub mod analysis;
 pub mod arrays;
 pub mod execution;
 pub mod plan;

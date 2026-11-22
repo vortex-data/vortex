@@ -17,7 +17,6 @@ use vortex_array::scalar::ScalarValue;
 use vortex_array::scalar_fn::builtin::operators::CompareOperator;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
-use vortex_expr::ArrayExprExt;
 use vortex_expr::Expression;
 use vortex_expr::and;
 use vortex_expr::bound::and as bound_and;

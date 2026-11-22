@@ -11210,6 +11210,7 @@ dependencies = [
  "vortex-buffer",
  "vortex-decimal-byte-parts",
  "vortex-error",
+ "vortex-expr",
  "vortex-fsst",
  "vortex-functions",
  "vortex-mask",

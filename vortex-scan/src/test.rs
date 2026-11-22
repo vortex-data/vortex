@@ -23,10 +23,10 @@ use vortex_array::IntoArray;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
-use vortex_array::stats::Precision;
 use vortex_array::optimizer::ArrayOptimizer;
 use vortex_array::serde::SerializeOptions;
 use vortex_array::serde::SerializedArray;
+use vortex_array::stats::Precision;
 use vortex_array::stream::ArrayStream;
 use vortex_array::stream::SendableArrayStream;
 use vortex_buffer::Alignment;
@@ -70,7 +70,11 @@ use crate::source::SegmentFuture;
 use crate::source::SegmentId;
 use crate::source::SegmentSource;
 
-pub static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+pub static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+    let session = VortexSession::empty();
+    vortex_functions::initialize(&session);
+    session
+});
 
 #[tokio::test]
 async fn into_array_stream_preserves_dtype_and_partition_order() -> VortexResult<()> {
