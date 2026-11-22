@@ -176,3 +176,21 @@ def test_temporary_symlinks_excluded_from_run_discovery(tmp_path: Path, monkeypa
 
     runs = store.list_runs()
     assert [r.run_id for r in runs] == [run_id]
+
+
+def test_slash_label_creates_intermediate_directories(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _patch_store_env(monkeypatch)
+    store = ResultStore(base_dir=tmp_path / "runs")
+    config, build_config = _make_configs(label="feature/new-scan")
+
+    with store.create_run(config, build_config) as ctx1:
+        run_id_1 = ctx1.metadata.run_id
+        ctx1.write_raw_json(json.dumps({"run": 1}))
+
+    with store.create_run(config, build_config) as ctx2:
+        run_id_2 = ctx2.metadata.run_id
+        ctx2.write_raw_json(json.dumps({"run": 2}))
+
+    assert run_id_1 != run_id_2
+    assert store.load_results(run_id_1)["run"].tolist() == [1]
+    assert store.load_results(run_id_2)["run"].tolist() == [2]

@@ -142,7 +142,7 @@ class ResultStore:
         while True:
             run_dir = self.base_dir / run_id
             try:
-                run_dir.mkdir(exist_ok=False)
+                run_dir.mkdir(parents=True, exist_ok=False)
                 return run_id, run_dir
             except FileExistsError:
                 run_id = f"{base_run_id}_{uuid.uuid4().hex[:8]}"
