@@ -676,6 +676,7 @@ impl Scan {
     pub fn with_max_active(mut self, max_active: usize) -> Self {
         let max_active = max_active.max(1);
         self.max_active = max_active;
+        // Never truncate: live slots index into `active` and `dirty_flags`.
         if max_active > self.active.len() {
             self.active.resize_with(max_active, || None);
             self.core.dirty_flags.resize(max_active, false);
