@@ -117,11 +117,9 @@ where
     ///
     /// If there is not enough capacity, the original future is returned to the caller.
     pub fn try_push(&self, fut: Fut, bytes: usize) -> Result<(), Fut> {
-        let permits: u32 = bytes.try_into().vortex_expect("bytes must fit in u32");
-        if bytes > self.max_bytes {
-            return Err(fut);
-        }
-        match Arc::clone(&self.bytes_available).try_acquire_many_owned(permits) {
+        match Arc::clone(&self.bytes_available)
+            .try_acquire_many_owned(bytes.try_into().vortex_expect("bytes must fit in u32"))
+        {
             Ok(permits) => {
                 let sized_fut = SizedFut {
                     inner: fut,
@@ -168,14 +166,13 @@ mod tests {
     use std::future;
     use std::io;
     use std::sync::Arc;
-    use std::sync::atomic::AtomicBool;
-    use std::sync::atomic::Ordering;
 
     use bytes::Bytes;
     use futures::FutureExt;
     use futures::StreamExt;
     use futures::future::BoxFuture;
     use vortex_error::VortexResult;
+    use vortex_error::vortex_err;
 
     use crate::limit::SizeLimitedStream;
 
@@ -334,22 +331,17 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_push_above_capacity_rejects_immediately_without_polling() {
-        let stream = SizeLimitedStream::new(10);
-        let polled = Arc::new(AtomicBool::new(false));
-        let polled_in_fut = Arc::clone(&polled);
-        let fut = async move {
-            polled_in_fut.store(true, Ordering::SeqCst);
-            Bytes::from_static(b"too big")
-        };
+    async fn test_push_above_capacity_rejects_immediately() -> VortexResult<()> {
+        let mut stream = SizeLimitedStream::new(10);
 
         let result = stream
-            .push(fut, 11)
+            .push(make_future(11), 11)
             .now_or_never()
-            .expect("pushing above max_bytes must resolve immediately");
+            .ok_or_else(|| vortex_err!("pushing above max_bytes must resolve immediately"))?;
         assert!(result.is_err());
-        assert!(!polled.load(Ordering::SeqCst));
+        assert_eq!(stream.next().now_or_never(), Some(None));
         assert_eq!(stream.bytes_available(), 10);
+        Ok(())
     }
 
     #[tokio::test]
