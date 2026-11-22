@@ -153,7 +153,7 @@ impl DictReader {
         // TODO(joe): fixme
 
         self.values_evals.get_or_insert_with(expr, || {
-            let expr = expr.clone();
+            let expr = expr.detach_identity();
             self.values_array_uncanonical()
                 .map(move |array| {
                     let array = array?.apply_bound(&expr)?;

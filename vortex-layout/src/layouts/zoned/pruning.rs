@@ -83,15 +83,15 @@ impl PruningState {
         expr: &BoundExpression,
     ) -> Option<SharedPruningResult> {
         self.pruning_result.get_or_insert_with(expr, || {
-            let expr = expr.clone();
-            let dynamic_updates = DynamicExprUpdates::new(&expr);
-            match self.pruning_predicate(expr.clone()) {
+            let dynamic_updates = DynamicExprUpdates::new(expr);
+            match self.pruning_predicate(expr) {
                 None => {
                     trace!(%expr, "no pruning predicate");
                     None
                 }
                 Some(predicate) => {
                     trace!(%expr, ?predicate, "constructed pruning predicate");
+                    let expr = expr.detach_identity();
                     let zone_map = self.zone_map();
                     let session = self.session.clone();
 
@@ -128,10 +128,10 @@ impl PruningState {
         })
     }
 
-    fn pruning_predicate(&self, expr: BoundExpression) -> Option<BoundExpression> {
+    fn pruning_predicate(&self, expr: &BoundExpression) -> Option<BoundExpression> {
         self.pruning_predicates
-            .get_or_insert_with(&expr, || Arc::new(OnceLock::new()))
-            .get_or_init(move || match expr.falsify(&self.session) {
+            .get_or_insert_with(expr, || Arc::new(OnceLock::new()))
+            .get_or_init(|| match expr.falsify(&self.session) {
                 Ok(predicate) => predicate,
                 Err(error) => {
                     trace!(%expr, %error, "failed to construct stats rewrite predicate");
