@@ -9,6 +9,7 @@
 use std::iter;
 
 use rand::Rng;
+use rand::RngExt;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 use rstest::rstest;
@@ -28,6 +29,7 @@ use vortex_array::arrays::ListViewArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::TemporalArray;
+use vortex_array::arrays::VarBin;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::assert_arrays_eq;
 use vortex_array::dtype::DType;
@@ -49,14 +51,18 @@ use vortex_edition::EditionSessionExt;
 #[cfg(feature = "zstd")]
 use vortex_edition::declarations::core::CORE_2026_08_3;
 use vortex_error::VortexResult;
+use vortex_fastlanes::BitPacked;
 use vortex_fastlanes::Delta;
+use vortex_onpair::OnPair;
 use vortex_session::VortexSession;
 use vortex_sparse::Sparse;
 
 use crate::BtrBlocksCompressor;
 use crate::BtrBlocksCompressorBuilder;
 use crate::SESSION;
+use crate::schemes::binary::VarBinScheme;
 use crate::schemes::boolean::BoolRunEndScheme;
+use crate::schemes::integer::BitPackingScheme;
 
 #[track_caller]
 fn assert_roundtrip(compressor: &BtrBlocksCompressor, input: &ArrayRef) -> VortexResult<ArrayRef> {
@@ -157,6 +163,7 @@ fn test_leaf_validity_is_compressed(
             (0..100_000i64).collect(),
             DecimalDType::new(12, 2),
             validity,
+            &mut SESSION.create_execution_ctx(),
         )
         .into_array(),
         "string" => VarBinViewArray::from_iter(
@@ -193,6 +200,7 @@ fn test_default_compressor_roundtrip() -> VortexResult<()> {
         (0..2048i64).map(|i| i * 123).collect(),
         DecimalDType::new(12, 2),
         Validity::NonNullable,
+        &mut ctx,
     );
     let timestamps = TemporalArray::new_timestamp(
         PrimitiveArray::from_iter((0..2048i64).map(|i| 1_700_000_000_000_000 + i * 123_456))
@@ -277,6 +285,37 @@ fn test_delta_unaligned_roundtrip(#[case] input: PrimitiveArray) -> VortexResult
     Ok(())
 }
 
+/// Series of 30-second timestamps, each with an occasional missed scrape, that restart in the
+/// middle of a FastLanes chunk. Each restart leaves one large negative residual, which used to
+/// inflate Delta's estimated span to the full width, although the cascade under Delta patches
+/// those few outliers.
+#[test]
+fn test_delta_chosen_for_restarting_series() -> VortexResult<()> {
+    let mut rng = StdRng::seed_from_u64(7);
+    let mut ts = 0i64;
+    let input = PrimitiveArray::from_iter((0..131_072).map(|i| {
+        if i % 30_000 == 0 {
+            ts = 1_700_000_000_000;
+        }
+        ts += if rng.next_u32() % 1000 == 0 {
+            60_000
+        } else {
+            30_000
+        };
+        ts
+    }))
+    .into_array();
+
+    let compressor = BtrBlocksCompressorBuilder::from_session(&SESSION)
+        .unrestricted()
+        .build();
+    let compressed = assert_roundtrip(&compressor, &input)?;
+    assert!(compressed.is::<Delta>());
+    assert!(compressed.nbytes() * 16 < input.nbytes());
+
+    Ok(())
+}
+
 /// Fixed-size lists of random bytes, like UUIDs, with the rows `is_valid` picks valid. The null
 /// rows hold zeros, as Arrow's fixed-size binary arrays do.
 fn random_byte_lists(rows: usize, is_valid: impl Fn(usize) -> bool) -> ArrayRef {
@@ -352,6 +391,133 @@ fn test_cuda_binary_zstd_follows_editions(
         .build();
     let compressed = assert_roundtrip(&compressor, &input)?;
     assert_eq!(compressed.encoding_id(), expected);
+
+    Ok(())
+}
+
+static BITPACKING_V1: BitPackingScheme = BitPackingScheme::v1();
+
+/// A scheme that stores its input's validity compresses it before encoding.
+#[test]
+fn test_bitpacking_compresses_its_validity() -> VortexResult<()> {
+    let input = PrimitiveArray::from_option_iter(
+        (0..100_000i32).map(|i| (!(1000..2000).contains(&i)).then_some(i % 100)),
+    )
+    .into_array();
+    let compressor = BtrBlocksCompressorBuilder::empty()
+        .with_new_scheme(&BITPACKING_V1)
+        .with_new_scheme(&BoolRunEndScheme)
+        .build();
+    let compressed = assert_roundtrip(&compressor, &input)?;
+
+    assert!(compressed.is::<BitPacked>(), "{}", compressed.encoding_id());
+    assert!(compressed.validity()?.to_array(input.len()).nbytes() < 100);
+    Ok(())
+}
+
+/// The VarBin scheme rebuilds the validity bitmap, which it compresses rather than writing out
+/// raw.
+#[test]
+fn test_varbin_validity_is_compressed() -> VortexResult<()> {
+    let input = VarBinViewArray::from_iter(
+        (0..100_000)
+            .map(|i| (!(1000..2000).contains(&i)).then(|| format!("value-{i}").into_bytes())),
+        DType::Binary(Nullability::Nullable),
+    )
+    .into_array();
+    let compressor = BtrBlocksCompressorBuilder::empty()
+        .with_new_scheme(&VarBinScheme)
+        .with_new_scheme(&BoolRunEndScheme)
+        .build();
+    let compressed = assert_roundtrip(&compressor, &input)?;
+
+    assert!(compressed.is::<VarBin>(), "{}", compressed.encoding_id());
+    assert!(compressed.validity()?.to_array(input.len()).nbytes() < 100);
+    Ok(())
+}
+
+/// Sparse stores each null as a patch, so a quarter of nulls among mostly-zero values must not
+/// pick it. This is the shape of a genotype column: most samples are homozygous reference (0),
+/// about a fifth have no call (null), and a few carry an alternate allele.
+#[test]
+fn test_sparse_counts_nulls_as_patches() -> VortexResult<()> {
+    let mut rng = StdRng::seed_from_u64(0);
+    let len = 131_072;
+    let input = PrimitiveArray::from_option_iter((0..len).map(|_| {
+        let draw = rng.next_u32() % 400;
+        if draw < 100 {
+            None
+        } else if draw < 103 {
+            Some(1u8)
+        } else {
+            Some(0u8)
+        }
+    }))
+    .into_array();
+    let compressor = BtrBlocksCompressorBuilder::from_session(&SESSION)
+        .unrestricted()
+        .build();
+    let compressed = assert_roundtrip(&compressor, &input)?;
+
+    assert!(!compressed.is::<Sparse>(), "{}", compressed.display_tree());
+    // A raw validity bitmap is len / 8 bytes; the values cost little beyond it.
+    assert!(
+        compressed.nbytes() < len / 8 + len / 16,
+        "{}",
+        compressed.display_tree()
+    );
+    Ok(())
+}
+
+/// Unique text cut at random offsets from a pool of prose, like the comment columns of TPC-H.
+fn unique_prose(rows: usize, seed: u64) -> ArrayRef {
+    const SYLLABLES: &[&str] = &[
+        "ac", "count", "pack", "age", "re", "quest", "de", "pos", "it", "in", "struct", "ion",
+        "the", "od", "ol", "ite", "pin", "to", "bean", "fox", "id", "ea", "pend", "enc", "ex",
+        "cuse", "plate", "let", "asym", "ptote", "court", "dol", "phin", "mul", "ti", "pli", "er",
+        "saut", "erne", "wart", "hog", "fret", "din", "os", "at", "tain", "mint", "sum", "as",
+        "braid", "hock", "ey", "play", "fur", "ious", "ly", "care", "fill", "quick", "sly",
+    ];
+
+    let mut rng = StdRng::seed_from_u64(seed);
+    let words: Vec<String> = (0..300)
+        .map(|_| {
+            (0..rng.random_range(1..4))
+                .map(|_| SYLLABLES[rng.random_range(0..SYLLABLES.len())])
+                .collect()
+        })
+        .collect();
+
+    let mut pool = String::new();
+    while pool.len() < 1 << 20 {
+        pool.push_str(&words[rng.random_range(0..words.len())]);
+        pool.push(' ');
+    }
+
+    let values = (0..rows).map(|_| {
+        let len = rng.random_range(19..79);
+        let start = rng.random_range(0..pool.len() - len);
+        &pool[start..start + len]
+    });
+    VarBinViewArray::from_iter_str(values).into_array()
+}
+
+/// The sampled estimates used to flip between FSST and OnPair from chunk to chunk on unique text,
+/// although OnPair is clearly smaller on every one of them at full size.
+#[test]
+fn test_unique_text_selects_onpair_on_every_chunk() -> VortexResult<()> {
+    let compressor = BtrBlocksCompressorBuilder::from_session(&SESSION)
+        .unrestricted()
+        .build();
+
+    for seed in 0..8 {
+        let compressed = assert_roundtrip(&compressor, &unique_prose(16_384, seed))?;
+        assert!(
+            compressed.is::<OnPair>(),
+            "chunk {seed} compressed to {}",
+            compressed.encoding_id()
+        );
+    }
 
     Ok(())
 }

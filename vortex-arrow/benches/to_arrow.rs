@@ -26,6 +26,7 @@ use vortex_array::arrays::ListArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::VarBinViewArray;
+use vortex_array::arrays::WidenArray;
 use vortex_array::builders::VarBinBuilder;
 use vortex_array::builders::VarBinViewBuilder;
 use vortex_array::dtype::DType;
@@ -43,6 +44,7 @@ use vortex_arrow::ArrowSessionExt;
 use vortex_arrow::ExecuteArrowExt;
 use vortex_buffer::Buffer;
 use vortex_decimal_byte_parts::DecimalByteParts;
+use vortex_error::VortexExpect;
 use vortex_fsst::fsst_compress;
 use vortex_fsst::fsst_train_compressor;
 use vortex_onpair::DEFAULT_CONFIG;
@@ -114,7 +116,7 @@ fn array() -> ArrayRef {
         ),
         (
             "decimal",
-            DecimalArray::from_iter(0i64..1024, DecimalDType::new(19, 2)).into_array(),
+            DecimalArray::from_iter(0i128..1024, DecimalDType::new(19, 2)).into_array(),
         ),
     ])
     .unwrap()
@@ -527,12 +529,14 @@ impl DecimalExportCase {
                 spread_values::<i64>(-MAX_P18, MAX_P18),
                 decimal_dtype,
                 Validity::NonNullable,
+                &mut SESSION.create_execution_ctx(),
             )
             .into_array(),
             Self::CanonicalI128P38 => DecimalArray::new(
                 spread_values::<i128>(-MAX_P18, MAX_P18),
                 decimal_dtype,
                 Validity::NonNullable,
+                &mut SESSION.create_execution_ctx(),
             )
             .into_array(),
             Self::MspI32P18 => decimal_byte_parts(
@@ -605,7 +609,11 @@ fn spread_values<T: TryFrom<i64>>(min: i64, max: i64) -> Buffer<T> {
 }
 
 fn decimal_byte_parts(msp: PrimitiveArray, decimal_dtype: DecimalDType) -> ArrayRef {
-    DecimalByteParts::try_new(msp.into_array(), decimal_dtype)
+    let logical_dtype = DType::Primitive(PType::I64, msp.dtype().nullability());
+    let msp = WidenArray::try_new(msp.into_array(), logical_dtype)
+        .vortex_expect("benchmark MSP is narrower than i64")
+        .into_array();
+    DecimalByteParts::try_new(msp, decimal_dtype)
         .unwrap()
         .into_array()
 }

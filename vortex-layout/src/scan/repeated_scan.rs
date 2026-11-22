@@ -37,6 +37,7 @@ use vortex_scan::selection::Selection;
 use vortex_session::VortexSession;
 use vortex_utils::parallelism::get_available_parallelism;
 
+use crate::LayoutReader;
 use crate::LayoutReaderRef;
 use crate::scan::filter::FilterExpr;
 use crate::scan::limit::RowLimit;
@@ -364,7 +365,7 @@ fn selected_mask(selection: &Selection, range: &Range<u64>) -> Option<RowMask> {
 fn can_prune_file(ctx: &TaskContext) -> VortexResult<bool> {
     ctx.count::<true>(ScanRecorder::attempt_file_scan);
     if let Some(filter) = &ctx.filter
-        && filter.can_prune_file(ctx.reader.as_ref())?
+        && can_prune_conjuncts(filter, ctx.reader.as_ref())?
     {
         ctx.count::<true>(ScanRecorder::prune_file);
         return Ok(true);
@@ -474,6 +475,15 @@ fn intersect_ranges(left: Option<&Range<u64>>, right: Option<Range<u64>>) -> Opt
         (Some(l), None) => Some(l.clone()),
         (Some(l), Some(r)) => Some(cmp::max(l.start, r.start)..cmp::min(l.end, r.end)),
     }
+}
+
+fn can_prune_conjuncts(filter: &FilterExpr, reader: &dyn LayoutReader) -> VortexResult<bool> {
+    for conjunct in filter.conjuncts() {
+        if reader.can_prune_file(conjunct)? {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 #[cfg(test)]

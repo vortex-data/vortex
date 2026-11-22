@@ -26,6 +26,7 @@ use crate::arrays::PrimitiveArray;
 use crate::arrays::StructArray;
 use crate::arrays::VarBinArray;
 use crate::arrays::VarBinViewArray;
+use crate::arrays::WidenArray;
 use crate::assert_arrays_eq;
 use crate::builders::ArrayBuilder;
 use crate::builders::MapBuilder;
@@ -586,45 +587,55 @@ fn decimal_compare() {
     assert_arrays_eq!(result, BoolArray::from_iter([true, false, false]), &mut ctx);
 }
 
-/// Two decimal arrays with the same logical dtype but different storage widths compare through
-/// the widened common storage type.
 #[test]
-fn decimal_compare_mixed_storage_widths() {
-    let mut ctx = SESSION.create_execution_ctx();
+fn nested_decimal_compare() -> VortexResult<()> {
     let dtype = DecimalDType::new(10, 2);
-    let lhs = DecimalArray::from_iter::<i32, _>([100, 250, 300], dtype).into_array();
-    let rhs = DecimalArray::from_iter::<i128, _>([200, 250, 100], dtype).into_array();
+    let narrow = DecimalArray::from_option_iter(
+        [None, Some(-3i16), Some(0), Some(1)],
+        DecimalDType::new(3, 2),
+    );
+    let widened = WidenArray::try_new(
+        narrow.into_array(),
+        DType::Decimal(dtype, Nullability::Nullable),
+    )?;
+    let canonical = DecimalArray::from_option_iter([Some(-1i64), Some(-3), None, Some(0)], dtype);
+    let lhs = StructArray::from_fields(&[("value", widened.into_array())])?;
+    let rhs = StructArray::from_fields(&[("value", canonical.into_array())])?;
 
-    let result = execute_compare_test(lhs, rhs, Operator::Lte);
-    assert_arrays_eq!(result, BoolArray::from_iter([true, true, false]), &mut ctx);
-}
-
-/// A decimal constant that does not fit the array's narrow storage type still compares
-/// correctly: it is greater than every representable array value.
-#[test]
-fn decimal_constant_out_of_storage_range() {
-    let mut ctx = SESSION.create_execution_ctx();
-    let dtype = DecimalDType::new(20, 2);
-    let array = DecimalArray::from_iter::<i8, _>([1, 50, 100], dtype).into_array();
-    let constant = ConstantArray::new(
-        Scalar::decimal(
-            DecimalValue::from(10_000_000i64),
-            dtype,
-            Nullability::NonNullable,
-        ),
-        3,
-    )
-    .into_array();
-
-    let result = execute_compare_test(array.clone(), constant.clone(), Operator::Lt);
-    assert_arrays_eq!(result, BoolArray::from_iter([true, true, true]), &mut ctx);
-
-    let result = execute_compare_test(array, constant, Operator::Gte);
+    let result = lhs.into_array().binary(rhs.into_array(), Operator::Lte)?;
     assert_arrays_eq!(
         result,
-        BoolArray::from_iter([false, false, false]),
-        &mut ctx
+        BoolArray::from_iter([true, true, false, false]),
+        &mut SESSION.create_execution_ctx()
     );
+
+    Ok(())
+}
+
+#[test]
+fn decimal_compare_wide_scalar() -> VortexResult<()> {
+    let ctx = &mut SESSION.create_execution_ctx();
+    let dtype = DecimalDType::new(2, 0);
+    let array =
+        DecimalArray::from_option_iter([Some(-1i8), None, Some(0), Some(1)], dtype).into_array();
+    let scalar = Scalar::decimal(DecimalValue::I128(0), dtype, Nullability::NonNullable);
+    let constant = ConstantArray::new(scalar, array.len()).into_array();
+
+    let result = array.binary(constant.clone(), Operator::Lt)?;
+    assert_arrays_eq!(
+        result,
+        BoolArray::from_iter([Some(true), None, Some(false), Some(false)]),
+        ctx
+    );
+
+    let result = constant.binary(array, Operator::Lt)?;
+    assert_arrays_eq!(
+        result,
+        BoolArray::from_iter([Some(false), None, Some(false), Some(true)]),
+        ctx
+    );
+
+    Ok(())
 }
 
 /// Extension arrays compare through their storage values.

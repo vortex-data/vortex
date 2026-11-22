@@ -528,6 +528,7 @@ mod tests {
 
     #[test]
     fn compact_and_run_merges_agree_for_nested_and_nullable_values() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
         let primitive =
             PrimitiveArray::from_option_iter([Some(1i64), None, Some(3), Some(4)]).into_array();
         let fixtures = vec![
@@ -536,14 +537,11 @@ mod tests {
                 buffer![100i64, -200, 300, 400],
                 DecimalDType::new(15, 2),
                 Validity::from_iter([true, false, true, true]),
+                &mut ctx,
             )
             .into_array(),
-            DecimalArray::new(
-                buffer![1i128 << 100, -2, 3, 4],
-                DecimalDType::new(38, 0),
-                Validity::NonNullable,
-            )
-            .into_array(),
+            DecimalArray::from_iter([1i128 << 100, -2, 3, 4], DecimalDType::new(38, 0))
+                .into_array(),
             VarBinViewArray::from_iter(
                 [
                     Some("long out-of-line value"),
@@ -566,7 +564,6 @@ mod tests {
             &[[false, false, false, true], [false, true, false, false]],
         ];
 
-        let mut ctx = SESSION.create_execution_ctx();
         for value in fixtures {
             let reorder =
                 |indices: Buffer<u32>, ctx: &mut ExecutionCtx| -> VortexResult<ArrayRef> {

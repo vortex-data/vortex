@@ -13,7 +13,6 @@ use arrow_schema::SchemaRef;
 use datafusion_common::DataFusionError;
 use datafusion_common::Result as DFResult;
 use datafusion_common::ScalarValue;
-use datafusion_common::arrow::array::AsArray;
 use datafusion_common::arrow::array::RecordBatch;
 use datafusion_common::exec_datafusion_err;
 use datafusion_datasource::PartitionedFile;
@@ -46,8 +45,6 @@ use futures::TryStreamExt;
 use futures::stream;
 use object_store::path::Path;
 use tracing::Instrument;
-use vortex::array::ArrayRef;
-use vortex::array::VortexSessionExecute;
 use vortex::error::VortexError;
 use vortex::error::VortexExpect;
 use vortex::expr::Expression;
@@ -58,20 +55,16 @@ use vortex::io::session::RuntimeSessionExt;
 use vortex::layout::LayoutReader;
 use vortex::layout::scan::metrics::ScanMetrics;
 use vortex::layout::scan::scan_builder::ScanBuilder;
-use vortex::layout::scan::v2::ChunkPlanner;
-use vortex::layout::scan::v2::PrunePlanner;
 use vortex::layout::scan::v2::ScanBuilder as V2ScanBuilder;
-use vortex::layout::scan::v2::ScanCache;
-use vortex::layout::scan::v2::WeakScanCache;
 use vortex::layout::scan::v2::partition_row_range;
 use vortex::layout::segments::SegmentSource;
-use vortex::mask::Mask;
 use vortex::metrics::Label;
 use vortex::metrics::MetricsRegistry;
-use vortex::scan::planning::planner::Planner;
+use vortex::scan::execution::driver::ScanDriver;
+use vortex::scan::prepare::ScanCache;
+use vortex::scan::prepare::WeakScanCache;
 use vortex::session::VortexSession;
 use vortex_arrow::ArrowSessionExt;
-use vortex_arrow::ExecuteArrowExt;
 use vortex_utils::aliases::dash_map::DashMap;
 use vortex_utils::aliases::dash_map::Entry;
 use vortex_utils::parallelism::get_available_parallelism;
@@ -81,11 +74,11 @@ use crate::convert::exprs::ExpressionConverter;
 use crate::convert::exprs::ProcessedProjection;
 use crate::convert::exprs::raw_projection;
 use crate::convert::schema::calculate_physical_schema;
+use crate::convert::to_record_batch;
 use crate::metrics::PARTITION_LABEL;
 use crate::metrics::PATH_LABEL;
 use crate::persistent::cache::CachedVortexMetadata;
 use crate::persistent::reader::VortexReaderFactory;
-use crate::persistent::scan_v2::ScanDriver;
 use crate::persistent::stream::PrunableStream;
 use crate::v2::dynamic_filters::convert_dynamic_filter;
 
@@ -439,13 +432,7 @@ impl FileOpener for VortexOpener {
                 );
                 indices.sort_unstable();
                 indices.dedup();
-                let (scan_projection, scan_reference_schema) =
-                    raw_projection(&indices, &this_file_schema)?;
-                ProcessedProjection {
-                    scan_projection,
-                    scan_reference_schema,
-                    leftover_projection: projection,
-                }
+                raw_projection(&indices, &this_file_schema, projection)?
             } else if projection_pushdown {
                 expr_converter.split_projection(
                     projection,
@@ -496,11 +483,7 @@ impl FileOpener for VortexOpener {
             let native_limit = limit
                 .filter(|_| scan_v2 && residual_filter.is_none())
                 .map(|limit| (limit, Arc::clone(&output_schema)));
-            let map_batch = move |chunk: ArrayRef| {
-                let mut ctx = session.create_execution_ctx();
-                let arrow = chunk.execute_arrow(Some(&stream_target_field), &mut ctx)?;
-                Ok(RecordBatch::from(arrow.as_struct().clone()))
-            };
+            let map_batch = move |chunk| to_record_batch(chunk, &stream_target_field, &session);
             let stream = if scan_v2 {
                 let mut scan_file = vxf.scan_file();
                 scan_file.segments = shared_segment_source(
@@ -531,8 +514,7 @@ impl FileOpener for VortexOpener {
                 {
                     builder = builder.with_selection(selection.clone());
                 }
-                // Unless set, chunks run beside each other only as far as the engine's partitions
-                // leave cores idle: at one partition per core they run in the scan's own run.
+                // Scale per-scan concurrency by the number of DataFusion partitions by default.
                 let concurrency = scan_concurrency.unwrap_or_else(|| {
                     get_available_parallelism()
                         .unwrap_or(1)
@@ -545,29 +527,8 @@ impl FileOpener for VortexOpener {
                     .spawn_cpu(move || builder.prepare())
                     .await
                     .map_err(|e| exec_datafusion_err!("Failed to plan Vortex scan: {e}"))?;
-                let scan = Arc::new(scan);
-
-                // The planners, composed: with a filter, its pruning plans first over the whole
-                // partition, continuing into the chunks of the rows they keep; without a
-                // filter, the chunks directly. A chunk plans its conjuncts, then its
-                // projection.
-                let chunks = {
-                    let scan = Arc::clone(&scan);
-                    move |kept: Option<Mask>| -> Box<dyn Planner> {
-                        let rows = scan.rows().clone();
-                        let selection = scan.selection().clone();
-                        Box::new(ChunkPlanner::new(scan, rows, selection, kept))
-                    }
-                };
-                let root: Box<dyn Planner> = if scan.filter().is_some() {
-                    let rows = scan.rows().clone();
-                    Box::new(PrunePlanner::new(Arc::clone(&scan), rows, Box::new(chunks)))
-                } else {
-                    chunks(None)
-                };
-
                 let driver = ScanDriver::new(handle, concurrency, has_output_ordering);
-                Ok(driver.run(scan, root, map_batch))
+                Ok(driver.run_prepared(scan, map_batch))
             } else {
                 // Share V1 layout readers across partitions of the file.
                 let layout_reader = match layout_readers.entry(file.object_meta.location.clone()) {

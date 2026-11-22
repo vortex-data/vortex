@@ -59,6 +59,13 @@ impl Scheme for FSSTScheme {
         2
     }
 
+    /// The symbol table: at most 255 symbols, however many rows it serves.
+    fn fixed_nbytes(&self, compressed: &ArrayRef) -> u64 {
+        compressed.as_opt::<FSST>().map_or(0, |fsst| {
+            (size_of_val(fsst.symbols()) + size_of_val(fsst.symbol_lengths())) as u64
+        })
+    }
+
     fn expected_compression_ratio(
         &self,
         _data: &ArrayAndStats,
@@ -75,7 +82,7 @@ impl Scheme for FSSTScheme {
         compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        let utf8 = data.array_as_varbinview().into_owned().into_array();
+        let utf8 = compressor.with_compressed_validity(data.array(), exec_ctx)?;
         let compressor_fsst = fsst_train_compressor(&utf8, exec_ctx)?;
         let fsst = fsst_compress(&utf8, &compressor_fsst, exec_ctx)?;
 

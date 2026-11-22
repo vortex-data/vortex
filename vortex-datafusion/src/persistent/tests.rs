@@ -28,11 +28,22 @@ use datafusion_common::GetExt;
 use datafusion_common::Result as DFResult;
 use datafusion_common::arrow::compute::cast;
 use datafusion_common::arrow::compute::concat_batches;
+use datafusion_common::config::ConfigOptions;
+use datafusion_datasource::PartitionedFile;
+use datafusion_datasource::TableSchema;
+use datafusion_datasource::file::FileSource;
 use datafusion_datasource::file_scan_config::FileScanConfig;
+use datafusion_datasource::file_scan_config::FileScanConfigBuilder;
 use datafusion_datasource::source::DataSourceExec;
+use datafusion_execution::object_store::ObjectStoreUrl;
+use datafusion_expr::Operator;
+use datafusion_physical_expr::PhysicalExpr;
 use datafusion_physical_expr::PhysicalExprRef;
+use datafusion_physical_expr::expressions as df_expr;
+use datafusion_physical_expr::projection::ProjectionExpr;
 use datafusion_physical_expr::projection::ProjectionExprs;
 use datafusion_physical_plan::ExecutionPlan;
+use datafusion_physical_plan::collect;
 use datafusion_physical_plan::display::DisplayableExecutionPlan;
 use datafusion_physical_plan::filter::FilterExec;
 use insta::assert_snapshot;
@@ -84,6 +95,101 @@ use crate::common_tests::TestSessionContext;
 use crate::convert::exprs::DefaultExpressionConverter;
 use crate::convert::exprs::ExpressionConverter;
 use crate::convert::exprs::ProcessedProjection;
+
+#[rstest]
+#[tokio::test]
+async fn test_public_row_index_filtered_projection(
+    #[values(false, true)] scan_v2: bool,
+    #[values(false, true)] projection_pushdown: bool,
+    #[values(false, true)] residual: bool,
+) -> anyhow::Result<()> {
+    let ctx = TestSessionContext::default();
+    let batch = RecordBatch::try_from_iter(vec![
+        (
+            "value",
+            Arc::new(Int32Array::from(vec![10, 20, 30, 40, 50, 60])) as Arc<dyn Array>,
+        ),
+        (
+            "ts",
+            Arc::new(arrow_array::TimestampMillisecondArray::from(vec![
+                Some(1_000),
+                Some(1_000),
+                Some(2_000),
+                Some(1_000),
+                None,
+                Some(1_000),
+            ])) as Arc<dyn Array>,
+        ),
+    ])?;
+    ctx.write_arrow_batch("row-index.vortex", &batch).await?;
+    let unit = if residual {
+        arrow_schema::TimeUnit::Microsecond
+    } else {
+        arrow_schema::TimeUnit::Millisecond
+    };
+    let schema = Arc::new(Schema::new(vec![
+        Field::new("value", DataType::Int32, false),
+        Field::new("ts", DataType::Timestamp(unit, None), true),
+        Field::new("missing", DataType::Int32, true),
+    ]));
+    let source = VortexSource::new(TableSchema::from(schema), VortexSession::default())
+        .with_options(crate::VortexTableOptions {
+            scan_v2,
+            projection_pushdown,
+            ..Default::default()
+        });
+    let native: Arc<dyn PhysicalExpr> = Arc::new(df_expr::BinaryExpr::new(
+        Arc::new(df_expr::Column::new("value", 0)),
+        Operator::Gt,
+        Arc::new(df_expr::Literal::new(
+            datafusion_common::ScalarValue::Int32(Some(10)),
+        )),
+    ));
+    // The per-file adapter introduces an unsupported temporal cast only in residual cases.
+    let temporal: Arc<dyn PhysicalExpr> = Arc::new(df_expr::BinaryExpr::new(
+        Arc::new(df_expr::Column::new("ts", 1)),
+        Operator::Eq,
+        Arc::new(df_expr::Literal::new(if residual {
+            datafusion_common::ScalarValue::TimestampMicrosecond(Some(1_000_000), None)
+        } else {
+            datafusion_common::ScalarValue::TimestampMillisecond(Some(1_000), None)
+        })),
+    ));
+    let source = source
+        .try_pushdown_filters(vec![native, temporal], &ConfigOptions::new())?
+        .updated_node
+        .expect("filters accepted");
+    let projection: ProjectionExprs = vec![
+        ProjectionExpr::new(crate::row_index(), "value"),
+        ProjectionExpr::new(Arc::new(df_expr::Column::new("value", 0)), "aliased_value"),
+        ProjectionExpr::new(Arc::new(df_expr::Column::new("missing", 2)), "missing"),
+    ]
+    .into();
+    let source = source
+        .try_pushdown_projection(&projection)?
+        .expect("projection accepted");
+    let meta = ctx.store.head(&"row-index.vortex".into()).await?;
+    let config = FileScanConfigBuilder::new(ObjectStoreUrl::local_filesystem(), source)
+        .with_file(PartitionedFile::new("row-index.vortex", meta.size))
+        .build();
+    let plan = DataSourceExec::from_data_source(config);
+    let batches = collect(plan, ctx.session.task_ctx()).await?;
+    let result = concat_batches(&batches[0].schema(), &batches)?;
+    assert_eq!(
+        result.column(0).as_ref(),
+        &arrow_array::UInt64Array::from(vec![1, 3, 5])
+    );
+    assert_eq!(
+        result.column(1).as_ref(),
+        &Int32Array::from(vec![20, 40, 60])
+    );
+    assert_eq!(
+        result.column(2).as_ref(),
+        &Int32Array::from(vec![None, None, None])
+    );
+    assert!(!result.schema().field(0).is_nullable());
+    Ok(())
+}
 
 fn make_session(
     object_store: Arc<dyn ObjectStore>,
@@ -1329,18 +1435,19 @@ async fn test_string_function_filter_pushdown(
     Ok(())
 }
 
-/// Regression test for #10634: string comparisons on `REE<Dict<Utf8>>` columns are pushed into
-/// the scan and return the same rows as DataFusion.
+/// String comparisons on `REE<Dict<Utf8>>` (#10634) and `REE<Utf8>` columns are pushed into the
+/// scan and return the same rows as DataFusion.
 #[rstest]
-#[case::eq("ree_dict = 'x'")]
-#[case::not_eq("ree_dict <> 'x'")]
-#[case::or("ree_dict = 'x' OR ree_dict = 'y'")]
-#[case::in_list("ree_dict IN ('y', 'unused')")]
-#[case::and("ree_dict = 'x' AND id > 1")]
+#[case::eq("ree = 'x'")]
+#[case::not_eq("ree <> 'x'")]
+#[case::or("ree = 'x' OR ree = 'y'")]
+#[case::in_list("ree IN ('y', 'unused')")]
+#[case::and("ree = 'x' AND id > 1")]
 #[tokio::test]
-async fn test_ree_dict_predicate_memtable_oracle(
+async fn test_ree_predicate_memtable_oracle(
     #[case] predicate: &str,
     #[values(false, true)] pushdown: bool,
+    #[values(false, true)] dictionary: bool,
 ) -> anyhow::Result<()> {
     let options = crate::VortexTableOptions {
         projection_pushdown: pushdown,
@@ -1355,18 +1462,23 @@ async fn test_ree_dict_predicate_memtable_oracle(
         UInt32Array::from(vec![Some(0), None, Some(1), Some(0)]),
         Arc::new(StringArray::from(vec!["x", "y", "unused"])),
     )?;
-    let ree = RunArray::<Int32Type>::try_new(&Int32Array::from(vec![2, 3, 5, 6]), &values)?;
+    let values: Arc<dyn Array> = if dictionary {
+        Arc::new(values)
+    } else {
+        cast(&values, &DataType::Utf8)?
+    };
+    let ree = RunArray::<Int32Type>::try_new(&Int32Array::from(vec![2, 3, 5, 6]), values.as_ref())?;
     let schema = Arc::new(Schema::new(vec![
         Field::new("id", DataType::Int32, false),
-        Field::new("ree_dict", ree.data_type().clone(), true),
+        Field::new("ree", ree.data_type().clone(), true),
     ]));
     let batch = RecordBatch::try_new(
         Arc::clone(&schema),
         vec![Arc::new(Int32Array::from_iter_values(0..6)), Arc::new(ree)],
     )?;
-    ctx.write_arrow_batch("ree_dict.vortex", &batch).await?;
+    ctx.write_arrow_batch("ree.vortex", &batch).await?;
     let actual_table = ctx
-        .table_provider("actual", "/ree_dict.vortex", schema.as_ref().clone())
+        .table_provider("actual", "/ree.vortex", schema.as_ref().clone())
         .await?;
     ctx.session.register_table("actual", actual_table)?;
     ctx.session.register_table(

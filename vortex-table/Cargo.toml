@@ -15,3 +15,19 @@ version = { workspace = true }
 
 [lints]
 workspace = true
+
+[dependencies]
+futures = { workspace = true, features = ["std"] }
+vortex-array = { workspace = true }
+vortex-buffer = { workspace = true }
+vortex-error = { workspace = true }
+vortex-file = { workspace = true }
+vortex-io = { workspace = true }
+vortex-layout = { workspace = true }
+vortex-session = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+tokio = { workspace = true, features = ["full"] }
+vortex = { workspace = true, default-features = false, features = ["files"] }
+vortex-io = { workspace = true, features = ["tokio"] }

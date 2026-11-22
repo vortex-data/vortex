@@ -5,8 +5,11 @@ use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 
 use crate::ArrayRef;
+use crate::ArrayVTable;
 use crate::array::ArrayView;
+use crate::arrays::Dict;
 use crate::arrays::Slice;
+use crate::arrays::dict::TakeExecuteAdaptor;
 use crate::arrays::scalar_fn::ExactScalarFn;
 use crate::arrays::scalar_fn::ScalarFnArrayView;
 use crate::arrays::slice::SliceArraySlotsExt;
@@ -20,6 +23,7 @@ pub(crate) fn register_parent_rules(session: &VortexSession) {
     let kernels = session.kernels();
     kernels.register_reduce_parent_rule(Slice, Slice, const { &SliceReduceAdaptor(Slice) });
     kernels.register_reduce_parent_rule(GetItem, Slice, const { &SliceGetItemRule });
+    kernels.register_execute_parent_kernel(Dict.id(), Slice, TakeExecuteAdaptor(Slice));
 }
 
 #[derive(Debug)]

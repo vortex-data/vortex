@@ -4,6 +4,7 @@
 mod cast;
 mod fill_null;
 mod fixed_width;
+pub(crate) mod integer_cast;
 mod mask;
 pub(crate) mod rules;
 mod slice;

@@ -15,6 +15,7 @@ use crate::arrays::BoolArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::Patched;
 use crate::arrays::PrimitiveArray;
+use crate::arrays::bool::BoolArraySlotsExt;
 use crate::arrays::bool::BoolDataParts;
 use crate::arrays::patched::PatchedArrayExt;
 use crate::arrays::patched::PatchedArraySlotsExt;
@@ -53,7 +54,7 @@ impl CompareKernel for Patched {
             .execute::<Canonical>(ctx)?
             .into_bool();
 
-        let validity = child_to_validity(result.slots()[0].as_ref(), result.dtype().nullability());
+        let validity = child_to_validity(result.validity_child(), result.dtype().nullability());
         let len = result.len();
         let BoolDataParts { bits, meta } = result.into_data().into_parts(len);
 

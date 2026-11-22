@@ -12,11 +12,11 @@ where
     L: PrimitiveArrayExt,
     R: PrimitiveArrayExt,
 {
-    match_each_native_ptype!(lhs.ptype(), |P| {
-        Ok(lhs
-            .as_slice::<P>()
-            .iter()
-            .zip(rhs.as_slice::<P>())
-            .all(|(l, r)| l.is_eq(*r)))
-    })
+    Ok(match_each_native_ptype!(lhs.ptype(), |P| {
+        primitive_values_equal(lhs.as_slice::<P>(), rhs.as_slice::<P>())
+    }))
+}
+
+fn primitive_values_equal<P: NativePType>(lhs: &[P], rhs: &[P]) -> bool {
+    lhs.iter().zip(rhs).all(|(l, r)| l.is_eq(*r))
 }

@@ -84,6 +84,7 @@ pub fn filter_canonical_array(
                         .collect::<Buffer<_>>(),
                     *d,
                     validity,
+                    ctx,
                 )
                 .into_array())
             })

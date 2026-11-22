@@ -48,7 +48,6 @@ use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::canonical::Canonical;
 use crate::dtype::DType;
-use crate::match_each_decimal_value_type;
 use crate::match_each_native_ptype;
 use crate::memory::BufferAllocatorRef;
 use crate::scalar::Scalar;
@@ -424,16 +423,12 @@ pub fn builder_with_capacity_in(
                 ))
             })
         }
-        DType::Decimal(decimal_type, n) => {
-            match_each_decimal_value_type!(decimal_type.canonical_values_type(), |D| {
-                Box::new(DecimalBuilder::with_capacity_in::<D>(
-                    capacity,
-                    *decimal_type,
-                    *n,
-                    allocator,
-                ))
-            })
-        }
+        DType::Decimal(decimal_type, n) => Box::new(DecimalBuilder::with_capacity_in(
+            capacity,
+            *decimal_type,
+            *n,
+            allocator,
+        )),
         DType::Utf8(n) => Box::new(VarBinViewBuilder::with_capacity_in(
             DType::Utf8(*n),
             capacity,

@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import math
 import os
-from datetime import UTC, date, datetime, time
+from datetime import date, datetime, time
 from decimal import Decimal
 from typing import Any, cast
 from zoneinfo import ZoneInfo
@@ -83,8 +83,13 @@ def test_to_polars_with_projection_and_filter(vxf: vx.VortexFile) -> None:
 def test_polars_time_literals(tmp_path):
     frame = pl.DataFrame({"id": [0, 1, 2, 3], "x": [time(11), time(12), None, time(13)]})
     expr = pl.col("x") >= time(12)
+    array = vx.array(frame.to_arrow())
+    pushed, residual = decompose_predicate(expr, array)
+    assert pushed is not None
+    assert residual is None
+
     path = tmp_path / "time_literals.vortex"
-    vx.io.write(vx.array(frame.to_arrow()), str(path))
+    vx.io.write(array, str(path))
     expected_frame = frame.lazy().filter(expr).collect()
     actual = vx.open(str(path)).to_polars().filter(expr).collect()
     assert_frame_equal(actual, expected_frame)
@@ -169,8 +174,13 @@ def test_is_not_null_predicate_pushdown(tmp_path):
 def test_polars_date_literals(tmp_path):
     frame = pl.DataFrame({"id": [0, 1, 2, 3], "x": [date(2024, 1, 1), date(2024, 1, 2), None, date(2024, 1, 3)]})
     expr = pl.col("x") >= date(2024, 1, 2)
+    array = vx.array(frame.to_arrow())
+    pushed, residual = decompose_predicate(expr, array)
+    assert pushed is not None
+    assert residual is None
+
     path = tmp_path / "date_literals.vortex"
-    vx.io.write(vx.array(frame.to_arrow()), str(path))
+    vx.io.write(array, str(path))
     expected_frame = frame.lazy().filter(expr).collect()
     actual = vx.open(str(path)).to_polars().filter(expr).collect()
     assert_frame_equal(actual, expected_frame)
@@ -248,19 +258,28 @@ def test_polars_fill_null_string_literal(tmp_path):
     assert actual["id"].to_list() == [1]
 
 
-def test_datetime_predicate_pushdown(tmp_path):
+@pytest.mark.parametrize("unit", ["ms", "us"])
+@pytest.mark.parametrize("zone", ["UTC", "Europe/Amsterdam"])
+def test_datetime_predicate_pushdown(tmp_path, unit, zone):
     table = pa.table(
         {
             "id": [0, 1, 2],
             "value": pa.array(
-                [datetime(2026, 9, day, tzinfo=UTC) for day in [16, 17, 18]],
-                type=pa.timestamp("us", tz="UTC"),
+                [datetime(2026, 9, day, tzinfo=ZoneInfo(zone)) for day in [16, 17, 18]],
+                type=pa.timestamp(unit, tz=zone),
             ),
         }
     )
+    array = vx.array(table)
+    # Polars 1.x serializes this literal as a cast to a naive datetime followed by
+    # `replace_time_zone`, and Polars 2.x as a plain literal.
+    predicate = pl.col("value") >= pl.lit(datetime(2026, 9, 17, tzinfo=ZoneInfo(zone)), dtype=pl.Datetime(unit, zone))
+    pushed, residual = decompose_predicate(predicate, array)
+    assert pushed is not None
+    assert residual is None
+
     path = tmp_path / "datetimes.vortex"
-    vx.io.write(vx.array(table), str(path))
-    predicate = pl.col("value") >= datetime(2026, 9, 17, tzinfo=UTC)
+    vx.io.write(array, str(path))
     expected = pl.DataFrame(table).lazy().filter(predicate).collect()
     result = vx.open(str(path)).to_polars().filter(predicate).collect()
     assert_frame_equal(result, expected)

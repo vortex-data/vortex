@@ -22,7 +22,7 @@ use crate::dtype::DType;
 
 /// Slot layout of an interleave: two selectors followed by its value arrays.
 #[array_slots(Interleave)]
-pub(super) struct InterleaveSlots {
+pub struct InterleaveSlots {
     /// The value-array index for each output row.
     #[slot(0)]
     pub array_indices: ArrayRef,
@@ -72,23 +72,9 @@ pub trait InterleaveArrayExt: TypedArrayRef<Interleave> {
 
     /// The `idx`-th value array (holding the rows that `array_indices` routes to it).
     fn value(&self, idx: usize) -> &ArrayRef {
-        self.slots()[InterleaveSlots::VALUES_OFFSET + idx]
-            .as_ref()
-            .vortex_expect("validated interleave value slot")
-    }
-
-    /// The selector routing each output row to a value array.
-    fn array_indices(&self) -> &ArrayRef {
-        self.slots()[InterleaveSlots::ARRAY_INDICES]
-            .as_ref()
-            .vortex_expect("validated interleave array_indices slot")
-    }
-
-    /// The selector naming each output row's position within its value array.
-    fn row_indices(&self) -> &ArrayRef {
-        self.slots()[InterleaveSlots::ROW_INDICES]
-            .as_ref()
-            .vortex_expect("validated interleave row_indices slot")
+        self.values()
+            .get(idx)
+            .vortex_expect("interleave value index out of bounds")
     }
 }
 impl<T: TypedArrayRef<Interleave>> InterleaveArrayExt for T {}

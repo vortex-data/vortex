@@ -2,8 +2,10 @@ name: "Setup DuckDB"
 description: "Download the DuckDB CLI and put it on PATH"
 inputs:
   duckdb_version:
+    # Keep this on the DuckDB minor version that `vortex-duckdb/build.rs` links (2.0), so the CLI
+    # that writes the `duckdb` database matches the DuckDB the queries run on.
     description: "Version of the DuckDB CLI"
-    default: "1.5.5"
+    default: "2.0.1"
 runs:
   using: "composite"
   steps:
@@ -19,8 +21,10 @@ runs:
             ;;
         esac
 
+        # Since 2.0, the release ships the CLI as a tarball that holds the `duckdb` binary.
         wget -qO- \
-          "https://github.com/duckdb/duckdb/releases/download/v${{ inputs.duckdb_version }}/duckdb_cli-linux-${duckdb_arch}.zip" \
-          | funzip > duckdb
+          "https://github.com/duckdb/duckdb/releases/download/v${{ inputs.duckdb_version }}/duckdb-cli-linux-${duckdb_arch}.tar.gz" \
+          | tar -xz duckdb
         chmod +x duckdb
+        ./duckdb --version
         echo "$PWD" >> "$GITHUB_PATH"

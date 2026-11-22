@@ -11,8 +11,8 @@
 
 Three workflows run it through `refresh-bench-site.yml`, each once per run:
 
-- `develop-bench.yml`, on a develop push, after every benchmark job of that push has finished
-  and ingested its results with `post-ingest.py`.
+- `develop-bench.yml`, on a debounced `develop` benchmark run, after every benchmark job of that
+  run has finished and ingested its results with `post-ingest.py`.
 - `nightly-bench.yml`, after the nightly SQL benchmarks.
 - `commit-metadata.yml`, on a develop push, after it records the commit.
 

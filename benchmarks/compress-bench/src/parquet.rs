@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::fs::File;
 use std::io::Write;
 use std::path::Path;
 use std::sync::Arc;
@@ -29,7 +28,6 @@ use parquet::basic::Compression;
 use parquet::basic::ZstdLevel;
 use parquet::file::metadata::RowGroupMetaData;
 use parquet::file::properties::DEFAULT_MAX_ROW_GROUP_ROW_COUNT;
-use parquet::file::properties::WriterProperties;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use vortex_bench::Format;
@@ -38,6 +36,8 @@ use vortex_bench::compress::CompressedData;
 use vortex_bench::compress::Compressor;
 use vortex_bench::compress::Uncompressed;
 use vortex_bench::compress::read_projection;
+use vortex_bench::utils::parquet::parquet_writer_properties;
+use vortex_bench::utils::parquet::plain_arrow_reader;
 
 /// Compressor implementation for Parquet format with ZSTD level 3 compression.
 pub struct ParquetCompressor {
@@ -52,10 +52,6 @@ impl ParquetCompressor {
             ),
         }
     }
-
-    pub fn with_compression(compression: Compression) -> Self {
-        Self { compression }
-    }
 }
 
 impl Default for ParquetCompressor {
@@ -64,10 +60,24 @@ impl Default for ParquetCompressor {
     }
 }
 
-/// Return the Arrow memory size after decoding the input Parquet file.
+/// Return the size of `input` written as Parquet with Snappy. Every other setting is the one that
+/// [`ParquetCompressor`] writes with, so the size differs from `parquet`'s only by the codec.
+pub async fn snappy_parquet_size(input: &Uncompressed) -> anyhow::Result<u64> {
+    let (schema, batches) = input.arrow()?;
+    let size = parquet_compress_write(
+        batches.to_vec(),
+        Arc::clone(schema),
+        Compression::SNAPPY,
+        &mut Vec::new(),
+    )
+    .await?;
+    Ok(size as u64)
+}
+
+/// Return the Arrow memory size after decoding the input Parquet file, in the representation that
+/// [`Uncompressed::read_arrow`] loads: view types read as plain types.
 pub fn arrow_uncompressed_size(parquet_path: &Path) -> anyhow::Result<u64> {
-    let file = File::open(parquet_path)?;
-    let reader = ParquetRecordBatchReaderBuilder::try_new(file)?.build()?;
+    let reader = plain_arrow_reader(parquet_path)?.build()?;
     let mut total = 0u64;
 
     for batch in reader {
@@ -126,7 +136,7 @@ impl Compressor for ParquetCompressor {
 }
 
 /// Write `batches` to `buf` as one Parquet file the way DataFusion's `ParquetSink` does with its
-/// default options, returning the bytes written before the footer.
+/// default options, returning the file's size, footer included, as the other formats count theirs.
 ///
 /// Batches are split at the writer's `max_row_group_row_count`, the same row-group boundaries a
 /// sequential `ArrowWriter` produces. Every leaf column of the open row group is encoded by its own
@@ -139,7 +149,7 @@ pub async fn parquet_compress_write(
     compression: Compression,
     buf: &mut Vec<u8>,
 ) -> anyhow::Result<usize> {
-    let writer_properties = WriterProperties::builder()
+    let writer_properties = parquet_writer_properties()
         .set_compression(compression)
         .build();
     let max_rows = writer_properties
@@ -175,11 +185,11 @@ pub async fn parquet_compress_write(
     }
     serialize.await??;
 
-    let n_bytes = writer.bytes_written();
     writer.close()?;
     output.flush_into(&mut parts, 0);
 
-    buf.reserve_exact(parts.iter().map(Vec::len).sum());
+    let n_bytes = parts.iter().map(Vec::len).sum();
+    buf.reserve_exact(n_bytes);
     for part in parts {
         buf.extend_from_slice(&part);
     }
@@ -443,7 +453,9 @@ mod tests {
     use arrow_array::StringArray;
     use arrow_schema::DataType;
     use arrow_schema::Field;
+    use parquet::file::metadata::PageIndexPolicy;
     use parquet::file::metadata::ParquetMetaData;
+    use parquet::file::properties::WriterProperties;
     use rstest::rstest;
 
     use super::*;
@@ -481,17 +493,19 @@ mod tests {
         let compression = Compression::ZSTD(ZstdLevel::try_new(3)?);
 
         let mut parallel = Vec::new();
-        parquet_compress_write(
+        let size = parquet_compress_write(
             batches.clone(),
             Arc::clone(&schema),
             compression,
             &mut parallel,
         )
         .await?;
+        // The size counts the whole file, footer included.
+        assert_eq!(size, parallel.len());
         let parallel = Bytes::from(parallel);
 
         let mut sequential = Vec::new();
-        let props = WriterProperties::builder()
+        let props = parquet_writer_properties()
             .set_compression(compression)
             .build();
         let mut writer = ArrowWriter::try_new(&mut sequential, Arc::clone(&schema), Some(props))?;
@@ -517,6 +531,67 @@ mod tests {
             arrow_select::concat::concat_batches(&schema, &batches)?
         );
         assert!(parquet_decompress_read(parallel).await? > 0);
+        Ok(())
+    }
+
+    /// `parquet-snappy` differs from `parquet` only by the codec: the same row groups, pages,
+    /// encodings, and file metadata.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn snappy_parquet_differs_only_by_the_codec() -> anyhow::Result<()> {
+        let batches = vec![batch(0, 50_000)?];
+        let schema = batches[0].schema();
+        let mut metadata = Vec::new();
+        for compression in [
+            Compression::ZSTD(ZstdLevel::try_new(3)?),
+            Compression::SNAPPY,
+        ] {
+            let mut buf = Vec::new();
+            parquet_compress_write(batches.clone(), Arc::clone(&schema), compression, &mut buf)
+                .await?;
+            let options =
+                ArrowReaderOptions::new().with_page_index_policy(PageIndexPolicy::Required);
+            metadata.push(ArrowReaderMetadata::load(&Bytes::from(buf), options)?);
+        }
+        let (zstd, snappy) = (metadata[0].metadata(), metadata[1].metadata());
+
+        assert_eq!(row_group_rows(zstd), row_group_rows(snappy));
+        assert_eq!(
+            zstd.file_metadata().key_value_metadata(),
+            snappy.file_metadata().key_value_metadata()
+        );
+        // The same pages: each page of each column chunk starts at the same row.
+        let page_starts = |metadata: &ParquetMetaData| -> Vec<Vec<Vec<i64>>> {
+            metadata
+                .offset_index()
+                .into_iter()
+                .flatten()
+                .map(|row_group| {
+                    row_group
+                        .iter()
+                        .map(|column| {
+                            column
+                                .page_locations()
+                                .iter()
+                                .map(|page| page.first_row_index)
+                                .collect()
+                        })
+                        .collect()
+                })
+                .collect()
+        };
+        assert!(!page_starts(zstd).is_empty());
+        assert_eq!(page_starts(zstd), page_starts(snappy));
+        for (z, s) in zstd.row_groups().iter().zip(snappy.row_groups()) {
+            for (z, s) in z.columns().iter().zip(s.columns()) {
+                assert!(matches!(z.compression(), Compression::ZSTD(_)));
+                assert_eq!(s.compression(), Compression::SNAPPY);
+                assert_eq!(
+                    z.encodings().collect::<Vec<_>>(),
+                    s.encodings().collect::<Vec<_>>()
+                );
+                assert_eq!(z.num_values(), s.num_values());
+            }
+        }
         Ok(())
     }
 

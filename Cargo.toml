@@ -171,8 +171,12 @@ fuzzy-matcher = "0.3"
 geo = "0.31.0"
 geo-traits = "0.3.0"
 geo-types = "0.7.19"
-geoarrow = "0.8.0"
-geoarrow-cast = "0.8.0"
+geoarrow = "0.9.0"
+geoarrow-cast = "0.9.0"
+geozero = { version = "0.14", default-features = false, features = [
+    "with-geo",
+    "with-wkb",
+] }
 get_dir = "0.5.0"
 git2 = { version = "0.21", default-features = false }
 glob = "0.3.2"
@@ -256,13 +260,6 @@ sketches-ddsketch = "0.4.0"
 smallvec = "1.15.1"
 smol = "2.0.2"
 spatialbench = "0.2"
-spatialbench-arrow = "0.2"
-# spatialbench still pins arrow 56, two majors behind the workspace arrow. Until upstream
-# catches up, write its generated batches with a matching parquet instead of converting
-# arrow versions at the boundary.
-spatialbench-parquet = { package = "parquet", version = "56", features = [
-    "async",
-] }
 static_assertions = "1.1"
 strum = "0.28"
 syn = { version = "3.0.4", features = ["full"] }
@@ -480,9 +477,3 @@ incremental = false
 # This improved build times significantly for default common cases that we use locally
 [profile.dev.package.vortex-fastlanes]
 debug = false
-
-[patch.crates-io]
-geoarrow = { version = "=0.8.0", git = "https://github.com/geoarrow/geoarrow-rs", rev = "855d2e138e54ce503c4488d5bb795ca1ea880d1f" }
-geoarrow-array = { version = "=0.8.0", git = "https://github.com/geoarrow/geoarrow-rs", rev = "855d2e138e54ce503c4488d5bb795ca1ea880d1f" }
-geoarrow-cast = { version = "=0.8.0", git = "https://github.com/geoarrow/geoarrow-rs", rev = "855d2e138e54ce503c4488d5bb795ca1ea880d1f" }
-geoarrow-schema = { version = "=0.8.0", git = "https://github.com/geoarrow/geoarrow-rs", rev = "855d2e138e54ce503c4488d5bb795ca1ea880d1f" }

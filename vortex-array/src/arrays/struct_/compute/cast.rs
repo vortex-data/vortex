@@ -191,14 +191,13 @@ mod tests {
     }
 
     #[test]
-    fn struct_cast_execute_parent_uses_session_plugin() {
+    fn struct_cast_execute_parent_uses_session_plugin() -> VortexResult<()> {
         let source = StructArray::try_new(
             FieldNames::from(["a"]),
             vec![VarBinArray::from_vec(vec!["A"], DType::Utf8(Nullability::Nullable)).into_array()],
             1,
             Validity::NonNullable,
-        )
-        .unwrap()
+        )?
         .into_array();
         let child_id = source.encoding_id();
 
@@ -208,7 +207,7 @@ mod tests {
             Nullability::Nullable,
         );
 
-        let cast = Cast::new(source, target.clone()).into_array();
+        let cast = Cast::try_new(source, target.clone())?.into_array();
         let parent_id = cast.encoding_id();
         let session = VortexSession::empty().with_some(KernelSession::empty());
         let kernels = session.kernels();
@@ -219,14 +218,15 @@ mod tests {
         );
         let mut ctx = session.create_execution_ctx();
 
-        let result = cast.execute::<StructArray>(&mut ctx).unwrap();
+        let result = cast.execute::<StructArray>(&mut ctx)?;
 
         assert_eq!(result.dtype(), &target);
         assert_arrays_eq!(
-            result.unmasked_field_by_name("a").unwrap(),
+            result.unmasked_field_by_name("a")?,
             ConstantArray::new(Scalar::null(utf8_null), 1),
             &mut ctx
         );
+        Ok(())
     }
 
     fn create_test_struct(nullable: bool) -> StructArray {

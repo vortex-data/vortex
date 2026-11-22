@@ -55,6 +55,15 @@ impl FillNull {
         ScalarFnArray::try_new(FillNull.bind(EmptyOptions), [input, fill_value])
     }
 
+    pub(crate) fn output_dtype(input: &DType, fill_value: &DType) -> VortexResult<DType> {
+        vortex_ensure!(
+            input.eq_ignore_nullability(fill_value),
+            "fill_null requires input and fill value to have the same base type, got {input} and {fill_value}"
+        );
+
+        Ok(input.with_nullability(fill_value.nullability()))
+    }
+
     /// Returns whether fill_null can execute inputs of `dtype`.
     ///
     /// These are the dtypes whose canonical arrays have a [`FillNullKernel`], so update this list
@@ -105,16 +114,7 @@ impl ScalarFnVTable for FillNull {
     }
 
     fn return_dtype(&self, _options: &Self::Options, arg_dtypes: &[DType]) -> VortexResult<DType> {
-        vortex_ensure!(
-            arg_dtypes[0].eq_ignore_nullability(&arg_dtypes[1]),
-            "fill_null requires input and fill value to have the same base type, got {} and {}",
-            arg_dtypes[0],
-            arg_dtypes[1]
-        );
-        // The result dtype takes the nullability of the fill value.
-        Ok(arg_dtypes[0]
-            .clone()
-            .with_nullability(arg_dtypes[1].nullability()))
+        Self::output_dtype(&arg_dtypes[0], &arg_dtypes[1])
     }
 
     fn execute(
@@ -297,6 +297,29 @@ mod tests {
     use crate::scalar_fn::builtin::operators::Operator;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
+    #[test]
+    fn test_fill_null_rejects_other_base_type_for_non_nullable_input() -> VortexResult<()> {
+        let input = buffer![1i32].into_array();
+        let fill = Scalar::from(0i64);
+
+        let expression_error = fill_null(root(), lit(fill.clone()))
+            .bind(input.dtype())
+            .expect_err("the input and fill have different base types");
+        let array_error = input
+            .fill_null(fill)
+            .expect_err("the array shortcut must enforce the expression's dtype rule");
+
+        // Compare only the message, because the error text includes a backtrace when
+        // `RUST_BACKTRACE` is set, and the two paths fail at different call sites.
+        let rule = "fill_null requires input and fill value to have the same base type";
+        assert!(
+            expression_error.to_string().contains(rule),
+            "{expression_error}"
+        );
+        assert!(array_error.to_string().contains(rule), "{array_error}");
+        Ok(())
+    }
 
     /// A fill of `40 + 2` that is not a [`ConstantArray`] until it executes.
     fn lazy_fill_42(len: usize) -> VortexResult<ArrayRef> {

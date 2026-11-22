@@ -2,9 +2,11 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 mod chunked;
+mod dict;
 mod haystack;
 mod kernel;
 mod prepared;
+mod runend;
 
 use std::fmt::Display;
 use std::fmt::Formatter;
@@ -25,8 +27,10 @@ use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::Chunked;
 use vortex_array::arrays::Constant;
 use vortex_array::arrays::ConstantArray;
+use vortex_array::arrays::Dict;
 use vortex_array::arrays::ListViewArray;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::RunEnd;
 use vortex_array::arrays::ScalarFnArray;
 use vortex_array::arrays::bool::BoolArrayExt;
 use vortex_array::arrays::listview::ListViewArraySlotsExt;
@@ -63,16 +67,28 @@ use vortex_mask::Mask;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
-/// Registers [`ListContains`], [`PreparedSet`] and the chunked-element rule for
-/// [`ListContains`].
+/// Registers [`ListContains`], [`PreparedSet`] and the element rules of [`ListContains`] for
+/// chunked, dictionary and run-end needles.
 pub(crate) fn initialize(session: &VortexSession) {
     let scalar_fns = session.scalar_fns();
     scalar_fns.register(ListContains);
     scalar_fns.register(PreparedSet);
-    session.kernels().register_reduce_parent_rule(
+
+    let kernels = session.kernels();
+    kernels.register_reduce_parent_rule(
         ListContains,
         Chunked,
         const { &ListContainsElementReduceAdaptor(Chunked) },
+    );
+    kernels.register_reduce_parent_rule(
+        ListContains,
+        Dict,
+        const { &ListContainsElementReduceAdaptor(Dict) },
+    );
+    kernels.register_reduce_parent_rule(
+        ListContains,
+        RunEnd,
+        const { &ListContainsElementReduceAdaptor(RunEnd) },
     );
 }
 
@@ -1887,6 +1903,28 @@ mod tests {
         assert_result(
             needles.apply(&in_list(root(), lit(set_with_null))),
             [Some(true), None, None, None, None],
+        )
+    }
+
+    #[rstest]
+    // Non-strict, so a null code keeps the dictionary rewrite from pushing the function into the
+    // values: the needle is executed into its canonical encoding and looked up in the set.
+    #[case::executed(ListContainsOptions::default(), [Some(false), Some(true), None, Some(true)])]
+    // Strict, so the rewrite looks up the dictionary's two values instead of its four rows.
+    #[case::pushed_into_values(SQL, [Some(false), Some(true), None, Some(true)])]
+    fn constant_set_looks_up_a_dictionary_needle(
+        #[case] options: ListContainsOptions,
+        #[case] expected: [Option<bool>; 4],
+    ) -> VortexResult<()> {
+        let needles = DictArray::try_new(
+            PrimitiveArray::from_option_iter([Some(0u32), Some(1), None, Some(1)]).into_array(),
+            PrimitiveArray::from_iter([1i32, 2]).into_array(),
+        )?
+        .into_array();
+        let set = i32_set(vec![Some(2), Some(4)]);
+        assert_rows_agree(
+            needles.apply(&list_contains_opts(lit(set), root(), options))?,
+            BoolArray::from_iter(expected),
         )
     }
 

@@ -194,13 +194,14 @@ fn constant_bool_compresses_without_schemes() -> VortexResult<()> {
 
 #[test]
 fn constant_decimal_compresses_without_schemes() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
     let array = DecimalArray::new(
         buffer![123_456i128; 100],
         DecimalDType::new(20, 2),
         Validity::NonNullable,
+        &mut ctx,
     )
     .into_array();
-    let mut ctx = SESSION.create_execution_ctx();
 
     let compressed = empty_compressor().compress(&array, &mut ctx)?;
     assert!(compressed.is::<Constant>());
@@ -228,7 +229,7 @@ fn constant_timestamp_compresses_without_schemes() -> VortexResult<()> {
 #[case::bool(BoolArray::from_iter(std::iter::repeat_n(false, 1000)).into_array())]
 #[case::utf8(VarBinViewArray::from_iter_str(std::iter::repeat_n("abc", 1000)).into_array())]
 #[case::decimal(
-    DecimalArray::new(buffer![5i64; 1000], DecimalDType::new(10, 2), Validity::NonNullable)
+    DecimalArray::new(buffer![5i64; 1000], DecimalDType::new(10, 2), Validity::NonNullable, &mut SESSION.create_execution_ctx())
         .into_array()
 )]
 fn constant_compresses_with_dict_schemes(#[case] array: ArrayRef) -> VortexResult<()> {
@@ -270,7 +271,7 @@ fn nulls_every_tenth() -> Validity {
         .into_array()
 )]
 #[case::decimal(
-    DecimalArray::new(buffer![5i64; 100], DecimalDType::new(10, 2), nulls_every_tenth())
+    DecimalArray::new(buffer![5i64; 100], DecimalDType::new(10, 2), nulls_every_tenth(), &mut SESSION.create_execution_ctx())
         .into_array()
 )]
 fn masked_constant_compresses_to_masked_constant(
@@ -564,6 +565,7 @@ fn binary_references(
     (0..100).map(|i| if i % 10 == 0 { 99i64 } else { 7 }).collect::<Buffer<_>>(),
     DecimalDType::new(10, 2),
     nulls_every_tenth(),
+    &mut SESSION.create_execution_ctx(),
 ).into_array())]
 fn values_under_nulls_are_ignored(
     #[case] array: ArrayRef,

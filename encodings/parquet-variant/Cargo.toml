@@ -33,10 +33,12 @@ vortex-mask = { workspace = true }
 vortex-session = { workspace = true }
 
 [dev-dependencies]
+hegeltest = { workspace = true }
 vortex-edition = { workspace = true }
 rstest = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 vortex-array = { workspace = true, features = ["_test-harness"] }
+vortex-arrow = { workspace = true, features = ["_test-harness-hegel"] }
 vortex-file = { workspace = true, features = ["tokio"] }
 vortex-io = { workspace = true, features = ["tokio"] }
 vortex-layout = { workspace = true }

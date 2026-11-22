@@ -37,10 +37,10 @@ use vortex::expr::Expression;
 use vortex::file::VORTEX_FILE_EXTENSION;
 use vortex::layout::LayoutReader;
 use vortex::layout::scan::metrics::ScanMetrics;
-use vortex::layout::scan::v2::WeakScanCache;
 use vortex::layout::segments::SegmentSource;
 use vortex::metrics::DefaultMetricsRegistry;
 use vortex::metrics::MetricsRegistry;
+use vortex::scan::prepare::WeakScanCache;
 use vortex::session::VortexSession;
 use vortex_utils::aliases::dash_map::DashMap;
 
@@ -282,6 +282,16 @@ impl VortexSource {
     /// still records the full predicate for file pruning.
     pub fn with_predicate_pushdown(mut self, enabled: bool) -> Self {
         self.options.predicate_pushdown = enabled;
+        self
+    }
+
+    /// Removes both row filters and file-pruning predicates.
+    ///
+    /// This is useful for fetching known physical rows with a [`crate::VortexAccessPlan`]
+    /// after a filtered scan, without re-evaluating mutable dynamic filters.
+    pub fn without_predicates(mut self) -> Self {
+        self.full_predicate = None;
+        self.vortex_predicate = None;
         self
     }
 
@@ -837,6 +847,39 @@ mod tests {
             updated_source.vortex_predicate.as_ref(),
             Some(&conjunction([exact, dynamic]))
         );
+        Ok(())
+    }
+
+    #[test]
+    fn test_without_predicates_clears_scan_and_pruning_filters() -> anyhow::Result<()> {
+        let schema = Arc::new(Schema::new(vec![Field::new("name", DataType::Utf8, false)]));
+        let source = sort_test_source(Arc::clone(&schema));
+        let result = source
+            .try_pushdown_filters(vec![octet_length_filter(&schema)], &ConfigOptions::new())?;
+        let filtered = result.updated_node.expect("expected updated source");
+        let filtered = filtered
+            .downcast_ref::<VortexSource>()
+            .expect("VortexSource");
+        assert!(filtered.full_predicate.is_some());
+        assert!(filtered.vortex_predicate.is_some());
+
+        let cleared = filtered.clone().without_predicates();
+        assert!(cleared.full_predicate.is_none());
+        assert!(cleared.vortex_predicate.is_none());
+        assert!(filtered.full_predicate.is_some());
+        assert!(filtered.vortex_predicate.is_some());
+        let config = FileScanConfigBuilder::new(
+            ObjectStoreUrl::local_filesystem(),
+            Arc::new(cleared.clone()),
+        )
+        .build();
+        let opener = cleared.create_vortex_opener(
+            Arc::new(InMemory::new()) as Arc<dyn ObjectStore>,
+            &config,
+            0,
+        )?;
+        assert!(opener.filter.is_none());
+        assert!(opener.file_pruning_predicate.is_none());
         Ok(())
     }
 

@@ -131,9 +131,8 @@ pub trait ArrowExtVTable: ExtVTable {
     /// [`ArrowImport::Unsupported`] only to defer the array to another plugin under the same Arrow
     /// extension name, as [`ArrowImportVTable`](crate::ArrowImportVTable) states.
     ///
-    /// When the Arrow layout is the storage layout of `ext_dtype`, import the array with
-    /// [`ArrowSession::from_arrow_storage`]. Otherwise, import storage through the session with a
-    /// nullability rather than the extension field, to avoid dispatching this plugin recursively.
+    /// See the [importer contract](crate::ArrowImportVTable::from_arrow_array) for how to apply
+    /// the storage dtype's nullability.
     fn from_arrow_array(
         array: ArrowArrayRef,
         field: &Field,

@@ -360,22 +360,6 @@ impl<V: VTable> Array<V> {
         &self.downcast_inner().data
     }
 
-    /// Try to fetch mutable access to the encoding-specific data.
-    ///
-    /// Returns `None` when this handle is not the unique owner of the backing allocation.
-    pub fn data_mut(&mut self) -> Option<&mut V::TypedArrayData> {
-        let store = self.inner.inner_mut()?;
-        // NOTE(ngates): use downcast_mut_unchecked when it becomes stable
-        debug_assert!(store.data.as_any().is::<ArrayData<V>>());
-        // SAFETY: `Array<V>` guarantees the inner is `ArrayData<V>`, the same invariant the shared
-        // path in `downcast_inner` relies on. Reaching it through `Any` instead spends a virtual
-        // `as_any_mut` and a `TypeId` comparison on a type the compiler already knows, which the
-        // executor pays once per chunk through `with_next_child_slot`.
-        let array_inner =
-            unsafe { &mut *std::ptr::from_mut(&mut store.data).cast::<ArrayData<V>>() };
-        Some(&mut array_inner.data)
-    }
-
     /// Mutates encoding data, copying shared array metadata and slots while retaining statistics.
     ///
     /// The update must preserve the logical values and array invariants.
@@ -435,9 +419,13 @@ impl<V: VTable> Array<V> {
         self
     }
 
-    /// Returns a clone of the inner encoding-specific data.
+    /// Returns the inner encoding-specific data. Moves it out when this handle owns the
+    /// allocation, and clones it otherwise.
     pub fn into_data(self) -> V::TypedArrayData {
-        self.downcast_inner().data.clone()
+        match self.try_into_parts() {
+            Ok(parts) => parts.data,
+            Err(array) => array.downcast_inner().data.clone(),
+        }
     }
 
     /// Returns the array slots.

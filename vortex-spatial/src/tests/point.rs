@@ -17,6 +17,7 @@ use geoarrow::datatypes::Crs;
 use geoarrow::datatypes::Dimension as GeoArrowDimension;
 use geoarrow::datatypes::Metadata;
 use geoarrow::datatypes::PointType;
+use rstest::rstest;
 use vortex_array::VortexSessionExecute;
 use vortex_array::assert_arrays_eq;
 use vortex_arrow::ArrowSessionExt;
@@ -67,33 +68,28 @@ fn points_with_nullable_coordinates(
     (Arc::new(array), field)
 }
 
-/// Coordinates that Arrow marks nullable import as the non-nullable coordinates of a point, and
-/// the null coordinates of a null point are dropped.
-#[test]
-fn imports_nullable_coordinates() -> VortexResult<()> {
-    let (arrow, field) = points_with_nullable_coordinates(
-        vec![Some(1.0), None, Some(3.0)],
-        vec![Some(2.0), None, Some(4.0)],
-        Some(NullBuffer::from(vec![true, false, true])),
-    );
-
+#[rstest]
+#[case::null_point(
+    vec![Some(1.0), None, Some(3.0)],
+    vec![Some(2.0), None, Some(4.0)],
+    Some(NullBuffer::from(vec![true, false, true])),
+    vec![
+        Some((1.0, 2.0)), // The first point keeps both coordinates.
+        None,             // The null point stays null.
+        Some((3.0, 4.0)), // The last point keeps both coordinates.
+    ],
+)]
+#[case::valid_point(vec![Some(1.0)], vec![None], None, vec![Some((1.0, 0.0))])]
+fn test_import_points_with_null_coordinates(
+    #[case] xs: Vec<Option<f64>>,
+    #[case] ys: Vec<Option<f64>>,
+    #[case] validity: Option<NullBuffer>,
+    #[case] expected: Vec<Option<(f64, f64)>>,
+) -> VortexResult<()> {
+    let (arrow, field) = points_with_nullable_coordinates(xs, ys, validity);
     let imported = SESSION.arrow().from_arrow_array(arrow, &field)?;
-    let expected = nullable_point_column(vec![Some((1.0, 2.0)), None, Some((3.0, 4.0))])?;
+    let expected = nullable_point_column(expected)?;
+
     assert_arrays_eq!(imported, expected, &mut SESSION.create_execution_ctx());
     Ok(())
-}
-
-/// A null coordinate of a valid point is outside the domain of `Point`, so the import fails.
-#[test]
-fn null_coordinate_of_valid_point_fails() {
-    let (arrow, field) = points_with_nullable_coordinates(vec![Some(1.0)], vec![None], None);
-    let err = SESSION
-        .arrow()
-        .from_arrow_array(arrow, &field)
-        .expect_err("a null coordinate of a valid point must fail the import");
-    assert!(
-        err.to_string()
-            .contains("Failed to import Arrow storage as vortex.st.point"),
-        "unexpected error: {err}"
-    );
 }

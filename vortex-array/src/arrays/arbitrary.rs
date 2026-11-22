@@ -36,7 +36,6 @@ use crate::dtype::NativePType;
 use crate::dtype::Nullability;
 use crate::dtype::OffsetBuilderPType;
 use crate::dtype::PType;
-use crate::match_each_decimal_value_type;
 use crate::scalar::Scalar;
 use crate::scalar::arbitrary::random_scalar;
 use crate::validity::Validity;
@@ -143,20 +142,18 @@ fn random_array_chunk(
         },
         d @ DType::Decimal(decimal, n) => {
             let elem_len = chunk_len.unwrap_or(u.int_in_range(0..=20)?);
-            match_each_decimal_value_type!(decimal.canonical_values_type(), |D| {
-                let mut builder = DecimalBuilder::new_in::<D>(
-                    *decimal,
-                    *n,
-                    vortex_buffer::BufferAllocatorRef::static_ref(),
-                );
-                for _i in 0..elem_len {
-                    let random_decimal = random_scalar(u, d)?;
-                    builder.append_scalar(&random_decimal).vortex_expect(
-                        "was somehow unable to append a decimal to a decimal builder",
-                    );
-                }
-                Ok(builder.finish())
-            })
+            let mut builder = DecimalBuilder::new_in(
+                *decimal,
+                *n,
+                vortex_buffer::BufferAllocatorRef::static_ref(),
+            );
+            for _ in 0..elem_len {
+                let scalar = random_scalar(u, d)?;
+                builder
+                    .append_scalar(&scalar)
+                    .vortex_expect("random scalar has the builder's decimal dtype");
+            }
+            Ok(builder.finish())
         }
         DType::Utf8(n) => random_string(u, *n, chunk_len),
         DType::Binary(n) => random_bytes(u, *n, chunk_len),

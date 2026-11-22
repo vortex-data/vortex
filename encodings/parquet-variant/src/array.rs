@@ -39,8 +39,8 @@ use vortex_array::vtable::validity_to_child;
 use vortex_arrow::ArrowExportOptions;
 use vortex_arrow::ArrowSession;
 use vortex_arrow::ExecuteArrowExt;
+use vortex_arrow::level_validity;
 use vortex_arrow::to_arrow_null_buffer;
-use vortex_buffer::BitBuffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
@@ -94,25 +94,31 @@ impl ParquetVariant {
         ))
     }
 
-    /// Converts an Arrow `parquet_variant_compute::VariantArray` into Parquet Variant storage,
-    /// converting the storage children through `session`.
+    /// Import Arrow Parquet Variant storage through the session.
+    ///
+    /// The result is nullable when the Arrow variant has a null buffer. See the
+    /// [import nullability rules](ArrowSession::from_arrow_array) for how the children import.
     pub fn from_arrow_variant(
         arrow_variant: &ArrowVariantArray,
         session: &ArrowSession,
     ) -> VortexResult<ArrayRef> {
-        Self::from_arrow_variant_impl(arrow_variant, false, session)
+        Self::from_arrow_variant_with_nullability(
+            arrow_variant,
+            arrow_variant.nulls().is_some(),
+            session,
+        )
     }
 
     pub(crate) fn from_arrow_variant_nullable(
         arrow_variant: &ArrowVariantArray,
         session: &ArrowSession,
     ) -> VortexResult<ArrayRef> {
-        Self::from_arrow_variant_impl(arrow_variant, true, session)
+        Self::from_arrow_variant_with_nullability(arrow_variant, true, session)
     }
 
-    fn from_arrow_variant_impl(
+    pub(crate) fn from_arrow_variant_with_nullability(
         arrow_variant: &ArrowVariantArray,
-        force_nullable: bool,
+        nullable: bool,
         session: &ArrowSession,
     ) -> VortexResult<ArrayRef> {
         let storage = arrow_variant.inner();
@@ -125,20 +131,8 @@ impl ParquetVariant {
                 _ => {}
             }
         }
-        let validity = arrow_variant
-            .nulls()
-            .map(|nulls| {
-                if nulls.null_count() == nulls.len() {
-                    Validity::AllInvalid
-                } else {
-                    Validity::from(BitBuffer::from(nulls.inner().clone()))
-                }
-            })
-            .unwrap_or(if force_nullable {
-                Validity::AllValid
-            } else {
-                Validity::NonNullable
-            });
+        let validity = level_validity(arrow_variant.nulls(), nullable)?;
+
         let metadata = session
             .from_arrow_array(ArrowArrayRef::clone(arrow_variant.metadata_column()), false)?;
 
@@ -151,6 +145,7 @@ impl ParquetVariant {
             .typed_value_column()
             .map(|tv| session.from_arrow_array(ArrowArrayRef::clone(tv), typed_value_nullable))
             .transpose()?;
+
         ParquetVariant::try_new(validity, metadata, value, typed_value).map(IntoArray::into_array)
     }
 }
@@ -437,10 +432,7 @@ fn parquet_shredded_field_from_logical(
 pub trait ParquetVariantArrayExt: TypedArrayRef<ParquetVariant> {
     /// Returns the outer row validity for the Variant values.
     fn parquet_variant_validity(&self) -> Validity {
-        child_to_validity(
-            self.slots()[ParquetVariantSlots::VALIDITY_CHILD].as_ref(),
-            self.dtype().nullability(),
-        )
+        child_to_validity(self.validity_child(), self.dtype().nullability())
     }
 
     /// Converts this storage array to Arrow's canonical Parquet Variant extension storage.
