@@ -37,6 +37,48 @@ fn check_data_generation_allowed(data_path: &Path) -> Result<()> {
     Ok(())
 }
 
+struct TempPathGuard {
+    path: PathBuf,
+    armed: bool,
+}
+
+impl TempPathGuard {
+    fn new(path: PathBuf) -> Self {
+        Self { path, armed: true }
+    }
+
+    fn path(&self) -> &Path {
+        &self.path
+    }
+
+    fn disarm(mut self) {
+        self.armed = false;
+    }
+}
+
+impl Drop for TempPathGuard {
+    fn drop(&mut self) {
+        if !self.armed {
+            return;
+        }
+        let result = match fs::symlink_metadata(&self.path) {
+            Ok(meta) if meta.is_dir() => fs::remove_dir_all(&self.path),
+            Ok(_) => fs::remove_file(&self.path),
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => return,
+            Err(err) => Err(err),
+        };
+        if let Err(err) = result
+            && err.kind() != std::io::ErrorKind::NotFound
+        {
+            tracing::warn!(
+                path = %self.path.display(),
+                error = %err,
+                "Failed to clean up temporary file"
+            );
+        }
+    }
+}
+
 /// Creates a file if it doesn't already exist.
 /// NB: Does NOT modify the given path to ensure that it resides in the data directory.
 pub fn idempotent<T, P: IdempotentPath + ?Sized>(
@@ -44,15 +86,16 @@ pub fn idempotent<T, P: IdempotentPath + ?Sized>(
     f: impl FnOnce(&Path) -> Result<T>,
 ) -> Result<PathBuf> {
     let data_path = path.to_data_path();
-    let temp_path = temp_download_filepath();
     if !data_path.exists() {
         check_data_generation_allowed(&data_path)?;
         // Ensure parent directory exists
         if let Some(parent) = data_path.parent() {
             fs::create_dir_all(parent).context("Failed to create parent directories")?;
         }
-        f(temp_path.as_path())?;
-        fs::rename(temp_path, &data_path).context("Failed to rename temp file")?;
+        let temp_path = TempPathGuard::new(temp_download_filepath());
+        f(temp_path.path())?;
+        fs::rename(temp_path.path(), &data_path).context("Failed to rename temp file")?;
+        temp_path.disarm();
     }
     Ok(data_path)
 }
@@ -64,15 +107,16 @@ where
     FUT: Future<Output = Result<T>>,
 {
     let data_path = path.to_data_path();
-    let temp_path = temp_download_filepath();
     if !data_path.exists() {
         check_data_generation_allowed(&data_path)?;
         // Ensure parent directory exists
         if let Some(parent) = data_path.parent() {
             fs::create_dir_all(parent).context("Failed to create parent directories")?;
         }
-        f(temp_path.clone()).await?;
-        fs::rename(temp_path, &data_path).context("Failed to rename temp file")?;
+        let temp_path = TempPathGuard::new(temp_download_filepath());
+        f(temp_path.path().to_path_buf()).await?;
+        fs::rename(temp_path.path(), &data_path).context("Failed to rename temp file")?;
+        temp_path.disarm();
     }
     Ok(data_path)
 }
@@ -201,5 +245,189 @@ pub fn url_scheme_to_storage(url: &Url) -> Result<String> {
         otherwise => {
             bail!("unknown URL scheme: {}", otherwise)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::cell::RefCell;
+    use std::fs;
+    use std::future::Future;
+    use std::path::PathBuf;
+    use std::pin::Pin;
+    use std::rc::Rc;
+    use std::sync::Arc;
+    use std::task::Context;
+    use std::task::Poll;
+    use std::task::Waker;
+
+    use anyhow::Result;
+    use anyhow::bail;
+    use parking_lot::Mutex;
+    use tempfile::tempdir;
+
+    use super::idempotent;
+    use super::idempotent_async;
+
+    #[test]
+    fn idempotent_cleans_up_temp_file_when_generator_fails() -> Result<()> {
+        let dir = tempdir()?;
+        let final_path = dir.path().join("output.parquet");
+        let observed_temp: Rc<RefCell<Option<PathBuf>>> = Rc::new(RefCell::new(None));
+        let observed_clone = Rc::clone(&observed_temp);
+
+        let err = idempotent(&final_path, |temp_path| -> Result<()> {
+            assert!(!temp_path.exists());
+            *observed_clone.borrow_mut() = Some(temp_path.to_path_buf());
+            fs::write(temp_path, b"partial-output")?;
+            bail!("generator failed");
+        })
+        .unwrap_err();
+
+        assert!(err.to_string().contains("generator failed"));
+        let temp_path = observed_temp.borrow().clone().expect("temp path recorded");
+        assert!(
+            !temp_path.exists(),
+            "temp file leaked: {}",
+            temp_path.display()
+        );
+        assert!(!final_path.exists());
+        Ok(())
+    }
+
+    #[test]
+    fn idempotent_cleans_up_temp_file_when_rename_fails() -> Result<()> {
+        let dir = tempdir()?;
+        let final_path = dir.path().join("output.parquet");
+        let observed_temp: Rc<RefCell<Option<PathBuf>>> = Rc::new(RefCell::new(None));
+        let observed_clone = Rc::clone(&observed_temp);
+
+        let err = idempotent(&final_path, |temp_path| -> Result<()> {
+            *observed_clone.borrow_mut() = Some(temp_path.to_path_buf());
+            fs::write(temp_path, b"ready-to-rename")?;
+            // Create a non-empty directory at final_path so fs::rename fails.
+            fs::create_dir(&final_path)?;
+            fs::write(final_path.join("blocker"), b"x")?;
+            Ok(())
+        })
+        .unwrap_err();
+
+        assert!(err.to_string().contains("Failed to rename temp file"));
+        let temp_path = observed_temp.borrow().clone().expect("temp path recorded");
+        assert!(
+            !temp_path.exists(),
+            "temp file leaked: {}",
+            temp_path.display()
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn idempotent_skips_existing_output_without_invoking_generator() -> Result<()> {
+        let dir = tempdir()?;
+        let final_path = dir.path().join("existing.parquet");
+        fs::write(&final_path, b"existing")?;
+
+        let result = idempotent(&final_path, |_temp_path| -> Result<()> {
+            panic!("generator should not run when output already exists");
+        })?;
+
+        assert_eq!(result, final_path);
+        assert_eq!(fs::read(&final_path)?, b"existing");
+        Ok(())
+    }
+
+    #[test]
+    fn idempotent_async_cleans_up_temp_file_on_error_and_retry_succeeds() -> Result<()> {
+        let dir = tempdir()?;
+        let final_path = dir.path().join("async_output.vortex");
+        let leaked_temp = Arc::new(Mutex::new(None::<PathBuf>));
+        let leaked_clone = Arc::clone(&leaked_temp);
+
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()?;
+
+        let err = rt
+            .block_on(idempotent_async(&final_path, move |temp_path| {
+                let leaked_clone = Arc::clone(&leaked_clone);
+                async move {
+                    assert!(!temp_path.exists());
+                    *leaked_clone.lock() = Some(temp_path.clone());
+                    fs::write(&temp_path, b"partial-async")?;
+                    bail!("async generator failed");
+                    #[allow(unreachable_code)]
+                    Ok::<(), anyhow::Error>(())
+                }
+            }))
+            .unwrap_err();
+
+        assert!(err.to_string().contains("async generator failed"));
+        let first_temp = leaked_temp.lock().clone().expect("temp path recorded");
+        assert!(
+            !first_temp.exists(),
+            "first attempt temp file leaked: {}",
+            first_temp.display()
+        );
+        assert!(!final_path.exists());
+
+        // Retry succeeds and publishes the final output.
+        let published = rt.block_on(idempotent_async(&final_path, |temp_path| async move {
+            fs::write(&temp_path, b"good-async")?;
+            Ok(())
+        }))?;
+        assert_eq!(published, final_path);
+        assert_eq!(fs::read(&final_path)?, b"good-async");
+        Ok(())
+    }
+
+    #[test]
+    fn idempotent_async_cleans_up_temp_file_when_future_is_dropped() -> Result<()> {
+        let dir = tempdir()?;
+        let final_path = dir.path().join("cancelled_output.vortex");
+        let observed_temp = Arc::new(Mutex::new(None::<PathBuf>));
+        let observed_clone = Arc::clone(&observed_temp);
+
+        struct WriteThenPending {
+            temp_path: PathBuf,
+            recorded: Arc<Mutex<Option<PathBuf>>>,
+            written: bool,
+        }
+
+        impl Future for WriteThenPending {
+            type Output = Result<()>;
+
+            fn poll(mut self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
+                if !self.written {
+                    fs::write(&self.temp_path, b"in-flight").expect("write temp file");
+                    *self.recorded.lock() = Some(self.temp_path.clone());
+                    self.written = true;
+                }
+                Poll::Pending
+            }
+        }
+
+        {
+            let mut fut = Box::pin(idempotent_async(&final_path, move |temp_path| {
+                WriteThenPending {
+                    temp_path,
+                    recorded: Arc::clone(&observed_clone),
+                    written: false,
+                }
+            }));
+            let waker = Waker::noop();
+            let mut cx = Context::from_waker(waker);
+            assert!(fut.as_mut().poll(&mut cx).is_pending());
+            // Drop fut while pending.
+        }
+
+        let temp_path = observed_temp.lock().clone().expect("temp path recorded");
+        assert!(
+            !temp_path.exists(),
+            "temp file leaked after future drop: {}",
+            temp_path.display()
+        );
+        assert!(!final_path.exists());
+        Ok(())
     }
 }
