@@ -25,7 +25,6 @@ interface PendingRequest<T = unknown> {
 export interface WorkerLike {
   onmessage: ((e: MessageEvent) => void) | null;
   onerror: ((e: ErrorEvent) => void) | null;
-  onmessageerror: ((e: MessageEvent) => void) | null;
   postMessage(message: unknown): void;
   terminate(): void;
 }
@@ -42,7 +41,6 @@ export class VortexWorker {
     this.worker =
       worker ?? new Worker(new URL('./vortex.worker.ts', import.meta.url), { type: 'module' });
     this.worker.onmessage = (e: MessageEvent) => {
-      if (this.closedError) return;
       const { type, id, data, error } = e.data;
       const req = this.pending.get(id);
       if (!req) return;
@@ -57,13 +55,6 @@ export class VortexWorker {
       const detail = e.message || 'Worker crashed';
       this.failAllPending(new Error(`Worker error: ${detail}`));
     };
-    this.worker.onmessageerror = () => {
-      this.failAllPending(new Error('Worker message deserialization failed'));
-    };
-  }
-
-  get pendingCount(): number {
-    return this.pending.size;
   }
 
   private failAllPending(err: Error): void {
@@ -84,12 +75,7 @@ export class VortexWorker {
     const id = this.nextId++;
     return new Promise<T>((resolve, reject) => {
       this.pending.set(id, { resolve, reject });
-      try {
-        this.worker.postMessage({ ...payload, id });
-      } catch (err) {
-        this.pending.delete(id);
-        reject(err instanceof Error ? err : new Error(String(err)));
-      }
+      this.worker.postMessage({ ...payload, id });
     });
   }
 

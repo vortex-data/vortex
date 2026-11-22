@@ -7,15 +7,10 @@ import { VortexWorker, type WorkerLike } from '../src/workers/VortexWorker';
 class FakeWorker implements WorkerLike {
   onmessage: ((e: MessageEvent) => void) | null = null;
   onerror: ((e: ErrorEvent) => void) | null = null;
-  onmessageerror: ((e: MessageEvent) => void) | null = null;
   posted: Array<Record<string, unknown>> = [];
   terminated = false;
-  postMessageImpl?: (message: unknown) => void;
 
   postMessage(message: unknown): void {
-    if (this.postMessageImpl) {
-      this.postMessageImpl(message);
-    }
     this.posted.push(message as Record<string, unknown>);
   }
 
@@ -29,10 +24,6 @@ class FakeWorker implements WorkerLike {
 
   emitError(message: string): void {
     this.onerror?.({ message } as ErrorEvent);
-  }
-
-  emitMessageError(): void {
-    this.onmessageerror?.({} as MessageEvent);
   }
 }
 
@@ -49,7 +40,6 @@ describe('VortexWorker request settlement', () => {
 
     fake.emitError('WASM unreachable');
     expect(fake.terminated).toBe(true);
-    expect(client.pendingCount).toBe(0);
     // Late replies and duplicate errors after terminal failure must be ignored.
     fake.emitMessage({ type: 'result', id: idA, data: {} });
     fake.emitMessage({ type: 'error', id: idB, error: 'late' });
@@ -58,24 +48,6 @@ describe('VortexWorker request settlement', () => {
     await expect(pA).rejects.toThrow('WASM unreachable');
     await expect(pB).rejects.toThrow('WASM unreachable');
     await expect(client.previewData('node-c', 5)).rejects.toThrow('WASM unreachable');
-  });
-
-  test('rejects all pending requests and future requests on worker messageerror', async () => {
-    const fake = new FakeWorker();
-    const client = new VortexWorker(fake);
-
-    const pA = client.fetchEncodingTree('node-a');
-    const pB = client.fetchArrayBuffer('node-b', [], 0);
-
-    fake.emitMessageError();
-    expect(fake.terminated).toBe(true);
-    expect(client.pendingCount).toBe(0);
-
-    await expect(pA).rejects.toThrow('Worker message deserialization failed');
-    await expect(pB).rejects.toThrow('Worker message deserialization failed');
-    await expect(client.fetchEncodingTree('node-c')).rejects.toThrow(
-      'Worker message deserialization failed',
-    );
   });
 
   test('rejects all pending requests on terminate and ignores late replies', async () => {
@@ -90,41 +62,13 @@ describe('VortexWorker request settlement', () => {
     client.terminate();
     expect(fake.terminated).toBe(true);
 
-    // Late replies after termination must not throw or double-settle.
+    // Late replies after termination must not throw.
     fake.emitMessage({ type: 'result', id: idA, data: {} });
     fake.emitMessage({ type: 'result', id: idB, data: new Uint8Array([1]) });
 
     await expect(pA).rejects.toThrow('Worker terminated');
     await expect(pB).rejects.toThrow('Worker terminated');
     await expect(client.previewData('node-c', 1)).rejects.toThrow('Worker terminated');
-  });
-
-  test('rejects and cleans up a request when synchronous postMessage throws without poisoning other requests', async () => {
-    const fake = new FakeWorker();
-    const client = new VortexWorker(fake);
-
-    const pOk = client.previewData('node-ok', 5);
-    const okId = fake.posted[0].id as number;
-
-    fake.postMessageImpl = () => {
-      throw new Error('DataCloneError');
-    };
-    const pFail = client.previewData('node-bad', 5);
-    fake.postMessageImpl = undefined;
-
-    await expect(pFail).rejects.toThrow('DataCloneError');
-    expect(client.pendingCount).toBe(1);
-
-    const payload = new Uint8Array([1, 2, 3]);
-    fake.emitMessage({ type: 'result', id: okId, data: payload });
-    expect(await pOk).toEqual(payload);
-    expect(client.pendingCount).toBe(0);
-
-    // Subsequent requests still work.
-    const pAfter = client.previewData('node-after', 5);
-    const afterId = fake.posted[1].id as number;
-    fake.emitMessage({ type: 'result', id: afterId, data: new Uint8Array([9]) });
-    expect(await pAfter).toEqual(new Uint8Array([9]));
   });
 
   test('keeps other pending and subsequent requests usable after an ordinary application error', async () => {
