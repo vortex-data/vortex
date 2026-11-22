@@ -23,11 +23,14 @@ use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::RecursiveCanonical;
+use crate::array::VTable;
 use crate::arrays::DecimalArray;
 use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
+use crate::arrays::Slice;
 use crate::arrays::VarBinViewArray;
 use crate::arrays::primitive::PrimitiveArrayExt;
+use crate::arrays::slice::SliceArraySlotsExt;
 use crate::arrays::varbinview::BinaryView;
 use crate::dtype::DType;
 use crate::dtype::NativeDecimalType;
@@ -36,17 +39,23 @@ use crate::dtype::PType;
 use crate::dtype::i256;
 use crate::match_each_decimal_value_type;
 use crate::match_each_integer_ptype;
+use crate::optimizer::ArrayOptimizer;
 use crate::scalar_fn::fns::binary::build_row_comparator;
 use crate::validity::Validity;
 
 /// A set whose span of values needs at most this many bits per element is looked up through a
 /// bitmap over the span, bounding the bitmap to a few words per element.
 const BITMAP_BITS_PER_ELEMENT: u128 = 64;
-/// A span this narrow is looked up through a bitmap whatever the size of the set.
+/// A span this narrow fits in L1 and is looked up through a bitmap regardless of set size.
+const L1_BITMAP_MIN_BITS: u128 = 1 << 12;
+/// A span this narrow is looked up through a bitmap once the set is large enough that binary
+/// search loses to L2-resident bitmap probes.
 ///
 /// A lookup in a bitmap of up to 128 KiB stays in the L2 cache and does not branch, where a
 /// binary search through a sparse set mispredicts about half its comparisons.
 const BITMAP_MIN_BITS: u128 = 1 << 20;
+/// Minimum set size for the wide L2 bitmap; smaller sets stay in L1 via sorted binary search.
+const L2_BITMAP_MIN_ELEMENTS: usize = 16;
 /// Needles beyond this many are decoded and looked up a batch of this many at a time.
 const NEEDLE_BATCH_LEN: usize = 8192;
 
@@ -196,29 +205,47 @@ impl<T: NativePType + SetInteger> HaystackState for PrimitiveSet<T> {
         needles: &ArrayRef,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<(BitBuffer, Validity)> {
-        if needles.len() <= NEEDLE_BATCH_LEN || needles.is::<Primitive>() {
-            let needles = needles
-                .clone()
-                .execute::<PrimitiveArray>(ctx)?
-                .reinterpret_cast(T::PTYPE);
-            let bits = self.0.contains(needles.as_slice::<T>(), ctx.allocator());
-            return Ok((bits, needles.validity()?));
+        if needles.len() > NEEDLE_BATCH_LEN && !needles.is::<Primitive>() {
+            let first = needles.slice(0..NEEDLE_BATCH_LEN)?.optimize_ctx(ctx)?;
+            if slices_without_full_decode(&first, ctx) {
+                // Decoding a long compressed array in batches keeps each batch of needles in the
+                // cache between decoding and looking it up, instead of writing out the whole array
+                // first.
+                let len = needles.len();
+                let mut bits = BitBufferMut::with_capacity_in(len, ctx.allocator().clone());
+                let batch = first
+                    .execute::<PrimitiveArray>(ctx)?
+                    .reinterpret_cast(T::PTYPE);
+                bits.append_buffer(&self.0.contains(batch.as_slice::<T>(), ctx.allocator()));
+                for start in (NEEDLE_BATCH_LEN..len).step_by(NEEDLE_BATCH_LEN) {
+                    let end = (start + NEEDLE_BATCH_LEN).min(len);
+                    let batch = needles
+                        .slice(start..end)?
+                        .execute::<PrimitiveArray>(ctx)?
+                        .reinterpret_cast(T::PTYPE);
+                    bits.append_buffer(&self.0.contains(batch.as_slice::<T>(), ctx.allocator()));
+                }
+                return Ok((bits.freeze(), needles.validity()?));
+            }
         }
 
-        // Decoding a long compressed array in batches keeps each batch of needles in the cache
-        // between decoding and looking it up, instead of writing out the whole array first.
-        let len = needles.len();
-        let mut bits = BitBufferMut::with_capacity_in(len, ctx.allocator().clone());
-        for start in (0..len).step_by(NEEDLE_BATCH_LEN) {
-            let end = (start + NEEDLE_BATCH_LEN).min(len);
-            let batch = needles
-                .slice(start..end)?
-                .execute::<PrimitiveArray>(ctx)?
-                .reinterpret_cast(T::PTYPE);
-            bits.append_buffer(&self.0.contains(batch.as_slice::<T>(), ctx.allocator()));
-        }
-        Ok((bits.freeze(), needles.validity()?))
+        let needles = needles
+            .clone()
+            .execute::<PrimitiveArray>(ctx)?
+            .reinterpret_cast(T::PTYPE);
+        let bits = self.0.contains(needles.as_slice::<T>(), ctx.allocator());
+        Ok((bits, needles.validity()?))
     }
+}
+
+/// Whether every remaining `Slice` node in `array` is handled by a slice kernel rather than
+/// falling back to `Slice::execute`, which materializes the full child column.
+fn slices_without_full_decode(array: &ArrayRef, ctx: &ExecutionCtx) -> bool {
+    array.depth_first_traversal().all(|node| {
+        node.as_opt::<Slice>().is_none_or(|slice| {
+            ctx.has_execute_parent_kernel(Slice.id(), slice.child().encoding_id())
+        })
+    })
 }
 
 /// Unscaled decimal values at the canonical width shared by the elements and needles.
@@ -466,8 +493,13 @@ fn integer_bitmap<T: SetInteger>(
     let min = *values.iter().min()?;
     let max = *values.iter().max()?;
     let span = max.offset_from(min)?;
+    let min_bits = if values.len() >= L2_BITMAP_MIN_ELEMENTS {
+        BITMAP_MIN_BITS
+    } else {
+        L1_BITMAP_MIN_BITS
+    };
     if span == usize::MAX
-        || span as u128 >= (values.len() as u128 * BITMAP_BITS_PER_ELEMENT).max(BITMAP_MIN_BITS)
+        || span as u128 >= (values.len() as u128 * BITMAP_BITS_PER_ELEMENT).max(min_bits)
     {
         return None;
     }
@@ -494,4 +526,201 @@ fn sorted_values<T: Copy + Ord + Send + Sync + 'static>(values: Buffer<T>) -> Bu
     sorted.sort_unstable();
     sorted.dedup();
     Buffer::from(sorted)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::fmt;
+    use std::hash::Hash;
+    use std::hash::Hasher;
+    use std::sync::Arc;
+    use std::sync::atomic::AtomicUsize;
+    use std::sync::atomic::Ordering;
+
+    use vortex_buffer::Buffer;
+    use vortex_error::VortexResult;
+    use vortex_error::vortex_panic;
+    use vortex_session::VortexSession;
+    use vortex_session::registry::CachedId;
+
+    use super::*;
+    use crate::Array;
+    use crate::ArrayEq;
+    use crate::ArrayHash;
+    use crate::ArrayId;
+    use crate::ArrayParts;
+    use crate::ArraySlots;
+    use crate::ArrayView;
+    use crate::ExecutionResult;
+    use crate::VortexSessionExecute;
+    use crate::array::VTable;
+    use crate::arrays::ChunkedArray;
+    use crate::arrays::WidenArray;
+    use crate::buffer::BufferHandle;
+    use crate::dtype::Nullability;
+    use crate::hash::EqMode;
+    use crate::scalar::Scalar;
+    use crate::session::ArraySession;
+
+    #[derive(Clone, Debug)]
+    struct CountingEncoding;
+
+    #[derive(Clone, Debug)]
+    struct CountingData {
+        values: PrimitiveArray,
+        decodes: Arc<AtomicUsize>,
+    }
+
+    impl fmt::Display for CountingData {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            f.write_str("CountingData")
+        }
+    }
+
+    impl ArrayHash for CountingData {
+        fn array_hash<H: Hasher>(&self, state: &mut H, _eq_mode: EqMode) {
+            self.values.len().hash(state);
+        }
+    }
+
+    impl ArrayEq for CountingData {
+        fn array_eq(&self, other: &Self, _eq_mode: EqMode) -> bool {
+            Arc::ptr_eq(&self.decodes, &other.decodes)
+        }
+    }
+
+    impl VTable for CountingEncoding {
+        type TypedArrayData = CountingData;
+        type OperationsVTable = Self;
+        type ValidityVTable = Self;
+
+        fn id(&self) -> ArrayId {
+            static ID: CachedId = CachedId::new("vortex.test.counting_haystack_needles");
+            *ID
+        }
+
+        fn validate(
+            &self,
+            _data: &Self::TypedArrayData,
+            _dtype: &DType,
+            _len: usize,
+            _slots: &[Option<ArrayRef>],
+        ) -> VortexResult<()> {
+            Ok(())
+        }
+
+        fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
+            0
+        }
+
+        fn buffer(_array: ArrayView<'_, Self>, _idx: usize) -> BufferHandle {
+            vortex_panic!("CountingEncoding has no buffers")
+        }
+
+        fn buffer_name(_array: ArrayView<'_, Self>, _idx: usize) -> Option<String> {
+            None
+        }
+
+        fn with_buffers(
+            &self,
+            _array: ArrayView<'_, Self>,
+            _buffers: &[BufferHandle],
+        ) -> VortexResult<ArrayParts<Self>> {
+            vortex_panic!("CountingEncoding has no buffers")
+        }
+
+        fn slot_name(_array: ArrayView<'_, Self>, _idx: usize) -> String {
+            vortex_panic!("CountingEncoding has no slots")
+        }
+
+        fn execute(array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+            array.decodes.fetch_add(1, Ordering::Relaxed);
+            Ok(ExecutionResult::done(array.values.clone().into_array()))
+        }
+    }
+
+    impl crate::array::OperationsVTable<CountingEncoding> for CountingEncoding {
+        type ProbeState = ();
+
+        fn scalar_at(
+            array: ArrayView<'_, CountingEncoding>,
+            index: usize,
+            ctx: &mut ExecutionCtx,
+        ) -> VortexResult<Scalar> {
+            array.values.execute_scalar(index, ctx)
+        }
+    }
+
+    impl crate::array::ValidityVTable<CountingEncoding> for CountingEncoding {
+        fn validity(array: ArrayView<'_, CountingEncoding>) -> VortexResult<Validity> {
+            array.values.validity()
+        }
+    }
+
+    #[test]
+    fn small_wide_span_uses_sorted_large_uses_bitmap() {
+        let session = VortexSession::empty().with::<ArraySession>();
+        let ctx = session.create_execution_ctx();
+
+        let small_wide = IntegerSet::new(Buffer::from(vec![0i64, 1, 2, 1 << 19]), ctx.allocator());
+        assert!(matches!(small_wide, IntegerSet::Sorted(_)));
+
+        let small_narrow = IntegerSet::new(Buffer::from(vec![0i64, 1, 2, 1000]), ctx.allocator());
+        assert!(matches!(small_narrow, IntegerSet::Bitmap { .. }));
+
+        let large_wide: Vec<i64> = (0..256).map(|i| i * 4000).collect();
+        let large_wide = IntegerSet::new(Buffer::from(large_wide), ctx.allocator());
+        assert!(matches!(large_wide, IntegerSet::Bitmap { .. }));
+    }
+
+    #[test]
+    fn non_sliceable_needles_decode_once_instead_of_per_batch() -> VortexResult<()> {
+        let len = NEEDLE_BATCH_LEN * 3;
+        let narrow = PrimitiveArray::from_iter(0..i32::try_from(len).vortex_expect("fits in i32"));
+        let widened = WidenArray::try_new(
+            narrow.clone().into_array(),
+            DType::Primitive(PType::I64, Nullability::NonNullable),
+        )?
+        .into_array();
+        let chunked = ChunkedArray::try_new(
+            vec![narrow.clone().into_array(), narrow.clone().into_array()],
+            DType::Primitive(PType::I32, Nullability::NonNullable),
+        )?
+        .into_array();
+
+        let session = VortexSession::empty().with::<ArraySession>();
+        let mut ctx = session.create_execution_ctx();
+
+        let widened_slice = widened.slice(0..NEEDLE_BATCH_LEN)?.optimize_ctx(&ctx)?;
+        assert!(slices_without_full_decode(&widened_slice, &ctx));
+
+        let chunked_slice = chunked.slice(0..NEEDLE_BATCH_LEN)?.optimize_ctx(&ctx)?;
+        assert!(slices_without_full_decode(&chunked_slice, &ctx));
+
+        let decodes = Arc::new(AtomicUsize::new(0));
+        let unsliced_needles = Array::try_from_parts(ArrayParts::new(
+            CountingEncoding,
+            narrow.dtype().clone(),
+            len,
+            CountingData {
+                values: narrow,
+                decodes: Arc::clone(&decodes),
+            },
+            ArraySlots::new(),
+        ))?
+        .into_array();
+
+        let elements = PrimitiveArray::from_iter([5i32, 9_000, 20_000]).into_array();
+        let haystack = ArrayHaystack::try_new(&elements, &mut ctx)?;
+        let (bits, _) = haystack.contains(&unsliced_needles, &mut ctx)?;
+
+        assert_eq!(decodes.load(Ordering::Relaxed), 1);
+        assert!(bits.value(5));
+        assert!(bits.value(9_000));
+        assert!(bits.value(20_000));
+        assert!(!bits.value(0));
+        assert_eq!(bits.true_count(), 3);
+
+        Ok(())
+    }
 }

@@ -519,6 +519,13 @@ impl ExecutionCtx {
         &self.kernels.reduce_parent
     }
 
+    /// Whether an execute-parent kernel is registered for `(parent, child)`.
+    pub(crate) fn has_execute_parent_kernel(&self, parent: ArrayId, child: ArrayId) -> bool {
+        self.kernels
+            .execute_parent
+            .contains_key(&execute_parent_key(parent, child))
+    }
+
     /// Get the allocator for this execution context.
     pub fn allocator(&self) -> &BufferAllocatorRef {
         self.allocator.get_or_init(|| self.session.allocator())
