@@ -790,8 +790,12 @@ mod tests {
             assert!(!capsule.is_valid_checked(Some(BUFFER_EXPORT_CAPSULE_NAME)));
             assert_eq!(releases.load(Ordering::SeqCst), 0);
 
-            let second = import_buffer_from_capsule(&capsule);
-            assert!(second.is_err(), "consumed capsule must be rejected");
+            let second_err = import_buffer_from_capsule(&capsule)
+                .expect_err("consumed capsule must be rejected");
+            assert!(
+                second_err.to_string().contains("already been consumed"),
+                "unexpected error: {second_err}"
+            );
             assert_eq!(releases.load(Ordering::SeqCst), 0);
 
             drop(handle);
@@ -803,8 +807,12 @@ mod tests {
 
             // Re-importing even after the underlying export was freed must fail on the consumed
             // marker before dereferencing the capsule pointer.
-            let third = import_buffer_from_capsule(&capsule);
-            assert!(third.is_err(), "consumed capsule must stay rejected");
+            let third_err = import_buffer_from_capsule(&capsule)
+                .expect_err("consumed capsule must stay rejected");
+            assert!(
+                third_err.to_string().contains("already been consumed"),
+                "unexpected error: {third_err}"
+            );
             drop(capsule);
             assert_eq!(releases.load(Ordering::SeqCst), 1);
             Ok(())
@@ -832,8 +840,12 @@ mod tests {
             );
             assert!(capsule.is_valid_checked(Some(USED_BUFFER_EXPORT_CAPSULE_NAME)));
 
-            let second = import_buffer_from_capsule(&capsule);
-            assert!(second.is_err(), "consumed empty capsule must be rejected");
+            let second_err = import_buffer_from_capsule(&capsule)
+                .expect_err("consumed empty capsule must be rejected");
+            assert!(
+                second_err.to_string().contains("already been consumed"),
+                "unexpected error: {second_err}"
+            );
             drop(handle);
             drop(capsule);
             assert_eq!(releases.load(Ordering::SeqCst), 1);
@@ -853,8 +865,13 @@ mod tests {
                 VORTEX_BUFFER_EXPORT_VERSION + 1,
             )?;
 
-            let err = import_buffer_from_capsule(&capsule);
-            assert!(err.is_err(), "unsupported version must be rejected");
+            let err = import_buffer_from_capsule(&capsule)
+                .expect_err("unsupported version must be rejected");
+            assert!(
+                err.to_string()
+                    .contains("unsupported VortexBufferExport version"),
+                "unexpected error: {err}"
+            );
             assert!(capsule.is_valid_checked(Some(BUFFER_EXPORT_CAPSULE_NAME)));
             assert_eq!(releases.load(Ordering::SeqCst), 0);
 
@@ -902,7 +919,13 @@ mod tests {
                     empty_children.as_any().clone(),
                 ],
             )?;
-            assert!(parse_array_metadata(dup_tuple.as_any()).is_err());
+            let dup_err = parse_array_metadata(dup_tuple.as_any())
+                .err()
+                .expect("duplicate capsule must be rejected");
+            assert!(
+                dup_err.to_string().contains("already been consumed"),
+                "unexpected error: {dup_err}"
+            );
             drop(dup_tuple);
             drop(first_capsule);
             assert_eq!(
@@ -926,7 +949,13 @@ mod tests {
                     bad_children.into_any(),
                 ],
             )?;
-            assert!(parse_array_metadata(bad_child_tuple.as_any()).is_err());
+            let bad_child_err = parse_array_metadata(bad_child_tuple.as_any())
+                .err()
+                .expect("non-tuple child must be rejected");
+            assert!(
+                bad_child_err.is_instance_of::<pyo3::exceptions::PyTypeError>(py),
+                "unexpected error: {bad_child_err}"
+            );
             drop(bad_child_tuple);
             drop(second_capsule);
             assert_eq!(
@@ -971,7 +1000,11 @@ mod tests {
                             assert_eq!(handle.as_host().as_slice(), &[7, 8, 9, 10]);
                             successes.fetch_add(1, Ordering::SeqCst);
                         }
-                        Err(_) => {
+                        Err(err) => {
+                            assert!(
+                                err.to_string().contains("already been consumed"),
+                                "unexpected error: {err}"
+                            );
                             rejections.fetch_add(1, Ordering::SeqCst);
                         }
                     }
