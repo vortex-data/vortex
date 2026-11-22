@@ -188,4 +188,35 @@ mod tests {
         );
         Ok(())
     }
+
+    #[test]
+    fn zip_empty_fixed_size_lists() -> VortexResult<()> {
+        let element_dtype = i32_element();
+        let dtype = DType::FixedSizeList(Arc::clone(&element_dtype), 0, Nullability::Nullable);
+        let empty = || {
+            Scalar::fixed_size_list(
+                Arc::clone(&element_dtype),
+                Vec::new(),
+                Nullability::Nullable,
+            )
+        };
+        let null = || Scalar::null(dtype.clone());
+
+        let if_true = array_from_scalars(&dtype, &[empty(), null(), empty(), null()])?;
+        let if_false = array_from_scalars(&dtype, &[null(), empty(), null(), empty()])?;
+        let mask = Mask::from_iter([true, true, false, false]);
+
+        let mut ctx = SESSION.create_execution_ctx();
+        let result = mask
+            .into_array()
+            .zip(if_true, if_false)?
+            .execute::<ArrayRef>(&mut ctx)?;
+        assert!(result.is::<FixedSizeList>());
+        assert_arrays_eq!(
+            result,
+            array_from_scalars(&dtype, &[empty(), null(), null(), empty()])?,
+            &mut ctx
+        );
+        Ok(())
+    }
 }

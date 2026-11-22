@@ -3,6 +3,7 @@
 
 use std::mem::MaybeUninit;
 
+use vortex_buffer::Alignment;
 use vortex_buffer::BufferMut;
 use vortex_buffer::ByteBuffer;
 use vortex_compute::lane_kernels::for_each_mask_word;
@@ -71,8 +72,6 @@ fn select_records(
     byte_width: usize,
     mask: &MaskValues,
 ) -> VortexResult<ByteBuffer> {
-    let alignment = true_values.alignment();
-
     match_each_power_of_two_width!(
         byte_width,
         |W| {
@@ -83,7 +82,7 @@ fn select_records(
             )
             .freeze()
             .into_byte_buffer()
-            .aligned(alignment))
+            .aligned(Alignment::new(W)))
         },
         _ => {
             vortex_bail!("zip does not support fixed-width records of {byte_width} bytes")
