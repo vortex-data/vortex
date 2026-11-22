@@ -38,6 +38,8 @@ use std::ops::Range;
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use futures::StreamExt;
+use futures::TryStreamExt;
 use futures::stream::BoxStream;
 use selection::Selection;
 use vortex_array::aggregate_fn::AggregateFnRef;
@@ -48,6 +50,8 @@ use vortex_array::expr::root;
 use vortex_array::expr::stats::Precision;
 use vortex_array::scalar::Scalar;
 use vortex_array::stats::StatsSet;
+use vortex_array::stream::ArrayStream;
+use vortex_array::stream::ArrayStreamAdapter;
 use vortex_array::stream::SendableArrayStream;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -214,6 +218,18 @@ pub trait DataSourceScan: 'static + Send {
 
     /// Returns a stream of partitions to be processed.
     fn partitions(self: Box<Self>) -> PartitionStream;
+}
+
+impl dyn DataSourceScan {
+    /// Execute partitions lazily, yielding their arrays in the order the partitions are emitted.
+    pub fn into_array_stream(self: Box<Self>) -> impl ArrayStream + Send {
+        let dtype = self.dtype().clone();
+        let arrays = self
+            .partitions()
+            .map(|partition| partition?.execute())
+            .try_flatten();
+        ArrayStreamAdapter::new(dtype, arrays)
+    }
 }
 
 /// A reference-counted partition.
