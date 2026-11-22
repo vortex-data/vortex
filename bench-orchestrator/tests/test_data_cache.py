@@ -5,9 +5,12 @@
 
 import io
 import json
+import os
+import sys
 from datetime import UTC, datetime
 from pathlib import Path
 
+import pytest
 from bench_orchestrator.config import Benchmark
 from bench_orchestrator.data_cache import (
     MANIFEST,
@@ -250,3 +253,30 @@ def test_local_refresh_preserves_unrelated_sibling_and_unlinks_managed_symlink(t
 
     assert notes.read_text(encoding="utf-8") == "keep me\n"
     assert target_file.read_bytes() == b"stale-vortex"
+
+
+@pytest.mark.skipif(
+    sys.platform == "win32" or getattr(os, "geteuid", lambda: 1)() == 0,
+    reason="read-only directory removal is enforced for non-root POSIX users",
+)
+def test_restore_fails_when_leftover_staging_cannot_be_removed(tmp_path: Path) -> None:
+    fake = FakeS3Client()
+    cache = S3DataCache("s3://bucket/prefix", client=fake)
+    ds = _make_dataset(tmp_path, "clickbench-sorted-bbbb2222")
+    fake.put_dataset(cache, ds, {"fresh.parquet": b"fresh-data"})
+
+    # Simulate an interrupted .parquet.partial with an obsolete file in a read-only subdirectory.
+    staging = ds.directory.with_name(f".{ds.directory.name}.partial")
+    readonly_sub = staging / "stale_sub"
+    readonly_sub.mkdir(parents=True)
+    (readonly_sub / "obsolete.parquet").write_bytes(b"obsolete-data")
+    readonly_sub.chmod(0o500)
+    try:
+        assert cache.restore(ds) is False
+        assert not ds.directory.exists()
+        assert not ds.directory.with_name(f".{ds.directory.name}.cache-key").exists()
+        assert fake.download_calls == []
+    finally:
+        for path in (readonly_sub, ds.directory / "stale_sub"):
+            if path.exists():
+                path.chmod(0o700)

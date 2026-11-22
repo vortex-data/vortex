@@ -261,8 +261,12 @@ class S3DataCache:
                 return False
 
             console.print(f"Restoring {len(files)} cached file(s) for {dataset.key}")
-            shutil.rmtree(staging, ignore_errors=True)
-            staging.mkdir(parents=True, exist_ok=True)
+            if staging.is_symlink() or staging.is_file():
+                staging.unlink()
+            elif staging.exists():
+                shutil.rmtree(staging)
+            staging.parent.mkdir(parents=True, exist_ok=True)
+            staging.mkdir(exist_ok=False)
 
             def download(file: str) -> None:
                 path = staging / file
