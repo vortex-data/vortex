@@ -536,8 +536,9 @@ impl Driver {
 
     /// Runs a single `root` to completion, returning batches in emission order.
     ///
-    /// Returns an error if `root` spawns an independent root; use `ScanDriver` or drive [`Run`]
-    /// directly with a separate [`IoSource`] per root instead.
+    /// Returns an error if `root` spawns an independent root; use
+    /// [`ScanDriver`](crate::execution::driver::ScanDriver) or drive [`Run`] directly with a
+    /// separate [`IoSource`] per root instead.
     pub fn run(&self, root: Box<dyn Planner>) -> VortexResult<Vec<Batch>> {
         let mut run = Run::new();
         run.step_limit = self.step_limit;

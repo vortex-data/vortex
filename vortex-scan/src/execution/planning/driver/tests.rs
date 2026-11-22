@@ -843,21 +843,19 @@ impl Planner for SpawningRoot {
 }
 
 #[test]
-fn single_session_driver_rejects_spawned_independent_root() {
+fn single_session_driver_rejects_spawned_independent_root() -> VortexResult<()> {
     let log = Log::default();
     let child = reading_root("child", &log, 2..4);
     let root = Box::new(SpawningRoot {
         spawned: Some((scope(2..4), child)),
         inner: reading_root("parent", &log, 0..2),
     });
-    let io = source();
-    let err = Driver::new(Arc::clone(&io) as Arc<dyn IoSource>)
-        .with_step_limit(1_000)
-        .run(root)
-        .err()
-        .expect("Driver::new must reject spawned independent roots");
+    let Err(err) = Driver::new(source()).with_step_limit(1_000).run(root) else {
+        vortex_bail!("Driver::run must reject spawned independent roots");
+    };
     assert!(
-        err.to_string().contains("ScanDriver"),
+        err.to_string().contains("single root"),
         "unexpected error: {err}"
     );
+    Ok(())
 }
