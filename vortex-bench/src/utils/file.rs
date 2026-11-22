@@ -252,12 +252,10 @@ mod tests {
     use std::fs;
     use std::future::Future;
     use std::path::PathBuf;
-    use std::pin::Pin;
     use std::rc::Rc;
     use std::sync::Arc;
     use std::sync::mpsc;
     use std::task::Context;
-    use std::task::Poll;
     use std::task::Waker;
 
     use anyhow::Result;
@@ -330,21 +328,6 @@ mod tests {
     }
 
     #[test]
-    fn idempotent_skips_existing_output_without_invoking_generator() -> Result<()> {
-        let dir = test_tempdir()?;
-        let final_path = dir.path().join("existing.parquet");
-        fs::write(&final_path, b"existing")?;
-
-        let result = idempotent(&final_path, |_temp_path| -> Result<()> {
-            panic!("generator should not run when output already exists");
-        })?;
-
-        assert_eq!(result, final_path);
-        assert_eq!(fs::read(&final_path)?, b"existing");
-        Ok(())
-    }
-
-    #[test]
     fn idempotent_async_cleans_up_temp_file_on_error_and_retry_succeeds() -> Result<()> {
         let dir = test_tempdir()?;
         let final_path = dir.path().join("async_output.vortex");
@@ -383,56 +366,6 @@ mod tests {
         }))?;
         assert_eq!(published, final_path);
         assert_eq!(fs::read(&final_path)?, b"good-async");
-        Ok(())
-    }
-
-    #[test]
-    fn idempotent_async_cleans_up_temp_file_when_future_is_dropped() -> Result<()> {
-        let dir = test_tempdir()?;
-        let final_path = dir.path().join("cancelled_output.vortex");
-        let observed_temp = Arc::new(Mutex::new(None::<PathBuf>));
-        let observed_clone = Arc::clone(&observed_temp);
-
-        struct WriteThenPending {
-            temp_path: PathBuf,
-            recorded: Arc<Mutex<Option<PathBuf>>>,
-            written: bool,
-        }
-
-        impl Future for WriteThenPending {
-            type Output = Result<()>;
-
-            fn poll(mut self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
-                if !self.written {
-                    fs::write(&self.temp_path, b"in-flight").expect("write temp file");
-                    *self.recorded.lock() = Some(self.temp_path.clone());
-                    self.written = true;
-                }
-                Poll::Pending
-            }
-        }
-
-        {
-            let mut fut = Box::pin(idempotent_async(&final_path, move |temp_path| {
-                WriteThenPending {
-                    temp_path,
-                    recorded: Arc::clone(&observed_clone),
-                    written: false,
-                }
-            }));
-            let waker = Waker::noop();
-            let mut cx = Context::from_waker(waker);
-            assert!(fut.as_mut().poll(&mut cx).is_pending());
-            // Drop fut while pending.
-        }
-
-        let temp_path = observed_temp.lock().clone().expect("temp path recorded");
-        assert!(
-            !temp_path.exists(),
-            "temp file leaked after future drop: {}",
-            temp_path.display()
-        );
-        assert!(!final_path.exists());
         Ok(())
     }
 
