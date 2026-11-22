@@ -235,7 +235,8 @@ impl Registry {
         }
 
         let (store, path) = parse_url_opts(to_resolve, self.env.normalized_vars())?;
-        let depth = num_segments(to_resolve.path()).saturating_sub(num_segments(path.as_ref()));
+        let full = Path::from_url_path(to_resolve.path())?;
+        let depth = num_segments(full.as_ref()).saturating_sub(num_segments(path.as_ref()));
         Ok((Arc::from(store), depth))
     }
 }

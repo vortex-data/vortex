@@ -263,7 +263,7 @@ fn test_hf_encoded_separators_cache_isolation_and_sharing() -> Result<(), Box<dy
     assert_eq!(encoded_second_path, Path::from("a/b/c/d.vortex"));
     assert!(Arc::ptr_eq(&plain_first, &encoded_second));
 
-    // Model repositories have 1 raw path segment after the authority (`<owner>`).
+    // A model repository's owner is the URL authority, so its prefix is one raw segment (`<name>`).
     let (model_encoded, model_encoded_path) =
         reg.resolve(&Url::parse("hf://org/name/a%2Fb.vortex")?)?;
     assert_eq!(model_encoded_path, Path::from("a/b.vortex"));
@@ -297,6 +297,33 @@ fn test_hf_explicit_registration_precedence() -> Result<(), Box<dyn std::error::
     let (store, path) = registry.resolve(&Url::parse("hf://datasets/org/name/a%2Fb/c.vortex")?)?;
     assert!(Arc::ptr_eq(&store, &registered));
     assert_eq!(path, Path::from("a/b/c.vortex"));
+    Ok(())
+}
+
+/// Bucket/container-rooted `https://` URLs handled by `parse_url_opts` (such as Azure Blob) must
+/// also keep their container prefix isolated when the object key contains percent-encoded `/`.
+#[test]
+fn test_azure_encoded_separators_keep_container_isolation() -> Result<(), Box<dyn std::error::Error>>
+{
+    let reg = Registry::with_vars([("AZURE_STORAGE_SKIP_SIGNATURE".into(), "true".into())]);
+
+    let (container_a_encoded, path_a_encoded) = reg.resolve(&Url::parse(
+        "https://acct.blob.core.windows.net/container-a/a%2Fb/c.vortex",
+    )?)?;
+    assert_eq!(path_a_encoded, Path::from("a/b/c.vortex"));
+
+    let (container_a_plain, path_a_plain) = reg.resolve(&Url::parse(
+        "https://acct.blob.core.windows.net/container-a/plain.vortex",
+    )?)?;
+    assert_eq!(path_a_plain, Path::from("plain.vortex"));
+    assert!(Arc::ptr_eq(&container_a_encoded, &container_a_plain));
+
+    let (container_b, path_b) = reg.resolve(&Url::parse(
+        "https://acct.blob.core.windows.net/container-b/x.vortex",
+    )?)?;
+    assert_eq!(path_b, Path::from("x.vortex"));
+    assert!(!Arc::ptr_eq(&container_a_encoded, &container_b));
+
     Ok(())
 }
 

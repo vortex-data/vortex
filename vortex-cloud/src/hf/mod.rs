@@ -304,8 +304,9 @@ pub fn make_hf_store(config: HfConfig) -> Result<Arc<dyn ObjectStore>, HfStoreEr
 /// Build an [`ObjectStore`] for an `hf://` URL, with the in-repository path of the addressed file.
 ///
 /// Configuration not carried by the URL is read from the process environment. The path is reported
-/// the way [`object_store::parse_url_opts`] reports it — the key the returned store will see — so
-/// that the caller can derive how deep into the URL the store is mounted.
+/// the way [`object_store::parse_url_opts`] reports it: the decoded in-repository key the returned
+/// store will see. Do not derive the mount depth from it, because a key with percent-encoded `/`
+/// decodes to more segments than the URL has.
 pub fn make_hf_store_from_url(url: &Url) -> Result<(Arc<dyn ObjectStore>, Path), HfStoreError> {
     let (store, path, _) = make_hf_store_from_url_with_env(url, |key| std::env::var(key).ok())?;
     Ok((store, path))
@@ -322,26 +323,13 @@ pub(crate) fn make_hf_store_from_url_with_env<F>(
 where
     F: Fn(&str) -> Option<String>,
 {
-    let (config, path, prefix_segments) = url_to_config_with_depth(url, env_lookup)?;
+    let (config, path, prefix_segments) = url_to_config(url, env_lookup)?;
     Ok((make_hf_store(config)?, path, prefix_segments))
-}
-
-/// Translate an `hf://` URL into an [`HfConfig`] plus the in-repository path it addresses.
-#[cfg(test)]
-fn url_to_config<F>(url: &Url, env_lookup: F) -> Result<(HfConfig, Path), HfStoreError>
-where
-    F: Fn(&str) -> Option<String>,
-{
-    let (config, path, _) = url_to_config_with_depth(url, env_lookup)?;
-    Ok((config, path))
 }
 
 /// Translate an `hf://` URL into an [`HfConfig`], the decoded in-repository path, and the number
 /// of raw URL path segments consumed by the repository/revision prefix.
-fn url_to_config_with_depth<F>(
-    url: &Url,
-    env_lookup: F,
-) -> Result<(HfConfig, Path, usize), HfStoreError>
+fn url_to_config<F>(url: &Url, env_lookup: F) -> Result<(HfConfig, Path, usize), HfStoreError>
 where
     F: Fn(&str) -> Option<String>,
 {
