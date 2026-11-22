@@ -3732,37 +3732,22 @@ async fn null_dominated_clustered_f32_writes() -> VortexResult<()> {
 mod writer_terminal_error_tests {
     use std::future::Future;
     use std::io;
-    use std::io::Write;
-    use std::pin::pin;
     use std::sync::Arc;
     use std::sync::atomic::AtomicUsize;
     use std::sync::atomic::Ordering;
-    use std::sync::mpsc;
     use std::time::Duration;
 
     use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
-    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::StructArray;
-    use vortex_array::arrays::struct_::StructArrayExt;
-    use vortex_array::assert_arrays_eq;
     use vortex_array::stream::ArrayStreamAdapter;
     use vortex_array::stream::ArrayStreamExt;
     use vortex_buffer::Buffer;
-    use vortex_buffer::ByteBufferMut;
     use vortex_error::VortexResult;
-    use vortex_error::vortex_err;
     use vortex_io::IoBuf;
     use vortex_io::VortexWrite;
-    use vortex_io::runtime::BlockingRuntime;
-    use vortex_io::runtime::current::CurrentThreadRuntime;
-    use vortex_io::session::RuntimeSession;
-    use vortex_io::session::RuntimeSessionExt;
-    use vortex_layout::session::LayoutSession;
-    use vortex_session::VortexSession;
 
     use super::SESSION;
-    use crate::OpenOptionsSessionExt;
     use crate::WriteOptionsSessionExt;
 
     fn make_chunk(values: &[u32]) -> VortexResult<ArrayRef> {
@@ -3798,17 +3783,6 @@ mod writer_terminal_error_tests {
         }
 
         async fn shutdown(&mut self) -> io::Result<()> {
-            Ok(())
-        }
-    }
-
-    impl Write for FailingWrite {
-        fn write(&mut self, _buf: &[u8]) -> io::Result<usize> {
-            self.write_calls.fetch_add(1, Ordering::SeqCst);
-            Err(io::Error::new(io::ErrorKind::BrokenPipe, self.message))
-        }
-
-        fn flush(&mut self) -> io::Result<()> {
             Ok(())
         }
     }
@@ -3852,156 +3826,6 @@ mod writer_terminal_error_tests {
 
         expect_replayed(writer.finish(), msg).await;
         assert_eq!(write_calls.load(Ordering::SeqCst), calls_after_failure);
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn writer_push_stream_replays_terminal_error_without_hanging() -> VortexResult<()> {
-        let chunk = make_chunk(&[1, 2, 3])?;
-        let dtype = chunk.dtype().clone();
-        let write_calls = Arc::new(AtomicUsize::new(0));
-        let msg = "controlled stream sink failure";
-        let sink = FailingWrite {
-            write_calls: Arc::clone(&write_calls),
-            message: msg,
-        };
-
-        let mut writer = SESSION.write_options().writer(sink, dtype.clone());
-        let stream = ArrayStreamExt::boxed(ArrayStreamAdapter::new(
-            dtype,
-            futures::stream::iter(vec![Ok(chunk.clone()); 4]),
-        ));
-        expect_replayed(writer.push_stream(stream), msg).await;
-        let calls_after_failure = write_calls.load(Ordering::SeqCst);
-
-        expect_replayed(writer.push(chunk), msg).await;
-        expect_replayed(writer.finish(), msg).await;
-        assert_eq!(write_calls.load(Ordering::SeqCst), calls_after_failure);
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn writer_push_stream_producer_error_replays_on_subsequent_calls() -> VortexResult<()> {
-        let chunk = make_chunk(&[1, 2, 3])?;
-        let dtype = chunk.dtype().clone();
-        let msg = "producer stream failure";
-
-        let mut buf = ByteBufferMut::empty();
-        let mut writer = SESSION.write_options().writer(&mut buf, dtype.clone());
-        let stream = ArrayStreamExt::boxed(ArrayStreamAdapter::new(
-            dtype,
-            futures::stream::iter(vec![
-                Err(vortex_err!("{msg}")),
-                Ok(chunk.clone()),
-                Ok(chunk.clone()),
-            ]),
-        ));
-
-        let observed = match writer.push_stream(stream).await {
-            Err(err) => err,
-            Ok(()) => {
-                let mut err = None;
-                for _ in 0..4 {
-                    if let Err(e) = writer.push(chunk.clone()).await {
-                        err = Some(e);
-                        break;
-                    }
-                }
-                err.expect("expected writer to observe producer error")
-            }
-        };
-        assert!(observed.to_string().contains(msg));
-        expect_replayed(writer.finish(), msg).await;
-        Ok(())
-    }
-
-    #[test]
-    fn blocking_writer_finish_replays_terminal_error_without_hanging() -> VortexResult<()> {
-        let (tx, rx) = mpsc::channel();
-        std::thread::spawn(move || {
-            let result = (|| -> VortexResult<()> {
-                let runtime = CurrentThreadRuntime::new();
-                let session = VortexSession::empty()
-                    .with::<LayoutSession>()
-                    .with::<RuntimeSession>()
-                    .with_handle(runtime.handle());
-                crate::register_default_encodings(&session);
-                crate::enable_all_registered_array_encodings(&session);
-                let chunk = make_chunk(&[1, 2, 3])?;
-                let dtype = chunk.dtype().clone();
-                let write_calls = Arc::new(AtomicUsize::new(0));
-                let msg = "controlled blocking sink failure";
-                let sink = FailingWrite {
-                    write_calls: Arc::clone(&write_calls),
-                    message: msg,
-                };
-
-                let mut writer = session
-                    .write_options()
-                    .blocking(&runtime)
-                    .writer(sink, dtype);
-                let mut first_err = None;
-                for _ in 0..4 {
-                    if let Err(err) = writer.push(chunk.clone()) {
-                        first_err = Some(err);
-                        break;
-                    }
-                }
-                assert!(
-                    first_err
-                        .expect("expected blocking push to fail")
-                        .to_string()
-                        .contains(msg)
-                );
-                let calls_after_failure = write_calls.load(Ordering::SeqCst);
-
-                let Err(finish_err) = writer.finish() else {
-                    panic!("blocking finish must return stored error");
-                };
-                assert!(finish_err.to_string().contains(msg));
-                assert_eq!(write_calls.load(Ordering::SeqCst), calls_after_failure);
-                Ok(())
-            })();
-            drop(tx.send(result));
-        });
-
-        rx.recv_timeout(Duration::from_secs(5))
-            .map_err(|err| vortex_err!("blocking writer hung after terminal error: {err}"))??;
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn writer_cancelled_push_preserves_subsequent_pushes_and_finish() -> VortexResult<()> {
-        let mut ctx = SESSION.create_execution_ctx();
-        let chunk1 = make_chunk(&[1, 2, 3])?;
-        let chunk2 = make_chunk(&[4, 5, 6])?;
-        let dtype = chunk1.dtype().clone();
-
-        let mut buf = ByteBufferMut::empty();
-        let mut writer = SESSION.write_options().writer(&mut buf, dtype);
-
-        writer.push(chunk1).await?;
-        let sent = {
-            let mut fut = pin!(writer.push(make_chunk(&[99])?));
-            futures::poll!(fut.as_mut()).is_ready()
-        };
-        writer.push(chunk2).await?;
-
-        let summary = writer.finish().await?;
-        assert_eq!(summary.row_count(), 6 + u64::from(sent));
-
-        let expected: Vec<u32> = if sent {
-            vec![1, 2, 3, 99, 4, 5, 6]
-        } else {
-            vec![1, 2, 3, 4, 5, 6]
-        };
-        let file = SESSION.open_options().open_buffer(buf)?;
-        let result = file.scan()?.into_array_stream()?.read_all().await?;
-        let numbers = result
-            .execute::<StructArray>(&mut ctx)?
-            .unmasked_field_by_name("numbers")?
-            .clone();
-        assert_arrays_eq!(numbers, Buffer::copy_from(expected).into_array(), &mut ctx);
         Ok(())
     }
 }

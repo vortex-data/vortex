@@ -718,9 +718,6 @@ impl Writer<'_> {
 
     /// Assuming the writer task has failed, await it to get the error.
     async fn handle_failed_task(&mut self) -> VortexError {
-        if let Some(err) = &self.terminal_error {
-            return err.clone();
-        }
         let result = (&mut self.future).await;
         self.record_terminal_outcome(result)
     }
