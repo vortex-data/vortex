@@ -87,4 +87,24 @@ describe('VortexWorker request settlement', () => {
     fake.emitMessage({ type: 'result', id: okId, data: bytes });
     expect(await pOk).toEqual(bytes);
   });
+
+  test('reports a worker crash once, but not a terminate', async () => {
+    const fake = new FakeWorker();
+    const client = new VortexWorker(fake);
+    const crashes: Error[] = [];
+    client.onCrash = (err) => crashes.push(err);
+
+    const pending = client.fetchEncodingTree('node-a');
+    fake.emitError('WASM unreachable');
+    fake.emitError('duplicate');
+    client.terminate();
+
+    await expect(pending).rejects.toThrow('WASM unreachable');
+    expect(crashes.map((err) => err.message)).toEqual(['Worker error: WASM unreachable']);
+
+    const terminated = new VortexWorker(new FakeWorker());
+    terminated.onCrash = (err) => crashes.push(err);
+    terminated.terminate();
+    expect(crashes).toHaveLength(1);
+  });
 });

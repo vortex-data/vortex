@@ -23,7 +23,17 @@ function App() {
   const workerRef = useRef<VortexWorker | null>(null);
 
   useEffect(() => {
-    workerRef.current = new VortexWorker();
+    const startWorker = (): VortexWorker => {
+      const worker = new VortexWorker();
+      // The crashed worker held the open file, so replace it and ask for the file again.
+      worker.onCrash = (err) => {
+        workerRef.current = startWorker();
+        setFileState(null);
+        setError(`${err.message}. Open the file again.`);
+      };
+      return worker;
+    };
+    workerRef.current = startWorker();
     return () => workerRef.current?.terminate();
   }, []);
 
@@ -43,7 +53,9 @@ function App() {
         fileStructure: result.fileStructure,
       });
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      const message = e instanceof Error ? e.message : String(e);
+      // Keep the message that a worker crash already set.
+      setError((prev) => prev ?? message);
       setFileState(null);
     } finally {
       setLoading(false);

@@ -37,6 +37,9 @@ export class VortexWorker {
   private nextId = 0;
   private closedError: Error | null = null;
 
+  /** Called once if the worker crashes, after its pending requests are rejected. */
+  onCrash: ((err: Error) => void) | null = null;
+
   constructor(worker?: WorkerLike) {
     this.worker =
       worker ?? new Worker(new URL('./vortex.worker.ts', import.meta.url), { type: 'module' });
@@ -52,8 +55,11 @@ export class VortexWorker {
       }
     };
     this.worker.onerror = (e: ErrorEvent) => {
+      if (this.closedError) return;
       const detail = e.message || 'Worker crashed';
-      this.failAllPending(new Error(`Worker error: ${detail}`));
+      const err = new Error(`Worker error: ${detail}`);
+      this.failAllPending(err);
+      this.onCrash?.(err);
     };
   }
 
