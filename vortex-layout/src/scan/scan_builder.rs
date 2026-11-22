@@ -1439,8 +1439,16 @@ mod test {
             .err()
             .expect("sparse index selection should reject zero split size");
 
-            assert_eq!(empty_range_err.to_string(), full_err.to_string());
-            assert_eq!(sparse_err.to_string(), full_err.to_string());
+            let error_message = |err: &vortex_error::VortexError| {
+                let text = err.to_string();
+                text.split("\nBacktrace:\n")
+                    .next()
+                    .unwrap_or(&text)
+                    .to_owned()
+            };
+
+            assert_eq!(error_message(&empty_range_err), error_message(&full_err));
+            assert_eq!(error_message(&sparse_err), error_message(&full_err));
         }
 
         Ok(())
