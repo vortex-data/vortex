@@ -5,6 +5,7 @@
 
 use std::any::Any;
 use std::collections::BTreeMap;
+use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use parking_lot::RwLock;
@@ -48,6 +49,64 @@ struct Inner {
     inclusions: BTreeMap<ComponentKind, BTreeMap<Id, Vec<EditionInclusion>>>,
 }
 
+impl Inner {
+    fn check_edition(&self, edition: Edition) -> VortexResult<String> {
+        let key = edition.id.to_string();
+        if self.editions.contains_key(&key) {
+            vortex_bail!("duplicate edition {key}");
+        }
+        Ok(key)
+    }
+
+    fn check_inclusion(&self, inclusion: &EditionInclusion) -> VortexResult<()> {
+        let previous = self
+            .inclusions
+            .get(&inclusion.kind)
+            .and_then(|by_id| by_id.get(&inclusion.component_id))
+            .and_then(|history| {
+                history
+                    .iter()
+                    .filter(|existing| existing.since.family == inclusion.since.family)
+                    .max_by_key(|existing| {
+                        (
+                            existing.since.year,
+                            existing.since.month,
+                            existing.since.version,
+                        )
+                    })
+            });
+
+        if let Some(previous) = previous {
+            vortex_bail!(
+                "{} {} already joined family {} in edition {}",
+                inclusion.kind,
+                inclusion.component_id,
+                inclusion.since.family,
+                previous.since,
+            );
+        }
+        Ok(())
+    }
+
+    fn insert_inclusion(&mut self, inclusion: EditionInclusion) {
+        let history = self
+            .inclusions
+            .entry(inclusion.kind)
+            .or_default()
+            .entry(inclusion.component_id)
+            .or_default();
+        history.push(inclusion);
+        history.sort_by_key(|entry| {
+            (
+                entry.since.family,
+                entry.since.year,
+                entry.since.month,
+                entry.since.version,
+            )
+        });
+    }
+}
+
 /// Registry of enabled editions, keyed by interned edition family.
 type EditionsByFamily = ArcSwapMap<Id, EditionId>;
 
@@ -88,14 +147,33 @@ impl EditionSession {
 
     /// Declare an edition together with the members added at it. Each entry's membership
     /// (`since`) is the declared edition; earlier entries are inherited and must not be restated.
+    ///
+    /// The declaration is validated in full before anything is registered: on error, neither the
+    /// edition nor any of its members is published.
     pub fn declare(&self, declaration: &EditionDeclaration) -> VortexResult<()> {
-        self.declare_edition(declaration.edition)?;
+        let mut inner = self.inner.write();
+        let key = inner.check_edition(declaration.edition)?;
+
+        let mut seen = BTreeSet::new();
+        let mut inclusions = Vec::with_capacity(declaration.added.len());
         for member in declaration.added {
-            self.declare_inclusion(EditionInclusion::new(
-                member.kind,
-                member.component,
-                declaration.edition.id,
-            ))?;
+            let inclusion =
+                EditionInclusion::new(member.kind, member.component, declaration.edition.id);
+            inner.check_inclusion(&inclusion)?;
+            if !seen.insert((inclusion.kind, inclusion.component_id)) {
+                vortex_bail!(
+                    "{} {} is listed more than once in edition {}",
+                    inclusion.kind,
+                    inclusion.component_id,
+                    inclusion.since,
+                );
+            }
+            inclusions.push(inclusion);
+        }
+
+        inner.editions.insert(key, declaration.edition);
+        for inclusion in inclusions {
+            inner.insert_inclusion(inclusion);
         }
         Ok(())
     }
@@ -125,10 +203,7 @@ impl EditionSession {
     /// Declare an edition. Errors if an edition with the same id is already declared.
     pub fn declare_edition(&self, edition: Edition) -> VortexResult<()> {
         let mut inner = self.inner.write();
-        let key = edition.id.to_string();
-        if inner.editions.contains_key(&key) {
-            vortex_bail!("duplicate edition {key}");
-        }
+        let key = inner.check_edition(edition)?;
         inner.editions.insert(key, edition);
         Ok(())
     }
@@ -138,37 +213,8 @@ impl EditionSession {
     /// key, so an array encoding and a layout may share an id.
     pub fn declare_inclusion(&self, inclusion: EditionInclusion) -> VortexResult<()> {
         let mut inner = self.inner.write();
-        let by_id = inner.inclusions.entry(inclusion.kind).or_default();
-        let history = by_id.entry(inclusion.component_id).or_default();
-        let previous = history
-            .iter()
-            .filter(|existing| existing.since.family == inclusion.since.family)
-            .max_by_key(|existing| {
-                (
-                    existing.since.year,
-                    existing.since.month,
-                    existing.since.version,
-                )
-            });
-
-        if let Some(previous) = previous {
-            vortex_bail!(
-                "{} {} already joined family {} in edition {}",
-                inclusion.kind,
-                inclusion.component_id,
-                inclusion.since.family,
-                previous.since,
-            );
-        }
-        history.push(inclusion);
-        history.sort_by_key(|entry| {
-            (
-                entry.since.family,
-                entry.since.year,
-                entry.since.month,
-                entry.since.version,
-            )
-        });
+        inner.check_inclusion(&inclusion)?;
+        inner.insert_inclusion(inclusion);
         Ok(())
     }
 
