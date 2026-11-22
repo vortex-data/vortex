@@ -59,7 +59,7 @@ use crate::scalar_fn::is_not_null_node;
 /// map, which the cast pairs up the same way as its kernels do. Otherwise a cast could
 /// reinterpret a nested extension that the top-level dtypes do not show.
 ///
-/// Use [`ext_storage`](crate::expr::ext_storage) to extract an extension array's storage.
+/// Use `vortex_functions::expr::ext_storage` to extract an extension array's storage.
 pub(crate) fn check_extension_cast(source: &DType, target: &DType) -> VortexResult<()> {
     if source.is_extension() || target.is_extension() {
         if !source.eq_ignore_nullability(target)
