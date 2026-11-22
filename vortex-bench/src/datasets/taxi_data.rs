@@ -13,6 +13,7 @@ use vortex::array::IntoArray;
 use vortex::array::stream::ArrayStreamExt;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::file::WriteOptionsSessionExt;
+use vortex::scan::ScanRequest;
 
 use crate::CompactionStrategy;
 use crate::Format;
@@ -21,6 +22,7 @@ use crate::SESSION;
 use crate::conversions::parquet_to_vortex_chunks;
 use crate::datasets::Dataset;
 use crate::datasets::data_downloads::download_data;
+use crate::datasets::scan_array_stream;
 use crate::idempotent;
 use crate::idempotent_async;
 use crate::random_access::BenchDataset;
@@ -100,14 +102,17 @@ pub async fn taxi_random_access_parquet() -> Result<PathBuf> {
 
 pub async fn fetch_taxi_data() -> Result<ArrayRef> {
     let vortex_data = taxi_data_vortex().await?;
-    Ok(SESSION
+    let scan = SESSION
         .open_options()
         .open_path(vortex_data)
         .await?
-        .scan()?
-        .into_array_stream()?
-        .read_all()
-        .await?)
+        .data_source()?
+        .scan(ScanRequest {
+            ordered: true,
+            ..Default::default()
+        })
+        .await?;
+    Ok(scan_array_stream(scan).read_all().await?)
 }
 
 pub async fn taxi_data_vortex() -> Result<PathBuf> {

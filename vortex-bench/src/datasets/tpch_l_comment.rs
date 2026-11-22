@@ -8,6 +8,7 @@ use std::path::PathBuf;
 use anyhow::Result;
 use arrow_array::RecordBatchReader;
 use async_trait::async_trait;
+use futures::StreamExt;
 use futures::TryStreamExt;
 use parquet::arrow::ArrowWriter;
 use parquet::arrow::ProjectionMask;
@@ -22,11 +23,13 @@ use vortex::dtype::Nullability::NonNullable;
 use vortex::expr::col;
 use vortex::expr::pack;
 use vortex::file::OpenOptionsSessionExt;
+use vortex::scan::ScanRequest;
 
 use crate::Format;
 use crate::IdempotentPath;
 use crate::SESSION;
 use crate::datasets::Dataset;
+use crate::datasets::scan_array_stream;
 use crate::datasets::tpch_sf1::TpchSf1Table;
 use crate::idempotent;
 use crate::utils::parquet::parquet_writer_properties;
@@ -84,21 +87,21 @@ impl Dataset for TPCHLCommentChunked {
     async fn to_vortex_array(&self, ctx: &mut ExecutionCtx) -> Result<ArrayRef> {
         let path = ensure_lineitem(Format::OnDiskVortex).await?;
         let file = SESSION.open_options().open_path(path).await?;
-        let projection = pack(vec![("l_comment", col("l_comment"))], NonNullable)
-            .bind(file.dtype())?
-            .optimize_recursive()?;
-        let chunks: Vec<_> = file
-            .scan()?
-            .with_projection(projection)
-            .map({
-                let ctx = ctx.clone();
-                move |a| {
-                    let mut ctx = ctx.clone();
-                    let canonical = a.execute::<Canonical>(&mut ctx)?;
-                    Ok(canonical.into_array())
-                }
+        let scan = file
+            .data_source()?
+            .scan(ScanRequest {
+                projection: pack(vec![("l_comment", col("l_comment"))], NonNullable),
+                ordered: true,
+                ..Default::default()
             })
-            .into_array_stream()?
+            .await?;
+        let chunks: Vec<_> = scan_array_stream(scan)
+            .map(|array| {
+                let mut ctx = ctx.clone();
+                array?
+                    .execute::<Canonical>(&mut ctx)
+                    .map(IntoArray::into_array)
+            })
             .try_collect()
             .await?;
 

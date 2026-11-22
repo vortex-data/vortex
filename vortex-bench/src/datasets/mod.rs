@@ -5,11 +5,16 @@ use std::fmt::Display;
 
 use anyhow::Result;
 use async_trait::async_trait;
+use futures::StreamExt;
+use futures::TryStreamExt;
 use serde::Deserialize;
 use serde::Serialize;
 use vortex::array::ArrayRef;
 use vortex::array::ExecutionCtx;
+use vortex::array::stream::ArrayStream;
+use vortex::array::stream::ArrayStreamAdapter;
 use vortex::error::vortex_panic;
+use vortex::scan::DataSourceScanRef;
 
 use crate::clickbench::Flavor;
 use crate::tpch_nested::Shape;
@@ -35,6 +40,15 @@ pub(crate) fn normalize_benchmark_runner_id(benchmark_runner: &str) -> String {
     } else {
         benchmark_runner
     }
+}
+
+pub(crate) fn scan_array_stream(scan: DataSourceScanRef) -> impl ArrayStream + Send {
+    let dtype = scan.dtype().clone();
+    let arrays = scan
+        .partitions()
+        .map(|partition| partition?.execute())
+        .try_flatten();
+    ArrayStreamAdapter::new(dtype, arrays)
 }
 
 #[async_trait]

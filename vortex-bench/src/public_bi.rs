@@ -33,6 +33,7 @@ use vortex::error::VortexResult;
 use vortex::error::vortex_err;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::file::WriteOptionsSessionExt;
+use vortex::scan::ScanRequest;
 use vortex::utils::aliases::hash_map::HashMap;
 
 use crate::Benchmark;
@@ -45,6 +46,7 @@ use crate::conversions::parquet_to_vortex_chunks;
 use crate::datasets::Dataset;
 use crate::datasets::data_downloads::decompress_bz2;
 use crate::datasets::data_downloads::download_many;
+use crate::datasets::scan_array_stream;
 use crate::idempotent_async;
 use crate::workspace_root;
 
@@ -473,14 +475,17 @@ impl Dataset for PBIBenchmark {
             .ok_or_else(|| anyhow!("must have at least one table"))?
             .clone();
 
-        Ok(SESSION
+        let scan = SESSION
             .open_options()
             .open_path(path.as_path())
             .await?
-            .scan()?
-            .into_array_stream()?
-            .read_all()
-            .await?)
+            .data_source()?
+            .scan(ScanRequest {
+                ordered: true,
+                ..Default::default()
+            })
+            .await?;
+        Ok(scan_array_stream(scan).read_all().await?)
     }
 
     async fn to_parquet_path(&self) -> anyhow::Result<PathBuf> {
