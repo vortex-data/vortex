@@ -571,17 +571,14 @@ impl Driver {
 
     /// Runs `root` on `runtime`, returning batches in emission order.
     ///
-    /// Prefer this over [`Driver::run`] when [`Driver::with_service`] wraps an IO service whose
-    /// background tasks are spawned on `runtime`.
+    /// Prefer this over [`Driver::run`] when the IO source or service schedules background tasks
+    /// on `runtime` (or does not implement blocking [`IoSource::wait`]).
     pub fn run_on<R: BlockingRuntime>(
         &self,
         runtime: &R,
         root: Box<dyn Planner>,
     ) -> VortexResult<Vec<Batch>> {
-        match &self.io {
-            DriverIo::Single(_) => self.run_single(root),
-            DriverIo::Service(_) => runtime.block_on(self.run_async(root)),
-        }
+        runtime.block_on(self.run_async(root))
     }
 
     /// Drives `root` and every independent root it spawns asynchronously, polling completions
@@ -595,12 +592,9 @@ impl Driver {
                 Progress::Spawn(scope, child) => self.admit_spawn(&mut run, scope, child)?,
                 Progress::RootDone(_) if run.live_roots() > 0 => {}
                 Progress::RootDone(_) | Progress::Idle => return Ok(batches),
-                Progress::Waiting => match &self.io {
-                    DriverIo::Single(io) => run.complete(io.wait()?)?,
-                    DriverIo::Service(_) => {
-                        futures::future::poll_fn(|cx| run.poll_completion(cx)).await?;
-                    }
-                },
+                Progress::Waiting => {
+                    futures::future::poll_fn(|cx| run.poll_completion(cx)).await?;
+                }
             }
         }
     }

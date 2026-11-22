@@ -1034,9 +1034,15 @@ fn service_driver_completes_file_segment_source_on_caller_runtime() -> VortexRes
     ));
     let service: Arc<dyn IoService> =
         Arc::new(SegmentScanIo::new(file_source, segment_ranges(&locations)));
+    let single_driver = Driver::new(service.session()).with_step_limit(1_000);
     let driver = Driver::with_service(service).with_step_limit(1_000);
 
     let log = Log::default();
+    let single_batches =
+        single_driver.run_on(&runtime, reading_root("single_session", &log, 0..2))?;
+    assert_eq!(single_batches.len(), 1);
+    assert_eq!(single_batches[0].scope.rows, 0..2);
+
     let root = reading_root("single", &log, 0..2);
     let batches = driver.run_on(&runtime, root)?;
     assert_eq!(batches.len(), 1);
