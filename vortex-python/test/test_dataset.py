@@ -307,8 +307,9 @@ def test_worker_threads_save_restore_during_active_lease(monkeypatch: pytest.Mon
     assert vx.worker_threads() == 4
 
 
-def test_reentrant_release_during_acquire_does_not_deadlock_or_lose_decrement(
-    monkeypatch: pytest.MonkeyPatch,
+@pytest.mark.parametrize("trigger_point", ["before_read", "after_read", "after_set"])
+def test_reentrant_release_during_acquire_does_not_deadlock_or_corrupt_baseline(
+    monkeypatch: pytest.MonkeyPatch, trigger_point: str
 ) -> None:
     pool = _FakeWorkerPool(initial=4, parallel=11)
     manager = vx_runtime._WorkerThreadLeaseManager()
@@ -317,14 +318,22 @@ def test_reentrant_release_during_acquire_does_not_deadlock_or_lose_decrement(
 
     def fake_worker_threads() -> int:
         nonlocal triggered
-        if reentrant_gen is not None and not triggered:
+        if trigger_point == "before_read" and reentrant_gen is not None and not triggered:
             triggered = True
             manager.release(False, reentrant_gen)
-        return pool.workers
+        value = pool.workers
+        if trigger_point == "after_read" and reentrant_gen is not None and not triggered:
+            triggered = True
+            manager.release(False, reentrant_gen)
+        return value
 
     def fake_set_worker_threads(count: int | None) -> None:
+        nonlocal triggered
         pool.calls.append(count)
         pool.workers = pool.parallel if count is None else count
+        if trigger_point == "after_set" and reentrant_gen is not None and not triggered:
+            triggered = True
+            manager.release(False, reentrant_gen)
 
     monkeypatch.setattr(vx_runtime, "_worker_threads", fake_worker_threads)
     monkeypatch.setattr(vx_runtime, "_set_worker_threads", fake_set_worker_threads)
@@ -341,6 +350,7 @@ def test_reentrant_release_during_acquire_does_not_deadlock_or_lose_decrement(
 
     manager.release(True, second_gen)
     assert pool.workers == 4
+    assert manager.get_user_worker_threads() == 4
 
 
 def test_closing_inherited_reader_after_fork_does_not_corrupt_leases(monkeypatch: pytest.MonkeyPatch) -> None:

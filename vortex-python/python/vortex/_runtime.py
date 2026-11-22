@@ -24,6 +24,8 @@ class _WorkerThreadLeaseManager:
 
     def __init__(self) -> None:
         self._lock = threading.RLock()
+        self._busy = False
+        self._pending_releases: list[tuple[bool, int]] = []
         self._generation = 0
         self._threaded_leases = 0
         self._unthreaded_leases = 0
@@ -62,70 +64,112 @@ class _WorkerThreadLeaseManager:
 
         if desired != self._active_policy or self._last_applied_workers is None:
             _set_worker_threads(None if desired else 0)
-            # Re-check in case a cyclic-GC finalizer re-entered release() during the call above.
-            if self._effective_policy_locked() == desired:
-                self._last_applied_workers = _worker_threads()
-                self._active_policy = desired
-            else:
-                self._reconcile_policy_locked()
+            self._last_applied_workers = _worker_threads()
+            self._active_policy = desired
 
-    def acquire(self, use_threads: bool) -> int:
-        with self._lock:
-            if self._threaded_leases == 0 and self._unthreaded_leases == 0:
-                self._baseline_workers = _worker_threads()
-                self._last_applied_workers = None
-                self._active_policy = None
-            else:
-                self._sync_external_baseline_locked()
+    def _apply_release_locked(self, use_threads: bool, generation: int) -> None:
+        if generation != self._generation:
+            return
 
-            if use_threads:
-                self._threaded_leases += 1
-            else:
-                self._unthreaded_leases += 1
+        self._sync_external_baseline_locked()
 
-            try:
-                self._reconcile_policy_locked()
-            except BaseException:
+        if use_threads:
+            self._threaded_leases -= 1
+        else:
+            self._unthreaded_leases -= 1
+
+        self._reconcile_policy_locked()
+
+    def _drain_pending_releases_locked(self) -> None:
+        while self._pending_releases:
+            queued = self._pending_releases
+            self._pending_releases = []
+            changed = False
+            for use_threads, generation in queued:
+                if generation != self._generation:
+                    continue
                 if use_threads:
                     self._threaded_leases -= 1
                 else:
                     self._unthreaded_leases -= 1
-                raise
+                changed = True
+            if changed:
+                self._reconcile_policy_locked()
 
-            return self._generation
+    def acquire(self, use_threads: bool) -> int:
+        with self._lock:
+            self._busy = True
+            try:
+                if self._threaded_leases == 0 and self._unthreaded_leases == 0:
+                    self._baseline_workers = _worker_threads()
+                    self._last_applied_workers = None
+                    self._active_policy = None
+                else:
+                    self._sync_external_baseline_locked()
+
+                if use_threads:
+                    self._threaded_leases += 1
+                else:
+                    self._unthreaded_leases += 1
+
+                try:
+                    self._reconcile_policy_locked()
+                except BaseException:
+                    if use_threads:
+                        self._threaded_leases -= 1
+                    else:
+                        self._unthreaded_leases -= 1
+                    self._drain_pending_releases_locked()
+                    raise
+
+                self._drain_pending_releases_locked()
+                return self._generation
+            finally:
+                self._busy = False
 
     def release(self, use_threads: bool, generation: int) -> None:
         with self._lock:
-            if generation != self._generation:
+            if self._busy:
+                self._pending_releases.append((use_threads, generation))
                 return
-
-            self._sync_external_baseline_locked()
-
-            if use_threads:
-                self._threaded_leases -= 1
-            else:
-                self._unthreaded_leases -= 1
-
-            self._reconcile_policy_locked()
+            self._busy = True
+            try:
+                self._apply_release_locked(use_threads, generation)
+                self._drain_pending_releases_locked()
+            finally:
+                self._busy = False
 
     def get_user_worker_threads(self) -> int:
         with self._lock:
-            if self._threaded_leases > 0 or self._unthreaded_leases > 0:
-                self._sync_external_baseline_locked()
-                if self._baseline_workers is not None:
-                    return self._baseline_workers
-            return _worker_threads()
+            self._busy = True
+            try:
+                if self._threaded_leases > 0 or self._unthreaded_leases > 0:
+                    self._sync_external_baseline_locked()
+                    result = self._baseline_workers if self._baseline_workers is not None else _worker_threads()
+                else:
+                    result = _worker_threads()
+                self._drain_pending_releases_locked()
+                return result
+            finally:
+                self._busy = False
 
     def set_user_worker_threads(self, n: int | None = None) -> None:
         with self._lock:
-            _set_worker_threads(n)
-            if self._threaded_leases > 0 or self._unthreaded_leases > 0:
-                self._baseline_workers = _worker_threads()
-                self._last_applied_workers = None
+            self._busy = True
+            try:
+                _set_worker_threads(n)
+                if self._threaded_leases > 0 or self._unthreaded_leases > 0:
+                    self._baseline_workers = _worker_threads()
+                    self._last_applied_workers = None
+                self._drain_pending_releases_locked()
+            finally:
+                self._busy = False
 
     def reset_after_fork(self) -> None:
         baseline = self._baseline_workers
         self._lock = threading.RLock()
+        self._busy = False
+        self._pending_releases = []
         self._generation += 1
         self._threaded_leases = 0
         self._unthreaded_leases = 0
