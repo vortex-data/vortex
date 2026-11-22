@@ -454,15 +454,14 @@ mod tests {
     use std::sync::atomic::AtomicUsize;
     use std::sync::atomic::Ordering;
 
-    use arrow_array::RecordBatch;
     use arrow_array::RecordBatchReader;
-    use arrow_array::cast::AsArray;
     use arrow_array::ffi_stream::ArrowArrayStreamReader;
     use arrow_array::ffi_stream::FFI_ArrowArrayStream;
-    use arrow_array::types::UInt64Type;
     use tempfile::NamedTempFile;
     use vortex::VortexSessionDefault;
+    use vortex::array::ArrayRef;
     use vortex::array::IntoArray;
+    use vortex::array::arrays::ChunkedArray;
     use vortex::array::arrays::PrimitiveArray;
     use vortex::array::arrays::StructArray;
     use vortex::array::arrays::VarBinView;
@@ -991,28 +990,19 @@ mod tests {
         let expected_schema = SESSION.arrow().to_arrow_schema(expected.dtype()).unwrap();
         assert_eq!(reader.schema().as_ref(), &expected_schema);
 
-        let batches: Vec<RecordBatch> = reader.map(|b| b.unwrap()).collect();
-        let total_rows: usize = batches.iter().map(RecordBatch::num_rows).sum();
-        assert_eq!(total_rows, SAMPLE_ROWS);
-
-        let expected_names = expected.unmasked_field_by_name("name").unwrap();
-        let expected_names = expected_names.as_::<VarBinView>();
-        let mut row = 0usize;
-        for batch in &batches {
-            let ages = batch.column(0).as_primitive::<UInt64Type>();
-            let heights = batch.column(1).as_primitive::<UInt64Type>();
-            let names = batch.column(2).as_string_view();
-            for i in 0..batch.num_rows() {
-                assert_eq!(ages.value(i), row as u64);
-                assert_eq!(heights.value(i), 200 * row as u64);
-                assert_eq!(
-                    names.value(i).as_bytes(),
-                    expected_names.bytes_at(row).as_slice()
-                );
-                row += 1;
-            }
-        }
-        assert_eq!(row, SAMPLE_ROWS);
+        let chunks: Vec<ArrayRef> = reader
+            .map(|batch| {
+                SESSION
+                    .arrow()
+                    .from_arrow_record_batch(batch.unwrap(), &expected_schema)
+                    .unwrap()
+            })
+            .collect();
+        let actual = ChunkedArray::try_new(chunks, expected.dtype().clone())
+            .unwrap()
+            .into_array();
+        let mut ctx = SESSION.create_execution_ctx();
+        assert_arrays_eq!(actual, expected.into_array(), &mut ctx);
         assert_eq!(
             alive.load(Ordering::SeqCst),
             0,

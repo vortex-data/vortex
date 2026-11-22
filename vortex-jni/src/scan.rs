@@ -543,8 +543,13 @@ mod tests {
             "exported JNI Arrow stream must own a session handle before any poll"
         );
         drop(stream);
-        // Drive canceled prefetch tasks on the shared current-thread runtime (0 default workers).
-        RUNTIME.block_on(RUNTIME.handle().spawn(async {}));
+        // Drive canceled prefetch and conversion tasks on the shared current-thread runtime.
+        for _ in 0..64 {
+            if alive.load(Ordering::SeqCst) == 0 {
+                break;
+            }
+            RUNTIME.block_on(RUNTIME.handle().spawn(async {}));
+        }
         assert_eq!(
             alive.load(Ordering::SeqCst),
             0,
