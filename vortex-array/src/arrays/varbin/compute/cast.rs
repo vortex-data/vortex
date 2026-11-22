@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_error::VortexResult;
+use vortex_error::vortex_ensure;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
@@ -11,6 +12,7 @@ use crate::arrays::VarBin;
 use crate::arrays::VarBinArray;
 use crate::arrays::varbin::VarBinArraySlotsExt;
 use crate::dtype::DType;
+use crate::dtype::Nullability;
 use crate::scalar_fn::fns::cast::CastKernel;
 use crate::scalar_fn::fns::cast::CastReduce;
 use crate::validity::Validity;
@@ -62,9 +64,26 @@ impl CastKernel for VarBin {
         }
 
         let new_nullability = dtype.nullability();
-        let new_validity = array
-            .validity()?
-            .cast_nullability(new_nullability, array.len(), ctx)?;
+        let validity = array.validity()?;
+
+        let new_validity = match new_nullability {
+            Nullability::Nullable => validity.into_nullable(),
+            Nullability::NonNullable => {
+                // `VarBin` does not validate the bytes at null rows, so those bytes can be
+                // invalid UTF-8. `Validity::cast_nullability` uses the statistics of the validity
+                // array, which can come from untrusted input. A forged statistic would then show
+                // unchecked bytes as `Utf8` values. Read the validity values instead.
+                let mask = validity.execute_mask(array.len(), ctx)?;
+
+                vortex_ensure!(
+                    mask.all_true(),
+                    "Cannot cast array with invalid values to non-nullable type."
+                );
+
+                Validity::NonNullable
+            }
+        };
+
         let new_dtype = array.dtype().with_nullability(new_nullability);
         Ok(Some(build_with_validity(array, new_dtype, new_validity)?))
     }
@@ -75,11 +94,15 @@ mod tests {
     use std::sync::LazyLock;
 
     use rstest::rstest;
+    use vortex_buffer::Buffer;
+    use vortex_buffer::buffer;
+    use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
     use crate::Canonical;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
+    use crate::arrays::BoolArray;
     use crate::arrays::VarBinArray;
     use crate::arrays::VarBinViewArray;
     use crate::assert_arrays_eq;
@@ -87,6 +110,9 @@ mod tests {
     use crate::compute::conformance::cast::test_cast_conformance;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
+    use crate::expr::stats::Precision;
+    use crate::expr::stats::Stat;
+    use crate::validity::Validity;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
@@ -131,6 +157,34 @@ mod tests {
             .cast(non_nullable_source)
             .and_then(|a| a.execute::<Canonical>(&mut ctx).map(|c| c.into_array()));
         assert!(result.is_err(), "Expected error, got: {result:?}");
+    }
+
+    #[test]
+    fn cast_to_non_nullable_ignores_forged_min_statistic() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+
+        // Only the null row holds bytes that are not valid UTF-8.
+        let values = Buffer::copy_from([b'a', 0xFF, b'b']);
+        let offsets = buffer![0i32, 1, 2, 3].into_array();
+
+        let is_valid = BoolArray::from_iter([true, false, true]).into_array();
+        is_valid.statistics().set(Stat::Min, Precision::exact(true));
+
+        let varbin = VarBinArray::try_new(
+            offsets,
+            values,
+            DType::Utf8(Nullability::Nullable),
+            Validity::Array(is_valid),
+            &mut ctx,
+        )?;
+
+        let result = varbin
+            .into_array()
+            .cast(DType::Utf8(Nullability::NonNullable))
+            .and_then(|a| a.execute::<Canonical>(&mut ctx));
+
+        assert!(result.is_err(), "Expected error, got: {result:?}");
+        Ok(())
     }
 
     #[rstest]
