@@ -47,6 +47,7 @@ use vortex::scan::PartitionStream;
 use vortex::scan::ScanRequest;
 use vortex::scan::selection::Selection;
 use vortex::scan::strict_sorted_buffer::StrictSortedBuffer;
+use vortex::session::VortexSession;
 use vortex_arrow::ArrowSessionExt;
 use vortex_arrow::ExecuteArrowExt;
 
@@ -344,6 +345,48 @@ pub extern "system" fn Java_dev_vortex_jni_NativePartition_rowCount(
     });
 }
 
+fn partition_into_arrow_stream(
+    session: VortexSession,
+    partition: PartitionRef,
+    split_concurrency: Option<NonZeroUsize>,
+) -> VortexResult<FFI_ArrowArrayStream> {
+    let lookahead = split_concurrency
+        .map_or(usize::MAX, NonZeroUsize::get)
+        .min(POOL.worker_count().max(1));
+
+    let array_stream = partition.execute()?;
+    let dtype = array_stream.dtype().clone();
+
+    let schema = Arc::new(session.arrow().to_arrow_schema(&dtype)?);
+    let target = Arc::new(Field::new_struct("", schema.fields().clone(), false));
+
+    let handle = RUNTIME.handle();
+    let batches = array_stream
+        .map(move |chunk| {
+            let session = session.clone();
+            let target = Arc::clone(&target);
+            handle.spawn(async move {
+                let chunk = chunk?;
+                let mut ctx = session.create_execution_ctx();
+                let arrow = chunk.execute_arrow(Some(target.as_ref()), &mut ctx)?;
+                rebase_offsets(RecordBatch::from(arrow.as_struct().clone()))
+            })
+        })
+        .buffered(lookahead);
+
+    // Each JNI stream has a single consumer, so keep only one completed batch ahead of Java
+    // rather than the per-core queue of `block_on_stream_thread_safe`.
+    let iter =
+        RUNTIME
+            .block_on_stream_prefetch(batches)
+            .map(|result: VortexResult<RecordBatch>| {
+                result.map_err(|e| ArrowError::ExternalError(Box::new(e)))
+            });
+
+    let reader = RecordBatchIteratorAdapter::new(iter, schema);
+    Ok(FFI_ArrowArrayStream::new(Box::new(reader)))
+}
+
 /// Consume a partition into the `FFI_ArrowArrayStream` pointed to by `stream_addr`. The
 /// partition pointer is invalidated by this call; Java must not `free` it afterwards.
 ///
@@ -370,42 +413,9 @@ pub extern "system" fn Java_dev_vortex_jni_NativePartition_scanArrow(
             NativePartition::Pending(p, split_concurrency) => (p, split_concurrency),
             _ => throw_runtime!("partition already consumed"),
         };
-        let lookahead = split_concurrency
-            .map_or(usize::MAX, NonZeroUsize::get)
-            .min(POOL.worker_count().max(1));
 
-        let array_stream = partition.execute()?;
-        let dtype = array_stream.dtype().clone();
-
-        let session = unsafe { session_ref(session_ptr) };
-        let schema = Arc::new(session.arrow().to_arrow_schema(&dtype)?);
-        let target = Arc::new(Field::new_struct("", schema.fields().clone(), false));
-
-        let handle = RUNTIME.handle();
-        let batches = array_stream
-            .map(move |chunk| {
-                let session = session.clone();
-                let target = Arc::clone(&target);
-                handle.spawn(async move {
-                    let chunk = chunk?;
-                    let mut ctx = session.create_execution_ctx();
-                    let arrow = chunk.execute_arrow(Some(target.as_ref()), &mut ctx)?;
-                    rebase_offsets(RecordBatch::from(arrow.as_struct().clone()))
-                })
-            })
-            .buffered(lookahead);
-
-        // Each JNI stream has a single consumer, so keep only one completed batch ahead of Java
-        // rather than the per-core queue of `block_on_stream_thread_safe`.
-        let iter =
-            RUNTIME
-                .block_on_stream_prefetch(batches)
-                .map(|result: VortexResult<RecordBatch>| {
-                    result.map_err(|e| ArrowError::ExternalError(Box::new(e)))
-                });
-
-        let reader = RecordBatchIteratorAdapter::new(iter, schema);
-        let arrow_stream = FFI_ArrowArrayStream::new(Box::new(reader));
+        let session = unsafe { session_ref(session_ptr) }.clone();
+        let arrow_stream = partition_into_arrow_stream(session, partition, split_concurrency)?;
         unsafe {
             ptr::write(stream_addr as *mut FFI_ArrowArrayStream, arrow_stream);
         }
@@ -415,15 +425,174 @@ pub extern "system" fn Java_dev_vortex_jni_NativePartition_scanArrow(
 
 #[cfg(test)]
 mod tests {
+    use std::any::Any;
     use std::sync::Arc;
     use std::sync::atomic::AtomicUsize;
     use std::sync::atomic::Ordering;
 
+    use arrow_array::RecordBatch;
+    use arrow_array::RecordBatchReader;
+    use arrow_array::cast::AsArray;
+    use arrow_array::ffi_stream::ArrowArrayStreamReader;
+    use arrow_array::types::Int32Type;
     use futures::StreamExt;
     use futures::stream;
     use rstest::rstest;
+    use vortex::VortexSessionDefault;
+    use vortex::array::IntoArray;
+    use vortex::array::arrays::PrimitiveArray;
+    use vortex::array::arrays::StructArray;
+    use vortex::array::stream::ArrayStreamAdapter;
+    use vortex::array::stream::SendableArrayStream;
+    use vortex::array::validity::Validity;
+    use vortex::error::VortexResult;
+    use vortex::expr::stats::Precision;
     use vortex::io::runtime::BlockingRuntime;
     use vortex::io::runtime::current::CurrentThreadRuntime;
+    use vortex::io::session::RuntimeSessionExt;
+    use vortex::scan::Partition;
+    use vortex::scan::PartitionRef;
+    use vortex::session::SessionExt;
+    use vortex::session::SessionVar;
+    use vortex::session::VortexSession;
+    use vortex_arrow::ArrowSessionExt;
+
+    use crate::RUNTIME;
+    use crate::scan::partition_into_arrow_stream;
+
+    #[derive(Debug)]
+    struct DropCounter(Arc<AtomicUsize>);
+
+    impl Drop for DropCounter {
+        fn drop(&mut self) {
+            self.0.fetch_sub(1, Ordering::SeqCst);
+        }
+    }
+
+    #[derive(Debug, Clone)]
+    struct SessionLifetimeGuard(#[allow(dead_code)] Arc<DropCounter>);
+
+    impl SessionVar for SessionLifetimeGuard {
+        fn as_any(&self) -> &dyn Any {
+            self
+        }
+
+        fn as_any_mut(&mut self) -> &mut dyn Any {
+            self
+        }
+    }
+
+    struct InMemoryPartition {
+        chunks: Vec<StructArray>,
+    }
+
+    impl Partition for InMemoryPartition {
+        fn as_any(&self) -> &(dyn Any + 'static) {
+            self
+        }
+
+        fn index(&self) -> usize {
+            0
+        }
+
+        fn row_count(&self) -> Precision<u64> {
+            let total: usize = self.chunks.iter().map(StructArray::len).sum();
+            Precision::Exact(total as u64)
+        }
+
+        fn byte_size(&self) -> Precision<u64> {
+            Precision::Absent
+        }
+
+        fn execute(self: Box<Self>) -> VortexResult<SendableArrayStream> {
+            let dtype = self.chunks[0].dtype().clone();
+            let iter = self.chunks.into_iter().map(|c| Ok(c.into_array()));
+            Ok(Box::pin(ArrayStreamAdapter::new(dtype, stream::iter(iter))))
+        }
+    }
+
+    fn make_chunk(values: &[i32]) -> StructArray {
+        StructArray::try_new(
+            ["value"].into(),
+            vec![PrimitiveArray::from_iter(values.iter().copied()).into_array()],
+            values.len(),
+            Validity::NonNullable,
+        )
+        .unwrap()
+    }
+
+    fn tracked_session() -> (VortexSession, Arc<AtomicUsize>) {
+        let alive = Arc::new(AtomicUsize::new(1));
+        let session = VortexSession::default().with_handle(RUNTIME.handle());
+        drop(session.get_or_insert_with(|| {
+            SessionLifetimeGuard(Arc::new(DropCounter(Arc::clone(&alive))))
+        }));
+        (session, alive)
+    }
+
+    #[test]
+    fn arrow_export_retains_session_until_early_disposal() -> VortexResult<()> {
+        let partition: PartitionRef = Box::new(InMemoryPartition {
+            chunks: vec![make_chunk(&[10, 11, 12]), make_chunk(&[13, 14])],
+        });
+        let (session, alive) = tracked_session();
+        let stream = partition_into_arrow_stream(session, partition, None)?;
+        assert_eq!(
+            alive.load(Ordering::SeqCst),
+            1,
+            "exported JNI Arrow stream must own a session handle before any poll"
+        );
+        drop(stream);
+        // Drive canceled prefetch tasks on the shared current-thread runtime (0 default workers).
+        RUNTIME.block_on(RUNTIME.handle().spawn(async {}));
+        assert_eq!(
+            alive.load(Ordering::SeqCst),
+            0,
+            "disposing the exported JNI Arrow stream must release its session handle"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn arrow_export_retains_session_through_reads_and_disposal() -> VortexResult<()> {
+        let chunk1 = make_chunk(&[10, 11, 12]);
+        let chunk2 = make_chunk(&[13, 14]);
+        let expected_dtype = chunk1.dtype().clone();
+        let partition: PartitionRef = Box::new(InMemoryPartition {
+            chunks: vec![chunk1, chunk2],
+        });
+        let (session, alive) = tracked_session();
+        let expected_schema = session.arrow().to_arrow_schema(&expected_dtype)?;
+        let stream = partition_into_arrow_stream(session, partition, None)?;
+        assert_eq!(
+            alive.load(Ordering::SeqCst),
+            1,
+            "exported JNI Arrow stream must own a session handle before any poll"
+        );
+
+        let reader = ArrowArrayStreamReader::try_new(stream)?;
+        assert_eq!(reader.schema().as_ref(), &expected_schema);
+
+        let batches: Vec<RecordBatch> = reader.collect::<Result<_, _>>()?;
+        let actual: Vec<i32> = batches
+            .iter()
+            .flat_map(|batch| {
+                batch
+                    .column(0)
+                    .as_primitive::<Int32Type>()
+                    .values()
+                    .iter()
+                    .copied()
+            })
+            .collect();
+        assert_eq!(actual, vec![10, 11, 12, 13, 14]);
+        assert_eq!(
+            alive.load(Ordering::SeqCst),
+            0,
+            "exhausting and dropping the JNI Arrow reader must release its session handle"
+        );
+        Ok(())
+    }
 
     #[rstest]
     #[case(1)]
