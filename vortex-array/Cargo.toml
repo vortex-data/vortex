@@ -96,7 +96,7 @@ vortex-array = { path = ".", features = [
     "unstable_row_fns",
 ] }
 vortex-bench-support = { workspace = true }
-vortex-functions = { path = "../vortex-functions" }
+vortex-functions = { workspace = true }
 
 [[bench]]
 name = "aggregate_max"
