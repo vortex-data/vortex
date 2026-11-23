@@ -28,8 +28,8 @@ use vortex_array::dtype::session::DTypeSession;
 use vortex_array::memory::MemorySession;
 use vortex_array::optimizer::kernels::KernelSession;
 use vortex_array::scalar_fn::session::ScalarFnSession;
+use vortex_array::test_harness::mark_optimized;
 use vortex_array::validity::Validity;
-use vortex_arrow::ArrowSession;
 use vortex_edition::EditionSession;
 use vortex_edition::EnabledEditions;
 use vortex_expr::stats::session::StatsSession;
@@ -49,7 +49,6 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
         .with::<ScalarFnSession>()
         .with::<AggregateFnSession>()
         .with::<MemorySession>()
-        .with::<ArrowSession>()
         .with::<StatsSession>()
         .with::<EditionSession>()
         .with::<EnabledEditions>();
@@ -94,6 +93,8 @@ fn lengths(lines: &ArrayRef, ctx: &mut ExecutionCtx) -> ArrayRef {
 #[divan::bench]
 fn two_vertex_lines(bencher: Bencher) {
     let lines = linestrings(2);
+    mark_optimized(&lines, &SESSION).unwrap();
+
     let mut ctx = SESSION.create_execution_ctx();
     bencher
         .counter(ItemsCount::new(ROWS))
@@ -103,6 +104,8 @@ fn two_vertex_lines(bencher: Bencher) {
 #[divan::bench]
 fn sixteen_vertex_lines(bencher: Bencher) {
     let lines = linestrings(16);
+    mark_optimized(&lines, &SESSION).unwrap();
+
     let mut ctx = SESSION.create_execution_ctx();
     bencher
         .counter(ItemsCount::new(ROWS))
@@ -119,6 +122,8 @@ fn nullable_two_vertex_lines(bencher: Bencher) {
     )
     .unwrap()
     .into_array();
+    mark_optimized(&lines, &SESSION).unwrap();
+
     bencher
         .counter(ItemsCount::new(ROWS))
         .bench_local(|| lengths(&lines, &mut ctx));

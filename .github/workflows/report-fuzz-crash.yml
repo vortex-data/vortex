@@ -120,7 +120,7 @@ jobs:
           steps.dedup.outputs.duplicate != 'true' ||
           steps.dedup.outputs.confidence != 'exact'
         continue-on-error: true
-        uses: anthropics/claude-code-action@2dca132ff0e0c4094ce6048b422c6915a071210b  # v1.0.247
+        uses: anthropics/claude-code-action@f3b070c88125d33dbae5653df5f143101d4ea9dc  # v1.0.276
         with:
           # A called workflow sees the caller's OIDC subject, so `vortex-claude-ci`
           # matches here too and no secret needs passing down.
@@ -143,6 +143,7 @@ jobs:
             Markdown.
           claude_args: |
             --model claude-opus-5-5
+            --permission-mode default
             --max-turns 5
             --allowedTools "Read,Write,Grep,Glob,Bash(cat:*),Bash(jq:*),Bash(head:*),Bash(xxd:*)"
 

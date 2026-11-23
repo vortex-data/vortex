@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { useVortexFile } from '../../contexts/VortexFileContextCore';
 import { useSelection } from '../../contexts/SelectionContextCore';
 import type { LayoutTreeNode } from './types';
@@ -10,17 +10,14 @@ import {
   flattenTree,
   findNodeById,
   getNodeDisplayName,
-  getDtypeCategory,
+  dtypeClass,
   hasExpandableChildren,
   isFlatLayout,
   formatBytes,
-  DTYPE_COLORS,
 } from './utils';
-import { ROW_HEIGHT } from './styles';
+import { Icon } from '../Icon';
 import { SwimlaneBar } from './SwimlaneBar';
 import { Tooltip } from './Tooltip';
-
-const LABEL_WIDTH = 150;
 
 /**
  * Standalone whole-file column byte-map. Each schema column is a row whose bars
@@ -90,95 +87,89 @@ export function SwimlaneOverview() {
     [hoverNode],
   );
 
+  // Ticks on a round step (1, 2, or 5 times a power of ten) near a fifth of the file, then the
+  // file's size at the end. A round tick too close to the end gives way to the size.
   const axisTicks = useMemo(() => {
     if (totalBytes <= 0) return [];
-    return Array.from({ length: 6 }, (_, i) => Math.round((i * totalBytes) / 5));
+    const raw = totalBytes / 5;
+    const power = 10 ** Math.floor(Math.log10(raw));
+    const m = raw / power;
+    const step = (m <= 1 ? 1 : m <= 2 ? 2 : m <= 5 ? 5 : 10) * power;
+    const ticks: number[] = [];
+    for (let t = 0; t <= totalBytes * 0.85; t += step) ticks.push(t);
+    return [...ticks, totalBytes];
   }, [totalBytes]);
 
   return (
-    <div className="flex flex-col h-full bg-vortex-white dark:bg-vortex-black">
-      {/* Column rows. scrollbar-gutter reserves space for the vertical scrollbar so
-          the bars stay aligned with the axis below whether or not it's present. */}
-      <div
-        className="flex-1 overflow-y-auto overflow-x-hidden"
-        style={{ scrollbarGutter: 'stable' }}
-      >
-        {rows.map((row) => {
-          const { node, depth } = row;
-          const expandable = hasExpandableChildren(node);
-          const isExpanded = expanded.has(node.id);
-          const isSelected = selection.selectedNodeId === node.id;
-          const isHovered = selection.hoveredNodeId === node.id;
-          const rowBg = isSelected
-            ? 'bg-vortex-light-blue/10'
-            : isHovered
-              ? 'bg-vortex-light-blue/[0.06]'
-              : '';
-          return (
-            <div
-              key={node.id}
-              className={`flex items-stretch ${rowBg}`}
-              style={{ height: ROW_HEIGHT }}
-              onMouseEnter={() => hoverNode(node.id)}
-              onMouseLeave={() => hoverNode(null)}
-            >
-              <div
-                className="flex-shrink-0 flex items-center gap-1 pr-2 text-[11px] overflow-hidden whitespace-nowrap cursor-pointer text-vortex-fg-light dark:text-vortex-fg hover:text-vortex-light-blue"
-                style={{ width: LABEL_WIDTH, paddingLeft: 6 + depth * 10 }}
-                onClick={() => toggleSelect(node.id)}
-                title={node.dtype}
+    <section className="vx-card vx-pane x-view" aria-label="Swimlane">
+      <div className="x-lanes">
+        {/* The rows reserve the scrollbar's gutter, as the axis does, so the bars and the
+            ticks line up whether or not the rows scroll. */}
+        <ul className="x-lanes-rows" aria-label="Columns by place in the file">
+          {rows.map((row) => {
+            const { node, depth } = row;
+            const expandable = hasExpandableChildren(node);
+            const isExpanded = expanded.has(node.id);
+            const isSelected = selection.selectedNodeId === node.id;
+            const isHovered = selection.hoveredNodeId === node.id;
+            return (
+              <li
+                key={node.id}
+                className={`x-lane${isSelected ? ' is-selected' : ''}${isHovered ? ' is-hovered' : ''}`}
+                onPointerEnter={() => hoverNode(node.id)}
+                onPointerLeave={() => hoverNode(null)}
               >
-                <span
-                  className={`text-[8px] w-3 flex-shrink-0 text-vortex-grey-dark ${expandable ? 'cursor-pointer' : ''}`}
-                  style={{ opacity: expandable ? 1 : 0 }}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    if (expandable) toggleExpanded(node.id);
-                  }}
-                >
-                  {isExpanded ? '▼' : '▶'}
+                <span className="x-lane-name" style={{ '--vx-depth': depth } as CSSProperties}>
+                  <button
+                    type="button"
+                    className={`x-lane-toggle${expandable ? '' : ' is-leaf'}`}
+                    aria-expanded={expandable ? isExpanded : undefined}
+                    aria-label={`${isExpanded ? 'Close' : 'Open'} ${getNodeDisplayName(node)}`}
+                    tabIndex={expandable ? 0 : -1}
+                    disabled={!expandable}
+                    onClick={() => toggleExpanded(node.id)}
+                  >
+                    <Icon name="chevron_right" className="vx-tree-toggle" />
+                  </button>
+                  <button
+                    type="button"
+                    className="x-lane-select"
+                    aria-pressed={isSelected}
+                    title={node.dtype}
+                    onClick={() => toggleSelect(node.id)}
+                  >
+                    <span className={`vx-tree-dot ${dtypeClass(node.dtype)}`} />
+                    <span>{getNodeDisplayName(node)}</span>
+                  </button>
                 </span>
-                <span
-                  className="w-1.5 h-1.5 rounded-full flex-shrink-0"
-                  style={{ backgroundColor: DTYPE_COLORS[getDtypeCategory(node.dtype)] }}
-                />
-                <span className="truncate">{getNodeDisplayName(node)}</span>
-              </div>
+                <span className="x-lane-bar">
+                  <SwimlaneBar
+                    row={row}
+                    totalBytes={totalBytes}
+                    segmentIndex={segmentIndex}
+                    onHover={handleHover}
+                    onSelect={() => toggleSelect(node.id)}
+                  />
+                </span>
+              </li>
+            );
+          })}
+        </ul>
 
-              <div className="relative flex-1 min-w-0">
-                <SwimlaneBar
-                  row={row}
-                  totalBytes={totalBytes}
-                  segmentIndex={segmentIndex}
-                  onHover={handleHover}
-                  onSelect={() => toggleSelect(node.id)}
-                  isSelected={isSelected}
-                />
-              </div>
-            </div>
-          );
-        })}
-      </div>
-
-      {/* Byte axis — aligned to the bars column via the same label-width offset and
-          scrollbar gutter. */}
-      <div className="flex flex-shrink-0 h-[22px] border-t border-vortex-grey-light/40 dark:border-white/[0.06]">
-        <div className="flex-shrink-0" style={{ width: LABEL_WIDTH }} />
-        <div className="relative flex-1 overflow-hidden" style={{ scrollbarGutter: 'stable' }}>
-          {axisTicks.map((tick) => (
-            <div
-              key={tick}
-              className="absolute top-1.5 text-[9px] text-vortex-grey-dark"
-              style={{ left: `${(tick / totalBytes) * 100}%`, transform: 'translateX(-50%)' }}
-            >
-              {formatBytes(tick)}
-            </div>
-          ))}
+        <div className="x-axis vx-label-sm" aria-hidden="true">
+          <span />
+          <span className="x-axis-ticks">
+            {axisTicks.map((tick) => (
+              <span key={tick} style={{ left: `${(tick / totalBytes) * 100}%` }}>
+                {formatBytes(tick)}
+              </span>
+            ))}
+          </span>
         </div>
       </div>
 
       {tooltip && <Tooltip node={tooltip.node} position={tooltip.position} />}
-    </div>
+    </section>
   );
 }
 

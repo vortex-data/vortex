@@ -263,7 +263,7 @@ mod tests {
     }
 
     #[test]
-    fn validity_and_scalar_reads_share_the_validity_slot() -> VortexResult<()> {
+    fn validity_and_scalar_reads_share_the_validity_child() -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
         let mut probe = nullable_ints().repeated_probe();
         assert!(!probe.execute_is_valid(1, &mut ctx)?);

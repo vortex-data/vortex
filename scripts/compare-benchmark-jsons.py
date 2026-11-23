@@ -57,9 +57,17 @@ import pandas as pd
 Z_SCORE_99 = 2.5758293035489004
 CONTROL_FORMAT = "parquet"
 FILE_SIZE_METRIC = "file_size"
+# Every format's file sizes are stored; the PR comment compares only the Vortex formats.
+FILE_SIZE_REPORT_FORMAT_PREFIX = "vortex"
+# The columns of a JSONL file with no benchmark rows.
+EMPTY_ROW_COLUMNS = ["commit_id", "name", "storage", "unit", "value", "all_runtimes", "target"]
 QUERY_TARGET_PATTERN = re.compile(r"_q(\d+)/([^:]+):(.+)$")
 FORMAT_DISPLAY_NAMES = {
     "vortex": "vortex-file-compressed",
+}
+# Query table columns use the short format names targets are declared with.
+FORMAT_COLUMN_NAMES = {
+    "vortex-file-compressed": "vortex",
 }
 
 
@@ -93,7 +101,9 @@ def split_file_size_rows(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
     metric = df["metric"] if "metric" in df.columns else pd.Series(pd.NA, index=df.index)
     file_size = df["file_size"] if "file_size" in df.columns else pd.Series(pd.NA, index=df.index)
     mask = metric.eq(FILE_SIZE_METRIC) | file_size.notna()
-    return df[mask].copy(), df[~mask].copy()
+    rest = df[~mask].copy()
+    # A file of only file sizes leaves no benchmark rows; give them the columns of an empty file.
+    return df[mask].copy(), rest if not rest.empty else pd.DataFrame(columns=EMPTY_ROW_COLUMNS)
 
 
 def identity_value(value: object) -> object:
@@ -194,6 +204,7 @@ def ingest_record_row(record: dict[str, Any]) -> dict[str, Any] | None:
         if dims:
             row["dataset"] = dims
         row["target"] = {"engine": engine, "format": file_format}
+        row.update({axis: record[axis] for axis in SCAN_AXES if record.get(axis) is not None})
     elif kind == "random_access_time":
         ext = "vortex" if str(file_format).startswith("vortex") else file_format
         row["name"] = f"random-access/{record['dataset']}/{ext}-{record['open_mode']}"
@@ -208,6 +219,15 @@ def ingest_record_row(record: dict[str, Any]) -> dict[str, Any] | None:
         row["unit"] = "bytes"
         row["value"] = record["value_bytes"]
         return row
+    elif kind == "file_size":
+        dims = ("benchmark", "scale_factor", "format", "file")
+        return {
+            "commit_id": record.get("commit_sha"),
+            "metric": FILE_SIZE_METRIC,
+            "unit": "bytes",
+            "value": record["value_bytes"],
+            "file_size": {dim: record[dim] for dim in dims},
+        }
     else:
         return None
     row["value"] = record["value_ns"]
@@ -233,8 +253,37 @@ def read_benchmark_rows(path: str) -> pd.DataFrame:
                 if row is not None:
                     rows.append(row)
     if not rows:
-        return pd.DataFrame(columns=["commit_id", "name", "storage", "unit", "value", "all_runtimes", "target"])
+        return pd.DataFrame(columns=EMPTY_ROW_COLUMNS)
     return pd.DataFrame(rows)
+
+
+# Fields the bench orchestrator records on Vortex SQL results: the integration (`file` or
+# `datasource`) and the scan engine (`v1` or `v2`). See `BenchmarkTarget` in bench-orchestrator.
+SCAN_AXES = ("integration", "scan_engine")
+
+
+def label_scan_axes(base: pd.DataFrame, pr: pd.DataFrame) -> None:
+    """Name the integration and scan engine in every Vortex format that does not already.
+
+    Only the file integration on a suite's default scan engine keeps the bare format identity, so
+    its history continues; every other combination already carries `[integration, scan]`. The PR
+    rows record both axes as fields, which label the bare format on both sides alike, so a column
+    never reads as a different engine than it ran. The match and merge keys are left unchanged.
+    """
+
+    if not set(SCAN_AXES) <= set(pr.columns):
+        return
+    labels = {}
+    for engine, file_format, integration, scan in zip(
+        pr["engine"], pr["file_format"], pr["integration"], pr["scan_engine"]
+    ):
+        if isinstance(integration, str) and isinstance(scan, str) and " [" not in str(file_format):
+            labels[(engine, file_format)] = f"{file_format} [{integration}, {scan}]"
+    for df in (base, pr):
+        df["file_format"] = [
+            labels.get((engine, file_format), file_format)
+            for engine, file_format in zip(df["engine"], df["file_format"])
+        ]
 
 
 def normalize_measurement_rows(df: pd.DataFrame) -> pd.DataFrame:
@@ -688,6 +737,203 @@ def format_delta_cell(
     return f"{pr_text} / {base_text} / {change_text} {marker}"
 
 
+def format_duration(value_ns: object) -> str:
+    """Render a nanosecond duration with three significant figures in a readable unit."""
+
+    if pd.isna(value_ns):
+        return "—"
+    value = float(value_ns)
+    for scale, unit in ((1e9, "s"), (1e6, "ms"), (1e3, "µs")):
+        if abs(value) >= scale:
+            value /= scale
+            break
+    else:
+        unit = "ns"
+    if abs(value) >= 100:
+        return f"{value:.0f} {unit}"
+    if abs(value) >= 10:
+        return f"{value:.1f} {unit}"
+    return f"{value:.2f} {unit}"
+
+
+def format_query_cell(
+    base_value: object,
+    pr_value: object,
+    ratio: object,
+    improvement_threshold: float,
+    regression_threshold: float,
+) -> str:
+    """Render one query cell as `develop → PR (PR/develop)`, bold and marked past the threshold.
+
+    The unit is written once when both times share it, as in `131 → 118 ms (0.90)`.
+    """
+
+    if pd.isna(pr_value):
+        return "—"
+    pr_text = format_duration(pr_value)
+    if pd.isna(base_value):
+        return f"— → {pr_text}"
+    base_text = format_duration(base_value)
+    base_number, base_unit = base_text.rsplit(" ", 1)
+    if pr_text.endswith(f" {base_unit}"):
+        base_text = base_number
+    cell = f"{base_text} → {pr_text}"
+    if pd.isna(ratio) or float(ratio) <= 0:
+        return cell
+    cell += f" ({float(ratio):.2f})"
+    marker = format_change_marker(float(ratio), improvement_threshold, regression_threshold)
+    return f"**{cell}** {marker}" if marker else cell
+
+
+def is_sql_query(query: object) -> bool:
+    """Return whether a row's query is a SQL query number, not a random-access variant."""
+
+    if isinstance(query, bool):
+        return False
+    if isinstance(query, (int, np.integer)):
+        return True
+    # A column that also holds query-less rows stores the numbers as floats.
+    return isinstance(query, (float, np.floating)) and float(query).is_integer()
+
+
+def query_column_label(engine: str, file_format: str) -> str:
+    """Name a query table column the way targets are named, e.g. `datafusion:vortex`."""
+
+    for full_name, short_name in FORMAT_COLUMN_NAMES.items():
+        if file_format == full_name or file_format.startswith(f"{full_name} "):
+            file_format = short_name + file_format[len(full_name) :]
+            break
+    return f"{engine}:{file_format}"
+
+
+# Within a format, the file integration comes before datasource and the v2 scan before v1, so
+# each engine's columns start with the target its history is recorded under.
+SCAN_AXIS_ORDER = {"file": 0, "datasource": 1, "v2": 0, "v1": 1}
+
+
+def query_column_sort_key(combo: tuple[str, str]) -> tuple[int, int, str, tuple[int, ...], str]:
+    """Order query table columns by engine, then format, with a format's scan variants beside it,
+    e.g. `[file, v2]`, `[file, v1]`, then `[datasource, v1]`."""
+
+    engine, file_format = combo
+    base_format, _, axes = file_format.partition(" [")
+    axis_order = tuple(SCAN_AXIS_ORDER.get(axis.strip(), len(SCAN_AXIS_ORDER)) for axis in axes.rstrip("]").split(","))
+    return (
+        ENGINE_ORDER.get(engine, len(ENGINE_ORDER)),
+        FILE_FORMAT_ORDER.get(base_format, len(FILE_FORMAT_ORDER)),
+        engine,
+        axis_order if axes else (),
+        file_format,
+    )
+
+
+# Printed under the query table caption when any column names an integration and scan engine.
+SCAN_AXES_NOTE = (
+    "Vortex columns name the integration and the scan engine: `file` reads through the engine's file "
+    "format (DataFusion `ListingTable`, DuckDB `MultiFileReader`), `datasource` through DataFusion's "
+    "`VortexTable` over a Vortex `DataSource`; `v1` and `v2` are the LayoutReader and plan scans. "
+    "Each column compares with its own develop times."
+)
+
+
+def format_query_table_caption(df: pd.DataFrame, base_label: str, pr_label: str, threshold_pct: int) -> str:
+    """Say what the query table compares, and what the scan axes on its Vortex columns mean."""
+
+    lines = [
+        f"Each cell is develop `{base_label}` → this PR `{pr_label}` (hot runs), with PR ÷ develop in "
+        f"parentheses: below 1.00 is faster. Changes past ±{threshold_pct}% are bold. The geomean row "
+        "compares each target's geomean over its queries."
+    ]
+    if any(" [" in str(file_format) for file_format in df["file_format"]):
+        lines.append(SCAN_AXES_NOTE)
+    return "<br>".join(lines)
+
+
+def format_query_table_summary(
+    df: pd.DataFrame, run: str, title: str, improvement_threshold: float, regression_threshold: float
+) -> str:
+    """Summarize a folded query table: the geomean ratio over every cell with a develop time,
+    marked 🟢 or 🔴 past the threshold, then the table's size and how many cells moved each way."""
+
+    ratios = df["ratio" if run == "hot" else "cold_ratio"]
+    geomean = geometric_mean_from_values(ratios)
+    badge = format_change_marker(geomean, improvement_threshold, regression_threshold) or "➖"
+    geomean_text = "no baseline" if pd.isna(geomean) else f"geomean {geomean:.3f}x {badge}"
+    queries = df["name"].map(lambda name: str(name).rsplit("/", 1)[0]).nunique()
+    targets = df[["engine", "file_format"]].drop_duplicates().shape[0]
+    faster = int((ratios <= improvement_threshold).sum())
+    slower = int((ratios >= regression_threshold).sum())
+    query_noun = "query" if queries == 1 else "queries"
+    target_noun = "target" if targets == 1 else "targets"
+    return f"{title}: {geomean_text} · {queries} {query_noun} × {targets} {target_noun} ({faster}↑ {slower}↓)"
+
+
+def format_query_table(
+    df: pd.DataFrame,
+    run: str,
+    improvement_threshold: float,
+    regression_threshold: float,
+) -> str | None:
+    """Render one row per query and one column per target, with a geomean row first.
+
+    Each cell compares the develop baseline's `run` ("hot" or "cold") time with the PR's and
+    gives their ratio. The geomean row does the same with each target's geomeans over its
+    queries; it does not compare targets with each other.
+    """
+
+    value_column = f"{run}_value_pr"
+    base_column = f"{run}_value_base"
+    ratio_column = "ratio" if run == "hot" else "cold_ratio"
+    rows = df[df[value_column].notna()].copy()
+    if rows.empty:
+        return None
+
+    rows["row_label"] = rows["name"].map(lambda name: str(name).rsplit("/", 1)[0])
+    row_keys = ["row_label"]
+    for extra in ("storage", "dataset_key"):
+        if rows[extra].astype(str).nunique() > 1:
+            row_keys.append(extra)
+    combos = sorted(
+        {(str(engine), str(file_format)) for engine, file_format in zip(rows["engine"], rows["file_format"])},
+        key=query_column_sort_key,
+    )
+
+    def cell(base_value: object, value: object, ratio: object) -> str:
+        return format_query_cell(base_value, value, ratio, improvement_threshold, regression_threshold)
+
+    geomean_cells = []
+    for engine, file_format in combos:
+        target_rows = rows[(rows["engine"] == engine) & (rows["file_format"] == file_format)]
+        geomean_cells.append(
+            cell(
+                geometric_mean_from_values(target_rows[base_column]),
+                geometric_mean_from_values(target_rows[value_column]),
+                calculate_geometric_mean(target_rows, ratio_column),
+            )
+        )
+
+    table_rows = [["**geomean**", *geomean_cells]]
+    for key, group in sorted(rows.groupby(row_keys, sort=False), key=lambda item: tuple(str(k) for k in item[0])):
+        key = key if isinstance(key, tuple) else (key,)
+        label = str(key[0]) + "".join(f" ({part})" for part in key[1:] if part is not None and str(part) != "nan")
+        cells = []
+        for engine, file_format in combos:
+            match = group[(group["engine"] == engine) & (group["file_format"] == file_format)]
+            if match.empty:
+                cells.append("—")
+            else:
+                cells.append(cell(match[base_column].iloc[0], match[value_column].iloc[0], match[ratio_column].iloc[0]))
+        table_rows.append([label, *cells])
+
+    headers = ["query", *(query_column_label(engine, file_format) for engine, file_format in combos)]
+    return pd.DataFrame(table_rows, columns=headers).to_markdown(
+        index=False,
+        tablefmt="github",
+        disable_numparse=True,
+        colalign=("left", *("right" for _ in combos)),
+    )
+
+
 def format_comparison_ratio(value: float) -> str:
     """Render a PR/base ratio or identify an unmatched PR measurement."""
 
@@ -711,7 +957,7 @@ def format_size(size_bytes: int) -> str:
 def format_size_change(change_bytes: int) -> str:
     """Format a byte change with a sign."""
 
-    sign = "+" if change_bytes > 0 else ""
+    sign = "+" if change_bytes > 0 else "-" if change_bytes < 0 else ""
     return f"{sign}{format_size(abs(change_bytes))}"
 
 
@@ -725,7 +971,7 @@ def format_pct_change(pct: float) -> str:
 def extract_file_size_data(
     df: pd.DataFrame,
 ) -> tuple[dict[tuple[str, str, str, str], int], set[tuple[str, str, str, str]]]:
-    """Extract file-size rows and the identities explicitly ignored for being empty."""
+    """Extract the Vortex formats' file-size rows and the identities ignored for being empty."""
 
     data = {}
     ignored = set()
@@ -743,6 +989,8 @@ def extract_file_size_data(
             str(metadata.get("format", "")),
             str(metadata.get("file", "")),
         )
+        if not key[2].startswith(FILE_SIZE_REPORT_FORMAT_PREFIX):
+            continue
         value = row.get("value")
         if pd.isna(value):
             continue
@@ -1009,10 +1257,13 @@ def format_report_help() -> str:
             "first-run cost per row, and `hot/cold` is how much of "
             "each run the warm path saves. Rows whose results predate per-run reporting "
             "show only one value, taken from the value the runner reported.",
-            "- **Table cells**: Each cell reads `PR / base / %diff`. The hot and cold "
-            "columns mark a change as 🔴 slower or 🟢 faster once it clears this suite's "
-            "threshold; anything smaller is noise here and is left unmarked, as is "
-            "`hot/cold`, because a shift in the warm-up ratio is not a win or a loss by itself.",
+            "- **Query tables**: One row per query and one column per target. Each cell "
+            "reads `develop → PR (PR ÷ develop)`, so `(0.80)` is 20% faster than develop. A "
+            "change that clears this suite's threshold is bold and marked 🔴 slower or 🟢 "
+            "faster; anything smaller is noise here and is left plain. The `geomean` row "
+            "compares each target's geomean over its queries with develop's. Hot runs are "
+            "shown first and cold runs are folded below them.",
+            "- **Other tables**: Each cell reads `PR / base / %diff`, marked the same way.",
             "",
             "</details>",
         ]
@@ -1031,10 +1282,11 @@ FILE_FORMAT_ORDER = {
     "vortex-file-compressed": 0,
     "vortex-compact": 1,
     "parquet": 2,
-    "lance": 3,
-    "duckdb": 4,
-    "arrow": 5,
-    "litdata": 6,
+    "parquet-snappy": 3,
+    "lance": 4,
+    "duckdb": 5,
+    "arrow": 6,
+    "litdata": 7,
 }
 
 UNIT_ORDER = {
@@ -1081,9 +1333,11 @@ def main() -> None:
     title = format_title(benchmark_name, pr_results)
     pr_file_sizes, pr = split_file_size_rows(pr_results)
     if args.pr_records:
-        pr_records = read_benchmark_rows(args.pr_records)
+        record_file_sizes, pr_records = split_file_size_rows(read_benchmark_rows(args.pr_records))
         if not pr_records.empty:
             pr = pr_records
+        if not record_file_sizes.empty:
+            pr_file_sizes = record_file_sizes
     base_fetched = os.path.exists(args.base_records)
     base_file_sizes, base = split_file_size_rows(read_benchmark_rows(args.base_records))
 
@@ -1096,6 +1350,7 @@ def main() -> None:
 
     base = normalize_measurement_rows(base)
     pr = normalize_measurement_rows(pr)
+    label_scan_axes(base, pr)
 
     comparison_keys = ["name", "storage", "dataset_key", "engine", "file_format", "unit", "query"]
     df3 = pd.merge(base, pr, on=comparison_keys, how="right", suffixes=("_base", "_pr"))
@@ -1180,7 +1435,28 @@ def main() -> None:
     print("---")
     print("")
 
-    grouped_tables = df3.groupby(["engine", "file_format", "unit"], dropna=False, sort=False)
+    sql_mask = df3["query"].map(is_sql_query) & df3["unit"].eq("ns")
+    sql_df = df3[sql_mask]
+    caption = format_query_table_caption(sql_df, base_label, pr_commit_id[:8], threshold_pct)
+    for run, title in (("hot", "Hot runs"), ("cold", "Cold runs (first iteration)")):
+        table = format_query_table(sql_df, run, improvement_threshold, regression_threshold)
+        if table is None:
+            continue
+        summary = format_query_table_summary(sql_df, run, title, improvement_threshold, regression_threshold)
+        print("<details>")
+        print(f"<summary>{summary}</summary>")
+        print("")
+        print("<br>")
+        print("")
+        if run == "hot":
+            print(caption)
+            print("")
+        print(table)
+        print("")
+        print("</details>")
+        print("")
+
+    grouped_tables = df3[~sql_mask].groupby(["engine", "file_format", "unit"], dropna=False, sort=False)
     for engine, file_format, unit in sorted(grouped_tables.groups.keys(), key=group_sort_key):
         group_df = grouped_tables.get_group((engine, file_format, unit)).sort_values("name")
         group_performance = format_performance(
@@ -1245,8 +1521,8 @@ def main() -> None:
         print("")
         print("</details>")
 
-    # File sizes are not stored in the benchmarks database, so they have no baseline to compare.
-    file_size_report = "" if base_file_sizes.empty else format_file_size_report(base_file_sizes, pr_file_sizes)
+    # Says so when the PR measured file sizes and the baseline has none, rather than dropping the section.
+    file_size_report = format_file_size_report(base_file_sizes, pr_file_sizes)
     if file_size_report:
         print("")
         print("---")

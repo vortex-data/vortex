@@ -5,7 +5,6 @@ use std::hash::Hash;
 use std::hash::Hasher;
 use std::sync::Arc;
 
-use prost::Message;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -23,26 +22,21 @@ use crate::ArrayRef;
 use crate::EqMode;
 use crate::ExecutionCtx;
 use crate::ExecutionResult;
-use crate::VortexSessionExecute;
 use crate::array::Array;
 use crate::array::ArrayId;
 use crate::array::ArrayView;
 use crate::array::VTable;
 use crate::array::with_empty_buffers;
-use crate::arrays::listview::ListViewArraySlotsExt;
 use crate::arrays::listview::ListViewData;
 use crate::arrays::listview::ListViewSlots;
-use crate::arrays::listview::compute::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
 use crate::dtype::DType;
-use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::match_each_list_builder;
-use crate::serde::ArrayChildren;
-use crate::validity::Validity;
 mod kernel;
 mod operations;
+mod plugin;
 mod validity;
 /// A [`ListView`]-encoded Vortex array.
 pub type ListViewArray = Array<ListView>;
@@ -126,20 +120,6 @@ impl VTable for ListView {
         with_empty_buffers(self, array, buffers)
     }
 
-    fn serialize(
-        array: ArrayView<'_, Self>,
-        _session: &VortexSession,
-    ) -> VortexResult<Option<Vec<u8>>> {
-        Ok(Some(
-            ListViewMetadata {
-                elements_len: array.elements().len() as u64,
-                offset_ptype: PType::try_from(array.offsets().dtype())? as i32,
-                size_ptype: PType::try_from(array.sizes().dtype())? as i32,
-            }
-            .encode_to_vec(),
-        ))
-    }
-
     fn validate(
         &self,
         _data: &ListViewData,
@@ -174,79 +154,6 @@ impl VTable for ListView {
         Ok(())
     }
 
-    fn deserialize(
-        &self,
-        dtype: &DType,
-        len: usize,
-        metadata: &[u8],
-
-        buffers: &[BufferHandle],
-        children: &dyn ArrayChildren,
-        session: &VortexSession,
-    ) -> VortexResult<ArrayParts<Self>> {
-        let metadata = ListViewMetadata::decode(metadata)?;
-        let offset_ptype = metadata.get_offset_ptype()?;
-        let size_ptype = metadata.get_size_ptype()?;
-        vortex_ensure!(
-            buffers.is_empty(),
-            "`ListViewArray::build` expects no buffers"
-        );
-
-        let DType::List(element_dtype, _) = dtype else {
-            vortex_bail!("Expected List dtype, got {:?}", dtype);
-        };
-
-        let validity = if children.len() == 3 {
-            Validity::from(dtype.nullability())
-        } else if children.len() == 4 {
-            let validity = children.get(3, &Validity::DTYPE, len)?;
-            Validity::Array(validity)
-        } else {
-            vortex_bail!(
-                "`ListViewArray::build` expects 3 or 4 children, got {}",
-                children.len()
-            );
-        };
-
-        // Get elements with the correct length from metadata.
-        let elements = children.get(
-            0,
-            element_dtype.as_ref(),
-            usize::try_from(metadata.elements_len)?,
-        )?;
-
-        // Get offsets with proper type from metadata.
-        let offsets = children.get(
-            1,
-            &DType::Primitive(offset_ptype, Nullability::NonNullable),
-            len,
-        )?;
-
-        // Get sizes with proper type from metadata.
-        let sizes = children.get(
-            2,
-            &DType::Primitive(size_ptype, Nullability::NonNullable),
-            len,
-        )?;
-
-        ListViewData::validate(
-            &elements,
-            &offsets,
-            &sizes,
-            &validity,
-            &mut session.create_execution_ctx(),
-        )?;
-        let data = ListViewData::try_new()?;
-        let slots = ListViewData::make_slots(&elements, &offsets, &sizes, &validity, len);
-        Ok(ArrayParts::new(
-            self.clone(),
-            dtype.clone(),
-            len,
-            data,
-            slots,
-        ))
-    }
-
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         ListViewSlots::NAMES[idx].to_string()
     }
@@ -271,14 +178,6 @@ impl VTable for ListView {
             ),
         }
     }
-
-    fn reduce_parent(
-        array: ArrayView<'_, Self>,
-        parent: &ArrayRef,
-        child_idx: usize,
-    ) -> VortexResult<Option<ArrayRef>> {
-        PARENT_RULES.evaluate(array, parent, child_idx)
-    }
 }
 
 #[cfg(test)]
@@ -293,6 +192,8 @@ mod tests {
 
     use super::ListView;
     use super::ListViewMetadata;
+    use crate::ArrayDeserialization;
+    use crate::ArrayPlugin;
     use crate::ArrayRef;
     use crate::array::VTable;
     use crate::dtype::DType;
@@ -323,7 +224,10 @@ mod tests {
         );
         let metadata = with_ptype(11).encode_to_vec();
         let children: Vec<ArrayRef> = Vec::new();
-        let result = ListView.deserialize(&dtype, 0, &metadata, &[], &children, &SESSION);
+        let result = ListView.deserialize(
+            ArrayDeserialization::new(VTable::id(&ListView), &dtype, 0, &metadata, &[], &children),
+            &SESSION,
+        );
         assert!(result.is_err_and(|err| err.to_string().contains(expected)));
 
         assert_eq!(get_ptype(&with_ptype(PType::U32 as i32))?, PType::U32);

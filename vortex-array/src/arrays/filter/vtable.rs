@@ -5,13 +5,11 @@ use std::hash::Hasher;
 
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 use vortex_mask::MaskValuesRef;
-use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
 use crate::AnyCanonical;
@@ -30,20 +28,20 @@ use crate::array::VTable;
 use crate::array::ValidityVTable;
 use crate::array::with_empty_buffers;
 use crate::arrays::filter::FilterArraySlotsExt;
+use crate::arrays::filter::append::append_filter_to_builder;
 use crate::arrays::filter::array::FilterData;
 use crate::arrays::filter::array::FilterSlots;
 use crate::arrays::filter::execute::contiguous_filter_range;
 use crate::arrays::filter::execute::execute_all_null_filter_fast_path;
 use crate::arrays::filter::execute::execute_filter;
-use crate::arrays::filter::rules::PARENT_RULES;
 use crate::arrays::filter::rules::RULES;
 use crate::buffer::BufferHandle;
+use crate::builders::ArrayBuilder;
 use crate::dtype::DType;
 use crate::executor::ExecutionCtx;
 use crate::executor::ExecutionResult;
 use crate::require_child;
 use crate::scalar::Scalar;
-use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 
 /// A [`Filter`]-encoded Vortex array.
@@ -129,25 +127,12 @@ impl VTable for Filter {
         FilterSlots::NAMES[idx].to_string()
     }
 
-    fn serialize(
-        _array: ArrayView<'_, Self>,
-        _session: &VortexSession,
-    ) -> VortexResult<Option<Vec<u8>>> {
-        // TODO(joe): make this configurable
-        Ok(None)
-    }
-
-    fn deserialize(
-        &self,
-        _dtype: &DType,
-        _len: usize,
-        _metadata: &[u8],
-
-        _buffers: &[BufferHandle],
-        _children: &dyn ArrayChildren,
-        _session: &VortexSession,
-    ) -> VortexResult<ArrayParts<Self>> {
-        vortex_bail!("Filter array is not serializable")
+    fn append_to_builder(
+        array: ArrayView<'_, Self>,
+        builder: &mut dyn ArrayBuilder,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
+        append_filter_to_builder(array, builder, ctx)
     }
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
@@ -169,7 +154,7 @@ impl VTable for Filter {
         }
 
         if let Some(canonical) =
-            execute_all_null_filter_fast_path(array.as_view(), mask_values.true_count(), ctx)?
+            execute_all_null_filter_fast_path(array.as_view(), mask_values.true_count())?
         {
             return Ok(ExecutionResult::done(canonical));
         }
@@ -183,14 +168,6 @@ impl VTable for Filter {
         Ok(ExecutionResult::done(
             execute_filter(child, &mask_values, ctx.allocator()).into_array(),
         ))
-    }
-
-    fn reduce_parent(
-        array: ArrayView<'_, Self>,
-        parent: &ArrayRef,
-        child_idx: usize,
-    ) -> VortexResult<Option<ArrayRef>> {
-        PARENT_RULES.evaluate(array, parent, child_idx)
     }
 
     fn reduce(array: ArrayView<'_, Self>) -> VortexResult<Option<ArrayRef>> {

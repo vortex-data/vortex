@@ -170,7 +170,8 @@ final class VortexDecimalAccessorTest {
                 assertMatchesReference(vector, column, row, 38, 0);
             }
             vector.setNull(0);
-            assertNull(column.getDecimal(0, 18, 0));
+            // A column vector describes its batch as it was when wrapped, so wrap the changed batch again.
+            assertNull(new VortexArrowColumnVector(vector).getDecimal(0, 18, 0));
         }
     }
 
@@ -251,7 +252,10 @@ final class VortexDecimalAccessorTest {
                     vector.set(0, input);
                     vector.setValueCount(1);
                     VortexArrowColumnVector column = new VortexArrowColumnVector(vector);
-                    Decimal expected = Decimal.apply(vector.getObject(0), precision, scale);
+                    // Spark's own vectorized readers return a decimal of at most 18 digits as its unscaled long,
+                    // and integral conversions of that representation truncate rather than round through a double.
+                    Decimal expected =
+                            Decimal.createUnsafe(input.unscaledValue().longValueExact(), precision, scale);
                     Decimal actual = column.getDecimal(0, precision, scale);
                     assertConversion(expected::roundToByte, actual::roundToByte);
                     assertConversion(expected::roundToShort, actual::roundToShort);

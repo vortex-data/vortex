@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+#![expect(clippy::unwrap_used)]
+
 use std::sync::LazyLock;
 
 use divan::Bencher;
@@ -13,6 +15,7 @@ use vortex_array::aggregate_fn::session::AggregateFnSession;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::expr::stats::Stat;
 use vortex_array::optimizer::kernels::KernelSession;
+use vortex_array::test_harness::mark_optimized;
 use vortex_session::VortexSession;
 
 #[global_allocator]
@@ -38,10 +41,10 @@ fn sum_i32(bencher: Bencher) {
     let data: Vec<i32> = (0..N).map(|_| rng.random_range(-1000..1000)).collect();
     bencher
         .with_inputs(|| {
-            (
-                PrimitiveArray::from_iter(data.iter().copied()).into_array(),
-                SESSION.create_execution_ctx(),
-            )
+            let array = PrimitiveArray::from_iter(data.iter().copied()).into_array();
+            mark_optimized(&array, &SESSION).unwrap();
+
+            (array, SESSION.create_execution_ctx())
         })
         .bench_refs(|(a, ctx)| a.statistics().compute_as::<i64>(Stat::Sum, ctx));
 }
@@ -52,10 +55,10 @@ fn sum_v2_i32(bencher: Bencher) {
     let data: Vec<i32> = (0..N).map(|_| rng.random_range(-1000..1000)).collect();
     bencher
         .with_inputs(|| {
-            (
-                PrimitiveArray::from_iter(data.iter().copied()).into_array(),
-                SESSION.create_execution_ctx(),
-            )
+            let array = PrimitiveArray::from_iter(data.iter().copied()).into_array();
+            mark_optimized(&array, &SESSION).unwrap();
+
+            (array, SESSION.create_execution_ctx())
         })
         .bench_refs(|(a, ctx)| sum_v2(a, ctx));
 }
@@ -66,10 +69,10 @@ fn sum_u32(bencher: Bencher) {
     let data: Vec<u32> = (0..N).map(|_| rng.random_range(0..2000)).collect();
     bencher
         .with_inputs(|| {
-            (
-                PrimitiveArray::from_iter(data.iter().copied()).into_array(),
-                SESSION.create_execution_ctx(),
-            )
+            let array = PrimitiveArray::from_iter(data.iter().copied()).into_array();
+            mark_optimized(&array, &SESSION).unwrap();
+
+            (array, SESSION.create_execution_ctx())
         })
         .bench_refs(|(a, ctx)| a.statistics().compute_as::<u64>(Stat::Sum, ctx));
 }
@@ -80,10 +83,10 @@ fn sum_v2_u32(bencher: Bencher) {
     let data: Vec<u32> = (0..N).map(|_| rng.random_range(0..2000)).collect();
     bencher
         .with_inputs(|| {
-            (
-                PrimitiveArray::from_iter(data.iter().copied()).into_array(),
-                SESSION.create_execution_ctx(),
-            )
+            let array = PrimitiveArray::from_iter(data.iter().copied()).into_array();
+            mark_optimized(&array, &SESSION).unwrap();
+
+            (array, SESSION.create_execution_ctx())
         })
         .bench_refs(|(a, ctx)| sum_v2(a, ctx));
 }
@@ -94,10 +97,10 @@ fn sum_i64(bencher: Bencher) {
     let data: Vec<i64> = (0..N).map(|_| rng.random_range(-1000..1000)).collect();
     bencher
         .with_inputs(|| {
-            (
-                PrimitiveArray::from_iter(data.iter().copied()).into_array(),
-                SESSION.create_execution_ctx(),
-            )
+            let array = PrimitiveArray::from_iter(data.iter().copied()).into_array();
+            mark_optimized(&array, &SESSION).unwrap();
+
+            (array, SESSION.create_execution_ctx())
         })
         .bench_refs(|(a, ctx)| a.statistics().compute_as::<i64>(Stat::Sum, ctx));
 }
@@ -108,10 +111,10 @@ fn sum_v2_i64(bencher: Bencher) {
     let data: Vec<i64> = (0..N).map(|_| rng.random_range(-1000..1000)).collect();
     bencher
         .with_inputs(|| {
-            (
-                PrimitiveArray::from_iter(data.iter().copied()).into_array(),
-                SESSION.create_execution_ctx(),
-            )
+            let array = PrimitiveArray::from_iter(data.iter().copied()).into_array();
+            mark_optimized(&array, &SESSION).unwrap();
+
+            (array, SESSION.create_execution_ctx())
         })
         .bench_refs(|(a, ctx)| sum_v2(a, ctx));
 }
@@ -122,10 +125,10 @@ fn sum_f64(bencher: Bencher) {
     let data: Vec<f64> = (0..N).map(|_| rng.random_range(-1000.0..1000.0)).collect();
     bencher
         .with_inputs(|| {
-            (
-                PrimitiveArray::from_iter(data.iter().copied()).into_array(),
-                SESSION.create_execution_ctx(),
-            )
+            let array = PrimitiveArray::from_iter(data.iter().copied()).into_array();
+            mark_optimized(&array, &SESSION).unwrap();
+
+            (array, SESSION.create_execution_ctx())
         })
         .bench_refs(|(a, ctx)| a.statistics().compute_as::<f64>(Stat::Sum, ctx));
 }
@@ -136,10 +139,10 @@ fn sum_v2_f64(bencher: Bencher) {
     let data: Vec<f64> = (0..N).map(|_| rng.random_range(-1000.0..1000.0)).collect();
     bencher
         .with_inputs(|| {
-            (
-                PrimitiveArray::from_iter(data.iter().copied()).into_array(),
-                SESSION.create_execution_ctx(),
-            )
+            let array = PrimitiveArray::from_iter(data.iter().copied()).into_array();
+            mark_optimized(&array, &SESSION).unwrap();
+
+            (array, SESSION.create_execution_ctx())
         })
         .bench_refs(|(a, ctx)| sum_v2(a, ctx));
 }
@@ -158,10 +161,10 @@ fn sum_f64_nulls_clustered(bencher: Bencher) {
         .collect();
     bencher
         .with_inputs(|| {
-            (
-                PrimitiveArray::from_option_iter(data.iter().copied()).into_array(),
-                SESSION.create_execution_ctx(),
-            )
+            let array = PrimitiveArray::from_option_iter(data.iter().copied()).into_array();
+            mark_optimized(&array, &SESSION).unwrap();
+
+            (array, SESSION.create_execution_ctx())
         })
         .bench_refs(|(a, ctx)| a.statistics().compute_as::<f64>(Stat::Sum, ctx));
 }
@@ -180,10 +183,10 @@ fn sum_v2_f64_nulls_clustered(bencher: Bencher) {
         .collect();
     bencher
         .with_inputs(|| {
-            (
-                PrimitiveArray::from_option_iter(data.iter().copied()).into_array(),
-                SESSION.create_execution_ctx(),
-            )
+            let array = PrimitiveArray::from_option_iter(data.iter().copied()).into_array();
+            mark_optimized(&array, &SESSION).unwrap();
+
+            (array, SESSION.create_execution_ctx())
         })
         .bench_refs(|(a, ctx)| sum_v2(a, ctx));
 }
@@ -204,10 +207,10 @@ fn sum_i32_nulls_clustered(bencher: Bencher) {
         .collect();
     bencher
         .with_inputs(|| {
-            (
-                PrimitiveArray::from_option_iter(data.iter().copied()).into_array(),
-                SESSION.create_execution_ctx(),
-            )
+            let array = PrimitiveArray::from_option_iter(data.iter().copied()).into_array();
+            mark_optimized(&array, &SESSION).unwrap();
+
+            (array, SESSION.create_execution_ctx())
         })
         .bench_refs(|(a, ctx)| a.statistics().compute_as::<i64>(Stat::Sum, ctx));
 }
@@ -226,10 +229,10 @@ fn sum_v2_i32_nulls_clustered(bencher: Bencher) {
         .collect();
     bencher
         .with_inputs(|| {
-            (
-                PrimitiveArray::from_option_iter(data.iter().copied()).into_array(),
-                SESSION.create_execution_ctx(),
-            )
+            let array = PrimitiveArray::from_option_iter(data.iter().copied()).into_array();
+            mark_optimized(&array, &SESSION).unwrap();
+
+            (array, SESSION.create_execution_ctx())
         })
         .bench_refs(|(a, ctx)| sum_v2(a, ctx));
 }
@@ -244,10 +247,10 @@ fn sum_i32_nulls_scattered(bencher: Bencher) {
         .collect();
     bencher
         .with_inputs(|| {
-            (
-                PrimitiveArray::from_option_iter(data.iter().copied()).into_array(),
-                SESSION.create_execution_ctx(),
-            )
+            let array = PrimitiveArray::from_option_iter(data.iter().copied()).into_array();
+            mark_optimized(&array, &SESSION).unwrap();
+
+            (array, SESSION.create_execution_ctx())
         })
         .bench_refs(|(a, ctx)| a.statistics().compute_as::<i64>(Stat::Sum, ctx));
 }
@@ -260,10 +263,10 @@ fn sum_v2_i32_nulls_scattered(bencher: Bencher) {
         .collect();
     bencher
         .with_inputs(|| {
-            (
-                PrimitiveArray::from_option_iter(data.iter().copied()).into_array(),
-                SESSION.create_execution_ctx(),
-            )
+            let array = PrimitiveArray::from_option_iter(data.iter().copied()).into_array();
+            mark_optimized(&array, &SESSION).unwrap();
+
+            (array, SESSION.create_execution_ctx())
         })
         .bench_refs(|(a, ctx)| sum_v2(a, ctx));
 }

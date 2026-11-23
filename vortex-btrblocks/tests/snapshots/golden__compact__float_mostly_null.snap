@@ -9,5 +9,5 @@ root: vortex.sparse(f64?, len=16384) nbytes=7545
     metadata: ptype: u16, nrows: 850, slice: 0..850
   patch_values: vortex.primitive(f64?, len=850) nbytes=6907
     metadata: ptype: f64
-    validity: vortex.bool(bool, len=850) nbytes=107
+    validity_child: vortex.bool(bool, len=850) nbytes=107
       metadata: offset: 0

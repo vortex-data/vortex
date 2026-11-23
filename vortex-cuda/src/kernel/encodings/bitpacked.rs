@@ -184,7 +184,7 @@ where
     vortex_ensure!(len > 0, "Non empty array");
     let offset = offset as usize;
 
-    let device_input = ctx.ensure_on_device(packed).await?;
+    let device_input = ctx.ensure_on_device(packed)?;
 
     // Get CUDA view of input
     let input_view = device_input.cuda_view::<A::Physical>()?;
@@ -209,7 +209,7 @@ where
         None
     };
 
-    let patches_arg = build_gpu_patches(device_patches.as_ref())?;
+    let patches_arg = build_gpu_patches(device_patches.as_ref(), ctx.stream())?;
 
     ctx.launch_kernel_config(&cuda_function, config, output_len, |args| {
         args.arg(&input_view)
@@ -223,7 +223,7 @@ where
         ctx.synchronize_stream()?;
     }
 
-    let output_buf = CudaDeviceBuffer::new(output_slice);
+    let output_buf = CudaDeviceBuffer::new(output_slice)?;
     let output_handle =
         BufferHandle::new_device(output_buf.slice_typed::<A>(offset..(offset + len)));
 
@@ -245,6 +245,7 @@ mod tests {
     use vortex::array::arrays::PrimitiveArray;
     use vortex::array::assert_arrays_eq;
     use vortex::array::dtype::NativePType;
+    use vortex::array::optimizer::ArrayOptimizer;
     use vortex::array::validity::Validity::NonNullable;
     use vortex::buffer::Buffer;
     use vortex::buffer::buffer;
@@ -720,7 +721,9 @@ mod tests {
         // Second slice (relative to first): drop patch at original index 100.
         // The second slice's range is kept wide enough that num_blocks still
         // covers every chunk in the packed buffer.
-        let second_slice = first_slice.slice(50..2900)?;
+        let second_slice = first_slice
+            .slice(50..2900)?
+            .optimize_ctx(cuda_ctx.execution_ctx())?;
 
         let gpu_result = block_on(async {
             BitPackedExecutor

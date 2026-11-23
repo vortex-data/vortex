@@ -13,7 +13,9 @@ use vortex_session::SessionVar;
 use crate::Scheme;
 use crate::SchemeExt;
 use crate::schemes::binary;
+use crate::schemes::boolean;
 use crate::schemes::decimal;
+use crate::schemes::fixed_size_list;
 use crate::schemes::float;
 use crate::schemes::integer;
 use crate::schemes::string;
@@ -21,8 +23,8 @@ use crate::schemes::temporal;
 
 /// Delta, with the minimum compression ratio it needs after its decompression penalty.
 ///
-/// No edition includes `fastlanes.delta` yet, so the session's enabled editions decide whether
-/// the compressor may use it. The CUDA preset excludes it.
+/// `fastlanes.delta` is in the `preview` edition, not `core`, so the session's enabled editions
+/// decide whether the compressor may use it. The CUDA preset excludes it.
 static DELTA_SCHEME: integer::DeltaScheme = integer::DeltaScheme::new(1.25);
 
 static ONPAIR_SCHEME: string::OnPairScheme =
@@ -45,6 +47,8 @@ impl Default for CompressionSession {
     fn default() -> Self {
         Self {
             schemes: vec![
+                &boolean::BoolRunEndScheme,
+                &boolean::BoolSparseScheme,
                 ////////////////////////////////////////////////////////////////////////////////////
                 // Integer schemes.
                 ////////////////////////////////////////////////////////////////////////////////////
@@ -92,9 +96,13 @@ impl Default for CompressionSession {
                 #[cfg(feature = "zstd")]
                 &binary::ZstdBuffersScheme,
                 // Decimal schemes. `refine` switches to v2 where the v2 ID is allowed.
+                // Byte parts are the default, which the dictionary's estimate has to beat.
+                &decimal::DecimalDictScheme,
                 &decimal::DECIMAL_V1,
                 // Temporal schemes.
                 &temporal::TemporalScheme,
+                // Fixed-size list schemes.
+                &fixed_size_list::FixedSizeListSparseScheme,
             ],
         }
     }

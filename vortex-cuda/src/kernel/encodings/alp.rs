@@ -80,7 +80,7 @@ where
         buffer, validity, ..
     } = primitive.into_data_parts();
 
-    let device_input = ctx.ensure_on_device(buffer).await?;
+    let device_input = ctx.ensure_on_device(buffer)?;
     let input_view = device_input.cuda_view::<A::ALPInt>()?;
 
     // Allocate output rounded up to a full chunk: the fused kernel writes a
@@ -96,7 +96,7 @@ where
     } else {
         None
     };
-    let patches_arg = build_gpu_patches(device_patches.as_ref())?;
+    let patches_arg = build_gpu_patches(device_patches.as_ref(), ctx.stream())?;
 
     // Load the kernel: alp_{enc}_{float}_32t
     let enc_suffix = A::ALPInt::PTYPE.to_string();
@@ -125,7 +125,7 @@ where
     ctx.synchronize_stream()?;
     drop(device_patches);
 
-    let output_buf = CudaDeviceBuffer::new(output_slice);
+    let output_buf = CudaDeviceBuffer::new(output_slice)?;
     let output_handle = BufferHandle::new_device(output_buf.slice_typed::<A>(0..array_len));
     Ok(Canonical::Primitive(PrimitiveArray::from_buffer_handle(
         output_handle,
@@ -248,7 +248,7 @@ mod tests {
             Some(5.0),
         ];
         let prim = PrimitiveArray::from_option_iter(values);
-        let alp_array = alp_encode(prim.as_view(), None, &mut SESSION.create_execution_ctx())?;
+        let alp_array = alp_encode(prim.as_view(), None, &mut ctx)?;
 
         let gpu_result = alp_array
             .clone()
@@ -279,7 +279,7 @@ mod tests {
             Buffer::from(vec![1.0f32, 2.0, 3.0, 4.0, 5.0]),
             Validity::AllValid,
         );
-        let alp_array = alp_encode(values.as_view(), None, &mut SESSION.create_execution_ctx())?;
+        let alp_array = alp_encode(values.as_view(), None, &mut ctx)?;
 
         let gpu_result = alp_array
             .clone()
@@ -323,7 +323,7 @@ mod tests {
             })
             .collect();
         let prim = PrimitiveArray::new(values, Validity::NonNullable);
-        let alp_array = alp_encode(prim.as_view(), None, &mut SESSION.create_execution_ctx())?;
+        let alp_array = alp_encode(prim.as_view(), None, &mut ctx)?;
         assert!(
             alp_array.patches().is_some(),
             "expected patches from ALP exceptions"
@@ -368,7 +368,7 @@ mod tests {
             })
             .collect();
         let prim = PrimitiveArray::new(values, Validity::NonNullable);
-        let alp_array = alp_encode(prim.as_view(), None, &mut SESSION.create_execution_ctx())?;
+        let alp_array = alp_encode(prim.as_view(), None, &mut ctx)?;
         assert!(
             alp_array.patches().is_some(),
             "expected patches from ALP exceptions"
@@ -460,7 +460,7 @@ mod tests {
             .map(|i| if i == 1400 { UNENCODABLE } else { i as f64 })
             .collect();
         let prim = PrimitiveArray::new(values, Validity::NonNullable);
-        let alp_array = alp_encode(prim.as_view(), None, &mut SESSION.create_execution_ctx())?;
+        let alp_array = alp_encode(prim.as_view(), None, &mut ctx)?;
         assert!(
             alp_array.patches().is_some(),
             "expected patches from ALP exceptions"

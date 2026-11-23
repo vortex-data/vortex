@@ -10,6 +10,7 @@
 
 use itertools::Itertools;
 use num_traits::AsPrimitive;
+use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -20,13 +21,16 @@ use vortex_error::vortex_err;
 
 use crate::ArrayRef;
 use crate::Columnar;
+use crate::IntoArray;
 use crate::array::ArrayView;
 use crate::arrays::ConstantArray;
+use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::piecewise_sequence::array::PiecewiseSequenceArraySlotsExt;
 use crate::dtype::UnsignedPType;
 use crate::executor::ExecutionCtx;
 use crate::scalar::PValue;
+use crate::validity::Validity;
 
 pub mod array;
 mod vtable;
@@ -122,9 +126,9 @@ fn check_index_array(name: &str, array: &ArrayRef) -> VortexResult<()> {
 }
 
 pub(crate) fn materialize_ranges<S, L, M>(
-    starts: &PrimitiveArray,
-    lengths: &PrimitiveArray,
-    multipliers: &PrimitiveArray,
+    starts: ArrayView<'_, Primitive>,
+    lengths: ArrayView<'_, Primitive>,
+    multipliers: ArrayView<'_, Primitive>,
     output_len: usize,
 ) -> VortexResult<BufferMut<u64>>
 where
@@ -164,4 +168,23 @@ where
         );
     }
     Ok(values)
+}
+
+/// Builds a `PiecewiseSequenceArray` of contiguous (unit multiplier) runs whose lengths sum to
+/// `total`.
+pub(crate) fn contiguous_runs(starts: Vec<u64>, lengths: Vec<u64>, total: usize) -> ArrayRef {
+    let count = starts.len();
+    debug_assert_eq!(count, lengths.len());
+    let starts = PrimitiveArray::new(Buffer::from(starts), Validity::NonNullable).into_array();
+    let lengths = match lengths.first() {
+        Some(&first) if lengths.iter().all(|&length| length == first) => {
+            ConstantArray::new(first, count).into_array()
+        }
+        _ => PrimitiveArray::new(Buffer::from(lengths), Validity::NonNullable).into_array(),
+    };
+    let multipliers = ConstantArray::new(1u64, count).into_array();
+    // SAFETY: starts, lengths, and multipliers are non-nullable u64 arrays of equal length, and
+    // `total` is the sum of the lengths.
+    unsafe { PiecewiseSequenceArray::new_unchecked(starts, lengths, multipliers, total) }
+        .into_array()
 }

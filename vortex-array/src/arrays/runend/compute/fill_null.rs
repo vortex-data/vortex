@@ -11,7 +11,7 @@ use crate::arrays::runend::array::RunEndArrayExt;
 use crate::arrays::runend::array::RunEndArraySlotsExt;
 use crate::builtins::ArrayBuiltins;
 use crate::scalar::Scalar;
-use crate::scalar_fn::fns::fill_null::FillNullReduce;
+use crate::scalar_fn::builtin::fill_null::FillNullReduce;
 
 impl FillNullReduce for RunEnd {
     fn fill_null(

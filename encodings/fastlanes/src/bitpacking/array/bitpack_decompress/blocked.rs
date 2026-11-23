@@ -227,12 +227,7 @@ pub fn unpack_single_blocked(
         && primitive.buffer_handle().is_on_host()
     {
         match_each_unsigned_integer_ptype!(primitive.ptype(), |I| {
-            let offsets = primitive.as_slice::<I>();
-            (
-                AsPrimitive::<u64>::as_(offsets[0]),
-                AsPrimitive::<u64>::as_(offsets[block]),
-                AsPrimitive::<u64>::as_(offsets[block + 1]),
-            )
+            block_boundaries(primitive.as_slice::<I>(), block)
         })
     } else {
         let base = u64::try_from(&offsets.execute_scalar(0, ctx)?)?;
@@ -263,6 +258,15 @@ pub fn unpack_single_blocked(
         .as_();
         Ok(Scalar::primitive(value, array.dtype().nullability()))
     })
+}
+
+/// The first boundary of `offsets` and the two boundaries of `block`, widened to `u64`.
+fn block_boundaries<I: AsPrimitive<u64>>(offsets: &[I], block: usize) -> (u64, u64, u64) {
+    (
+        AsPrimitive::<u64>::as_(offsets[0]),
+        AsPrimitive::<u64>::as_(offsets[block]),
+        AsPrimitive::<u64>::as_(offsets[block + 1]),
+    )
 }
 
 #[cfg(test)]

@@ -1,0 +1,63 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+name: "Upload fork benchmark report"
+description: >-
+  Upload the records of a fork PR benchmark run for pr-bench-report.yml. A fork PR's job gets no
+  OIDC token and no repository variables, so it can neither read the baseline nor comment on the
+  PR. pr-bench-report.yml runs after the dispatch run in the base repository, reads the baseline
+  for these records, and posts the comment under the same tag as a same-repository PR.
+
+inputs:
+  benchmark-name:
+    description: "The benchmark name in the comment heading"
+    required: true
+  comment-tag:
+    description: "The comment tag of the PR comment, which identifies the report"
+    required: true
+  matrix-preset:
+    description: "Optional SQL matrix preset name, shown when entries did not report"
+    default: ""
+  missing-entries:
+    description: "Optional formatted list of SQL matrix entries that did not report"
+    default: ""
+  failed:
+    description: "Set to true when the benchmark job failed so pr-bench-report.yml posts a failure comment"
+    default: "false"
+
+runs:
+  using: "composite"
+  steps:
+    - name: Collect the report
+      shell: bash
+      env:
+        BENCHMARK_NAME: ${{ inputs.benchmark-name }}
+        COMMENT_TAG: ${{ inputs.comment-tag }}
+        MATRIX_PRESET: ${{ inputs.matrix-preset }}
+        MISSING_ENTRIES: ${{ inputs.missing-entries }}
+        FAILED: ${{ inputs.failed }}
+      run: |
+        set -Eeu -o pipefail
+        REPORT="${RUNNER_TEMP}/fork-bench-report"
+        rm -rf "$REPORT"
+        mkdir -p "$REPORT"
+        if [[ "$FAILED" == "true" ]]; then
+          printf 'true' > "$REPORT/failed.txt"
+        else
+          cp results.json results.ingest.jsonl "$REPORT/"
+        fi
+        printf '%s' "$BENCHMARK_NAME" > "$REPORT/name.txt"
+        printf '%s' "$COMMENT_TAG" > "$REPORT/comment-tag.txt"
+        if [[ -n "$MATRIX_PRESET" ]]; then
+          printf '%s' "$MATRIX_PRESET" > "$REPORT/matrix-preset.txt"
+        fi
+        if [[ -n "$MISSING_ENTRIES" ]]; then
+          printf '%s' "$MISSING_ENTRIES" > "$REPORT/missing.txt"
+        fi
+    - name: Upload the report
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
+      with:
+        name: fork-bench-report-${{ inputs.comment-tag }}-attempt-${{ github.run_attempt }}
+        path: ${{ runner.temp }}/fork-bench-report/
+        retention-days: 5
+        if-no-files-found: error

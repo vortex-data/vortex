@@ -38,6 +38,8 @@ use super::StatPopGenBenchmark;
 use crate::idempotent_async;
 use crate::statpopgen::builder::GnomADBuilder;
 use crate::statpopgen::schema::schema_from_vcf_header;
+use crate::utils::parquet::parquet_writer_properties;
+use crate::utils::parquet::remove_stale_parquet;
 
 // DuckDB parallelizes parquet at row-group granularity. Each of our rows are quite big (~4000
 // genotypes each with tens of bytes of data).
@@ -55,6 +57,8 @@ impl StatPopGenBenchmark {
             StatPopGenBenchmark::FILE_NAME
         );
         let parquet_output_path = self.parquet_path()?;
+        // A file written in an older Parquet layout is written again.
+        remove_stale_parquet(&parquet_output_path)?;
 
         idempotent_async(
             &parquet_output_path,
@@ -82,7 +86,8 @@ impl StatPopGenBenchmark {
                 );
                 let schema = schema_from_vcf_header(&header);
                 let file = File::create(parquet_output_path).await?;
-                let mut writer = AsyncArrowWriter::try_new(file, Arc::clone(&schema), None)
+                let props = parquet_writer_properties().build();
+                let mut writer = AsyncArrowWriter::try_new(file, Arc::clone(&schema), Some(props))
                     .context("Failed to create parquet writer")?;
 
                 // Splitting lines is cheap and stays serial; parsing each row group's lines into
@@ -221,4 +226,28 @@ fn parse_lines(header: &Header, schema: SchemaRef, lines: &[u8]) -> Result<Recor
         builder.consume_record(header, &mut record)?;
     }
     Ok(builder.finish()?)
+}
+
+#[cfg(test)]
+mod tests {
+    use arrow_array::cast::AsArray;
+    use arrow_array::types::Int32Type;
+
+    use super::*;
+
+    /// A no-call that drops trailing FORMAT fields still gets a null in each of their lists.
+    #[test]
+    fn dropped_sample_fields_are_null() -> Result<()> {
+        let vcf = b"##fileformat=VCFv4.3\n\
+##FORMAT=<ID=GT,Number=1,Type=String,Description=\"\">\n\
+##FORMAT=<ID=DP,Number=1,Type=Integer,Description=\"\">\n\
+#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tA\tB\tC\n";
+        let header = VcfReader::new(&vcf[..]).read_header()?;
+        let record = b"chr21\t1\t.\tA\tC\t.\tPASS\t.\tGT:DP\t0/0:12\t./.\t0/1:7\n";
+        let batch = parse_lines(&header, schema_from_vcf_header(&header), record)?;
+        let dp = batch["DP"].as_list::<i32>().value(0);
+        let dp: Vec<_> = dp.as_primitive::<Int32Type>().iter().collect();
+        assert_eq!(dp, [Some(12), None, Some(7)]);
+        Ok(())
+    }
 }
