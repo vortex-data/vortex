@@ -514,10 +514,9 @@ impl FileOpener for VortexOpener {
                 {
                     builder = builder.with_selection(selection.clone());
                 }
-                // By default, the scans of all partitions together run about one chunk per core.
+                // By default, the scans of all partitions together run about four chunks per core.
                 let concurrency = scan_concurrency.unwrap_or_else(|| {
-                    get_available_parallelism()
-                        .unwrap_or(1)
+                    (4 * get_available_parallelism().unwrap_or(1))
                         .div_ceil(partitions)
                         .max(1)
                 });
