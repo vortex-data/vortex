@@ -29,7 +29,6 @@ use vortex_array::stream::ArrayStreamExt;
 use vortex_array::stream::SendableArrayStream;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_mask::Mask;
 use vortex_metrics::MetricsRegistry;
@@ -216,13 +215,8 @@ impl DataSource for LayoutReaderDataSource {
         let total_rows = self.reader.row_count();
         let row_range = match scan_request.row_range {
             Some(range) => {
-                vortex_ensure!(
-                    range.start <= range.end,
-                    "row range start {} is after its end {}",
-                    range.start,
-                    range.end
-                );
-                range.start.min(total_rows)..range.end.min(total_rows)
+                let start = range.start.min(total_rows);
+                start..range.end.clamp(start, total_rows)
             }
             None => 0..total_rows,
         };
@@ -632,6 +626,8 @@ mod tests {
     use rstest::rstest;
     use vortex_array::dtype::Nullability;
     use vortex_array::expr::Expression;
+    use vortex_array::expr::eq;
+    use vortex_array::expr::lit;
     use vortex_array::expr::pack;
     use vortex_array::expr::root;
     use vortex_array::expr::stats::Precision;
@@ -712,15 +708,24 @@ mod tests {
         clippy::reversed_empty_ranges,
         reason = "the inverted range is the input"
     )]
-    fn inverted_row_range_is_rejected() {
+    fn inverted_row_range_selects_no_rows() -> VortexResult<()> {
         let runtime = SingleThreadRuntime::default();
         let session = session_with_handle(runtime.handle());
         let source = LayoutReaderDataSource::new(Arc::new(TestLayoutReader::new(8)), session);
-        let result = runtime.block_on(source.scan(ScanRequest {
+        // The filter reaches the pruning check, which needs the range's length.
+        let scan = runtime.block_on(source.scan(ScanRequest {
+            filter: Some(eq(root(), lit(1i32))),
             row_range: Some(5..3),
             ..Default::default()
-        }));
-        assert!(result.is_err());
+        }))?;
+        let mut values = Vec::new();
+        for partition in runtime.block_on(scan.partitions().try_collect::<Vec<_>>())? {
+            values.extend(collect_scan_values(
+                runtime.block_on_stream(partition.execute()?),
+            )?);
+        }
+        assert!(values.is_empty(), "{values:?}");
+        Ok(())
     }
 
     #[test]
