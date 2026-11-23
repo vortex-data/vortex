@@ -173,6 +173,7 @@ pub fn merge_typed_scalar_as_variant(
 }
 
 fn typed_list_as_variant_payload(typed_scalar: Scalar) -> VortexResult<Scalar> {
+    let element_dtype = DType::Variant(Nullability::NonNullable);
     let list = typed_scalar.as_list();
     let elements = list
         .elements()
@@ -180,14 +181,18 @@ fn typed_list_as_variant_payload(typed_scalar: Scalar) -> VortexResult<Scalar> {
         .into_iter()
         .map(|element| {
             if element.dtype().is_variant() {
-                element
+                if element.is_null() {
+                    Ok(Scalar::variant(Scalar::null(DType::Null)))
+                } else {
+                    element.cast(&element_dtype)
+                }
             } else {
-                Scalar::variant(element)
+                Ok(Scalar::variant(element))
             }
         })
-        .collect();
+        .collect::<VortexResult<Vec<_>>>()?;
     Ok(Scalar::list(
-        DType::Variant(Nullability::NonNullable),
+        element_dtype,
         elements,
         Nullability::NonNullable,
     ))

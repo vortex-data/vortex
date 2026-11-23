@@ -18,12 +18,15 @@ use vortex_array::array_slots;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::List;
 use vortex_array::arrays::ListArray;
+use vortex_array::arrays::ListViewArray;
+use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::Struct;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::Variant;
 use vortex_array::arrays::VariantArray;
 use vortex_array::arrays::list::ListArrayExt;
 use vortex_array::arrays::list::ListArraySlotsExt;
+use vortex_array::arrays::listview::list_from_list_view;
 use vortex_array::arrays::struct_::StructArrayExt;
 use vortex_array::arrays::variant::VariantArraySlotsExt;
 use vortex_array::builtins::ArrayBuiltins;
@@ -31,6 +34,7 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldName;
 use vortex_array::dtype::FieldNames;
 use vortex_array::dtype::Nullability;
+use vortex_array::dtype::PType;
 use vortex_array::optimizer::ArrayOptimizer;
 use vortex_array::scalar::Scalar;
 use vortex_array::validity::Validity;
@@ -41,6 +45,7 @@ use vortex_arrow::ArrowSession;
 use vortex_arrow::ExecuteArrowExt;
 use vortex_arrow::level_validity;
 use vortex_arrow::to_arrow_null_buffer;
+use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
@@ -185,12 +190,19 @@ pub(crate) fn logical_shredded_from_parquet_typed_value(
     typed_value: ArrayRef,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
-    if let Some(list_array) = typed_value.as_opt::<List>() {
-        // Lists keep their original offsets and validity; only the physical element
-        // representation may need wrapper removal.
+    if typed_value.dtype().is_list() {
+        // Lists keep their offsets and validity. Each element reads its row's metadata, so the
+        // elements are taken from a `ListArray` whose offsets map elements to rows.
+        let list_array = match typed_value.as_opt::<List>() {
+            Some(list_array) => list_array.into_owned(),
+            None => list_from_list_view(typed_value.execute::<ListViewArray>(ctx)?, ctx)?,
+        };
+        let elements = list_array.elements().clone();
+        let element_metadata =
+            element_metadata(metadata, list_array.offsets(), elements.len(), ctx)?;
         let elements =
-            logical_shredded_from_parquet_field(metadata, list_array.elements().clone(), ctx)?
-                .unwrap_or_else(|| list_array.elements().clone());
+            logical_shredded_from_parquet_field(&element_metadata, elements.clone(), ctx)?
+                .unwrap_or(elements);
         return Ok(ListArray::try_new(
             elements,
             list_array.offsets().clone(),
@@ -200,12 +212,12 @@ pub(crate) fn logical_shredded_from_parquet_typed_value(
         .into_array());
     }
 
-    let Some(struct_array) = typed_value.as_opt::<Struct>() else {
+    if !typed_value.dtype().is_struct() {
         return Ok(typed_value);
-    };
+    }
+    let struct_array = typed_value.execute::<StructArray>(ctx)?;
 
-    // For object shredding, each struct field is a logical object field. Fields that
-    // are known wrapper shells without typed data are omitted from the canonical tree.
+    // For object shredding, each struct field is a logical object field.
     let mut names = Vec::new();
     let mut fields = Vec::new();
     for (name, field) in struct_array
@@ -224,7 +236,7 @@ pub(crate) fn logical_shredded_from_parquet_typed_value(
     Ok(StructArray::try_new(
         FieldNames::from_iter(names),
         fields,
-        typed_value.len(),
+        struct_array.len(),
         struct_array.validity()?,
     )?
     .into_array())
@@ -232,36 +244,25 @@ pub(crate) fn logical_shredded_from_parquet_typed_value(
 
 /// Converts one Parquet shredded field to the corresponding canonical shredded child.
 ///
-/// Returns `None` when the field is only a Parquet wrapper with no `typed_value`; that means the
-/// logical field is not represented in shredded storage and must be served from raw `value`.
+/// A wrapper with only a `value` column becomes an unshredded Variant child, because the Parquet
+/// shredding spec keeps a shredded field's value in its own wrapper, not in the parent residual.
+/// Returns `None` only for a wrapper with neither column.
 fn logical_shredded_from_parquet_field(
     metadata: &ArrayRef,
     field: ArrayRef,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Option<ArrayRef>> {
-    let Some(field_struct) = field.as_opt::<Struct>() else {
+    if !field.dtype().is_struct() {
         return Ok(Some(field));
-    };
+    }
+    let field_struct = field.execute::<StructArray>(ctx)?;
 
     let only_parquet_fields = field_struct
         .names()
         .iter()
         .all(|name| matches!(name.as_ref(), "value" | "typed_value"));
     if only_parquet_fields {
-        let Some(typed_value) = field_struct.unmasked_field_by_name_opt("typed_value") else {
-            return Ok(None);
-        };
         let validity = field_struct.validity()?;
-        // `unmasked_field_by_name_opt` intentionally ignores the parent struct validity.
-        // Reapply it here so null wrapper rows become null typed/raw rows downstream.
-        let typed_value = if validity.definitely_no_nulls() {
-            typed_value.clone()
-        } else {
-            typed_value
-                .clone()
-                .mask(validity.to_array(typed_value.len()))?
-                .optimize_ctx(ctx)?
-        };
         let value = field_struct
             .unmasked_field_by_name_opt("value")
             .map(|value| {
@@ -275,6 +276,26 @@ fn logical_shredded_from_parquet_field(
                 }
             })
             .transpose()?;
+        let Some(typed_value) = field_struct.unmasked_field_by_name_opt("typed_value") else {
+            let Some(value) = value else {
+                return Ok(None);
+            };
+            let field_validity = inferred_shredded_field_validity(Some(&value), None, ctx)?;
+            let parquet_field =
+                ParquetVariant::try_new(field_validity, metadata.clone(), Some(value), None)?;
+            return VariantArray::try_new(parquet_field.into_array(), None)
+                .map(|array| Some(array.into_array()));
+        };
+        // `unmasked_field_by_name_opt` intentionally ignores the parent struct validity.
+        // Reapply it here so null wrapper rows become null typed/raw rows downstream.
+        let typed_value = if validity.definitely_no_nulls() {
+            typed_value.clone()
+        } else {
+            typed_value
+                .clone()
+                .mask(validity.to_array(typed_value.len()))?
+                .optimize_ctx(ctx)?
+        };
 
         let Some(value) = value else {
             // Fully shredded field: recurse through the typed subtree and expose its
@@ -298,7 +319,29 @@ fn logical_shredded_from_parquet_field(
             .map(|array| Some(array.into_array()));
     }
 
-    logical_shredded_from_parquet_typed_value(metadata, field, ctx).map(Some)
+    logical_shredded_from_parquet_typed_value(metadata, field_struct.into_array(), ctx).map(Some)
+}
+
+/// Returns the metadata of each list element: the metadata of the row whose list holds it.
+fn element_metadata(
+    metadata: &ArrayRef,
+    offsets: &ArrayRef,
+    len: usize,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ArrayRef> {
+    let offsets = offsets
+        .cast(DType::Primitive(PType::U64, Nullability::NonNullable))?
+        .execute::<PrimitiveArray>(ctx)?;
+
+    let mut rows = BufferMut::<u64>::zeroed(len);
+    for (row, bounds) in offsets.as_slice::<u64>().windows(2).enumerate() {
+        let start = usize::try_from(bounds[0])?;
+        let end = usize::try_from(bounds[1])?;
+        rows.get_mut(start..end)
+            .ok_or_else(|| vortex_err!("list offsets {start}..{end} exceed {len} elements"))?
+            .fill(row as u64);
+    }
+    metadata.take(rows.freeze().into_array())
 }
 
 fn inferred_shredded_field_validity(
@@ -747,6 +790,57 @@ mod tests {
             PrimitiveArray::from_option_iter([Some(10i32), Some(20), Some(30)]),
             &mut ctx
         );
+        Ok(())
+    }
+
+    /// A shredded object field whose shell has only a `value` column holds its value there, not
+    /// in the residual object, so canonicalizing must keep the field.
+    #[test]
+    fn canonical_keeps_shredded_field_with_only_value() -> VortexResult<()> {
+        // Metadata with the dictionary `["a"]`, and the Variant int8 7.
+        let metadata = binary_view_array([b"\x01\x01\x00\x01a"]);
+        let a_value = binary_view_array([b"\x0c\x07"]);
+        let a_shell: ArrowArrayRef = Arc::new(StructArray::try_new(
+            vec![Arc::new(Field::new("value", DataType::BinaryView, true))].into(),
+            vec![a_value],
+            None,
+        )?);
+        let typed_value: ArrowArrayRef = Arc::new(StructArray::try_new(
+            vec![Arc::new(Field::new(
+                "a",
+                a_shell.data_type().clone(),
+                false,
+            ))]
+            .into(),
+            vec![a_shell],
+            None,
+        )?);
+        let residual: ArrowArrayRef = Arc::new({
+            let mut builder = BinaryViewBuilder::new();
+            builder.append_null();
+            builder.finish()
+        });
+        let struct_array = StructArray::try_new(
+            vec![
+                Arc::new(Field::new("metadata", DataType::BinaryView, false)),
+                Arc::new(Field::new("value", DataType::BinaryView, true)),
+                Arc::new(Field::new(
+                    "typed_value",
+                    typed_value.data_type().clone(),
+                    true,
+                )),
+            ]
+            .into(),
+            vec![metadata, residual, typed_value],
+            None,
+        )?;
+
+        let arrow_variant = ArrowVariantArray::try_new(&struct_array)?;
+        let parquet_array = ParquetVariant::from_arrow_variant(&arrow_variant, &SESSION.arrow())?;
+        let mut ctx = SESSION.create_execution_ctx();
+        let expected = parquet_array.execute_scalar(0, &mut ctx)?;
+        let canonical = parquet_array.execute::<Canonical>(&mut ctx)?.into_array();
+        assert_eq!(canonical.execute_scalar(0, &mut ctx)?, expected);
         Ok(())
     }
 
