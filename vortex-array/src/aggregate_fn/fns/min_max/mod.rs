@@ -71,7 +71,7 @@ pub fn min_max(
             // NaN-free: identical to the NaN-skipping path below, including its stat caching.
             Precision::Exact(0) => {}
             // At least one NaN value poisons both extrema.
-            Precision::Exact(_) => return Ok(Some(nan_minmax_result(array.dtype()))),
+            Precision::Exact(_) => return Ok(Some(nan_minmax_result(array.dtype())?)),
             _ => {
                 if array.is_empty() || array.valid_count(ctx)? == 0 {
                     return Ok(None);
@@ -158,12 +158,13 @@ pub(crate) fn columnar_min_max(
 }
 
 /// A `{min: NaN, max: NaN}` result for a poisoned NaN-including min/max over `dtype`.
-fn nan_minmax_result(dtype: &DType) -> MinMaxResult {
-    let nan = nan_scalar(dtype);
-    MinMaxResult {
+fn nan_minmax_result(dtype: &DType) -> VortexResult<MinMaxResult> {
+    let nan = nan_scalar(dtype)?;
+
+    Ok(MinMaxResult {
         min: nan.clone(),
         max: nan,
-    }
+    })
 }
 
 /// Whether `dtype` can hold NaN values: floats, and extension types stored as floats.
@@ -175,19 +176,22 @@ pub(crate) fn has_nan_values(dtype: &DType) -> bool {
 }
 
 /// A non-nullable NaN scalar of `dtype`, a float or an extension type stored as a float.
-pub(crate) fn nan_scalar(dtype: &DType) -> Scalar {
+///
+/// Returns an error if an extension dtype rejects NaN.
+pub(crate) fn nan_scalar(dtype: &DType) -> VortexResult<Scalar> {
     if let DType::Extension(ext_dtype) = dtype {
-        return Scalar::extension_ref(
+        return Scalar::try_extension_ref(
             ext_dtype.with_nullability(Nullability::NonNullable),
-            nan_scalar(ext_dtype.storage_dtype()),
+            nan_scalar(ext_dtype.storage_dtype())?,
         );
     }
-    match dtype.as_ptype() {
+
+    Ok(match dtype.as_ptype() {
         PType::F16 => Scalar::primitive(f16::NAN, Nullability::NonNullable),
         PType::F32 => Scalar::primitive(f32::NAN, Nullability::NonNullable),
         PType::F64 => Scalar::primitive(f64::NAN, Nullability::NonNullable),
         _ => vortex_panic!("NaN scalar requested for non-float dtype {dtype}"),
-    }
+    })
 }
 
 /// Whether a scalar holds a float NaN value, directly or as the storage of an extension scalar.
@@ -250,9 +254,9 @@ impl MinMaxPartial {
         &mut self,
         args: AggregateArgs<'_, NumericalAggregateOpts>,
         local: Option<MinMaxResult>,
-    ) {
+    ) -> VortexResult<()> {
         let Some(MinMaxResult { min, max }) = local else {
-            return;
+            return Ok(());
         };
 
         // NaN scalars are incomparable under `partial_min`/`partial_max`, so they are handled
@@ -260,9 +264,9 @@ impl MinMaxPartial {
         // dropped when they are skipped.
         if scalar_is_nan(&min) || scalar_is_nan(&max) || self.is_poisoned() {
             if !args.options.skip_nans {
-                self.poison(args);
+                self.poison(args)?;
             }
-            return;
+            return Ok(());
         }
 
         self.min = Some(match self.min.take() {
@@ -274,13 +278,17 @@ impl MinMaxPartial {
             Some(current) => partial_max(max, current).vortex_expect("incomparable max scalars"),
             None => max,
         });
+
+        Ok(())
     }
 
     /// Poison the partial state to `{min: NaN, max: NaN}`.
-    fn poison(&mut self, args: AggregateArgs<'_, NumericalAggregateOpts>) {
-        let nan = nan_scalar(args.dtype);
+    fn poison(&mut self, args: AggregateArgs<'_, NumericalAggregateOpts>) -> VortexResult<()> {
+        let nan = nan_scalar(args.dtype)?;
         self.min = Some(nan.clone());
         self.max = Some(nan);
+
+        Ok(())
     }
 
     /// Whether the partial state is poisoned to NaN.
@@ -376,7 +384,7 @@ impl AggregateFnVTable for MinMax {
             max: None,
         };
         // `merge` normalizes the parsed extrema: nulls stay empty and NaNs poison or drop.
-        partial.merge(args, MinMaxResult::from_scalar(scalar)?);
+        partial.merge(args, MinMaxResult::from_scalar(scalar)?)?;
         Ok(partial)
     }
 
@@ -387,7 +395,7 @@ impl AggregateFnVTable for MinMax {
         second: Self::Partial,
     ) -> VortexResult<Self::Partial> {
         if let (Some(min), Some(max)) = (second.min, second.max) {
-            first.merge(args, Some(MinMaxResult { min, max }));
+            first.merge(args, Some(MinMaxResult { min, max }))?;
         }
         Ok(first)
     }
@@ -441,14 +449,14 @@ impl AggregateFnVTable for MinMax {
                             min: min.cast(&non_nullable_dtype)?,
                             max: max.cast(&non_nullable_dtype)?,
                         }),
-                    );
+                    )?;
                     return Ok(true);
                 }
                 Ok(false)
             }
             Precision::Exact(_) => {
                 // At least one NaN value poisons both extrema without scanning the batch.
-                partial.poison(args);
+                partial.poison(args)?;
                 Ok(true)
             }
             _ => Ok(false),
@@ -475,7 +483,7 @@ impl AggregateFnVTable for MinMax {
                 // NaN float constants are skipped or poison the extrema, per the options.
                 if scalar_is_nan(scalar) {
                     if !args.options.skip_nans {
-                        partial.poison(args);
+                        partial.poison(args)?;
                     }
                     return Ok(());
                 }
@@ -487,8 +495,7 @@ impl AggregateFnVTable for MinMax {
                         min: cast.clone(),
                         max: cast,
                     }),
-                );
-                Ok(())
+                )
             }
             Columnar::Canonical(c) => match c {
                 Canonical::Primitive(p) => accumulate_primitive(args, partial, p, ctx),
@@ -567,11 +574,11 @@ mod tests {
     use crate::arrays::ListArray;
     use crate::arrays::NullArray;
     use crate::arrays::PrimitiveArray;
+    use crate::arrays::TemporalArray;
     use crate::arrays::VarBinArray;
     use crate::dtype::BigCast;
     use crate::dtype::DType;
     use crate::dtype::DecimalDType;
-    use crate::dtype::DecimalType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
     use crate::dtype::extension::ExtDType;
@@ -580,6 +587,7 @@ mod tests {
     use crate::expr::stats::Precision;
     use crate::expr::stats::Stat;
     use crate::expr::stats::StatsProvider;
+    use crate::extension::datetime::TimeUnit;
     use crate::match_each_decimal_value_type;
     use crate::scalar::DecimalValue;
     use crate::scalar::Scalar;
@@ -599,6 +607,30 @@ mod tests {
                 max: 3.into()
             })
         );
+        Ok(())
+    }
+
+    #[test]
+    fn test_timestamp_min_max_beyond_jiff_range() -> VortexResult<()> {
+        // Midnight on 9999-12-31 UTC.
+        const END_OF_9999_US: i64 = 253_402_214_400_000_000;
+        let timestamps = TemporalArray::new_timestamp(
+            PrimitiveArray::from_iter([0i64, END_OF_9999_US]).into_array(),
+            TimeUnit::Microseconds,
+            None,
+        )
+        .into_array();
+        let mut ctx = SESSION.create_execution_ctx();
+        let MinMaxResult { min, max } =
+            min_max(&timestamps, &mut ctx, NumericalAggregateOpts::default())?
+                .vortex_expect("two non-null timestamps have min and max");
+
+        assert_eq!(min.as_extension().to_storage_scalar(), 0i64.into());
+        assert_eq!(
+            max.as_extension().to_storage_scalar(),
+            END_OF_9999_US.into()
+        );
+
         Ok(())
     }
 
@@ -973,12 +1005,13 @@ mod tests {
 
     #[test]
     fn test_decimal() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
         let decimal = DecimalArray::new(
-            buffer![100i32, 2000i32, 200i32],
+            buffer![100i16, 2000, 200],
             DecimalDType::new(4, 2),
             Validity::from_iter([true, false, true]),
+            &mut ctx,
         );
-        let mut ctx = SESSION.create_execution_ctx();
         let result = min_max(
             &decimal.into_array(),
             &mut ctx,
@@ -1014,18 +1047,10 @@ mod tests {
         #[case] values: Vec<Option<i8>>,
         #[case] nullable: bool,
         #[case] expected: Option<(i8, i8)>,
-        #[values(
-            DecimalType::I8,
-            DecimalType::I16,
-            DecimalType::I32,
-            DecimalType::I64,
-            DecimalType::I128,
-            DecimalType::I256
-        )]
-        storage: DecimalType,
+        #[values(2, 4, 9, 18, 38, 76)] precision: u8,
     ) -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
-        let decimal_dtype = DecimalDType::new(9, 2);
+        let decimal_dtype = DecimalDType::new(precision, 2);
         let validity = if nullable {
             Validity::from_iter(values.iter().map(Option::is_some))
         } else {
@@ -1036,7 +1061,7 @@ mod tests {
             max: Scalar::decimal(max.into(), decimal_dtype, Nullability::NonNullable),
         });
 
-        match_each_decimal_value_type!(storage, |T| {
+        match_each_decimal_value_type!(decimal_dtype.canonical_values_type(), |T| {
             let buffer: Buffer<T> = values
                 .iter()
                 .enumerate()
@@ -1047,7 +1072,7 @@ mod tests {
                     None => T::MAX,
                 })
                 .collect();
-            let array = DecimalArray::new(buffer, decimal_dtype, validity).into_array();
+            let array = DecimalArray::new(buffer, decimal_dtype, validity, &mut ctx).into_array();
             let actual = min_max(&array, &mut ctx, NumericalAggregateOpts::default())?;
             assert_eq!(actual, expected);
             if let Some(actual) = actual {
@@ -1058,6 +1083,33 @@ mod tests {
 
             Ok(())
         })
+    }
+
+    #[test]
+    fn test_decimal_value_outside_precision_in_null_slot() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        // The out-of-range value sits in a null slot, so it must be ignored.
+        let decimal = DecimalArray::new(
+            buffer![5i8, 100i8],
+            DecimalDType::new(2, 0),
+            Validity::from_iter([true, false]),
+            &mut ctx,
+        );
+        let result = min_max(
+            &decimal.into_array(),
+            &mut ctx,
+            NumericalAggregateOpts::default(),
+        )?
+        .vortex_expect("should have result");
+
+        let expected = Scalar::decimal(
+            DecimalValue::I8(5),
+            DecimalDType::new(2, 0),
+            Nullability::NonNullable,
+        );
+        assert_eq!(result.min, expected);
+        assert_eq!(result.max, expected);
+        Ok(())
     }
 
     #[test]
@@ -1279,6 +1331,7 @@ mod tests {
 
     impl ExtVTable for F64Ext {
         type Metadata = EmptyMetadata;
+        type StoredMetadata = Self::Metadata;
         type NativeValue<'a> = &'a ScalarValue;
 
         #[expect(clippy::disallowed_methods, reason = "test-only id")]
@@ -1290,12 +1343,20 @@ mod tests {
             Ok(vec![])
         }
 
-        fn deserialize_metadata(&self, _data: &[u8]) -> VortexResult<Self::Metadata> {
+        fn deserialize_metadata(&self, _data: &[u8]) -> VortexResult<Self::StoredMetadata> {
             Ok(EmptyMetadata)
         }
 
-        fn validate_dtype(_extension_dtype: &ExtDType<Self>) -> VortexResult<()> {
-            Ok(())
+        fn metadata_from_storage(
+            &self,
+            stored_metadata: Self::StoredMetadata,
+            _storage_dtype: &DType,
+        ) -> VortexResult<Self::Metadata> {
+            Ok(stored_metadata)
+        }
+
+        fn storage_dtype(_metadata: &Self::Metadata) -> DType {
+            DType::Primitive(PType::F64, Nullability::NonNullable)
         }
 
         fn unpack_native<'a>(
@@ -1307,11 +1368,8 @@ mod tests {
     }
 
     fn f64_ext_array(values: Buffer<f64>) -> VortexResult<ArrayRef> {
-        let ext_dtype = ExtDType::<F64Ext>::try_new(
-            EmptyMetadata,
-            DType::Primitive(PType::F64, Nullability::NonNullable),
-        )?
-        .erased();
+        let ext_dtype =
+            ExtDType::<F64Ext>::try_new(EmptyMetadata, Nullability::NonNullable)?.erased();
         Ok(ExtensionArray::new(ext_dtype, values.into_array()).into_array())
     }
 

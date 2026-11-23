@@ -149,15 +149,8 @@ impl ObjectStoreRegistry for Registry {
             }
         }
 
-        // 2. Build the store and the path *within* that store. `build_store` reports the path
-        //    the way `parse_url_opts` does — i.e. the path is what the store will see as the
-        //    key — which is what keeps every scheme on the one caching rule in
-        //    `cache_and_resolve`. The depth is then the difference in segment counts.
-        let (store, path) = self.build_store(to_resolve)?;
-        // The raw URL path counts a percent-encoded segment (e.g. `refs%2Fconvert%2Fparquet`)
-        // as one segment while `path` is percent-decoded and may count more, so saturate to
-        // mount the store at the URL root rather than underflowing.
-        let depth = num_segments(to_resolve.path()).saturating_sub(num_segments(path.as_ref()));
+        // 2. Build the store and determine how many raw URL path segments form its mount prefix.
+        let (store, depth) = self.build_store(to_resolve)?;
 
         // 3. Cache the store and return it alongside the path that lives inside the store.
         self.cache_and_resolve(to_resolve, store, depth)
@@ -208,41 +201,53 @@ impl Registry {
         Ok((stored, path))
     }
 
-    /// Builds the [`ObjectStore`] that serves `to_resolve`, with the path within that store.
+    /// Builds the [`ObjectStore`] that serves `to_resolve`, along with how many raw URL path
+    /// segments form the prefix where the store is mounted.
     ///
-    /// This mirrors [`parse_url_opts`], extended with schemes the `object_store` crate does not
-    /// recognize. Reporting the path the way `parse_url_opts` does is what keeps every scheme on
-    /// the one caching rule in [`Registry::resolve`]: a scheme says where its store is rooted, and
-    /// the registry decides how to cache it.
-    fn build_store(&self, to_resolve: &Url) -> object_store::Result<(Arc<dyn ObjectStore>, Path)> {
+    /// Schemes handled directly (`hf://`, OpenDAL) return their raw prefix depth without
+    /// subtraction. For `parse_url_opts`, we subtract decoded key segments from the total decoded
+    /// segment count rather than raw segment count, which works because bucket and container names
+    /// cannot contain `/`.
+    fn build_store(&self, to_resolve: &Url) -> object_store::Result<(Arc<dyn ObjectStore>, usize)> {
         // OpenDAL-backed schemes (Tencent COS, Alibaba OSS, Tencent GooseFS) are not recognized
         // by `object_store`, so build them from OpenDAL's own environment-variable configuration
         // (e.g. `TENCENTCLOUD_SECRET_ID`, `GOOSEFS_MASTER_ADDR`). The operator is rooted at the
         // bucket, which lives in the URL authority, so — exactly as for `s3://bucket/path` —
-        // the whole URL path is the object key.
+        // the whole URL path is the object key (depth 0).
         #[cfg(any(feature = "cos", feature = "goosefs", feature = "oss"))]
         if crate::opendal::supports_scheme(to_resolve.scheme()) {
+            Path::from_url_path(to_resolve.path())?;
             let store =
                 crate::opendal::make_opendal_store_with_env(to_resolve, &HashMap::new(), |key| {
                     self.env.lookup(key)
                 })?;
-            return Ok((store, Path::from_url_path(to_resolve.path())?));
+            return Ok((store, 0));
         }
 
         // The Hugging Face Hub is not recognized by `object_store` either. Unlike the OpenDAL
         // schemes its store is not rooted at the URL authority — a repository and revision occupy
-        // path segments too — so it reports the in-repository path itself and the registry mounts
-        // the store as deep as that implies.
+        // path segments too — so the parser returns the exact number of raw URL segments it
+        // consumed for the mount prefix.
         #[cfg(feature = "hf")]
         if crate::hf::supports_scheme(to_resolve.scheme()) {
-            return Ok(crate::hf::make_hf_store_from_url_with_env(
-                to_resolve,
-                |key| self.env.lookup(key),
-            )?);
+            let (store, _path, depth) =
+                crate::hf::make_hf_store_from_url_with_env(to_resolve, |key| self.env.lookup(key))?;
+            return Ok((store, depth));
         }
 
         let (store, path) = parse_url_opts(to_resolve, self.env.normalized_vars())?;
-        Ok((Arc::from(store), path))
+        // Count decoded segments per non-empty raw segment so `//` or leading `%2F` after the
+        // container/bucket segment do not fail here when `parse_url_opts` accepted them.
+        let decoded_segments: usize = path_segments(to_resolve.path())
+            .map(|seg| {
+                // `parse_url_opts` already validated the URL path; fall back to 1 defensively.
+                Path::from_url_path(seg)
+                    .map(|p| num_segments(p.as_ref()))
+                    .unwrap_or(1)
+            })
+            .sum();
+        let depth = decoded_segments.saturating_sub(num_segments(path.as_ref()));
+        Ok((Arc::from(store), depth))
     }
 }
 

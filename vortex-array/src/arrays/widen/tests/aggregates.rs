@@ -1,9 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! Tests for aggregate results and child-statistics reuse.
+//!
+//! Shared batch assertions compare integer and decimal [`Widen`] arrays with fresh canonical inputs.
+
+use std::fmt::Debug;
 use std::num::NonZeroUsize;
 
 use rstest::rstest;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use super::SESSION;
@@ -32,21 +38,27 @@ use crate::aggregate_fn::fns::last::Last;
 use crate::aggregate_fn::fns::max::Max;
 use crate::aggregate_fn::fns::min::Min;
 use crate::aggregate_fn::fns::min_max::MinMax;
+use crate::aggregate_fn::fns::min_max::make_minmax_dtype;
 use crate::aggregate_fn::fns::null_count::NullCount;
 use crate::aggregate_fn::fns::sum::Sum;
 use crate::aggregate_fn::fns::sum_v2::SumV2;
 use crate::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes;
 use crate::arrays::ChunkedArray;
 use crate::arrays::ConstantArray;
+use crate::arrays::DecimalArray;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::Widen;
 use crate::arrays::WidenArray;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
+use crate::dtype::DecimalDType;
 use crate::dtype::Nullability;
 use crate::dtype::Nullability::NonNullable;
 use crate::dtype::Nullability::Nullable;
 use crate::dtype::PType;
+use crate::expr::stats::Precision;
+use crate::expr::stats::Stat;
+use crate::scalar::DecimalValue;
 use crate::scalar::Scalar;
 
 /// Every aggregate that applies to integers, and whether the `Widen` aggregate kernel serves it.
@@ -89,9 +101,8 @@ fn canonical_batch(
         .execute::<PrimitiveArray>(ctx)
 }
 
-/// Runs the kernel that the session registers for `aggregate` on `Widen` over `array`, and returns
-/// its partial, or `None` when no kernel is registered or the kernel declines.
-fn kernel_partial(
+/// Returns the registered [`Widen`] kernel's partial, or `None` if it is absent or declines.
+pub(super) fn kernel_partial(
     aggregate: &AggregateFnRef,
     array: &ArrayRef,
     ctx: &mut ExecutionCtx,
@@ -105,26 +116,26 @@ fn kernel_partial(
     }
 }
 
-/// Accumulates `batches` of `dtype` with `aggregate` once as [`WidenArray::encode`] encodes them
-/// and once as canonical arrays, and asserts that the running partials and the results are equal.
+/// Checks encoded aggregates against canonical inputs, including kernel selection and partials.
 ///
-/// On each batch that encodes to a `Widen`, the kernel must return a partial exactly when
-/// `served`, and the partial must equal the partial of a fresh accumulator on the canonical batch.
-/// Encoding and each accumulator get their own canonical batch, because both cache statistics on
-/// the array they read, and an accumulator reads a cached statistic instead of the data.
+/// `served` says whether the [`Widen`] kernel must return a partial. `build_batch` **must** return a
+/// fresh array with its own statistics on every call. Reusing arrays could let aggregation read a
+/// cached answer instead of testing the kernel.
 #[track_caller]
-fn assert_aggregate_batches(
+pub(super) fn assert_aggregate_batches<T: Debug, C: IntoArray>(
     aggregate: &AggregateFnRef,
     served: bool,
-    batches: &[Vec<Option<i64>>],
+    batches: &[T],
     dtype: &DType,
+    mut build_batch: impl FnMut(&T, &DType, &mut ExecutionCtx) -> VortexResult<C>,
+    mut encode: impl FnMut(C, &mut ExecutionCtx) -> VortexResult<ArrayRef>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<()> {
     let mut actual = aggregate.accumulator(dtype)?;
     let mut expected = aggregate.accumulator(dtype)?;
 
     for values in batches {
-        let encoded = WidenArray::encode(canonical_batch(values, dtype, ctx)?, ctx)?;
+        let encoded = encode(build_batch(values, dtype, ctx)?, ctx)?;
 
         if encoded.is::<Widen>() {
             let partial = kernel_partial(aggregate, &encoded, ctx)?;
@@ -132,13 +143,13 @@ fn assert_aggregate_batches(
 
             if let Some(partial) = partial {
                 let mut reference = aggregate.accumulator(dtype)?;
-                reference.accumulate(&canonical_batch(values, dtype, ctx)?.into_array(), ctx)?;
+                reference.accumulate(&build_batch(values, dtype, ctx)?.into_array(), ctx)?;
                 assert_eq!(partial, reference.flush()?, "{aggregate} on {values:?}");
             }
         }
 
         actual.accumulate(&encoded, ctx)?;
-        expected.accumulate(&canonical_batch(values, dtype, ctx)?.into_array(), ctx)?;
+        expected.accumulate(&build_batch(values, dtype, ctx)?.into_array(), ctx)?;
         assert_eq!(
             actual.partial_scalar()?,
             expected.partial_scalar()?,
@@ -230,7 +241,15 @@ fn test_aggregate_partials(
     let dtype = DType::Primitive(logical, nullability);
 
     for (aggregate, served) in aggregates() {
-        assert_aggregate_batches(&aggregate, served, &batches, &dtype, &mut ctx)?;
+        assert_aggregate_batches(
+            &aggregate,
+            served,
+            &batches,
+            &dtype,
+            |values, dtype, ctx| canonical_batch(values, dtype, ctx),
+            WidenArray::encode,
+            &mut ctx,
+        )?;
     }
 
     Ok(())
@@ -301,6 +320,49 @@ fn test_chunked_matches_canonical() -> VortexResult<()> {
 
         assert_eq!(actual.finish()?, expected.finish()?, "{aggregate}");
     }
+
+    Ok(())
+}
+
+/// Cached extrema deliberately differ from the data, so the result proves the cache was read.
+#[rstest]
+#[case::integer(
+    PrimitiveArray::from_iter([1i8, 2, 3]).into_array(),
+    DType::Primitive(PType::I64, NonNullable),
+    Scalar::primitive(-100i8, NonNullable),
+    Scalar::primitive(100i8, NonNullable),
+)]
+#[case::decimal(
+    DecimalArray::from_option_iter([Some(1i16), None], DecimalDType::new(4, 2)).into_array(),
+    DType::Decimal(DecimalDType::new(18, 2), Nullable),
+    Scalar::decimal(DecimalValue::I16(-9_999), DecimalDType::new(4, 2), NonNullable),
+    Scalar::decimal(DecimalValue::I16(9_999), DecimalDType::new(4, 2), NonNullable),
+)]
+fn test_min_max_reads_values_extrema(
+    #[case] values: ArrayRef,
+    #[case] logical_dtype: DType,
+    #[case] min: Scalar,
+    #[case] max: Scalar,
+) -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+
+    for (stat, extremum) in [(Stat::Min, &min), (Stat::Max, &max)] {
+        let value = extremum.value().cloned();
+        let value = value.vortex_expect("the planted extremum is not null");
+        values.statistics().set(stat, Precision::Exact(value));
+    }
+
+    let array = WidenArray::try_new(values, logical_dtype.clone())?.into_array();
+    let aggregate = MinMax.bind(NumericalAggregateOpts::default());
+
+    let partial = kernel_partial(&aggregate, &array, &mut ctx)?;
+
+    let element_dtype = logical_dtype.as_nonnullable();
+    let expected = Scalar::struct_(
+        make_minmax_dtype(&logical_dtype),
+        vec![min.cast(&element_dtype)?, max.cast(&element_dtype)?],
+    );
+    assert_eq!(partial, Some(expected));
 
     Ok(())
 }

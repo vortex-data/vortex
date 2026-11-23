@@ -305,29 +305,12 @@ public final class VortexFooterReader {
     private static <T> T withDataSource(
             VortexFile file, VortexIo io, VortexOptions options, DataSourceFunction<T> function) {
         Session session = VortexSparkSession.get(options);
-        NativeReadable readable = io.openReadable(file);
-
-        T result;
-        try {
-            DataSource source = DataSource.open(session, List.of(readable), io.readConcurrency());
-            result = function.apply(source);
-        } catch (RuntimeException | Error e) {
-            // The footer read already failed. A close failure on top of it is a detail of that
-            // failure, never a replacement for it.
-            try {
-                readable.close();
-            } catch (IOException closeFailure) {
-                e.addSuppressed(closeFailure);
-            }
-            throw e;
-        }
-
-        try {
-            readable.close();
+        try (NativeReadable readable = io.openReadable(file);
+                DataSource source = DataSource.open(session, List.of(readable), io.readConcurrency())) {
+            return function.apply(source);
         } catch (IOException e) {
             throw new UncheckedIOException("Failed to close footer readable for " + file.path(), e);
         }
-        return result;
     }
 
     @FunctionalInterface

@@ -28,12 +28,14 @@ pub(super) async fn filter_decimal<D: NativeDecimalType + DeviceRepr + CubFilter
     let filtered_validity = validity.filter(&mask)?;
     let filtered_values = filter_sized::<D>(values, mask, ctx).await?;
 
-    Ok(Canonical::Decimal(DecimalArray::new_handle(
-        filtered_values,
-        D::DECIMAL_TYPE,
-        decimal_dtype,
-        filtered_validity,
-    )))
+    Ok(Canonical::Decimal(
+        DecimalArray::try_new_handle_from_trusted_values(
+            filtered_values,
+            D::DECIMAL_TYPE,
+            decimal_dtype,
+            filtered_validity,
+        )?,
+    ))
 }
 
 #[cfg(test)]
@@ -46,8 +48,8 @@ mod tests {
     use vortex::array::arrays::FilterArray;
     use vortex::array::assert_arrays_eq;
     use vortex::dtype::DecimalDType;
+    use vortex::dtype::DecimalType;
     use vortex::dtype::i256;
-    use vortex::error::VortexExpect;
     use vortex::error::VortexResult;
     use vortex::mask::Mask;
     use vortex::session::VortexSession;
@@ -62,82 +64,74 @@ mod tests {
 
     #[rstest]
     #[case::i32_sparse(
-        DecimalArray::from_iter([1i32, 2, 3, 4, 5, 6, 7, 8], DecimalDType::new(19, 5)),
+        DecimalType::I32,
+        DecimalArray::from_iter([1i32, 2, 3, 4, 5, 6, 7, 8], DecimalDType::new(9, 5)),
         Mask::from_iter([true, false, true, false, true, false, true, false])
     )]
     #[case::i32_dense(
-        DecimalArray::from_iter([10i32, 20, 30, 40, 50], DecimalDType::new(19, 5)),
+        DecimalType::I32,
+        DecimalArray::from_iter([10i32, 20, 30, 40, 50], DecimalDType::new(9, 5)),
         Mask::from_iter([true, true, true, false, true])
     )]
     #[case::i64_large(
-        DecimalArray::from_iter(0..1000i64, DecimalDType::new(19, 5)),
+        DecimalType::I64,
+        DecimalArray::from_iter(0..1000i64, DecimalDType::new(18, 5)),
         Mask::from_iter((0..1000).map(|i| i % 3 == 0))
     )]
     #[case::i8_all_true(
-        DecimalArray::from_iter([1i8, 2, 3, 4, 5], DecimalDType::new(19, 5)),
+        DecimalType::I8,
+        DecimalArray::from_iter([1i8, 2, 3, 4, 5], DecimalDType::new(2, 1)),
         Mask::from_iter([true, true, true, true, true])
     )]
+    #[case::i8_nullable(
+        DecimalType::I8,
+        DecimalArray::from_option_iter([Some(-3i8), None, Some(8)], DecimalDType::new(2, 1)),
+        Mask::from_iter([true, true, false])
+    )]
+    #[case::i16_values(
+        DecimalType::I16,
+        DecimalArray::from_iter([-700i16, 100, 900], DecimalDType::new(4, 2)),
+        Mask::from_iter([true, false, true])
+    )]
     #[case::i32_all_false(
-        DecimalArray::from_iter([1i32, 2, 3, 4, 5], DecimalDType::new(19, 5)),
+        DecimalType::I32,
+        DecimalArray::from_iter([1i32, 2, 3, 4, 5], DecimalDType::new(9, 5)),
         Mask::from_iter([false, false, false, false, false])
     )]
     #[case::i128_values(
+        DecimalType::I128,
         DecimalArray::from_iter([1i128, 2, 3, 4, 5], DecimalDType::new(19, 5)),
         Mask::from_iter([false, true, false, true, false])
     )]
     #[case::i256_values(
-        DecimalArray::from_iter([i256::from_i128(1), i256::from_i128(2), i256::from_i128(3), i256::from_i128(4), i256::from_i128(5)], DecimalDType::new(19, 5)),
+        DecimalType::I256,
+        DecimalArray::from_iter([1, 2, 3, 4, 5].map(i256::from_i128), DecimalDType::new(76, 5)),
         Mask::from_iter([false, true, false, true, false])
+    )]
+    #[case::i32_multiblock(
+        DecimalType::I32,
+        DecimalArray::from_iter(0..2050i32, DecimalDType::new(9, 5)),
+        Mask::from_iter((0..2050).map(|i| i % 7 == 0))
     )]
     #[crate::test]
     async fn test_gpu_filter_decimal(
+        #[case] values_type: DecimalType,
         #[case] input: DecimalArray,
         #[case] mask: Mask,
     ) -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
-        let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
-            .vortex_expect("failed to create CUDA execution context");
-
-        let filter_array = FilterArray::try_new(input.clone().into_array(), mask.clone())?;
-
-        let gpu_result = FilterExecutor
-            .execute(filter_array.clone().into_array(), &mut cuda_ctx)
-            .await
-            .vortex_expect("GPU filter failed")
-            .into_host(cuda_ctx.execution_ctx())
-            .await?
-            .into_array();
-
-        assert_arrays_eq!(filter_array, gpu_result, &mut ctx);
-
-        Ok(())
-    }
-
-    #[crate::test]
-    async fn test_gpu_filter_decimal_large_array() -> VortexResult<()> {
-        let mut ctx = SESSION.create_execution_ctx();
-        let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
-            .vortex_expect("failed to create CUDA execution context");
-
-        // Create a large array to test multi-block execution
-        let data: Vec<i32> = (0..2050).collect();
-        let input = DecimalArray::from_iter(data, DecimalDType::new(19, 5));
-
-        // Select every 7th element
-        let mask = Mask::from_iter((0..2050).map(|i| i % 7 == 0));
-
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())?;
+        assert_eq!(input.values_type(), values_type);
         let filter_array = FilterArray::try_new(input.into_array(), mask)?;
-
         let gpu_result = FilterExecutor
             .execute(filter_array.clone().into_array(), &mut cuda_ctx)
-            .await
-            .vortex_expect("GPU filter failed")
+            .await?
             .into_host(cuda_ctx.execution_ctx())
             .await?
-            .into_array();
+            .into_decimal();
 
-        assert_eq!(filter_array.len(), gpu_result.len());
-        assert_arrays_eq!(filter_array, gpu_result, &mut ctx);
+        assert_eq!(gpu_result.values_type(), values_type);
+        assert_arrays_eq!(gpu_result.into_array(), filter_array, &mut ctx);
 
         Ok(())
     }

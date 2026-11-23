@@ -7,9 +7,9 @@ use geo::Rect as SpatialRect;
 use vortex_array::expr::BoundExpression;
 use vortex_array::scalar_fn::ScalarFnId;
 use vortex_array::scalar_fn::ScalarFnVTable;
-use vortex_array::scalar_fn::fns::binary::Binary;
-use vortex_array::scalar_fn::fns::literal::Literal;
-use vortex_array::scalar_fn::fns::operators::Operator;
+use vortex_array::scalar_fn::builtin::binary::Binary;
+use vortex_array::scalar_fn::builtin::literal::Literal;
+use vortex_array::scalar_fn::builtin::operators::Operator;
 use vortex_error::VortexResult;
 use vortex_expr::stats::rewrite::StatsRewriteRule;
 use vortex_session::VortexSession;
@@ -138,8 +138,8 @@ mod tests {
     use vortex_array::scalar::Scalar;
     use vortex_array::scalar_fn::EmptyOptions;
     use vortex_array::scalar_fn::ScalarFnVTableExt;
-    use vortex_array::scalar_fn::fns::binary::Binary;
-    use vortex_array::scalar_fn::fns::operators::Operator;
+    use vortex_array::scalar_fn::builtin::binary::Binary;
+    use vortex_array::scalar_fn::builtin::operators::Operator;
     use vortex_error::VortexResult;
     use vortex_expr::stats::rewrite::BoundExpressionPruneExt;
     use vortex_expr::stats::rewrite::StatsRewriteRule;
@@ -285,15 +285,25 @@ mod tests {
         Ok(())
     }
 
-    /// An extension-typed radius passes `Binary`'s typecheck (extension operands are exempt) but
-    /// has no numeric value - the rule declines rather than erroring, and the chunk is scanned.
+    /// A geometry scalar is not a numeric radius, so the comparison fails while binding.
     #[test]
-    fn extension_radius_never_prunes() -> VortexResult<()> {
+    fn test_extension_radius_fails_binding() -> VortexResult<()> {
         let session = spatial_session();
         let mut ctx = session.create_execution_ctx();
 
         let geometry = point_column(vec![0.0], vec![0.0])?.execute_scalar(0, &mut ctx)?;
-        assert!(falsify_distance(Operator::Lte, true, geometry)?.is_none());
+        let scope = geometry.dtype().clone();
+        let distance = SpatialDistance.new_expr(EmptyOptions, [root(), lit(geometry.clone())]);
+        let predicate = Binary.new_expr(Operator::Lte, [distance, lit(geometry)]);
+        let error = predicate
+            .bind(&scope)
+            .expect_err("a geometry scalar cannot be compared with a numeric distance");
+        assert!(
+            error
+                .to_string()
+                .contains("Comparison requires equal dtypes ignoring nullability")
+        );
+
         Ok(())
     }
 

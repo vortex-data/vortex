@@ -6,6 +6,8 @@ use std::panic::AssertUnwindSafe;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::Weak;
+use std::sync::atomic::AtomicBool;
+use std::sync::atomic::Ordering;
 use std::task::Context;
 use std::task::Poll;
 use std::task::ready;
@@ -15,6 +17,7 @@ use futures::channel::oneshot;
 use tracing::Instrument;
 use vortex_error::vortex_panic;
 
+use crate::runtime::AbortHandle;
 use crate::runtime::AbortHandleRef;
 use crate::runtime::Executor;
 use crate::runtime::platform;
@@ -154,11 +157,13 @@ impl Handle {
         R: Send + 'static,
     {
         let (send, recv) = oneshot::channel();
+        let aborted = Arc::new(AtomicBool::new(false));
+        let task_aborted = Arc::clone(&aborted);
         let span = tracing::Span::current();
         let abort_handle = self.runtime().spawn_cpu(Box::new(move || {
             let _guard = span.enter();
-            // Optimistically avoid the work if the result won't be used.
-            if !send.is_canceled() {
+            // Skip queued work only if the task was explicitly aborted (dropped without detach).
+            if !task_aborted.load(Ordering::Acquire) {
                 // Catch a panic so it re-raises on the joining side (see `Task::poll`).
                 let output = std::panic::catch_unwind(AssertUnwindSafe(f));
                 // Task::detach allows the receiver to be dropped, so we ignore send errors.
@@ -167,7 +172,10 @@ impl Handle {
         }));
         Task {
             recv,
-            abort_handle: Some(abort_handle),
+            abort_handle: Some(Box::new(SyncTaskAbortHandle {
+                aborted,
+                inner: abort_handle,
+            })),
         }
     }
 
@@ -178,11 +186,13 @@ impl Handle {
         R: Send + 'static,
     {
         let (send, recv) = oneshot::channel();
+        let aborted = Arc::new(AtomicBool::new(false));
+        let task_aborted = Arc::clone(&aborted);
         let span = tracing::Span::current();
         let abort_handle = self.runtime().spawn_blocking_io(Box::new(move || {
             let _guard = span.enter();
-            // Optimistically avoid the work if the result won't be used.
-            if !send.is_canceled() {
+            // Skip queued work only if the task was explicitly aborted (dropped without detach).
+            if !task_aborted.load(Ordering::Acquire) {
                 // Catch a panic so it re-raises on the joining side (see `Task::poll`).
                 let output = std::panic::catch_unwind(AssertUnwindSafe(f));
                 // Task::detach allows the receiver to be dropped, so we ignore send errors.
@@ -191,8 +201,27 @@ impl Handle {
         }));
         Task {
             recv,
-            abort_handle: Some(abort_handle),
+            abort_handle: Some(Box::new(SyncTaskAbortHandle {
+                aborted,
+                inner: abort_handle,
+            })),
         }
+    }
+}
+
+/// Abort handle for synchronous (`spawn_cpu` / `spawn_blocking`) tasks.
+///
+/// Sets an explicit pre-dispatch cancellation flag only on [`AbortHandle::abort`] (ordinary
+/// [`Task`] drop), leaving detached tasks free to run even after their result receiver is dropped.
+struct SyncTaskAbortHandle {
+    aborted: Arc<AtomicBool>,
+    inner: AbortHandleRef,
+}
+
+impl AbortHandle for SyncTaskAbortHandle {
+    fn abort(self: Box<Self>) {
+        self.aborted.store(true, Ordering::Release);
+        self.inner.abort();
     }
 }
 
@@ -282,9 +311,126 @@ impl<T> Drop for Task<T> {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::AtomicUsize;
+    use std::sync::atomic::Ordering;
+
+    use futures::future::BoxFuture;
     use futures::task::noop_waker;
+    use parking_lot::Mutex;
 
     use super::*;
+    use crate::runtime::AbortHandle;
+
+    struct GatedAbortHandle {
+        abort_calls: Arc<AtomicUsize>,
+    }
+
+    impl AbortHandle for GatedAbortHandle {
+        fn abort(self: Box<Self>) {
+            self.abort_calls.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+
+    struct GatedExecutor {
+        queue: Mutex<Vec<Box<dyn FnOnce() + Send + 'static>>>,
+        abort_calls: Arc<AtomicUsize>,
+    }
+
+    impl GatedExecutor {
+        fn new() -> Arc<Self> {
+            Arc::new(Self {
+                queue: Mutex::new(Vec::new()),
+                abort_calls: Arc::new(AtomicUsize::new(0)),
+            })
+        }
+
+        fn enqueue(&self, work: Box<dyn FnOnce() + Send + 'static>) -> AbortHandleRef {
+            self.queue.lock().push(work);
+            Box::new(GatedAbortHandle {
+                abort_calls: Arc::clone(&self.abort_calls),
+            })
+        }
+
+        fn drain(&self) {
+            for job in std::mem::take(&mut *self.queue.lock()) {
+                job();
+            }
+        }
+    }
+
+    impl Executor for GatedExecutor {
+        fn spawn(&self, _fut: BoxFuture<'static, ()>) -> AbortHandleRef {
+            panic!("async spawn not used in gated sync tests")
+        }
+
+        fn spawn_cpu(&self, cpu: Box<dyn FnOnce() + Send + 'static>) -> AbortHandleRef {
+            self.enqueue(cpu)
+        }
+
+        fn spawn_blocking_io(&self, task: Box<dyn FnOnce() + Send + 'static>) -> AbortHandleRef {
+            self.enqueue(task)
+        }
+    }
+
+    #[test]
+    fn detached_cpu_and_blocking_tasks_run_queued_work() {
+        let executor = GatedExecutor::new();
+        let dyn_exec: Arc<dyn Executor> = Arc::clone(&executor) as Arc<dyn Executor>;
+        let handle = Handle::new(Arc::downgrade(&dyn_exec));
+
+        let cpu_runs = Arc::new(AtomicUsize::new(0));
+        let blocking_runs = Arc::new(AtomicUsize::new(0));
+
+        let cpu_runs_clone = Arc::clone(&cpu_runs);
+        let cpu_task = handle.spawn_cpu(move || {
+            cpu_runs_clone.fetch_add(1, Ordering::SeqCst);
+            1usize
+        });
+
+        let blocking_runs_clone = Arc::clone(&blocking_runs);
+        let blocking_task = handle.spawn_blocking(move || {
+            blocking_runs_clone.fetch_add(1, Ordering::SeqCst);
+            2usize
+        });
+
+        cpu_task.detach();
+        blocking_task.detach();
+
+        executor.drain();
+
+        assert_eq!(cpu_runs.load(Ordering::SeqCst), 1);
+        assert_eq!(blocking_runs.load(Ordering::SeqCst), 1);
+        assert_eq!(executor.abort_calls.load(Ordering::SeqCst), 0);
+    }
+
+    #[test]
+    fn dropped_cpu_and_blocking_tasks_skip_queued_work() {
+        let executor = GatedExecutor::new();
+        let dyn_exec: Arc<dyn Executor> = Arc::clone(&executor) as Arc<dyn Executor>;
+        let handle = Handle::new(Arc::downgrade(&dyn_exec));
+
+        let cpu_runs = Arc::new(AtomicUsize::new(0));
+        let blocking_runs = Arc::new(AtomicUsize::new(0));
+
+        let cpu_runs_clone = Arc::clone(&cpu_runs);
+        let cpu_task = handle.spawn_cpu(move || {
+            cpu_runs_clone.fetch_add(1, Ordering::SeqCst);
+        });
+
+        let blocking_runs_clone = Arc::clone(&blocking_runs);
+        let blocking_task = handle.spawn_blocking(move || {
+            blocking_runs_clone.fetch_add(1, Ordering::SeqCst);
+        });
+
+        drop(cpu_task);
+        drop(blocking_task);
+
+        executor.drain();
+
+        assert_eq!(cpu_runs.load(Ordering::SeqCst), 0);
+        assert_eq!(blocking_runs.load(Ordering::SeqCst), 0);
+        assert_eq!(executor.abort_calls.load(Ordering::SeqCst), 2);
+    }
 
     // A task whose result channel closed without a value — the runtime dropped its future before
     // it sent a result — must report `Aborted`, so callers can treat a benign teardown as a

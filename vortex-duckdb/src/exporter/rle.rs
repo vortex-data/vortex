@@ -122,6 +122,7 @@ mod tests {
     use vortex::array::IntoArray;
     use vortex::array::VortexSessionExecute;
     use vortex::array::arrays::PrimitiveArray;
+    use vortex::array::optimizer::ArrayOptimizer;
     use vortex::encodings::fastlanes::RLEArray;
     use vortex::encodings::fastlanes::RLEData;
     use vortex::error::VortexResult;
@@ -168,7 +169,7 @@ mod tests {
     fn test_roundtrip_boundary() -> VortexResult<()> {
         let source: Vec<i32> = (0i32..2048).map(|i| i / 100).collect();
         let rle = encode_rle(source.clone())?;
-        let sliced = rle.into_array().slice(500..1700)?;
+        let sliced = rle.into_array().slice(500..1700)?.optimize_ctx(&*SESSION)?;
         let exported = export_flat(sliced, 1200)?;
         assert_eq!(exported, source[500..1700]);
         Ok(())
@@ -178,7 +179,10 @@ mod tests {
     fn test_roundtrip_slice() -> VortexResult<()> {
         let source: Vec<i32> = (0i32..3072).map(|i| i / 100).collect();
         let rle = encode_rle(source.clone())?;
-        let sliced = rle.into_array().slice(1200..2000)?;
+        let sliced = rle
+            .into_array()
+            .slice(1200..2000)?
+            .optimize_ctx(&*SESSION)?;
         let exported = export_flat(sliced, 800)?;
         assert_eq!(exported, source[1200..2000]);
         Ok(())
@@ -249,7 +253,10 @@ mod tests {
     #[test]
     fn test_chunk_slice() -> VortexResult<()> {
         let rle = two_chunk_rle()?;
-        let sliced = rle.into_array().slice(1500..1510)?;
+        let sliced = rle
+            .into_array()
+            .slice(1500..1510)?
+            .optimize_ctx(&*SESSION)?;
         let chunk_str = chunk_string(sliced, 0, 10)?;
         assert_eq!(
             chunk_str,

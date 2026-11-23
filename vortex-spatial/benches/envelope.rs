@@ -31,7 +31,7 @@ use vortex_array::dtype::session::DTypeSession;
 use vortex_array::memory::MemorySession;
 use vortex_array::optimizer::kernels::KernelSession;
 use vortex_array::scalar_fn::session::ScalarFnSession;
-use vortex_arrow::ArrowSession;
+use vortex_array::test_harness::mark_optimized;
 use vortex_edition::EditionSession;
 use vortex_edition::EnabledEditions;
 use vortex_expr::stats::session::StatsSession;
@@ -61,7 +61,6 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
         .with::<ScalarFnSession>()
         .with::<AggregateFnSession>()
         .with::<MemorySession>()
-        .with::<ArrowSession>()
         .with::<StatsSession>()
         .with::<EditionSession>()
         .with::<EnabledEditions>();
@@ -99,6 +98,8 @@ fn point_non_nullable(bencher: Bencher) {
     let xs = (0..ROWS).map(ordinate).collect();
     let ys = (0..ROWS).map(|i| ordinate(i + 1)).collect();
     let column = point_column(xs, ys).unwrap();
+    mark_optimized(&column, &SESSION).unwrap();
+
     let mut ctx = SESSION.create_execution_ctx();
     bencher
         .counter(ItemsCount::new(ROWS))
@@ -111,6 +112,8 @@ fn point_mixed_validity(bencher: Bencher) {
         .map(|i| (!i.is_multiple_of(10)).then(|| (ordinate(i), ordinate(i + 1))))
         .collect();
     let column = nullable_point_column(points).unwrap();
+    mark_optimized(&column, &SESSION).unwrap();
+
     let mut ctx = SESSION.create_execution_ctx();
     bencher
         .counter(ItemsCount::new(ROWS))
@@ -123,6 +126,8 @@ fn point_random_nulls(bencher: Bencher) {
         .map(|i| (!coin(i)).then(|| (ordinate(i), ordinate(i + 1))))
         .collect();
     let column = nullable_point_column(points).unwrap();
+    mark_optimized(&column, &SESSION).unwrap();
+
     let mut ctx = SESSION.create_execution_ctx();
     bencher
         .counter(ItemsCount::new(ROWS))
@@ -141,6 +146,8 @@ fn multipoint_non_nullable(bencher: Bencher) {
         })
         .collect();
     let column = multipoint_column(rows).unwrap();
+    mark_optimized(&column, &SESSION).unwrap();
+
     let mut ctx = SESSION.create_execution_ctx();
     bencher
         .counter(ItemsCount::new(ROWS))
@@ -164,6 +171,8 @@ fn multipolygon_row(r: usize) -> MultiPolygonRings {
 fn multipolygon_non_nullable(bencher: Bencher) {
     let rows = (0..ROWS).map(multipolygon_row).collect();
     let column = multipolygon_column(rows).unwrap();
+    mark_optimized(&column, &SESSION).unwrap();
+
     let mut ctx = SESSION.create_execution_ctx();
     bencher
         .counter(ItemsCount::new(ROWS))
@@ -176,6 +185,8 @@ fn multipolygon_mixed_validity(bencher: Bencher) {
         .map(|r| (!r.is_multiple_of(10)).then(|| multipolygon_row(r)))
         .collect();
     let column = nullable_multipolygon_column(rows).unwrap();
+    mark_optimized(&column, &SESSION).unwrap();
+
     let mut ctx = SESSION.create_execution_ctx();
     bencher
         .counter(ItemsCount::new(ROWS))
@@ -188,6 +199,8 @@ fn multipolygon_random_nulls(bencher: Bencher) {
         .map(|r| (!coin(r)).then(|| multipolygon_row(r)))
         .collect();
     let column = nullable_multipolygon_column(rows).unwrap();
+    mark_optimized(&column, &SESSION).unwrap();
+
     let mut ctx = SESSION.create_execution_ctx();
     bencher
         .counter(ItemsCount::new(ROWS))

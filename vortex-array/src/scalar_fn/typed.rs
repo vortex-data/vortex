@@ -19,9 +19,12 @@ use std::hash::Hasher;
 use std::sync::Arc;
 
 use vortex_error::VortexResult;
+use vortex_error::vortex_ensure;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
+use crate::IntoArray;
+use crate::arrays::ScalarFnArray;
 use crate::dtype::DType;
 use crate::expr::BoundExpression;
 use crate::expr::display::ExprDisplay;
@@ -31,6 +34,8 @@ use crate::scalar_fn::ChildName;
 use crate::scalar_fn::ExecutionArgs;
 use crate::scalar_fn::ExpressionReduceNode;
 use crate::scalar_fn::ReduceNodeValidity;
+use crate::scalar_fn::ScalarFnExecutionResult;
+use crate::scalar_fn::ScalarFnExecutionStep;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnRef;
 use crate::scalar_fn::ScalarFnVTable;
@@ -67,6 +72,32 @@ impl<V: ScalarFnVTable> TypedScalarFnInstance<V> {
     pub fn erased(self) -> ScalarFnRef {
         ScalarFnRef(Arc::new(self))
     }
+
+    fn check_result(&self, args: &dyn ExecutionArgs, result: &ArrayRef) -> VortexResult<()> {
+        assert_eq!(
+            result.len(),
+            args.row_count(),
+            "Expression execution {} returned vector of length {}, but expected {}",
+            self.vtable.id(),
+            result.len(),
+            args.row_count(),
+        );
+
+        if cfg!(debug_assertions) {
+            let args_dtypes: Vec<DType> = (0..args.num_inputs())
+                .map(|i| args.get(i).map(|a| a.dtype().clone()))
+                .collect::<VortexResult<_>>()?;
+            let expected_dtype = V::return_dtype(&self.vtable, &self.options, &args_dtypes)?;
+            vortex_error::vortex_ensure_eq!(
+                result.dtype(),
+                &expected_dtype,
+                "Expression execution {} returned vector of invalid dtype",
+                self.vtable.id(),
+            );
+        }
+
+        Ok(())
+    }
 }
 
 /// An object-safe, sealed trait for bound scalar function dispatch.
@@ -80,6 +111,11 @@ pub(super) trait DynScalarFn: 'static + Send + Sync + super::sealed::Sealed {
 
     // Bound methods — options accessed from self
     fn execute(&self, args: &dyn ExecutionArgs, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef>;
+    fn execute_step(
+        &self,
+        args: &dyn ExecutionArgs,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ScalarFnExecutionResult>;
     fn return_dtype(&self, arg_types: &[DType]) -> VortexResult<DType>;
     fn bind_options(&self, arg_types: &[DType]) -> VortexResult<Option<ScalarFnRef>>;
     fn reduce_expression<'a>(
@@ -133,36 +169,46 @@ impl<V: ScalarFnVTable> DynScalarFn for TypedScalarFnInstance<V> {
     }
 
     fn execute(&self, args: &dyn ExecutionArgs, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
-        let expected_row_count = args.row_count();
-        #[cfg(debug_assertions)]
-        let expected_dtype = {
-            let args_dtypes: Vec<DType> = (0..args.num_inputs())
-                .map(|i| args.get(i).map(|a| a.dtype().clone()))
-                .collect::<VortexResult<_>>()?;
-            V::return_dtype(&self.vtable, &self.options, &args_dtypes)
-        }?;
-
-        let result = V::execute(&self.vtable, &self.options, args, ctx)?;
-
-        assert_eq!(
-            result.len(),
-            expected_row_count,
-            "Expression execution {} returned vector of length {}, but expected {}",
-            self.vtable.id(),
-            result.len(),
-            expected_row_count,
-        );
-
-        #[cfg(debug_assertions)]
-        {
-            vortex_error::vortex_ensure_eq!(
-                result.dtype(),
-                &expected_dtype,
-                "Expression execution {} returned vector of invalid dtype",
-                self.vtable.id(),
-            );
+        match self.execute_step(args, ctx)?.into_step() {
+            ScalarFnExecutionStep::Done(result) => Ok(result),
+            // Take one executor step on the requested input and return this function lazily
+            // over it, leaving the rest of the work to whoever executes the result.
+            ScalarFnExecutionStep::ExecuteInput(idx, _) => {
+                let mut inputs = (0..args.num_inputs())
+                    .map(|i| args.get(i))
+                    .collect::<VortexResult<Vec<_>>>()?;
+                inputs[idx] = inputs[idx].clone().execute::<ArrayRef>(ctx)?;
+                let scalar_fn =
+                    TypedScalarFnInstance::new(self.vtable.clone(), self.options.clone()).erased();
+                let array = ScalarFnArray::try_new_with_len(scalar_fn, inputs, args.row_count())?;
+                Ok(array.into_array())
+            }
         }
+    }
 
+    fn execute_step(
+        &self,
+        args: &dyn ExecutionArgs,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ScalarFnExecutionResult> {
+        let result = V::execute_step(&self.vtable, &self.options, args, ctx)?;
+        match result.step() {
+            ScalarFnExecutionStep::Done(array) => self.check_result(args, array)?,
+            ScalarFnExecutionStep::ExecuteInput(idx, done) => {
+                vortex_ensure!(
+                    *idx < args.num_inputs(),
+                    "Scalar function {} requested input {idx}, but has {} inputs",
+                    self.vtable.id(),
+                    args.num_inputs(),
+                );
+                // Requesting an input that already matches would loop without progress.
+                vortex_ensure!(
+                    !done(&args.get(*idx)?),
+                    "Scalar function {} requested execution of input {idx}, which is already done",
+                    self.vtable.id(),
+                );
+            }
+        }
         Ok(result)
     }
 

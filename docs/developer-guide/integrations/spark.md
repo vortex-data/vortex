@@ -2,7 +2,11 @@
 
 The `vortex-spark` connector is built on Spark's file-source DataSource V2 framework. Shared
 sources compile into Spark 3.5/Scala 2.12, Spark 3.5/Scala 2.13, and Spark 4.0/Scala 2.13
-artifacts; the Spark 4 artifact is also tested on Spark 4.1.
+artifacts; the Spark 4 artifact is also tested on Spark 4.1, 4.2, and 4.3.
+
+The connector uses the public `vortex-jni` API: `Session`, `DataSource`, `Scan`, and
+`VortexWriter`, with the `NativeReadable` and `NativeWritable` I/O interfaces. The
+[Java quickstart](../../getting-started/java.md) describes that API.
 
 ## File-source integration
 
@@ -29,6 +33,18 @@ connector sees the same schemes and credentials as Spark's file index and commit
 
 Native arrays cross into Spark through the Arrow C Data Interface. Each partition reader owns its
 native scan, Arrow allocator, and exported batches and closes them at task completion.
+
+All readers and writers in a JVM share one native Vortex `Session`, held by
+`VortexSparkSession`. The session lives for the lifetime of the JVM. The `vortex.session.provider`
+option names a `VortexSessionProvider` class, so that the driver and the executors can use a
+custom session.
+
+## Writes
+
+`VortexFileFormat` and `VortexWrite` give Spark a `VortexOutputWriterFactory`, which creates a
+`VortexOutputWriter` for each file that Spark opens. Each writer converts its rows to Arrow batches and writes them to one Vortex file through
+a `VortexWriter` over a `HadoopWritable`. Spark's commit protocol names the files, opens one
+file for each partition directory that a task writes to, and commits or aborts the job.
 
 ## Pushdown and statistics
 

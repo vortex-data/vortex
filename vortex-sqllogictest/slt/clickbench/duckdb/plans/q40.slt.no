@@ -228,7 +228,7 @@ logical_opt [
                                 "EventDate"
                             ],
                             "Expressions": "count_star()",
-                            "Estimated Cardinality": "123686"
+                            "Estimated Cardinality": "180350"
                         }
                     }
                 ],
@@ -238,7 +238,7 @@ logical_opt [
                         "EventDate",
                         "PageViews"
                     ],
-                    "Estimated Cardinality": "123686"
+                    "Estimated Cardinality": "180350"
                 }
             }
         ],
@@ -293,7 +293,7 @@ physical_plan [
                         "#1"
                     ],
                     "Aggregates": "count_star()",
-                    "Estimated Cardinality": "123686"
+                    "Estimated Cardinality": "180350"
                 }
             }
         ],

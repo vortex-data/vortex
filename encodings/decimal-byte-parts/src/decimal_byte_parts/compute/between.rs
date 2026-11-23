@@ -7,17 +7,17 @@ use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ConstantArray;
-use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::scalar::PValue;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar::ScalarValue;
-use vortex_array::scalar_fn::fns::between::BetweenKernel;
-use vortex_array::scalar_fn::fns::between::BetweenOptions;
-use vortex_array::scalar_fn::fns::between::StrictComparison;
 use vortex_buffer::BitBuffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_functions::between::BetweenKernel;
+use vortex_functions::between::BetweenOptions;
+use vortex_functions::between::StrictComparison;
+use vortex_functions::builtins::ArrayFunctions;
 
 use crate::DecimalByteParts;
 use crate::decimal_byte_parts::DecimalBytePartsArraySlotsExt;
@@ -116,21 +116,22 @@ mod tests {
     use vortex_array::arrays::DecimalArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
-    use vortex_array::builtins::ArrayBuiltins;
     use vortex_array::dtype::DecimalDType;
     use vortex_array::dtype::Nullability;
     use vortex_array::scalar::DecimalValue;
     use vortex_array::scalar::Scalar;
-    use vortex_array::scalar_fn::fns::between::BetweenOptions;
-    use vortex_array::scalar_fn::fns::between::StrictComparison;
     use vortex_array::validity::Validity;
     use vortex_buffer::Buffer;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
+    use vortex_functions::between::BetweenOptions;
+    use vortex_functions::between::StrictComparison;
+    use vortex_functions::builtins::ArrayFunctions;
     use vortex_session::VortexSession;
 
     use crate::DecimalByteParts;
     use crate::decimal_byte_parts::testing::i128_parts;
+    use crate::decimal_byte_parts::testing::widen_msp;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
         let session = VortexSession::empty();
@@ -164,17 +165,21 @@ mod tests {
     ) -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
         let decimal_dtype = DecimalDType::new(10, 2);
-        let values = [100i32, 200, 300, 400, 500];
+        let values = buffer![100i32, 200, 300, 400, 500];
         let validity = Validity::from_iter([true, false, true, true, true]);
         let parts = DecimalByteParts::try_new(
-            PrimitiveArray::new(buffer![100i32, 200, 300, 400, 500], validity.clone()).into_array(),
+            widen_msp(
+                PrimitiveArray::new(values.clone(), validity.clone()).into_array(),
+                decimal_dtype,
+            )?,
             decimal_dtype,
         )?
         .into_array();
         let canonical = DecimalArray::new(
-            Buffer::from_iter(values.iter().map(|v| *v as i128)),
+            Buffer::from_iter(values.into_iter().map(i64::from)),
             decimal_dtype,
             validity,
+            &mut ctx,
         )
         .into_array();
 
@@ -203,9 +208,11 @@ mod tests {
     ) -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
         let decimal_dtype = DecimalDType::new(38, 2);
-        let parts =
-            DecimalByteParts::try_new(buffer![100i32, 200, 400].into_array(), decimal_dtype)?
-                .into_array();
+        let parts = DecimalByteParts::try_new(
+            widen_msp(buffer![100i32, 200, 400].into_array(), decimal_dtype)?,
+            decimal_dtype,
+        )?
+        .into_array();
 
         let actual = parts.between(
             bound(lower, decimal_dtype, 3),
@@ -221,7 +228,10 @@ mod tests {
         let mut ctx = SESSION.create_execution_ctx();
         let decimal_dtype = DecimalDType::new(38, 2);
         let parts = DecimalByteParts::try_new(
-            PrimitiveArray::from_option_iter([Some(100i32), None, Some(400)]).into_array(),
+            widen_msp(
+                PrimitiveArray::from_option_iter([Some(100i32), None, Some(400)]).into_array(),
+                decimal_dtype,
+            )?,
             decimal_dtype,
         )?
         .into_array();

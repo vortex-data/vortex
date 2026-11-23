@@ -20,7 +20,7 @@ use crate::arrays::VarBinViewArray;
 use crate::arrays::varbinview::BinaryView;
 use crate::dtype::DType;
 use crate::scalar::Scalar;
-use crate::scalar_fn::fns::fill_null::FillNullKernel;
+use crate::scalar_fn::builtin::fill_null::FillNullKernel;
 use crate::validity::Validity;
 
 // Points every null row at one view of the fill value. The data buffers are reused as they are,
@@ -59,9 +59,7 @@ impl FillNullKernel for VarBinView {
         }
 
         let mut views = BufferMut::copy_from_in(array.views(), ctx.allocator().clone());
-        for (start, end) in is_invalid.set_slices() {
-            views[start..end].fill(fill_view);
-        }
+        views.fill_where::<true>(&is_invalid, fill_view);
 
         let nullability = fill_value.dtype().nullability();
         // SAFETY: the views of valid rows are unchanged. Null rows now hold the fill value's view,

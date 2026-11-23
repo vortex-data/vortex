@@ -14,9 +14,17 @@ from typing import final
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn
 
-from ..config import BENCHMARK_SCAN_V2, Benchmark, Engine, Format
+from ..config import Benchmark, Engine, Format, Integration, ScanEngine, default_scan_engine
 
 console = Console()
+
+# Arguments each backend's binary takes to run an integration. A DuckDB datasource target needs an
+# entry here once DuckDB has a `DataSource` table function.
+INTEGRATION_ARGS: dict[tuple[Engine, Integration], list[str]] = {
+    (Engine.DATAFUSION, Integration.FILE): [],
+    (Engine.DUCKDB, Integration.FILE): [],
+    (Engine.DATAFUSION, Integration.DATASOURCE): ["--scan-api", "true"],
+}
 
 
 @final
@@ -41,8 +49,14 @@ class BenchmarkExecutor:
         tracing: bool = False,
         runner: str | None = None,
         ingest_output: Path | None = None,
+        integration: Integration = Integration.FILE,
+        scan: ScanEngine | None = None,
     ) -> list[str]:
-        """Build the command used to execute a benchmark binary."""
+        """Build the command used to execute a benchmark binary.
+
+        `scan` selects the Vortex scan engine; without one the binary runs the suite's default.
+        """
+        self._check_integration(integration)
         cmd = [
             str(self.binary_path),
             benchmark.value,
@@ -55,7 +69,9 @@ class BenchmarkExecutor:
 
         if self.backend in {Engine.DATAFUSION, Engine.DUCKDB}:
             cmd.extend(["--formats", ",".join(fmt.value for fmt in formats)])
-            cmd.extend(["--scan-v2", str(BENCHMARK_SCAN_V2[benchmark]).lower()])
+            scan = scan if scan is not None else default_scan_engine(benchmark)
+            cmd.extend(["--scan-v1", str(scan is ScanEngine.V1).lower()])
+            cmd.extend(INTEGRATION_ARGS.get((self.backend, integration), []))
         if self.backend == Engine.DUCKDB:
             cmd.append("--delete-duckdb-database")
 
@@ -86,6 +102,32 @@ class BenchmarkExecutor:
             cmd.append("--reuse")
 
         return cmd
+
+    def _check_integration(self, integration: Integration) -> None:
+        if self.backend is not Engine.LANCE and (self.backend, integration) not in INTEGRATION_ARGS:
+            raise ValueError(f"{self.backend.value} cannot run the {integration.value} integration")
+
+    def write_data(self, benchmark: Benchmark, options: dict[str, str] | None = None) -> None:
+        """Write the data this backend's queries read, without running a query.
+
+        Only `lance-bench` writes its own data: it converts the base Parquet files to Lance on its
+        first run. The run loop drops the OS caches before each query, so without this step the
+        first Lance query would read files that the conversion just left in the page cache.
+        """
+        if self.backend is not Engine.LANCE:
+            return
+        cmd = [str(self.binary_path), benchmark.value, "--data-only"]
+        for key, value in (options or {}).items():
+            cmd.extend(["--opt", f"{key}={value}"])
+
+        if self.verbose:
+            console.print(f"[dim]$ {' '.join(cmd)}[/dim]")
+
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        if result.returncode != 0:
+            raise RuntimeError(
+                f"Failed to write {self.backend.value} data for {benchmark.value}: {result.stderr.strip()}"
+            )
 
     def list_queries(
         self,
@@ -125,6 +167,8 @@ class BenchmarkExecutor:
         runner: str | None = None,
         ingest_output: Path | None = None,
         on_result: Callable[[str], None] | None = None,
+        integration: Integration = Integration.FILE,
+        scan: ScanEngine | None = None,
     ) -> list[str]:
         """
         Run benchmark and return results as JSON lines.
@@ -136,6 +180,8 @@ class BenchmarkExecutor:
             iterations: Number of runs per query
             options: Additional options (e.g., scale_factor)
             track_memory: Enable memory tracking
+            integration: How the engine reaches Vortex files
+            scan: The Vortex scan engine, or None for the suite's default
             on_result: Callback for each result line (for streaming)
 
         Returns:
@@ -153,6 +199,8 @@ class BenchmarkExecutor:
             tracing=tracing,
             runner=runner,
             ingest_output=ingest_output,
+            integration=integration,
+            scan=scan,
         )
 
         if self.verbose:

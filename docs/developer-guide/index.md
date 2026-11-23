@@ -1,4 +1,4 @@
-# Developer Guide
+# Developer guide
 
 Guide for extending, embedding, and contributing to the Vortex ecosystem.
 

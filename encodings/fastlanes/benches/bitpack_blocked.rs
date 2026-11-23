@@ -15,6 +15,7 @@ use vortex_array::aggregate_fn::session::AggregateFnSession;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::optimizer::kernels::KernelSession;
 use vortex_array::session::ArraySession;
+use vortex_array::test_harness::mark_optimized;
 use vortex_fastlanes::bitpack_compress::bitpack_encode_blocked;
 use vortex_session::VortexSession;
 
@@ -54,6 +55,7 @@ fn bitpack_blocked_compress(bencher: Bencher) {
     let array = PrimitiveArray::from_iter(bit_widths.iter().flat_map(|&bit_width| {
         (0..1024u32).map(move |i| i.wrapping_mul(7919) & ((1 << bit_width) - 1))
     }));
+    mark_optimized(array.as_array(), &SESSION).unwrap();
 
     bencher.counter(ItemsCount::new(array.len())).bench(|| {
         bitpack_encode_blocked(

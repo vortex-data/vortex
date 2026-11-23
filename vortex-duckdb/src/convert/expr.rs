@@ -27,10 +27,12 @@ use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::error::vortex_ensure_eq;
 use vortex::expr::Expression;
+use vortex::expr::and;
 use vortex::expr::and_collect;
 use vortex::expr::byte_length;
 use vortex::expr::cast;
 use vortex::expr::col;
+use vortex::expr::eq;
 use vortex::expr::get_item;
 use vortex::expr::in_list_of;
 use vortex::expr::is_not_null;
@@ -38,20 +40,21 @@ use vortex::expr::is_null;
 use vortex::expr::list_length;
 use vortex::expr::lit;
 use vortex::expr::not;
+use vortex::expr::or;
 use vortex::expr::or_collect;
 use vortex::expr::root;
+use vortex::functions::between::Between;
+use vortex::functions::between::BetweenOptions;
+use vortex::functions::between::StrictComparison;
+use vortex::functions::like::Like;
+use vortex::functions::like::LikeOptions;
 use vortex::layout::layouts::row_idx::row_idx;
 use vortex::scalar::Scalar;
 use vortex::scalar_fn::EmptyOptions as ScalarEmptyOptions;
 use vortex::scalar_fn::ScalarFnVTableExt;
-use vortex::scalar_fn::fns::between::Between;
-use vortex::scalar_fn::fns::between::BetweenOptions;
-use vortex::scalar_fn::fns::between::StrictComparison;
-use vortex::scalar_fn::fns::binary::Binary;
-use vortex::scalar_fn::fns::like::Like;
-use vortex::scalar_fn::fns::like::LikeOptions;
-use vortex::scalar_fn::fns::literal::Literal;
-use vortex::scalar_fn::fns::operators::Operator;
+use vortex::scalar_fn::builtin::binary::Binary;
+use vortex::scalar_fn::builtin::literal::Literal;
+use vortex::scalar_fn::builtin::operators::Operator;
 use vortex_spatial::extension::LineString;
 use vortex_spatial::extension::MultiLineString;
 use vortex_spatial::extension::MultiPoint;
@@ -104,6 +107,18 @@ fn string_matcher_pattern(children: &[&ExpressionRef]) -> Option<String> {
         }
         _ => None,
     }
+}
+
+/// Escape each of `chars` in `pattern` with `\`, the escape character of Vortex LIKE.
+fn escape_like(pattern: &str, chars: &[char]) -> String {
+    let mut escaped = String::with_capacity(pattern.len());
+    for c in pattern.chars() {
+        if chars.contains(&c) {
+            escaped.push('\\');
+        }
+        escaped.push(c);
+    }
+    escaped
 }
 
 /// Whether the expression's return type is a `LIST` or fixed-size `ARRAY`.
@@ -312,17 +327,17 @@ fn try_from_bound_function(
         like @ ("~~" | "!~~") => {
             let children: Vec<_> = func.children().collect();
             vortex_ensure_eq!(children.len(), 2);
-            let Some(string) = try_from_expression_inner(children[0], ctx)? else {
+            let Some(pattern) = from_bound_str(children[1]) else {
                 return Ok(None);
             };
-            let Some(target) = try_from_expression_inner(children[1], ctx)? else {
+            let Some(string) = try_from_expression_inner(children[0], ctx)? else {
                 return Ok(None);
             };
             let opts = LikeOptions {
                 negated: like == "!~~",
                 case_insensitive: false,
             };
-            Like.new_expr(opts, [string, target])
+            Like.new_expr(opts, [string, lit(escape_like(&pattern, &['\\']))])
         }
         matchers @ ("contains" | "prefix" | "suffix") => {
             let children: Vec<_> = func.children().collect();
@@ -332,6 +347,7 @@ fn try_from_bound_function(
             let Some(value) = try_from_expression_inner(children[0], ctx)? else {
                 return Ok(None);
             };
+            let pattern = escape_like(&pattern, &['%', '_', '\\']);
             let pattern = match matchers {
                 "contains" => format!("%{pattern}%"),
                 "prefix" => format!("{pattern}%"),
@@ -410,6 +426,17 @@ fn is_supported_length_alias(func: &BoundFunction) -> bool {
     children.len() == 1 && returns_a_list(children[0])
 }
 
+/// Lower `IS NOT DISTINCT FROM`, which unlike `=` is never NULL.
+fn not_distinct_from(left: Expression, right: Expression) -> Expression {
+    // TODO(ayush): use NULL-safe equality once `eq` has a mode for it.
+    let both_null = and(is_null(left.clone()), is_null(right.clone()));
+    let both_equal = and(
+        and(is_not_null(left.clone()), is_not_null(right.clone())),
+        eq(left, right),
+    );
+    or(both_null, both_equal)
+}
+
 // We limit casting to Primitive types, because some conversions yield an error
 // like vortex.date[days](i32) -> vortex.timestamp[µs](i64?). However, when we
 // push down the cast, we don't have access to column's dtype, so we need to
@@ -459,7 +486,8 @@ pub fn can_push_expression(value: &ExpressionRef) -> bool {
         ExpressionClass::BoundFunction(func) => {
             let children: Vec<_> = func.children().collect();
             let supported = match func.scalar_function.name() {
-                "~~" | "!~~" | "strlen" => true,
+                "~~" | "!~~" => children.len() == 2 && from_bound_str(children[1]).is_some(),
+                "strlen" => true,
                 "struct_extract" => children.len() == 2 && from_bound_str(children[1]).is_some(),
                 "contains" | "prefix" | "suffix" => string_matcher_pattern(&children).is_some(),
                 "array_length" => children.len() == 1,
@@ -669,8 +697,6 @@ fn try_from_expression_inner(
         }
         BoundConstant(const_) => lit(Scalar::try_from(const_.value)?),
         BoundComparison(compare) => {
-            let operator: Operator = compare.op.try_into()?;
-
             let Some(left) = try_from_expression_inner(compare.left, ctx)? else {
                 return Ok(None);
             };
@@ -678,7 +704,15 @@ fn try_from_expression_inner(
                 return Ok(None);
             };
 
-            Binary.new_expr(operator, [left, right])
+            match compare.op {
+                DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_COMPARE_NOT_DISTINCT_FROM => {
+                    not_distinct_from(left, right)
+                }
+                DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_COMPARE_DISTINCT_FROM => {
+                    not(not_distinct_from(left, right))
+                }
+                op => Binary.new_expr(Operator::try_from(op)?, [left, right]),
+            }
         }
         BoundBetween(between) => {
             let Some(array) = try_from_expression_inner(between.input, ctx)? else {

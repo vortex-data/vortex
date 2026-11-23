@@ -827,6 +827,32 @@ impl PType {
         self.byte_width() * 8
     }
 
+    /// Returns whether every value of this type is representable in `to` without loss.
+    pub(crate) fn casts_losslessly_to(self, to: Self) -> bool {
+        if self == to {
+            return true;
+        }
+        if (self.is_unsigned_int() && to.is_unsigned_int())
+            || (self.is_signed_int() && to.is_signed_int())
+            || (self.is_float() && to.is_float())
+        {
+            return self.byte_width() <= to.byte_width();
+        }
+        if self.is_unsigned_int() && to.is_signed_int() {
+            return self.byte_width() < to.byte_width();
+        }
+        if self.is_int() && to.is_float() {
+            let minimum_float_width = match self.byte_width() {
+                1 => 2,
+                2 => 4,
+                4 => 8,
+                _ => return false,
+            };
+            return to.byte_width() >= minimum_float_width;
+        }
+        false
+    }
+
     /// Returns the maximum value of this PType if it is an integer type
     /// Returns `u64::MAX` if the value is too large to fit in a `u64`
     #[inline]
@@ -991,8 +1017,7 @@ macro_rules! try_from_bytes {
         impl ToBytes for $T {
             #[inline]
             fn to_le_bytes(&self) -> &[u8] {
-                // NOTE(ngates): this assumes the platform is little-endian. Currently enforced
-                //  with a flag cfg(target_endian = "little")
+                // The crate requires a little-endian target, so native byte order is sufficient.
                 let raw_ptr = (self as *const $T).cast::<u8>();
                 unsafe { std::slice::from_raw_parts(raw_ptr, std::mem::size_of::<$T>()) }
             }

@@ -7,15 +7,15 @@ use std::ptr;
 
 use vortex_array::expr::BoundExpression;
 use vortex_array::scalar_fn::ScalarFnVTableExt;
-use vortex_array::scalar_fn::fns::between::Between;
-use vortex_array::scalar_fn::fns::between::BetweenOptions;
-use vortex_array::scalar_fn::fns::between::StrictComparison;
-use vortex_array::scalar_fn::fns::binary::Binary;
-use vortex_array::scalar_fn::fns::get_item::GetItem;
-use vortex_array::scalar_fn::fns::literal::Literal;
-use vortex_array::scalar_fn::fns::operators::Operator;
+use vortex_array::scalar_fn::builtin::binary::Binary;
+use vortex_array::scalar_fn::builtin::get_item::GetItem;
+use vortex_array::scalar_fn::builtin::literal::Literal;
+use vortex_array::scalar_fn::builtin::operators::Operator;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_functions::between::Between;
+use vortex_functions::between::BetweenOptions;
+use vortex_functions::between::StrictComparison;
 
 /// Merge pairs of range comparisons on the same column within any conjunction of `expr` into a
 /// single [`Between`].
@@ -228,7 +228,6 @@ mod tests {
     use vortex_array::dtype::StructFields;
     use vortex_array::expr::Expression;
     use vortex_array::expr::and;
-    use vortex_array::expr::between;
     use vortex_array::expr::col;
     use vortex_array::expr::gt;
     use vortex_array::expr::gt_eq;
@@ -237,10 +236,11 @@ mod tests {
     use vortex_array::expr::lt_eq;
     use vortex_array::expr::or;
     use vortex_array::scalar::Scalar;
-    use vortex_array::scalar_fn::fns::between::BetweenOptions;
-    use vortex_array::scalar_fn::fns::between::StrictComparison;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
+    use vortex_functions::between::BetweenOptions;
+    use vortex_functions::between::StrictComparison;
+    use vortex_functions::expr::between;
     use vortex_session::VortexSession;
 
     use super::find_between;

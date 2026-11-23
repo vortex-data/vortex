@@ -32,7 +32,7 @@ val scalaVersion =
 // Later Spark 4 releases run the Spark 4.0 module's tests against its jar to catch binary breaks.
 val sparkCompatVersions =
     if (sparkLine == "4.0") {
-        listOf("4.1" to "spark41", "4.2" to "spark42").map { (line, alias) ->
+        listOf("4.1" to "spark41", "4.2" to "spark42", "4.3" to "spark43").map { (line, alias) ->
             line to libs.findVersion(alias).get().requiredVersion
         }
     } else {
@@ -159,6 +159,12 @@ testing {
                             versionSourceDir.resolve("test/java"),
                         ),
                     )
+                    scala.setSrcDirs(
+                        listOf(
+                            commonSourceDir.resolve("test/scala"),
+                            versionSourceDir.resolve("test/scala"),
+                        ),
+                    )
                     resources.setSrcDirs(
                         listOf(
                             commonSourceDir.resolve("test/resources"),
@@ -243,6 +249,8 @@ val sparkJvmArgs =
         "--add-opens=java.base/java.nio=ALL-UNNAMED",
         "--add-opens=java.base/sun.util.calendar=ALL-UNNAMED",
         "--add-opens=java.base/sun.security.action=ALL-UNNAMED",
+        // Spark 4.2's SerializationDebugger fails to initialize without it when a task failure won't serialize.
+        "--add-opens=java.base/java.io=ALL-UNNAMED",
     )
 
 tasks.withType<Test>().configureEach {

@@ -450,62 +450,62 @@ logical_opt [
                                                                                 }
                                                                             },
                                                                             {
-                                                                                "name": "READ_VORTEX",
-                                                                                "children": [],
+                                                                                "name": "COMPARISON_JOIN",
+                                                                                "children": [
+                                                                                    {
+                                                                                        "name": "READ_VORTEX",
+                                                                                        "children": [],
+                                                                                        "extra_info": {
+                                                                                            "Filters": "",
+                                                                                            "Function": "Vortex Scan",
+                                                                                            "Estimated Cardinality": "23925"
+                                                                                        }
+                                                                                    },
+                                                                                    {
+                                                                                        "name": "READ_VORTEX",
+                                                                                        "children": [],
+                                                                                        "extra_info": {
+                                                                                            "Filters": [
+                                                                                                "($.d_year = 2001i32)",
+                                                                                                "($.d_moy = 8i32)",
+                                                                                                "(2450822i32 <= $.d_date_sk <= 2452817i32)"
+                                                                                            ],
+                                                                                            "Function": "Vortex Scan",
+                                                                                            "Estimated Cardinality": "14609"
+                                                                                        }
+                                                                                    }
+                                                                                ],
                                                                                 "extra_info": {
-                                                                                    "Filters": "",
-                                                                                    "Function": "Vortex Scan",
-                                                                                    "Estimated Cardinality": "2"
+                                                                                    "Join Type": "INNER",
+                                                                                    "Conditions": "(sr_returned_date_sk = d_date_sk)",
+                                                                                    "Estimated Cardinality": "4784"
                                                                                 }
                                                                             }
                                                                         ],
                                                                         "extra_info": {
                                                                             "Join Type": "INNER",
-                                                                            "Conditions": "(ss_store_sk = s_store_sk)",
-                                                                            "Estimated Cardinality": "240485"
+                                                                            "Conditions": [
+                                                                                "(ss_ticket_number = sr_ticket_number)",
+                                                                                "(ss_item_sk = sr_item_sk)",
+                                                                                "(ss_customer_sk = sr_customer_sk)"
+                                                                            ],
+                                                                            "Estimated Cardinality": "48094"
                                                                         }
                                                                     },
                                                                     {
-                                                                        "name": "COMPARISON_JOIN",
-                                                                        "children": [
-                                                                            {
-                                                                                "name": "READ_VORTEX",
-                                                                                "children": [],
-                                                                                "extra_info": {
-                                                                                    "Filters": "",
-                                                                                    "Function": "Vortex Scan",
-                                                                                    "Estimated Cardinality": "23925"
-                                                                                }
-                                                                            },
-                                                                            {
-                                                                                "name": "READ_VORTEX",
-                                                                                "children": [],
-                                                                                "extra_info": {
-                                                                                    "Filters": [
-                                                                                        "($.d_year = 2001i32)",
-                                                                                        "($.d_moy = 8i32)",
-                                                                                        "(2450822i32 <= $.d_date_sk <= 2452817i32)"
-                                                                                    ],
-                                                                                    "Function": "Vortex Scan",
-                                                                                    "Estimated Cardinality": "14609"
-                                                                                }
-                                                                            }
-                                                                        ],
+                                                                        "name": "READ_VORTEX",
+                                                                        "children": [],
                                                                         "extra_info": {
-                                                                            "Join Type": "INNER",
-                                                                            "Conditions": "(sr_returned_date_sk = d_date_sk)",
-                                                                            "Estimated Cardinality": "23925"
+                                                                            "Filters": "",
+                                                                            "Function": "Vortex Scan",
+                                                                            "Estimated Cardinality": "2"
                                                                         }
                                                                     }
                                                                 ],
                                                                 "extra_info": {
                                                                     "Join Type": "INNER",
-                                                                    "Conditions": [
-                                                                        "(ss_ticket_number = sr_ticket_number)",
-                                                                        "(ss_item_sk = sr_item_sk)",
-                                                                        "(ss_customer_sk = sr_customer_sk)"
-                                                                    ],
-                                                                    "Estimated Cardinality": "240485"
+                                                                    "Conditions": "(ss_store_sk = s_store_sk)",
+                                                                    "Estimated Cardinality": "48094"
                                                                 }
                                                             },
                                                             {
@@ -521,7 +521,7 @@ logical_opt [
                                                         "extra_info": {
                                                             "Join Type": "INNER",
                                                             "Conditions": "(ss_sold_date_sk = d_date_sk)",
-                                                            "Estimated Cardinality": "240485"
+                                                            "Estimated Cardinality": "48094"
                                                         }
                                                     }
                                                 ],
@@ -539,7 +539,7 @@ logical_opt [
                                                         "s_zip",
                                                         "(sr_returned_date_sk - ss_sold_date_sk)"
                                                     ],
-                                                    "Estimated Cardinality": "240485"
+                                                    "Estimated Cardinality": "48094"
                                                 }
                                             }
                                         ],
@@ -557,7 +557,7 @@ logical_opt [
                                                 "#9",
                                                 "#10"
                                             ],
-                                            "Estimated Cardinality": "240485"
+                                            "Estimated Cardinality": "48094"
                                         }
                                     }
                                 ],
@@ -680,80 +680,80 @@ physical_plan [
                                                                                 }
                                                                             },
                                                                             {
-                                                                                "name": "READ_VORTEX",
-                                                                                "children": [],
+                                                                                "name": "HASH_JOIN",
+                                                                                "children": [
+                                                                                    {
+                                                                                        "name": "READ_VORTEX",
+                                                                                        "children": [],
+                                                                                        "extra_info": {
+                                                                                            "Function": "Vortex Scan",
+                                                                                            "Projections": [
+                                                                                                "sr_returned_date_sk",
+                                                                                                "sr_item_sk",
+                                                                                                "sr_customer_sk",
+                                                                                                "sr_ticket_number"
+                                                                                            ],
+                                                                                            "Estimated Cardinality": "23925"
+                                                                                        }
+                                                                                    },
+                                                                                    {
+                                                                                        "name": "READ_VORTEX",
+                                                                                        "children": [],
+                                                                                        "extra_info": {
+                                                                                            "Function": "Vortex Scan",
+                                                                                            "Filters": [
+                                                                                                "($.d_year = 2001i32)",
+                                                                                                "($.d_moy = 8i32)",
+                                                                                                "(2450822i32 <= $.d_date_sk <= 2452817i32)"
+                                                                                            ],
+                                                                                            "Projections": "d_date_sk",
+                                                                                            "Estimated Cardinality": "14609"
+                                                                                        }
+                                                                                    }
+                                                                                ],
                                                                                 "extra_info": {
-                                                                                    "Function": "Vortex Scan",
-                                                                                    "Projections": [
-                                                                                        "s_store_sk",
-                                                                                        "s_store_name",
-                                                                                        "s_company_id",
-                                                                                        "s_street_number",
-                                                                                        "s_street_name",
-                                                                                        "s_street_type",
-                                                                                        "s_suite_number",
-                                                                                        "s_city",
-                                                                                        "s_county",
-                                                                                        "s_state",
-                                                                                        "s_zip"
-                                                                                    ],
-                                                                                    "Estimated Cardinality": "2"
+                                                                                    "Join Type": "INNER",
+                                                                                    "Conditions": "sr_returned_date_sk = d_date_sk",
+                                                                                    "Estimated Cardinality": "4784"
                                                                                 }
                                                                             }
                                                                         ],
                                                                         "extra_info": {
                                                                             "Join Type": "INNER",
-                                                                            "Conditions": "ss_store_sk = s_store_sk",
-                                                                            "Estimated Cardinality": "240485"
+                                                                            "Conditions": [
+                                                                                "ss_ticket_number = sr_ticket_number",
+                                                                                "ss_item_sk = sr_item_sk",
+                                                                                "ss_customer_sk = sr_customer_sk"
+                                                                            ],
+                                                                            "Estimated Cardinality": "48094"
                                                                         }
                                                                     },
                                                                     {
-                                                                        "name": "HASH_JOIN",
-                                                                        "children": [
-                                                                            {
-                                                                                "name": "READ_VORTEX",
-                                                                                "children": [],
-                                                                                "extra_info": {
-                                                                                    "Function": "Vortex Scan",
-                                                                                    "Projections": [
-                                                                                        "sr_returned_date_sk",
-                                                                                        "sr_item_sk",
-                                                                                        "sr_customer_sk",
-                                                                                        "sr_ticket_number"
-                                                                                    ],
-                                                                                    "Estimated Cardinality": "23925"
-                                                                                }
-                                                                            },
-                                                                            {
-                                                                                "name": "READ_VORTEX",
-                                                                                "children": [],
-                                                                                "extra_info": {
-                                                                                    "Function": "Vortex Scan",
-                                                                                    "Filters": [
-                                                                                        "($.d_year = 2001i32)",
-                                                                                        "($.d_moy = 8i32)",
-                                                                                        "(2450822i32 <= $.d_date_sk <= 2452817i32)"
-                                                                                    ],
-                                                                                    "Projections": "d_date_sk",
-                                                                                    "Estimated Cardinality": "14609"
-                                                                                }
-                                                                            }
-                                                                        ],
+                                                                        "name": "READ_VORTEX",
+                                                                        "children": [],
                                                                         "extra_info": {
-                                                                            "Join Type": "INNER",
-                                                                            "Conditions": "sr_returned_date_sk = d_date_sk",
-                                                                            "Estimated Cardinality": "23925"
+                                                                            "Function": "Vortex Scan",
+                                                                            "Projections": [
+                                                                                "s_store_sk",
+                                                                                "s_store_name",
+                                                                                "s_company_id",
+                                                                                "s_street_number",
+                                                                                "s_street_name",
+                                                                                "s_street_type",
+                                                                                "s_suite_number",
+                                                                                "s_city",
+                                                                                "s_county",
+                                                                                "s_state",
+                                                                                "s_zip"
+                                                                            ],
+                                                                            "Estimated Cardinality": "2"
                                                                         }
                                                                     }
                                                                 ],
                                                                 "extra_info": {
                                                                     "Join Type": "INNER",
-                                                                    "Conditions": [
-                                                                        "ss_ticket_number = sr_ticket_number",
-                                                                        "ss_item_sk = sr_item_sk",
-                                                                        "ss_customer_sk = sr_customer_sk"
-                                                                    ],
-                                                                    "Estimated Cardinality": "240485"
+                                                                    "Conditions": "ss_store_sk = s_store_sk",
+                                                                    "Estimated Cardinality": "48094"
                                                                 }
                                                             },
                                                             {
@@ -770,7 +770,7 @@ physical_plan [
                                                         "extra_info": {
                                                             "Join Type": "INNER",
                                                             "Conditions": "ss_sold_date_sk = d_date_sk",
-                                                            "Estimated Cardinality": "240485"
+                                                            "Estimated Cardinality": "48094"
                                                         }
                                                     }
                                                 ],
@@ -788,7 +788,7 @@ physical_plan [
                                                         "s_zip",
                                                         "(sr_returned_date_sk - ss_sold_date_sk)"
                                                     ],
-                                                    "Estimated Cardinality": "240485"
+                                                    "Estimated Cardinality": "48094"
                                                 }
                                             }
                                         ],
@@ -806,7 +806,7 @@ physical_plan [
                                                 "#9",
                                                 "#10"
                                             ],
-                                            "Estimated Cardinality": "240485"
+                                            "Estimated Cardinality": "48094"
                                         }
                                     }
                                 ],
@@ -828,7 +828,7 @@ physical_plan [
                                         "CASE  WHEN (((#10 > 90) AND (#10 <= 120))) THEN (1) ELSE 0 END",
                                         "CASE  WHEN ((#10 > 120)) THEN (1) ELSE 0 END"
                                     ],
-                                    "Estimated Cardinality": "240485"
+                                    "Estimated Cardinality": "48094"
                                 }
                             }
                         ],
