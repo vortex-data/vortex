@@ -36,10 +36,10 @@ use crate::dtype::DType;
 use crate::dtype::NativePType;
 use crate::match_each_native_ptype;
 use crate::scalar::Scalar;
-use crate::scalar_fn::fns::binary::CompareKernel;
-use crate::scalar_fn::fns::binary::scalar_cmp;
-use crate::scalar_fn::fns::operators::CompareOperator;
-use crate::scalar_fn::fns::operators::Operator;
+use crate::scalar_fn::builtin::binary::CompareKernel;
+use crate::scalar_fn::builtin::binary::scalar_cmp;
+use crate::scalar_fn::builtin::operators::CompareOperator;
+use crate::scalar_fn::builtin::operators::Operator;
 use crate::validity::Validity;
 
 impl CompareKernel for Patched {
@@ -257,7 +257,7 @@ mod tests {
     use crate::builtins::ArrayBuiltins;
     use crate::optimizer::ArrayOptimizer;
     use crate::patches::Patches;
-    use crate::scalar_fn::fns::operators::Operator;
+    use crate::scalar_fn::builtin::operators::Operator;
     use crate::validity::Validity;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);

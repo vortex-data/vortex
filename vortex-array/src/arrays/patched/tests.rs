@@ -31,7 +31,7 @@ use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::optimizer::ArrayOptimizer;
 use crate::scalar::Scalar;
-use crate::scalar_fn::fns::operators::Operator;
+use crate::scalar_fn::builtin::operators::Operator;
 use crate::validity::Validity;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);

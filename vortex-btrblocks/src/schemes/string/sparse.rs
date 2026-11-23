@@ -10,6 +10,7 @@ use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VTable;
 use vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::uncompressed_size_in_bytes;
+use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::Patched;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
@@ -187,18 +188,26 @@ impl PatchingScheme for NullDominatedSparseScheme {
         let sparse_encoded = Sparse::encode(data.array(), None, exec_ctx)?;
 
         if let Some(sparse) = sparse_encoded.as_opt::<Sparse>() {
+            // The values are the valid strings alone, so the other string schemes apply to them.
             if patched {
                 return sparse_to_patched(
                     compressor,
                     &compress_ctx,
                     self.id(),
                     sparse,
-                    0,
-                    None,
+                    1,
+                    Some(0),
                     exec_ctx,
                 );
             }
-            // Compress the indices only (not the values for strings).
+            let compressed_values = compressor.compress_child(
+                sparse.patches().values(),
+                &compress_ctx,
+                self.id(),
+                0,
+                exec_ctx,
+            )?;
+
             let indices = sparse
                 .patches()
                 .indices()

@@ -12,7 +12,9 @@ use rstest::rstest;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::Dict;
+use vortex_array::arrays::Patched;
 use vortex_array::arrays::VarBinViewArray;
+use vortex_array::arrays::patched::PatchedArraySlotsExt;
 use vortex_array::assert_arrays_eq;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
@@ -229,9 +231,15 @@ fn test_null_dominated_repeated_values_sparse_over_dict() -> VortexResult<()> {
         .build()
         .compress(&array, &mut ctx)?;
 
-    let sparse = compressed.as_opt::<Sparse>();
+    // An unrestricted compressor writes the sparse values as a patched array over nulls.
+    let values = match compressed.as_opt::<Patched>() {
+        Some(patched) => Some(patched.patch_values().clone()),
+        None => compressed
+            .as_opt::<Sparse>()
+            .map(|sparse| sparse.patches().values().clone()),
+    };
     assert!(
-        sparse.is_some_and(|sparse| sparse.patches().values().is::<Dict>()),
+        values.is_some_and(|values| values.is::<Dict>()),
         "{}",
         compressed.display_tree()
     );

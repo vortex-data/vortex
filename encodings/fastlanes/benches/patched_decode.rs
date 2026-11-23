@@ -22,7 +22,7 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::memory::MemorySession;
 use vortex_array::optimizer::kernels::KernelSession;
-use vortex_array::scalar_fn::fns::operators::Operator;
+use vortex_array::scalar_fn::builtin::operators::Operator;
 use vortex_array::session::ArraySession;
 use vortex_array::test_harness::mark_decoded;
 use vortex_fastlanes::BitPacked;

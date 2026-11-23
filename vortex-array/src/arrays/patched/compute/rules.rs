@@ -23,12 +23,12 @@ use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::optimizer::kernels::ArrayKernelsExt;
 use crate::optimizer::rules::ArrayParentReduceRule;
-use crate::scalar_fn::fns::binary::Binary;
-use crate::scalar_fn::fns::cast::Cast;
-use crate::scalar_fn::fns::cast::CastKernel;
-use crate::scalar_fn::fns::cast::CastReduce;
-use crate::scalar_fn::fns::cast::CastReduceAdaptor;
-use crate::scalar_fn::fns::pack::Pack;
+use crate::scalar_fn::builtin::binary::Binary;
+use crate::scalar_fn::builtin::cast::Cast;
+use crate::scalar_fn::builtin::cast::CastKernel;
+use crate::scalar_fn::builtin::cast::CastReduce;
+use crate::scalar_fn::builtin::cast::CastReduceAdaptor;
+use crate::scalar_fn::builtin::pack::Pack;
 
 pub(crate) fn register_parent_rules(session: &VortexSession) {
     let kernels = session.kernels();
