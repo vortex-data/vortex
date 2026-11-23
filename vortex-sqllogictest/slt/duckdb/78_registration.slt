@@ -3,7 +3,8 @@
 
 include ../setup.slt.no
 
-query T
-SELECT function_name FROM duckdb_functions() WHERE function_name = 'vortex_scan'
+query ?
+SELECT parameter_types FROM duckdb_functions() WHERE function_name = 'vortex_scan'
 ----
-vortex_scan
+[VARCHAR, ANY, BOOLEAN, BOOLEAN]
+['VARCHAR[]', ANY, BOOLEAN, BOOLEAN]
