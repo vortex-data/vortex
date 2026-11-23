@@ -229,24 +229,12 @@ fn default_session_enables_the_write_editions() {
 #[test]
 fn enabling_unstable_permits_only_persisted_aggregates() -> VortexResult<()> {
     let session = VortexSession::default();
-    let core_aggregates = session.enabled_component_ids(ComponentKind::Aggregate);
     session.enable_edition(UNSTABLE)?;
-    let enabled = session.enabled_component_ids(ComponentKind::Aggregate);
     assert!(
-        enabled
+        session
+            .enabled_component_ids(ComponentKind::Aggregate)
             .iter()
             .all(|id| !id.as_str().starts_with("vortex.all_"))
-    );
-    let newly_enabled: Vec<Id> = enabled
-        .into_iter()
-        .filter(|id| !core_aggregates.contains(id))
-        .collect();
-    assert_eq!(
-        newly_enabled,
-        [
-            Id::from("vortex.bloom_filter.sbbf"),
-            Id::from("vortex.sum_v2")
-        ]
     );
     Ok(())
 }

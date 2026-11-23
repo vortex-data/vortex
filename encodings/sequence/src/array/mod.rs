@@ -7,6 +7,7 @@ use std::hash::Hash;
 use std::hash::Hasher;
 
 use num_traits::AsPrimitive;
+use num_traits::Zero;
 use smallvec::smallvec;
 use vortex_array::Array;
 use vortex_array::ArrayEq;
@@ -202,10 +203,7 @@ impl SequenceData {
         // Give equivalent steps the same representation.
         let multiplier = match_each_pvalue!(
             multiplier,
-            uint: |v| {
-                let v: u64 = v.as_();
-                i64::try_from(v).map(PValue::from).unwrap_or(PValue::U64(v))
-            },
+            uint: |v| { canonical_unsigned_step(v.as_()) },
             int: |v| {
                 let v: i64 = v.as_();
                 PValue::from(v)
@@ -273,6 +271,13 @@ impl SequenceData {
             PValue::from(eval::wrapping_value(base, multiplier, idx))
         })
     }
+}
+
+/// Stores an unsigned step as `i64` when it fits, otherwise as `u64`.
+fn canonical_unsigned_step(step: u64) -> PValue {
+    i64::try_from(step)
+        .map(PValue::from)
+        .unwrap_or(PValue::U64(step))
 }
 
 // Normalization gives equal sequences the same value tags. Compare tags first because `PValue`
@@ -389,8 +394,8 @@ impl Sequence {
         }
         match_each_pvalue!(
             multiplier,
-            uint: |v| { !strict || v > 0 },
-            int: |v| { if strict { v > 0 } else { v >= 0 } },
+            uint: |v| { step_is_sorted(v, strict) },
+            int: |v| { step_is_sorted(v, strict) },
             float: |_v| { unreachable!("float multiplier not supported") }
         )
     }
@@ -486,6 +491,15 @@ impl Sequence {
             ))
         }
         .with_stats_set(stats))
+    }
+}
+
+/// Whether a sequence of at least two elements with this step is (strictly, if `strict`) sorted.
+fn step_is_sorted<T: PartialOrd + Zero>(step: T, strict: bool) -> bool {
+    if strict {
+        step > T::zero()
+    } else {
+        step >= T::zero()
     }
 }
 

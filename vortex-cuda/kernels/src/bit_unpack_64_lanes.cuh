@@ -9,20 +9,55 @@
 template <int BW>
 __device__ void _bit_unpack_64_lane(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane);
 
+template <int BW, int SLICE>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane);
+
 template <>
-__device__ void _bit_unpack_64_lane<0>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<0, 0>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
     #pragma unroll
-    for (int row = 0; row < 64; row++) {
+    for (int row = 0; row < 16; row++) {
         out[INDEX(row, lane)] = reference;
     }
 }
 
 template <>
-__device__ void _bit_unpack_64_lane<1>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<0, 1>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    #pragma unroll
+    for (int row = 16; row < 32; row++) {
+        out[INDEX(row, lane)] = reference;
+    }
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<0, 2>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    #pragma unroll
+    for (int row = 32; row < 48; row++) {
+        out[INDEX(row, lane)] = reference;
+    }
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<0, 3>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    #pragma unroll
+    for (int row = 48; row < 64; row++) {
+        out[INDEX(row, lane)] = reference;
+    }
+}
+
+template <>
+__device__ void _bit_unpack_64_lane<0>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    _bit_unpack_64_lane_slice<0, 0>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<0, 1>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<0, 2>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<0, 3>(in, out, reference, lane);
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<1, 0>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
     constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
     uint64_t src;
     uint64_t tmp;
-    src = in[lane];
+    src = in[lane + LANE_COUNT * 0];
     tmp = (src >> 0) & MASK(uint64_t, 1);
     out[INDEX(0, lane)] = tmp + reference;
     tmp = (src >> 1) & MASK(uint64_t, 1);
@@ -55,6 +90,14 @@ __device__ void _bit_unpack_64_lane<1>(const uint64_t *__restrict in, uint64_t *
     out[INDEX(14, lane)] = tmp + reference;
     tmp = (src >> 15) & MASK(uint64_t, 1);
     out[INDEX(15, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<1, 1>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 0];
     tmp = (src >> 16) & MASK(uint64_t, 1);
     out[INDEX(16, lane)] = tmp + reference;
     tmp = (src >> 17) & MASK(uint64_t, 1);
@@ -87,6 +130,14 @@ __device__ void _bit_unpack_64_lane<1>(const uint64_t *__restrict in, uint64_t *
     out[INDEX(30, lane)] = tmp + reference;
     tmp = (src >> 31) & MASK(uint64_t, 1);
     out[INDEX(31, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<1, 2>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 0];
     tmp = (src >> 32) & MASK(uint64_t, 1);
     out[INDEX(32, lane)] = tmp + reference;
     tmp = (src >> 33) & MASK(uint64_t, 1);
@@ -119,6 +170,14 @@ __device__ void _bit_unpack_64_lane<1>(const uint64_t *__restrict in, uint64_t *
     out[INDEX(46, lane)] = tmp + reference;
     tmp = (src >> 47) & MASK(uint64_t, 1);
     out[INDEX(47, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<1, 3>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 0];
     tmp = (src >> 48) & MASK(uint64_t, 1);
     out[INDEX(48, lane)] = tmp + reference;
     tmp = (src >> 49) & MASK(uint64_t, 1);
@@ -154,11 +213,19 @@ __device__ void _bit_unpack_64_lane<1>(const uint64_t *__restrict in, uint64_t *
 }
 
 template <>
-__device__ void _bit_unpack_64_lane<2>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+__device__ void _bit_unpack_64_lane<1>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    _bit_unpack_64_lane_slice<1, 0>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<1, 1>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<1, 2>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<1, 3>(in, out, reference, lane);
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<2, 0>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
     constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
     uint64_t src;
     uint64_t tmp;
-    src = in[lane];
+    src = in[lane + LANE_COUNT * 0];
     tmp = (src >> 0) & MASK(uint64_t, 2);
     out[INDEX(0, lane)] = tmp + reference;
     tmp = (src >> 2) & MASK(uint64_t, 2);
@@ -191,6 +258,14 @@ __device__ void _bit_unpack_64_lane<2>(const uint64_t *__restrict in, uint64_t *
     out[INDEX(14, lane)] = tmp + reference;
     tmp = (src >> 30) & MASK(uint64_t, 2);
     out[INDEX(15, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<2, 1>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 0];
     tmp = (src >> 32) & MASK(uint64_t, 2);
     out[INDEX(16, lane)] = tmp + reference;
     tmp = (src >> 34) & MASK(uint64_t, 2);
@@ -225,6 +300,14 @@ __device__ void _bit_unpack_64_lane<2>(const uint64_t *__restrict in, uint64_t *
     src = in[lane + LANE_COUNT * 1];
     tmp |= (src & MASK(uint64_t, 0)) << 2;
     out[INDEX(31, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<2, 2>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 1];
     tmp = (src >> 0) & MASK(uint64_t, 2);
     out[INDEX(32, lane)] = tmp + reference;
     tmp = (src >> 2) & MASK(uint64_t, 2);
@@ -257,6 +340,14 @@ __device__ void _bit_unpack_64_lane<2>(const uint64_t *__restrict in, uint64_t *
     out[INDEX(46, lane)] = tmp + reference;
     tmp = (src >> 30) & MASK(uint64_t, 2);
     out[INDEX(47, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<2, 3>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 1];
     tmp = (src >> 32) & MASK(uint64_t, 2);
     out[INDEX(48, lane)] = tmp + reference;
     tmp = (src >> 34) & MASK(uint64_t, 2);
@@ -292,11 +383,19 @@ __device__ void _bit_unpack_64_lane<2>(const uint64_t *__restrict in, uint64_t *
 }
 
 template <>
-__device__ void _bit_unpack_64_lane<3>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+__device__ void _bit_unpack_64_lane<2>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    _bit_unpack_64_lane_slice<2, 0>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<2, 1>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<2, 2>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<2, 3>(in, out, reference, lane);
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<3, 0>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
     constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
     uint64_t src;
     uint64_t tmp;
-    src = in[lane];
+    src = in[lane + LANE_COUNT * 0];
     tmp = (src >> 0) & MASK(uint64_t, 3);
     out[INDEX(0, lane)] = tmp + reference;
     tmp = (src >> 3) & MASK(uint64_t, 3);
@@ -329,6 +428,14 @@ __device__ void _bit_unpack_64_lane<3>(const uint64_t *__restrict in, uint64_t *
     out[INDEX(14, lane)] = tmp + reference;
     tmp = (src >> 45) & MASK(uint64_t, 3);
     out[INDEX(15, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<3, 1>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 0];
     tmp = (src >> 48) & MASK(uint64_t, 3);
     out[INDEX(16, lane)] = tmp + reference;
     tmp = (src >> 51) & MASK(uint64_t, 3);
@@ -363,6 +470,14 @@ __device__ void _bit_unpack_64_lane<3>(const uint64_t *__restrict in, uint64_t *
     out[INDEX(30, lane)] = tmp + reference;
     tmp = (src >> 29) & MASK(uint64_t, 3);
     out[INDEX(31, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<3, 2>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 1];
     tmp = (src >> 32) & MASK(uint64_t, 3);
     out[INDEX(32, lane)] = tmp + reference;
     tmp = (src >> 35) & MASK(uint64_t, 3);
@@ -397,6 +512,14 @@ __device__ void _bit_unpack_64_lane<3>(const uint64_t *__restrict in, uint64_t *
     out[INDEX(46, lane)] = tmp + reference;
     tmp = (src >> 13) & MASK(uint64_t, 3);
     out[INDEX(47, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<3, 3>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 2];
     tmp = (src >> 16) & MASK(uint64_t, 3);
     out[INDEX(48, lane)] = tmp + reference;
     tmp = (src >> 19) & MASK(uint64_t, 3);
@@ -432,11 +555,19 @@ __device__ void _bit_unpack_64_lane<3>(const uint64_t *__restrict in, uint64_t *
 }
 
 template <>
-__device__ void _bit_unpack_64_lane<4>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+__device__ void _bit_unpack_64_lane<3>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    _bit_unpack_64_lane_slice<3, 0>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<3, 1>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<3, 2>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<3, 3>(in, out, reference, lane);
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<4, 0>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
     constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
     uint64_t src;
     uint64_t tmp;
-    src = in[lane];
+    src = in[lane + LANE_COUNT * 0];
     tmp = (src >> 0) & MASK(uint64_t, 4);
     out[INDEX(0, lane)] = tmp + reference;
     tmp = (src >> 4) & MASK(uint64_t, 4);
@@ -471,6 +602,14 @@ __device__ void _bit_unpack_64_lane<4>(const uint64_t *__restrict in, uint64_t *
     src = in[lane + LANE_COUNT * 1];
     tmp |= (src & MASK(uint64_t, 0)) << 4;
     out[INDEX(15, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<4, 1>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 1];
     tmp = (src >> 0) & MASK(uint64_t, 4);
     out[INDEX(16, lane)] = tmp + reference;
     tmp = (src >> 4) & MASK(uint64_t, 4);
@@ -505,6 +644,14 @@ __device__ void _bit_unpack_64_lane<4>(const uint64_t *__restrict in, uint64_t *
     src = in[lane + LANE_COUNT * 2];
     tmp |= (src & MASK(uint64_t, 0)) << 4;
     out[INDEX(31, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<4, 2>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 2];
     tmp = (src >> 0) & MASK(uint64_t, 4);
     out[INDEX(32, lane)] = tmp + reference;
     tmp = (src >> 4) & MASK(uint64_t, 4);
@@ -539,6 +686,14 @@ __device__ void _bit_unpack_64_lane<4>(const uint64_t *__restrict in, uint64_t *
     src = in[lane + LANE_COUNT * 3];
     tmp |= (src & MASK(uint64_t, 0)) << 4;
     out[INDEX(47, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<4, 3>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 3];
     tmp = (src >> 0) & MASK(uint64_t, 4);
     out[INDEX(48, lane)] = tmp + reference;
     tmp = (src >> 4) & MASK(uint64_t, 4);
@@ -574,11 +729,19 @@ __device__ void _bit_unpack_64_lane<4>(const uint64_t *__restrict in, uint64_t *
 }
 
 template <>
-__device__ void _bit_unpack_64_lane<5>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+__device__ void _bit_unpack_64_lane<4>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    _bit_unpack_64_lane_slice<4, 0>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<4, 1>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<4, 2>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<4, 3>(in, out, reference, lane);
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<5, 0>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
     constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
     uint64_t src;
     uint64_t tmp;
-    src = in[lane];
+    src = in[lane + LANE_COUNT * 0];
     tmp = (src >> 0) & MASK(uint64_t, 5);
     out[INDEX(0, lane)] = tmp + reference;
     tmp = (src >> 5) & MASK(uint64_t, 5);
@@ -613,6 +776,14 @@ __device__ void _bit_unpack_64_lane<5>(const uint64_t *__restrict in, uint64_t *
     out[INDEX(14, lane)] = tmp + reference;
     tmp = (src >> 11) & MASK(uint64_t, 5);
     out[INDEX(15, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<5, 1>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 1];
     tmp = (src >> 16) & MASK(uint64_t, 5);
     out[INDEX(16, lane)] = tmp + reference;
     tmp = (src >> 21) & MASK(uint64_t, 5);
@@ -647,6 +818,14 @@ __device__ void _bit_unpack_64_lane<5>(const uint64_t *__restrict in, uint64_t *
     out[INDEX(30, lane)] = tmp + reference;
     tmp = (src >> 27) & MASK(uint64_t, 5);
     out[INDEX(31, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<5, 2>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 2];
     tmp = (src >> 32) & MASK(uint64_t, 5);
     out[INDEX(32, lane)] = tmp + reference;
     tmp = (src >> 37) & MASK(uint64_t, 5);
@@ -681,6 +860,14 @@ __device__ void _bit_unpack_64_lane<5>(const uint64_t *__restrict in, uint64_t *
     out[INDEX(46, lane)] = tmp + reference;
     tmp = (src >> 43) & MASK(uint64_t, 5);
     out[INDEX(47, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<5, 3>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 3];
     tmp = (src >> 48) & MASK(uint64_t, 5);
     out[INDEX(48, lane)] = tmp + reference;
     tmp = (src >> 53) & MASK(uint64_t, 5);
@@ -718,11 +905,19 @@ __device__ void _bit_unpack_64_lane<5>(const uint64_t *__restrict in, uint64_t *
 }
 
 template <>
-__device__ void _bit_unpack_64_lane<6>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+__device__ void _bit_unpack_64_lane<5>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    _bit_unpack_64_lane_slice<5, 0>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<5, 1>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<5, 2>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<5, 3>(in, out, reference, lane);
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<6, 0>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
     constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
     uint64_t src;
     uint64_t tmp;
-    src = in[lane];
+    src = in[lane + LANE_COUNT * 0];
     tmp = (src >> 0) & MASK(uint64_t, 6);
     out[INDEX(0, lane)] = tmp + reference;
     tmp = (src >> 6) & MASK(uint64_t, 6);
@@ -757,6 +952,14 @@ __device__ void _bit_unpack_64_lane<6>(const uint64_t *__restrict in, uint64_t *
     out[INDEX(14, lane)] = tmp + reference;
     tmp = (src >> 26) & MASK(uint64_t, 6);
     out[INDEX(15, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<6, 1>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 1];
     tmp = (src >> 32) & MASK(uint64_t, 6);
     out[INDEX(16, lane)] = tmp + reference;
     tmp = (src >> 38) & MASK(uint64_t, 6);
@@ -793,6 +996,14 @@ __device__ void _bit_unpack_64_lane<6>(const uint64_t *__restrict in, uint64_t *
     src = in[lane + LANE_COUNT * 3];
     tmp |= (src & MASK(uint64_t, 0)) << 6;
     out[INDEX(31, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<6, 2>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 3];
     tmp = (src >> 0) & MASK(uint64_t, 6);
     out[INDEX(32, lane)] = tmp + reference;
     tmp = (src >> 6) & MASK(uint64_t, 6);
@@ -827,6 +1038,14 @@ __device__ void _bit_unpack_64_lane<6>(const uint64_t *__restrict in, uint64_t *
     out[INDEX(46, lane)] = tmp + reference;
     tmp = (src >> 26) & MASK(uint64_t, 6);
     out[INDEX(47, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<6, 3>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 4];
     tmp = (src >> 32) & MASK(uint64_t, 6);
     out[INDEX(48, lane)] = tmp + reference;
     tmp = (src >> 38) & MASK(uint64_t, 6);
@@ -864,11 +1083,19 @@ __device__ void _bit_unpack_64_lane<6>(const uint64_t *__restrict in, uint64_t *
 }
 
 template <>
-__device__ void _bit_unpack_64_lane<7>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+__device__ void _bit_unpack_64_lane<6>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    _bit_unpack_64_lane_slice<6, 0>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<6, 1>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<6, 2>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<6, 3>(in, out, reference, lane);
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<7, 0>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
     constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
     uint64_t src;
     uint64_t tmp;
-    src = in[lane];
+    src = in[lane + LANE_COUNT * 0];
     tmp = (src >> 0) & MASK(uint64_t, 7);
     out[INDEX(0, lane)] = tmp + reference;
     tmp = (src >> 7) & MASK(uint64_t, 7);
@@ -903,6 +1130,14 @@ __device__ void _bit_unpack_64_lane<7>(const uint64_t *__restrict in, uint64_t *
     out[INDEX(14, lane)] = tmp + reference;
     tmp = (src >> 41) & MASK(uint64_t, 7);
     out[INDEX(15, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<7, 1>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 1];
     tmp = (src >> 48) & MASK(uint64_t, 7);
     out[INDEX(16, lane)] = tmp + reference;
     tmp = (src >> 55) & MASK(uint64_t, 7);
@@ -939,6 +1174,14 @@ __device__ void _bit_unpack_64_lane<7>(const uint64_t *__restrict in, uint64_t *
     out[INDEX(30, lane)] = tmp + reference;
     tmp = (src >> 25) & MASK(uint64_t, 7);
     out[INDEX(31, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<7, 2>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 3];
     tmp = (src >> 32) & MASK(uint64_t, 7);
     out[INDEX(32, lane)] = tmp + reference;
     tmp = (src >> 39) & MASK(uint64_t, 7);
@@ -975,6 +1218,14 @@ __device__ void _bit_unpack_64_lane<7>(const uint64_t *__restrict in, uint64_t *
     out[INDEX(46, lane)] = tmp + reference;
     tmp = (src >> 9) & MASK(uint64_t, 7);
     out[INDEX(47, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<7, 3>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 5];
     tmp = (src >> 16) & MASK(uint64_t, 7);
     out[INDEX(48, lane)] = tmp + reference;
     tmp = (src >> 23) & MASK(uint64_t, 7);
@@ -1012,11 +1263,19 @@ __device__ void _bit_unpack_64_lane<7>(const uint64_t *__restrict in, uint64_t *
 }
 
 template <>
-__device__ void _bit_unpack_64_lane<8>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+__device__ void _bit_unpack_64_lane<7>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    _bit_unpack_64_lane_slice<7, 0>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<7, 1>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<7, 2>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<7, 3>(in, out, reference, lane);
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<8, 0>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
     constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
     uint64_t src;
     uint64_t tmp;
-    src = in[lane];
+    src = in[lane + LANE_COUNT * 0];
     tmp = (src >> 0) & MASK(uint64_t, 8);
     out[INDEX(0, lane)] = tmp + reference;
     tmp = (src >> 8) & MASK(uint64_t, 8);
@@ -1053,6 +1312,14 @@ __device__ void _bit_unpack_64_lane<8>(const uint64_t *__restrict in, uint64_t *
     src = in[lane + LANE_COUNT * 2];
     tmp |= (src & MASK(uint64_t, 0)) << 8;
     out[INDEX(15, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<8, 1>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 2];
     tmp = (src >> 0) & MASK(uint64_t, 8);
     out[INDEX(16, lane)] = tmp + reference;
     tmp = (src >> 8) & MASK(uint64_t, 8);
@@ -1089,6 +1356,14 @@ __device__ void _bit_unpack_64_lane<8>(const uint64_t *__restrict in, uint64_t *
     src = in[lane + LANE_COUNT * 4];
     tmp |= (src & MASK(uint64_t, 0)) << 8;
     out[INDEX(31, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<8, 2>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 4];
     tmp = (src >> 0) & MASK(uint64_t, 8);
     out[INDEX(32, lane)] = tmp + reference;
     tmp = (src >> 8) & MASK(uint64_t, 8);
@@ -1125,6 +1400,14 @@ __device__ void _bit_unpack_64_lane<8>(const uint64_t *__restrict in, uint64_t *
     src = in[lane + LANE_COUNT * 6];
     tmp |= (src & MASK(uint64_t, 0)) << 8;
     out[INDEX(47, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<8, 3>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 6];
     tmp = (src >> 0) & MASK(uint64_t, 8);
     out[INDEX(48, lane)] = tmp + reference;
     tmp = (src >> 8) & MASK(uint64_t, 8);
@@ -1162,11 +1445,19 @@ __device__ void _bit_unpack_64_lane<8>(const uint64_t *__restrict in, uint64_t *
 }
 
 template <>
-__device__ void _bit_unpack_64_lane<9>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+__device__ void _bit_unpack_64_lane<8>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    _bit_unpack_64_lane_slice<8, 0>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<8, 1>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<8, 2>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<8, 3>(in, out, reference, lane);
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<9, 0>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
     constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
     uint64_t src;
     uint64_t tmp;
-    src = in[lane];
+    src = in[lane + LANE_COUNT * 0];
     tmp = (src >> 0) & MASK(uint64_t, 9);
     out[INDEX(0, lane)] = tmp + reference;
     tmp = (src >> 9) & MASK(uint64_t, 9);
@@ -1203,6 +1494,14 @@ __device__ void _bit_unpack_64_lane<9>(const uint64_t *__restrict in, uint64_t *
     out[INDEX(14, lane)] = tmp + reference;
     tmp = (src >> 7) & MASK(uint64_t, 9);
     out[INDEX(15, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<9, 1>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 2];
     tmp = (src >> 16) & MASK(uint64_t, 9);
     out[INDEX(16, lane)] = tmp + reference;
     tmp = (src >> 25) & MASK(uint64_t, 9);
@@ -1239,6 +1538,14 @@ __device__ void _bit_unpack_64_lane<9>(const uint64_t *__restrict in, uint64_t *
     out[INDEX(30, lane)] = tmp + reference;
     tmp = (src >> 23) & MASK(uint64_t, 9);
     out[INDEX(31, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<9, 2>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 4];
     tmp = (src >> 32) & MASK(uint64_t, 9);
     out[INDEX(32, lane)] = tmp + reference;
     tmp = (src >> 41) & MASK(uint64_t, 9);
@@ -1275,6 +1582,14 @@ __device__ void _bit_unpack_64_lane<9>(const uint64_t *__restrict in, uint64_t *
     out[INDEX(46, lane)] = tmp + reference;
     tmp = (src >> 39) & MASK(uint64_t, 9);
     out[INDEX(47, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<9, 3>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 6];
     tmp = (src >> 48) & MASK(uint64_t, 9);
     out[INDEX(48, lane)] = tmp + reference;
     tmp = (src >> 57) & MASK(uint64_t, 7);
@@ -1314,11 +1629,19 @@ __device__ void _bit_unpack_64_lane<9>(const uint64_t *__restrict in, uint64_t *
 }
 
 template <>
-__device__ void _bit_unpack_64_lane<10>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+__device__ void _bit_unpack_64_lane<9>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    _bit_unpack_64_lane_slice<9, 0>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<9, 1>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<9, 2>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<9, 3>(in, out, reference, lane);
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<10, 0>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
     constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
     uint64_t src;
     uint64_t tmp;
-    src = in[lane];
+    src = in[lane + LANE_COUNT * 0];
     tmp = (src >> 0) & MASK(uint64_t, 10);
     out[INDEX(0, lane)] = tmp + reference;
     tmp = (src >> 10) & MASK(uint64_t, 10);
@@ -1355,6 +1678,14 @@ __device__ void _bit_unpack_64_lane<10>(const uint64_t *__restrict in, uint64_t 
     out[INDEX(14, lane)] = tmp + reference;
     tmp = (src >> 22) & MASK(uint64_t, 10);
     out[INDEX(15, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<10, 1>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 2];
     tmp = (src >> 32) & MASK(uint64_t, 10);
     out[INDEX(16, lane)] = tmp + reference;
     tmp = (src >> 42) & MASK(uint64_t, 10);
@@ -1393,6 +1724,14 @@ __device__ void _bit_unpack_64_lane<10>(const uint64_t *__restrict in, uint64_t 
     src = in[lane + LANE_COUNT * 5];
     tmp |= (src & MASK(uint64_t, 0)) << 10;
     out[INDEX(31, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<10, 2>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 5];
     tmp = (src >> 0) & MASK(uint64_t, 10);
     out[INDEX(32, lane)] = tmp + reference;
     tmp = (src >> 10) & MASK(uint64_t, 10);
@@ -1429,6 +1768,14 @@ __device__ void _bit_unpack_64_lane<10>(const uint64_t *__restrict in, uint64_t 
     out[INDEX(46, lane)] = tmp + reference;
     tmp = (src >> 22) & MASK(uint64_t, 10);
     out[INDEX(47, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<10, 3>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 7];
     tmp = (src >> 32) & MASK(uint64_t, 10);
     out[INDEX(48, lane)] = tmp + reference;
     tmp = (src >> 42) & MASK(uint64_t, 10);
@@ -1468,11 +1815,19 @@ __device__ void _bit_unpack_64_lane<10>(const uint64_t *__restrict in, uint64_t 
 }
 
 template <>
-__device__ void _bit_unpack_64_lane<11>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+__device__ void _bit_unpack_64_lane<10>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    _bit_unpack_64_lane_slice<10, 0>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<10, 1>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<10, 2>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<10, 3>(in, out, reference, lane);
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<11, 0>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
     constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
     uint64_t src;
     uint64_t tmp;
-    src = in[lane];
+    src = in[lane + LANE_COUNT * 0];
     tmp = (src >> 0) & MASK(uint64_t, 11);
     out[INDEX(0, lane)] = tmp + reference;
     tmp = (src >> 11) & MASK(uint64_t, 11);
@@ -1509,6 +1864,14 @@ __device__ void _bit_unpack_64_lane<11>(const uint64_t *__restrict in, uint64_t 
     out[INDEX(14, lane)] = tmp + reference;
     tmp = (src >> 37) & MASK(uint64_t, 11);
     out[INDEX(15, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<11, 1>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 2];
     tmp = (src >> 48) & MASK(uint64_t, 11);
     out[INDEX(16, lane)] = tmp + reference;
     tmp = (src >> 59) & MASK(uint64_t, 5);
@@ -1547,6 +1910,14 @@ __device__ void _bit_unpack_64_lane<11>(const uint64_t *__restrict in, uint64_t 
     out[INDEX(30, lane)] = tmp + reference;
     tmp = (src >> 21) & MASK(uint64_t, 11);
     out[INDEX(31, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<11, 2>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 5];
     tmp = (src >> 32) & MASK(uint64_t, 11);
     out[INDEX(32, lane)] = tmp + reference;
     tmp = (src >> 43) & MASK(uint64_t, 11);
@@ -1585,6 +1956,14 @@ __device__ void _bit_unpack_64_lane<11>(const uint64_t *__restrict in, uint64_t 
     out[INDEX(46, lane)] = tmp + reference;
     tmp = (src >> 5) & MASK(uint64_t, 11);
     out[INDEX(47, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<11, 3>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 8];
     tmp = (src >> 16) & MASK(uint64_t, 11);
     out[INDEX(48, lane)] = tmp + reference;
     tmp = (src >> 27) & MASK(uint64_t, 11);
@@ -1624,11 +2003,19 @@ __device__ void _bit_unpack_64_lane<11>(const uint64_t *__restrict in, uint64_t 
 }
 
 template <>
-__device__ void _bit_unpack_64_lane<12>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+__device__ void _bit_unpack_64_lane<11>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    _bit_unpack_64_lane_slice<11, 0>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<11, 1>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<11, 2>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<11, 3>(in, out, reference, lane);
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<12, 0>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
     constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
     uint64_t src;
     uint64_t tmp;
-    src = in[lane];
+    src = in[lane + LANE_COUNT * 0];
     tmp = (src >> 0) & MASK(uint64_t, 12);
     out[INDEX(0, lane)] = tmp + reference;
     tmp = (src >> 12) & MASK(uint64_t, 12);
@@ -1667,6 +2054,14 @@ __device__ void _bit_unpack_64_lane<12>(const uint64_t *__restrict in, uint64_t 
     src = in[lane + LANE_COUNT * 3];
     tmp |= (src & MASK(uint64_t, 0)) << 12;
     out[INDEX(15, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<12, 1>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 3];
     tmp = (src >> 0) & MASK(uint64_t, 12);
     out[INDEX(16, lane)] = tmp + reference;
     tmp = (src >> 12) & MASK(uint64_t, 12);
@@ -1705,6 +2100,14 @@ __device__ void _bit_unpack_64_lane<12>(const uint64_t *__restrict in, uint64_t 
     src = in[lane + LANE_COUNT * 6];
     tmp |= (src & MASK(uint64_t, 0)) << 12;
     out[INDEX(31, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<12, 2>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 6];
     tmp = (src >> 0) & MASK(uint64_t, 12);
     out[INDEX(32, lane)] = tmp + reference;
     tmp = (src >> 12) & MASK(uint64_t, 12);
@@ -1743,6 +2146,14 @@ __device__ void _bit_unpack_64_lane<12>(const uint64_t *__restrict in, uint64_t 
     src = in[lane + LANE_COUNT * 9];
     tmp |= (src & MASK(uint64_t, 0)) << 12;
     out[INDEX(47, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<12, 3>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 9];
     tmp = (src >> 0) & MASK(uint64_t, 12);
     out[INDEX(48, lane)] = tmp + reference;
     tmp = (src >> 12) & MASK(uint64_t, 12);
@@ -1782,11 +2193,19 @@ __device__ void _bit_unpack_64_lane<12>(const uint64_t *__restrict in, uint64_t 
 }
 
 template <>
-__device__ void _bit_unpack_64_lane<13>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+__device__ void _bit_unpack_64_lane<12>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    _bit_unpack_64_lane_slice<12, 0>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<12, 1>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<12, 2>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<12, 3>(in, out, reference, lane);
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<13, 0>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
     constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
     uint64_t src;
     uint64_t tmp;
-    src = in[lane];
+    src = in[lane + LANE_COUNT * 0];
     tmp = (src >> 0) & MASK(uint64_t, 13);
     out[INDEX(0, lane)] = tmp + reference;
     tmp = (src >> 13) & MASK(uint64_t, 13);
@@ -1825,6 +2244,14 @@ __device__ void _bit_unpack_64_lane<13>(const uint64_t *__restrict in, uint64_t 
     out[INDEX(14, lane)] = tmp + reference;
     tmp = (src >> 3) & MASK(uint64_t, 13);
     out[INDEX(15, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<13, 1>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 3];
     tmp = (src >> 16) & MASK(uint64_t, 13);
     out[INDEX(16, lane)] = tmp + reference;
     tmp = (src >> 29) & MASK(uint64_t, 13);
@@ -1863,6 +2290,14 @@ __device__ void _bit_unpack_64_lane<13>(const uint64_t *__restrict in, uint64_t 
     out[INDEX(30, lane)] = tmp + reference;
     tmp = (src >> 19) & MASK(uint64_t, 13);
     out[INDEX(31, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<13, 2>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 6];
     tmp = (src >> 32) & MASK(uint64_t, 13);
     out[INDEX(32, lane)] = tmp + reference;
     tmp = (src >> 45) & MASK(uint64_t, 13);
@@ -1901,6 +2336,14 @@ __device__ void _bit_unpack_64_lane<13>(const uint64_t *__restrict in, uint64_t 
     out[INDEX(46, lane)] = tmp + reference;
     tmp = (src >> 35) & MASK(uint64_t, 13);
     out[INDEX(47, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<13, 3>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 9];
     tmp = (src >> 48) & MASK(uint64_t, 13);
     out[INDEX(48, lane)] = tmp + reference;
     tmp = (src >> 61) & MASK(uint64_t, 3);
@@ -1942,11 +2385,19 @@ __device__ void _bit_unpack_64_lane<13>(const uint64_t *__restrict in, uint64_t 
 }
 
 template <>
-__device__ void _bit_unpack_64_lane<14>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+__device__ void _bit_unpack_64_lane<13>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    _bit_unpack_64_lane_slice<13, 0>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<13, 1>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<13, 2>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<13, 3>(in, out, reference, lane);
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<14, 0>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
     constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
     uint64_t src;
     uint64_t tmp;
-    src = in[lane];
+    src = in[lane + LANE_COUNT * 0];
     tmp = (src >> 0) & MASK(uint64_t, 14);
     out[INDEX(0, lane)] = tmp + reference;
     tmp = (src >> 14) & MASK(uint64_t, 14);
@@ -1985,6 +2436,14 @@ __device__ void _bit_unpack_64_lane<14>(const uint64_t *__restrict in, uint64_t 
     out[INDEX(14, lane)] = tmp + reference;
     tmp = (src >> 18) & MASK(uint64_t, 14);
     out[INDEX(15, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<14, 1>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 3];
     tmp = (src >> 32) & MASK(uint64_t, 14);
     out[INDEX(16, lane)] = tmp + reference;
     tmp = (src >> 46) & MASK(uint64_t, 14);
@@ -2025,6 +2484,14 @@ __device__ void _bit_unpack_64_lane<14>(const uint64_t *__restrict in, uint64_t 
     src = in[lane + LANE_COUNT * 7];
     tmp |= (src & MASK(uint64_t, 0)) << 14;
     out[INDEX(31, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<14, 2>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 7];
     tmp = (src >> 0) & MASK(uint64_t, 14);
     out[INDEX(32, lane)] = tmp + reference;
     tmp = (src >> 14) & MASK(uint64_t, 14);
@@ -2063,6 +2530,14 @@ __device__ void _bit_unpack_64_lane<14>(const uint64_t *__restrict in, uint64_t 
     out[INDEX(46, lane)] = tmp + reference;
     tmp = (src >> 18) & MASK(uint64_t, 14);
     out[INDEX(47, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<14, 3>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 10];
     tmp = (src >> 32) & MASK(uint64_t, 14);
     out[INDEX(48, lane)] = tmp + reference;
     tmp = (src >> 46) & MASK(uint64_t, 14);
@@ -2104,11 +2579,19 @@ __device__ void _bit_unpack_64_lane<14>(const uint64_t *__restrict in, uint64_t 
 }
 
 template <>
-__device__ void _bit_unpack_64_lane<15>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+__device__ void _bit_unpack_64_lane<14>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    _bit_unpack_64_lane_slice<14, 0>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<14, 1>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<14, 2>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<14, 3>(in, out, reference, lane);
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<15, 0>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
     constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
     uint64_t src;
     uint64_t tmp;
-    src = in[lane];
+    src = in[lane + LANE_COUNT * 0];
     tmp = (src >> 0) & MASK(uint64_t, 15);
     out[INDEX(0, lane)] = tmp + reference;
     tmp = (src >> 15) & MASK(uint64_t, 15);
@@ -2147,6 +2630,14 @@ __device__ void _bit_unpack_64_lane<15>(const uint64_t *__restrict in, uint64_t 
     out[INDEX(14, lane)] = tmp + reference;
     tmp = (src >> 33) & MASK(uint64_t, 15);
     out[INDEX(15, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<15, 1>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 3];
     tmp = (src >> 48) & MASK(uint64_t, 15);
     out[INDEX(16, lane)] = tmp + reference;
     tmp = (src >> 63) & MASK(uint64_t, 1);
@@ -2187,6 +2678,14 @@ __device__ void _bit_unpack_64_lane<15>(const uint64_t *__restrict in, uint64_t 
     out[INDEX(30, lane)] = tmp + reference;
     tmp = (src >> 17) & MASK(uint64_t, 15);
     out[INDEX(31, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<15, 2>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 7];
     tmp = (src >> 32) & MASK(uint64_t, 15);
     out[INDEX(32, lane)] = tmp + reference;
     tmp = (src >> 47) & MASK(uint64_t, 15);
@@ -2227,6 +2726,14 @@ __device__ void _bit_unpack_64_lane<15>(const uint64_t *__restrict in, uint64_t 
     out[INDEX(46, lane)] = tmp + reference;
     tmp = (src >> 1) & MASK(uint64_t, 15);
     out[INDEX(47, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<15, 3>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 11];
     tmp = (src >> 16) & MASK(uint64_t, 15);
     out[INDEX(48, lane)] = tmp + reference;
     tmp = (src >> 31) & MASK(uint64_t, 15);
@@ -2268,11 +2775,19 @@ __device__ void _bit_unpack_64_lane<15>(const uint64_t *__restrict in, uint64_t 
 }
 
 template <>
-__device__ void _bit_unpack_64_lane<16>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+__device__ void _bit_unpack_64_lane<15>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    _bit_unpack_64_lane_slice<15, 0>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<15, 1>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<15, 2>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<15, 3>(in, out, reference, lane);
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<16, 0>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
     constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
     uint64_t src;
     uint64_t tmp;
-    src = in[lane];
+    src = in[lane + LANE_COUNT * 0];
     tmp = (src >> 0) & MASK(uint64_t, 16);
     out[INDEX(0, lane)] = tmp + reference;
     tmp = (src >> 16) & MASK(uint64_t, 16);
@@ -2313,6 +2828,14 @@ __device__ void _bit_unpack_64_lane<16>(const uint64_t *__restrict in, uint64_t 
     src = in[lane + LANE_COUNT * 4];
     tmp |= (src & MASK(uint64_t, 0)) << 16;
     out[INDEX(15, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<16, 1>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 4];
     tmp = (src >> 0) & MASK(uint64_t, 16);
     out[INDEX(16, lane)] = tmp + reference;
     tmp = (src >> 16) & MASK(uint64_t, 16);
@@ -2353,6 +2876,14 @@ __device__ void _bit_unpack_64_lane<16>(const uint64_t *__restrict in, uint64_t 
     src = in[lane + LANE_COUNT * 8];
     tmp |= (src & MASK(uint64_t, 0)) << 16;
     out[INDEX(31, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<16, 2>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 8];
     tmp = (src >> 0) & MASK(uint64_t, 16);
     out[INDEX(32, lane)] = tmp + reference;
     tmp = (src >> 16) & MASK(uint64_t, 16);
@@ -2393,6 +2924,14 @@ __device__ void _bit_unpack_64_lane<16>(const uint64_t *__restrict in, uint64_t 
     src = in[lane + LANE_COUNT * 12];
     tmp |= (src & MASK(uint64_t, 0)) << 16;
     out[INDEX(47, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<16, 3>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 12];
     tmp = (src >> 0) & MASK(uint64_t, 16);
     out[INDEX(48, lane)] = tmp + reference;
     tmp = (src >> 16) & MASK(uint64_t, 16);
@@ -2434,11 +2973,19 @@ __device__ void _bit_unpack_64_lane<16>(const uint64_t *__restrict in, uint64_t 
 }
 
 template <>
-__device__ void _bit_unpack_64_lane<17>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+__device__ void _bit_unpack_64_lane<16>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    _bit_unpack_64_lane_slice<16, 0>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<16, 1>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<16, 2>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<16, 3>(in, out, reference, lane);
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<17, 0>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
     constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
     uint64_t src;
     uint64_t tmp;
-    src = in[lane];
+    src = in[lane + LANE_COUNT * 0];
     tmp = (src >> 0) & MASK(uint64_t, 17);
     out[INDEX(0, lane)] = tmp + reference;
     tmp = (src >> 17) & MASK(uint64_t, 17);
@@ -2479,6 +3026,14 @@ __device__ void _bit_unpack_64_lane<17>(const uint64_t *__restrict in, uint64_t 
     src = in[lane + LANE_COUNT * 4];
     tmp |= (src & MASK(uint64_t, 16)) << 1;
     out[INDEX(15, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<17, 1>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 4];
     tmp = (src >> 16) & MASK(uint64_t, 17);
     out[INDEX(16, lane)] = tmp + reference;
     tmp = (src >> 33) & MASK(uint64_t, 17);
@@ -2519,6 +3074,14 @@ __device__ void _bit_unpack_64_lane<17>(const uint64_t *__restrict in, uint64_t 
     out[INDEX(30, lane)] = tmp + reference;
     tmp = (src >> 15) & MASK(uint64_t, 17);
     out[INDEX(31, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<17, 2>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 8];
     tmp = (src >> 32) & MASK(uint64_t, 17);
     out[INDEX(32, lane)] = tmp + reference;
     tmp = (src >> 49) & MASK(uint64_t, 15);
@@ -2559,6 +3122,14 @@ __device__ void _bit_unpack_64_lane<17>(const uint64_t *__restrict in, uint64_t 
     out[INDEX(46, lane)] = tmp + reference;
     tmp = (src >> 31) & MASK(uint64_t, 17);
     out[INDEX(47, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<17, 3>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 12];
     tmp = (src >> 48) & MASK(uint64_t, 16);
     src = in[lane + LANE_COUNT * 13];
     tmp |= (src & MASK(uint64_t, 1)) << 16;
@@ -2602,11 +3173,19 @@ __device__ void _bit_unpack_64_lane<17>(const uint64_t *__restrict in, uint64_t 
 }
 
 template <>
-__device__ void _bit_unpack_64_lane<18>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+__device__ void _bit_unpack_64_lane<17>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    _bit_unpack_64_lane_slice<17, 0>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<17, 1>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<17, 2>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<17, 3>(in, out, reference, lane);
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<18, 0>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
     constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
     uint64_t src;
     uint64_t tmp;
-    src = in[lane];
+    src = in[lane + LANE_COUNT * 0];
     tmp = (src >> 0) & MASK(uint64_t, 18);
     out[INDEX(0, lane)] = tmp + reference;
     tmp = (src >> 18) & MASK(uint64_t, 18);
@@ -2647,6 +3226,14 @@ __device__ void _bit_unpack_64_lane<18>(const uint64_t *__restrict in, uint64_t 
     out[INDEX(14, lane)] = tmp + reference;
     tmp = (src >> 14) & MASK(uint64_t, 18);
     out[INDEX(15, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<18, 1>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 4];
     tmp = (src >> 32) & MASK(uint64_t, 18);
     out[INDEX(16, lane)] = tmp + reference;
     tmp = (src >> 50) & MASK(uint64_t, 14);
@@ -2689,6 +3276,14 @@ __device__ void _bit_unpack_64_lane<18>(const uint64_t *__restrict in, uint64_t 
     src = in[lane + LANE_COUNT * 9];
     tmp |= (src & MASK(uint64_t, 0)) << 18;
     out[INDEX(31, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<18, 2>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 9];
     tmp = (src >> 0) & MASK(uint64_t, 18);
     out[INDEX(32, lane)] = tmp + reference;
     tmp = (src >> 18) & MASK(uint64_t, 18);
@@ -2729,6 +3324,14 @@ __device__ void _bit_unpack_64_lane<18>(const uint64_t *__restrict in, uint64_t 
     out[INDEX(46, lane)] = tmp + reference;
     tmp = (src >> 14) & MASK(uint64_t, 18);
     out[INDEX(47, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<18, 3>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 13];
     tmp = (src >> 32) & MASK(uint64_t, 18);
     out[INDEX(48, lane)] = tmp + reference;
     tmp = (src >> 50) & MASK(uint64_t, 14);
@@ -2772,11 +3375,19 @@ __device__ void _bit_unpack_64_lane<18>(const uint64_t *__restrict in, uint64_t 
 }
 
 template <>
-__device__ void _bit_unpack_64_lane<19>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+__device__ void _bit_unpack_64_lane<18>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    _bit_unpack_64_lane_slice<18, 0>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<18, 1>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<18, 2>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<18, 3>(in, out, reference, lane);
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<19, 0>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
     constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
     uint64_t src;
     uint64_t tmp;
-    src = in[lane];
+    src = in[lane + LANE_COUNT * 0];
     tmp = (src >> 0) & MASK(uint64_t, 19);
     out[INDEX(0, lane)] = tmp + reference;
     tmp = (src >> 19) & MASK(uint64_t, 19);
@@ -2817,6 +3428,14 @@ __device__ void _bit_unpack_64_lane<19>(const uint64_t *__restrict in, uint64_t 
     out[INDEX(14, lane)] = tmp + reference;
     tmp = (src >> 29) & MASK(uint64_t, 19);
     out[INDEX(15, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<19, 1>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 4];
     tmp = (src >> 48) & MASK(uint64_t, 16);
     src = in[lane + LANE_COUNT * 5];
     tmp |= (src & MASK(uint64_t, 3)) << 16;
@@ -2859,6 +3478,14 @@ __device__ void _bit_unpack_64_lane<19>(const uint64_t *__restrict in, uint64_t 
     out[INDEX(30, lane)] = tmp + reference;
     tmp = (src >> 13) & MASK(uint64_t, 19);
     out[INDEX(31, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<19, 2>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 9];
     tmp = (src >> 32) & MASK(uint64_t, 19);
     out[INDEX(32, lane)] = tmp + reference;
     tmp = (src >> 51) & MASK(uint64_t, 13);
@@ -2901,6 +3528,14 @@ __device__ void _bit_unpack_64_lane<19>(const uint64_t *__restrict in, uint64_t 
     src = in[lane + LANE_COUNT * 14];
     tmp |= (src & MASK(uint64_t, 16)) << 3;
     out[INDEX(47, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<19, 3>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 14];
     tmp = (src >> 16) & MASK(uint64_t, 19);
     out[INDEX(48, lane)] = tmp + reference;
     tmp = (src >> 35) & MASK(uint64_t, 19);
@@ -2944,11 +3579,19 @@ __device__ void _bit_unpack_64_lane<19>(const uint64_t *__restrict in, uint64_t 
 }
 
 template <>
-__device__ void _bit_unpack_64_lane<20>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+__device__ void _bit_unpack_64_lane<19>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    _bit_unpack_64_lane_slice<19, 0>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<19, 1>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<19, 2>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<19, 3>(in, out, reference, lane);
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<20, 0>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
     constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
     uint64_t src;
     uint64_t tmp;
-    src = in[lane];
+    src = in[lane + LANE_COUNT * 0];
     tmp = (src >> 0) & MASK(uint64_t, 20);
     out[INDEX(0, lane)] = tmp + reference;
     tmp = (src >> 20) & MASK(uint64_t, 20);
@@ -2991,6 +3634,14 @@ __device__ void _bit_unpack_64_lane<20>(const uint64_t *__restrict in, uint64_t 
     src = in[lane + LANE_COUNT * 5];
     tmp |= (src & MASK(uint64_t, 0)) << 20;
     out[INDEX(15, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<20, 1>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 5];
     tmp = (src >> 0) & MASK(uint64_t, 20);
     out[INDEX(16, lane)] = tmp + reference;
     tmp = (src >> 20) & MASK(uint64_t, 20);
@@ -3033,6 +3684,14 @@ __device__ void _bit_unpack_64_lane<20>(const uint64_t *__restrict in, uint64_t 
     src = in[lane + LANE_COUNT * 10];
     tmp |= (src & MASK(uint64_t, 0)) << 20;
     out[INDEX(31, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<20, 2>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 10];
     tmp = (src >> 0) & MASK(uint64_t, 20);
     out[INDEX(32, lane)] = tmp + reference;
     tmp = (src >> 20) & MASK(uint64_t, 20);
@@ -3075,6 +3734,14 @@ __device__ void _bit_unpack_64_lane<20>(const uint64_t *__restrict in, uint64_t 
     src = in[lane + LANE_COUNT * 15];
     tmp |= (src & MASK(uint64_t, 0)) << 20;
     out[INDEX(47, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<20, 3>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 15];
     tmp = (src >> 0) & MASK(uint64_t, 20);
     out[INDEX(48, lane)] = tmp + reference;
     tmp = (src >> 20) & MASK(uint64_t, 20);
@@ -3118,11 +3785,19 @@ __device__ void _bit_unpack_64_lane<20>(const uint64_t *__restrict in, uint64_t 
 }
 
 template <>
-__device__ void _bit_unpack_64_lane<21>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+__device__ void _bit_unpack_64_lane<20>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    _bit_unpack_64_lane_slice<20, 0>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<20, 1>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<20, 2>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<20, 3>(in, out, reference, lane);
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<21, 0>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
     constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
     uint64_t src;
     uint64_t tmp;
-    src = in[lane];
+    src = in[lane + LANE_COUNT * 0];
     tmp = (src >> 0) & MASK(uint64_t, 21);
     out[INDEX(0, lane)] = tmp + reference;
     tmp = (src >> 21) & MASK(uint64_t, 21);
@@ -3165,6 +3840,14 @@ __device__ void _bit_unpack_64_lane<21>(const uint64_t *__restrict in, uint64_t 
     src = in[lane + LANE_COUNT * 5];
     tmp |= (src & MASK(uint64_t, 16)) << 5;
     out[INDEX(15, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<21, 1>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 5];
     tmp = (src >> 16) & MASK(uint64_t, 21);
     out[INDEX(16, lane)] = tmp + reference;
     tmp = (src >> 37) & MASK(uint64_t, 21);
@@ -3207,6 +3890,14 @@ __device__ void _bit_unpack_64_lane<21>(const uint64_t *__restrict in, uint64_t 
     out[INDEX(30, lane)] = tmp + reference;
     tmp = (src >> 11) & MASK(uint64_t, 21);
     out[INDEX(31, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<21, 2>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 10];
     tmp = (src >> 32) & MASK(uint64_t, 21);
     out[INDEX(32, lane)] = tmp + reference;
     tmp = (src >> 53) & MASK(uint64_t, 11);
@@ -3249,6 +3940,14 @@ __device__ void _bit_unpack_64_lane<21>(const uint64_t *__restrict in, uint64_t 
     out[INDEX(46, lane)] = tmp + reference;
     tmp = (src >> 27) & MASK(uint64_t, 21);
     out[INDEX(47, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<21, 3>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 15];
     tmp = (src >> 48) & MASK(uint64_t, 16);
     src = in[lane + LANE_COUNT * 16];
     tmp |= (src & MASK(uint64_t, 5)) << 16;
@@ -3294,11 +3993,19 @@ __device__ void _bit_unpack_64_lane<21>(const uint64_t *__restrict in, uint64_t 
 }
 
 template <>
-__device__ void _bit_unpack_64_lane<22>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+__device__ void _bit_unpack_64_lane<21>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    _bit_unpack_64_lane_slice<21, 0>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<21, 1>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<21, 2>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<21, 3>(in, out, reference, lane);
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<22, 0>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
     constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
     uint64_t src;
     uint64_t tmp;
-    src = in[lane];
+    src = in[lane + LANE_COUNT * 0];
     tmp = (src >> 0) & MASK(uint64_t, 22);
     out[INDEX(0, lane)] = tmp + reference;
     tmp = (src >> 22) & MASK(uint64_t, 22);
@@ -3341,6 +4048,14 @@ __device__ void _bit_unpack_64_lane<22>(const uint64_t *__restrict in, uint64_t 
     out[INDEX(14, lane)] = tmp + reference;
     tmp = (src >> 10) & MASK(uint64_t, 22);
     out[INDEX(15, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<22, 1>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 5];
     tmp = (src >> 32) & MASK(uint64_t, 22);
     out[INDEX(16, lane)] = tmp + reference;
     tmp = (src >> 54) & MASK(uint64_t, 10);
@@ -3385,6 +4100,14 @@ __device__ void _bit_unpack_64_lane<22>(const uint64_t *__restrict in, uint64_t 
     src = in[lane + LANE_COUNT * 11];
     tmp |= (src & MASK(uint64_t, 0)) << 22;
     out[INDEX(31, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<22, 2>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 11];
     tmp = (src >> 0) & MASK(uint64_t, 22);
     out[INDEX(32, lane)] = tmp + reference;
     tmp = (src >> 22) & MASK(uint64_t, 22);
@@ -3427,6 +4150,14 @@ __device__ void _bit_unpack_64_lane<22>(const uint64_t *__restrict in, uint64_t 
     out[INDEX(46, lane)] = tmp + reference;
     tmp = (src >> 10) & MASK(uint64_t, 22);
     out[INDEX(47, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<22, 3>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 16];
     tmp = (src >> 32) & MASK(uint64_t, 22);
     out[INDEX(48, lane)] = tmp + reference;
     tmp = (src >> 54) & MASK(uint64_t, 10);
@@ -3472,11 +4203,19 @@ __device__ void _bit_unpack_64_lane<22>(const uint64_t *__restrict in, uint64_t 
 }
 
 template <>
-__device__ void _bit_unpack_64_lane<23>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+__device__ void _bit_unpack_64_lane<22>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    _bit_unpack_64_lane_slice<22, 0>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<22, 1>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<22, 2>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<22, 3>(in, out, reference, lane);
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<23, 0>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
     constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
     uint64_t src;
     uint64_t tmp;
-    src = in[lane];
+    src = in[lane + LANE_COUNT * 0];
     tmp = (src >> 0) & MASK(uint64_t, 23);
     out[INDEX(0, lane)] = tmp + reference;
     tmp = (src >> 23) & MASK(uint64_t, 23);
@@ -3519,6 +4258,14 @@ __device__ void _bit_unpack_64_lane<23>(const uint64_t *__restrict in, uint64_t 
     out[INDEX(14, lane)] = tmp + reference;
     tmp = (src >> 25) & MASK(uint64_t, 23);
     out[INDEX(15, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<23, 1>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 5];
     tmp = (src >> 48) & MASK(uint64_t, 16);
     src = in[lane + LANE_COUNT * 6];
     tmp |= (src & MASK(uint64_t, 7)) << 16;
@@ -3563,6 +4310,14 @@ __device__ void _bit_unpack_64_lane<23>(const uint64_t *__restrict in, uint64_t 
     out[INDEX(30, lane)] = tmp + reference;
     tmp = (src >> 9) & MASK(uint64_t, 23);
     out[INDEX(31, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<23, 2>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 11];
     tmp = (src >> 32) & MASK(uint64_t, 23);
     out[INDEX(32, lane)] = tmp + reference;
     tmp = (src >> 55) & MASK(uint64_t, 9);
@@ -3607,6 +4362,14 @@ __device__ void _bit_unpack_64_lane<23>(const uint64_t *__restrict in, uint64_t 
     src = in[lane + LANE_COUNT * 17];
     tmp |= (src & MASK(uint64_t, 16)) << 7;
     out[INDEX(47, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<23, 3>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 17];
     tmp = (src >> 16) & MASK(uint64_t, 23);
     out[INDEX(48, lane)] = tmp + reference;
     tmp = (src >> 39) & MASK(uint64_t, 23);
@@ -3652,11 +4415,19 @@ __device__ void _bit_unpack_64_lane<23>(const uint64_t *__restrict in, uint64_t 
 }
 
 template <>
-__device__ void _bit_unpack_64_lane<24>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+__device__ void _bit_unpack_64_lane<23>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    _bit_unpack_64_lane_slice<23, 0>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<23, 1>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<23, 2>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<23, 3>(in, out, reference, lane);
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<24, 0>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
     constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
     uint64_t src;
     uint64_t tmp;
-    src = in[lane];
+    src = in[lane + LANE_COUNT * 0];
     tmp = (src >> 0) & MASK(uint64_t, 24);
     out[INDEX(0, lane)] = tmp + reference;
     tmp = (src >> 24) & MASK(uint64_t, 24);
@@ -3701,6 +4472,14 @@ __device__ void _bit_unpack_64_lane<24>(const uint64_t *__restrict in, uint64_t 
     src = in[lane + LANE_COUNT * 6];
     tmp |= (src & MASK(uint64_t, 0)) << 24;
     out[INDEX(15, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<24, 1>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 6];
     tmp = (src >> 0) & MASK(uint64_t, 24);
     out[INDEX(16, lane)] = tmp + reference;
     tmp = (src >> 24) & MASK(uint64_t, 24);
@@ -3745,6 +4524,14 @@ __device__ void _bit_unpack_64_lane<24>(const uint64_t *__restrict in, uint64_t 
     src = in[lane + LANE_COUNT * 12];
     tmp |= (src & MASK(uint64_t, 0)) << 24;
     out[INDEX(31, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<24, 2>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 12];
     tmp = (src >> 0) & MASK(uint64_t, 24);
     out[INDEX(32, lane)] = tmp + reference;
     tmp = (src >> 24) & MASK(uint64_t, 24);
@@ -3789,6 +4576,14 @@ __device__ void _bit_unpack_64_lane<24>(const uint64_t *__restrict in, uint64_t 
     src = in[lane + LANE_COUNT * 18];
     tmp |= (src & MASK(uint64_t, 0)) << 24;
     out[INDEX(47, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<24, 3>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 18];
     tmp = (src >> 0) & MASK(uint64_t, 24);
     out[INDEX(48, lane)] = tmp + reference;
     tmp = (src >> 24) & MASK(uint64_t, 24);
@@ -3834,11 +4629,19 @@ __device__ void _bit_unpack_64_lane<24>(const uint64_t *__restrict in, uint64_t 
 }
 
 template <>
-__device__ void _bit_unpack_64_lane<25>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+__device__ void _bit_unpack_64_lane<24>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    _bit_unpack_64_lane_slice<24, 0>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<24, 1>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<24, 2>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<24, 3>(in, out, reference, lane);
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<25, 0>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
     constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
     uint64_t src;
     uint64_t tmp;
-    src = in[lane];
+    src = in[lane + LANE_COUNT * 0];
     tmp = (src >> 0) & MASK(uint64_t, 25);
     out[INDEX(0, lane)] = tmp + reference;
     tmp = (src >> 25) & MASK(uint64_t, 25);
@@ -3883,6 +4686,14 @@ __device__ void _bit_unpack_64_lane<25>(const uint64_t *__restrict in, uint64_t 
     src = in[lane + LANE_COUNT * 6];
     tmp |= (src & MASK(uint64_t, 16)) << 9;
     out[INDEX(15, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<25, 1>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 6];
     tmp = (src >> 16) & MASK(uint64_t, 25);
     out[INDEX(16, lane)] = tmp + reference;
     tmp = (src >> 41) & MASK(uint64_t, 23);
@@ -3927,6 +4738,14 @@ __device__ void _bit_unpack_64_lane<25>(const uint64_t *__restrict in, uint64_t 
     out[INDEX(30, lane)] = tmp + reference;
     tmp = (src >> 7) & MASK(uint64_t, 25);
     out[INDEX(31, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<25, 2>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 12];
     tmp = (src >> 32) & MASK(uint64_t, 25);
     out[INDEX(32, lane)] = tmp + reference;
     tmp = (src >> 57) & MASK(uint64_t, 7);
@@ -3971,6 +4790,14 @@ __device__ void _bit_unpack_64_lane<25>(const uint64_t *__restrict in, uint64_t 
     out[INDEX(46, lane)] = tmp + reference;
     tmp = (src >> 23) & MASK(uint64_t, 25);
     out[INDEX(47, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<25, 3>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 18];
     tmp = (src >> 48) & MASK(uint64_t, 16);
     src = in[lane + LANE_COUNT * 19];
     tmp |= (src & MASK(uint64_t, 9)) << 16;
@@ -4018,11 +4845,19 @@ __device__ void _bit_unpack_64_lane<25>(const uint64_t *__restrict in, uint64_t 
 }
 
 template <>
-__device__ void _bit_unpack_64_lane<26>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+__device__ void _bit_unpack_64_lane<25>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    _bit_unpack_64_lane_slice<25, 0>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<25, 1>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<25, 2>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<25, 3>(in, out, reference, lane);
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<26, 0>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
     constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
     uint64_t src;
     uint64_t tmp;
-    src = in[lane];
+    src = in[lane + LANE_COUNT * 0];
     tmp = (src >> 0) & MASK(uint64_t, 26);
     out[INDEX(0, lane)] = tmp + reference;
     tmp = (src >> 26) & MASK(uint64_t, 26);
@@ -4067,6 +4902,14 @@ __device__ void _bit_unpack_64_lane<26>(const uint64_t *__restrict in, uint64_t 
     out[INDEX(14, lane)] = tmp + reference;
     tmp = (src >> 6) & MASK(uint64_t, 26);
     out[INDEX(15, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<26, 1>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 6];
     tmp = (src >> 32) & MASK(uint64_t, 26);
     out[INDEX(16, lane)] = tmp + reference;
     tmp = (src >> 58) & MASK(uint64_t, 6);
@@ -4113,6 +4956,14 @@ __device__ void _bit_unpack_64_lane<26>(const uint64_t *__restrict in, uint64_t 
     src = in[lane + LANE_COUNT * 13];
     tmp |= (src & MASK(uint64_t, 0)) << 26;
     out[INDEX(31, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<26, 2>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 13];
     tmp = (src >> 0) & MASK(uint64_t, 26);
     out[INDEX(32, lane)] = tmp + reference;
     tmp = (src >> 26) & MASK(uint64_t, 26);
@@ -4157,6 +5008,14 @@ __device__ void _bit_unpack_64_lane<26>(const uint64_t *__restrict in, uint64_t 
     out[INDEX(46, lane)] = tmp + reference;
     tmp = (src >> 6) & MASK(uint64_t, 26);
     out[INDEX(47, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<26, 3>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 19];
     tmp = (src >> 32) & MASK(uint64_t, 26);
     out[INDEX(48, lane)] = tmp + reference;
     tmp = (src >> 58) & MASK(uint64_t, 6);
@@ -4204,11 +5063,19 @@ __device__ void _bit_unpack_64_lane<26>(const uint64_t *__restrict in, uint64_t 
 }
 
 template <>
-__device__ void _bit_unpack_64_lane<27>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+__device__ void _bit_unpack_64_lane<26>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    _bit_unpack_64_lane_slice<26, 0>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<26, 1>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<26, 2>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<26, 3>(in, out, reference, lane);
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<27, 0>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
     constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
     uint64_t src;
     uint64_t tmp;
-    src = in[lane];
+    src = in[lane + LANE_COUNT * 0];
     tmp = (src >> 0) & MASK(uint64_t, 27);
     out[INDEX(0, lane)] = tmp + reference;
     tmp = (src >> 27) & MASK(uint64_t, 27);
@@ -4253,6 +5120,14 @@ __device__ void _bit_unpack_64_lane<27>(const uint64_t *__restrict in, uint64_t 
     out[INDEX(14, lane)] = tmp + reference;
     tmp = (src >> 21) & MASK(uint64_t, 27);
     out[INDEX(15, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<27, 1>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 6];
     tmp = (src >> 48) & MASK(uint64_t, 16);
     src = in[lane + LANE_COUNT * 7];
     tmp |= (src & MASK(uint64_t, 11)) << 16;
@@ -4299,6 +5174,14 @@ __device__ void _bit_unpack_64_lane<27>(const uint64_t *__restrict in, uint64_t 
     out[INDEX(30, lane)] = tmp + reference;
     tmp = (src >> 5) & MASK(uint64_t, 27);
     out[INDEX(31, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<27, 2>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 13];
     tmp = (src >> 32) & MASK(uint64_t, 27);
     out[INDEX(32, lane)] = tmp + reference;
     tmp = (src >> 59) & MASK(uint64_t, 5);
@@ -4345,6 +5228,14 @@ __device__ void _bit_unpack_64_lane<27>(const uint64_t *__restrict in, uint64_t 
     src = in[lane + LANE_COUNT * 20];
     tmp |= (src & MASK(uint64_t, 16)) << 11;
     out[INDEX(47, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<27, 3>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 20];
     tmp = (src >> 16) & MASK(uint64_t, 27);
     out[INDEX(48, lane)] = tmp + reference;
     tmp = (src >> 43) & MASK(uint64_t, 21);
@@ -4392,11 +5283,19 @@ __device__ void _bit_unpack_64_lane<27>(const uint64_t *__restrict in, uint64_t 
 }
 
 template <>
-__device__ void _bit_unpack_64_lane<28>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+__device__ void _bit_unpack_64_lane<27>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    _bit_unpack_64_lane_slice<27, 0>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<27, 1>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<27, 2>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<27, 3>(in, out, reference, lane);
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<28, 0>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
     constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
     uint64_t src;
     uint64_t tmp;
-    src = in[lane];
+    src = in[lane + LANE_COUNT * 0];
     tmp = (src >> 0) & MASK(uint64_t, 28);
     out[INDEX(0, lane)] = tmp + reference;
     tmp = (src >> 28) & MASK(uint64_t, 28);
@@ -4443,6 +5342,14 @@ __device__ void _bit_unpack_64_lane<28>(const uint64_t *__restrict in, uint64_t 
     src = in[lane + LANE_COUNT * 7];
     tmp |= (src & MASK(uint64_t, 0)) << 28;
     out[INDEX(15, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<28, 1>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 7];
     tmp = (src >> 0) & MASK(uint64_t, 28);
     out[INDEX(16, lane)] = tmp + reference;
     tmp = (src >> 28) & MASK(uint64_t, 28);
@@ -4489,6 +5396,14 @@ __device__ void _bit_unpack_64_lane<28>(const uint64_t *__restrict in, uint64_t 
     src = in[lane + LANE_COUNT * 14];
     tmp |= (src & MASK(uint64_t, 0)) << 28;
     out[INDEX(31, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<28, 2>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 14];
     tmp = (src >> 0) & MASK(uint64_t, 28);
     out[INDEX(32, lane)] = tmp + reference;
     tmp = (src >> 28) & MASK(uint64_t, 28);
@@ -4535,6 +5450,14 @@ __device__ void _bit_unpack_64_lane<28>(const uint64_t *__restrict in, uint64_t 
     src = in[lane + LANE_COUNT * 21];
     tmp |= (src & MASK(uint64_t, 0)) << 28;
     out[INDEX(47, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<28, 3>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 21];
     tmp = (src >> 0) & MASK(uint64_t, 28);
     out[INDEX(48, lane)] = tmp + reference;
     tmp = (src >> 28) & MASK(uint64_t, 28);
@@ -4582,11 +5505,19 @@ __device__ void _bit_unpack_64_lane<28>(const uint64_t *__restrict in, uint64_t 
 }
 
 template <>
-__device__ void _bit_unpack_64_lane<29>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+__device__ void _bit_unpack_64_lane<28>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    _bit_unpack_64_lane_slice<28, 0>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<28, 1>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<28, 2>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<28, 3>(in, out, reference, lane);
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<29, 0>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
     constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
     uint64_t src;
     uint64_t tmp;
-    src = in[lane];
+    src = in[lane + LANE_COUNT * 0];
     tmp = (src >> 0) & MASK(uint64_t, 29);
     out[INDEX(0, lane)] = tmp + reference;
     tmp = (src >> 29) & MASK(uint64_t, 29);
@@ -4633,6 +5564,14 @@ __device__ void _bit_unpack_64_lane<29>(const uint64_t *__restrict in, uint64_t 
     src = in[lane + LANE_COUNT * 7];
     tmp |= (src & MASK(uint64_t, 16)) << 13;
     out[INDEX(15, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<29, 1>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 7];
     tmp = (src >> 16) & MASK(uint64_t, 29);
     out[INDEX(16, lane)] = tmp + reference;
     tmp = (src >> 45) & MASK(uint64_t, 19);
@@ -4679,6 +5618,14 @@ __device__ void _bit_unpack_64_lane<29>(const uint64_t *__restrict in, uint64_t 
     out[INDEX(30, lane)] = tmp + reference;
     tmp = (src >> 3) & MASK(uint64_t, 29);
     out[INDEX(31, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<29, 2>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 14];
     tmp = (src >> 32) & MASK(uint64_t, 29);
     out[INDEX(32, lane)] = tmp + reference;
     tmp = (src >> 61) & MASK(uint64_t, 3);
@@ -4725,6 +5672,14 @@ __device__ void _bit_unpack_64_lane<29>(const uint64_t *__restrict in, uint64_t 
     out[INDEX(46, lane)] = tmp + reference;
     tmp = (src >> 19) & MASK(uint64_t, 29);
     out[INDEX(47, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<29, 3>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 21];
     tmp = (src >> 48) & MASK(uint64_t, 16);
     src = in[lane + LANE_COUNT * 22];
     tmp |= (src & MASK(uint64_t, 13)) << 16;
@@ -4774,11 +5729,19 @@ __device__ void _bit_unpack_64_lane<29>(const uint64_t *__restrict in, uint64_t 
 }
 
 template <>
-__device__ void _bit_unpack_64_lane<30>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+__device__ void _bit_unpack_64_lane<29>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    _bit_unpack_64_lane_slice<29, 0>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<29, 1>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<29, 2>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<29, 3>(in, out, reference, lane);
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<30, 0>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
     constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
     uint64_t src;
     uint64_t tmp;
-    src = in[lane];
+    src = in[lane + LANE_COUNT * 0];
     tmp = (src >> 0) & MASK(uint64_t, 30);
     out[INDEX(0, lane)] = tmp + reference;
     tmp = (src >> 30) & MASK(uint64_t, 30);
@@ -4825,6 +5788,14 @@ __device__ void _bit_unpack_64_lane<30>(const uint64_t *__restrict in, uint64_t 
     out[INDEX(14, lane)] = tmp + reference;
     tmp = (src >> 2) & MASK(uint64_t, 30);
     out[INDEX(15, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<30, 1>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 7];
     tmp = (src >> 32) & MASK(uint64_t, 30);
     out[INDEX(16, lane)] = tmp + reference;
     tmp = (src >> 62) & MASK(uint64_t, 2);
@@ -4873,6 +5844,14 @@ __device__ void _bit_unpack_64_lane<30>(const uint64_t *__restrict in, uint64_t 
     src = in[lane + LANE_COUNT * 15];
     tmp |= (src & MASK(uint64_t, 0)) << 30;
     out[INDEX(31, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<30, 2>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 15];
     tmp = (src >> 0) & MASK(uint64_t, 30);
     out[INDEX(32, lane)] = tmp + reference;
     tmp = (src >> 30) & MASK(uint64_t, 30);
@@ -4919,6 +5898,14 @@ __device__ void _bit_unpack_64_lane<30>(const uint64_t *__restrict in, uint64_t 
     out[INDEX(46, lane)] = tmp + reference;
     tmp = (src >> 2) & MASK(uint64_t, 30);
     out[INDEX(47, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<30, 3>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 22];
     tmp = (src >> 32) & MASK(uint64_t, 30);
     out[INDEX(48, lane)] = tmp + reference;
     tmp = (src >> 62) & MASK(uint64_t, 2);
@@ -4968,11 +5955,19 @@ __device__ void _bit_unpack_64_lane<30>(const uint64_t *__restrict in, uint64_t 
 }
 
 template <>
-__device__ void _bit_unpack_64_lane<31>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+__device__ void _bit_unpack_64_lane<30>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    _bit_unpack_64_lane_slice<30, 0>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<30, 1>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<30, 2>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<30, 3>(in, out, reference, lane);
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<31, 0>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
     constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
     uint64_t src;
     uint64_t tmp;
-    src = in[lane];
+    src = in[lane + LANE_COUNT * 0];
     tmp = (src >> 0) & MASK(uint64_t, 31);
     out[INDEX(0, lane)] = tmp + reference;
     tmp = (src >> 31) & MASK(uint64_t, 31);
@@ -5019,6 +6014,14 @@ __device__ void _bit_unpack_64_lane<31>(const uint64_t *__restrict in, uint64_t 
     out[INDEX(14, lane)] = tmp + reference;
     tmp = (src >> 17) & MASK(uint64_t, 31);
     out[INDEX(15, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<31, 1>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 7];
     tmp = (src >> 48) & MASK(uint64_t, 16);
     src = in[lane + LANE_COUNT * 8];
     tmp |= (src & MASK(uint64_t, 15)) << 16;
@@ -5067,6 +6070,14 @@ __device__ void _bit_unpack_64_lane<31>(const uint64_t *__restrict in, uint64_t 
     out[INDEX(30, lane)] = tmp + reference;
     tmp = (src >> 1) & MASK(uint64_t, 31);
     out[INDEX(31, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<31, 2>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 15];
     tmp = (src >> 32) & MASK(uint64_t, 31);
     out[INDEX(32, lane)] = tmp + reference;
     tmp = (src >> 63) & MASK(uint64_t, 1);
@@ -5115,6 +6126,14 @@ __device__ void _bit_unpack_64_lane<31>(const uint64_t *__restrict in, uint64_t 
     src = in[lane + LANE_COUNT * 23];
     tmp |= (src & MASK(uint64_t, 16)) << 15;
     out[INDEX(47, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<31, 3>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 23];
     tmp = (src >> 16) & MASK(uint64_t, 31);
     out[INDEX(48, lane)] = tmp + reference;
     tmp = (src >> 47) & MASK(uint64_t, 17);
@@ -5164,11 +6183,19 @@ __device__ void _bit_unpack_64_lane<31>(const uint64_t *__restrict in, uint64_t 
 }
 
 template <>
-__device__ void _bit_unpack_64_lane<32>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+__device__ void _bit_unpack_64_lane<31>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    _bit_unpack_64_lane_slice<31, 0>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<31, 1>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<31, 2>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<31, 3>(in, out, reference, lane);
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<32, 0>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
     constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
     uint64_t src;
     uint64_t tmp;
-    src = in[lane];
+    src = in[lane + LANE_COUNT * 0];
     tmp = (src >> 0) & MASK(uint64_t, 32);
     out[INDEX(0, lane)] = tmp + reference;
     tmp = (src >> 32) & MASK(uint64_t, 32);
@@ -5217,6 +6244,14 @@ __device__ void _bit_unpack_64_lane<32>(const uint64_t *__restrict in, uint64_t 
     src = in[lane + LANE_COUNT * 8];
     tmp |= (src & MASK(uint64_t, 0)) << 32;
     out[INDEX(15, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<32, 1>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 8];
     tmp = (src >> 0) & MASK(uint64_t, 32);
     out[INDEX(16, lane)] = tmp + reference;
     tmp = (src >> 32) & MASK(uint64_t, 32);
@@ -5265,6 +6300,14 @@ __device__ void _bit_unpack_64_lane<32>(const uint64_t *__restrict in, uint64_t 
     src = in[lane + LANE_COUNT * 16];
     tmp |= (src & MASK(uint64_t, 0)) << 32;
     out[INDEX(31, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<32, 2>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 16];
     tmp = (src >> 0) & MASK(uint64_t, 32);
     out[INDEX(32, lane)] = tmp + reference;
     tmp = (src >> 32) & MASK(uint64_t, 32);
@@ -5313,6 +6356,14 @@ __device__ void _bit_unpack_64_lane<32>(const uint64_t *__restrict in, uint64_t 
     src = in[lane + LANE_COUNT * 24];
     tmp |= (src & MASK(uint64_t, 0)) << 32;
     out[INDEX(47, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<32, 3>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 24];
     tmp = (src >> 0) & MASK(uint64_t, 32);
     out[INDEX(48, lane)] = tmp + reference;
     tmp = (src >> 32) & MASK(uint64_t, 32);
@@ -5362,11 +6413,19 @@ __device__ void _bit_unpack_64_lane<32>(const uint64_t *__restrict in, uint64_t 
 }
 
 template <>
-__device__ void _bit_unpack_64_lane<33>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+__device__ void _bit_unpack_64_lane<32>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    _bit_unpack_64_lane_slice<32, 0>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<32, 1>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<32, 2>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<32, 3>(in, out, reference, lane);
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<33, 0>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
     constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
     uint64_t src;
     uint64_t tmp;
-    src = in[lane];
+    src = in[lane + LANE_COUNT * 0];
     tmp = (src >> 0) & MASK(uint64_t, 33);
     out[INDEX(0, lane)] = tmp + reference;
     tmp = (src >> 33) & MASK(uint64_t, 31);
@@ -5415,6 +6474,14 @@ __device__ void _bit_unpack_64_lane<33>(const uint64_t *__restrict in, uint64_t 
     src = in[lane + LANE_COUNT * 8];
     tmp |= (src & MASK(uint64_t, 16)) << 17;
     out[INDEX(15, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<33, 1>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 8];
     tmp = (src >> 16) & MASK(uint64_t, 33);
     out[INDEX(16, lane)] = tmp + reference;
     tmp = (src >> 49) & MASK(uint64_t, 15);
@@ -5463,6 +6530,14 @@ __device__ void _bit_unpack_64_lane<33>(const uint64_t *__restrict in, uint64_t 
     src = in[lane + LANE_COUNT * 16];
     tmp |= (src & MASK(uint64_t, 32)) << 1;
     out[INDEX(31, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<33, 2>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 16];
     tmp = (src >> 32) & MASK(uint64_t, 32);
     src = in[lane + LANE_COUNT * 17];
     tmp |= (src & MASK(uint64_t, 1)) << 32;
@@ -5511,6 +6586,14 @@ __device__ void _bit_unpack_64_lane<33>(const uint64_t *__restrict in, uint64_t 
     out[INDEX(46, lane)] = tmp + reference;
     tmp = (src >> 15) & MASK(uint64_t, 33);
     out[INDEX(47, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<33, 3>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 24];
     tmp = (src >> 48) & MASK(uint64_t, 16);
     src = in[lane + LANE_COUNT * 25];
     tmp |= (src & MASK(uint64_t, 17)) << 16;
@@ -5562,11 +6645,19 @@ __device__ void _bit_unpack_64_lane<33>(const uint64_t *__restrict in, uint64_t 
 }
 
 template <>
-__device__ void _bit_unpack_64_lane<34>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+__device__ void _bit_unpack_64_lane<33>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    _bit_unpack_64_lane_slice<33, 0>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<33, 1>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<33, 2>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<33, 3>(in, out, reference, lane);
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<34, 0>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
     constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
     uint64_t src;
     uint64_t tmp;
-    src = in[lane];
+    src = in[lane + LANE_COUNT * 0];
     tmp = (src >> 0) & MASK(uint64_t, 34);
     out[INDEX(0, lane)] = tmp + reference;
     tmp = (src >> 34) & MASK(uint64_t, 30);
@@ -5615,6 +6706,14 @@ __device__ void _bit_unpack_64_lane<34>(const uint64_t *__restrict in, uint64_t 
     src = in[lane + LANE_COUNT * 8];
     tmp |= (src & MASK(uint64_t, 32)) << 2;
     out[INDEX(15, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<34, 1>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 8];
     tmp = (src >> 32) & MASK(uint64_t, 32);
     src = in[lane + LANE_COUNT * 9];
     tmp |= (src & MASK(uint64_t, 2)) << 32;
@@ -5665,6 +6764,14 @@ __device__ void _bit_unpack_64_lane<34>(const uint64_t *__restrict in, uint64_t 
     src = in[lane + LANE_COUNT * 17];
     tmp |= (src & MASK(uint64_t, 0)) << 34;
     out[INDEX(31, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<34, 2>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 17];
     tmp = (src >> 0) & MASK(uint64_t, 34);
     out[INDEX(32, lane)] = tmp + reference;
     tmp = (src >> 34) & MASK(uint64_t, 30);
@@ -5713,6 +6820,14 @@ __device__ void _bit_unpack_64_lane<34>(const uint64_t *__restrict in, uint64_t 
     src = in[lane + LANE_COUNT * 25];
     tmp |= (src & MASK(uint64_t, 32)) << 2;
     out[INDEX(47, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<34, 3>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 25];
     tmp = (src >> 32) & MASK(uint64_t, 32);
     src = in[lane + LANE_COUNT * 26];
     tmp |= (src & MASK(uint64_t, 2)) << 32;
@@ -5764,11 +6879,19 @@ __device__ void _bit_unpack_64_lane<34>(const uint64_t *__restrict in, uint64_t 
 }
 
 template <>
-__device__ void _bit_unpack_64_lane<35>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+__device__ void _bit_unpack_64_lane<34>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    _bit_unpack_64_lane_slice<34, 0>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<34, 1>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<34, 2>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<34, 3>(in, out, reference, lane);
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<35, 0>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
     constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
     uint64_t src;
     uint64_t tmp;
-    src = in[lane];
+    src = in[lane + LANE_COUNT * 0];
     tmp = (src >> 0) & MASK(uint64_t, 35);
     out[INDEX(0, lane)] = tmp + reference;
     tmp = (src >> 35) & MASK(uint64_t, 29);
@@ -5817,6 +6940,14 @@ __device__ void _bit_unpack_64_lane<35>(const uint64_t *__restrict in, uint64_t 
     out[INDEX(14, lane)] = tmp + reference;
     tmp = (src >> 13) & MASK(uint64_t, 35);
     out[INDEX(15, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<35, 1>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 8];
     tmp = (src >> 48) & MASK(uint64_t, 16);
     src = in[lane + LANE_COUNT * 9];
     tmp |= (src & MASK(uint64_t, 19)) << 16;
@@ -5867,6 +6998,14 @@ __device__ void _bit_unpack_64_lane<35>(const uint64_t *__restrict in, uint64_t 
     src = in[lane + LANE_COUNT * 17];
     tmp |= (src & MASK(uint64_t, 32)) << 3;
     out[INDEX(31, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<35, 2>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 17];
     tmp = (src >> 32) & MASK(uint64_t, 32);
     src = in[lane + LANE_COUNT * 18];
     tmp |= (src & MASK(uint64_t, 3)) << 32;
@@ -5917,6 +7056,14 @@ __device__ void _bit_unpack_64_lane<35>(const uint64_t *__restrict in, uint64_t 
     src = in[lane + LANE_COUNT * 26];
     tmp |= (src & MASK(uint64_t, 16)) << 19;
     out[INDEX(47, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<35, 3>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 26];
     tmp = (src >> 16) & MASK(uint64_t, 35);
     out[INDEX(48, lane)] = tmp + reference;
     tmp = (src >> 51) & MASK(uint64_t, 13);
@@ -5968,11 +7115,19 @@ __device__ void _bit_unpack_64_lane<35>(const uint64_t *__restrict in, uint64_t 
 }
 
 template <>
-__device__ void _bit_unpack_64_lane<36>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+__device__ void _bit_unpack_64_lane<35>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    _bit_unpack_64_lane_slice<35, 0>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<35, 1>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<35, 2>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<35, 3>(in, out, reference, lane);
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<36, 0>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
     constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
     uint64_t src;
     uint64_t tmp;
-    src = in[lane];
+    src = in[lane + LANE_COUNT * 0];
     tmp = (src >> 0) & MASK(uint64_t, 36);
     out[INDEX(0, lane)] = tmp + reference;
     tmp = (src >> 36) & MASK(uint64_t, 28);
@@ -6023,6 +7178,14 @@ __device__ void _bit_unpack_64_lane<36>(const uint64_t *__restrict in, uint64_t 
     src = in[lane + LANE_COUNT * 9];
     tmp |= (src & MASK(uint64_t, 0)) << 36;
     out[INDEX(15, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<36, 1>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 9];
     tmp = (src >> 0) & MASK(uint64_t, 36);
     out[INDEX(16, lane)] = tmp + reference;
     tmp = (src >> 36) & MASK(uint64_t, 28);
@@ -6073,6 +7236,14 @@ __device__ void _bit_unpack_64_lane<36>(const uint64_t *__restrict in, uint64_t 
     src = in[lane + LANE_COUNT * 18];
     tmp |= (src & MASK(uint64_t, 0)) << 36;
     out[INDEX(31, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<36, 2>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 18];
     tmp = (src >> 0) & MASK(uint64_t, 36);
     out[INDEX(32, lane)] = tmp + reference;
     tmp = (src >> 36) & MASK(uint64_t, 28);
@@ -6123,6 +7294,14 @@ __device__ void _bit_unpack_64_lane<36>(const uint64_t *__restrict in, uint64_t 
     src = in[lane + LANE_COUNT * 27];
     tmp |= (src & MASK(uint64_t, 0)) << 36;
     out[INDEX(47, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<36, 3>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 27];
     tmp = (src >> 0) & MASK(uint64_t, 36);
     out[INDEX(48, lane)] = tmp + reference;
     tmp = (src >> 36) & MASK(uint64_t, 28);
@@ -6174,11 +7353,19 @@ __device__ void _bit_unpack_64_lane<36>(const uint64_t *__restrict in, uint64_t 
 }
 
 template <>
-__device__ void _bit_unpack_64_lane<37>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+__device__ void _bit_unpack_64_lane<36>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    _bit_unpack_64_lane_slice<36, 0>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<36, 1>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<36, 2>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<36, 3>(in, out, reference, lane);
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<37, 0>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
     constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
     uint64_t src;
     uint64_t tmp;
-    src = in[lane];
+    src = in[lane + LANE_COUNT * 0];
     tmp = (src >> 0) & MASK(uint64_t, 37);
     out[INDEX(0, lane)] = tmp + reference;
     tmp = (src >> 37) & MASK(uint64_t, 27);
@@ -6229,6 +7416,14 @@ __device__ void _bit_unpack_64_lane<37>(const uint64_t *__restrict in, uint64_t 
     src = in[lane + LANE_COUNT * 9];
     tmp |= (src & MASK(uint64_t, 16)) << 21;
     out[INDEX(15, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<37, 1>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 9];
     tmp = (src >> 16) & MASK(uint64_t, 37);
     out[INDEX(16, lane)] = tmp + reference;
     tmp = (src >> 53) & MASK(uint64_t, 11);
@@ -6279,6 +7474,14 @@ __device__ void _bit_unpack_64_lane<37>(const uint64_t *__restrict in, uint64_t 
     src = in[lane + LANE_COUNT * 18];
     tmp |= (src & MASK(uint64_t, 32)) << 5;
     out[INDEX(31, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<37, 2>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 18];
     tmp = (src >> 32) & MASK(uint64_t, 32);
     src = in[lane + LANE_COUNT * 19];
     tmp |= (src & MASK(uint64_t, 5)) << 32;
@@ -6329,6 +7532,14 @@ __device__ void _bit_unpack_64_lane<37>(const uint64_t *__restrict in, uint64_t 
     out[INDEX(46, lane)] = tmp + reference;
     tmp = (src >> 11) & MASK(uint64_t, 37);
     out[INDEX(47, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<37, 3>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 27];
     tmp = (src >> 48) & MASK(uint64_t, 16);
     src = in[lane + LANE_COUNT * 28];
     tmp |= (src & MASK(uint64_t, 21)) << 16;
@@ -6382,11 +7593,19 @@ __device__ void _bit_unpack_64_lane<37>(const uint64_t *__restrict in, uint64_t 
 }
 
 template <>
-__device__ void _bit_unpack_64_lane<38>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+__device__ void _bit_unpack_64_lane<37>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    _bit_unpack_64_lane_slice<37, 0>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<37, 1>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<37, 2>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<37, 3>(in, out, reference, lane);
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<38, 0>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
     constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
     uint64_t src;
     uint64_t tmp;
-    src = in[lane];
+    src = in[lane + LANE_COUNT * 0];
     tmp = (src >> 0) & MASK(uint64_t, 38);
     out[INDEX(0, lane)] = tmp + reference;
     tmp = (src >> 38) & MASK(uint64_t, 26);
@@ -6437,6 +7656,14 @@ __device__ void _bit_unpack_64_lane<38>(const uint64_t *__restrict in, uint64_t 
     src = in[lane + LANE_COUNT * 9];
     tmp |= (src & MASK(uint64_t, 32)) << 6;
     out[INDEX(15, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<38, 1>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 9];
     tmp = (src >> 32) & MASK(uint64_t, 32);
     src = in[lane + LANE_COUNT * 10];
     tmp |= (src & MASK(uint64_t, 6)) << 32;
@@ -6489,6 +7716,14 @@ __device__ void _bit_unpack_64_lane<38>(const uint64_t *__restrict in, uint64_t 
     src = in[lane + LANE_COUNT * 19];
     tmp |= (src & MASK(uint64_t, 0)) << 38;
     out[INDEX(31, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<38, 2>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 19];
     tmp = (src >> 0) & MASK(uint64_t, 38);
     out[INDEX(32, lane)] = tmp + reference;
     tmp = (src >> 38) & MASK(uint64_t, 26);
@@ -6539,6 +7774,14 @@ __device__ void _bit_unpack_64_lane<38>(const uint64_t *__restrict in, uint64_t 
     src = in[lane + LANE_COUNT * 28];
     tmp |= (src & MASK(uint64_t, 32)) << 6;
     out[INDEX(47, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<38, 3>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 28];
     tmp = (src >> 32) & MASK(uint64_t, 32);
     src = in[lane + LANE_COUNT * 29];
     tmp |= (src & MASK(uint64_t, 6)) << 32;
@@ -6592,11 +7835,19 @@ __device__ void _bit_unpack_64_lane<38>(const uint64_t *__restrict in, uint64_t 
 }
 
 template <>
-__device__ void _bit_unpack_64_lane<39>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+__device__ void _bit_unpack_64_lane<38>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    _bit_unpack_64_lane_slice<38, 0>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<38, 1>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<38, 2>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<38, 3>(in, out, reference, lane);
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<39, 0>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
     constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
     uint64_t src;
     uint64_t tmp;
-    src = in[lane];
+    src = in[lane + LANE_COUNT * 0];
     tmp = (src >> 0) & MASK(uint64_t, 39);
     out[INDEX(0, lane)] = tmp + reference;
     tmp = (src >> 39) & MASK(uint64_t, 25);
@@ -6647,6 +7898,14 @@ __device__ void _bit_unpack_64_lane<39>(const uint64_t *__restrict in, uint64_t 
     out[INDEX(14, lane)] = tmp + reference;
     tmp = (src >> 9) & MASK(uint64_t, 39);
     out[INDEX(15, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<39, 1>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 9];
     tmp = (src >> 48) & MASK(uint64_t, 16);
     src = in[lane + LANE_COUNT * 10];
     tmp |= (src & MASK(uint64_t, 23)) << 16;
@@ -6699,6 +7958,14 @@ __device__ void _bit_unpack_64_lane<39>(const uint64_t *__restrict in, uint64_t 
     src = in[lane + LANE_COUNT * 19];
     tmp |= (src & MASK(uint64_t, 32)) << 7;
     out[INDEX(31, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<39, 2>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 19];
     tmp = (src >> 32) & MASK(uint64_t, 32);
     src = in[lane + LANE_COUNT * 20];
     tmp |= (src & MASK(uint64_t, 7)) << 32;
@@ -6751,6 +8018,14 @@ __device__ void _bit_unpack_64_lane<39>(const uint64_t *__restrict in, uint64_t 
     src = in[lane + LANE_COUNT * 29];
     tmp |= (src & MASK(uint64_t, 16)) << 23;
     out[INDEX(47, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<39, 3>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 29];
     tmp = (src >> 16) & MASK(uint64_t, 39);
     out[INDEX(48, lane)] = tmp + reference;
     tmp = (src >> 55) & MASK(uint64_t, 9);
@@ -6804,11 +8079,19 @@ __device__ void _bit_unpack_64_lane<39>(const uint64_t *__restrict in, uint64_t 
 }
 
 template <>
-__device__ void _bit_unpack_64_lane<40>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+__device__ void _bit_unpack_64_lane<39>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    _bit_unpack_64_lane_slice<39, 0>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<39, 1>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<39, 2>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<39, 3>(in, out, reference, lane);
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<40, 0>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
     constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
     uint64_t src;
     uint64_t tmp;
-    src = in[lane];
+    src = in[lane + LANE_COUNT * 0];
     tmp = (src >> 0) & MASK(uint64_t, 40);
     out[INDEX(0, lane)] = tmp + reference;
     tmp = (src >> 40) & MASK(uint64_t, 24);
@@ -6861,6 +8144,14 @@ __device__ void _bit_unpack_64_lane<40>(const uint64_t *__restrict in, uint64_t 
     src = in[lane + LANE_COUNT * 10];
     tmp |= (src & MASK(uint64_t, 0)) << 40;
     out[INDEX(15, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<40, 1>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 10];
     tmp = (src >> 0) & MASK(uint64_t, 40);
     out[INDEX(16, lane)] = tmp + reference;
     tmp = (src >> 40) & MASK(uint64_t, 24);
@@ -6913,6 +8204,14 @@ __device__ void _bit_unpack_64_lane<40>(const uint64_t *__restrict in, uint64_t 
     src = in[lane + LANE_COUNT * 20];
     tmp |= (src & MASK(uint64_t, 0)) << 40;
     out[INDEX(31, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<40, 2>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 20];
     tmp = (src >> 0) & MASK(uint64_t, 40);
     out[INDEX(32, lane)] = tmp + reference;
     tmp = (src >> 40) & MASK(uint64_t, 24);
@@ -6965,6 +8264,14 @@ __device__ void _bit_unpack_64_lane<40>(const uint64_t *__restrict in, uint64_t 
     src = in[lane + LANE_COUNT * 30];
     tmp |= (src & MASK(uint64_t, 0)) << 40;
     out[INDEX(47, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<40, 3>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 30];
     tmp = (src >> 0) & MASK(uint64_t, 40);
     out[INDEX(48, lane)] = tmp + reference;
     tmp = (src >> 40) & MASK(uint64_t, 24);
@@ -7018,11 +8325,19 @@ __device__ void _bit_unpack_64_lane<40>(const uint64_t *__restrict in, uint64_t 
 }
 
 template <>
-__device__ void _bit_unpack_64_lane<41>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+__device__ void _bit_unpack_64_lane<40>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    _bit_unpack_64_lane_slice<40, 0>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<40, 1>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<40, 2>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<40, 3>(in, out, reference, lane);
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<41, 0>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
     constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
     uint64_t src;
     uint64_t tmp;
-    src = in[lane];
+    src = in[lane + LANE_COUNT * 0];
     tmp = (src >> 0) & MASK(uint64_t, 41);
     out[INDEX(0, lane)] = tmp + reference;
     tmp = (src >> 41) & MASK(uint64_t, 23);
@@ -7075,6 +8390,14 @@ __device__ void _bit_unpack_64_lane<41>(const uint64_t *__restrict in, uint64_t 
     src = in[lane + LANE_COUNT * 10];
     tmp |= (src & MASK(uint64_t, 16)) << 25;
     out[INDEX(15, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<41, 1>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 10];
     tmp = (src >> 16) & MASK(uint64_t, 41);
     out[INDEX(16, lane)] = tmp + reference;
     tmp = (src >> 57) & MASK(uint64_t, 7);
@@ -7127,6 +8450,14 @@ __device__ void _bit_unpack_64_lane<41>(const uint64_t *__restrict in, uint64_t 
     src = in[lane + LANE_COUNT * 20];
     tmp |= (src & MASK(uint64_t, 32)) << 9;
     out[INDEX(31, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<41, 2>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 20];
     tmp = (src >> 32) & MASK(uint64_t, 32);
     src = in[lane + LANE_COUNT * 21];
     tmp |= (src & MASK(uint64_t, 9)) << 32;
@@ -7179,6 +8510,14 @@ __device__ void _bit_unpack_64_lane<41>(const uint64_t *__restrict in, uint64_t 
     out[INDEX(46, lane)] = tmp + reference;
     tmp = (src >> 7) & MASK(uint64_t, 41);
     out[INDEX(47, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<41, 3>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 30];
     tmp = (src >> 48) & MASK(uint64_t, 16);
     src = in[lane + LANE_COUNT * 31];
     tmp |= (src & MASK(uint64_t, 25)) << 16;
@@ -7234,11 +8573,19 @@ __device__ void _bit_unpack_64_lane<41>(const uint64_t *__restrict in, uint64_t 
 }
 
 template <>
-__device__ void _bit_unpack_64_lane<42>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+__device__ void _bit_unpack_64_lane<41>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    _bit_unpack_64_lane_slice<41, 0>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<41, 1>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<41, 2>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<41, 3>(in, out, reference, lane);
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<42, 0>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
     constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
     uint64_t src;
     uint64_t tmp;
-    src = in[lane];
+    src = in[lane + LANE_COUNT * 0];
     tmp = (src >> 0) & MASK(uint64_t, 42);
     out[INDEX(0, lane)] = tmp + reference;
     tmp = (src >> 42) & MASK(uint64_t, 22);
@@ -7291,6 +8638,14 @@ __device__ void _bit_unpack_64_lane<42>(const uint64_t *__restrict in, uint64_t 
     src = in[lane + LANE_COUNT * 10];
     tmp |= (src & MASK(uint64_t, 32)) << 10;
     out[INDEX(15, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<42, 1>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 10];
     tmp = (src >> 32) & MASK(uint64_t, 32);
     src = in[lane + LANE_COUNT * 11];
     tmp |= (src & MASK(uint64_t, 10)) << 32;
@@ -7345,6 +8700,14 @@ __device__ void _bit_unpack_64_lane<42>(const uint64_t *__restrict in, uint64_t 
     src = in[lane + LANE_COUNT * 21];
     tmp |= (src & MASK(uint64_t, 0)) << 42;
     out[INDEX(31, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<42, 2>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 21];
     tmp = (src >> 0) & MASK(uint64_t, 42);
     out[INDEX(32, lane)] = tmp + reference;
     tmp = (src >> 42) & MASK(uint64_t, 22);
@@ -7397,6 +8760,14 @@ __device__ void _bit_unpack_64_lane<42>(const uint64_t *__restrict in, uint64_t 
     src = in[lane + LANE_COUNT * 31];
     tmp |= (src & MASK(uint64_t, 32)) << 10;
     out[INDEX(47, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<42, 3>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 31];
     tmp = (src >> 32) & MASK(uint64_t, 32);
     src = in[lane + LANE_COUNT * 32];
     tmp |= (src & MASK(uint64_t, 10)) << 32;
@@ -7452,11 +8823,19 @@ __device__ void _bit_unpack_64_lane<42>(const uint64_t *__restrict in, uint64_t 
 }
 
 template <>
-__device__ void _bit_unpack_64_lane<43>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+__device__ void _bit_unpack_64_lane<42>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    _bit_unpack_64_lane_slice<42, 0>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<42, 1>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<42, 2>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<42, 3>(in, out, reference, lane);
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<43, 0>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
     constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
     uint64_t src;
     uint64_t tmp;
-    src = in[lane];
+    src = in[lane + LANE_COUNT * 0];
     tmp = (src >> 0) & MASK(uint64_t, 43);
     out[INDEX(0, lane)] = tmp + reference;
     tmp = (src >> 43) & MASK(uint64_t, 21);
@@ -7509,6 +8888,14 @@ __device__ void _bit_unpack_64_lane<43>(const uint64_t *__restrict in, uint64_t 
     out[INDEX(14, lane)] = tmp + reference;
     tmp = (src >> 5) & MASK(uint64_t, 43);
     out[INDEX(15, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<43, 1>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 10];
     tmp = (src >> 48) & MASK(uint64_t, 16);
     src = in[lane + LANE_COUNT * 11];
     tmp |= (src & MASK(uint64_t, 27)) << 16;
@@ -7563,6 +8950,14 @@ __device__ void _bit_unpack_64_lane<43>(const uint64_t *__restrict in, uint64_t 
     src = in[lane + LANE_COUNT * 21];
     tmp |= (src & MASK(uint64_t, 32)) << 11;
     out[INDEX(31, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<43, 2>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 21];
     tmp = (src >> 32) & MASK(uint64_t, 32);
     src = in[lane + LANE_COUNT * 22];
     tmp |= (src & MASK(uint64_t, 11)) << 32;
@@ -7617,6 +9012,14 @@ __device__ void _bit_unpack_64_lane<43>(const uint64_t *__restrict in, uint64_t 
     src = in[lane + LANE_COUNT * 32];
     tmp |= (src & MASK(uint64_t, 16)) << 27;
     out[INDEX(47, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<43, 3>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 32];
     tmp = (src >> 16) & MASK(uint64_t, 43);
     out[INDEX(48, lane)] = tmp + reference;
     tmp = (src >> 59) & MASK(uint64_t, 5);
@@ -7672,11 +9075,19 @@ __device__ void _bit_unpack_64_lane<43>(const uint64_t *__restrict in, uint64_t 
 }
 
 template <>
-__device__ void _bit_unpack_64_lane<44>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+__device__ void _bit_unpack_64_lane<43>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    _bit_unpack_64_lane_slice<43, 0>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<43, 1>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<43, 2>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<43, 3>(in, out, reference, lane);
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<44, 0>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
     constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
     uint64_t src;
     uint64_t tmp;
-    src = in[lane];
+    src = in[lane + LANE_COUNT * 0];
     tmp = (src >> 0) & MASK(uint64_t, 44);
     out[INDEX(0, lane)] = tmp + reference;
     tmp = (src >> 44) & MASK(uint64_t, 20);
@@ -7731,6 +9142,14 @@ __device__ void _bit_unpack_64_lane<44>(const uint64_t *__restrict in, uint64_t 
     src = in[lane + LANE_COUNT * 11];
     tmp |= (src & MASK(uint64_t, 0)) << 44;
     out[INDEX(15, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<44, 1>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 11];
     tmp = (src >> 0) & MASK(uint64_t, 44);
     out[INDEX(16, lane)] = tmp + reference;
     tmp = (src >> 44) & MASK(uint64_t, 20);
@@ -7785,6 +9204,14 @@ __device__ void _bit_unpack_64_lane<44>(const uint64_t *__restrict in, uint64_t 
     src = in[lane + LANE_COUNT * 22];
     tmp |= (src & MASK(uint64_t, 0)) << 44;
     out[INDEX(31, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<44, 2>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 22];
     tmp = (src >> 0) & MASK(uint64_t, 44);
     out[INDEX(32, lane)] = tmp + reference;
     tmp = (src >> 44) & MASK(uint64_t, 20);
@@ -7839,6 +9266,14 @@ __device__ void _bit_unpack_64_lane<44>(const uint64_t *__restrict in, uint64_t 
     src = in[lane + LANE_COUNT * 33];
     tmp |= (src & MASK(uint64_t, 0)) << 44;
     out[INDEX(47, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<44, 3>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 33];
     tmp = (src >> 0) & MASK(uint64_t, 44);
     out[INDEX(48, lane)] = tmp + reference;
     tmp = (src >> 44) & MASK(uint64_t, 20);
@@ -7894,11 +9329,19 @@ __device__ void _bit_unpack_64_lane<44>(const uint64_t *__restrict in, uint64_t 
 }
 
 template <>
-__device__ void _bit_unpack_64_lane<45>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+__device__ void _bit_unpack_64_lane<44>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    _bit_unpack_64_lane_slice<44, 0>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<44, 1>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<44, 2>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<44, 3>(in, out, reference, lane);
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<45, 0>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
     constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
     uint64_t src;
     uint64_t tmp;
-    src = in[lane];
+    src = in[lane + LANE_COUNT * 0];
     tmp = (src >> 0) & MASK(uint64_t, 45);
     out[INDEX(0, lane)] = tmp + reference;
     tmp = (src >> 45) & MASK(uint64_t, 19);
@@ -7953,6 +9396,14 @@ __device__ void _bit_unpack_64_lane<45>(const uint64_t *__restrict in, uint64_t 
     src = in[lane + LANE_COUNT * 11];
     tmp |= (src & MASK(uint64_t, 16)) << 29;
     out[INDEX(15, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<45, 1>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 11];
     tmp = (src >> 16) & MASK(uint64_t, 45);
     out[INDEX(16, lane)] = tmp + reference;
     tmp = (src >> 61) & MASK(uint64_t, 3);
@@ -8007,6 +9458,14 @@ __device__ void _bit_unpack_64_lane<45>(const uint64_t *__restrict in, uint64_t 
     src = in[lane + LANE_COUNT * 22];
     tmp |= (src & MASK(uint64_t, 32)) << 13;
     out[INDEX(31, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<45, 2>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 22];
     tmp = (src >> 32) & MASK(uint64_t, 32);
     src = in[lane + LANE_COUNT * 23];
     tmp |= (src & MASK(uint64_t, 13)) << 32;
@@ -8061,6 +9520,14 @@ __device__ void _bit_unpack_64_lane<45>(const uint64_t *__restrict in, uint64_t 
     out[INDEX(46, lane)] = tmp + reference;
     tmp = (src >> 3) & MASK(uint64_t, 45);
     out[INDEX(47, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<45, 3>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 33];
     tmp = (src >> 48) & MASK(uint64_t, 16);
     src = in[lane + LANE_COUNT * 34];
     tmp |= (src & MASK(uint64_t, 29)) << 16;
@@ -8118,11 +9585,19 @@ __device__ void _bit_unpack_64_lane<45>(const uint64_t *__restrict in, uint64_t 
 }
 
 template <>
-__device__ void _bit_unpack_64_lane<46>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+__device__ void _bit_unpack_64_lane<45>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    _bit_unpack_64_lane_slice<45, 0>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<45, 1>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<45, 2>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<45, 3>(in, out, reference, lane);
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<46, 0>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
     constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
     uint64_t src;
     uint64_t tmp;
-    src = in[lane];
+    src = in[lane + LANE_COUNT * 0];
     tmp = (src >> 0) & MASK(uint64_t, 46);
     out[INDEX(0, lane)] = tmp + reference;
     tmp = (src >> 46) & MASK(uint64_t, 18);
@@ -8177,6 +9652,14 @@ __device__ void _bit_unpack_64_lane<46>(const uint64_t *__restrict in, uint64_t 
     src = in[lane + LANE_COUNT * 11];
     tmp |= (src & MASK(uint64_t, 32)) << 14;
     out[INDEX(15, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<46, 1>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 11];
     tmp = (src >> 32) & MASK(uint64_t, 32);
     src = in[lane + LANE_COUNT * 12];
     tmp |= (src & MASK(uint64_t, 14)) << 32;
@@ -8233,6 +9716,14 @@ __device__ void _bit_unpack_64_lane<46>(const uint64_t *__restrict in, uint64_t 
     src = in[lane + LANE_COUNT * 23];
     tmp |= (src & MASK(uint64_t, 0)) << 46;
     out[INDEX(31, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<46, 2>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 23];
     tmp = (src >> 0) & MASK(uint64_t, 46);
     out[INDEX(32, lane)] = tmp + reference;
     tmp = (src >> 46) & MASK(uint64_t, 18);
@@ -8287,6 +9778,14 @@ __device__ void _bit_unpack_64_lane<46>(const uint64_t *__restrict in, uint64_t 
     src = in[lane + LANE_COUNT * 34];
     tmp |= (src & MASK(uint64_t, 32)) << 14;
     out[INDEX(47, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<46, 3>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 34];
     tmp = (src >> 32) & MASK(uint64_t, 32);
     src = in[lane + LANE_COUNT * 35];
     tmp |= (src & MASK(uint64_t, 14)) << 32;
@@ -8344,11 +9843,19 @@ __device__ void _bit_unpack_64_lane<46>(const uint64_t *__restrict in, uint64_t 
 }
 
 template <>
-__device__ void _bit_unpack_64_lane<47>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+__device__ void _bit_unpack_64_lane<46>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    _bit_unpack_64_lane_slice<46, 0>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<46, 1>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<46, 2>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<46, 3>(in, out, reference, lane);
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<47, 0>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
     constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
     uint64_t src;
     uint64_t tmp;
-    src = in[lane];
+    src = in[lane + LANE_COUNT * 0];
     tmp = (src >> 0) & MASK(uint64_t, 47);
     out[INDEX(0, lane)] = tmp + reference;
     tmp = (src >> 47) & MASK(uint64_t, 17);
@@ -8403,6 +9910,14 @@ __device__ void _bit_unpack_64_lane<47>(const uint64_t *__restrict in, uint64_t 
     out[INDEX(14, lane)] = tmp + reference;
     tmp = (src >> 1) & MASK(uint64_t, 47);
     out[INDEX(15, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<47, 1>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 11];
     tmp = (src >> 48) & MASK(uint64_t, 16);
     src = in[lane + LANE_COUNT * 12];
     tmp |= (src & MASK(uint64_t, 31)) << 16;
@@ -8459,6 +9974,14 @@ __device__ void _bit_unpack_64_lane<47>(const uint64_t *__restrict in, uint64_t 
     src = in[lane + LANE_COUNT * 23];
     tmp |= (src & MASK(uint64_t, 32)) << 15;
     out[INDEX(31, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<47, 2>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 23];
     tmp = (src >> 32) & MASK(uint64_t, 32);
     src = in[lane + LANE_COUNT * 24];
     tmp |= (src & MASK(uint64_t, 15)) << 32;
@@ -8515,6 +10038,14 @@ __device__ void _bit_unpack_64_lane<47>(const uint64_t *__restrict in, uint64_t 
     src = in[lane + LANE_COUNT * 35];
     tmp |= (src & MASK(uint64_t, 16)) << 31;
     out[INDEX(47, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<47, 3>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 35];
     tmp = (src >> 16) & MASK(uint64_t, 47);
     out[INDEX(48, lane)] = tmp + reference;
     tmp = (src >> 63) & MASK(uint64_t, 1);
@@ -8572,11 +10103,19 @@ __device__ void _bit_unpack_64_lane<47>(const uint64_t *__restrict in, uint64_t 
 }
 
 template <>
-__device__ void _bit_unpack_64_lane<48>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+__device__ void _bit_unpack_64_lane<47>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    _bit_unpack_64_lane_slice<47, 0>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<47, 1>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<47, 2>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<47, 3>(in, out, reference, lane);
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<48, 0>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
     constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
     uint64_t src;
     uint64_t tmp;
-    src = in[lane];
+    src = in[lane + LANE_COUNT * 0];
     tmp = (src >> 0) & MASK(uint64_t, 48);
     out[INDEX(0, lane)] = tmp + reference;
     tmp = (src >> 48) & MASK(uint64_t, 16);
@@ -8633,6 +10172,14 @@ __device__ void _bit_unpack_64_lane<48>(const uint64_t *__restrict in, uint64_t 
     src = in[lane + LANE_COUNT * 12];
     tmp |= (src & MASK(uint64_t, 0)) << 48;
     out[INDEX(15, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<48, 1>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 12];
     tmp = (src >> 0) & MASK(uint64_t, 48);
     out[INDEX(16, lane)] = tmp + reference;
     tmp = (src >> 48) & MASK(uint64_t, 16);
@@ -8689,6 +10236,14 @@ __device__ void _bit_unpack_64_lane<48>(const uint64_t *__restrict in, uint64_t 
     src = in[lane + LANE_COUNT * 24];
     tmp |= (src & MASK(uint64_t, 0)) << 48;
     out[INDEX(31, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<48, 2>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 24];
     tmp = (src >> 0) & MASK(uint64_t, 48);
     out[INDEX(32, lane)] = tmp + reference;
     tmp = (src >> 48) & MASK(uint64_t, 16);
@@ -8745,6 +10300,14 @@ __device__ void _bit_unpack_64_lane<48>(const uint64_t *__restrict in, uint64_t 
     src = in[lane + LANE_COUNT * 36];
     tmp |= (src & MASK(uint64_t, 0)) << 48;
     out[INDEX(47, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<48, 3>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 36];
     tmp = (src >> 0) & MASK(uint64_t, 48);
     out[INDEX(48, lane)] = tmp + reference;
     tmp = (src >> 48) & MASK(uint64_t, 16);
@@ -8802,11 +10365,19 @@ __device__ void _bit_unpack_64_lane<48>(const uint64_t *__restrict in, uint64_t 
 }
 
 template <>
-__device__ void _bit_unpack_64_lane<49>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+__device__ void _bit_unpack_64_lane<48>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    _bit_unpack_64_lane_slice<48, 0>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<48, 1>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<48, 2>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<48, 3>(in, out, reference, lane);
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<49, 0>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
     constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
     uint64_t src;
     uint64_t tmp;
-    src = in[lane];
+    src = in[lane + LANE_COUNT * 0];
     tmp = (src >> 0) & MASK(uint64_t, 49);
     out[INDEX(0, lane)] = tmp + reference;
     tmp = (src >> 49) & MASK(uint64_t, 15);
@@ -8863,6 +10434,14 @@ __device__ void _bit_unpack_64_lane<49>(const uint64_t *__restrict in, uint64_t 
     src = in[lane + LANE_COUNT * 12];
     tmp |= (src & MASK(uint64_t, 16)) << 33;
     out[INDEX(15, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<49, 1>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 12];
     tmp = (src >> 16) & MASK(uint64_t, 48);
     src = in[lane + LANE_COUNT * 13];
     tmp |= (src & MASK(uint64_t, 1)) << 48;
@@ -8919,6 +10498,14 @@ __device__ void _bit_unpack_64_lane<49>(const uint64_t *__restrict in, uint64_t 
     src = in[lane + LANE_COUNT * 24];
     tmp |= (src & MASK(uint64_t, 32)) << 17;
     out[INDEX(31, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<49, 2>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 24];
     tmp = (src >> 32) & MASK(uint64_t, 32);
     src = in[lane + LANE_COUNT * 25];
     tmp |= (src & MASK(uint64_t, 17)) << 32;
@@ -8975,6 +10562,14 @@ __device__ void _bit_unpack_64_lane<49>(const uint64_t *__restrict in, uint64_t 
     src = in[lane + LANE_COUNT * 36];
     tmp |= (src & MASK(uint64_t, 48)) << 1;
     out[INDEX(47, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<49, 3>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 36];
     tmp = (src >> 48) & MASK(uint64_t, 16);
     src = in[lane + LANE_COUNT * 37];
     tmp |= (src & MASK(uint64_t, 33)) << 16;
@@ -9034,11 +10629,19 @@ __device__ void _bit_unpack_64_lane<49>(const uint64_t *__restrict in, uint64_t 
 }
 
 template <>
-__device__ void _bit_unpack_64_lane<50>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+__device__ void _bit_unpack_64_lane<49>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    _bit_unpack_64_lane_slice<49, 0>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<49, 1>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<49, 2>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<49, 3>(in, out, reference, lane);
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<50, 0>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
     constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
     uint64_t src;
     uint64_t tmp;
-    src = in[lane];
+    src = in[lane + LANE_COUNT * 0];
     tmp = (src >> 0) & MASK(uint64_t, 50);
     out[INDEX(0, lane)] = tmp + reference;
     tmp = (src >> 50) & MASK(uint64_t, 14);
@@ -9095,6 +10698,14 @@ __device__ void _bit_unpack_64_lane<50>(const uint64_t *__restrict in, uint64_t 
     src = in[lane + LANE_COUNT * 12];
     tmp |= (src & MASK(uint64_t, 32)) << 18;
     out[INDEX(15, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<50, 1>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 12];
     tmp = (src >> 32) & MASK(uint64_t, 32);
     src = in[lane + LANE_COUNT * 13];
     tmp |= (src & MASK(uint64_t, 18)) << 32;
@@ -9153,6 +10764,14 @@ __device__ void _bit_unpack_64_lane<50>(const uint64_t *__restrict in, uint64_t 
     src = in[lane + LANE_COUNT * 25];
     tmp |= (src & MASK(uint64_t, 0)) << 50;
     out[INDEX(31, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<50, 2>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 25];
     tmp = (src >> 0) & MASK(uint64_t, 50);
     out[INDEX(32, lane)] = tmp + reference;
     tmp = (src >> 50) & MASK(uint64_t, 14);
@@ -9209,6 +10828,14 @@ __device__ void _bit_unpack_64_lane<50>(const uint64_t *__restrict in, uint64_t 
     src = in[lane + LANE_COUNT * 37];
     tmp |= (src & MASK(uint64_t, 32)) << 18;
     out[INDEX(47, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<50, 3>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 37];
     tmp = (src >> 32) & MASK(uint64_t, 32);
     src = in[lane + LANE_COUNT * 38];
     tmp |= (src & MASK(uint64_t, 18)) << 32;
@@ -9268,11 +10895,19 @@ __device__ void _bit_unpack_64_lane<50>(const uint64_t *__restrict in, uint64_t 
 }
 
 template <>
-__device__ void _bit_unpack_64_lane<51>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+__device__ void _bit_unpack_64_lane<50>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    _bit_unpack_64_lane_slice<50, 0>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<50, 1>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<50, 2>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<50, 3>(in, out, reference, lane);
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<51, 0>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
     constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
     uint64_t src;
     uint64_t tmp;
-    src = in[lane];
+    src = in[lane + LANE_COUNT * 0];
     tmp = (src >> 0) & MASK(uint64_t, 51);
     out[INDEX(0, lane)] = tmp + reference;
     tmp = (src >> 51) & MASK(uint64_t, 13);
@@ -9329,6 +10964,14 @@ __device__ void _bit_unpack_64_lane<51>(const uint64_t *__restrict in, uint64_t 
     src = in[lane + LANE_COUNT * 12];
     tmp |= (src & MASK(uint64_t, 48)) << 3;
     out[INDEX(15, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<51, 1>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 12];
     tmp = (src >> 48) & MASK(uint64_t, 16);
     src = in[lane + LANE_COUNT * 13];
     tmp |= (src & MASK(uint64_t, 35)) << 16;
@@ -9387,6 +11030,14 @@ __device__ void _bit_unpack_64_lane<51>(const uint64_t *__restrict in, uint64_t 
     src = in[lane + LANE_COUNT * 25];
     tmp |= (src & MASK(uint64_t, 32)) << 19;
     out[INDEX(31, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<51, 2>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 25];
     tmp = (src >> 32) & MASK(uint64_t, 32);
     src = in[lane + LANE_COUNT * 26];
     tmp |= (src & MASK(uint64_t, 19)) << 32;
@@ -9445,6 +11096,14 @@ __device__ void _bit_unpack_64_lane<51>(const uint64_t *__restrict in, uint64_t 
     src = in[lane + LANE_COUNT * 38];
     tmp |= (src & MASK(uint64_t, 16)) << 35;
     out[INDEX(47, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<51, 3>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 38];
     tmp = (src >> 16) & MASK(uint64_t, 48);
     src = in[lane + LANE_COUNT * 39];
     tmp |= (src & MASK(uint64_t, 3)) << 48;
@@ -9504,11 +11163,19 @@ __device__ void _bit_unpack_64_lane<51>(const uint64_t *__restrict in, uint64_t 
 }
 
 template <>
-__device__ void _bit_unpack_64_lane<52>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+__device__ void _bit_unpack_64_lane<51>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    _bit_unpack_64_lane_slice<51, 0>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<51, 1>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<51, 2>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<51, 3>(in, out, reference, lane);
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<52, 0>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
     constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
     uint64_t src;
     uint64_t tmp;
-    src = in[lane];
+    src = in[lane + LANE_COUNT * 0];
     tmp = (src >> 0) & MASK(uint64_t, 52);
     out[INDEX(0, lane)] = tmp + reference;
     tmp = (src >> 52) & MASK(uint64_t, 12);
@@ -9567,6 +11234,14 @@ __device__ void _bit_unpack_64_lane<52>(const uint64_t *__restrict in, uint64_t 
     src = in[lane + LANE_COUNT * 13];
     tmp |= (src & MASK(uint64_t, 0)) << 52;
     out[INDEX(15, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<52, 1>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 13];
     tmp = (src >> 0) & MASK(uint64_t, 52);
     out[INDEX(16, lane)] = tmp + reference;
     tmp = (src >> 52) & MASK(uint64_t, 12);
@@ -9625,6 +11300,14 @@ __device__ void _bit_unpack_64_lane<52>(const uint64_t *__restrict in, uint64_t 
     src = in[lane + LANE_COUNT * 26];
     tmp |= (src & MASK(uint64_t, 0)) << 52;
     out[INDEX(31, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<52, 2>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 26];
     tmp = (src >> 0) & MASK(uint64_t, 52);
     out[INDEX(32, lane)] = tmp + reference;
     tmp = (src >> 52) & MASK(uint64_t, 12);
@@ -9683,6 +11366,14 @@ __device__ void _bit_unpack_64_lane<52>(const uint64_t *__restrict in, uint64_t 
     src = in[lane + LANE_COUNT * 39];
     tmp |= (src & MASK(uint64_t, 0)) << 52;
     out[INDEX(47, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<52, 3>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 39];
     tmp = (src >> 0) & MASK(uint64_t, 52);
     out[INDEX(48, lane)] = tmp + reference;
     tmp = (src >> 52) & MASK(uint64_t, 12);
@@ -9742,11 +11433,19 @@ __device__ void _bit_unpack_64_lane<52>(const uint64_t *__restrict in, uint64_t 
 }
 
 template <>
-__device__ void _bit_unpack_64_lane<53>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+__device__ void _bit_unpack_64_lane<52>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    _bit_unpack_64_lane_slice<52, 0>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<52, 1>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<52, 2>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<52, 3>(in, out, reference, lane);
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<53, 0>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
     constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
     uint64_t src;
     uint64_t tmp;
-    src = in[lane];
+    src = in[lane + LANE_COUNT * 0];
     tmp = (src >> 0) & MASK(uint64_t, 53);
     out[INDEX(0, lane)] = tmp + reference;
     tmp = (src >> 53) & MASK(uint64_t, 11);
@@ -9805,6 +11504,14 @@ __device__ void _bit_unpack_64_lane<53>(const uint64_t *__restrict in, uint64_t 
     src = in[lane + LANE_COUNT * 13];
     tmp |= (src & MASK(uint64_t, 16)) << 37;
     out[INDEX(15, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<53, 1>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 13];
     tmp = (src >> 16) & MASK(uint64_t, 48);
     src = in[lane + LANE_COUNT * 14];
     tmp |= (src & MASK(uint64_t, 5)) << 48;
@@ -9863,6 +11570,14 @@ __device__ void _bit_unpack_64_lane<53>(const uint64_t *__restrict in, uint64_t 
     src = in[lane + LANE_COUNT * 26];
     tmp |= (src & MASK(uint64_t, 32)) << 21;
     out[INDEX(31, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<53, 2>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 26];
     tmp = (src >> 32) & MASK(uint64_t, 32);
     src = in[lane + LANE_COUNT * 27];
     tmp |= (src & MASK(uint64_t, 21)) << 32;
@@ -9921,6 +11636,14 @@ __device__ void _bit_unpack_64_lane<53>(const uint64_t *__restrict in, uint64_t 
     src = in[lane + LANE_COUNT * 39];
     tmp |= (src & MASK(uint64_t, 48)) << 5;
     out[INDEX(47, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<53, 3>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 39];
     tmp = (src >> 48) & MASK(uint64_t, 16);
     src = in[lane + LANE_COUNT * 40];
     tmp |= (src & MASK(uint64_t, 37)) << 16;
@@ -9982,11 +11705,19 @@ __device__ void _bit_unpack_64_lane<53>(const uint64_t *__restrict in, uint64_t 
 }
 
 template <>
-__device__ void _bit_unpack_64_lane<54>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+__device__ void _bit_unpack_64_lane<53>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    _bit_unpack_64_lane_slice<53, 0>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<53, 1>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<53, 2>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<53, 3>(in, out, reference, lane);
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<54, 0>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
     constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
     uint64_t src;
     uint64_t tmp;
-    src = in[lane];
+    src = in[lane + LANE_COUNT * 0];
     tmp = (src >> 0) & MASK(uint64_t, 54);
     out[INDEX(0, lane)] = tmp + reference;
     tmp = (src >> 54) & MASK(uint64_t, 10);
@@ -10045,6 +11776,14 @@ __device__ void _bit_unpack_64_lane<54>(const uint64_t *__restrict in, uint64_t 
     src = in[lane + LANE_COUNT * 13];
     tmp |= (src & MASK(uint64_t, 32)) << 22;
     out[INDEX(15, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<54, 1>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 13];
     tmp = (src >> 32) & MASK(uint64_t, 32);
     src = in[lane + LANE_COUNT * 14];
     tmp |= (src & MASK(uint64_t, 22)) << 32;
@@ -10105,6 +11844,14 @@ __device__ void _bit_unpack_64_lane<54>(const uint64_t *__restrict in, uint64_t 
     src = in[lane + LANE_COUNT * 27];
     tmp |= (src & MASK(uint64_t, 0)) << 54;
     out[INDEX(31, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<54, 2>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 27];
     tmp = (src >> 0) & MASK(uint64_t, 54);
     out[INDEX(32, lane)] = tmp + reference;
     tmp = (src >> 54) & MASK(uint64_t, 10);
@@ -10163,6 +11910,14 @@ __device__ void _bit_unpack_64_lane<54>(const uint64_t *__restrict in, uint64_t 
     src = in[lane + LANE_COUNT * 40];
     tmp |= (src & MASK(uint64_t, 32)) << 22;
     out[INDEX(47, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<54, 3>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 40];
     tmp = (src >> 32) & MASK(uint64_t, 32);
     src = in[lane + LANE_COUNT * 41];
     tmp |= (src & MASK(uint64_t, 22)) << 32;
@@ -10224,11 +11979,19 @@ __device__ void _bit_unpack_64_lane<54>(const uint64_t *__restrict in, uint64_t 
 }
 
 template <>
-__device__ void _bit_unpack_64_lane<55>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+__device__ void _bit_unpack_64_lane<54>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    _bit_unpack_64_lane_slice<54, 0>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<54, 1>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<54, 2>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<54, 3>(in, out, reference, lane);
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<55, 0>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
     constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
     uint64_t src;
     uint64_t tmp;
-    src = in[lane];
+    src = in[lane + LANE_COUNT * 0];
     tmp = (src >> 0) & MASK(uint64_t, 55);
     out[INDEX(0, lane)] = tmp + reference;
     tmp = (src >> 55) & MASK(uint64_t, 9);
@@ -10287,6 +12050,14 @@ __device__ void _bit_unpack_64_lane<55>(const uint64_t *__restrict in, uint64_t 
     src = in[lane + LANE_COUNT * 13];
     tmp |= (src & MASK(uint64_t, 48)) << 7;
     out[INDEX(15, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<55, 1>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 13];
     tmp = (src >> 48) & MASK(uint64_t, 16);
     src = in[lane + LANE_COUNT * 14];
     tmp |= (src & MASK(uint64_t, 39)) << 16;
@@ -10347,6 +12118,14 @@ __device__ void _bit_unpack_64_lane<55>(const uint64_t *__restrict in, uint64_t 
     src = in[lane + LANE_COUNT * 27];
     tmp |= (src & MASK(uint64_t, 32)) << 23;
     out[INDEX(31, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<55, 2>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 27];
     tmp = (src >> 32) & MASK(uint64_t, 32);
     src = in[lane + LANE_COUNT * 28];
     tmp |= (src & MASK(uint64_t, 23)) << 32;
@@ -10407,6 +12186,14 @@ __device__ void _bit_unpack_64_lane<55>(const uint64_t *__restrict in, uint64_t 
     src = in[lane + LANE_COUNT * 41];
     tmp |= (src & MASK(uint64_t, 16)) << 39;
     out[INDEX(47, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<55, 3>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 41];
     tmp = (src >> 16) & MASK(uint64_t, 48);
     src = in[lane + LANE_COUNT * 42];
     tmp |= (src & MASK(uint64_t, 7)) << 48;
@@ -10468,11 +12255,19 @@ __device__ void _bit_unpack_64_lane<55>(const uint64_t *__restrict in, uint64_t 
 }
 
 template <>
-__device__ void _bit_unpack_64_lane<56>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+__device__ void _bit_unpack_64_lane<55>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    _bit_unpack_64_lane_slice<55, 0>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<55, 1>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<55, 2>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<55, 3>(in, out, reference, lane);
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<56, 0>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
     constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
     uint64_t src;
     uint64_t tmp;
-    src = in[lane];
+    src = in[lane + LANE_COUNT * 0];
     tmp = (src >> 0) & MASK(uint64_t, 56);
     out[INDEX(0, lane)] = tmp + reference;
     tmp = (src >> 56) & MASK(uint64_t, 8);
@@ -10533,6 +12328,14 @@ __device__ void _bit_unpack_64_lane<56>(const uint64_t *__restrict in, uint64_t 
     src = in[lane + LANE_COUNT * 14];
     tmp |= (src & MASK(uint64_t, 0)) << 56;
     out[INDEX(15, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<56, 1>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 14];
     tmp = (src >> 0) & MASK(uint64_t, 56);
     out[INDEX(16, lane)] = tmp + reference;
     tmp = (src >> 56) & MASK(uint64_t, 8);
@@ -10593,6 +12396,14 @@ __device__ void _bit_unpack_64_lane<56>(const uint64_t *__restrict in, uint64_t 
     src = in[lane + LANE_COUNT * 28];
     tmp |= (src & MASK(uint64_t, 0)) << 56;
     out[INDEX(31, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<56, 2>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 28];
     tmp = (src >> 0) & MASK(uint64_t, 56);
     out[INDEX(32, lane)] = tmp + reference;
     tmp = (src >> 56) & MASK(uint64_t, 8);
@@ -10653,6 +12464,14 @@ __device__ void _bit_unpack_64_lane<56>(const uint64_t *__restrict in, uint64_t 
     src = in[lane + LANE_COUNT * 42];
     tmp |= (src & MASK(uint64_t, 0)) << 56;
     out[INDEX(47, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<56, 3>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 42];
     tmp = (src >> 0) & MASK(uint64_t, 56);
     out[INDEX(48, lane)] = tmp + reference;
     tmp = (src >> 56) & MASK(uint64_t, 8);
@@ -10714,11 +12533,19 @@ __device__ void _bit_unpack_64_lane<56>(const uint64_t *__restrict in, uint64_t 
 }
 
 template <>
-__device__ void _bit_unpack_64_lane<57>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+__device__ void _bit_unpack_64_lane<56>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    _bit_unpack_64_lane_slice<56, 0>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<56, 1>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<56, 2>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<56, 3>(in, out, reference, lane);
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<57, 0>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
     constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
     uint64_t src;
     uint64_t tmp;
-    src = in[lane];
+    src = in[lane + LANE_COUNT * 0];
     tmp = (src >> 0) & MASK(uint64_t, 57);
     out[INDEX(0, lane)] = tmp + reference;
     tmp = (src >> 57) & MASK(uint64_t, 7);
@@ -10779,6 +12606,14 @@ __device__ void _bit_unpack_64_lane<57>(const uint64_t *__restrict in, uint64_t 
     src = in[lane + LANE_COUNT * 14];
     tmp |= (src & MASK(uint64_t, 16)) << 41;
     out[INDEX(15, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<57, 1>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 14];
     tmp = (src >> 16) & MASK(uint64_t, 48);
     src = in[lane + LANE_COUNT * 15];
     tmp |= (src & MASK(uint64_t, 9)) << 48;
@@ -10839,6 +12674,14 @@ __device__ void _bit_unpack_64_lane<57>(const uint64_t *__restrict in, uint64_t 
     src = in[lane + LANE_COUNT * 28];
     tmp |= (src & MASK(uint64_t, 32)) << 25;
     out[INDEX(31, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<57, 2>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 28];
     tmp = (src >> 32) & MASK(uint64_t, 32);
     src = in[lane + LANE_COUNT * 29];
     tmp |= (src & MASK(uint64_t, 25)) << 32;
@@ -10899,6 +12742,14 @@ __device__ void _bit_unpack_64_lane<57>(const uint64_t *__restrict in, uint64_t 
     src = in[lane + LANE_COUNT * 42];
     tmp |= (src & MASK(uint64_t, 48)) << 9;
     out[INDEX(47, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<57, 3>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 42];
     tmp = (src >> 48) & MASK(uint64_t, 16);
     src = in[lane + LANE_COUNT * 43];
     tmp |= (src & MASK(uint64_t, 41)) << 16;
@@ -10962,11 +12813,19 @@ __device__ void _bit_unpack_64_lane<57>(const uint64_t *__restrict in, uint64_t 
 }
 
 template <>
-__device__ void _bit_unpack_64_lane<58>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+__device__ void _bit_unpack_64_lane<57>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    _bit_unpack_64_lane_slice<57, 0>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<57, 1>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<57, 2>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<57, 3>(in, out, reference, lane);
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<58, 0>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
     constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
     uint64_t src;
     uint64_t tmp;
-    src = in[lane];
+    src = in[lane + LANE_COUNT * 0];
     tmp = (src >> 0) & MASK(uint64_t, 58);
     out[INDEX(0, lane)] = tmp + reference;
     tmp = (src >> 58) & MASK(uint64_t, 6);
@@ -11027,6 +12886,14 @@ __device__ void _bit_unpack_64_lane<58>(const uint64_t *__restrict in, uint64_t 
     src = in[lane + LANE_COUNT * 14];
     tmp |= (src & MASK(uint64_t, 32)) << 26;
     out[INDEX(15, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<58, 1>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 14];
     tmp = (src >> 32) & MASK(uint64_t, 32);
     src = in[lane + LANE_COUNT * 15];
     tmp |= (src & MASK(uint64_t, 26)) << 32;
@@ -11089,6 +12956,14 @@ __device__ void _bit_unpack_64_lane<58>(const uint64_t *__restrict in, uint64_t 
     src = in[lane + LANE_COUNT * 29];
     tmp |= (src & MASK(uint64_t, 0)) << 58;
     out[INDEX(31, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<58, 2>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 29];
     tmp = (src >> 0) & MASK(uint64_t, 58);
     out[INDEX(32, lane)] = tmp + reference;
     tmp = (src >> 58) & MASK(uint64_t, 6);
@@ -11149,6 +13024,14 @@ __device__ void _bit_unpack_64_lane<58>(const uint64_t *__restrict in, uint64_t 
     src = in[lane + LANE_COUNT * 43];
     tmp |= (src & MASK(uint64_t, 32)) << 26;
     out[INDEX(47, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<58, 3>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 43];
     tmp = (src >> 32) & MASK(uint64_t, 32);
     src = in[lane + LANE_COUNT * 44];
     tmp |= (src & MASK(uint64_t, 26)) << 32;
@@ -11212,11 +13095,19 @@ __device__ void _bit_unpack_64_lane<58>(const uint64_t *__restrict in, uint64_t 
 }
 
 template <>
-__device__ void _bit_unpack_64_lane<59>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+__device__ void _bit_unpack_64_lane<58>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    _bit_unpack_64_lane_slice<58, 0>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<58, 1>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<58, 2>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<58, 3>(in, out, reference, lane);
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<59, 0>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
     constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
     uint64_t src;
     uint64_t tmp;
-    src = in[lane];
+    src = in[lane + LANE_COUNT * 0];
     tmp = (src >> 0) & MASK(uint64_t, 59);
     out[INDEX(0, lane)] = tmp + reference;
     tmp = (src >> 59) & MASK(uint64_t, 5);
@@ -11277,6 +13168,14 @@ __device__ void _bit_unpack_64_lane<59>(const uint64_t *__restrict in, uint64_t 
     src = in[lane + LANE_COUNT * 14];
     tmp |= (src & MASK(uint64_t, 48)) << 11;
     out[INDEX(15, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<59, 1>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 14];
     tmp = (src >> 48) & MASK(uint64_t, 16);
     src = in[lane + LANE_COUNT * 15];
     tmp |= (src & MASK(uint64_t, 43)) << 16;
@@ -11339,6 +13238,14 @@ __device__ void _bit_unpack_64_lane<59>(const uint64_t *__restrict in, uint64_t 
     src = in[lane + LANE_COUNT * 29];
     tmp |= (src & MASK(uint64_t, 32)) << 27;
     out[INDEX(31, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<59, 2>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 29];
     tmp = (src >> 32) & MASK(uint64_t, 32);
     src = in[lane + LANE_COUNT * 30];
     tmp |= (src & MASK(uint64_t, 27)) << 32;
@@ -11401,6 +13308,14 @@ __device__ void _bit_unpack_64_lane<59>(const uint64_t *__restrict in, uint64_t 
     src = in[lane + LANE_COUNT * 44];
     tmp |= (src & MASK(uint64_t, 16)) << 43;
     out[INDEX(47, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<59, 3>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 44];
     tmp = (src >> 16) & MASK(uint64_t, 48);
     src = in[lane + LANE_COUNT * 45];
     tmp |= (src & MASK(uint64_t, 11)) << 48;
@@ -11464,11 +13379,19 @@ __device__ void _bit_unpack_64_lane<59>(const uint64_t *__restrict in, uint64_t 
 }
 
 template <>
-__device__ void _bit_unpack_64_lane<60>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+__device__ void _bit_unpack_64_lane<59>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    _bit_unpack_64_lane_slice<59, 0>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<59, 1>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<59, 2>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<59, 3>(in, out, reference, lane);
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<60, 0>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
     constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
     uint64_t src;
     uint64_t tmp;
-    src = in[lane];
+    src = in[lane + LANE_COUNT * 0];
     tmp = (src >> 0) & MASK(uint64_t, 60);
     out[INDEX(0, lane)] = tmp + reference;
     tmp = (src >> 60) & MASK(uint64_t, 4);
@@ -11531,6 +13454,14 @@ __device__ void _bit_unpack_64_lane<60>(const uint64_t *__restrict in, uint64_t 
     src = in[lane + LANE_COUNT * 15];
     tmp |= (src & MASK(uint64_t, 0)) << 60;
     out[INDEX(15, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<60, 1>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 15];
     tmp = (src >> 0) & MASK(uint64_t, 60);
     out[INDEX(16, lane)] = tmp + reference;
     tmp = (src >> 60) & MASK(uint64_t, 4);
@@ -11593,6 +13524,14 @@ __device__ void _bit_unpack_64_lane<60>(const uint64_t *__restrict in, uint64_t 
     src = in[lane + LANE_COUNT * 30];
     tmp |= (src & MASK(uint64_t, 0)) << 60;
     out[INDEX(31, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<60, 2>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 30];
     tmp = (src >> 0) & MASK(uint64_t, 60);
     out[INDEX(32, lane)] = tmp + reference;
     tmp = (src >> 60) & MASK(uint64_t, 4);
@@ -11655,6 +13594,14 @@ __device__ void _bit_unpack_64_lane<60>(const uint64_t *__restrict in, uint64_t 
     src = in[lane + LANE_COUNT * 45];
     tmp |= (src & MASK(uint64_t, 0)) << 60;
     out[INDEX(47, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<60, 3>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 45];
     tmp = (src >> 0) & MASK(uint64_t, 60);
     out[INDEX(48, lane)] = tmp + reference;
     tmp = (src >> 60) & MASK(uint64_t, 4);
@@ -11718,11 +13665,19 @@ __device__ void _bit_unpack_64_lane<60>(const uint64_t *__restrict in, uint64_t 
 }
 
 template <>
-__device__ void _bit_unpack_64_lane<61>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+__device__ void _bit_unpack_64_lane<60>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    _bit_unpack_64_lane_slice<60, 0>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<60, 1>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<60, 2>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<60, 3>(in, out, reference, lane);
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<61, 0>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
     constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
     uint64_t src;
     uint64_t tmp;
-    src = in[lane];
+    src = in[lane + LANE_COUNT * 0];
     tmp = (src >> 0) & MASK(uint64_t, 61);
     out[INDEX(0, lane)] = tmp + reference;
     tmp = (src >> 61) & MASK(uint64_t, 3);
@@ -11785,6 +13740,14 @@ __device__ void _bit_unpack_64_lane<61>(const uint64_t *__restrict in, uint64_t 
     src = in[lane + LANE_COUNT * 15];
     tmp |= (src & MASK(uint64_t, 16)) << 45;
     out[INDEX(15, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<61, 1>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 15];
     tmp = (src >> 16) & MASK(uint64_t, 48);
     src = in[lane + LANE_COUNT * 16];
     tmp |= (src & MASK(uint64_t, 13)) << 48;
@@ -11847,6 +13810,14 @@ __device__ void _bit_unpack_64_lane<61>(const uint64_t *__restrict in, uint64_t 
     src = in[lane + LANE_COUNT * 30];
     tmp |= (src & MASK(uint64_t, 32)) << 29;
     out[INDEX(31, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<61, 2>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 30];
     tmp = (src >> 32) & MASK(uint64_t, 32);
     src = in[lane + LANE_COUNT * 31];
     tmp |= (src & MASK(uint64_t, 29)) << 32;
@@ -11909,6 +13880,14 @@ __device__ void _bit_unpack_64_lane<61>(const uint64_t *__restrict in, uint64_t 
     src = in[lane + LANE_COUNT * 45];
     tmp |= (src & MASK(uint64_t, 48)) << 13;
     out[INDEX(47, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<61, 3>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 45];
     tmp = (src >> 48) & MASK(uint64_t, 16);
     src = in[lane + LANE_COUNT * 46];
     tmp |= (src & MASK(uint64_t, 45)) << 16;
@@ -11974,11 +13953,19 @@ __device__ void _bit_unpack_64_lane<61>(const uint64_t *__restrict in, uint64_t 
 }
 
 template <>
-__device__ void _bit_unpack_64_lane<62>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+__device__ void _bit_unpack_64_lane<61>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    _bit_unpack_64_lane_slice<61, 0>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<61, 1>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<61, 2>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<61, 3>(in, out, reference, lane);
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<62, 0>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
     constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
     uint64_t src;
     uint64_t tmp;
-    src = in[lane];
+    src = in[lane + LANE_COUNT * 0];
     tmp = (src >> 0) & MASK(uint64_t, 62);
     out[INDEX(0, lane)] = tmp + reference;
     tmp = (src >> 62) & MASK(uint64_t, 2);
@@ -12041,6 +14028,14 @@ __device__ void _bit_unpack_64_lane<62>(const uint64_t *__restrict in, uint64_t 
     src = in[lane + LANE_COUNT * 15];
     tmp |= (src & MASK(uint64_t, 32)) << 30;
     out[INDEX(15, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<62, 1>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 15];
     tmp = (src >> 32) & MASK(uint64_t, 32);
     src = in[lane + LANE_COUNT * 16];
     tmp |= (src & MASK(uint64_t, 30)) << 32;
@@ -12105,6 +14100,14 @@ __device__ void _bit_unpack_64_lane<62>(const uint64_t *__restrict in, uint64_t 
     src = in[lane + LANE_COUNT * 31];
     tmp |= (src & MASK(uint64_t, 0)) << 62;
     out[INDEX(31, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<62, 2>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 31];
     tmp = (src >> 0) & MASK(uint64_t, 62);
     out[INDEX(32, lane)] = tmp + reference;
     tmp = (src >> 62) & MASK(uint64_t, 2);
@@ -12167,6 +14170,14 @@ __device__ void _bit_unpack_64_lane<62>(const uint64_t *__restrict in, uint64_t 
     src = in[lane + LANE_COUNT * 46];
     tmp |= (src & MASK(uint64_t, 32)) << 30;
     out[INDEX(47, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<62, 3>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 46];
     tmp = (src >> 32) & MASK(uint64_t, 32);
     src = in[lane + LANE_COUNT * 47];
     tmp |= (src & MASK(uint64_t, 30)) << 32;
@@ -12232,11 +14243,19 @@ __device__ void _bit_unpack_64_lane<62>(const uint64_t *__restrict in, uint64_t 
 }
 
 template <>
-__device__ void _bit_unpack_64_lane<63>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+__device__ void _bit_unpack_64_lane<62>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    _bit_unpack_64_lane_slice<62, 0>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<62, 1>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<62, 2>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<62, 3>(in, out, reference, lane);
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<63, 0>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
     constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
     uint64_t src;
     uint64_t tmp;
-    src = in[lane];
+    src = in[lane + LANE_COUNT * 0];
     tmp = (src >> 0) & MASK(uint64_t, 63);
     out[INDEX(0, lane)] = tmp + reference;
     tmp = (src >> 63) & MASK(uint64_t, 1);
@@ -12299,6 +14318,14 @@ __device__ void _bit_unpack_64_lane<63>(const uint64_t *__restrict in, uint64_t 
     src = in[lane + LANE_COUNT * 15];
     tmp |= (src & MASK(uint64_t, 48)) << 15;
     out[INDEX(15, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<63, 1>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 15];
     tmp = (src >> 48) & MASK(uint64_t, 16);
     src = in[lane + LANE_COUNT * 16];
     tmp |= (src & MASK(uint64_t, 47)) << 16;
@@ -12363,6 +14390,14 @@ __device__ void _bit_unpack_64_lane<63>(const uint64_t *__restrict in, uint64_t 
     src = in[lane + LANE_COUNT * 31];
     tmp |= (src & MASK(uint64_t, 32)) << 31;
     out[INDEX(31, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<63, 2>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 31];
     tmp = (src >> 32) & MASK(uint64_t, 32);
     src = in[lane + LANE_COUNT * 32];
     tmp |= (src & MASK(uint64_t, 31)) << 32;
@@ -12427,6 +14462,14 @@ __device__ void _bit_unpack_64_lane<63>(const uint64_t *__restrict in, uint64_t 
     src = in[lane + LANE_COUNT * 47];
     tmp |= (src & MASK(uint64_t, 16)) << 47;
     out[INDEX(47, lane)] = tmp + reference;
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<63, 3>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    uint64_t src;
+    uint64_t tmp;
+    src = in[lane + LANE_COUNT * 47];
     tmp = (src >> 16) & MASK(uint64_t, 48);
     src = in[lane + LANE_COUNT * 48];
     tmp |= (src & MASK(uint64_t, 15)) << 48;
@@ -12492,88 +14535,587 @@ __device__ void _bit_unpack_64_lane<63>(const uint64_t *__restrict in, uint64_t 
 }
 
 template <>
-__device__ void _bit_unpack_64_lane<64>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+__device__ void _bit_unpack_64_lane<63>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    _bit_unpack_64_lane_slice<63, 0>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<63, 1>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<63, 2>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<63, 3>(in, out, reference, lane);
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<64, 0>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
     constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
     #pragma unroll
-    for (int row = 0; row < 64; row++) {
+    for (int row = 0; row < 16; row++) {
         out[INDEX(row, lane)] = in[LANE_COUNT * row + lane] + reference;
     }
 }
 
-/// Runtime dispatch to the optimized lane decoder for the given bit width.
-__device__ __noinline__ void bit_unpack_64_lane(
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<64, 1>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    #pragma unroll
+    for (int row = 16; row < 32; row++) {
+        out[INDEX(row, lane)] = in[LANE_COUNT * row + lane] + reference;
+    }
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<64, 2>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    #pragma unroll
+    for (int row = 32; row < 48; row++) {
+        out[INDEX(row, lane)] = in[LANE_COUNT * row + lane] + reference;
+    }
+}
+
+template <>
+__device__ __forceinline__ void _bit_unpack_64_lane_slice<64, 3>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    constexpr unsigned int LANE_COUNT = FL_LANES<uint64_t>;
+    #pragma unroll
+    for (int row = 48; row < 64; row++) {
+        out[INDEX(row, lane)] = in[LANE_COUNT * row + lane] + reference;
+    }
+}
+
+template <>
+__device__ void _bit_unpack_64_lane<64>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    _bit_unpack_64_lane_slice<64, 0>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<64, 1>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<64, 2>(in, out, reference, lane);
+    _bit_unpack_64_lane_slice<64, 3>(in, out, reference, lane);
+}
+
+/// Runtime dispatch to the lane-slice decoder for the given bit width and slice.
+__device__ __noinline__ void bit_unpack_64_lane_slice(
     const uint64_t *__restrict in,
     uint64_t *__restrict out,
     uint64_t reference,
     unsigned int lane,
-    uint32_t bit_width
+    uint32_t bit_width,
+    uint32_t slice
 ) {
     switch (bit_width) {
-        case 0: _bit_unpack_64_lane<0>(in, out, reference, lane); break;
-        case 1: _bit_unpack_64_lane<1>(in, out, reference, lane); break;
-        case 2: _bit_unpack_64_lane<2>(in, out, reference, lane); break;
-        case 3: _bit_unpack_64_lane<3>(in, out, reference, lane); break;
-        case 4: _bit_unpack_64_lane<4>(in, out, reference, lane); break;
-        case 5: _bit_unpack_64_lane<5>(in, out, reference, lane); break;
-        case 6: _bit_unpack_64_lane<6>(in, out, reference, lane); break;
-        case 7: _bit_unpack_64_lane<7>(in, out, reference, lane); break;
-        case 8: _bit_unpack_64_lane<8>(in, out, reference, lane); break;
-        case 9: _bit_unpack_64_lane<9>(in, out, reference, lane); break;
-        case 10: _bit_unpack_64_lane<10>(in, out, reference, lane); break;
-        case 11: _bit_unpack_64_lane<11>(in, out, reference, lane); break;
-        case 12: _bit_unpack_64_lane<12>(in, out, reference, lane); break;
-        case 13: _bit_unpack_64_lane<13>(in, out, reference, lane); break;
-        case 14: _bit_unpack_64_lane<14>(in, out, reference, lane); break;
-        case 15: _bit_unpack_64_lane<15>(in, out, reference, lane); break;
-        case 16: _bit_unpack_64_lane<16>(in, out, reference, lane); break;
-        case 17: _bit_unpack_64_lane<17>(in, out, reference, lane); break;
-        case 18: _bit_unpack_64_lane<18>(in, out, reference, lane); break;
-        case 19: _bit_unpack_64_lane<19>(in, out, reference, lane); break;
-        case 20: _bit_unpack_64_lane<20>(in, out, reference, lane); break;
-        case 21: _bit_unpack_64_lane<21>(in, out, reference, lane); break;
-        case 22: _bit_unpack_64_lane<22>(in, out, reference, lane); break;
-        case 23: _bit_unpack_64_lane<23>(in, out, reference, lane); break;
-        case 24: _bit_unpack_64_lane<24>(in, out, reference, lane); break;
-        case 25: _bit_unpack_64_lane<25>(in, out, reference, lane); break;
-        case 26: _bit_unpack_64_lane<26>(in, out, reference, lane); break;
-        case 27: _bit_unpack_64_lane<27>(in, out, reference, lane); break;
-        case 28: _bit_unpack_64_lane<28>(in, out, reference, lane); break;
-        case 29: _bit_unpack_64_lane<29>(in, out, reference, lane); break;
-        case 30: _bit_unpack_64_lane<30>(in, out, reference, lane); break;
-        case 31: _bit_unpack_64_lane<31>(in, out, reference, lane); break;
-        case 32: _bit_unpack_64_lane<32>(in, out, reference, lane); break;
-        case 33: _bit_unpack_64_lane<33>(in, out, reference, lane); break;
-        case 34: _bit_unpack_64_lane<34>(in, out, reference, lane); break;
-        case 35: _bit_unpack_64_lane<35>(in, out, reference, lane); break;
-        case 36: _bit_unpack_64_lane<36>(in, out, reference, lane); break;
-        case 37: _bit_unpack_64_lane<37>(in, out, reference, lane); break;
-        case 38: _bit_unpack_64_lane<38>(in, out, reference, lane); break;
-        case 39: _bit_unpack_64_lane<39>(in, out, reference, lane); break;
-        case 40: _bit_unpack_64_lane<40>(in, out, reference, lane); break;
-        case 41: _bit_unpack_64_lane<41>(in, out, reference, lane); break;
-        case 42: _bit_unpack_64_lane<42>(in, out, reference, lane); break;
-        case 43: _bit_unpack_64_lane<43>(in, out, reference, lane); break;
-        case 44: _bit_unpack_64_lane<44>(in, out, reference, lane); break;
-        case 45: _bit_unpack_64_lane<45>(in, out, reference, lane); break;
-        case 46: _bit_unpack_64_lane<46>(in, out, reference, lane); break;
-        case 47: _bit_unpack_64_lane<47>(in, out, reference, lane); break;
-        case 48: _bit_unpack_64_lane<48>(in, out, reference, lane); break;
-        case 49: _bit_unpack_64_lane<49>(in, out, reference, lane); break;
-        case 50: _bit_unpack_64_lane<50>(in, out, reference, lane); break;
-        case 51: _bit_unpack_64_lane<51>(in, out, reference, lane); break;
-        case 52: _bit_unpack_64_lane<52>(in, out, reference, lane); break;
-        case 53: _bit_unpack_64_lane<53>(in, out, reference, lane); break;
-        case 54: _bit_unpack_64_lane<54>(in, out, reference, lane); break;
-        case 55: _bit_unpack_64_lane<55>(in, out, reference, lane); break;
-        case 56: _bit_unpack_64_lane<56>(in, out, reference, lane); break;
-        case 57: _bit_unpack_64_lane<57>(in, out, reference, lane); break;
-        case 58: _bit_unpack_64_lane<58>(in, out, reference, lane); break;
-        case 59: _bit_unpack_64_lane<59>(in, out, reference, lane); break;
-        case 60: _bit_unpack_64_lane<60>(in, out, reference, lane); break;
-        case 61: _bit_unpack_64_lane<61>(in, out, reference, lane); break;
-        case 62: _bit_unpack_64_lane<62>(in, out, reference, lane); break;
-        case 63: _bit_unpack_64_lane<63>(in, out, reference, lane); break;
-        case 64: _bit_unpack_64_lane<64>(in, out, reference, lane); break;
+        case 0:
+            switch (slice) {
+                case 0: _bit_unpack_64_lane_slice<0, 0>(in, out, reference, lane); break;
+                case 1: _bit_unpack_64_lane_slice<0, 1>(in, out, reference, lane); break;
+                case 2: _bit_unpack_64_lane_slice<0, 2>(in, out, reference, lane); break;
+                case 3: _bit_unpack_64_lane_slice<0, 3>(in, out, reference, lane); break;
+            }
+            break;
+        case 1:
+            switch (slice) {
+                case 0: _bit_unpack_64_lane_slice<1, 0>(in, out, reference, lane); break;
+                case 1: _bit_unpack_64_lane_slice<1, 1>(in, out, reference, lane); break;
+                case 2: _bit_unpack_64_lane_slice<1, 2>(in, out, reference, lane); break;
+                case 3: _bit_unpack_64_lane_slice<1, 3>(in, out, reference, lane); break;
+            }
+            break;
+        case 2:
+            switch (slice) {
+                case 0: _bit_unpack_64_lane_slice<2, 0>(in, out, reference, lane); break;
+                case 1: _bit_unpack_64_lane_slice<2, 1>(in, out, reference, lane); break;
+                case 2: _bit_unpack_64_lane_slice<2, 2>(in, out, reference, lane); break;
+                case 3: _bit_unpack_64_lane_slice<2, 3>(in, out, reference, lane); break;
+            }
+            break;
+        case 3:
+            switch (slice) {
+                case 0: _bit_unpack_64_lane_slice<3, 0>(in, out, reference, lane); break;
+                case 1: _bit_unpack_64_lane_slice<3, 1>(in, out, reference, lane); break;
+                case 2: _bit_unpack_64_lane_slice<3, 2>(in, out, reference, lane); break;
+                case 3: _bit_unpack_64_lane_slice<3, 3>(in, out, reference, lane); break;
+            }
+            break;
+        case 4:
+            switch (slice) {
+                case 0: _bit_unpack_64_lane_slice<4, 0>(in, out, reference, lane); break;
+                case 1: _bit_unpack_64_lane_slice<4, 1>(in, out, reference, lane); break;
+                case 2: _bit_unpack_64_lane_slice<4, 2>(in, out, reference, lane); break;
+                case 3: _bit_unpack_64_lane_slice<4, 3>(in, out, reference, lane); break;
+            }
+            break;
+        case 5:
+            switch (slice) {
+                case 0: _bit_unpack_64_lane_slice<5, 0>(in, out, reference, lane); break;
+                case 1: _bit_unpack_64_lane_slice<5, 1>(in, out, reference, lane); break;
+                case 2: _bit_unpack_64_lane_slice<5, 2>(in, out, reference, lane); break;
+                case 3: _bit_unpack_64_lane_slice<5, 3>(in, out, reference, lane); break;
+            }
+            break;
+        case 6:
+            switch (slice) {
+                case 0: _bit_unpack_64_lane_slice<6, 0>(in, out, reference, lane); break;
+                case 1: _bit_unpack_64_lane_slice<6, 1>(in, out, reference, lane); break;
+                case 2: _bit_unpack_64_lane_slice<6, 2>(in, out, reference, lane); break;
+                case 3: _bit_unpack_64_lane_slice<6, 3>(in, out, reference, lane); break;
+            }
+            break;
+        case 7:
+            switch (slice) {
+                case 0: _bit_unpack_64_lane_slice<7, 0>(in, out, reference, lane); break;
+                case 1: _bit_unpack_64_lane_slice<7, 1>(in, out, reference, lane); break;
+                case 2: _bit_unpack_64_lane_slice<7, 2>(in, out, reference, lane); break;
+                case 3: _bit_unpack_64_lane_slice<7, 3>(in, out, reference, lane); break;
+            }
+            break;
+        case 8:
+            switch (slice) {
+                case 0: _bit_unpack_64_lane_slice<8, 0>(in, out, reference, lane); break;
+                case 1: _bit_unpack_64_lane_slice<8, 1>(in, out, reference, lane); break;
+                case 2: _bit_unpack_64_lane_slice<8, 2>(in, out, reference, lane); break;
+                case 3: _bit_unpack_64_lane_slice<8, 3>(in, out, reference, lane); break;
+            }
+            break;
+        case 9:
+            switch (slice) {
+                case 0: _bit_unpack_64_lane_slice<9, 0>(in, out, reference, lane); break;
+                case 1: _bit_unpack_64_lane_slice<9, 1>(in, out, reference, lane); break;
+                case 2: _bit_unpack_64_lane_slice<9, 2>(in, out, reference, lane); break;
+                case 3: _bit_unpack_64_lane_slice<9, 3>(in, out, reference, lane); break;
+            }
+            break;
+        case 10:
+            switch (slice) {
+                case 0: _bit_unpack_64_lane_slice<10, 0>(in, out, reference, lane); break;
+                case 1: _bit_unpack_64_lane_slice<10, 1>(in, out, reference, lane); break;
+                case 2: _bit_unpack_64_lane_slice<10, 2>(in, out, reference, lane); break;
+                case 3: _bit_unpack_64_lane_slice<10, 3>(in, out, reference, lane); break;
+            }
+            break;
+        case 11:
+            switch (slice) {
+                case 0: _bit_unpack_64_lane_slice<11, 0>(in, out, reference, lane); break;
+                case 1: _bit_unpack_64_lane_slice<11, 1>(in, out, reference, lane); break;
+                case 2: _bit_unpack_64_lane_slice<11, 2>(in, out, reference, lane); break;
+                case 3: _bit_unpack_64_lane_slice<11, 3>(in, out, reference, lane); break;
+            }
+            break;
+        case 12:
+            switch (slice) {
+                case 0: _bit_unpack_64_lane_slice<12, 0>(in, out, reference, lane); break;
+                case 1: _bit_unpack_64_lane_slice<12, 1>(in, out, reference, lane); break;
+                case 2: _bit_unpack_64_lane_slice<12, 2>(in, out, reference, lane); break;
+                case 3: _bit_unpack_64_lane_slice<12, 3>(in, out, reference, lane); break;
+            }
+            break;
+        case 13:
+            switch (slice) {
+                case 0: _bit_unpack_64_lane_slice<13, 0>(in, out, reference, lane); break;
+                case 1: _bit_unpack_64_lane_slice<13, 1>(in, out, reference, lane); break;
+                case 2: _bit_unpack_64_lane_slice<13, 2>(in, out, reference, lane); break;
+                case 3: _bit_unpack_64_lane_slice<13, 3>(in, out, reference, lane); break;
+            }
+            break;
+        case 14:
+            switch (slice) {
+                case 0: _bit_unpack_64_lane_slice<14, 0>(in, out, reference, lane); break;
+                case 1: _bit_unpack_64_lane_slice<14, 1>(in, out, reference, lane); break;
+                case 2: _bit_unpack_64_lane_slice<14, 2>(in, out, reference, lane); break;
+                case 3: _bit_unpack_64_lane_slice<14, 3>(in, out, reference, lane); break;
+            }
+            break;
+        case 15:
+            switch (slice) {
+                case 0: _bit_unpack_64_lane_slice<15, 0>(in, out, reference, lane); break;
+                case 1: _bit_unpack_64_lane_slice<15, 1>(in, out, reference, lane); break;
+                case 2: _bit_unpack_64_lane_slice<15, 2>(in, out, reference, lane); break;
+                case 3: _bit_unpack_64_lane_slice<15, 3>(in, out, reference, lane); break;
+            }
+            break;
+        case 16:
+            switch (slice) {
+                case 0: _bit_unpack_64_lane_slice<16, 0>(in, out, reference, lane); break;
+                case 1: _bit_unpack_64_lane_slice<16, 1>(in, out, reference, lane); break;
+                case 2: _bit_unpack_64_lane_slice<16, 2>(in, out, reference, lane); break;
+                case 3: _bit_unpack_64_lane_slice<16, 3>(in, out, reference, lane); break;
+            }
+            break;
+        case 17:
+            switch (slice) {
+                case 0: _bit_unpack_64_lane_slice<17, 0>(in, out, reference, lane); break;
+                case 1: _bit_unpack_64_lane_slice<17, 1>(in, out, reference, lane); break;
+                case 2: _bit_unpack_64_lane_slice<17, 2>(in, out, reference, lane); break;
+                case 3: _bit_unpack_64_lane_slice<17, 3>(in, out, reference, lane); break;
+            }
+            break;
+        case 18:
+            switch (slice) {
+                case 0: _bit_unpack_64_lane_slice<18, 0>(in, out, reference, lane); break;
+                case 1: _bit_unpack_64_lane_slice<18, 1>(in, out, reference, lane); break;
+                case 2: _bit_unpack_64_lane_slice<18, 2>(in, out, reference, lane); break;
+                case 3: _bit_unpack_64_lane_slice<18, 3>(in, out, reference, lane); break;
+            }
+            break;
+        case 19:
+            switch (slice) {
+                case 0: _bit_unpack_64_lane_slice<19, 0>(in, out, reference, lane); break;
+                case 1: _bit_unpack_64_lane_slice<19, 1>(in, out, reference, lane); break;
+                case 2: _bit_unpack_64_lane_slice<19, 2>(in, out, reference, lane); break;
+                case 3: _bit_unpack_64_lane_slice<19, 3>(in, out, reference, lane); break;
+            }
+            break;
+        case 20:
+            switch (slice) {
+                case 0: _bit_unpack_64_lane_slice<20, 0>(in, out, reference, lane); break;
+                case 1: _bit_unpack_64_lane_slice<20, 1>(in, out, reference, lane); break;
+                case 2: _bit_unpack_64_lane_slice<20, 2>(in, out, reference, lane); break;
+                case 3: _bit_unpack_64_lane_slice<20, 3>(in, out, reference, lane); break;
+            }
+            break;
+        case 21:
+            switch (slice) {
+                case 0: _bit_unpack_64_lane_slice<21, 0>(in, out, reference, lane); break;
+                case 1: _bit_unpack_64_lane_slice<21, 1>(in, out, reference, lane); break;
+                case 2: _bit_unpack_64_lane_slice<21, 2>(in, out, reference, lane); break;
+                case 3: _bit_unpack_64_lane_slice<21, 3>(in, out, reference, lane); break;
+            }
+            break;
+        case 22:
+            switch (slice) {
+                case 0: _bit_unpack_64_lane_slice<22, 0>(in, out, reference, lane); break;
+                case 1: _bit_unpack_64_lane_slice<22, 1>(in, out, reference, lane); break;
+                case 2: _bit_unpack_64_lane_slice<22, 2>(in, out, reference, lane); break;
+                case 3: _bit_unpack_64_lane_slice<22, 3>(in, out, reference, lane); break;
+            }
+            break;
+        case 23:
+            switch (slice) {
+                case 0: _bit_unpack_64_lane_slice<23, 0>(in, out, reference, lane); break;
+                case 1: _bit_unpack_64_lane_slice<23, 1>(in, out, reference, lane); break;
+                case 2: _bit_unpack_64_lane_slice<23, 2>(in, out, reference, lane); break;
+                case 3: _bit_unpack_64_lane_slice<23, 3>(in, out, reference, lane); break;
+            }
+            break;
+        case 24:
+            switch (slice) {
+                case 0: _bit_unpack_64_lane_slice<24, 0>(in, out, reference, lane); break;
+                case 1: _bit_unpack_64_lane_slice<24, 1>(in, out, reference, lane); break;
+                case 2: _bit_unpack_64_lane_slice<24, 2>(in, out, reference, lane); break;
+                case 3: _bit_unpack_64_lane_slice<24, 3>(in, out, reference, lane); break;
+            }
+            break;
+        case 25:
+            switch (slice) {
+                case 0: _bit_unpack_64_lane_slice<25, 0>(in, out, reference, lane); break;
+                case 1: _bit_unpack_64_lane_slice<25, 1>(in, out, reference, lane); break;
+                case 2: _bit_unpack_64_lane_slice<25, 2>(in, out, reference, lane); break;
+                case 3: _bit_unpack_64_lane_slice<25, 3>(in, out, reference, lane); break;
+            }
+            break;
+        case 26:
+            switch (slice) {
+                case 0: _bit_unpack_64_lane_slice<26, 0>(in, out, reference, lane); break;
+                case 1: _bit_unpack_64_lane_slice<26, 1>(in, out, reference, lane); break;
+                case 2: _bit_unpack_64_lane_slice<26, 2>(in, out, reference, lane); break;
+                case 3: _bit_unpack_64_lane_slice<26, 3>(in, out, reference, lane); break;
+            }
+            break;
+        case 27:
+            switch (slice) {
+                case 0: _bit_unpack_64_lane_slice<27, 0>(in, out, reference, lane); break;
+                case 1: _bit_unpack_64_lane_slice<27, 1>(in, out, reference, lane); break;
+                case 2: _bit_unpack_64_lane_slice<27, 2>(in, out, reference, lane); break;
+                case 3: _bit_unpack_64_lane_slice<27, 3>(in, out, reference, lane); break;
+            }
+            break;
+        case 28:
+            switch (slice) {
+                case 0: _bit_unpack_64_lane_slice<28, 0>(in, out, reference, lane); break;
+                case 1: _bit_unpack_64_lane_slice<28, 1>(in, out, reference, lane); break;
+                case 2: _bit_unpack_64_lane_slice<28, 2>(in, out, reference, lane); break;
+                case 3: _bit_unpack_64_lane_slice<28, 3>(in, out, reference, lane); break;
+            }
+            break;
+        case 29:
+            switch (slice) {
+                case 0: _bit_unpack_64_lane_slice<29, 0>(in, out, reference, lane); break;
+                case 1: _bit_unpack_64_lane_slice<29, 1>(in, out, reference, lane); break;
+                case 2: _bit_unpack_64_lane_slice<29, 2>(in, out, reference, lane); break;
+                case 3: _bit_unpack_64_lane_slice<29, 3>(in, out, reference, lane); break;
+            }
+            break;
+        case 30:
+            switch (slice) {
+                case 0: _bit_unpack_64_lane_slice<30, 0>(in, out, reference, lane); break;
+                case 1: _bit_unpack_64_lane_slice<30, 1>(in, out, reference, lane); break;
+                case 2: _bit_unpack_64_lane_slice<30, 2>(in, out, reference, lane); break;
+                case 3: _bit_unpack_64_lane_slice<30, 3>(in, out, reference, lane); break;
+            }
+            break;
+        case 31:
+            switch (slice) {
+                case 0: _bit_unpack_64_lane_slice<31, 0>(in, out, reference, lane); break;
+                case 1: _bit_unpack_64_lane_slice<31, 1>(in, out, reference, lane); break;
+                case 2: _bit_unpack_64_lane_slice<31, 2>(in, out, reference, lane); break;
+                case 3: _bit_unpack_64_lane_slice<31, 3>(in, out, reference, lane); break;
+            }
+            break;
+        case 32:
+            switch (slice) {
+                case 0: _bit_unpack_64_lane_slice<32, 0>(in, out, reference, lane); break;
+                case 1: _bit_unpack_64_lane_slice<32, 1>(in, out, reference, lane); break;
+                case 2: _bit_unpack_64_lane_slice<32, 2>(in, out, reference, lane); break;
+                case 3: _bit_unpack_64_lane_slice<32, 3>(in, out, reference, lane); break;
+            }
+            break;
+        case 33:
+            switch (slice) {
+                case 0: _bit_unpack_64_lane_slice<33, 0>(in, out, reference, lane); break;
+                case 1: _bit_unpack_64_lane_slice<33, 1>(in, out, reference, lane); break;
+                case 2: _bit_unpack_64_lane_slice<33, 2>(in, out, reference, lane); break;
+                case 3: _bit_unpack_64_lane_slice<33, 3>(in, out, reference, lane); break;
+            }
+            break;
+        case 34:
+            switch (slice) {
+                case 0: _bit_unpack_64_lane_slice<34, 0>(in, out, reference, lane); break;
+                case 1: _bit_unpack_64_lane_slice<34, 1>(in, out, reference, lane); break;
+                case 2: _bit_unpack_64_lane_slice<34, 2>(in, out, reference, lane); break;
+                case 3: _bit_unpack_64_lane_slice<34, 3>(in, out, reference, lane); break;
+            }
+            break;
+        case 35:
+            switch (slice) {
+                case 0: _bit_unpack_64_lane_slice<35, 0>(in, out, reference, lane); break;
+                case 1: _bit_unpack_64_lane_slice<35, 1>(in, out, reference, lane); break;
+                case 2: _bit_unpack_64_lane_slice<35, 2>(in, out, reference, lane); break;
+                case 3: _bit_unpack_64_lane_slice<35, 3>(in, out, reference, lane); break;
+            }
+            break;
+        case 36:
+            switch (slice) {
+                case 0: _bit_unpack_64_lane_slice<36, 0>(in, out, reference, lane); break;
+                case 1: _bit_unpack_64_lane_slice<36, 1>(in, out, reference, lane); break;
+                case 2: _bit_unpack_64_lane_slice<36, 2>(in, out, reference, lane); break;
+                case 3: _bit_unpack_64_lane_slice<36, 3>(in, out, reference, lane); break;
+            }
+            break;
+        case 37:
+            switch (slice) {
+                case 0: _bit_unpack_64_lane_slice<37, 0>(in, out, reference, lane); break;
+                case 1: _bit_unpack_64_lane_slice<37, 1>(in, out, reference, lane); break;
+                case 2: _bit_unpack_64_lane_slice<37, 2>(in, out, reference, lane); break;
+                case 3: _bit_unpack_64_lane_slice<37, 3>(in, out, reference, lane); break;
+            }
+            break;
+        case 38:
+            switch (slice) {
+                case 0: _bit_unpack_64_lane_slice<38, 0>(in, out, reference, lane); break;
+                case 1: _bit_unpack_64_lane_slice<38, 1>(in, out, reference, lane); break;
+                case 2: _bit_unpack_64_lane_slice<38, 2>(in, out, reference, lane); break;
+                case 3: _bit_unpack_64_lane_slice<38, 3>(in, out, reference, lane); break;
+            }
+            break;
+        case 39:
+            switch (slice) {
+                case 0: _bit_unpack_64_lane_slice<39, 0>(in, out, reference, lane); break;
+                case 1: _bit_unpack_64_lane_slice<39, 1>(in, out, reference, lane); break;
+                case 2: _bit_unpack_64_lane_slice<39, 2>(in, out, reference, lane); break;
+                case 3: _bit_unpack_64_lane_slice<39, 3>(in, out, reference, lane); break;
+            }
+            break;
+        case 40:
+            switch (slice) {
+                case 0: _bit_unpack_64_lane_slice<40, 0>(in, out, reference, lane); break;
+                case 1: _bit_unpack_64_lane_slice<40, 1>(in, out, reference, lane); break;
+                case 2: _bit_unpack_64_lane_slice<40, 2>(in, out, reference, lane); break;
+                case 3: _bit_unpack_64_lane_slice<40, 3>(in, out, reference, lane); break;
+            }
+            break;
+        case 41:
+            switch (slice) {
+                case 0: _bit_unpack_64_lane_slice<41, 0>(in, out, reference, lane); break;
+                case 1: _bit_unpack_64_lane_slice<41, 1>(in, out, reference, lane); break;
+                case 2: _bit_unpack_64_lane_slice<41, 2>(in, out, reference, lane); break;
+                case 3: _bit_unpack_64_lane_slice<41, 3>(in, out, reference, lane); break;
+            }
+            break;
+        case 42:
+            switch (slice) {
+                case 0: _bit_unpack_64_lane_slice<42, 0>(in, out, reference, lane); break;
+                case 1: _bit_unpack_64_lane_slice<42, 1>(in, out, reference, lane); break;
+                case 2: _bit_unpack_64_lane_slice<42, 2>(in, out, reference, lane); break;
+                case 3: _bit_unpack_64_lane_slice<42, 3>(in, out, reference, lane); break;
+            }
+            break;
+        case 43:
+            switch (slice) {
+                case 0: _bit_unpack_64_lane_slice<43, 0>(in, out, reference, lane); break;
+                case 1: _bit_unpack_64_lane_slice<43, 1>(in, out, reference, lane); break;
+                case 2: _bit_unpack_64_lane_slice<43, 2>(in, out, reference, lane); break;
+                case 3: _bit_unpack_64_lane_slice<43, 3>(in, out, reference, lane); break;
+            }
+            break;
+        case 44:
+            switch (slice) {
+                case 0: _bit_unpack_64_lane_slice<44, 0>(in, out, reference, lane); break;
+                case 1: _bit_unpack_64_lane_slice<44, 1>(in, out, reference, lane); break;
+                case 2: _bit_unpack_64_lane_slice<44, 2>(in, out, reference, lane); break;
+                case 3: _bit_unpack_64_lane_slice<44, 3>(in, out, reference, lane); break;
+            }
+            break;
+        case 45:
+            switch (slice) {
+                case 0: _bit_unpack_64_lane_slice<45, 0>(in, out, reference, lane); break;
+                case 1: _bit_unpack_64_lane_slice<45, 1>(in, out, reference, lane); break;
+                case 2: _bit_unpack_64_lane_slice<45, 2>(in, out, reference, lane); break;
+                case 3: _bit_unpack_64_lane_slice<45, 3>(in, out, reference, lane); break;
+            }
+            break;
+        case 46:
+            switch (slice) {
+                case 0: _bit_unpack_64_lane_slice<46, 0>(in, out, reference, lane); break;
+                case 1: _bit_unpack_64_lane_slice<46, 1>(in, out, reference, lane); break;
+                case 2: _bit_unpack_64_lane_slice<46, 2>(in, out, reference, lane); break;
+                case 3: _bit_unpack_64_lane_slice<46, 3>(in, out, reference, lane); break;
+            }
+            break;
+        case 47:
+            switch (slice) {
+                case 0: _bit_unpack_64_lane_slice<47, 0>(in, out, reference, lane); break;
+                case 1: _bit_unpack_64_lane_slice<47, 1>(in, out, reference, lane); break;
+                case 2: _bit_unpack_64_lane_slice<47, 2>(in, out, reference, lane); break;
+                case 3: _bit_unpack_64_lane_slice<47, 3>(in, out, reference, lane); break;
+            }
+            break;
+        case 48:
+            switch (slice) {
+                case 0: _bit_unpack_64_lane_slice<48, 0>(in, out, reference, lane); break;
+                case 1: _bit_unpack_64_lane_slice<48, 1>(in, out, reference, lane); break;
+                case 2: _bit_unpack_64_lane_slice<48, 2>(in, out, reference, lane); break;
+                case 3: _bit_unpack_64_lane_slice<48, 3>(in, out, reference, lane); break;
+            }
+            break;
+        case 49:
+            switch (slice) {
+                case 0: _bit_unpack_64_lane_slice<49, 0>(in, out, reference, lane); break;
+                case 1: _bit_unpack_64_lane_slice<49, 1>(in, out, reference, lane); break;
+                case 2: _bit_unpack_64_lane_slice<49, 2>(in, out, reference, lane); break;
+                case 3: _bit_unpack_64_lane_slice<49, 3>(in, out, reference, lane); break;
+            }
+            break;
+        case 50:
+            switch (slice) {
+                case 0: _bit_unpack_64_lane_slice<50, 0>(in, out, reference, lane); break;
+                case 1: _bit_unpack_64_lane_slice<50, 1>(in, out, reference, lane); break;
+                case 2: _bit_unpack_64_lane_slice<50, 2>(in, out, reference, lane); break;
+                case 3: _bit_unpack_64_lane_slice<50, 3>(in, out, reference, lane); break;
+            }
+            break;
+        case 51:
+            switch (slice) {
+                case 0: _bit_unpack_64_lane_slice<51, 0>(in, out, reference, lane); break;
+                case 1: _bit_unpack_64_lane_slice<51, 1>(in, out, reference, lane); break;
+                case 2: _bit_unpack_64_lane_slice<51, 2>(in, out, reference, lane); break;
+                case 3: _bit_unpack_64_lane_slice<51, 3>(in, out, reference, lane); break;
+            }
+            break;
+        case 52:
+            switch (slice) {
+                case 0: _bit_unpack_64_lane_slice<52, 0>(in, out, reference, lane); break;
+                case 1: _bit_unpack_64_lane_slice<52, 1>(in, out, reference, lane); break;
+                case 2: _bit_unpack_64_lane_slice<52, 2>(in, out, reference, lane); break;
+                case 3: _bit_unpack_64_lane_slice<52, 3>(in, out, reference, lane); break;
+            }
+            break;
+        case 53:
+            switch (slice) {
+                case 0: _bit_unpack_64_lane_slice<53, 0>(in, out, reference, lane); break;
+                case 1: _bit_unpack_64_lane_slice<53, 1>(in, out, reference, lane); break;
+                case 2: _bit_unpack_64_lane_slice<53, 2>(in, out, reference, lane); break;
+                case 3: _bit_unpack_64_lane_slice<53, 3>(in, out, reference, lane); break;
+            }
+            break;
+        case 54:
+            switch (slice) {
+                case 0: _bit_unpack_64_lane_slice<54, 0>(in, out, reference, lane); break;
+                case 1: _bit_unpack_64_lane_slice<54, 1>(in, out, reference, lane); break;
+                case 2: _bit_unpack_64_lane_slice<54, 2>(in, out, reference, lane); break;
+                case 3: _bit_unpack_64_lane_slice<54, 3>(in, out, reference, lane); break;
+            }
+            break;
+        case 55:
+            switch (slice) {
+                case 0: _bit_unpack_64_lane_slice<55, 0>(in, out, reference, lane); break;
+                case 1: _bit_unpack_64_lane_slice<55, 1>(in, out, reference, lane); break;
+                case 2: _bit_unpack_64_lane_slice<55, 2>(in, out, reference, lane); break;
+                case 3: _bit_unpack_64_lane_slice<55, 3>(in, out, reference, lane); break;
+            }
+            break;
+        case 56:
+            switch (slice) {
+                case 0: _bit_unpack_64_lane_slice<56, 0>(in, out, reference, lane); break;
+                case 1: _bit_unpack_64_lane_slice<56, 1>(in, out, reference, lane); break;
+                case 2: _bit_unpack_64_lane_slice<56, 2>(in, out, reference, lane); break;
+                case 3: _bit_unpack_64_lane_slice<56, 3>(in, out, reference, lane); break;
+            }
+            break;
+        case 57:
+            switch (slice) {
+                case 0: _bit_unpack_64_lane_slice<57, 0>(in, out, reference, lane); break;
+                case 1: _bit_unpack_64_lane_slice<57, 1>(in, out, reference, lane); break;
+                case 2: _bit_unpack_64_lane_slice<57, 2>(in, out, reference, lane); break;
+                case 3: _bit_unpack_64_lane_slice<57, 3>(in, out, reference, lane); break;
+            }
+            break;
+        case 58:
+            switch (slice) {
+                case 0: _bit_unpack_64_lane_slice<58, 0>(in, out, reference, lane); break;
+                case 1: _bit_unpack_64_lane_slice<58, 1>(in, out, reference, lane); break;
+                case 2: _bit_unpack_64_lane_slice<58, 2>(in, out, reference, lane); break;
+                case 3: _bit_unpack_64_lane_slice<58, 3>(in, out, reference, lane); break;
+            }
+            break;
+        case 59:
+            switch (slice) {
+                case 0: _bit_unpack_64_lane_slice<59, 0>(in, out, reference, lane); break;
+                case 1: _bit_unpack_64_lane_slice<59, 1>(in, out, reference, lane); break;
+                case 2: _bit_unpack_64_lane_slice<59, 2>(in, out, reference, lane); break;
+                case 3: _bit_unpack_64_lane_slice<59, 3>(in, out, reference, lane); break;
+            }
+            break;
+        case 60:
+            switch (slice) {
+                case 0: _bit_unpack_64_lane_slice<60, 0>(in, out, reference, lane); break;
+                case 1: _bit_unpack_64_lane_slice<60, 1>(in, out, reference, lane); break;
+                case 2: _bit_unpack_64_lane_slice<60, 2>(in, out, reference, lane); break;
+                case 3: _bit_unpack_64_lane_slice<60, 3>(in, out, reference, lane); break;
+            }
+            break;
+        case 61:
+            switch (slice) {
+                case 0: _bit_unpack_64_lane_slice<61, 0>(in, out, reference, lane); break;
+                case 1: _bit_unpack_64_lane_slice<61, 1>(in, out, reference, lane); break;
+                case 2: _bit_unpack_64_lane_slice<61, 2>(in, out, reference, lane); break;
+                case 3: _bit_unpack_64_lane_slice<61, 3>(in, out, reference, lane); break;
+            }
+            break;
+        case 62:
+            switch (slice) {
+                case 0: _bit_unpack_64_lane_slice<62, 0>(in, out, reference, lane); break;
+                case 1: _bit_unpack_64_lane_slice<62, 1>(in, out, reference, lane); break;
+                case 2: _bit_unpack_64_lane_slice<62, 2>(in, out, reference, lane); break;
+                case 3: _bit_unpack_64_lane_slice<62, 3>(in, out, reference, lane); break;
+            }
+            break;
+        case 63:
+            switch (slice) {
+                case 0: _bit_unpack_64_lane_slice<63, 0>(in, out, reference, lane); break;
+                case 1: _bit_unpack_64_lane_slice<63, 1>(in, out, reference, lane); break;
+                case 2: _bit_unpack_64_lane_slice<63, 2>(in, out, reference, lane); break;
+                case 3: _bit_unpack_64_lane_slice<63, 3>(in, out, reference, lane); break;
+            }
+            break;
+        case 64:
+            switch (slice) {
+                case 0: _bit_unpack_64_lane_slice<64, 0>(in, out, reference, lane); break;
+                case 1: _bit_unpack_64_lane_slice<64, 1>(in, out, reference, lane); break;
+                case 2: _bit_unpack_64_lane_slice<64, 2>(in, out, reference, lane); break;
+                case 3: _bit_unpack_64_lane_slice<64, 3>(in, out, reference, lane); break;
+            }
+            break;
     }
 }
 

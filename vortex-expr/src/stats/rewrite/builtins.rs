@@ -16,7 +16,6 @@ use vortex_array::expr::bound::and;
 use vortex_array::expr::bound::and_collect;
 use vortex_array::expr::bound::binary;
 use vortex_array::expr::bound::cast;
-use vortex_array::expr::bound::dynamic_with_options;
 use vortex_array::expr::bound::eq;
 use vortex_array::expr::bound::gt;
 use vortex_array::expr::bound::gt_eq;
@@ -32,25 +31,28 @@ use vortex_array::scalar_fn::EmptyOptions;
 use vortex_array::scalar_fn::ScalarFnId;
 use vortex_array::scalar_fn::ScalarFnVTable;
 use vortex_array::scalar_fn::ScalarFnVTableExt;
-use vortex_array::scalar_fn::fns::between::Between;
-use vortex_array::scalar_fn::fns::binary::Binary;
-use vortex_array::scalar_fn::fns::cast::Cast;
-use vortex_array::scalar_fn::fns::dynamic::DynamicComparison;
-use vortex_array::scalar_fn::fns::dynamic_expression::DynamicExpression;
-use vortex_array::scalar_fn::fns::is_nan::IsNan;
-use vortex_array::scalar_fn::fns::is_not_null::IsNotNull;
-use vortex_array::scalar_fn::fns::is_null::IsNull;
-use vortex_array::scalar_fn::fns::like::Like;
-use vortex_array::scalar_fn::fns::list_contains::ListContains;
-use vortex_array::scalar_fn::fns::literal::Literal;
-use vortex_array::scalar_fn::fns::lower::Lower;
-use vortex_array::scalar_fn::fns::operators::CompareOperator;
-use vortex_array::scalar_fn::fns::operators::Operator;
-use vortex_array::scalar_fn::internal::lower_bound::LowerBound;
-use vortex_array::scalar_fn::internal::lower_bound::LowerBoundKind;
+use vortex_array::scalar_fn::builtin::binary::Binary;
+use vortex_array::scalar_fn::builtin::cast::Cast;
+use vortex_array::scalar_fn::builtin::is_not_null::IsNotNull;
+use vortex_array::scalar_fn::builtin::is_null::IsNull;
+use vortex_array::scalar_fn::builtin::literal::Literal;
+use vortex_array::scalar_fn::builtin::operators::CompareOperator;
+use vortex_array::scalar_fn::builtin::operators::Operator;
 use vortex_array::scalar_fn::internal::row_count::RowCount;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_functions::between::Between;
+use vortex_functions::dynamic::DynamicComparison;
+use vortex_functions::dynamic_expression::DynamicExpression;
+use vortex_functions::expr::bound::dynamic_with_options;
+use vortex_functions::is_nan::IsNan;
+use vortex_functions::like::Like;
+use vortex_functions::list_contains::ListContains;
+use vortex_functions::list_contains::PreparedSet;
+use vortex_functions::list_contains::PreparedSetData;
+use vortex_functions::lower::Lower;
+use vortex_functions::lower_bound::LowerBound;
+use vortex_functions::lower_bound::LowerBoundKind;
 use vortex_session::VortexSession;
 
 use crate::stats::bound::stat;
@@ -553,12 +555,11 @@ fn list_contains_falsify<P: NonNanProof>(
     let list = expr.child(0);
     let needle = expr.child(1);
 
-    let Some(list_scalar) = literal_stat(list, Stat::Min) else {
-        return Ok(None);
-    };
-    let elements = list_scalar
+    // Reduction replaces a literal list with a set prepared from it.
+    let elements = list
         .as_opt::<Literal>()
-        .and_then(|literal| literal.as_list_opt())
+        .or_else(|| list.as_opt::<PreparedSet>().map(PreparedSetData::list))
+        .and_then(|list| list.as_list_opt())
         .and_then(|list| list.elements());
     let Some(elements) = elements else {
         return Ok(None);
@@ -877,19 +878,14 @@ mod tests {
     use vortex_array::expr::BoundExpression;
     use vortex_array::expr::Expression;
     use vortex_array::expr::and;
-    use vortex_array::expr::between;
     use vortex_array::expr::cast;
     use vortex_array::expr::col;
-    use vortex_array::expr::dynamic;
     use vortex_array::expr::eq;
     use vortex_array::expr::get_item;
     use vortex_array::expr::gt;
     use vortex_array::expr::gt_eq;
-    use vortex_array::expr::is_nan;
     use vortex_array::expr::is_not_null;
     use vortex_array::expr::is_null;
-    use vortex_array::expr::like;
-    use vortex_array::expr::list_contains;
     use vortex_array::expr::lit;
     use vortex_array::expr::lt;
     use vortex_array::expr::lt_eq;
@@ -900,13 +896,22 @@ mod tests {
     use vortex_array::scalar_fn::ScalarFnId;
     use vortex_array::scalar_fn::ScalarFnVTable;
     use vortex_array::scalar_fn::ScalarFnVTableExt;
-    use vortex_array::scalar_fn::fns::between::BetweenOptions;
-    use vortex_array::scalar_fn::fns::between::StrictComparison;
-    use vortex_array::scalar_fn::fns::binary::Binary;
-    use vortex_array::scalar_fn::fns::dynamic::DynamicComparison;
-    use vortex_array::scalar_fn::fns::operators::CompareOperator;
+    use vortex_array::scalar_fn::builtin::binary::Binary;
+    use vortex_array::scalar_fn::builtin::operators::CompareOperator;
     use vortex_array::scalar_fn::internal::row_count::RowCount;
     use vortex_error::VortexResult;
+    use vortex_functions::between::BetweenOptions;
+    use vortex_functions::between::StrictComparison;
+    use vortex_functions::dynamic::DynamicComparison;
+    use vortex_functions::expr::between;
+    use vortex_functions::expr::dynamic;
+    use vortex_functions::expr::is_nan;
+    use vortex_functions::expr::like;
+    use vortex_functions::expr::list_contains;
+    use vortex_functions::list_contains::ListContains;
+    use vortex_functions::list_contains::ListContainsOptions;
+    use vortex_functions::list_contains::PreparedSet;
+    use vortex_functions::list_contains::PreparedSetData;
     use vortex_session::VortexSession;
 
     use crate::stats::expr::StatFn;
@@ -1252,6 +1257,32 @@ mod tests {
             Some(or(
                 lt(stat(col("a"), Stat::Max), lit(Scalar::from(Some(0i32)))),
                 gt(stat(col("a"), Stat::Min), lit(Scalar::from(Some(19i32)))),
+            ))
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn rewrites_prepared_set_list_contains_falsifier() -> VortexResult<()> {
+        let list = Scalar::list(
+            Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable)),
+            vec![1.into(), 2.into()],
+            Nullability::NonNullable,
+        );
+        let set = PreparedSet.new_expr(PreparedSetData::try_new(list)?, Vec::<Expression>::new());
+        let expr = ListContains.new_expr(ListContainsOptions::default(), [set, col("a")]);
+
+        assert_rewrite_eq!(
+            falsify(&expr)?,
+            Some(and(
+                or(
+                    lt(stat(col("a"), Stat::Max), lit(1i32)),
+                    gt(stat(col("a"), Stat::Min), lit(1i32)),
+                ),
+                or(
+                    lt(stat(col("a"), Stat::Max), lit(2i32)),
+                    gt(stat(col("a"), Stat::Min), lit(2i32)),
+                ),
             ))
         );
         Ok(())

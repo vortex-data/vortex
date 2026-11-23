@@ -124,6 +124,12 @@ struct Args {
     #[arg(long, default_value_t = true, action = clap::ArgAction::Set)]
     scan_v1: bool,
 
+    /// Register Vortex tables through the Scan API (`VortexTable` over a `MultiFileDataSource`)
+    /// instead of a listing table, whatever `--scan-v1` says. `MultiFileDataSource` runs the V1
+    /// scan.
+    #[arg(long, default_value_t = false, action = clap::ArgAction::Set)]
+    scan_api: bool,
+
     #[arg(long = "opt", value_delimiter = ',', value_parser = value_parser!(Opt))]
     options: Vec<Opt>,
 }
@@ -137,6 +143,7 @@ async fn main() -> anyhow::Result<()> {
     let args = Args::parse();
     let opts = Opts::from(args.options);
     let scan_v2 = !args.scan_v1;
+    let scan_api = args.scan_api;
 
     set_join_set_tracer(get_static_tracer())?;
     setup_logging_and_tracing(args.verbose, args.tracing)?;
@@ -196,7 +203,8 @@ async fn main() -> anyhow::Result<()> {
                         session.sql(&sql).await?.collect().await?;
                     }
                     datafusion_bench::make_object_store(&session, benchmark.data_url())?;
-                    register_benchmark_tables(&session, benchmark, format, scan_v2).await?;
+                    register_benchmark_tables(&session, benchmark, format, scan_v2, scan_api)
+                        .await?;
                     Ok((session, format))
                 }
             },
@@ -252,18 +260,14 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-fn use_scan_api() -> bool {
-    std::env::var("VORTEX_USE_SCAN_API").is_ok_and(|v| v == "1")
-}
-
 async fn register_benchmark_tables<B: Benchmark + ?Sized>(
     session: &SessionContext,
     benchmark: &B,
     format: Format,
     scan_v2: bool,
+    scan_api: bool,
 ) -> anyhow::Result<()> {
-    if !scan_v2 && use_scan_api() && matches!(format, Format::OnDiskVortex | Format::VortexCompact)
-    {
+    if scan_api && matches!(format, Format::OnDiskVortex | Format::VortexCompact) {
         register_v2_tables(session, benchmark, format).await
     } else {
         let benchmark_base = benchmark.data_url().join(&format!("{}/", format.name()))?;
@@ -300,7 +304,7 @@ async fn register_benchmark_tables<B: Benchmark + ?Sized>(
     }
 }
 
-/// Register tables using the V2 `VortexTable` + `MultiFileDataSource` path.
+/// Register tables using the Scan API path: a `VortexTable` over a `MultiFileDataSource`.
 async fn register_v2_tables<B: Benchmark + ?Sized>(
     session: &SessionContext,
     benchmark: &B,

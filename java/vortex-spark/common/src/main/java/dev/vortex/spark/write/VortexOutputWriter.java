@@ -38,6 +38,12 @@ public final class VortexOutputWriter extends OutputWriter {
     /** Option sizing the write batch for Vortex alone, overriding {@value #BATCH_SIZE_OPTION}. */
     public static final String WRITE_BATCH_SIZE_OPTION = "vortex.write.batch.size";
 
+    /**
+     * Boolean option that writes with the compact strategy, which prefers a smaller file over read throughput. Off by
+     * default.
+     */
+    public static final String COMPACT_OPTION = "vortex.write.compact";
+
     private static final int DEFAULT_BATCH_SIZE = 2048;
     private static final int MIN_BATCH_SIZE = 1;
     private static final int MAX_BATCH_SIZE = 65536; // 64K rows max per batch
@@ -107,6 +113,7 @@ public final class VortexOutputWriter extends OutputWriter {
             this.session = VortexSparkSession.get(options);
             this.vortexWriter = VortexWriter.builder(session, writable, arrowSchema, allocator)
                     .metadata(metadata)
+                    .compact(options.getBoolean(COMPACT_OPTION, false))
                     .build();
             this.vectorSchemaRoot = VectorSchemaRoot.create(arrowSchema, allocator);
             // The native writer holds several batches at once, so a batch of few rows must not take Arrow's default

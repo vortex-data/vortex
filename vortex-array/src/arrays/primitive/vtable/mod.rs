@@ -108,8 +108,10 @@ impl VTable for Primitive {
             len,
             "PrimitiveArray length does not match outer length",
         );
-        let validity =
-            crate::array::child_to_validity(slots[PrimitiveSlots::VALIDITY].as_ref(), *nullability);
+        let validity = crate::array::child_to_validity(
+            slots[PrimitiveSlots::VALIDITY_CHILD].as_ref(),
+            *nullability,
+        );
         if let Some(validity_len) = validity.maybe_len() {
             vortex_ensure_eq!(
                 validity_len,
@@ -136,7 +138,7 @@ impl VTable for Primitive {
     ) -> VortexResult<()> {
         match_each_native_ptype!(array.ptype(), |P| {
             if let Some(builder) = builder.as_any_mut().downcast_mut::<PrimitiveBuilder<P>>() {
-                return builder.append_primitive_array(&array.into_owned(), ctx);
+                return builder.append_primitive_array(array, ctx);
             }
         });
 

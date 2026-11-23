@@ -31,10 +31,8 @@ use vortex_session::registry::CachedId;
 use crate::extension::LineString;
 use crate::extension::Point;
 use crate::extension::SpatialMetadata;
-use crate::extension::coordinate::coordinate_dimension;
 use crate::extension::flatten_coordinates;
 use crate::extension::linestring_array_from_point_pairs;
-use crate::extension::linestring_storage_dtype;
 use crate::scalar_fn::execute::Execution;
 use crate::scalar_fn::execute::Operand;
 use crate::scalar_fn::execute::dispatch_binary;
@@ -80,13 +78,12 @@ fn make_line_metadata(
 /// The native `LineString` dtype emitted by `ST_MakeLine`.
 fn make_line_dtype(dtypes: &[DType]) -> VortexResult<ExtDType<LineString>> {
     validate_make_line_operands(dtypes)?;
-    let left = dtypes[0].as_extension();
-    let right = dtypes[1].as_extension();
-    let dimension = coordinate_dimension(left.storage_dtype())?
-        .promote(coordinate_dimension(right.storage_dtype())?);
-    let metadata = make_line_metadata(left.metadata::<Point>(), right.metadata::<Point>())?;
+    let left = dtypes[0].as_extension().metadata::<Point>();
+    let right = dtypes[1].as_extension().metadata::<Point>();
+    let dimension = left.native_dimension().promote(right.native_dimension());
+    let metadata = make_line_metadata(left, right)?;
     let nullability = Nullability::from(dtypes.iter().any(DType::is_nullable));
-    ExtDType::try_new(metadata, linestring_storage_dtype(dimension, nullability))
+    ExtDType::try_new(metadata.with_dimension(dimension), nullability)
 }
 
 /// Expose a point operand as coordinate fields without expanding a constant into value buffers.
@@ -287,10 +284,8 @@ mod tests {
         }
         let storage = StructArray::from_fields(&fields)?.into_array();
         let dtype = ExtDType::<Point>::try_new(
-            SpatialMetadata {
-                crs: crs.map(str::to_owned),
-            },
-            storage.dtype().clone(),
+            SpatialMetadata::new(crs.map(str::to_owned)).with_dimension(dimension),
+            storage.dtype().nullability(),
         )?;
         Ok(ExtensionArray::try_new(dtype.erased(), storage)?.into_array())
     }

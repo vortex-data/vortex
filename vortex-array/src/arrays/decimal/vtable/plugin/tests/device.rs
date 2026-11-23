@@ -15,13 +15,16 @@ use vortex_buffer::buffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
+use super::SESSION;
 use super::deserialize;
 use super::metadata;
 use super::stored_values;
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::VortexSessionExecute;
 use crate::arrays::BoolArray;
 use crate::arrays::Decimal;
+use crate::arrays::DecimalArray;
 use crate::arrays::DictArray;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::decimal::DecimalArrayExt;
@@ -105,6 +108,34 @@ fn nested_device_validity() -> VortexResult<ArrayRef> {
 
 fn host_validity() -> VortexResult<ArrayRef> {
     Ok(BoolArray::from_iter([true, false, true]).into_array())
+}
+
+#[rstest]
+#[case::device_values(true, host_validity)]
+#[case::device_validity(false, device_validity)]
+#[case::nested_device_validity(false, nested_device_validity)]
+#[case::both_on_device(true, device_validity)]
+fn checked_constructor_skips_precision_scan_for_device_inputs(
+    #[case] values_on_device: bool,
+    #[case] validity: fn() -> VortexResult<ArrayRef>,
+) -> VortexResult<()> {
+    // Row zero is valid and exceeds precision two. A host scan would reject it.
+    let bytes = buffer![100i8, 0, 1].into_byte_buffer();
+    let values = if values_on_device {
+        on_device(bytes)
+    } else {
+        BufferHandle::new_host(bytes)
+    };
+    let array = DecimalArray::try_new_handle(
+        values,
+        DecimalType::I8,
+        DecimalDType::new(2, 0),
+        Validity::Array(validity()?),
+        &mut SESSION.create_execution_ctx(),
+    )?;
+
+    assert_eq!(array.buffer_handle().is_on_device(), values_on_device);
+    Ok(())
 }
 
 /// A canonical node keeps its device buffer, because its read never scans the values.

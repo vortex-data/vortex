@@ -15,18 +15,32 @@
 //! The [`ArrowSession`] session variable is created on first use of [`ArrowSessionExt::arrow`], so
 //! no explicit registration is required. It can look up the extension types of its Vortex session
 //! by their Vortex IDs (see [`ArrowSession`]).
+//!
+//! [`ArrowScanExt`] adapts scan drivers to Arrow record-batch streams, performing conversion on
+//! the workers producing the scan batches.
 
 pub mod convert;
 mod datum;
 pub mod dtype;
 mod executor;
+
+mod extension;
+pub use extension::ArrowExtVTable;
+pub use extension::ArrowMetadataPolicy;
+
 pub mod ext_metadata;
+mod import_nullability;
+pub use import_nullability::level_validity;
+
 mod iter;
 mod null_buffer;
 mod options;
 mod run_end_import;
 mod scalar;
+mod scan;
 mod session;
+#[cfg(feature = "_test-harness")]
+pub mod test_harness;
 #[cfg(test)]
 mod tests;
 
@@ -39,4 +53,5 @@ pub use null_buffer::to_arrow_null_buffer;
 pub use null_buffer::to_null_buffer;
 pub use options::*;
 pub use scalar::ToArrowDatum;
+pub use scan::ArrowScanExt;
 pub use session::*;

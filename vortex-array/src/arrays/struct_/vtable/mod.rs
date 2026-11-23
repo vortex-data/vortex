@@ -4,7 +4,6 @@
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_panic;
-use vortex_session::VortexSession;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
@@ -21,7 +20,6 @@ use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
 use crate::builders::StructBuilder;
 use crate::dtype::DType;
-mod kernel;
 mod operations;
 mod plugin;
 mod validity;
@@ -32,10 +30,6 @@ use crate::array::ArrayId;
 
 /// A [`Struct`]-encoded Vortex array.
 pub type StructArray = Array<Struct>;
-
-pub(crate) fn initialize(session: &VortexSession) {
-    kernel::initialize(session);
-}
 
 impl VTable for Struct {
     type TypedArrayData = EmptyArrayData;
@@ -71,7 +65,7 @@ impl VTable for Struct {
             );
         }
 
-        let validity = child_to_validity(slots[StructSlots::VALIDITY].as_ref(), *nullability);
+        let validity = child_to_validity(slots[StructSlots::VALIDITY_CHILD].as_ref(), *nullability);
         if let Some(validity_len) = validity.maybe_len()
             && validity_len != len
         {
@@ -128,7 +122,7 @@ impl VTable for Struct {
     }
 
     fn slot_name(array: ArrayView<'_, Self>, idx: usize) -> String {
-        if idx == StructSlots::VALIDITY {
+        if idx == StructSlots::VALIDITY_CHILD {
             "validity".to_string()
         } else {
             array.dtype().as_struct_fields().names()[idx - StructSlots::FIELDS_OFFSET].to_string()
@@ -147,7 +141,7 @@ impl VTable for Struct {
         let Some(builder) = builder.as_any_mut().downcast_mut::<StructBuilder>() else {
             vortex_bail!("append_to_builder for Struct requires a StructBuilder");
         };
-        builder.append_struct_array(&array.into_owned(), ctx)
+        builder.append_struct_array(array, ctx)
     }
 }
 

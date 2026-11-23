@@ -38,7 +38,7 @@ use crate::expr::stats::Stat;
 use crate::match_each_integer_ptype;
 use crate::match_each_unsigned_integer_ptype;
 use crate::optimizer::ArrayOptimizer;
-use crate::scalar_fn::fns::operators::Operator;
+use crate::scalar_fn::builtin::operators::Operator;
 use crate::validity::Validity;
 
 #[array_slots(ListView)]
@@ -61,7 +61,7 @@ pub struct ListViewSlots {
     pub sizes: ArrayRef,
     /// The validity bitmap indicating which list elements are non-null.
     #[slot(3)]
-    pub validity: Option<ArrayRef>,
+    pub validity_child: Option<ArrayRef>,
 }
 
 /// The canonical encoding for variable-length list arrays.
@@ -177,7 +177,7 @@ impl ListViewData {
             elements: elements.clone(),
             offsets: offsets.clone(),
             sizes: sizes.clone(),
-            validity: validity_to_child(validity, len),
+            validity_child: validity_to_child(validity, len),
         }
         .into_slots()
     }
@@ -353,7 +353,7 @@ fn fill_referenced_mask<O: IntegerPType, S: IntegerPType>(
     }
 }
 
-pub trait ListViewArrayExt: ListViewArraySlotsExt {
+pub trait ListViewArrayExt: TypedArrayRef<ListView> {
     fn nullability(&self) -> crate::dtype::Nullability {
         match self.dtype() {
             DType::List(_, nullability) => *nullability,
@@ -362,10 +362,7 @@ pub trait ListViewArrayExt: ListViewArraySlotsExt {
     }
 
     fn listview_validity(&self) -> Validity {
-        child_to_validity(
-            self.slots()[ListViewSlots::VALIDITY].as_ref(),
-            self.nullability(),
-        )
+        child_to_validity(self.validity_child(), self.nullability())
     }
 
     fn offset_at(&self, index: usize, ctx: &mut ExecutionCtx) -> usize {
@@ -648,15 +645,9 @@ impl Array<ListView> {
     }
 
     pub fn into_data_parts(self) -> ListViewDataParts {
-        let elements = self.slots()[ListViewSlots::ELEMENTS]
-            .clone()
-            .vortex_expect("ListViewArray elements slot");
-        let offsets = self.slots()[ListViewSlots::OFFSETS]
-            .clone()
-            .vortex_expect("ListViewArray offsets slot");
-        let sizes = self.slots()[ListViewSlots::SIZES]
-            .clone()
-            .vortex_expect("ListViewArray sizes slot");
+        let elements = self.elements().clone();
+        let offsets = self.offsets().clone();
+        let sizes = self.sizes().clone();
         let validity = self.listview_validity();
         ListViewDataParts {
             elements_dtype: Arc::new(elements.dtype().clone()),

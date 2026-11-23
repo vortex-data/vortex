@@ -27,11 +27,22 @@ use vortex_datafusion::VortexFormat;
 use vortex_datafusion::VortexFormatFactory;
 use vortex_datafusion::VortexTableOptions;
 
+/// The file metadata cache budget, large enough to hold the footers of every benchmark dataset.
+///
+/// DataFusion's default of 50 MiB is smaller than the footers of some datasets, for example
+/// ClickBench written with inline array nodes and the unstable encodings. Queries visit files in
+/// the same order, so the LRU cache then evicts each footer before it is used again, and every
+/// query parses all the footers again. The benchmarks would then measure footer parsing instead
+/// of the scan.
+const METADATA_CACHE_LIMIT: usize = 100 * 1024 * 1024;
+
 #[expect(clippy::expect_used)]
 pub fn get_session_context() -> SessionContext {
     let mut rt_builder = RuntimeEnvBuilder::new();
 
-    rt_builder = rt_builder.with_cache_manager(CacheManagerConfig::default());
+    rt_builder = rt_builder.with_cache_manager(
+        CacheManagerConfig::default().with_metadata_cache_limit(METADATA_CACHE_LIMIT),
+    );
 
     let rt = rt_builder
         .build_arc()

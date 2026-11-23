@@ -3,13 +3,13 @@
 
 mod array;
 pub use array::ChunkedArrayExt;
+pub use array::ChunkedArraySlotsExt;
 pub use array::ChunkedData;
 pub use array::ChunkedSlots;
 pub use array::ChunkedSlotsView;
 pub use vtable::ChunkedArray;
 
 pub(crate) mod compute;
-pub(crate) mod paired_chunks;
 
 mod vtable;
 pub use vtable::Chunked;

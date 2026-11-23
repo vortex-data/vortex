@@ -90,7 +90,7 @@ impl ArrayPlugin for Masked {
             Validity::from(dtype.nullability())
         };
 
-        let validity_slot = validity_to_child(&validity, len);
+        let validity_child = validity_to_child(&validity, len);
         let data = MaskedData::try_new(
             len,
             child.all_valid(&mut session.create_execution_ctx())?,
@@ -101,7 +101,7 @@ impl ArrayPlugin for Masked {
             dtype.clone(),
             len,
             data,
-            smallvec![Some(child), validity_slot],
+            smallvec![Some(child), validity_child],
         ))?
         .into_array())
     }

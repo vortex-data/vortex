@@ -35,6 +35,7 @@ use crate::FL_CHUNK_SIZE;
 use crate::delta::array::DeltaArraySlotsExt;
 use crate::delta::array::DeltaSlots;
 use crate::delta::array::DeltaSlotsView;
+use crate::delta::array::delta_decompress::PackedDeltas;
 use crate::delta::array::delta_decompress::delta_decompress;
 use crate::delta::array::lane_count;
 use crate::delta_compress;
@@ -52,13 +53,26 @@ mod validity;
 /// A [`Delta`]-encoded Vortex array.
 pub type DeltaArray = Array<Delta>;
 
+/// Serialized metadata for `fastlanes.delta`.
+///
+/// The children are `[bases, deltas]`, followed by the validity child when `has_validity` is set.
+/// A nullable array without a validity child is all valid.
+///
+/// Readers require at least that many children and ignore any that follow. A later writer may
+/// append a child under this ID only if decoding without it still yields the same values, such as
+/// a statistic or an index. A child or metadata field that changes the decoded values needs a new
+/// encoding ID.
 #[derive(Clone, prost::Message)]
-#[repr(C)]
 pub struct DeltaMetadata {
+    /// The physical length of `deltas`: `(offset + len).next_multiple_of(1024)`.
     #[prost(uint64, tag = "1")]
-    deltas_len: u64,
+    pub(super) deltas_len: u64,
+    /// The offset of the first logical value in the first chunk, less than 1024.
     #[prost(uint32, tag = "2")]
-    offset: u32, // must be <1024
+    pub(super) offset: u32,
+    /// Whether the children include a validity child after `bases` and `deltas`.
+    #[prost(bool, tag = "3")]
+    pub(super) has_validity: bool,
 }
 
 impl ArrayHash for DeltaData {
@@ -128,7 +142,14 @@ impl VTable for Delta {
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         let array = require_child!(array, array.bases(), DeltaSlots::BASES => Primitive);
-        let array = require_child!(array, array.deltas(), DeltaSlots::DELTAS => Primitive);
+        // Bit-packed deltas that start on a packed block are unpacked and prefix-summed in one
+        // pass, so they need not be decoded first.
+        let fused = PackedDeltas::try_new(array.deltas()).is_some();
+        let array = if fused {
+            array
+        } else {
+            require_child!(array, array.deltas(), DeltaSlots::DELTAS => Primitive)
+        };
         Ok(ExecutionResult::done(
             delta_decompress(&array, ctx)?.into_array(),
         ))
@@ -227,7 +248,7 @@ fn validate_parts(
     let lanes = lane_count(bases.dtype().as_ptype());
 
     vortex_ensure!(
-        deltas.len().is_multiple_of(1024),
+        deltas.len().is_multiple_of(FL_CHUNK_SIZE),
         "deltas length ({}) must be a multiple of 1024",
         deltas.len(),
     );
@@ -254,6 +275,7 @@ mod tests {
             &DeltaMetadata {
                 offset: u32::MAX,
                 deltas_len: u64::MAX,
+                has_validity: true,
             }
             .encode_to_vec(),
         );

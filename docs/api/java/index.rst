@@ -6,7 +6,7 @@ The Vortex Java API provides bindings for the Vortex library, enabling Java appl
 The API is split into two main components:
 
 * **Vortex JNI**: Core JNI bindings for Vortex functionality
-* **Vortex Spark**: Apache Spark integration for reading Vortex files
+* **Vortex Spark**: Apache Spark integration for reading and writing Vortex files
 
 .. raw:: html
 
@@ -21,7 +21,10 @@ The API is split into two main components:
 Installation
 ------------
 
-The Java API can be included in your project using Gradle or Maven. Please refer to the main documentation for detailed installation instructions.
+The Java API can be included in your project using Gradle or Maven. See the
+:doc:`Java quickstart </getting-started/java>` for the dependency setup and for examples that
+write, read, filter, and project Vortex files, and the :doc:`Spark user guide </user-guide/spark>`
+for the Spark connector.
 
 
 Compatibility
@@ -36,7 +39,7 @@ The Java bindings are supported on the following architectures:
 
 They support any Linux distribution with a GLIBC version >= 2.31. This includes
 
-* Amazon Linux 2022 or newer
+* Amazon Linux 2023 or newer
 * Ubuntu 20.04 or newer
 
 
@@ -61,7 +64,7 @@ Here's a basic example of using the Vortex Java API to read a Vortex file:
     Session session = Session.create();
     DataSource source = DataSource.open(session, "path/to/file.vortex");
 
-    // A scan yields one partition per chunk of the file.
+    // A scan yields partitions; each partition is read as a stream of Arrow batches.
     Scan scan = source.scan(ScanOptions.of());
     while (scan.hasNext()) {
         Partition partition = scan.next();

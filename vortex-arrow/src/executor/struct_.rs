@@ -22,7 +22,7 @@ use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldNames;
 use vortex_array::matcher::Matcher;
-use vortex_array::scalar_fn::fns::pack::Pack;
+use vortex_array::scalar_fn::builtin::pack::Pack;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
@@ -170,14 +170,12 @@ fn create_from_fields(
                 arrow_arrays.push(arrow_field);
             }
 
-            Ok(Arc::new(unsafe {
-                ArrowStructArray::new_unchecked_with_length(
-                    fields.clone(),
-                    arrow_arrays,
-                    null_buffer,
-                    len,
-                )
-            }))
+            Ok(Arc::new(ArrowStructArray::try_new_with_length(
+                fields.clone(),
+                arrow_arrays,
+                null_buffer,
+                len,
+            )?))
         }
         Err(names) => {
             // No target fields specified - use preferred types for each child. The inferred field
@@ -213,14 +211,12 @@ fn create_from_fields(
             }
             let arrow_fields = Fields::from(arrow_fields);
 
-            Ok(Arc::new(unsafe {
-                ArrowStructArray::new_unchecked_with_length(
-                    arrow_fields,
-                    arrow_arrays,
-                    null_buffer,
-                    len,
-                )
-            }))
+            Ok(Arc::new(ArrowStructArray::try_new_with_length(
+                arrow_fields,
+                arrow_arrays,
+                null_buffer,
+                len,
+            )?))
         }
     }
 }
@@ -249,7 +245,7 @@ mod tests {
     use vortex_array::arrays::StructArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::FieldNames;
-    use vortex_array::scalar_fn::fns::mask::Mask;
+    use vortex_array::scalar_fn::builtin::mask::Mask;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;

@@ -14,6 +14,7 @@ use vortex::array::arrays::VarBinViewArray;
 use vortex::array::vtable::child_to_validity;
 use vortex::encodings::zstd::Zstd;
 use vortex::encodings::zstd::ZstdArray;
+use vortex::encodings::zstd::ZstdArraySlotsExt;
 use vortex::encodings::zstd::ZstdDataParts;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
@@ -176,7 +177,7 @@ fn benchmark_zstd_cuda_decompress(c: &mut Criterion) {
                             frames, metadata, ..
                         } = {
                             let validity = child_to_validity(
-                                zstd_array.as_ref().slots()[0].as_ref(),
+                                zstd_array.validity_child(),
                                 zstd_array.dtype().nullability(),
                             );
                             zstd_array.clone().into_data().into_parts(validity)

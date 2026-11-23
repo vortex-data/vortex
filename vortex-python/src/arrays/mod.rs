@@ -53,7 +53,7 @@ use vortex::error::VortexResult;
 use vortex::flatbuffers::WriteFlatBufferExt;
 use vortex::ipc::messages::EncoderMessage;
 use vortex::ipc::messages::MessageEncoder;
-use vortex::scalar_fn::fns::operators::Operator;
+use vortex::scalar_fn::builtin::operators::Operator;
 use vortex_arrow::ArrowSessionExt;
 use vortex_arrow::ExecuteArrowExt;
 use vortex_python_abi::BUFFER_EXPORT_CAPSULE_NAME;
@@ -976,7 +976,7 @@ impl PyArray {
     /// root: vortex.primitive(i64?, len=4) nbytes=33 B (100.00%)
     ///   metadata: ptype: i64
     ///   buffer: values host 32 B (align=8) (96.97%)
-    ///   validity: vortex.bool(bool, len=4) nbytes=1 B (3.03%)...
+    ///   validity_child: vortex.bool(bool, len=4) nbytes=1 B (3.03%)...
     ///     metadata: offset: 0
     ///     buffer: bits host 1 B (align=1) (100.00%)
     /// <BLANKLINE>

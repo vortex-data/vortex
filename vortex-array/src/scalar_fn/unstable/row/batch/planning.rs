@@ -17,10 +17,12 @@ use super::BatchPlan;
 use super::BatchProbe;
 use super::RowFnExecutionArgs;
 use super::RowInputs;
+use super::RowPolicy;
 use super::args::BorrowedRowFnArgs;
 use crate::ArrayRef;
 use crate::arrays::Constant;
 use crate::dtype::DType;
+use crate::dtype::Nullability;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::unstable::row::types::is_batch_const;
 use crate::validity::Validity;
@@ -47,6 +49,7 @@ impl BatchProbe {
 
         let mut const_mask = 0u32;
         let mut has_null_const = false;
+        let mut nullability = Nullability::NonNullable;
         for index in 0..num_inputs {
             let input = inputs.input(index);
             vortex_ensure_eq!(
@@ -61,6 +64,10 @@ impl BatchProbe {
                 has_null_const |= input
                     .as_opt::<Constant>()
                     .is_some_and(|constant| constant.scalar().is_null());
+            }
+
+            if input.dtype().is_nullable() {
+                nullability = Nullability::Nullable;
             }
         }
 
@@ -83,7 +90,40 @@ impl BatchProbe {
             validity,
             const_mask,
             has_null_const,
+            nullability,
         })
+    }
+
+    /// Return the final validity for direct Boolean execution, or the unchanged probe otherwise.
+    ///
+    /// A _direct_ batch can evaluate every row and attach its validity in one Boolean collection.
+    /// The general path handles known all-null batches without decoding and all-constant batches
+    /// without constructing a full-length bitmap. Neither needs a full-batch row loop. Other
+    /// batches can use direct collection only when every row is known valid or [`RowPolicy::Dense`]
+    /// allows null-row payloads. Resolving an unknown validity here would add a mask scan to that
+    /// path.
+    ///
+    /// The returned validity preserves input dtype nullability even when every row is valid.
+    /// Direct execution skips the [`BatchPlan`] that would otherwise determine the output dtype.
+    pub(crate) fn into_direct_validity(
+        self,
+        num_inputs: usize,
+        policy: RowPolicy,
+    ) -> Result<Validity, Self> {
+        if self.has_null_const
+            || self.const_mask.count_ones() as usize == num_inputs
+            || matches!(self.validity, Validity::AllInvalid)
+            || !(policy == RowPolicy::Dense || self.validity.definitely_no_nulls())
+        {
+            return Err(self);
+        }
+
+        Ok(self.validity.union_nullability(self.nullability))
+    }
+
+    /// Return the bit mask of batch-constant inputs, with bit `i` for input `i`.
+    pub(crate) fn const_mask(&self) -> u32 {
+        self.const_mask
     }
 }
 

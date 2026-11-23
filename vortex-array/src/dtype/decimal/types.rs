@@ -12,7 +12,6 @@ use vortex_error::VortexError;
 use vortex_error::vortex_bail;
 
 use crate::dtype::BigCast;
-use crate::dtype::DecimalDType;
 use crate::dtype::PType;
 use crate::dtype::decimal::max_precision::MAX_DECIMAL256_FOR_EACH_PRECISION;
 use crate::dtype::decimal::max_precision::MIN_DECIMAL256_FOR_EACH_PRECISION;
@@ -52,11 +51,6 @@ impl DecimalType {
             DecimalType::I128 => size_of::<i128>(),
             DecimalType::I256 => size_of::<i256>(),
         }
-    }
-
-    /// True if `Self` can represent every value of the type `DecimalDType`.
-    pub fn is_compatible_decimal_value_type(self, dtype: DecimalDType) -> bool {
-        self >= dtype.canonical_values_type()
     }
 }
 

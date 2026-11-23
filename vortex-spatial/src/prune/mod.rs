@@ -5,16 +5,17 @@
 //! bounding box (AABB) statistic.
 //!
 //! One module per predicate. To prune a new one: recover the geometry column and the constant
-//! (symmetric predicates can use `geometry_and_constant`), reduce the constant to its box with
-//! `query_aabb`, build the proof over `aabb_stat` from the box-relation builders (`min_dist_sq`,
-//! `max_dist_sq`), and register the rule in [`crate::initialize`]. No new statistic or
-//! file-format change is needed.
+//! with `geometry_and_constant` (preserving operand order for asymmetric predicates), reduce the
+//! constant with `query_aabb`, build the proof over `aabb_stat`, and register the rule in
+//! [`crate::initialize`]. No new statistic or file-format change is needed.
 
+mod contains;
 mod distance;
 mod intersects;
 #[cfg(test)]
 mod test_harness;
 
+pub use contains::SpatialContainsPrune;
 pub use distance::SpatialDistancePrune;
 use geo::BoundingRect;
 use geo::Rect as SpatialRect;
@@ -24,9 +25,7 @@ use vortex_array::aggregate_fn::AggregateFnVTableExt;
 use vortex_array::aggregate_fn::EmptyOptions;
 use vortex_array::expr::BoundExpression;
 use vortex_array::expr::bound::binary;
-use vortex_array::expr::bound::case_when;
 use vortex_array::expr::bound::checked_add;
-use vortex_array::expr::bound::ext_storage;
 use vortex_array::expr::bound::get_item;
 use vortex_array::expr::bound::gt;
 use vortex_array::expr::bound::gt_eq;
@@ -34,25 +33,27 @@ use vortex_array::expr::bound::lit;
 use vortex_array::expr::bound::lt;
 use vortex_array::expr::bound::lt_eq;
 use vortex_array::scalar::Scalar;
-use vortex_array::scalar_fn::fns::get_item::GetItem;
-use vortex_array::scalar_fn::fns::literal::Literal;
-use vortex_array::scalar_fn::fns::operators::Operator;
+use vortex_array::scalar_fn::builtin::get_item::GetItem;
+use vortex_array::scalar_fn::builtin::literal::Literal;
+use vortex_array::scalar_fn::builtin::operators::Operator;
 use vortex_error::VortexResult;
 use vortex_expr::stats::bound::stat;
+use vortex_functions::expr::bound::case_when;
+use vortex_functions::expr::bound::ext_storage;
 use vortex_session::VortexSession;
 
 use crate::aggregate_fn::GeometryAabb;
 use crate::extension::is_native_geometry;
 use crate::extension::single_geometry;
 
-/// Splits a symmetric two-operand spatial predicate into the geometry column and the
-/// constant operand's scalar.
+/// Splits a two-operand spatial predicate into the geometry column and the constant operand's scalar.
 ///
 /// `None` means the rule must decline: the expression doesn't have the `f(column, constant)`
 /// shape (in either operand order), or the column's dtype does not support [`GeometryAabb`].
-/// An asymmetric predicate (e.g. a future contains) must recover which operand is the column
-/// itself instead of calling this.
-fn geometry_and_constant(expr: &BoundExpression) -> Option<(&BoundExpression, &Scalar)> {
+/// Asymmetric predicates must also check which operand is the column when choosing their proof.
+fn geometry_and_constant(
+    expr: &BoundExpression,
+) -> VortexResult<Option<(&BoundExpression, &Scalar)>> {
     // Zone predicates use the column as their root; file predicates refer to it through fields.
     let (lhs, rhs) = (expr.child(0), expr.child(1));
     let (geom, constant) = if is_column(lhs) {
@@ -70,6 +71,13 @@ fn geometry_and_constant(expr: &BoundExpression) -> Option<(&BoundExpression, &S
     }
 
     constant.as_opt::<Literal>().map(|scalar| (geom, scalar))
+}
+
+fn is_column(mut expr: &BoundExpression) -> bool {
+    while expr.is::<GetItem>() {
+        expr = expr.child(0);
+    }
+    expr.is_root()
 }
 
 fn is_column(mut expr: &BoundExpression) -> bool {

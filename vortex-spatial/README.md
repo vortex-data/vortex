@@ -105,6 +105,8 @@ Pass these options to `ZonedStrategy::new`. Its input must have one chunk per zo
 On reads, initialize the spatial extension on the reader's session as well. Filters passed to `VortexFile::scan` automatically use the registered pruning rules and available file or zone statistics. Registering a compute function does not give it a pruning rule. The current spatial rules support:
 
 - positive `ST_Intersects(geometry_column, constant_geometry)` filters when the boxes are disjoint;
+- positive `ST_Contains(geometry_column, constant_geometry)` filters when the file or zone box cannot cover the constant's box;
+- positive `ST_Contains(constant_geometry, geometry_column)` filters (equivalently `ST_Within(geometry_column, constant_geometry)`) when the boxes are disjoint;
 - `<`, `<=`, `>`, and `>=` comparisons on
   `ST_Distance(geometry_column, constant_geometry)` using box-distance bounds.
 
@@ -112,11 +114,15 @@ These rules accept a native geometry column at the scope root or through a neste
 
 These proofs are conservative: only a proof that no row can match skips a file or zone. Missing AABB statistics supply no such proof, and box overlap alone never proves that two geometries intersect.
 
+Containment is directional. A file or zone box that extends outside a constant's box may still contain rows within that constant, so that alone cannot prune `ST_Within`. Box coverage does not prove geometry containment either; `NOT ST_Contains` and `NOT ST_Within` have no spatial pruning proof.
+
+The same rules work with file-level AABB statistics, including nested geometry fields. To record file bounds, use `include_nested_statistics().with_file_statistics(...)` with `GeometryAabb.bind(EmptyOptions)` in the aggregate list. This replaces the default file aggregate list. The [containment pruning tests](src/prune/contains.rs) exercise file pruning without zone maps and zone pruning without file statistics.
+
 ## Interoperability and limits
 
 Arrow import and export use the standard GeoArrow extension names and preserve CRS metadata. Native import only supports separated coordinates; interleaved GeoArrow arrays are rejected.
 
-DuckDB uses WKB for general geometry values. Its Vortex expression lowering converts supported WKB constants to native scalars and pushes `ST_Contains`, `ST_Distance`, and `ST_Intersects` into a Vortex scan.
+DuckDB uses WKB for general geometry values. Its Vortex expression lowering converts supported WKB constants to native scalars and pushes `ST_Contains`, `ST_Within`, `ST_Distance`, and `ST_Intersects` into a Vortex scan. `ST_Within(a, b)` lowers to `ST_Contains(b, a)` and shares its compute and pruning implementation.
 
 Some important limits:
 

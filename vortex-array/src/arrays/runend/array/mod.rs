@@ -1,11 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! Run-end arrays and their execution into logical values.
+//!
+//! Each end is an exclusive logical index paired with the value for its preceding run. Decoding
+//! **must** apply a slice's logical offset before expanding those values. Specialized decoders
+//! handle common storage types. The generic fallback gathers values to retain their logical dtype.
+
 use std::fmt::Debug;
 use std::fmt::Display;
 use std::fmt::Formatter;
 use std::hash::Hash;
 use std::hash::Hasher;
+use std::ops::Range;
 
 use vortex_error::VortexExpect as _;
 use vortex_error::VortexResult;
@@ -30,18 +37,22 @@ use crate::ExecutionResult;
 use crate::IntoArray;
 use crate::TypedArrayRef;
 use crate::array_slots;
-use crate::arrays::DecimalArray;
+use crate::arrays::Bool;
+use crate::arrays::Decimal;
+use crate::arrays::ListView;
 use crate::arrays::ListViewArray;
 use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
-use crate::arrays::VarBinViewArray;
+use crate::arrays::VarBinView;
 use crate::arrays::listview::ListViewArraySlotsExt;
 use crate::arrays::runend::compress::runend_decode_decimal;
 use crate::arrays::runend::compress::runend_decode_primitive;
 use crate::arrays::runend::compress::runend_decode_varbinview;
 use crate::arrays::runend::compress::runend_encode;
+use crate::arrays::runend::compress::runend_encode_bool;
 use crate::arrays::runend::decompress_bool::runend_decode_bools;
 use crate::arrays::runend::ops::find_physical_index;
+use crate::arrays::runend::ops::find_physical_range;
 use crate::arrays::runend::ops::find_slice_end_index;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
@@ -52,6 +63,7 @@ use crate::vtable::VTable;
 use crate::vtable::ValidityVTable;
 
 mod plugin;
+mod to_dict;
 
 /// A [`RunEnd`]-encoded Vortex array.
 pub type RunEndArray = Array<RunEnd>;
@@ -142,7 +154,7 @@ impl VTable for RunEnd {
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         let array = require_child!(array, array.ends(), RunEndSlots::ENDS => Primitive);
         let array = require_child!(array, array.values(), RunEndSlots::VALUES => AnyCanonical);
-        run_end_canonicalize(&array, ctx).map(ExecutionResult::done)
+        run_end_canonicalize(array, ctx).map(ExecutionResult::done)
     }
 }
 
@@ -173,7 +185,7 @@ pub struct RunEndDataParts {
     pub offset: usize,
 }
 
-pub trait RunEndArrayExt: RunEndArraySlotsExt {
+pub trait RunEndArrayExt: TypedArrayRef<RunEnd> {
     fn offset(&self) -> usize {
         self.offset
     }
@@ -189,9 +201,42 @@ pub trait RunEndArrayExt: RunEndArraySlotsExt {
     fn find_slice_end_index(&self, index: usize, ctx: &mut ExecutionCtx) -> VortexResult<usize> {
         find_slice_end_index(self.ends(), index + self.offset(), ctx)
     }
+
+    /// The physical range of runs covering the logical `range`, found with one probe of the
+    /// ends.
+    fn find_physical_range(
+        &self,
+        range: Range<usize>,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Range<usize>> {
+        let offset = self.offset();
+        find_physical_range(self.ends(), range.start + offset..range.end + offset, ctx)
+    }
 }
 
 impl<T: TypedArrayRef<RunEnd>> RunEndArrayExt for T {}
+
+pub(crate) trait RunEndArrayOwnedExt {
+    /// Returns the parts of the array. Moves the children out when this handle owns the array,
+    /// and clones them otherwise.
+    fn into_parts(self) -> RunEndDataParts;
+}
+
+impl RunEndArrayOwnedExt for Array<RunEnd> {
+    fn into_parts(self) -> RunEndDataParts {
+        match self.try_into_parts() {
+            Ok(parts) => {
+                let RunEndSlots { ends, values } = RunEndSlots::from_slots(parts.slots);
+                parts.data.into_parts(ends, values)
+            }
+            Err(array) => RunEndDataParts {
+                ends: array.ends().clone(),
+                values: array.values().clone(),
+                offset: array.offset(),
+            },
+        }
+    }
+}
 
 #[derive(Clone, Debug)]
 pub struct RunEnd;
@@ -248,9 +293,17 @@ impl RunEnd {
     }
 
     /// Run the array through run-end encoding.
+    ///
+    /// Accepts primitive arrays, and boolean arrays without nulls.
     pub fn encode(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<RunEndArray> {
-        if let Some(parray) = array.as_opt::<Primitive>() {
-            let (ends, values) = runend_encode(parray, ctx);
+        let encoded = if let Some(parray) = array.as_opt::<Primitive>() {
+            Some(runend_encode(parray, ctx))
+        } else if let Some(barray) = array.as_opt::<Bool>() {
+            Some(runend_encode_bool(barray, ctx)?)
+        } else {
+            None
+        };
+        if let Some((ends, values)) = encoded {
             let ends = ends.into_array();
             let len = array.len();
             let dtype = values.dtype().clone();
@@ -258,7 +311,7 @@ impl RunEnd {
             let data = unsafe { RunEndData::new_unchecked(0) };
             Array::try_from_parts(ArrayParts::new(RunEnd, dtype, len, data, slots))
         } else {
-            vortex_bail!("REE can only encode primitive arrays")
+            vortex_bail!("REE can only encode primitive and boolean arrays")
         }
     }
 }
@@ -446,43 +499,49 @@ impl ValidityVTable<RunEnd> for RunEnd {
     }
 }
 
+/// Decodes a run-end array into its canonical form.
+///
+/// The ends must already be a primitive array, and the values must already be canonical, as
+/// `RunEnd::execute` requires.
 pub(super) fn run_end_canonicalize(
-    array: &RunEndArray,
+    array: RunEndArray,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
-    let pends = array.ends().clone().execute_as("ends", ctx)?;
+    if !matches!(
+        array.dtype(),
+        DType::Bool(_)
+            | DType::Primitive(..)
+            | DType::Decimal(..)
+            | DType::Utf8(_)
+            | DType::Binary(_)
+            | DType::List(..)
+    ) {
+        return Ok(array.to_dict(ctx)?.into_array());
+    }
 
-    Ok(match array.dtype() {
-        DType::Bool(_) => {
-            let bools = array.values().clone().execute_as("values", ctx)?;
-            runend_decode_bools(pends, bools, array.offset(), array.len(), ctx)?
-        }
+    let len = array.len();
+    let RunEndDataParts {
+        ends,
+        values,
+        offset,
+    } = array.into_parts();
+    let pends = ends.downcast::<Primitive>();
+
+    Ok(match values.dtype() {
+        DType::Bool(_) => runend_decode_bools(pends, values.downcast::<Bool>(), offset, len, ctx)?,
         DType::Primitive(..) => {
-            let pvalues = array.values().clone().execute_as("values", ctx)?;
-            runend_decode_primitive(pends, pvalues, array.offset(), array.len(), ctx)?
+            runend_decode_primitive(pends, values.downcast::<Primitive>(), offset, len, ctx)?
         }
         DType::Decimal(..) => {
-            let values = array
-                .values()
-                .clone()
-                .execute_as::<DecimalArray>("values", ctx)?;
-            runend_decode_decimal(pends, values, array.offset(), array.len(), ctx)?
+            runend_decode_decimal(pends, values.downcast::<Decimal>(), offset, len, ctx)?
         }
         DType::Utf8(_) | DType::Binary(_) => {
-            let values = array
-                .values()
-                .clone()
-                .execute_as::<VarBinViewArray>("values", ctx)?;
-            runend_decode_varbinview(pends, values, array.offset(), array.len(), ctx)?
+            runend_decode_varbinview(pends, values.downcast::<VarBinView>(), offset, len, ctx)?
         }
         DType::List(..) => {
-            let values = array
-                .values()
-                .clone()
-                .execute_as::<ListViewArray>("values", ctx)?;
-            runend_decode_listview(pends, values, array.offset(), array.len())?.into_array()
+            runend_decode_listview(pends, values.downcast::<ListView>(), offset, len)?.into_array()
         }
-        _ => vortex_bail!("Unsupported RunEnd value type: {}", array.dtype()),
+        dtype => vortex_panic!("RunEnd values of type {dtype} decode through a dictionary"),
     })
 }
 
@@ -918,6 +977,66 @@ mod tests {
         };
         assert_eq!(known.get_ends_ptype()?, PType::U32);
 
+        Ok(())
+    }
+
+    // On 32-bit targets, a crafted num_runs / offset above usize::MAX used to panic via
+    // vortex_expect. Keep a regression that only builds where the conversion can fail.
+    #[cfg(target_pointer_width = "32")]
+    #[test]
+    fn test_deserialize_rejects_num_runs_overflow() -> VortexResult<()> {
+        let metadata = RunEndMetadata {
+            ends_ptype: PType::U32 as i32,
+            num_runs: u64::from(u32::MAX) + 1,
+            offset: 0,
+        }
+        .encode_to_vec();
+        let children: Vec<ArrayRef> = Vec::new();
+        let result = ArrayPlugin::deserialize(
+            &RunEnd,
+            ArrayDeserialization::new(
+                VTable::id(&RunEnd),
+                &DType::Primitive(PType::I32, Nullability::NonNullable),
+                0,
+                &metadata,
+                &[],
+                &children,
+            ),
+            &SESSION,
+        );
+        assert!(result.is_err_and(|err| {
+            err.to_string().contains("RunEndMetadata num_runs")
+                && err.to_string().contains("exceeds usize range")
+        }));
+        Ok(())
+    }
+
+    #[cfg(target_pointer_width = "32")]
+    #[test]
+    fn test_deserialize_rejects_offset_overflow() -> VortexResult<()> {
+        let metadata = RunEndMetadata {
+            ends_ptype: PType::U32 as i32,
+            num_runs: 0,
+            offset: u64::from(u32::MAX) + 1,
+        }
+        .encode_to_vec();
+        let children: Vec<ArrayRef> = Vec::new();
+        let result = ArrayPlugin::deserialize(
+            &RunEnd,
+            ArrayDeserialization::new(
+                VTable::id(&RunEnd),
+                &DType::Primitive(PType::I32, Nullability::NonNullable),
+                0,
+                &metadata,
+                &[],
+                &children,
+            ),
+            &SESSION,
+        );
+        assert!(result.is_err_and(|err| {
+            err.to_string().contains("RunEndMetadata offset")
+                && err.to_string().contains("exceeds usize range")
+        }));
         Ok(())
     }
 }

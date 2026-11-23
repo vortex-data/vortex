@@ -22,8 +22,8 @@ use crate::arrays::runend::RunEnd;
 use crate::assert_arrays_eq;
 use crate::optimizer::ArrayOptimizer;
 use crate::scalar::Scalar;
-use crate::scalar_fn::fns::binary::Binary;
-use crate::scalar_fn::fns::operators::Operator;
+use crate::scalar_fn::builtin::binary::Binary;
+use crate::scalar_fn::builtin::operators::Operator;
 use crate::session::ArraySession;
 use crate::test_harness::trace::trace_op;
 
