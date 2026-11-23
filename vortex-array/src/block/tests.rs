@@ -27,8 +27,6 @@ use super::BlockOp;
 use super::BlockSource;
 use super::SourceBlock;
 use super::Written;
-use super::fused_chain_count;
-use super::in_place_chain_count;
 use crate::ArrayEq;
 use crate::ArrayHash;
 use crate::ArrayRef;
@@ -55,6 +53,8 @@ use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::require_spine;
 use crate::session::ArraySession;
+use crate::test_harness::fusion::fusion_lines;
+use crate::test_harness::fusion::fusion_trace;
 use crate::test_harness::trace::trace_op;
 use crate::validity::Validity;
 
@@ -426,29 +426,10 @@ fn add(child: ArrayRef) -> ArrayRef {
 // Harness
 // ---------------------------------------------------------------------------------------------
 
-/// Execute `array` with fusion on and off, check they agree, and return the fusion steps of the
-/// fused run's trace.
+/// Execute `array` with fusion off and on, check they agree, and return the fused run's fusion
+/// steps.
 fn fused(array: ArrayRef) -> VortexResult<String> {
-    let expected = array
-        .clone()
-        .execute::<PrimitiveArray>(&mut SESSION.create_execution_ctx().with_block_fusion(false))?;
-    let mut ctx = SESSION.create_execution_ctx();
-    let traced = trace_op(|| array.execute::<PrimitiveArray>(&mut ctx))?;
-    assert_arrays_eq!(traced.output, expected, &mut ctx);
-    Ok(fusion_lines(&traced.trace.to_string()))
-}
-
-fn fusion_lines(trace: &str) -> String {
-    trace
-        .lines()
-        .map(str::trim)
-        .filter(|line| {
-            ["ExecuteSpine", "ExecuteSlot", "fuse ", "drive ", "block_op"]
-                .iter()
-                .any(|prefix| line.starts_with(prefix))
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
+    fusion_trace(array, &SESSION)
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -562,7 +543,6 @@ fn blocks_follow_the_source_grid(
 #[test]
 fn canonical_leaf_in_place_only_when_owned() -> VortexResult<()> {
     let leaf = || PrimitiveArray::from_iter(0..3000i32).into_array();
-    let before = in_place_chain_count();
     assert_eq!(
         fused(add(add(add(leaf()))))?,
         "ExecuteSpine slot=0 parent=vortex.test.op(i32, len=3000) child=vortex.test.op(i32, len=3000)
@@ -574,12 +554,10 @@ drive ops=2 len=3000
 block_op 0 in_place i32->i32 leaf -> leaf
 block_op 1 in_place i32->i32 leaf -> leaf"
     );
-    assert_eq!(in_place_chain_count() - before, 1);
 
     // `Pass` returns the shared leaf itself, so the leaf reaches the ops above still shared.
     let shared = leaf();
     let mut ctx = SESSION.create_execution_ctx();
-    let before = in_place_chain_count();
     let traced = trace_op(|| {
         add(add(op(TestOpKind::Pass, shared.clone()))).execute::<PrimitiveArray>(&mut ctx)
     })?;
@@ -594,7 +572,6 @@ drive ops=2 len=3000
 block_op 0 copy i32->i32 source -> scratch0
 block_op 1 copy i32->i32 scratch0 -> output"
     );
-    assert_eq!(in_place_chain_count(), before);
     // The shared leaf still holds its own values.
     assert_arrays_eq!(shared, leaf(), &mut ctx);
     assert_arrays_eq!(
@@ -608,10 +585,8 @@ block_op 1 copy i32->i32 scratch0 -> output"
 #[test]
 fn disabled_fusion_runs_level_wise() -> VortexResult<()> {
     let (counter, fills) = counter(0, 2000, 0);
-    let before = fused_chain_count();
     let mut ctx = SESSION.create_execution_ctx().with_block_fusion(false);
     let traced = trace_op(|| add(add(counter)).execute::<PrimitiveArray>(&mut ctx))?;
-    assert_eq!(fused_chain_count(), before);
     assert!(fills.lock().is_empty());
     assert!(!traced.trace.to_string().contains("fuse "));
     Ok(())
@@ -772,9 +747,7 @@ fn chunks_without_fusion_append_level_wise() -> VortexResult<()> {
     let (first, _) = counter(1, 1500, 0);
     let array = ChunkedArray::try_new([add(add(first))], dtype(PType::I32))?.into_array();
     let mut ctx = SESSION.create_execution_ctx().with_block_fusion(false);
-    let before = fused_chain_count();
     let traced = trace_op(|| array.execute::<PrimitiveArray>(&mut ctx))?;
-    assert_eq!(fused_chain_count(), before);
     assert!(!traced.trace.to_string().contains("drive "));
     Ok(())
 }

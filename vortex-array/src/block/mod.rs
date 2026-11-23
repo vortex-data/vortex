@@ -37,24 +37,6 @@ use crate::dtype::PType;
 use crate::match_each_unsigned_integer_ptype;
 use crate::patches::Patches;
 
-#[cfg(any(test, feature = "_test-harness"))]
-thread_local! {
-    static FUSED_CHAINS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
-    static IN_PLACE_CHAINS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
-}
-
-/// The number of fused chains this thread decoded in place over their leaf's buffer, for tests.
-#[cfg(any(test, feature = "_test-harness"))]
-pub fn in_place_chain_count() -> usize {
-    IN_PLACE_CHAINS.with(std::cell::Cell::get)
-}
-
-/// The number of chains the executor fused on this thread, for tests to check fusion fired.
-#[cfg(any(test, feature = "_test-harness"))]
-pub fn fused_chain_count() -> usize {
-    FUSED_CHAINS.with(std::cell::Cell::get)
-}
-
 /// The most rows a block holds.
 pub const BLOCK_LEN: usize = 1024;
 

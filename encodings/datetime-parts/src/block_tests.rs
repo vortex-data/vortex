@@ -9,20 +9,17 @@ use std::sync::LazyLock;
 
 use rstest::rstest;
 use vortex_array::ArrayRef;
-use vortex_array::Canonical;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::DictArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::TemporalArray;
-use vortex_array::assert_arrays_eq;
-use vortex_array::block::fused_chain_count;
 use vortex_array::dtype::DType;
 use vortex_array::extension::datetime::TimeUnit;
 use vortex_array::match_each_integer_ptype;
 use vortex_array::scalar::Scalar;
-use vortex_array::test_harness::trace::trace_op;
+use vortex_array::test_harness::fusion::fusion_trace;
 use vortex_buffer::Buffer;
 use vortex_error::VortexResult;
 use vortex_fastlanes::FoR;
@@ -94,30 +91,10 @@ fn date_time_parts(nullable: bool, encode_days: bool, tz: Option<&str>) -> Vorte
     .into_array())
 }
 
-/// Execute `array` with fusion on and off, check they agree, and return the slot executions and
-/// fusion steps of the fused run's trace.
+/// Execute `array` with fusion off and on, check they agree, and return the fused run's
+/// fusion steps.
 fn fused(array: ArrayRef) -> VortexResult<String> {
-    let expected = array
-        .clone()
-        .execute::<Canonical>(&mut SESSION.create_execution_ctx().with_block_fusion(false))?
-        .into_array();
-    let mut ctx = SESSION.create_execution_ctx();
-    let traced = trace_op(|| array.execute::<Canonical>(&mut ctx))?;
-    let output = traced.output.into_array();
-    assert_eq!(output.dtype(), expected.dtype());
-    assert_arrays_eq!(output, expected, &mut ctx);
-    Ok(traced
-        .trace
-        .to_string()
-        .lines()
-        .map(str::trim)
-        .filter(|line| {
-            ["ExecuteSlot", "ExecuteSpine", "fuse ", "drive ", "block_op"]
-                .iter()
-                .any(|p| line.starts_with(p))
-        })
-        .collect::<Vec<_>>()
-        .join("\n"))
+    fusion_trace(array, &SESSION)
 }
 
 /// The trace of `array`, a DateTimeParts array over FoR over BitPacked days, fused where it
@@ -176,9 +153,7 @@ fn sliced_days_fuse(#[case] rows: Range<usize>) -> VortexResult<()> {
 #[test]
 fn canonical_children_decode_level_wise() -> VortexResult<()> {
     let array = date_time_parts(false, false, None)?;
-    let before = fused_chain_count();
     assert_eq!(fused(array)?, "");
-    assert_eq!(fused_chain_count(), before);
     Ok(())
 }
 
@@ -260,7 +235,6 @@ fn wide_seconds_do_not_fuse() -> VortexResult<()> {
     )?
     .into_array();
     let (dtype, days) = (array.dtype().clone(), parts.days().dtype().clone());
-    let before = fused_chain_count();
     // DateTimeParts is asked for its op before days builds a source, so days builds none.
     assert_eq!(
         fused(array)?,
@@ -269,6 +243,5 @@ fn wide_seconds_do_not_fuse() -> VortexResult<()> {
              child=fastlanes.for.v2({days}, len={LEN})"
         )
     );
-    assert_eq!(fused_chain_count(), before);
     Ok(())
 }

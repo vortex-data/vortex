@@ -100,11 +100,6 @@ impl BlockProgram {
             // SAFETY: `values` holds `len` initialized values of `ptypes[0]`, and every op keeps
             // the width, so each block is overwritten in place.
             unsafe { run_blocks_in_place(&mut self.ops, &self.ptypes, len, values.as_mut_ptr())? };
-            #[cfg(any(test, feature = "_test-harness"))]
-            {
-                super::FUSED_CHAINS.with(|count| count.set(count.get() + 1));
-                super::IN_PLACE_CHAINS.with(|count| count.set(count.get() + 1));
-            }
             return Ok(PrimitiveArray::from_byte_buffer(
                 values.freeze(),
                 out_ptype,
@@ -136,8 +131,6 @@ impl BlockProgram {
             self.len,
             "a block program writes all of its rows"
         );
-        #[cfg(any(test, feature = "_test-harness"))]
-        super::FUSED_CHAINS.with(|count| count.set(count.get() + 1));
         let dst = dst.as_mut_ptr().cast::<u8>();
         // SAFETY: `dst` has room for `len` values of `T`, the program's output type.
         unsafe {
