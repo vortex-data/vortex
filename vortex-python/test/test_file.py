@@ -173,19 +173,20 @@ def test_array_iterator_concurrent_transfer_does_not_deadlock(mode: str) -> None
         import sys
         import tempfile
         import threading
-        import time
 
         import pyarrow as pa
         import vortex as vx
 
         entry = threading.Event()
+        release = threading.Event()
+        transfer_started = threading.Event()
         schema = pa.schema([pa.field("value", pa.int64())])
         first_batch = vx.array(pa.table({"value": [10]}, schema=schema))
         second_batch = vx.array(pa.table({"value": [20]}, schema=schema))
 
         def delayed():
             entry.set()
-            time.sleep(0.1)
+            assert release.wait(5)
             yield first_batch
             yield second_batch
 
@@ -195,21 +196,35 @@ def test_array_iterator_concurrent_transfer_does_not_deadlock(mode: str) -> None
         def advance():
             seen.append(next(it).to_arrow_table().to_pydict())
 
-        thread = threading.Thread(target=advance)
-        thread.start()
-        assert entry.wait(3)
+        def releaser():
+            assert transfer_started.wait(5)
+            release.set()
 
+        producer = threading.Thread(target=advance)
+        watcher = threading.Thread(target=releaser)
+        producer.start()
+        watcher.start()
+        assert entry.wait(5)
+
+        # Hold the GIL until the native transfer call detaches it while waiting on
+        # the iterator mutex. Without detach(), watcher never gets the GIL to set
+        # `release`, so a lock-order regression deterministically deadlocks here.
+        sys.setswitchinterval(10.0)
         mode = sys.argv[1]
         if mode == "to_arrow":
+            transfer_started.set()
             remaining = it.to_arrow().read_all().to_pydict()
         else:
             with tempfile.TemporaryDirectory() as td:
                 path = os.path.join(td, "out.vortex")
+                transfer_started.set()
                 vx.io.write(it, path)
                 remaining = vx.open(path).scan().read_all().to_arrow_table().to_pydict()
 
-        thread.join(3)
-        assert not thread.is_alive()
+        watcher.join(5)
+        producer.join(5)
+        assert not watcher.is_alive()
+        assert not producer.is_alive()
         assert seen == [{"value": [10]}]
         assert remaining == {"value": [20]}
         assert next(it, None) is None
