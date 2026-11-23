@@ -74,7 +74,10 @@ class MemoryStore:
 
 
 def _escape(text: str) -> str:
-    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    # Collapse newlines so they cannot break `<url|label>`, escape Slack's control chars, and
+    # break up triple backticks so a contributor title cannot start a multiline code block.
+    cleaned = " ".join(text.split()).replace("```", "` ` `")
+    return cleaned.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
 def status(item: Item) -> str:
@@ -127,23 +130,26 @@ class Publisher:
         for number in sorted(open_items.keys() | threads.keys()):
             item = open_items.get(number)
             thread = threads.get(number)
+            can_start = max_new is None or started < max_new
             if thread is None or (thread.root_ts is None and not thread.pending):
-                if not (item and item.reasons) or (max_new is not None and started >= max_new):
+                if not (item and item.reasons) or not can_start:
                     continue
-                started += 1
             elif not item and not thread.open and not thread.pending:
                 continue
             try:
-                self._sync_item(number, item, thread)
+                if self._sync_item(number, item, thread, can_start=can_start):
+                    started += 1
             except (SlackError, SlackUnknown, RuntimeError) as error:
                 failures.append(f"#{number}: {error}")
         return failures
 
-    def _sync_item(self, number: int, item: Item | None, thread: Thread | None) -> None:
+    def _sync_item(
+        self, number: int, item: Item | None, thread: Thread | None, *, can_start: bool
+    ) -> bool:
         if thread is None:
             thread = Thread(created_at=self.now())
             if not self.store.create(number, thread):
-                return
+                return False
         if thread.pending:
             thread = self._recover(number, thread)
 
@@ -154,16 +160,18 @@ class Publisher:
             closed = self.closed_state(number)
             if closed is None:
                 # Reopened after the scan. The next run sees it as an open item.
-                return
+                return False
             new_status, external_at = closed.capitalize(), thread.external_at
         payload = {"status": new_status, "external_at": external_at}
 
         if thread.root_ts is None:
-            if item is None or not item.reasons:
-                return
+            if item is None or not item.reasons or not can_start:
+                return False
             self._post(number, thread, f"{number}:root", root_text(item), payload)
-        elif text := update_text(thread, new_status, item):
+            return True
+        if text := update_text(thread, new_status, item):
             self._post(number, thread, f"{number}:update:{thread.updates + 1}", text, payload)
+        return False
 
     def _post(
         self, number: int, thread: Thread, key: str, text: str, payload: dict[str, str]
@@ -172,7 +180,12 @@ class Publisher:
         self.store.save(number, thread)
         try:
             ts = self.slack.post(text, key, payload, thread.root_ts)
-        except SlackError:
+        except SlackError as error:
+            if error.code == "thread_not_found" and thread.root_ts is not None:
+                # The parent thread was deleted in Slack; drop the stale ts so the next run
+                # starts a fresh root instead of failing forever.
+                self.store.save(number, Thread(created_at=self.now()))
+                raise
             # Slack refused the post, so there is nothing to look for on the next run.
             self.store.save(number, replace(thread, pending=None))
             raise
@@ -180,7 +193,14 @@ class Publisher:
 
     def _recover(self, number: int, thread: Thread) -> Thread:
         """Settle a post that an earlier run started: adopt it if it reached Slack."""
-        found = self.slack.find(thread.pending or "", thread.root_ts, thread.created_at - 60)
+        try:
+            found = self.slack.find(thread.pending or "", thread.root_ts, thread.created_at - 60)
+        except SlackError as error:
+            if error.code == "thread_not_found" and thread.root_ts is not None:
+                reset = Thread(created_at=self.now())
+                self.store.save(number, reset)
+                return reset
+            raise
         thread = _posted(thread, found["ts"], found) if found else replace(thread, pending=None)
         self.store.save(number, thread)
         return thread

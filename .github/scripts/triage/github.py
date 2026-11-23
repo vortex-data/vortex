@@ -25,7 +25,9 @@ query($owner: String!, $name: String!, $cursor: String) {
         author { login __typename }
         labels(first: 50) { nodes { name } }
         assignees(first: 20) { nodes { login } }
-        comments(last: 50) { nodes { at: createdAt author { login __typename } } }
+        # GitHub GraphQL caps a single page at 100; more than 100 trailing bot comments
+        # would push older human comments out of this window.
+        comments(last: 100) { nodes { at: createdAt author { login __typename } } }
         %(extra)s
       }
     }
@@ -36,7 +38,7 @@ _CONNECTIONS = {
     "issue": {"connection": "issues", "extra": ""},
     "pr": {
         "connection": "pullRequests",
-        "extra": "reviews(last: 50) { nodes { at: submittedAt author { login __typename } } }",
+        "extra": "reviews(last: 100) { nodes { at: submittedAt author { login __typename } } }",
     },
 }
 
@@ -70,6 +72,18 @@ def gh_graphql(query: str, variables: dict[str, str | int]) -> dict[str, Any]:
         args += ["-F" if isinstance(value, int) else "-f", f"{name}={value}"]
     result = subprocess.run(args, capture_output=True, text=True, check=False)
     if result.returncode != 0:
+        # A deleted or transferred issue returns partial `data` with a NOT_FOUND GraphQL error.
+        try:
+            body = json.loads(result.stdout)
+        except ValueError:
+            body = None
+        if (
+            isinstance(body, dict)
+            and "data" in body
+            and body.get("errors")
+            and all(err.get("type") == "NOT_FOUND" for err in body["errors"])
+        ):
+            return body["data"]
         raise RuntimeError(f"GitHub query failed: {result.stderr.strip() or result.stdout.strip()}")
     return json.loads(result.stdout)["data"]
 
@@ -144,7 +158,7 @@ def scan(repo: str, query: Query = gh_graphql) -> list[Item]:
 
 
 def closed_state(repo: str, number: int, query: Query = gh_graphql) -> str | None:
-    """Return `closed` or `merged` for an item that is no longer open, or None if it is open."""
+    """Return `closed`, `merged`, or `deleted` for a non-open item, or None if it is open."""
     owner, name = repo.split("/")
     data = query(
         "query($owner: String!, $name: String!, $number: Int!) {"
@@ -153,5 +167,8 @@ def closed_state(repo: str, number: int, query: Query = gh_graphql) -> str | Non
         " ... on Issue { state } ... on PullRequest { state } } } }",
         {"owner": owner, "name": name, "number": number},
     )
-    state = data["repository"]["item"]["state"].lower()
+    item = data["repository"]["item"]
+    if item is None:
+        return "deleted"
+    state = item["state"].lower()
     return None if state == "open" else state

@@ -8,8 +8,14 @@ Run with:
     uv run --no-project --with pytest pytest scripts/tests/test_triage.py
 """
 
+import dataclasses
+import http.client
 import importlib
+import io
+import json
+import subprocess
 import sys
+import urllib.error
 from pathlib import Path
 
 import pytest
@@ -288,3 +294,154 @@ def test_reopened_item_waits_for_the_next_scan(setup):
     publisher.sync([item()])
     publisher.sync([])
     assert len(fake.messages) == 1
+
+
+def test_in_doubt_root_retries_and_refusals_respect_max_new(setup):
+    _, fake, _, publisher = setup
+    items = [item(n) for n in (1, 2, 3, 4)]
+    fake.fail = "lost"
+    publisher.sync(items, max_new=2)
+    fake.fail = None
+    assert publisher.sync(items, max_new=2) == []
+    assert [m["key"] for m in fake.messages] == ["1:root", "2:root"]
+
+
+def test_deleted_slack_parent_resets_thread_on_recovery(setup):
+    store, fake, _, publisher = setup
+    publisher.sync([item(1)])
+    fake.fail = "lost"
+    publisher.sync([item(1, assignees=("gatesn",))])
+
+    def missing_thread(key, thread_ts, oldest):
+        raise slack.SlackError("conversations.replies: thread_not_found", code="thread_not_found")
+
+    fake.fail = None
+    fake.find = missing_thread
+    assert publisher.sync([item(1, assignees=("gatesn",))]) == []
+    assert [m["key"] for m in fake.messages] == ["1:root", "1:root"]
+    assert store.threads[1].root_ts == "2.0"
+
+
+def test_root_text_neutralizes_multiline_and_triple_backticks():
+    text = publish.root_text(dataclasses.replace(item(1), title="Fix ```code```\nand <tag> & more"))
+    assert "```" not in text
+    assert "\nand " not in text
+    assert "&lt;tag&gt; &amp; more" in text
+
+
+def test_closed_state_handles_open_closed_merged_and_deleted(monkeypatch):
+    def run(payload) -> str | None:
+        return github.closed_state("o/r", 1, query=lambda _q, _v: {"repository": {"item": payload}})
+
+    assert run({"state": "OPEN"}) is None
+    assert run({"state": "CLOSED"}) == "closed"
+    assert run({"state": "MERGED"}) == "merged"
+    assert run(None) == "deleted"
+
+    not_found = json.dumps(
+        {"data": {"repository": {"item": None}}, "errors": [{"type": "NOT_FOUND", "message": "missing"}]}
+    )
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        lambda *_a, **_kw: subprocess.CompletedProcess([], 1, stdout=not_found, stderr="not found"),
+    )
+    assert github.closed_state("o/r", 99999999) == "deleted"
+
+
+def test_slack_client_errors_retries_and_find(monkeypatch):
+    client = slack.Slack("xoxb-test", "C123", attempts=2)
+    monkeypatch.setattr(slack.time, "sleep", lambda _s: None)
+
+    def fake_response(payload: dict[str, object]) -> object:
+        class Resp:
+            def __enter__(self) -> io.BytesIO:
+                return io.BytesIO(json.dumps(payload).encode())
+
+            def __exit__(self, *_args: object) -> bool:
+                return False
+
+        return Resp()
+
+    # 429 retries and then succeeds.
+    outcomes: list[object] = [
+        urllib.error.HTTPError("https://slack.com", 429, "Too Many Requests", {"Retry-After": "0"}, None),
+        fake_response({"ok": True, "ts": "123.0"}),
+    ]
+
+    def fake_urlopen(_req, timeout=30) -> object:
+        outcome = outcomes.pop(0)
+        if isinstance(outcome, BaseException):
+            raise outcome
+        return outcome
+
+    monkeypatch.setattr(slack.urllib.request, "urlopen", fake_urlopen)
+    assert client.post("hi", "1:root", {"status": "Open"}, None) == "123.0"
+
+    # Exhausted 429 raises rate_limited.
+    monkeypatch.setattr(
+        slack.urllib.request,
+        "urlopen",
+        lambda _req, timeout=30: (_ for _ in ()).throw(
+            urllib.error.HTTPError("https://slack.com", 429, "Too Many Requests", {"Retry-After": "0"}, None)
+        ),
+    )
+    with pytest.raises(slack.SlackError, match="rate limited") as exc_info:
+        client.post("hi", "1:root", {"status": "Open"}, None)
+    assert exc_info.value.code == "rate_limited"
+
+    # 5xx, IncompleteRead, timeout, and ambiguous ok:false errors raise SlackUnknown.
+    for failure in [
+        urllib.error.HTTPError("https://slack.com", 502, "Bad Gateway", {}, None),
+        http.client.IncompleteRead(b"partial"),
+        TimeoutError("timed out"),
+    ]:
+        monkeypatch.setattr(
+            slack.urllib.request,
+            "urlopen",
+            lambda _req, timeout=30, err=failure: (_ for _ in ()).throw(err),
+        )
+        with pytest.raises(slack.SlackUnknown):
+            client.post("hi", "1:root", {"status": "Open"}, None)
+
+    for code in ("fatal_error", "internal_error", "request_timeout", "service_unavailable"):
+        monkeypatch.setattr(
+            slack.urllib.request,
+            "urlopen",
+            lambda _req, timeout=30, err=code: fake_response({"ok": False, "error": err}),
+        )
+        with pytest.raises(slack.SlackUnknown):
+            client.post("hi", "1:root", {"status": "Open"}, None)
+
+    # Definite ok:false raises SlackError with its error code.
+    monkeypatch.setattr(
+        slack.urllib.request,
+        "urlopen",
+        lambda _req, timeout=30: fake_response({"ok": False, "error": "thread_not_found"}),
+    )
+    with pytest.raises(slack.SlackError) as exc_info:
+        client.find("1:update:1", "100.0", 0.0)
+    assert exc_info.value.code == "thread_not_found"
+
+    # find follows pagination and returns the matching event payload.
+    pages = iter(
+        [
+            fake_response({"ok": True, "messages": [{"ts": "1.0"}], "response_metadata": {"next_cursor": "c2"}}),
+            fake_response(
+                {
+                    "ok": True,
+                    "messages": [
+                        {
+                            "ts": "2.0",
+                            "metadata": {
+                                "event_type": slack.EVENT_TYPE,
+                                "event_payload": {"key": "1:root", "status": "Open"},
+                            },
+                        }
+                    ],
+                }
+            ),
+        ]
+    )
+    monkeypatch.setattr(slack.urllib.request, "urlopen", lambda _req, timeout=30: next(pages))
+    assert client.find("1:root", None, 0.0) == {"ts": "2.0", "key": "1:root", "status": "Open"}

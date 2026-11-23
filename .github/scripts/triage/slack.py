@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import http.client
 import json
 import time
 import urllib.error
@@ -13,9 +14,18 @@ from typing import Any
 # Marks the messages this tool posts, in Slack message metadata.
 EVENT_TYPE = "vortex_triage"
 
+# Slack documents these `ok: false` errors as cases where part of the operation may have succeeded.
+_AMBIGUOUS_ERRORS = frozenset(
+    {"fatal_error", "internal_error", "request_timeout", "service_unavailable"}
+)
+
 
 class SlackError(Exception):
     """Slack rejected a call, so nothing was posted."""
+
+    def __init__(self, message: str, code: str | None = None) -> None:
+        super().__init__(message)
+        self.code = code
 
 
 class SlackUnknown(Exception):
@@ -37,25 +47,31 @@ class Slack:
             headers["Content-Type"] = "application/json; charset=utf-8"
         else:
             url += "?" + urllib.parse.urlencode(params)
-        for attempt in range(self.attempts):
+        attempts = max(1, self.attempts)
+        for attempt in range(attempts):
             request = urllib.request.Request(url, data=data, headers=headers)
             try:
                 with urllib.request.urlopen(request, timeout=30) as response:
                     body = json.load(response)
             except urllib.error.HTTPError as error:
                 # Slack rejects a rate-limited call before acting on it, so a retry is safe.
-                if error.code == 429 and attempt + 1 < self.attempts:
-                    time.sleep(int(error.headers.get("Retry-After", "1")))
-                    continue
+                if error.code == 429:
+                    if attempt + 1 < attempts:
+                        time.sleep(int(error.headers.get("Retry-After", "1")))
+                        continue
+                    raise SlackError(f"{method}: rate limited", code="rate_limited") from error
                 if error.code >= 500:
                     raise SlackUnknown(f"{method}: HTTP {error.code}") from error
                 raise SlackError(f"{method}: HTTP {error.code}") from error
-            except (OSError, ValueError) as error:
+            except (OSError, ValueError, http.client.HTTPException) as error:
                 raise SlackUnknown(f"{method}: {error}") from error
             if not body.get("ok"):
-                raise SlackError(f"{method}: {body.get('error')}")
+                err = str(body.get("error") or "")
+                if err in _AMBIGUOUS_ERRORS:
+                    raise SlackUnknown(f"{method}: {err}")
+                raise SlackError(f"{method}: {err}", code=err or None)
             return body
-        raise SlackError(f"{method}: rate limited")
+        raise AssertionError("unreachable")
 
     def post(self, text: str, key: str, payload: dict[str, str], thread_ts: str | None) -> str:
         """Post a message tagged with `key` and return its timestamp."""
