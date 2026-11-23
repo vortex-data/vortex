@@ -412,6 +412,15 @@ impl StructFields {
             .map(|dt| dt.value().vortex_expect("field DType must be valid"))
     }
 
+    /// Returns an ordered iterator over the fields, with an error for each field whose
+    /// [`DType`] can't be decoded.
+    ///
+    /// Field dtypes read from a flatbuffer are decoded on first access, so a field can hold an
+    /// invalid dtype that [`Self::fields`] would panic on.
+    pub fn try_fields(&self) -> impl ExactSizeIterator<Item = VortexResult<DType>> + '_ {
+        self.0.dtypes.iter().map(FieldDType::value)
+    }
+
     /// Returns an ordered iterator over references to the field dtypes.
     ///
     /// Unlike [`Self::fields`], this does not clone each [`DType`].
@@ -630,6 +639,56 @@ mod test {
             panic!("field must parse to a struct");
         };
         assert!(Arc::ptr_eq(&first.0, &second.0));
+        Ok(())
+    }
+
+    #[test]
+    fn try_fields_returns_error_for_unknown_field_dtype() -> VortexResult<()> {
+        use crate::dtype::flatbuffers as fb;
+        use crate::flatbuffers::WriteFlatBuffer;
+
+        let mut fbb = flatbuffers::FlatBufferBuilder::new();
+        let name_a = fbb.create_string("a");
+        let name_b = fbb.create_string("b");
+        let names = fbb.create_vector(&[name_a, name_b]);
+        let valid =
+            DType::Primitive(PType::I32, Nullability::NonNullable).write_flatbuffer(&mut fbb)?;
+        // The verifier accepts union tags it doesn't know, so only decoding the field fails.
+        let unknown_type = fb::Null::create(&mut fbb, &fb::NullArgs {});
+        let unknown = fb::DType::create(
+            &mut fbb,
+            &fb::DTypeArgs {
+                type_type: fb::Type(200),
+                type_: Some(unknown_type.as_union_value()),
+            },
+        );
+        let dtypes = fbb.create_vector(&[valid, unknown]);
+        let struct_table = fb::Struct_::create(
+            &mut fbb,
+            &fb::Struct_Args {
+                names: Some(names),
+                dtypes: Some(dtypes),
+                nullable: false,
+            },
+        );
+        let root = fb::DType::create(
+            &mut fbb,
+            &fb::DTypeArgs {
+                type_type: fb::Type::Struct_,
+                type_: Some(struct_table.as_union_value()),
+            },
+        );
+        fbb.finish_minimal(root);
+
+        let parsed = DType::from_flatbuffer(FlatBuffer::copy_from(fbb.finished_data()), &SESSION)?;
+        let fields = parsed.as_struct_fields_opt().unwrap();
+        let mut decoded = fields.try_fields();
+        assert_eq!(
+            decoded.next().unwrap()?,
+            DType::Primitive(PType::I32, Nullability::NonNullable)
+        );
+        assert!(decoded.next().unwrap().is_err());
+        assert!(decoded.next().is_none());
         Ok(())
     }
 

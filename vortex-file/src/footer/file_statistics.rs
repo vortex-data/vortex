@@ -217,6 +217,7 @@ impl FileStatistics {
                         .collect()
                 })
                 .try_collect()?;
+            check_struct_field_dtypes(file_dtype)?;
             let layout = postorder_stats_layout(file_dtype);
             vortex_ensure_eq!(entry_sets.len(), layout.len());
 
@@ -261,15 +262,15 @@ impl FileStatistics {
         if let DType::Struct(struct_fields, _) = file_dtype {
             vortex_ensure_eq!(array_stats.len(), struct_fields.nfields());
 
+            let dtypes: Arc<[DType]> = struct_fields.try_fields().try_collect()?;
             let aggregates: Arc<[AggregateStats]> = array_stats
                 .into_iter()
-                .zip(struct_fields.fields())
+                .zip(dtypes.iter())
                 .map(|(array_stat, field_dtype)| {
-                    aggregates_from_array_stats(&array_stat, &field_dtype, session)
+                    aggregates_from_array_stats(&array_stat, field_dtype, session)
                 })
                 .try_collect()?;
 
-            let dtypes = struct_fields.fields().collect();
             let paths = struct_fields
                 .names()
                 .iter()
@@ -334,6 +335,18 @@ impl FileStatistics {
             .get(path)
             .map(|&idx| (&self.aggregates[idx], &self.dtypes[idx]))
     }
+}
+
+/// Decodes the field dtypes of `dtype` and its nested structs, the ones [`postorder_stats_layout`]
+/// walks, so that an invalid field dtype read from a file returns an error instead of panicking in
+/// the layout walk.
+fn check_struct_field_dtypes(dtype: &DType) -> VortexResult<()> {
+    if let Some(struct_fields) = dtype.as_struct_fields_opt() {
+        for field_dtype in struct_fields.try_fields() {
+            check_struct_field_dtypes(&field_dtype?)?;
+        }
+    }
+    Ok(())
 }
 
 /// The aggregates a legacy [`ArrayStats`] over a field of `dtype` holds, for the stats that have an
