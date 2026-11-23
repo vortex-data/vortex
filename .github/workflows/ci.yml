@@ -111,6 +111,13 @@ jobs:
               scripts/tests/test_codspeed_shards.py \
               scripts/tests/test_sample_file_trees.py
 
+      # bench-orchestrator does not depend on vortex-data, so this needs no Rust build.
+      # Disable pytest-benchmark (installed in the workspace venv by the ty step above),
+      # which otherwise clashes with bench-orchestrator's `benchmark` test parameter.
+      - name: Pytest - bench-orchestrator
+        if: "!cancelled()"
+        run: uv run --project bench-orchestrator --with pytest pytest -p no:benchmark bench-orchestrator/tests
+
   python-test:
     name: "Python (test)"
     if: github.event.pull_request.draft != true
