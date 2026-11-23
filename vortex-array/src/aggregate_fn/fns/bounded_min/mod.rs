@@ -23,10 +23,13 @@ use crate::aggregate_fn::AggregateFnRef;
 use crate::aggregate_fn::AggregateFnSatisfaction;
 use crate::aggregate_fn::AggregateFnVTable;
 use crate::aggregate_fn::NumericalAggregateOpts;
+use crate::aggregate_fn::extension::into_storage_scalar;
+use crate::aggregate_fn::extension::wrap_storage_scalar;
 use crate::aggregate_fn::fns::min::Min;
 use crate::aggregate_fn::fns::min_max::MinMax;
 use crate::aggregate_fn::fns::min_max::columnar_min_max;
 use crate::aggregate_fn::fns::min_max::min_max;
+use crate::dtype::Claim;
 use crate::dtype::DType;
 use crate::partial_ord::partial_min;
 use crate::scalar::Scalar;
@@ -153,14 +156,16 @@ impl AggregateFnVTable for BoundedMin {
 
     fn partial_from_scalar(
         &self,
-        _args: AggregateArgs<'_, Self::Options>,
+        args: AggregateArgs<'_, Self::Options>,
         scalar: &Scalar,
     ) -> VortexResult<Self::Partial> {
+        args.dtype.require_claim(Claim::Ord, "bounded_min")?;
+
         // A null partial means the producing accumulator saw nothing valid.
         let state = if scalar.is_null() {
             BoundedMinState::Empty
         } else {
-            BoundedMinState::Value(scalar.clone())
+            BoundedMinState::Value(into_storage_scalar(scalar.clone()))
         };
         Ok(BoundedMinPartial { state })
     }
@@ -185,7 +190,7 @@ impl AggregateFnVTable for BoundedMin {
         let dtype = args.dtype.as_nullable();
         match &partial.state {
             BoundedMinState::Empty => Ok(Scalar::null(dtype)),
-            BoundedMinState::Value(min) => min.cast(&dtype),
+            BoundedMinState::Value(min) => wrap_storage_scalar(min, &dtype),
         }
     }
 
@@ -247,7 +252,7 @@ impl AggregateFnVTable for BoundedMin {
 /// Merge the byte-bounded lower bound of `min` into `partial`.
 fn merge_min(partial: &mut BoundedMinPartial, min: Scalar, max_bytes: usize) -> VortexResult<()> {
     if let Some(bound) = truncate_min(min, max_bytes)? {
-        partial.merge(bound);
+        partial.merge(into_storage_scalar(bound));
     }
     Ok(())
 }

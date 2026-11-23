@@ -19,6 +19,7 @@ use vortex_array::ExecutionCtx;
 use vortex_array::aggregate_fn::AggregateArgs;
 use vortex_array::aggregate_fn::AggregateFnId;
 use vortex_array::aggregate_fn::AggregateFnVTable;
+use vortex_array::dtype::Claim;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::scalar::Scalar;
@@ -373,6 +374,8 @@ impl AggregateFnVTable for BloomFilter {
         batch: &Columnar,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
+        batch.dtype().require_claim(Claim::Eq, "bloom_filter")?;
+
         match batch {
             Columnar::Constant(constant) => constant::accumulate_constant(constant, partial)?,
             Columnar::Canonical(canonical) => {
@@ -399,13 +402,15 @@ impl AggregateFnVTable for BloomFilter {
     }
 }
 
-/// Returns true if the type is valid for the bloom index to acc/contain.
+/// Returns whether the dtype supports Bloom filter insertion and lookup.
 ///
-/// This is defined by the available implementations in
-/// [constant::accumulate_constant] and [canonical::accumulate_canonical]
+/// Extension types need `Eq` because the filter hashes their storage. Storage support is defined
+/// by [constant::accumulate_constant] and [canonical::accumulate_canonical].
 pub(super) fn is_bloom_valid_dtype(dtype: &DType) -> bool {
     match dtype {
-        DType::Extension(ext) => is_bloom_valid_dtype(ext.storage_dtype()),
+        DType::Extension(ext) => {
+            dtype.holds(Claim::Eq) && is_bloom_valid_dtype(ext.storage_dtype())
+        }
         DType::Bool(_) | DType::Primitive(..) | DType::Utf8(_) | DType::Binary(_) => true,
         _ => false,
     }

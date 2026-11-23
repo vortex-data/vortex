@@ -33,6 +33,8 @@ mimalloc = { workspace = true }
 rand = { workspace = true }
 rstest = { workspace = true }
 vortex-array = { workspace = true, features = ["_test-harness"] }
+vortex-json = { workspace = true }
+vortex-tensor = { workspace = true }
 
 [[bench]]
 name = "row_encode"

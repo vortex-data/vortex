@@ -465,6 +465,7 @@ mod tests {
 
     use rstest::rstest;
     use vortex_array::VortexSessionExecute;
+    use vortex_array::dtype::Claim;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
@@ -503,6 +504,22 @@ mod tests {
         bytes: &[u8],
     ) -> VortexResult<Option<vortex_array::scalar::Scalar>> {
         super::native_geometry_scalar_from_wkb(bytes, &VortexSession::empty())
+    }
+
+    #[test]
+    fn wkb_claims_nothing() -> VortexResult<()> {
+        let dtype = DType::Extension(
+            ExtDType::<WellKnownBinary>::try_new(
+                SpatialMetadata::default(),
+                Nullability::NonNullable,
+            )?
+            .erased(),
+        );
+
+        assert!(!dtype.holds(Claim::Eq));
+        assert!(!dtype.holds(Claim::Ord));
+
+        Ok(())
     }
 
     #[test]

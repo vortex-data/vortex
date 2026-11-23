@@ -92,6 +92,9 @@ impl ScalarFnVTable for DynamicComparison {
                 lhs
             );
         }
+
+        lhs.require_claim(dynamic.operator.required_claim(), dynamic.operator)?;
+
         Ok(DType::Bool(
             lhs.nullability() | dynamic.rhs.dtype.nullability(),
         ))
@@ -103,8 +106,10 @@ impl ScalarFnVTable for DynamicComparison {
         args: &dyn ExecutionArgs,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
+        let lhs = args.get(0)?;
+        lhs.dtype()
+            .require_claim(data.operator.required_claim(), data.operator)?;
         if let Some(scalar) = data.rhs.scalar() {
-            let lhs = args.get(0)?;
             let rhs = ConstantArray::new(scalar, args.row_count()).into_array();
 
             let delegate_args = VecExecutionArgs::new(vec![lhs, rhs], args.row_count());
@@ -112,8 +117,7 @@ impl ScalarFnVTable for DynamicComparison {
                 .bind(Operator::from(data.operator))
                 .execute(&delegate_args, ctx);
         }
-        let ret_dtype =
-            DType::Bool(args.get(0)?.dtype().nullability() | data.rhs.dtype.nullability());
+        let ret_dtype = DType::Bool(lhs.dtype().nullability() | data.rhs.dtype.nullability());
 
         Ok(ConstantArray::new(
             Scalar::try_new(ret_dtype, Some(data.default.into()))?,
@@ -335,6 +339,7 @@ mod tests {
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
+    use vortex_array::dtype::extension::ForeignExtDType;
     use vortex_array::expr::root;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
@@ -352,6 +357,40 @@ mod tests {
 
         session
     });
+
+    #[test]
+    fn dynamic_comparison_requires_claim() -> VortexResult<()> {
+        static EXT_ID: CachedId = CachedId::new("test.opaque");
+        let storage = DType::Primitive(PType::I32, Nullability::NonNullable);
+        let dtype = DType::Extension(ForeignExtDType::from_parts(*EXT_ID, vec![], storage)?);
+        let expr = dynamic(CompareOperator::Lt, || None, dtype.clone(), true, root());
+        let error = expr
+            .bind(&dtype)
+            .expect_err("dynamic comparison requires a claim even without a bound");
+        let expected = format!("< requires the Ord claim, but {dtype} does not hold it");
+        assert_eq!(error.to_string().lines().next(), Some(expected.as_str()));
+
+        Ok(())
+    }
+
+    #[test]
+    fn direct_dynamic_comparison_requires_claim_before_the_default() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        static EXT_ID: CachedId = CachedId::new("test.opaque");
+        let storage = Scalar::from(1i64);
+        let dtype = ForeignExtDType::from_parts(*EXT_ID, vec![], storage.dtype().clone())?;
+        let value = Scalar::extension_ref(dtype, storage);
+        let dtype = value.dtype().clone();
+        let expected = format!("< requires the Ord claim, but {dtype} does not hold it");
+        let args = VecExecutionArgs::new(vec![ConstantArray::new(value, 1).into_array()], 1);
+        let expr = dynamic(CompareOperator::Lt, || None, dtype, true, root());
+
+        let error = DynamicComparison
+            .execute(expr.as_::<DynamicComparison>(), &args, &mut ctx)
+            .expect_err("a dynamic comparison requires Ord even without a bound");
+        assert_eq!(error.to_string().lines().next(), Some(expected.as_str()));
+        Ok(())
+    }
 
     #[test]
     fn is_not_strict() {

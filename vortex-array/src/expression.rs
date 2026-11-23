@@ -17,12 +17,7 @@ use crate::scalar_fn::builtin::literal::Literal;
 impl ArrayRef {
     /// Apply a bound expression to this array, producing a new array in constant time.
     pub fn apply_bound(self, expr: &BoundExpression) -> VortexResult<ArrayRef> {
-        let BoundExpression::Scalar {
-            scalar_fn,
-            children,
-            ..
-        } = expr
-        else {
+        let Some(scalar_fn) = expr.as_scalar() else {
             return Ok(self);
         };
 
@@ -31,7 +26,8 @@ impl ArrayRef {
         }
 
         let len = self.len();
-        let children = children
+        let children = expr
+            .children()
             .iter()
             .map(|child| self.clone().apply_bound(child))
             .collect::<VortexResult<SmallVec<[ArrayRef; 4]>>>()?;

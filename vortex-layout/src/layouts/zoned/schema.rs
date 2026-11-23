@@ -58,7 +58,7 @@ impl AggregateSpecProto {
         let aggregate_fn_id = AggregateFnId::new(self.id.as_str());
 
         let Some(plugin) = session.aggregate_fns().find_plugin(&aggregate_fn_id) else {
-            if session.allows_unknown() {
+            if session.allows_unknown() || is_retired_storage_aggregate(&self.id) {
                 return Ok(None);
             }
 
@@ -86,6 +86,22 @@ impl AggregateSpecProto {
             options: vec![],
         }
     }
+
+    #[cfg(test)]
+    pub(crate) fn with_test_id(mut self, id: &str) -> Self {
+        self.id = id.to_string();
+        self
+    }
+}
+
+/// Returns whether `id` names an aggregate of the removed `ExtensionStoragePushdown` adapter.
+///
+/// The adapter ran any aggregate `A` on the storage of any extension type `E` under the ID
+/// `A[E]`, so third-party types could have written such IDs too. No session can resolve them now.
+fn is_retired_storage_aggregate(id: &str) -> bool {
+    id.strip_suffix(']')
+        .and_then(|rest| rest.split_once('['))
+        .is_some_and(|(aggregate, ext)| !aggregate.is_empty() && !ext.is_empty())
 }
 
 /// Return the auxiliary stats-table schema for a zoned layout.
@@ -95,7 +111,8 @@ pub(crate) fn aggregate_stats_table_dtype(
 ) -> DType {
     DType::Struct(
         StructFields::from_iter(aggregate_fns.iter().filter_map(|aggregate_fn| {
-            aggregate_state_dtype(column_dtype, aggregate_fn)
+            aggregate_fn
+                .state_dtype(column_dtype)
                 .map(|dtype| (aggregate_fn.to_string(), dtype.as_nullable()))
         })),
         Nullability::NonNullable,
@@ -174,19 +191,6 @@ pub(crate) fn try_aggregate_fns_from_specs(
         .map(|aggregate_fns| aggregate_fns.map(Arc::from))
 }
 
-pub(crate) fn aggregate_state_dtype(
-    column_dtype: &DType,
-    aggregate_fn: &AggregateFnRef,
-) -> Option<DType> {
-    aggregate_fn.state_dtype(column_dtype).or_else(|| {
-        if let DType::Extension(ext) = column_dtype {
-            aggregate_fn.state_dtype(ext.storage_dtype())
-        } else {
-            None
-        }
-    })
-}
-
 /// Converts a legacy stats table of `table_dtype`, holding `stats` of a `column_dtype` column, to
 /// the aggregate stats-table schema.
 ///
@@ -210,7 +214,7 @@ pub(crate) fn legacy_stats_to_aggregates(
         let Some(stored) = fields.and_then(|fields| fields.field(stat.name())) else {
             continue;
         };
-        let Some(state) = aggregate_state_dtype(column_dtype, &aggregate_fn) else {
+        let Some(state) = aggregate_fn.state_dtype(column_dtype) else {
             continue;
         };
         let state = state.as_nullable();
@@ -241,6 +245,7 @@ pub(crate) fn default_bounded_stat_max_bytes() -> std::num::NonZeroUsize {
 mod tests {
     use std::sync::LazyLock;
 
+    use rstest::rstest;
     use vortex_array::aggregate_fn::AggregateFnVTableExt;
     use vortex_array::aggregate_fn::NumericalAggregateOpts;
     use vortex_array::aggregate_fn::fns::max::Max;
@@ -269,6 +274,21 @@ mod tests {
         let specs = [AggregateSpecProto::new_unknown("vortex.test.unknown")];
         assert!(try_aggregate_fns_from_specs(&specs, &session)?.is_none());
         Ok(())
+    }
+
+    #[rstest]
+    #[case::builtin_is_sorted("vortex.is_sorted[vortex.timestamp]", true)]
+    #[case::builtin_min_max("vortex.min_max[vortex.date]", true)]
+    #[case::third_party("vortex.is_sorted[acme.money]", true)]
+    #[case::plain("vortex.is_sorted", false)]
+    #[case::empty_aggregate("[vortex.date]", false)]
+    #[case::empty_ext("vortex.min_max[]", false)]
+    fn retired_storage_aggregate_ids(#[case] id: &str, #[case] retired: bool) {
+        let specs = [AggregateSpecProto::new_unknown(id)];
+        assert_eq!(
+            try_aggregate_fns_from_specs(&specs, &SESSION).is_ok_and(|fns| fns.is_none()),
+            retired
+        );
     }
 
     #[test]

@@ -15,12 +15,15 @@ use crate::aggregate_fn::AggregateFnRef;
 use crate::aggregate_fn::AggregateFnSatisfaction;
 use crate::aggregate_fn::AggregateFnVTable;
 use crate::aggregate_fn::NumericalAggregateOpts;
+use crate::aggregate_fn::extension::into_storage_scalar;
+use crate::aggregate_fn::extension::wrap_storage_scalar;
 use crate::aggregate_fn::fns::bounded_min::BoundedMin;
 use crate::aggregate_fn::fns::min_max::MinMax;
 use crate::aggregate_fn::fns::min_max::columnar_min_max;
 use crate::aggregate_fn::fns::min_max::min_max;
 use crate::aggregate_fn::fns::min_max::nan_scalar;
 use crate::aggregate_fn::fns::min_max::scalar_is_nan;
+use crate::dtype::Claim;
 use crate::dtype::DType;
 use crate::expr::stats::Precision;
 use crate::expr::stats::Stat;
@@ -42,7 +45,7 @@ pub struct MinPartial {
 }
 
 impl MinPartial {
-    fn merge(
+    fn merge_storage(
         &mut self,
         args: AggregateArgs<'_, NumericalAggregateOpts>,
         min: Scalar,
@@ -69,7 +72,7 @@ impl MinPartial {
     }
 
     fn poison(&mut self, args: AggregateArgs<'_, NumericalAggregateOpts>) -> VortexResult<()> {
-        self.min = Some(nan_scalar(args.dtype)?);
+        self.min = Some(into_storage_scalar(nan_scalar(args.dtype)?));
 
         Ok(())
     }
@@ -140,9 +143,11 @@ impl AggregateFnVTable for Min {
         args: AggregateArgs<'_, Self::Options>,
         scalar: &Scalar,
     ) -> VortexResult<Self::Partial> {
+        args.dtype.require_claim(Claim::Ord, "min")?;
+
         let mut partial = MinPartial { min: None };
         // `merge` normalizes the parsed scalar: nulls stay empty and NaNs poison or drop.
-        partial.merge(args, scalar.clone())?;
+        partial.merge_storage(args, into_storage_scalar(scalar.clone()))?;
         Ok(partial)
     }
 
@@ -153,7 +158,7 @@ impl AggregateFnVTable for Min {
         second: Self::Partial,
     ) -> VortexResult<Self::Partial> {
         if let Some(min) = second.min {
-            first.merge(args, min)?;
+            first.merge_storage(args, min)?;
         }
         Ok(first)
     }
@@ -165,7 +170,7 @@ impl AggregateFnVTable for Min {
     ) -> VortexResult<Scalar> {
         let dtype = args.dtype.as_nullable();
         match &partial.min {
-            Some(min) => min.cast(&dtype),
+            Some(min) => wrap_storage_scalar(min, &dtype),
             None => Ok(Scalar::null(dtype)),
         }
     }
@@ -190,7 +195,7 @@ impl AggregateFnVTable for Min {
             // `min_max` computes both extrema in one pass and caches both on `batch`, so a
             // `Max` over the same batch reads the cached value instead of a second scan.
             if let Some(result) = min_max(batch, ctx, *args.options)? {
-                partial.merge(args, result.min)?;
+                partial.merge_storage(args, into_storage_scalar(result.min))?;
             }
             return Ok(true);
         }
@@ -200,7 +205,7 @@ impl AggregateFnVTable for Min {
                 // NaN-free batch: the cached NaN-skipping minimum (if any) is valid. `to_scalar`
                 // re-casts to the result dtype, so the cached scalar can merge as-is.
                 if let Some(min) = batch.statistics().get(Stat::Min).as_exact() {
-                    partial.merge(args, min)?;
+                    partial.merge_storage(args, min)?;
                     return Ok(true);
                 }
                 Ok(false)
@@ -223,7 +228,7 @@ impl AggregateFnVTable for Min {
         // Delegate to the existing min_max implementation for now. A dedicated min aggregate
         // would avoid computing max when only min is needed.
         if let Some(result) = columnar_min_max(batch, *args.options, ctx)? {
-            partial.merge(args, result.min)?;
+            partial.merge_storage(args, into_storage_scalar(result.min))?;
         }
         Ok(())
     }

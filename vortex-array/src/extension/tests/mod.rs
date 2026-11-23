@@ -3,6 +3,9 @@
 
 //! Test extension types for exercising the [`ExtVTable`](crate::dtype::extension::ExtVTable) contract.
 
+mod claims_eq;
+pub(crate) use claims_eq::ClaimsEq;
+
 mod divisible_int;
 pub(crate) use divisible_int::DivisibleInt;
 pub(crate) use divisible_int::Divisor;

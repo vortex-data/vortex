@@ -15,12 +15,15 @@ use crate::aggregate_fn::AggregateFnRef;
 use crate::aggregate_fn::AggregateFnSatisfaction;
 use crate::aggregate_fn::AggregateFnVTable;
 use crate::aggregate_fn::NumericalAggregateOpts;
+use crate::aggregate_fn::extension::into_storage_scalar;
+use crate::aggregate_fn::extension::wrap_storage_scalar;
 use crate::aggregate_fn::fns::bounded_max::BoundedMax;
 use crate::aggregate_fn::fns::min_max::MinMax;
 use crate::aggregate_fn::fns::min_max::columnar_min_max;
 use crate::aggregate_fn::fns::min_max::min_max;
 use crate::aggregate_fn::fns::min_max::nan_scalar;
 use crate::aggregate_fn::fns::min_max::scalar_is_nan;
+use crate::dtype::Claim;
 use crate::dtype::DType;
 use crate::expr::stats::Precision;
 use crate::expr::stats::Stat;
@@ -42,7 +45,7 @@ pub struct MaxPartial {
 }
 
 impl MaxPartial {
-    fn merge(
+    fn merge_storage(
         &mut self,
         args: AggregateArgs<'_, NumericalAggregateOpts>,
         max: Scalar,
@@ -69,7 +72,7 @@ impl MaxPartial {
     }
 
     fn poison(&mut self, args: AggregateArgs<'_, NumericalAggregateOpts>) -> VortexResult<()> {
-        self.max = Some(nan_scalar(args.dtype)?);
+        self.max = Some(into_storage_scalar(nan_scalar(args.dtype)?));
 
         Ok(())
     }
@@ -140,9 +143,11 @@ impl AggregateFnVTable for Max {
         args: AggregateArgs<'_, Self::Options>,
         scalar: &Scalar,
     ) -> VortexResult<Self::Partial> {
+        args.dtype.require_claim(Claim::Ord, "max")?;
+
         let mut partial = MaxPartial { max: None };
         // `merge` normalizes the parsed scalar: nulls stay empty and NaNs poison or drop.
-        partial.merge(args, scalar.clone())?;
+        partial.merge_storage(args, into_storage_scalar(scalar.clone()))?;
         Ok(partial)
     }
 
@@ -153,7 +158,7 @@ impl AggregateFnVTable for Max {
         second: Self::Partial,
     ) -> VortexResult<Self::Partial> {
         if let Some(max) = second.max {
-            first.merge(args, max)?;
+            first.merge_storage(args, max)?;
         }
         Ok(first)
     }
@@ -165,7 +170,7 @@ impl AggregateFnVTable for Max {
     ) -> VortexResult<Scalar> {
         let dtype = args.dtype.as_nullable();
         match &partial.max {
-            Some(max) => max.cast(&dtype),
+            Some(max) => wrap_storage_scalar(max, &dtype),
             None => Ok(Scalar::null(dtype)),
         }
     }
@@ -190,7 +195,7 @@ impl AggregateFnVTable for Max {
             // `min_max` computes both extrema in one pass and caches both on `batch`, so a
             // `Min` over the same batch reads the cached value instead of a second scan.
             if let Some(result) = min_max(batch, ctx, *args.options)? {
-                partial.merge(args, result.max)?;
+                partial.merge_storage(args, into_storage_scalar(result.max))?;
             }
             return Ok(true);
         }
@@ -200,7 +205,7 @@ impl AggregateFnVTable for Max {
                 // NaN-free batch: the cached NaN-skipping maximum (if any) is valid. `to_scalar`
                 // re-casts to the result dtype, so the cached scalar can merge as-is.
                 if let Some(max) = batch.statistics().get(Stat::Max).as_exact() {
-                    partial.merge(args, max)?;
+                    partial.merge_storage(args, max)?;
                     return Ok(true);
                 }
                 Ok(false)
@@ -223,7 +228,7 @@ impl AggregateFnVTable for Max {
         // Delegate to the existing min_max implementation for now. A dedicated max aggregate
         // would avoid computing min when only max is needed.
         if let Some(result) = columnar_min_max(batch, *args.options, ctx)? {
-            partial.merge(args, result.max)?;
+            partial.merge_storage(args, into_storage_scalar(result.max))?;
         }
         Ok(())
     }

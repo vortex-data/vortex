@@ -24,6 +24,8 @@ bool duckdb_table_function_pushdown_complex_filter(void *bind,
                                                    duckdb_vx_expr expr,
                                                    duckdb_vx_error *error);
 
+extern bool duckdb_table_function_supports_pushdown_type(const void *bind, size_t column_id);
+
 extern
 bool duckdb_table_function_pushdown_projection_expression(void *bind,
                                                           duckdb_vx_expr expr,
