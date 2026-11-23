@@ -257,6 +257,7 @@ mod tests {
     use rstest::rstest;
     use vortex_array::ArrayId;
     use vortex_array::VTable;
+    use vortex_array::arrays::Constant;
     use vortex_array::arrays::Patched;
     use vortex_array::arrays::VarBin;
     use vortex_decimal_byte_parts::DecimalByteParts;
@@ -300,10 +301,19 @@ mod tests {
         vec![for_v1_id(), bitpacked_v1_id(), Patched.id()],
         true
     )]
-    #[case::alprd_without_bitpacked(&float::ALPRDScheme, vec![vortex_alp::ALPRD.id()], false)]
-    #[case::alprd_with_bitpacked(
+    #[case::alprd_without_bitpacked(
+        &float::ALPRDScheme,
+        vec![vortex_alp::ALPRD.id(), Constant.id()],
+        false
+    )]
+    #[case::alprd_without_constant(
         &float::ALPRDScheme,
         vec![vortex_alp::ALPRD.id(), bitpacked_v1_id()],
+        false
+    )]
+    #[case::alprd_with_dependencies(
+        &float::ALPRDScheme,
+        vec![vortex_alp::ALPRD.id(), bitpacked_v1_id(), Constant.id()],
         true
     )]
     fn test_allowed_schemes(

@@ -13,6 +13,7 @@ use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VTable;
+use vortex_array::arrays::Constant;
 use vortex_array::arrays::Primitive;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_array::dtype::PType;
@@ -44,8 +45,9 @@ impl Scheme for ALPRDScheme {
     }
 
     fn produced_encodings(&self) -> Vec<ArrayId> {
-        // ALP-RD bit-packs both children with the v1 encoding.
-        vec![vortex_alp::ALPRD.id(), bitpacked_v1_id()]
+        // ALP-RD bit-packs both children with the v1 encoding, and `compress_patches` stores
+        // constant patch values as a Constant array.
+        vec![vortex_alp::ALPRD.id(), bitpacked_v1_id(), Constant.id()]
     }
 
     fn expected_compression_ratio(
