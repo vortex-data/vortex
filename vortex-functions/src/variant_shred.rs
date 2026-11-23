@@ -16,12 +16,6 @@ use std::fmt::Display;
 use std::fmt::Formatter;
 
 use prost::Message;
-use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
-use vortex_error::vortex_ensure;
-use vortex_session::VortexSession;
-use vortex_session::registry::CachedId;
-
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
@@ -36,6 +30,11 @@ use vortex_array::scalar_fn::ExecutionArgs;
 use vortex_array::scalar_fn::ScalarFnId;
 use vortex_array::scalar_fn::ScalarFnVTable;
 use vortex_array::scalar_fn::ScalarFnVTableExt;
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure;
+use vortex_session::VortexSession;
+use vortex_session::registry::CachedId;
 
 /// Shreds an unshredded Variant by a schema.
 ///
@@ -315,14 +314,14 @@ fn execute_on_storage<V: ScalarFnVTable<Options = VariantShredOptions>>(
 
 #[cfg(test)]
 mod tests {
-    use vortex_error::VortexResult;
-    use vortex_session::VortexSession;
-
-    use super::*;
     use vortex_array::dtype::FieldName;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
     use vortex_array::dtype::StructFields;
+    use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
+
+    use super::*;
 
     #[test]
     fn options_roundtrip() -> VortexResult<()> {

@@ -21,12 +21,14 @@ use vortex_array::arrays::Variant;
 use vortex_array::arrays::VariantArray;
 use vortex_array::arrays::chunked::ChunkedArrayExt;
 use vortex_array::arrays::scalar_fn::ScalarFnArrayExt;
+use vortex_array::arrays::variant::decode_unshredded_storage;
 use vortex_array::builders::VariantBuilder;
 use vortex_array::builders::builder_with_capacity_in;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldName;
 use vortex_array::dtype::Nullability;
+use vortex_array::expr::BoundExpression;
 use vortex_array::expr::display::ExprDisplay;
 use vortex_array::proto::expr as pb;
 use vortex_array::proto::expr::variant_path_element;
@@ -50,37 +52,6 @@ use vortex_session::registry::CachedId;
 use vortex_utils::aliases::StringEscape;
 
 use crate::variant_pack::VariantPack;
-use vortex_array::ArrayRef;
-use vortex_array::ExecutionCtx;
-use vortex_array::IntoArray;
-use vortex_array::arrays::Chunked;
-use vortex_array::arrays::ChunkedArray;
-use vortex_array::arrays::ScalarFn;
-use vortex_array::arrays::ScalarFnArray;
-use vortex_array::arrays::Variant;
-use vortex_array::arrays::VariantArray;
-use vortex_array::arrays::chunked::ChunkedArrayExt;
-use vortex_array::arrays::scalar_fn::ScalarFnArrayExt;
-use vortex_array::builders::VariantBuilder;
-use vortex_array::builders::builder_with_capacity_in;
-use vortex_array::builtins::ArrayBuiltins;
-use vortex_array::dtype::DType;
-use vortex_array::dtype::FieldName;
-use vortex_array::dtype::Nullability;
-use vortex_array::expr::display::ExprDisplay;
-use vortex_array::proto::expr as pb;
-use vortex_array::proto::expr::variant_path_element;
-use vortex_array::scalar::Scalar;
-use vortex_array::scalar_fn::Arity;
-use vortex_array::scalar_fn::ChildName;
-use vortex_array::scalar_fn::ExecutionArgs;
-use vortex_array::scalar_fn::ReduceNode;
-use vortex_array::scalar_fn::ScalarFnId;
-use vortex_array::scalar_fn::ScalarFnVTable;
-use vortex_array::scalar_fn::ScalarFnVTableExt;
-use vortex_array::scalar_fn::builtin::cast::Cast;
-use vortex_array::scalar_fn::builtin::get_item::GetItem;
-use vortex_array::scalar_fn::builtin::mask::Mask;
 use crate::variant_pack::VariantPackOptions;
 
 /// How many lazy layers `variant_get` unwraps from its input before it extracts row by row.
@@ -348,6 +319,30 @@ impl ScalarFnVTable for VariantGet {
     fn is_strict(&self, _options: &Self::Options) -> bool {
         true
     }
+}
+
+/// Decodes the storage of an unshredded Variant `array` if `expr` extracts from it more than once,
+/// as each `variant_get` would otherwise decode it again.
+pub fn decode_for_repeated_extraction(
+    array: ArrayRef,
+    expr: &BoundExpression,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ArrayRef> {
+    if array.dtype().is_variant() && count_variant_gets(expr) > 1 {
+        decode_unshredded_storage(array, ctx)
+    } else {
+        Ok(array)
+    }
+}
+
+/// The number of `variant_get` calls in `expr`.
+fn count_variant_gets(expr: &BoundExpression) -> usize {
+    usize::from(expr.is::<VariantGet>())
+        + expr
+            .children()
+            .iter()
+            .map(count_variant_gets)
+            .sum::<usize>()
 }
 
 fn variant_get_scalar(
@@ -734,45 +729,6 @@ mod tests {
     use vortex_array::arrays::ConstantArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::StructArray;
-    use vortex_array::arrays::VariantArray;
-    use vortex_array::arrays::variant::VariantArraySlotsExt;
-    use vortex_array::assert_arrays_eq;
-    use vortex_array::assert_nth_scalar_is_null;
-    use vortex_array::dtype::DType;
-    use vortex_array::dtype::FieldName;
-    use vortex_array::dtype::FieldNames;
-    use vortex_array::dtype::Nullability;
-    use vortex_array::dtype::PType;
-    use vortex_array::dtype::StructFields;
-    use vortex_array::expr::Expression;
-    use vortex_array::expr::proto::ExprSerializeProtoExt;
-    use vortex_array::expr::root;
-    use vortex_array::optimizer::ArrayOptimizer;
-    use vortex_array::scalar::Scalar;
-    use vortex_array::scalar::ScalarValue;
-    use vortex_array::scalar_fn::ScalarFnVTable;
-    use vortex_array::validity::Validity;
-    use vortex_error::VortexResult;
-    use vortex_error::vortex_bail;
-    use vortex_error::vortex_ensure;
-    use vortex_error::vortex_err;
-    use vortex_session::VortexSession;
-
-    use crate::expr::variant_get;
-    use crate::variant_get::VariantGet;
-    use crate::variant_get::VariantGetOptions;
-    use crate::variant_get::VariantPath;
-    use crate::variant_get::VariantPathElement;
-    use crate::variant_pack::VariantPack;
-    use vortex_array::ArrayRef;
-    use vortex_array::Canonical;
-    use vortex_array::IntoArray;
-    use vortex_array::VortexSessionExecute;
-    use vortex_array::arrays::Chunked;
-    use vortex_array::arrays::ChunkedArray;
-    use vortex_array::arrays::ConstantArray;
-    use vortex_array::arrays::PrimitiveArray;
-    use vortex_array::arrays::StructArray;
     use vortex_array::arrays::UnionArray;
     use vortex_array::arrays::VarBinViewArray;
     use vortex_array::arrays::VariantArray;
@@ -790,12 +746,24 @@ mod tests {
     use vortex_array::expr::get_item;
     use vortex_array::expr::proto::ExprSerializeProtoExt;
     use vortex_array::expr::root;
-    use crate::expr::variant_pack;
     use vortex_array::optimizer::ArrayOptimizer;
     use vortex_array::scalar::Scalar;
     use vortex_array::scalar::ScalarValue;
     use vortex_array::scalar_fn::ScalarFnVTable;
     use vortex_array::validity::Validity;
+    use vortex_error::VortexResult;
+    use vortex_error::vortex_bail;
+    use vortex_error::vortex_ensure;
+    use vortex_error::vortex_err;
+    use vortex_session::VortexSession;
+
+    use crate::expr::variant_get;
+    use crate::expr::variant_pack;
+    use crate::variant_get::VariantGet;
+    use crate::variant_get::VariantGetOptions;
+    use crate::variant_get::VariantPath;
+    use crate::variant_get::VariantPathElement;
+    use crate::variant_pack::VariantPack;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
         let session = VortexSession::empty();

@@ -26,17 +26,17 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldNames;
 use vortex_array::scalar_fn::ScalarFnRef;
 use vortex_array::scalar_fn::ScalarFnVTableExt;
-use vortex_array::scalar_fn::fns::variant_get::VariantGet;
-use vortex_array::scalar_fn::fns::variant_get::VariantGetOptions;
-use vortex_array::scalar_fn::fns::variant_get::VariantPath;
-use vortex_array::scalar_fn::fns::variant_shred::VariantShred;
-use vortex_array::scalar_fn::fns::variant_shred::VariantShredOptions;
-use vortex_array::scalar_fn::fns::variant_shred::VariantShredStrict;
-use vortex_array::scalar_fn::fns::variant_shred::VariantShredUnion;
 use vortex_array::validity::Validity;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
+use vortex_functions::variant_get::VariantGet;
+use vortex_functions::variant_get::VariantGetOptions;
+use vortex_functions::variant_get::VariantPath;
+use vortex_functions::variant_shred::VariantShred;
+use vortex_functions::variant_shred::VariantShredOptions;
+use vortex_functions::variant_shred::VariantShredStrict;
+use vortex_functions::variant_shred::VariantShredUnion;
 use vortex_session::VortexSession;
 
 use super::CORE;
@@ -356,7 +356,7 @@ fn split(
 
 /// Whether `shredded` holds every value it could hold, so that `core` has no value for a path
 /// that `shredded` represents; see
-/// [`VariantPackOptions::complete`](vortex_array::scalar_fn::fns::variant_pack::VariantPackOptions::complete).
+/// [`VariantPackOptions::complete`](vortex_functions::variant_pack::VariantPackOptions::complete).
 ///
 /// Only the rows where `shredded` is null can have left their value in `core`, so only those
 /// rows of `core` are read.

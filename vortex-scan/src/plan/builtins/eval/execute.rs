@@ -4,9 +4,9 @@
 //! Applying an expression to each batch.
 
 use vortex_array::VortexSessionExecute;
-use vortex_array::arrays::variant::decode_for_repeated_extraction;
 use vortex_array::expr::BoundExpression;
 use vortex_error::VortexResult;
+use vortex_functions::variant_get::decode_for_repeated_extraction;
 
 use crate::execution::operator::Cx;
 use crate::execution::operator::Input;

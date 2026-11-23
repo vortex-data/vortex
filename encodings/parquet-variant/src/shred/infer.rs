@@ -14,10 +14,10 @@ use vortex_array::dtype::PType;
 use vortex_array::dtype::StructFields;
 use vortex_array::scalar_fn::ScalarFnRef;
 use vortex_array::scalar_fn::ScalarFnVTableExt;
-use vortex_array::scalar_fn::fns::variant_shred::VariantShred;
-use vortex_array::scalar_fn::fns::variant_shred::VariantShredOptions;
 use vortex_arrow::ArrowExportOptions;
 use vortex_error::VortexResult;
+use vortex_functions::variant_shred::VariantShred;
+use vortex_functions::variant_shred::VariantShredOptions;
 use vortex_layout::layouts::variant::VariantShreddingPolicy;
 
 use crate::ParquetVariant;

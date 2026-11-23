@@ -522,31 +522,6 @@ fn parquet_shredded_field_from_logical(
     .into_array())
 }
 
-/// The metadata of each of the `len` elements of a list with `offsets`: the metadata of the row
-/// that holds it.
-///
-/// An element that no row holds reads the metadata of the first row, as nothing reads it.
-fn element_metadata(
-    metadata: &ArrayRef,
-    offsets: &ArrayRef,
-    len: usize,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<ArrayRef> {
-    let offsets = offsets
-        .cast(DType::Primitive(PType::U64, Nullability::NonNullable))?
-        .execute::<PrimitiveArray>(ctx)?;
-
-    let mut rows = BufferMut::<u64>::zeroed(len);
-    for (row, bounds) in offsets.as_slice::<u64>().windows(2).enumerate() {
-        let start = usize::try_from(bounds[0])?;
-        let end = usize::try_from(bounds[1])?;
-        rows.get_mut(start..end)
-            .ok_or_else(|| vortex_err!("list offsets {start}..{end} exceed {len} elements"))?
-            .fill(row as u64);
-    }
-    metadata.take(rows.freeze().into_array())
-}
-
 /// A Parquet shredded field shell that holds only the residual `value`.
 fn value_shell(value: ArrayRef, len: usize) -> VortexResult<ArrayRef> {
     Ok(StructArray::try_new(

@@ -584,8 +584,6 @@ mod tests {
     use vortex_array::dtype::FieldNames;
     use vortex_array::dtype::Nullability;
     use vortex_array::scalar::Scalar;
-    use vortex_array::scalar_fn::fns::variant_pack::VariantPack;
-    use vortex_array::scalar_fn::fns::variant_pack::VariantPackOptions;
     use vortex_array::validity::Validity;
     use vortex_arrow::ArrowSessionExt;
     use vortex_arrow::ExecuteArrowExt;
@@ -593,6 +591,8 @@ mod tests {
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
     use vortex_error::vortex_bail;
+    use vortex_functions::variant_pack::VariantPack;
+    use vortex_functions::variant_pack::VariantPackOptions;
     use vortex_session::VortexSession;
 
     use super::PARQUET_VARIANT_ARROW_EXTENSION_NAME;

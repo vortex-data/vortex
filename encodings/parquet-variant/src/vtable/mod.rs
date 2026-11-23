@@ -254,9 +254,6 @@ mod tests {
     use vortex_array::dtype::UnionVariants;
     use vortex_array::dtype::session::DTypeSessionExt;
     use vortex_array::expr::root;
-    use vortex_array::expr::variant_get;
-    use vortex_array::scalar_fn::fns::variant_get::VariantPath;
-    use vortex_array::scalar_fn::fns::variant_get::VariantPathElement;
     use vortex_array::serde::SerializeOptions;
     use vortex_array::serde::SerializedArray;
     use vortex_array::session::ArraySessionExt;
@@ -275,6 +272,9 @@ mod tests {
     use vortex_error::vortex_err;
     use vortex_file::OpenOptionsSessionExt;
     use vortex_file::WriteOptionsSessionExt;
+    use vortex_functions::expr::variant_get;
+    use vortex_functions::variant_get::VariantPath;
+    use vortex_functions::variant_get::VariantPathElement;
     use vortex_io::session::RuntimeSession;
     use vortex_layout::LayoutRef;
     use vortex_layout::layouts::flat::writer::FlatLayoutStrategy;

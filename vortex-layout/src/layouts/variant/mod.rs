@@ -22,12 +22,12 @@ use vortex_array::dtype::StructFields;
 use vortex_array::expr::BoundExpression;
 use vortex_array::expr::get_item;
 use vortex_array::expr::root;
-use vortex_array::expr::variant_pack;
-use vortex_array::expr::variant_pack_with_validity;
 use vortex_array::proto::dtype as pb;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
+use vortex_functions::expr::variant_pack;
+use vortex_functions::expr::variant_pack_with_validity;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 pub use writer::FixedShredding;
@@ -89,7 +89,7 @@ pub struct VariantStorage {
     /// The dtype of the shredded child.
     shredded_dtype: DType,
     /// Whether the shredded child holds every value it could hold; see
-    /// [`VariantPackOptions::complete`](vortex_array::scalar_fn::fns::variant_pack::VariantPackOptions::complete).
+    /// [`VariantPackOptions::complete`](vortex_functions::variant_pack::VariantPackOptions::complete).
     complete: bool,
 }
 

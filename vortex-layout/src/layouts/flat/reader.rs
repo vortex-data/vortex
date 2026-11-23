@@ -13,7 +13,6 @@ use vortex_array::Canonical;
 use vortex_array::IntoArray;
 use vortex_array::MaskFuture;
 use vortex_array::VortexSessionExecute;
-use vortex_array::arrays::variant::decode_for_repeated_extraction;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldMask;
@@ -21,6 +20,7 @@ use vortex_array::expr::BoundExpression;
 use vortex_array::serde::SerializedArray;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_functions::variant_get::decode_for_repeated_extraction;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
 
@@ -152,7 +152,8 @@ impl LayoutReader for FlatReader {
                 array = array.slice(row_range.clone())?;
             }
 
-            array = decode_for_repeated_extraction(array, &expr, &mut session.create_execution_ctx())?;
+            array =
+                decode_for_repeated_extraction(array, &expr, &mut session.create_execution_ctx())?;
 
             let mask_density = mask.density();
             let array_mask = if mask_density < EXPR_EVAL_THRESHOLD {
@@ -225,7 +226,8 @@ impl LayoutReader for FlatReader {
                 array = array.filter(mask)?;
             }
 
-            array = decode_for_repeated_extraction(array, &expr, &mut session.create_execution_ctx())?;
+            array =
+                decode_for_repeated_extraction(array, &expr, &mut session.create_execution_ctx())?;
 
             // Evaluate the projection expression.
             array = array.apply_bound(&expr)?;

@@ -26,8 +26,6 @@ use crate::array::ArrayParts;
 use crate::array::EmptyArrayData;
 use crate::array_slots;
 use crate::dtype::DType;
-use crate::expr::BoundExpression;
-use crate::scalar_fn::fns::variant_get::VariantGet;
 
 /// Slots for canonical variant storage.
 ///
@@ -79,30 +77,6 @@ impl Array<Variant> {
         ))?
         .with_stats_set(stats))
     }
-}
-
-/// Decodes the storage of an unshredded Variant `array` if `expr` extracts from it more than once,
-/// as each `variant_get` would otherwise decode it again.
-pub fn decode_for_repeated_extraction(
-    array: ArrayRef,
-    expr: &BoundExpression,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<ArrayRef> {
-    if array.dtype().is_variant() && count_variant_gets(expr) > 1 {
-        decode_unshredded_storage(array, ctx)
-    } else {
-        Ok(array)
-    }
-}
-
-/// The number of `variant_get` calls in `expr`.
-fn count_variant_gets(expr: &BoundExpression) -> usize {
-    usize::from(expr.is::<VariantGet>())
-        + expr
-            .children()
-            .iter()
-            .map(count_variant_gets)
-            .sum::<usize>()
 }
 
 /// Decodes the storage of an unshredded Variant `array`, so that every `variant_get` over it

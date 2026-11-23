@@ -7,11 +7,16 @@ use vortex_array::ArrayView;
 use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
+use vortex_array::arrays::ConstantArray;
+use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::Struct;
+use vortex_array::arrays::UnionArray;
 use vortex_array::arrays::Variant;
 use vortex_array::arrays::scalar_fn::ExactScalarFn;
 use vortex_array::arrays::scalar_fn::ScalarFnArrayView;
 use vortex_array::arrays::struct_::StructArrayExt;
+use vortex_array::arrays::union::UnionArrayExt;
+use vortex_array::arrays::union::UnionArraySlotsExt;
 use vortex_array::arrays::variant::VariantArraySlotsExt;
 use vortex_array::arrays::variant::merge_typed_scalar_as_variant;
 use vortex_array::builders::VariantBuilder;
@@ -38,11 +43,6 @@ use crate::variant_get::VariantGetOptions;
 use crate::variant_get::VariantPath;
 use crate::variant_get::VariantPathElement;
 use crate::variant_get::convert_to_bool;
-use vortex_array::arrays::ConstantArray;
-use vortex_array::arrays::PrimitiveArray;
-use vortex_array::arrays::UnionArray;
-use vortex_array::arrays::union::UnionArrayExt;
-use vortex_array::arrays::union::UnionArraySlotsExt;
 
 pub(crate) fn initialize(session: &VortexSession) {
     let kernels = session.kernels();
@@ -483,6 +483,7 @@ mod tests {
     use vortex_array::arrays::ConstantArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::StructArray;
+    use vortex_array::arrays::UnionArray;
     use vortex_array::arrays::VarBinViewArray;
     use vortex_array::arrays::VariantArray;
     use vortex_array::assert_arrays_eq;
@@ -491,6 +492,7 @@ mod tests {
     use vortex_array::dtype::FieldNames;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
+    use vortex_array::dtype::UnionVariants;
     use vortex_array::expr::root;
     use vortex_array::scalar::Scalar;
     use vortex_array::validity::Validity;
@@ -500,9 +502,6 @@ mod tests {
 
     use crate::expr::variant_get;
     use crate::variant_get::VariantPath;
-    use vortex_array::arrays::UnionArray;
-    use vortex_array::arrays::VarBinViewArray;
-    use vortex_array::dtype::UnionVariants;
     use crate::variant_get::VariantPathElement;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
@@ -577,6 +576,18 @@ mod tests {
             root(),
             VariantPath::field("a"),
             Some(DType::Bool(Nullability::Nullable)),
+        );
+
+        let mut ctx = SESSION.create_execution_ctx();
+        let actual = array.apply(&expr)?.execute::<ArrayRef>(&mut ctx)?;
+
+        assert_arrays_eq!(
+            actual,
+            BoolArray::from_iter([Some(false), Some(true), None]).into_array(),
+            &mut ctx
+        );
+        Ok(())
+    }
 
     /// The core storage of `len` rows that each hold `value`, or no value.
     fn core(value: Option<Scalar>, len: usize) -> ArrayRef {
@@ -747,12 +758,6 @@ mod tests {
 
         let mut ctx = SESSION.create_execution_ctx();
         let actual = array.apply(&expr)?.execute::<ArrayRef>(&mut ctx)?;
-
-        assert_arrays_eq!(
-            actual,
-            BoolArray::from_iter([Some(false), Some(true), None]).into_array(),
-            &mut ctx
-        );
 
         assert_arrays_eq!(actual, expected, &mut ctx);
         Ok(())
