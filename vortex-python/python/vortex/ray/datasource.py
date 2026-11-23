@@ -123,7 +123,8 @@ class VortexDatasource(Datasource):
                 paths,
                 self._columns,
                 self._filter,
-                per_task_row_limit if per_task_row_limit is not None else self._batch_size,
+                self._batch_size,
+                per_task_row_limit,
             )
             for paths in partition(parallelism, self._paths)
             if len(paths) > 0
@@ -141,6 +142,7 @@ def _read_task(
     columns: list[str] | None,
     filter: pc.Expression | VortexExpr | None,
     batch_size: int | None,
+    per_task_row_limit: int | None = None,
 ) -> ReadTask:
     if not paths:
         raise ValueError("no paths specified")
@@ -156,7 +158,9 @@ def _read_task(
 
     def read() -> Iterable[pandas.DataFrame]:
         # A VortexDataset cannot be pickled, so the task opens its files again on the worker.
-        reader = _open_exact_files(paths).to_record_batch_reader(columns=columns, filter=filter, batch_size=batch_size)
+        reader = _open_exact_files(paths).to_record_batch_reader(
+            columns=columns, filter=filter, batch_size=batch_size, limit=per_task_row_limit
+        )
 
         for rb in reader:
             # We would prefer to generate Arrow, but we run into this issue: https://github.com/apache/arrow/issues/47279

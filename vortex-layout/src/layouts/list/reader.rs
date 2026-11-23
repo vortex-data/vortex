@@ -29,6 +29,7 @@ use vortex_mask::Mask;
 use vortex_session::VortexSession;
 
 use crate::ArrayFuture;
+use crate::BoundaryMode;
 use crate::LayoutReader;
 use crate::LayoutReaderContext;
 use crate::LayoutReaderRef;
@@ -408,15 +409,21 @@ impl LayoutReader for ListReader {
                 if last_split == Some(split) {
                     continue;
                 }
-                splits.push(
-                    split_range
-                        .row_offset()
-                        .checked_add(split)
-                        .vortex_expect("List layout split offset overflow"),
-                );
+
+                let root_split = split_range
+                    .row_offset()
+                    .checked_add(split)
+                    .vortex_expect("List layout split offset overflow");
+                splits.push(root_split);
+                if splits.mode() == BoundaryMode::WithSoftMarks {
+                    // The grid spreads the element work across splits. Other fields of a struct
+                    // do not have these boundaries, but the scan must not merge them away.
+                    splits.mark_pinned([root_split]);
+                }
                 last_split = Some(split);
             }
         }
+
         splits.push(split_range.root_row_range().end);
         Ok(())
     }

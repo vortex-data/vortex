@@ -410,10 +410,10 @@ impl DataSourceScan for MultiLayoutScan {
 
     fn partition_count(&self) -> Precision<usize> {
         let count = self.ready.len() + self.deferred.len();
-        if self.deferred.is_empty() {
-            Precision::exact(count)
-        } else {
+        if !self.deferred.is_empty() || matches!(self.request.filter, Ok(Some(_))) {
             Precision::inexact(count)
+        } else {
+            Precision::exact(count)
         }
     }
 
@@ -796,6 +796,20 @@ mod tests {
             default_peak > max,
             "the default read {default_peak} at once"
         );
+        Ok(())
+    }
+
+    #[test]
+    fn partition_count_is_inexact_with_filter() -> VortexResult<()> {
+        let runtime = SingleThreadRuntime::default();
+        let session = session_with_handle(runtime.handle());
+        let reader: LayoutReaderRef = Arc::new(TestLayoutReader::new(3));
+        let opened = MultiLayoutDataSource::new_with_first(reader, vec![], vec![], &session);
+        let scan = runtime.block_on(opened.scan(ScanRequest {
+            filter: Some(eq(root(), lit(1i32))),
+            ..Default::default()
+        }))?;
+        assert_eq!(scan.partition_count(), Precision::inexact(1usize));
         Ok(())
     }
 
