@@ -63,13 +63,15 @@ use vortex_arrow::ExecuteArrowExt;
 /// The result preserves DataFusion's
 /// type, effective nullability, field metadata and evaluation errors. Runtime state
 /// is retained in-process; the expression cannot be serialized.
-/// Returns `None` for live/volatile/async expressions or unsupported result types.
+/// Returns `None` for live/volatile/async expressions, ambiguous source-column
+/// names, or unsupported result types.
 /// Decimal outputs remain in DataFusion because Arrow permits coefficients outside
 /// their declared precision; decimal intermediates in other result types are allowed.
 ///
 /// # Errors
 ///
-/// Rejects invalid or ambiguous source-column references.
+/// Rejects invalid source-column name/index bindings and propagates expression
+/// metadata errors.
 pub fn df_expression(
     expression: Arc<dyn PhysicalExpr>,
     schema: &Schema,
@@ -84,9 +86,6 @@ pub(crate) fn raw_expression(
     session: &VortexSession,
     advisory: bool,
 ) -> DFResult<Option<Expression>> {
-    if !eligible(&expression) {
-        return Ok(None);
-    }
     let mut name_counts: HashMap<&str, usize> = HashMap::default();
     for field in schema.fields() {
         *name_counts.entry(field.name().as_str()).or_insert(0_usize) += 1;
@@ -94,6 +93,7 @@ pub(crate) fn raw_expression(
     let mut columns = collect_columns(&expression).into_iter().collect_vec();
     columns.sort_unstable_by_key(|column| column.index());
     let mut indices = Vec::with_capacity(columns.len());
+    let mut has_ambiguous_columns = false;
     for column in &columns {
         if schema
             .fields()
@@ -102,10 +102,11 @@ pub(crate) fn raw_expression(
         {
             return plan_err!("Invalid DF expression column: {column}");
         }
-        if name_counts.get(column.name()).copied() != Some(1) {
-            return plan_err!("Ambiguous DF expression input name: {}", column.name());
-        }
+        has_ambiguous_columns |= name_counts.get(column.name()).copied() != Some(1);
         indices.push(column.index());
+    }
+    if has_ambiguous_columns {
+        return Ok(None);
     }
     let has_higher_order_function = contains_higher_order_function(&expression);
     if has_higher_order_function {
@@ -192,6 +193,7 @@ struct BoundField {
 }
 impl PartialEq for BoundField {
     fn eq(&self, other: &Self) -> bool {
+        // Pointer identity preserves distinctions in captured process-local runtime state.
         Arc::ptr_eq(&self.inner, &other.inner)
             && self.field == other.field
             && self.nullable == other.nullable
@@ -348,6 +350,7 @@ struct Options {
 }
 impl PartialEq for Options {
     fn eq(&self, other: &Self) -> bool {
+        // Pointer identity preserves distinctions in captured process-local runtime state.
         Arc::ptr_eq(&self.expression, &other.expression)
             && self.schema == other.schema
             && self.input_dtypes == other.input_dtypes
@@ -571,6 +574,7 @@ mod tests {
         assert_eq!(&actual, &expected);
         Ok(())
     }
+
     #[test]
     fn preserves_key_evaluation_errors() -> Result<()> {
         let key = Arc::new(BinaryExpr::new(
@@ -605,8 +609,9 @@ mod tests {
         assert!(error.to_string().contains(&expected.to_string()));
         Ok(())
     }
+
     #[test]
-    fn rejects_ambiguous_original_column_names() -> Result<()> {
+    fn declines_ambiguous_original_column_names() -> Result<()> {
         let schema = Schema::new(vec![
             Field::new("id", DataType::Int64, false),
             Field::new("id", DataType::Int64, false),
@@ -617,7 +622,12 @@ mod tests {
             Arc::new(Map::HashMap(Box::new(JoinHashMapU32::with_capacity(0)))),
             "second_id".into(),
         ));
-        assert!(df_expression(lookup, &schema, &VortexSession::default()).is_err());
+        assert!(df_expression(lookup, &schema, &VortexSession::default())?.is_none());
+        Ok(())
+    }
+
+    #[test]
+    fn rejects_invalid_original_column_bindings() -> Result<()> {
         let schema = Schema::new(vec![
             Field::new("a", DataType::Int64, false),
             Field::new("b", DataType::Int64, false),
@@ -726,6 +736,7 @@ mod tests {
         );
         Ok(())
     }
+
     #[test]
     fn typed_results_preserve_nulls_wrapping_and_scalar_row_count() -> Result<()> {
         let batch = RecordBatch::try_from_iter(vec![(
@@ -789,6 +800,7 @@ mod tests {
         assert!(df_expression(random, &schema, &session)?.is_none());
         Ok(())
     }
+
     #[derive(Clone, Debug, PartialEq, Eq, Hash)]
     struct TaggedBool;
     impl ExtVTable for TaggedBool {
