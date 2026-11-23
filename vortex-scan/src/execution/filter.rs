@@ -8,11 +8,14 @@ use bit_vec::BitVec;
 use rustc_hash::FxHashSet;
 use vortex_array::VortexSessionExecute;
 use vortex_array::builtins::ArrayBuiltins;
+use vortex_array::scalar_fn::ScalarFnVTable;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure_eq;
 use vortex_expr::BoundExpression;
+use vortex_expr::stats::StatsSessionExt;
 use vortex_expr::stats::rewrite::BoundExpressionPruneExt;
+use vortex_functions::between::Between;
 use vortex_functions::between::find_between;
 use vortex_io::request::IoBatch;
 use vortex_io::request::IoConsumer;
@@ -67,8 +70,13 @@ impl FilterPlans {
         session: &VortexSession,
         skip_unselective_dynamic: bool,
     ) -> VortexResult<Self> {
-        let expression = FilterExpr::new(find_between(expression)?)
-            .with_skip_unselective_dynamic(skip_unselective_dynamic);
+        let expression = if session.stats().has_rewrite_for(Between.id()) {
+            find_between(expression)?
+        } else {
+            expression
+        };
+        let expression =
+            FilterExpr::new(expression).with_skip_unselective_dynamic(skip_unselective_dynamic);
         let predicates = expression
             .conjuncts()
             .iter()

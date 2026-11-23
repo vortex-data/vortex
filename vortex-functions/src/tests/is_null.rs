@@ -6,6 +6,7 @@ use std::sync::LazyLock;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::BoolArray;
+use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::ScalarFn;
@@ -16,6 +17,7 @@ use vortex_array::assert_arrays_eq;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
+use vortex_array::dtype::PType;
 use vortex_array::dtype::StructFields;
 use vortex_array::expr::BoundExpression;
 use vortex_array::optimizer::ArrayOptimizer;
@@ -235,5 +237,27 @@ fn reduces_through_validity() -> VortexResult<()> {
     let nullable =
         PrimitiveArray::new(buffer![1, 2, 3], Validity::Array(validity.clone())).into_array();
     assert_arrays_eq!(nullable.is_null()?, validity.not()?, ctx);
+    Ok(())
+}
+
+#[test]
+fn empty_constant_chunk_is_null() -> VortexResult<()> {
+    let array = ChunkedArray::try_new(
+        vec![
+            ConstantArray::new(Some(1u64), 0).into_array(),
+            PrimitiveArray::from_iter(vec![2u64])
+                .into_array()
+                .cast(DType::Primitive(PType::U64, Nullability::Nullable))?,
+        ],
+        DType::Primitive(PType::U64, Nullability::Nullable),
+    )?
+    .into_array();
+
+    let result = array.apply(&is_null(root()))?;
+    assert_arrays_eq!(
+        result,
+        BoolArray::from_iter([false]),
+        &mut SESSION.create_execution_ctx()
+    );
     Ok(())
 }

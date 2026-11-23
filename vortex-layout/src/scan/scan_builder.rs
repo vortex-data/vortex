@@ -17,11 +17,14 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldMask;
 use vortex_array::iter::ArrayIterator;
 use vortex_array::iter::ArrayIteratorAdapter;
+use vortex_array::scalar_fn::ScalarFnVTable;
 use vortex_array::stream::ArrayStream;
 use vortex_array::stream::ArrayStreamAdapter;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_expr::BoundExpression;
+use vortex_expr::stats::StatsSessionExt;
+use vortex_functions::between::Between;
 use vortex_functions::between::find_between;
 use vortex_io::runtime::BlockingRuntime;
 use vortex_io::runtime::Task;
@@ -384,7 +387,11 @@ impl<A: 'static + Send> ScanBuilder<A> {
         }
 
         let bound_projection = self.projection;
-        let bound_filter = self.filter.map(find_between).transpose()?;
+        let bound_filter = if self.session.stats().has_rewrite_for(Between.id()) {
+            self.filter.map(find_between).transpose()?
+        } else {
+            self.filter
+        };
 
         // Compute the row splits of the scan.
         let splits =
@@ -1178,6 +1185,7 @@ mod test {
     fn scan_evaluates_filter_ranges_as_between() -> VortexResult<()> {
         let runtime = SingleThreadRuntime::default();
         let session = session_with_handle(runtime.handle());
+        vortex_functions::initialize(&session);
         let filter_exprs = Arc::new(Mutex::new(Vec::new()));
         let dtype = nested_dtype();
         let reader = Arc::new(

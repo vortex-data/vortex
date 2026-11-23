@@ -248,6 +248,7 @@ mod test {
     use std::sync::Arc;
     use std::sync::LazyLock;
 
+    use futures::StreamExt;
     use rstest::fixture;
     use rstest::rstest;
     use vortex_array::ArrayContext;
@@ -261,9 +262,12 @@ mod test {
     use vortex_buffer::buffer;
     use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
+    use vortex_expr::and;
     use vortex_expr::gt;
+    use vortex_expr::gt_eq;
     use vortex_expr::is_not_null;
     use vortex_expr::lit;
+    use vortex_expr::lt;
     use vortex_expr::root;
     use vortex_io::runtime::Handle;
     use vortex_io::runtime::single::block_on;
@@ -288,6 +292,8 @@ mod test {
     use crate::layouts::zoned::ZonedLayout;
     use crate::layouts::zoned::writer::ZonedLayoutOptions;
     use crate::layouts::zoned::writer::ZonedStrategy;
+    use crate::scan::metrics::ScanUsage;
+    use crate::scan::scan_builder::ScanBuilder;
     use crate::segments::SegmentSource;
     use crate::segments::TestSegments;
     use crate::sequence::SequenceId;
@@ -561,5 +567,36 @@ mod test {
             invalid_layout.new_reader("".into(), segments, &session, &Default::default())
         })
         .unwrap();
+    }
+
+    #[rstest]
+    fn minimal_session_range_scan_prunes_excluded_zones(
+        #[from(stats_layout)] (segments, layout): (Arc<dyn SegmentSource>, LayoutRef),
+    ) -> VortexResult<()> {
+        let usage = Arc::new(ScanUsage::default());
+
+        block_on(|handle| async {
+            let session = session_with_handle(handle);
+            let reader = layout.new_reader("".into(), segments, &session, &Default::default())?;
+            let filter =
+                and(gt_eq(root(), lit(7i32)), lt(root(), lit(10i32))).bind(reader.dtype())?;
+            let mut stream = ScanBuilder::new(session.clone(), reader)
+                .with_filter(filter)
+                .with_usage(Arc::clone(&usage))
+                .into_stream()?;
+
+            let mut ctx = session.create_execution_ctx();
+            let mut values = Vec::new();
+            while let Some(chunk) = stream.next().await {
+                let prim = chunk?.execute::<PrimitiveArray>(&mut ctx)?;
+                values.extend(prim.into_buffer::<i32>().iter().copied());
+            }
+
+            assert_eq!(values, vec![7, 8, 9]);
+            let snapshot = usage.snapshot();
+            assert_eq!(snapshot.splits_pruned, 2);
+            assert_eq!(snapshot.splits_empty_after_predicate, 0);
+            Ok(())
+        })
     }
 }
