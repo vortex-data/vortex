@@ -21,6 +21,7 @@ use vortex_array::arrays::PiecewiseSequenceArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::memory::MemorySession;
 use vortex_array::optimizer::kernels::KernelSession;
+use vortex_array::test_harness::mark_optimized;
 use vortex_session::VortexSession;
 
 #[global_allocator]
@@ -49,6 +50,8 @@ fn optimized_constant_lengths(bencher: Bencher, run_length: usize) {
         run_length,
         lengths_constant(run_length, run_count(run_length)),
     );
+    mark_optimized(&values, &SESSION).unwrap();
+    mark_optimized(&indices, &SESSION).unwrap();
 
     bencher
         .counter(BytesCount::of_many::<i64>(OUTPUT_LEN))
@@ -69,6 +72,8 @@ fn optimized_constant_lengths(bencher: Bencher, run_length: usize) {
 fn prebuilt_dense_lengths(bencher: Bencher, run_length: usize) {
     let values = values();
     let indices = piecewise_indices(run_length, lengths_dense(run_length, run_count(run_length)));
+    mark_optimized(&values, &SESSION).unwrap();
+    mark_optimized(&indices, &SESSION).unwrap();
 
     bencher
         .counter(BytesCount::of_many::<i64>(OUTPUT_LEN))

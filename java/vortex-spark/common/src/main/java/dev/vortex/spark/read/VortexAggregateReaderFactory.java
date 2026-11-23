@@ -3,6 +3,7 @@
 
 package dev.vortex.spark.read;
 
+import dev.vortex.spark.ArrowProperties;
 import dev.vortex.spark.VortexOptions;
 import dev.vortex.spark.io.VortexFile;
 import dev.vortex.spark.io.VortexIo;
@@ -30,6 +31,11 @@ import org.apache.spark.sql.vectorized.ColumnarBatch;
  * <p>A listed file without {@link VortexFile#EXTENSION} is not part of the dataset and produces no row.
  */
 public final class VortexAggregateReaderFactory extends FilePartitionReaderFactory implements Serializable {
+    static {
+        // Executors load this class before any Vortex batch, so Arrow sees the settings before it reads them.
+        ArrowProperties.configure();
+    }
+
     private static final long serialVersionUID = 1L;
 
     private final FileSourceOptions fileOptions;

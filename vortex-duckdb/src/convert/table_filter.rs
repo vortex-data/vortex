@@ -21,8 +21,8 @@ use vortex::expr::lit;
 use vortex::expr::or_collect;
 use vortex::scalar::Scalar;
 use vortex::scalar_fn::ScalarFnVTableExt;
-use vortex::scalar_fn::fns::binary::Binary;
-use vortex::scalar_fn::fns::operators::CompareOperator;
+use vortex::scalar_fn::builtin::binary::Binary;
+use vortex::scalar_fn::builtin::operators::CompareOperator;
 use vortex::scan::selection::Selection;
 use vortex::scan::strict_sorted_buffer::StrictSortedBuffer;
 

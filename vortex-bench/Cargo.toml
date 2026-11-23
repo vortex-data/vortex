@@ -31,6 +31,7 @@ vortex-tensor = { workspace = true } # TODO(connor): In the future, this might b
 
 anyhow = { workspace = true }
 arrow-array = { workspace = true }
+arrow-buffer = { workspace = true }
 arrow-cast = { workspace = true }
 arrow-ipc = { workspace = true }
 arrow-schema = { workspace = true }
@@ -44,6 +45,7 @@ geo = { workspace = true }
 geo-traits = { workspace = true }
 geoarrow = { workspace = true }
 geoarrow-cast = { workspace = true }
+geozero = { workspace = true }
 get_dir = { workspace = true }
 glob = { workspace = true }
 http = { workspace = true }
@@ -68,8 +70,6 @@ reqwest = { workspace = true, features = ["stream"] }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 spatialbench = { workspace = true }
-spatialbench-arrow = { workspace = true }
-spatialbench-parquet = { workspace = true }
 sysinfo = { workspace = true }
 tabled = { workspace = true, features = ["std"] }
 target-lexicon = { workspace = true }

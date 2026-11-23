@@ -13,6 +13,7 @@ use vortex::array::IntoArray;
 use vortex::array::stream::ArrayStreamExt;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::file::WriteOptionsSessionExt;
+use vortex::scan::ScanRequest;
 
 use crate::CompactionStrategy;
 use crate::Format;
@@ -21,10 +22,13 @@ use crate::SESSION;
 use crate::conversions::parquet_to_vortex_chunks;
 use crate::datasets::Dataset;
 use crate::datasets::data_downloads::download_data;
+use crate::idempotent;
 use crate::idempotent_async;
 use crate::random_access::BenchDataset;
 use crate::random_access::data_path;
 use crate::random_access::parquet_to_arrow_file;
+use crate::random_access::write_random_access_parquet;
+use crate::utils::parquet::remove_stale_parquet;
 
 /// Dataset identifier used for data path generation.
 pub const DATASET: &str = "taxi";
@@ -67,7 +71,7 @@ impl BenchDataset for TaxiData {
             }
             Format::OnDiskVortex => taxi_data_vortex().await,
             Format::VortexCompact => taxi_data_vortex_compact().await,
-            Format::Parquet => taxi_data_parquet().await,
+            Format::Parquet => taxi_random_access_parquet().await,
             other => anyhow::bail!("Random access bench not implemented for {other}"),
         }
     }
@@ -80,16 +84,34 @@ pub async fn taxi_data_parquet() -> Result<PathBuf> {
     download_data(taxi_parquet_fpath, taxi_data_url).await
 }
 
+/// The taxi data as the random access benchmark reads it: the published file written again with
+/// [`random_access_writer_properties`](crate::random_access::random_access_writer_properties),
+/// because the published file has no page index.
+pub async fn taxi_random_access_parquet() -> Result<PathBuf> {
+    let published = taxi_data_parquet().await?;
+    tokio::task::spawn_blocking(move || {
+        let path = data_path(DATASET, Format::Parquet);
+        remove_stale_parquet(&path.to_data_path())?;
+        idempotent(&path, |output| {
+            write_random_access_parquet(&published, output)
+        })
+    })
+    .await?
+}
+
 pub async fn fetch_taxi_data() -> Result<ArrayRef> {
     let vortex_data = taxi_data_vortex().await?;
-    Ok(SESSION
+    let scan = SESSION
         .open_options()
         .open_path(vortex_data)
         .await?
-        .scan()?
-        .into_array_stream()?
-        .read_all()
-        .await?)
+        .data_source()?
+        .scan(ScanRequest {
+            ordered: true,
+            ..Default::default()
+        })
+        .await?;
+    Ok(scan.into_array_stream().read_all().await?)
 }
 
 pub async fn taxi_data_vortex() -> Result<PathBuf> {

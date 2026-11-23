@@ -16,6 +16,7 @@ use vortex_error::vortex_panic;
 
 use crate::Alignment;
 use crate::Allocation;
+use crate::BitBuffer;
 use crate::Buffer;
 use crate::BufferAllocatorRef;
 use crate::ByteBufferMut;
@@ -485,6 +486,130 @@ impl<T> BufferMut<T> {
         }
     }
 
+    /// Shrinks the capacity of the buffer as much as possible while keeping its alignment.
+    ///
+    /// Has the same intent as [`Vec::shrink_to_fit`]: the allocator is asked to shrink the
+    /// allocation in place (a `realloc`), which usually avoids copying the data. If the
+    /// allocation does not guarantee the buffer's alignment, up to `alignment - 1` bytes of
+    /// padding are kept so the data can be realigned when the allocator moves the block. The data
+    /// also keeps its offset within the allocation, so the capacity may remain slightly larger
+    /// than the length, and a buffer with no slack after that padding is left unchanged. A buffer
+    /// whose data starts after a prefix, such as a slice turned back into a `BufferMut`, is copied
+    /// once into a new allocation instead.
+    ///
+    /// ```
+    /// use vortex_buffer::BufferMut;
+    ///
+    /// let mut buffer = BufferMut::<u32>::with_capacity(1024);
+    /// buffer.extend_from_slice(&[1, 2, 3]);
+    /// buffer.shrink_to_fit();
+    /// assert_eq!(buffer.as_slice(), &[1, 2, 3]);
+    /// assert!(buffer.capacity() < 1024);
+    /// ```
+    pub fn shrink_to_fit(&mut self) {
+        if self.allocation.size() == 0 {
+            return;
+        }
+
+        let alignment = self.alignment.as_usize();
+        if self.length == 0 {
+            *self = Self::empty_aligned_in(self.alignment, self.allocation.allocator().clone());
+            return;
+        }
+
+        let data_bytes = self.length * size_of::<T>();
+        // A block aligned to the buffer's alignment keeps the data aligned at the same offset
+        // wherever the allocator moves it. A less aligned block needs padding to realign the data
+        // afterwards.
+        let padding = if self.allocation.alignment() >= alignment {
+            0
+        } else {
+            alignment - 1
+        };
+        let offset = self.ptr.cast::<u8>().addr().get() - self.allocation.ptr().addr().get();
+
+        // Constructors place the data at an offset of up to the over-alignment, and a realignment
+        // below moves it by at most the padding. A larger offset is a prefix left by slicing,
+        // which a shrink would keep, so copy the data once into a new allocation instead.
+        let max_offset = alignment.max(Alignment::DEFAULT_ALIGNMENT.as_usize()) + padding;
+        if offset > max_offset {
+            let offset = self.reallocate_exact(data_bytes + padding, data_bytes);
+            self.set_data_offset(offset);
+            return;
+        }
+
+        // Keep the data where it is, so a shrink in place copies nothing.
+        let new_size = offset + data_bytes + padding;
+        if self.allocation.size() <= new_size {
+            return;
+        }
+
+        if !self.allocation.shrink(new_size) {
+            return;
+        }
+
+        // `align_offset` rather than the address, so Miri's symbolic alignment check agrees.
+        let shift = self
+            .allocation
+            .ptr()
+            .as_ptr()
+            .wrapping_add(offset)
+            .align_offset(alignment);
+
+        if shift != 0 {
+            // The block moved to an address that misaligns the data. Move the data forward to the
+            // next aligned offset, so that the slack after it stays within the padding and a
+            // second call does nothing.
+            //
+            // SAFETY: the shrink preserved the first new_size bytes, which hold the data at
+            // offset. shift < alignment, so offset + shift + data_bytes <= new_size; copy permits
+            // overlap.
+            unsafe {
+                std::ptr::copy(
+                    self.allocation.ptr().as_ptr().add(offset),
+                    self.allocation.ptr().as_ptr().add(offset + shift),
+                    data_bytes,
+                );
+            }
+        }
+
+        self.set_data_offset(offset + shift);
+    }
+
+    /// Points the buffer at its data, which starts `offset` bytes into the allocation.
+    fn set_data_offset(&mut self, offset: usize) {
+        // SAFETY: callers pass an offset aligned to the buffer's alignment from which the data
+        // lies within the allocation.
+        self.ptr = unsafe { self.allocation.ptr().add(offset).cast() };
+        self.capacity = (self.allocation.size() - offset) / size_of::<T>();
+    }
+
+    /// Copies the data into a new allocation of `size` bytes with the same layout alignment and
+    /// allocator, and returns the aligned offset of the data in it.
+    fn reallocate_exact(&mut self, size: usize, data_bytes: usize) -> usize {
+        let layout = Layout::from_size_align(size, self.allocation.alignment())
+            .unwrap_or_else(|_| vortex_panic!("buffer capacity exceeds maximum allocation size"));
+        let allocation = Allocation::allocate(layout, self.allocation.allocator().clone());
+
+        let offset = allocation
+            .ptr()
+            .as_ptr()
+            .align_offset(self.alignment.as_usize());
+
+        // SAFETY: self.ptr addresses data_bytes of live data. The new allocation is disjoint and
+        // its padding leaves room for those bytes after offset.
+        unsafe {
+            std::ptr::copy_nonoverlapping(
+                self.ptr.cast::<u8>().as_ptr(),
+                allocation.ptr().as_ptr().add(offset),
+                data_bytes,
+            );
+        }
+
+        self.allocation = allocation;
+        offset
+    }
+
     /// Reserves capacity for at least `additional` more elements to be inserted in the buffer.
     #[inline]
     pub fn reserve(&mut self, additional: usize) {
@@ -752,6 +877,48 @@ impl<T> BufferMut<T> {
             .vortex_expect("reserve guarantees sufficient spare capacity");
         dst.write_copy_of_slice(slice);
         self.length += slice.len();
+    }
+
+    /// Overwrites each element whose bit is set in `positions` with `value`.
+    ///
+    /// Elements whose bit is unset keep their values. When `USE_RUNS` is true, this fills each
+    /// contiguous run of set bits as a slice. When false, this writes one element per set bit.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `positions` and the buffer have different lengths.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use vortex_buffer::BitBuffer;
+    /// use vortex_buffer::BufferMut;
+    ///
+    /// let mut buffer = BufferMut::from_iter([1, 2, 3, 4]);
+    /// buffer.fill_where::<false>(&BitBuffer::from_iter([true, false, false, true]), 0);
+    /// assert_eq!(buffer.as_slice(), &[0, 2, 3, 0]);
+    /// ```
+    #[inline]
+    pub fn fill_where<const USE_RUNS: bool>(&mut self, positions: &BitBuffer, value: T)
+    where
+        T: Copy,
+    {
+        assert_eq!(
+            positions.len(),
+            self.len(),
+            "fill_where requires one position bit per buffer element",
+        );
+
+        if USE_RUNS {
+            let values = self.as_mut_slice();
+            for (start, end) in positions.set_slices() {
+                values[start..end].fill(value);
+            }
+        } else {
+            for index in positions.set_indices() {
+                self[index] = value;
+            }
+        }
     }
 
     /// Return the [`ByteBufferMut`] for this [`BufferMut`].
@@ -1054,11 +1221,24 @@ mod tests {
     use std::cell::Cell;
 
     use allocator_api2::alloc::Global;
+    use rstest::rstest;
 
     use crate::Alignment;
+    use crate::BitBuffer;
     use crate::BufferAllocatorRef;
     use crate::BufferMut;
     use crate::buffer_mut;
+
+    #[track_caller]
+    fn assert_fill_where(values: &[u32], positions: &BitBuffer, expected: &[u32]) {
+        let mut by_index = BufferMut::copy_from(values);
+        by_index.fill_where::<false>(positions, 0);
+        assert_eq!(by_index.as_slice(), expected);
+
+        let mut by_run = BufferMut::copy_from(values);
+        by_run.fill_where::<true>(positions, 0);
+        assert_eq!(by_run.as_slice(), expected);
+    }
 
     #[derive(Copy, Debug, PartialEq)]
     struct CopyWithCloneCounter<'a> {
@@ -1295,5 +1475,34 @@ mod tests {
 
         buf[3] = 7;
         assert_eq!(buf.as_slice()[3], 7);
+    }
+
+    #[rstest]
+    #[case::no_position([false, false, false, false], [1, 2, 3, 4])]
+    #[case::some_positions([true, false, false, true], [0, 2, 3, 0])]
+    #[case::every_position([true, true, true, true], [0, 0, 0, 0])]
+    fn fill_where_overwrites_only_set_positions(
+        #[case] positions: [bool; 4],
+        #[case] expected: [u32; 4],
+    ) {
+        assert_fill_where(&[1, 2, 3, 4], &BitBuffer::from_iter(positions), &expected);
+    }
+
+    #[test]
+    fn fill_where_reads_positions_from_their_offset() {
+        let positions = BitBuffer::from_iter([false, true, false, false, true]).slice(1..);
+        assert_fill_where(&[1, 2, 3, 4], &positions, &[0, 2, 3, 0]);
+    }
+
+    #[test]
+    fn fill_where_accepts_an_empty_buffer() {
+        assert_fill_where(&[], &BitBuffer::empty(), &[]);
+    }
+
+    #[test]
+    #[should_panic(expected = "fill_where requires one position bit per buffer element")]
+    fn fill_where_rejects_positions_of_another_length() {
+        let mut buffer = BufferMut::from_iter([1u32, 2, 3]);
+        buffer.fill_where::<false>(&BitBuffer::from_iter([true, false]), 0);
     }
 }

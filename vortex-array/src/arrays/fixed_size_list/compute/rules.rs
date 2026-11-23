@@ -1,14 +1,32 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::arrays::FixedSizeList;
-use crate::arrays::slice::SliceReduceAdaptor;
-use crate::optimizer::rules::ParentRuleSet;
-use crate::scalar_fn::fns::cast::CastReduceAdaptor;
-use crate::scalar_fn::fns::mask::MaskReduceAdaptor;
+use vortex_session::VortexSession;
 
-pub(crate) const PARENT_RULES: ParentRuleSet<FixedSizeList> = ParentRuleSet::new(&[
-    ParentRuleSet::lift(&CastReduceAdaptor(FixedSizeList)),
-    ParentRuleSet::lift(&MaskReduceAdaptor(FixedSizeList)),
-    ParentRuleSet::lift(&SliceReduceAdaptor(FixedSizeList)),
-]);
+use crate::arrays::FixedSizeList;
+use crate::arrays::Slice;
+use crate::arrays::slice::SliceReduceAdaptor;
+use crate::optimizer::kernels::ArrayKernelsExt;
+use crate::scalar_fn::builtin::cast::Cast;
+use crate::scalar_fn::builtin::cast::CastReduceAdaptor;
+use crate::scalar_fn::builtin::mask::Mask as MaskFn;
+use crate::scalar_fn::builtin::mask::MaskReduceAdaptor;
+
+pub(crate) fn register_parent_rules(session: &VortexSession) {
+    let kernels = session.kernels();
+    kernels.register_reduce_parent_rule(
+        Cast,
+        FixedSizeList,
+        const { &CastReduceAdaptor(FixedSizeList) },
+    );
+    kernels.register_reduce_parent_rule(
+        MaskFn,
+        FixedSizeList,
+        const { &MaskReduceAdaptor(FixedSizeList) },
+    );
+    kernels.register_reduce_parent_rule(
+        Slice,
+        FixedSizeList,
+        const { &SliceReduceAdaptor(FixedSizeList) },
+    );
+}

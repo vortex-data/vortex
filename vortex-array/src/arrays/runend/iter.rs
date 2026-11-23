@@ -7,7 +7,15 @@ use vortex_error::vortex_panic;
 
 use crate::dtype::IntegerPType;
 
-pub fn trimmed_ends_iter<E: IntegerPType>(
+/// Yields exclusive run ends relative to a logical slice.
+///
+/// Subtracts `offset` from each end and clamps it to `length`. One end is yielded per input run,
+/// including zero-length runs at the slice boundaries, so indices still match the values child.
+///
+/// # Panics
+///
+/// Panics if `offset` or `length` cannot be represented by `E`, or an input end is before `offset`.
+pub fn slice_relative_ends<E: IntegerPType>(
     run_ends: &[E],
     offset: usize,
     length: usize,

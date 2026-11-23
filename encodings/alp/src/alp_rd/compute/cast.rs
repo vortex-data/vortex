@@ -6,7 +6,7 @@ use vortex_array::ArrayView;
 use vortex_array::IntoArray;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
-use vortex_array::scalar_fn::fns::cast::CastReduce;
+use vortex_array::scalar_fn::builtin::cast::CastReduce;
 use vortex_error::VortexResult;
 
 use crate::ALPRDArrayExt;
@@ -64,7 +64,11 @@ mod tests {
     use crate::RDEncoder;
     use crate::RDEncoderExt;
 
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+        let session = VortexSession::empty();
+        crate::initialize(&session);
+        session
+    });
 
     #[test]
     fn test_cast_alprd_f32_to_f64() {

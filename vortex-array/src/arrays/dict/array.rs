@@ -122,10 +122,12 @@ impl DictData {
     ///
     /// # Errors
     ///
-    /// The `codes` **must** be integers, and the maximum code must be less than the length
-    /// of the `values` array. Otherwise, this constructor returns an error.
+    /// The `codes` **must** be integers. Otherwise, this constructor returns an error.
     ///
     /// It is an error to provide a nullable `codes` with non-nullable `values`.
+    ///
+    /// This constructor does not read the codes. Each operation that uses a code as an index
+    /// into `values` must do its own bounds check, because the codes can come from a file.
     pub(crate) fn try_new(codes_dtype: &DType) -> VortexResult<Self> {
         if !codes_dtype.is_int() {
             vortex_bail!("expected type: int but instead got {}", codes_dtype);
@@ -135,7 +137,7 @@ impl DictData {
     }
 }
 
-pub trait DictArrayExt: TypedArrayRef<Dict> + DictArraySlotsExt {
+pub trait DictArrayExt: TypedArrayRef<Dict> {
     #[inline]
     fn has_all_values_referenced(&self) -> bool {
         self.all_values_referenced
@@ -294,7 +296,7 @@ impl DictOwnedExt for Array<Dict> {
                 }
             }
             Err(array) => {
-                let slots = DictSlotsView::from_slots(array.slots());
+                let slots = array.slots_view();
                 DictParts {
                     dtype: array.dtype().clone(),
                     codes: slots.codes.clone(),
@@ -388,6 +390,8 @@ mod test {
     use crate::ArrayRef;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
+    use crate::array::ArrayDeserialization;
+    use crate::array::ArrayPlugin;
     use crate::array::VTable;
     use crate::arrays::ChunkedArray;
     use crate::arrays::Dict;
@@ -606,12 +610,16 @@ mod test {
         }
         .encode_to_vec();
         let children: Vec<ArrayRef> = Vec::new();
-        let result = Dict.deserialize(
-            &DType::Primitive(PType::I32, NonNullable),
-            0,
-            &metadata,
-            &[],
-            &children,
+        let result = ArrayPlugin::deserialize(
+            &Dict,
+            ArrayDeserialization::new(
+                VTable::id(&Dict),
+                &DType::Primitive(PType::I32, NonNullable),
+                0,
+                &metadata,
+                &[],
+                &children,
+            ),
             &SESSION,
         );
         assert!(result.is_err_and(|err| {

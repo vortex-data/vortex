@@ -62,10 +62,11 @@ final class SparkFilterToVortexExpressionTest {
 
     @Test
     void convertsInListsHoldingNulls() {
-        // SQL never matches a null through IN, so the null values drop out of the disjunction.
+        // The nulls stay in the native set, so a non-match is null under NOT as well, as in SQL.
         assertPushable(new In("id", new Object[] {1, null}));
-        // Nothing but nulls can never match, so the filter becomes a constant false.
+        assertPushable(new Not(new In("id", new Object[] {1, null})));
         assertPushable(new In("id", new Object[] {null}));
+        assertPushable(new In("name", new Object[] {"a", "b", "c"}));
     }
 
     @Test

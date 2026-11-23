@@ -15,12 +15,12 @@ use vortex::buffer::Alignment;
 use vortex::buffer::Buffer;
 use vortex::encodings::zstd::ZstdBuffers;
 use vortex::encodings::zstd::ZstdBuffersArray;
-use vortex::encodings::zstd::ZstdBuffersDecodePlan;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
 use vortex_cuda_driver::CudaSlice;
 use vortex_cuda_driver::DevicePtr;
 use vortex_cuda_driver::DevicePtrMut;
+use vortex_cuda_driver::SyncOnDrop;
 use vortex_nvcomp::sys;
 use vortex_nvcomp::sys::nvcompStatus_t;
 use vortex_nvcomp::zstd as nvcomp_zstd;
@@ -77,16 +77,16 @@ async fn decode_zstd_buffers(
     let mut frame_ptr_records = Vec::with_capacity(frame_views.len());
     let mut frame_ptrs = Vec::with_capacity(frame_views.len());
     for view in &frame_views {
-        let (ptr, record_frame_ptr) = view.device_ptr(ctx.stream());
+        let (ptr, record_frame_ptr) = view
+            .device_ptr(ctx.stream())
+            .map_err(|e| vortex_err!("nvcomp frame pointer: {e}"))?;
         frame_ptrs.push(ptr);
         frame_ptr_records.push(record_frame_ptr);
     }
 
     let output_ptrs = {
-        // We only need the allocation address to assemble output pointer metadata.
-        // The actual device write is tracked by `record_device_output` around
-        // `decompress_async`, so this guard can be dropped immediately.
-        let (base_ptr, _) = device_output.device_ptr(ctx.stream());
+        // The write is tracked by `record_device_output` around `decompress_async`.
+        let base_ptr = device_output.device_address();
         plan.output_offsets()
             .iter()
             .map(|offset| base_ptr + *offset as u64)
@@ -95,12 +95,10 @@ async fn decode_zstd_buffers(
 
     // We need to copy nvcomp args to the device; these come from the
     // host-resident decode plan.
-    let (frame_ptrs_handle, frame_sizes_handle, output_sizes_handle, output_ptrs_handle) = futures::try_join!(
-        ctx.copy_to_device(frame_ptrs)?,
-        ctx.copy_to_device(plan.frame_sizes())?,
-        ctx.copy_to_device(plan.output_sizes())?,
-        ctx.copy_to_device(output_ptrs)?
-    )?;
+    let frame_ptrs_handle = ctx.copy_to_device(&frame_ptrs)?;
+    let frame_sizes_handle = ctx.copy_to_device(&plan.frame_sizes())?;
+    let output_sizes_handle = ctx.copy_to_device(&plan.output_sizes())?;
+    let output_ptrs_handle = ctx.copy_to_device(&output_ptrs)?;
 
     let mut device_actual_sizes: CudaSlice<usize> = ctx.device_alloc(plan.num_frames())?;
     let mut device_statuses: CudaSlice<nvcompStatus_t> = ctx.device_alloc(plan.num_frames())?;
@@ -111,19 +109,35 @@ async fn decode_zstd_buffers(
     let output_sizes_view = output_sizes_handle.cuda_view::<usize>()?;
     let output_ptrs_view = output_ptrs_handle.cuda_view::<u64>()?;
 
-    let (frame_ptrs_ptr, record_frame_ptrs) = frame_ptrs_view.device_ptr(stream);
-    let (frame_sizes_ptr, record_frame_sizes) = frame_sizes_view.device_ptr(stream);
-    let (output_sizes_ptr, record_output_sizes) = output_sizes_view.device_ptr(stream);
-    let (output_ptrs_ptr, record_output_ptrs) = output_ptrs_view.device_ptr(stream);
+    let (frame_ptrs_ptr, record_frame_ptrs) = frame_ptrs_view
+        .device_ptr(stream)
+        .map_err(|e| vortex_err!("nvcomp frame pointers pointer: {e}"))?;
+    let (frame_sizes_ptr, record_frame_sizes) = frame_sizes_view
+        .device_ptr(stream)
+        .map_err(|e| vortex_err!("nvcomp frame sizes pointer: {e}"))?;
+    let (output_sizes_ptr, record_output_sizes) = output_sizes_view
+        .device_ptr(stream)
+        .map_err(|e| vortex_err!("nvcomp output sizes pointer: {e}"))?;
+    let (output_ptrs_ptr, record_output_ptrs) = output_ptrs_view
+        .device_ptr(stream)
+        .map_err(|e| vortex_err!("nvcomp output pointers pointer: {e}"))?;
 
     // Track writes to the output allocation at the actual enqueue point.
     // This guard intentionally outlives the pointer-metadata construction above.
-    let (_device_output_ptr, record_device_output) = device_output.device_ptr_mut(stream);
-    let (device_actual_sizes_ptr, record_actual_sizes) = device_actual_sizes.device_ptr_mut(stream);
-    let (nvcomp_temp_buffer_ptr, record_temp) = nvcomp_temp_buffer.device_ptr_mut(stream);
-    let (device_statuses_ptr, record_statuses) = device_statuses.device_ptr_mut(stream);
+    let (_device_output_ptr, record_device_output) = device_output
+        .device_ptr_mut(stream)
+        .map_err(|e| vortex_err!("nvcomp output pointer: {e}"))?;
+    let (device_actual_sizes_ptr, record_actual_sizes) = device_actual_sizes
+        .device_ptr_mut(stream)
+        .map_err(|e| vortex_err!("nvcomp actual sizes pointer: {e}"))?;
+    let (nvcomp_temp_buffer_ptr, record_temp) = nvcomp_temp_buffer
+        .device_ptr_mut(stream)
+        .map_err(|e| vortex_err!("nvcomp temporary buffer pointer: {e}"))?;
+    let (device_statuses_ptr, record_statuses) = device_statuses
+        .device_ptr_mut(stream)
+        .map_err(|e| vortex_err!("nvcomp statuses pointer: {e}"))?;
 
-    ctx.launch_external(plan.output_size_total(), || {
+    let launch_result = ctx.launch_external(plan.output_size_total(), || {
         // SAFETY: Pointer and size parameters are derived from validated decode plan inputs.
         unsafe {
             nvcomp_zstd::decompress_async(
@@ -140,10 +154,8 @@ async fn decode_zstd_buffers(
             )
             .map_err(|e| vortex_err!("nvcomp decompress_async failed: {}", e))
         }
-    })?;
-    drop(frame_ptr_records);
-    drop(frame_views);
-    drop((
+    });
+    let finish_result = SyncOnDrop::finish_all(frame_ptr_records.into_iter().chain([
         record_frame_ptrs,
         record_frame_sizes,
         record_output_sizes,
@@ -152,11 +164,19 @@ async fn decode_zstd_buffers(
         record_actual_sizes,
         record_temp,
         record_statuses,
-    ));
+    ]))
+    .map_err(|e| vortex_err!("nvcomp decompression buffer tracking: {e}"));
+    drop(frame_views);
+    launch_result.inspect_err(|_| {
+        if let Err(error) = &finish_result {
+            tracing::error!(%error, "Failed to track nvcomp decompression buffers after launch failure");
+        }
+    })?;
+    finish_result?;
 
-    validate_decompress_results(&plan, device_actual_sizes, device_statuses).await?;
+    validate_decompress_results(&plan.output_sizes(), device_actual_sizes, device_statuses).await?;
 
-    let output_handle = BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(device_output)));
+    let output_handle = BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(device_output)?));
     let decompressed_buffers = plan.split_output_handle(&output_handle)?;
 
     let inner_array = ZstdBuffers::build_inner(&array, &decompressed_buffers, ctx.session())?;
@@ -169,32 +189,20 @@ async fn move_frames_to_device(
 ) -> VortexResult<Vec<BufferHandle>> {
     let mut results = Vec::with_capacity(compressed_buffers.len());
     for frame in compressed_buffers {
-        results.push(ctx.ensure_on_device(frame.clone()).await?);
+        results.push(ctx.ensure_on_device(frame.clone())?);
     }
     Ok(results)
 }
 
-// This performs D2H to retrieve the lengths and status arrays.
-async fn validate_decompress_results(
-    plan: &ZstdBuffersDecodePlan,
-    device_actual_sizes: CudaSlice<usize>,
-    device_statuses: CudaSlice<nvcompStatus_t>,
+/// Validates per-frame nvCOMP decompression statuses and actual output byte lengths.
+fn validate_nvcomp_decompress_results(
+    expected_sizes: &[usize],
+    actual_sizes: &[usize],
+    statuses: &[nvcompStatus_t],
 ) -> VortexResult<()> {
-    let actual_sizes_host = CudaDeviceBuffer::new(device_actual_sizes)
-        .copy_to_host(Alignment::of::<usize>())?
-        .await?;
-    let statuses_host = CudaDeviceBuffer::new(device_statuses)
-        .copy_to_host(Alignment::of::<nvcompStatus_t>())?
-        .await?;
-
-    let actual_sizes = Buffer::<usize>::from_byte_buffer(actual_sizes_host);
-    let statuses = Buffer::<nvcompStatus_t>::from_byte_buffer(statuses_host);
-    let expected_sizes = plan.output_sizes();
-
     for (idx, ((&status, &actual), &expected)) in statuses
-        .as_slice()
         .iter()
-        .zip(actual_sizes.as_slice().iter())
+        .zip(actual_sizes.iter())
         .zip(expected_sizes.iter())
         .enumerate()
     {
@@ -216,6 +224,24 @@ async fn validate_decompress_results(
     }
 
     Ok(())
+}
+
+// This performs D2H to retrieve the lengths and status arrays.
+pub(super) async fn validate_decompress_results(
+    expected_sizes: &[usize],
+    device_actual_sizes: CudaSlice<usize>,
+    device_statuses: CudaSlice<nvcompStatus_t>,
+) -> VortexResult<()> {
+    let actual_sizes_fut =
+        CudaDeviceBuffer::new(device_actual_sizes)?.copy_to_host(Alignment::of::<usize>())?;
+    let statuses_fut =
+        CudaDeviceBuffer::new(device_statuses)?.copy_to_host(Alignment::of::<nvcompStatus_t>())?;
+    let (actual_sizes_host, statuses_host) = futures::try_join!(actual_sizes_fut, statuses_fut)?;
+
+    let actual_sizes = Buffer::<usize>::from_byte_buffer(actual_sizes_host);
+    let statuses = Buffer::<nvcompStatus_t>::from_byte_buffer(statuses_host);
+
+    validate_nvcomp_decompress_results(expected_sizes, actual_sizes.as_slice(), statuses.as_slice())
 }
 
 #[cfg(test)]
@@ -281,5 +307,50 @@ mod tests {
 
         assert_arrays_eq!(gpu_result.into_array(), input, &mut ctx);
         Ok(())
+    }
+
+    #[test]
+    fn test_cuda_zstd_validate_nvcomp_results_success() -> VortexResult<()> {
+        let expected = [16usize, 64, 24];
+        let actual = [16usize, 64, 24];
+        let statuses = [sys::nvcompStatus_t_nvcompSuccess; 3];
+
+        validate_nvcomp_decompress_results(&expected, &actual, &statuses)
+    }
+
+    #[test]
+    fn test_cuda_zstd_validate_nvcomp_results_middle_frame_failure() {
+        let expected = [16usize, 64, 24];
+        let actual = [16usize, 64, 24];
+        let statuses = [
+            sys::nvcompStatus_t_nvcompSuccess,
+            sys::nvcompStatus_t_nvcompErrorCannotDecompress,
+            sys::nvcompStatus_t_nvcompSuccess,
+        ];
+
+        let err = validate_nvcomp_decompress_results(&expected, &actual, &statuses)
+            .expect_err("middle frame failure must return an error");
+        let msg = err.to_string();
+        assert!(msg.contains("chunk 1"), "unexpected error: {msg}");
+        assert!(
+            msg.contains(&sys::nvcompStatus_t_nvcompErrorCannotDecompress.to_string()),
+            "unexpected error: {msg}"
+        );
+    }
+
+    #[test]
+    fn test_cuda_zstd_validate_nvcomp_results_size_mismatch() {
+        let expected = [16usize, 64, 24];
+        let actual = [16usize, 32, 24];
+        let statuses = [sys::nvcompStatus_t_nvcompSuccess; 3];
+
+        let err = validate_nvcomp_decompress_results(&expected, &actual, &statuses)
+            .expect_err("size mismatch must return an error");
+        let msg = err.to_string();
+        assert!(msg.contains("chunk 1"), "unexpected error: {msg}");
+        assert!(
+            msg.contains("expected 64, got 32"),
+            "unexpected error: {msg}"
+        );
     }
 }

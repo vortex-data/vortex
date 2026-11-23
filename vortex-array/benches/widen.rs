@@ -30,18 +30,21 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::WidenArray;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
+use vortex_array::dtype::NativePType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::memory::MemorySession;
 use vortex_array::optimizer::kernels::KernelSession;
-use vortex_array::scalar_fn::fns::between::BetweenOptions;
-use vortex_array::scalar_fn::fns::between::StrictComparison;
-use vortex_array::scalar_fn::fns::operators::Operator;
+use vortex_array::scalar_fn::builtin::operators::Operator;
+use vortex_array::test_harness::mark_optimized;
 use vortex_array::validity::Validity;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::Buffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_functions::between::BetweenOptions;
+use vortex_functions::between::StrictComparison;
+use vortex_functions::builtins::ArrayFunctions;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
 
@@ -64,10 +67,12 @@ fn main() {
 // The session variables are created here, so that no timed case pays for their default
 // constructors. No case serializes, so the session needs no `ArraySession`.
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-    VortexSession::empty()
+    let session = VortexSession::empty()
         .with::<KernelSession>()
         .with::<AggregateFnSession>()
-        .with::<MemorySession>()
+        .with::<MemorySession>();
+    vortex_functions::initialize(&session);
+    session
 });
 
 // The decoded values hold 256 KiB. The inputs are sized so that every case does a few
@@ -134,14 +139,20 @@ impl Values {
         let validity = self.validity();
         let dtype = DType::Primitive(PType::I64, validity.nullability());
         let values = PrimitiveArray::new(self.narrow.clone(), validity).into_array();
-        WidenArray::try_new(values, dtype)
+        let array = WidenArray::try_new(values, dtype)
             .vortex_expect("i16 values with the nullability of the dtype can widen to i64")
-            .into_array()
+            .into_array();
+        mark_optimized(&array, &SESSION).vortex_expect("optimize the benchmark input");
+
+        array
     }
 
     /// Builds a new canonical `i64` array of the values.
     fn canonical(&self) -> ArrayRef {
-        PrimitiveArray::new(self.wide.clone(), self.validity()).into_array()
+        let array = PrimitiveArray::new(self.wide.clone(), self.validity()).into_array();
+        mark_optimized(&array, &SESSION).vortex_expect("optimize the benchmark input");
+
+        array
     }
 }
 
@@ -152,7 +163,17 @@ fn random_bits(seed: u64, density: f64) -> BitBuffer {
 }
 
 fn constant(value: i64) -> ArrayRef {
-    ConstantArray::new(value, LEN).into_array()
+    let array = ConstantArray::new(value, LEN).into_array();
+    mark_optimized(&array, &SESSION).vortex_expect("optimize the benchmark input");
+
+    array
+}
+
+fn index_array<T: NativePType>(indices: &Buffer<T>) -> ArrayRef {
+    let array = indices.clone().into_array();
+    mark_optimized(&array, &SESSION).vortex_expect("optimize the benchmark input");
+
+    array
 }
 
 /// Runs `operation` on operands that `setup` builds anew for each iteration.
@@ -213,7 +234,7 @@ fn take_few_indices(bencher: Bencher) {
     let indices: Buffer<u32> = (0..LEN / 4).map(|_| rng.random_range(0..len)).collect();
     bench_case(
         bencher,
-        || (values.widen(), indices.clone().into_array()),
+        || (values.widen(), index_array(&indices)),
         |(array, indices), ctx| execute_canonical(array.take(indices), ctx),
     );
 }
@@ -232,7 +253,7 @@ fn take_many_indices(bencher: Bencher) {
         .collect();
     bench_case(
         bencher,
-        || (values.widen(), indices.clone().into_array()),
+        || (values.widen(), index_array(&indices)),
         |(array, indices), ctx| execute_canonical(array.take(indices), ctx),
     );
 }
@@ -348,6 +369,8 @@ fn zip(bencher: Bencher) {
         bencher,
         || {
             let mask = selection.clone().into_array();
+            mark_optimized(&mask, &SESSION).vortex_expect("optimize the benchmark input");
+
             (mask, if_true.widen(), if_false.widen())
         },
         |(mask, if_true, if_false), ctx| execute_canonical(mask.zip(if_true, if_false), ctx),
@@ -382,8 +405,8 @@ fn interleave(bencher: Bencher) {
         || {
             (
                 vec![first.widen(), second.widen()],
-                array_indices.clone().into_array(),
-                row_indices.clone().into_array(),
+                index_array(&array_indices),
+                index_array(&row_indices),
             )
         },
         |(values, array_indices, row_indices), ctx| {

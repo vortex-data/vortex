@@ -2,12 +2,18 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::sync::Arc;
+use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::Ordering;
 
 use async_fs::OpenOptions;
-use futures::SinkExt;
-use futures::TryStreamExt;
+use async_lock::Semaphore;
+use async_lock::SemaphoreGuardArc;
+use futures::StreamExt;
 use futures::channel::mpsc;
-use futures::channel::mpsc::Sender;
+use futures::channel::mpsc::UnboundedSender;
+use futures::channel::oneshot;
+use futures::future::FutureExt;
+use futures::future::Shared;
 use object_store::ObjectStore;
 use object_store::registry::ObjectStoreRegistry;
 use parking_lot::Mutex;
@@ -57,6 +63,8 @@ use crate::duckdb::DataChunkRef;
 use crate::duckdb::LogicalTypeRef;
 use crate::duckdb::Value;
 
+const QUEUED_ARRAYS: usize = 32;
+
 #[derive(Clone)]
 pub struct CopyFunctionBind {
     dtype: DType,
@@ -81,7 +89,10 @@ struct FinishedWrite {
 pub struct CopyFunctionGlobal {
     write_task: Mutex<Option<Task<VortexResult<WriteSummary>>>>,
     finished: Mutex<Option<FinishedWrite>>,
-    sink: Option<Sender<VortexResult<ArrayRef>>>,
+    sink: Option<UnboundedSender<(ArrayRef, SemaphoreGuardArc)>>,
+    queued_arrays_semaphore: Arc<Semaphore>,
+    flush_signal: Mutex<Option<FlushSignal>>,
+    flush_tasks: AtomicUsize,
 }
 assert_impl_all!(CopyFunctionGlobal: Send, Sync);
 
@@ -107,14 +118,14 @@ pub fn copy_to_bind(
 }
 
 fn push_to_writer(global: &CopyFunctionGlobal, array: ArrayRef) -> VortexResult<()> {
-    let mut sink = global
+    let sink = global
         .sink
         .as_ref()
-        .ok_or_else(|| vortex_err!("sink closed early"))?
-        .clone();
+        .ok_or_else(|| vortex_err!("sink closed early"))?;
     RUNTIME.block_on(async {
+        let permit = global.queued_arrays_semaphore.acquire_arc().await;
         // send may error with "receiver is gone" which isn't the real error
-        if sink.send(Ok(array)).await.is_ok() {
+        if sink.unbounded_send((array, permit)).is_ok() {
             return Ok(());
         }
         let task = global.write_task.lock().take();
@@ -144,23 +155,95 @@ pub struct CopyPreparedBatch {
 
 pub fn prepare_batch_push(
     bind: &CopyFunctionBind,
+    global: &CopyFunctionGlobal,
     batch: &mut CopyPreparedBatch,
     chunk: &DataChunkRef,
 ) -> VortexResult<()> {
     batch
         .arrays
         .push(data_chunk_to_vortex(bind.fields.names(), chunk)?);
+    RUNTIME.block_on(async {
+        drop(global.queued_arrays_semaphore.acquire().await);
+    });
     Ok(())
 }
 
 pub fn flush_batch(global: &CopyFunctionGlobal, batch: &CopyPreparedBatch) -> VortexResult<()> {
+    let _lock = FlushTaskLock { global };
     for array in &batch.arrays {
         push_to_writer(global, array.clone())?;
     }
     Ok(())
 }
 
+struct FlushSignal {
+    _done: oneshot::Sender<()>,
+    listener: Shared<oneshot::Receiver<()>>,
+}
+
+impl FlushSignal {
+    fn new() -> Self {
+        let (done, rx) = oneshot::channel();
+        Self {
+            _done: done,
+            listener: rx.shared(),
+        }
+    }
+}
+
+struct FlushTaskLock<'a> {
+    global: &'a CopyFunctionGlobal,
+}
+
+impl Drop for FlushTaskLock<'_> {
+    fn drop(&mut self) {
+        *self.global.flush_signal.lock() = None;
+    }
+}
+
+// DuckDB's copy execution model is "parallelize a lot in prepare_batch_push,
+// then use one or two threads in flush_batch to write data". This works well
+// for Parquet since compression is fully done during preparation. Vortex,
+// however, does a lot of compute in the flush phase: each chunk is optimized,
+// and we also update global state for better compression, see DictStrategy.
+// So with the callbacks we're provided we're effectively single threaded.
+//
+// We hack this by running tasks inside DuckDB execution during batch flush.
+// Tasks drive RUNTIME which parallelizes flush.
+
+/// Given a request of "want" tasks, return how many tasks do we need to
+/// spawn onto DuckDB executor. 0 cancels all tasks
+pub fn request_tasks(global: &CopyFunctionGlobal, want: usize) -> usize {
+    if want == 0 {
+        *global.flush_signal.lock() = None;
+        return 0;
+    }
+    *global.flush_signal.lock() = Some(FlushSignal::new());
+    want.saturating_sub(global.flush_tasks.fetch_max(want, Ordering::Relaxed))
+}
+
+/// Drive RUNTIME for scheduled flush tasks
+pub fn run_tasks(global: &CopyFunctionGlobal) {
+    loop {
+        let listener = global
+            .flush_signal
+            .lock()
+            .as_ref()
+            .map(|signal| signal.listener.clone());
+        let Some(listener) = listener else {
+            break;
+        };
+        RUNTIME.block_on(async {
+            listener.await.ok();
+        })
+    }
+    global.flush_tasks.fetch_sub(1, Ordering::Relaxed);
+}
+
 pub fn copy_to_finalize(init_global: &mut CopyFunctionGlobal) -> VortexResult<()> {
+    // We've finished flushing, notify all callers they must finish
+    *init_global.flush_signal.lock() = None;
+
     RUNTIME.block_on(async {
         if let Some(sink) = init_global.sink.take() {
             drop(sink)
@@ -336,9 +419,11 @@ pub fn copy_to_initialize_global(
     bind_data: &CopyFunctionBind,
     file_path: String,
 ) -> VortexResult<CopyFunctionGlobal> {
-    // The channel size 32 was chosen arbitrarily.
-    let (sink, rx) = mpsc::channel(32);
-    let array_stream = ArrayStreamAdapter::new(bind_data.dtype.clone(), rx.into_stream());
+    let (sink, rx) = mpsc::unbounded();
+    let array_stream = ArrayStreamAdapter::new(
+        bind_data.dtype.clone(),
+        rx.map(|(array, _permit)| Ok(array)),
+    );
 
     let handle = SESSION.handle();
 
@@ -380,6 +465,9 @@ pub fn copy_to_initialize_global(
         write_task: Mutex::new(Some(write_task)),
         finished: Mutex::new(None),
         sink: Some(sink),
+        queued_arrays_semaphore: Arc::new(Semaphore::new(QUEUED_ARRAYS)),
+        flush_signal: Mutex::new(None),
+        flush_tasks: AtomicUsize::new(0),
     })
 }
 

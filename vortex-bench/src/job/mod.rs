@@ -17,9 +17,6 @@ use anyhow::Context;
 use glob::Pattern;
 use parquet::arrow::ArrowWriter;
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
-use parquet::basic::Compression;
-use parquet::basic::ZstdLevel;
-use parquet::file::properties::WriterProperties;
 use tracing::info;
 use url::Url;
 use vortex::error::VortexExpect;
@@ -31,6 +28,9 @@ use crate::TableSpec;
 use crate::datasets::data_downloads::download_many;
 use crate::utils::file::idempotent;
 use crate::utils::file::resolve_data_url;
+use crate::utils::parquet::LOCAL_ROW_GROUP_ROWS;
+use crate::utils::parquet::parquet_writer_properties;
+use crate::utils::parquet::prepare_parquet_dir;
 
 /// Release that hosts DuckDB's JOB Parquet files, as referenced by DuckDB's
 /// `benchmark/imdb/init/load.sql`. Each table lives at `{UPSTREAM_BASE_URL}/job_{table}.parquet`.
@@ -116,6 +116,7 @@ impl Benchmark for JobBenchmark {
 
         let base_dir = self.base_dir()?;
         let parquet_dir = base_dir.join(Format::Parquet.name());
+        prepare_parquet_dir(&parquet_dir, LOCAL_ROW_GROUP_ROWS)?;
         let missing: Vec<&str> = TABLES
             .iter()
             .copied()
@@ -189,15 +190,16 @@ impl Benchmark for JobBenchmark {
     }
 }
 
-/// Rewrite the upstream Parquet file at `src` to `dst` with zstd level 3 compression.
+/// Rewrite the upstream Parquet file at `src` to `dst` with `parquet_writer_properties`, in
+/// local row groups.
 fn reencode_parquet(src: &Path, dst: &Path) -> anyhow::Result<PathBuf> {
     idempotent(dst, |tmp| {
         let builder = ParquetRecordBatchReaderBuilder::try_new(
             File::open(src).with_context(|| format!("opening {}", src.display()))?,
         )?;
         let schema = Arc::clone(builder.schema());
-        let props = WriterProperties::builder()
-            .set_compression(Compression::ZSTD(ZstdLevel::try_new(3)?))
+        let props = parquet_writer_properties()
+            .set_max_row_group_row_count(Some(LOCAL_ROW_GROUP_ROWS))
             .build();
         let mut writer = ArrowWriter::try_new(File::create(tmp)?, schema, Some(props))?;
         for batch in builder.build()? {

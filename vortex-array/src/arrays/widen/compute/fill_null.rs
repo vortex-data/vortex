@@ -13,7 +13,7 @@ use crate::arrays::widen::compute::wrap_values;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::scalar::Scalar;
-use crate::scalar_fn::fns::fill_null::FillNullReduce;
+use crate::scalar_fn::builtin::fill_null::FillNullReduce;
 
 impl FillNullReduce for Widen {
     fn fill_null(
@@ -27,7 +27,7 @@ impl FillNullReduce for Widen {
         let values = array.values();
         let dtype = match values.dtype() {
             DType::Primitive(..) => {
-                let Some(ptype) = ptype_holding_values_and_scalar(array, fill_value)? else {
+                let Some(ptype) = ptype_holding_values_and_scalar(array, fill_value) else {
                     return Ok(None);
                 };
 

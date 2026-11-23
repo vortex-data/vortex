@@ -8,7 +8,8 @@
 ///
 /// ## Stage plan
 ///
-/// The plan is packed as a variable-length byte buffer.
+/// The plan is packed as a variable-length byte buffer, passed to the kernel
+/// by value in a `DispatchPlanParam` kernel parameter.
 ///
 /// Layout (contiguous bytes):
 ///   [PlanHeader]
@@ -174,6 +175,7 @@ struct SourceOp {
 ///   - ALP: encoded int → float (e.g. i32 → f32, i64 → f64)
 ///   - DICT: codes type → values type (e.g. u8 → u32)
 ///   - CAST: current type → requested output type
+///   - EXTEND: narrow integer → wider integer of the same signedness
 ///
 /// The plan builder uses `output_ptype` to determine the element width
 /// for shared memory allocation and to propagate type information
@@ -198,12 +200,20 @@ union ScalarParams {
     struct DictParams {
         uint32_t values_smem_byte_offset; // byte offset to decoded dict values in smem
     } dict;
+
+    /// Extend a narrower integer to the output type (sign-extend signed,
+    /// zero-extend unsigned). Must be the last scalar op: LOAD/BITUNPACK
+    /// zero-extends to the output width, so prior ops produce correct low
+    /// bits, and EXTEND fixes the high bits.
+    struct ExtendParams {
+        enum PTypeTag source_ptype; // narrower integer type being extended
+    } extend;
 };
 
 struct ScalarOp {
-    enum ScalarOpCode { FOR, ZIGZAG, ALP, DICT, CAST } op_code;
+    enum ScalarOpCode { FOR, ZIGZAG, ALP, DICT, CAST, EXTEND } op_code;
     /// The PType this op produces. For type-preserving ops (FOR, ZIGZAG) this
-    /// equals the input PType. For type-changing ops (ALP, DICT, CAST) this is
+    /// equals the input PType. For type-changing ops (ALP, DICT, CAST, EXTEND) this is
     /// the new output PType.
     enum PTypeTag output_ptype;
     union ScalarParams params;
@@ -233,6 +243,19 @@ struct __attribute__((aligned(8))) PlanHeader {
     uint8_t num_stages;
     enum PTypeTag output_ptype; // PType of the final output array
     uint16_t plan_size_bytes;   // total size of the packed plan including this header
+};
+
+/// Capacity of `DispatchPlanParam` in bytes. Plans larger than this are not
+/// fused. Typical plans take 100-200 bytes, and kernel parameters are limited
+/// to 4 KB in total.
+#define MAX_PLAN_BYTES 1024
+
+/// The packed plan, passed to the kernel by value as a `__grid_constant__`
+/// parameter. Passing the plan by value avoids allocating and copying a
+/// device buffer for every launch, and threads read it through the constant
+/// cache. Bytes past `PlanHeader::plan_size_bytes` are unused.
+struct __attribute__((aligned(8))) DispatchPlanParam {
+    uint8_t bytes[MAX_PLAN_BYTES];
 };
 
 #ifdef __cplusplus

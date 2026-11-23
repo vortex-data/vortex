@@ -24,6 +24,7 @@ use vortex_array::arrays::MaskedArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::memory::MemorySession;
 use vortex_array::optimizer::kernels::KernelSession;
+use vortex_array::test_harness::mark_optimized;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_session::VortexSession;
@@ -70,10 +71,10 @@ fn bench_l2_norm(bencher: Bencher, input: ArrayRef) {
     bencher
         .counter(ItemsCount::new(input.len()))
         .with_inputs(|| {
-            (
-                L2Norm::try_new(input.clone()).unwrap().into_array(),
-                SESSION.create_execution_ctx(),
-            )
+            let array = L2Norm::try_new(input.clone()).unwrap().into_array();
+            mark_optimized(&array, &SESSION).unwrap();
+
+            (array, SESSION.create_execution_ctx())
         })
         .bench_values(|(array, mut ctx)| array.execute::<PrimitiveArray>(&mut ctx).unwrap());
 }
