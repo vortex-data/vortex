@@ -406,7 +406,6 @@ mod tests {
     use vortex_array::optimizer::ArrayOptimizer;
     use vortex_array::validity::Validity;
     use vortex_arrow::ArrowSessionExt;
-    use vortex_arrow::ExecuteArrowExt;
     use vortex_error::VortexResult;
     use vortex_error::vortex_bail;
     use vortex_error::vortex_ensure;
@@ -1167,7 +1166,11 @@ mod tests {
             shredded.unmasked_field_by_name("a")?.dtype(),
             &VortexDType::Variant(Nullability::Nullable)
         );
-        assert!(shredded.unmasked_field_by_name_opt("b").is_none());
+        // `b` has only a `value` column, which holds its value, so it stays as a Variant field.
+        assert_eq!(
+            shredded.unmasked_field_by_name("b")?.dtype(),
+            &VortexDType::Variant(Nullability::Nullable)
+        );
 
         let result = execute_variant_get(
             canonical,
@@ -1704,7 +1707,7 @@ mod tests {
     }
 
     #[test]
-    fn test_variant_get_untyped_shredded_list_index_exports_to_arrow() -> VortexResult<()> {
+    fn test_variant_get_untyped_shredded_list_index() -> VortexResult<()> {
         let json: ArrowArrayRef = Arc::new(StringArray::from(vec![
             r#"{"tags":[10,"x"]}"#,
             r#"{"tags":[30]}"#,
@@ -1720,12 +1723,17 @@ mod tests {
         let canonical = parquet_array.execute::<Canonical>(&mut ctx)?.into_array();
 
         let extracted = execute_variant_get(canonical, "$.tags[0]", None)?;
-        let exported = extracted.execute_arrow(None, &mut ctx)?;
-        let arrow_variant = ArrowVariantArray::try_new(&exported)?;
-        assert_eq!(arrow_variant.len(), 3);
-        assert_eq!(arrow_variant.value(0).as_int32(), Some(10));
-        assert_eq!(arrow_variant.value(1).as_int32(), Some(30));
-        assert_eq!(arrow_variant.value(2).as_int32(), Some(40));
+        assert_eq!(extracted.len(), 3);
+        for (row, expected) in [10i32, 30, 40].into_iter().enumerate() {
+            let value = extracted.execute_scalar(row, &mut ctx)?;
+            assert_eq!(
+                value
+                    .as_variant()
+                    .value()
+                    .and_then(|value| value.as_primitive().typed_value::<i32>()),
+                Some(expected)
+            );
+        }
         Ok(())
     }
 }

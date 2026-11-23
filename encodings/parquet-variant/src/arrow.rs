@@ -11,13 +11,8 @@ use arrow_schema::DataType;
 use arrow_schema::Field;
 use arrow_schema::Fields;
 use arrow_schema::extension::EXTENSION_TYPE_NAME_KEY;
-use chrono::DateTime;
-use chrono::NaiveDate;
-use chrono::NaiveTime;
 use parquet_variant::Variant as PqVariant;
 use parquet_variant::VariantBuilder;
-use parquet_variant::VariantBuilderExt;
-use parquet_variant::VariantDecimal16;
 use parquet_variant_compute::GetOptions;
 use parquet_variant_compute::VariantArray as ArrowVariantArray;
 use parquet_variant_compute::unshred_variant;
@@ -30,15 +25,11 @@ use vortex_array::arrays::Chunked;
 use vortex_array::arrays::Constant;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::List;
-use vortex_array::arrays::ListView;
 use vortex_array::arrays::Masked;
 use vortex_array::arrays::Struct;
-use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::Variant;
-use vortex_array::arrays::VariantArray;
 use vortex_array::arrays::chunked::ChunkedArrayExt;
 use vortex_array::arrays::list::ListArraySlotsExt;
-use vortex_array::arrays::listview::ListViewArraySlotsExt;
 use vortex_array::arrays::masked::MaskedArrayExt;
 use vortex_array::arrays::masked::MaskedArraySlotsExt;
 use vortex_array::arrays::struct_::StructArrayExt;
@@ -47,12 +38,6 @@ use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldName;
 use vortex_array::dtype::Nullability;
-use vortex_array::dtype::PType;
-use vortex_array::dtype::half::f16;
-use vortex_array::extension::datetime::Date;
-use vortex_array::extension::datetime::Time;
-use vortex_array::extension::datetime::TimeUnit;
-use vortex_array::extension::datetime::Timestamp;
 use vortex_array::matcher::Matcher;
 use vortex_array::scalar::Scalar;
 use vortex_array::validity::Validity;
@@ -65,11 +50,9 @@ use vortex_arrow::ArrowSession;
 use vortex_arrow::ArrowSessionExt;
 use vortex_arrow::ExecuteArrowExt;
 use vortex_arrow::to_arrow_null_buffer;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
-use vortex_error::vortex_err;
 use vortex_session::registry::CachedId;
 use vortex_session::registry::Id;
 
@@ -235,7 +218,12 @@ pub(crate) fn prepare_variant_for_export(
     }
 
     if let Some(constant) = array.as_opt::<Constant>() {
-        return constant_variant_storage(constant.scalar(), array.len(), typed_value, ctx);
+        let scalar = constant.scalar();
+        if scalar.is_null() || scalar.as_variant().is_variant_null() == Some(true) {
+            return constant_null_variant_storage(scalar, array.len(), typed_value);
+        }
+
+        vortex_bail!("cannot export non-null constant Variant to Arrow");
     }
 
     vortex_bail!("cannot export Variant without ParquetVariant core storage")
@@ -300,15 +288,11 @@ fn empty_variant_storage(dtype: &DType, typed_value: Option<ArrayRef>) -> Vortex
     .map(IntoArray::into_array)
 }
 
-fn constant_variant_storage(
+fn constant_null_variant_storage(
     scalar: &Scalar,
     len: usize,
     typed_value: Option<ArrayRef>,
-    ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
-    let is_variant_null = scalar.as_variant().is_variant_null() == Some(true);
-    let is_null_or_variant_null = scalar.is_null() || is_variant_null;
-
     // All rows of an outer-null constant are null, so no row reads shredded field names.
     let mut field_names = Vec::new();
     if !scalar.is_null()
@@ -317,32 +301,10 @@ fn constant_variant_storage(
         collect_shredded_field_names(typed_value, &mut field_names)?;
     }
 
-    let payload = if is_null_or_variant_null {
-        None
-    } else {
-        scalar.as_variant().value()
-    };
-
-    // If a shredded object overlaps keys of a constant struct core, include the constant struct's
-    // own keys in the shared metadata dictionary so both the full fallback and residual object
-    // share identical metadata bytes.
-    if let Some(payload) = payload
-        && let Some(struct_scalar) = payload.as_struct_opt()
-        && !struct_scalar.is_null()
-    {
-        for name in struct_scalar.names().iter() {
-            field_names.push(name.clone());
-        }
-    }
-
     let mut builder =
         VariantBuilder::new().with_field_names(field_names.iter().map(|s| s.as_ref()));
-    if let Some(payload) = payload {
-        append_scalar_to_variant(&mut builder, payload)?;
-    } else {
-        builder.append_value(PqVariant::Null);
-    }
-    let (metadata, full_value_bytes) = builder.finish();
+    builder.append_value(PqVariant::Null);
+    let (metadata, value) = builder.finish();
 
     let validity = if scalar.is_null() {
         Validity::AllInvalid
@@ -352,82 +314,12 @@ fn constant_variant_storage(
         Validity::NonNullable
     };
 
-    let full_value = ConstantArray::new(
-        Scalar::binary(full_value_bytes, Nullability::NonNullable),
-        len,
-    )
-    .into_array();
-    let value = match (&typed_value, payload) {
-        (None, _) => full_value,
-        // Synthesized nulls or non-object shredded overrides take precedence over the constant
-        // core on rows where `typed_value` is valid.
-        (Some(typed_value), None) => full_value.mask(typed_value.is_null()?)?,
-        (Some(typed_value), Some(_)) if !typed_value.dtype().is_struct() => {
-            full_value.mask(typed_value.is_null()?)?
-        }
-        (Some(typed_value), Some(payload)) => {
-            let Some(struct_scalar) = payload.as_struct_opt().filter(|s| !s.is_null()) else {
-                // Non-object constant fallback beside a shredded object.
-                return ParquetVariant::try_new(
-                    validity,
-                    ConstantArray::new(Scalar::binary(metadata, Nullability::NonNullable), len)
-                        .into_array(),
-                    Some(full_value.mask(typed_value.is_null()?)?),
-                    Some(typed_value.clone()),
-                )
-                .map(IntoArray::into_array);
-            };
-            let shredded_fields = typed_value
-                .dtype()
-                .as_struct_fields_opt()
-                .vortex_expect("checked struct dtype");
-            let has_overlap = struct_scalar
-                .names()
-                .iter()
-                .any(|name| shredded_fields.find(name.as_ref()).is_some());
-            if !has_overlap {
-                full_value
-            } else {
-                // When a constant struct core shares keys with a shredded struct, null shredded
-                // fields still fall back to the constant core and nested objects merge recursively.
-                // Encode the logically merged rows directly as unshredded Parquet Variant storage
-                // so every row keeps its exact fallback values and matching metadata dictionary.
-                let metadata_arr =
-                    ConstantArray::new(Scalar::binary(metadata, Nullability::NonNullable), len)
-                        .into_array();
-                let logical_shredded = crate::array::logical_shredded_from_parquet_typed_value(
-                    &metadata_arr,
-                    typed_value.clone(),
-                    ctx,
-                )?;
-                let merged = VariantArray::try_new(
-                    ConstantArray::new(scalar.clone(), len).into_array(),
-                    Some(logical_shredded),
-                )?
-                .into_array();
-                let mut meta_rows = Vec::with_capacity(len);
-                let mut val_rows = Vec::with_capacity(len);
-                for row in 0..len {
-                    let row_scalar = merged.execute_scalar(row, ctx)?;
-                    let mut row_builder = VariantBuilder::new();
-                    if let Some(row_payload) = row_scalar.as_variant().value() {
-                        append_scalar_to_variant(&mut row_builder, row_payload)?;
-                    } else {
-                        row_builder.append_value(PqVariant::Null);
-                    }
-                    let (row_meta, row_val) = row_builder.finish();
-                    meta_rows.push(row_meta);
-                    val_rows.push(row_val);
-                }
-                return ParquetVariant::try_new(
-                    validity,
-                    VarBinViewArray::from_iter_bin(meta_rows).into_array(),
-                    Some(VarBinViewArray::from_iter_bin(val_rows).into_array()),
-                    None,
-                )
-                .map(IntoArray::into_array);
-            }
-        }
+    let value =
+        ConstantArray::new(Scalar::binary(value, Nullability::NonNullable), len).into_array();
+    // Synthesized nulls are fallbacks, not residual objects to merge with shredded fields.
+    let value = match &typed_value {
+        Some(typed_value) => value.mask(typed_value.is_null()?)?,
+        None => value,
     };
 
     ParquetVariant::try_new(
@@ -437,256 +329,6 @@ fn constant_variant_storage(
         typed_value,
     )
     .map(IntoArray::into_array)
-}
-
-fn append_scalar_to_variant<B: VariantBuilderExt>(
-    builder: &mut B,
-    scalar: &Scalar,
-) -> VortexResult<()> {
-    if scalar.is_null() {
-        builder.append_null();
-        return Ok(());
-    }
-
-    match scalar.dtype() {
-        DType::Null => builder.append_null(),
-        DType::Bool(_) => {
-            if let Some(v) = scalar.as_bool().value() {
-                builder.append_value(v);
-            } else {
-                builder.append_null();
-            }
-        }
-        DType::Primitive(ptype, _) => {
-            let primitive = scalar.as_primitive();
-            match ptype {
-                PType::I8 => {
-                    builder.append_value(primitive.typed_value::<i8>().unwrap_or_default())
-                }
-                PType::I16 => {
-                    builder.append_value(primitive.typed_value::<i16>().unwrap_or_default())
-                }
-                PType::I32 => {
-                    builder.append_value(primitive.typed_value::<i32>().unwrap_or_default())
-                }
-                PType::I64 => {
-                    builder.append_value(primitive.typed_value::<i64>().unwrap_or_default())
-                }
-                PType::U8 => builder
-                    .append_value(i16::from(primitive.typed_value::<u8>().unwrap_or_default())),
-                PType::U16 => builder.append_value(i32::from(
-                    primitive.typed_value::<u16>().unwrap_or_default(),
-                )),
-                PType::U32 => builder.append_value(i64::from(
-                    primitive.typed_value::<u32>().unwrap_or_default(),
-                )),
-                PType::U64 => {
-                    let v = primitive.typed_value::<u64>().unwrap_or_default();
-                    if let Ok(signed) = i64::try_from(v) {
-                        builder.append_value(signed);
-                    } else {
-                        builder.append_value(VariantDecimal16::try_new(i128::from(v), 0)?);
-                    }
-                }
-                PType::F16 => {
-                    let v = primitive.typed_value::<f16>().unwrap_or_default();
-                    builder.append_value(f32::from(v));
-                }
-                PType::F32 => {
-                    builder.append_value(primitive.typed_value::<f32>().unwrap_or_default())
-                }
-                PType::F64 => {
-                    builder.append_value(primitive.typed_value::<f64>().unwrap_or_default())
-                }
-            }
-        }
-        DType::Decimal(dec_dtype, _) => {
-            let Some(dec_val) = scalar.as_decimal().decimal_value() else {
-                builder.append_null();
-                return Ok(());
-            };
-            let Some(v) = dec_val.cast::<i128>() else {
-                vortex_bail!("decimal value exceeds 128-bit Parquet Variant range");
-            };
-            let scale = u8::try_from(dec_dtype.scale()).map_err(|_| {
-                vortex_err!(
-                    "negative decimal scale {} is not supported in Parquet Variant",
-                    dec_dtype.scale()
-                )
-            })?;
-            builder.append_value(VariantDecimal16::try_new(v, scale)?);
-        }
-        DType::Utf8(_) => {
-            if let Some(v) = scalar.as_utf8().value() {
-                builder.append_value(v.as_str());
-            } else {
-                builder.append_null();
-            }
-        }
-        DType::Binary(_) => {
-            if let Some(v) = scalar.as_binary().value() {
-                builder.append_value(v.as_slice());
-            } else {
-                builder.append_null();
-            }
-        }
-        DType::List(..) | DType::FixedSizeList(..) => {
-            let Some(elements) = scalar.as_list().elements() else {
-                builder.append_null();
-                return Ok(());
-            };
-            let mut list = builder.new_list();
-            for element in &elements {
-                append_scalar_to_variant(&mut list, element)?;
-            }
-            list.finish();
-        }
-        DType::Struct(fields, _) => {
-            let struct_scalar = scalar.as_struct();
-            let mut object = builder.new_object();
-            for (idx, name) in fields.names().iter().enumerate() {
-                let Some(field) = struct_scalar.field_by_idx(idx) else {
-                    continue;
-                };
-                let mut field_builder = VariantBuilder::new();
-                append_scalar_to_variant(&mut field_builder, &field)?;
-                let (field_meta, field_val) = field_builder.finish();
-                object.insert(name.as_ref(), PqVariant::try_new(&field_meta, &field_val)?);
-            }
-            object.finish();
-        }
-        DType::Variant(_) => {
-            if let Some(payload) = scalar.as_variant().value() {
-                append_scalar_to_variant(builder, payload)?;
-            } else {
-                builder.append_null();
-            }
-        }
-        DType::Extension(ext_dtype) => {
-            let storage = scalar.as_extension().to_storage_scalar();
-            if let Some(date_opts) = ext_dtype.metadata_opt::<Date>() {
-                let days = match date_opts {
-                    TimeUnit::Days => storage
-                        .as_primitive()
-                        .typed_value::<i32>()
-                        .ok_or_else(|| vortex_err!("missing days value for Date scalar"))?,
-                    TimeUnit::Milliseconds => {
-                        let millis = storage
-                            .as_primitive()
-                            .typed_value::<i64>()
-                            .ok_or_else(|| vortex_err!("missing millis value for Date scalar"))?;
-                        const MILLIS_PER_DAY: i64 = 86_400_000;
-                        if millis % MILLIS_PER_DAY != 0 {
-                            vortex_bail!(
-                                "cannot encode sub-day Date(Milliseconds) {millis} into Parquet Variant"
-                            );
-                        }
-                        i32::try_from(millis / MILLIS_PER_DAY).map_err(|_| {
-                            vortex_err!("Date(Milliseconds) out of i32 days range: {millis}")
-                        })?
-                    }
-                    unit => vortex_bail!("unsupported Date unit {unit:?} for Parquet Variant"),
-                };
-                let date = NaiveDate::from_epoch_days(days)
-                    .ok_or_else(|| vortex_err!("date epoch days out of range: {days}"))?;
-                builder.append_value(date);
-            } else if let Some(ts_opts) = ext_dtype.metadata_opt::<Timestamp>() {
-                let raw = storage
-                    .as_primitive()
-                    .typed_value::<i64>()
-                    .ok_or_else(|| vortex_err!("missing integer value for Timestamp scalar"))?;
-                let dt = match ts_opts.unit {
-                    TimeUnit::Seconds => DateTime::from_timestamp(raw, 0)
-                        .ok_or_else(|| vortex_err!("timestamp seconds out of range: {raw}"))?,
-                    TimeUnit::Milliseconds => DateTime::from_timestamp_millis(raw)
-                        .ok_or_else(|| vortex_err!("timestamp milliseconds out of range: {raw}"))?,
-                    TimeUnit::Microseconds => DateTime::from_timestamp_micros(raw)
-                        .ok_or_else(|| vortex_err!("timestamp microseconds out of range: {raw}"))?,
-                    TimeUnit::Nanoseconds => DateTime::from_timestamp_nanos(raw),
-                    TimeUnit::Days => {
-                        vortex_bail!("unsupported Timestamp unit Days for Parquet Variant")
-                    }
-                };
-                if ts_opts.tz.is_some() {
-                    builder.append_value(dt);
-                } else {
-                    builder.append_value(dt.naive_utc());
-                }
-            } else if let Some(time_opts) = ext_dtype.metadata_opt::<Time>() {
-                let (secs, nanos) = match time_opts {
-                    TimeUnit::Seconds => {
-                        let raw = storage
-                            .as_primitive()
-                            .typed_value::<i32>()
-                            .ok_or_else(|| vortex_err!("missing i32 value for Time(Seconds)"))?;
-                        let secs = u32::try_from(raw)
-                            .map_err(|_| vortex_err!("Time(Seconds) out of range: {raw}"))?;
-                        (secs, 0u32)
-                    }
-                    TimeUnit::Milliseconds => {
-                        let raw = storage.as_primitive().typed_value::<i32>().ok_or_else(|| {
-                            vortex_err!("missing i32 value for Time(Milliseconds)")
-                        })?;
-                        if raw < 0 {
-                            vortex_bail!("Time(Milliseconds) out of range: {raw}");
-                        }
-                        let secs = u32::try_from(raw / 1_000)
-                            .map_err(|_| vortex_err!("Time(Milliseconds) out of range: {raw}"))?;
-                        let nanos = u32::try_from((raw % 1_000) * 1_000_000)
-                            .map_err(|_| vortex_err!("Time(Milliseconds) out of range: {raw}"))?;
-                        (secs, nanos)
-                    }
-                    TimeUnit::Microseconds => {
-                        let raw = storage.as_primitive().typed_value::<i64>().ok_or_else(|| {
-                            vortex_err!("missing i64 value for Time(Microseconds)")
-                        })?;
-                        if raw < 0 {
-                            vortex_bail!("Time(Microseconds) out of range: {raw}");
-                        }
-                        let secs = u32::try_from(raw / 1_000_000)
-                            .map_err(|_| vortex_err!("Time(Microseconds) out of range: {raw}"))?;
-                        let nanos = u32::try_from((raw % 1_000_000) * 1_000)
-                            .map_err(|_| vortex_err!("Time(Microseconds) out of range: {raw}"))?;
-                        (secs, nanos)
-                    }
-                    TimeUnit::Nanoseconds => {
-                        let raw = storage.as_primitive().typed_value::<i64>().ok_or_else(|| {
-                            vortex_err!("missing i64 value for Time(Nanoseconds)")
-                        })?;
-                        if raw < 0 || raw % 1_000 != 0 {
-                            vortex_bail!(
-                                "cannot encode Time(Nanoseconds) {raw} into microsecond Parquet Variant time"
-                            );
-                        }
-                        let secs = u32::try_from(raw / 1_000_000_000)
-                            .map_err(|_| vortex_err!("Time(Nanoseconds) out of range: {raw}"))?;
-                        let nanos = u32::try_from(raw % 1_000_000_000)
-                            .map_err(|_| vortex_err!("Time(Nanoseconds) out of range: {raw}"))?;
-                        (secs, nanos)
-                    }
-                    TimeUnit::Days => {
-                        vortex_bail!("unsupported Time unit Days for Parquet Variant")
-                    }
-                };
-                let time = NaiveTime::from_num_seconds_from_midnight_opt(secs, nanos)
-                    .ok_or_else(|| vortex_err!("time out of range: {secs}s {nanos}ns"))?;
-                builder.append_value(time);
-            } else {
-                vortex_bail!(
-                    "cannot encode extension scalar {} into Parquet Variant",
-                    ext_dtype.id()
-                );
-            }
-        }
-        DType::Map(..) | DType::Union(..) => {
-            vortex_bail!(
-                "cannot encode {} scalar into Parquet Variant",
-                scalar.dtype()
-            );
-        }
-    }
-
-    Ok(())
 }
 
 // Walk the encodings, not the dtype: `parquet_typed_value_from_logical_shredded` adds field
@@ -699,10 +341,6 @@ fn collect_shredded_field_names(
 ) -> VortexResult<()> {
     if let Some(list) = typed_value.as_opt::<List>() {
         return collect_shredded_wrapper_names(list.elements(), names);
-    }
-
-    if let Some(list_view) = typed_value.as_opt::<ListView>() {
-        return collect_shredded_wrapper_names(list_view.elements(), names);
     }
 
     if let Some(object) = typed_value.as_opt::<Struct>() {
@@ -884,7 +522,6 @@ mod tests {
     use rstest::fixture;
     use rstest::rstest;
     use vortex_array::ArrayRef;
-    use vortex_array::Canonical;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::ChunkedArray;
@@ -1583,408 +1220,5 @@ mod tests {
         let actual = session.arrow().from_arrow_array(exported, &field)?;
 
         assert_variant_scalars_eq(&actual, &expected, &session)
-    }
-
-    #[rstest]
-    fn export_canonicalized_shredded_list_preserves_element_wrappers(
-        session: VortexSession,
-    ) -> VortexResult<()> {
-        let mut ctx = session.create_execution_ctx();
-        let rows = [
-            VariantBuilder::new().with_value(1i64).finish(),
-            VariantBuilder::new().with_value(2i64).finish(),
-        ];
-        let metadata =
-            VarBinViewArray::from_iter_bin(rows.iter().map(|(m, _)| m.as_slice())).into_array();
-        let value = VarBinViewArray::from_iter_nullable_bin([None::<&[u8]>, None]).into_array();
-
-        let elem_wrapper = VortexStructArray::try_from_iter([(
-            "typed_value",
-            buffer![10i64, 20, 30].into_array(),
-        )])?
-        .into_array();
-        let typed_list = ListArray::try_new(
-            elem_wrapper,
-            buffer![0u32, 2, 3].into_array(),
-            Validity::AllValid,
-            &mut ctx,
-        )?
-        .into_array();
-
-        let parquet_array = ParquetVariant::try_new(
-            Validity::NonNullable,
-            metadata,
-            Some(value),
-            Some(typed_list),
-        )?
-        .into_array();
-        let canonical = parquet_array.execute::<Canonical>(&mut ctx)?.into_array();
-
-        let exported = canonical.execute_arrow(None, &mut ctx)?;
-        let arrow_variant = ArrowVariantArray::try_new(&exported)?;
-        assert_eq!(arrow_variant.len(), 2);
-        let row0 = arrow_variant.value(0);
-        let row1 = arrow_variant.value(1);
-        assert_eq!(
-            row0.as_list()
-                .expect("row 0 should be a list")
-                .iter()
-                .map(|v| v.as_int64())
-                .collect::<Vec<_>>(),
-            vec![Some(10), Some(20)]
-        );
-        assert_eq!(
-            row1.as_list()
-                .expect("row 1 should be a list")
-                .iter()
-                .map(|v| v.as_int64())
-                .collect::<Vec<_>>(),
-            vec![Some(30)]
-        );
-        Ok(())
-    }
-
-    #[rstest]
-    fn export_non_null_constant_variant_to_arrow(session: VortexSession) -> VortexResult<()> {
-        let mut ctx = session.create_execution_ctx();
-        let constant = ConstantArray::new(
-            Scalar::variant(Scalar::primitive(42i64, Nullability::NonNullable)),
-            3,
-        )
-        .into_array();
-
-        let exported = constant.execute_arrow(None, &mut ctx)?;
-        let arrow_variant = ArrowVariantArray::try_new(&exported)?;
-        assert_eq!(arrow_variant.len(), 3);
-        for i in 0..3 {
-            assert_eq!(arrow_variant.value(i).as_int64(), Some(42));
-        }
-        Ok(())
-    }
-
-    #[rstest]
-    fn export_raw_only_shredded_list_elements_round_trip(
-        session: VortexSession,
-    ) -> VortexResult<()> {
-        let mut ctx = session.create_execution_ctx();
-        let mut elem_builder = VariantBuilder::new();
-        elem_builder.append_value(10i64);
-        let (empty_metadata, raw_ten) = elem_builder.finish();
-
-        let metadata =
-            ConstantArray::new(Scalar::binary(empty_metadata, Nullability::NonNullable), 1)
-                .into_array();
-        let value =
-            ConstantArray::new(Scalar::null(DType::Binary(Nullability::Nullable)), 1).into_array();
-        let elem_wrapper = vortex_array::arrays::StructArray::try_new(
-            FieldNames::from_iter(["value"]),
-            vec![
-                ConstantArray::new(Scalar::binary(raw_ten, Nullability::Nullable), 1).into_array(),
-            ],
-            1,
-            Validity::NonNullable,
-        )?
-        .into_array();
-        let typed_list = ListArray::try_new(
-            elem_wrapper,
-            PrimitiveArray::from_iter([0u32, 1]).into_array(),
-            Validity::AllValid,
-            &mut ctx,
-        )?
-        .into_array();
-
-        let parquet_array = ParquetVariant::try_new(
-            Validity::NonNullable,
-            metadata,
-            Some(value),
-            Some(typed_list),
-        )?
-        .into_array();
-        let canonical = parquet_array.execute::<Canonical>(&mut ctx)?.into_array();
-
-        let exported = canonical.execute_arrow(None, &mut ctx)?;
-        let arrow_variant = ArrowVariantArray::try_new(&exported)?;
-        assert_eq!(arrow_variant.len(), 1);
-        let row0 = arrow_variant.value(0);
-        assert_eq!(
-            row0.as_list()
-                .expect("row 0 should be a list")
-                .iter()
-                .map(|v| v.as_int64())
-                .collect::<Vec<_>>(),
-            vec![Some(10)]
-        );
-        Ok(())
-    }
-
-    #[rstest]
-    fn canonicalized_aliased_list_view_preserves_per_row_metadata(
-        session: VortexSession,
-    ) -> VortexResult<()> {
-        let mut ctx = session.create_execution_ctx();
-        let mut b0 = VariantBuilder::new();
-        {
-            let mut obj = b0.new_object();
-            obj.insert("x", 5i64);
-            obj.finish();
-        }
-        let (meta_x, raw_obj_x) = b0.finish();
-
-        let mut b1 = VariantBuilder::new();
-        {
-            let mut obj = b1.new_object();
-            obj.insert("y", 5i64);
-            obj.finish();
-        }
-        let (meta_y, raw_obj_y) = b1.finish();
-        assert_eq!(raw_obj_x, raw_obj_y);
-
-        let metadata =
-            VarBinViewArray::from_iter_bin([meta_x.as_slice(), meta_y.as_slice()]).into_array();
-        let value =
-            ConstantArray::new(Scalar::null(DType::Binary(Nullability::Nullable)), 2).into_array();
-        let elem_wrapper = vortex_array::arrays::StructArray::try_new(
-            FieldNames::from_iter(["value"]),
-            vec![
-                ConstantArray::new(Scalar::binary(raw_obj_x, Nullability::Nullable), 1)
-                    .into_array(),
-            ],
-            1,
-            Validity::NonNullable,
-        )?
-        .into_array();
-        // Both rows reference element slot 0.
-        let typed_list = vortex_array::arrays::ListViewArray::try_new(
-            elem_wrapper,
-            PrimitiveArray::from_iter([0u32, 0]).into_array(),
-            PrimitiveArray::from_iter([1u32, 1]).into_array(),
-            Validity::AllValid,
-            &mut ctx,
-        )?
-        .into_array();
-
-        let parquet_array = ParquetVariant::try_new(
-            Validity::NonNullable,
-            metadata,
-            Some(value),
-            Some(typed_list),
-        )?
-        .into_array();
-        let canonical = parquet_array.execute::<Canonical>(&mut ctx)?.into_array();
-
-        let exported = canonical.execute_arrow(None, &mut ctx)?;
-        let arrow_variant = ArrowVariantArray::try_new(&exported)?;
-        assert_eq!(arrow_variant.len(), 2);
-
-        let row0 = arrow_variant.value(0);
-        let row0_elem = row0
-            .as_list()
-            .expect("row 0 should be a list")
-            .get(0)
-            .expect("row 0 should have element 0");
-        assert_eq!(
-            row0_elem
-                .as_object()
-                .and_then(|o| o.get("x"))
-                .and_then(|v| v.as_int64()),
-            Some(5)
-        );
-        assert!(row0_elem.as_object().and_then(|o| o.get("y")).is_none());
-
-        let row1 = arrow_variant.value(1);
-        let row1_elem = row1
-            .as_list()
-            .expect("row 1 should be a list")
-            .get(0)
-            .expect("row 1 should have element 0");
-        assert_eq!(
-            row1_elem
-                .as_object()
-                .and_then(|o| o.get("y"))
-                .and_then(|v| v.as_int64()),
-            Some(5)
-        );
-        assert!(row1_elem.as_object().and_then(|o| o.get("x")).is_none());
-        Ok(())
-    }
-
-    #[rstest]
-    fn export_constant_variant_with_shredded_override(session: VortexSession) -> VortexResult<()> {
-        let mut ctx = session.create_execution_ctx();
-        let core = ConstantArray::new(
-            Scalar::variant(Scalar::primitive(42i64, Nullability::NonNullable)),
-            2,
-        )
-        .into_array();
-        let shredded = PrimitiveArray::from_option_iter([Some(7i64), None]).into_array();
-        let variant = VariantArray::try_new(core, Some(shredded))?.into_array();
-
-        let exported = variant.execute_arrow(None, &mut ctx)?;
-        let arrow_variant = ArrowVariantArray::try_new(&exported)?;
-        assert_eq!(arrow_variant.len(), 2);
-        assert_eq!(arrow_variant.value(0).as_int64(), Some(7));
-        assert_eq!(arrow_variant.value(1).as_int64(), Some(42));
-        Ok(())
-    }
-
-    #[rstest]
-    fn export_constant_struct_variant_preserves_fallback_and_nested_keys(
-        session: VortexSession,
-    ) -> VortexResult<()> {
-        let mut ctx = session.create_execution_ctx();
-        let inner_a_dtype = DType::struct_(
-            [(
-                "x",
-                DType::Primitive(vortex_array::dtype::PType::I64, Nullability::NonNullable),
-            )],
-            Nullability::NonNullable,
-        );
-        let inner_b_dtype = DType::struct_(
-            [(
-                "y",
-                DType::Primitive(vortex_array::dtype::PType::I64, Nullability::NonNullable),
-            )],
-            Nullability::NonNullable,
-        );
-        let core_struct_dtype = DType::struct_(
-            [("a", inner_a_dtype.clone()), ("b", inner_b_dtype.clone())],
-            Nullability::NonNullable,
-        );
-        let core_scalar = Scalar::variant(Scalar::struct_(
-            core_struct_dtype,
-            vec![
-                Scalar::struct_(
-                    inner_a_dtype,
-                    vec![Scalar::primitive(1i64, Nullability::NonNullable)],
-                ),
-                Scalar::struct_(
-                    inner_b_dtype,
-                    vec![Scalar::primitive(2i64, Nullability::NonNullable)],
-                ),
-            ],
-        ));
-        let core = ConstantArray::new(core_scalar, 2).into_array();
-        // Row 0 overrides `a` with 7; row 1 has null `a` so it must fall back to `{"x": 1}`.
-        let shredded = vortex_array::arrays::StructArray::try_new(
-            FieldNames::from_iter(["a"]),
-            vec![PrimitiveArray::from_option_iter([Some(7i64), None]).into_array()],
-            2,
-            Validity::NonNullable,
-        )?
-        .into_array();
-        let variant = VariantArray::try_new(core, Some(shredded))?.into_array();
-
-        let exported = variant.execute_arrow(None, &mut ctx)?;
-        let arrow_variant = ArrowVariantArray::try_new(&exported)?;
-        assert_eq!(arrow_variant.len(), 2);
-
-        let row0 = arrow_variant.value(0);
-        let row0_obj = row0.as_object().expect("row 0 should be an object");
-        assert_eq!(row0_obj.get("a").and_then(|v| v.as_int64()), Some(7));
-        let row0_b_val = row0_obj.get("b").expect("row 0 b should exist");
-        let row0_b = row0_b_val.as_object().expect("row 0 b should be an object");
-        assert_eq!(row0_b.get("y").and_then(|v| v.as_int64()), Some(2));
-        assert!(row0_b.get("x").is_none());
-
-        let row1 = arrow_variant.value(1);
-        let row1_obj = row1.as_object().expect("row 1 should be an object");
-        let row1_a_val = row1_obj
-            .get("a")
-            .expect("row 1 a should fall back to constant object");
-        let row1_a = row1_a_val.as_object().expect("row 1 a should be an object");
-        assert_eq!(row1_a.get("x").and_then(|v| v.as_int64()), Some(1));
-        let row1_b_val = row1_obj.get("b").expect("row 1 b should exist");
-        let row1_b = row1_b_val.as_object().expect("row 1 b should be an object");
-        assert_eq!(row1_b.get("y").and_then(|v| v.as_int64()), Some(2));
-        Ok(())
-    }
-
-    #[rstest]
-    fn export_constant_temporal_variants_preserve_types(
-        session: VortexSession,
-    ) -> VortexResult<()> {
-        use chrono::DateTime;
-        use chrono::NaiveDate;
-        use chrono::NaiveTime;
-        use vortex_array::extension::datetime::Date;
-        use vortex_array::extension::datetime::Time;
-        use vortex_array::extension::datetime::TimeUnit;
-        use vortex_array::extension::datetime::Timestamp;
-
-        let mut ctx = session.create_execution_ctx();
-
-        // Millisecond timestamp (UTC)
-        let ts_ms_dtype = Timestamp::new_with_tz(
-            TimeUnit::Milliseconds,
-            Some("UTC".into()),
-            Nullability::NonNullable,
-        )
-        .erased();
-        let ts_ms = ConstantArray::new(
-            Scalar::variant(Scalar::extension_ref(
-                ts_ms_dtype,
-                Scalar::primitive(1_000i64, Nullability::NonNullable),
-            )),
-            1,
-        )
-        .into_array();
-        let exported = ts_ms.execute_arrow(None, &mut ctx)?;
-        let arrow_variant = ArrowVariantArray::try_new(&exported)?;
-        assert_eq!(
-            arrow_variant.value(0).as_timestamp_micros(),
-            DateTime::from_timestamp_millis(1_000)
-        );
-
-        // Millisecond date (1 day after epoch)
-        let date_ms_dtype = Date::new(TimeUnit::Milliseconds, Nullability::NonNullable).erased();
-        let date_ms = ConstantArray::new(
-            Scalar::variant(Scalar::extension_ref(
-                date_ms_dtype,
-                Scalar::primitive(86_400_000i64, Nullability::NonNullable),
-            )),
-            1,
-        )
-        .into_array();
-        let exported = date_ms.execute_arrow(None, &mut ctx)?;
-        let arrow_variant = ArrowVariantArray::try_new(&exported)?;
-        assert_eq!(
-            arrow_variant.value(0).as_naive_date(),
-            NaiveDate::from_epoch_days(1)
-        );
-
-        // Second time (01:02:03)
-        let time_s_dtype = Time::new(TimeUnit::Seconds, Nullability::NonNullable).erased();
-        let time_s = ConstantArray::new(
-            Scalar::variant(Scalar::extension_ref(
-                time_s_dtype,
-                Scalar::primitive(3_723i32, Nullability::NonNullable),
-            )),
-            1,
-        )
-        .into_array();
-        let exported = time_s.execute_arrow(None, &mut ctx)?;
-        let arrow_variant = ArrowVariantArray::try_new(&exported)?;
-        assert_eq!(
-            arrow_variant.value(0).as_time_utc(),
-            NaiveTime::from_hms_opt(1, 2, 3)
-        );
-
-        // Millisecond time (01:02:03.456)
-        let time_ms_dtype = Time::new(TimeUnit::Milliseconds, Nullability::NonNullable).erased();
-        let time_ms = ConstantArray::new(
-            Scalar::variant(Scalar::extension_ref(
-                time_ms_dtype,
-                Scalar::primitive(3_723_456i32, Nullability::NonNullable),
-            )),
-            1,
-        )
-        .into_array();
-        let exported = time_ms.execute_arrow(None, &mut ctx)?;
-        let arrow_variant = ArrowVariantArray::try_new(&exported)?;
-        assert_eq!(
-            arrow_variant.value(0).as_time_utc(),
-            NaiveTime::from_hms_milli_opt(1, 2, 3, 456)
-        );
-        Ok(())
     }
 }
