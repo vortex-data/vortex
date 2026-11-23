@@ -280,25 +280,40 @@ mod tests {
     #[case::fsst_with_codes(&string::FSSTScheme, vec![FSST.id(), VarBin.id()], true)]
     #[case::decimal_v1_id(&DECIMAL_V1, vec![decimal_byte_parts_v1_id()], true)]
     #[case::decimal_both_ids(&DECIMAL_V2, vec![decimal_byte_parts_v1_id(), DecimalByteParts.id()], true)]
-    #[case::bitpacking_v1_id(
+    #[case::bitpacking_without_constant(
         &integer::BITPACKING_V1,
         vec![bitpacked_v1_id(), Patched.id()],
+        false
+    )]
+    #[case::bitpacking_v1_id(
+        &integer::BITPACKING_V1,
+        vec![bitpacked_v1_id(), Constant.id(), Patched.id()],
         true
     )]
     #[case::bitpacking_both_ids(
         &integer::BITPACKING_V1,
-        vec![bitpacked_v1_id(), bitpacked_v2_id(), Patched.id()],
+        vec![bitpacked_v1_id(), bitpacked_v2_id(), Constant.id(), Patched.id()],
         true
     )]
     #[case::bitpacking_v2_only(
         &integer::BITPACKING_V1,
-        vec![bitpacked_v2_id(), Patched.id()],
+        vec![bitpacked_v2_id(), Constant.id(), Patched.id()],
         false
     )]
     #[case::for_without_bitpacked(&integer::FOR_V1, vec![for_v1_id()], false)]
     #[case::for_with_bitpacked(
         &integer::FOR_V1,
-        vec![for_v1_id(), bitpacked_v1_id(), Patched.id()],
+        vec![for_v1_id(), bitpacked_v1_id(), Constant.id(), Patched.id()],
+        true
+    )]
+    #[case::alp_without_constant(
+        &float::ALPScheme,
+        vec![vortex_alp::ALP.id()],
+        false
+    )]
+    #[case::alp_with_constant(
+        &float::ALPScheme,
+        vec![vortex_alp::ALP.id(), Constant.id()],
         true
     )]
     #[case::alprd_without_bitpacked(
