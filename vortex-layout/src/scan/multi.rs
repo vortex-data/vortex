@@ -500,14 +500,9 @@ fn reader_partition(
     }
 
     let row_count = reader.row_count();
-    let row_range = match &request.row_range {
-        Some(range) => {
-            let start = range.start.min(row_count);
-            let end = range.end.min(row_count).max(start);
-            start..end
-        }
-        None => 0..row_count,
-    };
+    let row_range = request.row_range.as_ref().map_or(0..row_count, |r| {
+        r.start.min(row_count)..r.end.min(row_count)
+    });
 
     let partition_idx_u64: u64 = partition_idx as u64;
     if let Some(range) = &request.partition_range
@@ -531,9 +526,7 @@ fn reader_partition(
 
     // Check file-level pruning: if the filter can be proven false for the entire row range
     // using file-level statistics, skip this reader entirely.
-    if !row_range.is_empty()
-        && let Ok(Some(filter)) = &request.filter
-    {
+    if let Ok(Some(filter)) = &request.filter {
         let mask_len = usize::try_from(row_range.end - row_range.start).unwrap_or(usize::MAX);
         let mask = Mask::new_true(mask_len);
         if let Ok(pruning_future) = reader.pruning_evaluation(&row_range, filter, mask)
