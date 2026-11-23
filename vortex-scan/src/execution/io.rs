@@ -26,6 +26,7 @@ use vortex_io::request::Completion;
 use vortex_io::request::IoBatch;
 use vortex_io::request::IoIntent;
 use vortex_io::request::IoOwnerId;
+use vortex_io::request::IoRequestId;
 use vortex_io::request::IoResult;
 use vortex_io::request::IoService;
 use vortex_io::request::IoSource;
@@ -85,7 +86,7 @@ pub(super) struct SegmentIoSource {
     ready: Mutex<VecDeque<Completion>>,
     /// Per-owner abort handles for in-flight subscriptions; aborted on [`release`](IoSource::release)
     /// so retired subscriptions drop immediately while leaving the underlying shared read intact.
-    owners: Mutex<HashMap<IoOwnerId, Vec<AbortHandle>>>,
+    owners: Mutex<HashMap<IoOwnerId, HashMap<IoRequestId, AbortHandle>>>,
     /// Every read the session has started, by segment, shared by later fetches of the segment
     /// until the session is cleared.
     prefetched: Mutex<HashMap<SegmentId, Prefetched>>,
@@ -106,6 +107,16 @@ impl SegmentIoSource {
             owners: Mutex::default(),
             prefetched: Mutex::default(),
             announced: Mutex::default(),
+        }
+    }
+
+    fn remove_owner_handle(&self, owner: IoOwnerId, request: IoRequestId) {
+        let mut owners = self.owners.lock();
+        if let Some(handles) = owners.get_mut(&owner) {
+            handles.remove(&request);
+            if handles.is_empty() {
+                owners.remove(&owner);
+            }
         }
     }
 }
@@ -191,7 +202,7 @@ impl IoSource for SegmentIoSource {
                     result: bytes.await.map(IoResult::Bytes),
                 }
             });
-            owners.entry(owner).or_default().push(abort);
+            owners.entry(owner).or_default().insert(id, abort);
             reads.push(read.boxed());
         }
         Ok(())
@@ -207,7 +218,11 @@ impl IoSource for SegmentIoSource {
         let mut cx = Context::from_waker(Waker::noop());
         loop {
             match reads.poll_next_unpin(&mut cx) {
-                Poll::Ready(Some(Ok(completion))) => return Ok(Some(completion)),
+                Poll::Ready(Some(Ok(completion))) => {
+                    drop(reads);
+                    self.remove_owner_handle(completion.owner, completion.request);
+                    return Ok(Some(completion));
+                }
                 Poll::Ready(Some(Err(_))) => continue,
                 Poll::Ready(None) | Poll::Pending => return Ok(None),
             }
@@ -221,7 +236,11 @@ impl IoSource for SegmentIoSource {
         let mut reads = self.reads.lock();
         loop {
             match reads.poll_next_unpin(cx) {
-                Poll::Ready(Some(Ok(completion))) => return Poll::Ready(Ok(completion)),
+                Poll::Ready(Some(Ok(completion))) => {
+                    drop(reads);
+                    self.remove_owner_handle(completion.owner, completion.request);
+                    return Poll::Ready(Ok(completion));
+                }
                 Poll::Ready(Some(Err(_))) => continue,
                 Poll::Ready(None) => {
                     return Poll::Ready(Err(vortex_err!(
@@ -240,7 +259,7 @@ impl IoSource for SegmentIoSource {
     fn release(&self, owner: IoOwnerId) {
         let handles = self.owners.lock().remove(&owner);
         if let Some(handles) = handles {
-            for handle in handles {
+            for handle in handles.into_values() {
                 handle.abort();
             }
         }
@@ -392,6 +411,7 @@ mod tests {
         let completed = std::future::poll_fn(|cx| io.poll_completion(cx)).await?;
         assert_eq!(completed.request, IoRequestId(1));
         assert!(completed.result.is_ok());
+        assert!(io.owners.lock().is_empty());
         delivery.await.expect("delivery task succeeds");
         assert!(io.poll()?.is_none());
         Ok(())
@@ -713,6 +733,28 @@ mod tests {
             err.to_string().contains("no reads in flight"),
             "unexpected error: {err}"
         );
+        assert!(io.reads.lock().is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn clear_drops_pending_owner_subscriptions() -> VortexResult<()> {
+        let (_sender, receiver) = oneshot::channel();
+        let segments = Arc::new(MixedSegments(Mutex::new(Some(receiver))));
+        let locations = [0, 4].map(|offset| SegmentLocation {
+            offset,
+            length: 4,
+            alignment: Alignment::none(),
+        });
+        let io = SegmentIoSource::new(segments, segment_ranges(&locations));
+        let mut pending = request(IoIntent::Fetch, 1);
+        pending.target = IoTarget::range(4, 4);
+
+        io.submit(IoOwnerId(0), vec![pending])?;
+        assert!(!io.owners.lock().is_empty());
+
+        io.clear();
+        assert!(io.owners.lock().is_empty());
         assert!(io.reads.lock().is_empty());
         Ok(())
     }
