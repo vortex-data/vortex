@@ -418,9 +418,17 @@ class VortexDataset(pyarrow.dataset.Dataset):
                 concurrency=concurrency,
             )
 
+        def scan_checked(scan_indices: pyarrow.Array[Any]) -> Array:
+            result = scan(scan_indices)
+            if _row_range is None and len(result) != len(scan_indices):
+                raise IndexError(f"index {scan_indices[len(result)].as_py()} is out of bounds for dataset")
+            return result
+
         with _temporary_worker_threads(use_threads):
-            if row_filter is not None or _is_strictly_increasing(uint_indices):
+            if row_filter is not None:
                 return scan(uint_indices).to_arrow_table()
+            if _is_strictly_increasing(uint_indices):
+                return scan_checked(uint_indices).to_arrow_table()
 
             # The scan needs strictly increasing indices, so scan the sorted distinct rows once and
             # gather them back into the requested order.
@@ -430,7 +438,7 @@ class VortexDataset(pyarrow.dataset.Dataset):
                 uint_indices = uint_indices.filter(in_range)
             distinct = pc.unique(uint_indices)
             distinct = distinct.take(pc.sort_indices(distinct))
-            return scan(distinct).take(array(pc.index_in(uint_indices, value_set=distinct))).to_arrow_table()
+            return scan_checked(distinct).take(array(pc.index_in(uint_indices, value_set=distinct))).to_arrow_table()
 
     def to_record_batch_reader(
         self,
