@@ -298,3 +298,7 @@ pub mod row_idx {
 
 #[cfg(test)]
 mod test;
+
+/// Diagnostic count of the parts unordered plan scans cut. Not for merging.
+#[doc(hidden)]
+pub static DIAG_PARTS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);

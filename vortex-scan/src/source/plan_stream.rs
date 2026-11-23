@@ -190,11 +190,14 @@ async fn run_root(child: Arc<PreparedChild>, root: Box<dyn Planner>) -> VortexRe
     let mut work = Vec::new();
     loop {
         match run.advance()? {
-            Progress::Spawn(scope, planner) => work.push(Work::Part(Part {
-                child: Arc::clone(&child),
-                scope,
-                planner,
-            })),
+            Progress::Spawn(scope, planner) => {
+                crate::DIAG_PARTS.fetch_add(1, Ordering::Relaxed);
+                work.push(Work::Part(Part {
+                    child: Arc::clone(&child),
+                    scope,
+                    planner,
+                }))
+            }
             Progress::Batch(batch) => work.push(Work::Batch(batch.array)),
             Progress::RootDone(_) if run.live_roots() > 0 => {}
             Progress::RootDone(_) | Progress::Idle => break,

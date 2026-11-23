@@ -202,6 +202,12 @@ pub struct AggregateState {
 }
 assert_impl_all!(GlobalState: Send, Sync);
 
+impl Drop for GlobalState {
+    fn drop(&mut self) {
+        crate::diag::report();
+    }
+}
+
 /// The scan work that one thread does on a file: a clone of the file's opened scan stream, which
 /// the thread polls inline. It takes the file's work as it has room for it until none is left,
 /// and yields only the work it took.

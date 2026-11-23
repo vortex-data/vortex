@@ -244,8 +244,10 @@ pub fn reader_initialize(file: &mut OpenFileReader, global: &GlobalState) -> Vor
         // DuckDB releases a skipped file under the global lock. Here only the
         // file-local lock is held, so drop the scan state now.
         file.scan_state = None;
+        crate::diag::inc(&crate::diag::SKIPPED);
         return Ok(true);
     }
+    crate::diag::inc(&crate::diag::FILES);
 
     // Opening the file's scan is non-trivial work so we prefer doing it here under file lock and
     // not in reader_try_initialize_scan under global lock.
@@ -303,6 +305,7 @@ enum SplitItem {
 
 /// Takes the next array of the thread's split, keeping the split while it has more to yield.
 fn next_split_item(local: &mut LocalState) -> VortexResult<SplitItem> {
+    crate::diag::inc(&crate::diag::NSI);
     let array = match local.pending.pop() {
         Some(array) => array,
         None => {
@@ -310,7 +313,11 @@ fn next_split_item(local: &mut LocalState) -> VortexResult<SplitItem> {
                 return Ok(SplitItem::Done);
             };
             let file = local.file.as_ref().vortex_expect("split without a file");
-            let Some(array) = RUNTIME.block_on(stream.next()).transpose()? else {
+            let Some(array) = RUNTIME
+                .block_on(crate::diag::counted(stream.next()))
+                .transpose()?
+            else {
+                crate::diag::split_done();
                 file.finished.store(true, Ordering::Release);
                 // Dropping the last clone drops the file's queue of work; do that outside
                 // DuckDB's locks.
@@ -318,6 +325,7 @@ fn next_split_item(local: &mut LocalState) -> VortexResult<SplitItem> {
                 return Ok(SplitItem::Done);
             };
             local.split = Some(Split(stream));
+            crate::diag::yielded();
             let joins_chunks = file.stream.get().is_some_and(|stream| stream.joins_chunks);
             // A V2 batch can join chunks of several layout chunks. Canonicalizing it would decode
             // their dictionaries, so export each chunk on its own, as a V1 scan yields them.
@@ -373,6 +381,7 @@ pub fn reader_try_initialize_scan(file: &mut OpenFileReader, local: &mut LocalSt
     }
 
     local.retired_splits.extend(local.split.replace(split));
+    crate::diag::joined();
     true
 }
 
