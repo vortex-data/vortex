@@ -11705,6 +11705,7 @@ dependencies = [
  "object_store 0.13.2",
  "paste",
  "rand 0.10.4",
+ "rstest",
  "tempfile",
  "tracing",
  "tracing-subscriber",
