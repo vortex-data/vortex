@@ -399,6 +399,7 @@ mod tests {
     use vortex_array::dtype::FieldNames;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
+    use vortex_array::dtype::StructFields;
     use vortex_array::expr::BoundExpression;
     use vortex_array::expr::get_item;
     use vortex_array::expr::root;
@@ -1251,6 +1252,92 @@ mod tests {
                 Some(VortexDType::Primitive(PType::I64, Nullability::Nullable)),
             )?,
             PrimitiveArray::from_option_iter(rows.iter().map(|&row| rev[row])),
+            &mut ctx
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_variant_get_partially_shredded_struct_keeps_residual_fields() -> VortexResult<()> {
+        let events = make_nested_shredded_events()?;
+        let mut ctx = SESSION.create_execution_ctx();
+
+        let requested = VortexDType::Struct(
+            StructFields::new(
+                FieldNames::from(["collection", "rev"]),
+                vec![
+                    VortexDType::Utf8(Nullability::Nullable),
+                    VortexDType::Primitive(PType::I64, Nullability::Nullable),
+                ],
+            ),
+            Nullability::Nullable,
+        );
+        let expected = VortexStructArray::try_from_iter_with_validity(
+            [
+                (
+                    "collection",
+                    VarBinViewArray::from_iter_nullable_str([Some("post"), None, Some("like")])
+                        .into_array(),
+                ),
+                (
+                    "rev",
+                    PrimitiveArray::from_option_iter([Some(1i64), None, Some(2)]).into_array(),
+                ),
+            ],
+            Validity::from_iter([true, false, true]),
+        )?
+        .into_array();
+
+        assert_arrays_eq!(
+            execute_variant_get(events, "$.commit", Some(requested))?,
+            expected,
+            &mut ctx
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_variant_get_filtered_shredded_list() -> VortexResult<()> {
+        let json: ArrowArrayRef = Arc::new(StringArray::from(vec![
+            r#"{"a":1,"tags":[10,"x"]}"#,
+            r#"{"a":2,"tags":[30]}"#,
+            r#"{"a":3,"tags":[40,50]}"#,
+        ]));
+        let list_type = DataType::List(Arc::new(Field::new("item", DataType::Int32, true)));
+        let shredding = ShreddedSchemaBuilder::new()
+            .with_path("a", &DataType::Int32)?
+            .with_path("tags", &list_type)?
+            .build();
+        let shredded = shred_variant(&json_to_variant(&json)?, &shredding)?;
+        let parquet_array = ParquetVariant::from_arrow_variant(&shredded, &SESSION.arrow())?;
+        let filtered = parquet_array.filter(Mask::from_iter([true, false, true]))?;
+        let mut ctx = SESSION.create_execution_ctx();
+
+        assert_arrays_eq!(
+            execute_variant_get(
+                filtered.clone(),
+                "$.a",
+                Some(VortexDType::Primitive(PType::I64, Nullability::Nullable)),
+            )?,
+            PrimitiveArray::from_option_iter([Some(1i64), Some(3)]),
+            &mut ctx
+        );
+        assert_arrays_eq!(
+            execute_variant_get(
+                filtered.clone(),
+                "$.tags[0]",
+                Some(VortexDType::Primitive(PType::I64, Nullability::Nullable)),
+            )?,
+            PrimitiveArray::from_option_iter([Some(10i64), Some(40)]),
+            &mut ctx
+        );
+        assert_arrays_eq!(
+            execute_variant_get(
+                filtered,
+                "$.tags[1]",
+                Some(VortexDType::Utf8(Nullability::Nullable)),
+            )?,
+            VarBinViewArray::from_iter_nullable_str([Some("x"), None]),
             &mut ctx
         );
         Ok(())

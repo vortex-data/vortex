@@ -18,12 +18,15 @@ use vortex_array::array_slots;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::List;
 use vortex_array::arrays::ListArray;
+use vortex_array::arrays::ListViewArray;
+use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::Struct;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::Variant;
 use vortex_array::arrays::VariantArray;
 use vortex_array::arrays::list::ListArrayExt;
 use vortex_array::arrays::list::ListArraySlotsExt;
+use vortex_array::arrays::listview::ListViewArraySlotsExt;
 use vortex_array::arrays::struct_::StructArrayExt;
 use vortex_array::arrays::variant::VariantArraySlotsExt;
 use vortex_array::builtins::ArrayBuiltins;
@@ -31,6 +34,7 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldName;
 use vortex_array::dtype::FieldNames;
 use vortex_array::dtype::Nullability;
+use vortex_array::dtype::PType;
 use vortex_array::optimizer::ArrayOptimizer;
 use vortex_array::scalar::Scalar;
 use vortex_array::validity::Validity;
@@ -182,24 +186,59 @@ pub(crate) fn logical_shredded_from_parquet_typed_value(
     typed_value: ArrayRef,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
-    if let Some(list_array) = typed_value.as_opt::<List>() {
-        // Lists keep their original offsets and validity; only the physical element
-        // representation may need wrapper removal.
-        let elements =
-            logical_shredded_from_parquet_field(metadata, list_array.elements().clone(), ctx)?
-                .unwrap_or_else(|| list_array.elements().clone());
-        return Ok(ListArray::try_new(
+    if typed_value.dtype().is_list() {
+        let list_view = typed_value.execute::<ListViewArray>(ctx)?;
+        let (elements, element_metadata) = if list_view.is_empty() {
+            (list_view.elements().slice(0..0)?, metadata.slice(0..0)?)
+        } else {
+            let elements = list_view.elements().clone();
+            let element_metadata = if elements.is_empty() {
+                metadata.slice(0..0)?
+            } else {
+                let offsets = list_view
+                    .offsets()
+                    .cast(DType::Primitive(PType::U64, Nullability::NonNullable))?
+                    .execute::<PrimitiveArray>(ctx)?;
+                let sizes = list_view
+                    .sizes()
+                    .cast(DType::Primitive(PType::U64, Nullability::NonNullable))?
+                    .execute::<PrimitiveArray>(ctx)?;
+                let mut row_indices = vec![0u64; elements.len()];
+                for (row, (&offset, &size)) in offsets
+                    .as_slice::<u64>()
+                    .iter()
+                    .zip(sizes.as_slice::<u64>())
+                    .enumerate()
+                {
+                    let start =
+                        usize::try_from(offset).vortex_expect("list offset must fit in usize");
+                    let len = usize::try_from(size).vortex_expect("list size must fit in usize");
+                    for idx in &mut row_indices[start..start + len] {
+                        *idx = row as u64;
+                    }
+                }
+                metadata
+                    .take(PrimitiveArray::from_iter(row_indices).into_array())?
+                    .optimize_ctx(ctx)?
+            };
+            (elements, element_metadata)
+        };
+        let elements = logical_shredded_from_parquet_field(&element_metadata, elements, ctx)?
+            .unwrap_or_else(|| list_view.elements().clone());
+        return Ok(ListViewArray::try_new(
             elements,
-            list_array.offsets().clone(),
-            list_array.list_validity(),
+            list_view.offsets().clone(),
+            list_view.sizes().clone(),
+            list_view.validity()?,
             ctx,
         )?
         .into_array());
     }
 
-    let Some(struct_array) = typed_value.as_opt::<Struct>() else {
+    if !typed_value.dtype().is_struct() {
         return Ok(typed_value);
-    };
+    }
+    let struct_array = typed_value.execute::<StructArray>(ctx)?;
 
     // For object shredding, each struct field is a logical object field. Fields that
     // are known wrapper shells without typed data are omitted from the canonical tree.
@@ -221,7 +260,7 @@ pub(crate) fn logical_shredded_from_parquet_typed_value(
     Ok(StructArray::try_new(
         FieldNames::from_iter(names),
         fields,
-        typed_value.len(),
+        struct_array.len(),
         struct_array.validity()?,
     )?
     .into_array())
@@ -236,9 +275,10 @@ fn logical_shredded_from_parquet_field(
     field: ArrayRef,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Option<ArrayRef>> {
-    let Some(field_struct) = field.as_opt::<Struct>() else {
+    if !field.dtype().is_struct() {
         return Ok(Some(field));
-    };
+    }
+    let field_struct = field.execute::<StructArray>(ctx)?;
 
     let only_parquet_fields = field_struct
         .names()
@@ -295,7 +335,7 @@ fn logical_shredded_from_parquet_field(
             .map(|array| Some(array.into_array()));
     }
 
-    logical_shredded_from_parquet_typed_value(metadata, field, ctx).map(Some)
+    logical_shredded_from_parquet_typed_value(metadata, field_struct.into_array(), ctx).map(Some)
 }
 
 fn inferred_shredded_field_validity(

@@ -5,6 +5,7 @@ use std::cell::Cell;
 use std::fmt;
 use std::fmt::Display;
 use std::fmt::Formatter;
+use std::sync::Arc;
 
 use prost::Message;
 use vortex_error::VortexResult;
@@ -298,6 +299,66 @@ fn variant_get_scalar(
 
     if value.is_null() {
         return Ok(Scalar::null(output_dtype.clone()));
+    }
+
+    cast_variant_scalar(value, output_dtype)
+}
+
+fn cast_variant_scalar(value: Scalar, output_dtype: &DType) -> VortexResult<Scalar> {
+    let Some(value) = variant_payload(value) else {
+        return Ok(Scalar::null(output_dtype.clone()));
+    };
+
+    if value.is_null() {
+        return Ok(Scalar::null(output_dtype.clone()));
+    }
+
+    if output_dtype.is_variant() {
+        return Scalar::variant(value).cast(output_dtype);
+    }
+
+    if let DType::Struct(target_fields, _) = output_dtype {
+        let Some(struct_scalar) = value.as_struct_opt() else {
+            return Ok(Scalar::null(output_dtype.clone()));
+        };
+        if struct_scalar.is_null() {
+            return Ok(Scalar::null(output_dtype.clone()));
+        }
+        let mut fields = Vec::with_capacity(target_fields.nfields());
+        for (name, field_dtype) in target_fields.names().iter().zip(target_fields.fields()) {
+            let field = match struct_scalar.field(name.as_ref()) {
+                Some(field) => cast_variant_scalar(field, &field_dtype)?,
+                None if field_dtype.is_nullable() => Scalar::null(field_dtype.clone()),
+                None => return Ok(Scalar::null(output_dtype.clone())),
+            };
+            if field.is_null() && !field_dtype.is_nullable() {
+                return Ok(Scalar::null(output_dtype.clone()));
+            }
+            fields.push(field);
+        }
+        return Ok(Scalar::struct_(output_dtype.clone(), fields));
+    }
+
+    if let DType::List(elem_dtype, _) = output_dtype {
+        let Some(list_scalar) = value.as_list_opt() else {
+            return Ok(Scalar::null(output_dtype.clone()));
+        };
+        let Some(elements) = list_scalar.elements() else {
+            return Ok(Scalar::null(output_dtype.clone()));
+        };
+        let mut cast_elements = Vec::with_capacity(elements.len());
+        for element in elements {
+            let cast_element = cast_variant_scalar(element, elem_dtype)?;
+            if cast_element.is_null() && !elem_dtype.is_nullable() {
+                return Ok(Scalar::null(output_dtype.clone()));
+            }
+            cast_elements.push(cast_element);
+        }
+        return Ok(Scalar::list(
+            Arc::clone(elem_dtype),
+            cast_elements,
+            output_dtype.nullability(),
+        ));
     }
 
     value

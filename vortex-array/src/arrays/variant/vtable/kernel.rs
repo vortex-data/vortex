@@ -104,13 +104,18 @@ impl ExecuteParentKernel<Variant> for VariantGetKernel {
             )
             .map(Some);
         }
+        // A remaining path through a shredded list cannot be walked column-wise; defer to
+        // scalar extraction so shredded list elements and residual core storage are both read.
+        if !remaining.is_empty() {
+            return Ok(None);
+        }
         // Untyped VariantGet must return variant scalars, so typed shredded values
         // are wrapped as variants and merged with raw object fallback where needed.
         if parent.options.dtype().is_none_or(DType::is_variant) {
             let fallback = match typed.dtype() {
                 DType::Struct(..) => Some(make_fallback(ctx)?),
                 DType::List(..) | DType::FixedSizeList(..) => {
-                    return make_fallback(ctx).map(Some);
+                    return Ok(None);
                 }
                 _ => {
                     let typed_mask = typed.validity()?.execute_mask(typed.len(), ctx)?;
@@ -120,6 +125,16 @@ impl ExecuteParentKernel<Variant> for VariantGetKernel {
                 }
             };
             return merge_typed_as_variant(typed, fallback, ctx).map(Some);
+        }
+
+        // A shredded struct or list can hold only some of an object's fields or nested
+        // partially-shredded values, with the rest in core storage. Defer to scalar
+        // extraction, which merges shredded and core storage per row before casting.
+        if matches!(
+            typed.dtype(),
+            DType::Struct(..) | DType::List(..) | DType::FixedSizeList(..)
+        ) {
+            return Ok(None);
         }
 
         // Null typed rows are not necessarily missing from the logical variant value;
@@ -233,7 +248,10 @@ fn typed_shredded_path<'a>(
             return Ok(Some((current, &path[idx..])));
         }
         let VariantPathElement::Field(name) = element else {
-            return Ok(None);
+            return Ok(
+                matches!(current.dtype(), DType::List(..) | DType::FixedSizeList(..))
+                    .then_some((current, &path[idx..])),
+            );
         };
         let DType::Struct(..) = current.dtype() else {
             return Ok(None);
