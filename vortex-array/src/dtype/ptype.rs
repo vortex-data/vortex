@@ -1205,7 +1205,10 @@ mod tests {
         // The lowest bit is part of the NaN payload. Flipping it gives another NaN
         // with the same sign but a different bit pattern.
         let nan_with_different_payload = f32::from_bits(nan.to_bits() ^ 1);
-        assert!(!<f32 as NativePType>::is_eq(nan, nan_with_different_payload));
+        assert!(!<f32 as NativePType>::is_eq(
+            nan,
+            nan_with_different_payload
+        ));
         assert!(!<f32 as NativePType>::is_eq(0.0, -0.0));
     }
 
