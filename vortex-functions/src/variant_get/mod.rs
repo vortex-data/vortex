@@ -315,16 +315,25 @@ fn variant_get_scalar(
 }
 
 fn cast_variant_scalar(value: Scalar, output_dtype: &DType) -> VortexResult<Option<Scalar>> {
+    if value.is_null() {
+        return Ok(None);
+    }
+
+    if output_dtype.is_variant() {
+        let variant = if value.dtype().is_variant() {
+            value
+        } else {
+            Scalar::variant(value)
+        };
+        return variant.cast(output_dtype).map(Some);
+    }
+
     let Some(value) = variant_payload(value) else {
         return Ok(None);
     };
 
     if value.is_null() {
         return Ok(None);
-    }
-
-    if output_dtype.is_variant() {
-        return Scalar::variant(value).cast(output_dtype).map(Some);
     }
 
     if let DType::Struct(target_fields, _) = output_dtype {
@@ -1295,6 +1304,48 @@ mod tests {
             Some(vec![Some(1), Some(2)])
         );
         assert!(result.is_invalid(1, &mut ctx)?);
+        Ok(())
+    }
+
+    #[test]
+    fn variant_get_fixed_size_list_preserves_variant_nulls() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let variant_null = Scalar::variant(Scalar::null(DType::Null));
+        let row = Scalar::variant(Scalar::list(
+            DType::Variant(Nullability::NonNullable),
+            vec![
+                Scalar::variant(Scalar::primitive(7i32, Nullability::NonNullable)),
+                variant_null,
+            ],
+            Nullability::NonNullable,
+        ));
+        let input = ConstantArray::new(row, 1).into_array();
+
+        for elem_nullability in [Nullability::NonNullable, Nullability::Nullable] {
+            let target = DType::FixedSizeList(
+                Arc::new(DType::Variant(elem_nullability)),
+                2,
+                Nullability::Nullable,
+            );
+            let expr = variant_get(root(), VariantPath::root(), Some(target));
+            let result = input.clone().apply(&expr)?.execute::<ArrayRef>(&mut ctx)?;
+            assert!(result.is_valid(0, &mut ctx)?);
+            let list = result.execute_scalar(0, &mut ctx)?;
+            let elems = list
+                .as_list()
+                .elements()
+                .ok_or_else(|| vortex_error::vortex_err!("expected non-null fixed-size list"))?;
+            assert_eq!(elems.len(), 2);
+            assert_eq!(
+                elems[0]
+                    .as_variant()
+                    .value()
+                    .and_then(|v| v.as_primitive().typed_value::<i32>()),
+                Some(7)
+            );
+            assert!(!elems[1].is_null());
+            assert_eq!(elems[1].as_variant().is_variant_null(), Some(true));
+        }
         Ok(())
     }
 }

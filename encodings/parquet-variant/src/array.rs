@@ -223,7 +223,7 @@ pub(crate) fn logical_shredded_from_parquet_typed_value(
             };
             (elements, element_metadata)
         };
-        let elements = logical_shredded_from_parquet_field(&element_metadata, elements, ctx)?
+        let elements = logical_shredded_from_parquet_field(&element_metadata, elements, true, ctx)?
             .unwrap_or_else(|| list_view.elements().clone());
         return Ok(ListViewArray::try_new(
             elements,
@@ -250,7 +250,7 @@ pub(crate) fn logical_shredded_from_parquet_typed_value(
         .zip(struct_array.iter_unmasked_fields())
     {
         if let Some(logical_field) =
-            logical_shredded_from_parquet_field(metadata, field.clone(), ctx)?
+            logical_shredded_from_parquet_field(metadata, field.clone(), false, ctx)?
         {
             names.push(FieldName::from(name.as_ref()));
             fields.push(logical_field);
@@ -273,6 +273,7 @@ pub(crate) fn logical_shredded_from_parquet_typed_value(
 fn logical_shredded_from_parquet_field(
     metadata: &ArrayRef,
     field: ArrayRef,
+    preserve_raw_only: bool,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Option<ArrayRef>> {
     if !field.dtype().is_struct() {
@@ -285,20 +286,7 @@ fn logical_shredded_from_parquet_field(
         .iter()
         .all(|name| matches!(name.as_ref(), "value" | "typed_value"));
     if only_parquet_fields {
-        let Some(typed_value) = field_struct.unmasked_field_by_name_opt("typed_value") else {
-            return Ok(None);
-        };
         let validity = field_struct.validity()?;
-        // `unmasked_field_by_name_opt` intentionally ignores the parent struct validity.
-        // Reapply it here so null wrapper rows become null typed/raw rows downstream.
-        let typed_value = if validity.definitely_no_nulls() {
-            typed_value.clone()
-        } else {
-            typed_value
-                .clone()
-                .mask(validity.to_array(typed_value.len()))?
-                .optimize_ctx(ctx)?
-        };
         let value = field_struct
             .unmasked_field_by_name_opt("value")
             .map(|value| {
@@ -312,6 +300,29 @@ fn logical_shredded_from_parquet_field(
                 }
             })
             .transpose()?;
+        let Some(typed_value) = field_struct.unmasked_field_by_name_opt("typed_value") else {
+            if !preserve_raw_only {
+                return Ok(None);
+            }
+            let Some(value) = value else {
+                return Ok(None);
+            };
+            let field_validity = inferred_shredded_field_validity(Some(&value), None, ctx)?;
+            let parquet_field =
+                ParquetVariant::try_new(field_validity, metadata.clone(), Some(value), None)?;
+            return VariantArray::try_new(parquet_field.into_array(), None)
+                .map(|array| Some(array.into_array()));
+        };
+        // `unmasked_field_by_name_opt` intentionally ignores the parent struct validity.
+        // Reapply it here so null wrapper rows become null typed/raw rows downstream.
+        let typed_value = if validity.definitely_no_nulls() {
+            typed_value.clone()
+        } else {
+            typed_value
+                .clone()
+                .mask(validity.to_array(typed_value.len()))?
+                .optimize_ctx(ctx)?
+        };
 
         let Some(value) = value else {
             // Fully shredded field: recurse through the typed subtree and expose its
