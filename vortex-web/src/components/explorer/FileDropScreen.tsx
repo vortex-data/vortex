@@ -1,15 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-import {
-  useCallback,
-  useEffect,
-  useId,
-  useRef,
-  useState,
-  type DragEvent,
-  type FormEvent,
-} from 'react';
+import { useCallback, useId, useRef, useState, type DragEvent, type FormEvent } from 'react';
 import { Footer } from './Footer';
 import { Header } from './Header';
 
@@ -35,14 +27,6 @@ export function FileDropScreen({ onFileLoaded, loading, error }: FileDropScreenP
     urlFetchControllerRef.current = null;
     setFetchingUrl(false);
   }, []);
-
-  useEffect(
-    () => () => {
-      urlFetchControllerRef.current?.abort();
-      urlFetchControllerRef.current = null;
-    },
-    [],
-  );
 
   const handleDragOver = useCallback((e: DragEvent<HTMLDivElement>) => {
     e.preventDefault();

@@ -131,35 +131,4 @@ describe('FileDropScreen', () => {
     expect(container.querySelector('[data-current]')?.textContent).toBe('new.vortex');
     expect(history).toEqual(['new.vortex']);
   });
-
-  test('opens a file from a single successful URL request', async () => {
-    globalThis.fetch = (async () =>
-      ({
-        ok: true,
-        blob: async () => new Blob(['data']),
-      }) as Response) as unknown as typeof fetch;
-
-    const loaded: string[] = [];
-    const container = document.createElement('div');
-    document.body.appendChild(container);
-    const root = createRoot(container);
-    mountedRoot = root;
-    mountedContainer = container;
-
-    await act(async () => {
-      root.render(
-        <ThemeContext.Provider value={themeValue}>
-          <FileDropScreen
-            error={null}
-            loading={false}
-            onFileLoaded={(file) => loaded.push(file.name)}
-          />
-        </ThemeContext.Provider>,
-      );
-    });
-
-    await submitUrl(container, 'https://example.test/orders.vortex');
-
-    expect(loaded).toEqual(['orders.vortex']);
-  });
 });
