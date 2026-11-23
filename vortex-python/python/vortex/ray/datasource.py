@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import inspect
 from collections.abc import Iterable
 from typing import TYPE_CHECKING, TypeVar, final
 from urllib.parse import quote
@@ -138,9 +137,6 @@ class VortexDatasource(Datasource):
         return True
 
 
-_READ_TASK_SUPPORTS_ROW_LIMIT = "per_task_row_limit" in inspect.signature(ReadTask.__init__).parameters
-
-
 def _read_task(
     paths: list[str],
     columns: list[str] | None,
@@ -169,25 +165,17 @@ def _read_task(
     output_schema = dataset.scanner(columns=columns).projected_schema
 
     def read() -> Iterable[pandas.DataFrame]:
-        remaining = per_task_row_limit
-        if remaining is not None and remaining <= 0:
-            return
+        limit = max(per_task_row_limit, 0) if per_task_row_limit is not None else None
         # A VortexDataset cannot be pickled, so the task opens its files again on the worker.
-        reader = _open_exact_files(paths).to_record_batch_reader(columns=columns, filter=filter, batch_size=batch_size)
+        reader = _open_exact_files(paths).to_record_batch_reader(
+            columns=columns, filter=filter, batch_size=batch_size, limit=limit
+        )
 
         for rb in reader:
-            if remaining is not None:
-                if rb.num_rows > remaining:
-                    rb = rb.slice(0, remaining)
-                remaining -= rb.num_rows
             # We would prefer to generate Arrow, but we run into this issue: https://github.com/apache/arrow/issues/47279
             #
             # yield pa.Table.from_batches([rb])
             #
             yield rb.to_pandas()
-            if remaining == 0:
-                break
 
-    if _READ_TASK_SUPPORTS_ROW_LIMIT:
-        return ReadTask(read, metadata, output_schema, per_task_row_limit=per_task_row_limit)
     return ReadTask(read, metadata, output_schema)

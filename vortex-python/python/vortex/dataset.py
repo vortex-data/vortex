@@ -445,6 +445,7 @@ class VortexDataset(pyarrow.dataset.Dataset):
         memory_pool: pyarrow.MemoryPool | None = None,
         _row_range: tuple[int, int] | None = None,
         *,
+        limit: int | None = None,
         concurrency: int | None = None,
     ) -> pyarrow.RecordBatchReader:
         """Construct a :class:`.pyarrow.RecordBatchReader`.
@@ -502,6 +503,7 @@ class VortexDataset(pyarrow.dataset.Dataset):
             row_filter=self._filter_expression(filter),
             split_by=batch_size,
             row_range=_row_range,
+            limit=limit,
             concurrency=concurrency,
         )
         # Route through Arrow's C stream interface so `RecordBatchReader.close()`
