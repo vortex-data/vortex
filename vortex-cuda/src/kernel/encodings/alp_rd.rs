@@ -120,16 +120,16 @@ where
         _ => None,
     };
     let validity_ptr = match &device_validity {
-        Some((bits, _)) => bits.cuda_device_ptr()?,
+        Some((bits, _)) => bits.cuda_device_ptr(ctx.stream())?,
         None => 0,
     };
     let validity_offset = device_validity
         .as_ref()
         .map_or(0, |(_, offset)| *offset as u64);
 
-    let device_left = ctx.ensure_on_device(left_buffer).await?;
+    let device_left = ctx.ensure_on_device(left_buffer)?;
     let left_view = device_left.cuda_view::<u16>()?;
-    let device_right = ctx.ensure_on_device(right_buffer).await?;
+    let device_right = ctx.ensure_on_device(right_buffer)?;
     let right_view = device_right.cuda_view::<U>()?;
 
     let dictionary = array.left_parts_dictionary();
@@ -147,7 +147,7 @@ where
         Some(patches) => Some(load_device_patches(&patches, ctx).await?),
         None => None,
     };
-    let patches_arg = build_gpu_patches(device_patches.as_ref())?;
+    let patches_arg = build_gpu_patches(device_patches.as_ref(), ctx.stream())?;
 
     // Patch positions count from the 1024-row chunk the slice starts in, so the kernel decodes
     // chunk-aligned rows and the first `slice_shift` rows are trimmed off below.
