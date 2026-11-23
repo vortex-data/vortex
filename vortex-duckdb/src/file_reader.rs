@@ -310,7 +310,15 @@ fn next_split_item(local: &mut LocalState) -> VortexResult<SplitItem> {
                 return Ok(SplitItem::Done);
             };
             let file = local.file.as_ref().vortex_expect("split without a file");
-            let Some(array) = RUNTIME.block_on(stream.next()).transpose()? else {
+            // Poll the clone on this thread first, and enter the runtime only to wait for its reads:
+            // entering it registers the thread with the runtime's shared executor, which every
+            // thread scanning contends on, so doing that for each batch costs more than the batch's
+            // wait.
+            let next = match stream.next().now_or_never() {
+                Some(next) => next,
+                None => RUNTIME.block_on(stream.next()),
+            };
+            let Some(array) = next.transpose()? else {
                 file.finished.store(true, Ordering::Release);
                 // Dropping the last clone drops the file's queue of work; do that outside
                 // DuckDB's locks.
