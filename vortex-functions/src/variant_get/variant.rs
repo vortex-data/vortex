@@ -35,6 +35,7 @@ use crate::variant_get::VariantGet;
 use crate::variant_get::VariantGetOptions;
 use crate::variant_get::VariantPath;
 use crate::variant_get::VariantPathElement;
+use crate::variant_get::number_as_bool;
 
 pub(crate) fn initialize(session: &VortexSession) {
     let kernels = session.kernels();
@@ -221,16 +222,6 @@ fn convert_typed(typed: ArrayRef, dtype: &DType, ctx: &mut ExecutionCtx) -> Vort
     Ok(builder.finish())
 }
 
-/// Converts a number to a Boolean as Arrow's Variant conversion does: zero is false and any other
-/// number is true. A Vortex cast does not convert numbers to Booleans.
-fn number_as_bool(scalar: &Scalar, dtype: &DType) -> Option<Scalar> {
-    if !dtype.is_boolean() || !scalar.dtype().is_primitive() {
-        return None;
-    }
-    let is_zero = scalar.is_zero()?;
-    Some(Scalar::bool(!is_zero, dtype.nullability()))
-}
-
 /// Nulls out the rows of `array` that `validity` marks invalid.
 ///
 /// A validity without nulls leaves `array` as it is: wrapping it in a mask would hide its
@@ -322,6 +313,7 @@ mod tests {
     use vortex_array::arrays::StructArray;
     use vortex_array::arrays::VariantArray;
     use vortex_array::assert_arrays_eq;
+    use vortex_array::builders::VariantBuilder;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::FieldNames;
     use vortex_array::dtype::Nullability;
@@ -403,6 +395,34 @@ mod tests {
     fn converts_typed_numbers_to_booleans() -> VortexResult<()> {
         let typed = PrimitiveArray::from_option_iter([Some(0i64), Some(-3), None]);
         let array = shredded_a(typed.into_array())?;
+        let expr = variant_get(
+            root(),
+            VariantPath::field("a"),
+            Some(DType::Bool(Nullability::Nullable)),
+        );
+
+        let mut ctx = SESSION.create_execution_ctx();
+        let actual = array.apply(&expr)?.execute::<ArrayRef>(&mut ctx)?;
+
+        assert_arrays_eq!(
+            actual,
+            BoolArray::from_iter([Some(false), Some(true), None]).into_array(),
+            &mut ctx
+        );
+        Ok(())
+    }
+
+    /// A number in a nested Variant, as a partially shredded field holds it, reads as a Boolean
+    /// too.
+    #[test]
+    fn converts_numbers_in_variants_to_booleans() -> VortexResult<()> {
+        let mut builder = VariantBuilder::new(Nullability::Nullable);
+        for value in [0i64, -3] {
+            let value = Scalar::primitive(value, Nullability::NonNullable);
+            builder.append_n_scalars(&Scalar::variant(value), 1)?;
+        }
+        builder.append_n_scalars(&Scalar::null(DType::Variant(Nullability::Nullable)), 1)?;
+        let array = shredded_a(builder.finish_into_variant()?.into_array())?;
         let expr = variant_get(
             root(),
             VariantPath::field("a"),

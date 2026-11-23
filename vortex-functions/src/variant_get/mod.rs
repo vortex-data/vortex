@@ -408,7 +408,30 @@ fn cast_variant_scalar(value: Scalar, output_dtype: &DType) -> VortexResult<Opti
         )));
     }
 
-    Ok(value.cast(output_dtype).ok())
+    Ok(value
+        .cast(output_dtype)
+        .ok()
+        .or_else(|| number_as_bool(&value, output_dtype)))
+}
+
+/// Converts a number to a Boolean as Arrow's Variant conversion does: zero is false and any other
+/// number is true. A Vortex cast does not convert numbers to Booleans.
+///
+/// The number can be in a Variant, as a partially shredded field holds its values.
+pub(super) fn number_as_bool(scalar: &Scalar, dtype: &DType) -> Option<Scalar> {
+    if !dtype.is_boolean() {
+        return None;
+    }
+    let number = if scalar.dtype().is_variant() {
+        scalar.as_variant().value()?
+    } else {
+        scalar
+    };
+    if !number.dtype().is_primitive() {
+        return None;
+    }
+    let is_zero = number.is_zero()?;
+    Some(Scalar::bool(!is_zero, dtype.nullability()))
 }
 
 fn variant_path_scalar(
