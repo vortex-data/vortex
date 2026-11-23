@@ -47,7 +47,8 @@ use vortex_session::registry::CachedId;
 pub struct VariantPack;
 
 impl VariantPack {
-    /// Creates a lazy Variant over `core` and `shredded`.
+    /// Creates a lazy Variant over `core` and `shredded`, which is `complete` or not; see
+    /// [`VariantPackOptions::complete`].
     ///
     /// # Errors
     ///
@@ -55,9 +56,12 @@ impl VariantPack {
     pub fn try_new(
         core: ArrayRef,
         shredded: ArrayRef,
-        options: VariantPackOptions,
+        complete: bool,
     ) -> VortexResult<ScalarFnArray> {
-        ScalarFnArray::try_new(VariantPack.bind(options), [core, shredded])
+        ScalarFnArray::try_new(
+            VariantPack.bind(VariantPackOptions::new(complete)),
+            [core, shredded],
+        )
     }
 
     /// Creates a lazy Variant over `core` and a `shredded` struct whose validity is `validity`.

@@ -17,9 +17,11 @@ use vortex_array::arrays::FixedSizeListArray;
 use vortex_array::arrays::ListArray;
 use vortex_array::arrays::MaskedArray;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::ScalarFn;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::VariantArray;
+use vortex_array::arrays::scalar_fn::ScalarFnArrayExt;
 use vortex_array::arrays::variant::VariantArraySlotsExt;
 use vortex_array::assert_arrays_eq;
 use vortex_array::assert_nth_scalar_is_null;
@@ -1252,5 +1254,105 @@ fn variant_get_root_struct_respects_variant_pack_shredded_validity() -> VortexRe
         Some(10),
     );
     assert!(result.is_invalid(1, &mut ctx)?);
+    Ok(())
+}
+
+/// How [`VariantGet`] over a [`VariantPack`] reduces.
+#[derive(Debug, Clone, Copy)]
+enum Reduced {
+    /// To a read of the shredded child alone.
+    ToShredded,
+    /// To an extraction from the core storage alone.
+    ToCore,
+    /// Not at all: the pack stays and executes to a whole Variant.
+    No,
+}
+
+/// Variant objects whose field `a` is shredded as `i32` and field `n` as a shredded Variant,
+/// over core storage that holds field `b`. When the pack is not complete, the core storage
+/// also holds `a` for the last row, where the shredded `a` is null.
+fn pack_over_core(complete: bool) -> VortexResult<(ArrayRef, ArrayRef, ArrayRef)> {
+    let b = |value: i32| Scalar::primitive(value, Nullability::NonNullable);
+    let last_row = if complete {
+        variant_object([("b", b(3))])
+    } else {
+        variant_object([
+            ("a", Scalar::primitive(7i32, Nullability::NonNullable)),
+            ("b", b(3)),
+        ])
+    };
+    let core = variant_rows([
+        Scalar::variant(variant_object([("b", b(1))])),
+        Scalar::variant(variant_object([("b", b(2))])),
+        Scalar::variant(last_row),
+    ])?;
+
+    let c = |value: i64| {
+        Scalar::variant(variant_object([(
+            "c",
+            Scalar::primitive(value, Nullability::NonNullable),
+        )]))
+    };
+    let shredded = StructArray::try_new(
+        FieldNames::from_iter(["a", "n"]),
+        vec![
+            PrimitiveArray::from_option_iter([Some(10i32), Some(20), None]).into_array(),
+            variant_rows([c(1), c(2), c(3)])?,
+        ],
+        3,
+        Validity::NonNullable,
+    )?
+    .into_array();
+
+    let packed = VariantPack::try_new(core.clone(), shredded.clone(), complete)?.into_array();
+    Ok((core, shredded, packed))
+}
+
+/// Each rule of [`VariantGet::reduce`] over a [`VariantPack`] extracts what the Variant that
+/// the pack builds gives, and reads only the child that the rule says it reads.
+#[rstest]
+#[case::shredded_field_of_complete_pack(&["a"], PType::I32, true, Reduced::ToShredded)]
+#[case::shredded_field_of_partial_pack(&["a"], PType::I32, false, Reduced::No)]
+#[case::field_not_shredded(&["b"], PType::I32, true, Reduced::ToCore)]
+#[case::path_into_shredded_variant(&["n", "c"], PType::I64, true, Reduced::ToShredded)]
+#[case::leaf_of_other_type(&["a"], PType::I64, true, Reduced::No)]
+fn variant_get_over_variant_pack_reduces(
+    #[case] path: &[&str],
+    #[case] ptype: PType,
+    #[case] complete: bool,
+    #[case] reduced: Reduced,
+) -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let (core, shredded, packed) = pack_over_core(complete)?;
+    let expr = variant_get(
+        root(),
+        VariantPath::new(path.iter().map(|field| VariantPathElement::field(*field))),
+        Some(DType::Primitive(ptype, Nullability::Nullable)),
+    );
+
+    let actual = packed.apply(&expr)?.optimize_ctx(&ctx)?;
+
+    let nodes = actual.depth_first_traversal().collect::<Vec<_>>();
+    let has_pack = nodes.iter().any(|node| {
+        node.as_opt::<ScalarFn>()
+            .is_some_and(|scalar_fn| scalar_fn.scalar_fn().id() == VariantPack.id())
+    });
+    // The optimizer can push the extraction into the chunks of `core`, so any of its arrays
+    // counts as reading it.
+    let core_nodes = core.depth_first_traversal().collect::<Vec<_>>();
+    let reads_core = nodes
+        .iter()
+        .any(|node| core_nodes.iter().any(|core_node| ArrayRef::ptr_eq(node, core_node)));
+    match reduced {
+        Reduced::ToShredded => assert!(!has_pack && !reads_core, "{actual}"),
+        Reduced::ToCore => assert!(!has_pack && reads_core, "{actual}"),
+        Reduced::No => assert!(has_pack, "{actual}"),
+    }
+
+    let expected = VariantArray::try_new(core, Some(shredded))?
+        .into_array()
+        .apply(&expr)?
+        .execute::<ArrayRef>(&mut ctx)?;
+    assert_arrays_eq!(actual.execute::<ArrayRef>(&mut ctx)?, expected, &mut ctx);
     Ok(())
 }
