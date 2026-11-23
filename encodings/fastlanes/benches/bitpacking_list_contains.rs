@@ -8,8 +8,6 @@
 #![expect(clippy::unwrap_used)]
 #![expect(clippy::cast_possible_truncation)]
 
-use std::fmt::Display;
-use std::fmt::Formatter;
 use std::sync::Arc;
 use std::sync::LazyLock;
 
@@ -25,7 +23,6 @@ use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::IntegerPType;
 use vortex_array::dtype::Nullability;
-use vortex_array::dtype::PType;
 use vortex_array::expr::lit;
 use vortex_array::expr::root;
 use vortex_array::memory::MemorySession;
@@ -170,146 +167,55 @@ fn strided_members(count: usize) -> Vec<u64> {
     (0..count).map(|i| 1 + (i as u64) * 3).collect()
 }
 
-#[divan::bench(args = [1, 2, 3, 4, 5])]
-fn bitpacked_u32_members(bencher: Bencher, member_count: usize) {
-    let members = strided_members(member_count);
+#[divan::bench]
+fn bitpacked_u32_m4(bencher: Bencher) {
+    let members = strided_members(4);
     let needles = build_bitpacked(8, &members, None, |v| v as u32);
     let set = list_scalar(members.into_iter().map(|v| v as u32));
     bench_list_contains(bencher, set, needles);
 }
 
-#[derive(Clone, Copy)]
-struct WidthCase {
-    ptype: PType,
-    bit_width: u8,
-}
-
-impl Display for WidthCase {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}_w{}", self.ptype, self.bit_width)
-    }
-}
-
-const WIDTH_CASES: &[WidthCase] = &[
-    WidthCase {
-        ptype: PType::U8,
-        bit_width: 6,
-    },
-    WidthCase {
-        ptype: PType::U16,
-        bit_width: 8,
-    },
-    WidthCase {
-        ptype: PType::U64,
-        bit_width: 40,
-    },
-];
-
-#[divan::bench(args = WIDTH_CASES)]
-fn bitpacked_widths_m4(bencher: Bencher, case: WidthCase) {
-    let members = strided_members(4);
-    let (set, needles) = match case.ptype {
-        PType::U8 => (
-            list_scalar(members.iter().map(|&v| v as u8)),
-            build_bitpacked(case.bit_width, &members, None, |v| v as u8),
-        ),
-        PType::U16 => (
-            list_scalar(members.iter().map(|&v| v as u16)),
-            build_bitpacked(case.bit_width, &members, None, |v| v as u16),
-        ),
-        PType::U64 => (
-            list_scalar(members.iter().copied()),
-            build_bitpacked(case.bit_width, &members, None, |v| v),
-        ),
-        _ => unreachable!(),
-    };
-    bench_list_contains(bencher, set, needles);
-}
-
-#[divan::bench(args = [4, 8])]
-fn bitpacked_out_of_domain(bencher: Bencher, member_count: usize) {
+#[divan::bench]
+fn bitpacked_u32_out_of_domain(bencher: Bencher) {
     let bit_width = 8;
     let base = 1u64 << bit_width;
-    let members: Vec<u64> = (0..member_count).map(|i| base + (i as u64) * 3).collect();
+    let members: Vec<u64> = (0..4).map(|i| base + i * 3).collect();
     let needles = build_bitpacked(bit_width, &[], None, |v| v as u32);
     let set = list_scalar(members.into_iter().map(|v| v as u32));
     bench_list_contains(bencher, set, needles);
 }
 
-#[derive(Clone, Copy)]
-enum PatchCase {
-    MixedM4,
-    PatchOnlyM4,
-}
-
-impl Display for PatchCase {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::MixedM4 => write!(f, "mixed_m4"),
-            Self::PatchOnlyM4 => write!(f, "patch_only_m4"),
-        }
-    }
-}
-
-#[divan::bench(args = [PatchCase::MixedM4, PatchCase::PatchOnlyM4])]
-fn bitpacked_patched(bencher: Bencher, case: PatchCase) {
+#[divan::bench]
+fn bitpacked_u32_patched(bencher: Bencher) {
     let bit_width = 8;
     let domain = 1u64 << bit_width;
-    let members = match case {
-        PatchCase::MixedM4 => vec![1, 7, domain, domain + 4],
-        PatchCase::PatchOnlyM4 => vec![domain, domain + 4, domain + 8, domain + 12],
-    };
+    let members = vec![1, 7, domain, domain + 4];
     let needles = build_bitpacked(bit_width, &members, Some(64), |v| v as u32);
     let set = list_scalar(members.into_iter().map(|v| v as u32));
     bench_list_contains(bencher, set, needles);
 }
 
-#[derive(Clone, Copy)]
-enum ForCase {
-    M1,
-    M4,
-    M5,
-    BelowRefM4,
-}
-
-impl Display for ForCase {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::M1 => write!(f, "m1"),
-            Self::M4 => write!(f, "m4"),
-            Self::M5 => write!(f, "m5"),
-            Self::BelowRefM4 => write!(f, "below_ref_m4"),
-        }
-    }
-}
-
-#[divan::bench(args = [ForCase::M1, ForCase::M4, ForCase::M5, ForCase::BelowRefM4])]
-fn for_bitpacked_i32(bencher: Bencher, case: ForCase) {
+#[divan::bench]
+fn for_bitpacked_i32_m4(bencher: Bencher) {
     let reference = 10_000i32;
-    let bit_width = 8;
-    let (packed_members, query_members): (Vec<u64>, Vec<i32>) = match case {
-        ForCase::M1 => {
-            let m = strided_members(1);
-            let q = m.iter().map(|&v| reference + v as i32).collect();
-            (m, q)
-        }
-        ForCase::M4 => {
-            let m = strided_members(4);
-            let q = m.iter().map(|&v| reference + v as i32).collect();
-            (m, q)
-        }
-        ForCase::M5 => {
-            let m = strided_members(5);
-            let q = m.iter().map(|&v| reference + v as i32).collect();
-            (m, q)
-        }
-        ForCase::BelowRefM4 => (vec![], vec![100, 200, 500, 9_999]),
-    };
-
-    let packed = build_bitpacked(bit_width, &packed_members, None, |v| v as i32);
+    let packed_members = strided_members(4);
+    let query_members: Vec<i32> = packed_members
+        .iter()
+        .map(|&v| reference + v as i32)
+        .collect();
+    let packed = build_bitpacked(8, &packed_members, None, |v| v as i32);
     let needles = FoR::try_new(packed, Scalar::from(reference))
         .unwrap()
         .into_array();
-    let set = list_scalar(query_members);
-    bench_list_contains(bencher, set, needles);
+    bench_list_contains(bencher, list_scalar(query_members), needles);
+}
+
+#[divan::bench]
+fn for_bitpacked_i32_below_ref(bencher: Bencher) {
+    let reference = 10_000i32;
+    let packed = build_bitpacked(8, &[], None, |v| v as i32);
+    let needles = FoR::try_new(packed, Scalar::from(reference))
+        .unwrap()
+        .into_array();
+    bench_list_contains(bencher, list_scalar([100i32, 200, 500, 9_999]), needles);
 }
