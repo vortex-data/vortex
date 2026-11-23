@@ -350,9 +350,11 @@ impl LayoutStrategy for CompressingStrategy {
                 }
 
                 for task in tasks {
-                    let (sequence_id, compressed, chunk_reuse, _output_reservation) =
-                        task.await?;
+                    let (sequence_id, compressed, chunk_reuse, output_reservation) = task.await?;
                     reuse.commit(chunk_reuse);
+                    // The child counts the chunk when it takes it, so release the compressed
+                    // bytes before yielding across the suspend point.
+                    drop(output_reservation);
                     yield (sequence_id, compressed);
                 }
             }
