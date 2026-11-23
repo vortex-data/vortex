@@ -123,7 +123,8 @@ class VortexDatasource(Datasource):
                 paths,
                 self._columns,
                 self._filter,
-                per_task_row_limit if per_task_row_limit is not None else self._batch_size,
+                self._batch_size,
+                per_task_row_limit,
             )
             for paths in partition(parallelism, self._paths)
             if len(paths) > 0
@@ -141,6 +142,7 @@ def _read_task(
     columns: list[str] | None,
     filter: pc.Expression | VortexExpr | None,
     batch_size: int | None,
+    per_task_row_limit: int | None = None,
 ) -> ReadTask:
     if not paths:
         raise ValueError("no paths specified")
@@ -155,6 +157,8 @@ def _read_task(
     output_schema = dataset.scanner(columns=columns).projected_schema
 
     def read() -> Iterable[pandas.DataFrame]:
+        if per_task_row_limit is not None and per_task_row_limit <= 0:
+            return
         # A VortexDataset cannot be pickled, so the task opens its files again on the worker.
         reader = _open_exact_files(paths).to_record_batch_reader(columns=columns, filter=filter, batch_size=batch_size)
 
@@ -165,4 +169,4 @@ def _read_task(
             #
             yield rb.to_pandas()
 
-    return ReadTask(read, metadata, output_schema)
+    return ReadTask(read, metadata, output_schema, per_task_row_limit=per_task_row_limit)
