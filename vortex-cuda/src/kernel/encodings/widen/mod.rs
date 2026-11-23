@@ -100,7 +100,7 @@ impl CudaExecute for WidenExecutor {
 /// `D` must be strictly wider than `S` with the same signedness, as the [`Widen`] invariant
 /// guarantees. The `widen.cu` kernels only instantiate those pairs. The other monomorphized pairs
 /// cannot run because a valid `Widen` never dispatches to them.
-fn widen_integers<S, D>(
+pub(super) fn widen_integers<S, D>(
     values: BufferHandle,
     len: usize,
     ctx: &mut CudaExecutionCtx,
