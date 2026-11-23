@@ -194,15 +194,7 @@ where
         lower: first.as_(),
         upper: last.as_(),
     };
-    stream_compare_fused(
-        array,
-        bit_width,
-        op,
-        nullability,
-        false,
-        &predicate,
-        ctx,
-    )
+    stream_compare_fused(array, bit_width, op, nullability, false, &predicate, ctx)
 }
 
 #[cfg(test)]
