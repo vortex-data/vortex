@@ -19,9 +19,10 @@ This page is a design proposal. Only [Current state](#current-state) describes w
   answers the second. Vortex refuses to combine inputs whose CRSs differ.
 - **Storage.** The coordinate layout does not change. A CRS is already stored per column; phase 2
   adds one optional metadata field, `edges`.
-- **First step.** Support the WGS 84 family (longitude/latitude, the UTM zones, optionally Web
-  Mercator), choosing the curved-surface kernel by function name. That is enough to run the example
-  below end to end without a datum transform.
+- **First steps.** Phase 1a supports flat (projected) CRSs: Vortex needs no CRS list, only the
+  check that two inputs share a CRS, and the engine decides which CRSs it can transform between.
+  Phase 1b adds curved-surface distance for the WGS 84 family, choosing the kernel by function
+  name. Together they run the example below end to end without a datum transform.
 
 ## Running example
 
@@ -47,7 +48,7 @@ the Earth's surface, between two points in that tile. Answering takes three step
 Steps 1 and 2 change *where the coordinates live*. Step 3 *computes* in the final space. That
 difference is the basis of this design.
 
-Inside one UTM tile, flat UTM distance and geodesic distance differ by under 0.04 %, so the result
+Inside one UTM tile, flat UTM distance and geodesic distance differ by at most about 0.1 %, so the result
 itself is not the point of the example. Its value is that it exercises every layer: an affine map,
 a projection, a curved-surface kernel, and the boundary between engine and Vortex.
 
@@ -193,11 +194,18 @@ flat math.
 - **Predicates use the sphere.** Exact intersection of ellipsoidal geodesics is expensive, so
   systems such as PostGIS `geography` and BigQuery evaluate intersects and contains on the sphere,
   and use the ellipsoid for distance, length, and area.
-- **Flat distance in a projected CRS is not ground distance.** Every projection stretches the map.
-  UTM stretches by under 0.04 % inside a zone; Web Mercator by 1 / cos(latitude), about 2x at
-  60 degrees. A function on a projected column returns flat distance, as PostGIS `geometry` does.
-  Ground distance requires an explicit transform to longitude/latitude. A kernel never switches to
-  a different space on its own.
+- **Flat results in a projected CRS are not ground results.** A function on a projected column
+  returns the distance, length, or area in that CRS's plane and units, as PostGIS `geometry` does.
+  Ground values require an explicit transform to longitude/latitude; a kernel never switches to a
+  different space on its own. How far the plane is from the ground depends on the projection:
+
+  | Projection | Examples | Distance | Area |
+  | --- | --- | --- | --- |
+  | Conformal, small extent | UTM, British National Grid (EPSG:27700) | Scale 0.9996 on a zone's central meridian to about 1.001 at its edge: -0.04 % to +0.1 % | About twice the distance error |
+  | Conformal, for surveying | State Plane (EPSG:2263, EPSG:32118) | Designed to stay within 1 part in 10,000 | Within about 2 parts in 10,000 |
+  | Conformal, large extent | Web Mercator (EPSG:3857), World Mercator (EPSG:3395) | Scale 1 / cos(latitude): 2x at 60 degrees | Scale 1 / cos²(latitude): 4x at 60 degrees |
+  | Equal-area | EASE-Grid 2.0 (EPSG:6933), US Albers (EPSG:5070) | Distorted | Equal to ground area |
+  | Polar stereographic | UPS, EPSG:3413, EPSG:3031 | Good near the pole, worse away from it | Same |
 - **Planar edges on longitude/latitude are valid but not a true distance.** Predicates are correct
   for that interpretation. Distance and area come back in degrees, and away from the equator a
   degree of longitude is shorter than a degree of latitude.
@@ -376,31 +384,54 @@ statistics) that crosses the 180-degree meridian can follow GeoParquet's convent
 `xmin > xmax`. And for an Earth-centred CRS `z` is a coordinate, not the elevation that
 `coordinate.rs` documents.
 
-### Mapping a CRS to its coordinate space
+### What Vortex reads from a CRS
+
+Vortex stores the CRS as given and does not define its own CRS fields. What a CRS contains is
+already standardized: [PROJJSON](https://proj.org/specifications/projjson.html) is ISO 19111 in
+JSON, with a `type` (`GeographicCRS`, `ProjectedCRS`, `GeodeticCRS`, `VerticalCRS`,
+`CompoundCRS`, `EngineeringCRS`), a `datum` with its ellipsoid, a `coordinate_system` with axes and
+units, a `base_crs` and `conversion` for projected CRSs, and an `id`. Defining a Vortex-specific
+version would reimplement that model and break interoperability with GeoArrow, GeoParquet, and
+DuckDB.
+
+What Vortex does define is the small view it derives from a CRS to compute with. The view is
+computed when needed and never written to the file:
 
 ```rust
-pub enum CoordKind {
-    /// Projected, engineering, or pixel space: flat, in the stored units.
-    Planar,
-    /// Longitude and latitude on an ellipsoid, always in (lon, lat) order.
-    Geographic { semi_major: f64, flattening: f64 },
-    /// Earth-centred Cartesian (X, Y, Z).
-    Geocentric,
-}
-
 pub struct CoordSpace {
-    pub kind: CoordKind,
-    /// The CRS identity, compared for equality between inputs.
-    pub crs: Option<Arc<str>>,
+    /// Selects the kernel family.
+    pub kind: CoordKind, // Planar | Geographic | Geocentric
+    /// K3's parameters; present only for a geographic CRS.
+    pub ellipsoid: Option<Ellipsoid>, // semi-major axis a, flattening f
+    /// Labels results and gives unit-change factors: metre, US survey foot, degree.
+    pub linear_unit: Option<Unit>,
+    /// Canonical identity for the CRS check, so EPSG:4326 and OGC:CRS84 compare equal.
+    pub id: CrsId,
 }
 ```
 
-This view is derived from the stored CRS when needed and never written to the file. It is the only
-place where Vortex interprets a CRS.
+| Field | Source in PROJJSON | Phase 1a | Phase 1b | Phase 2 |
+| --- | --- | --- | --- | --- |
+| `id` | `id`, or the canonicalized definition | Raw CRS string instead | WGS 84 family codes and aliases | Any CRS |
+| `kind` | `type` | Not needed | Needed: only geographic CRSs run the spheroid functions | Needed |
+| `ellipsoid` | `datum.ellipsoid`, or `base_crs.datum.ellipsoid` for a projected CRS | Not needed | Fixed to WGS 84 | Any ellipsoid |
+| `linear_unit` | `coordinate_system.axis[*].unit` | Not needed | Optional | Optional |
 
-- **PROJJSON** states the coordinate system type (`coordinate_system.subtype`) and the ellipsoid,
-  so it can be mapped by parsing JSON alone. Phase 1 reads only its `id` member
-  (`{"authority": "EPSG", "code": 32633}`).
+Two things are deliberately left out. Axis order is normalized when data is loaded, so kernels
+never handle it. Projection parameters belong to `ST_Transform`, which the engine owns. The cost
+of supporting another CRS in Vortex is therefore only whether these four fields can be read from
+it.
+
+GeoArrow metadata can also carry an optional `crs_type` (`projjson`, `wkt2:2019`,
+`authority_code`, `srid`) naming how `crs` is written. Vortex does not store it and exports every
+CRS as an unknown type. The form can be read from the value itself (`{` starts PROJJSON, `EPSG:`
+starts an authority code), so storing `crs_type` is optional and only improves round-trip
+fidelity.
+
+How the view is derived:
+
+- **PROJJSON** states the type and the ellipsoid, so it can be mapped by parsing JSON alone. Phase
+  1b reads only its `id` member (`{"authority": "EPSG", "code": 32633}`).
 - **Bare codes** such as `EPSG:4326` are mapped by a few rules. The UTM zones are one rule with two
   parameters, the zone and the hemisphere, not 120 table entries.
 - **Unknown or missing CRS** keeps today's behavior: flat math. Changing that default would change
@@ -445,9 +476,36 @@ columns whose edges are not planar.
 
 ## Implementation plan
 
-### Phase 1: the WGS 84 family, kernels chosen by function name
+### Phase 1a: flat CRSs
 
-The first phase supports CRSs that share the WGS 84 datum:
+Every projected CRS already computes correctly with K1, in its own plane and units. So in phase 1a
+Vortex does not interpret any CRS. It stores the CRS and checks that the two inputs of a binary
+function share one (see [CRS check](#crs-check)). Which CRSs users can work with is decided by the
+engine: it is the set its `ST_Transform` can convert between.
+
+| CRS | Phase 1a behavior |
+| --- | --- |
+| Projected (UTM, State Plane, Web Mercator, national grids, polar, equal-area) | Supported: flat results in the CRS's units; see the projection table in [Behavior worth knowing](#behavior-worth-knowing) |
+| Engineering, local, or pixel space | Supported: flat by definition |
+| Geographic (EPSG:4326, OGC:CRS84) | Unchanged: planar edges, distances in degrees. Rejecting them would break existing data and tests that tag points with EPSG:4326 |
+| Geocentric (EPSG:4978) | Not supported: needs 3D distance, and the kernels read only `x` and `y` |
+
+Vortex:
+
+1. Reject functions over two geometries whose CRSs differ.
+2. Test that results follow the CRS's units: the same two points give distances in EPSG:2263
+   (US survey feet) and EPSG:32118 (metres) whose ratio is the foot-to-metre factor, about 3.2808.
+
+Engine, starting with DataFusion:
+
+1. Read `crs` from field metadata during planning.
+2. Implement `ST_Transform` between projected CRSs, such as two UTM zones or EPSG:2263 and
+   EPSG:32118, setting the output's `crs`.
+3. Refuse functions over different CRSs, with an error that points at `ST_Transform`.
+
+### Phase 1b: curved distance for the WGS 84 family
+
+Phase 1b supports CRSs that share the WGS 84 datum:
 
 | CRS | Coordinate space | Why |
 | --- | --- | --- |
@@ -455,7 +513,7 @@ The first phase supports CRSs that share the WGS 84 datum:
 | WGS 84 / UTM, EPSG:32601 to 32660 (north) and 32701 to 32760 (south) | Planar, metres | Satellite tiles; the running example |
 | EPSG:3857 (Web Mercator), optional | Planar, metres | Web map tiles; a clear case of flat distance differing from ground distance |
 
-A single datum keeps phase 1 small:
+A single datum keeps phase 1b small:
 
 - **One ellipsoid:** K3 has one fixed pair of parameters.
 - **No datum transforms:** every transform between these CRSs is projection math (transverse
@@ -464,28 +522,27 @@ A single datum keeps phase 1 small:
 - **Enough levels to test:** EPSG:4326 and OGC:CRS84 differ by an axis swap (level 0), UTM north
   and south by a shift (level 2), and UTM or Web Mercator and EPSG:4326 by a projection (level 5).
 
-Phase 1 adds no `edges`. The curved-surface kernel is chosen by function name, as DuckDB spatial
+Phase 1b adds no `edges`. The curved-surface kernel is chosen by function name, as DuckDB spatial
 does with `ST_Distance_Spheroid`: `vortex.st.distance` stays flat, and new spheroid functions run
 K3. This changes no existing result and no storage, and it covers the running example, whose two
 points have no edges to interpret.
 
 Vortex:
 
-1. Reject functions over two geometries whose CRSs differ (see [CRS check](#crs-check)).
-2. Map CRSs to coordinate spaces for the family above, from authority codes and the PROJJSON `id`
-   member. Any other CRS is unknown and keeps today's flat behavior.
-3. Add `vortex.st.distance_spheroid` and `vortex.st.length_spheroid`, which run K3 and require a
-   geographic CRS.
-4. Reject GeoArrow input whose `edges` is not `planar`. Import drops `edges` today
+1. Derive `CoordSpace` for the family above (see
+   [What Vortex reads from a CRS](#what-vortex-reads-from-a-crs)). Any other CRS is unknown and
+   keeps today's flat behavior.
+2. Add `vortex.st.distance_spheroid` and `vortex.st.length_spheroid`, which run K3 and require a
+   geographic CRS. They cover point-to-point distance and line length, the cases with closed-form
+   geodesic algorithms.
+3. Reject GeoArrow input whose `edges` is not `planar`. Import drops `edges` today
    (`spatial_metadata_from_arrow`), so spherical data is computed on as planar without an error.
    Rejecting it is a behavior change.
 
-Engine, starting with DataFusion:
+Engine:
 
-1. Read `crs` from field metadata during planning.
-2. Implement `ST_Transform` between the CRSs above, setting the output's `crs`.
-3. Refuse functions over different CRSs, with an error that points at `ST_Transform`.
-4. Run the example end to end, and compare K1 in UTM with K3 in EPSG:4326.
+1. Extend `ST_Transform` to and from EPSG:4326.
+2. Run the example end to end, and compare K1 in UTM with K3 in EPSG:4326.
 
 Vortex steps do not depend on the engine and can land first.
 
@@ -509,7 +566,11 @@ Vortex steps do not depend on the engine and can land first.
 - **Data without a CRS.** GeoParquet treats a missing CRS as OGC:CRS84; GeoArrow treats it as
   unknown. SpatialBench data has none. Treating it as unknown keeps today's results; the engine
   could write OGC:CRS84 explicitly when it reads GeoParquet.
-- **Web Mercator in phase 1.** The running example does not need it.
+- **Web Mercator in phase 1b.** The running example does not need it.
+- **Where the engine work lives.** `vortex-datafusion` in this repository, or SpiralDB.
+- **K3 implementation.** The [computation core epic](https://github.com/vortex-data/vortex/issues/9388)
+  plans to move `geo` to a dev-dependency. If that stands, K3 depends on `geographiclib-rs`
+  directly, which `geo::Geodesic` wraps, and `geo` serves as the test oracle.
 - **Distance with planar edges on longitude/latitude.** Return degrees, as PostGIS `geometry`
   does, or return an error?
 - **Unknown CRS.** Keep flat math by default, or require a known CRS for functions that return
