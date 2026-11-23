@@ -21,6 +21,8 @@ use rand::rngs::StdRng;
 use rstest::rstest;
 use tempfile::tempdir;
 use vortex_array::ArrayRef;
+use vortex_array::Canonical;
+use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::aggregate_fn::AggregateFnRef;
@@ -45,6 +47,8 @@ use vortex_array::arrays::struct_::StructArrayExt;
 use vortex_array::arrays::widen::WidenArraySlotsExt;
 use vortex_array::assert_arrays_eq;
 use vortex_array::builders::MapBuilder;
+use vortex_array::builders::dict::dict_encode;
+use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::BigCast;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::DecimalDType;
@@ -114,6 +118,8 @@ use vortex_layout::DynLayout;
 use vortex_layout::LayoutStrategy;
 use vortex_layout::layouts::buffered::BufferedStrategy;
 use vortex_layout::layouts::chunked::writer::ChunkedLayoutStrategy;
+use vortex_layout::layouts::dict::writer::DictLayoutOptions;
+use vortex_layout::layouts::dict::writer::DictStrategy;
 use vortex_layout::layouts::file_stats::AggregateStats;
 use vortex_layout::layouts::flat::writer::FlatLayoutStrategy;
 use vortex_layout::layouts::struct_::StructStrategy;
@@ -4050,4 +4056,85 @@ mod writer_terminal_error_tests {
         assert_eq!(write_calls.load(Ordering::SeqCst), calls_after_failure);
         Ok(())
     }
+}
+
+#[tokio::test]
+async fn test_dict_writer_propagates_first_encode_error() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let dtype = DType::Decimal(DecimalDType::new(38, 20), Nullability::NonNullable);
+    let good = PrimitiveArray::from_iter([1u64, 1, 1, 1])
+        .into_array()
+        .cast(dtype.clone())?
+        .execute::<DecimalArray>(&mut ctx)?
+        .into_array();
+    let bad = PrimitiveArray::from_iter([u64::MAX])
+        .into_array()
+        .cast(dtype.clone())?;
+    let all = ChunkedArray::try_new([good.clone(), bad], dtype.clone())?.into_array();
+
+    let probe = |sample: &ArrayRef, ctx: &mut ExecutionCtx| -> VortexResult<ArrayRef> {
+        let canonical = sample.clone().execute::<Canonical>(ctx)?.into_array();
+        Ok(dict_encode(&canonical, ctx)?.into_array())
+    };
+    let strategy: Arc<dyn LayoutStrategy> = Arc::new(DictStrategy::new(
+        ChunkedLayoutStrategy::new(FlatLayoutStrategy::default()),
+        FlatLayoutStrategy::default(),
+        ChunkedLayoutStrategy::new(FlatLayoutStrategy::default()),
+        DictLayoutOptions {
+            probe_len: 2,
+            ..Default::default()
+        },
+        Arc::new(probe),
+    ));
+
+    // A five-row chunk whose two-row sample selects dict encoding but whose fifth row fails
+    // precision checks must return the original encoder error rather than publishing an empty file.
+    let failing_stream = ArrayStreamAdapter::new(dtype.clone(), futures::stream::iter([Ok(all)]));
+    let mut failing_bytes = ByteBufferMut::empty();
+    let err = SESSION
+        .write_options()
+        .disable_editions()
+        .with_file_statistics(vec![])
+        .with_strategy(Arc::clone(&strategy))
+        .write(&mut failing_bytes, failing_stream)
+        .await
+        .err()
+        .expect("failed dictionary encode must fail the file write");
+    assert!(
+        err.to_string().contains("does not fit in precision"),
+        "unexpected error: {err}"
+    );
+
+    // Valid four-row control under the same writer configuration round-trips all four rows.
+    let control_stream =
+        ArrayStreamAdapter::new(dtype.clone(), futures::stream::iter([Ok(good.clone())]));
+    let mut control_bytes = ByteBufferMut::empty();
+    let written = SESSION
+        .write_options()
+        .disable_editions()
+        .with_file_statistics(vec![])
+        .with_strategy(Arc::clone(&strategy))
+        .write(&mut control_bytes, control_stream)
+        .await?;
+    let reopened = SESSION.open_options().open_buffer(control_bytes)?;
+    assert_eq!(written.row_count(), 4);
+    assert_eq!(reopened.row_count(), 4);
+    let read_back = reopened.scan()?.into_array_stream()?.read_all().await?;
+    assert_arrays_eq!(read_back, good, &mut ctx);
+
+    // Clean empty input still writes and reopens as a zero-row file.
+    let empty_stream = ArrayStreamAdapter::new(dtype, futures::stream::empty());
+    let mut empty_bytes = ByteBufferMut::empty();
+    let empty_written = SESSION
+        .write_options()
+        .disable_editions()
+        .with_file_statistics(vec![])
+        .with_strategy(strategy)
+        .write(&mut empty_bytes, empty_stream)
+        .await?;
+    let empty_reopened = SESSION.open_options().open_buffer(empty_bytes)?;
+    assert_eq!(empty_written.row_count(), 0);
+    assert_eq!(empty_reopened.row_count(), 0);
+
+    Ok(())
 }
