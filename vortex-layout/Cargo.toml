@@ -45,6 +45,7 @@ vortex-array = { workspace = true }
 vortex-arrow = { workspace = true }
 vortex-btrblocks = { workspace = true }
 vortex-buffer = { workspace = true }
+vortex-decimal-byte-parts = { workspace = true }
 vortex-error = { workspace = true }
 vortex-expr = { workspace = true }
 vortex-io = { workspace = true }
