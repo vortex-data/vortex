@@ -575,7 +575,6 @@ mod tests {
     use vortex_array::dtype::BigCast;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::DecimalDType;
-    use vortex_array::dtype::DecimalType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
     use vortex_array::dtype::extension::ExtDType;

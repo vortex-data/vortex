@@ -62,3 +62,49 @@ where
         max: max_scalar,
     }))
 }
+
+#[cfg(test)]
+mod tests {
+    use std::sync::LazyLock;
+
+    use rstest::rstest;
+    use vortex_array::IntoArray;
+    use vortex_array::VortexSessionExecute;
+    use vortex_array::aggregate_fn::NumericalAggregateOpts;
+    use vortex_array::arrays::DecimalArray;
+    use vortex_array::dtype::DecimalDType;
+    use vortex_array::validity::Validity;
+    use vortex_buffer::Buffer;
+    use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
+
+    use crate::min_max::min_max;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
+    #[rstest]
+    #[case::one_value(&[100i8])]
+    #[case::maximum(&[1i8, 100])]
+    #[case::minimum(&[-100i8, 1])]
+    fn invalid_stored_value_errors_in_min_max(#[case] slots: &[i8]) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        // SAFETY: `Validity::NonNullable` requires no validity array; we intentionally store an
+        // out-of-precision value to verify `min_max` validates both extrema.
+        let array = unsafe {
+            DecimalArray::new_unchecked(
+                Buffer::copy_from(slots),
+                DecimalDType::new(2, 0),
+                Validity::NonNullable,
+            )
+        }
+        .into_array();
+
+        let err = min_max(&array, &mut ctx, NumericalAggregateOpts::default()).unwrap_err();
+        assert!(
+            err.to_string().contains("does not fit in precision"),
+            "{err}"
+        );
+
+        Ok(())
+    }
+}

@@ -2922,8 +2922,7 @@ async fn field_file_statistics_record_only_the_selected_fields(
         .with_field_file_statistics(
             FieldPath::from_name("a"),
             vec![
-                Stat::Max
-                    .aggregate_fn()
+                vortex_aggregates::stat_aggregate_fn(Stat::Max)
                     .vortex_expect("max has an aggregate fn"),
             ],
         );

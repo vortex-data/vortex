@@ -3,6 +3,8 @@
 
 use std::ops::RangeInclusive;
 
+use itertools::Itertools;
+use itertools::MinMaxResult;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_compute::lane_kernels::IndexedSourceExt;

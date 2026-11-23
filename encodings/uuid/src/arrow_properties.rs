@@ -18,6 +18,10 @@ mod tests {
     use hegel::TestCase;
     use hegel::generators as gs;
     use uuid::Version;
+    use vortex_aggregates::is_sorted::IsSorted;
+    use vortex_aggregates::is_sorted::IsSortedOptions;
+    use vortex_aggregates::min_max::MinMax;
+    use vortex_aggregates::min_max::MinMaxResult;
     use vortex_array::ArrayRef;
     use vortex_array::ExecutionCtx;
     use vortex_array::IntoArray;
@@ -26,10 +30,6 @@ mod tests {
     use vortex_array::aggregate_fn::DynAccumulator;
     use vortex_array::aggregate_fn::ExtensionStoragePushdown;
     use vortex_array::aggregate_fn::NumericalAggregateOpts;
-    use vortex_array::aggregate_fn::fns::is_sorted::IsSorted;
-    use vortex_array::aggregate_fn::fns::is_sorted::IsSortedOptions;
-    use vortex_array::aggregate_fn::fns::min_max::MinMax;
-    use vortex_array::aggregate_fn::fns::min_max::MinMaxResult;
     use vortex_array::arrays::ExtensionArray;
     use vortex_array::arrays::FixedSizeListArray;
     use vortex_array::arrays::PrimitiveArray;

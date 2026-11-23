@@ -7,12 +7,12 @@ use std::sync::atomic::AtomicI32;
 use std::sync::atomic::Ordering;
 
 use rstest::rstest;
+use vortex_aggregates::max::Max;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::aggregate_fn::AggregateFnVTableExt;
 use vortex_array::aggregate_fn::NumericalAggregateOpts;
-use vortex_array::aggregate_fn::fns::max::Max;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::ListArray;
 use vortex_array::arrays::PrimitiveArray;

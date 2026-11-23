@@ -22,7 +22,6 @@ use vortex_array::dtype::PType;
 use vortex_array::scalar::Scalar;
 #[cfg(not(codspeed))]
 use vortex_array::test_harness::trace::trace_op;
-use vortex_array::validity::Validity;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::buffer;
 use vortex_error::VortexExpect;
