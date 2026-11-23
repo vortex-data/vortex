@@ -320,6 +320,15 @@ Benchmarks run automatically on all commits to `develop` and can be run on-deman
   repeating shared jobs. Do not combine it with other benchmark labels;
   GPU compression is the only exception.
 
+To benchmark some SQL benchmarks or queries, run the `PR SQL Benchmarks` workflow by hand on the
+PR's branch, from the Actions tab or with
+`gh workflow run pr-bench-sql.yml --ref <branch> -f benchmarks='polarsignals tpch-nvme:q1-4'`.
+`benchmarks` lists benchmarks separated by spaces, each a `group` printed by
+`vx-bench matrix pr-all` and optionally followed by queries: `polarsignals` runs all its queries,
+`tpch-nvme:q1,2` runs queries 1 and 2, and `tpch-nvme:q1-4` runs queries 1 to 4. They run at the
+coverage of `matrix_preset`, `pr-all` by default, and the results are posted on the branch's open
+PR, in a comment of their own when they cover only some queries.
+
 All CI benchmarks run on dedicated instances with the `release_debug` profile and
 `-C target-cpu=native` to produce representative numbers.
 

@@ -87,6 +87,31 @@ def test_take_unordered(ds: pd.Dataset, indices: list[int]) -> None:
     assert ds.take(pa.array(indices)).column("index").to_pylist() == indices
 
 
+@pytest.mark.parametrize("indices", [[0, 6], [6], [6, 0]])
+def test_take_out_of_bounds_raises_index_error(tmp_path: Path, indices: list[int]) -> None:
+    table = pa.table({"v": pa.array([0, 1, 2], type=pa.int64())})
+    path = tmp_path / "three.vortex"
+    vx.io.write(table, str(path))
+    dataset = vx.open_dataset(path)
+
+    with pytest.raises(IndexError):
+        dataset.take(pa.array(indices, type=pa.uint64()))
+
+
+def test_take_out_of_bounds_with_filter_raises_index_error(tmp_path: Path) -> None:
+    table = pa.table({"v": pa.array([0, 1, 2], type=pa.int64())})
+    path = tmp_path / "three.vortex"
+    vx.io.write(table, str(path))
+    dataset = vx.open_dataset(path)
+    always_true = pc.field("v") >= 0
+    indices = pa.array([0, 6], type=pa.uint64())
+
+    with pytest.raises(IndexError):
+        dataset.take(indices, filter=always_true)
+    with pytest.raises(IndexError):
+        dataset.filter(always_true).take(indices)
+
+
 def test_take_unordered_on_filtered_dataset_requires_sorted_indices(ds: vx.dataset.VortexDataset) -> None:
     filtered = ds.filter(pc.field("index") >= 50)
     assert filtered.take(pa.array([50, 999_999])).column("index").to_pylist() == [50, 999_999]
