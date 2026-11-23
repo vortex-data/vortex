@@ -96,9 +96,10 @@ impl ScanBuilder {
         self
     }
 
-    /// Restricts scanning to a contiguous source-local row range.
+    /// Restricts scanning to a contiguous source-local row range. A range that starts after it
+    /// ends selects no rows.
     pub fn with_row_range(mut self, row_range: Range<u64>) -> Self {
-        self.row_range = Some(row_range);
+        self.row_range = Some(row_range.start..row_range.end.max(row_range.start));
         self
     }
 

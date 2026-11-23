@@ -161,7 +161,7 @@ pub struct ScanRequest {
     /// Filter expression, `None` implies no filter.
     pub filter: Option<Expression>,
     /// The per-partition row range to read. Row range will be applied
-    /// over every partition you scan.
+    /// over every partition you scan. A range that starts after it ends selects no rows.
     pub row_range: Option<Range<u64>>,
     /// The per-partition row selection to read. Row selection will be applied
     /// over every partition you scan.

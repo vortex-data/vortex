@@ -90,7 +90,7 @@ pub enum TemporalJiff {
     /// A zone-naive timestamp value.
     Unzoned(jiff::civil::DateTime),
     /// A zoned timestamp value.
-    Zoned(jiff::Zoned),
+    Zoned(jiff::ZonedDateTime),
 }
 
 impl Display for TemporalJiff {

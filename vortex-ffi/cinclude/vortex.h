@@ -540,6 +540,7 @@ typedef struct {
     /**
      * Used only when "include" is not VX_SELECTION_INCLUDE_ALL.
      * If set, must point to an array of len "idx_len" row_indices.
+     * May be NULL when idx_len is 0.
      */
     const uint64_t *idx;
     /**
