@@ -137,26 +137,13 @@ impl<A: 'static + Send> RepeatedScan<A> {
         &self.dtype
     }
 
-    /// Reject a caller-supplied `row_range` that extends past the end of the data.
-    ///
-    /// Without this the chunked layout indexes past its last chunk and panics, while the flat layout
-    /// returns `OutOfBounds`; checking once here makes every layout behave alike. A range with
-    /// `start > stop` is not an error: it selects no rows.
     fn check_row_range(&self, row_range: Option<&Range<u64>>) -> VortexResult<()> {
         let Some(range) = row_range else {
             return Ok(());
         };
         let len = self.layout_reader.row_count();
-        vortex_ensure!(
-            range.start <= len,
-            "OutOfBounds: start {} > length {len}",
-            range.start
-        );
-        vortex_ensure!(
-            range.end <= len,
-            "OutOfBounds: stop {} > length {len}",
-            range.end
-        );
+        vortex_ensure!(range.start <= len);
+        vortex_ensure!(range.end <= len);
         Ok(())
     }
 
