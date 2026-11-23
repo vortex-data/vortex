@@ -1629,7 +1629,7 @@ async fn test_coarser_table_timestamp_matches_memtable() -> anyhow::Result<()> {
 }
 
 #[tokio::test]
-async fn test_projection_mixed_utf8_and_utf8view_layouts() -> anyhow::Result<()> {
+async fn test_projection_keeps_utf8_and_utf8view_aliases_separate() -> anyhow::Result<()> {
     let options = crate::VortexTableOptions {
         projection_pushdown: true,
         ..Default::default()
