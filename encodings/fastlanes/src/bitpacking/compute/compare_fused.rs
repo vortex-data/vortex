@@ -40,13 +40,14 @@ use vortex_array::dtype::NativePType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PhysicalPType;
 use vortex_array::match_each_unsigned_integer_ptype;
+use vortex_buffer::BitBuffer;
 use vortex_buffer::BitBufferMut;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
+use super::packed_range::constant_bits;
 use super::packed_range::set_patch_bits;
-use super::stream_predicate::stream_predicate;
 use crate::BitPacked;
 use crate::BitPackedArrayExt;
 use crate::unpack_iter::BitPacked as BitPackedIter;
@@ -79,14 +80,41 @@ where
         + FastLanesComparable<Bitpacked = <T as PhysicalPType>::Physical>,
     <T as PhysicalPType>::Physical: BitPacking + NativePType + BitPackingCompare,
 {
+    let bits = stream_compare_fused_bits::<T, V, K>(
+        array, bit_width, rhs, kernel, negate, predicate, ctx,
+    )?;
+    let validity = array.validity()?.union_nullability(nullability);
+    Ok(BoolArray::new(bits, validity).into_array())
+}
+
+/// Compare the unpacked values of a [`BitPackedArray`] against `rhs` using the fused FastLanes
+/// `unpack_cmp` kernel, producing the raw membership/comparison [`BitBuffer`] with patches applied.
+pub(super) fn stream_compare_fused_bits<T, V, K>(
+    array: ArrayView<'_, BitPacked>,
+    bit_width: u8,
+    rhs: V,
+    kernel: K,
+    negate: bool,
+    predicate: &dyn Fn(T) -> bool,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<BitBuffer>
+where
+    T: NativePType
+        + BitPackedIter
+        + FastLanesComparable<Bitpacked = <T as PhysicalPType>::Physical>,
+    <T as PhysicalPType>::Physical: BitPacking + NativePType + BitPackingCompare,
+    V: FastLanesComparable<Bitpacked = <T as PhysicalPType>::Physical>,
+    K: Fn(V, V) -> bool + Copy,
+{
     let len = array.len();
     let bit_width = bit_width as usize;
     let offset = array.offset() as usize;
 
-    // A degenerate width has no packed payload for the fused kernel to consume; defer to the scalar
-    // streaming predicate, which handles every layout (including the empty array).
-    if len == 0 || bit_width == 0 {
-        return stream_predicate::<T, _>(array, nullability, predicate, ctx);
+    if len == 0 {
+        return Ok(BitBuffer::empty());
+    }
+    if bit_width == 0 {
+        return constant_bits(array, predicate(T::zero()), predicate, ctx);
     }
 
     // Over-allocate to whole 1024-bit blocks in padded coordinates so every block - including the
@@ -147,6 +175,5 @@ where
         });
     }
 
-    let validity = array.validity()?.union_nullability(nullability);
-    Ok(BoolArray::new(bits.freeze(), validity).into_array())
+    Ok(bits.freeze())
 }

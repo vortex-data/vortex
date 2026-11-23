@@ -376,6 +376,11 @@ fn compute_list_contains(
         );
     }
 
+    let nullability = options.result_nullability(array.dtype(), value.dtype());
+    if array.is_empty() {
+        return Ok(BoolArray::new(BitBuffer::empty(), nullability.into()).into_array());
+    }
+
     // A null needle is null against every list only when the function is strict: otherwise an
     // empty list still answers `false`, which the paths below work out per list.
     if array.all_invalid(ctx)? || (options.sql_null_semantics && value.all_invalid(ctx)?) {
@@ -391,7 +396,6 @@ fn compute_list_contains(
         return set.contains(value, options, ctx);
     }
 
-    let nullability = options.result_nullability(array.dtype(), value.dtype());
     if let Some(value_scalar) = value.as_constant() {
         return list_contains_scalar(array, value_scalar, nullability, options, ctx);
     }
