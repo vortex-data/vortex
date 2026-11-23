@@ -8,7 +8,8 @@
 //!
 //! The primitive widths are computed by a
 //! [`RowFn`](crate::scalar_fn::unstable::row::RowFn), which owns null handling, constants, and
-//! validity for them; see [`row`]. Decimal keeps its own columnar implementation in [`decimal`].
+//! validity for them; see the `row` module. Decimal keeps its own columnar implementation in the
+//! `decimal` module.
 
 mod checked;
 mod decimal;

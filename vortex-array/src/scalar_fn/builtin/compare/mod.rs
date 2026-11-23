@@ -3,7 +3,7 @@
 
 //! Native comparison kernels.
 //!
-//! [`execute_compare`] dispatches on the logical [`DType`] of its operands and evaluates every
+//! `execute_compare` dispatches on the logical [`DType`] of its operands and evaluates every
 //! comparison directly over Vortex canonical arrays: bit buffers for booleans, [`RowFn`] for
 //! primitives, lane kernels from `vortex-compute` for decimals, binary views for strings/bytes, and
 //! a row-wise comparator for nested types. There is no Arrow fallback.
@@ -13,8 +13,9 @@
 //! bitwise, so signed zeros and distinct NaN payloads remain distinct.
 //!
 //! [`Compare`] binds a [`CompareOperator`] to two operands. It can execute through
-//! encoding-specific kernels before reaching the native dispatcher. [`CompareExecuteAdaptor`] connects these execution paths to [`CompareKernel`], which
-//! lets an encoding compare values without first converting them to canonical arrays.
+//! encoding-specific kernels before reaching the native dispatcher. [`CompareExecuteAdaptor`]
+//! connects these execution paths to [`CompareKernel`], which lets an encoding compare values
+//! without first converting them to canonical arrays.
 //!
 //! [`RowFn`]: crate::scalar_fn::unstable::row::RowFn
 
