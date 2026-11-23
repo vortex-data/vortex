@@ -454,11 +454,10 @@ expression is typed. Vortex never guesses a transformation; the engine inserts `
   unreferenced coordinates, not a wildcard.
 - **Different CRSs:** rejected.
 
-The rule is a method, `SpatialMetadata::unify_crs`, in the same way that `Dimension::promote`
-combines two dimensions, and an `AnyNativeGeometry` matcher reads the metadata of any native
-geometry type. Phase 1 compares CRS strings exactly, so `EPSG:4326` and `OGC:CRS84` are rejected
-together. Comparing the derived coordinate spaces instead, and adding `edges` to the comparison in
-phase 2, changes only that method.
+The check is one function, `ensure_eq_crs`, which reads each operand's metadata through an
+`AnyNativeGeometry` matcher over the native geometry types. Phase 1 compares CRS strings exactly,
+so `EPSG:4326` and `OGC:CRS84` are rejected together. Comparing the derived coordinate spaces
+instead, and adding `edges` to the comparison in phase 2, changes only that function.
 
 Exact equality only works if no step drops a CRS on the way:
 
