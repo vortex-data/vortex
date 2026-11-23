@@ -1090,7 +1090,11 @@ mod tests {
             shredded.unmasked_field_by_name("a")?.dtype(),
             &VortexDType::Variant(Nullability::Nullable)
         );
-        assert!(shredded.unmasked_field_by_name_opt("b").is_none());
+        // `b` has only a `value` column, which holds its value, so it stays as a Variant field.
+        assert_eq!(
+            shredded.unmasked_field_by_name("b")?.dtype(),
+            &VortexDType::Variant(Nullability::Nullable)
+        );
 
         let result = execute_variant_get(
             canonical,
