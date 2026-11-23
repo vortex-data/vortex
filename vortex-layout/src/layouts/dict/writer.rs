@@ -538,9 +538,7 @@ impl Stream for DictionaryTransformer {
                 Poll::Ready(Some(Err(e))) => {
                     self.active_codes_tx = None;
                     if let Some(values_tx) = self.active_values_tx.take() {
-                        if let Err(Err(e)) = values_tx.send(Err(e)) {
-                            return Poll::Ready(Some(Err(e)));
-                        }
+                        drop(values_tx.send(Err(e)));
                         return Poll::Ready(None);
                     }
                     return Poll::Ready(Some(Err(e)));
