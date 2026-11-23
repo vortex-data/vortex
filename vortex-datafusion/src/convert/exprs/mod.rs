@@ -74,10 +74,13 @@ use vortex::expr::strpos;
 use vortex::expr::traversal::NodeExt;
 use vortex::expr::traversal::Transformed;
 use vortex::expr::var;
+use vortex::expr::variant_get;
 use vortex::extension::datetime::TemporalRounding;
 use vortex::extension::datetime::Timestamp;
 use vortex::functions::like::Like;
 use vortex::functions::like::LikeOptions;
+use vortex::functions::variant_get::VariantPath;
+use vortex::functions::variant_get::VariantPathElement;
 use vortex::layout::layouts::row_idx;
 use vortex::scalar::NumericOperator;
 use vortex::scalar::Scalar;
@@ -96,6 +99,8 @@ use crate::row_index::RowIndex;
 
 /// The comparison semantics of DataFusion: `-0.0 = +0.0`, and other floats compare by their bits.
 const DATAFUSION_MODE: CompareMode = CompareMode::new(FloatOrder::ZerosEqual);
+/// Name of the Variant extraction function of datafusion-variant.
+const TRY_VARIANT_GET: &str = "try_variant_get";
 
 /// Result of splitting a projection into Vortex expressions and leftover DataFusion projections.
 pub struct ProcessedProjection {
@@ -849,6 +854,10 @@ impl DefaultExpressionConverter {
             return self.convert_array_sum(scalar_fn, schema, input_dtype);
         }
 
+        if scalar_fn.name() == TRY_VARIANT_GET {
+            return self.convert_variant_get(scalar_fn, schema, input_dtype);
+        }
+
         let (input, length): (_, fn(Expression) -> Expression) =
             if ScalarFunctionExpr::try_downcast_func::<OctetLengthFunc>(scalar_fn).is_some() {
                 let [input] = scalar_fn.args() else {
@@ -964,6 +973,61 @@ impl DefaultExpressionConverter {
         }
 
         Ok(read)
+    }
+
+    /// Converts `try_variant_get(variant, path, type)` to the Vortex `variant_get`, so that the
+    /// scan reads a shredded path from its typed column instead of materializing the whole Variant.
+    ///
+    /// The function is matched by name, because it is not part of DataFusion: it has the contract
+    /// of [datafusion-variant], where `try_variant_get` returns null for a missing path or a value
+    /// that does not cast to the requested type (`CastOptions { safe: true }`), matching Vortex's
+    /// `variant_get` extraction. `variant_get` raises an error on failed casts (`safe: false`) and
+    /// is left in DataFusion.
+    ///
+    /// Only the typed form over a `$`-rooted path of plain object fields (`$.field(.field)*`)
+    /// converts.
+    ///
+    /// [datafusion-variant]: https://github.com/datafusion-contrib/datafusion-variant
+    fn convert_variant_get(
+        &self,
+        scalar_fn: &ScalarFunctionExpr,
+        schema: &Schema,
+        input_dtype: &DType,
+    ) -> Conversion<Expression> {
+        let [input, path, _type] = scalar_fn.args() else {
+            return Err(Unconverted::Unsupported);
+        };
+        let Some(Some(path)) = path
+            .downcast_ref::<df_expr::Literal>()
+            .map(|literal| literal.value().try_as_str().flatten())
+        else {
+            return Err(Unconverted::Unsupported);
+        };
+        let Some(fields) = path.strip_prefix("$.") else {
+            return Err(Unconverted::Unsupported);
+        };
+        let is_field = |field: &str| {
+            !field.is_empty() && field.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+        };
+        if !fields.split('.').all(is_field) {
+            return Err(Unconverted::Unsupported);
+        }
+        let path = fields
+            .split('.')
+            .map(VariantPathElement::field)
+            .collect::<VariantPath>();
+
+        let input = self.convert_expr(input, schema, input_dtype)?;
+        if !converted_dtype(&input, input_dtype)?.is_variant() {
+            return Err(Unconverted::Unsupported);
+        }
+        let return_dtype = self
+            .arrow_dtype(&Field::new("", scalar_fn.return_type().clone(), true))?
+            .as_nullable();
+        if return_dtype.is_variant() {
+            return Err(Unconverted::Unsupported);
+        }
+        Ok(variant_get(input, path, Some(return_dtype)))
     }
 
     /// Converts `array_sum` to `list_sum`.
