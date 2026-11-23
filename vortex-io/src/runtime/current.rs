@@ -2,9 +2,11 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::future::Future;
+use std::pin::pin;
 use std::sync::Arc;
 
 use async_channel::TryRecvError;
+use futures::FutureExt;
 use futures::SinkExt;
 use futures::Stream;
 use futures::StreamExt;
@@ -136,7 +138,7 @@ impl BlockingRuntime for CurrentThreadRuntime {
     where
         Fut: Future<Output = R>,
     {
-        block_on(self.executor.run(fut))
+        drive(&self.executor, fut)
     }
 
     fn block_on_stream<'a, S, R>(&self, stream: S) -> Self::BlockingIterator<'a, R>
@@ -151,6 +153,22 @@ impl BlockingRuntime for CurrentThreadRuntime {
     }
 }
 
+/// Drives `fut` to completion on the calling thread.
+///
+/// The future is polled once before entering the executor and returned from directly if it is
+/// ready. Each entry into [`smol::Executor::run`] registers the thread with the executor's shared
+/// state, under a write lock that every thread entering the runtime contends on, and a caller that
+/// blocks on many futures which are mostly ready already, such as one batch of a scan after
+/// another, would otherwise pay that for each of them. A future that is not ready is polled again
+/// inside the executor, which runs the runtime's tasks while the thread waits for it.
+fn drive<Fut: Future>(executor: &SmolExecutor, fut: Fut) -> Fut::Output {
+    let mut fut = pin!(fut);
+    if let Some(output) = fut.as_mut().now_or_never() {
+        return output;
+    }
+    block_on(executor.run(fut))
+}
+
 /// An iterator that wraps up a stream to drive it using the current thread execution.
 pub struct CurrentThreadIterator<'a, T> {
     executor: Arc<SmolExecutor>,
@@ -161,7 +179,7 @@ impl<T> Iterator for CurrentThreadIterator<'_, T> {
     type Item = T;
 
     fn next(&mut self) -> Option<Self::Item> {
-        block_on(self.executor.run(self.stream.next()))
+        drive(&self.executor, self.stream.next())
     }
 }
 
