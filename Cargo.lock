@@ -11586,7 +11586,6 @@ dependencies = [
  "futures",
  "geo-types",
  "itertools 0.14.0",
- "jiff 1.0.2",
  "mimalloc",
  "num-traits",
  "object_store 0.13.2",
