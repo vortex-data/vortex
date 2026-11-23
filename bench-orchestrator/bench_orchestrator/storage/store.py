@@ -267,18 +267,14 @@ class ResultStore:
         """Get a run by ID, label, or 'latest'."""
         if run_id_or_label == "latest":
             latest_link = self.base_dir / "latest"
-            if latest_link.is_symlink():
-                metadata_path = self.base_dir / latest_link.resolve().name / "metadata.json"
-                if metadata_path.exists():
-                    metadata = _read_metadata(metadata_path)
-                    if metadata is not None and not metadata.partial:
-                        return metadata
-
-            # Find most recent non-partial run when the link is missing or dangling
-            runs = [r for r in self.list_runs(limit=None) if not r.partial]
-            if not runs:
-                return None
-            return _read_metadata(self.base_dir / runs[0].run_id / "metadata.json")
+            if latest_link.is_symlink() and latest_link.exists():
+                run_id_or_label = latest_link.resolve().name
+            else:
+                # Find most recent non-partial run
+                runs = [r for r in self.list_runs(limit=None) if not r.partial]
+                if not runs:
+                    return None
+                run_id_or_label = runs[0].run_id
 
         # Try direct match
         run_dir = self.base_dir / run_id_or_label
