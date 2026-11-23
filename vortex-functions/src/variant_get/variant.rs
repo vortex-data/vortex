@@ -213,10 +213,22 @@ fn convert_typed(typed: ArrayRef, dtype: &DType, ctx: &mut ExecutionCtx) -> Vort
         let scalar = typed.execute_scalar(idx, ctx)?;
         let converted = scalar
             .cast(dtype)
-            .unwrap_or_else(|_| Scalar::null(dtype.clone()));
+            .ok()
+            .or_else(|| number_as_bool(&scalar, dtype))
+            .unwrap_or_else(|| Scalar::null(dtype.clone()));
         builder.append_scalar(&converted)?;
     }
     Ok(builder.finish())
+}
+
+/// Converts a number to a Boolean as Arrow's Variant conversion does: zero is false and any other
+/// number is true. A Vortex cast does not convert numbers to Booleans.
+fn number_as_bool(scalar: &Scalar, dtype: &DType) -> Option<Scalar> {
+    if !dtype.is_boolean() || !scalar.dtype().is_primitive() {
+        return None;
+    }
+    let is_zero = scalar.is_zero()?;
+    Some(Scalar::bool(!is_zero, dtype.nullability()))
 }
 
 /// Nulls out the rows of `array` that `validity` marks invalid.
@@ -304,6 +316,7 @@ mod tests {
     use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
+    use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::ConstantArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::StructArray;
@@ -382,6 +395,28 @@ mod tests {
         let actual = array.apply(&expr)?.execute::<ArrayRef>(&mut ctx)?;
 
         assert_arrays_eq!(actual, expected.into_array(), &mut ctx);
+        Ok(())
+    }
+
+    /// A number reads as a Boolean as Arrow's Variant conversion reads it: zero is false.
+    #[test]
+    fn converts_typed_numbers_to_booleans() -> VortexResult<()> {
+        let typed = PrimitiveArray::from_option_iter([Some(0i64), Some(-3), None]);
+        let array = shredded_a(typed.into_array())?;
+        let expr = variant_get(
+            root(),
+            VariantPath::field("a"),
+            Some(DType::Bool(Nullability::Nullable)),
+        );
+
+        let mut ctx = SESSION.create_execution_ctx();
+        let actual = array.apply(&expr)?.execute::<ArrayRef>(&mut ctx)?;
+
+        assert_arrays_eq!(
+            actual,
+            BoolArray::from_iter([Some(false), Some(true), None]).into_array(),
+            &mut ctx
+        );
         Ok(())
     }
 }
