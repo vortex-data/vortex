@@ -19,6 +19,7 @@ pub use vtable::VarBin;
 
 pub(crate) fn initialize(session: &vortex_session::VortexSession) {
     vtable::initialize(session);
+    compute::rules::register_parent_rules(session);
 }
 
 pub mod builder;

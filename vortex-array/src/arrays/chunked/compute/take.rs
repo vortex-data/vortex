@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use itertools::Itertools;
-use num_traits::AsPrimitive;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferAllocatorRef;
 use vortex_buffer::BufferMut;
@@ -11,6 +10,7 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 use vortex_mask::Mask;
+use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::ArrayRef;
 use crate::Canonical;
@@ -19,23 +19,30 @@ use crate::IntoArray;
 use crate::array::ArrayView;
 use crate::arrays::Chunked;
 use crate::arrays::ChunkedArray;
-use crate::arrays::ConstantArray;
+use crate::arrays::FixedSizeList;
 use crate::arrays::FixedSizeListArray;
 use crate::arrays::PiecewiseSequence;
-use crate::arrays::PiecewiseSequenceArray;
 use crate::arrays::PrimitiveArray;
+use crate::arrays::Slice;
+use crate::arrays::Struct;
+use crate::arrays::StructArray;
 use crate::arrays::chunked::ChunkedArrayExt;
 use crate::arrays::dict::TakeExecute;
 use crate::arrays::piecewise_sequence::constant_unsigned_usize;
+use crate::arrays::piecewise_sequence::contiguous_runs;
 use crate::arrays::piecewise_sequence::maybe_contiguous_slices;
 use crate::arrays::primitive::PrimitiveArrayExt;
+use crate::arrays::struct_::StructArrayExt;
 use crate::builders::ArrayBuilder;
 use crate::builders::builder_with_capacity_in;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::PType;
+use crate::dtype::UnsignedPType;
+use crate::executor::Executable;
 use crate::executor::ExecutionCtx;
 use crate::match_each_unsigned_integer_ptype;
+use crate::optimizer::ArrayOptimizer;
 use crate::validity::Validity;
 
 /// Flattens per-chunk take/filter results into a single array. Flat dtypes append directly into
@@ -353,6 +360,10 @@ impl TakeExecute for Chunked {
             return Ok(Some(taken));
         }
 
+        if let Some(taken) = take_chunked_struct(array, indices, ctx)? {
+            return Ok(Some(taken));
+        }
+
         if let Some(piecewise_indices) = indices.as_opt::<PiecewiseSequence>()
             && let Some(taken) = take_piecewise_chunked(array, piecewise_indices, ctx)?
         {
@@ -376,67 +387,267 @@ fn take_chunked_fsl(
         return Ok(None);
     }
 
-    let fsl = array.as_ref().clone().execute::<FixedSizeListArray>(ctx)?;
-    fsl.into_array().take(indices.clone()).map(Some)
+    let Some((array, indices)) = touched_chunks(array, indices, ctx)? else {
+        let fsl = array.as_ref().clone().execute::<FixedSizeListArray>(ctx)?;
+        return fsl.into_array().take(indices.clone()).map(Some);
+    };
+
+    take_swizzled::<FixedSizeListArray>(array, indices, ctx).map(Some)
 }
 
-/// A per-chunk gather plan: chunk-local sub-piece runs to take from one chunk, in output order.
-#[derive(Default)]
-struct ChunkGather {
-    starts: Vec<u64>,
-    lengths: Vec<u64>,
-    total: usize,
-}
-
-/// Take for [`PiecewiseSequence`] indices with unit multipliers.
+/// Rewrites take over a chunked struct array with a fixed-size-list field as take over a single
+/// [`StructArray`] whose fields are chunked. The swizzle is structural: it needs no decode when
+/// every chunk is already a struct, which is the case for the chunks of a file scan. Each
+/// fixed-size-list field then takes once with the element-run gather of [`take_chunked_fsl`],
+/// instead of a struct take and a list take for each chunk that the indices touch.
 ///
-/// Each piece is a contiguous index run, so instead of expanding one index per element, pieces
-/// are split at chunk boundaries and gathered from each chunk with a chunk-local
-/// `PiecewiseSequenceArray`. Sub-pieces that visit chunks in non-decreasing order concatenate
-/// directly into the result; otherwise the gathered chunks are flattened once and a second
-/// piecewise take restores output order.
-fn take_piecewise_chunked(
+/// Structs without a fixed-size-list field keep the per-chunk take: there, each field would route
+/// the indices to the chunks again, which costs more than the struct take of each chunk.
+fn take_chunked_struct(
     array: ArrayView<'_, Chunked>,
-    indices: ArrayView<'_, PiecewiseSequence>,
+    indices: &ArrayRef,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Option<ArrayRef>> {
-    let Some((starts, lengths)) = maybe_contiguous_slices(indices, ctx)? else {
+    let DType::Struct(fields, _) = array.dtype() else {
         return Ok(None);
     };
 
+    if !fields
+        .fields()
+        .any(|field| matches!(field, DType::FixedSizeList(..)))
+    {
+        return Ok(None);
+    }
+
+    // A chunk with another encoding would have to execute to a struct, which can decode the whole
+    // chunk to take a few rows of it. Only the chunks that the swizzle visits must be structs.
+    match touched_chunks(array, indices, ctx)? {
+        Some((chunks, indices)) => {
+            if !chunks.iter().all(is_swizzle_ready_struct) {
+                return Ok(None);
+            }
+            take_swizzled::<StructArray>(chunks, indices, ctx).map(Some)
+        }
+        None => {
+            if !array.iter_chunks().all(is_swizzle_ready_struct) {
+                return Ok(None);
+            }
+            let structs = array.as_ref().clone().execute::<StructArray>(ctx)?;
+            structs.into_array().take(indices.clone()).map(Some)
+        }
+    }
+}
+
+/// Returns true if `chunk` is a struct whose fixed-size-list fields are all FSL-encoded.
+///
+/// The list take of the swizzled struct executes each chunk of a fixed-size-list field to a
+/// [`FixedSizeListArray`] before it selects rows. For another encoding, for example a dictionary,
+/// this decodes all rows of the chunk. The per-chunk take selects the rows first, for example only
+/// the dictionary codes, so these chunks use it.
+fn is_swizzle_ready_struct(chunk: &ArrayRef) -> bool {
+    let Some(struct_chunk) = chunk.as_opt::<Struct>() else {
+        return false;
+    };
+
+    struct_chunk
+        .struct_fields()
+        .fields()
+        .enumerate()
+        .filter(|(_, dtype)| matches!(dtype, DType::FixedSizeList(..)))
+        .all(|(idx, _)| struct_chunk.unmasked_field(idx).is::<FixedSizeList>())
+}
+
+/// Takes `indices` from `chunks` through one swizzled array of type `A`, or directly from the
+/// chunk when there is only one.
+fn take_swizzled<A>(
+    chunks: Vec<ArrayRef>,
+    indices: ArrayRef,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ArrayRef>
+where
+    A: Executable + IntoArray,
+{
+    if let [chunk] = chunks.as_slice() {
+        return chunk.take(indices);
+    }
+
+    let dtype = chunks[0].dtype().clone();
+    // SAFETY: the chunks are chunks of one chunked array, so they all have its dtype.
+    let swizzled = unsafe { ChunkedArray::new_unchecked(chunks, dtype) }
+        .into_array()
+        .execute::<A>(ctx)?;
+    swizzled.into_array().take(indices)
+}
+
+/// The chunks that the non-nullable `indices` touch, in chunk order, and the indices into them.
+///
+/// A swizzle of a chunked array visits every chunk, so a small take over many chunks first keeps
+/// only the chunks that it reads. Returns `None` for nullable indices and for indices that touch
+/// every chunk.
+fn touched_chunks(
+    array: ArrayView<'_, Chunked>,
+    indices: &ArrayRef,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Option<(Vec<ArrayRef>, ArrayRef)>> {
+    if indices.dtype().is_nullable() || indices.is_empty() {
+        return Ok(None);
+    }
+
+    if let Some(piecewise) = indices.as_opt::<PiecewiseSequence>()
+        && let Some((starts, lengths)) = maybe_contiguous_slices(piecewise, ctx)?
+    {
+        return touched_chunks_piecewise(array, piecewise, &starts, lengths);
+    }
+
+    let indices = indices
+        .cast(DType::Primitive(PType::U64, indices.dtype().nullability()))?
+        .execute::<PrimitiveArray>(ctx)?;
+    let indices = indices.as_slice::<u64>();
+    let chunk_offsets = array.chunk_offset_values();
+    let array_len = array.as_ref().len();
+
+    // `<=` steps past empty chunks that share the offset of the next chunk.
+    let index_chunks = indices
+        .iter()
+        .map(|&index| -> VortexResult<usize> {
+            let index = usize::try_from(index)?;
+            if index >= array_len {
+                vortex_bail!("index {} out of bounds from {} to {}", index, 0, array_len);
+            }
+            Ok(chunk_offsets.partition_point(|&offset| offset <= index) - 1)
+        })
+        .collect::<VortexResult<Vec<_>>>()?;
+
+    let mut touched = index_chunks.clone();
+    touched.sort_unstable();
+    touched.dedup();
+
+    if touched.len() == array.nchunks() {
+        return Ok(None);
+    }
+
+    let touched_offsets = touched_chunk_offsets(chunk_offsets, &touched);
+    let remapped = indices
+        .iter()
+        .zip_eq(index_chunks)
+        .map(|(&index, chunk_idx)| -> VortexResult<u64> {
+            let position = touched
+                .binary_search(&chunk_idx)
+                .map_err(|_| vortex_err!("chunk {chunk_idx} is not a touched chunk"))?;
+            let local = usize::try_from(index)? - chunk_offsets[chunk_idx];
+            Ok(u64::try_from(touched_offsets[position] + local)?)
+        })
+        .collect::<VortexResult<Buffer<u64>>>()?;
+
+    let chunks = touched
+        .iter()
+        .map(|&chunk_idx| array.chunk(chunk_idx).clone())
+        .collect();
+    Ok(Some((
+        chunks,
+        PrimitiveArray::new(remapped, Validity::NonNullable).into_array(),
+    )))
+}
+
+/// Computes touched chunks and remapped [`PiecewiseSequence`] indices directly from contiguous
+/// runs without expanding them.
+fn touched_chunks_piecewise(
+    array: ArrayView<'_, Chunked>,
+    indices: ArrayView<'_, PiecewiseSequence>,
+    starts: &PrimitiveArray,
+    lengths: Columnar,
+) -> VortexResult<Option<(Vec<ArrayRef>, ArrayRef)>> {
     let output_len = indices.as_ref().len();
-    let starts: Vec<usize> = match_each_unsigned_integer_ptype!(starts.ptype(), |S| {
-        starts
-            .as_slice::<S>()
-            .iter()
-            .map(|&start| start.as_())
-            .collect()
+    let sub_pieces = split_piecewise_runs(array, starts, lengths, output_len)?;
+
+    let mut touched: Vec<usize> = sub_pieces
+        .iter()
+        .map(|&(chunk_idx, ..)| chunk_idx)
+        .collect();
+    touched.sort_unstable();
+    touched.dedup();
+    if touched.len() == array.nchunks() {
+        return Ok(None);
+    }
+
+    let touched_offsets = touched_chunk_offsets(array.chunk_offset_values(), &touched);
+    let mut remapped_starts = Vec::with_capacity(sub_pieces.len());
+    let mut remapped_lengths = Vec::with_capacity(sub_pieces.len());
+    for (chunk_idx, local_start, run) in sub_pieces {
+        let position = touched
+            .binary_search(&chunk_idx)
+            .map_err(|_| vortex_err!("chunk {chunk_idx} is not a touched chunk"))?;
+        let remapped_start = u64::try_from(touched_offsets[position] + local_start)?;
+        let remapped_len = u64::try_from(run)?;
+        match (remapped_starts.last(), remapped_lengths.last_mut()) {
+            (Some(&prev_start), Some(prev_len)) if prev_start + *prev_len == remapped_start => {
+                *prev_len += remapped_len;
+            }
+            _ => {
+                remapped_starts.push(remapped_start);
+                remapped_lengths.push(remapped_len);
+            }
+        }
+    }
+
+    let chunks = touched
+        .iter()
+        .map(|&chunk_idx| array.chunk(chunk_idx).clone())
+        .collect();
+    Ok(Some((
+        chunks,
+        contiguous_runs(remapped_starts, remapped_lengths, output_len),
+    )))
+}
+
+/// The offset of each touched chunk in the compacted touched-chunks array.
+fn touched_chunk_offsets(chunk_offsets: &[usize], touched: &[usize]) -> Vec<usize> {
+    let mut touched_offsets = Vec::with_capacity(touched.len());
+    let mut offset = 0usize;
+    for &chunk_idx in touched {
+        touched_offsets.push(offset);
+        offset += chunk_offsets[chunk_idx + 1] - chunk_offsets[chunk_idx];
+    }
+    touched_offsets
+}
+
+fn unsigned_slice_as_usize<T: UnsignedPType>(array: &PrimitiveArray) -> Vec<usize> {
+    array
+        .as_slice::<T>()
+        .iter()
+        .map(|&value| value.as_())
+        .collect()
+}
+
+fn contiguous_slice_ranges(starts: &PrimitiveArray, lengths: Columnar) -> (Vec<usize>, Vec<usize>) {
+    let starts = match_each_unsigned_integer_ptype!(starts.ptype(), |S| {
+        unsigned_slice_as_usize::<S>(starts)
     });
-    let lengths: Vec<usize> = match lengths {
+    let lengths = match lengths {
         Columnar::Constant(lengths) => vec![constant_unsigned_usize(&lengths); starts.len()],
         Columnar::Canonical(lengths) => {
             let lengths = lengths.into_primitive();
             match_each_unsigned_integer_ptype!(lengths.ptype(), |L| {
-                lengths
-                    .as_slice::<L>()
-                    .iter()
-                    .map(|&length| length.as_())
-                    .collect()
+                unsigned_slice_as_usize::<L>(&lengths)
             })
         }
     };
+    (starts, lengths)
+}
 
-    let array_len = array.as_ref().len();
+/// Splits contiguous [`PiecewiseSequence`] runs at chunk boundaries into
+/// `(chunk_idx, local_start, run)` sub-pieces in output order, validating bounds and total length.
+fn split_piecewise_runs(
+    array: ArrayView<'_, Chunked>,
+    starts: &PrimitiveArray,
+    lengths: Columnar,
+    output_len: usize,
+) -> VortexResult<Vec<(usize, usize, usize)>> {
+    let (starts, lengths) = contiguous_slice_ranges(starts, lengths);
     let chunk_offsets = array.chunk_offset_values();
-    let nchunks = array.nchunks();
+    let array_len = array.as_ref().len();
 
-    let mut plans: Vec<ChunkGather> = Vec::new();
-    plans.resize_with(nchunks, ChunkGather::default);
-    // Sub-pieces in output order: (chunk index, offset within that chunk's gathered output, run
-    // length).
-    let mut sub_pieces: Vec<(usize, usize, usize)> = Vec::with_capacity(starts.len());
-    let mut monotonic = true;
-    let mut prev_chunk = 0usize;
+    let mut pieces = Vec::with_capacity(starts.len());
     let mut total_len = 0usize;
 
     for (&start, &length) in starts.iter().zip_eq(&lengths) {
@@ -467,30 +678,7 @@ fn take_piecewise_chunked(
                 chunk_idx += 1;
             }
             let run = remaining.min(chunk_offsets[chunk_idx + 1] - cursor);
-            monotonic &= chunk_idx >= prev_chunk;
-            prev_chunk = chunk_idx;
-
-            let plan = &mut plans[chunk_idx];
-            // Consecutive sub-pieces in the same chunk stay adjacent in its gathered output, so
-            // they merge into one reorder run.
-            match sub_pieces.last_mut() {
-                Some((last_chunk, _, last_run)) if *last_chunk == chunk_idx => *last_run += run,
-                _ => sub_pieces.push((chunk_idx, plan.total, run)),
-            }
-            // A run that continues exactly where the chunk's previous run ended extends it, so
-            // contiguous spans gather as one run.
-            let local_start = (cursor - chunk_offsets[chunk_idx]) as u64;
-            match (plan.starts.last(), plan.lengths.last_mut()) {
-                (Some(&prev_start), Some(prev_len)) if prev_start + *prev_len == local_start => {
-                    *prev_len += run as u64;
-                }
-                _ => {
-                    plan.starts.push(local_start);
-                    plan.lengths.push(run as u64);
-                }
-            }
-            plan.total += run;
-
+            pieces.push((chunk_idx, cursor - chunk_offsets[chunk_idx], run));
             cursor += run;
             remaining -= run;
         }
@@ -502,13 +690,115 @@ fn take_piecewise_chunked(
         "PiecewiseSequenceArray expanded length does not match declared length",
     );
 
-    // Chunks visited in order: the per-chunk gathers already concatenate into the result.
-    if monotonic {
-        let mut gathered = Vec::new();
-        for (chunk_idx, plan) in plans.into_iter().enumerate() {
-            if plan.starts.is_empty() {
-                continue;
+    Ok(pieces)
+}
+
+/// Out-of-order runs at least this long on average append to the result directly, in output
+/// order.
+///
+/// Each run is a slice of a chunk that appends into one builder, so the rows are decoded once.
+/// Each slice has a fixed cost, so for very short runs a second copy of the gathered rows costs
+/// about the same. In the `chunked_fsl_take` bench, the two paths are equal for runs of 16 rows,
+/// and the direct path is faster from 64 rows.
+const MIN_AVERAGE_DIRECT_RUN: usize = 32;
+
+/// Runs of a slice that does its work at execution append directly only if they are at least
+/// this long on average.
+const MIN_AVERAGE_EXECUTED_RUN: usize = 256;
+
+/// Runs of a slice that does its work at execution append directly only if they read at most
+/// `1 / SPARSE_CHUNK_RATIO` of the rows of each chunk.
+const SPARSE_CHUNK_RATIO: usize = 8;
+
+/// A per-chunk gather plan: chunk-local sub-piece runs to take from one chunk, in output order.
+#[derive(Default)]
+struct ChunkGather {
+    starts: Vec<u64>,
+    lengths: Vec<u64>,
+    total: usize,
+}
+
+/// Take for [`PiecewiseSequence`] indices with unit multipliers.
+///
+/// Each piece is a contiguous index run, so instead of expanding one index per element, pieces
+/// are split at chunk boundaries and gathered from each chunk with a chunk-local
+/// `PiecewiseSequenceArray`. Sub-pieces that visit chunks in non-decreasing order concatenate
+/// directly into the result; otherwise the gathered chunks are flattened once and a second
+/// piecewise take restores output order.
+fn take_piecewise_chunked(
+    array: ArrayView<'_, Chunked>,
+    indices: ArrayView<'_, PiecewiseSequence>,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Option<ArrayRef>> {
+    let Some((starts, lengths)) = maybe_contiguous_slices(indices, ctx)? else {
+        return Ok(None);
+    };
+
+    let output_len = indices.as_ref().len();
+    let pieces = split_piecewise_runs(array, &starts, lengths, output_len)?;
+
+    // Plans exist only for the chunks that the pieces touch, in the order of the first visit, so
+    // the cost scales with the number of pieces and not with the number of chunks.
+    let mut plans: Vec<(usize, ChunkGather)> = Vec::new();
+    let mut plan_of_chunk: HashMap<usize, usize> = HashMap::default();
+    // Sub-pieces in output order: (plan index, offset within that chunk's gathered output, run
+    // length).
+    let mut sub_pieces: Vec<(usize, usize, usize)> = Vec::with_capacity(pieces.len());
+    // Sub-pieces in output order as (chunk index, start in the chunk, run length). A run that
+    // continues the previous run in the same chunk extends it.
+    let mut runs: Vec<(usize, usize, usize)> = Vec::with_capacity(pieces.len());
+    let mut monotonic = true;
+    let mut prev_chunk = 0usize;
+
+    for (chunk_idx, local_start, run) in pieces {
+        monotonic &= chunk_idx >= prev_chunk;
+        prev_chunk = chunk_idx;
+
+        // Consecutive sub-pieces usually stay in one chunk, so check the last plan first.
+        let plan_idx = match plans.last() {
+            Some((last_chunk, _)) if *last_chunk == chunk_idx => plans.len() - 1,
+            _ => *plan_of_chunk.entry(chunk_idx).or_insert_with(|| {
+                plans.push((chunk_idx, ChunkGather::default()));
+                plans.len() - 1
+            }),
+        };
+        let plan = &mut plans[plan_idx].1;
+
+        // Consecutive sub-pieces in the same chunk stay adjacent in its gathered output, so
+        // they merge into one reorder run.
+        match sub_pieces.last_mut() {
+            Some((last_plan, _, last_run)) if *last_plan == plan_idx => *last_run += run,
+            _ => sub_pieces.push((plan_idx, plan.total, run)),
+        }
+        // A run that continues exactly where the chunk's previous run ended extends it, so
+        // contiguous spans gather as one run.
+        match runs.last_mut() {
+            Some((last_chunk, last_start, last_run))
+                if *last_chunk == chunk_idx && *last_start + *last_run == local_start =>
+            {
+                *last_run += run;
             }
+            _ => runs.push((chunk_idx, local_start, run)),
+        }
+
+        let local_start = local_start as u64;
+        match (plan.starts.last(), plan.lengths.last_mut()) {
+            (Some(&prev_start), Some(prev_len)) if prev_start + *prev_len == local_start => {
+                *prev_len += run as u64;
+            }
+            _ => {
+                plan.starts.push(local_start);
+                plan.lengths.push(run as u64);
+            }
+        }
+        plan.total += run;
+    }
+
+    // Chunks visited in order: the plans are in chunk order, and the per-chunk gathers already
+    // concatenate into the result.
+    if monotonic {
+        let mut gathered = Vec::with_capacity(plans.len());
+        for (chunk_idx, plan) in plans {
             gathered.push(gather_chunk(array.chunk(chunk_idx), plan)?);
         }
         let result = if gathered.len() == 1 {
@@ -521,16 +811,34 @@ fn take_piecewise_chunked(
         return Ok(Some(result));
     }
 
+    // Long out-of-order runs: append a slice of each run to the result in output order, so the
+    // rows are decoded once and copied once.
+    if !array.dtype().is_nested()
+        && output_len >= runs.len() * MIN_AVERAGE_DIRECT_RUN
+        && (sparse_long_runs(array, &plans, runs.len(), output_len)
+            || slices_reduce(array, &runs, ctx)?)
+    {
+        let mut flattener = ChunkFlattener::new(array.dtype(), output_len, ctx.allocator());
+
+        for &(chunk_idx, local_start, run) in &runs {
+            flattener.push(
+                array
+                    .chunk(chunk_idx)
+                    .slice(local_start..local_start + run)?,
+                ctx,
+            )?;
+        }
+
+        return flattener.finish(array.dtype(), ctx).map(Some);
+    }
+
     // Out-of-order sub-pieces: flatten the per-chunk gathers, then take the sub-piece runs from
     // the flattened result in output order.
-    let mut bases = vec![0usize; nchunks];
+    let mut bases = Vec::with_capacity(plans.len());
     let mut running = 0usize;
     let mut flattener = ChunkFlattener::new(array.dtype(), output_len, ctx.allocator());
-    for (chunk_idx, plan) in plans.into_iter().enumerate() {
-        if plan.starts.is_empty() {
-            continue;
-        }
-        bases[chunk_idx] = running;
+    for (chunk_idx, plan) in plans {
+        bases.push(running);
         running += plan.total;
         flattener.push(gather_chunk(array.chunk(chunk_idx), plan)?, ctx)?;
     }
@@ -538,12 +846,60 @@ fn take_piecewise_chunked(
 
     let mut reorder_starts = Vec::with_capacity(sub_pieces.len());
     let mut reorder_lengths = Vec::with_capacity(sub_pieces.len());
-    for &(chunk_idx, offset, run) in &sub_pieces {
-        reorder_starts.push((bases[chunk_idx] + offset) as u64);
+    for &(plan_idx, offset, run) in &sub_pieces {
+        reorder_starts.push((bases[plan_idx] + offset) as u64);
         reorder_lengths.push(run as u64);
     }
     flat.take(contiguous_runs(reorder_starts, reorder_lengths, output_len))
         .map(Some)
+}
+
+/// Tells if the runs are long and read a small part of each chunk.
+///
+/// Then a slice of each run reads less than the take of the runs of each chunk, also when the
+/// slice does its work at execution. In the `alp_fsl_take` bench, which has patches, a take of
+/// rows of 768 elements is up to 7 times faster this way, and a take of rows of 64 elements is
+/// 20% slower.
+fn sparse_long_runs(
+    array: ArrayView<'_, Chunked>,
+    plans: &[(usize, ChunkGather)],
+    num_runs: usize,
+    output_len: usize,
+) -> bool {
+    output_len >= num_runs * MIN_AVERAGE_EXECUTED_RUN
+        && plans.iter().all(|(chunk_idx, plan)| {
+            plan.total.saturating_mul(SPARSE_CHUNK_RATIO) <= array.chunk(*chunk_idx).len()
+        })
+}
+
+/// Tells if a slice of each chunk that `runs` read becomes an encoded array with no execution.
+///
+/// Such a slice decodes only its rows when it appends to a builder. A slice that does not
+/// reduce, such as a slice of an array with patches, does its work for each run, and a take of
+/// the runs of each chunk does it once for the chunk. The first run of each chunk is the test.
+fn slices_reduce(
+    array: ArrayView<'_, Chunked>,
+    runs: &[(usize, usize, usize)],
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<bool> {
+    let mut tested = vec![false; array.nchunks()];
+
+    for &(chunk_idx, start, run) in runs {
+        if std::mem::replace(&mut tested[chunk_idx], true) {
+            continue;
+        }
+
+        let slice = array
+            .chunk(chunk_idx)
+            .slice(start..start + run)?
+            .optimize_ctx(ctx)?;
+
+        if slice.is::<Slice>() {
+            return Ok(false);
+        }
+    }
+
+    Ok(true)
 }
 
 /// Gathers a chunk's planned runs: a single run is a zero-copy slice, multiple runs become a
@@ -554,25 +910,6 @@ fn gather_chunk(chunk: &ArrayRef, plan: ChunkGather) -> VortexResult<ArrayRef> {
         return chunk.slice(start..start + plan.total);
     }
     chunk.take(contiguous_runs(plan.starts, plan.lengths, plan.total))
-}
-
-/// Builds a `PiecewiseSequenceArray` of contiguous (unit multiplier) runs whose lengths sum to
-/// `total`.
-fn contiguous_runs(starts: Vec<u64>, lengths: Vec<u64>, total: usize) -> ArrayRef {
-    let count = starts.len();
-    debug_assert_eq!(count, lengths.len());
-    let starts = PrimitiveArray::new(Buffer::from(starts), Validity::NonNullable).into_array();
-    let lengths = match lengths.first() {
-        Some(&first) if lengths.iter().all(|&length| length == first) => {
-            ConstantArray::new(first, count).into_array()
-        }
-        _ => PrimitiveArray::new(Buffer::from(lengths), Validity::NonNullable).into_array(),
-    };
-    let multipliers = ConstantArray::new(1u64, count).into_array();
-    // SAFETY: starts, lengths, and multipliers are non-nullable u64 arrays of equal length, and
-    // `total` is the sum of the lengths.
-    unsafe { PiecewiseSequenceArray::new_unchecked(starts, lengths, multipliers, total) }
-        .into_array()
 }
 
 #[cfg(test)]
@@ -592,6 +929,7 @@ mod tests {
     use crate::arrays::BoolArray;
     use crate::arrays::ChunkedArray;
     use crate::arrays::ConstantArray;
+    use crate::arrays::DictArray;
     use crate::arrays::FixedSizeListArray;
     use crate::arrays::PiecewiseSequenceArray;
     use crate::arrays::PrimitiveArray;
@@ -665,6 +1003,66 @@ mod tests {
             PrimitiveArray::from_iter([12i32, 13, 14, 2, 3, 7, 8, 9, 0]),
             &mut ctx
         );
+        Ok(())
+    }
+
+    /// Long runs out of chunk order append to the result directly in output order.
+    #[test]
+    fn test_take_piecewise_interleaved_long_runs() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+
+        let chunks = (0..4)
+            .map(|chunk| {
+                (chunk * 512..(chunk + 1) * 512)
+                    .collect::<Buffer<i32>>()
+                    .into_array()
+            })
+            .collect::<Vec<_>>();
+        let arr = ChunkedArray::try_new(
+            chunks,
+            DType::Primitive(PType::I32, Nullability::NonNullable),
+        )?;
+
+        // The runs visit the chunks out of order. One run crosses a chunk boundary, and two
+        // runs in the first chunk are in reverse order.
+        let starts = [1600u64, 300, 900, 0, 1200];
+        let lengths = [300u64, 200, 400, 200, 250];
+        let result = arr.take(contiguous_pieces(&starts, &lengths)?)?;
+
+        let expected = starts.iter().zip(&lengths).flat_map(|(&start, &length)| {
+            (start..start + length).map(|row| i32::try_from(row).unwrap_or(i32::MAX))
+        });
+
+        assert_arrays_eq!(result, PrimitiveArray::from_iter(expected), &mut ctx);
+        Ok(())
+    }
+
+    /// Long runs out of chunk order keep the nulls of each row.
+    #[test]
+    fn test_take_piecewise_interleaved_long_runs_nullable() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+
+        let rows = |range: std::ops::Range<i32>| {
+            PrimitiveArray::from_option_iter(range.map(|row| (row % 5 != 2).then_some(row)))
+                .into_array()
+        };
+        let arr = ChunkedArray::try_new(
+            vec![rows(0..512), rows(512..1024), rows(1024..1536)],
+            DType::Primitive(PType::I32, Nullability::Nullable),
+        )?;
+
+        let starts = [1100u64, 0, 700, 300];
+        let lengths = [400u64, 150, 300, 200];
+        let result = arr.take(contiguous_pieces(&starts, &lengths)?)?;
+
+        let expected = starts.iter().zip(&lengths).flat_map(|(&start, &length)| {
+            (start..start + length).map(|row| {
+                let row = i32::try_from(row).unwrap_or(i32::MAX);
+                (row % 5 != 2).then_some(row)
+            })
+        });
+
+        assert_arrays_eq!(result, PrimitiveArray::from_option_iter(expected), &mut ctx);
         Ok(())
     }
 
@@ -1049,6 +1447,322 @@ mod tests {
         )?;
 
         assert_arrays_eq!(result, expected, &mut ctx);
+        Ok(())
+    }
+
+    /// A nullable struct of a fixed-size list and a primitive, in chunks of 3, 2 and 4 rows.
+    fn chunked_struct_of_fsl() -> VortexResult<(ChunkedArray, StructArray)> {
+        let lengths = [3usize, 2, 4];
+        let mut chunks = Vec::new();
+        let mut start = 0usize;
+
+        for length in lengths {
+            let rows = start..start + length;
+            let tokens = FixedSizeListArray::try_new(
+                PrimitiveArray::from_iter((rows.start * 2..rows.end * 2).map(|v| v as u64))
+                    .into_array(),
+                2,
+                Validity::NonNullable,
+                length,
+            )?;
+            let ids = PrimitiveArray::from_iter(rows.clone().map(|v| v as u64));
+            let validity = Validity::from_iter(rows.map(|row| row % 4 != 1));
+            chunks.push(
+                StructArray::try_new(
+                    ["tokens", "id"].into(),
+                    vec![tokens.into_array(), ids.into_array()],
+                    length,
+                    validity,
+                )?
+                .into_array(),
+            );
+            start += length;
+        }
+
+        let dtype = chunks[0].dtype().clone();
+        let chunked = ChunkedArray::try_new(chunks, dtype)?;
+
+        let tokens = FixedSizeListArray::try_new(
+            PrimitiveArray::from_iter((0..start * 2).map(|v| v as u64)).into_array(),
+            2,
+            Validity::NonNullable,
+            start,
+        )?;
+        let flat = StructArray::try_new(
+            ["tokens", "id"].into(),
+            vec![
+                tokens.into_array(),
+                PrimitiveArray::from_iter((0..start).map(|v| v as u64)).into_array(),
+            ],
+            start,
+            Validity::from_iter((0..start).map(|row| row % 4 != 1)),
+        )?;
+        Ok((chunked, flat))
+    }
+
+    #[test]
+    fn test_take_chunked_struct_of_fsl() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let (chunked, flat) = chunked_struct_of_fsl()?;
+
+        for indices in [
+            buffer![0u64, 2, 3, 5, 8].into_array(),
+            buffer![8u64, 1, 4, 4, 0, 6].into_array(),
+            buffer![7u64].into_array(),
+            buffer![6u64, 0, 7, 0].into_array(),
+            Buffer::<u64>::empty().into_array(),
+            PrimitiveArray::from_option_iter([Some(5u64), None, Some(2)]).into_array(),
+        ] {
+            let result = chunked.clone().into_array().take(indices.clone())?;
+            let expected = flat.clone().into_array().take(indices)?;
+            assert_arrays_eq!(result, expected, &mut ctx);
+        }
+        Ok(())
+    }
+
+    /// Takes that touch some of the chunks, around an empty chunk, read only those chunks and keep
+    /// the order and the duplicates of the indices.
+    #[test]
+    fn test_take_chunked_fsl_touched_chunks() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let lengths = [2usize, 0, 3, 1, 2];
+        let mut chunks = Vec::new();
+        let mut start = 0u64;
+
+        for length in lengths {
+            let end = start + length as u64;
+            chunks.push(
+                FixedSizeListArray::try_new(
+                    PrimitiveArray::from_iter(start * 2..end * 2).into_array(),
+                    2,
+                    Validity::NonNullable,
+                    length,
+                )?
+                .into_array(),
+            );
+            start = end;
+        }
+
+        let dtype = chunks[0].dtype().clone();
+        let chunked = ChunkedArray::try_new(chunks, dtype)?.into_array();
+        let flat = FixedSizeListArray::try_new(
+            PrimitiveArray::from_iter(0..start * 2).into_array(),
+            2,
+            Validity::NonNullable,
+            usize::try_from(start)?,
+        )?
+        .into_array();
+
+        for indices in [
+            buffer![7u64, 2, 2, 6].into_array(),
+            buffer![4u64, 3].into_array(),
+            buffer![1u64].into_array(),
+        ] {
+            let result = chunked.take(indices.clone())?;
+            assert_arrays_eq!(result, flat.take(indices)?, &mut ctx);
+        }
+
+        let out_of_bounds = chunked.take(buffer![1u64, 8].into_array())?;
+        assert!(out_of_bounds.execute::<Canonical>(&mut ctx).is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn test_touched_chunks_piecewise_without_expanding() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let lengths = [2usize, 0, 3, 1, 2];
+        let mut chunks = Vec::new();
+        let mut start = 0u64;
+
+        for length in lengths {
+            let end = start + length as u64;
+            chunks.push(
+                FixedSizeListArray::try_new(
+                    PrimitiveArray::from_iter(start * 2..end * 2).into_array(),
+                    2,
+                    Validity::NonNullable,
+                    length,
+                )?
+                .into_array(),
+            );
+            start = end;
+        }
+
+        let dtype = chunks[0].dtype().clone();
+        let chunked = ChunkedArray::try_new(chunks, dtype)?;
+        let flat = FixedSizeListArray::try_new(
+            PrimitiveArray::from_iter(0..start * 2).into_array(),
+            2,
+            Validity::NonNullable,
+            usize::try_from(start)?,
+        )?
+        .into_array();
+
+        for (indices, expected_chunks) in [
+            (contiguous_pieces(&[1], &[3])?, 2usize),
+            (contiguous_pieces(&[6, 1, 6], &[2, 2, 1])?, 3usize),
+            (contiguous_pieces(&[2], &[2])?, 1usize),
+        ] {
+            let (touched, remapped) = super::touched_chunks(chunked.as_view(), &indices, &mut ctx)?
+                .expect("sparse piecewise indices should select a subset of chunks");
+            assert_eq!(touched.len(), expected_chunks);
+            assert!(remapped.is::<super::PiecewiseSequence>());
+
+            let result = chunked.clone().into_array().take(indices.clone())?;
+            assert_arrays_eq!(result, flat.take(indices)?, &mut ctx);
+        }
+
+        let out_of_bounds = contiguous_pieces(&[6], &[3])?;
+        assert!(super::touched_chunks(chunked.as_view(), &out_of_bounds, &mut ctx).is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn test_take_chunked_struct_conformance() -> VortexResult<()> {
+        let (chunked, _) = chunked_struct_of_fsl()?;
+        test_take_conformance(&chunked.into_array(), &mut SESSION.create_execution_ctx());
+        Ok(())
+    }
+
+    #[test]
+    fn test_take_chunked_struct_constant_chunk() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let s0 = StructArray::try_new(
+            ["a"].into(),
+            vec![buffer![0i32, 1, 2].into_array()],
+            3,
+            Validity::NonNullable,
+        )?;
+        let dtype = s0.dtype().clone();
+        // A constant chunk is only logically a struct, so the take does not swizzle the chunks.
+        let s1 = ConstantArray::new(Scalar::struct_(dtype.clone(), vec![7i32.into()]), 2);
+        let arr = ChunkedArray::try_new(vec![s0.into_array(), s1.into_array()], dtype)?;
+
+        let result = arr.take(buffer![4u64, 0, 3, 2].into_array())?;
+        let expected = StructArray::try_new(
+            ["a"].into(),
+            vec![buffer![7i32, 0, 7, 2].into_array()],
+            4,
+            Validity::NonNullable,
+        )?;
+
+        assert_arrays_eq!(result, expected, &mut ctx);
+        Ok(())
+    }
+
+    /// The take swizzles the struct chunks that the indices touch, also when an untouched chunk is
+    /// not a struct. When the indices touch the constant chunk, the take does not swizzle.
+    #[test]
+    fn test_take_chunked_struct_of_fsl_constant_chunk() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+
+        let struct_of_fsl = |start: i32, length: usize| -> VortexResult<ArrayRef> {
+            let end = start + i32::try_from(length)?;
+            let tokens = FixedSizeListArray::try_new(
+                PrimitiveArray::from_iter(start * 2..end * 2).into_array(),
+                2,
+                Validity::NonNullable,
+                length,
+            )?;
+
+            Ok(StructArray::try_new(
+                ["tokens"].into(),
+                vec![tokens.into_array()],
+                length,
+                Validity::NonNullable,
+            )?
+            .into_array())
+        };
+
+        let s0 = struct_of_fsl(0, 2)?;
+        let s2 = struct_of_fsl(4, 2)?;
+        let dtype = s0.dtype().clone();
+
+        let scalar = struct_of_fsl(50, 1)?.execute_scalar(0, &mut ctx)?;
+        let s1 = ConstantArray::new(scalar, 2).into_array();
+
+        let chunked = ChunkedArray::try_new(vec![s0, s1, s2], dtype)?.into_array();
+        let flat = chunked
+            .clone()
+            .execute::<StructArray>(&mut ctx)?
+            .into_array();
+
+        for indices in [
+            buffer![5u64, 0, 4, 1].into_array(),
+            buffer![3u64, 0, 5, 2].into_array(),
+        ] {
+            let result = chunked.take(indices.clone())?;
+            assert_arrays_eq!(result, flat.take(indices)?, &mut ctx);
+        }
+
+        Ok(())
+    }
+
+    /// A take from struct chunks with dictionary-encoded fixed-size-list fields does not swizzle
+    /// them. The swizzle would decode every dictionary code of the chunks that the take touches.
+    #[test]
+    fn test_take_chunked_struct_of_dict_fsl() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+
+        let struct_of_dict_fsl = |values: Vec<u64>, codes: Vec<u32>| -> VortexResult<ArrayRef> {
+            let values_len = values.len() / 2;
+            let values = FixedSizeListArray::try_new(
+                PrimitiveArray::from_iter(values).into_array(),
+                2,
+                Validity::NonNullable,
+                values_len,
+            )?;
+
+            let length = codes.len();
+            let tokens = DictArray::try_new(
+                PrimitiveArray::from_iter(codes).into_array(),
+                values.into_array(),
+            )?;
+
+            Ok(StructArray::try_new(
+                ["tokens"].into(),
+                vec![tokens.into_array()],
+                length,
+                Validity::NonNullable,
+            )?
+            .into_array())
+        };
+
+        let s0 = struct_of_dict_fsl(vec![0, 1, 2, 3], vec![1, 0, 1, 1])?;
+        let s1 = struct_of_dict_fsl(vec![10, 11, 12, 13, 14, 15], vec![2, 0, 1])?;
+        let s2 = struct_of_dict_fsl(vec![20, 21], vec![0, 0])?;
+        let dtype = s0.dtype().clone();
+        let chunked = ChunkedArray::try_new(vec![s0, s1, s2], dtype)?;
+
+        let tokens = FixedSizeListArray::try_new(
+            PrimitiveArray::from_iter([
+                2u64, 3, 0, 1, 2, 3, 2, 3, 14, 15, 10, 11, 12, 13, 20, 21, 20, 21,
+            ])
+            .into_array(),
+            2,
+            Validity::NonNullable,
+            9,
+        )?;
+        let flat = StructArray::try_new(
+            ["tokens"].into(),
+            vec![tokens.into_array()],
+            9,
+            Validity::NonNullable,
+        )?
+        .into_array();
+
+        for indices in [
+            buffer![0u64, 4].into_array(),
+            buffer![6u64, 1, 5].into_array(),
+            buffer![8u64, 0, 4].into_array(),
+        ] {
+            let swizzled = super::take_chunked_struct(chunked.as_view(), &indices, &mut ctx)?;
+            assert!(swizzled.is_none());
+
+            let result = chunked.clone().into_array().take(indices.clone())?;
+            assert_arrays_eq!(result, flat.take(indices)?, &mut ctx);
+        }
+
         Ok(())
     }
 

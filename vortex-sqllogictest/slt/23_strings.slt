@@ -1,0 +1,36 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+include ./setup.slt.no
+
+query I
+COPY (SELECT * FROM (VALUES ('Hello'), ('Hi'), ('Hey')) AS t(str)) TO '${WORK_DIR}/strings.vortex';
+----
+3
+
+query T
+SELECT string_agg(str, ',') FROM '${WORK_DIR}/strings.vortex';
+----
+Hello,Hi,Hey
+
+query T
+SELECT string_agg(str, ',') FROM '${WORK_DIR}/strings.vortex' WHERE str LIKE '%He%';
+----
+Hello,Hey
+
+query T
+SELECT string_agg(str, ',') FROM '${WORK_DIR}/strings.vortex' WHERE contains(str, 'e');
+----
+Hello,Hey
+
+onlyif duckdb
+query T
+SELECT string_agg(str, ',') FROM '${WORK_DIR}/strings.vortex' WHERE prefix(str, 'He');
+----
+Hello,Hey
+
+onlyif duckdb
+query T
+SELECT string_agg(str, ',') FROM '${WORK_DIR}/strings.vortex' WHERE suffix(str, 'lo');
+----
+Hello

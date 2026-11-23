@@ -500,7 +500,11 @@ mod tests {
                 !excluded_types.contains(&variant)
             })
         {
-            assert_eq!(LogicalType::new(variant).clone().as_type_id(), variant);
+            let original = LogicalType::new(variant);
+            let copy = original.clone();
+
+            assert_eq!(copy.as_type_id(), variant);
+            assert_eq!(original.as_type_id(), variant);
         }
     }
 

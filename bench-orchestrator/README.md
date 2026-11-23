@@ -41,7 +41,7 @@ vx-bench run <benchmark> [options]
 
 **Arguments:**
 
-- `benchmark`: Benchmark suite to run (`appian`, `tpch`, `tpcds`, `clickbench`, `fineweb`, `gh-archive`, `job`, `polarsignals`, `public-bi`, `statpopgen`)
+- `benchmark`: Benchmark suite to run (`appian`, `tpch`, `tpcds`, `clickbench`, `fineweb`, `gh-archive`, `job`, `polarsignals`, `public-bi`, `statpopgen`, `tpch-nested`)
 
 **Options:**
 
@@ -130,7 +130,7 @@ vx-bench show <run-ref>
 
 **Arguments:**
 
-- `run-ref`: Run ID, label, or `latest`
+- `run-ref`: Run ID, label, or `latest` (most recent non-partial run)
 
 ### `build` - Build Binaries
 
@@ -159,10 +159,19 @@ vx-bench clean --older-than "30 days" [options]
 ## CI Benchmark Matrices
 
 CI benchmark coverage lives in `bench_orchestrator/ci_matrix/catalog.py`. This is the only file to
-edit when changing what runs in the `develop`, `pr`, `pr-compact`, `pr-all`, `pr-full`, or
-`nightly` presets. The remaining modules in `ci_matrix` model, validate, and render that catalog as
+edit when changing what runs in the `develop`, `pr`, `pr-scan`, `pr-compact`, `pr-all`, `pr-full`,
+or `nightly` presets. The remaining modules in `ci_matrix` model, validate, and render that catalog as
 the JSON expected by GitHub Actions. `pr-all` is not declared per benchmark: it is derived as the
 union of each benchmark's `pr`, `pr-compact`, and `pr-full` coverage.
+
+Vortex targets name an integration (`file` or `datasource`) and a scan engine (`v1` or `v2`). A
+coverage made with `with_all_scans` runs every valid combination, and each combination becomes a
+matrix entry of its own, `{id}-{engine}-{integration}-{scan}`, on its own machine. The default
+entry keeps the case's id. Every entry of a case shares its `group`, and the PR comment job merges
+a group's results into one table. `nightly` covers every scan on every benchmark, except the
+combinations in `NIGHTLY_SKIP_SCANS` (DataFusion datasource v1); `develop` and
+`pr-scan` cover them on ClickBench and TPC-H SF=1 on NVMe. The other PR presets run the default
+scans only.
 
 When adding coverage, update the benchmark declarations and the expected preset membership in
 `tests/test_matrix.py`.

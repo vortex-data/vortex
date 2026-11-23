@@ -4,16 +4,19 @@
 //! Compression scheme implementations.
 
 pub mod binary;
+pub mod boolean;
 pub mod float;
 pub mod integer;
 pub mod string;
 
 pub mod decimal;
+pub mod fixed_size_list;
 pub mod temporal;
 
 pub(crate) mod patches;
 
 use vortex_compressor::builtins::BinaryDictScheme;
+use vortex_compressor::builtins::DecimalDictScheme;
 use vortex_compressor::builtins::FloatDictScheme;
 use vortex_compressor::builtins::IntDictScheme;
 use vortex_compressor::builtins::StringDictScheme;
@@ -22,6 +25,7 @@ use vortex_compressor::scheme::ChildSelection;
 use vortex_compressor::scheme::DescendantExclusion;
 use vortex_compressor::scheme::SchemeExt;
 
+use crate::schemes::integer::RunEndScheme;
 use crate::schemes::integer::SparseScheme;
 
 /// Shared descendant exclusion rules for RLE schemes.
@@ -35,11 +39,13 @@ fn rle_descendant_exclusions() -> Vec<DescendantExclusion> {
             excluded: IntDictScheme.id(),
             children: ChildSelection::Many(&[1, 2]),
         },
-        // TODO(connor): This is wrong for some reason?
-        // DescendantExclusion {
-        //     excluded: RunEndScheme.id(),
-        //     children: ChildSelection::Many(&[1, 2]),
-        // },
+        // RLE indices count up within each chunk, so Delta packs them into a few bits. RunEnd
+        // over them would run-length encode already run-length encoded data, which every RLE
+        // decode and filter then has to expand twice.
+        DescendantExclusion {
+            excluded: RunEndScheme.id(),
+            children: ChildSelection::One(1),
+        },
         DescendantExclusion {
             excluded: SparseScheme.id(),
             children: ChildSelection::Many(&[1, 2]),
@@ -66,6 +72,10 @@ fn rle_ancestor_exclusions() -> Vec<AncestorExclusion> {
         },
         AncestorExclusion {
             ancestor: BinaryDictScheme.id(),
+            children: ChildSelection::One(0),
+        },
+        AncestorExclusion {
+            ancestor: DecimalDictScheme.id(),
             children: ChildSelection::One(0),
         },
     ]

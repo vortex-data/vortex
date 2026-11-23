@@ -6,8 +6,18 @@
 use std::ffi::CStr;
 use std::ffi::c_void;
 
-/// Name used for PyCapsules carrying [`VortexBufferExport`] pointers.
+/// Name used for unconsumed PyCapsules carrying [`VortexBufferExport`] pointers.
+///
+/// Ownership of a [`VortexBufferExport`] capsule is single-use: once a consumer validates the
+/// descriptor and takes ownership, it must mark the capsule with
+/// [`USED_BUFFER_EXPORT_CAPSULE_NAME`] and clear its destructor so the export cannot be imported
+/// or released twice.
 pub const BUFFER_EXPORT_CAPSULE_NAME: &CStr = c"vortex_buffer_export";
+
+/// Name assigned to a [`BUFFER_EXPORT_CAPSULE_NAME`] PyCapsule after a consumer takes ownership.
+///
+/// Consumers must reject capsules carrying this name before dereferencing the capsule pointer.
+pub const USED_BUFFER_EXPORT_CAPSULE_NAME: &CStr = c"used_vortex_buffer_export";
 
 /// Current version of the [`VortexBufferExport`] ABI.
 pub const VORTEX_BUFFER_EXPORT_VERSION: u32 = 1;

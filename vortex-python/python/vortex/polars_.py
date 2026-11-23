@@ -11,11 +11,75 @@ from typing import Any, Literal, cast
 
 import polars as pl
 import pyarrow as pa
+from polars.io.plugins import register_io_source
 
 import vortex.expr as ve
 
 from ._lib import dtype as _dtype
 from ._lib.arrays import Array
+from .arrays import array
+
+
+def lazy_frame(
+    schema: pa.Schema,
+    read: Callable[[list[str] | None, ve.Expr | None, int | None], pa.RecordBatchReader],
+) -> pl.LazyFrame:
+    """A Polars LazyFrame over Vortex data, pushing column selection and predicates into ``read``.
+
+    ``read(columns, predicate, limit)`` returns the batches of ``columns`` whose rows pass
+    ``predicate``. It may stop after ``limit`` rows or read past them: the frame trims the batches
+    to the rows Polars asked for either way.
+    """
+    # Type-checks translated predicates against the schema before scanning.
+    scope = array(schema.empty_table())
+
+    def _io_source(
+        with_columns: list[str] | None,
+        predicate: pl.Expr | None,
+        n_rows: int | None,
+        _batch_size: int | None,
+    ) -> Iterator[pl.DataFrame]:
+        # Push the convertible AND-conjuncts of the predicate into the Vortex scan and
+        # evaluate the residual conjuncts with Polars per batch. Polars will not
+        # re-apply a predicate it handed to the source, so both parts must be applied.
+        vx_predicate: ve.Expr | None = None
+        pl_predicate: pl.Expr | None = None
+        if predicate is not None:
+            vx_predicate, pl_predicate = decompose_predicate(predicate, scope)
+
+        # A row limit only commutes with the residual filter if there is none.
+        limit = n_rows if pl_predicate is None else None
+
+        reader = read(with_columns, vx_predicate, limit)
+
+        remaining = n_rows
+        try:
+            for batch in reader:
+                df = pl.DataFrame(batch)
+                if pl_predicate is not None:
+                    df = df.filter(pl_predicate)
+                if remaining is not None:
+                    df = df.head(remaining)
+                    remaining -= df.height
+                # TODO(ngates): set sortedness on DataFrame based on stats?
+                yield df
+                if remaining == 0:
+                    break
+        except pa.ArrowException as e:
+            # Polars 1 wraps exceptions raised by an IO source in a ComputeError, but Polars 2
+            # re-raises them unchanged. Raise a ComputeError on both.
+            raise pl.exceptions.ComputeError(str(e)) from e
+
+        # Make sure we always yield at least one empty DataFrame
+        yield pl.DataFrame(
+            pa.RecordBatch.from_arrays(
+                [pa.array([], type=field.type) for field in reader.schema],
+                schema=reader.schema,
+            ),
+        )
+
+    # https://github.com/pola-rs/polars/pull/24125
+    return register_io_source(_io_source, schema=schema)  # ty: ignore[invalid-argument-type]
 
 
 def polars_to_vortex(expr: pl.Expr) -> ve.Expr:
@@ -164,6 +228,8 @@ def _polars_to_vortex(expr: dict[str, Any]) -> ve.Expr:
         return ve.zip_(*[_polars_to_vortex(node[k]) for k in ("predicate", "truthy", "falsy")])
     if "Column" in expr:
         return ve.column(expr["Column"])
+    if "Cast" in expr:
+        return _cast_datetime_literal(expr["Cast"])
 
     # See https://github.com/pola-rs/polars/pull/21849
     if "Scalar" in expr:
@@ -194,7 +260,7 @@ def _polars_to_vortex(expr: dict[str, Any]) -> ve.Expr:
             value = scalar["Int64"]
             dtype = "Int64"
         elif "Time" in scalar:
-            return ve.literal(_dtype.time("ns"), scalar["Time"])
+            return _temporal_literal(scalar["Time"], pa.time64("ns"))
         elif "Decimal" in scalar:
             # Polars <1.35 omits the precision: [value, scale].
             if len(scalar["Decimal"]) == 2:
@@ -204,7 +270,7 @@ def _polars_to_vortex(expr: dict[str, Any]) -> ve.Expr:
                 value, precision, scale = scalar["Decimal"]
             return ve.literal(_dtype.decimal(precision=precision, scale=scale), value)
         elif "Date" in scalar:
-            return ve.literal(_dtype.date("days"), scalar["Date"])
+            return _temporal_literal(scalar["Date"], pa.date32())
         elif "Binary" in scalar:
             return ve.literal(_dtype.binary(), bytes(scalar["Binary"]))
         elif "Datetime" in scalar:
@@ -349,6 +415,29 @@ def _ipc_values(raw: list[int]) -> pa.Array[pa.Scalar[Any]]:
 
 def _datetime_literal(data: list[Any]) -> ve.Expr:
     value, unit, tz = data
+    return _temporal_literal(value, _datetime_type(unit, tz))
+
+
+def _cast_datetime_literal(node: dict[str, Any]) -> ve.Expr:
+    """Fold a Polars cast of a datetime literal into the literal.
+
+    Polars 1.x serializes a time zone aware datetime literal as its wall-clock time labelled UTC,
+    cast to a naive datetime, and then given its time zone with ``replace_time_zone``. Vortex does
+    not cast between temporal dtypes, so the cast is applied to the literal here. Like Polars,
+    Arrow changes the time zone without changing the stored value. Unlike Polars, it rejects a
+    change of unit that loses precision, which leaves that predicate to Polars.
+    """
+    try:
+        value, unit, tz = node["expr"]["Literal"]["Scalar"]["Datetime"]
+        target_unit, target_tz = node["dtype"]["Literal"]["Datetime"]
+    except (KeyError, TypeError, ValueError) as e:
+        raise NotImplementedError(f"Unsupported Polars cast: {node}") from e
+
+    array = pa.array([value], type=_datetime_type(unit, tz)).cast(_datetime_type(target_unit, target_tz))
+    return _arrow_literal(array)
+
+
+def _datetime_type(unit: str, tz: str | dict[str, str] | None) -> pa.DataType:
     units: dict[str, Literal["s", "ms", "us", "ns"]] = {
         "Nanoseconds": "ns",
         "Microseconds": "us",
@@ -359,5 +448,16 @@ def _datetime_literal(data: list[Any]) -> ve.Expr:
         raise NotImplementedError(f"Unsupported Polars date time unit: {unit}")
     if isinstance(tz, dict):
         tz = tz["inner"]
-    dtype = _dtype.timestamp(units[unit], tz=tz, nullable=value is None)
-    return ve.literal(dtype, value)
+    if tz is None:
+        return pa.timestamp(units[unit])
+    return pa.timestamp(units[unit], tz=tz)
+
+
+def _temporal_literal(value: int | None, arrow_type: pa.DataType) -> ve.Expr:
+    return _arrow_literal(pa.array([value], type=arrow_type))
+
+
+def _arrow_literal(array: pa.Array[pa.Scalar[Any]]) -> ve.Expr:
+    """A Vortex literal of the one value in ``array``."""
+    vortex_array = Array.from_arrow(array)
+    return ve.literal(vortex_array.dtype, vortex_array.scalar_at(0))

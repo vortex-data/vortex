@@ -18,22 +18,29 @@ public final class NativeWriter {
      * Open a writer at {@code uri} that accepts batches matching the Arrow schema at {@code arrowSchemaAddress}.
      *
      * @param metadata user-defined metadata segments to store in the file footer (may be null)
+     * @param compact write with the compact strategy, which prefers a smaller file over read throughput
      */
     public static native long create(
             long sessionPointer,
             String uri,
             long arrowSchemaAddress,
             Map<String, String> options,
-            Map<String, byte[]> metadata);
+            Map<String, byte[]> metadata,
+            boolean compact);
 
     /**
      * Open a writer that streams the file into a caller-provided {@link dev.vortex.io.NativeWritable}. The native side
      * writes and flushes but never closes the writable; the caller must close it after {@link #close}.
      *
      * @param metadata user-defined metadata segments to store in the file footer (may be null)
+     * @param compact write with the compact strategy, which prefers a smaller file over read throughput
      */
     public static native long createStream(
-            long sessionPointer, Object writable, long arrowSchemaAddress, Map<String, byte[]> metadata);
+            long sessionPointer,
+            Object writable,
+            long arrowSchemaAddress,
+            Map<String, byte[]> metadata,
+            boolean compact);
 
     /**
      * Write a batch directly from Arrow C Data Interface addresses.
@@ -46,6 +53,14 @@ public final class NativeWriter {
     public static native boolean writeBatch(long writerPointer, long arrowArrayAddress, long arrowSchemaAddress);
 
     /**
+     * Write a batch from an Arrow C Data Interface array that agrees with the writer schema. Native code takes the
+     * array and releases it, also when the call fails.
+     *
+     * @return {@code true} on success
+     */
+    public static native boolean writeArray(long writerPointer, long arrowArrayAddress);
+
+    /**
      * Import a Java batch with independently retained buffer allocations. The exported array must match the schema
      * passed to {@link #create}; the caller must serialize writes and close. Buffer metadata is single-use.
      */
@@ -54,12 +69,22 @@ public final class NativeWriter {
     /** Number of bytes successfully written to the underlying sink so far. */
     public static native long bytesWritten(long writerPointer);
 
-    /** Number of uncompressed bytes buffered by the native writer that have not yet reached the sink. */
+    /** Number of compressed bytes that the native writer holds and that have not yet reached the sink. */
     public static native long bufferedBytes(long writerPointer);
+
+    /** Estimated size of the file if the write finished now, without the footer. */
+    public static native long estimatedSize(long writerPointer);
+
+    /** Compressed bytes divided by uncompressed bytes over the data that the writer compressed so far. */
+    public static native double compressionRatio(long writerPointer);
 
     /** Flush and close the writer. Must be called exactly once. */
     public static native void close(long writerPointer);
 
-    /** Flush and close the writer, returning its completed-file summary. Must be called exactly once. */
-    public static native VortexWriteSummary finish(long writerPointer);
+    /**
+     * Flush and close the writer, returning its completed-file summary. Must be called exactly once.
+     *
+     * @param metadata metadata segments to merge with the create-time segments (may be null)
+     */
+    public static native VortexWriteSummary finish(long writerPointer, Map<String, byte[]> metadata);
 }

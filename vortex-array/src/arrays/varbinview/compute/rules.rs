@@ -1,13 +1,27 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
+use vortex_session::VortexSession;
+
+use crate::arrays::Slice;
 use crate::arrays::VarBinView;
 use crate::arrays::slice::SliceReduceAdaptor;
-use crate::optimizer::rules::ParentRuleSet;
-use crate::scalar_fn::fns::cast::CastReduceAdaptor;
-use crate::scalar_fn::fns::mask::MaskReduceAdaptor;
+use crate::optimizer::kernels::ArrayKernelsExt;
+use crate::scalar_fn::builtin::cast::Cast;
+use crate::scalar_fn::builtin::cast::CastReduceAdaptor;
+use crate::scalar_fn::builtin::mask::Mask as MaskFn;
+use crate::scalar_fn::builtin::mask::MaskReduceAdaptor;
 
-pub(crate) const PARENT_RULES: ParentRuleSet<VarBinView> = ParentRuleSet::new(&[
-    ParentRuleSet::lift(&CastReduceAdaptor(VarBinView)),
-    ParentRuleSet::lift(&MaskReduceAdaptor(VarBinView)),
-    ParentRuleSet::lift(&SliceReduceAdaptor(VarBinView)),
-]);
+pub(crate) fn register_parent_rules(session: &VortexSession) {
+    let kernels = session.kernels();
+    kernels.register_reduce_parent_rule(Cast, VarBinView, const { &CastReduceAdaptor(VarBinView) });
+    kernels.register_reduce_parent_rule(
+        MaskFn,
+        VarBinView,
+        const { &MaskReduceAdaptor(VarBinView) },
+    );
+    kernels.register_reduce_parent_rule(
+        Slice,
+        VarBinView,
+        const { &SliceReduceAdaptor(VarBinView) },
+    );
+}

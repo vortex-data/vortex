@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 //! Reassembling integer slices, including output-buffer allocation.
-//! Array benchmarks also include validation, part execution, and casts.
+//! Array benchmarks also include validation, part execution, and any copy to the canonical width.
 
 mod common;
 
@@ -66,7 +66,7 @@ fn dbp_assemble_kernel(bencher: Bencher, (values_type, len): (DecimalType, usize
     }
 }
 
-// The kernel widens the MSP while assembling; lower parts are already `u64`.
+// The kernel widens the MSP while assembling. Lower parts are already `u64`.
 #[vortex_bench_support::cpu_features]
 #[divan::bench(args = cases())]
 fn dbp_assemble_kernel_narrow_msp(bencher: Bencher, (values_type, len): (DecimalType, usize)) {
@@ -111,8 +111,13 @@ mod arrays {
     use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
+    use vortex_array::arrays::DecimalArray;
+    use vortex_array::arrays::WidenArray;
+    use vortex_array::dtype::DType;
     use vortex_array::dtype::DecimalDType;
     use vortex_array::dtype::DecimalType;
+    use vortex_array::dtype::Nullability;
+    use vortex_array::dtype::PType;
     use vortex_array::optimizer::kernels::KernelSession;
     use vortex_array::test_harness::mark_optimized;
     use vortex_array::validity::Validity;
@@ -121,19 +126,31 @@ mod arrays {
     use vortex_decimal_byte_parts::split_decimal;
     use vortex_error::VortexExpect;
     use vortex_error::vortex_panic;
+    use vortex_mask::Mask;
     use vortex_session::VortexSession;
 
     use crate::common::arrays::cases;
     use crate::common::arrays::decimal_array;
+    use crate::common::arrays::full_width_lower_part_count;
+    use crate::common::i128_values;
 
     pub(super) static SESSION: LazyLock<VortexSession> =
         LazyLock::new(|| VortexSession::empty().with::<KernelSession>());
 
     #[divan::bench(args = cases())]
     fn dbp_assemble(bencher: Bencher, (values_type, len): (DecimalType, usize)) {
-        let decimal = decimal_array(values_type, len, Validity::NonNullable);
-        let mut ctx = SESSION.create_execution_ctx();
-        let parts = split_decimal(&decimal, &mut ctx).vortex_expect("split benchmark input");
+        let decimal = decimal_array(
+            values_type,
+            len,
+            Validity::NonNullable,
+            &mut SESSION.create_execution_ctx(),
+        );
+        let parts = split_decimal(
+            &decimal,
+            &Mask::new_true(len),
+            full_width_lower_part_count(values_type),
+        )
+        .vortex_expect("split benchmark input");
         bench_parts(
             bencher,
             parts.msp,
@@ -144,24 +161,38 @@ mod arrays {
 
     #[divan::bench(args = cases())]
     fn dbp_assemble_narrowed(bencher: Bencher, (values_type, len): (DecimalType, usize)) {
+        let lower_part = || buffer![u64::MAX; len].into_array();
         let (precision, lower_parts) = match values_type {
             DecimalType::I64 => (18, vec![]),
-            DecimalType::I128 => (38, vec![buffer![u8::MAX; len].into_array()]),
-            DecimalType::I256 => (
-                76,
-                vec![
-                    buffer![u8::MAX; len].into_array(),
-                    buffer![u16::MAX; len].into_array(),
-                    buffer![u32::MAX; len].into_array(),
-                ],
-            ),
+            DecimalType::I128 => (38, vec![lower_part()]),
+            DecimalType::I256 => (76, vec![lower_part(), lower_part(), lower_part()]),
             _ => vortex_panic!("unsupported benchmark storage type: {values_type}"),
         };
         bench_parts(
             bencher,
-            buffer![-1i8; len].into_array(),
+            WidenArray::try_new(
+                buffer![-1i8; len].into_array(),
+                DType::Primitive(PType::I64, Nullability::NonNullable),
+            )
+            .vortex_expect("benchmark MSP must be narrower than its logical dtype")
+            .into_array(),
             lower_parts,
             DecimalDType::new(precision, 2),
+        );
+    }
+
+    /// One lower part under `Decimal(76, 2)`, the shape that the compressor writes when the valid
+    /// values fit `i128`. Assembly writes `i256` values directly.
+    #[divan::bench(args = [1_024, 8_192])]
+    fn dbp_assemble_i256_one_lower_part(bencher: Bencher, len: usize) {
+        let decimal = DecimalArray::from_iter(i128_values(len), DecimalDType::new(76, 2));
+        let parts =
+            split_decimal(&decimal, &Mask::new_true(len), 1).vortex_expect("split benchmark input");
+        bench_parts(
+            bencher,
+            parts.msp,
+            parts.lower_parts,
+            decimal.decimal_dtype(),
         );
     }
 

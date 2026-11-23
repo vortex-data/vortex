@@ -1,0 +1,10 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+include ../setup.slt.no
+
+query ?
+SELECT parameter_types FROM duckdb_functions() WHERE function_name = 'vortex_scan'
+----
+[VARCHAR, ANY, BOOLEAN, BOOLEAN]
+['VARCHAR[]', ANY, BOOLEAN, BOOLEAN]

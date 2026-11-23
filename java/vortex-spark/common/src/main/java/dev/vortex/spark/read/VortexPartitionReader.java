@@ -6,7 +6,6 @@ package dev.vortex.spark.read;
 import dev.vortex.api.DataSource;
 import dev.vortex.api.DataSource.RowCount;
 import dev.vortex.api.Expression;
-import dev.vortex.api.Partition;
 import dev.vortex.api.Scan;
 import dev.vortex.api.ScanOptions;
 import dev.vortex.api.Session;
@@ -15,7 +14,6 @@ import dev.vortex.io.NativeReadable;
 import dev.vortex.relocated.org.apache.arrow.memory.BufferAllocator;
 import dev.vortex.relocated.org.apache.arrow.vector.VectorSchemaRoot;
 import dev.vortex.relocated.org.apache.arrow.vector.ipc.ArrowReader;
-import dev.vortex.relocated.org.apache.arrow.vector.types.pojo.ArrowType;
 import dev.vortex.relocated.org.apache.arrow.vector.types.pojo.Field;
 import dev.vortex.spark.VortexOptions;
 import dev.vortex.spark.VortexSparkSession;
@@ -23,16 +21,12 @@ import dev.vortex.spark.io.VortexFile;
 import dev.vortex.spark.io.VortexIo;
 import java.io.IOException;
 import java.io.UncheckedIOException;
-import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import org.apache.spark.sql.connector.read.PartitionReader;
 import org.apache.spark.sql.execution.datasources.PartitionedFile;
 import org.apache.spark.sql.sources.Filter;
-import org.apache.spark.sql.types.StructField;
 import org.apache.spark.sql.types.StructType;
 import org.apache.spark.sql.vectorized.ColumnVector;
 import org.apache.spark.sql.vectorized.ColumnarBatch;
@@ -55,7 +49,6 @@ public final class VortexPartitionReader implements PartitionReader<ColumnarBatc
     private Session session;
     private DataSource dataSource;
     private Scan scan;
-    private Partition currentPartition;
     private ArrowReader currentReader;
     private ColumnarBatch currentBatch;
     private boolean batchLoaded;
@@ -81,6 +74,9 @@ public final class VortexPartitionReader implements PartitionReader<ColumnarBatc
 
             List<Field> fileColumns = dataSource.arrowSchema(allocator).getFields();
             var options = ScanOptions.builder();
+            if (io.splitConcurrency() > 0) {
+                options.splitConcurrency(io.splitConcurrency());
+            }
             // Always project, an empty read schema included: a query that needs only partition columns or only a
             // row count must not pull every data column off storage. Struct columns that Spark pruned read only the
             // nested fields the query uses.
@@ -89,19 +85,19 @@ public final class VortexPartitionReader implements PartitionReader<ColumnarBatc
             options.projection(projection.expression());
             shape = projection.shape();
             // Filters are converted against this file's own columns. Spark evaluates every data filter above the
-            // scan anyway, so one that reads a column this file lacks is dropped rather than pushed.
-            buildFilterExpression(pushedFilters, restrictTo(dataSchema, fileColumns))
-                    .ifPresent(options::filter);
+            // scan anyway, so one that reads a column this file lacks, or compares one it stores in another type, is
+            // dropped rather than pushed.
+            buildFilterExpression(pushedFilters, dataSchema, fileColumns).ifPresent(options::filter);
             Optional<SplitRows> rows = splitRows(file, dataSource.rowCount());
             if (rows.isPresent() && rows.get().count() == 0) {
                 // The native scan reads a range of 0 to 0 as the whole file.
-                exhausted = true;
+                close();
             } else {
                 rows.ifPresent(range -> options.rowRangeBegin(range.begin()).rowRangeEnd(range.end()));
                 scan = dataSource.scan(options.build());
             }
-        } catch (RuntimeException e) {
-            closeReadableAfterFailure(e);
+        } catch (RuntimeException | Error e) {
+            closeAfterFailure(e);
             throw e;
         }
     }
@@ -118,39 +114,17 @@ public final class VortexPartitionReader implements PartitionReader<ColumnarBatc
         return Optional.of(SplitRows.of(file.start(), file.length(), file.fileSize(), exact.value()));
     }
 
-    private static StructType restrictTo(StructType schema, List<Field> fileColumns) {
-        // Native filters use physical field names, at every level. Filters on other paths stay with Spark.
-        Map<String, Field> byName = new HashMap<>();
-        for (Field column : fileColumns) {
-            byName.putIfAbsent(column.getName(), column);
+    private static Optional<Expression> buildFilterExpression(
+            Filter[] filters, StructType dataSchema, List<Field> fileFields) {
+        if (filters == null || filters.length == 0) {
+            return Optional.empty();
         }
-
-        List<StructField> present = new ArrayList<>(schema.length());
-        for (StructField field : schema.fields()) {
-            Field column = byName.get(field.name());
-            if (column == null) {
-                continue;
-            }
-
-            if (field.dataType() instanceof StructType struct && column.getType() instanceof ArrowType.Struct) {
-                present.add(new StructField(
-                        field.name(), restrictTo(struct, column.getChildren()), field.nullable(), field.metadata()));
-            } else {
-                present.add(field);
-            }
-        }
-
-        return new StructType(present.toArray(new StructField[0]));
-    }
-
-    private static Optional<Expression> buildFilterExpression(Filter[] filters, StructType dataSchema) {
+        StructType filterable = ReadTypes.filterable(dataSchema, fileFields, filters);
         Expression combined = null;
-        if (filters != null) {
-            for (Filter filter : filters) {
-                Optional<Expression> converted = SparkFilterToVortexExpression.convert(filter, dataSchema);
-                if (converted.isPresent()) {
-                    combined = combined == null ? converted.get() : Expression.and(combined, converted.get());
-                }
+        for (Filter filter : filters) {
+            Optional<Expression> converted = SparkFilterToVortexExpression.convert(filter, filterable);
+            if (converted.isPresent()) {
+                combined = combined == null ? converted.get() : Expression.and(combined, converted.get());
             }
         }
         return Optional.ofNullable(combined);
@@ -158,6 +132,15 @@ public final class VortexPartitionReader implements PartitionReader<ColumnarBatc
 
     @Override
     public boolean next() {
+        try {
+            return nextBatch();
+        } catch (RuntimeException | Error e) {
+            closeAfterFailure(e);
+            throw e;
+        }
+    }
+
+    private boolean nextBatch() {
         closeCurrentBatch();
         batchLoaded = false;
         if (exhausted) {
@@ -179,13 +162,21 @@ public final class VortexPartitionReader implements PartitionReader<ColumnarBatc
                 exhausted = true;
                 return false;
             }
-            currentPartition = scan.next();
-            currentReader = currentPartition.scanArrow(allocator);
+            currentReader = scan.next().scanArrow(allocator);
         }
     }
 
     @Override
     public ColumnarBatch get() {
+        try {
+            return getBatch();
+        } catch (RuntimeException | Error e) {
+            closeAfterFailure(e);
+            throw e;
+        }
+    }
+
+    private ColumnarBatch getBatch() {
         if (!batchLoaded) {
             throw new IllegalStateException("no batch loaded; call next() first");
         }
@@ -215,19 +206,22 @@ public final class VortexPartitionReader implements PartitionReader<ColumnarBatc
 
     @Override
     public void close() {
-        closeCurrentBatch();
-        closeCurrentReader();
-        scan = null;
-        dataSource = null;
-        session = null;
-        if (readable != null) {
-            try {
-                readable.close();
-            } catch (IOException e) {
-                throw failure("close the readable for", e);
-            } finally {
-                readable = null;
-            }
+        exhausted = true;
+        batchLoaded = false;
+        // Closes the batch first and the readable last, attempting every close even if an earlier one fails.
+        try (NativeReadable closingReadable = readable;
+                DataSource closingSource = dataSource;
+                Scan closingScan = scan;
+                ArrowReader closingReader = currentReader;
+                ColumnarBatch closingBatch = currentBatch) {
+            readable = null;
+            dataSource = null;
+            scan = null;
+            currentReader = null;
+            currentBatch = null;
+            session = null;
+        } catch (IOException e) {
+            throw failure("close resources for", e);
         }
     }
 
@@ -237,8 +231,9 @@ public final class VortexPartitionReader implements PartitionReader<ColumnarBatc
 
     private void closeCurrentBatch() {
         if (currentBatch != null) {
-            currentBatch.close();
+            ColumnarBatch batch = currentBatch;
             currentBatch = null;
+            batch.close();
         }
     }
 
@@ -250,19 +245,15 @@ public final class VortexPartitionReader implements PartitionReader<ColumnarBatc
                 throw failure("close the reader for", e);
             } finally {
                 currentReader = null;
-                currentPartition = null;
             }
         }
     }
 
-    private void closeReadableAfterFailure(RuntimeException failure) {
-        if (readable != null) {
-            try {
-                readable.close();
-            } catch (IOException e) {
-                failure.addSuppressed(e);
-            }
-            readable = null;
+    private void closeAfterFailure(Throwable failure) {
+        try {
+            close();
+        } catch (RuntimeException | Error closeFailure) {
+            failure.addSuppressed(closeFailure);
         }
     }
 }

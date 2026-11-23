@@ -6,13 +6,13 @@ use vortex_array::ArrayView;
 use vortex_array::IntoArray;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
-use vortex_array::scalar_fn::fns::cast::CastReduce;
+use vortex_array::scalar_fn::builtin::cast::CastReduce;
 use vortex_array::vtable::child_to_validity;
 use vortex_error::VortexResult;
 
 use crate::Zstd;
+use crate::ZstdArraySlotsExt;
 use crate::ZstdData;
-use crate::ZstdSlots;
 
 impl CastReduce for Zstd {
     fn cast(array: ArrayView<'_, Self>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
@@ -34,17 +34,12 @@ impl CastReduce for Zstd {
             }
             (Nullability::NonNullable, Nullability::Nullable) => {
                 // nonnull => null, trivial cast by altering the validity
-                child_to_validity(
-                    array.slots()[ZstdSlots::VALIDITY].as_ref(),
-                    array.dtype().nullability(),
-                )
+                child_to_validity(array.validity_child(), array.dtype().nullability())
             }
             (Nullability::Nullable, Nullability::NonNullable) => {
                 // null => non-null works if there are no nulls in the sliced range
-                let unsliced_validity = child_to_validity(
-                    array.slots()[ZstdSlots::VALIDITY].as_ref(),
-                    array.dtype().nullability(),
-                );
+                let unsliced_validity =
+                    child_to_validity(array.validity_child(), array.dtype().nullability());
                 let has_nulls = !unsliced_validity
                     .slice(array.slice_start()..array.slice_stop())?
                     .definitely_no_nulls();
@@ -95,7 +90,11 @@ mod tests {
 
     use crate::Zstd;
 
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+        let session = VortexSession::empty();
+        crate::initialize(&session);
+        session
+    });
 
     #[test]
     fn test_cast_zstd_i32_to_i64() {

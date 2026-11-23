@@ -276,6 +276,7 @@ fn canonical_tpc_scale_factor(scale_factor: &str) -> String {
 /// |---|---|---|---|---|
 /// | `TpcH { scale_factor }`     | `tpch`         | `None`              | TPC SF as string (`"1"`, `"10"`, `"100"`, `"1000"`) | Run through `canonical_tpc_scale_factor` so `"1.0"` and `"1"` collapse. |
 /// | `TpcDS { scale_factor }`    | `tpcds`        | `None`              | TPC SF as string                                    | Same canonicalization as TPC-H. |
+/// | `TpcHNested { scale_factor, shape }` | `tpch-nested` | shape name (`list`) | TPC SF as string                      | Same canonicalization as TPC-H; the shape keeps future nestings apart. |
 /// | `ClickBench { files, .. }`  | `clickbench`   | `files=N` or `None` | `None`                                              | Migrate path drops flavor; live emitter matches so historical and live merge. Only subsets set `files`. |
 /// | `ClickBenchSorted`          | `clickbench-sorted` | `None`          | `None`                                              | New live-only suite; keep separate from unsorted ClickBench history. |
 /// | `StatPopGen { n_rows: _ }`  | `statpopgen`   | `None`              | `None`                                              | Migrate path carries no SF for this suite; live drops it for the same reason. |
@@ -297,6 +298,14 @@ pub fn benchmark_dataset_dims(d: &BenchmarkDataset) -> (String, Option<String>, 
         BenchmarkDataset::TpcDS { scale_factor } => (
             "tpcds".to_string(),
             None,
+            Some(canonical_tpc_scale_factor(scale_factor)),
+        ),
+        BenchmarkDataset::TpcHNested {
+            scale_factor,
+            shape,
+        } => (
+            "tpch-nested".to_string(),
+            Some(shape.name().to_string()),
             Some(canonical_tpc_scale_factor(scale_factor)),
         ),
         // ClickBench: the migrate path leaves `dataset_variant` NULL because
@@ -409,11 +418,29 @@ pub fn compression_size_record(
     value_bytes: u64,
     uncompressed_bytes: u64,
 ) -> V3Record {
+    named_compression_size_record(
+        dataset,
+        dataset_variant,
+        format.name(),
+        value_bytes,
+        uncompressed_bytes,
+    )
+}
+
+/// Build a `compression_size` record for a format that has no [`Format`] of its own, such as
+/// `parquet-snappy`, which `compress-bench` measures for size only.
+pub fn named_compression_size_record(
+    dataset: &str,
+    dataset_variant: Option<&str>,
+    format: &str,
+    value_bytes: u64,
+    uncompressed_bytes: u64,
+) -> V3Record {
     V3Record::CompressionSize(CompressionSizeRecord {
         commit_sha: GIT_COMMIT_ID.clone(),
         dataset: dataset.to_lowercase(),
         dataset_variant: dataset_variant.map(str::to_string),
-        format: format.name().to_string(),
+        format: format.to_string(),
         value_bytes,
         uncompressed_bytes,
     })
@@ -821,6 +848,28 @@ mod tests {
             panic!("expected CompressionSize variant, got {record:?}");
         };
         assert_eq!(size.dataset, "cmsprovider");
+    }
+
+    #[test]
+    fn named_compression_size_record_keeps_the_format_name() {
+        let record = named_compression_size_record("Taxi", None, "parquet-snappy", 42, 420);
+        let V3Record::CompressionSize(size) = &record else {
+            panic!("expected CompressionSize variant, got {record:?}");
+        };
+        assert_eq!(size.dataset, "taxi");
+        assert_eq!(size.format, "parquet-snappy");
+        assert_eq!((size.value_bytes, size.uncompressed_bytes), (42, 420));
+    }
+
+    #[test]
+    fn nested_tpch_dims_carry_shape_and_scale_factor() {
+        let (ds, variant, sf) = benchmark_dataset_dims(&BenchmarkDataset::TpcHNested {
+            scale_factor: "1.0".to_string(),
+            shape: crate::tpch_nested::Shape::List,
+        });
+        assert_eq!(ds, "tpch-nested");
+        assert_eq!(variant.as_deref(), Some("list"));
+        assert_eq!(sf.as_deref(), Some("1"));
     }
 
     #[test]

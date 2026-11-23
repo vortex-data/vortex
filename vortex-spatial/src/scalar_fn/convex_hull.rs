@@ -25,7 +25,6 @@ use vortex_session::registry::CachedId;
 use crate::extension::MultiPoint;
 use crate::extension::Polygon;
 use crate::extension::coordinate::Dimension;
-use crate::extension::polygon_storage_dtype;
 use crate::scalar_fn::row::GeometryRow;
 use crate::scalar_fn::row::PolygonSink;
 
@@ -49,8 +48,11 @@ fn convex_hull_dtype(dtypes: &[DType]) -> VortexResult<ExtDTypeRef> {
     );
 
     Ok(ExtDType::<Polygon>::try_new(
-        input.metadata::<MultiPoint>().clone(),
-        polygon_storage_dtype(Dimension::Xy, Nullability::NonNullable),
+        input
+            .metadata::<MultiPoint>()
+            .clone()
+            .with_dimension(Dimension::Xy),
+        Nullability::NonNullable,
     )?
     .erased())
 }
@@ -74,7 +76,7 @@ impl RowFn for SpatialConvexHull {
     type Options = EmptyOptions;
 
     const ARG_NAMES: &'static [&'static str] = &["multipoint"];
-    const INFALLIBLE: bool = true;
+    const INFALLIBLE: bool = false;
 
     fn id(&self) -> ScalarFnId {
         static ID: CachedId = CachedId::new("vortex.st.convex_hull");

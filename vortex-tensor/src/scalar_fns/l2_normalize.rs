@@ -6,7 +6,7 @@
 //! [`L2Normalize`] computes normalized coordinates and their norm together. The implementation
 //! writes both outputs in one pass so that the returned norm is exactly the value used for scaling.
 
-use num_traits::Zero;
+use num_traits::Float;
 use prost::Message;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
@@ -23,6 +23,7 @@ use vortex_array::arrays::scalar_fn::ScalarFnArrayView;
 use vortex_array::arrays::scalar_fn::plugin::ScalarFnArrayParts;
 use vortex_array::arrays::scalar_fn::plugin::ScalarFnArrayVTable;
 use vortex_array::dtype::DType;
+use vortex_array::dtype::NativePType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::StructFields;
 use vortex_array::dtype::proto::dtype as pb;
@@ -40,11 +41,13 @@ use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
+use vortex_mask::Mask;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
 use crate::matcher::AnyTensor;
 use crate::scalar_fns::arithmetic::l2_norm_row;
+use crate::utils::FlatElements;
 use crate::utils::extract_flat_elements;
 use crate::utils::validate_tensor_float_input;
 
@@ -125,56 +128,29 @@ impl ScalarFnVTable for L2Normalize {
 
         let flat = extract_flat_elements(input.storage_array(), row_width, ctx)?;
 
-        match_each_float_ptype!(tensor_match.element_ptype(), |T| {
-            let mut normalized_values = BufferMut::<T>::with_capacity(row_count * row_width);
-            let mut norms = BufferMut::<T>::with_capacity(row_count);
+        let (normalized_elements, norms) =
+            match_each_float_ptype!(tensor_match.element_ptype(), |T| {
+                normalize_rows::<T>(&flat, validity_mask.as_ref(), row_count, row_width)
+            });
 
-            for row_index in 0..row_count {
-                if validity_mask
-                    .as_ref()
-                    .is_some_and(|validity_mask| !validity_mask.value(row_index))
-                {
-                    normalized_values.push_n(T::zero(), row_width);
-                    norms.push(T::zero());
-                    continue;
-                }
+        let normalized_storage = FixedSizeListArray::try_new(
+            normalized_elements.into_array(),
+            tensor_match.list_size(),
+            Validity::NonNullable,
+            row_count,
+        )?
+        .into_array();
+        let normalized_dtype = ext_dtype.with_nullability(Nullability::NonNullable);
+        let normalized =
+            ExtensionArray::try_new(normalized_dtype, normalized_storage)?.into_array();
 
-                let row = flat.row::<T>(row_index);
-                let norm = l2_norm_row(row);
-                norms.push(norm);
-
-                if norm == T::zero() {
-                    normalized_values.push_n(T::zero(), row_width);
-                    continue;
-                }
-
-                for &value in row {
-                    normalized_values.push(value / norm);
-                }
-            }
-
-            let normalized_elements =
-                PrimitiveArray::new(normalized_values.freeze(), Validity::NonNullable).into_array();
-            let normalized_storage = FixedSizeListArray::try_new(
-                normalized_elements,
-                tensor_match.list_size(),
-                Validity::NonNullable,
-                row_count,
-            )?
-            .into_array();
-            let normalized_dtype = ext_dtype.with_nullability(Nullability::NonNullable);
-            let normalized =
-                ExtensionArray::try_new(normalized_dtype, normalized_storage)?.into_array();
-            let norms = PrimitiveArray::new(norms.freeze(), Validity::NonNullable).into_array();
-
-            Ok(StructArray::try_new(
-                [NORMALIZED_FIELD_NAME, NORM_FIELD_NAME].into(),
-                [normalized, norms],
-                row_count,
-                validity,
-            )?
-            .into_array())
-        })
+        Ok(StructArray::try_new(
+            [NORMALIZED_FIELD_NAME, NORM_FIELD_NAME].into(),
+            [normalized, norms.into_array()],
+            row_count,
+            validity,
+        )?
+        .into_array())
     }
 
     fn is_strict(&self, _options: &Self::Options) -> bool {
@@ -228,6 +204,45 @@ impl ScalarFnArrayVTable for L2Normalize {
             children: vec![child],
         })
     }
+}
+
+/// Returns the flattened L2-normalized rows and the per-row norms as non-nullable arrays.
+///
+/// Null rows (per `validity_mask`) and zero-norm rows produce zero values and a zero norm.
+fn normalize_rows<T: Float + NativePType>(
+    flat: &FlatElements,
+    validity_mask: Option<&Mask>,
+    row_count: usize,
+    row_width: usize,
+) -> (PrimitiveArray, PrimitiveArray) {
+    let mut normalized_values = BufferMut::<T>::with_capacity(row_count * row_width);
+    let mut norms = BufferMut::<T>::with_capacity(row_count);
+
+    for row_index in 0..row_count {
+        if validity_mask.is_some_and(|validity_mask| !validity_mask.value(row_index)) {
+            normalized_values.push_n(T::zero(), row_width);
+            norms.push(T::zero());
+            continue;
+        }
+
+        let row = flat.row::<T>(row_index);
+        let norm = l2_norm_row(row);
+        norms.push(norm);
+
+        if norm == T::zero() {
+            normalized_values.push_n(T::zero(), row_width);
+            continue;
+        }
+
+        for &value in row {
+            normalized_values.push(value / norm);
+        }
+    }
+
+    (
+        PrimitiveArray::new(normalized_values.freeze(), Validity::NonNullable),
+        PrimitiveArray::new(norms.freeze(), Validity::NonNullable),
+    )
 }
 
 fn l2_normalize_dtype(input_dtype: &DType) -> VortexResult<DType> {

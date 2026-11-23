@@ -156,14 +156,30 @@ pub(crate) fn apply_patches_to_uninit_range<S: NativePType, T: NativePType, F: F
     let values = values.as_slice::<S>();
 
     match_each_unsigned_integer_ptype!(indices.ptype(), |P| {
-        for (index, &value) in indices.as_slice::<P>().iter().zip_eq(values) {
-            dst.set_value(
-                <P as AsPrimitive<usize>>::as_(*index) - patches.offset(),
-                f(value),
-            );
-        }
+        set_patch_values(dst, indices.as_slice::<P>(), values, patches.offset(), f)
     });
     Ok(())
+}
+
+/// Write `f` of each patch value into `dst` at its index, less `patch_offset`.
+fn set_patch_values<P, S, T, F>(
+    dst: &mut UninitRange<T>,
+    indices: &[P],
+    values: &[S],
+    patch_offset: usize,
+    f: F,
+) where
+    P: AsPrimitive<usize>,
+    S: NativePType,
+    T: NativePType,
+    F: Fn(S) -> T,
+{
+    for (index, &value) in indices.iter().zip_eq(values) {
+        dst.set_value(
+            <P as AsPrimitive<usize>>::as_(*index) - patch_offset,
+            f(value),
+        );
+    }
 }
 
 pub fn unpack_single(array: ArrayView<'_, BitPacked>, index: usize) -> VortexResult<Scalar> {
@@ -308,7 +324,6 @@ mod tests {
             Arc::clone(&element_dtype),
             Nullability::NonNullable,
             0,
-            0,
             ctx.allocator(),
         );
         list.clone()
@@ -319,7 +334,6 @@ mod tests {
         let mut list_builder = ListBuilder::<u64>::with_capacity_in(
             Arc::clone(&element_dtype),
             Nullability::NonNullable,
-            0,
             0,
             ctx.allocator(),
         );
@@ -339,7 +353,6 @@ mod tests {
         let mut list_builder = ListBuilder::<u64>::with_capacity_in(
             element_dtype,
             Nullability::NonNullable,
-            0,
             0,
             vortex_buffer::BufferAllocatorRef::static_ref(),
         );

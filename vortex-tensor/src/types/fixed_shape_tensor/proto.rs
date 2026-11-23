@@ -4,11 +4,11 @@
 //! Protobuf serialization for [`FixedShapeTensorMetadata`].
 
 use prost::Message;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 
 use crate::types::fixed_shape_tensor::FixedShapeTensorMetadata;
+use crate::types::fixed_shape_tensor::FixedShapeTensorStoredMetadata;
 
 /// Protobuf representation of [`FixedShapeTensorMetadata`].
 ///
@@ -36,12 +36,12 @@ struct FixedShapeTensorMetadataProto {
 }
 
 /// Serializes [`FixedShapeTensorMetadata`] to protobuf bytes.
-pub(crate) fn serialize(metadata: &FixedShapeTensorMetadata) -> Vec<u8> {
+pub(crate) fn serialize(metadata: &FixedShapeTensorMetadata) -> VortexResult<Vec<u8>> {
     let logical_shape = metadata
         .logical_shape()
         .iter()
-        .map(|&d| u32::try_from(d).vortex_expect("dimension size exceeds u32"))
-        .collect();
+        .map(|&dimension| u32::try_from(dimension))
+        .collect::<Result<Vec<_>, _>>()?;
 
     let dim_names = metadata.dim_names().map(|n| n.to_vec()).unwrap_or_default();
 
@@ -49,9 +49,10 @@ pub(crate) fn serialize(metadata: &FixedShapeTensorMetadata) -> Vec<u8> {
         .permutation()
         .map(|p| {
             p.iter()
-                .map(|&i| u32::try_from(i).vortex_expect("permutation index exceeds u32"))
-                .collect()
+                .map(|&index| u32::try_from(index))
+                .collect::<Result<Vec<_>, _>>()
         })
+        .transpose()?
         .unwrap_or_default();
 
     let proto = FixedShapeTensorMetadataProto {
@@ -59,14 +60,14 @@ pub(crate) fn serialize(metadata: &FixedShapeTensorMetadata) -> Vec<u8> {
         dim_names,
         permutation,
     };
-    proto.encode_to_vec()
+
+    Ok(proto.encode_to_vec())
 }
 
-/// Deserializes [`FixedShapeTensorMetadata`] from protobuf bytes.
+/// Decodes the shape information stored in protobuf metadata.
 ///
-/// For 0-dimensional tensors, all three repeated fields are empty, which correctly produces a
-/// metadata with an empty shape and no names or permutation.
-pub(crate) fn deserialize(bytes: &[u8]) -> VortexResult<FixedShapeTensorMetadata> {
+/// Empty repeated fields represent a scalar tensor with no dimension names or permutation.
+pub(crate) fn deserialize(bytes: &[u8]) -> VortexResult<FixedShapeTensorStoredMetadata> {
     let proto = FixedShapeTensorMetadataProto::decode(bytes).map_err(|e| vortex_err!("{e}"))?;
 
     let logical_shape = proto
@@ -74,10 +75,8 @@ pub(crate) fn deserialize(bytes: &[u8]) -> VortexResult<FixedShapeTensorMetadata
         .into_iter()
         .map(|d| d as usize)
         .collect();
-    let mut m = FixedShapeTensorMetadata::new(logical_shape);
+    let mut m = FixedShapeTensorStoredMetadata::new(logical_shape);
 
-    // Note that this is fine for 0 dimensions since if we do not have any dimensions, we cannot
-    // have any names or permutations.
     if !proto.dim_names.is_empty() {
         m = m.with_dim_names(proto.dim_names)?;
     }

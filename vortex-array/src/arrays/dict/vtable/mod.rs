@@ -4,12 +4,8 @@
 use std::hash::Hasher;
 
 use num_traits::AsPrimitive;
-use prost::Message;
-use smallvec::smallvec;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure_eq;
-use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_mask::AllOr;
 use vortex_mask::Mask;
@@ -17,7 +13,6 @@ use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
 use super::DictData;
-use super::DictMetadata;
 use super::DictOwnedExt;
 use super::DictParts;
 use super::array::DictSlots;
@@ -38,29 +33,27 @@ use crate::array::VTable;
 use crate::array::with_empty_buffers;
 use crate::arrays::ConstantArray;
 use crate::arrays::Primitive;
+use crate::arrays::PrimitiveArray;
 use crate::arrays::VarBinView;
-use crate::arrays::dict::DictArrayExt;
 use crate::arrays::dict::DictArraySlotsExt;
-use crate::arrays::dict::compute::rules::PARENT_RULES;
+use crate::arrays::dict::compute::rules::RULES;
 use crate::arrays::dict::execute::take_canonical;
 use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
 use crate::builders::VarBinBuilder;
 use crate::builders::VarBinViewBuilder;
 use crate::dtype::DType;
-use crate::dtype::Nullability;
 use crate::dtype::OffsetBuilderPType;
-use crate::dtype::PType;
 use crate::executor::ExecutionCtx;
 use crate::executor::ExecutionResult;
 use crate::match_each_integer_ptype;
 use crate::match_each_varbin_builder;
 use crate::require_child;
 use crate::scalar::Scalar;
-use crate::serde::ArrayChildren;
 
 mod kernel;
 mod operations;
+mod plugin;
 mod validity;
 
 /// A [`Dict`]-encoded Vortex array.
@@ -135,63 +128,6 @@ impl VTable for Dict {
         with_empty_buffers(self, array, buffers)
     }
 
-    fn serialize(
-        array: ArrayView<'_, Self>,
-        _session: &VortexSession,
-    ) -> VortexResult<Option<Vec<u8>>> {
-        Ok(Some(
-            DictMetadata {
-                codes_ptype: PType::try_from(array.codes().dtype())? as i32,
-                values_len: u32::try_from(array.values().len()).map_err(|_| {
-                    vortex_err!(
-                        "Dictionary values size {} overflowed u32",
-                        array.values().len()
-                    )
-                })?,
-                is_nullable_codes: Some(array.codes().dtype().is_nullable()),
-                all_values_referenced: Some(array.has_all_values_referenced()),
-            }
-            .encode_to_vec(),
-        ))
-    }
-
-    fn deserialize(
-        &self,
-        dtype: &DType,
-        len: usize,
-        metadata: &[u8],
-        _buffers: &[BufferHandle],
-        children: &dyn ArrayChildren,
-        _session: &VortexSession,
-    ) -> VortexResult<ArrayParts<Self>> {
-        let metadata = DictMetadata::decode(metadata)?;
-        let codes_ptype = metadata.get_codes_ptype()?;
-        if children.len() != 2 {
-            vortex_bail!(
-                "Expected 2 children for dict encoding, found {}",
-                children.len()
-            )
-        }
-        let codes_nullable = metadata
-            .is_nullable_codes
-            .map(Nullability::from)
-            // If no `is_nullable_codes` metadata use the nullability of the values
-            // (and whole array) as before.
-            .unwrap_or_else(|| dtype.nullability());
-        let codes_dtype = DType::Primitive(codes_ptype, codes_nullable);
-        let codes = children.get(0, &codes_dtype, len)?;
-        let values = children.get(1, dtype, metadata.values_len as usize)?;
-        let all_values_referenced = metadata.all_values_referenced.unwrap_or(false);
-
-        Ok(ArrayParts::new(
-            self.clone(),
-            dtype.clone(),
-            len,
-            unsafe { DictData::new_unchecked().set_all_values_referenced(all_values_referenced) },
-            smallvec![Some(codes), Some(values)],
-        ))
-    }
-
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         DictSlots::NAMES[idx].to_string()
     }
@@ -229,13 +165,41 @@ impl VTable for Dict {
         builder: &mut dyn ArrayBuilder,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
-        if !array.is_empty()
-            && let (Some(codes), Some(values)) = (
-                array.codes().as_opt::<Primitive>(),
-                array.values().as_opt::<AnyCanonical>(),
-            )
-            && !codes.validity()?.definitely_all_null()
-        {
+        if !array.is_empty() && !array.codes().validity()?.definitely_all_null() {
+            let values = array.values();
+
+            if array.len() <= values.len() / sparse_take_ratio(array.dtype())
+                && !values.is::<AnyCanonical>()
+            {
+                // A Dict with few codes over encoded values is usually a lazy `take`. Execute it
+                // so the take kernel of the values (ALP-RD, BitPacked, the OnPair token-run
+                // gather, ...) decodes only the selected rows, rather than decoding every value
+                // and then gathering. The codes stay as they are: a kernel can take a structured
+                // index array, such as the runs of a `PiecewiseSequenceArray`, faster than the
+                // same indices expanded one by one.
+                let canonical = array
+                    .array()
+                    .clone()
+                    .execute::<Canonical>(ctx)?
+                    .into_array();
+                return canonical.append_to_builder(builder, ctx);
+            }
+
+            let codes = array.codes().clone().execute::<PrimitiveArray>(ctx)?;
+
+            // Decode the children without taking values to the full row count. The
+            // variable-binary builders gather directly through these dictionary codes.
+            let values = if array.values().is::<AnyCanonical>() {
+                array.values().clone()
+            } else {
+                array
+                    .values()
+                    .clone()
+                    .execute::<Canonical>(ctx)?
+                    .into_array()
+            };
+            let values = values.as_::<AnyCanonical>();
+            let codes = codes.as_view();
             if let CanonicalView::VarBinView(values) = values
                 && let Some(result) = match_each_varbin_builder!(builder, |builder| {
                     let validity = array.validity()?.execute_mask(array.len(), ctx)?;
@@ -264,12 +228,22 @@ impl VTable for Dict {
         Ok(())
     }
 
-    fn reduce_parent(
-        array: ArrayView<'_, Self>,
-        parent: &ArrayRef,
-        child_idx: usize,
-    ) -> VortexResult<Option<ArrayRef>> {
-        PARENT_RULES.evaluate(array, parent, child_idx)
+    fn reduce(array: ArrayView<'_, Self>) -> VortexResult<Option<ArrayRef>> {
+        RULES.evaluate(array)
+    }
+}
+
+/// The values-to-codes ratio at or above which `Dict::append_to_builder` runs the take kernel of
+/// encoded values instead of decoding all of them.
+///
+/// Fixed-width encodings decode in bulk for under a nanosecond per value, while their take kernels
+/// cost over ten times that per row: taking rows of an ALP-RD `f32` segment breaks even at about
+/// one row in eleven (see the `alp_rd_take_chunked` benchmark in `vortex-alp`). The ratio for
+/// variable-width values was chosen for their take kernels, such as the OnPair token-run gather.
+fn sparse_take_ratio(dtype: &DType) -> usize {
+    match dtype {
+        DType::Utf8(_) | DType::Binary(_) => 4,
+        _ => 16,
     }
 }
 
@@ -319,6 +293,11 @@ where
     usize: AsPrimitive<O>,
 {
     let len = codes.as_ref().len();
+    vortex_ensure_eq!(
+        validity.len(),
+        len,
+        "Dictionary gather validity length mismatch"
+    );
 
     // Resolve the dictionary's storage once so that looking up a code is an O(1) read.
     let views = values.views();
@@ -347,7 +326,15 @@ where
             }
         };
 
-        builder.append_valid_slices(num_bytes, &validity, |row| view(row).bytes(&buffers))
+        builder.append_valid_slices(num_bytes, &validity, |row| {
+            // SAFETY: the byte-count pass checked every selected code against `views`, and
+            // append_valid_slices visits exactly those same rows. The slices and validity are
+            // immutable, and the length check above bounds every visited row within `codes`.
+            let value = unsafe {
+                views.get_unchecked(AsPrimitive::<usize>::as_(*codes.get_unchecked(row)))
+            };
+            value.bytes(&buffers)
+        })
     })
 }
 
@@ -359,15 +346,69 @@ mod tests {
 
     use super::*;
     use crate::VortexSessionExecute;
+    use crate::arrays::ChunkedArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::VarBinViewArray;
     use crate::arrays::dict::DictArray;
     use crate::assert_arrays_eq;
+    use crate::builders::builder_with_capacity_in;
+    use crate::dtype::Nullability::NonNullable;
     use crate::dtype::Nullability::Nullable;
+    use crate::dtype::PType;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     const LONG: &str = "a string that is far too long to be inlined in a view";
+
+    #[test]
+    fn dictionary_gather_rejects_mismatched_validity() -> VortexResult<()> {
+        let ctx = SESSION.create_execution_ctx();
+        let codes = PrimitiveArray::from_iter([0u8, 1]);
+        let values = VarBinViewArray::from_iter([Some("one"), Some("two")], DType::Utf8(Nullable));
+        let mut builder = VarBinBuilder::<i32>::new_in(DType::Utf8(Nullable), ctx.allocator());
+        let result = append_dict_to_varbin(
+            codes.as_view(),
+            values.as_view(),
+            Mask::new_true(3),
+            &mut builder,
+        );
+        assert!(result.is_err());
+        assert_eq!(builder.len(), 0);
+        Ok(())
+    }
+
+    #[test]
+    fn dictionary_gather_does_not_read_null_row_codes() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let codes = PrimitiveArray::from_iter([0u8, 255, 1]);
+        let values = VarBinViewArray::from_iter([Some("one"), Some("two")], DType::Utf8(Nullable));
+        let mut builder = VarBinBuilder::<i32>::new_in(DType::Utf8(Nullable), ctx.allocator());
+        append_dict_to_varbin(
+            codes.as_view(),
+            values.as_view(),
+            Mask::from_iter([true, false, true]),
+            &mut builder,
+        )?;
+        let expected =
+            VarBinViewArray::from_iter([Some("one"), None, Some("two")], DType::Utf8(Nullable));
+        assert_arrays_eq!(builder.finish_into_varbin(), expected, &mut ctx);
+        Ok(())
+    }
+
+    #[test]
+    #[should_panic(expected = "index out of bounds")]
+    fn dictionary_gather_checks_selected_codes_before_copy() {
+        let ctx = SESSION.create_execution_ctx();
+        let codes = PrimitiveArray::from_iter([0u8, 255]);
+        let values = VarBinViewArray::from_iter([Some("one")], DType::Utf8(Nullable));
+        let mut builder = VarBinBuilder::<i32>::new_in(DType::Utf8(Nullable), ctx.allocator());
+        drop(append_dict_to_varbin(
+            codes.as_view(),
+            values.as_view(),
+            Mask::new_true(2),
+            &mut builder,
+        ));
+    }
 
     #[test]
     fn append_to_builder_gathers_through_the_dictionary() -> VortexResult<()> {
@@ -387,6 +428,33 @@ mod tests {
             DType::Utf8(Nullable),
         );
         assert_arrays_eq!(builder.finish_into_varbin(), expected, &mut ctx);
+        Ok(())
+    }
+
+    /// A few codes over encoded values are appended through the take of the values, which must
+    /// match the gather through the decoded values, including null codes.
+    #[test]
+    fn append_to_builder_takes_few_rows_of_encoded_values() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let values = ChunkedArray::try_new(
+            [
+                PrimitiveArray::from_iter(0i32..32).into_array(),
+                PrimitiveArray::from_iter(32i32..64).into_array(),
+            ],
+            DType::Primitive(PType::I32, NonNullable),
+        )?;
+        let dict = DictArray::try_new(
+            PrimitiveArray::from_option_iter([Some(40u32), None, Some(3)]).into_array(),
+            values.into_array(),
+        )?;
+        assert!(dict.len() <= dict.values().len() / sparse_take_ratio(dict.dtype()));
+
+        let mut builder = builder_with_capacity_in(dict.dtype(), 4, ctx.allocator());
+        builder.append_scalar(&Scalar::primitive(-1i32, Nullable))?;
+        dict.append_to_builder(builder.as_mut(), &mut ctx)?;
+
+        let expected = PrimitiveArray::from_option_iter([Some(-1i32), Some(40), None, Some(3)]);
+        assert_arrays_eq!(builder.finish(), expected, &mut ctx);
         Ok(())
     }
 

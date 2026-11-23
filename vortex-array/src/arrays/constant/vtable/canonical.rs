@@ -20,7 +20,6 @@ use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::array::ArrayView;
 use crate::arrays::BoolArray;
-use crate::arrays::ChunkedArray;
 use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
 use crate::arrays::DecimalArray;
@@ -30,6 +29,7 @@ use crate::arrays::ListViewArray;
 use crate::arrays::MapArray;
 use crate::arrays::NullArray;
 use crate::arrays::PrimitiveArray;
+use crate::arrays::RepeatedArray;
 use crate::arrays::StructArray;
 use crate::arrays::UnionArray;
 use crate::arrays::VarBinViewArray;
@@ -39,8 +39,8 @@ use crate::builders::ArrayBuilder;
 use crate::builders::VarBinViewBuilder;
 use crate::builders::builder_with_capacity_in;
 use crate::dtype::DType;
+use crate::dtype::NativeDecimalType;
 use crate::dtype::Nullability;
-use crate::match_each_decimal_value;
 use crate::match_each_decimal_value_type;
 use crate::match_each_native_ptype;
 use crate::match_smallest_list_offset_type;
@@ -91,34 +91,17 @@ pub(crate) fn constant_canonicalize(
                 ))
             })
         }
-        DType::Decimal(decimal_type, ..) => {
-            let size = decimal_type.canonical_values_type();
-            let decimal = scalar.as_decimal();
-            let Some(value) = decimal.decimal_value() else {
-                let all_null = match_each_decimal_value_type!(size, |D| {
-                    // SAFETY: All-null decimal arrays with zeroed buffers and matching validity.
-                    unsafe {
-                        DecimalArray::new_unchecked(
-                            Buffer::<D>::zeroed(array.len()),
-                            *decimal_type,
-                            validity,
-                        )
-                    }
-                });
-                return Ok(Canonical::Decimal(all_null));
-            };
+        DType::Decimal(decimal, ..) => {
+            let value = scalar.as_decimal().decimal_value();
+            match_each_decimal_value_type!(decimal.canonical_values_type(), |T| {
+                let buffer = constant_decimal_buffer::<T>(value, array.len());
 
-            let decimal_array = match_each_decimal_value!(value, |value| {
-                // SAFETY: Constant decimal values with correct type and validity.
-                unsafe {
-                    DecimalArray::new_unchecked(
-                        Buffer::full(value, array.len()),
-                        *decimal_type,
-                        validity,
-                    )
-                }
-            });
-            Canonical::Decimal(decimal_array)
+                // SAFETY: The buffer has one value per row at the dtype's canonical width.
+                // The constant validity above reflects whether the repeated scalar is null.
+                Canonical::Decimal(unsafe {
+                    DecimalArray::new_unchecked(buffer, *decimal, validity)
+                })
+            })
         }
         DType::Utf8(_) => {
             let value = scalar
@@ -218,6 +201,22 @@ pub(crate) fn constant_canonicalize(
             Canonical::Extension(ExtensionArray::new(ext_dtype.clone(), storage_self))
         }
     })
+}
+
+/// Repeats a scalar at its decimal dtype's canonical width, using zeros for a null scalar.
+fn constant_decimal_buffer<T: NativeDecimalType>(
+    value: Option<DecimalValue>,
+    len: usize,
+) -> Buffer<T> {
+    match value {
+        Some(value) => Buffer::full(
+            value
+                .cast::<T>()
+                .vortex_expect("decimal scalar fits its precision"),
+            len,
+        ),
+        None => Buffer::<T>::zeroed(len),
+    }
 }
 
 /// Builds the canonical view array for a constant string or binary run.
@@ -371,12 +370,11 @@ fn flat_elements(
                         None => T::default(),
                     }
                 }));
-                DecimalArray::new(
-                    buffer.freeze(),
-                    *decimal,
-                    element_validity(elements, *nullability),
-                )
-                .into_array()
+                let validity = element_validity(elements, *nullability);
+                // SAFETY: Both buffers have one entry per element. Each valid scalar fits the
+                // element dtype, and each null element contributes a zero.
+                unsafe { DecimalArray::new_unchecked(buffer.freeze(), *decimal, validity) }
+                    .into_array()
             })
         }
         DType::Utf8(_) | DType::Binary(_) => {
@@ -465,7 +463,7 @@ fn constant_canonical_fixed_size_list_array(
 ///
 /// A fixed-size list holds its elements back to back, so the rows cannot share one range the way a
 /// list view's can. Uniform elements stay a [`ConstantArray`] covering the whole run; otherwise the
-/// row materializes once and the run chunks that single copy.
+/// row materializes once and the run tiles that single copy.
 fn tile_fixed_size_list_elements(
     values: &[Scalar],
     element_dtype: &DType,
@@ -494,11 +492,9 @@ fn tile_fixed_size_list_elements(
                 return tile;
             }
 
-            // SAFETY: every chunk is `tile` itself, so they share its dtype and none is empty.
-            unsafe {
-                ChunkedArray::new_unchecked(std::iter::repeat_n(tile, len), element_dtype.clone())
-            }
-            .into_array()
+            RepeatedArray::try_new(tile, elements_len)
+                .vortex_expect("a non-empty tile repeats to any length")
+                .into_array()
         }
     }
 }
@@ -522,7 +518,6 @@ mod tests {
     use crate::IntoArray;
     use crate::VortexSessionExecute;
     use crate::arrays::BoolArray;
-    use crate::arrays::Chunked;
     use crate::arrays::Constant;
     use crate::arrays::ConstantArray;
     use crate::arrays::DecimalArray;
@@ -531,14 +526,15 @@ mod tests {
     use crate::arrays::ListViewArray;
     use crate::arrays::NullArray;
     use crate::arrays::PrimitiveArray;
+    use crate::arrays::Repeated;
     use crate::arrays::StructArray;
     use crate::arrays::VarBinArray;
     use crate::arrays::VarBinViewArray;
-    use crate::arrays::chunked::ChunkedArrayExt;
     use crate::arrays::fixed_size_list::FixedSizeListArrayExt;
     use crate::arrays::fixed_size_list::FixedSizeListArraySlotsExt;
     use crate::arrays::listview::ListViewArraySlotsExt;
     use crate::arrays::listview::ListViewRebuildMode;
+    use crate::arrays::repeated::RepeatedArraySlotsExt;
     use crate::arrays::struct_::StructArrayExt;
     use crate::assert_arrays_eq;
     use crate::dtype::DType;
@@ -555,6 +551,19 @@ mod tests {
 
     /// A shared session for these constant-array tests, used to create execution contexts.
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
+    #[test]
+    fn canonicalize_decimal_with_wide_scalar() -> VortexResult<()> {
+        let dtype = DecimalDType::new(5, 2);
+        let scalar = Scalar::decimal(123i128.into(), dtype, Nullability::NonNullable);
+        let result = ConstantArray::new(scalar, 3)
+            .into_array()
+            .execute::<DecimalArray>(&mut SESSION.create_execution_ctx())?;
+
+        assert_eq!(result.values_type(), dtype.canonical_values_type());
+        assert_eq!(result.buffer::<i32>().as_slice(), &[123; 3]);
+        Ok(())
+    }
 
     #[test]
     fn test_canonicalize_null() {
@@ -1076,7 +1085,7 @@ mod tests {
         }
     }
 
-    /// Mixed elements should materialize once, with every row chunking that one copy.
+    /// Mixed elements should materialize once, with every row tiling that one copy.
     #[test]
     fn test_canonicalize_fixed_size_list_tiles_one_copy_of_mixed_elements() {
         let mut ctx = SESSION.create_execution_ctx();
@@ -1096,16 +1105,12 @@ mod tests {
             .unwrap();
 
         assert_eq!(canonical.elements().len(), 2 * LEN);
+        let repeated = canonical.elements().as_::<Repeated>();
         assert_eq!(
-            canonical.elements().as_::<Chunked>().nchunks(),
-            LEN,
+            repeated.child().len(),
+            2,
             "every row should reference the same tile rather than hold its own copy",
         );
-        let chunks = canonical.elements().as_::<Chunked>();
-        let tile_ptr = chunks.chunk(0).buffer_handles()[0].as_host().as_ptr();
-        for chunk in chunks.iter_chunks() {
-            assert_eq!(chunk.buffer_handles()[0].as_host().as_ptr(), tile_ptr);
-        }
         for index in [0, 1, LEN - 1] {
             assert_arrays_eq!(
                 canonical.fixed_size_list_elements_at(index).unwrap(),

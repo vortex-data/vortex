@@ -46,9 +46,7 @@ async fn primitive_i32_on_device(
     ctx: &mut CudaExecutionCtx,
 ) -> VortexResult<ArrayRef> {
     let primitive = PrimitiveArray::from_iter(values);
-    let handle = ctx
-        .ensure_on_device(primitive.buffer_handle().clone())
-        .await?;
+    let handle = ctx.ensure_on_device(primitive.buffer_handle().clone())?;
     Ok(PrimitiveArray::from_buffer_handle(handle, PType::I32, Validity::NonNullable).into_array())
 }
 

@@ -122,7 +122,7 @@ mod tests {
         )
         .into_array();
         let ext_dtype =
-            ExtDType::try_with_vtable(Uuid, UuidMetadata::default(), storage.dtype().clone())
+            ExtDType::try_with_vtable(Uuid, UuidMetadata::default(), storage.dtype().nullability())
                 .expect("valid uuid storage")
                 .erased();
         ExtensionArray::new(ext_dtype, storage)

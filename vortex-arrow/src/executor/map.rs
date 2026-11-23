@@ -15,11 +15,12 @@ use vortex_array::arrays::Map;
 use vortex_array::arrays::MapArray;
 use vortex_array::arrays::map::MapArrayExt;
 use vortex_array::arrays::map::MapArraySlotsExt;
+use vortex_array::dtype::DType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
 
-use crate::ArrowExporter;
+use crate::ArrowExportOptions;
 use crate::executor::list::to_arrow_list;
 
 /// Converts a Vortex Map array into an Arrow [`MapArray`](ArrowMapArray).
@@ -31,9 +32,15 @@ pub(super) fn to_arrow_map(
     array: ArrayRef,
     entries_field: &FieldRef,
     keys_sorted: bool,
-    exporter: &ArrowExporter<'_>,
+    options: &ArrowExportOptions,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrowArrayRef> {
+    vortex_ensure!(
+        matches!(array.dtype(), DType::Map(..)),
+        "Arrow map export requires a map dtype, got {}",
+        array.dtype()
+    );
+
     let array = match array.try_downcast::<Map>() {
         Ok(map) => map,
         Err(array) => array.execute::<MapArray>(ctx)?,
@@ -46,7 +53,7 @@ pub(super) fn to_arrow_map(
 
     let entries = array.entries().clone();
     let entries_list_type = DataType::List(Arc::clone(entries_field));
-    let entries_list = to_arrow_list::<i32>(entries, entries_field, exporter, ctx)?;
+    let entries_list = to_arrow_list::<i32>(entries, entries_field, options, ctx)?;
     vortex_ensure_eq!(
         entries_list.data_type(),
         &entries_list_type,
@@ -92,6 +99,7 @@ mod tests {
     use vortex_array::arrays::ListView;
     use vortex_array::arrays::Map as VortexMap;
     use vortex_array::arrays::listview::ListViewArrayExt;
+    use vortex_array::arrays::listview::ListViewArraySlotsExt;
     use vortex_array::arrays::map::MapArraySlotsExt;
     use vortex_array::builders::ArrayBuilder;
     use vortex_array::builders::MapBuilder;
@@ -105,6 +113,7 @@ mod tests {
     use vortex_mask::Mask;
     use vortex_session::VortexSession;
 
+    use crate::ExecuteArrowExt;
     use crate::convert::from_arrow_map;
     use crate::session::ArrowSessionExt as _;
 
@@ -180,7 +189,7 @@ mod tests {
             )?
         );
 
-        let exported = session.execute_arrow(vortex, Some(&field), &mut ctx)?;
+        let exported = vortex.execute_arrow(Some(&field), &mut ctx)?;
         let map = exported.as_map();
         assert_eq!(map.value_offsets(), &[0, 2, 2, 2, 4]);
         assert!(map.is_valid(0));
@@ -354,14 +363,14 @@ mod tests {
         let entries = map.entries().as_::<ListView>();
         assert!(entries.is_zero_copy_to_list());
         let mut ctx = vortex_session.create_execution_ctx();
-        assert_eq!(entries.offset_at(0, &mut ctx), 1);
-        assert_eq!(entries.offset_at(1, &mut ctx), 3);
+        assert_eq!(entries.offset_at(0, &mut ctx), 0);
+        assert_eq!(entries.offset_at(1, &mut ctx), 2);
 
         Ok(())
     }
 
     #[test]
-    fn sliced_arrow_map_import_preserves_nonzero_offsets() -> VortexResult<()> {
+    fn sliced_arrow_map_import_trims_entries_and_rebases_offsets() -> VortexResult<()> {
         let vortex_session = VortexSession::empty();
         let mut ctx = vortex_session.create_execution_ctx();
         let session = vortex_session.arrow();
@@ -379,15 +388,17 @@ mod tests {
         let vortex = session.from_arrow_array(sliced, &field)?;
         let map = vortex.as_::<VortexMap>();
         let entries = map.entries().as_::<ListView>();
-        assert_eq!(entries.offset_at(0, &mut ctx), 1);
-        assert_eq!(entries.offset_at(1, &mut ctx), 3);
+        assert_eq!(entries.offset_at(0, &mut ctx), 0);
+        assert_eq!(entries.offset_at(1, &mut ctx), 2);
         assert_eq!(entries.size_at(0, &mut ctx), 2);
         assert_eq!(entries.size_at(1, &mut ctx), 1);
+        assert_eq!(entries.elements().len(), 3);
 
-        let exported = session.execute_arrow(vortex, Some(&field), &mut ctx)?;
+        let exported = vortex.execute_arrow(Some(&field), &mut ctx)?;
         let map = exported.as_map();
 
-        assert_eq!(map.value_offsets(), &[1, 3, 4]);
+        assert_eq!(map.value_offsets(), &[0, 2, 3]);
+        assert_eq!(map.entries().len(), 3);
         assert_eq!(
             map.value(0)
                 .column(0)
@@ -411,7 +422,6 @@ mod tests {
     fn filtered_map_with_entry_gap_exports_correct_rows() -> VortexResult<()> {
         let vortex_session = VortexSession::empty();
         let mut ctx = vortex_session.create_execution_ctx();
-        let session = vortex_session.arrow();
         let map_dtype = MapDType::try_new(
             DType::Primitive(PType::I32, NonNullable),
             DType::Utf8(Nullable),
@@ -448,7 +458,7 @@ mod tests {
         let filtered = source.filter(Mask::from_iter([true, false, true]))?;
 
         let field = i32_utf8_map_field(false, true);
-        let exported = session.execute_arrow(filtered, Some(&field), &mut ctx)?;
+        let exported = filtered.execute_arrow(Some(&field), &mut ctx)?;
         let map = exported.as_map();
 
         assert_eq!(map.value_offsets(), &[0, 2, 3]);
@@ -490,8 +500,8 @@ mod tests {
         )?;
         let vortex = session.from_arrow_array(Arc::new(arrow), &source_field)?;
 
-        let error = session
-            .execute_arrow(vortex, Some(&target_field), &mut ctx)
+        let error = vortex
+            .execute_arrow(Some(&target_field), &mut ctx)
             .unwrap_err();
         assert!(error.to_string().contains("keys_sorted=true"));
 

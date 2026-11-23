@@ -12,11 +12,13 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Random;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.apache.spark.sql.Dataset;
@@ -193,6 +195,48 @@ public final class VortexDataSourceWriteTest {
         assertEquals(2, rows.size());
         assertEquals(10L, rows.get(0).get(1));
         assertTrue(rows.get(1).isNullAt(1), "expected a null for the second row");
+    }
+
+    @Test
+    @DisplayName("vortex.write.compact writes smaller files that read back the same")
+    public void testCompactWriteIsSmallerAndReadsBack() throws IOException {
+        Random random = new Random(7);
+        String[] words = new String[4096];
+        for (int i = 0; i < words.length; i++) {
+            words[i] = Long.toString(random.nextLong() & Long.MAX_VALUE, 36);
+        }
+        List<Row> rows = new ArrayList<>();
+        for (int i = 0; i < 20_000; i++) {
+            StringBuilder text = new StringBuilder();
+            for (int w = 0; w < 12; w++) {
+                text.append(words[random.nextInt(words.length)]).append(' ');
+            }
+            rows.add(RowFactory.create(i, text.toString()));
+        }
+        StructType schema =
+                new StructType().add("id", DataTypes.IntegerType, false).add("text", DataTypes.StringType, false);
+        Dataset<Row> df = spark.createDataFrame(rows, schema).coalesce(1);
+
+        Path standard = tempDir.resolve("standard");
+        Path compact = tempDir.resolve("compact");
+        df.write().format("vortex").save(standard.toUri().toString());
+        df.write()
+                .format("vortex")
+                .option("vortex.write.compact", "true")
+                .save(compact.toUri().toString());
+
+        long standardBytes = totalBytes(findVortexFiles(standard));
+        long compactBytes = totalBytes(findVortexFiles(compact));
+        assertTrue(compactBytes < standardBytes, "compact " + compactBytes + " bytes, standard " + standardBytes);
+        verifyDataContent(df, spark.read().format("vortex").load(compact.toUri().toString()));
+    }
+
+    private static long totalBytes(List<Path> files) throws IOException {
+        long total = 0;
+        for (Path file : files) {
+            total += Files.size(file);
+        }
+        return total;
     }
 
     @Test

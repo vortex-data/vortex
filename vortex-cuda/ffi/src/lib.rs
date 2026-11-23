@@ -8,12 +8,14 @@
 //! This crate keeps CUDA out of `vortex-ffi` and exports borrowed `vx_array` handles as the
 //! `ArrowSchema + ArrowDeviceArray` pair that callers pass to cuDF's Arrow Device import APIs.
 
+use std::ffi::c_void;
 use std::os::raw::c_int;
 use std::ptr;
 
 use arrow_schema::ffi::FFI_ArrowSchema;
 use vortex::array::ArrayRef;
 use vortex::array::stream::ArrayStreamExt;
+use vortex::array::stream::SendableArrayStream;
 use vortex::dtype::FieldName;
 use vortex::dtype::FieldNames;
 use vortex::error::VortexResult;
@@ -53,6 +55,13 @@ use vortex_ffi::vx_session;
 use vortex_ffi::vx_session_new_with;
 use vortex_ffi::vx_session_ref;
 use vortex_ffi::vx_view;
+
+mod device_batches;
+
+pub use device_batches::vx_cuda_device_batches;
+pub use device_batches::vx_cuda_device_batches_free;
+pub use device_batches::vx_cuda_device_batches_next;
+pub use device_batches::vx_cuda_scan_path_device_batches;
 
 const VX_CUDA_OK: c_int = 0;
 const VX_CUDA_ERR: c_int = 1;
@@ -117,6 +126,35 @@ pub unsafe extern "C-unwind" fn vx_cuda_session_new(
     })
 }
 
+/// Borrow the session's existing CUDA memory pool as a `CUmemoryPool` / `cudaMemPool_t`.
+///
+/// Hosts may allocate from this pool to share Vortex's reserve of device memory. Null means
+/// Vortex is using the device allocator fallback. Errors also return null and set `error_out`;
+/// a successful call clears `error_out`.
+///
+/// # Safety
+///
+/// `session` must be a live borrowed `vortex-ffi` handle. Keep it alive until all host allocations
+/// from the pool have been freed and their GPU work, including asynchronous frees, has completed.
+/// The returned pool is borrowed and must not be destroyed by the caller. Non-null `error_out`
+/// must be writable for one error pointer.
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn vx_cuda_session_mem_pool(
+    session: *const vx_session,
+    error_out: *mut *mut vx_error,
+) -> *mut c_void {
+    try_or(error_out, ptr::null_mut(), || {
+        // SAFETY: The caller supplies a live borrowed session handle.
+        let session = unsafe { vx_session_ref(session) }?;
+        Ok(session
+            .get::<CudaSession>()
+            .stream()?
+            .context()
+            .mem_pool()
+            .cast())
+    })
+}
+
 /// Open a Vortex file sink configured to produce CUDA-readable files.
 ///
 /// Push host arrays and close/abort with `vx_array_sink_*`. Only on-disk encodings and layouts
@@ -139,8 +177,8 @@ pub unsafe extern "C-unwind" fn vx_cuda_array_sink_open_file(
 
 /// Open a CUDA-readable Vortex file sink with a fixed row block size.
 ///
-/// Zero `block_rows` uses default writer sizing. Nonzero values disable byte-size coalescing and
-/// outer layout dictionaries, but retain per-block dictionary compression.
+/// Zero `block_rows` selects the GPU default of 8,388,608 rows. Blocks are not byte-size coalesced
+/// and have no outer layout dictionaries, but retain per-block dictionary compression.
 /// Write sizing is independent of scan `batch_rows`; see `vx_cuda_scan_options`.
 ///
 /// # Safety
@@ -291,15 +329,7 @@ pub unsafe extern "C-unwind" fn vx_cuda_scan_path_arrow_device_stream_projected(
             )
         };
         let session = session_with_cuda(session);
-        let file = ffi_runtime().block_on(
-            session
-                .open_options()
-                .with_cuda()
-                .with_read_at_options(options.read_at_options)
-                .open_path(path),
-        )?;
-        let scan = projected_scan(&file, columns, options.batch_rows)?;
-        let array_stream = scan.into_array_stream()?.boxed();
+        let array_stream = open_cuda_scan(session, path, options, columns)?;
         let ctx = scan_export_ctx(session)?;
         let device_stream = ArrowDeviceArrayStream::new(array_stream, ctx, ffi_runtime());
 
@@ -307,6 +337,24 @@ pub unsafe extern "C-unwind" fn vx_cuda_scan_path_arrow_device_stream_projected(
         unsafe { ptr::write(out_stream, device_stream) };
         Ok(VX_CUDA_OK)
     })
+}
+
+fn open_cuda_scan(
+    session: &VortexSession,
+    path: &str,
+    options: CudaScanOptions,
+    columns: FieldNames,
+) -> VortexResult<SendableArrayStream> {
+    let file = ffi_runtime().block_on(
+        session
+            .open_options()
+            .with_cuda()
+            .with_read_at_options(options.read_at_options)
+            .open_path(path),
+    )?;
+    Ok(projected_scan(&file, columns, options.batch_rows)?
+        .into_array_stream()?
+        .boxed())
 }
 
 /// Copy ordered, literal field names, rejecting invalid views and duplicates. Zero selects all.
@@ -543,7 +591,8 @@ mod tests {
     use vortex_cuda::arrow::release_device_array;
     use vortex_cuda::arrow::release_schema;
     use vortex_cuda_driver::CudaContext;
-    use vortex_cuda_driver::result;
+    use vortex_cuda_driver::event;
+    use vortex_cuda_driver::memory;
     use vortex_cuda_driver::sys::CUevent;
     use vortex_cuda_macros::cuda_not_available;
     use vortex_cuda_macros::test as cuda_test;
@@ -780,7 +829,7 @@ mod tests {
         let buffers = unsafe { std::slice::from_raw_parts(array.buffers, 2) };
         let mut values = vec![T::default(); offset + len];
         // SAFETY: The synchronized data buffer contains offset + len values of T and remains live.
-        unsafe { result::memcpy_dtoh_sync(&mut values, buffers[1] as u64) }
+        unsafe { memory::memcpy_dtoh_sync(&mut values, buffers[1] as u64) }
             .map_err(|error| vortex_err!("copying Arrow values: {error}"))?;
 
         let validity = if buffers[0].is_null() {
@@ -792,7 +841,7 @@ mod tests {
         } else {
             let mut bytes = vec![0u8; (offset + len).div_ceil(8)];
             // SAFETY: The synchronized bitmap covers offset + len bits and remains live.
-            unsafe { result::memcpy_dtoh_sync(&mut bytes, buffers[0] as u64) }
+            unsafe { memory::memcpy_dtoh_sync(&mut bytes, buffers[0] as u64) }
                 .map_err(|error| vortex_err!("copying Arrow validity: {error}"))?;
             let bits = BitBuffer::new_with_offset(ByteBuffer::from(bytes), len, offset);
             assert_eq!(array.null_count, i64::try_from(len - bits.true_count())?);
@@ -817,7 +866,7 @@ mod tests {
             .map_err(|error| vortex_err!("binding Arrow device context: {error}"))?;
         if !array.sync_event.is_null() {
             // SAFETY: Arrow's CUDA sync_event points to a live event handle owned by this batch.
-            unsafe { result::event::synchronize(*array.sync_event.cast::<CUevent>()) }
+            unsafe { event::synchronize(*array.sync_event.cast::<CUevent>()) }
                 .map_err(|error| vortex_err!("waiting for Arrow device batch: {error}"))?;
         }
         Ok(context)
@@ -1283,12 +1332,27 @@ mod tests {
         Ok(())
     }
 
+    #[test]
+    fn test_cuda_session_mem_pool_rejects_null_session() {
+        let mut error = ptr::null_mut();
+        // SAFETY: Null sessions are rejected; the error output is writable.
+        let pool = unsafe { vx_cuda_session_mem_pool(ptr::null(), &raw mut error) };
+        assert!(pool.is_null());
+        // SAFETY: This call owns the returned error and frees it exactly once.
+        let message = unsafe { take_error_message(error) }.expect("missing FFI error");
+        assert!(message.contains("null vx_session"), "{message}");
+    }
+
     #[cuda_test]
     fn test_cuda_session_new_export() -> VortexResult<()> {
         let mut error = ptr::null_mut();
         let session = unsafe { vx_cuda_session_new(&raw mut error) };
         assert!(error.is_null());
         assert!(!session.is_null());
+
+        // SAFETY: The session remains live until cleanup below; error is writable.
+        let pool = unsafe { vx_cuda_session_mem_pool(session, &raw mut error) };
+        assert!(error.is_null());
 
         let array = test_array(PrimitiveArray::from_iter(0u32..5));
         // SAFETY: Both handles remain live until cleanup below.
@@ -1308,6 +1372,11 @@ mod tests {
             PrimitiveArray::from_iter(0u32..5),
             &mut VortexSession::default().create_execution_ctx()
         );
+
+        // SAFETY: The same session is still live; error is writable.
+        let pool_after_export = unsafe { vx_cuda_session_mem_pool(session, &raw mut error) };
+        assert!(error.is_null());
+        assert_eq!(pool_after_export, pool);
 
         unsafe {
             release_device_array(&mut device_array);
