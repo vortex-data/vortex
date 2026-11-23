@@ -16,7 +16,7 @@ use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
-use crate::scalar_fn::row::ensure_common_crs;
+use crate::scalar_fn::row::ensure_eq_crs;
 use crate::scalar_fn::row::visit_binary_geo_predicate;
 
 /// OGC `ST_Contains` between two native geometry operands, each a column or a constant
@@ -61,7 +61,7 @@ impl RowFn for SpatialContains {
         args: &[DType],
         visitor: V,
     ) -> VortexResult<V::VisitResult> {
-        ensure_common_crs(args)?;
+        ensure_eq_crs(args)?;
         // Containment is not symmetric: `a` is always the container and `b` the contained. A
         // container's rect must cover the contained's rect (`Rect::contains` is the closed
         // test), so a contained rect poking outside proves the row false.

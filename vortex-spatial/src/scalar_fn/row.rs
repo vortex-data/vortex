@@ -29,9 +29,12 @@ use crate::extension::geometries;
 use crate::extension::is_native_geometry;
 use crate::extension::polygon_storage_dtype;
 
-/// Check that the two operand dtypes of a binary geometry function have the same CRS; see
-/// [`SpatialMetadata::unify_crs`](crate::extension::SpatialMetadata::unify_crs).
-pub(crate) fn ensure_common_crs(args: &[DType]) -> VortexResult<()> {
+/// Check that the two operand dtypes of a binary geometry function have equal CRSs.
+///
+/// Each geometry kind is its own extension type, so geometry functions cannot require equal
+/// operand dtypes the way Vortex's binary comparison and arithmetic do; they require equal CRSs
+/// instead and never convert between them. A missing CRS matches only another missing CRS.
+pub(crate) fn ensure_eq_crs(args: &[DType]) -> VortexResult<()> {
     if let [left, right] = args
         && let Some(left) = left
             .as_extension_opt()
@@ -40,7 +43,11 @@ pub(crate) fn ensure_common_crs(args: &[DType]) -> VortexResult<()> {
             .as_extension_opt()
             .and_then(AnyNativeGeometry::try_match)
     {
-        left.unify_crs(right)?;
+        vortex_ensure_eq!(
+            left.get_crs().unwrap_or_default(),
+            right.get_crs().unwrap_or_default(),
+            "geometry operands have different coordinate reference systems (empty means none)"
+        );
     }
     Ok(())
 }
