@@ -148,7 +148,12 @@ impl ScanBuilder {
                     Ok(plans)
                 } else {
                     // A scan whose skipping differs from the cached plans' plans its own.
-                    Ok(Arc::new(FilterPlans::new(filter, &root, &self.session, skip)?))
+                    Ok(Arc::new(FilterPlans::new(
+                        filter,
+                        &root,
+                        &self.session,
+                        skip,
+                    )?))
                 }
             })
             .transpose()?;
