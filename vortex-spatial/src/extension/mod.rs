@@ -13,6 +13,9 @@ pub use coordinate::Dimension;
 mod linestring;
 pub use linestring::*;
 
+mod matcher;
+pub use matcher::AnyNativeGeometry;
+
 mod multilinestring;
 pub use multilinestring::*;
 
@@ -86,15 +89,9 @@ pub use wkb::*;
 
 /// Whether `dtype` is one of the native geometry extension types the spatial kernels operate on.
 pub(crate) fn is_native_geometry(dtype: &DType) -> bool {
-    dtype.as_extension_opt().is_some_and(|ext| {
-        ext.is::<Point>()
-            || ext.is::<LineString>()
-            || ext.is::<MultiPoint>()
-            || ext.is::<Polygon>()
-            || ext.is::<MultiLineString>()
-            || ext.is::<MultiPolygon>()
-            || ext.is::<Rect>()
-    })
+    dtype
+        .as_extension_opt()
+        .is_some_and(|ext| ext.is::<AnyNativeGeometry>())
 }
 
 /// Flatten a native geometry column into a single coordinate `Struct<x, y, ...>` containing

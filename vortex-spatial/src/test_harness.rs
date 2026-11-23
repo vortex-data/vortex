@@ -93,13 +93,31 @@ fn vertex_list_lists(rows: &[Vec<Vec<(f64, f64)>>]) -> VortexResult<ArrayRef> {
 fn spatial_column<V: ExtVTable<Metadata = SpatialMetadata> + Default>(
     storage: ArrayRef,
 ) -> VortexResult<ArrayRef> {
-    let dtype = ExtDType::<V>::try_new(wgs84(), storage.dtype().nullability())?;
+    spatial_column_with_metadata::<V>(wgs84(), storage)
+}
+
+/// Wrap `storage` in the geometry extension type `V` with `metadata`.
+fn spatial_column_with_metadata<V: ExtVTable<Metadata = SpatialMetadata> + Default>(
+    metadata: SpatialMetadata,
+    storage: ArrayRef,
+) -> VortexResult<ArrayRef> {
+    let dtype = ExtDType::<V>::try_new(metadata, storage.dtype().nullability())?;
     Ok(ExtensionArray::try_new(dtype.erased(), storage)?.into_array())
 }
 
 /// A `Point` column over the given x/y coordinates, stored as `Struct<x, y>`.
 pub fn point_column(xs: Vec<f64>, ys: Vec<f64>) -> VortexResult<ArrayRef> {
     spatial_column::<Point>(xy_struct(xs, ys)?)
+}
+
+/// A `Point` column over the given x/y coordinates in coordinate reference system `crs`.
+pub fn point_column_with_crs(
+    xs: Vec<f64>,
+    ys: Vec<f64>,
+    crs: Option<&str>,
+) -> VortexResult<ArrayRef> {
+    let metadata = SpatialMetadata::new(crs.map(str::to_owned)).with_dimension(Dimension::Xy);
+    spatial_column_with_metadata::<Point>(metadata, xy_struct(xs, ys)?)
 }
 
 /// A nullable `Point` column: `None` rows are null. Null rows carry placeholder coordinates in
@@ -195,9 +213,24 @@ pub fn rect_column(boxes: Vec<(f64, f64, f64, f64)>) -> VortexResult<ArrayRef> {
 }
 
 /// A nullable 2D `Rect` (`geoarrow.box`) column: `None` rows are null boxes (placeholder ordinates
-/// in storage). Tagged with default metadata, matching the `envelope` scalar fn and `GeometryAabb`
-/// stat outputs.
+/// in storage). Tagged with default metadata, matching the `GeometryAabb` stat output.
 pub fn nullable_rect_column(boxes: Vec<Option<(f64, f64, f64, f64)>>) -> VortexResult<ArrayRef> {
+    nullable_rect_column_with_metadata(SpatialMetadata::default(), boxes)
+}
+
+/// A nullable 2D `Rect` column like [`nullable_rect_column`], in the WGS 84 CRS of the other test
+/// geometry columns, matching the `envelope` scalar fn output over them.
+pub fn nullable_wgs84_rect_column(
+    boxes: Vec<Option<(f64, f64, f64, f64)>>,
+) -> VortexResult<ArrayRef> {
+    nullable_rect_column_with_metadata(SpatialMetadata::new(wgs84().crs), boxes)
+}
+
+/// A nullable 2D `Rect` column with `metadata`; see [`nullable_rect_column`].
+fn nullable_rect_column_with_metadata(
+    metadata: SpatialMetadata,
+    boxes: Vec<Option<(f64, f64, f64, f64)>>,
+) -> VortexResult<ArrayRef> {
     let len = boxes.len();
     let field = |select: fn(&(f64, f64, f64, f64)) -> f64| {
         PrimitiveArray::from_iter(boxes.iter().map(|b| b.as_ref().map_or(0.0, select))).into_array()
@@ -215,7 +248,7 @@ pub fn nullable_rect_column(boxes: Vec<Option<(f64, f64, f64, f64)>>) -> VortexR
     )?
     .into_array();
     let ext = ExtDType::<Rect>::try_new(
-        SpatialMetadata::default().with_dimension(Dimension::Xy),
+        metadata.with_dimension(Dimension::Xy),
         Nullability::Nullable,
     )?;
     Ok(ExtensionArray::try_new(ext.erased(), storage)?.into_array())
