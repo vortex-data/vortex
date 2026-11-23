@@ -1,0 +1,9 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+include ../setup.slt.no
+
+query T
+SELECT function_name FROM duckdb_functions() WHERE function_name = 'vortex_scan'
+----
+vortex_scan

@@ -1,0 +1,35 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+include ../setup.slt.no
+
+statement ok
+COPY (SELECT '2020-01-01 02:20:30' ts) TO '$__TEST_DIR__/cast_pushdown-date.vortex';
+
+# Date cast is not pushed down
+query TT
+EXPLAIN SELECT * FROM '$__TEST_DIR__/cast_pushdown-date.vortex'
+WHERE ts::DATE = '2020-01-01';
+----
+<REGEX>:.*Filter.*
+
+statement ok
+COPY (SELECT * FROM (
+    VALUES ('1993-07-15'::DATE), ('1993-08-20'::DATE), ('1993-10-15'::DATE)
+) AS t(d))
+TO '$__TEST_DIR__/cast_pushdown-date-filter.vortex';
+
+query D
+SELECT d FROM '$__TEST_DIR__/cast_pushdown-date-filter.vortex'
+WHERE d >= DATE '1993-07-01'
+  AND d < DATE '1993-07-01' + INTERVAL '3' MONTH
+ORDER BY d;
+----
+1993-07-15
+1993-08-20
+
+query TT
+EXPLAIN SELECT d FROM '$__TEST_DIR__/cast_pushdown-date-filter.vortex'
+WHERE d < DATE '1993-07-01' + INTERVAL '3' MONTH;
+----
+<REGEX>:.*Filter.*

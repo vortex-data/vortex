@@ -1,0 +1,23 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+include ../setup.slt.no
+
+statement ok
+COPY (
+    SELECT ((i - 2500) / 100)::DECIMAL(4, 2) AS d,
+           (i * 10000000000000000000)::DECIMAL(38, 0) AS h
+    FROM generate_series(1, 5000) t(i))
+TO '${WORK_DIR}/agg_partition_stats-decimal.vortex';
+
+query TT
+EXPLAIN SELECT min(d), max(d), min(h), max(h)
+FROM '${WORK_DIR}/agg_partition_stats-decimal.vortex';
+----
+<REGEX>:.*Column Data Scan.*
+
+query RRRR
+SELECT min(d), max(d), min(h), max(h)
+FROM '${WORK_DIR}/agg_partition_stats-decimal.vortex';
+----
+-24.99 25 10000000000000000000 50000000000000000000000
