@@ -280,7 +280,12 @@ pub fn native_geometry_scalar_from_wkb(
                 MultiLineStringType::new(GeoArrowDimension::XY, metadata)
                     .with_coord_type(CoordType::Separated),
             );
-            spatial_ext_scalar(MultiLineString, stored_metadata, to_storage(&target)?, session)?
+            spatial_ext_scalar(
+                MultiLineString,
+                stored_metadata,
+                to_storage(&target)?,
+                session,
+            )?
         }
         GeometryType::MultiPolygon => {
             let target = GeoArrowType::MultiPolygon(
@@ -514,9 +519,7 @@ mod tests {
     }
 
     /// Test shim: decode WKB `bytes` without a CRS, with an explicitly constructed session.
-    fn native_geometry_scalar_from_wkb(
-        bytes: &[u8],
-    ) -> VortexResult<Option<Scalar>> {
+    fn native_geometry_scalar_from_wkb(bytes: &[u8]) -> VortexResult<Option<Scalar>> {
         super::native_geometry_scalar_from_wkb(&wkb_literal(bytes, None), &VortexSession::empty())
     }
 
@@ -617,7 +620,10 @@ mod tests {
         let scalar = super::native_geometry_scalar_from_wkb(&literal, &VortexSession::empty())?
             .ok_or_else(|| vortex_err!("a point scalar"))?;
         let DType::Extension(ext) = scalar.dtype() else {
-            return Err(vortex_err!("expected an extension dtype, got {}", scalar.dtype()));
+            return Err(vortex_err!(
+                "expected an extension dtype, got {}",
+                scalar.dtype()
+            ));
         };
         assert_eq!(ext.metadata::<Point>().get_crs(), Some("EPSG:32633"));
 
