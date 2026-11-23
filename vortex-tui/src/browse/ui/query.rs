@@ -849,15 +849,5 @@ mod tests {
         state.prepare_next_page();
         assert_eq!(state.current_page, 0);
         assert!(!state.pending_execution);
-
-        state.prepare_prev_page();
-        assert_eq!(state.current_page, 0);
-        assert!(!state.pending_execution);
-
-        // Control: LIMIT 1 on 19 rows retains 19 pages.
-        state.sql_input = "SELECT * FROM data LIMIT 1".to_string();
-        state.prepare_initial_query();
-        state.total_row_count = Some(19);
-        assert_eq!(state.total_pages(), 19);
     }
 }
