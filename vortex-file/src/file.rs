@@ -252,7 +252,8 @@ impl VortexFile {
         let reader = self.layout_reader()?;
 
         Ok(Arc::new(FileDataSource::new(
-            LayoutReaderDataSource::new(reader, self.session.clone()),
+            LayoutReaderDataSource::new(reader, self.session.clone())
+                .with_some_usage(self.usage.clone()),
             self.file_stats().cloned(),
         )))
     }
@@ -281,6 +282,7 @@ impl VortexFile {
             locations,
             segments: Arc::clone(&self.segment_source),
             cache,
+            usage: self.usage.clone(),
         }
     }
 

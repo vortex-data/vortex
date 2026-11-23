@@ -39,6 +39,7 @@ use crate::layouts::row_idx::RowIdxLayoutReader;
 use crate::scan::limit::RowLimit;
 use crate::scan::limit::ScanLimit;
 use crate::scan::metrics::ScanMetrics;
+use crate::scan::metrics::ScanRecorder;
 use crate::scan::metrics::ScanUsage;
 use crate::scan::repeated_scan::RepeatedScan;
 use crate::scan::repeated_scan::ScanTasks;
@@ -82,6 +83,8 @@ pub struct ScanBuilder<A> {
     usage: Option<Arc<ScanUsage>>,
     /// Registry counters that the scan adds to.
     metrics: Option<ScanMetrics>,
+    /// Shared execution recorder when driven as a partition of a data-source scan.
+    recorder: Option<Arc<ScanRecorder>>,
     /// Maximal number of rows to read after filtering.
     limit: Option<ScanLimit>,
     /// The row-offset assigned to the first row of the file. Used by the `row_idx` expression,
@@ -112,6 +115,7 @@ impl ScanBuilder<ArrayRef> {
             map_fn: Arc::new(Ok),
             usage: None,
             metrics: None,
+            recorder: None,
             limit: None,
             row_offset: 0,
         }
@@ -299,6 +303,11 @@ impl<A: 'static + Send> ScanBuilder<A> {
         self
     }
 
+    pub(crate) fn with_some_recorder(mut self, recorder: Option<Arc<ScanRecorder>>) -> Self {
+        self.recorder = recorder;
+        self
+    }
+
     /// Add or clear the maximum number of rows returned after filtering.
     ///
     /// A prepared [`RepeatedScan`] applies the limit to each of its executions independently.
@@ -349,6 +358,7 @@ impl<A: 'static + Send> ScanBuilder<A> {
             concurrency: self.concurrency,
             usage: self.usage,
             metrics: self.metrics,
+            recorder: self.recorder,
             limit: self.limit,
             row_offset: self.row_offset,
             map_fn: Arc::new(move |a| old_map_fn(a).and_then(&map_fn)),
@@ -419,6 +429,7 @@ impl<A: 'static + Send> ScanBuilder<A> {
             self.map_fn,
             self.usage,
             self.metrics,
+            self.recorder,
             self.limit,
             dtype,
         ))

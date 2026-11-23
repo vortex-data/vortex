@@ -24,6 +24,7 @@
 
 pub mod arrays;
 pub mod execution;
+pub mod metrics;
 pub mod plan;
 pub mod planning;
 pub mod prepare;

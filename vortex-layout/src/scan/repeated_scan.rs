@@ -74,6 +74,8 @@ pub struct RepeatedScan<A> {
     usage: Option<Arc<ScanUsage>>,
     /// Registry counters that every execution adds to.
     metrics: Option<ScanMetrics>,
+    /// Shared execution recorder when driven as one partition of a larger data-source scan.
+    recorder: Option<Arc<ScanRecorder>>,
     /// Maximal number of rows to read (after filtering).
     limit: Option<ScanLimit>,
     /// The dtype of the projected arrays.
@@ -153,6 +155,7 @@ impl<A: 'static + Send> RepeatedScan<A> {
         map_fn: MapFn<A>,
         usage: Option<Arc<ScanUsage>>,
         metrics: Option<ScanMetrics>,
+        recorder: Option<Arc<ScanRecorder>>,
         limit: Option<ScanLimit>,
         dtype: DType,
     ) -> Self {
@@ -169,13 +172,19 @@ impl<A: 'static + Send> RepeatedScan<A> {
             map_fn,
             usage,
             metrics,
+            recorder,
             limit,
             dtype,
         }
     }
 
-    /// Each execution gets its own recorder, so file events count once for each execution.
+    /// Uses the shared recorder of a data-source scan when one is set; otherwise each execution
+    /// gets its own recorder, so file events count once for each execution.
     fn task_context(&self) -> Arc<TaskContext> {
+        let recorder = self
+            .recorder
+            .clone()
+            .or_else(|| ScanRecorder::new(self.usage.clone(), self.metrics.clone()).map(Arc::new));
         Arc::new(TaskContext {
             filter: self
                 .filter
@@ -184,7 +193,7 @@ impl<A: 'static + Send> RepeatedScan<A> {
             reader: Arc::clone(&self.layout_reader),
             projection: self.projection.clone(),
             session: self.session.clone(),
-            recorder: ScanRecorder::new(self.usage.clone(), self.metrics.clone()),
+            recorder,
         })
     }
 

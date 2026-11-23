@@ -56,6 +56,7 @@ use crate::execution::cache::ScanCache;
 use crate::execution::io::SegmentRanges;
 use crate::execution::io::SegmentScanIo;
 use crate::execution::pipeline::ValueCache;
+use crate::metrics::ScanRecorder;
 use crate::plan::PlanRef;
 use crate::planning::planner::Planner;
 use crate::planning::planner::WorkScope;
@@ -100,6 +101,8 @@ pub struct PreparedScan {
     pub(crate) values: ValueCache,
     /// The rows of one chunk, the unit of work a chunk planner emits.
     pub(crate) chunk_rows: usize,
+    /// Records file and split events for this scan execution.
+    pub(crate) recorder: Option<Arc<ScanRecorder>>,
 }
 
 impl PreparedScan {
@@ -133,7 +136,7 @@ impl PreparedScan {
         if self.filter.is_some() {
             Box::new(FilterPlanner::new(Arc::clone(self), selected))
         } else {
-            Box::new(ProjectionPlanner::new(Arc::clone(self), selected))
+            Box::new(ProjectionPlanner::new(Arc::clone(self), selected, true))
         }
     }
 }

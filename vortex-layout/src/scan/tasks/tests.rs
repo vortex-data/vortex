@@ -164,7 +164,7 @@ fn scan_counters_after_deferred_pruning(
         reader: Arc::<DeferredReader>::clone(&reader),
         projection: BoundExpression::new_root(reader.dtype.clone()),
         session: SCAN_SESSION.clone(),
-        recorder: ScanRecorder::new(Some(Arc::clone(&usage)), None),
+        recorder: ScanRecorder::new(Some(Arc::clone(&usage)), None).map(Arc::new),
     });
     let task = split_exec(&ctx, RowMask::new(0, Mask::new_true(1)))?;
     assert_eq!(usage.snapshot().splits_attempted, 0);

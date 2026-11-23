@@ -7,6 +7,7 @@ use std::sync::atomic::AtomicI32;
 use std::sync::atomic::Ordering;
 
 use futures::StreamExt;
+use futures::TryStreamExt;
 use rstest::rstest;
 use vortex_array::IntoArray;
 use vortex_array::MaskFuture;
@@ -16,6 +17,7 @@ use vortex_array::expr::Expression;
 use vortex_array::expr::and;
 use vortex_array::expr::col;
 use vortex_array::expr::eq;
+use vortex_array::expr::gt;
 use vortex_array::expr::gt_eq;
 use vortex_array::expr::lit;
 use vortex_array::expr::lt_eq;
@@ -24,6 +26,7 @@ use vortex_array::stream::ArrayStreamExt;
 use vortex_buffer::ByteBufferMut;
 use vortex_buffer::buffer;
 use vortex_error::VortexResult;
+use vortex_error::vortex_err;
 use vortex_functions::expr::dynamic;
 use vortex_layout::layouts::chunked::writer::ChunkedLayoutStrategy;
 use vortex_layout::layouts::flat::writer::FlatLayoutStrategy;
@@ -38,6 +41,7 @@ use vortex_mask::Mask;
 use vortex_metrics::DefaultMetricsRegistry;
 use vortex_metrics::MetricValue;
 use vortex_metrics::MetricsRegistry;
+use vortex_scan::ScanRequest;
 use vortex_scan::selection::Selection;
 use vortex_scan::strict_sorted_buffer::StrictSortedBuffer;
 
@@ -482,5 +486,111 @@ async fn test_file_usage_counts_segment_reads() -> VortexResult<()> {
     assert_eq!(after.splits_attempted, 0);
     assert!(after.segments_requested > 0);
     assert_eq!(second.snapshot(), scanned);
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_data_source_usage_normal_pruned_unused_and_repeated() -> VortexResult<()> {
+    let file = scan_file([[0, 1], [10, 11], [90, 91], [100, 101]]).await?;
+    let usage = Arc::new(ScanUsage::default());
+    let source = file.clone().with_usage(Arc::clone(&usage)).data_source()?;
+
+    // Unused partitions must not record execution counters.
+    let unused_scan = source.scan(ScanRequest::default()).await?;
+    let unused_parts: Vec<_> = unused_scan.partitions().try_collect().await?;
+    assert!(!unused_parts.is_empty());
+    drop(unused_parts);
+    assert_usage(&usage, [0, 0, 0, 0, 0]);
+
+    // Normal scan executes and records file + split attempts and segment reads.
+    let scan = source.scan(ScanRequest::default()).await?;
+    let mut rows = 0;
+    let parts: Vec<_> = scan.partitions().try_collect().await?;
+    for part in parts {
+        let arrays: Vec<_> = part.execute()?.try_collect().await?;
+        rows += arrays.iter().map(|a| a.len()).sum::<usize>();
+    }
+    assert_eq!(rows, 8);
+    let after_first = usage.snapshot();
+    assert_eq!(after_first.file_scans_attempted, 1);
+    assert_eq!(after_first.file_scans_pruned, 0);
+    assert_eq!(after_first.splits_attempted, 4);
+    assert!(after_first.segments_requested > 0);
+
+    // Whole-file pruning records both file_scans_attempted and file_scans_pruned.
+    let pruned_scan = source
+        .scan(ScanRequest {
+            filter: Some(gt(col("value"), lit(1000i32))),
+            ..Default::default()
+        })
+        .await?;
+    let pruned_parts: Vec<_> = pruned_scan.partitions().try_collect().await?;
+    for part in pruned_parts {
+        let arrays: Vec<_> = part.execute()?.try_collect().await?;
+        assert!(arrays.is_empty());
+    }
+    let after_prune = usage.snapshot().since(&after_first);
+    assert_eq!(after_prune.file_scans_attempted, 1);
+    assert_eq!(after_prune.file_scans_pruned, 1);
+
+    // Repeated execution increments file_scans_attempted once more.
+    let before_repeat = usage.snapshot();
+    let repeat_scan = source.scan(ScanRequest::default()).await?;
+    let repeat_parts: Vec<_> = repeat_scan.partitions().try_collect().await?;
+    for part in repeat_parts {
+        let _arrays: Vec<_> = part.execute()?.try_collect().await?;
+    }
+    let after_repeat = usage.snapshot().since(&before_repeat);
+    assert_eq!(after_repeat.file_scans_attempted, 1);
+    assert_eq!(after_repeat.splits_attempted, 4);
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_data_source_empty_projection_records_attempts_on_first_poll() -> VortexResult<()> {
+    let file = scan_file([[0, 1], [10, 11], [90, 91], [100, 101]]).await?;
+    let empty_proj = vortex_array::expr::pack(
+        std::iter::empty::<(&str, Expression)>(),
+        vortex_array::dtype::Nullability::NonNullable,
+    );
+
+    // Dropping the unpolled result stream leaves file and split attempt counts at zero.
+    let unpolled_usage = Arc::new(ScanUsage::default());
+    let unpolled_ds = file
+        .clone()
+        .with_usage(Arc::clone(&unpolled_usage))
+        .data_source()?;
+    let unpolled_scan = unpolled_ds
+        .scan(ScanRequest {
+            projection: empty_proj.clone(),
+            ..Default::default()
+        })
+        .await?;
+    let unpolled_parts = unpolled_scan.partitions().try_collect::<Vec<_>>().await?;
+    let [unpolled_part]: [_; 1] = unpolled_parts
+        .try_into()
+        .map_err(|parts: Vec<_>| vortex_err!("expected 1 partition, got {}", parts.len()))?;
+    let stream = unpolled_part.execute()?;
+    drop(stream);
+    assert_usage(&unpolled_usage, [0, 0, 0, 0, 0]);
+
+    // Consuming the stream once records one file attempt and one split attempt.
+    let polled_usage = Arc::new(ScanUsage::default());
+    let polled_ds = file.with_usage(Arc::clone(&polled_usage)).data_source()?;
+    let polled_scan = polled_ds
+        .scan(ScanRequest {
+            projection: empty_proj,
+            ..Default::default()
+        })
+        .await?;
+    let polled_parts = polled_scan.partitions().try_collect::<Vec<_>>().await?;
+    let [polled_part]: [_; 1] = polled_parts
+        .try_into()
+        .map_err(|parts: Vec<_>| vortex_err!("expected 1 partition, got {}", parts.len()))?;
+    let arrays = polled_part.execute()?.try_collect::<Vec<_>>().await?;
+    let rows: usize = arrays.iter().map(|a| a.len()).sum();
+    assert_eq!(rows, 8);
+    assert_usage(&polled_usage, [1, 0, 0, 0, 1]);
+
     Ok(())
 }

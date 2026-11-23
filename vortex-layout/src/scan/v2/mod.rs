@@ -26,6 +26,7 @@ use vortex_scan::strict_sorted_buffer::StrictSortedBuffer;
 use vortex_session::VortexSession;
 
 use crate::LayoutRef;
+use crate::scan::metrics::ScanUsage;
 use crate::segments::SegmentSource;
 
 // Match the scan executor's row grid so byte partitions and scan chunks stay aligned.
@@ -58,6 +59,8 @@ pub struct ScanFile {
     pub segments: Arc<dyn SegmentSource>,
     /// State shared by every scan of this file, or `None` to rebuild it for each scan.
     pub cache: Option<ScanCache>,
+    /// Caller-owned usage sink that scans of this file record into.
+    pub usage: Option<Arc<ScanUsage>>,
 }
 
 impl From<ScanFile> for ScanInput {
@@ -68,6 +71,7 @@ impl From<ScanFile> for ScanInput {
             locations: file.locations,
             segments: file.segments,
             cache: file.cache,
+            usage: file.usage,
         }
     }
 }

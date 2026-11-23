@@ -346,6 +346,7 @@ impl Store {
             locations,
             segments: Arc::clone(self) as Arc<dyn SegmentSource>,
             cache: None,
+            usage: None,
         }
     }
 }

@@ -222,14 +222,14 @@ pub(crate) struct TaskContext {
     /// The session the projected arrays are optimized with before the scan returns them.
     pub(crate) session: VortexSession,
     /// Records the events of this execution, or `None` when the scan has no usage sink.
-    pub(super) recorder: Option<ScanRecorder>,
+    pub(super) recorder: Option<Arc<ScanRecorder>>,
 }
 
 impl TaskContext {
     #[inline]
     pub(super) fn count<const TRACK_COUNTERS: bool>(&self, update: impl FnOnce(&ScanRecorder)) {
         if TRACK_COUNTERS && let Some(recorder) = &self.recorder {
-            update(recorder);
+            update(recorder.as_ref());
         }
     }
 }

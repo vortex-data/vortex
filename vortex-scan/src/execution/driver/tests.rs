@@ -50,6 +50,7 @@ fn builder() -> ScanBuilder {
             locations: Arc::new([]),
             segments: Arc::new(NoSegments),
             cache: Some(ScanCache::default()),
+            usage: None,
         },
     )
 }

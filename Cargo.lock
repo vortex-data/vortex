@@ -12206,6 +12206,7 @@ dependencies = [
  "vortex-functions",
  "vortex-io",
  "vortex-mask",
+ "vortex-metrics",
  "vortex-session",
  "vortex-utils",
 ]

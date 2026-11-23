@@ -46,6 +46,7 @@ use crate::LayoutReaderRef;
 use crate::scan::limit::RowLimit;
 use crate::scan::metrics::ScanMetrics;
 use crate::scan::metrics::ScanRecorder;
+use crate::scan::metrics::ScanUsage;
 use crate::scan::scan_builder::ScanBuilder;
 
 /// Cursor over absolute split-grid partition indices for a [`LayoutReaderDataSource`].
@@ -145,6 +146,7 @@ pub struct LayoutReaderDataSource {
     reader: LayoutReaderRef,
     session: VortexSession,
     split_max_row_count: u64,
+    usage: Option<Arc<ScanUsage>>,
     metrics: Option<ScanMetrics>,
 }
 
@@ -160,6 +162,7 @@ impl LayoutReaderDataSource {
             reader,
             session,
             split_max_row_count: u64::MAX,
+            usage: None,
             metrics: None,
         }
     }
@@ -171,6 +174,17 @@ impl LayoutReaderDataSource {
     /// parallelism granularity, not the I/O granularity.
     pub fn with_split_max_row_count(mut self, row_count: u64) -> Self {
         self.split_max_row_count = row_count;
+        self
+    }
+
+    /// Records resource usage for scans of this data source into `usage`.
+    pub fn with_usage(self, usage: Arc<ScanUsage>) -> Self {
+        self.with_some_usage(Some(usage))
+    }
+
+    /// Records resource usage for scans of this data source into `usage`, or clears it.
+    pub fn with_some_usage(mut self, usage: Option<Arc<ScanUsage>>) -> Self {
+        self.usage = usage;
         self
     }
 
@@ -227,6 +241,7 @@ impl DataSource for LayoutReaderDataSource {
             .map(|expr| expr.bind(self.reader.dtype())?.optimize_recursive())
             .transpose()?;
         let dtype = projection.dtype().clone();
+        let recorder = ScanRecorder::new(self.usage.clone(), self.metrics.clone()).map(Arc::new);
 
         let cursor = PartitionCursor::new(
             row_range.clone(),
@@ -246,6 +261,7 @@ impl DataSource for LayoutReaderDataSource {
                 cursor,
                 selection: scan_request.selection,
                 remaining_limit: scan_request.limit,
+                recorder,
             }));
         }
 
@@ -261,7 +277,7 @@ impl DataSource for LayoutReaderDataSource {
             if let Some(Ok(result_mask)) = pruning_result
                 && result_mask.all_false()
             {
-                if let Some(recorder) = ScanRecorder::new(None, self.metrics.clone())
+                if let Some(recorder) = &recorder
                     && scan_request.limit != Some(0)
                     && scan_request.selection.row_count_in_range(&row_range) != 0
                 {
@@ -304,7 +320,7 @@ impl DataSource for LayoutReaderDataSource {
             selection: scan_request.selection,
             ordered: scan_request.ordered,
             split_concurrency: scan_request.split_concurrency,
-            metrics: self.metrics.clone(),
+            recorder,
             cursor,
         }))
     }
@@ -330,7 +346,7 @@ struct LayoutReaderScan {
     ordered: bool,
     split_concurrency: Option<NonZeroUsize>,
     selection: Selection,
-    metrics: Option<ScanMetrics>,
+    recorder: Option<Arc<ScanRecorder>>,
     cursor: PartitionCursor,
 }
 
@@ -393,7 +409,7 @@ impl Stream for LayoutReaderScan {
             split_concurrency: this.split_concurrency,
             row_range,
             selection: this.selection.clone(),
-            metrics: this.metrics.clone(),
+            recorder: this.recorder.clone(),
             partition_idx,
         }) as PartitionRef;
 
@@ -432,7 +448,7 @@ struct LayoutReaderSplit {
     split_concurrency: Option<NonZeroUsize>,
     row_range: Range<u64>,
     selection: Selection,
-    metrics: Option<ScanMetrics>,
+    recorder: Option<Arc<ScanRecorder>>,
     partition_idx: usize,
 }
 
@@ -466,7 +482,7 @@ impl Partition for LayoutReaderSplit {
             .with_selection(self.selection)
             .with_projection(self.projection)
             .with_some_filter(self.filter)
-            .with_some_scan_metrics(self.metrics)
+            .with_some_recorder(self.recorder)
             .with_ordered(self.ordered)
             .with_some_max_splits_in_flight(self.split_concurrency);
         let builder = match self.row_limit {
@@ -490,6 +506,7 @@ struct Empty {
     dtype: DType,
     row_count: u64,
     partition_idx: usize,
+    recorder: Option<Arc<ScanRecorder>>,
 }
 
 struct EmptyScan {
@@ -497,6 +514,7 @@ struct EmptyScan {
     cursor: PartitionCursor,
     selection: Selection,
     remaining_limit: Option<u64>,
+    recorder: Option<Arc<ScanRecorder>>,
 }
 
 impl EmptyScan {
@@ -506,6 +524,7 @@ impl EmptyScan {
             cursor: PartitionCursor::empty(),
             selection: Selection::All,
             remaining_limit: Some(0),
+            recorder: None,
         }
     }
 }
@@ -553,6 +572,7 @@ impl Stream for EmptyScan {
             dtype: this.dtype.clone(),
             row_count: count,
             partition_idx,
+            recorder: this.recorder.clone(),
         }) as PartitionRef)))
     }
 
@@ -598,6 +618,10 @@ impl Partition for Empty {
         let iter = std::iter::from_fn(move || {
             if self.row_count == 0 {
                 return None;
+            }
+            if let Some(recorder) = self.recorder.take() {
+                recorder.attempt_file_scan();
+                recorder.attempt_split();
             }
             let chunk_size = usize::try_from(self.row_count).unwrap_or(usize::MAX);
             self.row_count -= chunk_size as u64;
@@ -716,7 +740,7 @@ mod tests {
             }
             assert_eq!(
                 counter_values(&registry),
-                [4 * execution, 0, 0, 4 * execution, 0]
+                [4 * execution, 0, 0, execution, 0]
             );
         }
         Ok(())

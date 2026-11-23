@@ -25,6 +25,7 @@ pub use crate::execution::cache::ScanCache;
 pub use crate::execution::cache::WeakScanCache;
 use crate::execution::io::segment_ranges;
 use crate::execution::rows_per_chunk;
+use crate::metrics::ScanRecorder;
 use crate::plan::optimize;
 use crate::plan::plan_row_idx_expression;
 use crate::selection::Selection;
@@ -185,6 +186,7 @@ impl ScanBuilder {
             None => cache.insert_ranges(segment_ranges(&file.locations)),
         };
         let values = cache.values();
+        let recorder = ScanRecorder::new(file.usage, None).map(Arc::new);
         Ok(PreparedScan {
             session: self.session,
             rows: self.row_range.unwrap_or(0..row_count),
@@ -198,6 +200,7 @@ impl ScanBuilder {
             row_offset: self.row_offset,
             values,
             chunk_rows,
+            recorder,
         })
     }
 }

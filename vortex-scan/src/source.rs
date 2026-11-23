@@ -12,6 +12,7 @@ pub use vortex_io::segments::SegmentSource;
 
 use crate::execution::SegmentLocation;
 use crate::execution::cache::ScanCache;
+use crate::metrics::ScanUsage;
 use crate::plan::LazyPlanRef;
 
 /// The plan and byte source used to prepare a scan.
@@ -31,4 +32,6 @@ pub struct ScanInput {
     pub segments: Arc<dyn SegmentSource>,
     /// State shared by repeated scans of this input.
     pub cache: Option<ScanCache>,
+    /// Caller-owned usage sink that scans of this input record into.
+    pub usage: Option<Arc<ScanUsage>>,
 }

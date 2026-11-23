@@ -36,11 +36,12 @@ const MAX_OUTPUT_ROWS: usize = 65_536;
 pub(super) struct ProjectionPlanner {
     scan: Arc<PreparedScan>,
     selected: IntoIter<SelectedRows>,
+    count_split: bool,
 }
 
 impl ProjectionPlanner {
     /// Creates a planner for `selected`.
-    pub(super) fn new(scan: Arc<PreparedScan>, selected: SelectedRows) -> Self {
+    pub(super) fn new(scan: Arc<PreparedScan>, selected: SelectedRows, count_split: bool) -> Self {
         let selected = if selected.mask.true_count() <= MAX_OUTPUT_ROWS {
             vec![selected]
         } else {
@@ -66,6 +67,7 @@ impl ProjectionPlanner {
         Self {
             scan,
             selected: selected.into_iter(),
+            count_split,
         }
     }
 }
@@ -87,6 +89,13 @@ impl Planner for ProjectionPlanner {
         let Some(selected) = self.selected.next() else {
             return Ok(PlannerOutput::Done);
         };
+        if self.count_split {
+            self.count_split = false;
+            if let Some(recorder) = &self.scan.recorder {
+                recorder.attempt_file_scan();
+                recorder.attempt_split();
+            }
+        }
         if selected.mask.all_false() {
             return Ok(PlannerOutput::Done);
         }

@@ -266,6 +266,10 @@ impl Planner for FilterPlanner {
         };
         if !self.announced {
             self.announced = true;
+            if let Some(recorder) = &self.scan.recorder {
+                recorder.attempt_file_scan();
+                recorder.attempt_split();
+            }
             let session = &self.scan.session;
             let rows = selected.scope.rows.clone();
             let expression = &self.filter.expression;
@@ -345,6 +349,9 @@ impl Planner for FilterPlanner {
             self.pieces.clear();
         }
         if selected.mask.all_false() {
+            if let Some(recorder) = &self.scan.recorder {
+                recorder.empty_split_after_predicate();
+            }
             self.selected = None;
             return Ok(PlannerOutput::Done);
         }
@@ -386,7 +393,11 @@ impl Planner for FilterPlanner {
         let selected = self.selected.take().vortex_expect("selected rows exist");
         Ok(PlannerOutput::Planner(
             selected.scope.clone(),
-            Box::new(ProjectionPlanner::new(Arc::clone(&self.scan), selected)),
+            Box::new(ProjectionPlanner::new(
+                Arc::clone(&self.scan),
+                selected,
+                false,
+            )),
         ))
     }
 }
