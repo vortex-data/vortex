@@ -35,3 +35,11 @@ and then run `make -C docs doctest` -->
 <BLANKLINE>
 [3000 rows x 19 columns]
 ```
+
+Use `VortexDatasink` to write a Dataset without collecting it on the driver. Each Ray write task streams its Arrow batches to one Vortex file.
+
+```python
+from vortex.ray.datasink import VortexDatasink
+
+ds.write_datasink(VortexDatasink("ray_data_output"))
+```

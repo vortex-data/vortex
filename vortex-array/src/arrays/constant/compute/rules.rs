@@ -17,22 +17,15 @@ use crate::arrays::filter::FilterReduceAdaptor;
 use crate::arrays::slice::SliceReduceAdaptor;
 use crate::optimizer::kernels::ArrayKernelsExt;
 use crate::optimizer::rules::ArrayParentReduceRule;
-use crate::scalar_fn::fns::between::Between;
-use crate::scalar_fn::fns::between::BetweenReduceAdaptor;
-use crate::scalar_fn::fns::cast::Cast;
-use crate::scalar_fn::fns::cast::CastReduceAdaptor;
-use crate::scalar_fn::fns::fill_null::FillNull;
-use crate::scalar_fn::fns::fill_null::FillNullReduceAdaptor;
-use crate::scalar_fn::fns::not::Not;
-use crate::scalar_fn::fns::not::NotReduceAdaptor;
+use crate::scalar_fn::builtin::cast::Cast;
+use crate::scalar_fn::builtin::cast::CastReduceAdaptor;
+use crate::scalar_fn::builtin::fill_null::FillNull;
+use crate::scalar_fn::builtin::fill_null::FillNullReduceAdaptor;
+use crate::scalar_fn::builtin::not::Not;
+use crate::scalar_fn::builtin::not::NotReduceAdaptor;
 
 pub(crate) fn register_parent_rules(session: &VortexSession) {
     let kernels = session.kernels();
-    kernels.register_reduce_parent_rule(
-        Between,
-        Constant,
-        const { &BetweenReduceAdaptor(Constant) },
-    );
     kernels.register_reduce_parent_rule(Cast, Constant, const { &CastReduceAdaptor(Constant) });
     kernels.register_reduce_parent_rule(Filter, Constant, const { &ConstantFilterRule });
     kernels.register_reduce_parent_rule(

@@ -20,6 +20,8 @@ use vortex_layout::layouts::chunked::writer::ChunkedLayoutStrategy;
 use vortex_layout::layouts::collect::CollectStrategy;
 use vortex_layout::layouts::compressed::CompressingStrategy;
 use vortex_layout::layouts::compressed::CompressorPlugin;
+use vortex_layout::layouts::constant::ConstantStrategy;
+use vortex_layout::layouts::dict::writer::DictLayoutConstraints;
 use vortex_layout::layouts::dict::writer::DictLayoutOptions;
 use vortex_layout::layouts::dict::writer::DictStrategy;
 use vortex_layout::layouts::flat::writer::FlatLayoutStrategy;
@@ -121,6 +123,7 @@ pub struct WriteStrategyBuilder {
     compressor: CompressorConfig,
     row_block_size: usize,
     data_block_target_bytes: Option<u64>,
+    dict_max_bytes: usize,
     field_writers: HashMap<FieldPath, Arc<dyn LayoutStrategy>>,
     flat_strategy: Option<Arc<dyn LayoutStrategy>>,
     probe_compressor: Option<Arc<dyn CompressorPlugin>>,
@@ -140,6 +143,7 @@ impl WriteStrategyBuilder {
             )),
             row_block_size: 8192,
             data_block_target_bytes: Some(ONE_MEG),
+            dict_max_bytes: DictLayoutConstraints::default().max_bytes,
             field_writers: HashMap::new(),
             flat_strategy: None,
             probe_compressor: None,
@@ -164,6 +168,17 @@ impl WriteStrategyBuilder {
     /// [`Self::with_row_block_size`].
     pub fn with_data_block_target_bytes(mut self, target_bytes: Option<u64>) -> Self {
         self.data_block_target_bytes = target_bytes;
+        self
+    }
+
+    /// Override the maximum size of a dictionary's values, in bytes before compression.
+    ///
+    /// Once a dictionary reaches it, the remaining rows start a new dictionary. Larger
+    /// dictionaries mean fewer of them, so a column's values and codes are written in longer
+    /// contiguous runs, at the cost of a read of a few rows fetching and decoding a larger
+    /// dictionary.
+    pub fn with_dict_max_bytes(mut self, max_bytes: usize) -> Self {
+        self.dict_max_bytes = max_bytes;
         self
     }
 
@@ -246,7 +261,8 @@ impl WriteStrategyBuilder {
         let full_compressor = compressors.full;
 
         // 2.1. | 3.1. compress stats tables and dict values.
-        let compress_then_flat = CompressingStrategy::new(flat, Arc::clone(&full_compressor));
+        let compress_then_flat =
+            CompressingStrategy::new(Arc::clone(&flat), Arc::clone(&full_compressor));
 
         // 3. apply dict encoding or fallback
         let probe_compressor = if let Some(probe_compressor) = self.probe_compressor {
@@ -259,8 +275,11 @@ impl WriteStrategyBuilder {
             compress_then_flat.clone(),
             fallback,
             DictLayoutOptions {
+                constraints: DictLayoutConstraints {
+                    max_bytes: self.dict_max_bytes,
+                    ..Default::default()
+                },
                 probe_len: self.row_block_size,
-                ..Default::default()
             },
             probe_compressor,
         );
@@ -290,12 +309,16 @@ impl WriteStrategyBuilder {
             },
         );
 
+        // 0.1. write a column with one value in all rows as one constant chunk, without the
+        // repartition steps that follow
+        let constant = ConstantStrategy::new(repartition, Arc::clone(&flat));
+
         // 0. start with splitting columns
         let validity_strategy = CollectStrategy::new(compress_then_flat.clone());
 
         // Take any field overrides from the builder and apply them to the final strategy.
         let mut table_strategy =
-            TableStrategy::new(Arc::new(validity_strategy), Arc::new(repartition))
+            TableStrategy::new(Arc::new(validity_strategy), Arc::new(constant))
                 .with_field_writers(self.field_writers);
 
         if self.use_list_layout {

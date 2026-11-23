@@ -1,0 +1,218 @@
+# Reads the baseline for the benchmarks of a fork PR and comments the comparison on the PR.
+#
+# GitHub gives a fork PR's `pull_request` run a read-only token with no OIDC token and no repository
+# variables, so its benchmark jobs can neither read the baseline from the benchmarks database nor
+# comment. Those jobs upload their records (upload-fork-bench-report) instead. This workflow runs
+# after the dispatch run, in the base repository and from the default branch, so it can assume the
+# read-only benchmarks role and comment.
+#
+# The artifacts come from a run of fork code, so they are untrusted data: this workflow only parses
+# them, and never checks out or runs code from the PR. It fetches the PR head commits only to walk
+# their history for the baseline commit.
+
+name: PR Benchmark Report
+
+on:
+  workflow_run:
+    workflows: ["PR Benchmark Dispatch"]
+    types: [completed]
+
+permissions: { }
+
+jobs:
+  find-reports:
+    if: >-
+      github.event.workflow_run.event == 'pull_request'
+      && github.event.workflow_run.head_repository.full_name != github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      actions: read  # to list the artifacts of the dispatch run
+      pull-requests: read  # to find the PR of the dispatch run
+    outputs:
+      pr-number: ${{ steps.find.outputs.pr-number }}
+      reports: ${{ steps.find.outputs.reports }}
+    steps:
+      - name: Find the PR and its benchmark reports
+        id: find
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          HEAD_OWNER: ${{ github.event.workflow_run.head_repository.owner.login }}
+          HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          RUN_TITLE: ${{ github.event.workflow_run.display_title }}
+        run: |
+          set -Eeu -o pipefail
+
+          # A fork's `workflow_run` event lists no pull requests, so look up open PRs with this
+          # head and prefer the PR number named in the dispatch run title when more than one matches.
+          OPEN_PRS=$(gh api -X GET "repos/${REPO}/pulls" -f state=open -f "head=${HEAD_OWNER}:${HEAD_BRANCH}" \
+            --jq '[.[].number]')
+          RUN_PR=""
+          if [[ "$RUN_TITLE" =~ ^PR\ \#([0-9]+)\  ]]; then
+            RUN_PR="${BASH_REMATCH[1]}"
+          fi
+          PR_NUMBER=$(jq -r --arg run_pr "$RUN_PR" \
+            'if ($run_pr != "" and any(.[]; tostring == $run_pr)) then $run_pr else (.[0] // empty | tostring) end' \
+            <<<"$OPEN_PRS")
+          REPORTS=$(gh api --paginate "repos/${REPO}/actions/runs/${RUN_ID}/artifacts" \
+            | jq -s -c '
+              [
+                .[].artifacts[]
+                | select(.expired == false and (.name | startswith("fork-bench-report-")))
+                | (.name | capture("^(?<base>fork-bench-report-.+?)(?:-attempt-(?<attempt>[0-9]+))?$")) as $m
+                | {name: .name, base: $m.base, attempt: (($m.attempt // "0") | tonumber)}
+              ]
+              | group_by(.base)
+              | map(max_by(.attempt).name)
+            ')
+          if [[ -z "$PR_NUMBER" ]]; then
+            echo "::notice::No open PR has the head ${HEAD_OWNER}:${HEAD_BRANCH}; nothing to report."
+            REPORTS='[]'
+          fi
+          echo "pr-number=${PR_NUMBER}" >> "$GITHUB_OUTPUT"
+          echo "reports=${REPORTS}" >> "$GITHUB_OUTPUT"
+
+  report:
+    needs: find-reports
+    if: needs.find-reports.outputs.reports != '[]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      actions: read  # to download the artifacts of the dispatch run
+      contents: read
+      id-token: write  # enables AWS-GitHub OIDC
+      pull-requests: write  # for commenting on PRs
+    strategy:
+      fail-fast: false
+      matrix:
+        report: ${{ fromJSON(needs.find-reports.outputs.reports) }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Install uv
+        uses: spiraldb/actions/.github/actions/setup-uv@a746510eafaa926484c354541cfc49b2ec06cc63  # 0.18.6
+        with:
+          sync: false
+      # The baseline is the newest recorded commit reachable from the PR head. The commits are only
+      # read for their history, never checked out.
+      - name: Fetch the PR head commits
+        shell: bash
+        env:
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: git fetch --no-tags origin "$HEAD_SHA"
+      - name: Download the report
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8
+        with:
+          name: ${{ matrix.report }}
+          path: ${{ runner.temp }}/report
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ github.token }}
+      - name: Read the report metadata
+        id: meta
+        shell: bash
+        env:
+          REPORT: ${{ runner.temp }}/report
+        run: |
+          set -Eeu -o pipefail
+
+          COMMENT_TAG=$(head -c 200 "$REPORT/comment-tag.txt")
+          if [[ ! "$COMMENT_TAG" =~ ^bench-pr-comment-[A-Za-z0-9._-]+$ ]]; then
+            echo "::error::The report has an unexpected comment tag."
+            exit 1
+          fi
+          BENCHMARK_NAME=$(head -c 200 "$REPORT/name.txt" | tr -d '\r\n')
+          if [[ ! "$BENCHMARK_NAME" =~ ^[A-Za-z0-9][A-Za-z0-9\ ._/+:=()-]*$ ]]; then
+            echo "::error::The report has an unexpected benchmark name."
+            exit 1
+          fi
+          FAILED=$([[ -s "$REPORT/failed.txt" ]] && echo true || echo false)
+          REPORTED=false
+          if [[ "$FAILED" != "true" && -s "$REPORT/results.ingest.jsonl" ]]; then
+            MAX_BYTES=$((16 * 1024 * 1024))
+            MAX_RECORDS=5000
+            for f in "$REPORT/results.ingest.jsonl" "$REPORT/results.json"; do
+              if [[ -f "$f" ]] && (( $(wc -c < "$f") > MAX_BYTES )); then
+                echo "::error::Report file $(basename "$f") exceeds ${MAX_BYTES} bytes."
+                exit 1
+              fi
+            done
+            if (( $(wc -l < "$REPORT/results.ingest.jsonl") > MAX_RECORDS )); then
+              echo "::error::results.ingest.jsonl exceeds ${MAX_RECORDS} records."
+              exit 1
+            fi
+            REPORTED=true
+          fi
+          echo "comment-tag=${COMMENT_TAG}" >> "$GITHUB_OUTPUT"
+          echo "benchmark-name=${BENCHMARK_NAME}" >> "$GITHUB_OUTPUT"
+          echo "failed=${FAILED}" >> "$GITHUB_OUTPUT"
+          echo "reported=${REPORTED}" >> "$GITHUB_OUTPUT"
+      - name: Fetch baseline from the benchmarks database
+        if: steps.meta.outputs.reported == 'true'
+        uses: ./.github/actions/fetch-bench-baseline
+        with:
+          pr-records: ${{ runner.temp }}/report/results.ingest.jsonl
+          output: ${{ runner.temp }}/baseline/base.ingest.jsonl
+          head: ${{ github.event.workflow_run.head_sha }}
+          role-arn: ${{ vars.GH_BENCH_READ_ROLE_ARN }}
+          region: ${{ vars.RDS_BENCH_REGION }}
+          endpoint: ${{ vars.RDS_BENCH_INSTANCE_ENDPOINT }}
+          database: ${{ vars.RDS_BENCH_DB_NAME }}
+      - name: Compare results
+        id: compare
+        shell: bash
+        env:
+          REPORT: ${{ runner.temp }}/report
+          BASELINE: ${{ runner.temp }}/baseline/base.ingest.jsonl
+          BENCHMARK_NAME: ${{ steps.meta.outputs.benchmark-name }}
+          FAILED: ${{ steps.meta.outputs.failed }}
+          REPORTED: ${{ steps.meta.outputs.reported }}
+          RUN_URL: ${{ github.event.workflow_run.html_url }}
+        run: |
+          set -Eeu -o pipefail
+
+          : > comment.md
+          if [[ "$FAILED" == "true" ]]; then
+            echo "# BENCHMARK FAILED" >> comment.md
+            echo >> comment.md
+            echo "Benchmark \`${BENCHMARK_NAME}\` failed! Check the [workflow run](${RUN_URL}) for details." >> comment.md
+          else
+            if [[ -s "$REPORT/missing.txt" ]]; then
+              MISSING=$(head -c 2000 "$REPORT/missing.txt" | tr -d '\r\n')
+              if [[ ! "$MISSING" =~ ^\`[A-Za-z0-9._-]+\`(\ \`[A-Za-z0-9._-]+\`)*$ ]]; then
+                echo "::error::The report has unexpected missing entry names."
+                exit 1
+              fi
+              PRESET=""
+              if [[ -s "$REPORT/matrix-preset.txt" ]]; then
+                PRESET_VAL=$(head -c 100 "$REPORT/matrix-preset.txt" | tr -d '\r\n')
+                if [[ ! "$PRESET_VAL" =~ ^[A-Za-z0-9._-]+$ ]]; then
+                  echo "::error::The report has an unexpected matrix preset."
+                  exit 1
+                fi
+                PRESET=" (${PRESET_VAL})"
+              fi
+              echo "# 🚨🚨🚨❌❌❌ SQL BENCHMARK FAILED ❌❌❌🚨🚨🚨" >> comment.md
+              echo >> comment.md
+              echo "Benchmark \`${BENCHMARK_NAME}\`${PRESET} has entries that did not report: ${MISSING}. Check the [workflow run](${RUN_URL}) for details." >> comment.md
+              echo >> comment.md
+            fi
+            if [[ "$REPORTED" == "true" ]]; then
+              uv run --no-project scripts/compare-benchmark-jsons.py "$BASELINE" \
+                "$REPORT/results.json" "$BENCHMARK_NAME" --pr-records "$REPORT/results.ingest.jsonl" \
+                >> comment.md
+            fi
+          fi
+          cat comment.md >> "$GITHUB_STEP_SUMMARY"
+          echo "has-comment=$([[ -s comment.md ]] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+      - name: Comment PR
+        if: steps.compare.outputs.has-comment == 'true'
+        uses: thollander/actions-comment-pull-request@24bffb9b452ba05a4f3f77933840a6a841d1b32b  # v3
+        with:
+          file-path: comment.md
+          pr-number: ${{ needs.find-reports.outputs.pr-number }}
+          comment-tag: ${{ steps.meta.outputs.comment-tag }}

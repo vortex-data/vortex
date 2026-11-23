@@ -263,7 +263,7 @@ impl Borrow<u64> for ExecuteParentFnId {
 /// The parent that a parent-reduce rule is registered under.
 ///
 /// A parent is an array encoding, such as [`Filter`](crate::arrays::Filter), or a scalar function,
-/// such as [`Cast`](crate::scalar_fn::fns::cast::Cast), because a `ScalarFnArray` is identified by
+/// such as [`Cast`](crate::scalar_fn::builtin::cast::Cast), because a `ScalarFnArray` is identified by
 /// its function. [`AnyScalarFn`] is the parent for a rule that applies to any scalar function
 /// array. The `Kind` parameter only keeps these implementations apart, and callers never name it.
 pub trait ReduceParent<Kind> {
@@ -574,7 +574,7 @@ mod tests {
     use crate::ArrayVTable;
     use crate::arrays::Bool;
     use crate::scalar_fn::ScalarFnVTable;
-    use crate::scalar_fn::fns::binary::Binary;
+    use crate::scalar_fn::builtin::binary::Binary;
 
     static SESSION: LazyLock<VortexSession> =
         LazyLock::new(|| VortexSession::empty().with::<KernelSession>());

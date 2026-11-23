@@ -13,14 +13,16 @@ use bytes::Bytes;
 use futures::StreamExt;
 use futures::pin_mut;
 use vortex::array::IntoArray;
+use vortex::arrow::ArrowScanExt;
 use vortex::dtype::FieldNames;
 use vortex::expr::root;
 use vortex::expr::select;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::file::WriteOptionsSessionExt;
-use vortex::file::v2::ScanDriver;
 use vortex::io::session::RuntimeSessionExt;
 use vortex::layout::scan::v2::ScanBuilder;
+use vortex::scan::execution::driver::ScanDriver;
+use vortex_bench::CompactionStrategy;
 use vortex_bench::Format;
 use vortex_bench::SESSION;
 use vortex_bench::compress::Compressed;
@@ -78,6 +80,23 @@ impl Compressor for VortexCompressor {
         tokio::spawn(vortex_decompress_read(data)).await??;
         Ok(start.elapsed())
     }
+}
+
+/// The size in bytes of `input` written as a Vortex file with the compact strategy, the one the
+/// SQL benchmarks write as `vortex-compact`. The write is not timed: compress-bench records only
+/// the size of compact files.
+pub async fn vortex_compact_size(input: &Uncompressed) -> Result<u64> {
+    let array = input.vortex()?.clone();
+    let buf = tokio::spawn(async move {
+        let mut buf = Vec::new();
+        CompactionStrategy::Compact
+            .apply_options(SESSION.write_options())
+            .write(&mut Cursor::new(&mut buf), array.to_array_stream())
+            .await?;
+        anyhow::Ok(buf)
+    })
+    .await??;
+    Ok(buf.len() as u64)
 }
 
 /// Scan every record batch out of an in-memory Vortex file.

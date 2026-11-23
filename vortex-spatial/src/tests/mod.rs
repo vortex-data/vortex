@@ -9,6 +9,7 @@ mod multilinestring;
 mod multipoint;
 mod multipolygon;
 mod point;
+mod polygon;
 mod rect;
 mod wkb;
 

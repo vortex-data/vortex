@@ -55,6 +55,7 @@ pub mod job;
 pub mod measurements;
 pub mod memory;
 pub mod output;
+pub mod parquet_copies;
 pub mod polarsignals;
 pub mod public_bi;
 pub mod random_access;
@@ -76,12 +77,14 @@ pub use datasets::BenchmarkDataset;
 pub use output::BenchmarkOutput;
 pub use output::create_output_writer;
 use vortex::VortexSessionDefault;
+use vortex::editions::DEFAULT_PREVIEW_EDITION;
 use vortex::editions::Edition;
 use vortex::editions::EditionDeclaration;
 use vortex::editions::EditionFamily;
 use vortex::editions::EditionId;
 use vortex::editions::EditionMember;
 use vortex::editions::EditionSessionExt;
+use vortex::editions::UNSTABLE;
 pub use vortex::error::vortex_panic;
 use vortex::io::session::RuntimeSessionExt;
 use vortex::session::VortexSession;
@@ -117,6 +120,20 @@ static UNSTABLE_BENCH_DECLARATION: EditionDeclaration = EditionDeclaration {
     added: &[EditionMember::layout(&"vortex.list")],
 };
 
+/// Enables the editions holding encodings not yet in `core` on `session`: the newest `preview`
+/// edition ([`DEFAULT_PREVIEW_EDITION`]) and [`UNSTABLE`]. Its compressor may then also choose
+/// those encodings.
+///
+/// Every benchmark session calls this, so benchmarks measure Vortex files written with them.
+pub fn enable_unstable_encodings(session: &VortexSession) {
+    session
+        .enable_edition(DEFAULT_PREVIEW_EDITION)
+        .vortex_expect("default preview edition is registered");
+    session
+        .enable_edition(UNSTABLE)
+        .vortex_expect("unstable edition is registered");
+}
+
 pub static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     let session = VortexSession::default().with_tokio();
     vortex_spatial::initialize(&session);
@@ -127,6 +144,7 @@ pub static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     session
         .register_edition(&UNSTABLE_BENCH_DECLARATION)
         .vortex_expect("bench edition declaration is valid");
+    enable_unstable_encodings(&session);
     session
 });
 
@@ -422,6 +440,18 @@ const DEFAULT_SCALE_FACTOR: &str = "1.0";
 
 const SCALE_FACTOR_KEY: &str = "scale-factor";
 const REMOTE_DATA_KEY: &str = "remote-data-dir";
+/// Rows in each row group of the Parquet that TPC-H, TPC-DS, and nested TPC-H generate. The
+/// default is [`LOCAL_ROW_GROUP_ROWS`]; the benchmarks read from S3 use [`S3_ROW_GROUP_ROWS`].
+///
+/// [`LOCAL_ROW_GROUP_ROWS`]: utils::parquet::LOCAL_ROW_GROUP_ROWS
+/// [`S3_ROW_GROUP_ROWS`]: utils::parquet::S3_ROW_GROUP_ROWS
+const ROW_GROUP_ROWS_KEY: &str = "row-group-rows";
+
+/// The `row-group-rows` option, or [`utils::parquet::LOCAL_ROW_GROUP_ROWS`].
+fn row_group_rows(opts: &Opts) -> usize {
+    opts.get_as::<usize>(ROW_GROUP_ROWS_KEY)
+        .unwrap_or(utils::parquet::LOCAL_ROW_GROUP_ROWS)
+}
 
 /// Factory function to create a benchmark instance from CLI arguments.
 pub fn create_benchmark(b: BenchmarkArg, opts: &Opts) -> anyhow::Result<Box<dyn Benchmark>> {
@@ -446,13 +476,15 @@ pub fn create_benchmark(b: BenchmarkArg, opts: &Opts) -> anyhow::Result<Box<dyn 
         BenchmarkArg::TpcH => {
             let scale_factor = opts.get(SCALE_FACTOR_KEY).unwrap_or(DEFAULT_SCALE_FACTOR);
             let remote_data_dir = opts.get_as::<String>(REMOTE_DATA_KEY);
-            let benchmark = TpcHBenchmark::new(scale_factor.to_string(), remote_data_dir)?;
+            let benchmark = TpcHBenchmark::new(scale_factor.to_string(), remote_data_dir)?
+                .with_row_group_rows(row_group_rows(opts));
             Ok(Box::new(benchmark) as _)
         }
         BenchmarkArg::TpcDS => {
             let scale_factor = opts.get(SCALE_FACTOR_KEY).unwrap_or(DEFAULT_SCALE_FACTOR);
             let remote_data_dir = opts.get_as::<String>(REMOTE_DATA_KEY);
-            let benchmark = TpcDsBenchmark::new(scale_factor.to_string(), remote_data_dir)?;
+            let benchmark = TpcDsBenchmark::new(scale_factor.to_string(), remote_data_dir)?
+                .with_row_group_rows(row_group_rows(opts));
             Ok(Box::new(benchmark) as _)
         }
         BenchmarkArg::TpcHNested => {
@@ -461,7 +493,8 @@ pub fn create_benchmark(b: BenchmarkArg, opts: &Opts) -> anyhow::Result<Box<dyn 
             let shape = opts.get_as::<Shape>("shape").unwrap_or_default();
             let remote_data_dir = opts.get_as::<String>(REMOTE_DATA_KEY);
             let benchmark =
-                TpcHNestedBenchmark::new(scale_factor.to_string(), shape, remote_data_dir)?;
+                TpcHNestedBenchmark::new(scale_factor.to_string(), shape, remote_data_dir)?
+                    .with_row_group_rows(row_group_rows(opts));
             Ok(Box::new(benchmark) as _)
         }
         BenchmarkArg::StatPopGen => {

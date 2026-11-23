@@ -17,7 +17,19 @@ cargo-fuzz = true
 
 [features]
 default = ["native"]
-native = ["libfuzzer-sys", "zstd", "vortex-file", "vortex/files"]
+native = [
+    "libfuzzer-sys",
+    "zstd",
+    "vortex-file",
+    "vortex/files",
+    "dep:vortex-arrow",
+    "dep:parquet-variant",
+    "dep:vortex-json",
+    "dep:vortex-parquet-variant",
+    "dep:vortex-spatial",
+    "dep:vortex-tensor",
+    "dep:vortex-uuid",
+]
 wasmfuzz = []
 zstd = ["vortex/zstd", "vortex-btrblocks/zstd", "vortex-btrblocks/pco"]
 cuda = ["vortex-cuda", "tokio"]
@@ -27,6 +39,7 @@ cuda = ["vortex-cuda", "tokio"]
 arbitrary = { workspace = true }
 itertools = { workspace = true }
 num-traits = { workspace = true }
+parquet-variant = { workspace = true, optional = true }
 strum = { workspace = true, features = ["derive"] }
 
 # Vortex core - no default features for WASM compatibility (files feature pulls in tokio)
@@ -36,6 +49,7 @@ vortex-btrblocks = { workspace = true }
 vortex-buffer = { workspace = true }
 vortex-error = { workspace = true }
 vortex-fsst = { workspace = true, features = ["_test-harness"] }
+vortex-functions = { workspace = true }
 vortex-io = { workspace = true, features = ["wasm-bindgen"] }
 vortex-mask = { workspace = true }
 vortex-row = { workspace = true }
@@ -45,6 +59,15 @@ vortex-utils = { workspace = true }
 # Native-only: libfuzzer harness and file IO (won't compile to WASM)
 libfuzzer-sys = { workspace = true, optional = true }
 vortex-file = { workspace = true, optional = true }
+
+vortex-arrow = { workspace = true, features = [
+    "_test-harness",
+], optional = true }
+vortex-json = { workspace = true, optional = true }
+vortex-parquet-variant = { workspace = true, optional = true }
+vortex-spatial = { workspace = true, optional = true }
+vortex-tensor = { workspace = true, optional = true }
+vortex-uuid = { workspace = true, optional = true }
 
 # GPU support dependencies (optional, only for CUDA fuzzing)
 tokio = { workspace = true, features = ["rt", "macros"], optional = true }
@@ -112,5 +135,13 @@ bench = false
 doc = false
 name = "row_encode"
 path = "fuzz_targets/row_encode.rs"
+test = false
+required-features = ["native"]
+
+[[bin]]
+bench = false
+doc = false
+name = "arrow_roundtrip"
+path = "fuzz_targets/arrow_roundtrip.rs"
 test = false
 required-features = ["native"]

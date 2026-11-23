@@ -170,6 +170,7 @@ fn fill_decimal_array(
                 array.buffer::<D>(),
                 decimal_dtype,
                 result_nullability.into(),
+                ctx,
             )
             .into_array(),
             Validity::AllInvalid => {
@@ -191,9 +192,14 @@ fn fill_decimal_array(
                     }
                 }
 
-                DecimalArray::try_new(new_data.freeze(), decimal_dtype, result_nullability.into())
-                    .vortex_expect("DecimalArray creation should succeed in fuzz test")
-                    .into_array()
+                DecimalArray::try_new(
+                    new_data.freeze(),
+                    decimal_dtype,
+                    result_nullability.into(),
+                    ctx,
+                )
+                .vortex_expect("DecimalArray creation should succeed in fuzz test")
+                .into_array()
             }
         }
     })
@@ -414,11 +420,11 @@ mod tests {
         let mut ctx = VortexSession::empty().create_execution_ctx();
         let array = DecimalArray::from_option_iter(
             [Some(100i32), None, Some(300i32), None, Some(500i32)],
-            DecimalDType::new(10, 2),
+            DecimalDType::new(9, 2),
         );
         let fill_value = Scalar::decimal(
             DecimalValue::I32(999i32),
-            DecimalDType::new(10, 2),
+            DecimalDType::new(9, 2),
             Nullability::NonNullable,
         );
 
@@ -426,7 +432,7 @@ mod tests {
 
         let expected = DecimalArray::from_iter(
             [100i32, 999i32, 300i32, 999i32, 500i32],
-            DecimalDType::new(10, 2),
+            DecimalDType::new(9, 2),
         );
         assert_arrays_eq!(result, expected, &mut ctx);
     }
@@ -495,17 +501,17 @@ mod tests {
         let mut ctx = VortexSession::empty().create_execution_ctx();
         let array = DecimalArray::from_option_iter(
             [Some(100i32), Some(200i32), Some(300i32)],
-            DecimalDType::new(10, 2),
+            DecimalDType::new(9, 2),
         );
         let fill_value = Scalar::decimal(
             DecimalValue::I32(999i32),
-            DecimalDType::new(10, 2),
+            DecimalDType::new(9, 2),
             Nullability::NonNullable,
         );
 
         let result = fill_null_canonical_array(canonical(array), &fill_value, &mut ctx).unwrap();
 
-        let expected = DecimalArray::from_iter([100i32, 200, 300], DecimalDType::new(10, 2));
+        let expected = DecimalArray::from_iter([100i32, 200, 300], DecimalDType::new(9, 2));
         assert_arrays_eq!(result, expected, &mut ctx);
     }
 }

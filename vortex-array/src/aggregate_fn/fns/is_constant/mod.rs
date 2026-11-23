@@ -50,7 +50,7 @@ use crate::expr::stats::Stat;
 use crate::expr::stats::StatsProvider;
 use crate::expr::stats::StatsProviderExt;
 use crate::scalar::Scalar;
-use crate::scalar_fn::fns::operators::Operator;
+use crate::scalar_fn::builtin::operators::Operator;
 
 /// Check if two arrays of the same length have equal values at every position (null-safe).
 ///
@@ -644,18 +644,10 @@ mod tests {
     fn test_decimal_is_constant() -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
 
-        let array = DecimalArray::new(
-            buffer![0i128, 1i128, 2i128],
-            DecimalDType::new(19, 0),
-            Validity::NonNullable,
-        );
+        let array = DecimalArray::from_iter([0i128, 1i128, 2i128], DecimalDType::new(19, 0));
         assert!(!is_constant(&array.into_array(), &mut ctx)?);
 
-        let array = DecimalArray::new(
-            buffer![100i128, 100i128, 100i128],
-            DecimalDType::new(19, 0),
-            Validity::NonNullable,
-        );
+        let array = DecimalArray::from_iter([100i128, 100i128, 100i128], DecimalDType::new(19, 0));
         assert!(is_constant(&array.into_array(), &mut ctx)?);
         Ok(())
     }

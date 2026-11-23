@@ -66,6 +66,15 @@ def test_to_arrow_batch_size(vxf: VortexFile) -> None:
     assert len(list(vxf.to_arrow(batch_size=1_000))) == 1_000, "batch_size=1_000"
 
 
+def test_zero_batch_size_rejected(vxf: VortexFile) -> None:
+    with pytest.raises(ValueError, match="batch_size must be greater than zero"):
+        vxf.scan(batch_size=0)
+    with pytest.raises(ValueError, match="batch_size must be greater than zero"):
+        vxf.to_repeated_scan(batch_size=0)
+    with pytest.raises(ValueError, match="batch_size must be greater than zero"):
+        vxf.to_arrow(batch_size=0)
+
+
 def test_to_arrow_columns(vxf: VortexFile) -> None:
     rbr = vxf.to_arrow(projection=["string", "bool"])
     assert rbr.schema == pa.schema([("string", pa.string_view()), ("bool", pa.bool_())])
@@ -113,6 +122,20 @@ def test_stream_pyarrow(tmpdir_factory) -> None:
     df = pq.read_table(str(data_dir / "names.parquet"))
     vx.io.write(df, str(data_dir / "names.vortex"))
     assert vx.open(str(data_dir / "names.vortex")).to_arrow(schema=table.schema).read_all().equals(table)
+
+
+@pytest.mark.parametrize("as_reader", [False, True])
+def test_write_reports_unsupported_arrow_type(tmp_path, as_reader: bool) -> None:
+    table = pa.table({"elapsed": pa.array([1], pa.duration("ms"))})
+    source = pa.RecordBatchReader.from_batches(table.schema, table.to_batches()) if as_reader else table
+
+    with pytest.raises(ValueError, match="Duration"):
+        vx.io.write(source, str(tmp_path / "x.vortex"))
+
+
+def test_write_rejects_unsupported_object(tmp_path) -> None:
+    with pytest.raises(TypeError, match="converted to an ArrayIterator"):
+        vx.io.write(object(), str(tmp_path / "x.vortex"))  # ty: ignore[invalid-argument-type]
 
 
 @pytest.mark.parametrize("with_footer", [False, True])

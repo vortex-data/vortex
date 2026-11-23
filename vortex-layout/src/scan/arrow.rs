@@ -64,7 +64,7 @@ impl ScanBuilder<ArrayRef> {
     }
 }
 
-pub(super) fn to_record_batch(
+pub(crate) fn to_record_batch(
     chunk: ArrayRef,
     data_type: &Field,
     ctx: &mut ExecutionCtx,

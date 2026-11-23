@@ -45,6 +45,7 @@ geo = { workspace = true }
 geo-traits = { workspace = true }
 geoarrow = { workspace = true }
 geoarrow-cast = { workspace = true }
+geozero = { workspace = true }
 get_dir = { workspace = true }
 glob = { workspace = true }
 humansize = { workspace = true }
@@ -63,8 +64,6 @@ reqwest = { workspace = true, features = ["stream"] }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 spatialbench = { workspace = true }
-spatialbench-arrow = { workspace = true }
-spatialbench-parquet = { workspace = true }
 sysinfo = { workspace = true }
 tabled = { workspace = true, features = ["std"] }
 target-lexicon = { workspace = true }

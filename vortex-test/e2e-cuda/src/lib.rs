@@ -44,6 +44,7 @@ use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::StructArray;
 use vortex::array::arrays::TemporalArray;
 use vortex::array::arrays::VarBinViewArray;
+use vortex::array::arrays::WidenArray;
 use vortex::array::arrays::varbinview::BinaryView;
 use vortex::array::stream::ArrayStreamExt;
 use vortex::array::validity::Validity;
@@ -226,20 +227,18 @@ fn dictionary_array() -> VortexArrayRef {
 /// Build the shared cuDF interop test array used by array and stream exports.
 fn cudf_test_array() -> Result<VortexArrayRef, String> {
     let primitive = primitive_array()?;
-    // cuDF supports Arrow decimal device imports through Decimal128. Decimal256 is intentionally
-    // not included here because cuDF has no DECIMAL256 type_id or Arrow interop mapping.
-    let decimal32 = DecimalArray::from_option_iter(
-        [Some(0i8), Some(1), None, Some(3), Some(4)],
-        DecimalDType::new(9, 2),
-    );
-    let decimal64 = DecimalArray::from_option_iter(
-        [Some(0i32), Some(1), None, Some(3), Some(4)],
-        DecimalDType::new(10, 2),
-    );
-    let decimal128 = DecimalArray::from_option_iter(
-        [Some(0i64), Some(1), None, Some(3), Some(4)],
-        DecimalDType::new(19, 2),
-    );
+    // cuDF supports Arrow decimal device imports through Decimal128. Each column exercises
+    // widening from a narrower child on the device.
+    let decimal = |child_precision, precision| {
+        let values = DecimalArray::from_option_iter(
+            [Some(0i8), Some(1), None, Some(3), Some(4)],
+            DecimalDType::new(child_precision, 2),
+        );
+        let dtype = DType::Decimal(DecimalDType::new(precision, 2), Nullability::Nullable);
+        WidenArray::try_new(values.into_array(), dtype)
+            .map(IntoArray::into_array)
+            .map_err(|error| error.to_string())
+    };
     let strings = VarBinViewArray::from_iter_nullable_str([
         Some("one"),
         None,
@@ -279,9 +278,9 @@ fn cudf_test_array() -> Result<VortexArrayRef, String> {
             bool_array(),
             sliced_i32_array(),
             sliced_bool_array(),
-            decimal32.into_array(),
-            decimal64.into_array(),
-            decimal128.into_array(),
+            decimal(2, 9)?,
+            decimal(9, 10)?,
+            decimal(18, 19)?,
             strings.into_array(),
             sliced_utf8_array(),
             multi_buffer_utf8_array(),

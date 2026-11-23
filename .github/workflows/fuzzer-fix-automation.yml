@@ -77,9 +77,13 @@ jobs:
 
       # Everything this job downloads or logs goes to WORK_DIR, outside the
       # checkout, so the commit step can stage new source files without picking
-      # up crash inputs, logs or the review verdict. The issue body is read from
-      # a file, never interpolated into a script, because it holds panic
-      # messages and other text that the job does not control.
+      # up crash inputs, logs or the review verdict.
+      #
+      # The issue title and body are untrusted input: a person can edit them at
+      # any time before this job reads them. Thus, no script in this workflow
+      # contains an Actions expression that carries issue data. Each script gets
+      # its data from `env` or from a file, so the shell never parses issue data
+      # as code.
       - name: Fetch issue details
         id: fetch_issue
         env:
@@ -89,55 +93,77 @@ jobs:
           WORK_DIR: ${{ runner.temp }}/fuzz-fix
         run: |
           if [[ ! "$ISSUE_NUMBER" =~ ^[0-9]+$ ]]; then
-            echo "::error::Issue number must be numeric, got: $ISSUE_NUMBER"
+            echo "::error::The issue number must contain only digits"
             exit 1
           fi
 
           mkdir -p "$WORK_DIR"
           echo "started_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
 
-          gh issue view "$ISSUE_NUMBER" --repo "$REPO" --json number,title,body,labels > "$WORK_DIR/issue.json"
-          jq -r '.body' "$WORK_DIR/issue.json" > "$WORK_DIR/issue.md"
+          gh issue view "$ISSUE_NUMBER" --repo "$REPO" --json title,body,labels > "$WORK_DIR/issue.json"
+
+          # The body stays in a file and never becomes a step output. A multi-line
+          # output lets the body end the output early and add outputs of its own.
+          # Claude reads this file as the issue text.
+          jq -r '.body // ""' "$WORK_DIR/issue.json" > "$WORK_DIR/issue.md"
 
           if ! jq -e '[.labels[].name] | index("fuzzer")' "$WORK_DIR/issue.json" > /dev/null; then
             echo "::error::Issue #$ISSUE_NUMBER does not have the 'fuzzer' label"
             exit 1
           fi
 
-          # GitHub issue titles are a single line, so this cannot inject outputs.
-          echo "issue_title=$(jq -r '.title' "$WORK_DIR/issue.json")" >> "$GITHUB_OUTPUT"
+          # A step output holds one line, so remove the line breaks from the title.
+          ISSUE_TITLE=$(jq -r '.title // ""' "$WORK_DIR/issue.json" | tr -d '\r\n')
+          echo "issue_title=$ISSUE_TITLE" >> "$GITHUB_OUTPUT"
+          rm "$WORK_DIR/issue.json"
 
       - name: Extract crash details from issue
         id: extract
         env:
           WORK_DIR: ${{ runner.temp }}/fuzz-fix
         run: |
-          body="$WORK_DIR/issue.md"
-          target=$(grep -oP '(?<=\*\*Target\*\*: `)[^`]+' "$body" | head -1 || true)
-          crash_file=$(grep -oP '(?<=\*\*Crash File\*\*: `)[^`]+' "$body" | head -1 || true)
-          artifact_url=$(grep -oP 'https://github\.com/[^\s)]+/actions/runs/[0-9]+/artifacts/[0-9]+' "$body" | head -1 || true)
+          # Each value below comes from the untrusted issue body. Validate each value
+          # before it becomes a step output, and stop the job if a value is not valid.
+          # Do not print a value that failed validation.
+          BODY_FILE="$WORK_DIR/issue.md"
 
-          # These values reach shell commands and the Claude prompt, so accept
-          # only the shapes the fuzz pipeline produces.
-          if [[ ! "$target" =~ ^[a-z0-9_]+$ ]]; then
-            echo "::error::Could not extract a valid fuzz target from the issue (got '$target')"
+          # Use only the first match. More than one match gives a multi-line value,
+          # and a multi-line value can add outputs of its own.
+          TARGET=$(grep -oP '(?<=\*\*Target\*\*: `)[^`]+' "$BODY_FILE" | head -n 1 || true)
+          CRASH_FILE=$(grep -oP '(?<=\*\*Crash File\*\*: `)[^`]+' "$BODY_FILE" | head -n 1 || true)
+          ARTIFACT_URL=$(grep -oP 'https://[^\s)]+/artifacts/[0-9]+' "$BODY_FILE" | head -n 1 || true)
+
+          # The target must be the name of a fuzz target in this repository.
+          if [[ ! "$TARGET" =~ ^[a-z0-9_]+$ ]] || [[ ! -f "fuzz/fuzz_targets/$TARGET.rs" ]]; then
+            echo "::error::The issue has no target, or the target is not a fuzz target of this repository"
             exit 1
           fi
-          if [[ ! "$crash_file" =~ ^[A-Za-z0-9._-]+$ ]]; then
-            echo "::error::Could not extract a valid crash file name from the issue (got '$crash_file')"
+
+          # libFuzzer names a crash file `<kind>-<hash>`. The pattern permits no path
+          # separator, and the first character cannot be `.` or `-`.
+          if [[ ! "$CRASH_FILE" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]; then
+            echo "::error::The issue has no crash file name, or the name is not valid"
             exit 1
           fi
-          if [ -z "$artifact_url" ]; then
-            echo "::error::Could not extract the crash artifact URL from the issue"
+
+          # The artifact must belong to a workflow run of this repository.
+          URL_PREFIX="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/"
+          URL_SUFFIX="${ARTIFACT_URL#"$URL_PREFIX"}"
+
+          if [[ "$ARTIFACT_URL" != "$URL_PREFIX"* ]] || [[ ! "$URL_SUFFIX" =~ ^([0-9]+)/artifacts/([0-9]+)$ ]]; then
+            echo "::error::The issue has no artifact URL, or the URL is not an artifact of this repository"
             exit 1
           fi
+
+          RUN_ID="${BASH_REMATCH[1]}"
+          ARTIFACT_ID="${BASH_REMATCH[2]}"
 
           {
-            echo "target=$target"
-            echo "crash_file=$crash_file"
-            echo "artifact_url=$artifact_url"
+            echo "target=$TARGET"
+            echo "crash_file=$CRASH_FILE"
+            echo "artifact_id=$ARTIFACT_ID"
           } >> "$GITHUB_OUTPUT"
-          echo "Extracted: target=$target, crash_file=$crash_file, artifact_url=$artifact_url"
+          echo "Extracted: target=$TARGET, crash_file=$CRASH_FILE, run=$RUN_ID, artifact=$ARTIFACT_ID"
 
       # A fix session takes 15-30 minutes, so don't start one for an issue that
       # already has an open fix pull request. A closed one doesn't count: the
@@ -190,28 +216,32 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
-          ARTIFACT_URL: ${{ steps.extract.outputs.artifact_url }}
+          ARTIFACT_ID: ${{ steps.extract.outputs.artifact_id }}
           TARGET: ${{ steps.extract.outputs.target }}
           CRASH_FILE: ${{ steps.extract.outputs.crash_file }}
           WORK_DIR: ${{ runner.temp }}/fuzz-fix
         run: |
-          artifact_id=$(echo "$ARTIFACT_URL" | grep -oP 'artifacts/\K[0-9]+')
-
           # Download by artifact ID, not by name. A re-run of the fuzz workflow uploads a
           # second artifact with the same name, and `gh run download --name` then gets the
           # artifact of the latest attempt, which does not contain this crash file.
-          gh api "repos/$REPO/actions/artifacts/$artifact_id/zip" > "$WORK_DIR/crash-artifact.zip"
-          unzip -q -o "$WORK_DIR/crash-artifact.zip" -d "$WORK_DIR/crash"
+          gh api "repos/$REPO/actions/artifacts/$ARTIFACT_ID/zip" > "$WORK_DIR/crash-artifact.zip"
+
+          # Extract only the crash file, outside the checkout, and never replace a file
+          # that exists. The artifact ID comes from the issue, so the archive can be
+          # from a different workflow.
+          mkdir -p "$WORK_DIR/crash"
+          crash_path=""
+          for member in "$TARGET/$CRASH_FILE" "$CRASH_FILE"; do
+            if unzip -q -n "$WORK_DIR/crash-artifact.zip" "$member" -d "$WORK_DIR/crash" 2> /dev/null; then
+              crash_path="$WORK_DIR/crash/$member"
+              break
+            fi
+          done
           rm "$WORK_DIR/crash-artifact.zip"
 
-          crash_path="$WORK_DIR/crash/$TARGET/$CRASH_FILE"
-          if [ ! -f "$crash_path" ]; then
-            # Older artifacts put the crash file at the top level.
-            crash_path="$WORK_DIR/crash/$CRASH_FILE"
-          fi
-          if [ ! -f "$crash_path" ]; then
-            echo "::error::Crash file $CRASH_FILE not found in artifact $artifact_id"
-            find "$WORK_DIR/crash" -maxdepth 2 | head -50
+          # The crash file must be a regular file, not a symbolic link.
+          if [ -z "$crash_path" ] || [ ! -f "$crash_path" ] || [ -L "$crash_path" ]; then
+            echo "::error::Crash file $CRASH_FILE not found in artifact $ARTIFACT_ID"
             exit 1
           fi
 
@@ -319,7 +349,7 @@ jobs:
       - name: Generate GitHub App token for the Claude session
         id: app-token
         if: steps.reproduce.outputs.crash_reproduced == 'true'
-        uses: actions/create-github-app-token@f8d387b68d61c58ab83c6c016672934102569859
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510  # v3.3.0
         with:
           app-id: ${{ secrets.APP_ID }}
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
@@ -338,11 +368,13 @@ jobs:
           # Bash tool's 2-minute default.
           BASH_DEFAULT_TIMEOUT_MS: "1200000"
           BASH_MAX_TIMEOUT_MS: "2400000"
-        uses: anthropics/claude-code-action@d535f5172dec02b204866b393d6b20b9b2aaf98d  # v1.0.266
+        uses: anthropics/claude-code-action@f3b070c88125d33dbae5653df5f143101d4ea9dc  # v1.0.276
         with:
           # This job runs in the claude-automation environment, so the OIDC subject is
           # `environment:claude-automation`. Only the `vortex-claude-write` rule matches
           # that subject. The `vortex-claude-ci` rule fails the token exchange with 401.
+          # The write rule also requires this workflow as `job_workflow_ref`. If you
+          # rename this file, update the rule, or the token exchange fails with 401.
           anthropic_federation_rule_id: ${{ vars.ANTHROPIC_FEDERATION_RULE_WRITE }}
           anthropic_organization_id: ${{ vars.ANTHROPIC_ORGANIZATION_ID }}
           anthropic_service_account_id: ${{ vars.ANTHROPIC_SERVICE_ACCOUNT_ID }}
@@ -438,6 +470,7 @@ jobs:
           # its own model, effort and tools in .claude/skills/fuzz-fix-review/SKILL.md.
           claude_args: |
             --model claude-opus-5-5
+            --permission-mode default
             --effort high
             --max-turns 150
             --add-dir ${{ runner.temp }}/fuzz-fix
@@ -601,7 +634,7 @@ jobs:
       - name: Generate GitHub App token for the fix branch and pull request
         id: push-token
         if: ${{ !cancelled() && steps.stage.outputs.has_changes == 'true' && steps.review.outputs.verdict == 'approve' }}
-        uses: actions/create-github-app-token@f8d387b68d61c58ab83c6c016672934102569859
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510  # v3.3.0
         with:
           app-id: ${{ secrets.APP_ID }}
           private-key: ${{ secrets.APP_PRIVATE_KEY }}

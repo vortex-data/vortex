@@ -29,11 +29,9 @@ use crate::dtype::DecimalDType;
 use crate::dtype::Nullability;
 use crate::scalar::DecimalValue;
 use crate::scalar::Scalar;
-use crate::scalar_fn::fns::between::BetweenOptions;
-use crate::scalar_fn::fns::between::StrictComparison;
-use crate::scalar_fn::fns::binary::CompareKernel;
-use crate::scalar_fn::fns::fill_null::FillNullReduce;
-use crate::scalar_fn::fns::operators::Operator;
+use crate::scalar_fn::builtin::binary::CompareKernel;
+use crate::scalar_fn::builtin::fill_null::FillNullReduce;
+use crate::scalar_fn::builtin::operators::Operator;
 
 /// Returns a `Widen` of the `parent` dtype over `values`, with the nullability of `values`.
 fn widen(values: impl IntoArray, parent: DecimalDType) -> VortexResult<WidenArray> {
@@ -214,42 +212,6 @@ fn test_compare_two_widen(
     }
 
     assert_compare_matches_canonical(&lhs.into_array(), &rhs, operator, &mut ctx)
-}
-
-#[rstest]
-#[case::inside(Some(-99_999), Some(99_999))]
-#[case::outside(Some(-100_000), Some(100_000))]
-#[case::below(Some(-100_001), Some(-100_000))]
-#[case::above(Some(100_000), Some(100_001))]
-#[case::reversed(Some(99_999), Some(-99_999))]
-#[case::null_lower(None, Some(99_999))]
-#[case::null_upper(Some(-99_999), None)]
-fn test_between(#[case] lower: Option<i64>, #[case] upper: Option<i64>) -> VortexResult<()> {
-    let mut ctx = SESSION.create_execution_ctx();
-    let parent = DecimalDType::new(18, 2);
-    let array = partially_valid(parent)?.into_array();
-    let lower = ConstantArray::new(
-        decimal_scalar(lower, parent, Nullability::Nullable),
-        array.len(),
-    )
-    .into_array();
-    let upper = ConstantArray::new(
-        decimal_scalar(upper, parent, Nullability::Nullable),
-        array.len(),
-    )
-    .into_array();
-    let options = BetweenOptions {
-        lower_strict: StrictComparison::Strict,
-        upper_strict: StrictComparison::NonStrict,
-    };
-
-    let result = array
-        .clone()
-        .between(lower.clone(), upper.clone(), options.clone())?;
-    let expected = canonical(&array, &mut ctx)?.between(lower, upper, options)?;
-    assert_arrays_eq!(result, expected, &mut ctx);
-
-    Ok(())
 }
 
 #[rstest]

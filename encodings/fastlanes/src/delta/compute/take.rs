@@ -8,12 +8,12 @@ use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::dict::TakeExecute;
-use vortex_array::arrays::filter::ChunkDecoder;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_array::dtype::IntegerPType;
 use vortex_array::match_each_integer_ptype;
 use vortex_array::match_each_unsigned_integer_ptype;
 use vortex_buffer::Buffer;
+use vortex_buffer::filter::ChunkDecoder;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 

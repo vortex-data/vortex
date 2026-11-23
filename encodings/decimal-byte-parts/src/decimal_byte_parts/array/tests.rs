@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! Tests of part validation and execution.
+
 use std::sync::LazyLock;
 
 use rstest::rstest;
@@ -10,13 +12,13 @@ use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::BoolArray;
+use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::DecimalArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::assert_arrays_eq;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::DecimalDType;
-use vortex_array::dtype::DecimalType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::dtype::i256;
@@ -34,6 +36,7 @@ use crate::decimal_byte_parts::LOWER_PART_DTYPE;
 use crate::decimal_byte_parts::MAX_LOWER_PARTS;
 use crate::decimal_byte_parts::testing::i128_parts;
 use crate::decimal_byte_parts::testing::i256_parts;
+use crate::decimal_byte_parts::testing::widen_msp;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     let session = VortexSession::empty();
@@ -113,35 +116,47 @@ fn test_lower_part_layout_i256() -> VortexResult<()> {
     Ok(())
 }
 
+/// `scalar_at` assembles one row without decoding the array, so it must agree with decoding.
 #[rstest]
-fn test_scalar_at_matches_canonical_for_each_part_count(
-    #[values(false, true)] narrow_msp: bool,
-    #[values(0, 1, 2, 3)] lower_count: usize,
+fn test_scalar_at_matches_decoded_rows(
+    #[values(PType::I8, PType::I16, PType::I32, PType::I64)] msp_ptype: PType,
+    #[values(0, 1, 2, 3)] lower_part_count: usize,
 ) -> VortexResult<()> {
-    let validity = Validity::from_iter([false, true, true]);
-    let msp = if narrow_msp {
-        PrimitiveArray::new(buffer![0i8, 3, -3], validity)
-    } else {
-        PrimitiveArray::new(buffer![0i64, 3, -3], validity)
-    };
-    let lower = [4u64, 1, 2]
-        .into_iter()
-        .take(lower_count)
-        .map(|word| PrimitiveArray::new(buffer![word; 3], Validity::NonNullable).into_array())
-        .collect();
-    let dtype = DecimalDType::new(if lower_count <= 1 { 38 } else { 76 }, 0);
-    let array = DecimalByteParts::try_new_with_lower_parts(msp.into_array(), lower, dtype)?;
     let mut ctx = SESSION.create_execution_ctx();
-    let canonical = array
+    let dtype = DecimalDType::new(if lower_part_count <= 1 { 38 } else { 76 }, 0);
+    let msp = PrimitiveArray::new(
+        buffer![0i64, 1, -1],
+        Validity::from_iter([false, true, true]),
+    )
+    .into_array()
+    .cast(DType::Primitive(msp_ptype, Nullability::Nullable))?;
+    let msp = if msp_ptype == PType::I64 {
+        msp
+    } else {
+        widen_msp(msp, dtype)?
+    };
+
+    // Set the highest bit of each word to catch accidental sign extension. The low bits differ, so
+    // a swapped word shows up too.
+    let lower = [(1u64 << 63) | 1, (1 << 63) | 2, (1 << 63) | 3]
+        .into_iter()
+        .take(lower_part_count)
+        .map(|word| buffer![0u64, word, word].into_array())
+        .collect();
+    let array = DecimalByteParts::try_new_with_lower_parts(msp, lower, dtype)?;
+
+    let decoded = array
         .clone()
         .into_array()
         .execute::<DecimalArray>(&mut ctx)?;
+
     for row in 0..array.len() {
         assert_eq!(
             array.execute_scalar(row, &mut ctx)?,
-            canonical.execute_scalar(row, &mut ctx)?
+            decoded.execute_scalar(row, &mut ctx)?
         );
     }
+
     Ok(())
 }
 
@@ -170,95 +185,63 @@ fn test_scalar_at_null_with_lower_parts() -> VortexResult<()> {
 }
 
 #[rstest]
-#[case([PType::U8, PType::U16, PType::U32])]
-#[case([PType::U16, PType::U32, PType::U64])]
-#[case([PType::U32, PType::U64, PType::U8])]
-#[case([PType::U64, PType::U8, PType::U16])]
-fn test_independently_narrowed_parts(
-    #[case] lower_ptypes: [PType; 3],
-    #[values(PType::I8, PType::I16, PType::I32, PType::I64)] msp_ptype: PType,
-    #[values(1, 2, 3)] lower_count: usize,
-) -> VortexResult<()> {
-    let mut ctx = SESSION.create_execution_ctx();
-    let validity = Validity::from_iter([false, true, true]);
-    let msp = PrimitiveArray::new(buffer![0i64, 1, -1], validity.clone())
-        .into_array()
-        .cast(DType::Primitive(msp_ptype, Nullability::Nullable))?;
-    // Set the unsigned type's highest bit to catch accidental sign extension.
-    let words = lower_ptypes.map(|ptype| 1u64 << (ptype.byte_width() * 8 - 1));
-    let lower = lower_ptypes
-        .into_iter()
-        .zip(words)
-        .take(lower_count)
-        .map(|(ptype, word)| {
-            buffer![0u64, word, word]
-                .into_array()
-                .cast(DType::Primitive(ptype, Nullability::NonNullable))
-        })
-        .collect::<VortexResult<Vec<_>>>()?;
-    let dtype = DecimalDType::new(if lower_count == 1 { 38 } else { 76 }, 0);
-    let encoded = DecimalByteParts::try_new_with_lower_parts(msp, lower, dtype)?;
-    let expected = match lower_count {
-        1 => DecimalArray::new(
-            buffer![
-                0i128,
-                (1i128 << 64) | i128::from(words[0]),
-                (-1i128 << 64) | i128::from(words[0])
-            ],
-            dtype,
-            validity,
-        ),
-        2 => {
-            let low = (u128::from(words[0]) << 64) | u128::from(words[1]);
-            DecimalArray::new(
-                buffer![
-                    i256::ZERO,
-                    i256::from_parts(low, 1),
-                    i256::from_parts(low, -1)
-                ],
-                dtype,
-                validity,
-            )
-        }
-        _ => {
-            let low = (u128::from(words[1]) << 64) | u128::from(words[2]);
-            DecimalArray::new(
-                buffer![
-                    i256::ZERO,
-                    i256::from_parts(low, (1i128 << 64) | i128::from(words[0])),
-                    i256::from_parts(low, (-1i128 << 64) | i128::from(words[0])),
-                ],
-                dtype,
-                validity,
-            )
-        }
-    };
-    assert_arrays_eq!(encoded, expected, &mut ctx);
-    for row in 0..expected.len() {
-        assert_eq!(
-            encoded.execute_scalar(row, &mut ctx)?,
-            expected.execute_scalar(row, &mut ctx)?
-        );
-    }
-    Ok(())
-}
-
-#[rstest]
-#[case::signed_lower_part(vec![buffer![1i64, 2, 3].into_array()], DecimalDType::new(38, 2))]
+#[case::signed_lower_part(
+    vec![buffer![1i64, 2, 3].into_array()],
+    DecimalDType::new(38, 2),
+    "lower part 0 dtype\n  left: i64\n right: u64"
+)]
 #[case::nullable_lower_part(
     vec![PrimitiveArray::new(buffer![1u64, 2, 3], Validity::AllValid).into_array()],
-    DecimalDType::new(38, 2)
+    DecimalDType::new(38, 2),
+    "lower part 0 dtype\n  left: u64?\n right: u64"
 )]
-#[case::mismatched_length(vec![buffer![1u64, 2].into_array()], DecimalDType::new(38, 2))]
+#[case::narrow_lower_part(
+    vec![buffer![1u32, 2, 3].into_array()],
+    DecimalDType::new(38, 2),
+    "lower part 0 dtype\n  left: u32\n right: u64"
+)]
+#[case::mismatched_length(
+    vec![buffer![1u64, 2].into_array()],
+    DecimalDType::new(38, 2),
+    "length mismatch"
+)]
+#[case::signed_last_part(
+    vec![lower_part(), lower_part(), buffer![1i64, 2, 3].into_array()],
+    DecimalDType::new(76, 2),
+    "lower part 2 dtype\n  left: i64\n right: u64"
+)]
+#[case::short_last_part(
+    vec![lower_part(), lower_part(), buffer![1u64, 2].into_array()],
+    DecimalDType::new(76, 2),
+    "lower part 2 length mismatch"
+)]
 #[case::too_many_parts(
     vec![lower_part(), lower_part(), lower_part(), lower_part()],
-    DecimalDType::new(76, 2)
+    DecimalDType::new(76, 2),
+    "expected 1..=4 slots, got 5"
+)]
+#[case::one_lower_part_at_p18(
+    vec![lower_part()],
+    DecimalDType::new(18, 2),
+    "allows at most 0 lower parts, got 1"
+)]
+#[case::three_lower_parts_at_p38(
+    vec![lower_part(), lower_part(), lower_part()],
+    DecimalDType::new(38, 2),
+    "allows at most 1 lower parts, got 3"
 )]
 fn test_rejects_invalid_parts(
     #[case] lower_parts: Vec<ArrayRef>,
     #[case] decimal_dtype: DecimalDType,
+    #[case] expected_error: &str,
 ) {
-    assert!(DecimalByteParts::try_new_with_lower_parts(msp(), lower_parts, decimal_dtype).is_err());
+    let result = DecimalByteParts::try_new_with_lower_parts(msp(), lower_parts, decimal_dtype);
+    assert!(
+        result
+            .as_ref()
+            .is_err_and(|err| err.to_string().contains(expected_error)),
+        "expected {expected_error}, got {result:?}"
+    );
 }
 
 #[rstest]
@@ -278,48 +261,8 @@ fn test_rejects_missing_slots(#[case] slots: Vec<Option<ArrayRef>>) {
 }
 
 #[test]
-fn test_wide_decimal_buffer_types() -> VortexResult<()> {
-    let mut ctx = SESSION.create_execution_ctx();
-
-    let i128_array = i128_parts(vec![1i128 << 100], Validity::NonNullable);
-    let canonical = i128_array.into_array().execute::<DecimalArray>(&mut ctx)?;
-    assert_eq!(canonical.values_type(), DecimalType::I128);
-
-    let i256_array = i256_parts(vec![i256::from_parts(0, 1 << 100)], Validity::NonNullable);
-    let canonical = i256_array.into_array().execute::<DecimalArray>(&mut ctx)?;
-    assert_eq!(canonical.values_type(), DecimalType::I256);
-
-    // A narrow MSP with a single lower part still fits 128 bits.
-    let array = DecimalByteParts::try_new_with_lower_parts(
-        buffer![1i8, -1, 0].into_array(),
-        vec![buffer![7u64, 7, 7].into_array()],
-        DecimalDType::new(38, 2),
-    )?;
-    let canonical = array.into_array().execute::<DecimalArray>(&mut ctx)?;
-    assert_eq!(canonical.values_type(), DecimalType::I128);
-    assert_eq!(
-        canonical.buffer::<i128>().as_slice(),
-        &[(1i128 << 64) | 7, (-1i128 << 64) | 7, 7]
-    );
-
-    // Two lower parts under a narrow MSP overflow 128 bits, so the value widens.
-    let array = DecimalByteParts::try_new_with_lower_parts(
-        buffer![1i8].into_array(),
-        vec![buffer![0u64].into_array(), buffer![9u64].into_array()],
-        DecimalDType::new(76, 2),
-    )?;
-    let canonical = array.into_array().execute::<DecimalArray>(&mut ctx)?;
-    assert_eq!(canonical.values_type(), DecimalType::I256);
-    assert_eq!(
-        canonical.buffer::<i256>().as_slice(),
-        &[i256::from_parts(9, 1)]
-    );
-    Ok(())
-}
-
-#[test]
 fn test_unused_buffer_of_values_is_ignored_for_null_rows() -> VortexResult<()> {
-    // Null rows may hold arbitrary bits in the lower parts; they must stay null.
+    // Null rows may hold arbitrary bits in the lower parts and must stay null.
     let array = DecimalByteParts::try_new_with_lower_parts(
         PrimitiveArray::new(
             buffer![0i64, 0, 0],
@@ -342,9 +285,41 @@ fn test_unused_buffer_of_values_is_ignored_for_null_rows() -> VortexResult<()> {
             buffer![0i128, 0, 11],
             DecimalDType::new(38, 2),
             Validity::from_iter([false, false, true]),
+            &mut ctx,
         ),
         &mut ctx
     );
+
+    Ok(())
+}
+
+#[rstest]
+#[case::p2(2, PType::I8)]
+#[case::p4(4, PType::I16)]
+#[case::p9(9, PType::I32)]
+#[case::p18(18, PType::I64)]
+#[case::p38(38, PType::I64)]
+#[case::p76(76, PType::I64)]
+fn test_msp_requires_logical_ptype(
+    #[case] precision: u8,
+    #[case] expected_ptype: PType,
+    #[values(PType::I8, PType::I16, PType::I32, PType::I64)] stored_ptype: PType,
+    #[values(Nullability::NonNullable, Nullability::Nullable)] nullability: Nullability,
+) -> VortexResult<()> {
+    let decimal_dtype = DecimalDType::new(precision, 0);
+    let msp = ConstantArray::new(
+        Scalar::default_value(&DType::Primitive(stored_ptype, nullability)),
+        3,
+    )
+    .into_array();
+    let result = DecimalByteParts::try_new(msp.clone(), decimal_dtype);
+    assert_eq!(result.is_ok(), stored_ptype == expected_ptype);
+
+    if stored_ptype.byte_width() < expected_ptype.byte_width() {
+        let msp = widen_msp(msp, decimal_dtype)?;
+        let array = DecimalByteParts::try_new(msp, decimal_dtype)?;
+        assert_eq!(array.dtype(), &DType::Decimal(decimal_dtype, nullability));
+    }
 
     Ok(())
 }

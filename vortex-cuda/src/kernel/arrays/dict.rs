@@ -132,8 +132,8 @@ async fn execute_dict_bool_typed<I: DeviceRepr + NativePType>(
         ..
     } = codes.into_data_parts();
 
-    let values_device = ctx.ensure_on_device(values_buffer).await?;
-    let codes_device = ctx.ensure_on_device(codes_buffer).await?;
+    let values_device = ctx.ensure_on_device(values_buffer)?;
+    let codes_device = ctx.ensure_on_device(codes_buffer)?;
 
     // Each CUDA thread owns complete output bytes, avoiding races between threads writing
     // different bits in the same byte. The kernel handles the final partial byte explicitly.
@@ -188,8 +188,8 @@ async fn execute_dict_prim_typed<V: DeviceRepr + NativePType, I: DeviceRepr + Na
     } = codes.into_data_parts();
 
     // Get device buffers for values and codes
-    let values_device = ctx.ensure_on_device(values_buffer).await?;
-    let codes_device = ctx.ensure_on_device(codes_buffer).await?;
+    let values_device = ctx.ensure_on_device(values_buffer)?;
+    let codes_device = ctx.ensure_on_device(codes_buffer)?;
 
     // Allocate output buffer on device
     let mut output_slice = ctx.device_alloc::<V>(codes_len)?;
@@ -272,8 +272,8 @@ async fn execute_dict_decimal_typed<
     } = codes.into_data_parts();
 
     // Copy buffers to device if needed
-    let values_device = ctx.ensure_on_device(values_buffer).await?;
-    let codes_device = ctx.ensure_on_device(codes_buffer).await?;
+    let values_device = ctx.ensure_on_device(values_buffer)?;
+    let codes_device = ctx.ensure_on_device(codes_buffer)?;
 
     // Allocate output buffer on device (codes_len * value_byte_width bytes)
     let mut output_slice = ctx.device_alloc::<V>(codes_len)?;
@@ -297,12 +297,14 @@ async fn execute_dict_decimal_typed<
     })?;
 
     let output_device = CudaDeviceBuffer::new(output_slice)?;
-    Ok(Canonical::Decimal(DecimalArray::new_handle(
-        BufferHandle::new_device(Arc::new(output_device)),
-        V::DECIMAL_TYPE,
-        output_dtype.into_decimal_opt().vortex_expect("is decimal"),
-        output_validity,
-    )))
+    Ok(Canonical::Decimal(
+        DecimalArray::try_new_handle_from_trusted_values(
+            BufferHandle::new_device(Arc::new(output_device)),
+            V::DECIMAL_TYPE,
+            output_dtype.into_decimal_opt().vortex_expect("is decimal"),
+            output_validity,
+        )?,
+    ))
 }
 
 /// Dictionary array decompression for string (UTF-8/Binary) values.
@@ -338,8 +340,8 @@ async fn execute_dict_varbinview(
     } = codes_prim.into_data_parts();
 
     // Move buffers to device if needed.
-    let values_device = ctx.ensure_on_device(values_views_handle).await?;
-    let codes_device = ctx.ensure_on_device(codes_buffer).await?;
+    let values_device = ctx.ensure_on_device(values_views_handle)?;
+    let codes_device = ctx.ensure_on_device(codes_buffer)?;
 
     // Allocate output: one i128 per code.
     let mut output_slice = ctx.device_alloc::<i128>(codes_len)?;
@@ -404,7 +406,8 @@ mod tests {
     use crate::CanonicalCudaExt;
     use crate::arrow::DeviceArrayExt;
     use crate::device_buffer::CUDF_VALIDITY_BUFFER_PADDING;
-    use crate::device_buffer::cuda_backing_allocation;
+    use crate::device_buffer::test_support::cuda_address;
+    use crate::device_buffer::test_support::cuda_backing_allocation;
     use crate::session::CudaSession;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
@@ -437,9 +440,7 @@ mod tests {
         let len = codes.len();
         let expected = DictArray::try_new(codes.clone().into_array(), values.clone())?.into_array();
 
-        let codes_handle = cuda_ctx
-            .ensure_on_device(codes.buffer_handle().clone())
-            .await?;
+        let codes_handle = cuda_ctx.ensure_on_device(codes.buffer_handle().clone())?;
         let device_codes =
             PrimitiveArray::from_buffer_handle(codes_handle, codes.ptype(), codes.validity()?);
         let dict = DictArray::try_new(device_codes.into_array(), values)?.into_array();
@@ -456,7 +457,7 @@ mod tests {
         let bytes = backing.try_to_host()?.await?;
         assert!(bytes[logical_bytes..].iter().all(|byte| *byte == 0));
 
-        let bits_ptr = bits.cuda_device_ptr()?;
+        let bits_ptr = cuda_address(&bits)?;
         let mut exported = actual
             .clone()
             .into_array()
@@ -790,6 +791,7 @@ mod tests {
             decimal.values_type(),
             decimal.decimal_dtype(),
             decimal.validity()?,
+            &mut SESSION.create_execution_ctx(),
         ))
     }
 
@@ -1358,9 +1360,7 @@ mod tests {
         codes: PrimitiveArray,
         cuda_ctx: &mut CudaExecutionCtx,
     ) -> VortexResult<PrimitiveArray> {
-        let handle = cuda_ctx
-            .ensure_on_device(codes.buffer_handle().clone())
-            .await?;
+        let handle = cuda_ctx.ensure_on_device(codes.buffer_handle().clone())?;
         Ok(PrimitiveArray::from_buffer_handle(
             handle,
             codes.ptype(),

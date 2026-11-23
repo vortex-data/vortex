@@ -23,7 +23,6 @@ use crate::canonical::CanonicalKind;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::executor::ExecutionResult;
-use crate::executor::ExecutionStep;
 use crate::scalar::Scalar;
 use crate::validity::Validity;
 
@@ -32,8 +31,6 @@ pub use erased::*;
 
 mod plugin;
 pub use plugin::*;
-mod haystack;
-pub(crate) use haystack::ArrayHaystack;
 mod probe;
 pub use probe::*;
 
@@ -125,9 +122,6 @@ pub(crate) trait DynArrayData: 'static + private::Sealed + Send + Sync + Debug {
     /// Returns the array as a reference to a generic [`Any`] trait object.
     fn as_any(&self) -> &dyn Any;
 
-    /// Returns the array as a mutable reference to a generic [`Any`] trait object.
-    fn as_any_mut(&mut self) -> &mut dyn Any;
-
     /// Classifies the concrete vtable independently of its logical dtype or encoding ID.
     fn canonical_kind(&self) -> Option<CanonicalKind>;
 
@@ -196,30 +190,12 @@ pub(crate) trait DynArrayData: 'static + private::Sealed + Send + Sync + Debug {
     /// Attempt to reduce the array to a simpler representation.
     fn reduce(&self, this: &ArrayRef) -> VortexResult<Option<ArrayRef>>;
 
-    /// Execute the array by taking a single encoding-specific execution step.
+    /// The encoding's execute step, as a function taking the array by value.
     ///
-    /// This is the checked entry point. If the encoding reports
-    /// [`ExecutionStep::Done`](ExecutionStep::Done), implementations must validate that the
-    /// returned array preserves this array's logical `len` and `dtype`, and must transfer this
-    /// array's statistics to the returned array.
-    fn execute(&self, this: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult>;
-
-    /// Execute the array by taking a single encoding-specific execution step without applying
-    /// `Done`-result postconditions.
-    ///
-    /// This exists for the iterative executor, which may call into `execute` on suspended
-    /// executor-private arrays whose slots temporarily contain `None`. In that mode the executor
-    /// itself is responsible for deciding when a `Done` result represents a real logical array,
-    /// enforcing any `len`/`dtype` invariants, and transferring statistics.
-    ///
-    /// # Safety
-    /// The `array` returned should have it's `DType` and len checked
-    /// (optionally it should have its stats propagated from `this`).
-    unsafe fn execute_unchecked(
-        &self,
-        this: ArrayRef,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<ExecutionResult>;
+    /// The executor calls it after this borrow of the array's data has ended: the step may drop
+    /// the last reference to the array, which must not happen while a reference into it is still
+    /// a live argument.
+    fn execute_fn(&self) -> ExecuteFn;
 
     /// Read the scalar at `index`, including its nullness, retaining nothing.
     ///
@@ -258,6 +234,20 @@ pub(crate) trait DynArrayData: 'static + private::Sealed + Send + Sync + Debug {
     ) -> VortexResult<bool>;
 }
 
+/// An encoding's execute step: see [`DynArrayData::execute_fn`].
+pub(crate) type ExecuteFn = fn(ArrayRef, &mut ExecutionCtx) -> VortexResult<ExecutionResult>;
+
+/// Run `V`'s execute step on `this`, which must be an array of `V`.
+fn execute_encoding<V: VTable>(
+    this: ArrayRef,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ExecutionResult> {
+    let typed = Array::<V>::try_from_array_ref(this)
+        .map_err(|_| vortex_err!("Failed to downcast array for execute"))
+        .vortex_expect("Failed to downcast array for execute");
+    V::execute(typed, ctx)
+}
+
 /// Trait for converting a type into a Vortex [`ArrayRef`].
 pub trait IntoArray {
     /// Convert this value into the erased array handle used by generic APIs.
@@ -286,10 +276,6 @@ impl<V: VTable> DynArrayData for ArrayData<V> {
     }
 
     fn as_any(&self) -> &dyn Any {
-        self
-    }
-
-    fn as_any_mut(&mut self) -> &mut dyn Any {
         self
     }
 
@@ -462,43 +448,8 @@ impl<V: VTable> DynArrayData for ArrayData<V> {
         Ok(Some(reduced))
     }
 
-    fn execute(&self, this: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
-        let len = this.len();
-        let dtype = this.dtype().clone();
-        let stats = this.statistics().share_existing();
-        let result = unsafe { self.execute_unchecked(this, ctx)? };
-
-        if matches!(result.step(), ExecutionStep::Done) {
-            if cfg!(debug_assertions) {
-                vortex_ensure_eq!(
-                    result.array().len(),
-                    len,
-                    "Result length mismatch for {:?}",
-                    self.vtable
-                );
-                vortex_ensure_eq!(
-                    result.array().dtype(),
-                    &dtype,
-                    "Executed canonical dtype mismatch for {:?}",
-                    self.vtable
-                );
-            }
-
-            result.array().statistics().transfer_from(&stats);
-        }
-
-        Ok(result)
-    }
-
-    unsafe fn execute_unchecked(
-        &self,
-        this: ArrayRef,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<ExecutionResult> {
-        let typed = Array::<V>::try_from_array_ref(this)
-            .map_err(|_| vortex_err!("Failed to downcast array for execute"))
-            .vortex_expect("Failed to downcast array for execute");
-        V::execute(typed, ctx)
+    fn execute_fn(&self) -> ExecuteFn {
+        execute_encoding::<V>
     }
 
     fn probe_scalar_once(

@@ -24,14 +24,14 @@ use vortex_array::expr::bound::lit;
 use vortex_array::expr::stats::Stat;
 use vortex_array::scalar_fn::EmptyOptions;
 use vortex_array::scalar_fn::ScalarFnVTableExt;
-use vortex_array::scalar_fn::fns::dynamic_expression::DynamicExpression;
-use vortex_array::scalar_fn::fns::dynamic_expression::DynamicExpressionOptions;
-use vortex_array::scalar_fn::fns::dynamic_expression::DynamicExpressionSource;
-use vortex_array::scalar_fn::fns::dynamic_expression::input_field_name;
-use vortex_array::scalar_fn::fns::get_item::GetItem;
-use vortex_array::scalar_fn::fns::stat::StatFn;
+use vortex_array::scalar_fn::builtin::get_item::GetItem;
 use vortex_array::scalar_fn::internal::row_count::RowCount;
 use vortex_error::VortexResult;
+use vortex_functions::dynamic_expression::DynamicExpression;
+use vortex_functions::dynamic_expression::DynamicExpressionOptions;
+use vortex_functions::dynamic_expression::DynamicExpressionSource;
+use vortex_functions::dynamic_expression::input_field_name;
+use vortex_functions::stat::StatFn;
 use vortex_session::VortexSession;
 
 use crate::stats::bound::stat;
@@ -214,7 +214,6 @@ mod tests {
     use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::PType;
     use vortex_array::expr::col;
-    use vortex_array::expr::dynamic_expression;
     use vortex_array::expr::get_item as unbound_get_item;
     use vortex_array::expr::lit as unbound_lit;
     use vortex_array::expr::lt;
@@ -223,6 +222,7 @@ mod tests {
     use vortex_array::scalar::Scalar;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
+    use vortex_functions::expr::dynamic_expression;
 
     use super::*;
     use crate::stats::StatsSession;

@@ -20,8 +20,8 @@ use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::scalar::Scalar;
-use crate::scalar_fn::fns::fill_null::FillNullKernel;
-use crate::scalar_fn::fns::operators::Operator;
+use crate::scalar_fn::builtin::fill_null::FillNullKernel;
+use crate::scalar_fn::builtin::operators::Operator;
 
 impl FillNullKernel for Dict {
     fn fill_null(
@@ -114,7 +114,7 @@ mod tests {
     use crate::dtype::Nullability;
     use crate::dtype::PType;
     use crate::scalar::Scalar;
-    use crate::scalar_fn::fns::fill_null::FillNullKernel;
+    use crate::scalar_fn::builtin::fill_null::FillNullKernel;
     use crate::validity::Validity;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);

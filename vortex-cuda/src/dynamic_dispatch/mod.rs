@@ -19,7 +19,6 @@
 
 use std::borrow::Borrow;
 use std::mem::size_of;
-use std::sync::Arc;
 
 use vortex::array::Canonical;
 use vortex::array::IntoArray;
@@ -29,19 +28,19 @@ use vortex::array::buffer::BufferHandle;
 use vortex::array::buffer::DeviceBufferExt;
 use vortex::array::match_each_unsigned_integer_ptype;
 use vortex::array::scalar::Scalar;
-use vortex::buffer::Alignment;
-use vortex::buffer::ByteBuffer;
-use vortex::buffer::ByteBufferMut;
 use vortex::dtype::DType;
 use vortex::dtype::Nullability;
 use vortex::dtype::PType;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::error::vortex_err;
+use vortex_cuda_driver::CudaFunction;
 use vortex_cuda_driver::DevicePtr;
+use vortex_cuda_driver::DeviceRepr;
 use vortex_cuda_driver::LaunchConfig;
 use vortex_cuda_driver::PushKernelArg;
 use vortex_cuda_driver::SyncOnDrop;
+use vortex_cuda_driver::sys::CUdevice_attribute;
 
 use crate::CudaBufferExt;
 use crate::CudaDeviceBuffer;
@@ -148,7 +147,55 @@ impl MaterializedStage {
     }
 }
 
-/// A dispatch plan serialized as a packed byte buffer.
+/// Input stages smaller than this are cheap to decode in every block, and looping only slows
+/// them down.
+const LOOP_RANGES_MIN_INPUT_LEN: u64 = 64;
+
+/// The kernel and number of blocks for a plan producing `len` elements of `ptype`.
+///
+/// Plans with large input stages use the `loop_ranges` kernel with one wave of resident blocks,
+/// so each block decodes its input stages once for several ranges.
+pub fn dispatch_kernel(
+    ctx: &CudaExecutionCtx,
+    ptype: PType,
+    plan: &CudaDispatchPlan,
+    len: usize,
+    shared_mem_bytes: u32,
+) -> VortexResult<(CudaFunction, u32)> {
+    let ranges = u32::try_from(len.div_ceil(ELEMENTS_PER_BLOCK as usize))?;
+    let ptype = ptype.to_string();
+    if plan.input_stage_len < LOOP_RANGES_MIN_INPUT_LEN {
+        let function = ctx.load_function_with_suffixes("dynamic_dispatch", &[&ptype])?;
+        return Ok((function, ranges));
+    }
+
+    let function = ctx.load_function_with_suffixes("dynamic_dispatch", &[&ptype, "loop_ranges"])?;
+    let blocks_per_multiprocessor = function
+        .max_active_blocks_per_multiprocessor(BLOCK_SIZE, shared_mem_bytes)
+        .map_err(|e| vortex_err!("dynamic dispatch occupancy: {e}"))?;
+    let multiprocessors = ctx
+        .stream()
+        .context()
+        .attribute(CUdevice_attribute::CU_DEVICE_ATTRIBUTE_MULTIPROCESSOR_COUNT)
+        .map_err(|e| vortex_err!("multiprocessor count: {e}"))?;
+    let resident_blocks = blocks_per_multiprocessor * u32::try_from(multiprocessors)?;
+    Ok((function, ranges.min(resident_blocks.max(1))))
+}
+
+// SAFETY: `DispatchPlanParam` is a bindgen `#[repr(C)]` byte array matching the kernel parameter.
+unsafe impl DeviceRepr for DispatchPlanParam {}
+
+/// Size in bytes of a packed plan whose stages have the given numbers of scalar ops.
+pub(crate) fn packed_plan_size(scalar_op_counts: impl IntoIterator<Item = usize>) -> usize {
+    size_of::<PlanHeader>()
+        + scalar_op_counts
+            .into_iter()
+            .map(|ops| size_of::<PackedStage>() + ops * size_of::<ScalarOp>())
+            .sum::<usize>()
+}
+
+/// A dispatch plan serialized as packed bytes in a [`DispatchPlanParam`], which the kernel takes
+/// by value.
 ///
 /// Matching the C-side `PlanHeader` + `PackedStage` ABI in `dynamic_dispatch.h`:
 ///
@@ -160,7 +207,9 @@ impl MaterializedStage {
 /// ```
 #[derive(Clone)]
 pub struct CudaDispatchPlan {
-    buffer: ByteBuffer,
+    param: DispatchPlanParam,
+    /// Total elements decoded by the input stages, all stages but the last.
+    input_stage_len: u64,
 }
 
 impl CudaDispatchPlan {
@@ -170,7 +219,7 @@ impl CudaDispatchPlan {
     ///
     /// # Panics
     ///
-    /// Panics if `stages` is empty or the serialized plan exceeds 65535 bytes.
+    /// Panics if `stages` is empty or the serialized plan exceeds `MAX_PLAN_BYTES`.
     pub fn new<I>(stages: I, output_ptype: PTypeTag) -> Self
     where
         I: IntoIterator,
@@ -180,29 +229,27 @@ impl CudaDispatchPlan {
             stages.into_iter().map(|s| s.borrow().clone()).collect();
         assert!(!stages.is_empty());
 
-        let header_size = size_of::<PlanHeader>();
-        let stage_header_size = size_of::<PackedStage>();
-        let scalar_op_size = size_of::<ScalarOp>();
-
-        // Calculate total size and validate.
-        let mut total_size = header_size;
-        for stage in &stages {
-            total_size += stage_header_size;
-            total_size += stage.scalar_ops.len() * scalar_op_size;
-        }
+        let total_size = packed_plan_size(stages.iter().map(|stage| stage.scalar_ops.len()));
         assert!(
-            total_size <= u16::MAX as usize,
-            "packed plan size {total_size} exceeds u16::MAX"
+            total_size <= MAX_PLAN_BYTES as usize,
+            "packed plan size {total_size} exceeds MAX_PLAN_BYTES"
         );
 
-        let mut buffer = ByteBufferMut::with_capacity_aligned(total_size, Alignment::of::<u32>());
+        let mut param = DispatchPlanParam {
+            bytes: [0; MAX_PLAN_BYTES as usize],
+        };
+        let mut len = 0;
+        let mut push = |bytes: &[u8]| {
+            param.bytes[len..len + bytes.len()].copy_from_slice(bytes);
+            len += bytes.len();
+        };
 
         let header = PlanHeader {
             num_stages: stages.len() as u8,
             output_ptype,
             plan_size_bytes: total_size as u16,
         };
-        buffer.extend_from_slice(header.as_packed_bytes());
+        push(header.as_packed_bytes());
 
         for stage in &stages {
             let packed_stage = PackedStage {
@@ -213,21 +260,28 @@ impl CudaDispatchPlan {
                 num_scalar_ops: stage.scalar_ops.len() as u8,
                 source_ptype: stage.source_ptype,
             };
-            buffer.extend_from_slice(packed_stage.as_packed_bytes());
+            push(packed_stage.as_packed_bytes());
             for op in &stage.scalar_ops {
-                buffer.extend_from_slice(op.as_packed_bytes());
+                push(op.as_packed_bytes());
             }
         }
 
-        assert_eq!(buffer.len(), total_size);
+        assert_eq!(len, total_size);
         Self {
-            buffer: buffer.freeze(),
+            param,
+            // Every stage but the last, the output stage, is an input stage.
+            input_stage_len: stages
+                .iter()
+                .rev()
+                .skip(1)
+                .map(|stage| u64::from(stage.len))
+                .sum(),
         }
     }
 
-    /// The raw packed plan bytes, ready for upload to the device.
-    pub fn as_bytes(&self) -> &[u8] {
-        self.buffer.as_ref()
+    /// The plan as the kernel parameter it is launched with.
+    pub fn kernel_param(&self) -> &DispatchPlanParam {
+        &self.param
     }
 
     /// Number of stages in the plan.
@@ -241,7 +295,8 @@ impl CudaDispatchPlan {
     }
 
     fn header(&self) -> PlanHeader {
-        unsafe { *self.buffer.as_ptr().cast() }
+        // SAFETY: The plan starts with a `PlanHeader`, and `DispatchPlanParam` is 8-byte aligned.
+        unsafe { *self.param.bytes.as_ptr().cast() }
     }
 }
 
@@ -358,6 +413,22 @@ impl ScalarOp {
         }
     }
 
+    /// Extend the low bits of a narrower `source_ptype` integer to `output_ptype`, with sign
+    /// extension for signed types.
+    pub fn extend(source_ptype: PTypeTag, output_ptype: PTypeTag) -> Self {
+        assert!(
+            tag_to_ptype(source_ptype).byte_width() < tag_to_ptype(output_ptype).byte_width(),
+            "EXTEND source must be strictly narrower than output"
+        );
+        Self {
+            op_code: ScalarOp_ScalarOpCode_EXTEND,
+            output_ptype,
+            params: ScalarParams {
+                extend: ScalarParams_ExtendParams { source_ptype },
+            },
+        }
+    }
+
     /// Dictionary gather: use current value as index into decoded values
     /// in shared memory (populated by an earlier input stage).
     pub fn dict(values_smem_byte_offset: u32, output_ptype: PTypeTag) -> Self {
@@ -408,7 +479,7 @@ impl MaterializedPlan {
         ctx: &mut CudaExecutionCtx,
     ) -> VortexResult<Canonical>
     where
-        T: vortex_cuda_driver::DeviceRepr + vortex::dtype::NativePType,
+        T: DeviceRepr + vortex::dtype::NativePType,
     {
         let nullability = self.validity.nullability();
 
@@ -420,15 +491,13 @@ impl MaterializedPlan {
 
         let mut output = ctx.device_alloc::<T>(len.next_multiple_of(1024))?;
 
-        // Upload the packed plan bytes to the device.
-        let device_plan = Arc::new(
-            ctx.stream()
-                .clone_htod(self.dispatch_plan.as_bytes())
-                .map_err(|e| vortex_err!("copy plan to device: {e}"))?,
-        );
-
-        let cuda_function = ctx.load_function("dynamic_dispatch", &[T::PTYPE])?;
-        let num_blocks = u32::try_from(len.div_ceil(ELEMENTS_PER_BLOCK as usize))?;
+        let (cuda_function, num_blocks) = dispatch_kernel(
+            ctx,
+            T::PTYPE,
+            &self.dispatch_plan,
+            len,
+            self.shared_mem_bytes,
+        )?;
         let config = LaunchConfig {
             grid_dim: (num_blocks, 1, 1),
             block_dim: (BLOCK_SIZE, 1, 1),
@@ -454,23 +523,16 @@ impl MaterializedPlan {
             })
             .collect::<VortexResult<Vec<_>>>()?;
 
-        let (plan_ptr, plan_read_record) = device_plan
-            .device_ptr(&stream)
-            .map_err(|e| vortex_err!("dynamic dispatch plan pointer: {e}"))?;
         let array_len_u64 = len as u64;
 
         let launch_result = ctx.launch_kernel_config(&cuda_function, config, len, |args| {
             args.arg(&mut output);
             args.arg(&array_len_u64);
-            args.arg(&plan_ptr);
+            args.arg(self.dispatch_plan.kernel_param());
         });
 
-        let finish_result = SyncOnDrop::finish_all(
-            device_buffer_read_records
-                .into_iter()
-                .chain([plan_read_record]),
-        )
-        .map_err(|e| vortex_err!("dynamic dispatch buffer tracking: {e}"));
+        let finish_result = SyncOnDrop::finish_all(device_buffer_read_records)
+            .map_err(|e| vortex_err!("dynamic dispatch buffer tracking: {e}"));
         launch_result.inspect_err(|_| {
             if let Err(error) = &finish_result {
                 tracing::error!(%error, "Failed to track dynamic dispatch buffers after launch failure");
@@ -502,6 +564,7 @@ mod tests {
     use vortex::array::IntoArray;
     use vortex::array::arrays::DictArray;
     use vortex::array::arrays::PrimitiveArray;
+    use vortex::array::arrays::WidenArray;
     use vortex::array::builtins::ArrayBuiltins;
     use vortex::array::scalar::Scalar;
     use vortex::array::validity::Validity;
@@ -538,7 +601,6 @@ mod tests {
     use vortex_array::arrays::FilterArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::patches::Patches;
-    use vortex_cuda_driver::DevicePtr;
     use vortex_cuda_driver::LaunchConfig;
     use vortex_cuda_driver::PushKernelArg;
 
@@ -621,8 +683,8 @@ mod tests {
         let bitpacked = bitpacked_array_u32(bit_width, len, &mut ctx);
         let cuda_ctx = CudaSession::create_execution_ctx(&cuda_session())?;
         let packed = bitpacked.packed().clone();
-        let device_input = futures::executor::block_on(cuda_ctx.ensure_on_device(packed))?;
-        let input_ptr = device_input.cuda_device_ptr()?;
+        let device_input = cuda_ctx.ensure_on_device(packed)?;
+        let input_ptr = device_input.cuda_device_ptr(cuda_ctx.stream())?;
 
         let scalar_ops: Vec<ScalarOp> = references
             .iter()
@@ -714,19 +776,31 @@ mod tests {
         plan: &CudaDispatchPlan,
         shared_mem_bytes: u32,
     ) -> VortexResult<Vec<u32>> {
+        let (cuda_function, num_blocks) =
+            dispatch_kernel(cuda_ctx, PType::U32, plan, output_len, shared_mem_bytes)?;
+        run_dynamic_dispatch_plan_with_grid(
+            cuda_ctx,
+            &cuda_function,
+            output_len,
+            plan,
+            shared_mem_bytes,
+            num_blocks,
+        )
+    }
+
+    /// Runs a dynamic dispatch plan on the GPU with `cuda_function` and `num_blocks` blocks.
+    fn run_dynamic_dispatch_plan_with_grid(
+        cuda_ctx: &CudaExecutionCtx,
+        cuda_function: &CudaFunction,
+        output_len: usize,
+        plan: &CudaDispatchPlan,
+        shared_mem_bytes: u32,
+        num_blocks: u32,
+    ) -> VortexResult<Vec<u32>> {
         let mut output = cuda_ctx
             .device_alloc::<u32>(output_len)
             .vortex_expect("alloc output");
 
-        let device_plan = Arc::new(
-            cuda_ctx
-                .stream()
-                .clone_htod(plan.as_bytes())
-                .map_err(|e| vortex_err!("copy plan to device: {e}"))?,
-        );
-        let (plan_ptr, record_plan) = device_plan
-            .device_ptr(cuda_ctx.stream())
-            .map_err(|e| vortex_err!("dynamic dispatch plan pointer: {e}"))?;
         let array_len_u64 = output_len as u64;
 
         cuda_ctx
@@ -734,31 +808,17 @@ mod tests {
             .synchronize()
             .map_err(|e| vortex_err!("sync: {e}"))?;
 
-        let cuda_function = cuda_ctx
-            .load_function("dynamic_dispatch", &[PType::U32])
-            .vortex_expect("load kernel");
-        let mut launch_builder = cuda_ctx.launch_builder(&cuda_function);
+        let mut launch_builder = cuda_ctx.launch_builder(cuda_function);
         launch_builder.arg(&mut output);
         launch_builder.arg(&array_len_u64);
-        launch_builder.arg(&plan_ptr);
+        launch_builder.arg(plan.kernel_param());
 
-        let num_blocks = u32::try_from(output_len.div_ceil(ELEMENTS_PER_BLOCK as usize))?;
         let config = LaunchConfig {
             grid_dim: (num_blocks, 1, 1),
             block_dim: (BLOCK_SIZE, 1, 1),
             shared_mem_bytes,
         };
-        let launch_result =
-            unsafe { launch_builder.launch(config) }.map_err(|e| vortex_err!("kernel launch: {e}"));
-        let finish_result = record_plan
-            .finish()
-            .map_err(|e| vortex_err!("dynamic dispatch plan tracking: {e}"));
-        launch_result.inspect_err(|_| {
-            if let Err(error) = &finish_result {
-                tracing::error!(%error, "Failed to track dynamic dispatch plan after launch failure");
-            }
-        })?;
-        finish_result?;
+        unsafe { launch_builder.launch(config) }.map_err(|e| vortex_err!("kernel launch: {e}"))?;
 
         cuda_ctx
             .stream()
@@ -1948,9 +2008,7 @@ mod tests {
         ) -> VortexResult<ArrayRef> {
             let array = PrimitiveArray::new(Buffer::from(values), NonNullable);
             Ok(PrimitiveArray::from_buffer_handle(
-                cuda_ctx
-                    .ensure_on_device(array.buffer_handle().clone())
-                    .await?,
+                cuda_ctx.ensure_on_device(array.buffer_handle().clone())?,
                 T::PTYPE,
                 NonNullable,
             )
@@ -2930,6 +2988,258 @@ mod tests {
         Ok(())
     }
 
+    /// Three `loop_ranges` blocks over eight ranges, so every block loops.
+    #[rstest]
+    #[case::dict_bitpacked_codes_for_values(dict_bp_codes_for_values())]
+    #[case::dict_primitive_codes(dict_primitive_codes())]
+    #[case::runend(runend_u32())]
+    #[crate::test]
+    async fn test_input_stages_with_fewer_blocks_than_ranges(
+        #[case] array: VortexResult<ArrayRef>,
+    ) -> VortexResult<()> {
+        let array = array?;
+        let len = array.len();
+        let mut ctx = SESSION.create_execution_ctx();
+        let expected = array.clone().execute::<PrimitiveArray>(&mut ctx)?;
+
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&cuda_session())?;
+        let plan = dispatch_plan(&array, &mut cuda_ctx).await?;
+        assert!(plan.dispatch_plan.num_stages() > 1);
+        let loop_ranges =
+            cuda_ctx.load_function_with_suffixes("dynamic_dispatch", &["u32", "loop_ranges"])?;
+        let actual = run_dynamic_dispatch_plan_with_grid(
+            &cuda_ctx,
+            &loop_ranges,
+            len,
+            &plan.dispatch_plan,
+            plan.shared_mem_bytes,
+            3,
+        )?;
+        assert_eq!(actual, expected.as_slice::<u32>());
+        Ok(())
+    }
+
+    const INPUT_STAGE_TEST_LEN: usize = ELEMENTS_PER_BLOCK as usize * 7 + 100;
+
+    fn dict_bp_codes_for_values() -> VortexResult<ArrayRef> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let codes: Vec<u32> = (0..INPUT_STAGE_TEST_LEN as u32)
+            .map(|i| (i * 7) % 1000)
+            .collect();
+        let codes = BitPacked::encode(
+            &PrimitiveArray::new(Buffer::from(codes), NonNullable).into_array(),
+            10,
+            &mut ctx,
+        )?;
+        let values: Vec<u32> = (0..1000).map(|i| i % 64).collect();
+        let values = BitPacked::encode(
+            &PrimitiveArray::new(Buffer::from(values), NonNullable).into_array(),
+            6,
+            &mut ctx,
+        )?;
+        let values = FoR::try_new(values.into_array(), Scalar::from(5000u32))?;
+        Ok(DictArray::try_new(codes.into_array(), values.into_array())?.into_array())
+    }
+
+    fn dict_primitive_codes() -> VortexResult<ArrayRef> {
+        let codes: Vec<u16> = (0..INPUT_STAGE_TEST_LEN)
+            .map(|i| ((i * 13) % 300) as u16)
+            .collect();
+        let values: Vec<u32> = (0..300).map(|i| i * 1000 + 42).collect();
+        Ok(DictArray::try_new(
+            PrimitiveArray::new(Buffer::from(codes), NonNullable).into_array(),
+            PrimitiveArray::new(Buffer::from(values), NonNullable).into_array(),
+        )?
+        .into_array())
+    }
+
+    fn runend_u32() -> VortexResult<ArrayRef> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let run_len = 37;
+        let num_runs = INPUT_STAGE_TEST_LEN.div_ceil(run_len);
+        let ends: Vec<u32> = (1..=num_runs)
+            .map(|i| (i * run_len).min(INPUT_STAGE_TEST_LEN) as u32)
+            .collect();
+        let values: Vec<u32> = (0..num_runs as u32).map(|i| i * 3 + 1).collect();
+        Ok(RunEnd::new(
+            PrimitiveArray::new(Buffer::from(ends), NonNullable).into_array(),
+            PrimitiveArray::new(Buffer::from(values), NonNullable).into_array(),
+            &mut ctx,
+        )
+        .into_array())
+    }
+
+    /// The plan is passed by value in a `MAX_PLAN_BYTES` kernel parameter. Each nested FoR adds
+    /// one scalar op, so the largest plan that fits is fused and decodes correctly, and one more
+    /// op falls back to unfused dispatch.
+    #[rstest]
+    #[case::largest_fused_plan(0, true)]
+    #[case::one_op_too_many(1, false)]
+    #[crate::test]
+    async fn test_plan_size_limit(
+        #[case] extra_ops: usize,
+        #[case] fused: bool,
+    ) -> VortexResult<()> {
+        let max_ops =
+            (MAX_PLAN_BYTES as usize - size_of::<PlanHeader>() - size_of::<PackedStage>())
+                / size_of::<ScalarOp>();
+        let ops = max_ops + extra_ops;
+        let len = 3000u32;
+
+        let mut array = PrimitiveArray::new(Buffer::from_iter(0..len), NonNullable).into_array();
+        for _ in 0..ops {
+            array = FoR::try_new(array, Scalar::from(1u32))?.into_array();
+        }
+        assert_eq!(packed_plan_size([ops]) <= MAX_PLAN_BYTES as usize, fused);
+
+        let plan = DispatchPlan::new(&array, CudaDispatchMode::DynDispatchOnly)?;
+        assert_eq!(matches!(plan, DispatchPlan::Fused(_)), fused);
+        assert_eq!(matches!(plan, DispatchPlan::Unfused), !fused);
+        if !fused {
+            return Ok(());
+        }
+
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&cuda_session())?;
+        let plan = dispatch_plan(&array, &mut cuda_ctx).await?;
+        let actual = run_dynamic_dispatch_plan(
+            &cuda_ctx,
+            len as usize,
+            &plan.dispatch_plan,
+            plan.shared_mem_bytes,
+        )?;
+        let expected: Vec<u32> = (0..len).map(|i| i + ops as u32).collect();
+        assert_eq!(actual, expected);
+        Ok(())
+    }
+
+    /// Integer `Widen` fuses as an `EXTEND` op after its child's ops, which decode narrow values
+    /// at the output width with zero extension. Each case has values at the narrow type's minimum
+    /// and maximum, and the signed cases negative values, so a missing or wrong extension shows.
+    #[rstest]
+    #[case::i32_for_bitpacked_to_i64(widen_i32_for_bitpacked(), PType::I64)]
+    #[case::i8_for_bitpacked_to_i32(widen_i8_for_bitpacked(), PType::I32)]
+    #[case::i16_zigzag_to_i64(widen_i16_zigzag(), PType::I64)]
+    #[case::i16_dict_to_i64(widen_i16_dict(), PType::I64)]
+    #[case::i32_runend_to_i64(widen_i32_runend(), PType::I64)]
+    #[case::i8_primitive_to_i16(widen_i8_primitive(), PType::I16)]
+    #[case::u16_bitpacked_to_u64(widen_u16_bitpacked(), PType::U64)]
+    #[crate::test]
+    async fn test_widen_fused(
+        #[case] child: VortexResult<ArrayRef>,
+        #[case] ptype: PType,
+    ) -> VortexResult<()> {
+        let child = child?;
+        let widen = WidenArray::try_new(child, DType::Primitive(ptype, Nullability::NonNullable))?
+            .into_array();
+        assert!(matches!(
+            DispatchPlan::new(&widen, CudaDispatchMode::DynDispatchOnly)?,
+            DispatchPlan::Fused(_)
+        ));
+
+        let mut ctx = SESSION.create_execution_ctx();
+        let expected = widen.clone().execute::<PrimitiveArray>(&mut ctx)?;
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&cuda_session())?;
+        let canonical = try_gpu_dispatch(&widen, &mut cuda_ctx).await?;
+        let actual = CanonicalCudaExt::into_host(canonical, cuda_ctx.execution_ctx())
+            .await?
+            .into_array();
+        assert_arrays_eq!(actual, expected.into_array(), &mut ctx);
+        Ok(())
+    }
+
+    const WIDEN_TEST_LEN: usize = 3000;
+
+    /// FoR over BitPacked residuals spanning the whole i32 range, from `i32::MIN`.
+    fn widen_i32_for_bitpacked() -> VortexResult<ArrayRef> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let residuals: Vec<i32> = (0..WIDEN_TEST_LEN)
+            .map(|i| {
+                if i == 1 {
+                    i32::MAX
+                } else {
+                    (i * 1_000_003 % 4_000_000) as i32
+                }
+            })
+            .collect();
+        let residuals = PrimitiveArray::new(Buffer::from(residuals), NonNullable).into_array();
+        let bp = BitPacked::encode(&residuals, 31, &mut ctx)?;
+        Ok(FoR::try_new(bp.into_array(), Scalar::from(i32::MIN))?.into_array())
+    }
+
+    /// FoR over BitPacked residuals spanning the whole i8 range, from `i8::MIN`.
+    fn widen_i8_for_bitpacked() -> VortexResult<ArrayRef> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let residuals: Vec<i8> = (0..WIDEN_TEST_LEN).map(|i| (i % 128) as i8).collect();
+        let residuals = PrimitiveArray::new(Buffer::from(residuals), NonNullable).into_array();
+        let bp = BitPacked::encode(&residuals, 7, &mut ctx)?;
+        Ok(FoR::try_new(bp.into_array(), Scalar::from(i8::MIN))?.into_array())
+    }
+
+    /// ZigZag-encoded i16 values, including `i16::MIN` and `i16::MAX` as BitPacked patches.
+    fn widen_i16_zigzag() -> VortexResult<ArrayRef> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let encoded: Vec<u16> = (0..WIDEN_TEST_LEN)
+            .map(|i| match i {
+                0 => u16::MAX,
+                1 => u16::MAX - 1,
+                _ => (i * 37 % 65536) as u16,
+            })
+            .collect();
+        let encoded = PrimitiveArray::new(Buffer::from(encoded), NonNullable).into_array();
+        // Values above 15 bits, `i16::MIN` and `i16::MAX` among them, become patches.
+        let bp = BitPacked::encode(&encoded, 15, &mut ctx)?;
+        Ok(ZigZag::try_new(bp.into_array())?.into_array())
+    }
+
+    /// Dict with i16 values, including `i16::MIN` and `i16::MAX`.
+    fn widen_i16_dict() -> VortexResult<ArrayRef> {
+        let values: Vec<i16> = vec![i16::MIN, -1, 0, 1, i16::MAX, -300];
+        let codes: Vec<u8> = (0..WIDEN_TEST_LEN)
+            .map(|i| (i % values.len()) as u8)
+            .collect();
+        Ok(DictArray::try_new(
+            PrimitiveArray::new(Buffer::from(codes), NonNullable).into_array(),
+            PrimitiveArray::new(Buffer::from(values), NonNullable).into_array(),
+        )?
+        .into_array())
+    }
+
+    /// RunEnd with i32 values, including `i32::MIN` and `i32::MAX`.
+    fn widen_i32_runend() -> VortexResult<ArrayRef> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let ends: Vec<u32> = vec![700, 1500, 2200, 3000];
+        let values: Vec<i32> = vec![i32::MIN, -5, i32::MAX, 0];
+        Ok(RunEnd::new(
+            PrimitiveArray::new(Buffer::from(ends), NonNullable).into_array(),
+            PrimitiveArray::new(Buffer::from(values), NonNullable).into_array(),
+            &mut ctx,
+        )
+        .into_array())
+    }
+
+    /// Primitive i8 values over the whole i8 range.
+    fn widen_i8_primitive() -> VortexResult<ArrayRef> {
+        let values: Vec<i8> = (0..WIDEN_TEST_LEN).map(|i| (i % 256) as u8 as i8).collect();
+        Ok(PrimitiveArray::new(Buffer::from(values), NonNullable).into_array())
+    }
+
+    /// BitPacked u16 values, including `u16::MAX` as patches.
+    fn widen_u16_bitpacked() -> VortexResult<ArrayRef> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let values: Vec<u16> = (0..WIDEN_TEST_LEN)
+            .map(|i| {
+                if i % 7 == 0 {
+                    u16::MAX
+                } else {
+                    (i * 13) as u16
+                }
+            })
+            .collect();
+        let values = PrimitiveArray::new(Buffer::from(values), NonNullable).into_array();
+        // Values above 15 bits, `u16::MAX` among them, become patches.
+        Ok(BitPacked::encode(&values, 15, &mut ctx)?.into_array())
+    }
+
     /// Dict where codes are BitPacked u32 with patches exceeding the bit width.
     #[crate::test]
     async fn test_dict_bitpacked_codes_with_patches() -> VortexResult<()> {
@@ -2963,6 +3273,55 @@ mod tests {
             run_dynamic_dispatch_plan(&cuda_ctx, len, &plan.dispatch_plan, plan.shared_mem_bytes)?;
         assert_eq!(actual, expected);
         Ok(())
+    }
+
+    /// Dict whose BitPacked values span several FastLanes chunks and carry patches.
+    ///
+    /// The values decode in an input stage, where the block splits each 32- and 64-bit lane
+    /// into slices and spreads the slices of every chunk across its threads, then scatters
+    /// the patches of all chunks. Codes reach every value so a misplaced slice or patch shows.
+    async fn dict_with_patched_multi_chunk_values<T: NativePType + From<u32>>() -> VortexResult<()>
+    {
+        let mut ctx = SESSION.create_execution_ctx();
+        let bit_width: u8 = 4;
+        let values_len = 2500u32;
+        let dict_values: Vec<T> = (0..values_len)
+            .map(|i| <T as From<u32>>::from(if i % 300 == 0 { 100_000 } else { i % 16 }))
+            .collect();
+        let codes: Vec<u16> = (0..5000u32)
+            .map(|i| ((i * 7) % values_len) as u16)
+            .collect();
+        let expected: Vec<T> = codes.iter().map(|&c| dict_values[c as usize]).collect();
+
+        let values_prim = PrimitiveArray::new(Buffer::from(dict_values), NonNullable);
+        let values_bp = BitPacked::encode(&values_prim.into_array(), bit_width, &mut ctx)?;
+        assert!(values_bp.patches().is_some(), "expected patches on values");
+        let codes_prim = PrimitiveArray::new(Buffer::from(codes), NonNullable);
+        let dict =
+            DictArray::try_new(codes_prim.into_array(), values_bp.into_array())?.into_array();
+        assert!(matches!(
+            DispatchPlan::new(&dict, CudaDispatchMode::DynDispatchOnly)?,
+            DispatchPlan::Fused(_)
+        ));
+
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&cuda_session())?;
+        let canonical = try_gpu_dispatch(&dict, &mut cuda_ctx).await?;
+        let result = CanonicalCudaExt::into_host(canonical, cuda_ctx.execution_ctx())
+            .await?
+            .into_array();
+        let expected = PrimitiveArray::new(Buffer::from(expected), NonNullable).into_array();
+        assert_arrays_eq!(result, expected, &mut ctx);
+        Ok(())
+    }
+
+    #[crate::test]
+    async fn test_dict_with_patched_multi_chunk_values_u32() -> VortexResult<()> {
+        dict_with_patched_multi_chunk_values::<u32>().await
+    }
+
+    #[crate::test]
+    async fn test_dict_with_patched_multi_chunk_values_u64() -> VortexResult<()> {
+        dict_with_patched_multi_chunk_values::<u64>().await
     }
 
     /// Patches placed exactly at FastLanes chunk boundaries (1024-element chunks).

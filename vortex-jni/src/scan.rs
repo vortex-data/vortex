@@ -377,7 +377,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativePartition_scanArrow(
         let array_stream = partition.execute()?;
         let dtype = array_stream.dtype().clone();
 
-        let session = unsafe { session_ref(session_ptr) };
+        let session = unsafe { session_ref(session_ptr) }.clone();
         let schema = Arc::new(session.arrow().to_arrow_schema(&dtype)?);
         let target = Arc::new(Field::new_struct("", schema.fields().clone(), false));
 
