@@ -1497,3 +1497,42 @@ async fn test_ree_dict_predicate_memtable_oracle(
     assert_eq!(batch_values(&actual), batch_values(&expected));
     Ok(())
 }
+
+#[tokio::test]
+async fn test_projection_mixed_utf8_and_utf8view_layouts() -> anyhow::Result<()> {
+    let options = crate::VortexTableOptions {
+        projection_pushdown: true,
+        ..Default::default()
+    };
+    let ctx = TestSessionContext::new_with_factory(Arc::new(
+        VortexFormatFactory::new().with_options(options),
+    ));
+    let schema = Arc::new(Schema::new(vec![Field::new("s", DataType::Utf8, true)]));
+    let batch = RecordBatch::try_new(
+        Arc::clone(&schema),
+        vec![Arc::new(StringArray::from(vec![
+            Some("alpha"),
+            None,
+            Some("beta"),
+        ]))],
+    )?;
+    ctx.write_arrow_batch("mixed_utf8.vortex", &batch).await?;
+    let actual_table = ctx
+        .table_provider("actual", "/mixed_utf8.vortex", schema.as_ref().clone())
+        .await?;
+    ctx.session.register_table("actual", actual_table)?;
+    ctx.session.register_table(
+        "oracle",
+        Arc::new(datafusion::datasource::MemTable::try_new(
+            schema,
+            vec![vec![batch]],
+        )?),
+    )?;
+
+    let query =
+        |table: &str| format!("SELECT s AS plain, arrow_cast(s, 'Utf8View') AS view FROM {table}");
+    let actual = ctx.session.sql(&query("actual")).await?.collect().await?;
+    let expected = ctx.session.sql(&query("oracle")).await?.collect().await?;
+    assert_eq!(actual, expected);
+    Ok(())
+}

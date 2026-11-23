@@ -167,14 +167,20 @@ pub trait ExpressionConverter: Send + Sync {
         // The scan evaluates each distinct expression once. DataFusion can ask for the same
         // expression under several aliases, such as a `variant_get` that it hoists out of both a
         // filter and a group key.
+        let output_fields = output_schema.fields();
         let mut scan_projection: Vec<(String, Expression)> = Vec::new();
-        let mut scan_indices = Vec::new();
+        let mut scan_indices: Vec<usize> = Vec::new();
         let mut leftover_projection = Vec::with_capacity(source_projection.as_ref().len());
         for (idx, projection) in source_projection.as_ref().iter().enumerate() {
             let Some(expr) = self.try_convert(&projection.expr, input_schema)? else {
                 return self.no_pushdown_projection(source_projection, input_schema);
             };
-            let scan_idx = match scan_projection.iter().position(|(_, scan)| *scan == expr) {
+            let output_type = output_fields[idx].data_type();
+            let scan_idx = match scan_projection.iter().zip(&scan_indices).position(
+                |((_, scan), &scan_field_idx)| {
+                    *scan == expr && output_fields[scan_field_idx].data_type() == output_type
+                },
+            ) {
                 Some(scan_idx) => scan_idx,
                 None => {
                     scan_indices.push(idx);

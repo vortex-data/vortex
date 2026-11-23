@@ -3048,3 +3048,45 @@ fn test_projection_evaluates_duplicate_expressions_once() -> anyhow::Result<()> 
     );
     Ok(())
 }
+
+#[test]
+fn test_projection_keeps_distinct_arrow_types_separate() -> anyhow::Result<()> {
+    let schema = Schema::new(vec![Field::new("s", DataType::Utf8, true)]);
+    let column = Arc::new(df_expr::Column::new("s", 0)) as Arc<dyn PhysicalExpr>;
+    let view = Arc::new(df_expr::CastExpr::new(
+        Arc::clone(&column),
+        DataType::Utf8View,
+        None,
+    )) as Arc<dyn PhysicalExpr>;
+    let projection = ProjectionExprs::from(vec![
+        ProjectionExpr::new(column, "plain"),
+        ProjectionExpr::new(view, "view"),
+    ]);
+    let output_schema = projection.project_schema(&schema)?;
+
+    let processed = DefaultExpressionConverter::default().split_projection(
+        projection,
+        &schema,
+        &output_schema,
+    )?;
+
+    assert_eq!(
+        processed.scan_projection,
+        pack(
+            [
+                ("plain", get_item("s", root())),
+                ("view", get_item("s", root())),
+            ],
+            Nullability::NonNullable,
+        ),
+    );
+    assert_eq!(processed.scan_reference_schema, output_schema);
+    assert_eq!(
+        processed.leftover_projection,
+        ProjectionExprs::from(vec![
+            ProjectionExpr::new(Arc::new(df_expr::Column::new("plain", 0)), "plain"),
+            ProjectionExpr::new(Arc::new(df_expr::Column::new("view", 1)), "view"),
+        ]),
+    );
+    Ok(())
+}
