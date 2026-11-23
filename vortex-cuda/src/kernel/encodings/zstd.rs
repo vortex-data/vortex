@@ -26,7 +26,8 @@ use vortex::encodings::zstd::ZstdArray;
 use vortex::encodings::zstd::ZstdArraySlotsExt;
 use vortex::encodings::zstd::ZstdDataParts;
 use vortex::encodings::zstd::ZstdMetadata;
-use vortex::encodings::zstd::reconstruct_views;
+use vortex::encodings::zstd::slice_views;
+use vortex::encodings::zstd::try_reconstruct_views;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::error::vortex_err;
@@ -364,8 +365,9 @@ async fn decode_zstd(array: ZstdArray, ctx: &mut CudaExecutionCtx) -> VortexResu
 
     match sliced_mask.indices() {
         AllOr::All => {
-            let (buffers, all_views) = reconstruct_views(&host_buffer, 0, MAX_BUFFER_LEN);
-            let sliced_views = all_views.slice(slice_value_idx_start..slice_value_idx_stop);
+            let (buffers, all_views) = try_reconstruct_views(&host_buffer, 0, MAX_BUFFER_LEN)?;
+            let sliced_views =
+                slice_views(&all_views, slice_value_idx_start..slice_value_idx_stop)?;
 
             Ok(Canonical::VarBinView(unsafe {
                 VarBinViewArray::new_unchecked(
