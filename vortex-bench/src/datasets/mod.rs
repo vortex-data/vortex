@@ -12,6 +12,7 @@ use vortex::array::ExecutionCtx;
 use vortex::error::vortex_panic;
 
 use crate::clickbench::Flavor;
+use crate::jsonbench::Shredding;
 use crate::tpch_nested::Shape;
 
 pub mod data_downloads;
@@ -94,6 +95,8 @@ pub enum BenchmarkDataset {
     GhArchive,
     #[serde(rename = "job")]
     Job,
+    #[serde(rename = "jsonbench")]
+    JsonBench { n_rows: usize, shredding: Shredding },
     #[serde(rename = "vortex")]
     VortexQueries,
 }
@@ -114,6 +117,7 @@ impl BenchmarkDataset {
             BenchmarkDataset::Fineweb => "fineweb",
             BenchmarkDataset::GhArchive => "gharchive",
             BenchmarkDataset::Job => "job",
+            BenchmarkDataset::JsonBench { .. } => "jsonbench",
             BenchmarkDataset::VortexQueries => "vortex",
         }
     }
@@ -148,6 +152,9 @@ impl Display for BenchmarkDataset {
             BenchmarkDataset::Fineweb => write!(f, "fineweb"),
             BenchmarkDataset::GhArchive => write!(f, "gharchive"),
             BenchmarkDataset::Job => write!(f, "job"),
+            BenchmarkDataset::JsonBench { n_rows, shredding } => {
+                write!(f, "jsonbench(n_rows={n_rows}, shredding={shredding})")
+            }
             BenchmarkDataset::VortexQueries => write!(f, "vortex"),
         }
     }
@@ -209,6 +216,7 @@ impl BenchmarkDataset {
             BenchmarkDataset::Fineweb => &["fineweb"],
             BenchmarkDataset::GhArchive => &["events"],
             BenchmarkDataset::Job => crate::job::TABLES,
+            BenchmarkDataset::JsonBench { .. } => &["bluesky"],
             // See VortexBenchmark::table_specs
             BenchmarkDataset::VortexQueries => &[],
         }

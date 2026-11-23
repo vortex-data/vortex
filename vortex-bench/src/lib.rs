@@ -7,7 +7,10 @@
 use std::clone::Clone;
 use std::fmt::Display;
 use std::str::FromStr;
+use std::sync::Arc;
 use std::sync::LazyLock;
+use std::sync::atomic::AtomicBool;
+use std::sync::atomic::Ordering;
 
 use anyhow::bail;
 use appian::AppianBenchmark;
@@ -19,6 +22,8 @@ use clickbench::Flavor;
 use fineweb::FinewebBenchmark;
 use itertools::Itertools;
 use job::JobBenchmark;
+use jsonbench::JsonBenchBenchmark;
+use jsonbench::Shredding;
 use polarsignals::PolarSignalsBenchmark;
 use public_bi::PBIDataset;
 use public_bi::PublicBiBenchmark;
@@ -33,6 +38,7 @@ use tpch_nested::TpcHNestedBenchmark;
 pub use utils::file::*;
 pub use utils::logging::*;
 use vortex::compressor::BtrBlocksCompressorBuilder;
+use vortex::encodings::parquet_variant::InferredShredding;
 use vortex::error::VortexExpect;
 use vortex::error::vortex_err;
 use vortex::file::VortexWriteOptions;
@@ -52,6 +58,7 @@ pub mod display;
 pub mod downloadable_dataset;
 pub mod fineweb;
 pub mod job;
+pub mod jsonbench;
 pub mod measurements;
 pub mod memory;
 pub mod output;
@@ -134,6 +141,25 @@ pub fn enable_unstable_encodings(session: &VortexSession) {
         .vortex_expect("unstable edition is registered");
 }
 
+const BENCH_VARIANT_EDITION_FAMILY: EditionFamily = EditionFamily {
+    name: "bench-variant",
+    origin: "vortex-bench",
+    doc: "The unstable Variant layout, which the V2 scan reads, without the list layout, which \
+it cannot.",
+};
+
+/// The Variant layout from the unstable edition, on its own.
+const UNSTABLE_BENCH_VARIANT: EditionId = EditionId::new("bench-variant", 2026, 11, 0);
+
+static UNSTABLE_BENCH_VARIANT_DECLARATION: EditionDeclaration = EditionDeclaration {
+    edition: Edition {
+        id: UNSTABLE_BENCH_VARIANT,
+        immutable: false,
+        min_library_version: None,
+    },
+    added: &[EditionMember::layout(&"vortex.variant")],
+};
+
 pub static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     let session = VortexSession::default().with_tokio();
     vortex_spatial::initialize(&session);
@@ -146,6 +172,13 @@ pub static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
         .vortex_expect("bench edition declaration is valid");
     enable_unstable_encodings(&session);
     session
+        .editions()
+        .declare_family(&BENCH_VARIANT_EDITION_FAMILY)
+        .vortex_expect("bench Variant edition family is valid");
+    session
+        .register_edition(&UNSTABLE_BENCH_VARIANT_DECLARATION)
+        .vortex_expect("bench Variant edition declaration is valid");
+    session
 });
 
 /// Enables [`UNSTABLE_BENCH`] on [`SESSION`], so it writes lists with the list layout.
@@ -155,6 +188,35 @@ fn enable_unstable_bench_edition() {
     SESSION
         .enable_edition(UNSTABLE_BENCH)
         .vortex_expect("bench edition is registered");
+}
+
+/// Enables [`UNSTABLE_BENCH_VARIANT`] on [`SESSION`], so it writes a shredded Variant with the
+/// Variant layout: a column for its core storage and one for each shredded field.
+fn enable_unstable_bench_variant_edition() {
+    SESSION
+        .enable_edition(UNSTABLE_BENCH_VARIANT)
+        .vortex_expect("bench Variant edition is registered");
+}
+
+/// Whether [`write_strategy_builder`] shreds the Variants that are not shredded.
+static SHRED_VARIANTS_ON_WRITE: AtomicBool = AtomicBool::new(false);
+
+/// Makes the Vortex writer shred an unshredded Variant by a schema it infers from the values.
+fn enable_variant_shredding_on_write() {
+    SHRED_VARIANTS_ON_WRITE.store(true, Ordering::Relaxed);
+}
+
+fn shreds_variants_on_write() -> bool {
+    SHRED_VARIANTS_ON_WRITE.load(Ordering::Relaxed)
+}
+
+/// The write strategy of [`SESSION`], with what the benchmark being run has enabled.
+pub fn write_strategy_builder() -> WriteStrategyBuilder {
+    let builder = WriteStrategyBuilder::from_session(&SESSION);
+    if !shreds_variants_on_write() {
+        return builder;
+    }
+    builder.with_variant_shredding(Arc::new(InferredShredding::default()))
 }
 
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, Serialize, Deserialize)]
@@ -331,12 +393,15 @@ impl CompactionStrategy {
     pub fn apply_options(&self, options: VortexWriteOptions) -> VortexWriteOptions {
         match self {
             CompactionStrategy::Compact => options.with_strategy(
-                WriteStrategyBuilder::from_session(&SESSION)
+                write_strategy_builder()
                     .with_btrblocks_builder(
                         BtrBlocksCompressorBuilder::from_session(&SESSION).with_compact(),
                     )
                     .build(),
             ),
+            CompactionStrategy::Default if shreds_variants_on_write() => {
+                options.with_strategy(write_strategy_builder().build())
+            }
             CompactionStrategy::Default => options,
         }
     }
@@ -425,6 +490,8 @@ pub enum BenchmarkArg {
     GhArchive,
     #[clap(name = "job")]
     Job,
+    #[clap(name = "jsonbench")]
+    JsonBench,
     #[clap(name = "polarsignals")]
     PolarSignals,
     #[clap(name = "public-bi")]
@@ -516,6 +583,17 @@ pub fn create_benchmark(b: BenchmarkArg, opts: &Opts) -> anyhow::Result<Box<dyn 
         BenchmarkArg::Job => {
             let remote_data_dir = opts.get_as::<String>(REMOTE_DATA_KEY);
             let benchmark = JobBenchmark::with_remote_data_dir(remote_data_dir)?;
+            Ok(Box::new(benchmark) as _)
+        }
+        BenchmarkArg::JsonBench => {
+            enable_unstable_bench_variant_edition();
+            let files = opts.get_as::<usize>(SCALE_FACTOR_KEY).unwrap_or(1);
+            let shredding = opts.get_as::<Shredding>("shredding").unwrap_or_default();
+            if shredding == Shredding::Inferred {
+                enable_variant_shredding_on_write();
+            }
+            let remote_data_dir = opts.get_as::<String>(REMOTE_DATA_KEY);
+            let benchmark = JsonBenchBenchmark::new(files, shredding, remote_data_dir)?;
             Ok(Box::new(benchmark) as _)
         }
         BenchmarkArg::PolarSignals => {
