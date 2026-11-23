@@ -37,6 +37,7 @@
     "filter_fsl": 4,
     "filter_list": 12,
     "interleave": 18,
+    "is_compound_sorted": 15,
     "kleene_bool": 14,
     "listview_builder_extend": 4,
     "listview_rebuild": 9,
