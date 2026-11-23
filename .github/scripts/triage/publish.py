@@ -39,6 +39,7 @@ class Thread:
     # so a run that dies in between is found by the next run instead of posting twice.
     pending: str | None = None
     last_ping_at: float = 0.0
+    last_checked_at: float = 0.0
     pings: int = 0
 
     @property
@@ -62,6 +63,8 @@ class Messenger(Protocol):
     def post(self, text: str, key: str, payload: dict[str, str], thread_ts: str | None) -> str: ...
 
     def find(self, key: str, thread_ts: str | None, oldest: float) -> dict[str, Any] | None: ...
+
+    def update(self, ts: str, text: str, key: str, payload: dict[str, str]) -> None: ...
 
 
 class MemoryStore:
@@ -219,6 +222,7 @@ class Publisher:
             new_status, external_at = closed.capitalize(), thread.external_at
         payload = {"status": new_status, "external_at": external_at}
 
+        had_new_external = bool(item and item.external_at and item.external_at > thread.external_at)
         if thread.root_ts is None:
             if item is None or not item.reasons or not can_start:
                 return
@@ -235,7 +239,7 @@ class Publisher:
 
         if ping and item is not None and thread.root_ts is not None:
             now_ts = self.now()
-            if is_ping_due(item, thread, now_ts, cadence):
+            if is_ping_due(item, thread, now_ts, cadence, new_external=had_new_external):
                 verdict = (verdicts or {}).get(number) or fallback_verdict(item)
                 if verdict.state == WAITING_ON_VORTEX:
                     ping_payload = {
@@ -250,6 +254,18 @@ class Publisher:
                         ping_text(item, verdict, slack_users, oncall_slack_id),
                         ping_payload,
                     )
+                else:
+                    # Record the check timestamp in the root message's metadata so cadence applies
+                    # without posting a noisy thread reply.
+                    check_payload = {
+                        **payload,
+                        "last_checked_at": str(int(now_ts)),
+                        "verdict": verdict.state,
+                    }
+                    self.slack.update(
+                        thread.root_ts, root_text(item), f"{number}:root", check_payload
+                    )
+                    self.store.save(number, replace(thread, last_checked_at=now_ts))
 
     def _post(
         self, number: int, thread: Thread, key: str, text: str, payload: dict[str, str]

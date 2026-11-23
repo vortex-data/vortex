@@ -138,6 +138,7 @@ class FakeSlack:
 
     def __init__(self):
         self.messages = []
+        self.updates = []
         self.fail = None
 
     def post(self, text, key, payload, thread_ts) -> str:
@@ -156,6 +157,9 @@ class FakeSlack:
             if message["key"] == key and message["thread_ts"] == thread_ts:
                 return {k: message[k] for k in ("ts", "key", "status", "external_at")}
         return None
+
+    def update(self, ts, text, key, payload):
+        self.updates.append({"ts": ts, "text": text, "key": key, **payload})
 
 
 def item(
@@ -406,13 +410,27 @@ def test_cadence_business_hours_and_weekday_counting():
     assert evaluate.weekdays_between(fri_17, mon_09, "America/New_York") == 1
     assert evaluate.weekdays_between(mon_09, mon_15, "America/New_York") == 0
 
-    pr_thread = publish.Thread(created_at=fri_17, root_ts="1.0", status="Open", last_ping_at=fri_17, pings=1)
-    pr_item = item(1, kind="pr")
+    pr_item = item(1, kind="pr", external_at="2026-01-01T00:00:00Z")
+    pr_thread = publish.Thread(
+        created_at=fri_17,
+        root_ts="1.0",
+        status="Open",
+        external_at="2026-01-01T00:00:00Z",
+        last_ping_at=fri_17,
+        pings=1,
+    )
     assert not evaluate.is_ping_due(pr_item, pr_thread, sat_12, cadence)
     assert evaluate.is_ping_due(pr_item, pr_thread, mon_09, cadence)
 
-    issue_thread = publish.Thread(created_at=fri_17, root_ts="1.0", status="Open", last_ping_at=fri_17, pings=1)
-    issue_item = item(2, kind="issue")
+    issue_item = item(2, kind="issue", external_at="2026-01-01T00:00:00Z")
+    issue_thread = publish.Thread(
+        created_at=fri_17,
+        root_ts="1.0",
+        status="Open",
+        external_at="2026-01-01T00:00:00Z",
+        last_ping_at=fri_17,
+        pings=1,
+    )
     assert not evaluate.is_ping_due(issue_item, issue_thread, mon_09, cadence)
     assert evaluate.is_ping_due(issue_item, issue_thread, fri_next, cadence)
 
@@ -685,3 +703,45 @@ def test_slack_client_errors_retries_and_find(monkeypatch):
     )
     monkeypatch.setattr(slack.urllib.request, "urlopen", lambda _req, timeout=30: next(pages))
     assert client.find("1:root", None, 0.0) == {"ts": "2.0", "key": "1:root", "status": "Open"}
+
+
+def test_waiting_on_contributor_records_check_and_obeys_cadence():
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    ny = ZoneInfo("America/New_York")
+    mon_10 = datetime(2026, 1, 12, 10, 0, tzinfo=ny).timestamp()
+    mon_11 = datetime(2026, 1, 12, 11, 0, tzinfo=ny).timestamp()
+    tue_10 = datetime(2026, 1, 13, 10, 0, tzinfo=ny).timestamp()
+
+    now = [mon_10]
+    store = publish.MemoryStore()
+    fake = FakeSlack()
+    pub = publish.Publisher(store, fake, lambda _n: None, now=lambda: now[0])
+    cadence = evaluate.Cadence(issue_days=7, pr_weekdays=1, tz="America/New_York")
+
+    pr = item(10, kind="pr", assignees=("gatesn",), external_at="2026-01-12T09:00:00Z")
+    waiting = {10: evaluate.Verdict(evaluate.WAITING_ON_CONTRIBUTOR, "Asked for a test.", "claude")}
+
+    # First run creates the root and records the check in root metadata without posting a ping.
+    assert pub.sync([pr], ping=True, verdicts=waiting, cadence=cadence) == []
+    assert [m["key"] for m in fake.messages] == ["10:root"]
+    assert len(fake.updates) == 1
+    assert fake.updates[0]["last_checked_at"] == str(int(mon_10))
+    assert store.threads[10].last_checked_at == mon_10
+
+    # One hour later, the item is not due for re-evaluation.
+    now[0] = mon_11
+    assert evaluate.due_items([pr], store.load(), mon_11, cadence) == []
+    assert pub.sync([pr], ping=True, verdicts=waiting, cadence=cadence) == []
+    assert len(fake.updates) == 1
+
+    # New external activity makes it due immediately even within the same hour.
+    pr_replied = item(10, kind="pr", assignees=("gatesn",), external_at="2026-01-12T10:30:00Z")
+    assert [i.number for i in evaluate.due_items([pr_replied], store.load(), mon_11, cadence)] == [10]
+    vortex_owes = {10: evaluate.Verdict(evaluate.WAITING_ON_VORTEX, "Contributor replied.", "claude")}
+    assert pub.sync([pr_replied], ping=True, verdicts=vortex_owes, cadence=cadence) == []
+    assert [m["key"] for m in fake.messages] == ["10:root", "10:update:1", "10:ping:1"]
+
+    # On the next weekday, cadence makes it due again.
+    assert [i.number for i in evaluate.due_items([pr_replied], store.load(), tue_10, cadence)] == [10]

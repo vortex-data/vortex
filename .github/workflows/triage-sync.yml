@@ -33,8 +33,8 @@ on:
         type: boolean
         default: true
   schedule:
-    # Hourly 14:00-22:00 UTC Monday-Friday (covers 09:00-18:00 America/New_York year-round).
-    - cron: "0 14-22 * * 1-5"
+    # Hourly 13:00-22:00 UTC Monday-Friday (covers 09:00-17:00 America/New_York in EST and EDT).
+    - cron: "0 13-22 * * 1-5"
 
 permissions: { }
 
@@ -93,7 +93,7 @@ jobs:
 
       - name: Prepare due items for progress check
         id: due
-        if: steps.config.outputs.ready == 'true'
+        if: steps.config.outputs.ready == 'true' && steps.config.outputs.do_ping == 'true'
         working-directory: .github/scripts
         env:
           GH_TOKEN: ${{ github.token }}
@@ -118,6 +118,7 @@ jobs:
         id: claude_gate
         env:
           READY: ${{ steps.config.outputs.ready }}
+          DO_PING: ${{ steps.config.outputs.do_ping }}
           DUE_COUNT: ${{ steps.due.outputs.due_count }}
           HAS_FEDERATION: ${{ vars.ANTHROPIC_FEDERATION_RULE_CI != '' }}
           EVENT_NAME: ${{ github.event_name }}
@@ -127,7 +128,7 @@ jobs:
           if [ "${EVENT_NAME}" = "workflow_dispatch" ]; then
             USE_CLAUDE="${INPUT_USE_CLAUDE}"
           fi
-          if [ "${READY}" = "true" ] && [ -n "${DUE_COUNT}" ] && [ "${DUE_COUNT}" != "0" ] && [ "${HAS_FEDERATION}" = "true" ] && [ "${USE_CLAUDE}" = "true" ]; then
+          if [ "${READY}" = "true" ] && [ "${DO_PING}" = "true" ] && [ -n "${DUE_COUNT}" ] && [ "${DUE_COUNT}" != "0" ] && [ "${HAS_FEDERATION}" = "true" ] && [ "${USE_CLAUDE}" = "true" ]; then
             echo "run_claude=true" >> "$GITHUB_OUTPUT"
           else
             echo "run_claude=false" >> "$GITHUB_OUTPUT"

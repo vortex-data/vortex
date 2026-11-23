@@ -88,6 +88,16 @@ class Slack:
             params["thread_ts"] = thread_ts
         return self._call("chat.postMessage", params, post=True)["ts"]
 
+    def update(self, ts: str, text: str, key: str, payload: dict[str, str]) -> None:
+        """Update a message's metadata (and text) in place."""
+        params: dict[str, object] = {
+            "channel": self.channel,
+            "ts": ts,
+            "text": text,
+            "metadata": {"event_type": EVENT_TYPE, "event_payload": {"key": key, **payload}},
+        }
+        self._call("chat.update", params, post=True)
+
     def messages(
         self, thread_ts: str | None = None, oldest: float = 0.0
     ) -> Iterator[dict[str, Any]]:
@@ -191,6 +201,7 @@ class SlackStore:
             status = str(root_payload.get("status", ""))
             external_at = str(root_payload.get("external_at", ""))
             last_ping_at = _parse_float(root_payload.get("last_ping_at"))
+            last_checked_at = _parse_float(root_payload.get("last_checked_at"))
             updates = 0
             pings = 0
 
@@ -229,6 +240,7 @@ class SlackStore:
                 external_at=external_at,
                 updates=updates,
                 last_ping_at=last_ping_at,
+                last_checked_at=last_checked_at,
                 pings=pings,
             )
 

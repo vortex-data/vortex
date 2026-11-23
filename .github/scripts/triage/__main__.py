@@ -72,6 +72,9 @@ class _PrintOnly:
     def find(self, key: str, thread_ts: str | None, oldest: float) -> None:
         return None
 
+    def update(self, ts: str, text: str, key: str, payload: dict[str, str]) -> None:
+        print(f"--- [check] {key} (ts={ts}) verdict={payload.get('verdict', '')}\n")
+
 
 def _add_cadence_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--channel", default="", help="Slack channel ID")

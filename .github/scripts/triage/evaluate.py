@@ -64,17 +64,29 @@ def weekdays_between(start_ts: float, end_ts: float, tz_name: str) -> int:
     return count
 
 
-def is_ping_due(item: Item, thread: Thread | None, now_ts: float, cadence: Cadence) -> bool:
+def is_ping_due(
+    item: Item,
+    thread: Thread | None,
+    now_ts: float,
+    cadence: Cadence,
+    *,
+    new_external: bool = False,
+) -> bool:
     """Return True when `item` is eligible for a progress check and reminder right now."""
     if not in_business_hours(now_ts, cadence):
         return False
     if not item.reasons and (thread is None or not thread.open):
         return False
-    if thread is None or thread.last_ping_at <= 0:
+    if thread is None:
+        return True
+    if new_external or (item.external_at and item.external_at > thread.external_at):
+        return True
+    last_at = max(thread.last_ping_at, thread.last_checked_at)
+    if last_at <= 0:
         return True
     if item.kind == "pr":
-        return weekdays_between(thread.last_ping_at, now_ts, cadence.tz) >= cadence.pr_weekdays
-    return (now_ts - thread.last_ping_at) >= cadence.issue_days * 86400
+        return weekdays_between(last_at, now_ts, cadence.tz) >= cadence.pr_weekdays
+    return (now_ts - last_at) >= cadence.issue_days * 86400
 
 
 def due_items(
