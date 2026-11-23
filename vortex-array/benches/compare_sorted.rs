@@ -17,11 +17,14 @@ use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::Nullability;
+use vortex_array::expr::stats::Precision;
+use vortex_array::expr::stats::Stat;
 use vortex_array::extension::datetime::TimeUnit;
 use vortex_array::extension::datetime::Timestamp;
 use vortex_array::memory::MemorySession;
 use vortex_array::optimizer::kernels::KernelSession;
 use vortex_array::scalar::Scalar;
+use vortex_array::scalar::ScalarValue;
 use vortex_array::scalar_fn::builtin::operators::Operator;
 use vortex_array::test_harness::mark_optimized;
 use vortex_buffer::Buffer;
@@ -45,6 +48,9 @@ fn main() {
 const LEN: u32 = 4_096;
 
 fn bench_compare(bencher: Bencher, lhs: ArrayRef, constant: Scalar, op: Operator) {
+    // Every input is sorted; record it as a file reader would from persisted statistics.
+    lhs.statistics()
+        .set(Stat::IsSorted, Precision::exact(ScalarValue::from(true)));
     let rhs = ConstantArray::new(constant, lhs.len()).into_array();
     mark_optimized(&lhs, &SESSION).unwrap();
     mark_optimized(&rhs, &SESSION).unwrap();
