@@ -20,6 +20,7 @@ use vortex_array::EmptyMetadata;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::ExtensionArray;
+use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::arbitrary::ArbitraryArray;
 use vortex_array::arrays::arbitrary::ArbitraryArrayConfig;
@@ -36,6 +37,7 @@ use vortex_array::extension::datetime::TimeUnit;
 use vortex_array::extension::datetime::Timestamp;
 use vortex_array::validity::Validity;
 use vortex_arrow::test_harness::check_containers;
+use vortex_buffer::Buffer;
 use vortex_error::VortexExpect;
 use vortex_json::Json;
 use vortex_parquet_variant::ParquetVariant;
@@ -129,7 +131,7 @@ impl<'a> Arbitrary<'a> for ArrowRoundTrip {
         }
 
         let dtype = kind.arbitrary_dtype(u, nullability)?;
-        let storage = kind.arbitrary_storage(u, dtype.storage_dtype(), len)?;
+        let storage = kind.arbitrary_storage(u, &dtype, len)?;
 
         Ok(Self {
             array: ExtensionArray::try_new(dtype, storage)
@@ -197,6 +199,48 @@ fn arbitrary_variant(
     )
     .vortex_expect("encoded Parquet Variant rows form valid unshredded storage")
     .into_array())
+}
+
+/// Generates `len` Time values in `[0, 1 day)`, the range that `vortex.time` scalars accept.
+fn arbitrary_time_storage(
+    u: &mut Unstructured<'_>,
+    unit: TimeUnit,
+    dtype: &DType,
+    len: usize,
+) -> arbitrary::Result<ArrayRef> {
+    let units_per_day: i64 = match unit {
+        TimeUnit::Seconds => 86_400,
+        TimeUnit::Milliseconds => 86_400_000,
+        TimeUnit::Microseconds => 86_400_000_000,
+        TimeUnit::Nanoseconds => 86_400_000_000_000,
+        TimeUnit::Days => unreachable!("Time rejects days"),
+    };
+
+    let mut values = Vec::with_capacity(len);
+    let mut valid = Vec::with_capacity(len);
+    for _ in 0..len {
+        values.push(u.int_in_range(0..=units_per_day - 1)?);
+        valid.push(!dtype.is_nullable() || u.arbitrary::<bool>()?);
+    }
+    let validity = match dtype.nullability() {
+        Nullability::NonNullable => Validity::NonNullable,
+        Nullability::Nullable => Validity::from_iter(valid),
+    };
+
+    let storage = match dtype.as_ptype() {
+        PType::I32 => PrimitiveArray::new(
+            values
+                .into_iter()
+                .map(|v| {
+                    i32::try_from(v).vortex_expect("seconds and milliseconds in a day fit i32")
+                })
+                .collect::<Buffer<i32>>(),
+            validity,
+        ),
+        PType::I64 => PrimitiveArray::new(values.into_iter().collect::<Buffer<i64>>(), validity),
+        ptype => unreachable!("Time storage is i32 or i64, got {ptype}"),
+    };
+    Ok(storage.into_array())
 }
 
 impl LogicalKind {
@@ -316,14 +360,17 @@ impl LogicalKind {
         Ok(dtype)
     }
 
-    /// Generates storage with valid JSON and WKB payloads for types that constrain their bytes.
+    /// Generates storage with valid JSON and WKB payloads for types that constrain their bytes,
+    /// and Time values within one day.
     fn arbitrary_storage(
         self,
         u: &mut Unstructured<'_>,
-        dtype: &DType,
+        ext_dtype: &ExtDTypeRef,
         len: usize,
     ) -> arbitrary::Result<ArrayRef> {
+        let dtype = ext_dtype.storage_dtype();
         let storage = match self {
+            Self::Time => arbitrary_time_storage(u, *ext_dtype.metadata::<Time>(), dtype, len)?,
             Self::Json => {
                 let text = u.arbitrary::<i64>()?.to_string();
                 let values =
@@ -425,6 +472,22 @@ mod tests {
 
         assert_eq!(input.array.dtype(), &DType::Variant(Nullability::Nullable));
         assert_eq!(input.array.len(), 3);
+        input.check();
+
+        Ok(())
+    }
+
+    /// Regression for #11805: Time storage held values outside one day, which run-end slicing
+    /// rejected when it read the run value as a scalar.
+    #[test]
+    fn time_storage_within_one_day() -> VortexResult<()> {
+        let bytes = [
+            5, 145, 2, 247, 237, 247, 237, 247, 2, 3, 254, 253, 254, 2, 2, 2, 49, 248,
+        ];
+        let input = ArrowRoundTrip::arbitrary(&mut Unstructured::new(&bytes))
+            .map_err(|e| vortex_err!("failed to generate crash input: {e}"))?;
+
+        assert_eq!(input.array.dtype().as_extension().id(), Time.id());
         input.check();
 
         Ok(())
