@@ -12,14 +12,13 @@ use futures::future::BoxFuture;
 use futures::stream;
 use object_store::GetOptions;
 use object_store::GetRange;
+use object_store::GetResult;
 use object_store::GetResultPayload;
 use object_store::ObjectStore;
-use object_store::ObjectStoreExt;
 use object_store::path::Path as ObjectPath;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::memory::BufferAllocatorRef;
 use vortex_buffer::Alignment;
-use vortex_error::VortexError;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
@@ -28,6 +27,7 @@ use crate::CoalesceConfig;
 use crate::ReadAtRequest;
 use crate::ReadAtStream;
 use crate::VortexReadAt;
+use crate::filesystem::FileListing;
 use crate::runtime::Handle;
 #[cfg(not(target_arch = "wasm32"))]
 use crate::std_file::read_exact_at;
@@ -44,6 +44,8 @@ pub struct ObjectStoreReadAt {
     allocator: BufferAllocatorRef,
     concurrency: usize,
     coalesce_config: Option<CoalesceConfig>,
+    version: Option<Arc<str>>,
+    known_size: Option<u64>,
 }
 
 impl ObjectStoreReadAt {
@@ -73,7 +75,18 @@ impl ObjectStoreReadAt {
             allocator,
             concurrency: DEFAULT_CONCURRENCY,
             coalesce_config: Some(CoalesceConfig::object_storage()),
+            version: None,
+            known_size: None,
         }
+    }
+
+    pub(crate) fn with_listing_metadata(mut self, listing: &FileListing) -> Self {
+        self.version = listing
+            .version
+            .as_ref()
+            .map(|version| Arc::from(version.as_str()));
+        self.known_size = listing.versioned_size();
+        self
     }
 
     /// Set the concurrency for this source.
@@ -89,11 +102,37 @@ impl ObjectStoreReadAt {
     }
 }
 
+async fn get_listed_version<Fut: Future<Output = object_store::Result<GetResult>> + Send>(
+    get: impl Fn(GetOptions) -> Fut,
+    mut options: GetOptions,
+    version: Option<&str>,
+) -> VortexResult<GetResult> {
+    let Some(version) = version else {
+        return Ok(get(options).await?);
+    };
+    // S3 grants access to current and historical versions separately. Verify the current
+    // response before consuming its body, then request the listed version if necessary.
+    if let Ok(current) = get(options.clone()).await
+        && current.meta.version.as_deref() == Some(version)
+    {
+        return Ok(current);
+    }
+    options.version = Some(version.to_owned());
+    let historical = get(options).await?;
+    vortex_ensure!(
+        historical.meta.version.as_deref() == Some(version),
+        "Object store did not return the requested version of {}",
+        historical.meta.location
+    );
+    Ok(historical)
+}
+
 async fn read_object_store_range(
     store: Arc<dyn ObjectStore>,
     path: ObjectPath,
     io_handle: Handle,
     allocator: BufferAllocatorRef,
+    version: Option<Arc<str>>,
     request: ReadAtRequest,
 ) -> VortexResult<BufferHandle> {
     let ReadAtRequest {
@@ -106,15 +145,15 @@ async fn read_object_store_range(
     // SAFETY: each return path checks that every byte was initialized.
     unsafe { buffer.set_len(length) };
 
-    let response = store
-        .get_opts(
-            &path,
-            GetOptions {
-                range: Some(GetRange::Bounded(range.clone())),
-                ..Default::default()
-            },
-        )
-        .await?;
+    let response = get_listed_version(
+        |options| store.get_opts(&path, options),
+        GetOptions {
+            range: Some(GetRange::Bounded(range.clone())),
+            ..Default::default()
+        },
+        version.as_deref(),
+    )
+    .await?;
 
     let buffer = match response.payload {
         #[cfg(not(target_arch = "wasm32"))]
@@ -173,14 +212,23 @@ impl VortexReadAt for ObjectStoreReadAt {
     }
 
     fn size(&self) -> BoxFuture<'static, VortexResult<u64>> {
+        if let Some(size) = self.known_size {
+            return async move { Ok(size) }.boxed();
+        }
         let store = Arc::clone(&self.store);
         let path = self.path.clone();
+        let version = self.version.clone();
         async move {
-            store
-                .head(&path)
-                .await
-                .map(|h| h.size)
-                .map_err(VortexError::from)
+            let result = get_listed_version(
+                |options| store.get_opts(&path, options),
+                GetOptions {
+                    head: true,
+                    ..Default::default()
+                },
+                version.as_deref(),
+            )
+            .await?;
+            Ok(result.meta.size)
         }
         .boxed()
     }
@@ -195,6 +243,7 @@ impl VortexReadAt for ObjectStoreReadAt {
         let path = self.path.clone();
         let handle = self.handle.clone();
         let allocator = self.allocator.clone();
+        let version = self.version.clone();
         let io_handle = handle.clone();
         handle
             .spawn_io(read_object_store_range(
@@ -202,6 +251,7 @@ impl VortexReadAt for ObjectStoreReadAt {
                 path,
                 io_handle,
                 allocator,
+                version,
                 ReadAtRequest::new(offset, length, alignment),
             ))
             .boxed()
@@ -216,6 +266,7 @@ impl VortexReadAt for ObjectStoreReadAt {
         let path = self.path.clone();
         let handle = self.handle.clone();
         let allocator = self.allocator.clone();
+        let version = self.version.clone();
         let concurrency = self.concurrency.max(1);
         let (mut send, recv) = mpsc::channel(concurrency);
         let io_handle = handle.clone();
@@ -229,9 +280,12 @@ impl VortexReadAt for ObjectStoreReadAt {
                 let path = path.clone();
                 let io_handle = io_handle.clone();
                 let allocator = allocator.clone();
+                let version = version.clone();
                 async move {
-                    let result =
-                        read_object_store_range(store, path, io_handle, allocator, request).await;
+                    let result = read_object_store_range(
+                        store, path, io_handle, allocator, version, request,
+                    )
+                    .await;
                     (request, result)
                 }
             });
@@ -261,6 +315,7 @@ mod tests {
     use std::sync::atomic::AtomicUsize;
     use std::sync::atomic::Ordering;
 
+    use object_store::ObjectStoreExt;
     use object_store::PutPayload;
     use object_store::memory::InMemory;
 
@@ -270,6 +325,54 @@ mod tests {
     use crate::runtime::Executor;
 
     const TEST_DATA: &[u8] = b"object store test data";
+
+    #[rstest::rstest]
+    #[case(Some("v1"), None, None)]
+    #[case(Some("v2"), None, Some("historical read denied"))]
+    #[case(Some("v2"), Some("v1"), None)]
+    #[case(None, Some("v1"), None)]
+    #[case(Some("v2"), Some("v2"), Some("did not return the requested version"))]
+    #[tokio::test]
+    async fn reads_only_the_listed_version(
+        #[case] current_version: Option<&str>,
+        #[case] historical_version: Option<&str>,
+        #[case] expected_error: Option<&str>,
+    ) -> VortexResult<()> {
+        let store = InMemory::new();
+        let path = ObjectPath::from("versions");
+        store.put(&path, PutPayload::from_static(b"oldnew")).await?;
+        let store = &store;
+        let path = &path;
+        let read = |mut options: GetOptions| async move {
+            let version = if let Some(version) = options.version.take() {
+                assert_eq!(version, "v1");
+                historical_version.ok_or_else(|| object_store::Error::PermissionDenied {
+                    path: path.to_string(),
+                    source: "historical read denied".into(),
+                })?
+            } else {
+                current_version.ok_or_else(|| object_store::Error::NotFound {
+                    path: path.to_string(),
+                    source: "current object was removed".into(),
+                })?
+            };
+            options.range = Some(GetRange::Bounded(if version == "v1" { 0..3 } else { 3..6 }));
+            let mut result = store.get_opts(path, options).await?;
+            result.meta.version = Some(version.to_owned());
+            Ok(result)
+        };
+        let result = get_listed_version(read, GetOptions::default(), Some("v1")).await;
+        match expected_error {
+            Some(message) => assert!(
+                result
+                    .expect_err("read must fail")
+                    .to_string()
+                    .contains(message)
+            ),
+            None => assert_eq!(result?.bytes().await?.as_ref(), b"old"),
+        }
+        Ok(())
+    }
 
     #[derive(Default)]
     struct CountingExecutor {

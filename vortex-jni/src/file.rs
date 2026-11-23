@@ -23,9 +23,10 @@ use vortex::dtype::FieldPath;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
 use vortex::file::VortexFile;
-use vortex::file::multi::open_cached;
+use vortex::file::multi::open_cached_with_version;
 use vortex::file::multi::parse_uri_or_path;
 use vortex::io::VortexReadAt;
+use vortex::io::filesystem::FileVersion;
 use vortex::io::runtime::BlockingRuntime;
 use vortex::io::session::RuntimeSessionExt;
 use vortex::session::VortexSession;
@@ -125,23 +126,24 @@ fn metadata_to_java(
     Ok(raw)
 }
 
-/// Open a Vortex file through the session footer cache.
+/// Open a Vortex file, using the session footer cache when a strong file version is available.
 ///
-/// `cache_key` identifies the file in the session footer cache. All entry points name the file
-/// the same way the scan path does — the object-store path, or the `NativeReadable`'s name — so a
-/// metadata or statistics read and a later scan of the same file share one footer read.
+/// `cache_key` identifies the backing store and file for native storage opens, or the
+/// `NativeReadable`'s name.
 fn open_file(
     session: &VortexSession,
     source: Arc<dyn VortexReadAt>,
-    cache_key: &str,
+    cache_key: Option<&str>,
     file_size: Option<u64>,
+    file_version: Option<&FileVersion>,
     include_metadata: bool,
 ) -> VortexResult<VortexFile> {
-    RUNTIME.block_on(open_cached(
+    RUNTIME.block_on(open_cached_with_version(
         session,
-        Some(cache_key),
+        cache_key,
         source,
         file_size,
+        file_version,
         &|options| options.with_include_metadata(include_metadata),
     ))
 }
@@ -154,8 +156,6 @@ fn metadata_segments(file: &VortexFile) -> Vec<(String, ByteBuffer)> {
 }
 
 /// Open the Vortex file at `uri` through a native storage client.
-///
-/// The cache key is the object-store path, as on the scan path.
 fn open_uri_file(
     env: &mut jni::Env,
     session: &VortexSession,
@@ -167,17 +167,28 @@ fn open_uri_file(
     let url = parse_uri_or_path(&uri)?;
     let properties = extract_properties(env, options)?;
 
-    let (fs, path) = object_store_fs(&url, &properties, session.handle())?;
-    let source = RUNTIME.block_on(async { fs.open_read(&path).await })?;
+    let (fs, path) = object_store_fs(&url, &properties, session)?;
+    let listing = RUNTIME
+        .block_on(fs.head(&path))?
+        .ok_or_else(|| vortex_err!("File not found: {uri}"))?;
+    let source = RUNTIME.block_on(fs.open_read(&listing))?;
+    let cache_key = fs.cache_key(&listing);
 
-    Ok(open_file(session, source, &path, None, include_metadata)?)
+    Ok(open_file(
+        session,
+        source,
+        cache_key.as_deref(),
+        listing.versioned_size(),
+        listing.version.as_ref(),
+        include_metadata,
+    )?)
 }
 
 /// Open a Vortex file through a caller-provided `dev.vortex.io.NativeReadable`, so no native
 /// storage client is created.
 ///
-/// `name` is the readable's `name()`, which the interface requires to be stable and unique; it
-/// keys the file in the session footer cache, as it does for the scan path.
+/// `name` is the readable's `name()`, which the interface requires to be stable and unique.
+/// Without a strong file version, opening bypasses the session footer cache.
 fn open_readable_file(
     env: &mut jni::Env,
     session: &VortexSession,
@@ -201,15 +212,14 @@ fn open_readable_file(
     let readable = Arc::new(env.new_global_ref(readable)?);
     let source = java_readable(vm, readable, length, coalesce_config, session.handle());
 
-    // `MultiFileDataSource` strips leading slashes and the scan path keys Java readables by
-    // that same normalized form, so normalize here too — otherwise a read through this function
-    // and a scan of the same readable would land on two different cache entries.
+    // Match the normalized identity used by `MultiFileDataSource` for Java readables.
     let cache_key = name.trim_start_matches('/');
     Ok(open_file(
         session,
         source,
-        cache_key,
+        Some(cache_key),
         Some(length),
+        None,
         include_metadata,
     )?)
 }
@@ -236,8 +246,8 @@ pub extern "system" fn Java_dev_vortex_jni_NativeFiles_readMetadata(
 /// Read the user-defined metadata segments of a Vortex file through a caller-provided
 /// `dev.vortex.io.NativeReadable`, so no native storage client is created.
 ///
-/// `name` is the readable's `name()`, which the interface requires to be stable and unique; it
-/// keys the file in the session footer cache, as it does for the scan path.
+/// `name` is the readable's `name()`, which the interface requires to be stable and unique.
+/// Without a strong file version, opening bypasses the session footer cache.
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_dev_vortex_jni_NativeFiles_readMetadataFromReadable(
     mut env: EnvUnowned,
@@ -387,7 +397,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeFiles_listFiles(
 
         let properties = extract_properties(env, &options)?;
 
-        let (fs, prefix) = object_store_fs(&url, &properties, session.handle())?;
+        let (fs, prefix) = object_store_fs(&url, &properties, session)?;
 
         let mut stream = fs.list(&prefix);
 
@@ -446,7 +456,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeFiles_delete(
 
         let properties = extract_properties(env, &options)?;
 
-        let (fs, _path) = object_store_fs(&store_url, &properties, session.handle())?;
+        let (fs, _path) = object_store_fs(&store_url, &properties, session)?;
 
         RUNTIME.block_on(async {
             for uri in delete_uris {

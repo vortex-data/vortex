@@ -6,18 +6,21 @@
 use std::fmt::Debug;
 use std::fmt::Formatter;
 use std::sync::Arc;
+use std::sync::atomic::AtomicU64;
+use std::sync::atomic::Ordering;
 
 use async_trait::async_trait;
 use futures::StreamExt;
 use futures::stream::BoxStream;
+use object_store::ObjectMeta;
 use object_store::ObjectStore;
 use object_store::ObjectStoreExt;
-use object_store::path::Path;
 use vortex_error::VortexResult;
 
 use crate::VortexReadAt;
 use crate::filesystem::FileListing;
 use crate::filesystem::FileSystem;
+use crate::filesystem::FileVersion;
 use crate::object_store::ObjectStoreReadAt;
 use crate::object_store::object_path_from_literal;
 use crate::runtime::Handle;
@@ -28,6 +31,7 @@ use crate::runtime::Handle;
 pub struct ObjectStoreFileSystem {
     store: Arc<dyn ObjectStore>,
     handle: Handle,
+    cache_namespace: u64,
 }
 
 impl Debug for ObjectStoreFileSystem {
@@ -41,7 +45,13 @@ impl Debug for ObjectStoreFileSystem {
 impl ObjectStoreFileSystem {
     /// Create a new filesystem backed by the given object store and runtime handle.
     pub fn new(store: Arc<dyn ObjectStore>, handle: Handle) -> Self {
-        Self { store, handle }
+        static NEXT_CACHE_NAMESPACE: AtomicU64 = AtomicU64::new(0);
+
+        Self {
+            store,
+            handle,
+            cache_namespace: NEXT_CACHE_NAMESPACE.fetch_add(1, Ordering::Relaxed),
+        }
     }
 
     /// Create a new filesystem backed by a local file system object store and the given runtime
@@ -55,10 +65,16 @@ impl ObjectStoreFileSystem {
     }
 }
 
-fn listing_from_meta(location: &Path, size: u64) -> FileListing {
+fn listing_from_meta(meta: &ObjectMeta) -> FileListing {
     FileListing {
-        path: location.to_string(),
-        size: Some(size),
+        path: meta.location.to_string(),
+        size: Some(meta.size),
+        // S3 uses the literal "null" for the mutable current version when versioning is suspended.
+        version: meta
+            .version
+            .as_deref()
+            .filter(|version| *version != "null")
+            .map(FileVersion::new),
     }
 }
 
@@ -74,7 +90,7 @@ impl FileSystem for ObjectStoreFileSystem {
             .list(path.as_ref())
             .map(|result| {
                 result
-                    .map(|meta| listing_from_meta(&meta.location, meta.size))
+                    .map(|meta| listing_from_meta(&meta))
                     .map_err(Into::into)
             })
             .boxed()
@@ -84,18 +100,28 @@ impl FileSystem for ObjectStoreFileSystem {
         // `head` issues a single metadata lookup (e.g. an S3 HEAD) for the exact key, unlike
         // `list`, which enumerates by path-segment prefix and never returns the key itself.
         match self.store.head(&object_path_from_literal(path)).await {
-            Ok(meta) => Ok(Some(listing_from_meta(&meta.location, meta.size))),
+            Ok(meta) => Ok(Some(listing_from_meta(&meta))),
             Err(object_store::Error::NotFound { .. }) => Ok(None),
             Err(e) => Err(e.into()),
         }
     }
 
-    async fn open_read(&self, path: &str) -> VortexResult<Arc<dyn VortexReadAt>> {
-        Ok(Arc::new(ObjectStoreReadAt::new(
-            Arc::clone(&self.store),
-            object_path_from_literal(path),
-            self.handle.clone(),
-        )))
+    async fn open_read(&self, file: &FileListing) -> VortexResult<Arc<dyn VortexReadAt>> {
+        Ok(Arc::new(
+            ObjectStoreReadAt::new(
+                Arc::clone(&self.store),
+                object_path_from_literal(&file.path),
+                self.handle.clone(),
+            )
+            .with_listing_metadata(file),
+        ))
+    }
+
+    fn cache_key(&self, file: &FileListing) -> Option<String> {
+        Some(format!(
+            "object-store:{}:{}",
+            self.cache_namespace, file.path
+        ))
     }
 
     async fn delete(&self, path: &str) -> VortexResult<()> {
@@ -117,6 +143,7 @@ mod tests {
 
     use super::*;
     use crate::filesystem::FileSystem;
+    use crate::filesystem::FileSystemRef;
     use crate::runtime::Handle;
 
     /// Build an [`ObjectStoreFileSystem`] over an in-memory store seeded with `(path, size)` files.
@@ -132,6 +159,67 @@ mod tests {
         }
         let handle = Handle::find().expect("tokio runtime available within #[tokio::test]");
         Ok(ObjectStoreFileSystem::new(store, handle))
+    }
+
+    #[tokio::test]
+    async fn test_listing_requires_a_real_object_version() -> VortexResult<()> {
+        let store = Arc::new(InMemory::new()) as Arc<dyn ObjectStore>;
+        let path = object_path_from_literal("versioned.vortex");
+        store.put(&path, vec![0u8].into()).await?;
+        let meta = store.head(&path).await?;
+
+        let before = listing_from_meta(&ObjectMeta {
+            version: Some("version-1".to_string()),
+            ..meta.clone()
+        });
+        let after = listing_from_meta(&ObjectMeta {
+            version: Some("version-2".to_string()),
+            ..meta.clone()
+        });
+        assert_eq!(before.size, after.size);
+        assert_ne!(before.version, after.version);
+
+        let suspended = listing_from_meta(&ObjectMeta {
+            version: Some("null".to_string()),
+            e_tag: Some("changed-etag".to_string()),
+            ..meta
+        });
+        assert_eq!(suspended.version, None);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn unversioned_source_observes_replacement_size() -> VortexResult<()> {
+        let fs = memory_fs(&[("data.vortex", 5)]).await?;
+        let listing = fs.head("data.vortex").await?.expect("file exists");
+        assert_eq!(listing.version, None);
+        fs.store
+            .put(&object_path_from_literal("data.vortex"), vec![0; 8].into())
+            .await?;
+        assert_eq!(fs.open_read(&listing).await?.size().await?, 8);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_cache_key_scoped_to_filesystem_and_prefix() -> VortexResult<()> {
+        let fs_a = memory_fs(&[("a/shared.vortex", 1), ("b/shared.vortex", 1)]).await?;
+        let fs_b = memory_fs(&[("a/shared.vortex", 1)]).await?;
+        let listing = fs_a.head("a/shared.vortex").await?.expect("file exists");
+        let key_a = fs_a.cache_key(&listing);
+        assert_eq!(key_a, fs_a.cache_key(&listing));
+        assert_ne!(key_a, fs_b.cache_key(&listing));
+
+        let root: FileSystemRef = Arc::new(fs_a);
+        let prefix_a = Arc::clone(&root).with_prefix("a".to_string());
+        let prefix_b = root.with_prefix("b".to_string());
+        let listing_a = prefix_a.head("shared.vortex").await?.expect("file exists");
+        let listing_b = prefix_b.head("shared.vortex").await?.expect("file exists");
+        assert_eq!(prefix_a.cache_key(&listing_a), key_a);
+        assert_ne!(
+            prefix_a.cache_key(&listing_a),
+            prefix_b.cache_key(&listing_b)
+        );
+        Ok(())
     }
 
     /// Regression test for #6599: globbing an exact path that exists must return that one file.
@@ -187,15 +275,12 @@ mod tests {
     async fn test_head_open_read_round_trip_special_chars(#[case] path: &str) -> VortexResult<()> {
         let fs = memory_fs(&[(path, 5)]).await?;
         // `head` returns the literal key, matching the caller's input.
-        assert_eq!(
-            fs.head(path).await?,
-            Some(FileListing {
-                path: path.to_string(),
-                size: Some(5),
-            })
-        );
-        // and that literal path reopens the file (`size()` issues a `head` under the hood).
-        assert_eq!(fs.open_read(path).await?.size().await?, 5);
+        let listing = fs.head(path).await?.expect("file exists");
+        assert_eq!(listing.path, path);
+        assert_eq!(listing.size, Some(5));
+        assert_eq!(listing.version, None);
+        // and that literal path reopens the file.
+        assert_eq!(fs.open_read(&listing).await?.size().await?, 5);
         Ok(())
     }
 
@@ -213,10 +298,7 @@ mod tests {
     async fn test_glob_round_trip_special_chars(#[case] path: &str) -> VortexResult<()> {
         let fs = memory_fs(&[(path, 5)]).await?;
         let fs_dyn: &dyn FileSystem = &fs;
-        let expected = FileListing {
-            path: path.to_string(),
-            size: Some(5),
-        };
+        let expected = fs.head(path).await?.expect("file exists");
 
         // Exact-path glob returns the literal path.
         let exact: Vec<FileListing> = fs_dyn.glob(path)?.try_collect().await?;
@@ -230,7 +312,7 @@ mod tests {
         );
 
         // The returned path reopens the file.
-        assert_eq!(fs.open_read(path).await?.size().await?, 5);
+        assert_eq!(fs.open_read(&expected).await?.size().await?, 5);
         Ok(())
     }
 
@@ -245,18 +327,17 @@ mod tests {
         let store = Arc::new(LocalFileSystem::new_with_prefix(dir.path())?) as Arc<dyn ObjectStore>;
         let fs = ObjectStoreFileSystem::new(store, Handle::find().expect("tokio runtime"));
         let fs_dyn: &dyn FileSystem = &fs;
-        let expected = FileListing {
-            path: "a~b.vortex".to_string(),
-            size: Some(5),
-        };
+        let expected = fs.head("a~b.vortex").await?.expect("file exists");
+        // Local ETags use metadata that can remain unchanged across a same-size rewrite.
+        assert_eq!(expected.version, None);
 
         let wild: Vec<FileListing> = fs_dyn.glob("*.vortex")?.try_collect().await?;
         assert!(wild.contains(&expected), "wildcard glob got {wild:?}");
 
         let exact: Vec<FileListing> = fs_dyn.glob("a~b.vortex")?.try_collect().await?;
-        assert_eq!(exact, vec![expected]);
+        assert_eq!(exact, vec![expected.clone()]);
 
-        assert_eq!(fs.open_read("a~b.vortex").await?.size().await?, 5);
+        assert_eq!(fs.open_read(&expected).await?.size().await?, 5);
         Ok(())
     }
 
@@ -267,15 +348,13 @@ mod tests {
     async fn test_delete_addresses_the_literal_key() -> VortexResult<()> {
         let fs = memory_fs(&[("dir/a%20b.vortex", 1), ("dir/a b.vortex", 2)]).await?;
 
+        let remaining = fs.head("dir/a b.vortex").await?;
         fs.delete("dir/a%20b.vortex").await?;
 
         assert_eq!(fs.head("dir/a%20b.vortex").await?, None);
         assert_eq!(
             fs.head("dir/a b.vortex").await?,
-            Some(FileListing {
-                path: "dir/a b.vortex".to_string(),
-                size: Some(2),
-            }),
+            remaining,
             "deleting the percent-literal key must not touch its decoded neighbour"
         );
         Ok(())
@@ -300,13 +379,10 @@ mod tests {
     #[tokio::test]
     async fn test_head_existing_and_missing() -> VortexResult<()> {
         let fs = memory_fs(&[("a/b.vortex", 7)]).await?;
-        assert_eq!(
-            fs.head("a/b.vortex").await?,
-            Some(FileListing {
-                path: "a/b.vortex".to_string(),
-                size: Some(7),
-            })
-        );
+        let listing = fs.head("a/b.vortex").await?.expect("file exists");
+        assert_eq!(listing.path, "a/b.vortex");
+        assert_eq!(listing.size, Some(7));
+        assert_eq!(listing.version, None);
         assert_eq!(fs.head("a/missing.vortex").await?, None);
         Ok(())
     }

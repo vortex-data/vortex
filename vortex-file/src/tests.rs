@@ -2795,6 +2795,34 @@ async fn file_sum_is_absent_when_a_chunk_overflows() -> VortexResult<()> {
 }
 
 #[tokio::test]
+async fn reopened_footer_weight_includes_exact_string_statistics() -> VortexResult<()> {
+    let value = "x".repeat(32 * 1024);
+    let array = StructArray::from_fields(&[(
+        "large",
+        VarBinViewArray::from_iter_str([value.as_str()]).into_array(),
+    )])?
+    .into_array();
+    let mut buf = ByteBufferMut::empty();
+    SESSION
+        .write_options()
+        .include_nested_statistics()
+        .with_file_statistics(pruning_aggregate_fns())
+        .write(&mut buf, array.to_array_stream())
+        .await?;
+    let file = SESSION.open_options().open_buffer(ByteBuffer::from(buf))?;
+    let stats = file.file_stats().expect("exact file statistics");
+    let encoded = stats.write_flatbuffer_bytes()?;
+    assert!(encoded.len() >= value.len());
+    assert!(
+        file.footer()
+            .approx_byte_size()
+            .expect("decoded footer size")
+            >= encoded.len()
+    );
+    Ok(())
+}
+
+#[tokio::test]
 async fn default_string_stats_are_inexact_bounds_after_reopening() -> VortexResult<()> {
     // The default string min/max are byte-bounded, and the footer doesn't record whether a bound
     // was truncated, so even a value within the bound reads back as inexact.

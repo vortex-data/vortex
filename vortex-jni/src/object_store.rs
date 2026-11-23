@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::any::Any;
 use std::sync::Arc;
 use std::sync::LazyLock;
 
@@ -15,24 +16,46 @@ use vortex::error::vortex_err;
 use vortex::io::compat::Compat;
 use vortex::io::filesystem::FileSystemRef;
 use vortex::io::object_store::ObjectStoreFileSystem;
-use vortex::io::runtime::Handle;
+use vortex::io::session::RuntimeSessionExt;
+use vortex::session::SessionExt;
+use vortex::session::SessionVar;
+use vortex::session::VortexSession;
 use vortex::utils::aliases::hash_map::HashMap;
 use vortex_cloud::Registry;
+
+#[derive(Clone, Debug, Default)]
+struct NativeFileSystems(Arc<Mutex<HashMap<usize, FileSystemRef>>>);
+
+impl SessionVar for NativeFileSystems {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
+}
 
 /// Resolve `url` to a filesystem plus the path of the URL *within* it — not every scheme mounts
 /// its store at the URL authority, so callers must key their reads by the returned path.
 pub(crate) fn object_store_fs(
     url: &Url,
     properties: &HashMap<String, String>,
-    handle: Handle,
+    session: &VortexSession,
 ) -> VortexResult<(FileSystemRef, String)> {
     let (object_store, path) = make_object_store(url, properties)?;
-    let object_store = Arc::new(Compat::new(object_store)) as Arc<dyn ObjectStore>;
-
-    Ok((
-        Arc::new(ObjectStoreFileSystem::new(object_store, handle)),
-        path.to_string(),
-    ))
+    // Each cached filesystem owns its store, so the allocation address cannot be reused
+    // while the corresponding footer namespace is reachable through this map.
+    let store_id = Arc::as_ptr(&object_store).cast::<()>().addr();
+    let filesystems = session.get::<NativeFileSystems>();
+    let mut by_store = filesystems.0.lock();
+    let fs = by_store.entry(store_id).or_insert_with(|| {
+        Arc::new(ObjectStoreFileSystem::new(
+            Arc::new(Compat::new(object_store)),
+            session.handle(),
+        ))
+    });
+    Ok((Arc::clone(fs), path.to_string()))
 }
 
 /// Registries keyed by the caller's properties: a store built with one caller's credentials
@@ -65,8 +88,8 @@ pub(crate) fn make_object_store(
         }
         let store = vortex_cloud::opendal::make_opendal_store(url, properties)
             .map_err(|e| VortexError::from(object_store::Error::from(e)))?;
-        OPENDAL_STORES.lock().insert(cache_key, Arc::clone(&store));
-        return Ok((store, path));
+        let mut stores = OPENDAL_STORES.lock();
+        return Ok((Arc::clone(stores.entry(cache_key).or_insert(store)), path));
     }
 
     let (store, path) = registry_for(properties)
@@ -81,14 +104,7 @@ pub(crate) fn make_object_store(
 
 /// The registry serving `properties`, created on first use.
 fn registry_for(properties: &HashMap<String, String>) -> Arc<Registry> {
-    let mut sorted_props: Vec<_> = properties.iter().collect();
-    sorted_props.sort_by_key(|(k, _)| *k);
-    let key: String = sorted_props
-        .iter()
-        .map(|(k, v)| format!("{k}={v}"))
-        .collect::<Vec<_>>()
-        .join(",");
-
+    let key = properties_key(properties);
     let mut registries = REGISTRIES.lock();
     Arc::clone(registries.entry(key).or_insert_with(|| {
         // Later inserts win; keys are lowercased because the registry matches case-insensitively
@@ -105,20 +121,20 @@ fn registry_for(properties: &HashMap<String, String>) -> Arc<Registry> {
     }))
 }
 
-fn url_cache_key(url: &Url, properties: &HashMap<String, String>) -> String {
+fn properties_key(properties: &HashMap<String, String>) -> String {
     let mut sorted_props: Vec<_> = properties.iter().collect();
     sorted_props.sort_by_key(|(k, _)| *k);
+    url::form_urlencoded::Serializer::new(String::new())
+        .extend_pairs(sorted_props)
+        .finish()
+}
 
-    let props_str: String = sorted_props
-        .iter()
-        .map(|(k, v)| format!("{k}={v}"))
-        .collect::<Vec<_>>()
-        .join(",");
+fn url_cache_key(url: &Url, properties: &HashMap<String, String>) -> String {
     format!(
         "{}://{};{}",
         url.scheme(),
         &url[url::Position::BeforeHost..url::Position::AfterPort],
-        props_str,
+        properties_key(properties),
     )
 }
 
@@ -127,11 +143,26 @@ mod tests {
     use std::fmt::Write;
 
     use vortex::error::vortex_err;
+    use vortex::io::filesystem::FileListing;
 
     use super::*;
 
     fn parse(url: &str) -> VortexResult<Url> {
         Url::parse(url).map_err(|e| vortex_err!("{e}"))
+    }
+
+    fn resolved_key(
+        session: &VortexSession,
+        url: &Url,
+        properties: &HashMap<String, String>,
+    ) -> VortexResult<String> {
+        let (fs, path) = object_store_fs(url, properties, session)?;
+        fs.cache_key(&FileListing {
+            path,
+            size: None,
+            version: None,
+        })
+        .ok_or_else(|| vortex_err!("missing cache key"))
     }
 
     #[test]
@@ -152,6 +183,11 @@ mod tests {
         let (store_b, _) = make_object_store(&b, &HashMap::new())?;
 
         assert!(!Arc::ptr_eq(&store_a, &store_b));
+        let session = crate::session::new_session();
+        assert_ne!(
+            resolved_key(&session, &a, &HashMap::new())?,
+            resolved_key(&session, &b, &HashMap::new())?
+        );
         Ok(())
     }
 
@@ -182,6 +218,41 @@ mod tests {
         assert!(debug_str.contains("eu-central-9"), "{debug_str}");
         assert!(debug_str.contains("localhost:9000"), "{debug_str}");
         Ok(())
+    }
+
+    #[test]
+    fn test_footer_cache_key_scoped_to_store_and_path() -> VortexResult<()> {
+        let url = parse("s3://bucket-a/data.vortex")?;
+        let other_bucket = parse("s3://bucket-b/data.vortex")?;
+        let properties = HashMap::from_iter([(
+            "aws_endpoint".to_string(),
+            "http://localhost:9000".to_string(),
+        )]);
+        let other_properties = HashMap::from_iter([(
+            "aws_endpoint".to_string(),
+            "http://localhost:9001".to_string(),
+        )]);
+
+        let session = crate::session::new_session();
+        let key = resolved_key(&session, &url, &properties)?;
+        assert_eq!(key, resolved_key(&session, &url, &properties)?);
+        assert_ne!(key, resolved_key(&session, &other_bucket, &properties)?);
+        assert_ne!(key, resolved_key(&session, &url, &other_properties)?);
+        assert_ne!(
+            key,
+            resolved_key(&session, &parse("s3://bucket-a/other.vortex")?, &properties)?
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn property_values_preserve_pair_boundaries() {
+        let one = HashMap::from_iter([("a".to_owned(), "1,b=2".to_owned())]);
+        let two = HashMap::from_iter([
+            ("a".to_owned(), "1".to_owned()),
+            ("b".to_owned(), "2".to_owned()),
+        ]);
+        assert_ne!(properties_key(&one), properties_key(&two));
     }
 
     #[test]

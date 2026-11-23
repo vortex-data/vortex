@@ -45,9 +45,8 @@ public interface NativeReadable extends Closeable {
     }
 
     /**
-     * Unique name of this source, typically its original location (URI or file path). Used to key per-session caches
-     * and in native error messages, so it must be stable and unique across sources; it must not contain glob characters
-     * ({@code *?[}).
+     * Unique name of this source, typically its URI or file path. Used for file discovery and diagnostics. The name
+     * must be stable, unique across sources in a scan, and free of glob characters ({@code *?[}).
      */
     String name();
 

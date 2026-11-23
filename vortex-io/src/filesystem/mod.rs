@@ -19,13 +19,42 @@ use vortex_error::VortexResult;
 
 use crate::VortexReadAt;
 
-/// A file discovered during listing, with its path and optional size in bytes.
+/// An opaque identifier for a particular version of a file's contents.
+///
+/// The identifier must change whenever the contents change. File size and modification timestamps
+/// alone are not strong enough to establish a version.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct FileVersion(String);
+
+impl FileVersion {
+    /// Creates a version from a storage-provided strong identity token.
+    pub fn new(version: impl Into<String>) -> Self {
+        Self(version.into())
+    }
+
+    /// Returns the storage-provided version identifier.
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+/// A file discovered during listing, with its available metadata.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct FileListing {
     /// The file path (relative to the filesystem root).
     pub path: String,
     /// The file size in bytes, if known from the listing metadata.
     pub size: Option<u64>,
+    /// A strong identifier for the file version, if the filesystem provides one.
+    pub version: Option<FileVersion>,
+}
+
+impl FileListing {
+    /// Returns the listed size when opening this listing pins reads to the same version.
+    /// Otherwise the opened source must supply its size, since the path may have been replaced.
+    pub fn versioned_size(&self) -> Option<u64> {
+        self.version.as_ref().and(self.size)
+    }
 }
 
 /// A reference-counted handle to a file system.
@@ -72,8 +101,20 @@ pub trait FileSystem: Debug + Send + Sync {
     /// file exists at `path`, and `Err(_)` for any other failure (I/O or permission errors, etc.).
     async fn head(&self, path: &str) -> VortexResult<Option<FileListing>>;
 
-    /// Open a file for reading at the given path.
-    async fn open_read(&self, path: &str) -> VortexResult<Arc<dyn VortexReadAt>>;
+    /// Open a listed file for reading.
+    ///
+    /// When `file.version` is present, the returned source must read that version or fail rather
+    /// than silently reading a later replacement.
+    async fn open_read(&self, file: &FileListing) -> VortexResult<Arc<dyn VortexReadAt>>;
+
+    /// Returns a cache key that uniquely identifies this file within a session.
+    ///
+    /// The key must include the filesystem's identity, since relative paths can collide across
+    /// filesystems. Returning `None` disables session-level caching for this file.
+    fn cache_key(&self, file: &FileListing) -> Option<String> {
+        let _ = file;
+        None
+    }
 
     async fn delete(&self, path: &str) -> VortexResult<()>;
 }

@@ -64,10 +64,16 @@ impl FileSystem for PrefixFileSystem {
         }))
     }
 
-    async fn open_read(&self, path: &str) -> VortexResult<Arc<dyn VortexReadAt>> {
-        self.inner
-            .open_read(&format!("{}{}", self.prefix, path.trim_start_matches('/')))
-            .await
+    async fn open_read(&self, file: &FileListing) -> VortexResult<Arc<dyn VortexReadAt>> {
+        let mut file = file.clone();
+        file.path = format!("{}{}", self.prefix, file.path.trim_start_matches('/'));
+        self.inner.open_read(&file).await
+    }
+
+    fn cache_key(&self, file: &FileListing) -> Option<String> {
+        let mut file = file.clone();
+        file.path = format!("{}{}", self.prefix, file.path.trim_start_matches('/'));
+        self.inner.cache_key(&file)
     }
 
     async fn delete(&self, path: &str) -> VortexResult<()> {

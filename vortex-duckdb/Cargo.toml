@@ -31,6 +31,7 @@ async-lock = { workspace = true }
 bitvec = { workspace = true }
 futures = { workspace = true }
 itertools = { workspace = true }
+moka = { workspace = true, features = ["sync"] }
 num-traits = { workspace = true }
 object_store = { workspace = true, features = ["aws"] }
 parking_lot = { workspace = true }
