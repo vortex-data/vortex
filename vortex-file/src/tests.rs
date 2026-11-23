@@ -278,7 +278,7 @@ async fn test_scan_row_range_past_the_end() -> VortexResult<()> {
         (0..3).map(|i| PrimitiveArray::from_iter(i * CHUNK..(i + 1) * CHUNK).into_array()),
     )
     .into_array();
-    let rows = u64::from(3 * CHUNK);
+    let rows: u64 = (3 * CHUNK).into();
 
     let mut buf = ByteBufferMut::empty();
     SESSION
