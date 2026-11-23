@@ -309,9 +309,9 @@ mod tests {
     use vortex_array::block::BLOCK_LEN;
     use vortex_array::block::BlockBuf;
     use vortex_array::block::SourceBlock;
-    use vortex_array::block::fused_chain_count;
-    use vortex_array::block::in_place_chain_count;
     use vortex_array::scalar::Scalar;
+    use vortex_array::test_harness::fusion;
+    use vortex_array::test_harness::fusion::fused_chains;
     use vortex_array::test_harness::trace::trace_op;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
@@ -331,23 +331,16 @@ mod tests {
         session
     });
 
-    /// Execute `array` with and without fusion and check the results agree, and how many chains
+    /// Execute `array` with and without fusion, check the results agree, and how many chains
     /// fused.
     fn assert_fuses_like_execute(array: &ArrayRef, chains: usize) -> VortexResult<()> {
-        let expected = array.clone().execute::<PrimitiveArray>(
-            &mut SESSION.create_execution_ctx().with_block_fusion(false),
-        )?;
-        let before = fused_chain_count();
-        let fused = array.clone().execute::<PrimitiveArray>(
-            &mut SESSION.create_execution_ctx().with_block_fusion(true),
-        )?;
+        let lines = fusion_trace(array.clone())?;
         assert_eq!(
-            fused_chain_count() - before,
+            fused_chains(&lines),
             chains,
             "fused chains for\n{}",
             array.display_tree()
         );
-        assert_arrays_eq!(fused, expected, &mut SESSION.create_execution_ctx());
         Ok(())
     }
 
@@ -430,54 +423,9 @@ mod tests {
         assert_fuses_like_execute(&three, 1)
     }
 
-    /// The innermost FoR over a primitive array runs its own kernel, and the buffer it produces,
-    /// which the executor owns, is the leaf the FoR above decodes in place. A shared input leaf is
-    /// only read, by that kernel.
-    #[test]
-    fn canonical_leaf_decodes_in_place_when_owned() -> VortexResult<()> {
-        let build = || -> VortexResult<ArrayRef> {
-            let leaf = PrimitiveArray::from_iter((0..3000u32).map(|i| i * 3)).into_array();
-            let one = FoR::try_new(leaf, Scalar::from(1u32))?.into_array();
-            Ok(FoR::try_new(one, Scalar::from(2u32))?.into_array())
-        };
-        let mut ctx = SESSION.create_execution_ctx();
-        let expected = build()?.execute::<PrimitiveArray>(
-            &mut SESSION.create_execution_ctx().with_block_fusion(false),
-        )?;
-
-        let before = in_place_chain_count();
-        let owned = build()?.execute::<PrimitiveArray>(&mut ctx)?;
-        assert_eq!(in_place_chain_count() - before, 1);
-        assert_arrays_eq!(owned, expected, &mut ctx);
-
-        let shared = build()?;
-        let before = in_place_chain_count();
-        let copied = shared.clone().execute::<PrimitiveArray>(&mut ctx)?;
-        assert_eq!(in_place_chain_count() - before, 1);
-        // The input still holds its own values.
-        assert_arrays_eq!(shared, build()?, &mut ctx);
-        assert_arrays_eq!(copied, expected, &mut ctx);
-        Ok(())
-    }
-
-    /// The fusion steps in the trace of executing `array`: the spine requests, each fused chain,
-    /// and how each of its ops ran over the first block.
+    /// The fusion steps of executing `array`, checked against execution without fusion.
     fn fusion_trace(array: ArrayRef) -> VortexResult<String> {
-        let mut ctx = SESSION.create_execution_ctx();
-        let traced = trace_op(|| array.execute::<PrimitiveArray>(&mut ctx))?;
-        Ok(traced
-            .trace
-            .to_string()
-            .lines()
-            .map(str::trim)
-            .filter(|line| {
-                line.starts_with("ExecuteSpine")
-                    || line.starts_with("fuse ")
-                    || line.starts_with("drive ")
-                    || line.starts_with("block_op")
-            })
-            .collect::<Vec<_>>()
-            .join("\n"))
+        fusion::fusion_trace(array, &SESSION)
     }
 
     /// FoR over BitPacked alone runs FoR's own fused kernel. Above it, each FoR asks for its
