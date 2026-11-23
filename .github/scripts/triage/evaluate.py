@@ -75,6 +75,8 @@ def is_ping_due(
     """Return True when `item` is eligible for a progress check and reminder right now."""
     if not in_business_hours(now_ts, cadence):
         return False
+    if thread is not None and thread.ignored:
+        return False
     if not item.reasons and (thread is None or not thread.open):
         return False
     if thread is None:
@@ -95,13 +97,19 @@ def due_items(
     now_ts: float,
     cadence: Cadence,
     max_new: int | None = None,
+    *,
+    kind: str = "all",
+    order: str = "oldest",
 ) -> list[Item]:
     """Return the open items that are due for a progress check on this run."""
     if not in_business_hours(now_ts, cadence):
         return []
+    ordered = sorted(items, key=lambda item: item.number, reverse=(order == "newest"))
     result: list[Item] = []
     started = 0
-    for item in items:
+    for item in ordered:
+        if kind != "all" and item.kind != kind:
+            continue
         thread = threads.get(item.number)
         if thread is None or (thread.root_ts is None and not thread.pending):
             if not item.reasons or (max_new is not None and started >= max_new):

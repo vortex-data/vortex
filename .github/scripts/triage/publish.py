@@ -41,6 +41,7 @@ class Thread:
     last_ping_at: float = 0.0
     last_checked_at: float = 0.0
     pings: int = 0
+    ignored: bool = False
 
     @property
     def open(self) -> bool:
@@ -142,6 +143,8 @@ class Publisher:
         items: list[Item],
         max_new: int | None = None,
         *,
+        kind: str = "all",
+        order: str = "oldest",
         ping: bool = False,
         verdicts: dict[int, Verdict] | None = None,
         cadence: Cadence | None = None,
@@ -159,8 +162,11 @@ class Publisher:
         users = slack_users or {}
         failures = []
         started = 0
-        for number in sorted(open_items.keys() | threads.keys()):
+        numbers = sorted(open_items.keys() | threads.keys(), reverse=(order == "newest"))
+        for number in numbers:
             item = open_items.get(number)
+            if item is not None and kind != "all" and item.kind != kind:
+                continue
             thread = threads.get(number)
             can_start = max_new is None or started < max_new
             if thread is None or (thread.root_ts is None and not thread.pending):

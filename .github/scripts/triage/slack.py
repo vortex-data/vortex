@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import http.client
 import json
+import re
 import time
 import urllib.error
 import urllib.parse
@@ -163,6 +164,27 @@ def _parse_float(value: object) -> float:
         return 0.0
 
 
+_LEADING_MENTION_RE = re.compile(r"^(?:<@[A-Z0-9]+>s*)+")
+_IGNORE_RE = re.compile(r"^(?:[!/@]?(?:ignore|mute)(?:s*[:-].*|.?)|[!/@](?:ignore|mute).*)$")
+_UNIGNORE_RE = re.compile(
+    r"^(?:[!/@]?(?:unignore|unmute)(?:s*[:-].*|.?)|[!/@](?:unignore|unmute).*)$"
+)
+
+
+def _ignore_command(message: dict[str, Any]) -> bool | None:
+    """Parse a human reply in a triage thread for an ignore/unignore command."""
+    if message.get("bot_id") or message.get("subtype") == "bot_message":
+        return None
+    text = _LEADING_MENTION_RE.sub("", str(message.get("text") or "").strip()).strip().lower()
+    if not text:
+        return None
+    if _IGNORE_RE.match(text):
+        return True
+    if _UNIGNORE_RE.match(text):
+        return False
+    return None
+
+
 class SlackStore:
     """Reconstruct thread state from Slack channel history and thread metadata.
 
@@ -204,6 +226,7 @@ class SlackStore:
             last_checked_at = _parse_float(root_payload.get("last_checked_at"))
             updates = 0
             pings = 0
+            ignored = False
 
             if int(root_msg.get("reply_count") or 0) > 0:
                 replies = sorted(
@@ -215,6 +238,9 @@ class SlackStore:
                         continue
                     payload = _triage_payload(reply)
                     if not payload:
+                        cmd = _ignore_command(reply)
+                        if cmd is not None:
+                            ignored = cmd
                         continue
                     parsed = _parse_key(str(payload.get("key", "")))
                     if not parsed or parsed[0] != number:
@@ -242,6 +268,7 @@ class SlackStore:
                 last_ping_at=last_ping_at,
                 last_checked_at=last_checked_at,
                 pings=pings,
+                ignored=ignored,
             )
 
         self._threads = threads

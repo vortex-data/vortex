@@ -745,3 +745,129 @@ def test_waiting_on_contributor_records_check_and_obeys_cadence():
 
     # On the next weekday, cadence makes it due again.
     assert [i.number for i in evaluate.due_items([pr_replied], store.load(), tue_10, cadence)] == [10]
+
+
+def test_slack_store_parses_ignore_and_unignore_commands():
+    class FakeClient:
+        def messages(self, thread_ts: str | None = None, oldest: float = 0.0) -> object:
+            if thread_ts is None:
+                return iter(
+                    [
+                        {
+                            "ts": "100.0",
+                            "reply_count": 4,
+                            "metadata": {
+                                "event_type": slack.EVENT_TYPE,
+                                "event_payload": {"key": "10:root", "status": "Open"},
+                            },
+                        },
+                        {
+                            "ts": "200.0",
+                            "reply_count": 3,
+                            "metadata": {
+                                "event_type": slack.EVENT_TYPE,
+                                "event_payload": {"key": "20:root", "status": "Open"},
+                            },
+                        },
+                        {
+                            "ts": "300.0",
+                            "reply_count": 2,
+                            "metadata": {
+                                "event_type": slack.EVENT_TYPE,
+                                "event_payload": {"key": "30:root", "status": "Open"},
+                            },
+                        },
+                    ]
+                )
+            if thread_ts == "100.0":
+                return iter(
+                    [
+                        {"ts": "100.0"},
+                        {"ts": "101.0", "user": "U1", "text": "we should ignore this warning"},
+                        {"ts": "102.0", "bot_id": "B1", "text": "ignore"},
+                        {"ts": "103.0", "user": "U1", "text": "<@UBOT> ignore: not planned"},
+                    ]
+                )
+            if thread_ts == "200.0":
+                return iter(
+                    [
+                        {"ts": "200.0"},
+                        {"ts": "201.0", "user": "U1", "text": "ignore"},
+                        {"ts": "202.0", "user": "U1", "text": "unignore"},
+                    ]
+                )
+            if thread_ts == "300.0":
+                return iter(
+                    [
+                        {"ts": "300.0"},
+                        {"ts": "301.0", "user": "U1", "text": "ignore this flaky CI check"},
+                    ]
+                )
+            return iter([])
+
+    threads = slack.SlackStore(FakeClient()).load()  # type: ignore[arg-type]
+    assert threads[10].ignored is True
+    assert threads[20].ignored is False
+    assert threads[30].ignored is False
+
+
+def test_ignored_thread_posts_updates_without_pinging():
+    store = publish.MemoryStore()
+    store.threads[10] = publish.Thread(
+        created_at=100.0,
+        root_ts="100.0",
+        status="Open · no GitHub assignee",
+        external_at="2026-01-10T00:00:00Z",
+        ignored=True,
+    )
+    fake = FakeSlack()
+    pub = publish.Publisher(store, fake, lambda _n: None, now=lambda: 200.0)
+    cadence = evaluate.Cadence(ignore_hours=True)
+
+    updated = item(
+        10,
+        kind="issue",
+        assignees=("connortsui20",),
+        external_at="2026-01-12T00:00:00Z",
+    )
+    assert evaluate.due_items([updated], store.load(), 200.0, cadence) == []
+    assert pub.sync([updated], ping=True, cadence=cadence) == []
+    assert [m["key"] for m in fake.messages] == ["10:update:1"]
+    assert "GitHub update:" in fake.messages[0]["text"]
+    assert "New activity from" in fake.messages[0]["text"]
+    assert fake.updates == []
+    assert store.threads[10].ignored is True
+
+
+def test_kind_and_order_filter_without_closing_other_kinds():
+    store = publish.MemoryStore()
+    store.threads[2] = publish.Thread(
+        created_at=100.0,
+        root_ts="100.0",
+        status="Open · no GitHub assignee",
+        external_at="2026-01-10T00:00:00Z",
+    )
+    fake = FakeSlack()
+    closed_calls: list[int] = []
+
+    def check_closed(number: int) -> str | None:
+        closed_calls.append(number)
+        return "closed"
+
+    pub = publish.Publisher(store, fake, check_closed, now=lambda: 200.0)
+    cadence = evaluate.Cadence(ignore_hours=True)
+
+    items = [
+        item(1, kind="issue"),
+        item(2, kind="pr"),
+        item(3, kind="issue"),
+        item(4, kind="pr"),
+    ]
+
+    due = evaluate.due_items(items, store.load(), 200.0, cadence, max_new=1, kind="issue", order="newest")
+    assert [i.number for i in due] == [3]
+
+    assert pub.sync(items, max_new=1, kind="issue", order="newest", cadence=cadence) == []
+    assert [m["key"] for m in fake.messages] == ["3:root"]
+    # Existing open PR #2 must not be treated as closed when filtering to issues.
+    assert closed_calls == []

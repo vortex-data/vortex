@@ -32,6 +32,21 @@ on:
         description: Ask Claude to evaluate whether Vortex owes a response on due items
         type: boolean
         default: true
+      kind:
+        description: Item kind to include (all, issue, or pr)
+        type: choice
+        default: all
+        options:
+          - all
+          - issue
+          - pr
+      order:
+        description: Order for selecting new items (oldest or newest first)
+        type: choice
+        default: oldest
+        options:
+          - oldest
+          - newest
   schedule:
     # Hourly 13:00-22:00 UTC Monday-Friday (covers 09:00-17:00 America/New_York in EST and EDT).
     - cron: "0 13-22 * * 1-5"
@@ -56,6 +71,8 @@ jobs:
       dry_run: ${{ steps.config.outputs.dry_run }}
       do_ping: ${{ steps.config.outputs.do_ping }}
       max_new: ${{ steps.config.outputs.max_new }}
+      kind: ${{ steps.config.outputs.kind }}
+      order: ${{ steps.config.outputs.order }}
       run_claude: ${{ steps.claude_gate.outputs.run_claude }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
@@ -69,6 +86,8 @@ jobs:
           INPUT_DRY_RUN: ${{ inputs.dry_run }}
           INPUT_PING: ${{ inputs.ping }}
           INPUT_MAX_NEW: ${{ inputs.max_new }}
+          INPUT_KIND: ${{ inputs.kind }}
+          INPUT_ORDER: ${{ inputs.order }}
           HAS_TOKEN: ${{ secrets.SLACK_TRIAGE_BOT_TOKEN != '' }}
           CHANNEL_ID: ${{ vars.SLACK_TRIAGE_CHANNEL_ID }}
         run: |
@@ -76,14 +95,20 @@ jobs:
             DRY_RUN="${INPUT_DRY_RUN:-true}"
             DO_PING="${INPUT_PING:-false}"
             MAX_NEW="${INPUT_MAX_NEW:-0}"
+            KIND="${INPUT_KIND:-all}"
+            ORDER="${INPUT_ORDER:-oldest}"
           else
             DRY_RUN="false"
             DO_PING="true"
             MAX_NEW="10"
+            KIND="all"
+            ORDER="oldest"
           fi
           echo "dry_run=${DRY_RUN}" >> "$GITHUB_OUTPUT"
           echo "do_ping=${DO_PING}" >> "$GITHUB_OUTPUT"
           echo "max_new=${MAX_NEW}" >> "$GITHUB_OUTPUT"
+          echo "kind=${KIND}" >> "$GITHUB_OUTPUT"
+          echo "order=${ORDER}" >> "$GITHUB_OUTPUT"
           if [ "${DRY_RUN}" != "true" ] && { [ "${HAS_TOKEN}" != "true" ] || [ -z "${CHANNEL_ID}" ]; }; then
             echo "Slack triage token or channel ID is not configured; skipping live sync."
             echo "ready=false" >> "$GITHUB_OUTPUT"
@@ -101,8 +126,10 @@ jobs:
           CHANNEL_ID: ${{ vars.SLACK_TRIAGE_CHANNEL_ID }}
           MAX_NEW: ${{ steps.config.outputs.max_new }}
           DRY_RUN: ${{ steps.config.outputs.dry_run }}
+          KIND: ${{ steps.config.outputs.kind }}
+          ORDER: ${{ steps.config.outputs.order }}
         run: |
-          args=(prepare --repo "$GITHUB_REPOSITORY" --out "${RUNNER_TEMP}/triage-due.json" --github-output "$GITHUB_OUTPUT")
+          args=(prepare --repo "$GITHUB_REPOSITORY" --out "${RUNNER_TEMP}/triage-due.json" --github-output "$GITHUB_OUTPUT" --kind "${KIND}" --order "${ORDER}")
           if [ -n "${CHANNEL_ID}" ]; then
             args+=(--channel "${CHANNEL_ID}")
           fi
@@ -262,8 +289,10 @@ jobs:
           MAX_NEW: ${{ needs.prepare.outputs.max_new }}
           DRY_RUN: ${{ needs.prepare.outputs.dry_run }}
           DO_PING: ${{ needs.prepare.outputs.do_ping }}
+          KIND: ${{ needs.prepare.outputs.kind }}
+          ORDER: ${{ needs.prepare.outputs.order }}
         run: |
-          args=(sync --repo "$GITHUB_REPOSITORY")
+          args=(sync --repo "$GITHUB_REPOSITORY" --kind "${KIND}" --order "${ORDER}")
           if [ -f "${RUNNER_TEMP}/triage-verdicts.json" ]; then
             echo "Using Claude verdicts from ${RUNNER_TEMP}/triage-verdicts.json"
             args+=(--verdicts "${RUNNER_TEMP}/triage-verdicts.json")

@@ -76,11 +76,27 @@ class _PrintOnly:
         print(f"--- [check] {key} (ts={ts}) verdict={payload.get('verdict', '')}\n")
 
 
+def _add_filter_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--kind",
+        choices=("all", "issue", "pr"),
+        default="all",
+        help="Only include issues, PRs, or both",
+    )
+    parser.add_argument(
+        "--order",
+        choices=("oldest", "newest"),
+        default="oldest",
+        help="Order items oldest-first or newest-first",
+    )
+
+
 def _add_cadence_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--channel", default="", help="Slack channel ID")
     parser.add_argument(
         "--max-new", type=int, default=None, help="Cap new threads started in one run"
     )
+    _add_filter_args(parser)
     parser.add_argument("--issue-days", type=int, default=7, help="Days between issue reminders")
     parser.add_argument("--pr-weekdays", type=int, default=1, help="Weekdays between PR reminders")
     parser.add_argument("--tz", default="America/New_York", help="IANA timezone for business hours")
@@ -110,11 +126,13 @@ def main(argv: list[str] | None = None) -> int:
 
     scan_cmd = commands.add_parser("scan", help="List tracked open items as a Markdown table.")
     scan_cmd.add_argument("--repo", required=True, help="owner/name")
+    _add_filter_args(scan_cmd)
 
     publish_cmd = commands.add_parser(
         "publish", help="Print the Slack messages a first run would post. Posts nothing."
     )
     publish_cmd.add_argument("--repo", required=True, help="owner/name")
+    _add_filter_args(publish_cmd)
 
     prepare_cmd = commands.add_parser(
         "prepare", help="Write JSON of items due for a progress check (for Claude evaluation)."
@@ -181,6 +199,8 @@ def main(argv: list[str] | None = None) -> int:
     failures = publisher.sync(
         items,
         max_new=args.max_new,
+        kind=args.kind,
+        order=args.order,
         ping=args.ping,
         verdicts=verdicts,
         cadence=_cadence(args),
