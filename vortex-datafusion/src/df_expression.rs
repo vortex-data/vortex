@@ -10,7 +10,6 @@ use std::hash::Hash;
 use std::hash::Hasher;
 use std::sync::Arc;
 
-use arrow_array::BooleanArray;
 use arrow_array::RecordBatch;
 use arrow_array::RecordBatchOptions;
 use arrow_schema::DataType;
@@ -20,14 +19,10 @@ use arrow_schema::SchemaRef;
 use datafusion_common::DataFusionError;
 use datafusion_common::HashMap;
 use datafusion_common::Result as DFResult;
-use datafusion_common::plan_datafusion_err;
 use datafusion_common::plan_err;
-use datafusion_expr::ColumnarValue;
 use datafusion_physical_expr::DynamicFilterTracking;
-use datafusion_physical_expr::HigherOrderFunctionExpr;
 use datafusion_physical_expr::PhysicalExpr;
 use datafusion_physical_expr::async_scalar_function::AsyncFuncExpr;
-use datafusion_physical_expr::expressions::Column;
 use datafusion_physical_expr::utils::collect_columns;
 use datafusion_physical_expr_common::physical_expr::is_volatile;
 use itertools::Itertools;
@@ -57,9 +52,9 @@ use vortex_arrow::ExecuteArrowExt;
 
 /// Wrap a synchronous, non-volatile DataFusion expression for Vortex execution.
 ///
-/// Only referenced columns are exported to Arrow, except expressions containing
-/// higher-order functions retain the full original input layout to preserve lambda
-/// parameter indices.
+/// The expression and its input schema retain their original column bindings.
+/// Every schema field is exported before evaluation, including unreferenced fields;
+/// their export errors propagate in both exact and advisory execution.
 /// The result preserves DataFusion's
 /// type, effective nullability, field metadata and evaluation errors. Runtime state
 /// is retained in-process; the expression cannot be serialized.
@@ -90,11 +85,7 @@ pub(crate) fn raw_expression(
     for field in schema.fields() {
         *name_counts.entry(field.name().as_str()).or_insert(0_usize) += 1;
     }
-    let mut columns = collect_columns(&expression).into_iter().collect_vec();
-    columns.sort_unstable_by_key(|column| column.index());
-    let mut indices = Vec::with_capacity(columns.len());
-    let mut has_ambiguous_columns = false;
-    for column in &columns {
+    for column in collect_columns(&expression) {
         if schema
             .fields()
             .get(column.index())
@@ -102,28 +93,11 @@ pub(crate) fn raw_expression(
         {
             return plan_err!("Invalid DF expression column: {column}");
         }
-        has_ambiguous_columns |= name_counts.get(column.name()).copied() != Some(1);
-        indices.push(column.index());
     }
-    if has_ambiguous_columns {
+    if name_counts.values().any(|count| *count != 1) {
         return Ok(None);
     }
-    let has_higher_order_function = contains_higher_order_function(&expression);
-    if has_higher_order_function {
-        // Lambda variables are numbered after the ORIGINAL input width. Keep
-        // that positional boundary unchanged instead of compacting captures.
-        if name_counts.values().any(|count| *count != 1) {
-            return Ok(None);
-        }
-        indices = (0..schema.fields().len()).collect();
-    }
-    let projected = Arc::new(schema.project(&indices)?);
-    let expression = if has_higher_order_function {
-        expression
-    } else {
-        rebind_columns(&expression, schema, &projected)?
-    };
-    let schema = projected;
+    let schema = Arc::new(schema.clone());
     let inputs = schema
         .fields()
         .iter()
@@ -132,136 +106,13 @@ pub(crate) fn raw_expression(
     from_inputs(expression, schema, inputs, session, advisory)
 }
 
-// This structural check includes lambdas without free variables or captures.
-// Lambda-variable binding still depends on the original input schema width.
-pub(crate) fn contains_higher_order_function(expression: &Arc<dyn PhysicalExpr>) -> bool {
-    expression.is::<HigherOrderFunctionExpr>()
-        || expression
-            .children()
-            .iter()
-            .any(|child| contains_higher_order_function(child))
-}
-
-// Compacting inputs and extracting native children must not change the Fields
-// that DF UDFs observe. Default return_fields derive their names from Display.
-pub(crate) fn preserve_field(
-    original: &Arc<dyn PhysicalExpr>,
-    rewritten: Arc<dyn PhysicalExpr>,
-    original_schema: &Schema,
-    rewritten_schema: &Schema,
-) -> DFResult<Arc<dyn PhysicalExpr>> {
-    let field = original.return_field(original_schema)?;
-    let nullable = original.nullable(original_schema)?;
-    if rewritten.data_type(rewritten_schema)? != *field.data_type() {
-        return plan_err!("Rewritten DF expression changed its datatype");
-    }
-    Ok(Arc::new(BoundField {
-        original: Arc::clone(original),
-        inner: rewritten,
-        field,
-        nullable,
-    }))
-}
-
-fn rebind_columns(
-    original: &Arc<dyn PhysicalExpr>,
-    original_schema: &Schema,
-    schema: &Schema,
-) -> DFResult<Arc<dyn PhysicalExpr>> {
-    if original.children().is_empty() && !original.is::<Column>() {
-        return Ok(Arc::clone(original));
-    }
-    let rewritten: Arc<dyn PhysicalExpr> = if let Some(column) = original.downcast_ref::<Column>() {
-        Arc::new(Column::new(column.name(), schema.index_of(column.name())?))
-    } else {
-        let children = original
-            .children()
-            .into_iter()
-            .map(|child| rebind_columns(child, original_schema, schema))
-            .collect::<DFResult<Vec<_>>>()?;
-        Arc::clone(original).with_new_children(children)?
-    };
-    preserve_field(original, rewritten, original_schema, schema)
-}
-
-#[derive(Debug)]
-struct BoundField {
-    inner: Arc<dyn PhysicalExpr>,
-    field: FieldRef,
-    nullable: bool,
-    original: Arc<dyn PhysicalExpr>,
-}
-impl PartialEq for BoundField {
-    fn eq(&self, other: &Self) -> bool {
-        // Pointer identity preserves distinctions in captured process-local runtime state.
-        Arc::ptr_eq(&self.inner, &other.inner)
-            && self.field == other.field
-            && self.nullable == other.nullable
-            && Arc::ptr_eq(&self.original, &other.original)
-    }
-}
-impl Eq for BoundField {}
-impl Hash for BoundField {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        (Arc::as_ptr(&self.inner) as *const ()).hash(state);
-        self.field.hash(state);
-        self.nullable.hash(state);
-        (Arc::as_ptr(&self.original) as *const ()).hash(state);
-    }
-}
-impl Display for BoundField {
-    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-        Display::fmt(&self.original, f)
-    }
-}
-impl PhysicalExpr for BoundField {
-    fn fmt_sql(&self, f: &mut Formatter<'_>) -> FmtResult {
-        self.original.fmt_sql(f)
-    }
-    fn return_field(&self, _schema: &Schema) -> DFResult<FieldRef> {
-        Ok(Arc::clone(&self.field))
-    }
-    fn nullable(&self, _schema: &Schema) -> DFResult<bool> {
-        Ok(self.nullable)
-    }
-    fn evaluate(&self, batch: &RecordBatch) -> DFResult<ColumnarValue> {
-        self.inner.evaluate(batch)
-    }
-    fn evaluate_selection(
-        &self,
-        batch: &RecordBatch,
-        selection: &BooleanArray,
-    ) -> DFResult<ColumnarValue> {
-        self.inner.evaluate_selection(batch, selection)
-    }
-    fn children(&self) -> Vec<&Arc<dyn PhysicalExpr>> {
-        vec![&self.inner]
-    }
-    fn with_new_children(
-        self: Arc<Self>,
-        children: Vec<Arc<dyn PhysicalExpr>>,
-    ) -> DFResult<Arc<dyn PhysicalExpr>> {
-        let [inner]: [Arc<dyn PhysicalExpr>; 1] = children
-            .try_into()
-            .map_err(|_| plan_datafusion_err!("Bound DF field requires one child"))?;
-        // DF can rebind children into CASE-local schemas. Its rewrites preserve
-        // types; the original binding schema is no longer valid here.
-        Ok(Arc::new(Self {
-            inner,
-            field: Arc::clone(&self.field),
-            nullable: self.nullable,
-            original: Arc::clone(&self.original),
-        }))
-    }
-}
-
 pub(crate) fn eligible(expression: &Arc<dyn PhysicalExpr>) -> bool {
     !is_volatile(expression)
         && !contains_async(expression)
         && !DynamicFilterTracking::classify(expression).contains_dynamic_filter()
 }
 
-pub(crate) fn from_inputs(
+fn from_inputs(
     expression: Arc<dyn PhysicalExpr>,
     schema: SchemaRef,
     inputs: Vec<Expression>,
@@ -462,6 +313,7 @@ mod tests {
     use datafusion_common::config::ConfigOptions;
     use datafusion_common::hash_utils::create_hashes;
     use datafusion_datasource::memory::MemorySourceConfig;
+    use datafusion_expr::ColumnarValue;
     use datafusion_expr::Operator;
     use datafusion_expr::Volatility;
     use datafusion_expr::create_udf;
@@ -550,7 +402,6 @@ mod tests {
         ])?;
         let session = VortexSession::default();
         let expression = df_expression(Arc::clone(&lookup), &batch.schema(), &session)?.unwrap();
-        assert_eq!(expression.children().len(), if composite { 2 } else { 1 });
         assert!(
             expression
                 .as_scalar()
