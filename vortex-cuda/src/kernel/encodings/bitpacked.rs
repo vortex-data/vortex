@@ -184,7 +184,7 @@ where
     vortex_ensure!(len > 0, "Non empty array");
     let offset = offset as usize;
 
-    let device_input = ctx.ensure_on_device(packed).await?;
+    let device_input = ctx.ensure_on_device(packed)?;
 
     // Get CUDA view of input
     let input_view = device_input.cuda_view::<A::Physical>()?;
@@ -209,7 +209,7 @@ where
         None
     };
 
-    let patches_arg = build_gpu_patches(device_patches.as_ref())?;
+    let patches_arg = build_gpu_patches(device_patches.as_ref(), ctx.stream())?;
 
     ctx.launch_kernel_config(&cuda_function, config, output_len, |args| {
         args.arg(&input_view)

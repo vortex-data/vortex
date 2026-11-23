@@ -413,6 +413,22 @@ impl ScalarOp {
         }
     }
 
+    /// Extend the low bits of a narrower `source_ptype` integer to `output_ptype`, with sign
+    /// extension for signed types.
+    pub fn extend(source_ptype: PTypeTag, output_ptype: PTypeTag) -> Self {
+        assert!(
+            tag_to_ptype(source_ptype).byte_width() < tag_to_ptype(output_ptype).byte_width(),
+            "EXTEND source must be strictly narrower than output"
+        );
+        Self {
+            op_code: ScalarOp_ScalarOpCode_EXTEND,
+            output_ptype,
+            params: ScalarParams {
+                extend: ScalarParams_ExtendParams { source_ptype },
+            },
+        }
+    }
+
     /// Dictionary gather: use current value as index into decoded values
     /// in shared memory (populated by an earlier input stage).
     pub fn dict(values_smem_byte_offset: u32, output_ptype: PTypeTag) -> Self {
@@ -548,6 +564,7 @@ mod tests {
     use vortex::array::IntoArray;
     use vortex::array::arrays::DictArray;
     use vortex::array::arrays::PrimitiveArray;
+    use vortex::array::arrays::WidenArray;
     use vortex::array::builtins::ArrayBuiltins;
     use vortex::array::scalar::Scalar;
     use vortex::array::validity::Validity;
@@ -666,8 +683,8 @@ mod tests {
         let bitpacked = bitpacked_array_u32(bit_width, len, &mut ctx);
         let cuda_ctx = CudaSession::create_execution_ctx(&cuda_session())?;
         let packed = bitpacked.packed().clone();
-        let device_input = futures::executor::block_on(cuda_ctx.ensure_on_device(packed))?;
-        let input_ptr = device_input.cuda_device_ptr()?;
+        let device_input = cuda_ctx.ensure_on_device(packed)?;
+        let input_ptr = device_input.cuda_device_ptr(cuda_ctx.stream())?;
 
         let scalar_ops: Vec<ScalarOp> = references
             .iter()
@@ -1991,9 +2008,7 @@ mod tests {
         ) -> VortexResult<ArrayRef> {
             let array = PrimitiveArray::new(Buffer::from(values), NonNullable);
             Ok(PrimitiveArray::from_buffer_handle(
-                cuda_ctx
-                    .ensure_on_device(array.buffer_handle().clone())
-                    .await?,
+                cuda_ctx.ensure_on_device(array.buffer_handle().clone())?,
                 T::PTYPE,
                 NonNullable,
             )
@@ -3095,6 +3110,134 @@ mod tests {
         let expected: Vec<u32> = (0..len).map(|i| i + ops as u32).collect();
         assert_eq!(actual, expected);
         Ok(())
+    }
+
+    /// Integer `Widen` fuses as an `EXTEND` op after its child's ops, which decode narrow values
+    /// at the output width with zero extension. Each case has values at the narrow type's minimum
+    /// and maximum, and the signed cases negative values, so a missing or wrong extension shows.
+    #[rstest]
+    #[case::i32_for_bitpacked_to_i64(widen_i32_for_bitpacked(), PType::I64)]
+    #[case::i8_for_bitpacked_to_i32(widen_i8_for_bitpacked(), PType::I32)]
+    #[case::i16_zigzag_to_i64(widen_i16_zigzag(), PType::I64)]
+    #[case::i16_dict_to_i64(widen_i16_dict(), PType::I64)]
+    #[case::i32_runend_to_i64(widen_i32_runend(), PType::I64)]
+    #[case::i8_primitive_to_i16(widen_i8_primitive(), PType::I16)]
+    #[case::u16_bitpacked_to_u64(widen_u16_bitpacked(), PType::U64)]
+    #[crate::test]
+    async fn test_widen_fused(
+        #[case] child: VortexResult<ArrayRef>,
+        #[case] ptype: PType,
+    ) -> VortexResult<()> {
+        let child = child?;
+        let widen = WidenArray::try_new(child, DType::Primitive(ptype, Nullability::NonNullable))?
+            .into_array();
+        assert!(matches!(
+            DispatchPlan::new(&widen, CudaDispatchMode::DynDispatchOnly)?,
+            DispatchPlan::Fused(_)
+        ));
+
+        let mut ctx = SESSION.create_execution_ctx();
+        let expected = widen.clone().execute::<PrimitiveArray>(&mut ctx)?;
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&cuda_session())?;
+        let canonical = try_gpu_dispatch(&widen, &mut cuda_ctx).await?;
+        let actual = CanonicalCudaExt::into_host(canonical, cuda_ctx.execution_ctx())
+            .await?
+            .into_array();
+        assert_arrays_eq!(actual, expected.into_array(), &mut ctx);
+        Ok(())
+    }
+
+    const WIDEN_TEST_LEN: usize = 3000;
+
+    /// FoR over BitPacked residuals spanning the whole i32 range, from `i32::MIN`.
+    fn widen_i32_for_bitpacked() -> VortexResult<ArrayRef> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let residuals: Vec<i32> = (0..WIDEN_TEST_LEN)
+            .map(|i| {
+                if i == 1 {
+                    i32::MAX
+                } else {
+                    (i * 1_000_003 % 4_000_000) as i32
+                }
+            })
+            .collect();
+        let residuals = PrimitiveArray::new(Buffer::from(residuals), NonNullable).into_array();
+        let bp = BitPacked::encode(&residuals, 31, &mut ctx)?;
+        Ok(FoR::try_new(bp.into_array(), Scalar::from(i32::MIN))?.into_array())
+    }
+
+    /// FoR over BitPacked residuals spanning the whole i8 range, from `i8::MIN`.
+    fn widen_i8_for_bitpacked() -> VortexResult<ArrayRef> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let residuals: Vec<i8> = (0..WIDEN_TEST_LEN).map(|i| (i % 128) as i8).collect();
+        let residuals = PrimitiveArray::new(Buffer::from(residuals), NonNullable).into_array();
+        let bp = BitPacked::encode(&residuals, 7, &mut ctx)?;
+        Ok(FoR::try_new(bp.into_array(), Scalar::from(i8::MIN))?.into_array())
+    }
+
+    /// ZigZag-encoded i16 values, including `i16::MIN` and `i16::MAX` as BitPacked patches.
+    fn widen_i16_zigzag() -> VortexResult<ArrayRef> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let encoded: Vec<u16> = (0..WIDEN_TEST_LEN)
+            .map(|i| match i {
+                0 => u16::MAX,
+                1 => u16::MAX - 1,
+                _ => (i * 37 % 65536) as u16,
+            })
+            .collect();
+        let encoded = PrimitiveArray::new(Buffer::from(encoded), NonNullable).into_array();
+        // Values above 15 bits, `i16::MIN` and `i16::MAX` among them, become patches.
+        let bp = BitPacked::encode(&encoded, 15, &mut ctx)?;
+        Ok(ZigZag::try_new(bp.into_array())?.into_array())
+    }
+
+    /// Dict with i16 values, including `i16::MIN` and `i16::MAX`.
+    fn widen_i16_dict() -> VortexResult<ArrayRef> {
+        let values: Vec<i16> = vec![i16::MIN, -1, 0, 1, i16::MAX, -300];
+        let codes: Vec<u8> = (0..WIDEN_TEST_LEN)
+            .map(|i| (i % values.len()) as u8)
+            .collect();
+        Ok(DictArray::try_new(
+            PrimitiveArray::new(Buffer::from(codes), NonNullable).into_array(),
+            PrimitiveArray::new(Buffer::from(values), NonNullable).into_array(),
+        )?
+        .into_array())
+    }
+
+    /// RunEnd with i32 values, including `i32::MIN` and `i32::MAX`.
+    fn widen_i32_runend() -> VortexResult<ArrayRef> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let ends: Vec<u32> = vec![700, 1500, 2200, 3000];
+        let values: Vec<i32> = vec![i32::MIN, -5, i32::MAX, 0];
+        Ok(RunEnd::new(
+            PrimitiveArray::new(Buffer::from(ends), NonNullable).into_array(),
+            PrimitiveArray::new(Buffer::from(values), NonNullable).into_array(),
+            &mut ctx,
+        )
+        .into_array())
+    }
+
+    /// Primitive i8 values over the whole i8 range.
+    fn widen_i8_primitive() -> VortexResult<ArrayRef> {
+        let values: Vec<i8> = (0..WIDEN_TEST_LEN).map(|i| (i % 256) as u8 as i8).collect();
+        Ok(PrimitiveArray::new(Buffer::from(values), NonNullable).into_array())
+    }
+
+    /// BitPacked u16 values, including `u16::MAX` as patches.
+    fn widen_u16_bitpacked() -> VortexResult<ArrayRef> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let values: Vec<u16> = (0..WIDEN_TEST_LEN)
+            .map(|i| {
+                if i % 7 == 0 {
+                    u16::MAX
+                } else {
+                    (i * 13) as u16
+                }
+            })
+            .collect();
+        let values = PrimitiveArray::new(Buffer::from(values), NonNullable).into_array();
+        // Values above 15 bits, `u16::MAX` among them, become patches.
+        Ok(BitPacked::encode(&values, 15, &mut ctx)?.into_array())
     }
 
     /// Dict where codes are BitPacked u32 with patches exceeding the bit width.

@@ -1,14 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::mem::MaybeUninit;
+use std::slice;
+
 use num_traits::AsPrimitive;
-use num_traits::CheckedMul;
-use num_traits::NumCast;
-use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
-use vortex_compute::lane_kernels::IndexedSinkExt;
+use vortex_buffer::ByteBuffer;
 use vortex_compute::lane_kernels::IndexedSourceExt;
-use vortex_compute::lane_kernels::ReinterpretSink;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -18,35 +17,36 @@ use vortex_mask::Mask;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
-use crate::aggregate_fn;
 use crate::array::ArrayView;
 use crate::arrays::ConstantArray;
 use crate::arrays::DecimalArray;
 use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
-use crate::arrays::decimal::first_outside_precision;
 use crate::arrays::primitive::PrimitiveArrayExt;
-use crate::dtype::BigCast;
+use crate::arrays::primitive::compute::integer_cast;
+use crate::arrays::primitive::compute::integer_cast::IntegerCast;
+use crate::arrays::primitive::compute::integer_cast::IntegerType;
+use crate::arrays::primitive::compute::integer_cast::Remainder;
+use crate::arrays::primitive::compute::integer_cast::all_valid_lanes;
+use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::dtype::DecimalDType;
 use crate::dtype::DecimalType;
-use crate::dtype::IntegerPType;
-use crate::dtype::NativeDecimalType;
 use crate::dtype::NativePType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
-use crate::dtype::ToI256;
+use crate::dtype::half::f16;
 use crate::dtype::i256;
+use crate::expr::stats::Precision;
 use crate::expr::stats::Stat;
 use crate::expr::stats::StatsProvider;
-use crate::match_each_decimal_value_type;
+use crate::expr::stats::StatsProviderExt;
+use crate::match_each_float_ptype;
 use crate::match_each_integer_ptype;
-use crate::match_each_native_ptype;
-use crate::match_each_signed_integer_ptype;
 use crate::scalar::DecimalValue;
 use crate::scalar::Scalar;
-use crate::scalar_fn::fns::cast::CastKernel;
-use crate::scalar_fn::fns::cast::CastReduce;
+use crate::scalar_fn::builtin::cast::CastKernel;
+use crate::scalar_fn::builtin::cast::CastReduce;
 use crate::validity::Validity;
 
 impl CastReduce for Primitive {
@@ -99,30 +99,53 @@ impl CastKernel for Primitive {
             .cast_nullability(new_nullability, array.len(), ctx)?;
 
         // Same bit representation: either the same ptype (only the nullability changed) or two
-        // same-width integers (identical layout under 2's complement). The only non-trivial case
-        // is the sign change between same-width ints, which still needs a value-range check.
-        let same_rep = src_ptype == new_ptype
+        // same-width integers (identical layout under 2's complement).
+        let reinterprets = src_ptype == new_ptype
             || (src_ptype.is_int()
                 && new_ptype.is_int()
                 && src_ptype.byte_width() == new_ptype.byte_width());
-        if same_rep {
-            if !values_fit_in(array, new_ptype, ctx, true) {
+        let all_null = || {
+            ConstantArray::new(
+                Scalar::null(DType::Primitive(new_ptype, Nullability::Nullable)),
+                array.len(),
+            )
+            .into_array()
+        };
+
+        // Only integer targets can reject a value: every float target accepts every value, with
+        // finite values rounding or saturating to infinity. The accepted values of an integer
+        // target form a single range, so checking the min and max checks every value. Once the
+        // values are known to fit, the conversion below is the infallible `as` cast.
+        let target_dtype = DType::Primitive(new_ptype, Nullability::NonNullable);
+        if new_ptype.is_int()
+            && !src_ptype.casts_losslessly_to(new_ptype)
+            && !cached_values_fit_in(array, &target_dtype).unwrap_or(false)
+        {
+            let mask = array.validity()?.execute_mask(array.len(), ctx)?;
+            if !reinterprets && !array.is_empty() && matches!(mask, Mask::AllFalse(_)) {
+                return Ok(Some(all_null()));
+            }
+            if !values_fit_in(array, new_ptype, &mask) {
                 vortex_bail!(
                     "Cannot cast {} to {} — values exceed target range",
                     src_ptype,
                     new_ptype,
                 );
             }
-            return Ok(Some(reinterpret(array, new_ptype, new_validity)));
         }
 
-        // Different bit rep: cast each element. `cast_values` picks a pure or checked loop based
-        // on whether the conversion is statically infallible.
-        Ok(Some(match_each_native_ptype!(new_ptype, |T| {
-            match_each_native_ptype!(src_ptype, |F| {
-                cast_values::<F, T>(array, new_validity, ctx)?
-            })
-        })))
+        if reinterprets {
+            return Ok(Some(reinterpret(array, new_ptype, new_validity)));
+        }
+        // Converting null values would only produce more nulls.
+        if !array.is_empty() && matches!(array.validity()?, Validity::AllInvalid) {
+            return Ok(Some(all_null()));
+        }
+
+        let values = convert_values(array, new_ptype);
+        Ok(Some(
+            PrimitiveArray::from_byte_buffer(values, new_ptype, new_validity).into_array(),
+        ))
     }
 }
 
@@ -145,18 +168,35 @@ fn cast_to_decimal(
         .clone()
         .cast_nullability(nullability, array.len(), ctx)?;
     let values_type = decimal_dtype.canonical_values_type();
+    let cast = IntegerCast::to_decimal(IntegerType::of_ptype(array.ptype()), 0, decimal_dtype);
+    let values = array.buffer_handle().as_host();
 
+    let error = |index| {
+        primitive_to_decimal_cast_error(cast.source_type().value_at(values, index), decimal_dtype)
+    };
+
+    // An unscaled cast from a signed integer to decimals of the same width keeps the values buffer.
     if decimal_dtype.scale() == 0
         && signed_primitive_decimal_type(array.ptype()) == Some(values_type)
     {
-        return match_each_signed_integer_ptype!(array.ptype(), |S| {
-            cast_unscaled_same_width_signed_integer_to_decimal::<S>(
-                array,
+        let target_dtype = DType::Decimal(decimal_dtype, Nullability::NonNullable);
+        if !cached_values_fit_in(array, &target_dtype).unwrap_or(false) {
+            let valid_values = source_validity.execute_mask(array.len(), ctx)?;
+            if let Some(index) = cast.first_misfit(values, &valid_values) {
+                return Err(error(index));
+            }
+        }
+        // SAFETY: the decimal values type has the same physical representation as the source
+        // ptype, and either exact min/max statistics or the validation above prove every valid
+        // value fits.
+        return Ok(unsafe {
+            DecimalArray::new_unchecked_handle(
+                array.buffer_handle().clone(),
+                values_type,
                 decimal_dtype,
                 validity,
-                &source_validity,
-                ctx,
             )
+            .into_array()
         });
     }
 
@@ -168,172 +208,15 @@ fn cast_to_decimal(
         )
         .into_array());
     }
-    match_each_integer_ptype!(array.ptype(), |S| {
-        match_each_decimal_value_type!(values_type, |T| {
-            cast_integer_values_to_decimal::<S, T>(array, decimal_dtype, validity, &valid_values)
-        })
-    })
-}
-
-fn cast_unscaled_same_width_signed_integer_to_decimal<S>(
-    array: ArrayView<'_, Primitive>,
-    decimal_dtype: DecimalDType,
-    validity: Validity,
-    source_validity: &Validity,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<ArrayRef>
-where
-    S: IntegerPType + NativeDecimalType + ToI256,
-{
-    let values = array.as_slice::<S>();
-    let target_dtype = DType::Decimal(decimal_dtype, Nullability::NonNullable);
-    if !cached_values_fit_in(array, &target_dtype).unwrap_or(false) {
-        let valid_values = source_validity.execute_mask(array.len(), ctx)?;
-        if let Some(idx) = first_outside_precision(values, &valid_values, decimal_dtype) {
-            return Err(primitive_to_decimal_cast_error(values[idx], decimal_dtype));
-        }
-    }
-
-    // SAFETY: `S::DECIMAL_TYPE` has the same physical representation as the source ptype, and
-    // either exact min/max statistics or the validation above prove every valid value fits.
-    Ok(unsafe {
-        DecimalArray::new_unchecked_handle(
-            array.buffer_handle().clone(),
-            S::DECIMAL_TYPE,
-            decimal_dtype,
-            validity,
-        )
-        .into_array()
-    })
-}
-
-fn cast_integer_values_to_decimal<S, T>(
-    array: ArrayView<'_, Primitive>,
-    decimal_dtype: DecimalDType,
-    validity: Validity,
-    valid_values: &Mask,
-) -> VortexResult<ArrayRef>
-where
-    S: IntegerPType + ToI256,
-    T: NativeDecimalType + CheckedMul,
-{
-    let scale = decimal_dtype.scale();
-    let buffer = if scale == 0 {
-        cast_unscaled_integer_values_to_decimal::<S, T>(array, decimal_dtype, valid_values)?
-    } else if scale > 0 {
-        cast_scaled_up_integer_values_to_decimal::<S, T>(array, decimal_dtype, valid_values)?
-    } else {
-        cast_scaled_down_integer_values_to_decimal::<S, T>(array, decimal_dtype, valid_values)?
-    };
-
-    // SAFETY: Each cast checks the target precision and preserves the input length and validity.
-    Ok(unsafe { DecimalArray::new_unchecked(buffer, decimal_dtype, validity) }.into_array())
-}
-
-fn cast_unscaled_integer_values_to_decimal<S, T>(
-    array: ArrayView<'_, Primitive>,
-    decimal_dtype: DecimalDType,
-    valid_values: &Mask,
-) -> VortexResult<Buffer<T>>
-where
-    S: IntegerPType + ToI256,
-    T: NativeDecimalType,
-{
-    let values = array.as_slice::<S>();
-    cast_integer_values_to_decimal_buffer(values, decimal_dtype, valid_values, |value| {
-        let value = <T as BigCast>::from(value)?;
-        decimal_value_fits_precision(value, decimal_dtype).then_some(value)
-    })
-}
-
-fn cast_scaled_up_integer_values_to_decimal<S, T>(
-    array: ArrayView<'_, Primitive>,
-    decimal_dtype: DecimalDType,
-    valid_values: &Mask,
-) -> VortexResult<Buffer<T>>
-where
-    S: IntegerPType + ToI256,
-    T: NativeDecimalType + CheckedMul,
-{
-    let values = array.as_slice::<S>();
-    let scale_factor = decimal_scale_factor::<T>(decimal_dtype.scale())?;
-    cast_integer_values_to_decimal_buffer(values, decimal_dtype, valid_values, |value| {
-        let value = <T as BigCast>::from(value)?;
-        let value = value.checked_mul(&scale_factor)?;
-        decimal_value_fits_precision(value, decimal_dtype).then_some(value)
-    })
-}
-
-fn cast_scaled_down_integer_values_to_decimal<S, T>(
-    array: ArrayView<'_, Primitive>,
-    decimal_dtype: DecimalDType,
-    valid_values: &Mask,
-) -> VortexResult<Buffer<T>>
-where
-    S: IntegerPType + ToI256,
-    T: NativeDecimalType,
-{
-    let values = array.as_slice::<S>();
-    if decimal_dtype.scale().unsigned_abs() >= primitive_max_decimal_digits(array.ptype()) {
-        // The scale factor exceeds every source value, so only zero can be exactly rescaled.
-        return cast_integer_values_to_decimal_buffer(
-            values,
-            decimal_dtype,
-            valid_values,
-            |value| (value == S::default()).then_some(T::default()),
-        );
-    }
-
-    // Scaling down can shrink a value into a narrower target type, so first select the smallest
-    // signed carrier that can represent both the source and target.
-    let carrier_type = primitive_decimal_carrier_type(array.ptype()).max(T::DECIMAL_TYPE);
-    match_each_decimal_value_type!(carrier_type, |W| {
-        // `S` and `T` fix the carrier, so only one arm can match. The const condition lets the
-        // compiler skip codegen of the kernel for the other arms.
-        if const { is_scaled_down_carrier::<S, T, W>() } {
-            let scale_factor = decimal_scale_factor::<W>(decimal_dtype.scale())?;
-            cast_integer_values_to_decimal_buffer(values, decimal_dtype, valid_values, |value| {
-                let value = <W as BigCast>::from(value)?;
-                let quotient = value / scale_factor;
-                let value = (quotient * scale_factor == value).then_some(quotient)?;
-                let value = <T as BigCast>::from(value)?;
-                decimal_value_fits_precision(value, decimal_dtype).then_some(value)
-            })
-        } else {
-            unreachable!(
-                "{carrier_type} is not the scaled-down carrier for {}",
-                S::PTYPE
-            )
-        }
-    })
-}
-
-/// Whether `W` is the carrier that a scaled-down cast from `S` to `T` selects.
-const fn is_scaled_down_carrier<S, T, W>() -> bool
-where
-    S: NativePType,
-    T: NativeDecimalType,
-    W: NativeDecimalType,
-{
-    let carrier = primitive_decimal_carrier_type(S::PTYPE) as u8;
-    let target = T::DECIMAL_TYPE as u8;
-    let selected = if carrier > target { carrier } else { target };
-
-    W::DECIMAL_TYPE as u8 == selected
-}
-
-fn cast_integer_values_to_decimal_buffer<S, T>(
-    values: &[S],
-    decimal_dtype: DecimalDType,
-    valid_values: &Mask,
-    cast: impl Fn(S) -> Option<T>,
-) -> VortexResult<Buffer<T>>
-where
-    S: IntegerPType + ToI256,
-    T: NativeDecimalType,
-{
-    cast_primitive_to_decimal_buffer(values, valid_values, cast)
-        .map_err(|idx| primitive_to_decimal_cast_error(values[idx], decimal_dtype))
+    let casted = cast.cast(values, &valid_values).map_err(error)?;
+    // Every valid value has been checked against the precision, so skip the constructor's scan.
+    Ok(DecimalArray::try_new_handle_from_trusted_values(
+        BufferHandle::new_host(casted),
+        values_type,
+        decimal_dtype,
+        validity,
+    )?
+    .into_array())
 }
 
 /// Decimal physical type with the same representation, when `ptype` is signed.
@@ -350,116 +233,9 @@ fn signed_primitive_decimal_type(ptype: PType) -> Option<DecimalType> {
     }
 }
 
-/// The smallest signed decimal physical type that represents every `ptype` value.
-#[expect(
-    clippy::panic,
-    reason = "`unreachable!` with a message is not available in a const fn"
-)]
-const fn primitive_decimal_carrier_type(ptype: PType) -> DecimalType {
-    match ptype {
-        PType::I8 => DecimalType::I8,
-        PType::U8 | PType::I16 => DecimalType::I16,
-        PType::U16 | PType::I32 => DecimalType::I32,
-        PType::U32 | PType::I64 => DecimalType::I64,
-        PType::U64 => DecimalType::I128,
-        PType::F16 | PType::F32 | PType::F64 => {
-            panic!("floating primitives are rejected before selecting a decimal carrier")
-        }
-    }
-}
-
-/// Maximum decimal digits in `ptype`; scales at least this large can exactly rescale only zero.
-fn primitive_max_decimal_digits(ptype: PType) -> u8 {
-    match ptype {
-        PType::U8 | PType::I8 => 3,
-        PType::U16 | PType::I16 => 5,
-        PType::U32 | PType::I32 => 10,
-        PType::U64 => 20,
-        PType::I64 => 19,
-        PType::F16 | PType::F32 | PType::F64 => {
-            unreachable!("floating primitives are rejected before inspecting decimal digits")
-        }
-    }
-}
-
-fn decimal_scale_factor<T>(scale: i8) -> VortexResult<T>
-where
-    T: NativeDecimalType + CheckedMul,
-{
-    let exponent = if scale > 0 {
-        scale as u32
-    } else {
-        (-(scale as i16)) as u32
-    };
-    let ten = <T as BigCast>::from(10i8).ok_or_else(|| scale_factor_error(scale))?;
-    let mut factor = <T as BigCast>::from(1i8).ok_or_else(|| scale_factor_error(scale))?;
-    for _ in 0..exponent {
-        factor = factor
-            .checked_mul(&ten)
-            .ok_or_else(|| scale_factor_error(scale))?;
-    }
-    Ok(factor)
-}
-
 #[cold]
 #[inline(never)]
-fn scale_factor_error(scale: i8) -> VortexError {
-    vortex_err!("Cannot create decimal scale factor for scale {scale}")
-}
-
-fn decimal_value_fits_precision<T: NativeDecimalType>(
-    value: T,
-    decimal_dtype: DecimalDType,
-) -> bool {
-    let precision = decimal_dtype.precision() as usize;
-    value >= T::MIN_BY_PRECISION[precision] && value <= T::MAX_BY_PRECISION[precision]
-}
-
-fn cast_primitive_to_decimal_buffer<S, T>(
-    values: &[S],
-    valid_values: &Mask,
-    cast: impl Fn(S) -> Option<T>,
-) -> Result<Buffer<T>, usize>
-where
-    S: NativePType,
-    T: NativeDecimalType,
-{
-    if matches!(valid_values, Mask::AllFalse(_)) {
-        return Ok(BufferMut::<T>::zeroed(values.len()).freeze());
-    }
-
-    let mut buffer = BufferMut::<T>::with_capacity(values.len());
-    match valid_values {
-        Mask::AllTrue(_) => {
-            values.try_map_into(&mut buffer.spare_capacity_mut()[..values.len()], &cast)?;
-        }
-        Mask::Values(mask) => {
-            values.try_map_masked_into(
-                mask.bit_buffer(),
-                &mut buffer.spare_capacity_mut()[..values.len()],
-                &cast,
-            )?;
-        }
-        Mask::AllFalse(_) => unreachable!("all-null values are handled before allocating"),
-    }
-    // SAFETY: the selected map kernel initialized every lane before returning Ok.
-    unsafe { buffer.set_len(values.len()) };
-    Ok(buffer.freeze())
-}
-
-#[cold]
-#[inline(never)]
-fn primitive_to_decimal_cast_error<S>(value: S, decimal_dtype: DecimalDType) -> VortexError
-where
-    S: IntegerPType + ToI256,
-{
-    let Some(value) = <i256 as BigCast>::from(value) else {
-        return vortex_err!(
-            "primitive value cannot be represented while casting to {}",
-            decimal_dtype
-        );
-    };
-
+fn primitive_to_decimal_cast_error(value: i256, decimal_dtype: DecimalDType) -> VortexError {
     match DecimalValue::rescale_i256(value, 0, decimal_dtype.scale())
         .and_then(|value| DecimalValue::try_from_i256(value, decimal_dtype))
     {
@@ -477,110 +253,88 @@ where
     }
 }
 
-/// Cast Primitive values from `F` to `T`.
-fn cast_values<F, T>(
-    array: ArrayView<'_, Primitive>,
-    new_validity: Validity,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<ArrayRef>
+/// Converts every value of `array` to `to` with `as` semantics and returns the raw values.
+///
+/// The caller has already checked that every valid value is representable in `to`. Null lanes
+/// may hold any value; `as` is defined for every input, so they convert to unspecified values.
+///
+/// Integer-to-integer conversions, the bulk of the (source, target) pairs, share the kernels of
+/// [`integer_cast::resize`], which only depend on the widths and the source's signedness.
+///
+/// Conversions to or from floats use one kernel per pair. Composing them through an integer
+/// intermediate would share kernels too, but measured 50-60% slower than converting directly.
+fn convert_values(array: ArrayView<'_, Primitive>, to: PType) -> ByteBuffer {
+    let from = array.ptype();
+    match (from.is_float(), to.is_float()) {
+        (false, false) => integer_cast::resize(
+            array.buffer_handle().as_host(),
+            IntegerType::of_ptype(from),
+            IntegerType::of_ptype(to),
+        ),
+        (false, true) => int_to_float(array, to),
+        (true, false) => float_to_int(array, to),
+        (true, true) => match (from, to) {
+            (PType::F16, PType::F32) => convert_buffer::<f16, f32>(values_as(array)),
+            (PType::F16, PType::F64) => convert_buffer::<f16, f64>(values_as(array)),
+            (PType::F32, PType::F16) => convert_buffer::<f32, f16>(values_as(array)),
+            (PType::F32, PType::F64) => convert_buffer::<f32, f64>(values_as(array)),
+            (PType::F64, PType::F16) => convert_buffer::<f64, f16>(values_as(array)),
+            (PType::F64, PType::F32) => convert_buffer::<f64, f32>(values_as(array)),
+            _ => unreachable!("float conversion from {from} to {to}"),
+        },
+    }
+}
+
+fn int_to_float(array: ArrayView<'_, Primitive>, to: PType) -> ByteBuffer {
+    match_each_float_ptype!(to, |T| {
+        match_each_integer_ptype!(array.ptype(), |F| {
+            convert_buffer::<F, T>(values_as(array))
+        })
+    })
+}
+
+fn float_to_int(array: ArrayView<'_, Primitive>, to: PType) -> ByteBuffer {
+    match_each_float_ptype!(array.ptype(), |F| {
+        match_each_integer_ptype!(to, |T| { convert_buffer::<F, T>(values_as(array)) })
+    })
+}
+
+/// Converts `src` to `B`.
+fn convert_buffer<A, B>(src: &[A]) -> ByteBuffer
 where
-    F: NativePType + AsPrimitive<T>,
-    T: NativePType,
+    A: AsPrimitive<B>,
+    B: Copy + 'static,
 {
-    let overflow = || {
-        vortex_err!(
-            "Cannot cast {} to {} — value exceeds target range",
-            F::PTYPE,
-            T::PTYPE,
-        )
-    };
+    let len = src.len();
+    let mut out = BufferMut::<B>::with_capacity(len);
+    convert::<A, B>(src, &mut out.spare_capacity_mut()[..len]);
+    // SAFETY: `convert` initialized every lane.
+    unsafe { out.set_len(len) };
+    out.freeze().into_byte_buffer()
+}
 
-    // Skip the fallible kernel when type widening or (cached) min/max prove every value fits.
-    let target_dtype = DType::Primitive(T::PTYPE, Nullability::NonNullable);
-    let infallible = F::PTYPE.casts_losslessly_to(T::PTYPE)
-        || cached_values_fit_in(array, &target_dtype).unwrap_or(false);
+/// The conversion kernel, kept out of line so that each (`A`, `B`) pair is compiled once however
+/// many target types share it.
+#[inline(never)]
+fn convert<A, B>(src: &[A], dst: &mut [MaybeUninit<B>])
+where
+    A: AsPrimitive<B>,
+    B: Copy + 'static,
+{
+    src.map_into(dst, |v| v.as_());
+}
 
-    let len = array.len();
-
-    // If F and T have the same byte width, try to take unique ownership of the buffer.
-    let same_bit_width = F::PTYPE.byte_width() == T::PTYPE.byte_width();
-    let owned: Option<BufferMut<F>> = same_bit_width
-        .then(|| array.into_owned().try_into_buffer_mut::<F>().ok())
-        .flatten();
-    let values: &[F] = array.as_slice::<F>();
-
-    if infallible {
-        return match owned {
-            Some(mut buf) => {
-                ReinterpretSink::<F, T>::new(buf.as_mut_slice()).map_into_in_place(|v: F| v.as_());
-                // SAFETY: same size + alignment for NativePType
-                let result: BufferMut<T> = unsafe { buf.transmute::<T>() };
-                Ok(PrimitiveArray::new(result.freeze(), new_validity).into_array())
-            }
-            None => {
-                let mut buffer = BufferMut::<T>::with_capacity(len);
-                values.map_into(&mut buffer.spare_capacity_mut()[..len], |v| v.as_());
-                // SAFETY: map_into initializes every lane.
-                unsafe { buffer.set_len(len) };
-                Ok(PrimitiveArray::new(buffer.freeze(), new_validity).into_array())
-            }
-        };
-    }
-
-    let mask = array.validity()?.execute_mask(len, ctx)?;
-    if len > 0 && matches!(mask, Mask::AllFalse(_)) {
-        return Ok(ConstantArray::new(
-            Scalar::null(DType::Primitive(T::PTYPE, Nullability::Nullable)),
-            len,
-        )
-        .into_array());
-    }
-
-    let buffer: Buffer<T> = match (&mask, owned) {
-        (Mask::AllTrue(_), Some(mut buf)) => {
-            ReinterpretSink::<F, T>::new(buf.as_mut_slice())
-                .try_map_in_place(|v: F| <T as NumCast>::from(v))
-                .map_err(|_| overflow())?;
-            // SAFETY: same size + alignment for NativePType
-            let result: BufferMut<T> = unsafe { buf.transmute::<T>() };
-            result.freeze()
-        }
-        (Mask::AllTrue(_), None) => {
-            let mut buffer = BufferMut::<T>::with_capacity(len);
-            values
-                .try_map_into(&mut buffer.spare_capacity_mut()[..len], |v| {
-                    <T as NumCast>::from(v)
-                })
-                .map_err(|_| overflow())?;
-            // SAFETY: initialized every lane.
-            unsafe { buffer.set_len(len) };
-            buffer.freeze()
-        }
-        (Mask::AllFalse(_), _) => BufferMut::<T>::zeroed(len).freeze(),
-        (Mask::Values(m), Some(mut buf)) => {
-            ReinterpretSink::<F, T>::new(buf.as_mut_slice())
-                .try_map_masked_in_place(m.bit_buffer(), |v: F| <T as NumCast>::from(v))
-                .map_err(|_| overflow())?;
-            // SAFETY: same size + alignment for NativePType
-            let result: BufferMut<T> = unsafe { buf.transmute::<T>() };
-            result.freeze()
-        }
-        (Mask::Values(m), None) => {
-            let mut buffer = BufferMut::<T>::with_capacity(len);
-            values
-                .try_map_masked_into(
-                    m.bit_buffer(),
-                    &mut buffer.spare_capacity_mut()[..len],
-                    |v| <T as NumCast>::from(v),
-                )
-                .map_err(|_| overflow())?;
-            // SAFETY: initialized every lane.
-            unsafe { buffer.set_len(len) };
-            buffer.freeze()
-        }
-    };
-
-    Ok(PrimitiveArray::new(buffer, new_validity).into_array())
+/// The values of `array` as `T`, which has the same width as the array's ptype.
+fn values_as<T: NativePType>(array: ArrayView<'_, Primitive>) -> &[T] {
+    assert_eq!(
+        T::PTYPE.byte_width(),
+        array.ptype().byte_width(),
+        "can only view values as a type of the same width"
+    );
+    let bytes = array.buffer_handle().as_host();
+    // SAFETY: the buffer is aligned to the array's ptype, whose width and alignment `T` shares,
+    // and every bit pattern is a valid `T`.
+    unsafe { slice::from_raw_parts(bytes.as_ptr().cast::<T>(), bytes.len() / size_of::<T>()) }
 }
 
 fn reinterpret(
@@ -600,38 +354,103 @@ fn reinterpret(
     .into_array()
 }
 
-/// Returns `true` if all valid values in `array` are representable as `target_ptype`.
+/// Returns `true` if every valid value in `array` is representable as the integer `target_ptype`,
+/// using the same rules as [`num_traits::NumCast`]: floats truncate toward zero, and NaN and
+/// infinities never fit. Only the values that `mask` marks valid are checked.
 ///
-/// Cached min/max statistics are consulted first. If either bound is missing, the function either
-/// computes them with a single pass (when `compute` is `true`) or returns `false` so the caller
-/// can fall back to a slower path (when `compute` is `false`).
-fn values_fit_in(
-    array: ArrayView<'_, Primitive>,
-    target_ptype: PType,
-    ctx: &mut ExecutionCtx,
-    compute: bool,
-) -> bool {
-    let target_dtype = DType::Primitive(target_ptype, Nullability::NonNullable);
-    if let Some(fits) = cached_values_fit_in(array, &target_dtype) {
-        return fits;
+/// The check is compiled once per source type, with the target's range passed at runtime.
+fn values_fit_in(array: ArrayView<'_, Primitive>, target_ptype: PType, mask: &Mask) -> bool {
+    if array.ptype().is_float() {
+        // Floats truncate toward zero, so the values that fit lie strictly between
+        // `target_min - 1` and `target_max + 1`.
+        let (lower, upper) = float_exclusive_bounds(target_ptype);
+        return match array.ptype() {
+            PType::F16 => floats_fit_f32(array.as_slice::<f16>(), mask, lower, upper),
+            PType::F32 => floats_fit_f32(array.as_slice::<f32>(), mask, lower, upper),
+            _ => all_valid_lanes(array.as_slice::<f64>(), mask, |v| (lower < v) & (v < upper)),
+        };
     }
-    if !compute {
-        return false;
-    }
-    aggregate_fn::fns::min_max::min_max(
-        array.array(),
-        ctx,
-        aggregate_fn::NumericalAggregateOpts::default(),
-    )
-    .ok()
-    .flatten()
-    .is_none_or(|mm| mm.min.cast(&target_dtype).is_ok() && mm.max.cast(&target_dtype).is_ok())
+    let cast = IntegerCast::new(
+        IntegerType::of_ptype(array.ptype()),
+        IntegerType::of_ptype(target_ptype),
+        0,
+        Remainder::Reject,
+    );
+    cast.first_misfit(array.buffer_handle().as_host(), mask)
+        .is_none()
 }
 
-/// Cached-only check: returns `Some(fits)` if both `Min` and `Max` are present as `Exact` in the
-/// stats cache, otherwise `None`.
+/// Checks f16 or f32 values against the exclusive f64 bounds in f32, which vectorizes better
+/// than widening every value to f64.
+///
+/// Rounding each bound outward to f32 keeps the check exact: no f32 lies between a bound and its
+/// rounding, so a value is above the rounded lower bound exactly when it is above the original.
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "the bounds are rounded to f32 on purpose, and corrected outward"
+)]
+fn floats_fit_f32<F: AsPrimitive<f32>>(values: &[F], mask: &Mask, lower: f64, upper: f64) -> bool {
+    let mut lower32 = lower as f32;
+    if <f64 as From<f32>>::from(lower32) > lower {
+        lower32 = lower32.next_down();
+    }
+    let mut upper32 = upper as f32;
+    if <f64 as From<f32>>::from(upper32) < upper {
+        upper32 = upper32.next_up();
+    }
+    all_valid_lanes(values, mask, |v| {
+        let v: f32 = v.as_();
+        (lower32 < v) & (v < upper32)
+    })
+}
+
+/// The inclusive range of the integer `ptype`.
+fn integer_range(ptype: PType) -> (i128, i128) {
+    match ptype {
+        PType::U8 => (0, u8::MAX.into()),
+        PType::U16 => (0, u16::MAX.into()),
+        PType::U32 => (0, u32::MAX.into()),
+        PType::U64 => (0, u64::MAX.into()),
+        PType::I8 => (i8::MIN.into(), i8::MAX.into()),
+        PType::I16 => (i16::MIN.into(), i16::MAX.into()),
+        PType::I32 => (i32::MIN.into(), i32::MAX.into()),
+        PType::I64 => (i64::MIN.into(), i64::MAX.into()),
+        _ => unreachable!("{ptype} is not an integer type"),
+    }
+}
+
+/// The f64 bounds that a float must lie strictly between to truncate into the integer `ptype`.
+///
+/// The bounds are `min - 1` and `max + 1`, which f64 holds exactly for every integer type but
+/// `i64`. There, `min - 1` is replaced by the next f64 below `i64::MIN`, which excludes the same
+/// floats.
+#[expect(
+    clippy::cast_precision_loss,
+    reason = "f64 holds integers below 64 bits exactly, and u64::MAX rounds up to exactly max + 1"
+)]
+fn float_exclusive_bounds(ptype: PType) -> (f64, f64) {
+    match ptype {
+        PType::I64 => (i64::MIN as f64 - 2048.0, -(i64::MIN as f64)),
+        PType::U64 => (-1.0, u64::MAX as f64),
+        _ => {
+            let (min, max) = integer_range(ptype);
+            (min as f64 - 1.0, max as f64 + 1.0)
+        }
+    }
+}
+
+/// Returns whether every valid value fits `target_dtype` if exact statistics can answer it.
+///
+/// Cached min and max skip NaN, so for floats they only answer once the NaN count is known.
 fn cached_values_fit_in(array: ArrayView<'_, Primitive>, target_dtype: &DType) -> Option<bool> {
     let stats = array.array().statistics();
+    if array.ptype().is_float() {
+        match stats.get_as::<u64>(Stat::NaNCount) {
+            Precision::Exact(0) => {}
+            Precision::Exact(_) => return Some(false),
+            _ => return None,
+        }
+    }
     let min = stats.get(Stat::Min).as_exact()?;
     let max = stats.get(Stat::Max).as_exact()?;
     Some(min.cast(target_dtype).is_ok() && max.cast(target_dtype).is_ok())
@@ -642,8 +461,10 @@ mod test {
     use std::sync::LazyLock;
 
     use rstest::rstest;
+    use vortex_buffer::Alignment;
     use vortex_buffer::BitBuffer;
     use vortex_buffer::buffer;
+    use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
     use vortex_mask::Mask;
     use vortex_session::VortexSession;
@@ -652,9 +473,13 @@ mod test {
     use crate::Canonical;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
+    use crate::arrays::BoolArray;
+    use crate::arrays::Constant;
     use crate::arrays::DecimalArray;
+    use crate::arrays::Primitive;
     use crate::arrays::PrimitiveArray;
     use crate::assert_arrays_eq;
+    use crate::buffer::BufferHandle;
     use crate::builtins::ArrayBuiltins;
     use crate::compute::conformance::cast::test_cast_conformance;
     use crate::dtype::DType;
@@ -665,6 +490,8 @@ mod test {
     use crate::dtype::i256;
     use crate::expr::stats::Stat;
     use crate::match_each_decimal_value_type;
+    use crate::match_each_native_ptype;
+    use crate::scalar_fn::builtin::cast::CastKernel;
     use crate::validity::Validity;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
@@ -1051,6 +878,64 @@ mod test {
         Ok(())
     }
 
+    /// Scaling up into storage of the source's width multiplies and range-checks in one pass.
+    #[test]
+    fn cast_same_width_integer_to_scaled_decimal() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let decimal_dtype = DecimalDType::new(9, 2);
+
+        let casted = PrimitiveArray::new(
+            buffer![i32::MAX, 42, -9_999_999],
+            Validity::from_iter([false, true, true]),
+        )
+        .into_array()
+        .cast(DType::Decimal(decimal_dtype, Nullability::Nullable))?;
+        assert_arrays_eq!(
+            casted,
+            DecimalArray::from_option_iter(
+                [None, Some(4_200i32), Some(-999_999_900)],
+                decimal_dtype
+            ),
+            &mut ctx
+        );
+
+        let casted = PrimitiveArray::from_iter([10_000_000u32, 3])
+            .into_array()
+            .cast(DType::Decimal(decimal_dtype, Nullability::NonNullable))?;
+        let error = casted.execute::<DecimalArray>(&mut ctx).unwrap_err();
+        assert!(error.to_string().contains("does not fit in precision"));
+        Ok(())
+    }
+
+    /// A buffer that only records byte alignment still casts when its pointer is aligned.
+    #[rstest]
+    #[case::unscaled(DecimalDType::new(9, 0), [1, 2])]
+    #[case::scaled(DecimalDType::new(9, 2), [100, 200])]
+    fn cast_integer_with_unrecorded_alignment_to_same_width_decimal(
+        #[case] decimal_dtype: DecimalDType,
+        #[case] expected: [i32; 2],
+    ) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let bytes = buffer![1u32, 2]
+            .into_byte_buffer()
+            .aligned(Alignment::none());
+        let source = PrimitiveArray::from_buffer_handle(
+            BufferHandle::new_host(bytes),
+            PType::U32,
+            Validity::NonNullable,
+        );
+
+        let casted = source
+            .into_array()
+            .cast(DType::Decimal(decimal_dtype, Nullability::NonNullable))?;
+        assert_arrays_eq!(
+            casted,
+            DecimalArray::from_iter(expected, decimal_dtype),
+            &mut ctx
+        );
+        Ok(())
+    }
+
     #[test]
     fn cast_integer_to_decimal_checks_precision() -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
@@ -1256,5 +1141,174 @@ mod test {
     #[case(buffer![42u32].into_array())]
     fn test_cast_primitive_conformance(#[case] array: ArrayRef) {
         test_cast_conformance(&array, &mut SESSION.create_execution_ctx());
+    }
+
+    /// Floats fit an integer when they truncate into its range, matching `NumCast`.
+    #[rstest]
+    #[case::u8_truncates_up_to_zero(-0.9, PType::U8, true)]
+    #[case::u8_below_range(-1.0, PType::U8, false)]
+    #[case::u8_truncates_down_to_max(255.9, PType::U8, true)]
+    #[case::u8_above_range(256.0, PType::U8, false)]
+    #[case::i8_truncates_up_to_min(-128.9, PType::I8, true)]
+    #[case::i8_below_range(-129.0, PType::I8, false)]
+    #[case::i32_max(2_147_483_647.0, PType::I32, true)]
+    #[case::i32_above_range(2_147_483_648.0, PType::I32, false)]
+    #[case::i64_min(-9_223_372_036_854_775_808.0, PType::I64, true)]
+    #[case::i64_below_range(-9_223_372_036_854_777_856.0, PType::I64, false)]
+    #[case::i64_above_range(9_223_372_036_854_775_808.0, PType::I64, false)]
+    #[case::u64_above_range(18_446_744_073_709_551_616.0, PType::U64, false)]
+    #[case::nan(f64::NAN, PType::I32, false)]
+    #[case::infinity(f64::INFINITY, PType::I64, false)]
+    fn cast_float_to_int_range(
+        #[case] value: f64,
+        #[case] ptype: PType,
+        #[case] fits: bool,
+    ) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let result = buffer![0.0f64, value]
+            .into_array()
+            .cast(ptype.into())?
+            .execute::<PrimitiveArray>(&mut ctx);
+        assert_eq!(result.is_ok(), fits, "{value} as {ptype}");
+        Ok(())
+    }
+
+    /// Integer-to-integer casts check the source value against the target range.
+    #[rstest]
+    #[case::i64_to_u8_max(255, PType::U8, true)]
+    #[case::i64_to_u8_above(256, PType::U8, false)]
+    #[case::i64_to_u8_negative(-1, PType::U8, false)]
+    #[case::i64_to_i16_min(-32_768, PType::I16, true)]
+    #[case::i64_to_i16_below(-32_769, PType::I16, false)]
+    #[case::i64_to_u32_max(4_294_967_295, PType::U32, true)]
+    #[case::i64_to_u64_negative(-1, PType::U64, false)]
+    fn cast_int_to_int_range(
+        #[case] value: i64,
+        #[case] ptype: PType,
+        #[case] fits: bool,
+    ) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let result = buffer![0i64, value]
+            .into_array()
+            .cast(ptype.into())?
+            .execute::<PrimitiveArray>(&mut ctx);
+        assert_eq!(result.is_ok(), fits, "{value} as {ptype}");
+        Ok(())
+    }
+
+    /// Cached min/max skip NaN, so they must not prove that a float array fits an integer type.
+    #[test]
+    fn cast_float_with_nan_and_cached_min_max_to_int_errors() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let arr = buffer![1.0f64, f64::NAN, 3.0].into_array();
+        arr.statistics()
+            .compute_all(&[Stat::Min, Stat::Max], &mut ctx)?;
+        let result = arr
+            .cast(PType::I32.into())?
+            .execute::<PrimitiveArray>(&mut ctx);
+        assert!(result.is_err());
+        Ok(())
+    }
+
+    /// Null lanes may hold NaN or out-of-range floats without failing the cast.
+    #[test]
+    fn cast_float_to_int_ignores_null_lanes() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let arr = PrimitiveArray::new(
+            buffer![f32::NAN, 1.5, 1e10, -2.5],
+            Validity::from_iter([false, true, false, true]),
+        );
+        let casted = arr
+            .into_array()
+            .cast(DType::Primitive(PType::I8, Nullability::Nullable))?;
+        assert_arrays_eq!(
+            casted,
+            PrimitiveArray::from_option_iter([None, Some(1i8), None, Some(-2)]),
+            &mut ctx
+        );
+        Ok(())
+    }
+
+    /// Every pair of primitive types converts each value like `as`.
+    #[test]
+    fn cast_every_ptype_pair() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let ptypes = [
+            PType::U8,
+            PType::U16,
+            PType::U32,
+            PType::U64,
+            PType::I8,
+            PType::I16,
+            PType::I32,
+            PType::I64,
+            PType::F16,
+            PType::F32,
+            PType::F64,
+        ];
+        // Values that every type holds exactly, including a negative value for signed types.
+        let values = [0i8, 1, 7, 100, 127];
+        for from in ptypes {
+            for to in ptypes {
+                let signed = |p: PType| p.is_signed_int() || p.is_float();
+                let source: Vec<i8> = if signed(from) && signed(to) {
+                    values.iter().map(|v| -v).chain(values).collect()
+                } else {
+                    values.to_vec()
+                };
+                let make = |ptype: PType| {
+                    match_each_native_ptype!(ptype, |T| {
+                        PrimitiveArray::from_iter(source.iter().map(|&v| {
+                            <T as num_traits::NumCast>::from(v)
+                                .vortex_expect("every type holds the value")
+                        }))
+                        .into_array()
+                    })
+                };
+                assert_arrays_eq!(make(from).cast(to.into())?, make(to), &mut ctx);
+            }
+        }
+        Ok(())
+    }
+
+    /// Casts that convert values return a constant null for all-null input instead of
+    /// converting values nobody can see; casts that reinterpret the buffer keep it.
+    #[rstest]
+    #[case::checked_all_false_mask(
+        PrimitiveArray::new(
+            buffer![1000i32, -1],
+            Validity::Array(BoolArray::from_iter([false, false]).into_array()),
+        ),
+        PType::U8,
+        true
+    )]
+    #[case::checked_all_invalid(
+        PrimitiveArray::new(buffer![1000i32, -1], Validity::AllInvalid),
+        PType::U8,
+        true
+    )]
+    #[case::unchecked_all_invalid(
+        PrimitiveArray::new(buffer![1i32, 2], Validity::AllInvalid),
+        PType::F64,
+        true
+    )]
+    #[case::reinterpret_all_invalid(
+        PrimitiveArray::new(buffer![1i32, 2], Validity::AllInvalid),
+        PType::U32,
+        false
+    )]
+    fn cast_all_null(
+        #[case] array: PrimitiveArray,
+        #[case] ptype: PType,
+        #[case] constant: bool,
+    ) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let target = DType::Primitive(ptype, Nullability::Nullable);
+        let casted = <Primitive as CastKernel>::cast(array.as_view(), &target, &mut ctx)?
+            .vortex_expect("primitive casts to primitives are handled");
+        assert_eq!(casted.is::<Constant>(), constant);
+        assert_eq!(casted.dtype(), &target);
+        assert_eq!(casted.invalid_count(&mut ctx)?, array.len());
+        Ok(())
     }
 }

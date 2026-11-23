@@ -16,5 +16,7 @@ contracts. Preview edition membership is additive; changing contracts remain in 
 };
 
 pub mod v2026_08;
-
 pub use v2026_08::PREVIEW_2026_08_0;
+
+pub mod v2026_11;
+pub use v2026_11::PREVIEW_2026_11_0;
