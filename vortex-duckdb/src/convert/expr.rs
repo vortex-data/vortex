@@ -193,11 +193,7 @@ fn spatial_operand(value: &ExpressionRef, ctx: ConvertCtx<'_>) -> VortexResult<O
             if !ext_dtype.is::<WellKnownBinary>() {
                 return Ok(None);
             }
-            let storage = scalar.as_extension().to_storage_scalar();
-            let Some(buf) = storage.as_binary_opt().and_then(|b| b.value()) else {
-                return Ok(None);
-            };
-            Ok(native_geometry_scalar_from_wkb(buf.as_slice(), &SESSION)?.map(lit))
+            Ok(native_geometry_scalar_from_wkb(&scalar, &SESSION)?.map(lit))
         }
         Some(BoundColumnRef(col_ref))
             if is_native_spatial_column(ctx.fields, col_ref.name.as_ref()) =>
