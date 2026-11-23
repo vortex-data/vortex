@@ -10,7 +10,7 @@
 /// satisfies every scheme.
 ///
 /// [`Scheme::stats_options`]: crate::scheme::Scheme::stats_options
-#[derive(Debug, Default, Clone, Copy)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct GenerateStatsOptions {
     /// Whether distinct values should be counted during stats generation.
     pub count_distinct_values: bool,

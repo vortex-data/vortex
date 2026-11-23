@@ -1,0 +1,32 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+include ../setup.slt.no
+
+statement ok
+COPY (SELECT i::DOUBLE AS x FROM generate_series(1, 5000) t(i))
+TO '${WORK_DIR}/agg_partition_stats-double.vortex';
+
+query TT
+EXPLAIN SELECT max(x) FROM '${WORK_DIR}/agg_partition_stats-double.vortex';
+----
+<REGEX>:.*Column Data Scan.*
+
+query R
+SELECT max(x) FROM '${WORK_DIR}/agg_partition_stats-double.vortex';
+----
+5000
+
+statement ok
+COPY (SELECT CASE WHEN i = 2500 THEN 'nan'::DOUBLE ELSE i::DOUBLE END AS x FROM generate_series(1, 5000) t(i))
+TO '${WORK_DIR}/agg_partition_stats-double-nan.vortex';
+
+query TT
+EXPLAIN SELECT min(x), max(x) FROM '${WORK_DIR}/agg_partition_stats-double-nan.vortex';
+----
+<REGEX>:.*Column Data Scan.*
+
+query RR
+SELECT min(x), max(x) FROM '${WORK_DIR}/agg_partition_stats-double-nan.vortex';
+----
+1 NaN

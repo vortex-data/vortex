@@ -6,8 +6,9 @@
 use std::ffi::CString;
 use std::sync::Arc;
 
+use crate::DriverError;
 use crate::context::CudaContext;
-use crate::result::DriverError;
+use crate::error::log_error;
 use crate::sys;
 use crate::sys::CUresult;
 
@@ -32,18 +33,27 @@ impl std::fmt::Debug for CudaModule {
 
 impl Drop for CudaModule {
     fn drop(&mut self) {
-        self.context.record_err(self.context.bind_to_thread());
+        if let Err(error) = self.context.bind_to_thread() {
+            log_error("binding context to unload module", error);
+        }
         // SAFETY: Unloaded once, after every function referencing it was dropped.
-        self.context
-            .record_err(unsafe { sys::cuModuleUnload(self.module) }.result());
+        if let Err(error) = unsafe { sys::cuModuleUnload(self.module) }.result() {
+            log_error("unloading CUDA module", error);
+        }
     }
 }
 
 impl CudaModule {
-    pub(crate) fn load(context: &Arc<CudaContext>, image: &[u8]) -> Result<Arc<Self>, DriverError> {
+    /// # Safety
+    ///
+    /// As for [`CudaContext::load_module`].
+    pub(crate) unsafe fn load(
+        context: &Arc<CudaContext>,
+        image: &[u8],
+    ) -> Result<Arc<Self>, DriverError> {
         context.bind_to_thread()?;
         let mut module = std::ptr::null_mut();
-        // SAFETY: The driver reads a complete image; fatbins and cubins carry their own size.
+        // SAFETY: The caller passes a complete image, which bounds what the driver reads.
         unsafe { sys::cuModuleLoadData(&raw mut module, image.as_ptr().cast()) }.result()?;
         Ok(Arc::new(Self {
             module,
@@ -91,5 +101,30 @@ impl CudaFunction {
     /// The raw function handle.
     pub fn cu_function(&self) -> sys::CUfunction {
         self.function
+    }
+
+    /// The maximum number of blocks of `block_size` threads, each using
+    /// `dynamic_shared_mem_bytes` of dynamic shared memory, that can be
+    /// resident on one multiprocessor at the same time.
+    pub fn max_active_blocks_per_multiprocessor(
+        &self,
+        block_size: u32,
+        dynamic_shared_mem_bytes: u32,
+    ) -> Result<u32, DriverError> {
+        let block_size = i32::try_from(block_size)
+            .map_err(|_| DriverError(CUresult::CUDA_ERROR_INVALID_VALUE))?;
+        self._module.context.bind_to_thread()?;
+        let mut num_blocks = 0;
+        // SAFETY: The function is loaded; the driver writes the block count.
+        unsafe {
+            sys::cuOccupancyMaxActiveBlocksPerMultiprocessor(
+                &raw mut num_blocks,
+                self.function,
+                block_size,
+                dynamic_shared_mem_bytes as usize,
+            )
+        }
+        .result()?;
+        Ok(num_blocks.unsigned_abs())
     }
 }

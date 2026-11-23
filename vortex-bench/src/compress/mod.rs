@@ -4,7 +4,6 @@
 use std::any::Any;
 use std::borrow::Cow;
 use std::fmt;
-use std::fs::File;
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -21,7 +20,6 @@ use clap::ValueEnum;
 use object_store::ObjectStore;
 use object_store::ObjectStoreExt;
 use object_store::path::Path as ObjectPath;
-use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use serde::Serialize;
 use tempfile::NamedTempFile;
 use tempfile::TempDir;
@@ -33,6 +31,7 @@ use crate::Format;
 use crate::measurements::CompressionTimingMeasurement;
 use crate::measurements::CustomUnitMeasurement;
 use crate::random_access::RemoteDataDir;
+use crate::utils::parquet::plain_arrow_reader;
 
 /// Number of top-level columns in the wide-table decompression projection benchmark.
 pub const READ_PROJECTION_ROOT_COLUMNS: usize = 100_000;
@@ -117,9 +116,10 @@ pub enum Uncompressed {
 }
 
 impl Uncompressed {
-    /// Read a Parquet file into Arrow record batches.
+    /// Read a Parquet file into Arrow record batches, with view types read as plain types
+    /// ([`plain_arrow_reader`]).
     pub fn read_arrow(parquet_path: &Path) -> Result<Self> {
-        let builder = ParquetRecordBatchReaderBuilder::try_new(File::open(parquet_path)?)?;
+        let builder = plain_arrow_reader(parquet_path)?;
         let schema = Arc::clone(builder.schema());
         let batches = builder.build()?.collect::<Result<Vec<_>, _>>()?;
 

@@ -37,6 +37,8 @@ public final class NativeExpression {
 
     public static native long isNotNull(long childPointer);
 
+    public static native long mask(long childPointer, long maskPointer);
+
     public static native long like(long childPointer, long patternPointer, boolean negated, boolean caseInsensitive);
 
     public static native long between(
@@ -88,6 +90,30 @@ public final class NativeExpression {
 
     public static native long literalList(
             long[] elementPointers, long elementTypePointer, boolean elementsNullable, boolean isNull);
+
+    public static native long literalListBool(
+            boolean[] values, long elementTypePointer, boolean elementsNullable, boolean withNull);
+
+    public static native long literalListI8(
+            byte[] values, long elementTypePointer, boolean elementsNullable, boolean withNull);
+
+    public static native long literalListI16(
+            short[] values, long elementTypePointer, boolean elementsNullable, boolean withNull);
+
+    public static native long literalListI32(
+            int[] values, long elementTypePointer, boolean elementsNullable, boolean withNull);
+
+    public static native long literalListI64(
+            long[] values, long elementTypePointer, boolean elementsNullable, boolean withNull);
+
+    public static native long literalListF32(
+            float[] values, long elementTypePointer, boolean elementsNullable, boolean withNull);
+
+    public static native long literalListF64(
+            double[] values, long elementTypePointer, boolean elementsNullable, boolean withNull);
+
+    public static native long literalListUtf8(
+            String[] values, long elementTypePointer, boolean elementsNullable, boolean withNull);
 
     public static native long literalFixedSizeList(
             long[] elementPointers, long elementTypePointer, boolean elementsNullable, int size, boolean isNull);

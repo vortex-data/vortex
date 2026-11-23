@@ -1,6 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! Execution that resolves validity before allowing a kernel to read any null-row payloads.
+//!
+//! Immediate kernel errors and null-intolerant decoding cannot be hidden by masking the finished
+//! output. This path pays for a validity scan first, then tries to visit valid rows in the original
+//! columns. Reusing those columns avoids filtering and copying inputs. Only representations that
+//! cannot decode the original partially valid columns need the filtered fallback.
+
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_mask::MaskValuesRef;
@@ -16,7 +23,7 @@ impl RowFnExecutionArgs<'_> {
     /// Resolve validity and try direct valid-row execution before filtered execution.
     pub(super) fn execute_valid_only(
         &self,
-        kernel: impl Fn(BorrowedRowFnArgs<'_>, &mut ExecutionCtx) -> VortexResult<ArrayRef>,
+        kernel: impl FnOnce(BorrowedRowFnArgs<'_>, &mut ExecutionCtx) -> VortexResult<ArrayRef>,
         try_valid_rows: impl FnOnce(
             BorrowedRowFnArgs<'_>,
             MaskValuesRef,

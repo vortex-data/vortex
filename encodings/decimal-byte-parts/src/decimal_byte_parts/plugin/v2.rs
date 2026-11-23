@@ -1,7 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Serde for DBP values with unsigned lower parts.
+//! Wire format for DecimalByteParts arrays with unsigned lower parts.
+//!
+//! A `vortex.decimal_byte_parts.v2` node has no buffers. Its parent supplies the decimal dtype
+//! and length. The first child holds the signed most significant word and has the decimal
+//! array's nullability. One to three non-nullable `u64` children follow, most significant first.
+//! All children have the same length. The decimal precision limits how many lower parts fit: one
+//! through precision 38, and three above precision 38. An array without lower parts uses the v1
+//! ID instead.
+//!
+//! The metadata records the stored integer type of each child. The reader restores the logical
+//! type of the most significant part from the decimal precision, independently of its stored
+//! width.
 
 use prost::Message as _;
 use vortex_array::Array;
@@ -10,28 +21,31 @@ use vortex_array::ArrayParts;
 use vortex_array::ArraySerialization;
 use vortex_array::ArraySlots;
 use vortex_array::ArrayView;
+use vortex_array::arrays::WidenArray;
 use vortex_array::dtype::DType;
-use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
+use vortex_session::VortexSession;
 
 use super::decimal_byte_parts_v2_id;
 use crate::DecimalByteParts;
 use crate::DecimalBytePartsArray;
 use crate::DecimalBytePartsArraySlotsExt;
 use crate::DecimalBytePartsData;
+use crate::decimal_byte_parts::LOWER_PART_DTYPE;
 use crate::decimal_byte_parts::MAX_LOWER_PARTS;
 
 /// Metadata for decimal byte parts with lower parts.
 #[derive(Clone, prost::Message)]
 pub struct DecimalBytePartsV2Metadata {
-    /// Ptype of the most significant part.
+    /// The stored MSP type. It can be narrower than its logical dtype, which is always `i64`,
+    /// because lower parts exist only above precision 18.
     #[prost(enumeration = "PType", tag = "1")]
     pub(super) msp_ptype: i32,
-    /// Ptypes of the lower parts, ordered most significant first.
+    /// Ptypes of the lower parts, ordered most significant first. Readers accept only `U64`.
     #[prost(enumeration = "PType", repeated, tag = "2")]
     pub(super) lower_part_ptypes: Vec<i32>,
 }
@@ -40,9 +54,10 @@ pub(super) fn serialize(
     array: ArrayView<'_, DecimalByteParts>,
 ) -> VortexResult<ArraySerialization> {
     let lower_parts = array.lower_parts();
+    let msp = WidenArray::to_stored_integer(array.msp());
 
     let metadata = DecimalBytePartsV2Metadata {
-        msp_ptype: PType::try_from(array.msp().dtype())? as i32,
+        msp_ptype: PType::try_from(msp.dtype())? as i32,
         lower_part_ptypes: lower_parts
             .iter()
             .map(|part| PType::try_from(part.dtype()).map(|ptype| ptype as i32))
@@ -51,7 +66,7 @@ pub(super) fn serialize(
     .encode_to_vec();
 
     let mut children = Vec::with_capacity(1 + lower_parts.len());
-    children.push(array.msp().clone());
+    children.push(msp);
     children.extend(lower_parts.iter().cloned());
 
     Ok(ArraySerialization::new(
@@ -62,17 +77,24 @@ pub(super) fn serialize(
     ))
 }
 
-pub(super) fn deserialize(parts: ArrayDeserialization<'_>) -> VortexResult<DecimalBytePartsArray> {
+pub(super) fn deserialize(
+    parts: ArrayDeserialization<'_>,
+    session: &VortexSession,
+) -> VortexResult<DecimalBytePartsArray> {
+    vortex_ensure!(parts.buffers.is_empty(), "v2 must not carry node buffers");
     let metadata = DecimalBytePartsV2Metadata::decode(parts.metadata)?;
-    vortex_ensure!(
-        parts.dtype.as_decimal_opt().is_some(),
-        "expected a decimal dtype"
-    );
+    let decimal_dtype = *parts
+        .dtype
+        .as_decimal_opt()
+        .ok_or_else(|| vortex_err!("expected a decimal dtype, got {}", parts.dtype))?;
 
     let lower_part_count = metadata.lower_part_ptypes.len();
+    // NB: The writer uses v1 when there are no lower parts. Lower parts exist only above
+    // precision 18, where the logical MSP is `i64`, so a valid v2 MSP is never wider than its
+    // logical dtype and never takes the legacy copy in `read_msp`.
     vortex_ensure!(
-        lower_part_count <= MAX_LOWER_PARTS,
-        "v2 carries at most {MAX_LOWER_PARTS} lower parts, got {lower_part_count}"
+        (1..=MAX_LOWER_PARTS).contains(&lower_part_count),
+        "v2 carries 1 to {MAX_LOWER_PARTS} lower parts, got {lower_part_count}"
     );
     vortex_ensure_eq!(
         parts.children.len(),
@@ -88,17 +110,16 @@ pub(super) fn deserialize(parts: ArrayDeserialization<'_>) -> VortexResult<Decim
     let msp_dtype = DType::Primitive(msp_ptype, parts.dtype.nullability());
 
     let mut slots = ArraySlots::with_capacity(parts.children.len());
-    slots.push(Some(parts.children.get(0, &msp_dtype, parts.len)?));
+    let msp = parts.children.get(0, &msp_dtype, parts.len)?;
+    slots.push(Some(super::read_msp(msp, decimal_dtype, session)?));
     for (idx, raw_ptype) in metadata.lower_part_ptypes.into_iter().enumerate() {
-        let ptype = PType::try_from(raw_ptype)
-            .map_err(|_| vortex_err!("invalid PType {raw_ptype} for lower part {idx}"))?;
-        vortex_ensure!(
-            ptype.is_unsigned_int(),
-            "lower part {idx} must have an unsigned integer dtype, got {ptype}"
-        );
+        let ptype = PType::try_from(raw_ptype).map_err(|_| {
+            vortex_err!("lower part {idx} must have a valid PType, got {raw_ptype}")
+        })?;
+        vortex_ensure_eq!(ptype, PType::U64, "lower part {idx} ptype");
         slots.push(Some(parts.children.get(
             1 + idx,
-            &DType::Primitive(ptype, Nullability::NonNullable),
+            &LOWER_PART_DTYPE,
             parts.len,
         )?));
     }

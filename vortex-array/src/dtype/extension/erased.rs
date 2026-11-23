@@ -13,6 +13,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 
+use crate::dtype::Claims;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::extension::ExtDType;
@@ -45,6 +46,10 @@ impl ExtDTypeRef {
     /// Returns the storage dtype of the extension type.
     pub fn storage_dtype(&self) -> &DType {
         self.0.storage_dtype()
+    }
+
+    pub(crate) fn claims(&self) -> Claims {
+        self.0.claims()
     }
 
     /// Returns the nullability of the storage dtype.
@@ -180,11 +185,9 @@ impl Hash for ExtDTypeRef {
 
 impl fmt::Debug for ExtDTypeRef {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let metadata = self.0.metadata_debug(f);
-
         f.debug_struct("ExtDType")
             .field("id", &self.id())
-            .field("metadata", &metadata)
+            .field("metadata", &MetadataDebug(self.0.as_ref()))
             .field("storage_dtype", &self.storage_dtype())
             .finish()
     }
@@ -205,6 +208,14 @@ impl fmt::Display for ExtDTypeRef {
 }
 
 // Private formatting helpers for Display and Debug impls.
+
+struct MetadataDebug<'a>(&'a dyn DynExtDType);
+
+impl fmt::Debug for MetadataDebug<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.metadata_debug(f)
+    }
+}
 
 struct MetadataDisplay<'a>(&'a dyn DynExtDType);
 impl fmt::Display for MetadataDisplay<'_> {

@@ -8,16 +8,15 @@ use std::hash::Hasher;
 use itertools::Itertools;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_panic;
-use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
 use crate::ArrayEq;
 use crate::ArrayHash;
 use crate::ArrayParts;
 use crate::ArrayRef;
-use crate::ArraySlots;
 use crate::EqMode;
 use crate::ExecutionCtx;
 use crate::ExecutionResult;
@@ -27,9 +26,9 @@ use crate::array::ArrayId;
 use crate::array::ArrayView;
 use crate::array::VTable;
 use crate::array::unsupported_buffer_replacement;
+use crate::arrays::Extension;
 use crate::arrays::ExtensionArray;
 use crate::arrays::constant::ConstantData;
-use crate::arrays::constant::compute::rules::PARENT_RULES;
 use crate::arrays::constant::vtable::canonical::constant_canonicalize;
 use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
@@ -40,6 +39,7 @@ use crate::builders::ListViewBuilder;
 use crate::builders::NullBuilder;
 use crate::builders::PrimitiveBuilder;
 use crate::builders::VarBinViewBuilder;
+use crate::builders::VariantBuilder;
 use crate::builders::builder_with_capacity_in;
 use crate::canonical::Canonical;
 use crate::dtype::DType;
@@ -50,11 +50,10 @@ use crate::match_each_native_ptype;
 use crate::match_each_varbin_builder;
 use crate::scalar::DecimalValue;
 use crate::scalar::ListScalar;
-use crate::scalar::Scalar;
 use crate::scalar::ScalarValue;
-use crate::serde::ArrayChildren;
 pub(crate) mod canonical;
 mod operations;
+mod plugin;
 mod validity;
 
 /// A [`Constant`]-encoded Vortex array.
@@ -131,50 +130,6 @@ impl VTable for Constant {
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         vortex_panic!("ConstantArray slot_name index {idx} out of bounds")
-    }
-
-    fn serialize(
-        _array: ArrayView<'_, Self>,
-        _session: &VortexSession,
-    ) -> VortexResult<Option<Vec<u8>>> {
-        // HACK: Because the scalar is stored in the buffers, we do not need to serialize the
-        // metadata at all.
-        Ok(Some(vec![]))
-    }
-
-    fn deserialize(
-        &self,
-        dtype: &DType,
-        len: usize,
-        _metadata: &[u8],
-
-        buffers: &[BufferHandle],
-        _children: &dyn ArrayChildren,
-        session: &VortexSession,
-    ) -> VortexResult<ArrayParts<Self>> {
-        vortex_ensure_eq!(buffers.len(), 1);
-
-        let buffer = buffers[0].clone().try_to_host_sync()?;
-        let bytes: &[u8] = buffer.as_ref();
-
-        let scalar_value = ScalarValue::from_proto_bytes(bytes, dtype, session)?;
-        let scalar = Scalar::try_new(dtype.clone(), scalar_value)?;
-
-        Ok(ArrayParts::new(
-            self.clone(),
-            dtype.clone(),
-            len,
-            ConstantData::new(scalar),
-            ArraySlots::new(),
-        ))
-    }
-
-    fn reduce_parent(
-        array: ArrayView<'_, Self>,
-        parent: &ArrayRef,
-        child_idx: usize,
-    ) -> VortexResult<Option<ArrayRef>> {
-        PARENT_RULES.evaluate(array, parent, child_idx)
     }
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
@@ -264,13 +219,21 @@ impl VTable for Constant {
                 // is a constant storage array, which stays constant-encoded in the builder.
                 // Canonicalizing instead would materialize the storage: see the note in
                 // `constant_canonicalize` about `ExtensionConstantRule`.
+                //
+                // Call the Extension vtable directly: `ArrayRef::append_to_builder` would optimize
+                // the array back into this constant and recurse.
                 let storage = ConstantArray::new(scalar.as_extension().to_storage_scalar(), n);
-                ExtensionArray::new(ext_dtype.clone(), storage.into_array())
-                    .into_array()
-                    .append_to_builder(builder, ctx)?
+                let extension = ExtensionArray::new(ext_dtype.clone(), storage.into_array());
+                Extension::append_to_builder(extension.as_view(), builder, ctx)?
             }
             DType::FixedSizeList(..) => {
                 append_constant_fixed_size_list_run(array, n, builder, ctx)?
+            }
+            DType::Variant(_) => {
+                let Some(builder) = builder.as_any_mut().downcast_mut::<VariantBuilder>() else {
+                    vortex_bail!("append_to_builder for a Variant requires a VariantBuilder");
+                };
+                builder.append_n_scalars(scalar, n)?
             }
             // The remaining dtypes canonicalize cheaply: a constant struct canonicalizes to
             // constant fields, and a constant map to views sharing one copy of the entries, so
@@ -424,14 +387,12 @@ mod tests {
     use crate::ExecutionCtx;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
-    use crate::arrays::Chunked;
     use crate::arrays::Constant;
     use crate::arrays::ConstantArray;
     use crate::arrays::Extension;
     use crate::arrays::FixedSizeList;
     use crate::arrays::ListView;
     use crate::arrays::Struct;
-    use crate::arrays::chunked::ChunkedArrayExt;
     use crate::arrays::constant::vtable::canonical::constant_canonicalize;
     use crate::arrays::extension::ExtensionArrayExt;
     use crate::arrays::fixed_size_list::FixedSizeListArraySlotsExt;
@@ -650,7 +611,6 @@ mod tests {
             element_dtype,
             Nullability::NonNullable,
             0,
-            0,
             vortex_buffer::BufferAllocatorRef::static_ref(),
         );
         array.append_to_builder(&mut builder, &mut ctx)?;
@@ -752,8 +712,8 @@ mod tests {
         assert_append_matches_canonical(ConstantArray::new(Scalar::null(dtype), 3))
     }
 
-    /// A fixed-size list whose elements are all the same scalar tiles a constant array, so the
-    /// tile's chunks stay constant-encoded rather than materializing a value per row.
+    /// A fixed-size list whose elements are all the same scalar repeats a constant array, so the
+    /// elements collapse into one constant array rather than materializing a value per row.
     #[test]
     fn test_uniform_fixed_size_list_constant_append_keeps_elements_constant() -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
@@ -777,12 +737,10 @@ mod tests {
 
         let elements = result.as_::<FixedSizeList>().elements().clone();
         assert!(
-            elements
-                .as_::<Chunked>()
-                .iter_chunks()
-                .all(|chunk| chunk.is::<Constant>()),
+            elements.is::<Constant>(),
             "a uniform tile should have stayed constant-encoded",
         );
+        assert_eq!(elements.len(), 2_000);
         Ok(())
     }
 

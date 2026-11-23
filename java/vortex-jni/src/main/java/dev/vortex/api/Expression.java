@@ -146,6 +146,14 @@ public final class Expression {
     }
 
     /**
+     * Null out {@code child} wherever {@code mask} is false, keeping its value where {@code mask} is true. The mask
+     * must be a non-nullable boolean.
+     */
+    public static Expression mask(Expression child, Expression mask) {
+        return new Expression(NativeExpression.mask(child.nativePointer(), mask.nativePointer()));
+    }
+
+    /**
      * SQL {@code LIKE} pattern match.
      *
      * @param negated whether to invert the result (i.e. {@code NOT LIKE})
@@ -420,6 +428,55 @@ public final class Expression {
     public static Expression literalList(Expression elementType, boolean elementsNullable, Expression... elements) {
         return new Expression(NativeExpression.literalList(
                 nativePointers(elements), elementType.nativePointer(), elementsNullable, false));
+    }
+
+    /**
+     * List literal of 64-bit integers, each cast to the dtype of {@code elementType}, with a null element when
+     * {@code withNull} is set. One native call builds the whole list, so a list of thousands of values, such as the
+     * keys of a runtime join filter, costs no Java object per value.
+     *
+     * <p>The elements are nullable only when {@code withNull} is set. For a date, time or timestamp element type, each
+     * value is a count of that type's unit, as in {@link #literalTimestamp(long, TimeUnit, String)}.
+     */
+    public static Expression literalLongList(Expression elementType, boolean withNull, long[] values) {
+        return new Expression(NativeExpression.literalListI64(values, elementType.nativePointer(), withNull, withNull));
+    }
+
+    /** {@link #literalLongList(Expression, boolean, long[])} for booleans. */
+    public static Expression literalBooleanList(Expression elementType, boolean withNull, boolean[] values) {
+        return new Expression(
+                NativeExpression.literalListBool(values, elementType.nativePointer(), withNull, withNull));
+    }
+
+    /** {@link #literalLongList(Expression, boolean, long[])} for 8-bit integers. */
+    public static Expression literalByteList(Expression elementType, boolean withNull, byte[] values) {
+        return new Expression(NativeExpression.literalListI8(values, elementType.nativePointer(), withNull, withNull));
+    }
+
+    /** {@link #literalLongList(Expression, boolean, long[])} for 16-bit integers. */
+    public static Expression literalShortList(Expression elementType, boolean withNull, short[] values) {
+        return new Expression(NativeExpression.literalListI16(values, elementType.nativePointer(), withNull, withNull));
+    }
+
+    /** {@link #literalLongList(Expression, boolean, long[])} for 32-bit integers. */
+    public static Expression literalIntList(Expression elementType, boolean withNull, int[] values) {
+        return new Expression(NativeExpression.literalListI32(values, elementType.nativePointer(), withNull, withNull));
+    }
+
+    /** {@link #literalLongList(Expression, boolean, long[])} for 32-bit floats. */
+    public static Expression literalFloatList(Expression elementType, boolean withNull, float[] values) {
+        return new Expression(NativeExpression.literalListF32(values, elementType.nativePointer(), withNull, withNull));
+    }
+
+    /** {@link #literalLongList(Expression, boolean, long[])} for 64-bit floats. */
+    public static Expression literalDoubleList(Expression elementType, boolean withNull, double[] values) {
+        return new Expression(NativeExpression.literalListF64(values, elementType.nativePointer(), withNull, withNull));
+    }
+
+    /** {@link #literalLongList(Expression, boolean, long[])} for strings. */
+    public static Expression literalStringList(Expression elementType, boolean withNull, String[] values) {
+        return new Expression(
+                NativeExpression.literalListUtf8(values, elementType.nativePointer(), withNull, withNull));
     }
 
     /** Null list literal. See {@link #literalList(Expression, boolean, Expression...)} for the element dtype. */

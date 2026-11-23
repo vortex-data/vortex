@@ -1,29 +1,28 @@
 # Vortex C bindings
 
-## Use from CMake
-
-Add a complete Vortex checkout. CMake builds the Rust archive for you:
+Building requires CMake 3.25+ and a C11 compiler.
 
 ```cmake
 add_subdirectory(path/to/vortex vortex)
-target_link_libraries(my_target PRIVATE Vortex::ffi)
+target_link_libraries(my_target PRIVATE Vortex::ffi_static)
+target_link_libraries(my_target PRIVATE Vortex::ffi_shared)
 ```
 
-The target supplies the library and headers, selecting static or shared linkage according
-to `BUILD_SHARED_LIBS` (`OFF` by default). Set the option before adding Vortex. To select
-linkage explicitly, use `Vortex::ffi_static` or `Vortex::ffi_shared`; both remain available
-regardless of the option. You can also add `vortex-ffi` directly. See the
-[CMake build guide](../lang/cpp/README.md) for requirements, options, and deployment limits.
+Note this builds Vortex Rust side for you.
 
-### Examples and tests
-
-Run from the repository root. Tests use Catch2 and require a C++ compiler.
+Tests require a C++-20 compiler. To run tests,
 
 ```sh
-cmake -S vortex-ffi -B build/ffi \
-    -DVORTEX_BUILD_EXAMPLES=ON -DVORTEX_BUILD_TESTS=ON
+cmake -S vortex-ffi -B build/ffi -DVORTEX_BUILD_TESTS=ON
 cmake --build build/ffi --parallel
 ctest --test-dir build/ffi --output-on-failure
+```
+
+To run examples,
+
+```sh
+cmake -S vortex-ffi -B build/ffi -DVORTEX_BUILD_EXAMPLES=ON
+cmake --build build/ffi --parallel
 
 ./build/ffi/examples/write_sample sample.vortex
 ./build/ffi/examples/dtype sample.vortex
@@ -31,29 +30,12 @@ ctest --test-dir build/ffi --output-on-failure
 ./build/ffi/examples/scan_to_arrow sample.vortex
 ```
 
-## Runtime threading
+To regenerate `vortex.h` after making some changes, run `cargo +nightly build -p
+vortex-ffi`.
 
-By default, calling threads drive the shared runtime with no Vortex workers.
+## Running tests with sanitizers
 
-`vx_runtime_set_worker_threads(n)` configures a library-local pool of background workers that
-drive the shared runtime. The pool is shared by all FFI sessions in that library instance and
-persists across calls for the lifetime of the library. Passing zero signals the workers to stop
-and restores caller-driven execution. Leave it at zero if your application already provides concurrency.
-
-## Update the C header
-
-Regenerate `vortex-ffi/cinclude/vortex.h`:
-
-```sh
-cargo +nightly build -p vortex-ffi
-```
-
-## Sanitizer tests
-
-### Rust and C/C++ together
-
-Requires nightly Rust and upstream LLVM Clang. See the
-[sanitizer guide](../lang/cpp/README.md#sanitizers) for scope and alternatives.
+C tests with sanitizer also require clang. To run them,
 
 ```sh
 rustup toolchain install nightly --component rust-src
@@ -70,22 +52,20 @@ ctest --test-dir build/ffi-asan --output-on-failure
 For ThreadSanitizer, use `-DVORTEX_SANITIZER=tsan` and set
 `TSAN_OPTIONS=suppressions=/absolute/path/to/vortex/vortex-ffi/tsan_suppressions.txt`.
 
-Pipe `build/ffi-asan/test/vortex_ffi_test` output through `rustfilt -i-` to demangle Rust symbols.
-
-### Rust only
-
-Use nightly with `rust-src` installed. This example uses the native Linux x86_64 target:
+To run only Rust-side tests with sanitizers on x86_64,
 
 ```sh
+# -Zsanitizer=memory and -Zsanitizer=thread are other options
 RUSTFLAGS="-Zsanitizer=address -Cunsafe-allow-abi-mismatch=sanitizer" \
 cargo +nightly test -p vortex-ffi -Zbuild-std \
     --target x86_64-unknown-linux-gnu --tests -- --no-capture
 ```
 
-Substitute your native target. Use `-Zsanitizer=memory` for MemorySanitizer or
-`-Zsanitizer=thread` for ThreadSanitizer, with the suppression file above.
+## Driving the runtime
 
-- `-Zbuild-std` instruments std to avoid memory/thread sanitizer false positives.
-- `-Cunsafe-allow-abi-mismatch=sanitizer` allows deliberately uninstrumented dependencies.
-- `--tests` excludes doctests, which do not inherit `RUSTFLAGS`.
-- Prefer `cargo test` over nextest for leak detection. Use `llvm-symbolizer` for stack traces.
+Vortex is an async library which means it requires an underlying runtime, a
+thread scheduler. By default, Vortex uses host threads to drive the runtime,
+i.e. calling a Vortex function like `vx_data_source_scan` on multiple threads
+drives the runtime on the caller threads. You can create an explicit thread pool
+inside Vortex by calling `vx_runtime_set_worker_threads(n)`. After this call,
+Vortex will drive the runtime on the internal thread pool and not host threads.

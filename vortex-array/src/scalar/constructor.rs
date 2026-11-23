@@ -65,16 +65,35 @@ impl Scalar {
     }
 
     /// Creates a new decimal scalar with the given value, precision, scale, and nullability.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `value` does not fit in the precision of `decimal_type`. Use
+    /// [`Scalar::try_decimal`] when the value comes from data that has not been validated.
     pub fn decimal(
         value: DecimalValue,
         decimal_type: DecimalDType,
         nullability: Nullability,
     ) -> Self {
+        Self::try_decimal(value, decimal_type, nullability)
+            .vortex_expect("decimal value must fit the precision of `decimal_type`")
+    }
+
+    /// Attempts to create a new decimal scalar with the given value, precision, scale, and
+    /// nullability.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `value` does not fit in the precision of `decimal_type`.
+    pub fn try_decimal(
+        value: DecimalValue,
+        decimal_type: DecimalDType,
+        nullability: Nullability,
+    ) -> VortexResult<Self> {
         Self::try_new(
             DType::Decimal(decimal_type, nullability),
             Some(ScalarValue::Decimal(value)),
         )
-        .vortex_expect("unable to construct a decimal `Scalar`")
     }
 
     /// Creates a new UTF-8 scalar from a string-like value.
@@ -239,24 +258,75 @@ impl Scalar {
             .vortex_expect("unable to construct a list `Scalar`")
     }
 
-    /// Creates a new extension scalar wrapping the given storage value.
+    /// Reconstructs an extension scalar from stored metadata and its storage scalar.
+    ///
+    /// See [`try_extension_from_storage_with_vtable`](Self::try_extension_from_storage_with_vtable)
+    /// for the checks.
+    pub fn try_extension_from_storage<V: ExtVTable + Default>(
+        stored_metadata: V::StoredMetadata,
+        storage: Scalar,
+    ) -> VortexResult<Self> {
+        Self::try_extension_from_storage_with_vtable(V::default(), stored_metadata, storage)
+    }
+
+    /// Reconstructs an extension dtype and checks the storage scalar's dtype and value.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if reconstruction or metadata validation fails, storage differs from the
+    /// declaration, or the extension rejects the scalar value.
+    pub fn try_extension_from_storage_with_vtable<V: ExtVTable>(
+        vtable: V,
+        stored_metadata: V::StoredMetadata,
+        storage: Scalar,
+    ) -> VortexResult<Self> {
+        let dtype = ExtDType::try_from_storage_with_vtable(
+            vtable,
+            stored_metadata,
+            storage.dtype().clone(),
+        )?;
+
+        Self::try_extension_ref(dtype.erased(), storage)
+    }
+
+    /// Creates an extension scalar with the storage scalar's top-level nullability.
+    ///
+    /// # Panics
+    ///
+    /// Panics if metadata validation fails, the storage dtype differs from the declaration, or
+    /// the extension rejects the storage value.
     pub fn extension<V: ExtVTable + Default>(options: V::Metadata, storage_scalar: Scalar) -> Self {
-        let ext_dtype = ExtDType::<V>::try_new(options, storage_scalar.dtype().clone())
+        let ext_dtype = ExtDType::<V>::try_new(options, storage_scalar.dtype().nullability())
             .vortex_expect("Failed to create extension dtype");
 
         Self::extension_ref(ext_dtype.erased(), storage_scalar)
     }
 
-    /// Creates a new extension scalar wrapping the given storage value.
+    /// Creates a scalar with the given extension dtype and storage value.
     ///
     /// # Panics
     ///
-    /// Panics if the storage dtype of `ext_dtype` does not match `value`'s dtype.
+    /// Panics if [`Self::try_extension_ref`] rejects the storage scalar.
     pub fn extension_ref(ext_dtype: ExtDTypeRef, storage_scalar: Scalar) -> Self {
-        assert_eq!(ext_dtype.storage_dtype(), storage_scalar.dtype());
+        Self::try_extension_ref(ext_dtype, storage_scalar)
+            .vortex_expect("unable to construct an extension `Scalar`")
+    }
+
+    /// Creates an extension scalar after checking its storage dtype and value.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the storage dtype differs from the extension's storage dtype, or if
+    /// the extension rejects the storage value. A null storage scalar requires a nullable dtype.
+    pub fn try_extension_ref(ext_dtype: ExtDTypeRef, storage_scalar: Scalar) -> VortexResult<Self> {
+        vortex_ensure_eq!(
+            ext_dtype.storage_dtype(),
+            storage_scalar.dtype(),
+            "{} storage must match its declaration",
+            ext_dtype.id()
+        );
 
         Self::try_new(DType::Extension(ext_dtype), storage_scalar.into_value())
-            .vortex_expect("unable to construct an extension `Scalar`")
     }
 
     /// Creates a union scalar from a type ID and child scalar.

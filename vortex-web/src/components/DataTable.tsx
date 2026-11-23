@@ -3,14 +3,20 @@
 
 import { useMemo, useRef, useState } from 'react';
 import {
-  useReactTable,
-  getCoreRowModel,
-  getSortedRowModel,
+  columnSizingFeature,
+  createSortedRowModel,
   flexRender,
+  rowSortingFeature,
+  sortFn_alphanumeric,
+  sortFn_datetime,
+  sortFn_text,
+  tableFeatures,
+  useTable,
   type ColumnDef,
   type SortingState,
 } from '@tanstack/react-table';
 import { useVirtualizer } from '@tanstack/react-virtual';
+import { Facts } from './detail/Facts';
 
 // --- Column statistics ---
 
@@ -69,7 +75,7 @@ function computeStats(values: unknown[]): ColumnStats {
       const range = max - min;
       for (const n of nums) {
         const idx = Math.min(bins - 1, Math.floor(((n - min) / range) * bins));
-        histogram[idx]++;
+        histogram[idx] = (histogram[idx] ?? 0) + 1;
       }
     } else {
       histogram[0] = nums.length;
@@ -88,50 +94,25 @@ function computeStats(values: unknown[]): ColumnStats {
 
 // --- Sparkline ---
 
+const BAR = 2;
+const GAP = 0.5;
+
+/** A small histogram of a numeric column. A column with one value draws a flat line. */
 function SparkHistogram({ histogram, height = 12 }: { histogram: number[]; height?: number }) {
   const max = Math.max(...histogram);
   if (max === 0) return null;
-
-  // Check if all values fell in a single bin (constant column).
-  const nonZero = histogram.filter((v) => v > 0).length;
-  if (nonZero <= 1) {
-    // Render a flat line to indicate constant/single-value.
-    const barW = 2;
-    const gap = 0.5;
-    const w = histogram.length * (barW + gap) - gap;
-    return (
-      <svg width={w} height={height} className="flex-shrink-0 opacity-50">
-        <line
-          x1={0}
-          y1={height / 2}
-          x2={w}
-          y2={height / 2}
-          stroke="currentColor"
-          strokeWidth={1}
-          className="text-vortex-grey-dark"
-        />
-      </svg>
-    );
-  }
-
-  const barW = 2;
-  const gap = 0.5;
-  const w = histogram.length * (barW + gap) - gap;
+  const w = histogram.length * (BAR + GAP) - GAP;
+  const flat = histogram.filter((v) => v > 0).length <= 1;
   return (
-    <svg width={w} height={height} className="flex-shrink-0 opacity-70">
-      {histogram.map((v, i) => {
-        const barH = Math.max(0.5, (v / max) * height);
-        return (
-          <rect
-            key={i}
-            x={i * (barW + gap)}
-            y={height - barH}
-            width={barW}
-            height={barH}
-            className="fill-vortex-light-blue"
-          />
-        );
-      })}
+    <svg aria-hidden="true" width={w} height={height} className="x-spark">
+      {flat ? (
+        <line x1={0} y1={height / 2} x2={w} y2={height / 2} strokeWidth={1} />
+      ) : (
+        histogram.map((v, i) => {
+          const barH = Math.max(0.5, (v / max) * height);
+          return <rect key={i} x={i * (BAR + GAP)} y={height - barH} width={BAR} height={barH} />;
+        })
+      )}
     </svg>
   );
 }
@@ -139,131 +120,70 @@ function SparkHistogram({ histogram, height = 12 }: { histogram: number[]; heigh
 // --- Header summary (inline, compact) ---
 
 function HeaderSummary({ stats }: { stats: ColumnStats }) {
+  const note = (text: string, title?: string) => (
+    <span className="vx-label-sm x-col-summary" title={title}>
+      {text}
+    </span>
+  );
   if (stats.kind === 'numeric') {
-    const isConst = stats.min === stats.max && stats.nullCount === 0;
-    if (isConst) {
-      return (
-        <span
-          className="text-[8px] text-vortex-grey-dark font-normal opacity-70"
-          title={`constant: ${stats.min}`}
-        >
-          const
-        </span>
-      );
-    }
-    if (stats.histogram) {
-      return <SparkHistogram histogram={stats.histogram} />;
-    }
+    if (stats.min === stats.max && stats.nullCount === 0)
+      return note('const', `Every value is ${stats.min}`);
+    if (stats.histogram) return <SparkHistogram histogram={stats.histogram} />;
   }
   if (stats.kind === 'boolean') {
-    const total = stats.trueCount! + stats.falseCount!;
-    if (total === 0) return null;
-    const allTrue = stats.falseCount === 0 && stats.nullCount === 0;
-    const allFalse = stats.trueCount === 0 && stats.nullCount === 0;
-    if (allTrue || allFalse)
-      return <span className="text-[8px] text-vortex-grey-dark font-normal opacity-70">const</span>;
-    const pct = Math.round((stats.trueCount! / total) * 100);
+    const t = stats.trueCount ?? 0;
+    const f = stats.falseCount ?? 0;
+    if (t + f === 0) return null;
+    if ((t === 0 || f === 0) && stats.nullCount === 0) return note('const');
+    const pct = Math.round((t / (t + f)) * 100);
     return (
-      <div
-        className="flex items-center gap-0.5 flex-shrink-0"
-        title={`${stats.trueCount} true, ${stats.falseCount} false`}
-      >
-        <div className="flex h-2 w-8 rounded-sm overflow-hidden">
-          <div className="bg-vortex-light-blue/60" style={{ width: `${pct}%` }} />
-          <div className="bg-vortex-grey-dark/20" style={{ width: `${100 - pct}%` }} />
-        </div>
-        <span className="text-[8px] text-vortex-grey-dark font-normal opacity-70">{pct}%</span>
-      </div>
+      <span className="x-col-summary" title={`${t} true, ${f} false`}>
+        <span className="x-share" aria-hidden="true">
+          <span style={{ width: `${pct}%` }} />
+        </span>{' '}
+        <span className="vx-label-sm">{pct}%</span>
+      </span>
     );
   }
   if (stats.kind === 'string' && stats.cardinality != null) {
-    if (stats.cardinality === 1 && stats.nullCount === 0) {
-      return <span className="text-[8px] text-vortex-grey-dark font-normal opacity-70">const</span>;
-    }
-    return (
-      <span className="text-[8px] text-vortex-grey-dark font-normal opacity-70">
-        {stats.cardinality}v
-      </span>
-    );
+    if (stats.cardinality === 1 && stats.nullCount === 0) return note('const');
+    return note(`${stats.cardinality.toLocaleString('en-US')} distinct`);
   }
   return null;
 }
 
-// --- Header tooltip (shown on hover) ---
+// --- Header tooltip (shown on hover or focus) ---
 
 function HeaderTooltip({ stats, approximate }: { stats: ColumnStats; approximate: boolean }) {
   const p = approximate ? '~' : '';
-  const fmt = (n: number) => {
-    const s =
-      Math.abs(n) >= 1e6 || (Math.abs(n) < 0.01 && n !== 0)
-        ? n.toExponential(2)
-        : n.toLocaleString(undefined, { maximumFractionDigits: 2 });
-    return p + s;
-  };
-
+  const fmt = (n: number) =>
+    p +
+    (Math.abs(n) >= 1e6 || (Math.abs(n) < 0.01 && n !== 0)
+      ? n.toExponential(2)
+      : n.toLocaleString('en-US', { maximumFractionDigits: 2 }));
+  const items: [string, string][] = [
+    ['Rows', `${stats.count.toLocaleString('en-US')}${approximate ? ' (sample)' : ''}`],
+  ];
+  if (stats.nullCount > 0) items.push(['Nulls', stats.nullCount.toLocaleString('en-US')]);
+  if (stats.kind === 'numeric') {
+    items.push(
+      ['Min', fmt(stats.min ?? 0)],
+      ['Max', fmt(stats.max ?? 0)],
+      ['Mean', fmt(stats.mean ?? 0)],
+    );
+  }
+  if (stats.kind === 'boolean') {
+    items.push(['True', (stats.trueCount ?? 0).toLocaleString('en-US')]);
+    items.push(['False', (stats.falseCount ?? 0).toLocaleString('en-US')]);
+  }
+  if (stats.kind === 'string')
+    items.push(['Distinct', (stats.cardinality ?? 0).toLocaleString('en-US')]);
   return (
-    <div className="text-[9px] font-normal text-vortex-fg-light dark:text-vortex-fg space-y-1 font-mono">
-      <div className="text-vortex-grey-dark">
-        {stats.count.toLocaleString()} rows{approximate ? ' (sampled)' : ''}
-      </div>
-      {stats.nullCount > 0 && (
-        <div className="text-vortex-grey-dark">{stats.nullCount.toLocaleString()} nulls</div>
-      )}
-      {stats.kind === 'numeric' && (
-        <>
-          <div>min: {fmt(stats.min!)}</div>
-          <div>max: {fmt(stats.max!)}</div>
-          <div>mean: {fmt(stats.mean!)}</div>
-          {stats.histogram && (
-            <div className="pt-0.5">
-              <SparkHistogram histogram={stats.histogram} height={24} />
-            </div>
-          )}
-        </>
-      )}
-      {stats.kind === 'boolean' && (
-        <>
-          <div>true: {stats.trueCount!.toLocaleString()}</div>
-          <div>false: {stats.falseCount!.toLocaleString()}</div>
-        </>
-      )}
-      {stats.kind === 'string' && <div>{stats.cardinality!.toLocaleString()} distinct values</div>}
-    </div>
-  );
-}
-
-// --- Hoverable header with tooltip ---
-
-function ColumnHeader({
-  name,
-  stats,
-  approximate,
-}: {
-  name: string;
-  stats: ColumnStats;
-  approximate: boolean;
-}) {
-  const [showTip, setShowTip] = useState(false);
-  const timeoutRef = useRef<ReturnType<typeof setTimeout>>(undefined);
-
-  const onEnter = () => {
-    clearTimeout(timeoutRef.current);
-    timeoutRef.current = setTimeout(() => setShowTip(true), 400);
-  };
-  const onLeave = () => {
-    clearTimeout(timeoutRef.current);
-    setShowTip(false);
-  };
-
-  return (
-    <div className="relative" onMouseEnter={onEnter} onMouseLeave={onLeave}>
-      <div className="flex items-center gap-1.5">
-        <span className="truncate">{name}</span>
-        <HeaderSummary stats={stats} />
-      </div>
-      {showTip && (
-        <div className="absolute top-full left-0 mt-1 z-50 bg-vortex-white dark:bg-vortex-black border border-vortex-grey-light/40 dark:border-white/[0.08] rounded shadow-lg px-2 py-1.5 min-w-[120px]">
-          <HeaderTooltip stats={stats} approximate={approximate} />
+    <div className="x-tip x-col-tip" role="tooltip">
+      <Facts items={items} />
+      {stats.kind === 'numeric' && stats.histogram && (
+        <div className="x-pad">
+          <SparkHistogram histogram={stats.histogram} height={24} />
         </div>
       )}
     </div>
@@ -276,88 +196,105 @@ function formatCell(value: unknown): string {
   if (value == null) return '';
   if (typeof value === 'bigint') return value.toString();
   if (typeof value === 'number') {
-    if (Number.isInteger(value)) return value.toLocaleString();
-    return value.toLocaleString(undefined, { maximumFractionDigits: 4 });
+    if (Number.isInteger(value)) return value.toLocaleString('en-US');
+    return value.toLocaleString('en-US', { maximumFractionDigits: 4 });
   }
   return String(value);
 }
 
 // --- Main component ---
 
+// Sorting by column header, and column widths. 'auto' sorting picks one of the
+// registered sort functions from the column's values, and falls back to basic.
+const features = tableFeatures({
+  rowSortingFeature,
+  columnSizingFeature,
+  sortedRowModel: createSortedRowModel(),
+  sortFns: { alphanumeric: sortFn_alphanumeric, datetime: sortFn_datetime, text: sortFn_text },
+});
+
+type Row = Record<string, unknown>;
+
 export type CellRenderer = (value: unknown, row: Record<string, unknown>) => React.ReactNode;
 
 export interface DataTableProps {
+  /** The table's accessible name. */
+  label: string;
   columns: string[];
   rows: Record<string, unknown>[];
-  rowHeight?: number;
   onRowClick?: (rowIndex: number) => void;
   onRowHover?: (rowIndex: number | null) => void;
   /** Custom cell renderers keyed by column name. */
   cellRenderers?: Record<string, CellRenderer>;
+  /** Columns to set right-aligned, as numbers. The preview finds them from the values. */
+  numeric?: ReadonlySet<string>;
   /** If true, stats are approximate (data was truncated by a row limit). */
   approximate?: boolean;
 }
 
+/** The row height the system sets for a data table (--app-row). */
+const ROW_HEIGHT = 36;
+
+/**
+ * A data table on the system's vx-table: sticky heads that sort, virtualised rows, and a short
+ * summary of each column in its head, with the column's numbers on hover or focus.
+ */
 export function DataTable({
+  label,
   columns,
   rows,
-  rowHeight = 24,
   onRowClick,
   onRowHover,
   cellRenderers,
+  numeric,
   approximate = false,
 }: DataTableProps) {
   const [sorting, setSorting] = useState<SortingState>([]);
+  const [tipColumn, setTipColumn] = useState<string | null>(null);
+  const tipTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const parentRef = useRef<HTMLDivElement>(null);
 
   const columnStats = useMemo(() => {
     const stats: Record<string, ColumnStats> = {};
-    for (const col of columns) {
-      stats[col] = computeStats(rows.map((r) => r[col]));
-    }
+    for (const col of columns) stats[col] = computeStats(rows.map((r) => r[col]));
     return stats;
   }, [columns, rows]);
 
-  const columnDefs = useMemo<ColumnDef<Record<string, unknown>>[]>(
+  const isNum = (col: string) => numeric?.has(col) ?? columnStats[col]?.kind === 'numeric';
+
+  const columnDefs = useMemo<ColumnDef<typeof features, Row>[]>(
     () => [
       {
         id: '__row_num',
         header: '#',
-        size: 50,
+        size: 56,
         enableSorting: false,
-        cell: (info) => (
-          <span className="text-vortex-grey-dark tabular-nums">{info.row.index}</span>
-        ),
+        cell: (info) => <span className="x-row-num">{info.row.index}</span>,
       },
-      ...columns.map((col): ColumnDef<Record<string, unknown>> => ({
-        accessorKey: col,
-        header: () => (
-          <ColumnHeader name={col} stats={columnStats[col]} approximate={approximate} />
-        ),
-        cell: (info) => {
-          const renderer = cellRenderers?.[col];
-          if (renderer) {
-            return renderer(info.getValue(), info.row.original);
-          }
-          const val = info.getValue();
-          if (val == null) {
-            return <span className="text-vortex-grey-dark italic">null</span>;
-          }
-          return formatCell(val);
-        },
-        sortingFn: 'auto',
-      })),
+      ...columns.map(
+        (col): ColumnDef<typeof features, Row> => ({
+          accessorKey: col,
+          header: col,
+          cell: (info) => {
+            const renderer = cellRenderers?.[col];
+            if (renderer) return renderer(info.getValue(), info.row.original);
+            const val = info.getValue();
+            if (val == null) return <span className="x-null">null</span>;
+            return formatCell(val);
+          },
+          sortFn: 'auto',
+        }),
+      ),
     ],
-    [approximate, cellRenderers, columns, columnStats],
+    [cellRenderers, columns],
   );
 
-  const table = useReactTable({
+  const table = useTable({
+    features,
     data: rows,
     columns: columnDefs,
     state: { sorting },
     onSortingChange: setSorting,
-    getCoreRowModel: getCoreRowModel(),
-    getSortedRowModel: getSortedRowModel(),
   });
 
   const { rows: tableRows } = table.getRowModel();
@@ -365,64 +302,102 @@ export function DataTable({
   const virtualizer = useVirtualizer({
     count: tableRows.length,
     getScrollElement: () => parentRef.current,
-    estimateSize: () => rowHeight,
+    estimateSize: () => ROW_HEIGHT,
     overscan: 20,
   });
+  const items = virtualizer.getVirtualItems();
+
+  const showTip = (col: string | null, delay = 400) => {
+    clearTimeout(tipTimer.current);
+    if (col === null) setTipColumn(null);
+    else tipTimer.current = setTimeout(() => setTipColumn(col), delay);
+  };
 
   return (
-    <div ref={parentRef} className="h-full w-full overflow-auto">
-      <table className="w-full text-[10px] font-mono border-collapse">
-        <thead className="sticky top-0 z-10">
+    <div ref={parentRef} className="x-table-scroll">
+      <table className="vx-table is-data" aria-label={label} aria-rowcount={tableRows.length + 1}>
+        <thead>
           {table.getHeaderGroups().map((headerGroup) => (
-            <tr key={headerGroup.id} className="bg-vortex-grey-lightest dark:bg-vortex-black">
-              {headerGroup.headers.map((header) => (
-                <th
-                  key={header.id}
-                  className="px-2 py-1 text-left font-medium text-vortex-fg-light dark:text-vortex-fg border-b border-r border-vortex-grey-light/30 dark:border-white/[0.06] last:border-r-0 select-none cursor-pointer"
-                  style={{ width: header.getSize() }}
-                  onClick={header.column.getToggleSortingHandler()}
-                >
-                  <div className="flex items-center gap-1">
-                    {header.isPlaceholder
-                      ? null
-                      : flexRender(header.column.columnDef.header, header.getContext())}
-                    {header.column.getIsSorted() === 'asc' && (
-                      <span className="text-vortex-light-blue">▲</span>
+            <tr key={headerGroup.id}>
+              {headerGroup.headers.map((header) => {
+                const col = header.column.id;
+                const sorted = header.column.getIsSorted();
+                const stats = columnStats[col];
+                const canSort = header.column.getCanSort();
+                const title = flexRender(header.column.columnDef.header, header.getContext());
+                return (
+                  <th
+                    key={header.id}
+                    scope="col"
+                    className={col !== '__row_num' && isNum(col) ? 'is-num' : undefined}
+                    style={{ width: header.getSize() }}
+                    aria-sort={
+                      sorted === 'asc' ? 'ascending' : sorted === 'desc' ? 'descending' : undefined
+                    }
+                    onPointerEnter={stats ? () => showTip(col) : undefined}
+                    onPointerLeave={stats ? () => showTip(null) : undefined}
+                  >
+                    {canSort ? (
+                      <button
+                        type="button"
+                        onClick={header.column.getToggleSortingHandler()}
+                        onFocus={stats ? () => showTip(col, 0) : undefined}
+                        onBlur={stats ? () => showTip(null) : undefined}
+                        title={`Sort by ${col}`}
+                      >
+                        {title}
+                        {stats && <HeaderSummary stats={stats} />}
+                        {sorted && <span aria-hidden="true">{sorted === 'asc' ? '↑' : '↓'}</span>}
+                      </button>
+                    ) : (
+                      title
                     )}
-                    {header.column.getIsSorted() === 'desc' && (
-                      <span className="text-vortex-light-blue">▼</span>
+                    {stats && tipColumn === col && (
+                      <HeaderTooltip stats={stats} approximate={approximate} />
                     )}
-                  </div>
-                </th>
-              ))}
+                  </th>
+                );
+              })}
             </tr>
           ))}
         </thead>
         <tbody>
-          {virtualizer.getVirtualItems().length > 0 && (
-            <tr>
-              <td
-                colSpan={columnDefs.length}
-                style={{ height: virtualizer.getVirtualItems()[0]?.start ?? 0, padding: 0 }}
-              />
+          {items.length > 0 && (
+            <tr className="is-spacer">
+              <td colSpan={columnDefs.length} style={{ height: items[0]?.start ?? 0 }} />
             </tr>
           )}
-          {virtualizer.getVirtualItems().map((virtualRow) => {
+          {items.map((virtualRow) => {
             const row = tableRows[virtualRow.index];
+            if (!row) return null;
+            const open = onRowClick ? () => onRowClick(virtualRow.index) : undefined;
             return (
               <tr
                 key={row.id}
-                className="border-b border-vortex-grey-light/20 dark:border-white/[0.03] hover:bg-vortex-grey-lightest/50 dark:hover:bg-white/[0.02] cursor-default"
-                style={{ height: rowHeight }}
-                onClick={() => onRowClick?.(virtualRow.index)}
-                onMouseEnter={() => onRowHover?.(virtualRow.index)}
-                onMouseLeave={() => onRowHover?.(null)}
+                aria-rowindex={virtualRow.index + 2}
+                className={open ? 'is-link' : undefined}
+                tabIndex={open ? 0 : undefined}
+                onClick={open}
+                onKeyDown={
+                  open
+                    ? (e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          open();
+                        }
+                      }
+                    : undefined
+                }
+                onPointerEnter={onRowHover ? () => onRowHover(virtualRow.index) : undefined}
+                onPointerLeave={onRowHover ? () => onRowHover(null) : undefined}
               >
-                {row.getVisibleCells().map((cell) => (
+                {row.getAllCells().map((cell) => (
                   <td
                     key={cell.id}
-                    className="px-2 text-vortex-fg-light dark:text-vortex-fg/80 truncate max-w-[300px] border-r border-vortex-grey-light/30 dark:border-white/[0.06] last:border-r-0"
-                    title={formatCell(cell.getValue())}
+                    className={
+                      cell.column.id !== '__row_num' && isNum(cell.column.id) ? 'is-num' : undefined
+                    }
+                    title={formatCell(cell.getValue()) || undefined}
                   >
                     {flexRender(cell.column.columnDef.cell, cell.getContext())}
                   </td>
@@ -430,15 +405,11 @@ export function DataTable({
               </tr>
             );
           })}
-          {virtualizer.getVirtualItems().length > 0 && (
-            <tr>
+          {items.length > 0 && (
+            <tr className="is-spacer">
               <td
                 colSpan={columnDefs.length}
-                style={{
-                  height:
-                    virtualizer.getTotalSize() - (virtualizer.getVirtualItems().at(-1)?.end ?? 0),
-                  padding: 0,
-                }}
+                style={{ height: virtualizer.getTotalSize() - (items.at(-1)?.end ?? 0) }}
               />
             </tr>
           )}

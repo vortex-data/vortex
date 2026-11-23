@@ -23,6 +23,7 @@ use vortex_array::dtype::Nullability;
 use vortex_array::memory::MemorySession;
 use vortex_array::optimizer::kernels::KernelSession;
 use vortex_array::session::ArraySession;
+use vortex_array::test_harness::mark_optimized;
 use vortex_fsst::FSSTArray;
 use vortex_fsst::fsst_compress;
 use vortex_fsst::fsst_train_compressor;
@@ -104,7 +105,12 @@ fn fixture((rows, compressed_kib, taken): (usize, usize, usize)) -> (ArrayRef, A
     let mut row_len = target / rows;
     let mut array = compressed(rows, row_len);
     while array.codes_bytes().len() < target {
-        row_len += row_len.div_ceil(50);
+        // Scale by the compression ratio just observed, so the rows reach the target in one or
+        // two compressions instead of retraining the compressor at every small step.
+        let codes_len = array.codes_bytes().len().max(1);
+        row_len = (row_len * target)
+            .div_ceil(codes_len)
+            .max(row_len + row_len.div_ceil(50));
         array = compressed(rows, row_len);
     }
 
@@ -120,6 +126,9 @@ fn take(bencher: Bencher, args: (usize, usize, usize)) {
 }
 
 fn bench_take(bencher: Bencher, array: ArrayRef, indices: ArrayRef) {
+    mark_optimized(&array, &SESSION).unwrap();
+    mark_optimized(&indices, &SESSION).unwrap();
+
     bencher
         .with_inputs(|| (&array, &indices, SESSION.create_execution_ctx()))
         .bench_refs(|(array, indices, ctx)| {

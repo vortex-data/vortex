@@ -37,15 +37,14 @@ use geoarrow::datatypes::Metadata;
 use geoarrow::datatypes::WkbType;
 use parquet::arrow::AsyncArrowWriter;
 use parquet::arrow::ParquetRecordBatchStreamBuilder;
-use parquet::basic::Compression;
-use parquet::basic::ZstdLevel;
 use parquet::file::metadata::KeyValue;
-use parquet::file::properties::WriterProperties;
 use tokio::fs::File as TokioFile;
 use tracing::info;
 
 use super::table::Table;
 use super::wkb::geoparquet_metadata;
+use crate::utils::parquet::LOCAL_ROW_GROUP_ROWS;
+use crate::utils::parquet::parquet_writer_properties;
 
 /// Parquet metadata marker: this file is already spatially sorted (makes the step idempotent).
 const SORTED_KEY: &str = "vortex_spatial_sorted";
@@ -143,8 +142,8 @@ async fn sort_part(path: &Path, table: Table, geom_col: &str) -> anyhow::Result<
     let num_rows = sorted.num_rows();
 
     let tmp_path = path.with_extension("parquet.sorttmp");
-    let props = WriterProperties::builder()
-        .set_compression(Compression::ZSTD(ZstdLevel::try_new(3)?))
+    let props = parquet_writer_properties()
+        .set_max_row_group_row_count(Some(LOCAL_ROW_GROUP_ROWS))
         .build();
     let mut writer =
         AsyncArrowWriter::try_new(TokioFile::create(&tmp_path).await?, schema, Some(props))?;

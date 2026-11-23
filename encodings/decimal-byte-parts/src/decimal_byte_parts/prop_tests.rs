@@ -48,7 +48,7 @@ fn draw_validity(tc: &TestCase, len: usize) -> Validity {
 
 /// An `i128`-backed decimal. The bounds keep values inside `Decimal(38, 2)` while still
 /// reaching both sides of the 64-bit word boundary the encoding splits on.
-fn draw_i128_decimal(tc: &TestCase) -> DecimalArray {
+fn draw_i128_decimal(tc: &TestCase, ctx: &mut ExecutionCtx) -> DecimalArray {
     let values: Vec<i128> = tc.draw(
         gs::vecs(
             gs::integers::<i128>()
@@ -59,12 +59,17 @@ fn draw_i128_decimal(tc: &TestCase) -> DecimalArray {
         .max_size(MAX_LEN),
     );
     let validity = draw_validity(tc, values.len());
-    DecimalArray::new(Buffer::from(values), DecimalDType::new(38, 2), validity)
+    DecimalArray::new(
+        Buffer::from(values),
+        DecimalDType::new(38, 2),
+        validity,
+        ctx,
+    )
 }
 
 /// An `i256`-backed decimal, built from a signed high half and an unsigned low half so the
 /// draw covers sign extension above the most significant part.
-fn draw_i256_decimal(tc: &TestCase) -> DecimalArray {
+fn draw_i256_decimal(tc: &TestCase, ctx: &mut ExecutionCtx) -> DecimalArray {
     let halves: Vec<(i128, u128)> = tc.draw(
         gs::vecs(gs::tuples2(
             gs::integers::<i128>()
@@ -80,14 +85,19 @@ fn draw_i256_decimal(tc: &TestCase) -> DecimalArray {
         .map(|(high, low)| i256::from_parts(low, high))
         .collect();
     let validity = draw_validity(tc, values.len());
-    DecimalArray::new(Buffer::from(values), DecimalDType::new(76, 2), validity)
+    DecimalArray::new(
+        Buffer::from(values),
+        DecimalDType::new(76, 2),
+        validity,
+        ctx,
+    )
 }
 
-fn draw_decimal(tc: &TestCase) -> DecimalArray {
+fn draw_decimal(tc: &TestCase, ctx: &mut ExecutionCtx) -> DecimalArray {
     if tc.draw(gs::booleans()) {
-        draw_i128_decimal(tc)
+        draw_i128_decimal(tc, ctx)
     } else {
-        draw_i256_decimal(tc)
+        draw_i256_decimal(tc, ctx)
     }
 }
 
@@ -135,8 +145,8 @@ fn draw_encoded(tc: &TestCase) -> (DecimalBytePartsArray, usize) {
 /// and the storage width.
 #[hegel::test]
 fn decoded_survives_encode_then_decode(tc: TestCase) {
-    let decimal = draw_decimal(&tc);
     let mut ctx = ctx();
+    let decimal = draw_decimal(&tc, &mut ctx);
 
     let encoded = DecimalByteParts::encode(&decimal, &mut ctx).vortex_expect("encode");
     let round_tripped = canonicalize(encoded.into_array(), &mut ctx);
@@ -149,8 +159,9 @@ fn decoded_survives_encode_then_decode(tc: TestCase) {
 ///
 /// Starting from the encoded side reaches part counts `split_decimal` never produces, so this
 /// covers layouts the property above cannot generate. It compares decoded values rather than
-/// the arrays themselves because re-encoding normalizes the part count: splitting an `i256`
-/// always yields three lower parts, whatever the original array carried.
+/// the arrays themselves because re-encoding normalizes the part count:
+/// [`DecimalByteParts::encode`] uses the smallest of 0, 1, or 3 lower parts that holds the valid
+/// values, whatever the original array carried.
 #[hegel::test]
 fn encoded_survives_decode_then_encode(tc: TestCase) {
     let (array, _len) = draw_encoded(&tc);

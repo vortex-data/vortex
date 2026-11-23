@@ -36,6 +36,7 @@ use vortex::error::vortex_ensure;
 use vortex::error::vortex_err;
 use vortex::expr::BoundExpression;
 use vortex::expr::Expression;
+use vortex::expr::col;
 use vortex::expr::proto::ExprSerializeProtoExt;
 #[cfg(unix)]
 use vortex::metrics::tracing::get_global_labels;
@@ -49,6 +50,7 @@ use crate::convert::PushedAggregate;
 use crate::convert::try_from_bound_expression;
 use crate::convert::try_from_projection_aggregate;
 use crate::convert::try_from_projection_expression;
+use crate::convert::try_from_table_filter;
 use crate::cpp::DUCKDB_TYPE;
 use crate::duckdb::AggregateExpression;
 use crate::duckdb::AggregatePushdownInputRef;
@@ -66,6 +68,7 @@ use crate::projection::DuckdbField;
 use crate::projection::Filter;
 use crate::projection::Projection;
 use crate::projection::ProjectionInput;
+use crate::projection::is_optional_table_filter;
 
 // Duckdb has two state machines for an extension. The outer one is the table
 // function state machine which calls the file reader state machine.
@@ -606,8 +609,38 @@ pub fn pushdown_projection_aggregates(
     if !has_non_count_star {
         return Ok(false);
     }
+    // TryReplaceAggregate clears table filters, so Vortex evaluates them
+    let Some((filters, has_non_optional_filter)) = aggregate_table_filters(bind_data, input) else {
+        return Ok(false);
+    };
+    if has_non_optional_filter {
+        bind_data
+            .has_non_optional_filter
+            .store(true, Ordering::Relaxed);
+    }
+    bind_data.filters.extend(filters);
     bind_data.aggregates = aggregates;
     Ok(true)
+}
+
+// None if a filter is on a column absent from the files or doesn't convert
+fn aggregate_table_filters(
+    bind_data: &BindState,
+    input: &AggregatePushdownInputRef,
+) -> Option<(Vec<Expression>, bool)> {
+    let mut filters = Vec::new();
+    let mut has_non_optional_filter = false;
+    for (scan_index, filter) in input.table_filters() {
+        let column_id: usize = input.column_id(scan_index).as_();
+        let field = bind_data.columns.get(column_id)?;
+        let column = col(field.name.as_str());
+        let expr = try_from_table_filter(filter, &column, &bind_data.dtype)
+            .ok()
+            .flatten()?;
+        has_non_optional_filter |= !is_optional_table_filter(filter);
+        filters.push(expr);
+    }
+    Some((filters, has_non_optional_filter))
 }
 
 fn try_push_projection_aggregate(

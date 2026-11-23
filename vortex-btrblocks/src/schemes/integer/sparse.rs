@@ -123,9 +123,10 @@ impl Scheme for SparseScheme {
             return CompressionEstimate::Verdict(EstimateVerdict::Skip);
         }
 
-        // We only store the positions of the non-top values.
+        // We only store the positions of the non-top values. The fill value is not null, so
+        // `Sparse::encode` stores every null as a patch too.
         CompressionEstimate::Verdict(EstimateVerdict::Ratio(
-            value_count as f64 / (value_count - most_frequent_count) as f64,
+            len / (len - most_frequent_count as f64),
         ))
     }
 

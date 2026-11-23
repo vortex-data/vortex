@@ -5,7 +5,9 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from typing import TYPE_CHECKING, TypeVar, final
+from urllib.parse import quote
 
+from pyarrow.fs import FileSystem, FSSpecHandler, PyFileSystem
 from ray.data import Datasource, ReadTask
 from ray.data._internal.util import RetryingPyFileSystem
 from ray.data.block import BlockMetadata
@@ -16,10 +18,8 @@ from ray.data.datasource.path_util import (
 )
 from typing_extensions import override
 
-from .. import open as vx_open
-from ..arrow.expression import ensure_vortex_expression
+from ..dataset import _open_exact_files
 from ..expr import Expr as VortexExpr
-from ..type_aliases import IntoProjection
 
 if TYPE_CHECKING:
     import pandas
@@ -44,15 +44,31 @@ def partition(k: int, ls: list[T]) -> list[list[T]]:
     return out
 
 
+def _url_scheme(fs: FileSystem) -> str | None:
+    if isinstance(fs, PyFileSystem) and isinstance(fs.handler, FSSpecHandler):
+        protocol = getattr(fs.handler.fs, "protocol", "")
+        name = protocol if isinstance(protocol, str) else str(protocol[0])
+    else:
+        name = fs.type_name
+    if name in ("file", "local"):
+        return None
+    return "gs" if name == "gcs" else name
+
+
 @final
 class VortexDatasource(Datasource):
-    """Read a folder of Vortex files as a row-wise-partitioned table."""
+    """Read a folder of Vortex files as a row-wise-partitioned table.
+
+    Each read task reads its files as one :class:`vortex.dataset.VortexDataset`, so Ray reads with
+    the same column selection, filter pushdown and cross-file concurrency as DuckDB, Polars and
+    PyArrow.
+    """
 
     def __init__(
         self,
         *,
         url: str,
-        columns: IntoProjection = None,
+        columns: list[str] | None = None,
         filter: pc.Expression | VortexExpr | None = None,
         batch_size: int | None = None,
         meta_provider: BaseFileMetadataProvider = DefaultFileMetadataProvider(),
@@ -72,7 +88,11 @@ class VortexDatasource(Datasource):
                 ignore_missing_paths=False,
             )
         )
-        self._paths: list[str] = [path for path, _ in paths_and_sizes]
+        paths = [path for path, _ in paths_and_sizes]
+        scheme = _url_scheme(fs.unwrap())
+        if scheme is not None:
+            paths = [path if "://" in path else f"{scheme}://{quote(path)}" for path in paths]
+        self._paths: list[str] = paths
         self._batch_size = batch_size
 
     @override
@@ -118,38 +138,31 @@ class VortexDatasource(Datasource):
 
 def _read_task(
     paths: list[str],
-    columns: IntoProjection,
+    columns: list[str] | None,
     filter: pc.Expression | VortexExpr | None,
     batch_size: int | None,
 ) -> ReadTask:
     if not paths:
         raise ValueError("no paths specified")
 
-    files = [vx_open(path) for path in paths]
-    schemas = [f.dtype.to_arrow_schema() for f in files]
-    schema = schemas[0]
-    assert all(s == schema for s in schemas[1:])
-
-    num_rows = sum(len(f) for f in files)
-
+    dataset = _open_exact_files(paths)
     metadata = BlockMetadata(
-        num_rows=num_rows,
+        num_rows=None if filter is not None else dataset.count_rows(),
         size_bytes=None,
         exec_stats=None,
         input_files=tuple(paths),
     )
+    output_schema = dataset.scanner(columns=columns).projected_schema
 
     def read() -> Iterable[pandas.DataFrame]:
-        # If we could serialize a PyVortexFile and a PyExpr, we could set those up earlier.
+        # A VortexDataset cannot be pickled, so the task opens its files again on the worker.
+        reader = _open_exact_files(paths).to_record_batch_reader(columns=columns, filter=filter, batch_size=batch_size)
 
-        vx_filter = ensure_vortex_expression(filter, schema=schema)
-        for path in paths:
-            f = vx_open(path)
-            for rb in f.to_arrow(columns, expr=vx_filter, batch_size=batch_size):
-                # We would prefer to generate Arrow, but we run into this issue: https://github.com/apache/arrow/issues/47279
-                #
-                # yield pa.Table.from_batches([rb])
-                #
-                yield rb.to_pandas()
+        for rb in reader:
+            # We would prefer to generate Arrow, but we run into this issue: https://github.com/apache/arrow/issues/47279
+            #
+            # yield pa.Table.from_batches([rb])
+            #
+            yield rb.to_pandas()
 
-    return ReadTask(read, metadata, schema)
+    return ReadTask(read, metadata, output_schema)

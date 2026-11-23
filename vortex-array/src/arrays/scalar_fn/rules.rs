@@ -3,6 +3,7 @@
 
 use itertools::Itertools;
 use vortex_error::VortexResult;
+use vortex_session::VortexSession;
 
 use crate::ArrayRef;
 use crate::IntoArray;
@@ -16,21 +17,22 @@ use crate::arrays::Slice;
 use crate::arrays::StructArray;
 use crate::arrays::filter::prepare_mask_for_reuse;
 use crate::arrays::scalar_fn::ScalarFnArrayExt;
+use crate::optimizer::kernels::ArrayKernelsExt;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ArrayReduceRule;
-use crate::optimizer::rules::ParentRuleSet;
 use crate::optimizer::rules::ReduceRuleSet;
 use crate::scalar_fn::ArrayReduceNode;
-use crate::scalar_fn::fns::pack::Pack;
+use crate::scalar_fn::builtin::pack::Pack;
 use crate::validity::Validity;
 
 pub(super) const RULES: ReduceRuleSet<ScalarFn> =
     ReduceRuleSet::new(&[&ScalarFnPackToStructRule, &ScalarFnAbstractReduceRule]);
 
-pub(super) const PARENT_RULES: ParentRuleSet<ScalarFn> = ParentRuleSet::new(&[
-    ParentRuleSet::lift(&ScalarFilterPushdownRule),
-    ParentRuleSet::lift(&ScalarFnSliceReduceRule),
-]);
+pub(crate) fn register_parent_rules(session: &VortexSession) {
+    let kernels = session.kernels();
+    kernels.register_scalar_fn_reduce_parent_rule(Filter, const { &ScalarFilterPushdownRule });
+    kernels.register_scalar_fn_reduce_parent_rule(Slice, const { &ScalarFnSliceReduceRule });
+}
 
 /// Converts a ScalarFnArray with Pack into a StructArray directly.
 #[derive(Debug)]
@@ -170,11 +172,9 @@ mod tests {
     use crate::expr::is_null;
     use crate::expr::root;
     use crate::optimizer::rules::ArrayParentReduceRule;
-    use crate::scalar::Scalar;
     use crate::scalar_fn::TypedScalarFnInstance;
-    use crate::scalar_fn::fns::binary::Binary;
-    use crate::scalar_fn::fns::list_contains::PreparedSet;
-    use crate::scalar_fn::fns::operators::Operator;
+    use crate::scalar_fn::builtin::binary::Binary;
+    use crate::scalar_fn::builtin::operators::Operator;
     use crate::validity::Validity;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
@@ -224,30 +224,6 @@ mod tests {
         }
         let expected = PrimitiveArray::from_iter(expected);
         assert_arrays_eq!(result, expected, &mut SESSION.create_execution_ctx());
-        Ok(())
-    }
-
-    #[test]
-    fn test_filter_pushdown_without_children() -> VortexResult<()> {
-        let list = Scalar::list(
-            DType::Primitive(PType::I32, Nullability::NonNullable),
-            vec![Scalar::from(7i32)],
-            Nullability::NonNullable,
-        );
-        let array = PreparedSet::try_new_array(list.clone(), 3)?;
-        let parent = FilterArray::try_new(array.clone(), Mask::from_iter([true, false, true]))?;
-
-        let result = ScalarFilterPushdownRule
-            .reduce_parent(array.as_::<ScalarFn>(), parent.as_view(), 0)?
-            .ok_or_else(|| vortex_err!("expected filter pushdown"))?;
-
-        assert_eq!(result.as_::<ScalarFn>().nchildren(), 0);
-        assert_eq!(result.len(), 2);
-        assert_arrays_eq!(
-            result,
-            ConstantArray::new(list, 2),
-            &mut SESSION.create_execution_ctx()
-        );
         Ok(())
     }
 

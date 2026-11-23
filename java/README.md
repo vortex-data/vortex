@@ -2,18 +2,19 @@
 
 We provide two interfaces for working with Vortex from Java:
 
-- `vortex-java` - a low-level interface JNI for working with Vortex files and arrays on cloud and local storage
+- `vortex-jni` - a low-level JNI interface for working with Vortex files on cloud and local storage. See the
+  [Java quickstart](https://docs.vortex.dev/getting-started/java.html) for how to write, read, filter, and project
+  Vortex files.
 - `vortex-spark` - A Spark connector for working with datasets of Vortex files. See
   [vortex-spark/README.md](vortex-spark/README.md) for how to load the connector into Spark
   and query Vortex files from the DataFrame API or Spark SQL.
 
 ## Publishing
 
-We publish three artifacts out of this repo at CI time to Maven Central Sonatype:
+We publish these artifacts from this repo to Maven Central at CI time:
 
-* `vortex-jni` JAR containing the JNI code, plus compiled native libraries for all of the following targets: `aarch64-apple-darwin`, `aarch64-unknown-linux-gnu`, `x86_64-unknown-linux-gnu`, `x86_64-pc-windows-msvc`
-* `vortex-jni-all` which is the "shadow JAR" containing all of `vortex-jni` as well as all upstream Java dependencies packaged in a single JAR.
-* `vortex-spark` which is the runtime JAR needed for the Vortex Spark bindings
+* `dev.vortex:vortex-jni` JAR containing the JNI code, plus compiled native libraries for all of the following targets: `aarch64-apple-darwin`, `aarch64-unknown-linux-gnu`, `x86_64-unknown-linux-gnu`, `x86_64-pc-windows-msvc`. The `all` classifier is the "shadow JAR", which also bundles the upstream Java dependencies and relocates Arrow, Guava, and Jackson.
+* `dev.vortex:vortex-spark-3.5_2.12`, `dev.vortex:vortex-spark-3.5_2.13`, and `dev.vortex:vortex-spark-4.0_2.13`, the Spark-versioned connector artifacts. Use the `all` classifier JAR, which bundles `vortex-jni`.
 
 We use the [following GPG key](https://keyserver.ubuntu.com/pks/lookup?search=8745D1A87C0B2159&fingerprint=on&op=index) for publishing:
 
@@ -35,4 +36,3 @@ vWBCujQBRqlcCGIIawcI
 ```
 
 The private key and passphrase for the publish key are owned by the Vortex Dev Team.
-

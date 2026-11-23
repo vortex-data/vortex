@@ -20,9 +20,11 @@ use vortex_array::arrays::runend::compress::runend_decode_primitive;
 use vortex_array::dtype::NativePType;
 use vortex_array::optimizer::kernels::KernelSession;
 use vortex_array::session::ArraySession;
+use vortex_array::test_harness::mark_optimized;
 use vortex_array::validity::Validity;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::Buffer;
+use vortex_error::VortexExpect;
 use vortex_session::VortexSession;
 
 #[global_allocator]
@@ -74,6 +76,9 @@ fn bench_decode<T: NativePType>(
         Validity::NonNullable
     };
     let values = PrimitiveArray::new(Buffer::from(values), validity);
+    mark_optimized(ends.as_array(), &SESSION).vortex_expect("optimize the benchmark input");
+    mark_optimized(values.as_array(), &SESSION).vortex_expect("optimize the benchmark input");
+
     bencher
         .with_inputs(|| (ends.clone(), values.clone(), SESSION.create_execution_ctx()))
         .bench_refs(|(ends, values, ctx)| {

@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator
 from typing import IO, TYPE_CHECKING, final
 
 import pyarrow as pa
@@ -14,7 +13,6 @@ from ._lib.dtype import DType
 from ._lib.expr import Expr
 from ._lib.file import Footer, SegmentCache
 from ._lib.iter import ArrayIterator
-from .arrays import array
 from .dataset import VortexDataset
 from .io import ReadAt, ReadBytesAt
 from .scan import RepeatedScan
@@ -98,7 +96,7 @@ def open(
 
 
 def open_readable(
-    reader: ReadBytesAt | ReadAt | IO[bytes],
+    reader: ReadBytesAt | ReadAt | IO[bytes] | pa.NativeFile,
     *,
     footer: Footer | None = None,
     concurrency: int | None = None,
@@ -114,19 +112,20 @@ def open_readable(
 
     Parameters
     ----------
-    reader : :class:`vortex.io.ReadBytesAt` | :class:`vortex.io.ReadAt` | binary file object
-        An object implementing :class:`vortex.io.ReadBytesAt` or :class:`vortex.io.ReadAt`, or a
-        binary file object with ``seek`` and ``readinto`` (or ``read``), such as
-        ``open(path, "rb")``, :class:`io.BytesIO` or an fsspec file. Vortex does not close it; keep
-        it open for as long as the returned file, or anything scanned from it, is in use.
+    reader : :class:`vortex.io.ReadBytesAt` | :class:`vortex.io.ReadAt` | pyarrow file | binary file object
+        An object implementing :class:`vortex.io.ReadBytesAt` or :class:`vortex.io.ReadAt`, a
+        pyarrow file such as one from :meth:`pyarrow.fs.FileSystem.open_input_file`, or a binary
+        file object with ``seek`` and ``readinto`` (or ``read``), such as ``open(path, "rb")``,
+        :class:`io.BytesIO` or an fsspec file. Vortex does not close it; keep it open for as long
+        as the returned file, or anything scanned from it, is in use.
     footer : :class:`vortex.file.Footer` | None
         The :attr:`VortexFile.footer` of an earlier open of the same file. Opening then does no IO,
         which saves the footer read when a file is opened again and again. Vortex checks only that
         the footer fits within the size of ``reader``, so the file must not have changed since.
     concurrency : :class:`int` | None
-        The most reads to have in flight at once through a :class:`vortex.io.ReadBytesAt` or
-        :class:`vortex.io.ReadAt`, 192 by default. Not accepted for a file object, whose reads are
-        serialized because each one has to ``seek`` first.
+        The most reads to have in flight at once through a :class:`vortex.io.ReadBytesAt`, a
+        :class:`vortex.io.ReadAt` or a pyarrow file, 192 by default. Not accepted for a binary file
+        object, whose reads are serialized because each one has to ``seek`` first.
     without_segment_cache : :class:`bool`
         If true, disable the segment cache for this file, useful when memory is constrained.
     segment_cache : :class:`vortex.SegmentCache` | None
@@ -152,6 +151,8 @@ def open_readable(
     ...     vxf = vx.open_readable(f, footer=footer)
     """
 
+    if isinstance(reader, pa.NativeFile):
+        reader = _NativeFileReader(reader)
     return VortexFile(
         _file.open_readable(
             reader,
@@ -162,6 +163,20 @@ def open_readable(
             cache_key=cache_key,
         )
     )
+
+
+@final
+class _NativeFileReader:
+    """A :class:`vortex.io.ReadBytesAt` over a pyarrow file, whose ``read_at`` takes ``(nbytes, offset)``."""
+
+    def __init__(self, file: pa.NativeFile) -> None:
+        self._file = file
+
+    def size(self) -> int:
+        return self._file.size()
+
+    def read_at(self, offset: int, length: int) -> bytes:
+        return self._file.read_at(length, offset)  # ty: ignore[too-many-positional-arguments]
 
 
 @final
@@ -198,6 +213,7 @@ class VortexFile:
         limit: int | None = None,
         indices: Array | None = None,
         batch_size: int | None = None,
+        concurrency: int | None = None,
     ) -> ArrayIterator:
         """Scan the Vortex file returning a :class:`vortex.ArrayIterator`.
 
@@ -213,6 +229,10 @@ class VortexFile:
             The indices of the rows to read. Must be sorted and non-null.
         batch_size : :class:`int` | None
             The number of rows to read per chunk.
+        concurrency : :class:`int` | None
+            The maximum number of splits fetched and decoded ahead of the consumer. By default, four
+            per worker thread. Lower it to bound the memory a scan holds; raise it to keep more
+            reads in flight against a high-latency store.
 
         Examples
         --------
@@ -279,7 +299,9 @@ class VortexFile:
             57
           ]
         """
-        return self._file.scan(projection, expr=expr, limit=limit, indices=indices, batch_size=batch_size)
+        return self._file.scan(
+            projection, expr=expr, limit=limit, indices=indices, batch_size=batch_size, concurrency=concurrency
+        )
 
     def to_repeated_scan(
         self,
@@ -289,6 +311,7 @@ class VortexFile:
         limit: int | None = None,
         indices: Array | None = None,
         batch_size: int | None = None,
+        concurrency: int | None = None,
     ) -> RepeatedScan:
         """Prepare a scan of the Vortex file for repeated reads, returning a :class:`vortex.RepeatedScan`.
 
@@ -302,9 +325,19 @@ class VortexFile:
             The indices of the rows to read. Must be sorted and non-null.
         batch_size : :class:`int` | None
             The number of rows to read per chunk.
+        concurrency : :class:`int` | None
+            The maximum number of splits each execution fetches and decodes ahead of the consumer.
+            By default, four per worker thread.
         """
         return RepeatedScan(
-            self._file.prepare(projection, expr=expr, limit=limit, indices=indices, batch_size=batch_size)
+            self._file.prepare(
+                projection,
+                expr=expr,
+                limit=limit,
+                indices=indices,
+                batch_size=batch_size,
+                concurrency=concurrency,
+            )
         )
 
     def to_arrow(
@@ -316,6 +349,7 @@ class VortexFile:
         indices: Array | None = None,
         batch_size: int | None = None,
         schema: pa.Schema | None = None,
+        concurrency: int | None = None,
     ) -> RecordBatchReader:
         """Scan the Vortex file as a :class:`pyarrow.RecordBatchReader`.
 
@@ -333,71 +367,66 @@ class VortexFile:
         schema : :class:`pyarrow.Schema` | None
             The Arrow schema to return. Use ``pyarrow.string()`` for ``StringArray`` fields.
             Use ``pyarrow.binary()`` for ``BinaryArray`` fields.
+        concurrency : :class:`int` | None
+            The maximum number of splits fetched and decoded ahead of the consumer. By default, four
+            per worker thread. Lower it to bound the memory a scan holds; raise it to keep more
+            reads in flight against a high-latency store.
 
+        Examples
+        --------
+
+        Read up to ten thousand long strings from every eighth row, with at most 32 splits in
+        flight:
+
+        >>> import pyarrow as pa
+        >>> import vortex as vx
+        >>> import vortex.expr as ve
+        >>> vx.io.write(pa.table({"text": ["x" * (i % 200) for i in range(1_000)]}), "text.vortex")
+        >>> file = vx.open("text.vortex")
+        >>> reader = file.to_arrow(
+        ...     ["text"],
+        ...     expr=ve.byte_length(ve.column("text")) >= ve.literal(vx.uint(64), 100),
+        ...     indices=vx.Array.from_range(range(3, len(file), 8)),
+        ...     limit=10_000,
+        ...     schema=pa.schema([("text", pa.large_string())]),
+        ...     concurrency=32,
+        ... )
+        >>> reader.read_all().num_rows
+        60
         """
         return self._file.to_arrow(
-            projection, expr=expr, limit=limit, indices=indices, batch_size=batch_size, schema=schema
+            projection,
+            expr=expr,
+            limit=limit,
+            indices=indices,
+            batch_size=batch_size,
+            schema=schema,
+            concurrency=concurrency,
         )
 
-    def to_dataset(self) -> VortexDataset:
-        """Scan the Vortex file using the :class:`pyarrow.dataset.Dataset` API."""
-        return VortexDataset(self._file.to_dataset())
+    def to_dataset(self, *, concurrency: int | None = None) -> VortexDataset:
+        """Scan the Vortex file using the :class:`pyarrow.dataset.Dataset` API.
 
-    def to_polars(self) -> polars.LazyFrame:
-        """Read the Vortex file as a pl.LazyFrame, supporting column pruning and predicate pushdown."""
-        import polars as pl
-        from polars.io.plugins import register_io_source
+        Parameters
+        ----------
+        concurrency : :class:`int` | None
+            The maximum number of splits each read of the dataset fetches and decodes ahead of the
+            consumer, unless the read sets its own. Query engines such as DuckDB and Polars read
+            the dataset without setting one, so this is how to tune their reads.
+        """
+        return VortexDataset(self._file.to_dataset(concurrency=concurrency))
 
-        from vortex.polars_ import decompose_predicate
+    def to_polars(self, *, concurrency: int | None = None) -> polars.LazyFrame:
+        """Read the Vortex file as a pl.LazyFrame, supporting column pruning and predicate pushdown.
 
-        schema = self.dtype.to_arrow_schema()
-        # Type-checks translated predicates against the file's dtype before scanning.
-        scope = array(schema.empty_table())
+        Parameters
+        ----------
+        concurrency : :class:`int` | None
+            The maximum number of splits fetched and decoded ahead of Polars.
+        """
+        from vortex.polars_ import lazy_frame
 
-        def _io_source(
-            with_columns: list[str] | None,
-            predicate: pl.Expr | None,
-            n_rows: int | None,
-            _batch_size: int | None,
-        ) -> Iterator[pl.DataFrame]:
-            # Push the convertible AND-conjuncts of the predicate into the Vortex scan and
-            # evaluate the residual conjuncts with Polars per batch. Polars will not
-            # re-apply a predicate it handed to the source, so both parts must be applied.
-            vx_predicate: Expr | None = None
-            pl_predicate: pl.Expr | None = None
-            if predicate is not None:
-                vx_predicate, pl_predicate = decompose_predicate(predicate, scope)
+        def read(columns: list[str] | None, predicate: Expr | None, limit: int | None) -> RecordBatchReader:
+            return self.to_arrow(projection=columns, expr=predicate, limit=limit, concurrency=concurrency)
 
-            # A row limit only commutes with the residual filter if there is none.
-            limit = n_rows if pl_predicate is None else None
-
-            reader = self.to_arrow(projection=with_columns, expr=vx_predicate, limit=limit)
-
-            remaining = n_rows
-            try:
-                for batch in reader:
-                    df = pl.DataFrame(batch)
-                    if pl_predicate is not None:
-                        df = df.filter(pl_predicate)
-                        if remaining is not None:
-                            df = df.head(remaining)
-                            remaining -= df.height
-                    # TODO(ngates): set sortedness on DataFrame based on stats?
-                    yield df
-                    if remaining == 0:
-                        break
-            except pa.ArrowException as e:
-                # Polars 1 wraps exceptions raised by an IO source in a ComputeError, but Polars 2
-                # re-raises them unchanged. Raise a ComputeError on both.
-                raise pl.exceptions.ComputeError(str(e)) from e
-
-            # Make sure we always yield at least one empty DataFrame
-            yield pl.DataFrame(
-                pa.RecordBatch.from_arrays(
-                    [pa.array([], type=field.type) for field in reader.schema],
-                    schema=reader.schema,
-                ),
-            )
-
-        # https://github.com/pola-rs/polars/pull/24125
-        return register_io_source(_io_source, schema=schema)  # ty: ignore[invalid-argument-type]
+        return lazy_frame(self.dtype.to_arrow_schema(), read)

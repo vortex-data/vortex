@@ -75,9 +75,9 @@ internals. Build and benchmark locally.
   and [editions](specs/versioning.md) for writing formats supported by older readers.
 
 - **Query engine integration**: Filter and projection pushdown through the Scan API, with native
-  integrations for DataFusion, DuckDB, Spark, Trino, and Ray.
+  integrations for DataFusion, DuckDB, Spark, and Ray.
 
-- **Language bindings**: First-class support for Python (PyO3), Java (JNI + Spark/Trino connectors),
+- **Language bindings**: First-class support for Python (PyO3), Java (JNI + Spark connector),
   and C/C++ (FFI).
 
 ```{toctree}

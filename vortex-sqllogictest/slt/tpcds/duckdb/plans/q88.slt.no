@@ -1863,7 +1863,7 @@ logical_opt [
                                                                                                         "extra_info": {
                                                                                                             "Join Type": "INNER",
                                                                                                             "Conditions": "(ss_sold_time_sk = t_time_sk)",
-                                                                                                            "Estimated Cardinality": "17763"
+                                                                                                            "Estimated Cardinality": "9619"
                                                                                                         }
                                                                                                     },
                                                                                                     {
@@ -1879,7 +1879,7 @@ logical_opt [
                                                                                                 "extra_info": {
                                                                                                     "Join Type": "INNER",
                                                                                                     "Conditions": "(ss_store_sk = s_store_sk)",
-                                                                                                    "Estimated Cardinality": "8881"
+                                                                                                    "Estimated Cardinality": "4809"
                                                                                                 }
                                                                                             }
                                                                                         ],
@@ -1932,7 +1932,7 @@ logical_opt [
                                                                                                         "extra_info": {
                                                                                                             "Join Type": "INNER",
                                                                                                             "Conditions": "(ss_sold_time_sk = t_time_sk)",
-                                                                                                            "Estimated Cardinality": "17763"
+                                                                                                            "Estimated Cardinality": "9619"
                                                                                                         }
                                                                                                     },
                                                                                                     {
@@ -1948,7 +1948,7 @@ logical_opt [
                                                                                                 "extra_info": {
                                                                                                     "Join Type": "INNER",
                                                                                                     "Conditions": "(ss_store_sk = s_store_sk)",
-                                                                                                    "Estimated Cardinality": "8881"
+                                                                                                    "Estimated Cardinality": "4809"
                                                                                                 }
                                                                                             }
                                                                                         ],
@@ -2007,7 +2007,7 @@ logical_opt [
                                                                                                 "extra_info": {
                                                                                                     "Join Type": "INNER",
                                                                                                     "Conditions": "(ss_sold_time_sk = t_time_sk)",
-                                                                                                    "Estimated Cardinality": "17763"
+                                                                                                    "Estimated Cardinality": "9619"
                                                                                                 }
                                                                                             },
                                                                                             {
@@ -2023,7 +2023,7 @@ logical_opt [
                                                                                         "extra_info": {
                                                                                             "Join Type": "INNER",
                                                                                             "Conditions": "(ss_store_sk = s_store_sk)",
-                                                                                            "Estimated Cardinality": "8881"
+                                                                                            "Estimated Cardinality": "4809"
                                                                                         }
                                                                                     }
                                                                                 ],
@@ -2082,7 +2082,7 @@ logical_opt [
                                                                                         "extra_info": {
                                                                                             "Join Type": "INNER",
                                                                                             "Conditions": "(ss_sold_time_sk = t_time_sk)",
-                                                                                            "Estimated Cardinality": "17763"
+                                                                                            "Estimated Cardinality": "9619"
                                                                                         }
                                                                                     },
                                                                                     {
@@ -2098,7 +2098,7 @@ logical_opt [
                                                                                 "extra_info": {
                                                                                     "Join Type": "INNER",
                                                                                     "Conditions": "(ss_store_sk = s_store_sk)",
-                                                                                    "Estimated Cardinality": "8881"
+                                                                                    "Estimated Cardinality": "4809"
                                                                                 }
                                                                             }
                                                                         ],
@@ -2157,7 +2157,7 @@ logical_opt [
                                                                                 "extra_info": {
                                                                                     "Join Type": "INNER",
                                                                                     "Conditions": "(ss_sold_time_sk = t_time_sk)",
-                                                                                    "Estimated Cardinality": "17763"
+                                                                                    "Estimated Cardinality": "9619"
                                                                                 }
                                                                             },
                                                                             {
@@ -2173,7 +2173,7 @@ logical_opt [
                                                                         "extra_info": {
                                                                             "Join Type": "INNER",
                                                                             "Conditions": "(ss_store_sk = s_store_sk)",
-                                                                            "Estimated Cardinality": "8881"
+                                                                            "Estimated Cardinality": "4809"
                                                                         }
                                                                     }
                                                                 ],
@@ -2232,7 +2232,7 @@ logical_opt [
                                                                         "extra_info": {
                                                                             "Join Type": "INNER",
                                                                             "Conditions": "(ss_sold_time_sk = t_time_sk)",
-                                                                            "Estimated Cardinality": "17763"
+                                                                            "Estimated Cardinality": "9619"
                                                                         }
                                                                     },
                                                                     {
@@ -2248,7 +2248,7 @@ logical_opt [
                                                                 "extra_info": {
                                                                     "Join Type": "INNER",
                                                                     "Conditions": "(ss_store_sk = s_store_sk)",
-                                                                    "Estimated Cardinality": "8881"
+                                                                    "Estimated Cardinality": "4809"
                                                                 }
                                                             }
                                                         ],
@@ -2307,7 +2307,7 @@ logical_opt [
                                                                 "extra_info": {
                                                                     "Join Type": "INNER",
                                                                     "Conditions": "(ss_sold_time_sk = t_time_sk)",
-                                                                    "Estimated Cardinality": "17763"
+                                                                    "Estimated Cardinality": "9619"
                                                                 }
                                                             },
                                                             {
@@ -2323,7 +2323,7 @@ logical_opt [
                                                         "extra_info": {
                                                             "Join Type": "INNER",
                                                             "Conditions": "(ss_store_sk = s_store_sk)",
-                                                            "Estimated Cardinality": "8881"
+                                                            "Estimated Cardinality": "4809"
                                                         }
                                                     }
                                                 ],
@@ -2382,7 +2382,7 @@ logical_opt [
                                                         "extra_info": {
                                                             "Join Type": "INNER",
                                                             "Conditions": "(ss_sold_time_sk = t_time_sk)",
-                                                            "Estimated Cardinality": "17763"
+                                                            "Estimated Cardinality": "9619"
                                                         }
                                                     },
                                                     {
@@ -2398,7 +2398,7 @@ logical_opt [
                                                 "extra_info": {
                                                     "Join Type": "INNER",
                                                     "Conditions": "(ss_store_sk = s_store_sk)",
-                                                    "Estimated Cardinality": "8881"
+                                                    "Estimated Cardinality": "4809"
                                                 }
                                             }
                                         ],
@@ -2543,7 +2543,7 @@ physical_plan [
                                                                                                 "extra_info": {
                                                                                                     "Join Type": "INNER",
                                                                                                     "Conditions": "ss_sold_time_sk = t_time_sk",
-                                                                                                    "Estimated Cardinality": "17763"
+                                                                                                    "Estimated Cardinality": "9619"
                                                                                                 }
                                                                                             },
                                                                                             {
@@ -2560,7 +2560,7 @@ physical_plan [
                                                                                         "extra_info": {
                                                                                             "Join Type": "INNER",
                                                                                             "Conditions": "ss_store_sk = s_store_sk",
-                                                                                            "Estimated Cardinality": "8881"
+                                                                                            "Estimated Cardinality": "4809"
                                                                                         }
                                                                                     }
                                                                                 ],
@@ -2604,7 +2604,7 @@ physical_plan [
                                                                                                 "extra_info": {
                                                                                                     "Join Type": "INNER",
                                                                                                     "Conditions": "ss_sold_time_sk = t_time_sk",
-                                                                                                    "Estimated Cardinality": "17763"
+                                                                                                    "Estimated Cardinality": "9619"
                                                                                                 }
                                                                                             },
                                                                                             {
@@ -2621,7 +2621,7 @@ physical_plan [
                                                                                         "extra_info": {
                                                                                             "Join Type": "INNER",
                                                                                             "Conditions": "ss_store_sk = s_store_sk",
-                                                                                            "Estimated Cardinality": "8881"
+                                                                                            "Estimated Cardinality": "4809"
                                                                                         }
                                                                                     }
                                                                                 ],
@@ -2668,7 +2668,7 @@ physical_plan [
                                                                                         "extra_info": {
                                                                                             "Join Type": "INNER",
                                                                                             "Conditions": "ss_sold_time_sk = t_time_sk",
-                                                                                            "Estimated Cardinality": "17763"
+                                                                                            "Estimated Cardinality": "9619"
                                                                                         }
                                                                                     },
                                                                                     {
@@ -2685,7 +2685,7 @@ physical_plan [
                                                                                 "extra_info": {
                                                                                     "Join Type": "INNER",
                                                                                     "Conditions": "ss_store_sk = s_store_sk",
-                                                                                    "Estimated Cardinality": "8881"
+                                                                                    "Estimated Cardinality": "4809"
                                                                                 }
                                                                             }
                                                                         ],
@@ -2732,7 +2732,7 @@ physical_plan [
                                                                                 "extra_info": {
                                                                                     "Join Type": "INNER",
                                                                                     "Conditions": "ss_sold_time_sk = t_time_sk",
-                                                                                    "Estimated Cardinality": "17763"
+                                                                                    "Estimated Cardinality": "9619"
                                                                                 }
                                                                             },
                                                                             {
@@ -2749,7 +2749,7 @@ physical_plan [
                                                                         "extra_info": {
                                                                             "Join Type": "INNER",
                                                                             "Conditions": "ss_store_sk = s_store_sk",
-                                                                            "Estimated Cardinality": "8881"
+                                                                            "Estimated Cardinality": "4809"
                                                                         }
                                                                     }
                                                                 ],
@@ -2796,7 +2796,7 @@ physical_plan [
                                                                         "extra_info": {
                                                                             "Join Type": "INNER",
                                                                             "Conditions": "ss_sold_time_sk = t_time_sk",
-                                                                            "Estimated Cardinality": "17763"
+                                                                            "Estimated Cardinality": "9619"
                                                                         }
                                                                     },
                                                                     {
@@ -2813,7 +2813,7 @@ physical_plan [
                                                                 "extra_info": {
                                                                     "Join Type": "INNER",
                                                                     "Conditions": "ss_store_sk = s_store_sk",
-                                                                    "Estimated Cardinality": "8881"
+                                                                    "Estimated Cardinality": "4809"
                                                                 }
                                                             }
                                                         ],
@@ -2860,7 +2860,7 @@ physical_plan [
                                                                 "extra_info": {
                                                                     "Join Type": "INNER",
                                                                     "Conditions": "ss_sold_time_sk = t_time_sk",
-                                                                    "Estimated Cardinality": "17763"
+                                                                    "Estimated Cardinality": "9619"
                                                                 }
                                                             },
                                                             {
@@ -2877,7 +2877,7 @@ physical_plan [
                                                         "extra_info": {
                                                             "Join Type": "INNER",
                                                             "Conditions": "ss_store_sk = s_store_sk",
-                                                            "Estimated Cardinality": "8881"
+                                                            "Estimated Cardinality": "4809"
                                                         }
                                                     }
                                                 ],
@@ -2924,7 +2924,7 @@ physical_plan [
                                                         "extra_info": {
                                                             "Join Type": "INNER",
                                                             "Conditions": "ss_sold_time_sk = t_time_sk",
-                                                            "Estimated Cardinality": "17763"
+                                                            "Estimated Cardinality": "9619"
                                                         }
                                                     },
                                                     {
@@ -2941,7 +2941,7 @@ physical_plan [
                                                 "extra_info": {
                                                     "Join Type": "INNER",
                                                     "Conditions": "ss_store_sk = s_store_sk",
-                                                    "Estimated Cardinality": "8881"
+                                                    "Estimated Cardinality": "4809"
                                                 }
                                             }
                                         ],
@@ -2988,7 +2988,7 @@ physical_plan [
                                                 "extra_info": {
                                                     "Join Type": "INNER",
                                                     "Conditions": "ss_sold_time_sk = t_time_sk",
-                                                    "Estimated Cardinality": "17763"
+                                                    "Estimated Cardinality": "9619"
                                                 }
                                             },
                                             {
@@ -3005,7 +3005,7 @@ physical_plan [
                                         "extra_info": {
                                             "Join Type": "INNER",
                                             "Conditions": "ss_store_sk = s_store_sk",
-                                            "Estimated Cardinality": "8881"
+                                            "Estimated Cardinality": "4809"
                                         }
                                     }
                                 ],
