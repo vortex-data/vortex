@@ -3,6 +3,8 @@
 
 """Render declarative benchmark coverage as GitHub Actions matrices."""
 
+from collections.abc import Collection, Mapping, Sequence
+
 from ..config import SCAN_COMBINATIONS, Benchmark, BenchmarkTarget, Engine, Format, Integration, ScanEngine, SizeFormat
 from .model import BenchmarkCase, Catalog, Coverage, ScanCoverage, Storage
 from .targets import TargetSet
@@ -130,8 +132,16 @@ def _matrix_entry(
     return entry
 
 
-def render_matrix(preset: str, catalog: Catalog) -> list[dict[str, object]]:
-    """Render one named catalog preset as GitHub Actions matrix entries."""
+def render_matrix(
+    preset: str, catalog: Catalog, only: Mapping[str, Sequence[int]] | Collection[str] | None = None
+) -> list[dict[str, object]]:
+    """Render one named catalog preset as GitHub Actions matrix entries.
+
+    When ``only`` is non-empty, keep just the entries it names, at the preset's coverage. A
+    benchmark ID selects every entry of that benchmark (its `group`); an entry ID selects one scan.
+    A mapping also gives each ID the queries to run, where an empty sequence means all of them;
+    a selected entry with queries carries them as `queries`, for `vx-bench run --queries`.
+    """
     if preset not in catalog.presets:
         known = ", ".join(catalog.presets)
         raise ValueError(f"Unknown matrix preset {preset!r}. Available: {known}")
@@ -147,4 +157,23 @@ def render_matrix(preset: str, catalog: Catalog) -> list[dict[str, object]]:
     duplicates = sorted({entry_id for entry_id in ids if ids.count(entry_id) > 1})
     if duplicates:
         raise ValueError(f"Preset {preset!r} renders duplicate matrix entry IDs: {duplicates}")
-    return entries
+    if not only:
+        return entries
+
+    available = list(dict.fromkeys(str(key) for entry in entries for key in (entry["group"], entry["id"])))
+    unknown = [benchmark_id for benchmark_id in only if benchmark_id not in available]
+    if unknown:
+        raise ValueError(
+            f"Benchmark IDs not in matrix preset {preset!r}: {', '.join(unknown)}. Available: {', '.join(available)}"
+        )
+    queries = only if isinstance(only, Mapping) else {}
+    selected = []
+    for entry in entries:
+        if entry["group"] not in only and entry["id"] not in only:
+            continue
+        # An entry's own ID is more specific than its benchmark's.
+        entry_queries = queries.get(str(entry["id"] if entry["id"] in only else entry["group"]), ())
+        if entry_queries:
+            entry = {**entry, "queries": ",".join(str(query) for query in entry_queries)}
+        selected.append(entry)
+    return selected

@@ -19,12 +19,6 @@ name: Fuzzer Issue Autofix
 # after a maintainer adds the label. To fix such an issue, a maintainer files a
 # new issue with the crash details.
 
-concurrency:
-  # Keyed on the issue so repeat triggers for the same issue collapse into a
-  # single in-flight fix attempt.
-  group: fuzzer-fix-${{ github.event.issue.number }}
-  cancel-in-progress: true
-
 on:
   issues:
     types: [labeled]
@@ -118,13 +112,21 @@ jobs:
     name: "Autofix Fuzzer Issue"
     needs: gate
     if: needs.gate.outputs.should_run == 'true'
+    # Keyed on the issue so repeat fuzzer-label triggers for the same issue
+    # collapse into a single fix attempt. This sits on the job, not the
+    # workflow, because every label event starts a run: at workflow level, a
+    # second label added during a fix would cancel the fix and then skip.
+    concurrency:
+      group: fuzzer-fix-${{ github.event.issue.number }}
+      cancel-in-progress: true
     permissions:
-      # actions: read is required so the reusable workflow can download the
-      # crash artifact via `gh run download`.
+      # The reusable workflow downloads the crash artifact (actions: read) and
+      # comments on the issue with GITHUB_TOKEN. It pushes the fix branch and
+      # opens the pull request with a GitHub App token, not with GITHUB_TOKEN.
       actions: read
-      contents: write
+      contents: read
       issues: write
-      pull-requests: write
+      pull-requests: read
       id-token: write
     uses: ./.github/workflows/fuzzer-fix-automation.yml
     with:

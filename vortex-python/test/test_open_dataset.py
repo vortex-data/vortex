@@ -92,6 +92,9 @@ def test_rows_are_counted_across_files(root: Path):
     # Row 8 is in the first file and row 27 in the last.
     indices = pa.array([1, 8, 12, 24, 27], type=pa.uint64())
     assert ds.take(indices) == everything.take(indices)
+    for invalid in ([8, 30], [30], [30, 8]):
+        with pytest.raises(IndexError):
+            ds.take(pa.array(invalid, type=pa.uint64()))
     assert ds.head(12) == everything.slice(0, 12)
     assert ds.head(0) == everything.slice(0, 0)
     assert ds.count_rows(filter=pc.field("x") >= 5) == 25
