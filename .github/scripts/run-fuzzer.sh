@@ -36,6 +36,12 @@ stop_checkpoint_loop() {
 }
 trap stop_checkpoint_loop EXIT
 
+# 0 means one worker for each core of the runner.
+if [ "$FUZZ_JOBS" -le 0 ]; then
+  FUZZ_JOBS=$(nproc)
+fi
+echo "Fuzzing $FUZZ_NAME with $FUZZ_JOBS workers"
+
 # Fork mode replays the saved corpus to establish coverage, then replaces failed
 # workers without ending exploration. Artifacts still fail the job after the budget.
 FORK_FLAGS=("-fork=$FUZZ_JOBS" -ignore_crashes=1 -ignore_timeouts=1 -ignore_ooms=1)

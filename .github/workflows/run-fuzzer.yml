@@ -33,7 +33,7 @@ on:
         type: string
         default: ""
       jobs:
-        description: "Number of parallel fuzzing jobs (libfuzzer -fork=N)."
+        description: "Number of parallel fuzzing jobs (libfuzzer -fork=N). 0 uses every core."
         required: false
         type: number
         default: 1

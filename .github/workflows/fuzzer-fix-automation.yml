@@ -52,7 +52,7 @@ jobs:
     environment:
       # The GitHub App private key lives only in this environment, so only this
       # job can mint an App installation token. Using the App token (not
-      # GITHUB_TOKEN) means the draft PR opened below triggers normal CI.
+      # GITHUB_TOKEN) means the PR opened below triggers normal CI.
       name: claude-automation
       deployment: false
 
@@ -448,7 +448,7 @@ jobs:
             reviews. Only the skill writes `review.json`.
 
             A later step commits every file that you changed or created in the checkout and
-            opens a draft pull request, but only if the last verdict in `review.json` is
+            opens a pull request, but only if the last verdict in `review.json` is
             `approve` and no file in the checkout changed after it. So make no changes after
             the last review, and keep scratch files under `${{ env.WORK_DIR }}`. You cannot
             commit, push or open a pull request yourself.
@@ -662,7 +662,7 @@ jobs:
         id: commit
         if: ${{ !cancelled() && steps.push-token.outputs.token != '' }}
         env:
-          # The App token, not GITHUB_TOKEN, so the branch and its draft pull
+          # The App token, not GITHUB_TOKEN, so the branch and its pull
           # request trigger normal CI.
           GH_TOKEN: ${{ steps.push-token.outputs.token }}
           REPO: ${{ github.repository }}
@@ -689,9 +689,11 @@ jobs:
 
           echo "branch=$branch" >> "$GITHUB_OUTPUT"
 
-      - name: Open draft pull request for fix branch
-        # The App token ensures the PR triggers normal CI; a draft keeps the
-        # fuzzer firehose low-noise until a maintainer marks it ready.
+      # The App token ensures the PR triggers normal CI. The PR opens ready for
+      # review, not as a draft: only fixes that passed the review skill get here,
+      # and a draft fix PR got no review (a maintainer rewrote #8302's fix in
+      # #8326 the next day).
+      - name: Open pull request for fix branch
         if: ${{ !cancelled() && steps.commit.outputs.branch != '' }}
         env:
           GH_TOKEN: ${{ steps.push-token.outputs.token }}
@@ -726,7 +728,7 @@ jobs:
           # workflow re-runs the crash and closes the issue only once it no longer
           # reproduces, so merging this PR should not close the issue on its own.
           {
-            echo "Automated draft fix for fuzzer issue #$ISSUE_NUMBER."
+            echo "Automated fix for fuzzer issue #$ISSUE_NUMBER."
             echo
             echo "- **Target**: \`$TARGET\`"
             echo "- **Crash file**: \`$CRASH_FILE\`"
@@ -741,7 +743,7 @@ jobs:
             echo
             jq -r "$FINDINGS_JQ" "$REVIEW_FILE"
             echo
-            echo "This is a **draft**: please review carefully before marking it ready. The"
+            echo "Review it as you would any other pull request; it is not merged automatically. The"
             echo "linked issue is closed automatically by the nightly retest workflow once"
             echo "the crash no longer reproduces, so this PR does not close it on merge."
             echo
@@ -757,7 +759,6 @@ jobs:
           pr_url="$(
             gh pr create \
               --repo "$REPO" \
-              --draft \
               --base "$BASE_BRANCH" \
               --head "$BRANCH_NAME" \
               --title "$pr_title" \
@@ -765,7 +766,7 @@ jobs:
               --label "fuzzer-fix" \
               --label "changelog/fix"
           )"
-          echo "Created draft pull request: $pr_url"
+          echo "Created pull request: $pr_url"
 
           gh issue comment "$ISSUE_NUMBER" --repo "$REPO" \
-            --body "🔀 Opened a draft pull request with the reviewed fix: $pr_url"
+            --body "🔀 Opened a pull request with the reviewed fix: $pr_url"
