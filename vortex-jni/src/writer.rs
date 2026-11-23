@@ -21,6 +21,8 @@ use arrow_schema::Schema;
 use arrow_schema::SchemaRef;
 use async_fs::File;
 use futures::SinkExt;
+use futures::Stream;
+use futures::StreamExt;
 use futures::channel::mpsc;
 use jni::Env;
 use jni::EnvUnowned;
@@ -31,6 +33,7 @@ use jni::objects::JValue;
 use jni::sys::JNI_FALSE;
 use jni::sys::JNI_TRUE;
 use jni::sys::jboolean;
+use jni::sys::jdouble;
 use jni::sys::jlong;
 use jni::sys::jobject;
 use object_store::ObjectStore;
@@ -48,6 +51,7 @@ use vortex::file::CountingVortexWrite;
 use vortex::file::DeferredMetadata;
 use vortex::file::VortexWriteOptions;
 use vortex::file::WriteOptionsSessionExt;
+use vortex::file::WriteSizeEstimator;
 use vortex::file::WriteStrategyBuilder;
 use vortex::file::WriteSummary;
 use vortex::file::multi::parse_uri_or_path;
@@ -57,7 +61,7 @@ use vortex::io::object_store::ObjectStoreWrite;
 use vortex::io::runtime::BlockingRuntime;
 use vortex::io::runtime::Task;
 use vortex::io::session::RuntimeSessionExt;
-use vortex::layout::BufferedBytesTracker;
+use vortex::layout::BufferedBytesReservation;
 use vortex::session::VortexSession;
 use vortex::utils::aliases::hash_map::HashMap;
 use vortex_arrow::ArrowSessionExt;
@@ -101,6 +105,27 @@ fn resolve_store(
     }
 }
 
+/// A batch in the in-flight write queue, with the reservation that counts it as uncompressed.
+type QueuedBatch = (VortexResult<ArrayRef>, BufferedBytesReservation);
+
+/// Creates the in-flight write queue and the array stream that the write task reads from it.
+///
+/// The write task drops the reservation of a batch when it takes the batch from the queue. From
+/// then on, the layout strategies count the batch.
+fn write_queue(
+    write_schema: DType,
+) -> (
+    mpsc::Sender<QueuedBatch>,
+    ArrayStreamAdapter<impl Stream<Item = VortexResult<ArrayRef>>>,
+) {
+    let (tx, rx) = mpsc::channel::<QueuedBatch>(WRITE_CHANNEL_CAPACITY);
+    let rx = rx.map(|(batch, reservation)| {
+        drop(reservation);
+        batch
+    });
+    (tx, ArrayStreamAdapter::new(write_schema, rx))
+}
+
 /// Write options for `session`: its defaults, or the compact strategy, which trades read throughput
 /// for file size as Python's `VortexWriteOptions.compact()` does.
 fn session_write_options(session: &VortexSession, compact: bool) -> VortexWriteOptions {
@@ -123,9 +148,9 @@ pub struct NativeWriter {
     arrow_schema: SchemaRef,
     write_schema: DType,
     bytes_written: Arc<AtomicU64>,
-    buffered_bytes: BufferedBytesTracker,
+    size: WriteSizeEstimator,
     deferred_metadata: DeferredMetadata,
-    sender: mpsc::Sender<VortexResult<ArrayRef>>,
+    sender: mpsc::Sender<QueuedBatch>,
 }
 
 impl NativeWriter {
@@ -137,10 +162,9 @@ impl NativeWriter {
         write_options: VortexWriteOptions,
         write: W,
     ) -> Self {
-        let (sender, rx) = mpsc::channel(WRITE_CHANNEL_CAPACITY);
-        let stream = ArrayStreamAdapter::new(write_schema.clone(), rx);
+        let (sender, stream) = write_queue(write_schema.clone());
 
-        let buffered_bytes = write_options.buffered_bytes_tracker();
+        let size = write_options.size_estimator();
         let deferred_metadata = write_options.deferred_metadata();
 
         let mut write = CountingVortexWrite::new(write);
@@ -157,7 +181,7 @@ impl NativeWriter {
             arrow_schema,
             write_schema,
             bytes_written,
-            buffered_bytes,
+            size,
             deferred_metadata,
             sender,
         }
@@ -190,9 +214,10 @@ impl NativeWriter {
                 vortex_batch.dtype()
             ));
         }
+        let reservation = self.size.reserve_uncompressed(vortex_batch.nbytes());
         let mut sender = self.sender.clone();
         RUNTIME
-            .block_on(async move { sender.send(Ok(vortex_batch)).await })
+            .block_on(async move { sender.send((Ok(vortex_batch), reservation)).await })
             .map_err(|e| vortex_err!("failed to send batch: {e}"))
     }
 
@@ -201,7 +226,15 @@ impl NativeWriter {
     }
 
     fn buffered_bytes(&self) -> u64 {
-        self.buffered_bytes.buffered_bytes()
+        self.size.buffered_bytes()
+    }
+
+    fn estimated_size(&self) -> u64 {
+        self.size.estimated_size(self.bytes_written())
+    }
+
+    fn compression_ratio(&self) -> f64 {
+        self.size.compression_ratio()
     }
 
     /// Close the input and wait for the write task. The task adds `metadata` to the footer.
@@ -542,6 +575,36 @@ pub extern "system" fn Java_dev_vortex_jni_NativeWriter_bufferedBytes(
         let writer = unsafe { NativeWriter::from_ptr(writer_ptr) };
         Ok(checked_jlong(writer.buffered_bytes(), "buffered bytes")?)
     })
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_vortex_jni_NativeWriter_estimatedSize(
+    mut env: EnvUnowned,
+    _class: JClass,
+    writer_ptr: jlong,
+) -> jlong {
+    if writer_ptr <= 0 {
+        return -1;
+    }
+
+    try_or_throw(&mut env, |_env| {
+        let writer = unsafe { NativeWriter::from_ptr(writer_ptr) };
+        Ok(checked_jlong(writer.estimated_size(), "estimated size")?)
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_vortex_jni_NativeWriter_compressionRatio(
+    _env: EnvUnowned,
+    _class: JClass,
+    writer_ptr: jlong,
+) -> jdouble {
+    if writer_ptr <= 0 {
+        return -1.0;
+    }
+
+    let writer = unsafe { NativeWriter::from_ptr(writer_ptr) };
+    writer.compression_ratio()
 }
 
 /// Finish the writer and return its summary.

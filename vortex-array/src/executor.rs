@@ -520,10 +520,7 @@ impl ExecutionCtx {
     }
 
     /// Try to rewrite `array` using a registered execute-parent kernel on one of its children.
-    pub(crate) fn try_execute_parent(
-        &mut self,
-        array: &ArrayRef,
-    ) -> VortexResult<Option<ArrayRef>> {
+    pub fn try_execute_parent(&mut self, array: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
         let kernels = Arc::clone(&self.kernels.execute_parent);
         try_execute_parent(array, kernels.as_ref(), self)
     }

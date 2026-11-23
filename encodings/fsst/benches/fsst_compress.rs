@@ -27,7 +27,7 @@ use vortex_array::dtype::Nullability;
 use vortex_array::memory::MemorySession;
 use vortex_array::optimizer::kernels::KernelSession;
 use vortex_array::scalar::Scalar;
-use vortex_array::scalar_fn::fns::operators::Operator;
+use vortex_array::scalar_fn::builtin::operators::Operator;
 use vortex_array::session::ArraySession;
 use vortex_array::test_harness::mark_optimized;
 use vortex_fsst::fsst_compress;

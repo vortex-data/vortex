@@ -43,12 +43,12 @@ use vortex_array::arrays::varbin::VarBinArraySlotsExt;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::PType;
 use vortex_array::dtype::extension::ExtDTypeRef;
-use vortex_array::expr::ext_storage;
 use vortex_array::expr::root;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
+use vortex_functions::expr::ext_storage;
 use vortex_session::registry::Id;
 
 use crate::ArrowExport;
@@ -613,13 +613,13 @@ mod tests {
     use vortex_array::arrays::VarBinViewArray;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
-    use vortex_array::expr::ext_storage;
     use vortex_array::expr::root;
     use vortex_array::extension::datetime::TimeUnit as VortexTimeUnit;
     use vortex_array::extension::datetime::Timestamp;
     use vortex_array::scalar::Scalar;
     use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
+    use vortex_functions::expr::ext_storage;
     use vortex_session::VortexSession;
 
     use crate::ExecuteArrowExt;

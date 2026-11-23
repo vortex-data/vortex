@@ -9,7 +9,6 @@ mod mask;
 pub(crate) mod rules;
 mod slice;
 mod take;
-mod zip;
 
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;

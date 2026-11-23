@@ -49,7 +49,7 @@ use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::error::vortex_err;
 use vortex::scalar_fn::ScalarFnVTable;
-use vortex::scalar_fn::fns::cast::Cast;
+use vortex::scalar_fn::builtin::cast::Cast;
 use vortex::session::VortexSession;
 
 use super::CudaDispatchPlan;
