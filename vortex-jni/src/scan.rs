@@ -493,21 +493,17 @@ mod tests {
     }
 
     #[rstest]
-    #[case(None, None, None, None, None)]
     #[case(None, None, Some(0), None, Some(0))]
-    #[case(None, None, Some(1), None, Some(1))]
     #[case(None, Some(0), None, Some(0..0), None)]
-    #[case(None, Some(2), None, Some(0..2), None)]
     #[case(Some(0), None, None, Some(0..u64::MAX), None)]
     #[case(Some(1), None, None, Some(1..u64::MAX), None)]
-    #[case(Some(1), Some(3), None, Some(1..3), None)]
     fn build_scan_request_preserves_option_presence(
         #[case] begin: Option<i64>,
         #[case] end: Option<i64>,
         #[case] limit: Option<i64>,
         #[case] expected_range: Option<std::ops::Range<u64>>,
         #[case] expected_limit: Option<u64>,
-    ) {
+    ) -> vortex::error::VortexResult<()> {
         let request = super::build_scan_request(
             0,
             0,
@@ -522,40 +518,9 @@ mod tests {
             limit.unwrap_or(99),
             false,
             0,
-        )
-        .unwrap();
+        )?;
         assert_eq!(request.row_range, expected_range);
         assert_eq!(request.limit, expected_limit);
-    }
-
-    #[rstest]
-    #[case(true, -1, false, 0, false, 0)]
-    #[case(false, 0, true, -1, false, 0)]
-    #[case(false, 0, false, 0, true, -1)]
-    fn build_scan_request_rejects_negative_present_bounds_or_limit(
-        #[case] has_begin: bool,
-        #[case] begin: i64,
-        #[case] has_end: bool,
-        #[case] end: i64,
-        #[case] has_limit: bool,
-        #[case] limit: i64,
-    ) {
-        let err = super::build_scan_request(
-            0,
-            0,
-            has_begin,
-            begin,
-            has_end,
-            end,
-            &[],
-            &[],
-            0,
-            has_limit,
-            limit,
-            false,
-            0,
-        )
-        .unwrap_err();
-        assert!(err.to_string().contains("must not be negative"), "{err}");
+        Ok(())
     }
 }

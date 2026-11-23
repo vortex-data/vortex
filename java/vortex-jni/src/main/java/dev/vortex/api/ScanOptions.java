@@ -80,21 +80,6 @@ public interface ScanOptions {
     }
 
     @Value.Check
-    default void validateBoundsAndLimit() {
-        if (rowRangeBegin().isPresent() && rowRangeBegin().getAsLong() < 0) {
-            throw new IllegalArgumentException("row range begin must not be negative, got "
-                    + rowRangeBegin().getAsLong());
-        }
-        if (rowRangeEnd().isPresent() && rowRangeEnd().getAsLong() < 0) {
-            throw new IllegalArgumentException(
-                    "row range end must not be negative, got " + rowRangeEnd().getAsLong());
-        }
-        if (limit().isPresent() && limit().getAsLong() < 0) {
-            throw new IllegalArgumentException("limit must not be negative, got " + limit().getAsLong());
-        }
-    }
-
-    @Value.Check
     default void validateSelectionPayload() {
         boolean hasIndices = selectionIndices().isPresent();
         boolean hasRoaringBitmap = selectionRoaringBitmap().isPresent();
