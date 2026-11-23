@@ -127,5 +127,55 @@ for (const [name, renderView, toggleSelector] of [
         process.off('unhandledRejection', onUnhandled);
       }
     });
+
+    test('retries on the next expansion when collapsed before a pending read rejects', async () => {
+      let calls = 0;
+      let rejectFirst!: (err: Error) => void;
+      let unhandled = 0;
+      const onUnhandled = () => {
+        unhandled++;
+      };
+      process.on('unhandledRejection', onUnhandled);
+      try {
+        const file = makeFlatFile(() => {
+          calls++;
+          if (calls === 1) {
+            return new Promise<void>((_, reject) => {
+              rejectFirst = reject;
+            });
+          }
+          return Promise.resolve();
+        });
+
+        const container = await mountView(renderView(), file);
+        expect(calls).toBe(1);
+
+        const toggle = () =>
+          act(async () => {
+            const btn = container.querySelector(toggleSelector);
+            expect(btn).not.toBeNull();
+            btn!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+          });
+
+        // Collapse while pending, then re-expand while still pending: must stay at one request.
+        await toggle();
+        await toggle();
+        expect(calls).toBe(1);
+
+        // Collapse while still pending, let the request reject, then expand once: must start a second read.
+        await toggle();
+        rejectFirst(new Error('temporary'));
+        await flushMicrotasks();
+        expect(calls).toBe(1);
+        expect(unhandled).toBe(0);
+
+        await toggle();
+        await flushMicrotasks();
+        expect(calls).toBe(2);
+        expect(unhandled).toBe(0);
+      } finally {
+        process.off('unhandledRejection', onUnhandled);
+      }
+    });
   });
 }
