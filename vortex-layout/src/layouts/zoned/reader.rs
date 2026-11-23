@@ -158,7 +158,7 @@ impl LayoutReader for ZonedReader {
             .data_child()?
             .pruning_evaluation(row_range, expr, mask.clone())?;
 
-        let Some(pruning_mask_future) = self.pruning.pruning_mask_future(expr.clone()) else {
+        let Some(pruning_mask_future) = self.pruning.pruning_mask_future(expr) else {
             trace!("Stats pruning evaluation: not prune-able {expr}");
             return Ok(data_eval);
         };

@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::ops::BitAnd;
+use std::ops::Deref;
 use std::ops::Range;
 use std::sync::Arc;
 use std::sync::OnceLock;
@@ -16,7 +17,6 @@ use vortex_array::dtype::Nullability;
 use vortex_array::dtype::RESERVED_VALIDITY_FIELD_NAME;
 use vortex_array::dtype::StructFields;
 use vortex_array::expr::BoundExpression;
-use vortex_array::expr::ExactBoundExpr;
 use vortex_array::expr::bound::get_item;
 use vortex_array::expr::bound::is_not_null;
 use vortex_array::expr::bound::mask;
@@ -40,7 +40,6 @@ use vortex_expr::make_bound_free_field_annotator;
 use vortex_expr::transform::partition_bound;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
-use vortex_utils::aliases::dash_map::DashMap;
 use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::ArrayFuture;
@@ -50,6 +49,7 @@ use crate::LayoutReaderRef;
 use crate::LazyReaderChildren;
 use crate::RowSplits;
 use crate::SplitRange;
+use crate::expr_cache::WeakExprCache;
 use crate::layouts::partitioned::PartitionedEval;
 use crate::layouts::struct_::StructLayout;
 use crate::segments::SegmentSource;
@@ -90,7 +90,7 @@ pub struct StructReader {
     expanded_root_expr: BoundExpression,
 
     field_lookup: Option<HashMap<FieldName, usize>>,
-    partitioned_expr_cache: DashMap<ExactBoundExpr, Arc<OnceLock<Partitioned>>>,
+    partitioned_expr_cache: WeakExprCache<Arc<OnceLock<Partitioned>>>,
 }
 
 impl StructReader {
@@ -146,7 +146,7 @@ impl StructReader {
             expanded_root_expr,
             lazy_children,
             field_lookup,
-            partitioned_expr_cache: DashMap::with_hasher_and_shard_amount(Default::default(), 8),
+            partitioned_expr_cache: WeakExprCache::with_shard_amount(8),
         })
     }
 
@@ -194,30 +194,22 @@ impl StructReader {
     }
 
     /// Utility for partitioning an expression over the fields of a struct.
-    fn partition_expr(&self, expr: &BoundExpression) -> VortexResult<Partitioned> {
-        let key = ExactBoundExpr(expr.clone());
-
-        // Look up the cell under a shared shard lock; only a miss takes the write lock, and
-        // only for as long as it takes to insert an empty cell.
-        let cell = match self.partitioned_expr_cache.get(&key) {
-            Some(entry) => Arc::clone(entry.value()),
-            None => Arc::clone(
-                self.partitioned_expr_cache
-                    .entry(key)
-                    .or_insert_with(|| Arc::new(OnceLock::new()))
-                    .value(),
-            ),
-        };
+    fn partition_expr(&self, expr: &BoundExpression) -> VortexResult<CachedPartitioned> {
+        // Look up the cell under a shared shard lock; only a miss takes a write lock to insert an
+        // empty cell (and periodically sweeps dead keys).
+        let cell = self
+            .partitioned_expr_cache
+            .get_or_insert_with(expr, || Arc::new(OnceLock::new()));
         // All map guards are dropped here, so partitioning runs outside any shard lock.
         // Concurrent misses may compute redundantly; `get_or_init` keeps a single winner.
 
-        if let Some(value) = cell.get() {
-            return Ok(value.clone());
+        if cell.get().is_none() {
+            // Cache the bound trees themselves: rebinding would create fresh child identity and
+            // defeat downstream identity-keyed caches on every split.
+            let result = self.compute_partitioned_expr(expr)?;
+            cell.get_or_init(|| result);
         }
-        // Cache the bound trees themselves: rebinding would create fresh child identity and defeat
-        // downstream `ExactBoundExpr` caches on every split.
-        let result = self.compute_partitioned_expr(expr)?;
-        Ok(cell.get_or_init(|| result).clone())
+        Ok(CachedPartitioned(cell))
     }
 
     fn compute_partitioned_expr(&self, expr: &BoundExpression) -> VortexResult<Partitioned> {
@@ -256,6 +248,9 @@ impl StructReader {
             .try_collect::<_, Vec<_>, _>()?
             .into_boxed_slice();
         partitioned.replace_partitions(partitions)?;
+        if partitioned.partitions.is_empty() {
+            partitioned.root = partitioned.root.detach_identity();
+        }
 
         Ok(Partitioned::Multi(Arc::new(PartitionedEval::new(
             partitioned,
@@ -437,6 +432,19 @@ enum Partitioned {
     Multi(Arc<PartitionedEval<Item>>),
 }
 
+/// A cached partitioning, borrowed from the cache rather than cloned for every split.
+struct CachedPartitioned(Arc<OnceLock<Partitioned>>);
+
+impl Deref for CachedPartitioned {
+    type Target = Partitioned;
+
+    fn deref(&self) -> &Partitioned {
+        self.0
+            .get()
+            .vortex_expect("partition_expr initializes the cell")
+    }
+}
+
 impl LayoutReader for StructReader {
     fn name(&self) -> &Arc<str> {
         &self.name
@@ -551,7 +559,7 @@ impl LayoutReader for StructReader {
         mask: Mask,
     ) -> VortexResult<MaskFuture> {
         // Partition the expression into expressions that can be evaluated over individual fields
-        match &self.partition_expr(expr)? {
+        match &*self.partition_expr(expr)? {
             Partitioned::Single(name, partition) => {
                 let reader = self.field_reader(name)?;
                 reader
@@ -593,7 +601,7 @@ impl LayoutReader for StructReader {
         mask: MaskFuture,
     ) -> VortexResult<MaskFuture> {
         // Partition the expression into expressions that can be evaluated over individual fields
-        match &self.partition_expr(expr)? {
+        match &*self.partition_expr(expr)? {
             Partitioned::Single(name, partition) => {
                 let reader = self.field_reader(name)?;
                 reader
@@ -634,7 +642,7 @@ impl LayoutReader for StructReader {
         mask_fut: MaskFuture,
     ) -> VortexResult<ArrayFuture> {
         // Partition the expression into expressions that can be evaluated over individual fields
-        match &self.partition_expr(expr)? {
+        match &*self.partition_expr(expr)? {
             Partitioned::Single(name, partition) => {
                 let reader = self.field_reader(name)?;
                 reader
@@ -667,6 +675,7 @@ impl LayoutReader for StructReader {
 mod tests {
     use std::num::NonZeroUsize;
     use std::sync::Arc;
+    use std::sync::OnceLock;
 
     use rstest::fixture;
     use rstest::rstest;
@@ -710,17 +719,21 @@ mod tests {
     use vortex_array::scalar::Scalar;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
+    use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
     use vortex_io::runtime::single::block_on;
     use vortex_io::session::RuntimeSessionExt;
     use vortex_mask::Mask;
     use vortex_session::registry::ReadContext;
 
+    use super::Partitioned;
+    use super::StructReader;
     use crate::BoundaryMode;
     use crate::LayoutReaderRef;
     use crate::LayoutRef;
     use crate::LayoutStrategy;
     use crate::children::OwnedLayoutChildren;
+    use crate::expr_cache::WeakExprCache;
     use crate::layouts::chunked::ChunkedLayout;
     use crate::layouts::chunked::writer::ChunkedLayoutStrategy;
     use crate::layouts::flat::FlatLayout;
@@ -1594,6 +1607,36 @@ mod tests {
         let field = result.unmasked_field_by_name("x")?;
         let expected = PrimitiveArray::from_iter([1i32, 1, 1]);
         assert_arrays_eq!(field, expected, &mut ctx);
+        Ok(())
+    }
+
+    #[rstest]
+    fn test_constant_projection_evicts_from_partition_cache(
+        #[from(null_struct_layout)] (segments, layout): (Arc<dyn SegmentSource>, LayoutRef),
+    ) -> VortexResult<()> {
+        let reader = layout.new_reader("".into(), segments, &SESSION, &Default::default())?;
+        let struct_reader = reader
+            .as_any()
+            .downcast_ref::<StructReader>()
+            .vortex_expect("root reader is StructReader");
+
+        let live = pack([("x", lit(1))], false.into()).bind(reader.dtype())?;
+        drop(struct_reader.partition_expr(&live)?);
+
+        for _ in 0..(WeakExprCache::<Arc<OnceLock<Partitioned>>>::EVICT_INTERVAL - 1) {
+            let dead = pack([("x", lit(2))], false.into()).bind(reader.dtype())?;
+            drop(struct_reader.partition_expr(&dead)?);
+        }
+
+        // The sweep evicted all earlier dead constant projections while keeping `live` and the
+        // final triggering entry.
+        assert_eq!(struct_reader.partitioned_expr_cache.len(), 2);
+        assert!(
+            struct_reader
+                .partitioned_expr_cache
+                .get_cloned(&live)
+                .is_some()
+        );
         Ok(())
     }
 
