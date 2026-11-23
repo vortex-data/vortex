@@ -10,7 +10,6 @@ use datafusion_physical_expr::DynamicFilterTracking;
 use datafusion_physical_expr::PhysicalExpr;
 use datafusion_physical_expr::expressions::BinaryExpr;
 use datafusion_physical_expr::split_conjunction;
-use datafusion_physical_expr::utils::collect_columns;
 use datafusion_physical_expr_common::physical_expr::snapshot_generation;
 use datafusion_physical_expr_common::physical_expr::snapshot_physical_expr;
 use vortex::dtype::DType;
@@ -66,17 +65,17 @@ pub(crate) fn convert_dynamic_filter(
     }
 
     // A DataFusion dynamic filter may replace its entire body, regardless of its current shape.
-    let mut columns = collect_columns(&expression).into_iter().collect::<Vec<_>>();
-    columns.sort_unstable_by_key(|column| column.index());
-    let inputs = columns
+    let inputs = schema
+        .fields()
         .iter()
-        .map(|column| get_item(column.name(), root()))
+        .map(|field| get_item(field.name().as_str(), root()))
         .collect::<Vec<_>>();
     let scope_projection = pack(
-        columns
+        schema
+            .fields()
             .iter()
             .enumerate()
-            .map(|(idx, column)| (column.name(), get_item(input_field_name(idx), root()))),
+            .map(|(idx, field)| (field.name().as_str(), get_item(input_field_name(idx), root()))),
         Nullability::NonNullable,
     );
     dynamic_expression(

@@ -8,6 +8,7 @@ use std::sync::atomic::Ordering;
 use anyhow::anyhow;
 use arrow_array::ArrayRef;
 use arrow_array::Int32Array;
+use arrow_array::Int64Array;
 use arrow_array::RecordBatch;
 use arrow_array::cast::AsArray;
 use arrow_array::record_batch;
@@ -31,6 +32,7 @@ use datafusion_datasource::source::DataSource;
 use datafusion_datasource::source::DataSourceExec;
 use datafusion_expr::Operator;
 use datafusion_physical_expr::PhysicalExpr;
+use datafusion_physical_expr::expressions::Column;
 use datafusion_physical_expr::expressions::DynamicFilterPhysicalExpr;
 use datafusion_physical_expr::projection::ProjectionExpr;
 use datafusion_physical_expr::projection::ProjectionExprs;
@@ -605,29 +607,34 @@ async fn dynamic_filter_uses_advisory_conversion_and_keeps_residual() -> anyhow:
 
 #[tokio::test]
 async fn dynamic_df_expression_case_refreshes_after_projection() -> anyhow::Result<()> {
-    let batch = RecordBatch::try_from_iter(vec![(
-        "id",
-        Arc::new(arrow_array::Int64Array::from(vec![
-            Some(1),
-            Some(2),
-            None,
-            Some(3),
-            Some(4),
-        ])) as ArrayRef,
-    )])?;
+    let batch = RecordBatch::try_from_iter(vec![
+        (
+            "id",
+            Arc::new(arrow_array::Int64Array::from(vec![
+                Some(1),
+                Some(2),
+                None,
+                Some(3),
+                Some(4),
+            ])) as ArrayRef,
+        ),
+        (
+            "payload",
+            Arc::new(Int64Array::from(vec![10, 20, 30, 40, 50])) as ArrayRef,
+        ),
+    ])?;
     let source = vortex_source_from_batch(batch.clone())
         .await?
-        .try_swapping_with_projection(&ProjectionExprs::from(vec![ProjectionExpr::new(
-            Arc::new(df_expr::Column::new("id", 0)),
-            "value",
-        )]))?
+        .try_swapping_with_projection(&ProjectionExprs::from(vec![
+            ProjectionExpr::new(Arc::new(df_expr::Column::new("id", 0)), "value"),
+            ProjectionExpr::new(Arc::new(Column::new("payload", 1)), "payload"),
+        ]))?
         .unwrap();
     let reference = RecordBatch::try_new(
-        Arc::new(Schema::new(vec![Field::new(
-            "value",
-            DataType::Int64,
-            true,
-        )])),
+        Arc::new(Schema::new(vec![
+            Field::new("value", DataType::Int64, true),
+            Field::new("payload", DataType::Int64, false),
+        ])),
         batch.columns().to_vec(),
     )?;
     let column = Arc::new(df_expr::Column::new("value", 0)) as Arc<dyn PhysicalExpr>;
