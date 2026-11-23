@@ -13,6 +13,7 @@
 
 use fastlanes::BitPacking;
 use fastlanes::BitPackingCompare;
+use fastlanes::CmpOp;
 use fastlanes::FastLanesComparable;
 use num_traits::AsPrimitive;
 use vortex_array::ArrayRef;
@@ -120,32 +121,29 @@ where
     // unsigned arrays of one width share them.
     let rhs = rhs.as_();
     match base {
-        BaseCompare::Eq => stream_compare_fused::<T, _, _>(
+        BaseCompare::Eq => stream_compare_fused::<T>(
             lhs,
             bit_width,
-            rhs,
+            CmpOp::Eq(rhs),
             nullability,
-            <T as PhysicalPType>::Physical::is_eq,
             negate,
             &exact,
             ctx,
         ),
-        BaseCompare::Lt => stream_compare_fused::<T, _, _>(
+        BaseCompare::Lt => stream_compare_fused::<T>(
             lhs,
             bit_width,
-            rhs,
+            CmpOp::Lt(rhs),
             nullability,
-            <T as PhysicalPType>::Physical::is_lt,
             negate,
             &exact,
             ctx,
         ),
-        BaseCompare::Gt => stream_compare_fused::<T, _, _>(
+        BaseCompare::Gt => stream_compare_fused::<T>(
             lhs,
             bit_width,
-            rhs,
+            CmpOp::Gt(rhs),
             nullability,
-            <T as PhysicalPType>::Physical::is_gt,
             negate,
             &exact,
             ctx,
