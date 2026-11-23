@@ -4,6 +4,7 @@
 use std::any::Any;
 use std::borrow::Cow;
 use std::fmt;
+use std::fs::File;
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;

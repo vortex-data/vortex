@@ -550,7 +550,7 @@ async fn run_benchmark_for_dataset(
     dataset_handle: &dyn Dataset,
     mode: BenchMode,
     remote: Option<&RemoteDataDir>,
-    fixture_cache: Option<&std::path::Path>,
+    fixture_cache: Option<&Path>,
 ) -> anyhow::Result<(CompressMeasurements, Vec<v3::V3Record>)> {
     let bench_name = dataset_handle.name();
     // A GPU decode and a host decode of the same dataset would otherwise publish the same
