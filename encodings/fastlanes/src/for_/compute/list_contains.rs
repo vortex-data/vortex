@@ -34,6 +34,10 @@ use crate::FoRReferences;
 use crate::for_::array::FoRArrayExt;
 use crate::for_::array::FoRArraySlotsExt;
 
+/// Bail out on large `IN` sets so chunked scans reuse the shared `PreparedSet` haystack instead
+/// of shifting and rebuilding a new `PreparedSet` per FoR chunk.
+const MAX_SET_LEN: usize = 64;
+
 impl ListContainsElementReduce for FoR {
     fn list_contains(
         list: &ArrayRef,
@@ -60,7 +64,11 @@ impl ListContainsElementReduce for FoR {
         if !member_dtype.eq_ignore_nullability(element.dtype()) {
             return Ok(None);
         }
-        let Some(list_elements) = list_scalar.as_list().elements() else {
+        let list_value = list_scalar.as_list();
+        if list_value.len() > MAX_SET_LEN {
+            return Ok(None);
+        }
+        let Some(list_elements) = list_value.elements() else {
             return Ok(None);
         };
 
@@ -319,6 +327,28 @@ mod tests {
                 assert_arrays_eq!(actual, expected, &mut ctx);
             }
         }
+        Ok(())
+    }
+
+    #[test]
+    fn test_for_large_set_falls_back() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let prim = PrimitiveArray::from_iter(1000i32..1128);
+        let for_arr = FoRData::encode(prim, &mut ctx)?;
+        let list = Scalar::list(
+            Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable)),
+            (0..(super::MAX_SET_LEN as i32) + 1)
+                .map(|v| Scalar::from(1000 + v))
+                .collect(),
+            Nullability::NonNullable,
+        );
+        let prepared = super::PreparedSet::try_new_array(list, for_arr.len())?;
+        let res = <FoR as super::ListContainsElementReduce>::list_contains(
+            &prepared,
+            for_arr.as_view(),
+            &ListContainsOptions::default(),
+        )?;
+        assert!(res.is_none());
         Ok(())
     }
 }

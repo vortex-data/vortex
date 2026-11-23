@@ -42,6 +42,9 @@ use crate::BitWidthsView;
 use crate::unpack_iter::BitPacked as BitPackedIter;
 
 const MAX_FUSED_MEMBERS: usize = 4;
+/// Bail out before materializing `ListScalar::elements()` on large `IN` sets so chunked scans
+/// reuse the shared `PreparedSet` haystack instead of paying O(|set|) work per chunk.
+const MAX_SET_LEN: usize = 64;
 const PATCH_BINARY_SEARCH_THRESHOLD: usize = 8;
 
 impl ListContainsElementKernel for BitPacked {
@@ -69,7 +72,11 @@ impl ListContainsElementKernel for BitPacked {
         if !member_dtype.eq_ignore_nullability(element.dtype()) {
             return Ok(None);
         }
-        let Some(list_elements) = list_scalar.as_list().elements() else {
+        let list_value = list_scalar.as_list();
+        if list_value.len() > MAX_SET_LEN {
+            return Ok(None);
+        }
+        let Some(list_elements) = list_value.elements() else {
             return Ok(None);
         };
 
@@ -873,6 +880,30 @@ mod tests {
                 }
             }
         }
+        Ok(())
+    }
+
+    #[test]
+    fn test_large_set_falls_back_before_extracting_elements() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let prim = PrimitiveArray::from_iter(0u32..128);
+        let bp = BitPackedData::encode(&prim.into_array(), 7, &mut ctx)?;
+        // Out-of-domain members so only MAX_SET_LEN triggers fallback.
+        let list = Scalar::list(
+            Arc::new(DType::Primitive(PType::U32, Nullability::NonNullable)),
+            (200u32..200 + (super::MAX_SET_LEN as u32) + 1)
+                .map(Scalar::from)
+                .collect(),
+            Nullability::NonNullable,
+        );
+        let prepared = super::PreparedSet::try_new_array(list, bp.len())?;
+        let res = <super::BitPacked as super::ListContainsElementKernel>::list_contains(
+            &prepared,
+            bp.as_view(),
+            &ListContainsOptions::default(),
+            &mut ctx,
+        )?;
+        assert!(res.is_none());
         Ok(())
     }
 }
