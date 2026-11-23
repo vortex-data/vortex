@@ -409,6 +409,13 @@ class VortexDataset(pyarrow.dataset.Dataset):
         uint_indices: pyarrow.Array[Any] = indices.cast(pa.uint64())
         row_filter = self._filter_expression(filter)
 
+        if _row_range is None and len(uint_indices) > 0:
+            max_index = pc.max(uint_indices).as_py()
+            if max_index is not None:
+                total_rows = self._dataset.count_rows()
+                if max_index >= total_rows:
+                    raise IndexError(f"index {max_index} is out of bounds for dataset with {total_rows} rows")
+
         def scan(scan_indices: pyarrow.Array[Any]) -> Array:
             return self._dataset.to_array(
                 columns=columns,
@@ -418,17 +425,9 @@ class VortexDataset(pyarrow.dataset.Dataset):
                 concurrency=concurrency,
             )
 
-        def scan_checked(scan_indices: pyarrow.Array[Any]) -> Array:
-            result = scan(scan_indices)
-            if _row_range is None and len(result) != len(scan_indices):
-                raise IndexError(f"index {scan_indices[len(result)].as_py()} is out of bounds for dataset")
-            return result
-
         with _temporary_worker_threads(use_threads):
-            if row_filter is not None:
+            if row_filter is not None or _is_strictly_increasing(uint_indices):
                 return scan(uint_indices).to_arrow_table()
-            if _is_strictly_increasing(uint_indices):
-                return scan_checked(uint_indices).to_arrow_table()
 
             # The scan needs strictly increasing indices, so scan the sorted distinct rows once and
             # gather them back into the requested order.
@@ -438,7 +437,7 @@ class VortexDataset(pyarrow.dataset.Dataset):
                 uint_indices = uint_indices.filter(in_range)
             distinct = pc.unique(uint_indices)
             distinct = distinct.take(pc.sort_indices(distinct))
-            return scan_checked(distinct).take(array(pc.index_in(uint_indices, value_set=distinct))).to_arrow_table()
+            return scan(distinct).take(array(pc.index_in(uint_indices, value_set=distinct))).to_arrow_table()
 
     def to_record_batch_reader(
         self,
