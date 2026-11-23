@@ -82,11 +82,14 @@ pub(crate) enum NativePartition {
 fn build_scan_request(
     projection_ptr: jlong,
     filter_ptr: jlong,
+    has_row_range_begin: jboolean,
     row_range_begin: jlong,
+    has_row_range_end: jboolean,
     row_range_end: jlong,
     selection_idx: &[u64],
     selection_roaring_bitmap: &[u8],
     selection_include: u8,
+    has_limit: jboolean,
     limit: jlong,
     ordered: jboolean,
     split_concurrency: jint,
@@ -116,12 +119,34 @@ fn build_scan_request(
         other => vortex_bail!("unknown selection include code: {other}"),
     };
 
-    let row_range = (row_range_begin > 0 || row_range_end > 0).then_some(Range {
-        start: row_range_begin as u64,
-        end: row_range_end as u64,
-    });
+    let row_range_begin = has_row_range_begin
+        .then(|| {
+            u64::try_from(row_range_begin).map_err(|_| {
+                vortex_err!("row range begin must not be negative, got {row_range_begin}")
+            })
+        })
+        .transpose()?;
+    let row_range_end = has_row_range_end
+        .then(|| {
+            u64::try_from(row_range_end)
+                .map_err(|_| vortex_err!("row range end must not be negative, got {row_range_end}"))
+        })
+        .transpose()?;
+    let row_range = match (row_range_begin, row_range_end) {
+        (None, None) => None,
+        (Some(start), Some(end)) => Some(Range { start, end }),
+        (Some(start), None) => Some(Range {
+            start,
+            end: u64::MAX,
+        }),
+        (None, Some(end)) => Some(Range { start: 0, end }),
+    };
 
-    let limit = (limit > 0).then_some(limit as u64);
+    let limit = has_limit
+        .then(|| {
+            u64::try_from(limit).map_err(|_| vortex_err!("limit must not be negative, got {limit}"))
+        })
+        .transpose()?;
     let split_concurrency =
         NonZeroUsize::new(usize::try_from(split_concurrency).map_err(|_| {
             vortex_err!("split concurrency must not be negative, got {split_concurrency}")
@@ -156,11 +181,14 @@ pub extern "system" fn Java_dev_vortex_jni_NativeScan_create(
     data_source_ptr: jlong,
     projection_ptr: jlong,
     filter_ptr: jlong,
+    has_row_range_begin: jboolean,
     row_range_begin: jlong,
+    has_row_range_end: jboolean,
     row_range_end: jlong,
     selection_indices: JLongArray,
     selection_roaring_bitmap: JByteArray,
     selection_include: jni::sys::jbyte,
+    has_limit: jboolean,
     limit: jlong,
     ordered: jboolean,
     split_concurrency: jint,
@@ -193,11 +221,14 @@ pub extern "system" fn Java_dev_vortex_jni_NativeScan_create(
         let request = build_scan_request(
             projection_ptr,
             filter_ptr,
+            has_row_range_begin,
             row_range_begin,
+            has_row_range_end,
             row_range_end,
             &selection_idx,
             &selection_roaring_bitmap,
             selection_include as u8,
+            has_limit,
             limit,
             ordered,
             split_concurrency,
@@ -459,5 +490,72 @@ mod tests {
         );
 
         assert_eq!(iter.collect::<Vec<_>>(), (1..16).collect::<Vec<_>>());
+    }
+
+    #[rstest]
+    #[case(None, None, None, None, None)]
+    #[case(None, None, Some(0), None, Some(0))]
+    #[case(None, None, Some(1), None, Some(1))]
+    #[case(None, Some(0), None, Some(0..0), None)]
+    #[case(None, Some(2), None, Some(0..2), None)]
+    #[case(Some(0), None, None, Some(0..u64::MAX), None)]
+    #[case(Some(1), None, None, Some(1..u64::MAX), None)]
+    #[case(Some(1), Some(3), None, Some(1..3), None)]
+    fn build_scan_request_preserves_option_presence(
+        #[case] begin: Option<i64>,
+        #[case] end: Option<i64>,
+        #[case] limit: Option<i64>,
+        #[case] expected_range: Option<std::ops::Range<u64>>,
+        #[case] expected_limit: Option<u64>,
+    ) {
+        let request = super::build_scan_request(
+            0,
+            0,
+            begin.is_some(),
+            begin.unwrap_or(99),
+            end.is_some(),
+            end.unwrap_or(99),
+            &[],
+            &[],
+            0,
+            limit.is_some(),
+            limit.unwrap_or(99),
+            false,
+            0,
+        )
+        .unwrap();
+        assert_eq!(request.row_range, expected_range);
+        assert_eq!(request.limit, expected_limit);
+    }
+
+    #[rstest]
+    #[case(true, -1, false, 0, false, 0)]
+    #[case(false, 0, true, -1, false, 0)]
+    #[case(false, 0, false, 0, true, -1)]
+    fn build_scan_request_rejects_negative_present_bounds_or_limit(
+        #[case] has_begin: bool,
+        #[case] begin: i64,
+        #[case] has_end: bool,
+        #[case] end: i64,
+        #[case] has_limit: bool,
+        #[case] limit: i64,
+    ) {
+        let err = super::build_scan_request(
+            0,
+            0,
+            has_begin,
+            begin,
+            has_end,
+            end,
+            &[],
+            &[],
+            0,
+            has_limit,
+            limit,
+            false,
+            0,
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("must not be negative"), "{err}");
     }
 }

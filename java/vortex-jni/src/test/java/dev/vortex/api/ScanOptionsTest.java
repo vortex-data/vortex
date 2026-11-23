@@ -226,4 +226,32 @@ public final class ScanOptionsTest {
         assertEquals(OptionalLong.of(5), options.limit());
         assertTrue(options.ordered());
     }
+
+    @Test
+    public void zeroRowRangeAndLimitRemainPresent() {
+        ScanOptions options =
+                ScanOptions.builder().rowRangeBegin(0).rowRangeEnd(0).limit(0).build();
+
+        assertEquals(OptionalLong.of(0), options.rowRangeBegin());
+        assertEquals(OptionalLong.of(0), options.rowRangeEnd());
+        assertEquals(OptionalLong.of(0), options.limit());
+    }
+
+    @Test
+    public void negativeRowRangeAndLimitAreRejected() {
+        IllegalArgumentException begin = assertThrows(
+                IllegalArgumentException.class,
+                () -> ScanOptions.builder().rowRangeBegin(-1).build());
+        assertEquals("row range begin must not be negative, got -1", begin.getMessage());
+
+        IllegalArgumentException end = assertThrows(
+                IllegalArgumentException.class,
+                () -> ScanOptions.builder().rowRangeEnd(-1).build());
+        assertEquals("row range end must not be negative, got -1", end.getMessage());
+
+        IllegalArgumentException limit = assertThrows(
+                IllegalArgumentException.class,
+                () -> ScanOptions.builder().limit(-1).build());
+        assertEquals("limit must not be negative, got -1", limit.getMessage());
+    }
 }

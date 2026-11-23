@@ -246,11 +246,14 @@ public final class DataSource implements AutoCloseable {
             long projectionPtr =
                     options.projection().map(Expression::nativePointer).orElse(0L);
             long filterPtr = options.filter().map(Expression::nativePointer).orElse(0L);
+            boolean hasRowRangeBegin = options.rowRangeBegin().isPresent();
             long begin = options.rowRangeBegin().orElse(0L);
+            boolean hasRowRangeEnd = options.rowRangeEnd().isPresent();
             long end = options.rowRangeEnd().orElse(0L);
             ScanOptions.SelectionMode selectionMode = options.selectionMode();
             long[] selectionIndices = selectionIndices(options);
             byte[] selectionRoaringBitmap = selectionRoaringBitmap(options);
+            boolean hasLimit = options.limit().isPresent();
             long limit = options.limit().orElse(0L);
             boolean ordered = options.ordered();
             int splitConcurrency = options.splitConcurrency().orElse(0);
@@ -259,11 +262,14 @@ public final class DataSource implements AutoCloseable {
                     pointer,
                     projectionPtr,
                     filterPtr,
+                    hasRowRangeBegin,
                     begin,
+                    hasRowRangeEnd,
                     end,
                     selectionIndices,
                     selectionRoaringBitmap,
                     selectionMode.code(),
+                    hasLimit,
                     limit,
                     ordered,
                     splitConcurrency);
