@@ -381,11 +381,25 @@ where
     F: Fn(ArrayRef) -> VortexResult<A> + Send + Sync + Clone + 'static,
 {
     match source {
-        DatasetSource::Opened(file) => match build_file_scan(&file, 0, &params, &map_fn) {
-            Ok(Some(scan)) => stream::once(future::ready(Ok(scan))).boxed(),
-            Ok(None) => stream::empty().boxed(),
-            Err(e) => stream::once(future::ready(Err(e))).boxed(),
-        },
+        DatasetSource::Opened(file) => {
+            if params.row_range.is_none()
+                && let Some(&last) = params.indices.as_ref().and_then(|i| i.last())
+                && last >= file.row_count()
+            {
+                return stream::once(future::ready(Err(VortexError::external(
+                    PyIndexError::new_err(format!(
+                        "index {last} is out of bounds for dataset with {} rows",
+                        file.row_count()
+                    )),
+                ))))
+                .boxed();
+            }
+            match build_file_scan(&file, 0, &params, &map_fn) {
+                Ok(Some(scan)) => stream::once(future::ready(Ok(scan))).boxed(),
+                Ok(None) => stream::empty().boxed(),
+                Err(e) => stream::once(future::ready(Err(e))).boxed(),
+            }
+        }
         DatasetSource::Lazy { files, dtype } => {
             let first_name = files[0].1.path.clone();
             if params.row_range.is_none() && params.indices.is_none() {
@@ -439,6 +453,7 @@ where
                             Ok(file) => file,
                             Err(e) => {
                                 st.idx = st.files.len();
+                                st.params.indices = None;
                                 return Some((Err(e), st));
                             }
                         };
@@ -450,9 +465,22 @@ where
                         Ok(None) => continue,
                         Err(e) => {
                             st.idx = st.files.len();
+                            st.params.indices = None;
                             return Some((Err(e), st));
                         }
                     }
+                }
+                if st.params.row_range.is_none()
+                    && let Some(last) = st.params.indices.take().and_then(|i| i.last().copied())
+                    && last >= st.file_start
+                {
+                    return Some((
+                        Err(VortexError::external(PyIndexError::new_err(format!(
+                            "index {last} is out of bounds for dataset with {} rows",
+                            st.file_start
+                        )))),
+                        st,
+                    ));
                 }
                 None
             })

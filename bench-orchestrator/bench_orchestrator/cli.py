@@ -20,6 +20,7 @@ from rich.markup import escape
 from rich.table import Table
 
 from .ci_matrix import MATRIX_PRESETS, resolve_matrix
+from .ci_matrix.selection import parse_selection
 from .comparison import analyzer
 from .comparison.reporter import pivot_comparison_table
 from .config import (
@@ -342,6 +343,16 @@ def matrix(
     ] = None,
     list_presets: Annotated[bool, typer.Option("--list", help="List available presets and exit")] = False,
     pretty: Annotated[bool, typer.Option("--pretty", help="Pretty-print the JSON output")] = False,
+    only: Annotated[
+        str | None,
+        typer.Option(
+            "--only",
+            help=(
+                "Benchmarks to keep, separated by spaces or commas, each optionally with queries: "
+                "polarsignals tpch-nvme:q1-4. Empty keeps the whole preset"
+            ),
+        ),
+    ] = None,
 ) -> None:
     """Emit a GitHub Actions benchmark matrix."""
     if preset is None or list_presets:
@@ -354,7 +365,11 @@ def matrix(
         console.print(f"[red]Unknown matrix preset '{preset}'. Available: {known}[/red]")
         raise typer.Exit(1)
 
-    entries = resolve_matrix(preset)
+    try:
+        entries = resolve_matrix(preset, parse_selection(only))
+    except ValueError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(1) from exc
     typer.echo(json.dumps(entries, indent=2 if pretty else None))
 
 

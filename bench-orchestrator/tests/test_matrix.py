@@ -13,6 +13,7 @@ from bench_orchestrator.ci_matrix import MATRIX_PRESETS, resolve_matrix
 from bench_orchestrator.ci_matrix.catalog import CATALOG
 from bench_orchestrator.ci_matrix.model import Catalog, Coverage
 from bench_orchestrator.ci_matrix.render import render_matrix
+from bench_orchestrator.ci_matrix.selection import parse_selection
 from bench_orchestrator.ci_matrix.targets import TargetSet
 from bench_orchestrator.config import (
     BenchmarkTarget,
@@ -395,3 +396,89 @@ def test_matrix_command() -> None:
 
 def test_preset_names_are_stable() -> None:
     assert set(MATRIX_PRESETS) == set(EXPECTED_GROUPS)
+
+
+@pytest.mark.parametrize("preset", MATRIX_PRESETS)
+def test_only_selects_each_benchmark_and_entry(preset: str) -> None:
+    entries = _entries(preset)
+    # A default entry shares its benchmark's ID, which selects every scan of the benchmark.
+    for entry in (entry for entry in entries if entry["id"] != entry["group"]):
+        assert resolve_matrix(preset, [str(entry["id"])]) == [entry]
+    for group in {str(entry["group"]) for entry in entries}:
+        assert resolve_matrix(preset, [group]) == [entry for entry in entries if entry["group"] == group]
+
+
+def test_only_selects_every_scan_of_a_benchmark() -> None:
+    selected = resolve_matrix("pr-scan", ["tpch-nvme"])
+    assert len(selected) > 1
+    assert {entry["group"] for entry in selected} == {"tpch-nvme"}
+
+
+def test_only_keeps_preset_order_and_ignores_empty_selection() -> None:
+    assert [entry["id"] for entry in resolve_matrix("pr-all", ["polarsignals", "tpch-nvme"])] == [
+        "tpch-nvme",
+        "polarsignals",
+    ]
+    assert resolve_matrix("pr-all", []) == _entries("pr-all")
+
+
+def test_only_rejects_ids_outside_preset() -> None:
+    with pytest.raises(ValueError, match=r"Benchmark IDs not in matrix preset 'pr': appian-nvme, nope\."):
+        _ = resolve_matrix("pr", ["polarsignals", "appian-nvme", "nope"])
+
+
+@pytest.mark.parametrize("only", ["polarsignals,tpch-nvme", " polarsignals  tpch-nvme ", "tpch-nvme, polarsignals"])
+def test_matrix_command_only(only: str) -> None:
+    result = runner.invoke(cli_module.app, ["matrix", "pr-all", "--only", only])
+    assert result.exit_code == 0
+    assert json.loads(result.stdout) == resolve_matrix("pr-all", ["tpch-nvme", "polarsignals"])
+
+
+def test_matrix_command_only_edge_cases() -> None:
+    result = runner.invoke(cli_module.app, ["matrix", "pr-all", "--only", ""])
+    assert result.exit_code == 0
+    assert json.loads(result.stdout) == _entries("pr-all")
+
+    result = runner.invoke(cli_module.app, ["matrix", "pr-all", "--only", "does-not-exist"])
+    assert result.exit_code == 1
+    assert "Benchmark IDs not in matrix preset" in result.stdout
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("", {}),
+        ("polarsignals", {"polarsignals": ()}),
+        ("tpch-nvme:q1,2", {"tpch-nvme": (1, 2)}),
+        ("tpch-nvme:q1-4", {"tpch-nvme": (1, 2, 3, 4)}),
+        ("tpch-nvme:Q1-q3,7", {"tpch-nvme": (1, 2, 3, 7)}),
+        ("polarsignals,tpch-nvme:3 appian-nvme", {"polarsignals": (), "tpch-nvme": (3,), "appian-nvme": ()}),
+        ("tpch-nvme:1 tpch-nvme:2", {"tpch-nvme": (1, 2)}),
+        ("tpch-nvme:1 tpch-nvme", {"tpch-nvme": ()}),
+    ],
+)
+def test_parse_selection(value: str, expected: dict[str, tuple[int, ...]]) -> None:
+    assert parse_selection(value) == expected
+
+
+@pytest.mark.parametrize("value", ["tpch-nvme:", "tpch-nvme:qx", "tpch-nvme:q4-1", "tpch-nvme:0", ":q1"])
+def test_parse_selection_rejects(value: str) -> None:
+    with pytest.raises(ValueError, match="Invalid"):
+        _ = parse_selection(value)
+
+
+def test_only_passes_queries_to_every_scan_entry() -> None:
+    selected = resolve_matrix("pr-scan", {"tpch-nvme": (1, 2, 3, 4), "clickbench-nvme": ()})
+    tpch = [entry for entry in selected if entry["group"] == "tpch-nvme"]
+    assert len(tpch) > 1
+    assert {entry["queries"] for entry in tpch} == {"1,2,3,4"}
+    assert all("queries" not in entry for entry in selected if entry["group"] == "clickbench-nvme")
+
+
+def test_matrix_command_only_queries() -> None:
+    result = runner.invoke(cli_module.app, ["matrix", "pr-all", "--only", "polarsignals tpch-nvme:q1-3"])
+    assert result.exit_code == 0
+    assert [(entry["id"], entry.get("queries")) for entry in json.loads(result.stdout)] == [
+        ("tpch-nvme", "1,2,3"),
+        ("polarsignals", None),
+    ]
