@@ -8,7 +8,7 @@ Run with:
     uv run --no-project --with pytest pytest scripts/tests/test_triage.py
 """
 
-import dataclasses
+import email.message
 import http.client
 import importlib
 import io
@@ -323,14 +323,24 @@ def test_deleted_slack_parent_resets_thread_on_recovery(setup):
 
 
 def test_root_text_neutralizes_multiline_and_triple_backticks():
-    text = publish.root_text(dataclasses.replace(item(1), title="Fix ```code```\nand <tag> & more"))
+    bad_item = github.Item(
+        number=1,
+        kind="issue",
+        title="Fix ```code```\nand <tag> & more",
+        url="https://github.com/o/r/issues/1",
+        author="alamb",
+        created_at="2026-01-01T00:00:00Z",
+        assignees=(),
+        reasons=(github.EXTERNAL_AUTHOR,),
+    )
+    text = publish.root_text(bad_item)
     assert "```" not in text
     assert "\nand " not in text
     assert "&lt;tag&gt; &amp; more" in text
 
 
 def test_closed_state_handles_open_closed_merged_and_deleted(monkeypatch):
-    def run(payload) -> str | None:
+    def run(payload) -> object:
         return github.closed_state("o/r", 1, query=lambda _q, _v: {"repository": {"item": payload}})
 
     assert run({"state": "OPEN"}) is None
@@ -363,9 +373,12 @@ def test_slack_client_errors_retries_and_find(monkeypatch):
 
         return Resp()
 
+    retry_headers = email.message.Message()
+    retry_headers["Retry-After"] = "0"
+
     # 429 retries and then succeeds.
     outcomes: list[object] = [
-        urllib.error.HTTPError("https://slack.com", 429, "Too Many Requests", {"Retry-After": "0"}, None),
+        urllib.error.HTTPError("https://slack.com", 429, "Too Many Requests", retry_headers, None),
         fake_response({"ok": True, "ts": "123.0"}),
     ]
 
@@ -383,7 +396,7 @@ def test_slack_client_errors_retries_and_find(monkeypatch):
         slack.urllib.request,
         "urlopen",
         lambda _req, timeout=30: (_ for _ in ()).throw(
-            urllib.error.HTTPError("https://slack.com", 429, "Too Many Requests", {"Retry-After": "0"}, None)
+            urllib.error.HTTPError("https://slack.com", 429, "Too Many Requests", retry_headers, None)
         ),
     )
     with pytest.raises(slack.SlackError, match="rate limited") as exc_info:
@@ -392,7 +405,7 @@ def test_slack_client_errors_retries_and_find(monkeypatch):
 
     # 5xx, IncompleteRead, timeout, and ambiguous ok:false errors raise SlackUnknown.
     for failure in [
-        urllib.error.HTTPError("https://slack.com", 502, "Bad Gateway", {}, None),
+        urllib.error.HTTPError("https://slack.com", 502, "Bad Gateway", email.message.Message(), None),
         http.client.IncompleteRead(b"partial"),
         TimeoutError("timed out"),
     ]:
