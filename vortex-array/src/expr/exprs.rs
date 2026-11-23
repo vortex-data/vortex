@@ -27,6 +27,7 @@ use crate::scalar_fn::builtin::literal::Literal;
 use crate::scalar_fn::builtin::mask::Mask;
 use crate::scalar_fn::builtin::not::Not;
 use crate::scalar_fn::builtin::numeric::Numeric;
+use crate::scalar_fn::builtin::operators::BinaryOperator;
 use crate::scalar_fn::builtin::operators::BooleanOperator;
 use crate::scalar_fn::builtin::operators::CompareOperator;
 use crate::scalar_fn::builtin::pack::Pack;
@@ -193,6 +194,24 @@ pub fn bound_numeric(
     Numeric
         .try_new_bound_expr(operator, [lhs, rhs])
         .vortex_expect("numeric expressions must have compatible operand dtypes")
+}
+
+/// Creates the expression `lhs <operator> rhs` with the function that owns the operator.
+///
+/// ```rust
+/// # use vortex_array::expr::{binary, col, lit};
+/// # use vortex_array::scalar::NumericOperator;
+/// # use vortex_array::scalar_fn::builtin::operators::CompareOperator;
+/// let sum = binary(NumericOperator::Add, col("x"), lit(1_i32));
+/// let expr = binary(CompareOperator::Gt, sum, lit(10_i32));
+/// assert_eq!(expr.to_string(), "(($.x + 1i32) > 10i32)");
+/// ```
+pub fn binary(operator: impl Into<BinaryOperator>, lhs: Expression, rhs: Expression) -> Expression {
+    match operator.into() {
+        BinaryOperator::Compare(operator) => compare(operator, lhs, rhs),
+        BinaryOperator::Boolean(operator) => boolean(operator, lhs, rhs),
+        BinaryOperator::Numeric(operator) => numeric(operator, lhs, rhs),
+    }
 }
 
 /// Create a new [`Compare`] using the [`Eq`](CompareOperator::Eq) operator.

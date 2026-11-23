@@ -10,6 +10,7 @@ use vortex::dtype::FieldName;
 use vortex::error::VortexExpect;
 use vortex::expr::Expression;
 use vortex::expr::and_collect;
+use vortex::expr::binary;
 use vortex::expr::get_item;
 use vortex::expr::is_null;
 use vortex::expr::list_contains;
@@ -19,10 +20,7 @@ use vortex::expr::or_collect;
 use vortex::expr::root;
 use vortex::expr::select;
 use vortex::scalar::NumericOperator;
-use vortex::scalar_fn::ScalarFnVTableExt;
-use vortex::scalar_fn::builtin::boolean::Boolean;
-use vortex::scalar_fn::builtin::compare::Compare;
-use vortex::scalar_fn::builtin::numeric::Numeric;
+use vortex::scalar_fn::builtin::operators::BinaryOperator;
 use vortex::scalar_fn::builtin::operators::BooleanOperator;
 use vortex::scalar_fn::builtin::operators::CompareOperator;
 
@@ -210,24 +208,6 @@ pub enum vx_binary_operator {
     VX_OPERATOR_DIV = 11,
 }
 
-/// An operator of one of the binary scalar functions that [`vx_binary_operator`] maps to.
-enum BinaryOperator {
-    Compare(CompareOperator),
-    Boolean(BooleanOperator),
-    Numeric(NumericOperator),
-}
-
-impl BinaryOperator {
-    /// Builds the expression `lhs OP rhs` with the scalar function that owns the operator.
-    fn new_expr(self, lhs: Expression, rhs: Expression) -> Expression {
-        match self {
-            BinaryOperator::Compare(operator) => Compare.new_expr(operator, [lhs, rhs]),
-            BinaryOperator::Boolean(operator) => Boolean.new_expr(operator, [lhs, rhs]),
-            BinaryOperator::Numeric(operator) => Numeric.new_expr(operator, [lhs, rhs]),
-        }
-    }
-}
-
 impl From<vx_binary_operator> for BinaryOperator {
     fn from(operator: vx_binary_operator) -> Self {
         match operator {
@@ -274,7 +254,7 @@ pub unsafe extern "C" fn vx_expression_binary(
 ) -> *mut vx_expression {
     let lhs = vx_expression::as_ref(lhs).clone();
     let rhs = vx_expression::as_ref(rhs).clone();
-    vx_expression::new(BinaryOperator::from(operator).new_expr(lhs, rhs))
+    vx_expression::new(binary(BinaryOperator::from(operator), lhs, rhs))
 }
 
 /// Create a logical NOT of the child expression.

@@ -8,6 +8,7 @@ use std::fmt::Formatter;
 use crate::dtype::NativePType;
 use crate::proto::expr::boolean_opts::BooleanOp;
 use crate::proto::expr::compare_opts::CompareOp;
+use crate::scalar::NumericOperator;
 
 /// The two boolean operators.
 ///
@@ -144,6 +145,42 @@ impl From<CompareOp> for CompareOperator {
             CompareOp::Lt => CompareOperator::Lt,
             CompareOp::Lte => CompareOperator::Lte,
         }
+    }
+}
+
+/// An operator of one of the two-operand functions [`Compare`], [`Boolean`], and [`Numeric`].
+///
+/// Use it where one value can hold any infix operator, such as when a binding or a query engine
+/// converts its own operator codes.
+///
+/// [`Compare`]: crate::scalar_fn::builtin::compare::Compare
+/// [`Boolean`]: crate::scalar_fn::builtin::boolean::Boolean
+/// [`Numeric`]: crate::scalar_fn::builtin::numeric::Numeric
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
+pub enum BinaryOperator {
+    /// A comparison operator.
+    Compare(CompareOperator),
+    /// A Kleene boolean operator.
+    Boolean(BooleanOperator),
+    /// An arithmetic operator.
+    Numeric(NumericOperator),
+}
+
+impl From<CompareOperator> for BinaryOperator {
+    fn from(operator: CompareOperator) -> Self {
+        BinaryOperator::Compare(operator)
+    }
+}
+
+impl From<BooleanOperator> for BinaryOperator {
+    fn from(operator: BooleanOperator) -> Self {
+        BinaryOperator::Boolean(operator)
+    }
+}
+
+impl From<NumericOperator> for BinaryOperator {
+    fn from(operator: NumericOperator) -> Self {
+        BinaryOperator::Numeric(operator)
     }
 }
 

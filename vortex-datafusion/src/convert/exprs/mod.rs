@@ -49,6 +49,7 @@ use vortex::dtype::PType;
 use vortex::dtype::StructFields;
 use vortex::expr::Expression;
 use vortex::expr::Lambda;
+use vortex::expr::binary;
 use vortex::expr::byte_length;
 use vortex::expr::cast;
 use vortex::expr::get_item;
@@ -74,10 +75,8 @@ use vortex::layout::layouts::row_idx;
 use vortex::scalar::NumericOperator;
 use vortex::scalar::Scalar;
 use vortex::scalar_fn::ScalarFnVTableExt;
-use vortex::scalar_fn::builtin::boolean::Boolean;
-use vortex::scalar_fn::builtin::compare::Compare;
 use vortex::scalar_fn::builtin::get_item::GetItem;
-use vortex::scalar_fn::builtin::numeric::Numeric;
+use vortex::scalar_fn::builtin::operators::BinaryOperator;
 use vortex::scalar_fn::builtin::operators::BooleanOperator;
 use vortex::scalar_fn::builtin::operators::CompareOperator;
 use vortex::session::VortexSession;
@@ -418,7 +417,7 @@ impl DefaultExpressionConverter {
             {
                 return Err(Unconverted::Unsupported);
             }
-            return Ok(operator.new_expr(left, right));
+            return Ok(binary(operator, left, right));
         }
 
         if let Some(col_expr) = expr.downcast_ref::<df_expr::Column>() {
@@ -1034,25 +1033,6 @@ fn classify_cast_types(source: &DataType, target: &DataType) -> Conversion<CastP
         }
         _ => return Err(Unconverted::Unsupported),
     })
-}
-
-/// An operator of one of the binary scalar functions that a DataFusion operator converts to.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum BinaryOperator {
-    Compare(CompareOperator),
-    Boolean(BooleanOperator),
-    Numeric(NumericOperator),
-}
-
-impl BinaryOperator {
-    /// Builds the expression `left OP right` with the scalar function that owns the operator.
-    fn new_expr(self, left: Expression, right: Expression) -> Expression {
-        match self {
-            BinaryOperator::Compare(operator) => Compare.new_expr(operator, [left, right]),
-            BinaryOperator::Boolean(operator) => Boolean.new_expr(operator, [left, right]),
-            BinaryOperator::Numeric(operator) => Numeric.new_expr(operator, [left, right]),
-        }
-    }
 }
 
 fn try_operator_from_df(value: &DFOperator) -> Option<BinaryOperator> {

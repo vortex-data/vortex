@@ -49,6 +49,7 @@ use vortex::error::vortex_err;
 use vortex::expr::Expression;
 use vortex::expr::and_collect;
 use vortex::expr::between;
+use vortex::expr::binary;
 use vortex::expr::get_item;
 use vortex::expr::is_not_null;
 use vortex::expr::is_null;
@@ -78,10 +79,8 @@ use vortex::scalar::Scalar;
 use vortex::scalar::ScalarValue;
 use vortex::scalar_fn::EmptyOptions;
 use vortex::scalar_fn::ScalarFnVTableExt;
-use vortex::scalar_fn::builtin::boolean::Boolean;
-use vortex::scalar_fn::builtin::compare::Compare;
 use vortex::scalar_fn::builtin::literal::Literal;
-use vortex::scalar_fn::builtin::numeric::Numeric;
+use vortex::scalar_fn::builtin::operators::BinaryOperator;
 use vortex::scalar_fn::builtin::operators::BooleanOperator;
 use vortex::scalar_fn::builtin::operators::CompareOperator;
 use vortex::session::VortexSession;
@@ -107,24 +106,6 @@ fn into_raw(expr: Expression) -> jlong {
 unsafe fn expr_ref<'a>(ptr: jlong) -> &'a Expression {
     debug_assert!(ptr != 0, "null expression pointer");
     unsafe { &*(ptr as *const Expression) }
-}
-
-/// An operator of one of the binary scalar functions that the wire-encoded operator code maps to.
-enum BinaryOperator {
-    Compare(CompareOperator),
-    Boolean(BooleanOperator),
-    Numeric(NumericOperator),
-}
-
-impl BinaryOperator {
-    /// Builds the expression `lhs OP rhs` with the scalar function that owns the operator.
-    fn new_expr(self, lhs: Expression, rhs: Expression) -> Expression {
-        match self {
-            BinaryOperator::Compare(operator) => Compare.new_expr(operator, [lhs, rhs]),
-            BinaryOperator::Boolean(operator) => Boolean.new_expr(operator, [lhs, rhs]),
-            BinaryOperator::Numeric(operator) => Numeric.new_expr(operator, [lhs, rhs]),
-        }
-    }
 }
 
 fn parse_op(op: jbyte) -> Result<BinaryOperator, JNIError> {
@@ -325,7 +306,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeExpression_binary(
         let operator = parse_op(op)?;
         let lhs = unsafe { expr_ref(lhs) }.clone();
         let rhs = unsafe { expr_ref(rhs) }.clone();
-        Ok(into_raw(operator.new_expr(lhs, rhs)))
+        Ok(into_raw(binary(operator, lhs, rhs)))
     })
 }
 

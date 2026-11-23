@@ -58,6 +58,7 @@ pub use bound_expression::*;
 pub use expression::*;
 pub use exprs::and;
 pub use exprs::and_collect;
+pub use exprs::binary;
 pub use exprs::boolean;
 pub use exprs::bound;
 pub use exprs::bound_select;

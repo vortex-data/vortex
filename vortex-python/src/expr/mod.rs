@@ -15,6 +15,7 @@ use vortex::dtype::FieldNames;
 use vortex::dtype::Nullability;
 use vortex::expr;
 use vortex::expr::Expression;
+use vortex::expr::binary;
 use vortex::expr::lit;
 use vortex::expr::proto::ExprSerializeProtoExt;
 use vortex::functions::between::BetweenOptions;
@@ -27,9 +28,8 @@ use vortex::functions::variant_get::VariantPathElement;
 use vortex::proto::expr as pb;
 use vortex::scalar::NumericOperator;
 use vortex::scalar_fn::ScalarFnVTableExt;
-use vortex::scalar_fn::builtin::boolean::Boolean;
-use vortex::scalar_fn::builtin::compare::Compare;
 use vortex::scalar_fn::builtin::numeric::Numeric;
+use vortex::scalar_fn::builtin::operators::BinaryOperator;
 use vortex::scalar_fn::builtin::operators::BooleanOperator;
 use vortex::scalar_fn::builtin::operators::CompareOperator;
 
@@ -177,42 +177,6 @@ fn coerce_expression(value: &Bound<'_, PyAny>) -> PyResult<Expression> {
     Ok(lit(scalar_helper(value, None).map_err(PyErr::from)?))
 }
 
-/// An operator of one of the binary scalar functions that the Python operators map to.
-enum BinaryOperator {
-    Compare(CompareOperator),
-    Boolean(BooleanOperator),
-    Numeric(NumericOperator),
-}
-
-impl BinaryOperator {
-    /// Builds the expression `left OP right` with the scalar function that owns the operator.
-    fn new_expr(self, left: Expression, right: Expression) -> Expression {
-        match self {
-            BinaryOperator::Compare(operator) => Compare.new_expr(operator, [left, right]),
-            BinaryOperator::Boolean(operator) => Boolean.new_expr(operator, [left, right]),
-            BinaryOperator::Numeric(operator) => Numeric.new_expr(operator, [left, right]),
-        }
-    }
-}
-
-impl From<CompareOperator> for BinaryOperator {
-    fn from(operator: CompareOperator) -> Self {
-        BinaryOperator::Compare(operator)
-    }
-}
-
-impl From<BooleanOperator> for BinaryOperator {
-    fn from(operator: BooleanOperator) -> Self {
-        BinaryOperator::Boolean(operator)
-    }
-}
-
-impl From<NumericOperator> for BinaryOperator {
-    fn from(operator: NumericOperator) -> Self {
-        BinaryOperator::Numeric(operator)
-    }
-}
-
 fn py_binary_operator<'py>(
     left: PyRef<'py, PyExpr>,
     operator: impl Into<BinaryOperator>,
@@ -222,7 +186,7 @@ fn py_binary_operator<'py>(
     Bound::new(
         left.py(),
         PyExpr {
-            inner: operator.into().new_expr(left.inner.clone(), right),
+            inner: binary(operator, left.inner.clone(), right),
         },
     )
 }
@@ -237,7 +201,7 @@ fn py_reflected_operator<'py>(
     Bound::new(
         right.py(),
         PyExpr {
-            inner: operator.into().new_expr(left, right.inner.clone()),
+            inner: binary(operator, left, right.inner.clone()),
         },
     )
 }
