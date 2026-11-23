@@ -84,6 +84,8 @@ use vortex::scalar_fn::builtin::operators::BinaryOperator;
 use vortex::scalar_fn::builtin::operators::BooleanOperator;
 use vortex::scalar_fn::builtin::operators::CompareOperator;
 use vortex::session::VortexSession;
+use vortex_spatial::extension::SpatialMetadata;
+use vortex_spatial::extension::WellKnownBinary;
 use vortex_spatial::extension::native_geometry_scalar_from_wkb;
 use vortex_spatial::scalar_fn::area::SpatialArea;
 use vortex_spatial::scalar_fn::collect::SpatialCollect;
@@ -757,7 +759,12 @@ pub extern "system" fn Java_dev_vortex_jni_NativeExpression_literalGeometry(
             throw_runtime!("geometry literal WKB bytes must not be null");
         }
         let bytes = env.convert_byte_array(&wkb)?;
-        let scalar = native_geometry_scalar_from_wkb(&bytes, &VortexSession::default())?
+        // The Java API passes WKB bytes only, so the literal has no CRS.
+        let literal = Scalar::extension::<WellKnownBinary>(
+            SpatialMetadata::default(),
+            Scalar::binary(bytes, Nullability::NonNullable),
+        );
+        let scalar = native_geometry_scalar_from_wkb(&literal, &VortexSession::default())?
             .ok_or_else(|| vortex_err!("unsupported WKB geometry type for a geometry literal"))?;
         Ok(into_raw(lit(scalar)))
     })
