@@ -3,6 +3,13 @@
 
 #include "patches.cuh"
 
+// ALP-RD dictionaries hold at most 8 left parts (`MAX_DICT_SIZE` in the `alp` crate), so the
+// dictionary is a kernel parameter, not a device buffer.
+struct AlpRdDictionary {
+    uint16_t entries[8];
+};
+static_assert(sizeof(AlpRdDictionary) == 16, "AlpRdDictionary must match [u16; 8] on the host");
+
 // ALP-RD (ALP for "real doubles") decode: each value is stored as a left part, looked up from a
 // dictionary of at most 8 entries through a code, and a right part. The decoded bits are
 // `(left << right_bit_width) | right`.
@@ -19,7 +26,7 @@ template <typename UIntT>
 __device__ void alp_rd_device(const uint16_t *__restrict left_codes,
                               const UIntT *__restrict right_parts,
                               UIntT *__restrict out,
-                              const uint16_t *__restrict dictionary,
+                              const AlpRdDictionary &dictionary,
                               uint32_t dictionary_len,
                               uint32_t right_bit_width,
                               uint64_t array_len,
@@ -52,7 +59,7 @@ __device__ void alp_rd_device(const uint16_t *__restrict left_codes,
             uint64_t row = aligned_row - slice_shift;
             uint16_t code = left_codes[row];
             if (code < dictionary_len) {
-                left = dictionary[code];
+                left = dictionary.entries[code];
             } else {
                 uint64_t bit = validity_offset + row;
                 saw_invalid_code |= validity == nullptr || ((validity[bit >> 3] >> (bit & 7)) & 1);
@@ -90,18 +97,19 @@ __device__ void alp_rd_device(const uint16_t *__restrict left_codes,
 }
 
 #define GENERATE_ALP_RD_KERNEL(uint_suffix, UIntT)                                                           \
-    extern "C" __global__ void alp_rd_##uint_suffix##_32t(const uint16_t *__restrict left_codes,             \
-                                                          const UIntT *__restrict right_parts,               \
-                                                          UIntT *__restrict out,                             \
-                                                          const uint16_t *__restrict dictionary,             \
-                                                          uint32_t dictionary_len,                           \
-                                                          uint32_t right_bit_width,                          \
-                                                          uint64_t array_len,                                \
-                                                          uint32_t slice_shift,                              \
-                                                          const uint8_t *__restrict validity,                \
-                                                          uint64_t validity_offset,                          \
-                                                          uint32_t *__restrict invalid_code,                 \
-                                                          GPUPatches patches) {                              \
+    extern "C" __global__ void alp_rd_##uint_suffix##_32t(                                                   \
+        const uint16_t *__restrict left_codes,                                                               \
+        const UIntT *__restrict right_parts,                                                                 \
+        UIntT *__restrict out,                                                                               \
+        const __grid_constant__ AlpRdDictionary dictionary,                                                  \
+        uint32_t dictionary_len,                                                                             \
+        uint32_t right_bit_width,                                                                            \
+        uint64_t array_len,                                                                                  \
+        uint32_t slice_shift,                                                                                \
+        const uint8_t *__restrict validity,                                                                  \
+        uint64_t validity_offset,                                                                            \
+        uint32_t *__restrict invalid_code,                                                                   \
+        GPUPatches patches) {                                                                                \
         alp_rd_device<UIntT>(left_codes,                                                                     \
                              right_parts,                                                                    \
                              out,                                                                            \

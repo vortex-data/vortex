@@ -14,7 +14,6 @@ use vortex::array::arrays::primitive::PrimitiveDataParts;
 use vortex::array::buffer::BufferHandle;
 use vortex::array::buffer::DeviceBufferExt;
 use vortex::array::validity::Validity;
-use vortex::buffer::Buffer;
 use vortex::dtype::NativePType;
 use vortex::dtype::PType;
 use vortex::encodings::alp::ALPRD;
@@ -64,6 +63,9 @@ impl CudaExecute for ALPRDExecutor {
 
 /// Threads per block. 32 threads × 32 elements cover one 1024-element chunk.
 const ALP_RD_THREADS_PER_BLOCK: u32 = 32;
+
+/// Entries in the kernel's `AlpRdDictionary`, the `alp` crate's `MAX_DICT_SIZE`.
+const ALP_RD_DICTIONARY_CAPACITY: usize = 8;
 
 /// Decodes `array` into floats of `float_ptype`, whose bits have the unsigned type `U`.
 #[instrument(skip_all)]
@@ -130,21 +132,16 @@ where
     let device_right = ctx.ensure_on_device(right_buffer).await?;
     let right_view = device_right.cuda_view::<U>()?;
 
-    // Only an all-null array can have an empty dictionary. Upload one placeholder entry so the
-    // kernel still gets a valid pointer; with a length of zero it never reads it.
     let dictionary = array.left_parts_dictionary();
+    vortex_ensure!(
+        dictionary.len() <= ALP_RD_DICTIONARY_CAPACITY,
+        "ALP-RD dictionary holds {} entries, more than {ALP_RD_DICTIONARY_CAPACITY}",
+        dictionary.len()
+    );
+    // Entries past `dictionary_len` are never read, because the kernel checks codes against it.
+    let mut dictionary_entries = [0u16; ALP_RD_DICTIONARY_CAPACITY];
+    dictionary_entries[..dictionary.len()].copy_from_slice(dictionary.as_slice());
     let dictionary_len = u32::try_from(dictionary.len())?;
-    let dictionary_entries = if dictionary.is_empty() {
-        Buffer::from(vec![0u16])
-    } else {
-        dictionary.clone()
-    };
-    let device_dictionary = ctx
-        .ensure_on_device(BufferHandle::new_host(
-            dictionary_entries.into_byte_buffer(),
-        ))
-        .await?;
-    let dictionary_view = device_dictionary.cuda_view::<u16>()?;
 
     let device_patches = match left_parts_patches {
         Some(patches) => Some(load_device_patches(&patches, ctx).await?),
@@ -181,7 +178,7 @@ where
         args.arg(&left_view)
             .arg(&right_view)
             .arg(&mut output_slice)
-            .arg(&dictionary_view)
+            .arg(&dictionary_entries)
             .arg(&dictionary_len)
             .arg(&right_bit_width)
             .arg(&array_len_u64)
@@ -192,10 +189,9 @@ where
             .arg(&patches_arg);
     })?;
 
-    // Synchronize so the device patches, dictionary and validity stay alive for the kernel.
+    // Synchronize so the device patches and validity stay alive for the kernel.
     ctx.synchronize_stream()?;
     drop(device_patches);
-    drop(device_dictionary);
     drop(device_validity);
 
     let invalid_code = ctx
