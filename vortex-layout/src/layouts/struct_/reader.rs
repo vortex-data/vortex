@@ -542,11 +542,6 @@ impl LayoutReader for StructReader {
             }
             all.dedup();
         }
-        // A child pinned these boundaries to spread its work across splits, such as a list's
-        // grid. They stay, even though the other children do not have them.
-        pinned.sort_unstable();
-        pinned.dedup();
-        soft.retain(|row| pinned.binary_search(row).is_err());
         soft.sort_unstable();
         soft.dedup();
 
@@ -914,9 +909,9 @@ mod tests {
         Ok((segments, layout))
     }
 
-    /// A struct of 6,400 rows: field `a` is one chunk, and field `l` is a list layout with four
-    /// elements per row, chunked every four elements. The list reader maps them to its grid of 64
-    /// cells, one every 100 rows.
+    /// A struct of 6,400 rows: field `a` is chunked every 150 rows, and field `l` is a list layout
+    /// with four elements per row, chunked every four elements. The list reader maps them to its
+    /// grid of 64 cells, one every 100 rows.
     fn struct_with_list_layout() -> VortexResult<(Arc<dyn SegmentSource>, LayoutRef)> {
         let rows = 6_400u32;
         let mut ctx = SESSION.create_execution_ctx();
@@ -939,6 +934,7 @@ mod tests {
             Arc::new(FlatLayoutStrategy::default()),
             Arc::new(FlatLayoutStrategy::default()),
         )
+        .with_field_writer(FieldPath::from_name("a"), chunked_every(150))
         .with_field_writer(
             FieldPath::from_name("l"),
             Arc::new(ListLayoutStrategy::default().with_elements(chunked_every(4))),
@@ -965,11 +961,24 @@ mod tests {
         let (segments, layout) = struct_with_list_layout()?;
         let grid = (0..=64).map(|cell| cell * 100).collect::<Vec<u64>>();
 
-        // Only the list has the grid boundaries, but they are pinned, not soft.
-        let (boundaries, soft) = boundaries_and_soft(Arc::clone(&segments), &layout)?;
-        assert_eq!(boundaries, grid);
-        assert!(soft.is_empty(), "{soft:?}");
+        let a_chunk_ends = (1..43).map(|chunk| chunk * 150).collect::<Vec<u64>>();
+        let mut expected = grid.clone();
+        expected.extend(&a_chunk_ends);
+        expected.sort_unstable();
+        expected.dedup();
 
+        // Only the list has the grid boundaries, but they are pinned, not soft. The chunk ends of
+        // `a` that are not on the grid are soft.
+        let (boundaries, soft) = boundaries_and_soft(Arc::clone(&segments), &layout)?;
+        assert_eq!(boundaries, expected);
+
+        let off_grid = a_chunk_ends
+            .into_iter()
+            .filter(|row| row % 100 != 0)
+            .collect::<Vec<u64>>();
+        assert_eq!(soft, off_grid);
+
+        // The scan merges the soft slivers away and keeps the grid.
         let reader = layout.new_reader("".into(), segments, &SESSION, &Default::default())?;
         let splits = SplitBy::default().splits(reader.as_ref(), &(0..6_400), &[FieldMask::All])?;
         assert_eq!(splits, grid);
