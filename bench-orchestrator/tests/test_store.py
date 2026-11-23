@@ -182,3 +182,53 @@ def test_malformed_metadata_is_skipped_by_discovery_and_lookups(
     assert store.get_run(bad_dir.name) is None
     assert store.get_run(aware_dir.name) is None
     assert store.get_run("aware-run") is None
+
+
+def test_deleting_latest_run_falls_back_to_surviving_complete_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _patch_store_env(monkeypatch)
+    store = ResultStore(base_dir=tmp_path / "runs")
+
+    with store.create_run(*_make_configs(label="keep")) as older_ctx:
+        older_id = older_ctx.metadata.run_id
+        older_ctx.write_raw_json(json.dumps({"run": 1}))
+
+    with store.create_run(*_make_configs(label=None)) as newer_ctx:
+        newer_id = newer_ctx.metadata.run_id
+        newer_ctx.write_raw_json(json.dumps({"run": 2}))
+
+    assert store.resolve_reference("latest") == newer_id
+
+    assert store.delete_run(newer_id) is True
+    assert store.resolve_reference("latest") == older_id
+    latest = store.get_run("latest")
+    assert latest is not None and latest.run_id == older_id
+
+    # Deleting the last complete run leaves no latest run, even when a partial run exists.
+    with pytest.raises(RuntimeError, match="boom"), store.create_run(*_make_configs(label="partial")) as partial_ctx:
+        partial_ctx.write_raw_json(json.dumps({"status": "partial"}))
+        raise RuntimeError("boom")
+
+    assert store.delete_run(older_id) is True
+    assert store.resolve_reference("latest") is None
+    assert store.get_run("latest") is None
+
+
+def test_preexisting_dangling_latest_link_falls_back_to_complete_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _patch_store_env(monkeypatch)
+    store = ResultStore(base_dir=tmp_path / "runs")
+
+    with store.create_run(*_make_configs(label="surviving")) as ctx:
+        surviving_id = ctx.metadata.run_id
+        ctx.write_raw_json(json.dumps({"run": 1}))
+
+    latest_link = store.base_dir / "latest"
+    latest_link.unlink()
+    latest_link.symlink_to("2026-11-21T12-00-01_tpch_missing")
+
+    assert store.resolve_reference("latest") == surviving_id
+    latest = store.get_run("latest")
+    assert latest is not None and latest.run_id == surviving_id
