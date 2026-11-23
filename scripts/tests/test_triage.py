@@ -24,6 +24,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / ".github" / "script
 github = importlib.import_module("triage.github")
 publish = importlib.import_module("triage.publish")
 slack = importlib.import_module("triage.slack")
+evaluate = importlib.import_module("triage.evaluate")
 cli = importlib.import_module("triage.__main__")
 
 TEAM = {"login": "gatesn", "__typename": "User"}
@@ -296,14 +297,240 @@ def test_reopened_item_waits_for_the_next_scan(setup):
     assert len(fake.messages) == 1
 
 
+def test_classify_captures_recent_conversation_without_bots():
+    raw = {
+        **node(OUTSIDER),
+        "body": "  Problem   description  ",
+        "comments": {
+            "nodes": [
+                {"at": "2026-01-02T00:00:00Z", "author": BOT, "body": "bot noise"},
+                {"at": "2026-01-03T00:00:00Z", "author": TEAM, "body": "Will look tomorrow"},
+            ],
+        },
+        "reviews": {
+            "nodes": [
+                {"at": "2026-01-04T00:00:00Z", "author": OUTSIDER, "body": "Pushed a fix", "state": "COMMENTED"},
+            ],
+        },
+    }
+
+    classified = github.classify("pr", raw)
+    assert classified.body == "Problem description"
+    assert [(c.author, c.team, c.kind, c.body, c.state) for c in classified.recent] == [
+        ("gatesn", True, "comment", "Will look tomorrow", ""),
+        ("alamb", False, "review", "Pushed a fix", "COMMENTED"),
+    ]
+
+
+def test_slack_store_reconstructs_threads_updates_and_pings():
+    class FakeClient:
+        def messages(self, thread_ts=None, oldest=0.0) -> object:
+            if thread_ts is None:
+                return iter(
+                    [
+                        {"ts": "100.0", "text": "unrelated human chat"},
+                        {
+                            "ts": "200.0",
+                            "reply_count": 2,
+                            "metadata": {
+                                "event_type": slack.EVENT_TYPE,
+                                "event_payload": {
+                                    "key": "42:root",
+                                    "status": "Open · no GitHub assignee",
+                                    "external_at": "2026-01-01T00:00:00Z",
+                                },
+                            },
+                        },
+                    ]
+                )
+            assert thread_ts == "200.0"
+            return iter(
+                [
+                    {"ts": "200.0", "metadata": {"event_type": slack.EVENT_TYPE, "event_payload": {"key": "42:root"}}},
+                    {
+                        "ts": "250.0",
+                        "metadata": {
+                            "event_type": slack.EVENT_TYPE,
+                            "event_payload": {
+                                "key": "42:update:1",
+                                "status": "Open · GitHub assignees: `gatesn`",
+                                "external_at": "2026-01-02T00:00:00Z",
+                            },
+                        },
+                    },
+                    {
+                        "ts": "300.0",
+                        "metadata": {
+                            "event_type": slack.EVENT_TYPE,
+                            "event_payload": {
+                                "key": "42:ping:1",
+                                "status": "Open · GitHub assignees: `gatesn`",
+                                "external_at": "2026-01-02T00:00:00Z",
+                                "last_ping_at": "300",
+                            },
+                        },
+                    },
+                ]
+            )
+
+    loaded = slack.SlackStore(FakeClient()).load()
+    assert loaded[42] == publish.Thread(
+        created_at=200.0,
+        root_ts="200.0",
+        status="Open · GitHub assignees: `gatesn`",
+        external_at="2026-01-02T00:00:00Z",
+        updates=1,
+        last_ping_at=300.0,
+        pings=1,
+    )
+
+
+def test_cadence_business_hours_and_weekday_counting():
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    ny = ZoneInfo("America/New_York")
+    cadence = evaluate.Cadence(issue_days=7, pr_weekdays=1, tz="America/New_York")
+
+    fri_17 = datetime(2026, 1, 9, 17, 0, tzinfo=ny).timestamp()
+    sat_12 = datetime(2026, 1, 10, 12, 0, tzinfo=ny).timestamp()
+    mon_08 = datetime(2026, 1, 12, 8, 59, tzinfo=ny).timestamp()
+    mon_09 = datetime(2026, 1, 12, 9, 0, tzinfo=ny).timestamp()
+    mon_15 = datetime(2026, 1, 12, 15, 0, tzinfo=ny).timestamp()
+    fri_next = datetime(2026, 1, 16, 17, 0, tzinfo=ny).timestamp()
+
+    assert evaluate.in_business_hours(fri_17, cadence)
+    assert not evaluate.in_business_hours(sat_12, cadence)
+    assert not evaluate.in_business_hours(mon_08, cadence)
+    assert evaluate.in_business_hours(mon_09, cadence)
+    assert evaluate.weekdays_between(fri_17, mon_09, "America/New_York") == 1
+    assert evaluate.weekdays_between(mon_09, mon_15, "America/New_York") == 0
+
+    pr_thread = publish.Thread(created_at=fri_17, root_ts="1.0", status="Open", last_ping_at=fri_17, pings=1)
+    pr_item = item(1, kind="pr")
+    assert not evaluate.is_ping_due(pr_item, pr_thread, sat_12, cadence)
+    assert evaluate.is_ping_due(pr_item, pr_thread, mon_09, cadence)
+
+    issue_thread = publish.Thread(created_at=fri_17, root_ts="1.0", status="Open", last_ping_at=fri_17, pings=1)
+    issue_item = item(2, kind="issue")
+    assert not evaluate.is_ping_due(issue_item, issue_thread, mon_09, cadence)
+    assert evaluate.is_ping_due(issue_item, issue_thread, fri_next, cadence)
+
+
+def test_load_verdicts_and_fallback(tmp_path):
+    verdicts_file = tmp_path / "verdicts.json"
+    verdicts_file.write_text(
+        '{"1": {"state": "waiting_on_vortex", "reason": "  No review\\nyet  "}, '
+        '"2": {"state": "bogus", "reason": "ignored"}, '
+        '"bad": {"state": "waiting_on_vortex", "reason": "ignored"}, '
+        '"3": {"state": "waiting_on_contributor", "reason": "Asked for tests"}}',
+        encoding="utf-8",
+    )
+    loaded = evaluate.load_verdicts(verdicts_file)
+    assert set(loaded.keys()) == {1, 3}
+    assert loaded[1] == evaluate.Verdict("waiting_on_vortex", "No review yet", "claude")
+    assert loaded[3] == evaluate.Verdict("waiting_on_contributor", "Asked for tests", "claude")
+    assert evaluate.load_verdicts(tmp_path / "missing.json") == {}
+
+    structured_file = tmp_path / "structured.json"
+    structured_file.write_text(
+        '{"verdicts": ['
+        '{"number": 10, "state": "waiting_on_vortex", "reason": "  Still needs review  "},'
+        '{"number": true, "state": "waiting_on_vortex", "reason": "ignored"},'
+        '{"number": 11, "state": "bogus", "reason": "ignored"},'
+        '{"number": 12, "state": "waiting_on_contributor", "reason": "Waiting for tests"}'
+        "]}",
+        encoding="utf-8",
+    )
+    structured = evaluate.load_verdicts(structured_file)
+    assert structured == {
+        10: evaluate.Verdict("waiting_on_vortex", "Still needs review", "claude"),
+        12: evaluate.Verdict("waiting_on_contributor", "Waiting for tests", "claude"),
+    }
+
+    assert evaluate.fallback_verdict(item(1, reasons=("fuzzer",))).state == evaluate.WAITING_ON_VORTEX
+    assert evaluate.fallback_verdict(item(2, assignees=())).state == evaluate.WAITING_ON_VORTEX
+    replied = github.Item(
+        number=3,
+        kind="pr",
+        title="t",
+        url="https://example.com/3",
+        author="alamb",
+        created_at="2026-01-01T00:00:00Z",
+        assignees=("gatesn",),
+        reasons=("external_author",),
+        external_at="2026-01-01T00:00:00Z",
+        external_by="alamb",
+        team_at="2026-01-02T00:00:00Z",
+    )
+    assert evaluate.fallback_verdict(replied).state == evaluate.WAITING_ON_CONTRIBUTOR
+
+
+def test_mention_for_and_parse_slack_users():
+    users = evaluate.parse_slack_users('{"GatesN": "U111", "myrrc": "U222"}')
+    assert evaluate.mention_for(item(1, assignees=("gatesn",)), users, "U999") == "<@U111>"
+    assert (
+        evaluate.mention_for(item(1, assignees=("someone",)), users, "U999") == "<@U999> (GitHub assignee: `someone`)"
+    )
+    assert evaluate.mention_for(item(1, assignees=()), users, "U999") == "<@U999> (unassigned)"
+    assert evaluate.mention_for(item(1, assignees=()), users, None) == "on-call (unassigned)"
+
+
+def test_publisher_pings_on_cadence_and_respects_claude_verdict(setup):
+    store, fake, _, _ = setup
+    now = [1_767_978_000.0]  # 2026-01-09 12:00 EST (Friday)
+    publisher = publish.Publisher(store, fake, lambda _: None, now=lambda: now[0])
+    cadence = evaluate.Cadence(issue_days=7, pr_weekdays=1, tz="America/New_York")
+    users = {"gatesn": "U111"}
+
+    pr_waiting = item(1, kind="pr", assignees=("gatesn",))
+    pr_done = item(2, kind="pr", assignees=("gatesn",))
+    verdicts = {
+        1: evaluate.Verdict(evaluate.WAITING_ON_VORTEX, "Teammate said 'will look tomorrow' 4 days ago.", "claude"),
+        2: evaluate.Verdict(evaluate.WAITING_ON_CONTRIBUTOR, "Requested unit tests from contributor.", "claude"),
+    }
+
+    assert publisher.sync([pr_waiting, pr_done], ping=True, verdicts=verdicts, cadence=cadence, slack_users=users) == []
+    assert [m["key"] for m in fake.messages] == ["1:root", "1:ping:1", "2:root"]
+    assert "<@U111>" in fake.messages[1]["text"]
+    assert "will look tomorrow" in fake.messages[1]["text"]
+
+    # Same afternoon: not due yet.
+    now[0] += 3600
+    assert publisher.sync([pr_waiting, pr_done], ping=True, verdicts=verdicts, cadence=cadence, slack_users=users) == []
+    assert [m["key"] for m in fake.messages] == ["1:root", "1:ping:1", "2:root"]
+
+    # Next Monday noon: 1 weekday elapsed, so PR #1 pings again.
+    now[0] += 3 * 86400
+    assert publisher.sync([pr_waiting, pr_done], ping=True, verdicts=verdicts, cadence=cadence, slack_users=users) == []
+    assert [m["key"] for m in fake.messages] == ["1:root", "1:ping:1", "2:root", "1:ping:2"]
+
+
 def test_in_doubt_root_retries_and_refusals_respect_max_new(setup):
     _, fake, _, publisher = setup
     items = [item(n) for n in (1, 2, 3, 4)]
     fake.fail = "lost"
-    publisher.sync(items, max_new=2)
+    # Even when root posts time out (in doubt), max_new caps the run at 2 attempts.
+    assert len(publisher.sync(items, max_new=2)) == 2
     fake.fail = None
     assert publisher.sync(items, max_new=2) == []
     assert [m["key"] for m in fake.messages] == ["1:root", "2:root"]
+
+
+def test_failed_first_ping_still_counts_new_root_against_max_new(setup):
+    _, fake, _, publisher = setup
+    original_post = fake.post
+
+    def fail_ping(text, key, payload, thread_ts) -> object:
+        if ":ping:" in key:
+            raise slack.SlackError("rate limited", code="rate_limited")
+        return original_post(text, key, payload, thread_ts)
+
+    fake.post = fail_ping
+    cadence = evaluate.Cadence(ignore_hours=True)
+    failures = publisher.sync([item(1), item(2)], max_new=1, ping=True, cadence=cadence)
+    assert failures == ["#1: rate limited"]
+    assert [m["key"] for m in fake.messages] == ["1:root"]
 
 
 def test_deleted_slack_parent_resets_thread_on_recovery(setup):
