@@ -39,7 +39,7 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     session
 });
 
-const LEN: u32 = 65_536;
+const LEN: u32 = 8_192;
 const DICT_SIZE: u16 = 1_000;
 /// Step between consecutive present codes. It is coprime with `DICT_SIZE`, so the codes cycle
 /// through the whole dictionary.
