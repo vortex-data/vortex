@@ -43,6 +43,11 @@ use vortex::VortexSessionDefault;
 use vortex::buffer::ByteBufferMut;
 use vortex::dtype::Nullability;
 use vortex::dtype::session::DTypeSessionExt;
+use vortex::editions::ComponentKind;
+use vortex::editions::Edition;
+use vortex::editions::EditionId;
+use vortex::editions::EditionInclusion;
+use vortex::editions::EditionSessionExt;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::file::WriteOptionsSessionExt;
 use vortex::scan::DataSourceRef;
@@ -425,8 +430,8 @@ impl ExtensionFilterFixture {
 
     /// Moves the value column into a `parent` struct, beside a `key` field that copies `id`.
     ///
-    /// [`Parent::Extension`] also registers [`AnyStorage`] in the fixture session, so the scan
-    /// imports `parent` as an extension value.
+    /// [`Parent::Extension`] registers [`AnyStorage`] and enables a test edition that permits it,
+    /// so the fixture can write and read `parent` as an extension value.
     fn nested_batch(&self, parent: Parent) -> anyhow::Result<RecordBatch> {
         let schema = self.batch.schema();
         let fields = Fields::from(vec![
@@ -441,6 +446,21 @@ impl ExtensionFilterFixture {
                 .from_arrow_datatype(parent_field.data_type(), Nullability::NonNullable)?;
             let parent_dtype = AnyStorage::dtype(storage)?;
             self.session.dtypes().register(AnyStorage);
+
+            let edition = EditionId::new("datafusion-test", 2026, 11, 0);
+            let editions = self.session.editions();
+            editions.declare_edition(Edition {
+                id: edition,
+                immutable: true,
+                min_library_version: None,
+            })?;
+            editions.declare_inclusion(EditionInclusion::new(
+                ComponentKind::DType,
+                &parent_dtype.id(),
+                edition,
+            ))?;
+            self.session.enable_edition(edition)?;
+
             parent_field
                 .metadata_mut()
                 .extend(encode_arrow_ext_metadata(&parent_dtype)?);
