@@ -132,7 +132,7 @@ impl PruningState {
         self.pruning_predicates
             .get_or_insert_with(expr, || Arc::new(OnceLock::new()))
             .get_or_init(|| match expr.falsify(&self.session) {
-                Ok(predicate) => predicate,
+                Ok(predicate) => predicate.map(|p| p.detach_identity()),
                 Err(error) => {
                     trace!(%expr, %error, "failed to construct stats rewrite predicate");
                     None
