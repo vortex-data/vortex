@@ -39,6 +39,7 @@ use vortex::io::session::RuntimeSessionExt;
 use vortex::layout::scan::v2::ScanBuilder;
 use vortex::scan::execution::driver::ScanDriver;
 use vortex::scan::strict_sorted_buffer::StrictSortedBuffer;
+use vortex::utils::parallelism::get_available_parallelism;
 
 use crate::Format;
 use crate::SESSION;
@@ -194,7 +195,12 @@ impl RandomAccessor for VortexRandomAccessor {
         let indices = StrictSortedBuffer::try_new(Buffer::from(indices.to_vec()))?;
         let scan =
             ScanBuilder::new(SESSION.clone(), self.file.scan_file()).with_row_indices(indices);
-        let stream = ScanDriver::new(SESSION.handle(), 4, true).run(scan);
+        let stream = ScanDriver::new(
+            SESSION.handle(),
+            4 * get_available_parallelism().unwrap_or(1),
+            true,
+        )
+        .run(scan);
         let array = ArrayStreamAdapter::new(self.file.dtype().clone(), stream)
             .read_all()
             .await?;
