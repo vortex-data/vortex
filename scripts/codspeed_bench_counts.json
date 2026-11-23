@@ -172,6 +172,7 @@
   },
   "vortex-sparse": {
     "sparse_canonical": 6,
+    "sparse_dict_codes": 4,
     "sparse_pushdown": 5
   },
   "vortex-spatial": {
