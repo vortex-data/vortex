@@ -163,8 +163,11 @@ mod tests {
     use vortex_functions::between::StrictComparison;
     use vortex_functions::builtins::ArrayFunctions;
 
+    use crate::Delta;
     use crate::RLE;
     use crate::RLEData;
+    use crate::rle::RLEArrayExt;
+    use crate::rle::RLEArraySlotsExt;
 
     const ALL_OPERATORS: [CompareOperator; 6] = [
         CompareOperator::Eq,
@@ -301,6 +304,69 @@ mod tests {
                 .binary(rhs.clone(), Operator::from(operator))?;
             assert_arrays_eq!(actual, expected, &mut ctx);
         }
+
+        Ok(())
+    }
+
+    #[rstest]
+    fn compare_and_between_with_delta_offsets(
+        #[values(false, true)] nullable: bool,
+        #[values(false, true)] sliced: bool,
+    ) -> VortexResult<()> {
+        let mut ctx = crate::test::SESSION.create_execution_ctx();
+        let expected_input = input(nullable);
+        let rle = RLEData::encode(expected_input.as_view(), &mut ctx)?;
+
+        let offsets = rle
+            .values_idx_offsets()
+            .clone()
+            .execute::<PrimitiveArray>(&mut ctx)?;
+        let delta_offsets = Delta::try_from_primitive_array(&offsets, &mut ctx)?.into_array();
+        let array = RLE::try_new(
+            rle.values().clone(),
+            rle.indices().clone(),
+            delta_offsets,
+            rle.offset(),
+            rle.len(),
+        )?
+        .into_array();
+
+        let (array, expected_input) = if sliced {
+            let range = 517..2611;
+            let sliced = array.slice(range.clone())?.execute::<ArrayRef>(&mut ctx)?;
+            assert!(sliced.is::<RLE>());
+            (sliced, expected_input.slice(range)?)
+        } else {
+            (array, expected_input.into_array())
+        };
+
+        let rhs = ConstantArray::new(7i32, array.len()).into_array();
+        for operator in ALL_OPERATORS {
+            let actual =
+                <RLE as CompareKernel>::compare(array.as_::<RLE>(), &rhs, operator, &mut ctx)?
+                    .unwrap_or_else(|| panic!("RLE compare must engage for {operator:?}"));
+            let expected = expected_input
+                .clone()
+                .binary(rhs.clone(), Operator::from(operator))?;
+            assert_arrays_eq!(actual, expected, &mut ctx);
+        }
+
+        let lower = ConstantArray::new(-3i32, array.len()).into_array();
+        let upper = ConstantArray::new(4i32, array.len()).into_array();
+        let options = BetweenOptions {
+            lower_strict: StrictComparison::NonStrict,
+            upper_strict: StrictComparison::Strict,
+        };
+        let actual = <RLE as BetweenKernel>::between(
+            array.as_::<RLE>(),
+            &lower,
+            &upper,
+            &options,
+            &mut ctx,
+        )?
+        .unwrap_or_else(|| panic!("RLE between must engage"));
+        let expected = expected_input.between(lower, upper, options)?;
+        assert_arrays_eq!(actual, expected, &mut ctx);
 
         Ok(())
     }

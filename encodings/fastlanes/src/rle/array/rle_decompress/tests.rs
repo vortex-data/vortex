@@ -314,6 +314,39 @@ fn decode_any_index_encoding(
     Ok(())
 }
 
+#[test]
+fn test_decode_delta_encoded_offsets_and_values() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let len = 4 * FL_CHUNK_SIZE + 300;
+    let expected = PrimitiveArray::from_iter((0..len).map(|i| (i / 5) as i64));
+    let rle = RLE::encode(expected.as_view(), &mut ctx)?;
+
+    let values = rle.values().clone().execute::<PrimitiveArray>(&mut ctx)?;
+    let delta_values = Delta::try_from_primitive_array(&values, &mut ctx)?.into_array();
+
+    let offsets = rle
+        .values_idx_offsets()
+        .clone()
+        .execute::<PrimitiveArray>(&mut ctx)?;
+    let delta_offsets = Delta::try_from_primitive_array(&offsets, &mut ctx)?.into_array();
+
+    let encoded = RLE::try_new(
+        delta_values,
+        rle.indices().clone(),
+        delta_offsets,
+        rle.offset(),
+        rle.len(),
+    )?;
+
+    let decoded = rle_decompress(&encoded, &mut ctx)?;
+    assert_arrays_eq!(decoded, expected, &mut ctx);
+    assert_arrays_eq!(encoded.clone(), expected, &mut ctx);
+
+    let sliced = encoded.into_array().slice(500..2500)?;
+    assert_arrays_eq!(sliced, expected.slice(500..2500)?, &mut ctx);
+    Ok(())
+}
+
 #[rstest]
 #[case::small(10, 0b0000_0111, 13)]
 #[case::exactly_254(254, 0, 254)]
