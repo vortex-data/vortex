@@ -373,7 +373,8 @@ impl BoundScanRequest {
                 .map(|expr| expr.bind(dtype)?.optimize_recursive())
                 .transpose()
                 .map_err(Arc::new),
-            row_range,
+            // A range that starts after it ends selects no rows.
+            row_range: row_range.map(|range| range.start..range.end.max(range.start)),
             selection,
             partition_selection,
             partition_range,
@@ -767,6 +768,33 @@ mod tests {
             )?);
         }
         Ok((values, in_flight.peak()))
+    }
+
+    #[test]
+    #[expect(
+        clippy::reversed_empty_ranges,
+        reason = "the inverted range is the input"
+    )]
+    fn inverted_row_range_selects_no_rows() -> VortexResult<()> {
+        let runtime = SingleThreadRuntime::default();
+        let session = session_with_handle(runtime.handle());
+        let reader: LayoutReaderRef = Arc::new(TestLayoutReader::new(8));
+        let source = MultiLayoutDataSource::new_with_first(reader, vec![], vec![], &session);
+        // The filter reaches the pruning check in `reader_partition`, which needs the range's
+        // length.
+        let scan = runtime.block_on(source.scan(ScanRequest {
+            filter: Some(eq(root(), lit(1i32))),
+            row_range: Some(5..3),
+            ..Default::default()
+        }))?;
+        let mut values = Vec::new();
+        for partition in runtime.block_on(scan.partitions().try_collect::<Vec<_>>())? {
+            values.extend(collect_scan_values(
+                runtime.block_on_stream(partition.execute()?),
+            )?);
+        }
+        assert!(values.is_empty(), "{values:?}");
+        Ok(())
     }
 
     /// A per-worker concurrency set after the bound leaves the bound in place.
