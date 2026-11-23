@@ -546,11 +546,12 @@ const DICT_EXPORT_CASES: &[DictExportCase] = &[
         validity: StringValidity::NonNullable,
     },
 ];
-const DICT_ROWS: usize = 16_384;
+const DICT_ROWS: usize = 2048;
 const DICT_CHUNKS: usize = 4;
+const DICT_VALUES: usize = 64;
 
 fn dict_chunk(len: usize, validity: StringValidity) -> ArrayRef {
-    let code = |index: usize| u16::try_from(index % DICTIONARY_SIZE).unwrap();
+    let code = |index: usize| u8::try_from(index % DICT_VALUES).unwrap();
     let codes = match validity {
         StringValidity::NonNullable => PrimitiveArray::from_iter((0..len).map(code)).into_array(),
         StringValidity::Nullable => PrimitiveArray::from_option_iter(
@@ -558,7 +559,7 @@ fn dict_chunk(len: usize, validity: StringValidity) -> ArrayRef {
         )
         .into_array(),
     };
-    let values = structured_strings(DICTIONARY_SIZE, StringValidity::NonNullable);
+    let values = structured_strings(DICT_VALUES, StringValidity::NonNullable);
     DictArray::try_new(codes, values.into_array())
         .unwrap()
         .into_array()
