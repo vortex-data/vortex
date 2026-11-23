@@ -55,6 +55,7 @@ use crate::variant_get::VariantGetOptions;
 use crate::variant_get::VariantPath;
 use crate::variant_get::VariantPathElement;
 use crate::variant_get::convert_to_decimal;
+use crate::variant_pack::VariantPack;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     let session = VortexSession::empty();
@@ -1211,5 +1212,45 @@ fn variant_get_extracts_from_masked_variants(#[case] as_core_storage: bool) -> V
         PrimitiveArray::from_option_iter([Some(5i32), None, Some(5)]),
         &mut ctx
     );
+    Ok(())
+}
+
+#[test]
+fn variant_get_root_struct_respects_variant_pack_shredded_validity() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let core = variant_rows([
+        Scalar::variant(variant_object([])),
+        Scalar::null(DType::Variant(Nullability::Nullable)),
+    ])?;
+    let shredded = StructArray::try_new(
+        FieldNames::from_iter(["a"]),
+        vec![PrimitiveArray::from_option_iter([Some(10i32), None]).into_array()],
+        2,
+        Validity::NonNullable,
+    )?
+    .into_array();
+    let validity = BoolArray::from_iter([true, false]).into_array();
+    let packed =
+        VariantPack::try_new_with_validity(core, shredded, validity, true)?.into_array();
+
+    let target = DType::struct_(
+        [("a", DType::Primitive(PType::I32, Nullability::Nullable))],
+        Nullability::Nullable,
+    );
+    let expr = variant_get(root(), VariantPath::root(), Some(target));
+    let result = packed
+        .apply(&expr)?
+        .optimize_ctx(&ctx)?
+        .execute::<ArrayRef>(&mut ctx)?;
+    assert!(result.is_valid(0, &mut ctx)?);
+    assert_eq!(
+        result
+            .execute_scalar(0, &mut ctx)?
+            .as_struct()
+            .field("a")
+            .and_then(|s| s.as_primitive().typed_value::<i32>()),
+        Some(10),
+    );
+    assert!(result.is_invalid(1, &mut ctx)?);
     Ok(())
 }
