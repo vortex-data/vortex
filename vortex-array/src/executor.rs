@@ -197,6 +197,10 @@ impl ArrayRef {
         // root here, with the nodes below it that were never optimized, and a child when execution
         // focuses it.
         let mut current_array = optimizer.optimize_array(&self)?;
+
+        // Release the caller's handle, so that the root is not shared for the whole execution.
+        // Encodings that decode a uniquely owned child buffer in place would otherwise copy it.
+        drop(self);
         let mut current_builder: Option<Box<dyn ArrayBuilder>> = None;
         let mut stack: Vec<StackFrame> = Vec::new();
         // Whether `current_array` was rewritten since its parent was suspended, so its
@@ -383,11 +387,15 @@ impl ArrayRef {
                 ExecutionStep::AppendChild(i) => {
                     if current_builder.is_none() {
                         trace_op!(record_builder_start(&array));
-                        current_builder = Some(builder_with_capacity_in(
-                            array.dtype(),
-                            array.len(),
-                            ctx.allocator(),
-                        ));
+                        let mut builder =
+                            builder_with_capacity_in(array.dtype(), array.len(), ctx.allocator());
+                        // The parent hands its children over one `AppendChild` at a time, so tell
+                        // the builder how many are coming. A nested builder keeps each appended
+                        // array as a chunk of its child, and without this every one of those chunk
+                        // lists grows incrementally: a 128-chunk array of 8-field structs pays 40
+                        // reallocations for what is eight reserves.
+                        builder.reserve_chunks(array.nchildren());
+                        current_builder = Some(builder);
                     }
                     let (parent, child) = unsafe { array.take_slot_unchecked(i) }?;
 
@@ -509,6 +517,12 @@ impl ExecutionCtx {
     /// the context uses instead of looking up the session's kernels again.
     pub(crate) fn reduce_parent_kernels(&self) -> &ParentReduceKernels {
         &self.kernels.reduce_parent
+    }
+
+    /// Try to rewrite `array` using a registered execute-parent kernel on one of its children.
+    pub fn try_execute_parent(&mut self, array: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
+        let kernels = Arc::clone(&self.kernels.execute_parent);
+        try_execute_parent(array, kernels.as_ref(), self)
     }
 
     /// Get the allocator for this execution context.
@@ -925,6 +939,21 @@ impl ExecutionResult {
         }
     }
 
+    /// Signal that execution is complete and the result is in the executor's active builder.
+    ///
+    /// Pass the consumed parent array: the executor discards it after finishing the builder,
+    /// avoiding an allocation for a placeholder result.
+    ///
+    /// Only valid once at least one [`ExecutionStep::AppendChild`] has been returned, which
+    /// guarantees that the executor has an active builder. The parent may have empty child slots
+    /// because its children have already been appended; it must not escape the executor.
+    pub fn done_into_builder(array: impl IntoArray) -> Self {
+        Self {
+            array: array.into_array(),
+            step: ExecutionStep::Done,
+        }
+    }
+
     /// Request execution of slot at `slot_idx` until it matches the given [`Matcher`].
     ///
     /// The provided array is the (possibly modified) parent that still needs its slot executed.
@@ -1077,9 +1106,10 @@ macro_rules! require_patches {
     };
 }
 
-/// Require that the validity slot is a [`Bool`](crate::arrays::Bool) array. If validity is not
-/// array-backed (e.g. `NonNullable` or `AllValid`), this is a no-op. If it is array-backed but
-/// not `Bool`, early-returns an [`ExecutionResult`] requesting execution of the validity slot.
+/// Require that the validity slot is columnar ([`Bool`](crate::arrays::Bool) or
+/// [`Constant`](crate::arrays::Constant)). If validity is not array-backed (e.g. `NonNullable` or
+/// `AllValid`), or is already a constant bool array (e.g. `AllInvalid`), this is a no-op.
+/// Otherwise, early-returns an [`ExecutionResult`] requesting execution of the validity slot.
 ///
 /// Like [`require_opt_child!`], `$parent` is moved (not cloned) into the early-return path.
 ///
@@ -1092,7 +1122,7 @@ macro_rules! require_validity {
         $crate::require_opt_child!(
             $parent,
             $parent.slots()[$idx].as_ref(),
-            $idx => $crate::arrays::Bool
+            $idx => $crate::AnyColumnar
         );
     };
 }

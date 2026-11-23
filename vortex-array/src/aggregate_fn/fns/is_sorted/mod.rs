@@ -781,8 +781,8 @@ mod tests {
         let sorted = buffer![i100, i200, i200];
         let unsorted = buffer![i200, i100, i200];
 
-        let sorted_array = DecimalArray::new(sorted, dtype, Validity::NonNullable);
-        let unsorted_array = DecimalArray::new(unsorted, dtype, Validity::NonNullable);
+        let sorted_array = DecimalArray::new(sorted, dtype, Validity::NonNullable, &mut ctx);
+        let unsorted_array = DecimalArray::new(unsorted, dtype, Validity::NonNullable, &mut ctx);
 
         assert!(is_sorted(&sorted_array.into_array(), &mut ctx)?);
         assert!(!is_sorted(&unsorted_array.into_array(), &mut ctx)?);
@@ -803,8 +803,9 @@ mod tests {
 
         let dtype = DecimalDType::new(19, 2);
 
-        let strict_sorted_array = DecimalArray::new(strict_sorted, dtype, Validity::NonNullable);
-        let sorted_array = DecimalArray::new(sorted, dtype, Validity::NonNullable);
+        let strict_sorted_array =
+            DecimalArray::new(strict_sorted, dtype, Validity::NonNullable, &mut ctx);
+        let sorted_array = DecimalArray::new(sorted, dtype, Validity::NonNullable, &mut ctx);
 
         assert!(is_strict_sorted(
             &strict_sorted_array.into_array(),
@@ -881,7 +882,7 @@ mod tests {
     #[case::primitive(PrimitiveArray::from_option_iter([None::<i32>]).into_array())]
     #[case::bool(BoolArray::from_iter([None::<bool>]).into_array())]
     #[case::decimal(
-        DecimalArray::new(buffer![0i128], DecimalDType::new(19, 2), Validity::AllInvalid).into_array()
+        DecimalArray::new(buffer![0i128], DecimalDType::new(19, 2), Validity::AllInvalid, &mut SESSION.create_execution_ctx()).into_array()
     )]
     #[case::string(VarBinViewArray::from_iter_nullable_str([None::<&str>]).into_array())]
     #[case::constant(ConstantArray::new(Scalar::null_native::<i32>(), 1).into_array())]

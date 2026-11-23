@@ -8,6 +8,7 @@ use std::path::PathBuf;
 use anyhow::Result;
 use arrow_array::RecordBatchReader;
 use async_trait::async_trait;
+use futures::StreamExt;
 use futures::TryStreamExt;
 use parquet::arrow::ArrowWriter;
 use parquet::arrow::ProjectionMask;
@@ -22,13 +23,16 @@ use vortex::dtype::Nullability::NonNullable;
 use vortex::expr::col;
 use vortex::expr::pack;
 use vortex::file::OpenOptionsSessionExt;
+use vortex::scan::ScanRequest;
 
 use crate::Format;
+use crate::IdempotentPath;
 use crate::SESSION;
 use crate::datasets::Dataset;
 use crate::datasets::tpch_sf1::TpchSf1Table;
 use crate::idempotent;
 use crate::utils::parquet::parquet_writer_properties;
+use crate::utils::parquet::remove_stale_parquet;
 
 pub struct TPCHLCommentChunked;
 
@@ -37,7 +41,9 @@ async fn ensure_lineitem(format: Format) -> Result<PathBuf> {
     TpchSf1Table::LineItem.path(format).await
 }
 
-/// Rows per row group in the `l_comment` Parquet file, the same as the TPC-H generator writes.
+/// Rows per row group in the `l_comment` Parquet file: parquet-rs's default, which compress-bench's
+/// own Parquet writer also uses. The TPC-H generator's row groups depend on the storage that the
+/// queries read from, so this file does not copy the row groups of `lineitem`.
 const L_COMMENT_ROW_GROUP_ROWS: usize = 1024 * 1024;
 
 /// Path of a Parquet file that holds only the `l_comment` column of TPC-H SF=1 `lineitem`.
@@ -47,9 +53,9 @@ const L_COMMENT_ROW_GROUP_ROWS: usize = 1024 * 1024;
 async fn l_comment_parquet() -> Result<PathBuf> {
     let lineitem = ensure_lineitem(Format::Parquet).await?;
     tokio::task::spawn_blocking(move || {
-        idempotent(&"tpch-l_comment/1.0/l_comment.parquet", |output| {
-            write_l_comment(&lineitem, output)
-        })
+        let path = "tpch-l_comment/1.0/l_comment.parquet";
+        remove_stale_parquet(&path.to_data_path())?;
+        idempotent(&path, |output| write_l_comment(&lineitem, output))
     })
     .await?
 }
@@ -80,21 +86,22 @@ impl Dataset for TPCHLCommentChunked {
     async fn to_vortex_array(&self, ctx: &mut ExecutionCtx) -> Result<ArrayRef> {
         let path = ensure_lineitem(Format::OnDiskVortex).await?;
         let file = SESSION.open_options().open_path(path).await?;
-        let projection = pack(vec![("l_comment", col("l_comment"))], NonNullable)
-            .bind(file.dtype())?
-            .optimize_recursive()?;
-        let chunks: Vec<_> = file
-            .scan()?
-            .with_projection(projection)
-            .map({
-                let ctx = ctx.clone();
-                move |a| {
-                    let mut ctx = ctx.clone();
-                    let canonical = a.execute::<Canonical>(&mut ctx)?;
-                    Ok(canonical.into_array())
-                }
+        let scan = file
+            .data_source()?
+            .scan(ScanRequest {
+                projection: pack(vec![("l_comment", col("l_comment"))], NonNullable),
+                ordered: true,
+                ..Default::default()
             })
-            .into_array_stream()?
+            .await?;
+        let chunks: Vec<_> = scan
+            .into_array_stream()
+            .map(|array| {
+                let mut ctx = ctx.clone();
+                array?
+                    .execute::<Canonical>(&mut ctx)
+                    .map(IntoArray::into_array)
+            })
             .try_collect()
             .await?;
 

@@ -1017,8 +1017,7 @@ macro_rules! try_from_bytes {
         impl ToBytes for $T {
             #[inline]
             fn to_le_bytes(&self) -> &[u8] {
-                // NOTE(ngates): this assumes the platform is little-endian. Currently enforced
-                //  with a flag cfg(target_endian = "little")
+                // The crate requires a little-endian target, so native byte order is sufficient.
                 let raw_ptr = (self as *const $T).cast::<u8>();
                 unsafe { std::slice::from_raw_parts(raw_ptr, std::mem::size_of::<$T>()) }
             }

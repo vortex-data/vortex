@@ -11,7 +11,8 @@
 //! Utility and lazy arrays represent common transformations without immediately materializing
 //! their result. Examples include [`ChunkedArray`] for concatenation, [`ConstantArray`] for repeated
 //! values, [`DictArray`] for dictionary encoding, [`FilterArray`] for masked rows, [`SliceArray`]
-//! for views, and [`ScalarFnArray`] for deferred scalar-function execution.
+//! for views, [`RepeatedArray`] for an array repeated end to end, and [`ScalarFnArray`] for
+//! deferred scalar-function execution.
 //!
 //! Some public arrays are primarily internal building blocks. Their constructors and extension
 //! traits document the stable contract; avoid depending on undocumented slot order or metadata
@@ -102,6 +103,10 @@ pub mod primitive;
 pub use primitive::Primitive;
 pub use primitive::PrimitiveArray;
 
+pub mod repeated;
+pub use repeated::Repeated;
+pub use repeated::RepeatedArray;
+
 pub mod runend;
 pub use runend::RunEnd;
 pub use runend::RunEndArray;
@@ -155,6 +160,7 @@ pub(crate) fn initialize(session: &VortexSession) {
     null::initialize(session);
     patched::initialize(session);
     primitive::initialize(session);
+    repeated::initialize(session);
     runend::initialize(session);
     scalar_fn::initialize(session);
     slice::initialize(session);

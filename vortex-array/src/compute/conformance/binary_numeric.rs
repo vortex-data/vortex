@@ -52,7 +52,7 @@ use crate::scalar::DecimalValue;
 use crate::scalar::NumericOperator;
 use crate::scalar::PrimitiveScalar;
 use crate::scalar::Scalar;
-use crate::scalar_fn::fns::binary::numeric_op_result_decimal_dtype;
+use crate::scalar_fn::builtin::binary::numeric_op_result_decimal_dtype;
 
 fn to_vec_of_scalar(array: &ArrayRef, ctx: &mut ExecutionCtx) -> Vec<Scalar> {
     // Not fast, but obviously correct

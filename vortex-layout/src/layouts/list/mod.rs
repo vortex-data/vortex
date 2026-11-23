@@ -33,9 +33,9 @@ use crate::LayoutReaderRef;
 use crate::LayoutRef;
 use crate::VTable;
 use crate::children::OwnedLayoutChildren;
+use crate::lowering::slots_from_layout;
 use crate::plan::physical::ListPackPlan;
 use crate::plan::physical::PlanRef;
-use crate::plan::physical::PlanSlots;
 use crate::segments::SegmentSource;
 
 /// Child index of the elements layout.
@@ -174,7 +174,7 @@ impl VTable for List {
             ListPackPlan::from_slots_unchecked(
                 layout.dtype().clone(),
                 layout.row_count(),
-                PlanSlots::from_layout(&layout.to_layout()),
+                slots_from_layout(&layout.to_layout()),
             )
         };
         Ok(plan.into_plan())

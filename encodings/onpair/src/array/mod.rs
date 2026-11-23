@@ -536,6 +536,7 @@ impl VTable for OnPair {
             )
         };
         require_validity!(array, OnPairSlots::VALIDITY_CHILD);
+
         canonicalize_onpair(array.as_view(), ctx).map(ExecutionResult::done)
     }
 
@@ -579,7 +580,7 @@ impl VTable for OnPair {
 /// Decodes the code stream straight into `builder`'s byte storage.
 ///
 /// The offsets are the running sum of the uncompressed lengths the array already stores, so the
-/// only work beyond the bulk `try_decode_into` is one prefix sum over them.
+/// only work beyond the bulk `decompress_into` is one prefix sum over them.
 fn append_to_varbin<O: OffsetBuilderPType>(
     array: ArrayView<'_, OnPair>,
     builder: &mut VarBinBuilder<O>,
@@ -588,7 +589,7 @@ fn append_to_varbin<O: OffsetBuilderPType>(
 where
     usize: AsPrimitive<O>,
 {
-    let plan = OnPairDecodePlan::new(array, ctx)?;
+    let plan = OnPairDecodePlan::execute(array, ctx)?;
     let validity = array
         .array()
         .validity()?
@@ -614,7 +615,7 @@ where
 impl ValidityVTable<OnPair> for OnPair {
     fn validity(array: ArrayView<'_, OnPair>) -> VortexResult<Validity> {
         Ok(child_to_validity(
-            array.slots()[OnPairSlots::VALIDITY_CHILD].as_ref(),
+            array.validity_child(),
             array.dtype().nullability(),
         ))
     }
@@ -625,10 +626,7 @@ pub trait OnPairArrayExt: TypedArrayRef<OnPair> {
     /// The array's [`Validity`], derived from the optional validity child and
     /// the outer dtype's nullability.
     fn array_validity(&self) -> Validity {
-        child_to_validity(
-            self.slots()[OnPairSlots::VALIDITY_CHILD].as_ref(),
-            self.dtype().nullability(),
-        )
+        child_to_validity(self.validity_child(), self.dtype().nullability())
     }
 }
 

@@ -97,6 +97,7 @@ pub fn take_canonical_array(
                     d,
                     validity,
                     indices_slice_non_opt,
+                    ctx,
                 ))
             })
         }
@@ -190,6 +191,7 @@ fn take_decimal<D: NativeDecimalType>(
     decimal_type: &DecimalDType,
     validity: Validity,
     indices: &[usize],
+    ctx: &mut ExecutionCtx,
 ) -> ArrayRef {
     let buf = array.buffer::<D>();
     let vec_values = buf.as_slice();
@@ -200,6 +202,7 @@ fn take_decimal<D: NativeDecimalType>(
             .collect::<Buffer<D>>(),
         *decimal_type,
         validity,
+        ctx,
     )
     .into_array()
 }

@@ -500,7 +500,9 @@ fn reader_partition(
     }
 
     let row_count = reader.row_count();
-    let row_range = request.row_range.clone().unwrap_or(0..row_count);
+    let row_range = request.row_range.as_ref().map_or(0..row_count, |r| {
+        r.start.min(row_count)..r.end.min(row_count)
+    });
 
     let partition_idx_u64: u64 = partition_idx as u64;
     if let Some(range) = &request.partition_range

@@ -8,6 +8,7 @@ mod tests {
     use std::sync::Arc;
 
     use rstest::rstest;
+    use vortex_error::VortexResult;
 
     use crate::dtype::DType;
     use crate::dtype::Nullability;
@@ -20,7 +21,7 @@ mod tests {
     use crate::scalar::ScalarValue;
 
     #[rstest]
-    fn null_can_cast_to_anything_nullable(
+    fn null_cast_to_nullable_dtype(
         #[values(
             DType::Null,
             DType::Bool(Nullability::Nullable),
@@ -37,10 +38,20 @@ mod tests {
             DType::Extension(Timestamp::new(TimeUnit::Seconds, Nullability::Nullable).erased()),
         )]
         target_dtype: DType,
-    ) {
-        let casted = Scalar::null(source_dtype).cast(&target_dtype).unwrap();
+    ) -> VortexResult<()> {
+        let changes_type = source_dtype != DType::Null && source_dtype != target_dtype;
+        let involves_extension = source_dtype.is_extension() || target_dtype.is_extension();
+        let result = Scalar::null(source_dtype).cast(&target_dtype);
+
+        if changes_type && involves_extension {
+            assert!(result.is_err());
+            return Ok(());
+        }
+
+        let casted = result?;
         assert_eq!(casted.dtype(), &target_dtype);
         assert!(casted.is_null());
+        Ok(())
     }
 
     #[test]

@@ -4,6 +4,7 @@
 use std::iter::Iterator;
 
 use divan::Bencher;
+use divan::black_box;
 use mimalloc::MiMalloc;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::BitBufferMut;
@@ -86,7 +87,7 @@ fn value_vortex_buffer(bencher: Bencher, length: usize) {
     let buffer = BitBuffer::from_iter((0..length).map(|i| i % 2 == 0));
     bencher.with_inputs(|| &buffer).bench_refs(|buffer| {
         for idx in 0..length {
-            divan::black_box(buffer.value(idx));
+            black_box(buffer.value(idx));
         }
     });
 }
@@ -175,7 +176,7 @@ fn iter_vortex_buffer(bencher: Bencher, length: usize) {
     let buffer = BitBuffer::from_iter((0..length).map(|i| i % 2 == 0));
     bencher.with_inputs(|| &buffer).bench_refs(|buffer| {
         for value in buffer.iter() {
-            divan::black_box(value);
+            black_box(value);
         }
     });
 }
@@ -185,7 +186,7 @@ fn set_indices_vortex_buffer(bencher: Bencher, length: usize) {
     let buffer = BitBuffer::from_iter((0..length).map(|i| i % 2 == 0));
     bencher.with_inputs(|| &buffer).bench_refs(|buffer| {
         for idx in buffer.set_indices() {
-            divan::black_box(idx);
+            black_box(idx);
         }
     });
 }
@@ -196,5 +197,24 @@ fn select_last_vortex_buffer(bencher: Bencher, length: usize) {
     let buffer = BitBuffer::collect_bool(length, |i| i % 3 == 0);
     let nth = buffer.true_count() - 1;
     assert_eq!(buffer.select(nth), Some((length - 1) / 3 * 3));
-    bencher.bench(|| divan::black_box(&buffer).select(divan::black_box(nth)));
+    bencher.bench(|| black_box(&buffer).select(black_box(nth)));
+}
+
+fn bench_set_indices(bencher: Bencher, length: usize, step: usize) {
+    let buffer = BitBuffer::from_iter((0..length).map(|row| row % step == 17));
+    bencher.bench(|| {
+        for index in black_box(&buffer).set_indices() {
+            black_box(index);
+        }
+    });
+}
+
+#[divan::bench(args = [4_096, 65_536])]
+fn set_indices_scattered(bencher: Bencher, length: usize) {
+    bench_set_indices(bencher, length, 1_024);
+}
+
+#[divan::bench(args = [4_096, 65_536])]
+fn set_indices_one_per_word(bencher: Bencher, length: usize) {
+    bench_set_indices(bencher, length, 64);
 }

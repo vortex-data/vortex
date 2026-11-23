@@ -22,7 +22,6 @@ workspace = true
 fastlanes = { workspace = true }
 fearless_simd = { workspace = true }
 itertools = { workspace = true }
-lending-iterator = { workspace = true }
 num-traits = { workspace = true }
 prost = { workspace = true }
 rand = { workspace = true, optional = true }
@@ -30,6 +29,7 @@ vortex-array = { workspace = true }
 vortex-buffer = { workspace = true }
 vortex-compute = { workspace = true }
 vortex-error = { workspace = true }
+vortex-functions = { workspace = true }
 vortex-mask = { workspace = true }
 vortex-session = { workspace = true }
 
@@ -44,12 +44,17 @@ vortex-alp = { path = "../alp" }
 vortex-array = { workspace = true, features = ["_test-harness"] }
 vortex-bench-support = { workspace = true }
 vortex-fastlanes = { path = ".", features = ["_test-harness"] }
+vortex-sparse = { workspace = true }
 
 [features]
 _test-harness = ["dep:rand"]
 
 [[bench]]
 name = "bitpacking_take"
+harness = false
+
+[[bench]]
+name = "chunked_fsl_take"
 harness = false
 
 [[bench]]
@@ -97,4 +102,12 @@ harness = false
 
 [[bench]]
 name = "for_decode"
+harness = false
+
+[[bench]]
+name = "patched_search"
+harness = false
+
+[[bench]]
+name = "rle_decode"
 harness = false

@@ -12,11 +12,13 @@ use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::arrays::Bool;
+use vortex_array::arrays::Decimal;
 use vortex_array::arrays::Primitive;
 use vortex_array::arrays::VarBinView;
 use vortex_error::VortexExpect;
 
 use super::BoolStats;
+use super::DecimalStats;
 use super::FloatStats;
 use super::GenerateStatsOptions;
 use super::IntegerStats;
@@ -31,6 +33,7 @@ type StatsEntry = (TypeId, Arc<dyn Any + Send + Sync>);
 /// The cache is interior-mutable: entries can be inserted through a shared [`StatsCache`]
 /// borrow. Values are stored as [`Arc<dyn Any + Send + Sync>`] so that cached entries can be
 /// cloned out of the lock cheaply and handed back to callers as [`Arc<T>`].
+#[derive(Clone)]
 struct StatsCache {
     // TODO(connor): We could further optimize this with a `SmallVec` here.
     /// The cache entries, keyed by [`TypeId`].
@@ -89,15 +92,19 @@ impl StatsCache {
 /// original array are not reused.
 ///
 /// Built-in stats are accessed via typed methods ([`integer_stats`], [`float_stats`],
-/// [`varbinview_stats`]) which generate stats lazily on first access using the stored
+/// [`decimal_stats`], [`varbinview_stats`]) which generate stats lazily on first access using the stored
 /// [`GenerateStatsOptions`].
 ///
 /// Extension schemes can use [`get_or_insert_with`] for custom stats types.
 ///
+/// Clones share the stats cache, so stats generated through one are visible through the others.
+///
 /// [`integer_stats`]: ArrayAndStats::integer_stats
 /// [`float_stats`]: ArrayAndStats::float_stats
+/// [`decimal_stats`]: ArrayAndStats::decimal_stats
 /// [`varbinview_stats`]: ArrayAndStats::varbinview_stats
 /// [`get_or_insert_with`]: ArrayAndStats::get_or_insert_with
+#[derive(Clone)]
 pub struct ArrayAndStats {
     /// The array. This is always in canonical form.
     array: ArrayRef,
@@ -144,6 +151,17 @@ impl ArrayAndStats {
             .vortex_expect("the array is guaranteed to already be canonical by construction")
     }
 
+    /// Returns the array as an [`ArrayView<Decimal>`].
+    ///
+    /// # Panics
+    ///
+    /// Panics if the array is not a decimal array.
+    pub fn array_as_decimal(&self) -> ArrayView<'_, Decimal> {
+        self.array
+            .as_opt::<Decimal>()
+            .vortex_expect("the array is guaranteed to already be canonical by construction")
+    }
+
     /// Returns the array as an [`ArrayView<VarBinView>`].
     ///
     /// # Panics
@@ -158,6 +176,11 @@ impl ArrayAndStats {
     /// Consumes the bundle and returns the array.
     pub fn into_array(self) -> ArrayRef {
         self.array
+    }
+
+    /// Returns the options stats are generated with.
+    pub(crate) fn stats_options(&self) -> GenerateStatsOptions {
+        self.opts
     }
 
     /// Returns the length of the array.
@@ -200,6 +223,19 @@ impl ArrayAndStats {
                 .vortex_expect("the array is guaranteed to already be canonical by construction")
                 .into_owned();
             FloatStats::generate_opts(&primitive, opts, ctx)
+        })
+    }
+
+    /// Returns decimal stats, generating them lazily on first access.
+    pub fn decimal_stats(&self, ctx: &mut ExecutionCtx) -> Arc<DecimalStats> {
+        let array = self.array.clone();
+        let opts = self.opts;
+        self.cache.get_or_insert_with::<DecimalStats>(|| {
+            let decimal = array
+                .as_opt::<Decimal>()
+                .vortex_expect("the array is guaranteed to already be canonical by construction")
+                .into_owned();
+            DecimalStats::generate_opts(&decimal, opts, ctx)
         })
     }
 

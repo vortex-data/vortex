@@ -85,7 +85,7 @@ where
         buffer, validity, ..
     } = primitive.into_data_parts();
 
-    let mut device_buffer = ctx.ensure_on_device(buffer).await?;
+    let mut device_buffer = ctx.ensure_on_device(buffer)?;
     let array_len_u64 = array_len as u64;
 
     let cuda_function = ctx.load_function("zigzag", &[U::PTYPE])?;

@@ -16,6 +16,11 @@ inputs:
   output:
     description: "Where to write the baseline records"
     default: base.ingest.jsonl
+  head:
+    description: >-
+      The PR head commit. The baseline is the newest recorded commit reachable from it. The fork PR
+      report gives it, because its checkout is the default branch and not the PR.
+    default: HEAD
   role-arn:
     description: "The read-only benchmarks role (vars.GH_BENCH_READ_ROLE_ARN)"
     required: true
@@ -50,6 +55,7 @@ runs:
       env:
         PR_RECORDS: ${{ inputs.pr-records }}
         OUTPUT: ${{ inputs.output }}
+        PR_HEAD: ${{ inputs.head }}
         AWS_OUTCOME: ${{ steps.aws.outcome }}
         AWS_ACCESS_KEY_ID: ${{ steps.aws.outputs.aws-access-key-id }}
         AWS_SECRET_ACCESS_KEY: ${{ steps.aws.outputs.aws-secret-access-key }}
@@ -59,16 +65,18 @@ runs:
         RDS_BENCH_DB_NAME: ${{ inputs.database }}
       run: |
         set -Eeu -o pipefail
+        rm -f "$OUTPUT"
         if [[ "$AWS_OUTCOME" != "success" ]]; then
           # No baseline file tells the report that the baseline could not be read.
           echo "::warning::Could not assume the read-only benchmarks role; reporting without a baseline."
           exit 0
         fi
+        mkdir -p "$(dirname "$OUTPUT")"
         curl -fsSL https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem \
           -o "${RUNNER_TEMP}/rds-global-bundle.pem"
         DSN="postgresql://bench_ci_read@${RDS_BENCH_INSTANCE_ENDPOINT}:5432/${RDS_BENCH_DB_NAME}?sslmode=verify-full&sslrootcert=${RUNNER_TEMP}/rds-global-bundle.pem"
         if ! uv run --no-project scripts/fetch-benchmark-baseline.py "$PR_RECORDS" "$OUTPUT" \
-            --postgres "$DSN" --region "$AWS_REGION"; then
+            --postgres "$DSN" --region "$AWS_REGION" --head "$PR_HEAD"; then
           echo "::warning::Could not read the baseline from the benchmarks database; reporting without a baseline."
           rm -f "$OUTPUT"
         fi

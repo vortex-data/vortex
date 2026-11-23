@@ -19,20 +19,19 @@ use vortex_array::aggregate_fn::AggregateFnRef;
 use vortex_array::arrays::StructArray;
 use vortex_array::dtype::DType;
 use vortex_array::expr::BoundExpression;
-use vortex_array::expr::ExactBoundExpr;
 use vortex_array::expr::root;
-use vortex_array::scalar_fn::fns::dynamic::DynamicExprUpdates;
 use vortex_error::SharedVortexResult;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_expr::stats::rewrite::BoundExpressionPruneExt;
+use vortex_functions::dynamic::DynamicExprUpdates;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
-use vortex_utils::aliases::dash_map::DashMap;
 
 use crate::Layout;
 use crate::LazyReaderChildren;
 use crate::VTable;
+use crate::expr_cache::WeakExprCache;
 use crate::layouts::zoned::ZonedData;
 use crate::layouts::zoned::zone_map::ZoneMap;
 
@@ -49,9 +48,9 @@ pub(super) struct PruningState {
     aggregate_fns: Arc<[AggregateFnRef]>,
     lazy_children: Arc<LazyReaderChildren>,
     session: VortexSession,
-    pruning_result: LazyLock<DashMap<ExactBoundExpr, Option<SharedPruningResult>>>,
+    pruning_result: LazyLock<WeakExprCache<Option<SharedPruningResult>>>,
     zone_map: OnceLock<SharedZoneMap>,
-    pruning_predicates: LazyLock<Arc<DashMap<ExactBoundExpr, PredicateCache>>>,
+    pruning_predicates: LazyLock<WeakExprCache<PredicateCache>>,
 }
 
 impl PruningState {
@@ -73,79 +72,67 @@ impl PruningState {
             aggregate_fns,
             lazy_children,
             session,
-            pruning_result: LazyLock::new(|| {
-                DashMap::with_hasher_and_shard_amount(Default::default(), 8)
-            }),
+            pruning_result: LazyLock::new(|| WeakExprCache::with_shard_amount(8)),
             zone_map: Default::default(),
-            pruning_predicates: LazyLock::new(|| {
-                Arc::new(DashMap::with_hasher_and_shard_amount(Default::default(), 8))
-            }),
+            pruning_predicates: LazyLock::new(|| WeakExprCache::with_shard_amount(8)),
         }
     }
 
-    pub(super) fn pruning_mask_future(&self, expr: BoundExpression) -> Option<SharedPruningResult> {
-        let key = ExactBoundExpr(expr.clone());
-
-        if let Some(result) = self.pruning_result.get(&key) {
-            return result.value().clone();
-        }
-
-        self.pruning_result
-            .entry(key)
-            .or_insert_with(|| {
-                let dynamic_updates = DynamicExprUpdates::new(&expr);
-                match self.pruning_predicate(expr.clone()) {
-                    None => {
-                        trace!(%expr, "no pruning predicate");
-                        None
-                    }
-                    Some(predicate) => {
-                        trace!(%expr, ?predicate, "constructed pruning predicate");
-                        let zone_map = self.zone_map();
-                        let session = self.session.clone();
-
-                        Some(
-                            async move {
-                                let zone_map = zone_map.await?;
-                                let lowered = zone_map.lower_stats(predicate.clone()).and_then(
-                                    |lowered_predicate| {
-                                        let mask =
-                                            zone_map.prune_lowered(&lowered_predicate, &session)?;
-                                        Ok((lowered_predicate, mask))
-                                    },
-                                );
-                                let (lowered_predicate, initial_mask) = lowered.map_err(|err| {
-                                    err.with_context(format!(
-                                        "While evaluating pruning predicate {} (derived from {})",
-                                        predicate, expr
-                                    ))
-                                })?;
-
-                                Ok(Arc::new(PruningResult {
-                                    zone_map,
-                                    lowered_predicate,
-                                    dynamic_updates,
-                                    latest_result: RwLock::new((0, initial_mask)),
-                                    session,
-                                }))
-                            }
-                            .boxed()
-                            .shared(),
-                        )
-                    }
+    pub(super) fn pruning_mask_future(
+        &self,
+        expr: &BoundExpression,
+    ) -> Option<SharedPruningResult> {
+        self.pruning_result.get_or_insert_with(expr, || {
+            let dynamic_updates = DynamicExprUpdates::new(expr);
+            match self.pruning_predicate(expr) {
+                None => {
+                    trace!(%expr, "no pruning predicate");
+                    None
                 }
-            })
-            .clone()
+                Some(predicate) => {
+                    trace!(%expr, ?predicate, "constructed pruning predicate");
+                    let expr = expr.detach_identity();
+                    let zone_map = self.zone_map();
+                    let session = self.session.clone();
+
+                    Some(
+                        async move {
+                            let zone_map = zone_map.await?;
+                            let lowered = zone_map.lower_stats(predicate.clone()).and_then(
+                                |lowered_predicate| {
+                                    let mask =
+                                        zone_map.prune_lowered(&lowered_predicate, &session)?;
+                                    Ok((lowered_predicate, mask))
+                                },
+                            );
+                            let (lowered_predicate, initial_mask) = lowered.map_err(|err| {
+                                err.with_context(format!(
+                                    "While evaluating pruning predicate {} (derived from {})",
+                                    predicate, expr
+                                ))
+                            })?;
+
+                            Ok(Arc::new(PruningResult {
+                                zone_map,
+                                lowered_predicate,
+                                dynamic_updates,
+                                latest_result: RwLock::new((0, initial_mask)),
+                                session,
+                            }))
+                        }
+                        .boxed()
+                        .shared(),
+                    )
+                }
+            }
+        })
     }
 
-    fn pruning_predicate(&self, expr: BoundExpression) -> Option<BoundExpression> {
-        let key = ExactBoundExpr(expr.clone());
-
+    fn pruning_predicate(&self, expr: &BoundExpression) -> Option<BoundExpression> {
         self.pruning_predicates
-            .entry(key)
-            .or_default()
-            .get_or_init(move || match expr.falsify(&self.session) {
-                Ok(predicate) => predicate,
+            .get_or_insert_with(expr, || Arc::new(OnceLock::new()))
+            .get_or_init(|| match expr.falsify(&self.session) {
+                Ok(predicate) => predicate.map(|p| p.detach_identity()),
                 Err(error) => {
                     trace!(%expr, %error, "failed to construct stats rewrite predicate");
                     None

@@ -8,7 +8,7 @@ use vortex_array::ExecutionCtx;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::Slice;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
-use vortex_array::arrays::slice::SliceSlots;
+use vortex_array::arrays::slice::SliceArraySlotsExt;
 use vortex_array::match_each_unsigned_integer_ptype;
 use vortex_error::VortexResult;
 
@@ -75,7 +75,7 @@ impl<'a> PackedDeltas<'a> {
             None => {
                 let slice = deltas.as_opt::<Slice>()?;
                 let start = slice.data().slice_range().start;
-                let child = slice.slots()[SliceSlots::CHILD].as_ref()?;
+                let child = slice.child();
                 (child.as_opt::<BitPacked>()?, start)
             }
         };

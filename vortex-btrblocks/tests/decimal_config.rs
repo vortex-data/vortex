@@ -1,12 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Decimal scheme refinement by allowed serialized IDs, and compression of wide decimal parts.
+//! Decimal scheme refinement by allowed serialized IDs, the shapes of its output, and compression
+//! of wide decimal parts.
 
 #![cfg(test)]
 
 use std::sync::LazyLock;
 
+use rand::RngExt;
+use rand::SeedableRng;
+use rand::rngs::StdRng;
 use rstest::rstest;
 use vortex_array::ArrayContext;
 use vortex_array::ArrayId;
@@ -15,8 +19,13 @@ use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::Decimal;
 use vortex_array::arrays::DecimalArray;
+use vortex_array::arrays::Dict;
+use vortex_array::arrays::Widen;
+use vortex_array::arrays::widen::WidenArraySlotsExt;
 use vortex_array::assert_arrays_eq;
 use vortex_array::dtype::DecimalDType;
+use vortex_array::dtype::NativeDecimalType;
+use vortex_array::dtype::PType;
 use vortex_array::dtype::i256;
 use vortex_array::serde::SerializeOptions;
 use vortex_array::serde::SerializedArray;
@@ -24,6 +33,7 @@ use vortex_array::session::ArraySessionExt;
 use vortex_array::validity::Validity;
 use vortex_btrblocks::BtrBlocksCompressorBuilder;
 use vortex_btrblocks::SchemeExt;
+use vortex_btrblocks::schemes::decimal::DecimalDictScheme;
 use vortex_btrblocks::schemes::decimal::DecimalScheme;
 use vortex_btrblocks::schemes::integer::BitPackingScheme;
 use vortex_btrblocks::schemes::integer::FoRScheme;
@@ -94,10 +104,12 @@ fn decimal_array(wide: bool) -> ArrayRef {
         (0..128i128).map(|i| base + i).collect::<Buffer<i128>>(),
         DecimalDType::new(38, 2),
         Validity::NonNullable,
+        &mut SESSION.create_execution_ctx(),
     )
     .into_array()
 }
 
+#[track_caller]
 fn assert_decimal_output(
     builder: BtrBlocksCompressorBuilder,
     wide: bool,
@@ -115,8 +127,41 @@ fn assert_decimal_output(
     } else {
         assert!(compressed.is::<Decimal>());
     }
-    assert_arrays_eq!(array, compressed, &mut ctx);
+    assert_arrays_eq!(compressed, array, &mut ctx);
+
     Ok(())
+}
+
+/// A decimal array of `values` at precision `precision` and scale 2.
+fn decimal_at_precision<T: NativeDecimalType>(
+    precision: u8,
+    values: impl IntoIterator<Item = T>,
+    validity: Validity,
+) -> ArrayRef {
+    let values = values.into_iter().collect::<Buffer<T>>();
+    DecimalArray::new(
+        values,
+        DecimalDType::new(precision, 2),
+        validity,
+        &mut SESSION.create_execution_ctx(),
+    )
+    .into_array()
+}
+
+/// Serializes `array` and decodes it again.
+fn serde_round_trip(array: &ArrayRef) -> VortexResult<ArrayRef> {
+    let array_ctx = ArrayContext::empty();
+    let mut bytes = ByteBufferMut::empty();
+    for buffer in array.serialize(&array_ctx, &SESSION, &SerializeOptions::default())? {
+        bytes.extend_from_slice(buffer.as_ref());
+    }
+
+    SerializedArray::try_from(bytes.freeze())?.decode(
+        array.dtype(),
+        array.len(),
+        &ReadContext::new(array_ctx.to_ids()),
+        &SESSION,
+    )
 }
 
 #[rstest]
@@ -166,6 +211,7 @@ fn wide_decimal_parts_roundtrip(
     #[values(false, true)] nullable: bool,
     #[values(false, true)] compress_children: bool,
 ) -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
     let validity = if nullable {
         Validity::from_iter((0..2048).map(|i| i % 7 != 0))
     } else {
@@ -185,7 +231,7 @@ fn wide_decimal_parts_roundtrip(
                 )
             })
             .collect::<Buffer<i256>>();
-        DecimalArray::new(values, DecimalDType::new(76, 2), validity)
+        DecimalArray::new(values, DecimalDType::new(76, 2), validity, &mut ctx)
     } else {
         let values = (1..=2048i128)
             .map(|i| {
@@ -193,7 +239,7 @@ fn wide_decimal_parts_roundtrip(
                 (msp << 70) + i * 131 + 17
             })
             .collect::<Buffer<i128>>();
-        DecimalArray::new(values, DecimalDType::new(38, 2), validity)
+        DecimalArray::new(values, DecimalDType::new(38, 2), validity, &mut ctx)
     }
     .into_array();
     let mut builder = BtrBlocksCompressorBuilder::empty().with_new_scheme(&DECIMAL_V2);
@@ -202,30 +248,278 @@ fn wide_decimal_parts_roundtrip(
             .with_new_scheme(&FOR_V1)
             .with_new_scheme(&BITPACKING_V1);
     }
+    let compressed = builder.build().compress(&array, &mut ctx)?;
+    let parts = compressed
+        .as_opt::<DecimalByteParts>()
+        .ok_or_else(|| vortex_err!("expected decimal byte parts"))?;
+    assert_eq!(parts.lower_parts().len(), lower_part_count);
+    let msp = parts
+        .msp()
+        .as_opt::<Widen>()
+        .ok_or_else(|| vortex_err!("expected a Widen MSP"))?;
+    assert_eq!(!msp.values().is_canonical(), compress_children);
+    assert_eq!(
+        parts.lower_parts().iter().all(|part| !part.is_canonical()),
+        compress_children
+    );
+
+    assert_arrays_eq!(serde_round_trip(&compressed)?, array, &mut ctx);
+
+    Ok(())
+}
+
+/// The shape of the scheme output for each storage width and value range. v1 leaves an array with
+/// lower parts canonical. Only the valid values choose the lower-part count and the stored MSP
+/// type.
+#[rstest]
+#[case::p2_uses_i8(
+    decimal_at_precision(2, (0..99i8).cycle().take(2048), Validity::NonNullable),
+    0, PType::I8, None
+)]
+#[case::p4_narrows_to_i8(
+    decimal_at_precision(4, (0..99i16).cycle().take(2048), Validity::NonNullable),
+    0, PType::I16, Some(PType::I8)
+)]
+#[case::p9_narrows_to_i16(
+    decimal_at_precision(9, 0..2048i32, Validity::NonNullable),
+    0, PType::I32, Some(PType::I16)
+)]
+#[case::p38_fits_i64(
+    decimal_at_precision(38, 0..2048i128, Validity::NonNullable),
+    0, PType::I64, Some(PType::I16)
+)]
+#[case::p40_fits_i64(
+    decimal_at_precision(40, (0..2048i128).map(i256::from_i128), Validity::NonNullable),
+    0, PType::I64, Some(PType::I16)
+)]
+#[case::p40_above_64_bits(
+    decimal_at_precision(
+        40,
+        (0..2048i128).map(|i| i256::from_i128((1 << 70) + i)),
+        Validity::NonNullable,
+    ),
+    1, PType::I64, Some(PType::I8)
+)]
+#[case::p38_large_null_slots(
+    decimal_at_precision(
+        38,
+        (0..2048i128).map(|i| if i % 7 == 0 { 1 << 100 } else { i }),
+        Validity::from_iter((0..2048).map(|i| i % 7 != 0)),
+    ),
+    0, PType::I64, Some(PType::I16)
+)]
+// The compressor run-end encodes this validity before the decimal scheme sees the array.
+#[case::p38_clustered_null_slots(
+    decimal_at_precision(
+        38,
+        (0..2048i128).map(|i| if (512..1536).contains(&i) { i } else { 1 << 100 }),
+        Validity::from_iter((0..2048).map(|i| (512..1536).contains(&i))),
+    ),
+    0, PType::I64, Some(PType::I16)
+)]
+fn decimal_scheme_part_shapes(
+    #[case] array: ArrayRef,
+    #[case] lower_part_count: usize,
+    #[case] msp_ptype: PType,
+    #[case] stored_msp_ptype: Option<PType>,
+    #[values(false, true)] v2: bool,
+) -> VortexResult<()> {
+    let builder = if v2 {
+        BtrBlocksCompressorBuilder::from_session(&SESSION).disable_editions()
+    } else {
+        BtrBlocksCompressorBuilder::from_session(&CORE_SESSION)
+    };
     let mut ctx = SESSION.create_execution_ctx();
     let compressed = builder.build().compress(&array, &mut ctx)?;
-    // Every part varies, so without child compression splitting alone cannot save space.
-    assert_eq!(compressed.is::<DecimalByteParts>(), compress_children);
-    if compress_children {
+
+    if !v2 && lower_part_count > 0 {
+        assert!(compressed.is::<Decimal>());
+    } else {
         let parts = compressed
             .as_opt::<DecimalByteParts>()
             .ok_or_else(|| vortex_err!("expected decimal byte parts"))?;
         assert_eq!(parts.lower_parts().len(), lower_part_count);
-        assert!(!parts.msp().is_canonical());
-        assert!(parts.lower_parts().iter().all(|part| !part.is_canonical()));
+        assert_eq!(parts.msp().dtype().as_ptype(), msp_ptype);
+        assert_eq!(
+            parts.msp().dtype().nullability(),
+            array.dtype().nullability()
+        );
+        match stored_msp_ptype {
+            Some(stored_ptype) => {
+                let widen = parts
+                    .msp()
+                    .as_opt::<Widen>()
+                    .ok_or_else(|| vortex_err!("expected a Widen MSP"))?;
+                assert_eq!(widen.values().dtype().as_ptype(), stored_ptype);
+            }
+            None => assert!(!parts.msp().is::<Widen>()),
+        }
     }
 
-    let array_ctx = ArrayContext::empty();
-    let mut bytes = ByteBufferMut::empty();
-    for buffer in compressed.serialize(&array_ctx, &SESSION, &SerializeOptions::default())? {
-        bytes.extend_from_slice(buffer.as_ref());
+    assert_arrays_eq!(serde_round_trip(&compressed)?, array, &mut ctx);
+
+    Ok(())
+}
+
+/// Low-cardinality decimals of every values width compress to a dictionary of decimal values.
+/// That includes wide decimals, which byte parts leave canonical under the core edition and
+/// split into one array per part without editions.
+#[rstest]
+#[case::i64(DecimalArray::new(
+    (0..4096usize).map(|i| [123_456_789_012_345i64, -7, 42][i % 3]).collect::<Buffer<_>>(),
+    DecimalDType::new(18, 2),
+    Validity::NonNullable,
+    &mut SESSION.create_execution_ctx(),
+))]
+#[case::i128(DecimalArray::new(
+    (0..4096usize).map(|i| [10i128.pow(37) + 1, -(10i128.pow(36)), 5][i % 3]).collect::<Buffer<_>>(),
+    DecimalDType::new(38, 2),
+    Validity::from_iter((0..4096).map(|i| i % 7 != 0)),
+    &mut SESSION.create_execution_ctx(),
+))]
+#[case::i256(DecimalArray::new(
+    (0..4096usize)
+        .map(|i| [i256::from_parts(1, 1 << 100), i256::from_parts(9, -(1 << 90))][i % 2])
+        .collect::<Buffer<_>>(),
+    DecimalDType::new(76, 2),
+    Validity::NonNullable,
+    &mut SESSION.create_execution_ctx(),
+))]
+fn low_cardinality_decimal_compresses_to_dict(
+    #[case] input: DecimalArray,
+    #[values(
+        || BtrBlocksCompressorBuilder::from_session(&CORE_SESSION),
+        || BtrBlocksCompressorBuilder::from_session(&SESSION).disable_editions()
+    )]
+    builder: fn() -> BtrBlocksCompressorBuilder,
+) -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let input = input.into_array();
+    let compressed = builder().build().compress(&input, &mut ctx)?;
+
+    assert!(compressed.is::<Dict>(), "{}", compressed.display_tree());
+    assert!(compressed.nbytes() * 4 < input.nbytes());
+    assert_arrays_eq!(compressed, input, &mut ctx);
+    Ok(())
+}
+
+/// Decimals with mostly unique values keep the byte parts encoding.
+#[test]
+fn high_cardinality_decimal_keeps_byte_parts() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let input = DecimalArray::new(
+        (0..4096i64).map(|i| i * 7919).collect::<Buffer<_>>(),
+        DecimalDType::new(18, 2),
+        Validity::NonNullable,
+        &mut ctx,
+    )
+    .into_array();
+    let compressed = BtrBlocksCompressorBuilder::from_session(&CORE_SESSION)
+        .build()
+        .compress(&input, &mut ctx)?;
+
+    assert!(
+        compressed.is::<DecimalByteParts>(),
+        "{}",
+        compressed.display_tree()
+    );
+    assert_arrays_eq!(compressed, input, &mut ctx);
+    Ok(())
+}
+
+/// Without `DecimalDictScheme`, low-cardinality decimals keep the byte parts encoding.
+#[test]
+fn low_cardinality_decimal_without_dict_scheme_keeps_byte_parts() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let input = DecimalArray::new(
+        (0..4096usize)
+            .map(|i| [123_456_789_012_345i64, -7, 42][i % 3])
+            .collect::<Buffer<_>>(),
+        DecimalDType::new(18, 2),
+        Validity::NonNullable,
+        &mut ctx,
+    )
+    .into_array();
+    let compressed = BtrBlocksCompressorBuilder::from_session(&CORE_SESSION)
+        .exclude_schemes([DecimalDictScheme.id()])
+        .build()
+        .compress(&input, &mut ctx)?;
+
+    assert!(
+        compressed.is::<DecimalByteParts>(),
+        "{}",
+        compressed.display_tree()
+    );
+    assert_arrays_eq!(compressed, input, &mut ctx);
+    Ok(())
+}
+
+/// A mostly-null decimal is compressed even when every sample holds only nulls: with few
+/// distinct values the dictionary's estimate does not sample, and otherwise byte parts are the
+/// default.
+#[rstest]
+#[case::few_distinct(5, true)]
+#[case::all_distinct(40, false)]
+fn mostly_null_decimal_is_compressed(
+    #[case] distinct: i64,
+    #[case] expect_dict: bool,
+) -> VortexResult<()> {
+    const LEN: usize = 65_536;
+    let mut rng = StdRng::seed_from_u64(0);
+    let mut valid = vec![false; LEN];
+    for _ in 0..40 {
+        valid[rng.random_range(0..LEN)] = true;
     }
-    let decoded = SerializedArray::try_from(bytes.freeze())?.decode(
-        array.dtype(),
-        array.len(),
-        &ReadContext::new(array_ctx.to_ids()),
-        &SESSION,
-    )?;
-    assert_arrays_eq!(array, decoded, &mut ctx);
+    let input = DecimalArray::new(
+        (0..LEN as i64)
+            .map(|i| (i % distinct) * 1_000_003)
+            .collect::<Buffer<_>>(),
+        DecimalDType::new(18, 2),
+        Validity::from_iter(valid),
+        &mut SESSION.create_execution_ctx(),
+    )
+    .into_array();
+
+    let mut ctx = SESSION.create_execution_ctx();
+    let compressed = BtrBlocksCompressorBuilder::from_session(&CORE_SESSION)
+        .build()
+        .compress(&input, &mut ctx)?;
+
+    if expect_dict {
+        assert!(compressed.is::<Dict>(), "{}", compressed.display_tree());
+    } else {
+        assert!(
+            compressed.is::<DecimalByteParts>(),
+            "{}",
+            compressed.display_tree()
+        );
+    }
+    assert_arrays_eq!(compressed, input, &mut ctx);
+    Ok(())
+}
+
+/// A wide decimal with thousands of distinct values gets a dictionary under the core edition,
+/// where byte parts leave it canonical. A sample would hold almost as many distinct values as
+/// rows, so the dictionary's estimate comes from the exact distinct count instead.
+#[test]
+fn many_distinct_wide_decimal_compresses_to_dict() -> VortexResult<()> {
+    const LEN: usize = 65_536;
+    let mut ctx = SESSION.create_execution_ctx();
+    let input = DecimalArray::new(
+        (0..LEN)
+            .map(|i| ((i * 7919) % 10_000) as i128 * 10i128.pow(30))
+            .collect::<Buffer<i128>>(),
+        DecimalDType::new(38, 0),
+        Validity::NonNullable,
+        &mut ctx,
+    )
+    .into_array();
+    let compressed = BtrBlocksCompressorBuilder::from_session(&CORE_SESSION)
+        .build()
+        .compress(&input, &mut ctx)?;
+
+    assert!(compressed.is::<Dict>(), "{}", compressed.display_tree());
+    assert!(compressed.nbytes() * 3 < input.nbytes());
+    assert_arrays_eq!(compressed, input, &mut ctx);
     Ok(())
 }

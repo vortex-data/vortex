@@ -5,6 +5,7 @@ package dev.vortex.api;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import dev.vortex.arrow.ArrowAllocation;
@@ -17,10 +18,13 @@ import org.apache.arrow.c.ArrowArray;
 import org.apache.arrow.c.ArrowSchema;
 import org.apache.arrow.c.Data;
 import org.apache.arrow.memory.BufferAllocator;
+import org.apache.arrow.vector.BitVector;
+import org.apache.arrow.vector.Float8Vector;
 import org.apache.arrow.vector.IntVector;
 import org.apache.arrow.vector.VarCharVector;
 import org.apache.arrow.vector.VectorSchemaRoot;
 import org.apache.arrow.vector.ipc.ArrowReader;
+import org.apache.arrow.vector.types.FloatingPointPrecision;
 import org.apache.arrow.vector.types.pojo.ArrowType;
 import org.apache.arrow.vector.types.pojo.Field;
 import org.apache.arrow.vector.types.pojo.Schema;
@@ -69,7 +73,9 @@ public final class ListContainsFilterTest {
         Schema schema = new Schema(List.of(
                 Field.notNullable("id", new ArrowType.Int(32, true)),
                 Field.notNullable("name", new ArrowType.Utf8()),
-                Field.nullable("maybe", new ArrowType.Int(32, true))));
+                Field.nullable("maybe", new ArrowType.Int(32, true)),
+                Field.notNullable("half", new ArrowType.FloatingPoint(FloatingPointPrecision.DOUBLE)),
+                Field.notNullable("even", new ArrowType.Bool())));
 
         try (VortexWriter writer = VortexWriter.builder(session, filePath, schema, allocator)
                         .build();
@@ -77,12 +83,18 @@ public final class ListContainsFilterTest {
             IntVector id = (IntVector) root.getVector("id");
             VarCharVector name = (VarCharVector) root.getVector("name");
             IntVector maybe = (IntVector) root.getVector("maybe");
+            Float8Vector half = (Float8Vector) root.getVector("half");
+            BitVector even = (BitVector) root.getVector("even");
             id.allocateNew(ROW_COUNT);
             name.allocateNew(ROW_COUNT);
             maybe.allocateNew(ROW_COUNT);
+            half.allocateNew(ROW_COUNT);
+            even.allocateNew(ROW_COUNT);
             for (int i = 0; i < ROW_COUNT; i++) {
                 id.setSafe(i, i + 1);
                 name.setSafe(i, ("row-" + (i + 1)).getBytes(UTF_8));
+                half.setSafe(i, (i + 1) / 2.0);
+                even.setSafe(i, (i + 1) % 2 == 0 ? 1 : 0);
                 // Every other row is null; the rest carry their id.
                 if (i % 2 == 0) {
                     maybe.setNull(i);
@@ -171,6 +183,65 @@ public final class ListContainsFilterTest {
         assertEquals(
                 List.of(5),
                 scanIds(Expression.in(Expression.column("id"), Expression.literalList(i32(), false, elements))));
+    }
+
+    @Test
+    public void aBulkSetOfIntegersCastsToTheElementType() {
+        // Each width is cast to the i32 element type, so all four build the same set.
+        Expression id = Expression.column("id");
+        assertEquals(
+                List.of(2, 4),
+                scanIds(Expression.in(id, Expression.literalByteList(i32(), false, new byte[] {2, 4, 99}))));
+        assertEquals(
+                List.of(2, 4),
+                scanIds(Expression.in(id, Expression.literalShortList(i32(), false, new short[] {2, 4, 99}))));
+        assertEquals(
+                List.of(2, 4),
+                scanIds(Expression.in(id, Expression.literalIntList(i32(), false, new int[] {2, 4, 99}))));
+        assertEquals(
+                List.of(2, 4),
+                scanIds(Expression.in(id, Expression.literalLongList(i32(), false, new long[] {2, 4, 99}))));
+    }
+
+    @Test
+    public void aBulkSetOfFloatsFiltersOnDoubles() {
+        // half = [0.5, 1.0, 1.5, 2.0, 2.5, 3.0]
+        Expression half = Expression.column("half");
+        Expression f64 = Expression.nullLiteral(Expression.DType.F64);
+        assertEquals(
+                List.of(1, 4),
+                scanIds(Expression.in(half, Expression.literalDoubleList(f64, false, new double[] {0.5, 2.0, 7.0}))));
+        assertEquals(
+                List.of(1, 4),
+                scanIds(Expression.in(half, Expression.literalFloatList(f64, false, new float[] {0.5f, 2.0f, 7.0f}))));
+    }
+
+    @Test
+    public void aBulkSetOfBooleansFiltersOnBool() {
+        Expression bool = Expression.nullLiteral(Expression.DType.BOOL);
+        assertEquals(
+                List.of(2, 4, 6),
+                scanIds(Expression.in(
+                        Expression.column("even"), Expression.literalBooleanList(bool, false, new boolean[] {true}))));
+    }
+
+    @Test
+    public void aBulkSetOfStringsFiltersOnUtf8() {
+        Expression set = Expression.literalStringList(utf8(), false, new String[] {"row-1", "row-6", "row-9"});
+        assertEquals(List.of(1, 6), scanIds(Expression.in(Expression.column("name"), set)));
+    }
+
+    @Test
+    public void aBulkSetWithANullElementFollowsSqlNullRules() {
+        // maybe = [null, 2, null, 4, null, 6]. As with literalList, the null element makes every non-match null.
+        Expression set = Expression.literalIntList(i32(), true, new int[] {2});
+        assertEquals(List.of(2), scanIds(Expression.in(Expression.column("maybe"), set)));
+        assertEquals(List.of(), scanIds(Expression.notIn(Expression.column("maybe"), set)));
+    }
+
+    @Test
+    public void aBulkSetRejectsAValueThatDoesNotFitTheElementType() {
+        assertThrows(RuntimeException.class, () -> Expression.literalLongList(i32(), false, new long[] {1L << 40}));
     }
 
     @Test
