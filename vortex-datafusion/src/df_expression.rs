@@ -33,6 +33,8 @@ use datafusion_physical_expr_common::physical_expr::is_volatile;
 use itertools::Itertools;
 use vortex::array::ArrayRef;
 use vortex::array::ExecutionCtx;
+use vortex::array::IntoArray;
+use vortex::array::arrays::ConstantArray;
 use vortex::dtype::DType;
 use vortex::error::VortexError;
 use vortex::error::VortexResult;
@@ -41,6 +43,7 @@ use vortex::error::vortex_ensure_eq;
 use vortex::expr::Expression;
 use vortex::expr::get_item;
 use vortex::expr::root;
+use vortex::scalar::Scalar;
 use vortex::scalar_fn::Arity;
 use vortex::scalar_fn::ChildName;
 use vortex::scalar_fn::ExecutionArgs;
@@ -405,33 +408,31 @@ impl ScalarFnVTable for DataFusionExpression {
         let inputs = (0..options.schema.fields().len())
             .map(|index| args.get(index))
             .collect::<VortexResult<Vec<_>>>()?;
-        let result = (|| {
-            let columns = inputs
-                .into_iter()
-                .zip(options.schema.fields())
-                .map(|(array, field)| array.execute_arrow(Some(field), ctx))
-                .collect::<VortexResult<Vec<_>>>()?;
-            let batch = RecordBatch::try_new_with_options(
-                Arc::clone(&options.schema),
-                columns,
-                &RecordBatchOptions::new().with_row_count(Some(args.row_count())),
-            )?;
-            let result = options
-                .expression
-                .evaluate(&batch)
-                .and_then(|value| value.into_array_of_size(args.row_count()))
-                .map_err(VortexError::external)?;
-            vortex_ensure_eq!(result.len(), args.row_count());
-            vortex_ensure_eq!(result.data_type(), options.output.data_type());
-            Ok::<_, VortexError>(result)
-        })();
-        let result = match result {
+        let columns = inputs
+            .into_iter()
+            .zip(options.schema.fields())
+            .map(|(array, field)| array.execute_arrow(Some(field), ctx))
+            .collect::<VortexResult<Vec<_>>>()?;
+        let batch = RecordBatch::try_new_with_options(
+            Arc::clone(&options.schema),
+            columns,
+            &RecordBatchOptions::new().with_row_count(Some(args.row_count())),
+        )?;
+        let result = match options.expression.evaluate(&batch) {
             Ok(result) => result,
             Err(_) if options.advisory => {
-                Arc::new(BooleanArray::from(vec![true; args.row_count()]))
+                return Ok(ConstantArray::new(
+                    Scalar::bool(true, options.dtype.nullability()),
+                    args.row_count(),
+                )
+                .into_array());
             }
-            Err(error) => return Err(error),
-        };
+            Err(error) => return Err(VortexError::external(error)),
+        }
+        .into_array_of_size(args.row_count())
+        .map_err(VortexError::external)?;
+        vortex_ensure_eq!(result.len(), args.row_count());
+        vortex_ensure_eq!(result.data_type(), options.output.data_type());
         ctx.session()
             .arrow()
             .from_arrow_array(result, &options.output)
@@ -846,6 +847,72 @@ mod tests {
             .evaluate(&batch)?
             .into_array_of_size(batch.num_rows())?;
         assert_eq!(&actual, &expected);
+        Ok(())
+    }
+
+    #[test]
+    fn advisory_evaluation_errors_preserve_all_rows_and_nullability() -> Result<()> {
+        let batch = RecordBatch::try_from_iter(vec![(
+            "id",
+            Arc::new(Int64Array::from(vec![Some(0), None])) as ArrowArrayRef,
+        )])?;
+        let division = Arc::new(BinaryExpr::new(
+            lit(1_i64),
+            Operator::Divide,
+            Arc::new(Column::new("id", 0)),
+        ));
+        let predicate: Arc<dyn PhysicalExpr> =
+            Arc::new(BinaryExpr::new(division, Operator::Gt, lit(0_i64)));
+        assert!(predicate.evaluate(&batch).is_err());
+        let session = VortexSession::default();
+        let wrapped = raw_expression(predicate, &batch.schema(), &session, true)?.unwrap();
+        assert!(wrapped.as_scalar().unwrap().signature().is_infallible());
+        let input = session
+            .arrow()
+            .from_arrow_record_batch(batch.clone(), &batch.schema())?;
+        let result = input.apply(&wrapped)?;
+        assert_eq!(result.dtype(), &DType::Bool(Nullability::Nullable));
+        let actual = result.execute_arrow(
+            Some(&Field::new("result", DataType::Boolean, true)),
+            &mut session.create_execution_ctx(),
+        )?;
+        let expected: ArrowArrayRef = Arc::new(BooleanArray::from(vec![true, true]));
+        assert_eq!(&actual, &expected);
+        Ok(())
+    }
+
+    #[test]
+    fn advisory_preserves_result_type_errors() -> Result<()> {
+        let batch = RecordBatch::try_from_iter(vec![(
+            "id",
+            Arc::new(Int64Array::from(vec![1])) as ArrowArrayRef,
+        )])?;
+        let predicate: Arc<dyn PhysicalExpr> = Arc::new(ScalarFunctionExpr::try_new(
+            Arc::new(create_udf(
+                "invalid_boolean_result",
+                vec![],
+                DataType::Boolean,
+                Volatility::Immutable,
+                Arc::new(|_| Ok(ColumnarValue::Scalar(ScalarValue::Int64(Some(1))))),
+            )),
+            vec![],
+            &batch.schema(),
+            Arc::new(ConfigOptions::new()),
+        )?);
+        let session = VortexSession::default();
+        let wrapped = raw_expression(predicate, &batch.schema(), &session, true)?.unwrap();
+        let input = session
+            .arrow()
+            .from_arrow_record_batch(batch.clone(), &batch.schema())?;
+        let error = input
+            .apply(&wrapped)?
+            .execute_arrow(
+                Some(&Field::new("result", DataType::Boolean, true)),
+                &mut session.create_execution_ctx(),
+            )
+            .unwrap_err();
+        assert!(error.to_string().contains("Int64"));
+        assert!(error.to_string().contains("Boolean"));
         Ok(())
     }
 }
