@@ -373,7 +373,8 @@ impl BoundScanRequest {
                 .map(|expr| expr.bind(dtype)?.optimize_recursive())
                 .transpose()
                 .map_err(Arc::new),
-            row_range,
+            // A range that starts after it ends selects no rows.
+            row_range: row_range.map(|range| range.start..range.end.max(range.start)),
             selection,
             partition_selection,
             partition_range,
@@ -410,10 +411,10 @@ impl DataSourceScan for MultiLayoutScan {
 
     fn partition_count(&self) -> Precision<usize> {
         let count = self.ready.len() + self.deferred.len();
-        if self.deferred.is_empty() {
-            Precision::exact(count)
-        } else {
+        if !self.deferred.is_empty() || matches!(self.request.filter, Ok(Some(_))) {
             Precision::inexact(count)
+        } else {
+            Precision::exact(count)
         }
     }
 
@@ -769,6 +770,33 @@ mod tests {
         Ok((values, in_flight.peak()))
     }
 
+    #[test]
+    #[expect(
+        clippy::reversed_empty_ranges,
+        reason = "the inverted range is the input"
+    )]
+    fn inverted_row_range_selects_no_rows() -> VortexResult<()> {
+        let runtime = SingleThreadRuntime::default();
+        let session = session_with_handle(runtime.handle());
+        let reader: LayoutReaderRef = Arc::new(TestLayoutReader::new(8));
+        let source = MultiLayoutDataSource::new_with_first(reader, vec![], vec![], &session);
+        // The filter reaches the pruning check in `reader_partition`, which needs the range's
+        // length.
+        let scan = runtime.block_on(source.scan(ScanRequest {
+            filter: Some(eq(root(), lit(1i32))),
+            row_range: Some(5..3),
+            ..Default::default()
+        }))?;
+        let mut values = Vec::new();
+        for partition in runtime.block_on(scan.partitions().try_collect::<Vec<_>>())? {
+            values.extend(collect_scan_values(
+                runtime.block_on_stream(partition.execute()?),
+            )?);
+        }
+        assert!(values.is_empty(), "{values:?}");
+        Ok(())
+    }
+
     /// A per-worker concurrency set after the bound leaves the bound in place.
     #[test]
     fn a_later_per_worker_concurrency_keeps_the_bound() {
@@ -796,6 +824,20 @@ mod tests {
             default_peak > max,
             "the default read {default_peak} at once"
         );
+        Ok(())
+    }
+
+    #[test]
+    fn partition_count_is_inexact_with_filter() -> VortexResult<()> {
+        let runtime = SingleThreadRuntime::default();
+        let session = session_with_handle(runtime.handle());
+        let reader: LayoutReaderRef = Arc::new(TestLayoutReader::new(3));
+        let opened = MultiLayoutDataSource::new_with_first(reader, vec![], vec![], &session);
+        let scan = runtime.block_on(opened.scan(ScanRequest {
+            filter: Some(eq(root(), lit(1i32))),
+            ..Default::default()
+        }))?;
+        assert_eq!(scan.partition_count(), Precision::inexact(1usize));
         Ok(())
     }
 

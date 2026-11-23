@@ -267,7 +267,7 @@ class ResultStore:
         """Get a run by ID, label, or 'latest'."""
         if run_id_or_label == "latest":
             latest_link = self.base_dir / "latest"
-            if latest_link.is_symlink():
+            if latest_link.is_symlink() and latest_link.exists():
                 run_id_or_label = latest_link.resolve().name
             else:
                 # Find most recent non-partial run
