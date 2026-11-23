@@ -151,6 +151,8 @@ impl VTable for FoR {
         Ok(ExecutionResult::done(decompress(array, ctx)?.into_array()))
     }
 
+    /// FoR over BitPacked is a leaf, so it unpacks and adds its reference in one pass instead of
+    /// BitPacked's unpack followed by FoR's op.
     fn block_source(
         array: ArrayView<'_, Self>,
         ctx: &mut ExecutionCtx,
