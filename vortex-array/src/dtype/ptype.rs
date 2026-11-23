@@ -922,9 +922,16 @@ impl PType {
     }
 
     /// Returns the wider of two unsigned integer [`PType`]s based on byte width.
+    ///
+    /// # Panics
+    ///
+    /// Panics if either type is not an unsigned integer.
     #[inline]
     pub const fn max_unsigned_ptype(self, other: Self) -> Self {
-        debug_assert!(self.is_unsigned_int() && other.is_unsigned_int());
+        assert!(
+            self.is_unsigned_int() && other.is_unsigned_int(),
+            "max_unsigned_ptype requires two unsigned integer types"
+        );
         if self.byte_width() >= other.byte_width() {
             self
         } else {
@@ -933,9 +940,16 @@ impl PType {
     }
 
     /// Returns the wider of two signed integer [`PType`]s based on byte width.
+    ///
+    /// # Panics
+    ///
+    /// Panics if either type is not a signed integer.
     #[inline]
     pub const fn max_signed_ptype(self, other: Self) -> Self {
-        debug_assert!(self.is_signed_int() && other.is_signed_int());
+        assert!(
+            self.is_signed_int() && other.is_signed_int(),
+            "max_signed_ptype requires two signed integer types"
+        );
         if self.byte_width() >= other.byte_width() {
             self
         } else {
@@ -1070,7 +1084,25 @@ physical_ptype!(u64, u64);
 
 #[cfg(test)]
 mod tests {
+    use rstest::rstest;
+
     use super::*;
+
+    #[rstest]
+    #[case::invalid_lhs(PType::F32, PType::U8)]
+    #[case::invalid_rhs(PType::U8, PType::I64)]
+    #[should_panic(expected = "max_unsigned_ptype requires two unsigned integer types")]
+    fn max_unsigned_ptype_rejects_invalid_types(#[case] lhs: PType, #[case] rhs: PType) {
+        lhs.max_unsigned_ptype(rhs);
+    }
+
+    #[rstest]
+    #[case::invalid_lhs(PType::U64, PType::I8)]
+    #[case::invalid_rhs(PType::I8, PType::F32)]
+    #[should_panic(expected = "max_signed_ptype requires two signed integer types")]
+    fn max_signed_ptype_rejects_invalid_types(#[case] lhs: PType, #[case] rhs: PType) {
+        lhs.max_signed_ptype(rhs);
+    }
 
     #[test]
     fn try_from_bytes() -> VortexResult<()> {
