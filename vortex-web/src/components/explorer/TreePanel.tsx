@@ -106,10 +106,10 @@ export function TreePanel() {
   // When a flat layout node is expanded, lazily attach array encoding children.
   // Track requested and failed nodes so pending requests are shared and failures retry after collapse.
   const expandedRef = useRef(expanded);
-  expandedRef.current = expanded;
   const expandedArrayRequests = useRef(new Set<string>());
   const failedArrayRequests = useRef(new Set<string>());
   useEffect(() => {
+    expandedRef.current = expanded;
     for (const id of failedArrayRequests.current) {
       if (!expanded.has(id)) {
         failedArrayRequests.current.delete(id);

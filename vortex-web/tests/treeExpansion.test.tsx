@@ -4,6 +4,7 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
+import { DetailPanel } from '../src/components/detail/DetailPanel';
 import { TreePanel } from '../src/components/explorer/TreePanel';
 import { SwimlaneOverview } from '../src/components/swimlane/SwimlaneOverview';
 import type { LayoutTreeNode } from '../src/components/swimlane/types';
@@ -50,6 +51,7 @@ let mountedContainer: HTMLDivElement | null = null;
 async function mountView(
   element: React.ReactNode,
   file: VortexFileContextValue,
+  selection: SelectionContextValue = emptySelection,
 ): Promise<HTMLDivElement> {
   const container = document.createElement('div');
   document.body.appendChild(container);
@@ -59,7 +61,7 @@ async function mountView(
   await act(async () => {
     root.render(
       <VortexFileContext.Provider value={file}>
-        <SelectionContext.Provider value={emptySelection}>{element}</SelectionContext.Provider>
+        <SelectionContext.Provider value={selection}>{element}</SelectionContext.Provider>
       </VortexFileContext.Provider>,
     );
   });
@@ -179,3 +181,45 @@ for (const [name, renderView, toggleSelector] of [
     });
   });
 }
+
+describe('DetailPanel array tree expansion', () => {
+  test('catches rejected expandArrayTree calls from BlockTreemap', async () => {
+    let calls = 0;
+    let unhandled = 0;
+    const onUnhandled = () => {
+      unhandled++;
+    };
+    process.on('unhandledRejection', onUnhandled);
+    try {
+      const file = makeFlatFile(() => {
+        calls++;
+        return Promise.reject(new Error('temporary'));
+      });
+      const selection: SelectionContextValue = {
+        state: {
+          selectedNode: file.layoutTree,
+          selectedNodeId: file.layoutTree.id,
+          hoveredNodeId: null,
+        },
+        selectNode() {},
+        hoverNode() {},
+      };
+
+      const container = await mountView(<DetailPanel />, file, selection);
+      const treemapTab = Array.from(container.querySelectorAll('button[role="tab"]')).find(
+        (btn) => btn.textContent === 'Treemap',
+      );
+      expect(treemapTab).not.toBeUndefined();
+
+      await act(async () => {
+        treemapTab!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      });
+      await flushMicrotasks();
+
+      expect(calls).toBe(1);
+      expect(unhandled).toBe(0);
+    } finally {
+      process.off('unhandledRejection', onUnhandled);
+    }
+  });
+});

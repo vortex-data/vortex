@@ -28,13 +28,14 @@ export function DetailPanel() {
   const { state: selection, selectNode, hoverNode } = useSelection();
   const [activeTab, setActiveTab] = useState<TabId>('segments');
 
+  const { expandArrayTree } = file;
   const handleExpandArrayTree = useCallback(
     (nodeId: string) => {
-      file.expandArrayTree(nodeId).catch((err) => {
+      expandArrayTree(nodeId).catch((err) => {
         console.error('Explorer: failed to expand array tree', err);
       });
     },
-    [file],
+    [expandArrayTree],
   );
 
   const isArrayNode = selection.selectedNode?.isArrayNode ?? false;

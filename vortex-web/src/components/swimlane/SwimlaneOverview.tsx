@@ -63,10 +63,10 @@ export function SwimlaneOverview() {
   // Expanding a flat layout node lazily attaches its array-encoding children.
   // The tree is hidden in this view, so the swimlane drives the load itself.
   const expandedRef = useRef(expanded);
-  expandedRef.current = expanded;
   const arrayRequests = useRef(new Set<string>());
   const failedArrayRequests = useRef(new Set<string>());
   useEffect(() => {
+    expandedRef.current = expanded;
     for (const id of failedArrayRequests.current) {
       if (!expanded.has(id)) {
         failedArrayRequests.current.delete(id);
