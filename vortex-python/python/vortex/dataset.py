@@ -409,13 +409,6 @@ class VortexDataset(pyarrow.dataset.Dataset):
         uint_indices: pyarrow.Array[Any] = indices.cast(pa.uint64())
         row_filter = self._filter_expression(filter)
 
-        if _row_range is None and len(uint_indices) > 0:
-            max_index = pc.max(uint_indices).as_py()
-            if max_index is not None:
-                total_rows = self._dataset.count_rows()
-                if max_index >= total_rows:
-                    raise IndexError(f"index {max_index} is out of bounds for dataset with {total_rows} rows")
-
         def scan(scan_indices: pyarrow.Array[Any]) -> Array:
             return self._dataset.to_array(
                 columns=columns,

@@ -1,8 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::error::Error;
+
 use pyo3::CastError;
 use pyo3::PyErr;
+use pyo3::Python;
 use pyo3::exceptions::PyRuntimeError;
 use vortex::error::VortexError;
 
@@ -37,7 +40,16 @@ impl From<PyVortexError> for PyErr {
     fn from(value: PyVortexError) -> Self {
         match value {
             PyVortexError::Py(py) => py,
-            PyVortexError::Vortex(vx) => PyRuntimeError::new_err(vx.to_string()),
+            PyVortexError::Vortex(vx) => {
+                let mut source = vx.source();
+                while let Some(err) = source {
+                    if let Some(py_err) = err.downcast_ref::<PyErr>() {
+                        return Python::attach(|py| py_err.clone_ref(py));
+                    }
+                    source = err.source();
+                }
+                PyRuntimeError::new_err(vx.to_string())
+            }
         }
     }
 }
