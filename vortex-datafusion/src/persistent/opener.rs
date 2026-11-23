@@ -950,6 +950,17 @@ mod tests {
     use rstest::rstest;
     use vortex::VortexSessionDefault;
     use vortex::buffer::Buffer;
+    use vortex::dtype::Nullability;
+    use vortex::dtype::PType;
+    use vortex::dtype::StructFields;
+    use vortex::expr::byte_length;
+    use vortex::expr::eq;
+    use vortex::expr::get_item;
+    use vortex::expr::gt;
+    use vortex::expr::lit as vx_lit;
+    use vortex::expr::lower;
+    use vortex::expr::pack;
+    use vortex::expr::root;
     use vortex::file::WriteOptionsSessionExt;
     use vortex::io::VortexWrite;
     use vortex::io::object_store::ObjectStoreWrite;
@@ -2531,26 +2542,6 @@ mod tests {
         assert_eq!(actual.iter().map(RecordBatch::num_rows).sum::<usize>(), 0);
         Ok(())
     }
-}
-
-#[cfg(test)]
-mod fold_tests {
-    use rstest::rstest;
-    use vortex::dtype::DType;
-    use vortex::dtype::Nullability;
-    use vortex::dtype::PType;
-    use vortex::dtype::StructFields;
-    use vortex::expr::Expression;
-    use vortex::expr::byte_length;
-    use vortex::expr::eq;
-    use vortex::expr::get_item;
-    use vortex::expr::gt;
-    use vortex::expr::lit;
-    use vortex::expr::lower;
-    use vortex::expr::pack;
-    use vortex::expr::root;
-
-    use super::fold_filter_equalities;
 
     fn scope() -> DType {
         DType::Struct(
@@ -2571,23 +2562,23 @@ mod fold_tests {
     }
 
     #[rstest]
-    #[case::expr_eq_literal(eq(lowered(), lit("a")))]
-    #[case::literal_eq_expr(eq(lit("a"), lowered()))]
+    #[case::expr_eq_literal(eq(lowered(), vx_lit("a")))]
+    #[case::literal_eq_expr(eq(vx_lit("a"), lowered()))]
     fn folds_an_expression_the_filter_pins(#[case] filter: Expression) {
         let folded = fold_filter_equalities(projection(lowered()), &[filter], &scope());
 
         // The literal takes the nullable dtype of the expression it replaces.
-        let literal = lit(vortex::scalar::Scalar::utf8("a", Nullability::Nullable));
+        let literal = vx_lit(vortex::scalar::Scalar::utf8("a", Nullability::Nullable));
         assert_eq!(folded, projection(literal));
     }
 
     #[rstest]
     // A range does not pin the value.
-    #[case::not_an_equality(byte_length(lowered()), gt(byte_length(lowered()), lit(1u64)))]
-    // Reading a column is cheap, and folding it would leave the scan without an input.
-    #[case::plain_column(get_item("s", root()), eq(get_item("s", root()), lit("a")))]
+    #[case::not_an_equality(byte_length(lowered()), gt(byte_length(lowered()), vx_lit(1u64)))]
+    // Reading a column is cheap.
+    #[case::plain_column(get_item("s", root()), eq(get_item("s", root()), vx_lit("a")))]
     // `0.0 = -0.0`, so an equal float is not necessarily the same value.
-    #[case::float(get_item("f", root()), eq(get_item("f", root()), lit(0.0f64)))]
+    #[case::float(get_item("f", root()), eq(get_item("f", root()), vx_lit(0.0f64)))]
     fn keeps_other_expressions(#[case] expr: Expression, #[case] filter: Expression) {
         let folded = fold_filter_equalities(projection(expr.clone()), &[filter], &scope());
 
