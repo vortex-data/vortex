@@ -29,6 +29,7 @@ use vortex_array::stream::ArrayStreamExt;
 use vortex_array::stream::SendableArrayStream;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_mask::Mask;
 use vortex_metrics::MetricsRegistry;
@@ -122,6 +123,12 @@ impl DataSource for LayoutReaderDataSource {
             .ok_or_else(|| vortex_err!("split_max_row_count must be greater than zero"))?;
         let total_rows = self.reader.row_count();
         let row_range = scan_request.row_range.unwrap_or(0..total_rows);
+        vortex_ensure!(
+            row_range.start <= row_range.end,
+            "row range start {} is after its end {}",
+            row_range.start,
+            row_range.end
+        );
 
         let projection = scan_request
             .projection
@@ -533,6 +540,22 @@ mod tests {
             );
         }
         Ok(())
+    }
+
+    #[test]
+    #[expect(
+        clippy::reversed_empty_ranges,
+        reason = "the inverted range is the input"
+    )]
+    fn inverted_row_range_is_rejected() {
+        let runtime = SingleThreadRuntime::default();
+        let session = session_with_handle(runtime.handle());
+        let source = LayoutReaderDataSource::new(Arc::new(TestLayoutReader::new(8)), session);
+        let result = runtime.block_on(source.scan(ScanRequest {
+            row_range: Some(5..3),
+            ..Default::default()
+        }));
+        assert!(result.is_err());
     }
 
     #[test]
