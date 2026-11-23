@@ -70,16 +70,16 @@ use vortex::expr::traversal::NodeExt;
 use vortex::expr::traversal::Transformed;
 use vortex::expr::var;
 use vortex::expr::variant_get;
+use vortex::functions::like::Like;
+use vortex::functions::like::LikeOptions;
+use vortex::functions::variant_get::VariantPath;
+use vortex::functions::variant_get::VariantPathElement;
 use vortex::layout::layouts::row_idx;
 use vortex::scalar::Scalar;
 use vortex::scalar_fn::ScalarFnVTableExt;
-use vortex::scalar_fn::fns::binary::Binary;
-use vortex::scalar_fn::fns::get_item::GetItem;
-use vortex::scalar_fn::fns::like::Like;
-use vortex::scalar_fn::fns::like::LikeOptions;
-use vortex::scalar_fn::fns::operators::Operator;
-use vortex::scalar_fn::fns::variant_get::VariantPath;
-use vortex::scalar_fn::fns::variant_get::VariantPathElement;
+use vortex::scalar_fn::builtin::binary::Binary;
+use vortex::scalar_fn::builtin::get_item::GetItem;
+use vortex::scalar_fn::builtin::operators::Operator;
 use vortex::session::VortexSession;
 use vortex_arrow::ArrowSessionExt;
 
@@ -652,12 +652,24 @@ impl DefaultExpressionConverter {
         schema: &Schema,
         input_dtype: &DType,
     ) -> Conversion<Expression> {
+        let value_type = in_list.expr().data_type(schema)?;
         if in_list.is_empty()
             || !in_list
                 .list()
                 .iter()
                 .all(|expr| expr.is::<df_expr::Literal>())
-            || !supported_data_types(&in_list.expr().data_type(schema)?)
+            || !supported_data_types(&value_type)
+        {
+            return Err(Unconverted::Unsupported);
+        }
+        // DataFusion reads the nulls of a run-end encoded list from its physical validity, which
+        // is always empty, so it ignores a NULL element that SQL, and Vortex, do not.
+        if matches!(value_type, DataType::RunEndEncoded(..))
+            && in_list.list().iter().any(|element| {
+                element
+                    .downcast_ref::<df_expr::Literal>()
+                    .is_some_and(|literal| literal.value().is_null())
+            })
         {
             return Err(Unconverted::Unsupported);
         }
@@ -1153,9 +1165,18 @@ fn try_operator_from_df(value: &DFOperator) -> Option<Operator> {
 fn supported_data_types(dt: &DataType) -> bool {
     use DataType::*;
 
-    // For dictionary types, check if the value type is supported.
-    if let Dictionary(_, value_type) = dt {
-        return supported_data_types(value_type.as_ref());
+    // For dictionary and run-end encoded types, check if the value type is supported. Arrow's
+    // comparison kernels only unwrap run-end encoding as the outermost layer.
+    match dt {
+        Dictionary(_, value_type) => {
+            return !matches!(value_type.as_ref(), RunEndEncoded(..))
+                && supported_data_types(value_type.as_ref());
+        }
+        RunEndEncoded(_, values) => {
+            return !matches!(values.data_type(), RunEndEncoded(..))
+                && supported_data_types(values.data_type());
+        }
+        _ => {}
     }
 
     let is_supported = dt.is_null()

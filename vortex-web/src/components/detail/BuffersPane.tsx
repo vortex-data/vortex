@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { LayoutTreeNode } from '../swimlane/types';
 import { formatBytes, parseArrayNodeId } from '../swimlane/utils';
 import { useVortexFile } from '../../contexts/VortexFileContextCore';
@@ -17,11 +17,13 @@ export function BuffersPane({ node }: BuffersPaneProps) {
   const [bufferData, setBufferData] = useState<Uint8Array | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const requestIdRef = useRef(0);
 
   const bufferNames: string[] = bufferLengths.map((_, i) => node.bufferNames?.[i] ?? `buffer ${i}`);
 
   const loadBuffer = useCallback(
     async (index: number) => {
+      const requestId = ++requestIdRef.current;
       setSelectedBuffer(index);
       setBufferData(null);
       setError(null);
@@ -29,17 +31,21 @@ export function BuffersPane({ node }: BuffersPaneProps) {
       try {
         const { layoutNodeId, arrayPath } = parseArrayNodeId(node.id);
         const data = await fetchArrayBuffer(layoutNodeId, arrayPath, index);
+        if (requestIdRef.current !== requestId) return;
         setBufferData(data);
       } catch (e) {
+        if (requestIdRef.current !== requestId) return;
         setError(e instanceof Error ? e.message : String(e));
       } finally {
-        setLoading(false);
+        if (requestIdRef.current === requestId) {
+          setLoading(false);
+        }
       }
     },
     [node.id, fetchArrayBuffer],
   );
 
-  // Auto-select first buffer when node changes.
+  // Auto-select first buffer when node changes and invalidate in-flight reads on cleanup.
   useEffect(() => {
     setBufferData(null);
     setError(null);
@@ -48,6 +54,9 @@ export function BuffersPane({ node }: BuffersPaneProps) {
     } else {
       setSelectedBuffer(null);
     }
+    return () => {
+      requestIdRef.current++;
+    };
   }, [node.id, bufferLengths.length, loadBuffer]);
 
   if (bufferLengths.length === 0) {

@@ -21,6 +21,7 @@ use vortex_array::aggregate_fn::session::AggregateFnSession;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::PiecewiseSequenceArray;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::builders::builder_with_capacity_in;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::PType;
@@ -496,6 +497,25 @@ fn embedding_runs_fixture(dimension: usize, ptype: PType, bit_width: u8) -> (Arr
 fn embedding_runs(bencher: Bencher, dimension: usize) {
     let (packed, indices) = embedding_runs_fixture(dimension, PType::U32, 16);
     bench_piecewise_take(bencher, packed, indices);
+}
+
+// The same runs appended to a builder through a lazy take, as an Arrow export of a fixed-size-list
+// take does.
+#[divan::bench(args = [1024])]
+fn embedding_runs_append(bencher: Bencher, dimension: usize) {
+    let (packed, indices) = embedding_runs_fixture(dimension, PType::U32, 16);
+    mark_optimized(&packed, &SESSION).unwrap();
+    mark_optimized(&indices, &SESSION).unwrap();
+
+    bencher
+        .counter(ItemsCount::new(indices.len()))
+        .with_inputs(|| SESSION.create_execution_ctx())
+        .bench_refs(|ctx| {
+            let lazy = packed.take(indices.clone()).unwrap();
+            let mut builder = builder_with_capacity_in(lazy.dtype(), lazy.len(), ctx.allocator());
+            lazy.append_to_builder(builder.as_mut(), ctx).unwrap();
+            builder.finish()
+        });
 }
 
 #[divan::bench(args = [512, 1024, 2048, 4096])]

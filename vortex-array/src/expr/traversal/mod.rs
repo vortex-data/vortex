@@ -566,10 +566,10 @@ mod tests {
     use crate::expr::lit;
     use crate::expr::not_eq;
     use crate::expr::root;
-    use crate::scalar_fn::fns::binary::Binary;
-    use crate::scalar_fn::fns::get_item::GetItem;
-    use crate::scalar_fn::fns::literal::Literal;
-    use crate::scalar_fn::fns::operators::Operator;
+    use crate::scalar_fn::builtin::binary::Binary;
+    use crate::scalar_fn::builtin::get_item::GetItem;
+    use crate::scalar_fn::builtin::literal::Literal;
+    use crate::scalar_fn::builtin::operators::Operator;
 
     #[derive(Default)]
     pub struct ExprLitCollector<'a>(pub Vec<&'a Expression>);

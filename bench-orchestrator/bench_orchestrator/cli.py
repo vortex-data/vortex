@@ -16,6 +16,7 @@ from typing import Annotated, TextIO
 import pandas as pd
 import typer
 from rich.console import Console
+from rich.markup import escape
 from rich.table import Table
 
 from .ci_matrix import MATRIX_PRESETS, resolve_matrix
@@ -28,15 +29,17 @@ from .config import (
     Engine,
     Format,
     RunConfig,
+    SizeFormat,
     group_targets_by_backend,
     parse_formats_json,
+    parse_size_formats_json,
     parse_targets_json,
     resolve_axis_targets,
-    uses_scan_v2,
 )
-from .data_cache import S3DataCache, cached_dataset
+from .data_cache import S3DataCache, cached_dataset, prepare_dataset
 from .runner.builder import BenchmarkBuilder
 from .runner.executor import BenchmarkExecutor
+from .runner.labels import label_ingest_file, label_result_line
 from .storage.store import ResultStore
 
 app = typer.Typer(
@@ -269,14 +272,66 @@ def prepare_data(
 
     try:
         cache = S3DataCache(s3_cache) if s3_cache else None
-        dataset = cached_dataset(benchmark, bench_opts, builder.workspace_root) if cache else None
-        restored = cache is not None and dataset is not None and cache.restore(dataset)
-        subprocess.run(cmd, check=True)
-        if cache is not None and dataset is not None and not restored:
-            cache.save(dataset)
+        dataset = cached_dataset(benchmark, bench_opts, builder.workspace_root)
+        if dataset is not None:
+            with prepare_dataset(dataset, cache=cache):
+                subprocess.run(cmd, check=True)
+        else:
+            subprocess.run(cmd, check=True)
     except (subprocess.CalledProcessError, ValueError, FileNotFoundError) as exc:
         console.print(f"[red]Data generation failed: {exc}[/red]")
         raise typer.Exit(1) from exc
+
+
+@app.command("write-size-formats")
+def write_size_formats(
+    benchmark: Annotated[Benchmark, typer.Argument(help="Benchmark suite whose data to write")],
+    formats_json: Annotated[
+        str,
+        typer.Option("--formats-json", help="Size-only formats to write, as a JSON array"),
+    ],
+    verbose: Annotated[bool, typer.Option("--verbose", "-v", help="Log underlying commands")] = False,
+    options: Annotated[list[str] | None, typer.Option("--opt", help="Benchmark-specific options")] = None,
+) -> None:
+    """Write formats that no query reads, only to record their file sizes.
+
+    Run it after `prepare-data`: each format is written from the benchmark's base Parquet files.
+    """
+    try:
+        formats = parse_size_formats_json(formats_json)
+        bench_opts = parse_options(options)
+    except ValueError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(1) from exc
+
+    opt_args = [arg for key, value in bench_opts.items() for arg in ("--opt", f"{key}={value}")]
+    builder = BenchmarkBuilder(verbose=verbose)
+    commands = []
+    data_gen_formats = [fmt.value for fmt in formats if fmt is not SizeFormat.LANCE]
+    if data_gen_formats:
+        commands.append(
+            [
+                str(builder.get_data_generator_path()),
+                benchmark.value,
+                "--size-formats",
+                ",".join(data_gen_formats),
+                *opt_args,
+            ]
+        )
+    if SizeFormat.LANCE in formats:
+        commands.append([str(builder.get_binary_path(Engine.LANCE)), benchmark.value, "--data-only", *opt_args])
+
+    for cmd in commands:
+        if not Path(cmd[0]).exists():
+            console.print(f"[red]Binary not found: {cmd[0]}[/red]")
+            raise typer.Exit(1)
+        if verbose:
+            console.print(f"[dim]$ {' '.join(cmd)}[/dim]")
+        try:
+            subprocess.run(cmd, check=True)
+        except subprocess.CalledProcessError as exc:
+            console.print(f"[red]Writing size-only formats failed: {exc}[/red]")
+            raise typer.Exit(1) from exc
 
 
 @app.command("matrix")
@@ -362,6 +417,8 @@ def run(
 
     for warning in warnings:
         console.print(f"[yellow]Warning: {warning}[/yellow]")
+    # Vortex targets without a scan engine run the suite's default; name it from here on.
+    targets = list(dict.fromkeys(target.resolved(benchmark) for target in targets))
     if not targets:
         console.print("[red]No valid benchmark targets selected[/red]")
         raise typer.Exit(1)
@@ -398,10 +455,8 @@ def run(
                 raise typer.Exit(1)
 
     console.print(f"\n[bold]Running {benchmark.value} benchmark[/bold]")
-    console.print(f"  Targets: {', '.join(map(str, config.targets))}")
+    console.print(f"  Targets: {escape(', '.join(map(str, config.targets)))}")
     console.print(f"  Iterations: {iterations}")
-    if any(target.engine in {Engine.DATAFUSION, Engine.DUCKDB} for target in config.targets):
-        console.print(f"  Vortex scan: {'V2' if uses_scan_v2(benchmark) else 'V1'}")
     if label:
         console.print(f"  Label: {label}")
     console.print()
@@ -422,11 +477,14 @@ def run(
                 for target in backend_targets:
                     query_results: list[str] = []
 
-                    def stream(line: str) -> None:
+                    def stream(line: str, target: BenchmarkTarget = target) -> None:
+                        line = label_result_line(line, target, benchmark)
                         query_results.append(line)
                         write_result_line(line, ctx.write_raw_json, compatibility_file)
 
                     try:
+                        # Before the first cache drop, so the first query reads cold files.
+                        executor.write_data(benchmark, bench_opts)
                         query_ids = executor.list_queries(benchmark, query_list, exclude_list)
                         for i, query_id in enumerate(query_ids, start=1):
                             query_results.clear()
@@ -451,8 +509,12 @@ def run(
                                 runner=runner,
                                 ingest_output=part_ingest_output,
                                 on_result=stream,
+                                integration=target.integration,
+                                scan=target.scan,
                             )
                             if part_ingest_output is not None:
+                                if part_ingest_output.exists():
+                                    label_ingest_file(part_ingest_output, target, benchmark)
                                 ingest_output_parts.append(part_ingest_output)
 
                             elapsed = (datetime.now() - started).total_seconds()
@@ -464,12 +526,12 @@ def run(
                                 soft_wrap=True,
                             )
 
-                        console.print(f"[green]{target}: {len(query_ids)} queries[/green]")
+                        console.print(f"[green]{escape(str(target))}: {len(query_ids)} queries[/green]")
                     except RuntimeError as exc:
                         ctx.metadata.partial = True
                         if strict_failures:
                             raise
-                        console.print(f"[red]{target} failed: {exc}[/red]")
+                        console.print(f"[red]{escape(str(target))} failed: {escape(str(exc))}[/red]")
                         soft_failures.append(str(exc))
 
             if ingest_output is not None:
@@ -485,6 +547,8 @@ def run(
 
     metadata = ctx.metadata
     console.print(f"\n[green]Results saved to run: {metadata.run_id}[/green]")
+    if metadata.partial:
+        console.print("[yellow]Run is partial; 'latest' was not updated.[/yellow]")
 
     # Show comparison table if we have multiple engine:format combinations
     df = store.load_results(metadata.run_id)

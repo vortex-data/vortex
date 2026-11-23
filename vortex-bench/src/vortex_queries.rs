@@ -23,6 +23,7 @@ use crate::Format;
 use crate::TableSpec;
 use crate::bench_dir;
 use crate::resolve_data_url;
+use crate::utils::parquet::is_zstd_file;
 
 // Path to script that creates Parquet data
 const INIT_SQL: &str = "init.sql";
@@ -124,8 +125,12 @@ impl Benchmark for VortexBenchmark {
         let parquet_file = parquet_dir.join("test.parquet");
 
         if parquet_file.exists() {
-            debug!("Parquet data present in {}", parquet_dir.display());
-            return Ok(());
+            if is_zstd_file(&parquet_file)? {
+                debug!("Parquet data present in {}", parquet_dir.display());
+                return Ok(());
+            }
+            // Data generated before the suite wrote zstd. Write it again.
+            fs::remove_file(&parquet_file)?;
         }
 
         let init_path = self.queries_dir.join(INIT_SQL);

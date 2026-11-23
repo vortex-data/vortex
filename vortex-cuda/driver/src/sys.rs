@@ -317,6 +317,12 @@ driver_api! {
     fn cuModuleLoadData(module: *mut CUmodule, image: *const c_void);
     fn cuModuleUnload(module: CUmodule);
     fn cuModuleGetFunction(function: *mut CUfunction, module: CUmodule, name: *const c_char);
+    fn cuOccupancyMaxActiveBlocksPerMultiprocessor(
+        num_blocks: *mut c_int,
+        function: CUfunction,
+        block_size: c_int,
+        dynamic_shared_mem_bytes: usize,
+    );
     fn cuLaunchKernel(
         function: CUfunction,
         grid_x: c_uint,

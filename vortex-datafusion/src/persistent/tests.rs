@@ -1435,18 +1435,19 @@ async fn test_string_function_filter_pushdown(
     Ok(())
 }
 
-/// Regression test for #10634: string comparisons on `REE<Dict<Utf8>>` columns are pushed into
-/// the scan and return the same rows as DataFusion.
+/// String comparisons on `REE<Dict<Utf8>>` (#10634) and `REE<Utf8>` columns are pushed into the
+/// scan and return the same rows as DataFusion.
 #[rstest]
-#[case::eq("ree_dict = 'x'")]
-#[case::not_eq("ree_dict <> 'x'")]
-#[case::or("ree_dict = 'x' OR ree_dict = 'y'")]
-#[case::in_list("ree_dict IN ('y', 'unused')")]
-#[case::and("ree_dict = 'x' AND id > 1")]
+#[case::eq("ree = 'x'")]
+#[case::not_eq("ree <> 'x'")]
+#[case::or("ree = 'x' OR ree = 'y'")]
+#[case::in_list("ree IN ('y', 'unused')")]
+#[case::and("ree = 'x' AND id > 1")]
 #[tokio::test]
-async fn test_ree_dict_predicate_memtable_oracle(
+async fn test_ree_predicate_memtable_oracle(
     #[case] predicate: &str,
     #[values(false, true)] pushdown: bool,
+    #[values(false, true)] dictionary: bool,
 ) -> anyhow::Result<()> {
     let options = crate::VortexTableOptions {
         projection_pushdown: pushdown,
@@ -1461,18 +1462,23 @@ async fn test_ree_dict_predicate_memtable_oracle(
         UInt32Array::from(vec![Some(0), None, Some(1), Some(0)]),
         Arc::new(StringArray::from(vec!["x", "y", "unused"])),
     )?;
-    let ree = RunArray::<Int32Type>::try_new(&Int32Array::from(vec![2, 3, 5, 6]), &values)?;
+    let values: Arc<dyn Array> = if dictionary {
+        Arc::new(values)
+    } else {
+        cast(&values, &DataType::Utf8)?
+    };
+    let ree = RunArray::<Int32Type>::try_new(&Int32Array::from(vec![2, 3, 5, 6]), values.as_ref())?;
     let schema = Arc::new(Schema::new(vec![
         Field::new("id", DataType::Int32, false),
-        Field::new("ree_dict", ree.data_type().clone(), true),
+        Field::new("ree", ree.data_type().clone(), true),
     ]));
     let batch = RecordBatch::try_new(
         Arc::clone(&schema),
         vec![Arc::new(Int32Array::from_iter_values(0..6)), Arc::new(ree)],
     )?;
-    ctx.write_arrow_batch("ree_dict.vortex", &batch).await?;
+    ctx.write_arrow_batch("ree.vortex", &batch).await?;
     let actual_table = ctx
-        .table_provider("actual", "/ree_dict.vortex", schema.as_ref().clone())
+        .table_provider("actual", "/ree.vortex", schema.as_ref().clone())
         .await?;
     ctx.session.register_table("actual", actual_table)?;
     ctx.session.register_table(

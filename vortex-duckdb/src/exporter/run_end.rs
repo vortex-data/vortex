@@ -126,13 +126,14 @@ impl<E: IntegerPType> DictionaryParts for RunEndExporter<E> {
         self.values.addr()
     }
 
-    fn write_codes(&self, offset: usize, codes: &mut [u32]) {
+    fn write_codes(&self, offset: usize, codes: &mut [u32]) -> VortexResult<()> {
         if codes.is_empty() {
-            return;
+            return Ok(());
         }
 
         let offset = self.run_end_offset + offset;
         self.write_run_codes(offset, self.first_run(offset), codes);
+        Ok(())
     }
 }
 
