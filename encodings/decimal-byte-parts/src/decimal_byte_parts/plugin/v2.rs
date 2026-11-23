@@ -102,8 +102,10 @@ pub(super) fn deserialize(
         (1..=MAX_LOWER_PARTS).contains(&lower_part_count),
         "v2 carries 1 to {MAX_LOWER_PARTS} lower parts, got {lower_part_count}"
     );
+
+    let declared_child_count = 1 + lower_part_count;
     vortex_ensure!(
-        parts.children.len() >= 1 + lower_part_count,
+        parts.children.len() >= declared_child_count,
         "v2 expects at least the msp child plus one child per lower part, got {} children for {} \
          lower parts",
         parts.children.len(),
@@ -117,7 +119,7 @@ pub(super) fn deserialize(
     );
     let msp_dtype = DType::Primitive(msp_ptype, parts.dtype.nullability());
 
-    let mut slots = ArraySlots::with_capacity(parts.children.len());
+    let mut slots = ArraySlots::with_capacity(declared_child_count);
     let msp = parts.children.get(0, &msp_dtype, parts.len)?;
     slots.push(Some(super::read_msp(msp, decimal_dtype, session)?));
     for (idx, raw_ptype) in metadata.lower_part_ptypes.into_iter().enumerate() {

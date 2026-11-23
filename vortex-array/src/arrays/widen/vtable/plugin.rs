@@ -121,7 +121,10 @@ impl ArrayPlugin for WidenPlugin {
         vortex_ensure_eq!(parts.serialized_id, self.id(), "expected the Widen wire ID");
         // NB: Node buffers and children after the first child are optional extensions, so they
         // are ignored. See the module documentation.
-        vortex_ensure!(!parts.children.is_empty(), "Widen must carry at least one child");
+        vortex_ensure!(
+            !parts.children.is_empty(),
+            "Widen must carry at least one child"
+        );
 
         let child_type = WidenMetadata::decode(parts.metadata)?
             .child_type
