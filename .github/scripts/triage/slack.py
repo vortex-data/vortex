@@ -164,18 +164,23 @@ def _parse_float(value: object) -> float:
         return 0.0
 
 
-_LEADING_MENTION_RE = re.compile(r"^(?:<@[A-Z0-9]+>s*)+")
-_IGNORE_RE = re.compile(r"^(?:[!/@]?(?:ignore|mute)(?:s*[:-].*|.?)|[!/@](?:ignore|mute).*)$")
+_LEADING_MENTION_RE = re.compile(r"^(?:<@[A-Z0-9]+>\s*)+")
+_IGNORE_RE = re.compile(r"^(?:[!/@]?(?:ignore|mute)(?:\s*[:\-].*|\.?)|[!/@](?:ignore|mute)\b.*)$")
 _UNIGNORE_RE = re.compile(
-    r"^(?:[!/@]?(?:unignore|unmute)(?:s*[:-].*|.?)|[!/@](?:unignore|unmute).*)$"
+    r"^(?:[!/@]?(?:unignore|unmute)(?:\s*[:\-].*|\.?)|[!/@](?:unignore|unmute)\b.*)$"
 )
+_RESET_RE = re.compile(r"^(?:[!/@]?reset(?:\s*[:\-].*|\.?)|[!/@]reset\b.*)$")
+
+
+def _human_command_text(message: dict[str, Any]) -> str:
+    if message.get("bot_id") or message.get("subtype") == "bot_message":
+        return ""
+    return _LEADING_MENTION_RE.sub("", str(message.get("text") or "").strip()).strip().lower()
 
 
 def _ignore_command(message: dict[str, Any]) -> bool | None:
     """Parse a human reply in a triage thread for an ignore/unignore command."""
-    if message.get("bot_id") or message.get("subtype") == "bot_message":
-        return None
-    text = _LEADING_MENTION_RE.sub("", str(message.get("text") or "").strip()).strip().lower()
+    text = _human_command_text(message)
     if not text:
         return None
     if _IGNORE_RE.match(text):
@@ -183,6 +188,12 @@ def _ignore_command(message: dict[str, Any]) -> bool | None:
     if _UNIGNORE_RE.match(text):
         return False
     return None
+
+
+def _is_reset_command(message: dict[str, Any]) -> bool:
+    """Return True if a human reply in a triage thread asks to retire and repost the thread."""
+    text = _human_command_text(message)
+    return bool(text and _RESET_RE.match(text))
 
 
 class SlackStore:
@@ -211,8 +222,9 @@ class SlackStore:
             if not parsed or parsed[1] != "root":
                 continue
             number = parsed[0]
+            # Keep the newest root for each item so a fresh root posted after `reset` wins.
             existing = roots.get(number)
-            if existing is None or _parse_float(message.get("ts")) < _parse_float(
+            if existing is None or _parse_float(message.get("ts")) > _parse_float(
                 existing[0].get("ts")
             ):
                 roots[number] = (message, payload)
@@ -227,6 +239,7 @@ class SlackStore:
             updates = 0
             pings = 0
             ignored = False
+            retired = False
 
             if int(root_msg.get("reply_count") or 0) > 0:
                 replies = sorted(
@@ -238,6 +251,9 @@ class SlackStore:
                         continue
                     payload = _triage_payload(reply)
                     if not payload:
+                        if _is_reset_command(reply):
+                            retired = True
+                            break
                         cmd = _ignore_command(reply)
                         if cmd is not None:
                             ignored = cmd
@@ -258,6 +274,9 @@ class SlackStore:
                         status = str(payload["status"])
                     if payload.get("external_at"):
                         external_at = max(external_at, str(payload["external_at"]))
+
+            if retired:
+                continue
 
             threads[number] = Thread(
                 created_at=_parse_float(root_ts),

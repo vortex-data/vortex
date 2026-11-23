@@ -871,3 +871,76 @@ def test_kind_and_order_filter_without_closing_other_kinds():
     assert [m["key"] for m in fake.messages] == ["3:root"]
     # Existing open PR #2 must not be treated as closed when filtering to issues.
     assert closed_calls == []
+
+
+def test_slack_store_reset_retires_thread_and_prefers_newer_root():
+    class FakeClient:
+        def messages(self, thread_ts: str | None = None, oldest: float = 0.0) -> object:
+            if thread_ts is None:
+                return iter(
+                    [
+                        # Item 10: single root that was reset -> omitted so next run reposts it.
+                        {
+                            "ts": "100.0",
+                            "reply_count": 2,
+                            "metadata": {
+                                "event_type": slack.EVENT_TYPE,
+                                "event_payload": {"key": "10:root", "status": "Open"},
+                            },
+                        },
+                        # Item 20: old retired root + fresh newer root -> newer root wins.
+                        {
+                            "ts": "200.0",
+                            "reply_count": 1,
+                            "metadata": {
+                                "event_type": slack.EVENT_TYPE,
+                                "event_payload": {"key": "20:root", "status": "Open"},
+                            },
+                        },
+                        {
+                            "ts": "500.0",
+                            "reply_count": 0,
+                            "metadata": {
+                                "event_type": slack.EVENT_TYPE,
+                                "event_payload": {"key": "20:root", "status": "Open"},
+                            },
+                        },
+                        # Item 30: normal discussion mentioning "reset" -> not retired.
+                        {
+                            "ts": "300.0",
+                            "reply_count": 2,
+                            "metadata": {
+                                "event_type": slack.EVENT_TYPE,
+                                "event_payload": {"key": "30:root", "status": "Open"},
+                            },
+                        },
+                    ]
+                )
+            if thread_ts == "100.0":
+                return iter(
+                    [
+                        {"ts": "100.0"},
+                        {"ts": "101.0", "user": "U1", "text": "reset"},
+                    ]
+                )
+            if thread_ts == "200.0":
+                return iter(
+                    [
+                        {"ts": "200.0"},
+                        {"ts": "201.0", "user": "U1", "text": "reset"},
+                    ]
+                )
+            if thread_ts == "300.0":
+                return iter(
+                    [
+                        {"ts": "300.0"},
+                        {"ts": "301.0", "bot_id": "B1", "text": "reset"},
+                        {"ts": "302.0", "user": "U1", "text": "let's reset the cache later"},
+                    ]
+                )
+            return iter([])
+
+    threads = slack.SlackStore(FakeClient()).load()  # type: ignore[arg-type]
+    assert 10 not in threads
+    assert threads[20].root_ts == "500.0"
+    assert threads[30].root_ts == "300.0"
