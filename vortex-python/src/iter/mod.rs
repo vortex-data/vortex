@@ -160,9 +160,10 @@ impl PyArrayIterator {
         let schema = Arc::new(session().arrow().to_arrow_schema(slf.get().dtype())?);
         let target = Field::new_struct("", schema.fields().clone(), false);
 
-        let iter = slf.get().take().unwrap_or_else(|| {
+        let py_iter = slf.get();
+        let iter = slf.py().detach(|| py_iter.take()).unwrap_or_else(|| {
             Box::new(ArrayIteratorAdapter::new(
-                slf.get().dtype().clone(),
+                py_iter.dtype().clone(),
                 iter::empty(),
             ))
         });
