@@ -441,21 +441,39 @@ How the view is derived:
 
 ### CRS check
 
-Functions over two geometries (`vortex.st.distance`, `vortex.st.intersects`, `vortex.st.contains`,
-`vortex.st.make_line`) check that both inputs have a common CRS when the expression is typed, and
-return an error otherwise. This is the contract with the engine: Vortex never guesses a
-transformation, the same way Vortex's binary comparison and arithmetic reject operands of
-different dtypes.
+Most Vortex scalar functions require their operands to have equal dtypes, and an extension
+dtype's metadata, here the CRS, is part of the dtype. Geometry functions cannot require that:
+each geometry kind is its own extension type, and `vortex.st.distance(Point, Polygon)` is valid.
+So functions over two geometries (`vortex.st.distance`, `vortex.st.intersects`,
+`vortex.st.contains`, `vortex.st.make_line`) require equal CRSs instead, checked when the
+expression is typed. Vortex never guesses a transformation; the engine inserts `ST_Transform`.
 
 - **Same CRS:** accepted.
-- **One side without a CRS:** accepted, and the result takes the other side's CRS. Geometry
-  literals that DuckDB pushes down arrive without one.
-- **Both sides with different CRSs:** rejected.
+- **Both without a CRS:** accepted. Unreferenced data, such as SpatialBench's, keeps working.
+- **One side with a CRS and one without:** rejected. A missing CRS is a CRS of its own,
+  unreferenced coordinates, not a wildcard.
+- **Different CRSs:** rejected.
 
 The rule is a method, `SpatialMetadata::unify_crs`, in the same way that `Dimension::promote`
-combines two dimensions. Phase 1 compares CRS strings exactly, so `EPSG:4326` and `OGC:CRS84` are
-rejected together. Comparing the derived coordinate spaces instead, and adding `edges` to the
-comparison in phase 2, changes only that method.
+combines two dimensions, and an `AnyNativeGeometry` matcher reads the metadata of any native
+geometry type. Phase 1 compares CRS strings exactly, so `EPSG:4326` and `OGC:CRS84` are rejected
+together. Comparing the derived coordinate spaces instead, and adding `edges` to the comparison in
+phase 2, changes only that method.
+
+Exact equality only works if no step drops a CRS on the way:
+
+- **Literals.** A geometry literal pushed from an engine arrives as WKB. The WKB bytes carry no
+  CRS, but the literal's `WellKnownBinary` dtype does, and `native_geometry_scalar_from_wkb` takes
+  that scalar and keeps its CRS. DuckDB already casts a CRS-less literal to the column's CRS
+  before pushdown. Literals that truly have no CRS, such as a parsed WKT string or a JNI literal,
+  stay unreferenced; giving them a CRS is the engine's decision.
+- **Outputs.** A function that returns a geometry keeps its operands' CRS: `make_line`, `collect`,
+  `convex_hull`, and `envelope`.
+
+A union `Geometry` type would remove the special rule: every geometry operand would have the same
+extension type, so the ordinary equal-dtype check would cover the CRS. It can be an extension type
+whose storage emulates a sparse union (a `type_id` plus one nullable child per geometry kind),
+which does not need a core union dtype.
 
 ### Pruning
 
