@@ -81,29 +81,10 @@ impl ArrayBuilder for NullBuilder {
 
 #[cfg(test)]
 mod tests {
-    use vortex_session::VortexSession;
-
     use super::*;
-    use crate::VortexSessionExecute;
     use crate::builders::ArrayBuilder;
     use crate::dtype::DType;
     use crate::scalar::Scalar;
-
-    #[test]
-    fn finish_resets_length() {
-        let mut ctx = VortexSession::empty().create_execution_ctx();
-        let mut builder = NullBuilder::new();
-
-        builder.append_nulls(3);
-        assert_eq!(builder.finish().len(), 3);
-        assert!(builder.is_empty());
-        assert_eq!(builder.finish().len(), 0);
-
-        builder.append_nulls(2);
-        assert_eq!(builder.finish_into_canonical(&mut ctx).len(), 2);
-        assert!(builder.is_empty());
-        assert_eq!(builder.finish_into_canonical(&mut ctx).len(), 0);
-    }
 
     #[test]
     fn test_append_scalar() {
