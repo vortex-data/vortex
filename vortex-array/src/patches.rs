@@ -12,6 +12,7 @@ use fearless_simd_macros::simd;
 use num_traits::NumCast;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::BitBufferMut;
+use vortex_buffer::Buffer;
 use vortex_buffer::BufferAllocatorRef;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexError;
@@ -30,6 +31,7 @@ use crate::ArrayProbe;
 use crate::ArrayRef;
 use crate::ArraySlots;
 use crate::Columnar;
+use crate::EncodingProbeState;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::ProbeState;
@@ -55,6 +57,7 @@ use crate::search_sorted::SearchResult;
 use crate::search_sorted::SearchSorted;
 use crate::search_sorted::SearchSortedPrimitiveArray;
 use crate::search_sorted::SearchSortedSide;
+use crate::search_sorted::decode_sorted_positions;
 use crate::validity::Validity;
 use crate::vtable::VTable;
 
@@ -145,6 +148,37 @@ impl PatchesMetadata {
 pub struct PatchesData {
     offset: usize,
     offset_within_chunk: Option<usize>,
+}
+
+/// What a repeated probe keeps for the patches of the array it reads: the patch indices,
+/// decoded on its first read so that later reads binary search a plain buffer.
+///
+/// Encodings with patches use it as, or inside, their
+/// [`OperationsVTable::ProbeState`](crate::vtable::OperationsVTable::ProbeState) and read
+/// through [`Patches::probe_patched`].
+#[derive(Debug, Default)]
+pub struct PatchesProbeState {
+    indices: Option<Buffer<u64>>,
+}
+
+impl PatchesProbeState {
+    /// The decoded patch indices, decoding `indices` on the first call.
+    fn indices(
+        &mut self,
+        indices: &ArrayRef,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<&Buffer<u64>> {
+        if self.indices.is_none() {
+            self.indices = Some(decode_sorted_positions(indices, ctx)?);
+        }
+        Ok(self.indices.as_ref().vortex_expect("decoded above"))
+    }
+}
+
+impl AsMut<PatchesProbeState> for PatchesProbeState {
+    fn as_mut(&mut self) -> &mut PatchesProbeState {
+        self
+    }
 }
 
 /// Slot indices for the three patch components within a slot array.
@@ -668,32 +702,32 @@ impl Patches {
     /// Get the patched value at `index` of the array `state` reads, as [`Self::get_patched`]
     /// does.
     ///
-    /// `self` must be the patches held in the `slots` of that array. A repeated read searches the
-    /// patch indices through the state's indices probe and reads the value through its values
-    /// probe, so it shares both across reads rather than building them per read. A one-off read
-    /// takes the [`Self::get_patched`] path, which can narrow the search by the chunk offsets.
+    /// `self` must be the patches held in the `slots` of that array. A repeated probe decodes the
+    /// patch indices into its [`PatchesProbeState`] on its first read, so every later read binary
+    /// searches a plain buffer and reads the value through the probe's values slot. A one-off
+    /// read takes the [`Self::get_patched`] path, which does not decode the whole index array.
     pub fn probe_patched<V: VTable>(
         &self,
         state: &mut ProbeState<'_, V>,
         slots: PatchSlotIndices,
         index: usize,
         ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Option<Scalar>> {
+    ) -> VortexResult<Option<Scalar>>
+    where
+        EncodingProbeState<V>: AsMut<PatchesProbeState>,
+    {
         let (retained, mut children) = state.split();
-        if retained.is_none() {
+        let Some(retained) = retained else {
             return self.get_patched(index, ctx);
-        }
+        };
 
-        let indices = children
-            .slot(slots.indices)?
-            .ok_or_else(|| vortex_err!("patch indices slot is missing"))?;
-        let needle = index + self.offset;
-        let found = match_each_unsigned_integer_ptype!(indices.array().dtype().as_ptype(), |T| {
-            SearchSortedPrimitiveArray::<T>::with_probe(indices, ctx)
-                .search_sorted(&needle, SearchSortedSide::Left)?
-        });
+        let indices = retained.as_mut().indices(&self.indices, ctx)?;
 
-        let SearchResult::Found(position) = found else {
+        // A needle past `u64` is past every patch index.
+        let Ok(needle) = u64::try_from(index + self.offset) else {
+            return Ok(None);
+        };
+        let Ok(position) = indices.binary_search(&needle) else {
             return Ok(None);
         };
 
@@ -835,7 +869,7 @@ impl Patches {
     /// Unlike filter, this preserves the patch indices.
     /// Unlike mask on a single array, this does not set masked values to null.
     ///
-    /// Masking an array always yields a nullable result (see [`crate::scalar_fn::fns::mask`]),
+    /// Masking an array always yields a nullable result (see [`crate::scalar_fn::builtin::mask`]),
     /// so the surviving patch values are widened to nullable to match the masked parent. Callers
     /// therefore receive patches with the correct dtype and do not need to re-cast them.
     // TODO(joe): make this lazy and remove the ctx.
@@ -1380,7 +1414,8 @@ where
 /// Choose between sparse searches and bitmap ranks without building the mask indices:
 ///
 /// * Far more patches than selected rows: gallop through the patches.
-/// * Very sparse patches with cached mask indices: gallop through the mask indices.
+/// * Very sparse patches or selections with cached mask indices: gallop the smaller side through
+///   the larger.
 /// * Otherwise: intersect the patches with the bitmap and rank only retained patches.
 fn filter_patches_with_mask<T: IntegerPType>(
     patch_indices: &[T],
@@ -1402,8 +1437,8 @@ fn filter_patches_with_mask<T: IntegerPType>(
         patch_count,
     );
 
-    // Bitmap membership beats repeated searches at moderate ratios. Extremely sparse masks
-    // still benefit from searching only the selected rows.
+    // Gallop when patches far outnumber selected rows or when cached mask indices are very
+    // sparse; otherwise intersect with the bitmap and rank only retained patches.
     if patch_count > true_count.saturating_mul(16) {
         gallop_patches_for_mask_indices(
             patch_indices,
@@ -1412,27 +1447,34 @@ fn filter_patches_with_mask<T: IntegerPType>(
             &mut new_patch_indices,
             &mut kept_patches,
         )?;
-    } else {
-        match mask.cached_indices() {
-            Some(mask_indices)
-                if patch_count <= true_count && patch_count.saturating_mul(256) < mask.len() =>
-            {
-                gallop_mask_indices_for_patches(
-                    patch_indices,
-                    offset,
-                    mask_indices,
-                    &mut new_patch_indices,
-                    &mut kept_patches,
-                )?
-            }
-            _ => rank_patches_in_mask_bitmap(
+    } else if let Some(mask_indices) = mask.cached_indices()
+        && expected_matches.saturating_mul(256) < mask.len()
+    {
+        if patch_count <= true_count {
+            gallop_mask_indices_for_patches(
                 patch_indices,
                 offset,
-                mask.bit_buffer(),
+                mask_indices,
                 &mut new_patch_indices,
                 &mut kept_patches,
-            )?,
+            )?;
+        } else {
+            gallop_patches_for_mask_indices(
+                patch_indices,
+                offset,
+                mask,
+                &mut new_patch_indices,
+                &mut kept_patches,
+            )?;
         }
+    } else {
+        rank_patches_in_mask_bitmap(
+            patch_indices,
+            offset,
+            mask.bit_buffer(),
+            &mut new_patch_indices,
+            &mut kept_patches,
+        )?;
     }
 
     let new_patch_values = match new_patch_indices.len() {
@@ -2434,6 +2476,7 @@ mod test {
     #[case::no_overlap((0..500).collect(), (500..1000).step_by(50).collect())]
     #[case::no_overlap_sparse_patches((500..1000).step_by(100).collect(), (0..500).collect())]
     #[case::edges(vec![0, 1, 998, 999], vec![0, 999])]
+    #[case::sparse_cached_mask_late_match((0..1000).step_by(100).collect(), vec![3, 900])]
     #[case::all_patches_kept((0..1000).step_by(100).collect(), (0..1000).step_by(2).collect())]
     fn test_filter_matches_naive(
         #[case] patch_indices: Vec<usize>,

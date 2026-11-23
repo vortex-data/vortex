@@ -54,7 +54,7 @@ pub(crate) async fn widen_decimal_values(
     );
     vortex_ensure_eq!(values.len(), len * values_type.byte_width());
 
-    let values = ctx.ensure_on_device(values).await?;
+    let values = ctx.ensure_on_device(values)?;
 
     match_each_decimal_value_type!(values_type, |S| {
         decimal_cast_to::<S>(values, target_type, len, ctx).await
@@ -99,11 +99,9 @@ where
     D: NativeDecimalType + DeviceRepr,
 {
     if len == 0 {
-        return ctx
-            .ensure_on_device(BufferHandle::new_host(
-                Buffer::<D>::empty().into_byte_buffer(),
-            ))
-            .await;
+        return ctx.ensure_on_device(BufferHandle::new_host(
+            Buffer::<D>::empty().into_byte_buffer(),
+        ));
     }
 
     let mut output_buffer = ctx.device_alloc::<D>(len)?;

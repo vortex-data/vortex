@@ -49,7 +49,7 @@ use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::error::vortex_err;
 use vortex::scalar_fn::ScalarFnVTable;
-use vortex::scalar_fn::fns::cast::Cast;
+use vortex::scalar_fn::builtin::cast::Cast;
 use vortex::session::VortexSession;
 
 use super::CudaDispatchPlan;
@@ -487,7 +487,7 @@ impl FusedPlan {
             let source_buf = source_buf.ok_or_else(|| {
                 vortex_err!("all source buffer slots must be filled before materialize")
             })?;
-            let device_buf = ctx.ensure_on_device_sync(source_buf)?;
+            let device_buf = ctx.ensure_on_device(source_buf)?;
             let ptr = device_buf.cuda_device_ptr(ctx.stream())?;
             device_ptrs.push(ptr);
             device_buffers.push(device_buf);

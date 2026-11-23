@@ -66,6 +66,15 @@ def test_to_arrow_batch_size(vxf: VortexFile) -> None:
     assert len(list(vxf.to_arrow(batch_size=1_000))) == 1_000, "batch_size=1_000"
 
 
+def test_zero_batch_size_rejected(vxf: VortexFile) -> None:
+    with pytest.raises(ValueError, match="batch_size must be greater than zero"):
+        vxf.scan(batch_size=0)
+    with pytest.raises(ValueError, match="batch_size must be greater than zero"):
+        vxf.to_repeated_scan(batch_size=0)
+    with pytest.raises(ValueError, match="batch_size must be greater than zero"):
+        vxf.to_arrow(batch_size=0)
+
+
 def test_to_arrow_columns(vxf: VortexFile) -> None:
     rbr = vxf.to_arrow(projection=["string", "bool"])
     assert rbr.schema == pa.schema([("string", pa.string_view()), ("bool", pa.bool_())])

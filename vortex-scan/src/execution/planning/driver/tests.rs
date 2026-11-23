@@ -812,3 +812,50 @@ fn polls_io_while_a_later_branch_keeps_computing() -> VortexResult<()> {
     assert!(later_visits > 0 && later_visits <= IO_POLL_INTERVAL);
     Ok(())
 }
+
+/// Planner that spawns one independent root, then performs a fetch and emits a batch.
+struct SpawningRoot {
+    spawned: Option<(WorkScope, Box<dyn Planner>)>,
+    inner: Box<dyn Planner>,
+}
+
+impl IoConsumer for SpawningRoot {
+    fn set_io_result(&mut self, request: IoRequestId, result: IoResult) {
+        self.inner.set_io_result(request, result);
+    }
+}
+
+impl Planner for SpawningRoot {
+    fn state(&self) -> State {
+        if self.spawned.is_some() {
+            State::NeedsCompute
+        } else {
+            self.inner.state()
+        }
+    }
+
+    fn compute(&mut self) -> VortexResult<PlannerOutput> {
+        if let Some((scope, child)) = self.spawned.take() {
+            return Ok(PlannerOutput::Spawn(scope, child));
+        }
+        self.inner.compute()
+    }
+}
+
+#[test]
+fn single_session_driver_rejects_spawned_independent_root() -> VortexResult<()> {
+    let log = Log::default();
+    let child = reading_root("child", &log, 2..4);
+    let root = Box::new(SpawningRoot {
+        spawned: Some((scope(2..4), child)),
+        inner: reading_root("parent", &log, 0..2),
+    });
+    let Err(err) = Driver::new(source()).with_step_limit(1_000).run(root) else {
+        vortex_bail!("Driver::run must reject spawned independent roots");
+    };
+    assert!(
+        err.to_string().contains("single root"),
+        "unexpected error: {err}"
+    );
+    Ok(())
+}

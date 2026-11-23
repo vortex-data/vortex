@@ -86,6 +86,9 @@ pub trait LayoutReaderFactory: 'static + Send + Sync {
 /// to `concurrency` file opens run in parallel as spawned tasks on the session runtime. Once
 /// opened, each reader yields a single partition covering its full row range; internal I/O
 /// pipelining and chunking are handled by [`ScanBuilder`].
+///
+/// Partition `i` always corresponds to the `i`-th child in this source, regardless of async open
+/// completion order or earlier children pruned via `Ok(None)`.
 #[derive(Clone)]
 pub struct MultiLayoutDataSource {
     dtype: DType,
@@ -292,20 +295,25 @@ impl DataSource for MultiLayoutDataSource {
     }
 
     async fn scan(&self, scan_request: ScanRequest) -> VortexResult<DataSourceScanRef> {
+        let request = BoundScanRequest::try_new(scan_request, &self.dtype)?;
+        let dtype = request.projection.dtype().clone();
+
         let mut ready = VecDeque::new();
         let mut deferred = VecDeque::new();
 
-        for child in self.children.iter() {
+        for (partition_idx, child) in self.children.iter().enumerate() {
+            if !request.includes_partition(partition_idx as u64) {
+                continue;
+            }
             match child {
-                MultiLayoutChild::Opened { reader, .. } => ready.push_back(Arc::clone(reader)),
+                MultiLayoutChild::Opened { reader, .. } => {
+                    ready.push_back((partition_idx, Arc::clone(reader)))
+                }
                 MultiLayoutChild::Deferred { factory, .. } => {
-                    deferred.push_back(Arc::clone(factory))
+                    deferred.push_back((partition_idx, Arc::clone(factory)))
                 }
             }
         }
-
-        let request = BoundScanRequest::try_new(scan_request, &self.dtype)?;
-        let dtype = request.projection.dtype().clone();
 
         // Only unordered scans share a limit across external partitions: reservation order is
         // completion order, which an ordered scan cannot accept. Ordered partitions each apply the
@@ -374,6 +382,13 @@ impl BoundScanRequest {
             split_concurrency,
         })
     }
+
+    fn includes_partition(&self, partition_idx: u64) -> bool {
+        self.partition_range
+            .as_ref()
+            .is_none_or(|range| range.contains(&partition_idx))
+            && self.partition_selection.contains(partition_idx)
+    }
 }
 
 struct MultiLayoutScan {
@@ -382,8 +397,8 @@ struct MultiLayoutScan {
     dtype: DType,
     request: BoundScanRequest,
     row_limit: Option<RowLimit>,
-    ready: VecDeque<LayoutReaderRef>,
-    deferred: VecDeque<Arc<dyn LayoutReaderFactory>>,
+    ready: VecDeque<(usize, LayoutReaderRef)>,
+    deferred: VecDeque<(usize, Arc<dyn LayoutReaderFactory>)>,
     handle: vortex_io::runtime::Handle,
     concurrency: usize,
 }
@@ -417,40 +432,43 @@ impl DataSourceScan for MultiLayoutScan {
 
         let ordered = request.ordered;
 
-        // Pre-opened readers are immediately available.
-        let ready_stream = stream::iter(ready).map(Ok);
+        // Pre-opened readers are immediately available with their discovery partition IDs.
+        let ready_stream =
+            stream::iter(ready).map(|(partition_idx, reader)| (partition_idx, Ok(reader)));
 
-        // Deferred readers are opened concurrently via spawned tasks.
+        // Deferred readers are opened concurrently via spawned tasks while preserving their
+        // discovery partition IDs across asynchronous completions and `Ok(None)` pruning.
         // When ordered, we use `buffered` to preserve the original partition order.
         // When unordered, we use `buffer_unordered` to yield partitions as they open.
-        let spawned = stream::iter(deferred).map(move |factory| {
+        let spawned = stream::iter(deferred).map(move |(partition_idx, factory)| {
             handle.spawn(async move {
-                factory
+                let result = factory
                     .open()
                     .instrument(tracing::info_span!("LayoutReaderFactory::open"))
-                    .await
+                    .await;
+                (partition_idx, result)
             })
         });
 
         let deferred_stream = if ordered {
             spawned
                 .buffered(concurrency)
-                .filter_map(|result| async move {
+                .filter_map(|(partition_idx, result)| async move {
                     match result {
-                        Ok(Some(reader)) => Some(Ok(reader)),
+                        Ok(Some(reader)) => Some((partition_idx, Ok(reader))),
                         Ok(None) => None,
-                        Err(e) => Some(Err(e)),
+                        Err(e) => Some((partition_idx, Err(e))),
                     }
                 })
                 .boxed()
         } else {
             spawned
                 .buffer_unordered(concurrency)
-                .filter_map(|result| async move {
+                .filter_map(|(partition_idx, result)| async move {
                     match result {
-                        Ok(Some(reader)) => Some(Ok(reader)),
+                        Ok(Some(reader)) => Some((partition_idx, Ok(reader))),
                         Ok(None) => None,
-                        Err(e) => Some(Err(e)),
+                        Err(e) => Some((partition_idx, Err(e))),
                     }
                 })
                 .boxed()
@@ -461,10 +479,9 @@ impl DataSourceScan for MultiLayoutScan {
         // `flat_map` is appropriate here. The real I/O work happens when `execute()` is called.
         ready_stream
             .chain(deferred_stream)
-            .enumerate()
-            .flat_map(move |(i, reader_result)| match reader_result {
+            .flat_map(move |(partition_idx, reader_result)| match reader_result {
                 Ok(reader) => reader_partition(
-                    i,
+                    partition_idx,
                     reader,
                     session.clone(),
                     &source_dtype,
@@ -500,27 +517,9 @@ fn reader_partition(
     }
 
     let row_count = reader.row_count();
-    let row_range = request.row_range.clone().unwrap_or(0..row_count);
-
-    let partition_idx_u64: u64 = partition_idx as u64;
-    if let Some(range) = &request.partition_range
-        && !range.contains(&partition_idx_u64)
-    {
-        return stream::empty().boxed();
-    };
-    match &request.partition_selection {
-        Selection::IncludeByIndex(buffer)
-            if buffer.as_slice().binary_search(&partition_idx_u64).is_err() =>
-        {
-            return stream::empty().boxed();
-        }
-        Selection::ExcludeByIndex(buffer)
-            if buffer.as_slice().binary_search(&partition_idx_u64).is_ok() =>
-        {
-            return stream::empty().boxed();
-        }
-        _ => {}
-    };
+    let row_range = request.row_range.as_ref().map_or(0..row_count, |r| {
+        r.start.min(row_count)..r.end.min(row_count)
+    });
 
     // Check file-level pruning: if the filter can be proven false for the entire row range
     // using file-level statistics, skip this reader entirely.
@@ -640,6 +639,7 @@ mod tests {
     use vortex_io::runtime::single::SingleThreadRuntime;
     use vortex_scan::DataSource;
     use vortex_scan::ScanRequest;
+    use vortex_scan::strict_sorted_buffer::StrictSortedBuffer;
 
     use super::*;
     use crate::scan::test::InFlight;
@@ -796,6 +796,110 @@ mod tests {
             default_peak > max,
             "the default read {default_peak} at once"
         );
+        Ok(())
+    }
+
+    struct DelayedReaderFactory {
+        reader: Option<LayoutReaderRef>,
+        yields: usize,
+    }
+
+    async fn yield_once() {
+        let mut yielded = false;
+        futures::future::poll_fn(|cx| {
+            if yielded {
+                std::task::Poll::Ready(())
+            } else {
+                yielded = true;
+                cx.waker().wake_by_ref();
+                std::task::Poll::Pending
+            }
+        })
+        .await;
+    }
+
+    #[async_trait]
+    impl LayoutReaderFactory for DelayedReaderFactory {
+        async fn open(&self) -> VortexResult<Option<LayoutReaderRef>> {
+            for _ in 0..self.yields {
+                yield_once().await;
+            }
+            Ok(self.reader.clone())
+        }
+    }
+
+    #[rstest]
+    #[case::ordered(true)]
+    #[case::unordered(false)]
+    fn partition_ids_stay_stable_across_async_open_and_pruning(
+        #[case] ordered: bool,
+    ) -> VortexResult<()> {
+        let runtime = SingleThreadRuntime::default();
+        let session = session_with_handle(runtime.handle());
+        let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
+
+        // Discovery IDs:
+        // 0 -> pruned (Ok(None))
+        // 1 -> delayed reader with values [10, 11]
+        // 2 -> fast reader with values [20, 21]
+        // 3 -> fast reader with values [30, 31]
+        let factories: Vec<Arc<dyn LayoutReaderFactory>> = vec![
+            Arc::new(DelayedReaderFactory {
+                reader: None,
+                yields: 0,
+            }),
+            Arc::new(DelayedReaderFactory {
+                reader: Some(Arc::new(TestLayoutReader::new(2).with_base(10))),
+                yields: 4,
+            }),
+            Arc::new(DelayedReaderFactory {
+                reader: Some(Arc::new(TestLayoutReader::new(2).with_base(20))),
+                yields: 0,
+            }),
+            Arc::new(DelayedReaderFactory {
+                reader: Some(Arc::new(TestLayoutReader::new(2).with_base(30))),
+                yields: 1,
+            }),
+        ];
+        let source = MultiLayoutDataSource::new_deferred(dtype, factories, vec![], &session);
+
+        // Full scan: discovery IDs must remain 1, 2, 3 even though partition 0 pruned to None
+        // and partition 2 opened before partition 1.
+        let scan = runtime.block_on(source.scan(ScanRequest {
+            ordered,
+            ..Default::default()
+        }))?;
+        let partitions = runtime.block_on(scan.partitions().try_collect::<Vec<_>>())?;
+        let mut results: Vec<(usize, Vec<i32>)> = Vec::new();
+        for partition in partitions {
+            let idx = partition.index();
+            let values = collect_scan_values(runtime.block_on_stream(partition.execute()?))?;
+            results.push((idx, values));
+        }
+        if !ordered {
+            results.sort_by_key(|(idx, _)| *idx);
+        }
+        assert_eq!(
+            results,
+            vec![(1, vec![10, 11]), (2, vec![20, 21]), (3, vec![30, 31])]
+        );
+
+        // Selecting partition 2 via IncludeByIndex must return file 2 ([20, 21]), not file 3.
+        let scan = runtime.block_on(source.scan(ScanRequest {
+            ordered,
+            partition_selection: Selection::IncludeByIndex(StrictSortedBuffer::try_new(
+                vortex_buffer::Buffer::from_iter([2u64]),
+            )?),
+            ..Default::default()
+        }))?;
+        let partitions = runtime.block_on(scan.partitions().try_collect::<Vec<_>>())?;
+        let [partition]: [_; 1] = partitions
+            .try_into()
+            .map_err(|parts: Vec<_>| vortex_err!("expected 1 partition, got {}", parts.len()))?;
+        assert_eq!(partition.index(), 2);
+        let values = collect_scan_values(runtime.block_on_stream(partition.execute()?))?;
+        assert_eq!(values, vec![20, 21]);
+
         Ok(())
     }
 }

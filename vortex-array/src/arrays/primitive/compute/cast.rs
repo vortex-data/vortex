@@ -45,8 +45,8 @@ use crate::match_each_float_ptype;
 use crate::match_each_integer_ptype;
 use crate::scalar::DecimalValue;
 use crate::scalar::Scalar;
-use crate::scalar_fn::fns::cast::CastKernel;
-use crate::scalar_fn::fns::cast::CastReduce;
+use crate::scalar_fn::builtin::cast::CastKernel;
+use crate::scalar_fn::builtin::cast::CastReduce;
 use crate::validity::Validity;
 
 impl CastReduce for Primitive {
@@ -491,7 +491,7 @@ mod test {
     use crate::expr::stats::Stat;
     use crate::match_each_decimal_value_type;
     use crate::match_each_native_ptype;
-    use crate::scalar_fn::fns::cast::CastKernel;
+    use crate::scalar_fn::builtin::cast::CastKernel;
     use crate::validity::Validity;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);

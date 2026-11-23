@@ -683,7 +683,7 @@ mod tests {
         let bitpacked = bitpacked_array_u32(bit_width, len, &mut ctx);
         let cuda_ctx = CudaSession::create_execution_ctx(&cuda_session())?;
         let packed = bitpacked.packed().clone();
-        let device_input = futures::executor::block_on(cuda_ctx.ensure_on_device(packed))?;
+        let device_input = cuda_ctx.ensure_on_device(packed)?;
         let input_ptr = device_input.cuda_device_ptr(cuda_ctx.stream())?;
 
         let scalar_ops: Vec<ScalarOp> = references
@@ -2008,9 +2008,7 @@ mod tests {
         ) -> VortexResult<ArrayRef> {
             let array = PrimitiveArray::new(Buffer::from(values), NonNullable);
             Ok(PrimitiveArray::from_buffer_handle(
-                cuda_ctx
-                    .ensure_on_device(array.buffer_handle().clone())
-                    .await?,
+                cuda_ctx.ensure_on_device(array.buffer_handle().clone())?,
                 T::PTYPE,
                 NonNullable,
             )

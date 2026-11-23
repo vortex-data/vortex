@@ -86,12 +86,18 @@ Listing
 
 The Hub does not implement WebDAV ``PROPFIND``, which is how object-store HTTP listing works, so a
 Hub store cannot list a prefix. Opening a known path works, since that is a ``HEAD`` plus ranged
-``GET``. To expand a glob, list the repository through the Hub's own API first — which is what
-``vortex.datasets.load_dataset`` does — and then open each path it returns.
+``GET``. To expand a glob, list the repository through the Hub's own API first, and then open each
+path it returns.
 
 Hugging Face Datasets
 =====================
 
-``vortex.datasets.load_dataset`` builds on this to load Vortex files from the Hub as Hugging Face
-``Datasets`` objects, expanding globs and pushing projections, filters and row limits into each
-scan. See :doc:`../datasets`.
+From ``datasets`` 5.1, ``datasets.load_dataset`` reads Vortex files itself, from the Hub or from
+anywhere else, and pushes column selection and filters into each Vortex scan. It reads Hub files
+through :class:`vortex.store.HfStore`. Install it with ``pip install vortex-data[hf]``:
+
+.. code-block:: python
+
+   import datasets
+
+   ds = datasets.load_dataset("org/name", streaming=True, columns=["text"])

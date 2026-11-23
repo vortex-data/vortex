@@ -3,16 +3,23 @@
 
 import pyarrow
 
+from . import CosStore, HfStore
 from .arrays import Array
 from .expr import Expr
+from .store import ObjectStore
 
 class VortexDataset:
+    @property
+    def concurrency(self) -> int | None: ...
+    @property
+    def file_count(self) -> int: ...
     def to_array(
         self,
         columns: list[str] | list[int] | None = None,
         row_filter: Expr | None = None,
         indices: Array | None = None,
         row_range: tuple[int, int] | None = None,
+        concurrency: int | None = None,
     ) -> Array: ...
     def to_record_batch_reader(
         self,
@@ -22,14 +29,24 @@ class VortexDataset:
         split_by: int | None = None,
         row_range: tuple[int, int] | None = None,
         limit: int | None = None,
+        concurrency: int | None = None,
     ) -> pyarrow.RecordBatchReader: ...
     def count_rows(
         self,
         row_filter: Expr | None = None,
         split_by: int | None = None,
         row_range: tuple[int, int] | None = None,
+        concurrency: int | None = None,
     ) -> int: ...
     def schema(self) -> pyarrow.Schema: ...
     def splits(self) -> list[tuple[int, int]]: ...
+    def fragment_splits(self) -> list[tuple[int, tuple[int, int]]]: ...
+    def for_file(self, file_idx: int) -> VortexDataset: ...
 
-def dataset_from_url(url: str) -> VortexDataset: ...
+def dataset_from_sources(
+    sources: list[str],
+    *,
+    store: ObjectStore | CosStore | HfStore | None = None,
+    concurrency: int | None = None,
+    expand: bool = True,
+) -> VortexDataset: ...

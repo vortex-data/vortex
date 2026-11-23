@@ -14,15 +14,6 @@
 //! a replay blob for `#[hegel::reproduce_failure("...")]`. Variant transport needs the Parquet
 //! Variant plugin, so its suite lives in `vortex-parquet-variant`.
 
-/// Expected behavior when an array is exported without a target Arrow field.
-#[derive(Clone, Copy, Debug)]
-pub enum DefaultExport {
-    /// The exporter must infer a field and preserve the dtype and values.
-    Supported,
-    /// Field inference and array export must both reject the dtype.
-    Unsupported,
-}
-
 #[cfg(feature = "_test-harness-hegel")]
 mod generate;
 #[cfg(feature = "_test-harness-hegel")]

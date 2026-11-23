@@ -132,11 +132,9 @@ async fn export_device_list_view_offsets(
     ctx: &mut CudaExecutionCtx,
 ) -> VortexResult<DeviceListViewOffsets> {
     if len == 0 {
-        let offsets = ctx
-            .ensure_on_device(BufferHandle::new_host(
-                Buffer::from(vec![0i32]).into_byte_buffer(),
-            ))
-            .await?;
+        let offsets = ctx.ensure_on_device(BufferHandle::new_host(
+            Buffer::from(vec![0i32]).into_byte_buffer(),
+        ))?;
         return Ok(DeviceListViewOffsets::Contiguous(offsets));
     }
 
@@ -466,7 +464,7 @@ async fn rebuild_primitive_list_view_child(
         "cannot export non-contiguous device-resident ListViewArray with nullable {child_name}: GPU child validity rebuild is not implemented"
     );
 
-    let values_buffer = ctx.ensure_on_device(buffer).await?;
+    let values_buffer = ctx.ensure_on_device(buffer)?;
     let (offsets_buffer, values_buffer) = match_each_integer_ptype!(offsets_ptype, |O| {
         match_each_integer_ptype!(sizes_ptype, |S| {
             rebuild_primitive_list_view_typed::<O, S>(
@@ -502,7 +500,7 @@ async fn primitive_device_buffer(
     let PrimitiveDataParts { ptype, buffer, .. } = primitive.into_data_parts();
     vortex_ensure!(ptype.is_int(), "{name} must have integer type, got {ptype}");
 
-    Ok((ptype, ctx.ensure_on_device(buffer).await?))
+    Ok((ptype, ctx.ensure_on_device(buffer)?))
 }
 
 /// Compute Arrow List offsets and report whether child values must be rebuilt.

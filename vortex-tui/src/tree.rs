@@ -8,10 +8,16 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use serde::Serialize;
+use vortex::array::ArrayRef;
 use vortex::array::stream::ArrayStreamExt;
+use vortex::dtype::DType;
+use vortex::dtype::Nullability;
 use vortex::error::VortexResult;
+use vortex::expr::lit;
 use vortex::file::OpenOptionsSessionExt;
+use vortex::file::VortexFile;
 use vortex::layout::LayoutRef;
+use vortex::scan::ScanRequest;
 use vortex::session::VortexSession;
 
 /// Command-line arguments for the tree command.
@@ -89,18 +95,27 @@ pub async fn exec_tree(session: &VortexSession, args: TreeArgs) -> VortexResult<
 }
 
 async fn exec_array_tree(session: &VortexSession, file: &Path) -> VortexResult<()> {
-    let full = session
-        .open_options()
-        .open_path(file)
-        .await?
-        .scan()?
-        .into_array_stream()?
-        .read_all()
-        .await?;
+    let file = session.open_options().open_path(file).await?;
+    let full = read_array_tree(&file).await?;
 
     println!("{}", full.display_tree());
 
     Ok(())
+}
+
+async fn read_array_tree(file: &VortexFile) -> VortexResult<ArrayRef> {
+    // The tree displays physical encodings, so avoid the count-only scan for zero-column structs.
+    let filter = matches!(file.dtype(), DType::Struct(fields, Nullability::NonNullable) if fields.nfields() == 0)
+        .then(|| lit(true));
+    let scan = file
+        .data_source()?
+        .scan(ScanRequest {
+            filter,
+            ordered: true,
+            ..Default::default()
+        })
+        .await?;
+    scan.into_array_stream().read_all().await
 }
 
 async fn exec_layout_tree(
@@ -156,4 +171,39 @@ fn layout_to_json(layout: LayoutRef) -> VortexResult<LayoutTreeNode> {
         segment_ids: layout.segment_ids().iter().map(|s| **s).collect(),
         children: children_json,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use vortex::VortexSessionDefault;
+    use vortex::array::IntoArray;
+    use vortex::array::arrays::StructArray;
+    use vortex::array::validity::Validity;
+    use vortex::buffer::ByteBufferMut;
+    use vortex::error::VortexResult;
+    use vortex::file::OpenOptionsSessionExt;
+    use vortex::file::WriteOptionsSessionExt;
+    use vortex::io::session::RuntimeSessionExt;
+    use vortex::session::VortexSession;
+
+    use super::read_array_tree;
+
+    #[tokio::test]
+    async fn array_tree_preserves_zero_column_struct_encoding() -> VortexResult<()> {
+        let session = VortexSession::default().with_tokio();
+        let array =
+            StructArray::try_new(Default::default(), [], 3, Validity::NonNullable)?.into_array();
+        let mut bytes = ByteBufferMut::empty();
+        session
+            .write_options()
+            .write(&mut bytes, array.clone().to_array_stream())
+            .await?;
+        let file = session.open_options().open_buffer(bytes)?;
+
+        assert_eq!(
+            read_array_tree(&file).await?.display_tree().to_string(),
+            array.display_tree().to_string(),
+        );
+        Ok(())
+    }
 }

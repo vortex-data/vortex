@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-mod kernel;
 mod operations;
 mod plugin;
 mod validity;
@@ -12,7 +11,6 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_panic;
-use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 use vortex_utils::aliases::hash_set::HashSet;
 
@@ -41,10 +39,6 @@ use crate::scalar::ScalarValue;
 
 /// A [`Variant`]-encoded Vortex array.
 pub type VariantArray = Array<Variant>;
-
-pub(crate) fn initialize(session: &VortexSession) {
-    kernel::initialize(session);
-}
 
 #[derive(Clone, Debug)]
 pub struct Variant;
@@ -149,7 +143,9 @@ impl VTable for Variant {
     }
 }
 
-fn merge_typed_scalar_as_variant(
+/// Merges a shredded `typed_scalar` with the unshredded `fallback_scalar` of the same row into a
+/// variant scalar of `dtype`.
+pub fn merge_typed_scalar_as_variant(
     typed_scalar: Scalar,
     fallback_scalar: Option<Scalar>,
     dtype: &DType,

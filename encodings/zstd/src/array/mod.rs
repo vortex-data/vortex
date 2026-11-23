@@ -562,7 +562,7 @@ pub fn reconstruct_views(
 }
 
 /// [`reconstruct_views`], but rejecting a buffer that the length prefixes do not tile exactly.
-fn try_reconstruct_views(
+pub fn try_reconstruct_views(
     buffer: &ByteBuffer,
     start_buf_index: u32,
     max_buffer_len: usize,
@@ -636,8 +636,9 @@ fn walk_views(
     (buffers, views.freeze(), error)
 }
 
-/// Narrows the views decoded from the frames down to the values a slice requests.
-fn slice_views(
+/// Narrows the views decoded from the frames down to the values a slice requests, failing if the
+/// frames hold too few values.
+pub fn slice_views(
     views: &Buffer<BinaryView>,
     range: Range<usize>,
 ) -> VortexResult<Buffer<BinaryView>> {

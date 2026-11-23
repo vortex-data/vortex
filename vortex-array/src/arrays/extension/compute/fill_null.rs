@@ -12,7 +12,7 @@ use crate::arrays::ExtensionArray;
 use crate::arrays::extension::ExtensionArrayExt;
 use crate::builtins::ArrayBuiltins;
 use crate::scalar::Scalar;
-use crate::scalar_fn::fns::fill_null::FillNullKernel;
+use crate::scalar_fn::builtin::fill_null::FillNullKernel;
 
 /// Fills the nulls of the storage array with the storage value of the fill scalar, then wraps the
 /// result in the extension type.
