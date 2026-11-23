@@ -73,9 +73,9 @@ jobs:
           CHANNEL_ID: ${{ vars.SLACK_TRIAGE_CHANNEL_ID }}
         run: |
           if [ "${EVENT_NAME}" = "workflow_dispatch" ]; then
-            DRY_RUN="${INPUT_DRY_RUN}"
-            DO_PING="${INPUT_PING}"
-            MAX_NEW="${INPUT_MAX_NEW}"
+            DRY_RUN="${INPUT_DRY_RUN:-true}"
+            DO_PING="${INPUT_PING:-false}"
+            MAX_NEW="${INPUT_MAX_NEW:-0}"
           else
             DRY_RUN="false"
             DO_PING="true"
@@ -153,6 +153,8 @@ jobs:
       contents: read
       # Requests the OIDC token exchanged for an Anthropic token. No repo write access.
       id-token: write
+    outputs:
+      has_verdicts: ${{ steps.write_verdicts.outputs.written }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
         with:
@@ -173,7 +175,10 @@ jobs:
           anthropic_organization_id: ${{ vars.ANTHROPIC_ORGANIZATION_ID }}
           anthropic_service_account_id: ${{ vars.ANTHROPIC_SERVICE_ACCOUNT_ID }}
           github_token: ${{ github.token }}
+          allowed_bots: "github-actions"
+          show_full_output: true
           claude_args: |
+            --model claude-opus-5-5
             --allowedTools "Read"
             --max-turns 5
             --json-schema '{"type":"object","properties":{"verdicts":{"type":"array","items":{"type":"object","properties":{"number":{"type":"integer"},"state":{"type":"string","enum":["waiting_on_vortex","waiting_on_contributor"]},"reason":{"type":"string"}},"required":["number","state","reason"],"additionalProperties":false}}},"required":["verdicts"],"additionalProperties":false}'
@@ -200,18 +205,24 @@ jobs:
               contributor has not replied since, classify it as `"waiting_on_contributor"`.
 
       - name: Write verdicts artifact
-        if: steps.claude.outputs.structured_output != ''
+        id: write_verdicts
         env:
           VERDICTS_JSON: ${{ steps.claude.outputs.structured_output }}
         run: |
-          printf '%s\n' "${VERDICTS_JSON}" > "${RUNNER_TEMP}/triage-verdicts.json"
+          if [ -n "${VERDICTS_JSON}" ]; then
+            printf '%s\n' "${VERDICTS_JSON}" > "${RUNNER_TEMP}/triage-verdicts.json"
+            echo "written=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::Claude did not produce verdicts; sync will fall back to deterministic rules."
+            echo "written=false" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Upload verdicts artifact
+        if: steps.write_verdicts.outputs.written == 'true'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
         with:
           name: triage-verdicts
           path: ${{ runner.temp }}/triage-verdicts.json
-          if-no-files-found: ignore
           retention-days: 1
 
   sync:
@@ -233,7 +244,7 @@ jobs:
           persist-credentials: false
 
       - name: Download verdicts artifact
-        if: needs.evaluate.result == 'success'
+        if: needs.evaluate.outputs.has_verdicts == 'true'
         continue-on-error: true
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8
         with:
@@ -252,7 +263,13 @@ jobs:
           DRY_RUN: ${{ needs.prepare.outputs.dry_run }}
           DO_PING: ${{ needs.prepare.outputs.do_ping }}
         run: |
-          args=(sync --repo "$GITHUB_REPOSITORY" --verdicts "${RUNNER_TEMP}/triage-verdicts.json")
+          args=(sync --repo "$GITHUB_REPOSITORY")
+          if [ -f "${RUNNER_TEMP}/triage-verdicts.json" ]; then
+            echo "Using Claude verdicts from ${RUNNER_TEMP}/triage-verdicts.json"
+            args+=(--verdicts "${RUNNER_TEMP}/triage-verdicts.json")
+          else
+            echo "No Claude verdicts artifact; using deterministic fallback."
+          fi
           if [ -n "${CHANNEL_ID}" ]; then
             args+=(--channel "${CHANNEL_ID}")
           fi
