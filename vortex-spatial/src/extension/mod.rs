@@ -398,6 +398,21 @@ impl SpatialMetadata {
         }
     }
 
+    /// Returns the CRS shared with `other`, or an error when the two differ.
+    ///
+    /// The CRSs must be equal, the same way Vortex's binary comparison and arithmetic require
+    /// equal operand dtypes: geometry functions never convert between operands. A missing CRS is
+    /// a CRS of its own, unreferenced coordinates, so it matches only another missing CRS.
+    pub(crate) fn unify_crs(&self, other: &Self) -> VortexResult<Option<&str>> {
+        vortex_ensure!(
+            self.crs == other.crs,
+            "geometry operands have different coordinate reference systems: {:?} and {:?}",
+            self.crs,
+            other.crs
+        );
+        Ok(self.get_crs())
+    }
+
     /// Checks that the metadata of the native geometry type `id` has a coordinate dimension.
     pub(crate) fn validate_native(&self, id: ExtId) -> VortexResult<()> {
         vortex_ensure!(

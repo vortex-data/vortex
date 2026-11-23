@@ -11,6 +11,7 @@ use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
+use vortex_array::dtype::extension::Matcher;
 use vortex_array::memory::BufferAllocatorRef;
 use vortex_array::scalar_fn::unstable::row::InputElement;
 use vortex_array::scalar_fn::unstable::row::OutputSink;
@@ -21,11 +22,28 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
 
+use crate::extension::AnyNativeGeometry;
 use crate::extension::build_polygon_storage;
 use crate::extension::coordinate::Dimension;
 use crate::extension::geometries;
 use crate::extension::is_native_geometry;
 use crate::extension::polygon_storage_dtype;
+
+/// Check that the two operand dtypes of a binary geometry function have the same CRS; see
+/// [`SpatialMetadata::unify_crs`](crate::extension::SpatialMetadata::unify_crs).
+pub(crate) fn ensure_common_crs(args: &[DType]) -> VortexResult<()> {
+    if let [left, right] = args
+        && let Some(left) = left
+            .as_extension_opt()
+            .and_then(AnyNativeGeometry::try_match)
+        && let Some(right) = right
+            .as_extension_opt()
+            .and_then(AnyNativeGeometry::try_match)
+    {
+        left.unify_crs(right)?;
+    }
+    Ok(())
+}
 
 type ConstBoundingRects = (Option<Option<Rect<f64>>>, Option<Option<Rect<f64>>>);
 
@@ -181,5 +199,68 @@ unsafe impl OutputSink for PolygonSink {
 
     unsafe fn finish(self) -> VortexResult<ArrayRef> {
         build_polygon_storage(&self.polygons, &self.allocator)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+    use vortex_array::ArrayRef;
+    use vortex_array::arrays::ScalarFnArray;
+    use vortex_error::VortexResult;
+
+    use crate::scalar_fn::contains::SpatialContains;
+    use crate::scalar_fn::distance::SpatialDistance;
+    use crate::scalar_fn::intersects::SpatialIntersects;
+    use crate::test_harness::point_column_with_crs;
+
+    type BinaryGeometryFn = fn(ArrayRef, ArrayRef) -> VortexResult<ScalarFnArray>;
+
+    fn point(crs: Option<&str>) -> VortexResult<ArrayRef> {
+        point_column_with_crs(vec![0.0], vec![0.0], crs)
+    }
+
+    #[rstest]
+    fn rejects_different_crs(
+        #[values(
+            SpatialDistance::try_new,
+            SpatialIntersects::try_new,
+            SpatialContains::try_new
+        )]
+        binary_fn: BinaryGeometryFn,
+        #[values(
+            (Some("EPSG:4326"), Some("EPSG:32633")),
+            (Some("EPSG:4326"), None),
+            (None, Some("EPSG:32633"))
+        )]
+        crs: (Option<&str>, Option<&str>),
+    ) -> VortexResult<()> {
+        let error = binary_fn(point(crs.0)?, point(crs.1)?)
+            .expect_err("operands in different coordinate reference systems");
+        assert!(
+            error
+                .to_string()
+                .contains("different coordinate reference systems"),
+            "{error}"
+        );
+        Ok(())
+    }
+
+    #[rstest]
+    fn accepts_common_crs(
+        #[values(
+            SpatialDistance::try_new,
+            SpatialIntersects::try_new,
+            SpatialContains::try_new
+        )]
+        binary_fn: BinaryGeometryFn,
+        #[values(
+            (Some("EPSG:4326"), Some("EPSG:4326")),
+            (None, None)
+        )]
+        crs: (Option<&str>, Option<&str>),
+    ) -> VortexResult<()> {
+        binary_fn(point(crs.0)?, point(crs.1)?)?;
+        Ok(())
     }
 }
