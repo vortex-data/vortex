@@ -157,10 +157,9 @@ def _read_task(
     output_schema = dataset.scanner(columns=columns).projected_schema
 
     def read() -> Iterable[pandas.DataFrame]:
-        limit = max(per_task_row_limit, 0) if per_task_row_limit is not None else None
         # A VortexDataset cannot be pickled, so the task opens its files again on the worker.
         reader = _open_exact_files(paths).to_record_batch_reader(
-            columns=columns, filter=filter, batch_size=batch_size, limit=limit
+            columns=columns, filter=filter, batch_size=batch_size, limit=per_task_row_limit
         )
 
         for rb in reader:

@@ -478,6 +478,8 @@ class VortexDataset(pyarrow.dataset.Dataset):
             unthreaded reader closes and restores the saved count.
         memory_pool : :class:`.pyarrow.MemoryPool` | None
             Not implemented.
+        limit : int | None
+            The maximum number of rows to read. Reading stops once this many rows are produced.
         concurrency : int | None
             The maximum number of splits fetched and decoded ahead of the consumer, across all the
             files of the dataset. Defaults to the dataset's :attr:`concurrency`.
