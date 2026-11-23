@@ -14,11 +14,45 @@ use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::stats::rewrite::StatsProof;
 
+/// Number of inserts between dead-key eviction sweeps.
+const EVICT_INTERVAL: usize = 64;
+
 /// The maximum number of rewrites that the cache keeps for each proof kind. When the live entries
 /// fill the cache, it removes all entries of that kind before it adds a new entry.
 const MAX_ENTRIES: usize = 4096;
 
-type Rewrites = HashMap<WeakBoundExprKey, Option<BoundExpression>>;
+#[derive(Default)]
+struct ProofCache {
+    entries: HashMap<WeakBoundExprKey, Option<BoundExpression>>,
+    inserts: usize,
+}
+
+impl ProofCache {
+    fn get(&self, expr: &BoundExpression) -> Option<Option<BoundExpression>> {
+        self.entries.get(expr as &dyn ExactKey).cloned()
+    }
+
+    fn insert(&mut self, expr: &BoundExpression, rewrite: Option<BoundExpression>) {
+        self.inserts += 1;
+        if self.inserts >= EVICT_INTERVAL || self.entries.len() >= MAX_ENTRIES {
+            self.inserts = 0;
+            self.entries.retain(|key, _| key.is_live());
+            if self.entries.len() >= MAX_ENTRIES {
+                self.entries.clear();
+            }
+        }
+        self.entries.insert(WeakBoundExprKey::new(expr), rewrite);
+    }
+
+    fn clear(&mut self) {
+        self.entries.clear();
+        self.inserts = 0;
+    }
+
+    fn len(&self) -> usize {
+        self.entries.len()
+    }
+}
 
 /// A cache of stats rewrites, keyed by the identity of the predicate tree.
 ///
@@ -27,14 +61,14 @@ type Rewrites = HashMap<WeakBoundExprKey, Option<BoundExpression>>;
 /// comparison does not read the schema.
 ///
 /// The keys hold their predicates weakly. When a scan drops its filter, no lookup can hit its
-/// entries again, and the next insert removes them.
+/// entries again, and periodic eviction sweeps drop them.
 #[derive(Default)]
 pub(crate) struct RewriteCache {
     /// Increments each time that a rule is registered. A rewrite that started before can use old
     /// rules, so the cache does not keep it.
     revision: u64,
-    falsify: Rewrites,
-    satisfy: Rewrites,
+    falsify: ProofCache,
+    satisfy: ProofCache,
 }
 
 impl Debug for RewriteCache {
@@ -58,11 +92,11 @@ impl RewriteCache {
         proof: StatsProof,
         expr: &BoundExpression,
     ) -> Option<Option<BoundExpression>> {
-        self.rewrites(proof).get(expr as &dyn ExactKey).cloned()
+        self.rewrites(proof).get(expr)
     }
 
-    /// Adds the rewrite of `expr`, if no rule was registered after `revision` was read. Removes
-    /// the entries of predicates that are no longer alive.
+    /// Adds the rewrite of `expr`, if no rule was registered after `revision` was read.
+    /// Periodically removes the entries of predicates that are no longer alive.
     pub(crate) fn insert(
         &mut self,
         revision: u64,
@@ -74,13 +108,7 @@ impl RewriteCache {
             return;
         }
 
-        let rewrites = self.rewrites_mut(proof);
-        rewrites.retain(|key, _| key.is_live());
-        if rewrites.len() >= MAX_ENTRIES {
-            rewrites.clear();
-        }
-
-        rewrites.insert(WeakBoundExprKey::new(expr), rewrite);
+        self.rewrites_mut(proof).insert(expr, rewrite);
     }
 
     /// Removes all entries, and stops the rewrites that are in progress from being added.
@@ -90,14 +118,14 @@ impl RewriteCache {
         self.satisfy.clear();
     }
 
-    fn rewrites(&self, proof: StatsProof) -> &Rewrites {
+    fn rewrites(&self, proof: StatsProof) -> &ProofCache {
         match proof {
             StatsProof::Falsify => &self.falsify,
             StatsProof::Satisfy => &self.satisfy,
         }
     }
 
-    fn rewrites_mut(&mut self, proof: StatsProof) -> &mut Rewrites {
+    fn rewrites_mut(&mut self, proof: StatsProof) -> &mut ProofCache {
         match proof {
             StatsProof::Falsify => &mut self.falsify,
             StatsProof::Satisfy => &mut self.satisfy,
@@ -127,10 +155,21 @@ mod tests {
         assert_eq!(cache.get(StatsProof::Falsify, &finished), Some(proof));
         drop(finished);
 
+        // Inserts before the eviction interval do not sweep dead keys.
+        let mut live = Vec::with_capacity(EVICT_INTERVAL - 2);
+        for _ in 0..EVICT_INTERVAL - 2 {
+            let expr = not(root()).bind(&dtype)?;
+            cache.insert(0, StatsProof::Falsify, &expr, None);
+            live.push(expr);
+        }
+        assert_eq!(cache.falsify.len(), EVICT_INTERVAL - 1);
+
+        // The EVICT_INTERVAL-th insert sweeps the dropped key while keeping live ones.
         let running = not(root()).bind(&dtype)?;
         cache.insert(0, StatsProof::Falsify, &running, None);
-        assert_eq!(cache.falsify.len(), 1);
+        assert_eq!(cache.falsify.len(), EVICT_INTERVAL - 1);
         assert_eq!(cache.get(StatsProof::Falsify, &running), Some(None));
+        drop(live);
         Ok(())
     }
 

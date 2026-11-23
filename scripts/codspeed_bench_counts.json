@@ -108,7 +108,8 @@
   },
   "vortex-expr": {
     "expr_large_struct_pack": 4,
-    "expr_optimize": 1
+    "expr_optimize": 1,
+    "stats_rewrite": 8
   },
   "vortex-fastlanes": {
     "bitpack_blocked": 0,
