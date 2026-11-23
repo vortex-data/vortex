@@ -113,3 +113,156 @@ held-out workloads on the same CI hardware must measure this effect before a pro
 Conditional service cost approximates shared bandwidth but omits temporal correlation, network
 routing, throttling dynamics and retry feedback. Profiles are opt-in benchmark models, not claims of
 S3 equivalence. The third branch wires this endpoint into benchmark workloads.
+
+## Run existing benchmarks through the model
+
+Prepare data with the normal generators first. The launcher mirrors `--data-root` directly at the
+bucket root; for SQL this is the suite's prepared directory (including the scale factor), whereas
+random access uses the full `vortex-bench/data` layout. Each command starts a fresh endpoint, reserves
+query RAM, supplies dummy child credentials and writes a separate provenance/counter manifest.
+
+```bash
+cargo build --profile release_debug --bin s3-simulate --bin data-gen --bin datafusion-bench \
+  --bin duckdb-bench --bin random-access-bench --bin compress-bench
+target/release_debug/data-gen tpch --formats parquet,vortex --opt scale-factor=10.0
+
+python3 benchmarks/s3/run.py --profile /tmp/s3-profile.json --kind sql \
+  --data-root vortex-bench/data/tpch/10.0 --output /tmp/tpch-model-manifest.json -- \
+  target/release_debug/datafusion-bench tpch --formats parquet,vortex --iterations 5 --opt scale-factor=10.0
+
+# The same SQL path works with duckdb-bench or lance-bench and every BenchmarkArg suite.
+# Prepare Lance locally through lance-bench before taking the snapshot.
+# CPU-native DuckDB databases and LitData have no remote object-read variant.
+
+target/release_debug/random-access-bench --prepare-data --datasets nested-lists --formats parquet,vortex
+python3 benchmarks/s3/run.py --profile /tmp/s3-profile.json --kind random-access \
+  --data-root vortex-bench/data --output /tmp/random-model-manifest.json -- \
+  target/release_debug/random-access-bench --datasets nested-lists --formats parquet,vortex --open-mode both
+
+python3 benchmarks/s3/run.py --profile /tmp/s3-profile.json --kind compress \
+  --output /tmp/decode-model-manifest.json -- target/release_debug/compress-bench \
+  --datasets '^wide table cols=100 chunks=1 rows=1000$' --formats parquet,vortex,arrow-ipc \
+  --ops decompress --iterations 5
+```
+
+SQL forwards `remote-data-dir` without changing plans, pushdown, coalescing or caching. This includes
+StatPopGen, PolarSignals, Public BI and custom Vortex queries, whose factory paths now honor this
+option. DuckDB's native Parquet reader receives a loopback S3 secret; its Vortex reader and the other
+clients use the same endpoint environment. Unsupported local-only formats fail explicitly.
+
+Random access uses the existing Parquet/Vortex range readers and optional Lance reader, including
+cached-handle and reopen measurements. Arrow IPC random access remains local-only. Build with
+`--features random-access-bench/lance,compress-bench/lance` for optional Lance variants.
+
+Compression keeps its CPU-only metric. With `--remote-data-dir`, decompression uploads the exact
+compressed fixture outside timing, then every timed iteration reads and decodes it. Parquet, Vortex
+and Arrow IPC use a full object GET followed by their CPU decoder; these results measure full-file
+read+decode, not selective range-scan performance. Lance uploads its directory and uses its native
+remote scanner. Remote read/decode and random-access results have distinct identities from local
+and real-S3 records.
+
+## Default CI model
+
+Ordinary PR and develop S3 variants now use the RAM-backed endpoint. Local NVMe variants keep
+their existing paths. SQL remote matrix entries and the `action/bench-random-access-s3` label
+use `profiles/ci-us-east-1-c8gd16.json` on c8gd.16xlarge runners, matching the profile's training
+hardware. The normal comparison script and PR comment action remain in use. The launcher labels
+result rows with the full profile SHA-256, so real S3 and other model versions cannot become their
+baseline. Postgres ingest retains its S3 protocol enum and stores the model/hash in the SQL
+`dataset_variant` or random-access dataset identity. Until develop records results for that profile, comments show measurements with no
+historical baseline. Artifacts retain the profile, endpoint counters and command manifest.
+
+The initial pinned profile contains 1,215,504 real GET observations from CI runs 40671586884 and
+40591491612 (request sweeps plus earlier SQL request traces), with source hashes and hardware
+recorded in its `training` section. It has seed 20261027, five observed size bands, concurrency
+bands and a 26.513 ms metadata delay. Transfer timing uses joint empirical response phases,
+scaled by bytes; there is no fitted hard concurrency cap or per-query runtime multiplier.
+This is a reproducible CI input; its native workload accuracy remains under assessment.
+
+Promote new compatible measurement windows explicitly, then commit the resulting profile:
+
+```bash
+python3 benchmarks/s3/learn.py s3-measurements/window-*.jsonl --output benchmarks/s3/profiles/ci-us-east-1-c8gd16.json
+```
+
+At least two compatible real measurement windows are required. Learning is independent of the
+ordinary benchmark jobs and never silently changes their model. A new profile starts a new
+comparison history. The server rejects snapshots exceeding its resident-memory allowance rather
+than falling back to local disk; choose a suitable runner/profile for datasets that do not fit.
+
+The `S3 Model Benchmarks` workflow learns a candidate from two real request sweeps and saves it
+separately. By default it validates the exact pinned CI profile; dispatch with `model=learned` to
+evaluate the candidate instead. Neither choice promotes a new profile. It runs
+an independent held-out real sweep, the learned endpoint and a zero-delay loopback baseline. Its
+probe table requires exactly matching GET/byte coverage and separates header, first-byte, body and
+total median/p90. All clients run sequentially on one on-demand c8gd.16xlarge in the bucket's region.
+It then runs all 22 TPC-H and 99 TPC-DS queries through DataFusion, DuckDB and Lance, plus synthetic
+random access and read/decode, against real/model/second-real controls using identical files.
+Each authenticated task receives fresh credentials from the standard pinned AWS workflow action;
+Python inherits them without token retrieval, role assumption or credential files. Task timeouts
+fit within the two-hour credential session, and all tasks remain on the same runner.
+
+Branch pushes exercise **all queries at SF0.01, three iterations**. Manual dispatch defaults to
+**SF10, five iterations**. `comparison.csv` recomputes median/p90 from raw iteration times,
+reports model/pooled-real and real-repeat/real ratios, Spearman and ±10%/±30% flags. Native SQL
+results preserve the ordinary cache sequence; they do not replace the separate controlled cold/warm
+validation study. Endpoint counters cover whole commands, including registration/warmups; real
+per-query request parity is not measured by this native-client smoke workflow. These limitations
+remain explicit in the report. Real S3 stays the calibration and validation reference, while
+ordinary S3 CI benchmark variants use the pinned model.
+
+The earlier frozen V4 controlled SF10 study (research branch `ji/ci-s3-over-time`) covered all 121
+queries and matched all 1,368,393 GETs and 380,744,124,525 bytes per backend. It reached Spearman
+0.9947, with 173/242 query/cache medians within ±10%. Its [four-window study](https://github.com/vortex-data/vortex/actions/runs/40661847573)
+completed all fixed starts, with 23/36, 32/36, 30/36 and 31/36 medians within ±10% and exact request
+counts in all 144 groups. That evidence supports further calibration; it does not establish the
+accuracy of this new native HTTP model.
+
+For paired remote decoding, pass the same `--fixture-cache /tmp/run-fixtures` to both backend runs.
+Use a fresh directory for each revision/input. The first run atomically saves its encoded file or
+Lance directory; subsequent runs upload those exact objects, preserving generated data filenames and
+manifests. CI uses one such cache for all three controls. This avoids comparing independently
+re-encoded fixtures while keeping file creation and upload outside the read/decode timer.
+
+## Measured native fit
+
+[Pinned-profile run 40911291453](https://github.com/vortex-data/vortex/actions/runs/40911291453)
+passed all 22 TPC-H and 99 TPC-DS queries through DataFusion, DuckDB and Lance at **SF0.01,
+three iterations**, plus cached/reopen random access and remote decompression. All three backends
+ran sequentially on one c8gd.16xlarge. The [per-case table](results/native-40911291453.csv)
+contains 620 cases, backend median/p90, the pooled real median/p90 used as the ratio denominator,
+repeat-real variation and ±10%/±30% flags. These are native cache sequences, not isolated cold/warm
+measurements. Overall Spearman against the first real control was **0.9644**, median absolute
+model error **14.1%**, with **228/620 within ±10%** and **541/620 within ±30%**.
+
+| SQL engine/format (121 queries each) | Median absolute model error | Median real-repeat variation |
+| --- | ---: | ---: |
+| DataFusion / Vortex | 9.6% | 10.8% |
+| DataFusion / Parquet | 15.3% | 8.3% |
+| DuckDB / Vortex | 17.4% | 7.6% |
+| DuckDB / Parquet | 16.4% | 6.6% |
+| Lance / Lance | 11.3% | 10.6% |
+
+The profile SHA-256 was `859b5ec996de8e026364d5c1b6b893da878f8914642495decf41b37e6c2273c2`:
+seed 20261027, metadata delay 26.513 ms, joint empirical GET phases conditioned on size and
+in-flight requests, byte-scaled transfer cost and no hard concurrency cap. The held-out probe
+matched all 3,840 measured GETs and bytes per backend with no errors. Its median absolute cell
+error was 6.0%, with 40/60 cells within ±10%. The freshly learned candidate was saved separately;
+its request-header distributions were not consistently closer, so it was not promoted.
+
+The ordinary [SQL workflow](https://github.com/vortex-data/vortex/actions/runs/40910838537) also
+passed all 22 TPC-H SF1 queries with DataFusion/DuckDB and Parquet/Vortex, ten iterations each
+(88 cases, 880 measurements), and posted its [standard comment](https://github.com/vortex-data/vortex/pull/10976#issuecomment-6502527256).
+The ordinary [random-access S3 workflow](https://github.com/vortex-data/vortex/actions/runs/40910534015)
+passed all combinations and posted its [standard comment](https://github.com/vortex-data/vortex/pull/10976#issuecomment-6503381549).
+Both artifacts were independently checked for their frozen profile identity and zero outstanding
+requests. SQL observed 43,560 GETs / 39,907,740,977 bytes; random access observed 210,844 GETs /
+90,663,539,712 bytes. Both reached 192 in-flight requests, above the initial training range of 64.
+
+Recommendation: use the pinned model as the requested reproducible CI regression baseline, while
+retaining real S3 as the validation reference. It does not yet support a general ±10% prediction
+claim. DataFusion/Vortex error is comparable to S3 repeatability; Parquet and DuckDB show additional
+model bias. Prioritize real per-query request parity, coverage above 64 in-flight requests and
+response-tail correlation before claiming that fit. Validate the native model at SF10 and with
+isolated cold/warm trials as well. A global runtime multiplier would hide those differences;
+future profiles should continue to learn request behavior and pass held-out validation.

@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::any::Any;
+use std::borrow::Cow;
 use std::panic::AssertUnwindSafe;
 use std::path::Path;
 use std::path::PathBuf;
@@ -25,6 +26,7 @@ use indicatif::ProgressBar;
 use itertools::Itertools;
 use mimalloc::MiMalloc;
 use regex::Regex;
+use url::Url;
 use vortex::utils::aliases::hash_map::HashMap;
 use vortex_bench::Engine;
 use vortex_bench::Format;
@@ -57,6 +59,7 @@ use vortex_bench::public_bi::PBIDataset::CMSprovider;
 use vortex_bench::public_bi::PBIDataset::Euro2016;
 use vortex_bench::public_bi::PBIDataset::Food;
 use vortex_bench::public_bi::PBIDataset::HashTags;
+use vortex_bench::random_access::RemoteDataDir;
 use vortex_bench::setup_logging_and_tracing_with_format;
 use vortex_bench::statpopgen::StatPopGenBenchmark;
 use vortex_bench::v3;
@@ -87,6 +90,14 @@ struct Args {
     ops: Vec<CompressOp>,
     #[arg(long)]
     datasets: Option<String>,
+    /// Upload compressed fixtures here, then time object reads plus decompression per iteration.
+    /// Compression measurements retain their CPU-only meaning.
+    #[arg(long)]
+    remote_data_dir: Option<Url>,
+    /// Reuse identical encoded objects (including Lance manifests) across real/model runs.
+    /// Use a fresh directory for each input/revision. Only used by remote read/decode.
+    #[arg(long, requires = "remote_data_dir")]
+    fixture_cache: Option<PathBuf>,
     /// Print the dataset names that would run, one per line, and exit.
     /// Knowledge of datasets lies only in this binary so we need
     /// orchestrator to know whan queries to run one by one.
@@ -167,6 +178,14 @@ fn main() -> anyhow::Result<()> {
 }
 
 async fn run(args: Args) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        !(args.gpu_decompress && args.remote_data_dir.is_some()),
+        "Remote read/decode currently uses CPU readers; GPU mode reads local files"
+    );
+    let remote = args
+        .remote_data_dir
+        .map(RemoteDataDir::try_new)
+        .transpose()?;
     if args.gpu_decompress && !cfg!(feature = "cuda") {
         anyhow::bail!("--gpu-decompress requires building compress-bench with --features cuda");
     }
@@ -201,6 +220,8 @@ async fn run(args: Args) -> anyhow::Result<()> {
         args.display_format,
         args.output_path,
         args.ingest_output,
+        remote,
+        args.fixture_cache,
     )
     .await
 }
@@ -263,6 +284,8 @@ async fn run_compress(
     display_format: DisplayFormat,
     output_path: Option<PathBuf>,
     ingest_output: Option<PathBuf>,
+    remote: Option<RemoteDataDir>,
+    fixture_cache: Option<PathBuf>,
 ) -> anyhow::Result<()> {
     let timing_targets = formats
         .iter()
@@ -383,8 +406,16 @@ async fn run_compress(
     let mut failures: Vec<(String, anyhow::Error)> = Vec::new();
 
     for dataset_handle in datasets.into_iter() {
-        let run =
-            run_benchmark_for_dataset(&progress, &formats, &ops, iterations, dataset_handle, mode);
+        let run = run_benchmark_for_dataset(
+            &progress,
+            &formats,
+            &ops,
+            iterations,
+            dataset_handle,
+            mode,
+            remote.as_ref(),
+            fixture_cache.as_deref(),
+        );
 
         // Missing CUDA kernel support surfaces as a panic rather than an error, so the survey
         // has to catch those too or the first unsupported dataset ends the run.
@@ -507,6 +538,10 @@ async fn size_only_records(
     Ok(records)
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "dataset execution forwards benchmark mode and fixture policy"
+)]
 async fn run_benchmark_for_dataset(
     progress: &ProgressBar,
     formats: &[Format],
@@ -514,6 +549,8 @@ async fn run_benchmark_for_dataset(
     iterations: usize,
     dataset_handle: &dyn Dataset,
     mode: BenchMode,
+    remote: Option<&RemoteDataDir>,
+    fixture_cache: Option<&Path>,
 ) -> anyhow::Result<(CompressMeasurements, Vec<v3::V3Record>)> {
     let bench_name = dataset_handle.name();
     // A GPU decode and a host decode of the same dataset would otherwise publish the same
@@ -522,6 +559,11 @@ async fn run_benchmark_for_dataset(
     // several-fold regression. The ratio rows already say `gpu`; the timings did not.
     let decompress_name = if matches!(mode, BenchMode::Gpu(_)) {
         format!("{bench_name} gpu")
+    } else if remote.is_some() {
+        format!(
+            "{bench_name} {} read+decode",
+            vortex_bench::s3::storage_name()
+        )
     } else {
         bench_name.to_string()
     };
@@ -585,6 +627,12 @@ async fn run_benchmark_for_dataset(
                     result.time
                 }
                 CompressOp::Decompress => {
+                    let cache = fixture_cache.map(|root| root.join(bench_name).join(format.name()));
+                    if compressed.is_none()
+                        && let Some(cache) = &cache
+                    {
+                        compressed = Compressed::from_cache(cache)?;
+                    }
                     let input = match &compressed {
                         Some(input) => input,
                         None => compressed.insert(
@@ -594,9 +642,23 @@ async fn run_benchmark_for_dataset(
                                 .with_context(|| format!("compressing {bench_name} as {format}"))?,
                         ),
                     };
+                    if let Some(cache) = &cache
+                        && !cache.exists()
+                    {
+                        input.write_cache(cache)?;
+                    }
+                    let uploaded = if let Some(remote) = remote {
+                        Some(
+                            input
+                                .upload(remote, &format!("compression/{bench_name}/{format}"))
+                                .await?,
+                        )
+                    } else {
+                        None
+                    };
                     let result = benchmark_decompress(
                         compressor.as_ref(),
-                        input,
+                        uploaded.as_ref().unwrap_or(input),
                         iterations,
                         &decompress_name,
                     )
@@ -607,14 +669,11 @@ async fn run_benchmark_for_dataset(
                         .iter()
                         .map(|d| u64::try_from(d.as_nanos()).unwrap_or(u64::MAX))
                         .collect();
+                    let variant = decompression_variant(mode, remote.is_some(), v3_variant);
                     v3_records.push(v3::compression_time_record(
                         &result.timing,
                         v3_dataset,
-                        if mode.is_gpu() {
-                            Some("gpu")
-                        } else {
-                            v3_variant
-                        },
+                        variant.as_deref(),
                         CompressOp::Decompress,
                         all_runs_ns,
                     ));
@@ -663,6 +722,24 @@ async fn run_benchmark_for_dataset(
     Ok((CompressMeasurements { timings, ratios }, v3_records))
 }
 
+fn decompression_variant(
+    mode: BenchMode,
+    remote: bool,
+    variant: Option<&str>,
+) -> Option<Cow<'_, str>> {
+    if mode.is_gpu() {
+        Some(Cow::Borrowed("gpu"))
+    } else if remote {
+        Some(Cow::Owned(format!(
+            "{}-{}-read-decode",
+            variant.unwrap_or("default"),
+            vortex_bench::s3::storage_name()
+        )))
+    } else {
+        variant.map(Cow::Borrowed)
+    }
+}
+
 /// Emit the Vortex-versus-Parquet decompression ratio for a GPU run.
 fn push_gpu_ratio(
     measurements: &HashMap<(Format, CompressOp), Duration>,
@@ -683,7 +760,7 @@ fn push_gpu_ratio(
             options.codec.name()
         ),
         format: Format::OnDiskVortex,
-        unit: std::borrow::Cow::from("ratio"),
+        unit: Cow::from("ratio"),
         value: vortex_time.as_nanos() as f64 / parquet_time.as_nanos() as f64,
     });
 }

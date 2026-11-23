@@ -279,8 +279,8 @@ fn v3_random_access_dataset_name(dataset: &str, pattern: Option<AccessPattern>) 
 fn push_v3_random_access_record(records: &mut Vec<v3::V3Record>, run: &RandomAccessRun) {
     // v3 records have no storage field, so S3 runs get their own dataset name. Otherwise they
     // would share a measurement ID with, and overwrite, the local-disk rows.
-    let dataset = if run.timing.storage == STORAGE_S3 {
-        format!("{}-s3", run.dataset)
+    let dataset = if run.timing.storage.starts_with(STORAGE_S3) {
+        format!("{}-{}", run.dataset, run.timing.storage)
     } else {
         run.dataset.clone()
     };
@@ -425,7 +425,7 @@ pub async fn run(config: RunConfig) -> Result<()> {
 
     let remote = remote_data_dir.as_ref();
     let storage = if remote.is_some() {
-        STORAGE_S3
+        vortex_bench::s3::storage_name()
     } else {
         STORAGE_NVME
     };

@@ -137,11 +137,10 @@ async fn main() -> anyhow::Result<()> {
         return Ok(());
     }
 
-    // Generate base Parquet data first
-    benchmark.generate_base_data().await?;
-
-    // Convert Parquet to Lance format
-    generate_lance_data(&*benchmark).await?;
+    if benchmark.data_url().scheme() == "file" {
+        benchmark.generate_base_data().await?;
+        generate_lance_data(&*benchmark).await?;
+    }
 
     if args.data_only {
         return Ok(());

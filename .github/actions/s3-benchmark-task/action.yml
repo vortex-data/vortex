@@ -1,0 +1,29 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+name: S3 benchmark task
+description: Run one benchmark task with workflow-provided AWS credentials
+
+inputs:
+  task:
+    description: Benchmark task selected by benchmarks/s3/ci.py
+    required: true
+  authenticate:
+    description: Configure standard AWS credentials for this task
+    default: "true"
+
+runs:
+  using: composite
+  steps:
+    - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd  # v6
+      if: inputs.authenticate == 'true'
+      with:
+        role-to-assume: arn:aws:iam::245040174862:role/GitHubBenchmarkRole
+        aws-region: us-east-1
+        role-duration-seconds: 7200
+    - shell: bash
+      env:
+        S3_BENCHMARK_TASK: ${{ inputs.task }}
+      run: >-
+        python3 benchmarks/s3/ci.py --remote-root "$REMOTE_ROOT" --scale "$BENCH_SCALE"
+        --iterations "$BENCH_ITERATIONS" --model "$BENCH_MODEL" --task "$S3_BENCHMARK_TASK"

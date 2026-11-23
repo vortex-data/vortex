@@ -2033,6 +2033,7 @@ dependencies = [
  "tempfile",
  "tokio",
  "tracing",
+ "url",
  "vortex",
  "vortex-arrow",
  "vortex-bench",

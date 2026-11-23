@@ -28,6 +28,10 @@ on:
         required: false
         type: string
         default: ""
+      simulated_s3:
+        description: "Read prepared benchmark data through the pinned RAM-backed S3 model"
+        type: boolean
+        default: false
       remote_data_dir:
         description: >-
           When set, the benchmark data is uploaded to this S3 prefix and read back from there
@@ -72,11 +76,16 @@ jobs:
         run: |
           cargo build --package ${{ inputs.benchmark_id }} --profile release_debug \
             ${{ inputs.with_lance && '--features lance' || '' }}
+          if [ "${{ inputs.simulated_s3 }}" = true ]; then
+            cargo build -p vortex-bench --bin s3-simulate --profile release_debug
+          fi
       - name: Upload benchmark binary
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
         with:
-          name: ${{ inputs.benchmark_id }}-binary
-          path: target/release_debug/${{ inputs.benchmark_id }}
+          name: ${{ inputs.benchmark_id }}${{ inputs.variant_id }}-binary
+          path: |
+            target/release_debug/${{ inputs.benchmark_id }}
+            ${{ inputs.simulated_s3 && 'target/release_debug/s3-simulate' || '' }}
 
   # The debuginfo upload takes minutes. Running it in its own job keeps it off the path to the
   # bench job; Polar Signals matches debuginfo to profiles by build ID whenever it lands.
@@ -96,7 +105,7 @@ jobs:
       - name: Download benchmark binary
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8
         with:
-          name: ${{ inputs.benchmark_id }}-binary
+          name: ${{ inputs.benchmark_id }}${{ inputs.variant_id }}-binary
           path: target/release_debug/
       - name: Pre-upload benchmark debuginfo to Polar Signals
         uses: ./.github/actions/upload-parca-debuginfo
@@ -113,7 +122,7 @@ jobs:
     timeout-minutes: 120
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/region=us-east-1/runner=bench-dedicated/family=c8gd.metal-24xl/image=ubuntu26-full-arm64-pre-v2/tag={1}{2}', github.run_id, inputs.benchmark_id, github.event.pull_request.head.repo.fork == false && '/extras=s3-cache' || '')
+          && format('runs-on={0}/region=us-east-1/runner=bench-dedicated/family={1}/image=ubuntu26-full-arm64-pre-v2/tag={2}{3}', github.run_id, inputs.simulated_s3 && 'c8gd.16xlarge' || 'c8gd.metal-24xl', inputs.benchmark_id, github.event.pull_request.head.repo.fork == false && '/extras=s3-cache' || '')
           || 'ubuntu-latest' }}
     steps:
       - parallel:
@@ -140,7 +149,7 @@ jobs:
           - name: Download benchmark binary
             uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8
             with:
-              name: ${{ inputs.benchmark_id }}-binary
+              name: ${{ inputs.benchmark_id }}${{ inputs.variant_id }}-binary
               path: target/release_debug/
           - name: Setup Polar Signals
             if: github.event.pull_request.head.repo.fork == false
@@ -185,11 +194,11 @@ jobs:
       - parallel:
           - name: Make benchmark binary executable
             shell: bash
-            run: chmod +x target/release_debug/${{ inputs.benchmark_id }}
+            run: chmod +x target/release_debug/${{ inputs.benchmark_id }} ${{ inputs.simulated_s3 && 'target/release_debug/s3-simulate' || '' }}
           - name: Install LitData
             # LitData is Python-only, so random-access-bench times it through
             # scripts/litdata-random-access.py, run by the interpreter named in LITDATA_PYTHON.
-            if: inputs.benchmark_id == 'random-access-bench' && inputs.remote_data_dir == ''
+            if: inputs.benchmark_id == 'random-access-bench' && inputs.remote_data_dir == '' && !inputs.simulated_s3
             shell: bash
             run: |
               set -Eeu -o pipefail -x
@@ -210,7 +219,7 @@ jobs:
                 vortex-bench/data/random_access/*/*.parquet
                 vortex-bench/data/random_access/*/*.litdata
               key: >-
-                random-access-data-v1-${{ inputs.remote_data_dir != '' && 's3' || 'local' }}-litdata0.2.76-${{ steps.data-cache-key.outputs.crates }}-${{
+                random-access-data-v1-${{ inputs.simulated_s3 && 'simulated-s3' || inputs.remote_data_dir != '' && 's3' || 'local' }}-litdata0.2.76-${{ steps.data-cache-key.outputs.crates }}-${{
                   hashFiles(
                     'vortex-bench/src/datasets/**',
                     'vortex-bench/src/random_access/**',
@@ -226,10 +235,11 @@ jobs:
           RUST_BACKTRACE: full
           FLAT_LAYOUT_INLINE_ARRAY_NODE: "1"
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          REMOTE_DATA_DIR: ${{ inputs.simulated_s3 && 's3://vortex-bench/' || inputs.remote_data_dir }}
         run: |
           bench="${{ inputs.benchmark_id }}"
           python3 "scripts/${bench%-bench}-split.py" --prepare-data \
-            ${{ inputs.remote_data_dir != '' && format('--remote-data-dir {0}', inputs.remote_data_dir) || '' }}
+            ${REMOTE_DATA_DIR:+--remote-data-dir "$REMOTE_DATA_DIR"}
 
       # setup-benchmark.sh pins every running process to the housekeeping CPUs, so it waits for
       # the cache save and upload rather than throttling them.
@@ -244,7 +254,7 @@ jobs:
                 vortex-bench/data/random_access/*/*.litdata
               key: ${{ steps.data-cache.outputs.cache-primary-key }}
           - name: Upload benchmark data to S3
-            if: inputs.remote_data_dir != '' && github.event.pull_request.head.repo.fork == false
+            if: ${{ !inputs.simulated_s3 && inputs.remote_data_dir != '' && github.event.pull_request.head.repo.fork == false }}
             shell: bash
             env:
               AWS_REGION: "us-east-1"
@@ -265,8 +275,15 @@ jobs:
           FLAT_LAYOUT_INLINE_ARRAY_NODE: "1"
           AWS_REGION: "us-east-1"
         run: |
-          python3 scripts/random-access-split.py --emit-ingest-records \
-            ${{ inputs.remote_data_dir != '' && format('--remote-data-dir {0}', inputs.remote_data_dir) || '' }}
+          if [ "${{ inputs.simulated_s3 }}" = true ]; then
+            python3 benchmarks/s3/run.py --profile benchmarks/s3/profiles/ci-us-east-1-c8gd16.json \
+              --kind random-access --data-root vortex-bench/data --output simulation-manifest.json \
+              --results results.json --results results.ingest.jsonl -- \
+              python3 scripts/random-access-split.py --emit-ingest-records
+          else
+            python3 scripts/random-access-split.py --emit-ingest-records \
+              ${{ inputs.remote_data_dir != '' && format('--remote-data-dir {0}', inputs.remote_data_dir) || '' }}
+          fi
 
       - name: Run ${{ inputs.benchmark_name }} benchmark (per-dataset)
         if: inputs.benchmark_id == 'compress-bench'
@@ -303,7 +320,20 @@ jobs:
 
           uv run --no-project scripts/compare-benchmark-jsons.py base.ingest.jsonl results.json \
             "${{ inputs.benchmark_name }}" --pr-records results.ingest.jsonl > comment.md
+          if [ "${{ inputs.simulated_s3 }}" = true ]; then cat simulation-manifest.md >> comment.md; fi
           cat comment.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Preserve simulated S3 evidence
+        if: always() && inputs.simulated_s3
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
+        with:
+          name: simulation-${{ inputs.benchmark_id }}${{ inputs.variant_id }}
+          path: |
+            simulation-manifest.*
+            results.json
+            results.ingest.jsonl
+            comment.md
+            benchmarks/s3/profiles/ci-us-east-1-c8gd16.json
 
       # A fork PR's job has no OIDC token, so pr-bench-report.yml reads its baseline and comments.
       - name: Upload report for pr-bench-report.yml
@@ -332,7 +362,7 @@ jobs:
           comment-tag: bench-pr-comment-${{ inputs.benchmark_id }}${{ inputs.variant_id }}
 
       - name: Delete benchmark data from S3
-        if: always() && inputs.remote_data_dir != '' && github.event.pull_request.head.repo.fork == false
+        if: always() && !inputs.simulated_s3 && inputs.remote_data_dir != '' && github.event.pull_request.head.repo.fork == false
         shell: bash
         env:
           AWS_REGION: "us-east-1"

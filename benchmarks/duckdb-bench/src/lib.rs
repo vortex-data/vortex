@@ -128,6 +128,22 @@ impl DuckClient {
         // extension is loaded after the connection is established.
         connection.query("SET parquet_metadata_cache = true")?;
 
+        if vortex_bench::s3::storage_name() == "s3-simulated" {
+            let endpoint = std::env::var("AWS_ENDPOINT")?;
+            let address: std::net::SocketAddr = endpoint
+                .strip_prefix("http://")
+                .ok_or_else(|| anyhow::anyhow!("Simulation requires a loopback HTTP endpoint"))?
+                .parse()?;
+            anyhow::ensure!(
+                address.ip().is_loopback(),
+                "Simulation endpoint must be loopback"
+            );
+            connection.query(&format!(
+                "CREATE OR REPLACE SECRET vortex_benchmark_simulation (TYPE s3, KEY_ID 'benchmark', \
+                 SECRET 'benchmark', REGION 'us-east-1', ENDPOINT '{address}', URL_STYLE 'path', USE_SSL false)"
+            ))?;
+        }
+
         Ok((db, connection))
     }
 

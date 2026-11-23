@@ -77,7 +77,7 @@ jobs:
         env:
           RUSTFLAGS: "-C target-cpu=native -C force-frame-pointers=yes"
         run: |
-          packages=(--bin data-gen --bin datafusion-bench --bin duckdb-bench --bin vx)
+          packages=(--bin data-gen --bin datafusion-bench --bin duckdb-bench --bin vx --bin s3-simulate)
           if [ "${{ inputs.mode }}" != "pr" ]; then
             packages+=(--bin lance-bench)
           fi
@@ -89,7 +89,7 @@ jobs:
         run: |
           set -Eeuo pipefail
           cd target/release_debug
-          files=(data-gen datafusion-bench duckdb-bench vx)
+          files=(data-gen datafusion-bench duckdb-bench vx s3-simulate)
           # lance-bench is not built for PRs.
           if [ -f lance-bench ]; then
             files+=(lance-bench)
@@ -166,7 +166,7 @@ jobs:
 
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/region=us-east-1/runner=bench-dedicated/family={1}/image=ubuntu26-full-arm64-pre-v2/tag={2}{3}', github.run_id, inputs.machine_type, matrix.id, (inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false) && '/extras=s3-cache' || '')
+          && format('runs-on={0}/region=us-east-1/runner=bench-dedicated/family={1}/image=ubuntu26-full-arm64-pre-v2/tag={2}{3}', github.run_id, matrix.remote_key != null && 'c8gd.16xlarge' || inputs.machine_type, matrix.id, (inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false) && '/extras=s3-cache' || '')
           || 'ubuntu-latest' }}
     steps:
       - parallel:
@@ -227,39 +227,27 @@ jobs:
             ${{ matrix.row_group_rows && format('--opt row-group-rows={0}', matrix.row_group_rows) || '' }} \
             ${{ matrix.scale_factor && format('--opt scale-factor={0}', matrix.scale_factor) || '' }}
 
-      # setup-benchmark.sh pins every running process to the housekeeping CPUs, so it waits for
-      # the upload rather than throttling it.
-      - parallel:
-          - name: Upload data
-            if: matrix.remote_key != null && (inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false)
-            shell: bash
-            env:
-              AWS_REGION: "us-east-1"
-              REMOTE_STORAGE: "s3://vortex-ci-benchmark-datasets/${{ github.ref_name }}/${{ github.run_id }}/${{ inputs.matrix_preset }}/${{ matrix.remote_key }}/"
-            run: |
-              aws s3 rm --recursive "$REMOTE_STORAGE"
-              aws s3 cp --recursive "${{ matrix.local_dir }}" "$REMOTE_STORAGE"
-          - name: Setup Polar Signals
-            if: inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false
-            uses: polarsignals/gh-actions-ps-profiling@cd2cb45af81fbe1ca629c2ac479348207598160e  # v0.9.0
-            # Profiling is observability only, so a flaky agent download must not fail the benchmark.
-            continue-on-error: true
-            with:
-              polarsignals_cloud_token: ${{ secrets.POLAR_SIGNALS_API_KEY }}
-              labels: "branch=${{ github.ref_name }};gh_run_id=${{ github.run_id }};commit_sha=${{ inputs.mode == 'pr' && github.event.pull_request.head.sha || github.sha }};benchmark=${{ matrix.id }}"
-              project_uuid: "e5d846e1-b54c-46e7-9174-8bf055a3af56"
-              job_name: "${{ matrix.id }}"
-              profiling_frequency: 199
-              extra_args: "--debuginfo-strip=false"
-              parca_agent_version: "0.49.0"
+      - name: Setup Polar Signals
+        if: inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false
+        uses: polarsignals/gh-actions-ps-profiling@cd2cb45af81fbe1ca629c2ac479348207598160e  # v0.9.0
+        # Profiling is observability only, so a flaky agent download must not fail the benchmark.
+        continue-on-error: true
+        with:
+          polarsignals_cloud_token: ${{ secrets.POLAR_SIGNALS_API_KEY }}
+          labels: "branch=${{ github.ref_name }};gh_run_id=${{ github.run_id }};commit_sha=${{ inputs.mode == 'pr' && github.event.pull_request.head.sha || github.sha }};benchmark=${{ matrix.id }}"
+          project_uuid: "e5d846e1-b54c-46e7-9174-8bf055a3af56"
+          job_name: "${{ matrix.id }}"
+          profiling_frequency: 199
+          extra_args: "--debuginfo-strip=false"
+          parca_agent_version: "0.49.0"
 
       - name: Setup benchmark environment
         run: sudo bash scripts/setup-benchmark.sh
 
-      # The run steps pass the same row groups as "Generate data". A fork PR runs an S3 entry
-      # here, on local data, and a benchmark that expects other row groups removes that data.
+      # The run steps pass the same row groups as "Generate data"; a benchmark that expects other
+      # row groups removes that data.
       - name: Run ${{ matrix.name }} benchmark
-        if: matrix.remote_key == null || github.event.pull_request.head.repo.fork == true
+        if: matrix.remote_key == null
         shell: bash
         env:
           OTEL_SERVICE_NAME: "vortex-bench"
@@ -277,8 +265,10 @@ jobs:
             ${{ matrix.row_group_rows && format('--opt row-group-rows={0}', matrix.row_group_rows) || '' }} \
             ${{ matrix.scale_factor && format('--opt scale-factor={0}', matrix.scale_factor) || '' }}
 
-      - name: Run ${{ matrix.name }} benchmark (remote)
-        if: matrix.remote_key != null && (inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false)
+      # S3 entries read through the pinned RAM-backed S3 model, which supplies remote-data-dir and
+      # needs no AWS credentials, so fork PRs run them too.
+      - name: Run ${{ matrix.name }} benchmark (simulated S3)
+        if: matrix.remote_key != null
         shell: bash
         env:
           AWS_REGION: "us-east-1"
@@ -287,16 +277,17 @@ jobs:
           OTEL_EXPORTER_OTLP_ENDPOINT: "${{ (inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false) && secrets.OTEL_EXPORTER_OTLP_ENDPOINT || '' }}"
           OTEL_EXPORTER_OTLP_HEADERS: "${{ (inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false) && secrets.OTEL_EXPORTER_OTLP_HEADERS || '' }}"
           OTEL_RESOURCE_ATTRIBUTES: "bench-name=${{ matrix.id }}"
-          REMOTE_STORAGE: "s3://vortex-ci-benchmark-datasets/${{ github.ref_name }}/${{ github.run_id }}/${{ inputs.matrix_preset }}/${{ matrix.remote_key }}/"
         run: |
-          bash scripts/bench-taskset.sh uv run --project bench-orchestrator vx-bench run "${{ matrix.subcommand }}" \
+          python3 benchmarks/s3/run.py --profile benchmarks/s3/profiles/ci-us-east-1-c8gd16.json \
+            --kind sql --data-root "${{ matrix.local_dir }}" --output simulation-manifest.json \
+            --results results.json --results results.ingest.jsonl -- \
+            bash scripts/bench-taskset.sh uv run --project bench-orchestrator vx-bench run "${{ matrix.subcommand }}" \
             --targets-json '${{ toJSON(matrix.targets) }}' \
             --output results.json \
             --ingest-jsonl results.ingest.jsonl \
             --no-build \
             ${{ matrix.iterations && format('--iterations {0}', matrix.iterations) || '' }} \
             ${{ matrix.row_group_rows && format('--opt row-group-rows={0}', matrix.row_group_rows) || '' }} \
-            --opt remote-data-dir="$REMOTE_STORAGE" \
             ${{ matrix.scale_factor && format('--opt scale-factor={0}', matrix.scale_factor) || '' }}
 
       # Formats that no query reads, written after the queries so they cannot affect them, only
@@ -362,7 +353,7 @@ jobs:
         run: |
           set -Eeuo pipefail
           mkdir -p "pr-comment-results/${ENTRY_ID}"
-          for file in results.json results.ingest.jsonl; do
+          for file in results.json results.ingest.jsonl simulation-manifest.md; do
             if [[ -f "$file" ]]; then cp "$file" "pr-comment-results/${ENTRY_ID}/"; fi
           done
       - name: Upload results for the PR comment
@@ -373,6 +364,17 @@ jobs:
           path: pr-comment-results/
           retention-days: 5
           if-no-files-found: ignore
+
+      - name: Preserve simulated S3 evidence
+        if: always() && matrix.remote_key != null
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
+        with:
+          name: simulation-${{ matrix.id }}-${{ inputs.matrix_preset }}
+          path: |
+            simulation-manifest.*
+            results.json
+            results.ingest.jsonl
+            benchmarks/s3/profiles/ci-us-east-1-c8gd16.json
 
       # v4 (Postgres) ingest -- the REQUIRED benchmark-results pipeline feeding the live
       # benchmarks website (see develop-bench.yml for the full rationale); a failure here fails the
@@ -493,6 +495,7 @@ jobs:
             if [[ -s "$dir/results.ingest.jsonl" ]]; then
               cat "$dir/results.ingest.jsonl" >> results.ingest.jsonl
               cat "$dir/results.json" >> results.json 2>/dev/null || true
+              cat "$dir/simulation-manifest.md" >> simulation-manifest.md 2>/dev/null || true
             else
               missing+=("\`${id}\`")
             fi
@@ -527,6 +530,7 @@ jobs:
             uv run --no-project scripts/compare-benchmark-jsons.py base.ingest.jsonl results.json \
               "${{ matrix.name }}" --pr-records results.ingest.jsonl >> comment.md
           fi
+          if [[ -s simulation-manifest.md ]]; then cat simulation-manifest.md >> comment.md; fi
           cat comment.md >> "$GITHUB_STEP_SUMMARY"
       # A fork PR's job has no OIDC token, so pr-bench-report.yml reads its baseline and comments.
       - name: Upload report for pr-bench-report.yml
