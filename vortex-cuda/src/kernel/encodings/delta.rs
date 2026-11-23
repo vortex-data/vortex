@@ -122,8 +122,8 @@ async fn decode_delta(array: DeltaArray, ctx: &mut CudaExecutionCtx) -> VortexRe
         buffer: bases_buffer,
         ..
     } = bases.into_data_parts();
-    let deltas_device = ctx.ensure_on_device(deltas_buffer).await?;
-    let bases_device = ctx.ensure_on_device(bases_buffer).await?;
+    let deltas_device = ctx.ensure_on_device(deltas_buffer)?;
+    let bases_device = ctx.ensure_on_device(bases_buffer)?;
 
     let num_chunks_u64 = num_chunks as u64;
     let config = LaunchConfig {
@@ -143,7 +143,7 @@ async fn decode_delta(array: DeltaArray, ctx: &mut CudaExecutionCtx) -> VortexRe
                 .arg(&mut output)
                 .arg(&num_chunks_u64);
         })?;
-        BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(output)))
+        BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(output)?))
     });
 
     // Chunks are decoded whole; the logical slice is applied to the result.
@@ -162,8 +162,10 @@ mod tests {
     use rstest::rstest;
     use vortex::array::IntoArray;
     use vortex::array::assert_arrays_eq;
+    use vortex::array::optimizer::ArrayOptimizer;
     use vortex::array::validity::Validity;
     use vortex::buffer::Buffer;
+    use vortex::encodings::fastlanes;
     use vortex::error::VortexExpect;
     use vortex::session::VortexSession;
     use vortex_array::VortexSessionExecute;
@@ -172,7 +174,12 @@ mod tests {
     use crate::CanonicalCudaExt;
     use crate::session::CudaSession;
 
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+    // The fastlanes rules reduce a slice of a Delta array to a Delta array.
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+        let session = VortexSession::empty();
+        fastlanes::initialize(&session);
+        session
+    });
 
     /// Decodes on the GPU and compares against the independent uncompressed fixture.
     async fn assert_gpu_matches_expected(
@@ -273,7 +280,8 @@ mod tests {
 
         let delta = Delta::try_from_primitive_array(&primitive, &mut ctx)?
             .into_array()
-            .slice(start..end)?;
+            .slice(start..end)?
+            .optimize_ctx(&SESSION)?;
         let delta = delta
             .try_downcast::<Delta>()
             .ok()

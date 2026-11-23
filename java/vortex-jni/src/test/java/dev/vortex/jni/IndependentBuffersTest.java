@@ -119,7 +119,8 @@ public final class IndependentBuffersTest {
                     directory.resolve("failure.vortex").toString(),
                     ffiSchema.memoryAddress(),
                     Map.of(),
-                    Map.of());
+                    Map.of(),
+                    false);
             try {
                 Data.exportVectorSchemaRoot(allocator, root, null, array);
                 // Omit the struct validity buffer while retaining its child's allocations.

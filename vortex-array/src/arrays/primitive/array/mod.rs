@@ -52,7 +52,7 @@ use crate::builtins::ArrayBuiltins;
 pub struct PrimitiveSlots {
     /// The validity bitmap indicating which elements are non-null.
     #[slot(0)]
-    pub validity: Option<ArrayRef>,
+    pub validity_child: Option<ArrayRef>,
 }
 
 /// A primitive array that stores [native types][crate::dtype::NativePType] in a contiguous buffer
@@ -121,15 +121,8 @@ pub trait PrimitiveArrayExt: TypedArrayRef<Primitive> {
         }
     }
 
-    fn validity_child(&self) -> Option<&ArrayRef> {
-        self.slots()[PrimitiveSlots::VALIDITY].as_ref()
-    }
-
     fn validity(&self) -> Validity {
-        child_to_validity(
-            self.slots()[PrimitiveSlots::VALIDITY].as_ref(),
-            self.nullability(),
-        )
+        child_to_validity(self.validity_child(), self.nullability())
     }
 
     fn buffer_handle(&self) -> &BufferHandle {

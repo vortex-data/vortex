@@ -25,7 +25,11 @@ import org.apache.spark.sql.vectorized.{ColumnVector, ColumnarBatch}
 
 import dev.vortex.spark.VortexOptions
 import dev.vortex.spark.io.{VortexFile, VortexIo}
-import dev.vortex.spark.read.{VortexFooterReader, VortexPartitionReader}
+import dev.vortex.spark.read.{
+  VortexFooterReader,
+  VortexPartitionReader,
+  VortexScan
+}
 import dev.vortex.spark.write.{SparkToArrowSchema, VortexOutputWriterFactory}
 
 /** V1 fallback used for catalog tables and when Vortex is listed in
@@ -64,7 +68,7 @@ final class VortexFileFormat
       sparkSession: SparkSession,
       options: Map[String, String],
       path: Path
-  ): Boolean = false
+  ): Boolean = VortexScan.isSplitable(VortexOptions.of(options.asJava), path)
 
   override def supportBatch(
       sparkSession: SparkSession,

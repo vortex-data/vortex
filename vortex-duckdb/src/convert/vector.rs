@@ -297,7 +297,7 @@ pub fn flat_vector_to_vortex(vector: &VectorRef, len: usize) -> VortexResult<Arr
             let crs = logical_type.geometry_crs().map(|crs| crs.to_string());
             let wkb_type = ExtDType::<WellKnownBinary>::try_new(
                 SpatialMetadata::new(crs),
-                DType::Binary(Nullability::Nullable),
+                Nullability::Nullable,
             )?
             .erased();
 
@@ -384,7 +384,7 @@ pub fn flat_vector_to_vortex(vector: &VectorRef, len: usize) -> VortexResult<Arr
             let ext_dtype = ExtDType::<Uuid>::try_with_vtable(
                 Uuid,
                 UuidMetadata::default(),
-                storage.dtype().clone(),
+                storage.dtype().nullability(),
             )?
             .erased();
 

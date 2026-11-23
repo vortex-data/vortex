@@ -1,0 +1,17 @@
+[package]
+name = "vortex-index"
+authors = { workspace = true }
+categories = { workspace = true }
+description = "Experimental proof of concept: out-of-file indexes over Vortex files, built on the scanning API"
+edition = { workspace = true }
+include = { workspace = true }
+keywords = { workspace = true }
+license = { workspace = true }
+publish = false
+readme = { workspace = true }
+repository = { workspace = true }
+rust-version = { workspace = true }
+version = { workspace = true }
+
+[lints]
+workspace = true

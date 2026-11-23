@@ -11,10 +11,12 @@ mod aggregates;
 mod compute;
 mod decimal;
 mod decimal_aggregates;
+mod decimal_cast;
 mod decimal_compare;
 mod decimal_fallback;
 mod decimal_stored;
 mod encoding;
+mod integer_stored;
 mod numeric;
 mod serde;
 
@@ -37,7 +39,7 @@ use crate::assert_arrays_eq;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::PType;
-use crate::scalar_fn::fns::operators::Operator;
+use crate::scalar_fn::builtin::operators::Operator;
 use crate::validity::Validity;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);

@@ -112,6 +112,7 @@ fn legacy_sum_is_unchanged() -> VortexResult<()> {
         buffer![0i64, 0],
         DecimalDType::new(10, 2),
         Validity::AllInvalid,
+        &mut SESSION.create_execution_ctx(),
     )
     .into_array()
 )]

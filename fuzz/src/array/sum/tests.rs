@@ -22,7 +22,6 @@ use vortex_array::dtype::PType;
 use vortex_array::dtype::i256;
 use vortex_array::expr::stats::Precision;
 use vortex_array::expr::stats::Stat;
-use vortex_array::match_each_decimal_value_type;
 use vortex_array::scalar::DecimalValue;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar::ScalarValue;
@@ -134,27 +133,23 @@ fn test_sum_signed_unambiguous(
 }
 
 #[rstest]
-#[case(DecimalType::I8)]
-#[case(DecimalType::I16)]
-#[case(DecimalType::I32)]
-#[case(DecimalType::I64)]
-#[case(DecimalType::I128)]
-#[case(DecimalType::I256)]
-fn test_sum_decimal_storage(#[case] values_type: DecimalType) -> VortexResult<()> {
-    let array = match_each_decimal_value_type!(values_type, |D| {
-        let value = DecimalValue::I8(99)
-            .cast::<D>()
-            .ok_or_else(|| vortex_err!("99 fits in every decimal storage type"))?;
-        DecimalArray::new(
-            buffer![value, value, -value],
-            DecimalDType::new(2, 0),
-            Validity::NonNullable,
-        )
-        .into_array()
-    });
+#[case::i8(2, DecimalType::I8, 12)]
+#[case::i16(4, DecimalType::I16, 14)]
+#[case::i32(9, DecimalType::I32, 19)]
+#[case::i64(18, DecimalType::I64, 28)]
+#[case::i128(38, DecimalType::I128, 48)]
+#[case::i256(76, DecimalType::I256, 76)]
+fn test_sum_decimal_storage(
+    #[case] precision: u8,
+    #[case] values_type: DecimalType,
+    #[case] sum_precision: u8,
+) -> VortexResult<()> {
+    let array = DecimalArray::from_iter([99i8, 99, -99], DecimalDType::new(precision, 0));
+    assert_eq!(array.values_type(), values_type);
+    let array = array.into_array();
     let expected = Scalar::decimal(
-        DecimalValue::I64(99),
-        DecimalDType::new(12, 0),
+        DecimalValue::I8(99),
+        DecimalDType::new(sum_precision, 0),
         Nullability::Nullable,
     );
     let mut ctx = SESSION.create_execution_ctx();
@@ -173,6 +168,7 @@ fn test_sum_decimal_widens_beyond_i128() -> VortexResult<()> {
         buffer![value, value],
         DecimalDType::new(38, 2),
         Validity::NonNullable,
+        &mut SESSION.create_execution_ctx(),
     )
     .into_array();
     assert_eq!(
@@ -187,6 +183,7 @@ fn test_sum_decimal_widens_beyond_i128() -> VortexResult<()> {
 }
 
 fn decimal_chunks(groups: &[&[i8]]) -> VortexResult<ArrayRef> {
+    let mut ctx = SESSION.create_execution_ctx();
     let unit = i256::from_i128(10).wrapping_pow(75);
     let dtype = DecimalDType::new(76, -76);
     ChunkedArray::try_new(
@@ -198,6 +195,7 @@ fn decimal_chunks(groups: &[&[i8]]) -> VortexResult<ArrayRef> {
                     .collect::<Buffer<_>>(),
                 dtype,
                 Validity::NonNullable,
+                &mut ctx,
             )
             .into_array()
         }),
@@ -235,7 +233,7 @@ fn test_sum_decimal_native_overflow(#[values(false, true)] negative: bool) -> Vo
         let values = iter::repeat_n(value, 10)
             .chain(iter::repeat_n(-value, if mixed { 10 } else { 0 }))
             .collect::<Buffer<_>>();
-        let array = DecimalArray::new(values, dtype, Validity::NonNullable).into_array();
+        let array = DecimalArray::new(values, dtype, Validity::NonNullable, &mut ctx).into_array();
         let expected = (!mixed).then(|| Scalar::null(DType::Decimal(dtype, Nullability::Nullable)));
         assert_eq!(sum_canonical_array(&array, &mut ctx)?, expected);
     }
@@ -251,10 +249,11 @@ fn test_sum_decimal_precision_boundary_and_nulls(
     #[case] validity: Validity,
     #[case] expected_multiple: Option<i64>,
 ) -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
     let dtype = DecimalDType::new(76, 0);
     let max = i256::from_i128(10).wrapping_pow(76) - i256::ONE;
-    let array = DecimalArray::new(buffer![max, i256::ONE, -max], dtype, validity).into_array();
-    let mut ctx = SESSION.create_execution_ctx();
+    let array =
+        DecimalArray::new(buffer![max, i256::ONE, -max], dtype, validity, &mut ctx).into_array();
     let expected = expected_multiple.map(|multiple| {
         Scalar::decimal(
             DecimalValue::I256(max * i256::from(multiple)),

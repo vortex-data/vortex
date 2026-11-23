@@ -185,6 +185,10 @@ _RECORD_FIELDS: dict[str, tuple[frozenset[str], frozenset[str]]] = {
                 "physical_delta",
                 "virtual_delta",
                 "env_triple",
+                # The bench orchestrator's Vortex scan axes. The format identity already names
+                # them (see `BenchmarkTarget.result_format`), so they are validated but not stored.
+                "integration",
+                "scan_engine",
             }
         ),
     ),
@@ -217,6 +221,10 @@ _RECORD_FIELDS: dict[str, tuple[frozenset[str], frozenset[str]]] = {
             }
         ),
         frozenset({"env_triple"}),
+    ),
+    "file_size": (
+        frozenset({"commit_sha", "benchmark", "scale_factor", "format", "file", "value_bytes"}),
+        frozenset(),
     ),
 }
 
@@ -370,6 +378,8 @@ _FIELD_TYPES: dict[str, tuple[tuple[str, str], ...]] = {
         ("storage", "str"),
         ("engine", "str"),
         ("format", "str"),
+        ("integration", "opt_str"),
+        ("scan_engine", "opt_str"),
         ("value_ns", "i64"),
         ("all_runtimes_ns", "i64_list"),
         ("peak_physical", "opt_i64"),
@@ -419,6 +429,14 @@ _FIELD_TYPES: dict[str, tuple[tuple[str, str], ...]] = {
         ("iterations", "i32"),
         ("env_triple", "opt_str"),
     ),
+    "file_size": (
+        ("commit_sha", "str"),
+        ("benchmark", "str"),
+        ("scale_factor", "str"),
+        ("format", "str"),
+        ("file", "str"),
+        ("value_bytes", "i64"),
+    ),
 }
 
 
@@ -451,6 +469,11 @@ def _validate_record_values(record: dict, kind: str, index: int) -> None:
             raise SystemExit(
                 f"record {index} (query_measurement): storage must be 'nvme' or 's3', got {record['storage']!r}"
             )
+        for field, values in (("integration", ("file", "datasource")), ("scan_engine", ("v1", "v2"))):
+            if record.get(field) not in (None, *values):
+                raise SystemExit(
+                    f"record {index} (query_measurement): {field} must be one of {values}, got {record[field]!r}"
+                )
         if not _memory_quartet_consistent(record):
             raise SystemExit(
                 f"record {index} (query_measurement): memory fields must be populated together (all four or none)"
@@ -719,6 +742,43 @@ def _insert_vector_search(conn, mid: int, r: dict) -> bool:
     )
 
 
+def _file_size_id(mid_mod, r: dict) -> int:
+    """Compute the `file_sizes` primary key."""
+    return mid_mod.measurement_id_file_size(
+        commit_sha=r["commit_sha"],
+        benchmark=r["benchmark"],
+        scale_factor=r["scale_factor"],
+        format=r["format"],
+        file=r["file"],
+    )
+
+
+def _insert_file_size(conn, mid: int, r: dict) -> bool:
+    """Upsert a `file_sizes` row."""
+    return _upsert_returning_was_update(
+        conn,
+        """
+        INSERT INTO file_sizes (
+            measurement_id, commit_sha, benchmark, scale_factor,
+            format, file, value_bytes
+        ) VALUES (%s, %s, %s, %s, %s, %s, %s)
+        ON CONFLICT (measurement_id) DO UPDATE SET
+            commit_sha   = excluded.commit_sha,
+            value_bytes  = excluded.value_bytes
+        RETURNING (xmax = 0) AS inserted
+        """,
+        (
+            mid,
+            r["commit_sha"],
+            r["benchmark"],
+            r["scale_factor"],
+            r["format"],
+            r["file"],
+            r["value_bytes"],
+        ),
+    )
+
+
 # Dispatch from a record's `kind` to its per-table primary key and upsert. Keyed identically to
 # `_RECORD_FIELDS`; the three maps are wired together when adding a fact table.
 _MEASUREMENT_ID = {
@@ -727,6 +787,7 @@ _MEASUREMENT_ID = {
     "compression_size": _compression_size_id,
     "random_access_time": _random_access_time_id,
     "vector_search_run": _vector_search_run_id,
+    "file_size": _file_size_id,
 }
 
 _APPLY_RECORD = {
@@ -735,6 +796,7 @@ _APPLY_RECORD = {
     "compression_size": _insert_compression_size,
     "random_access_time": _insert_random_access,
     "vector_search_run": _insert_vector_search,
+    "file_size": _insert_file_size,
 }
 
 

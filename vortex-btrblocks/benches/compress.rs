@@ -127,15 +127,17 @@ mod benchmarks {
         let compressor = BtrBlocksCompressorBuilder::from_session(&WRITE_SESSION).build();
         bencher
             .with_inputs(|| {
+                let mut ctx = WRITE_SESSION.create_execution_ctx();
                 let array = DecimalArray::new(
                     values.clone(),
                     DecimalDType::new(12, 2),
                     Validity::NonNullable,
+                    &mut ctx,
                 )
                 .into_array();
                 mark_optimized(&array, &WRITE_SESSION).unwrap();
 
-                (array, WRITE_SESSION.create_execution_ctx())
+                (array, ctx)
             })
             .input_counter(|(array, _)| ItemsCount::new(array.len()))
             .input_counter(|(array, _)| BytesCount::of_many::<i64>(array.len()))

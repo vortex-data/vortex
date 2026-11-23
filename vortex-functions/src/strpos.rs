@@ -1,0 +1,267 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+use memchr::memmem;
+use vortex_array::AnyColumnar;
+use vortex_array::ArrayRef;
+use vortex_array::ExecutionCtx;
+use vortex_array::IntoArray;
+use vortex_array::arrays::ConstantArray;
+use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::VarBinViewArray;
+use vortex_array::dtype::DType;
+use vortex_array::dtype::Nullability;
+use vortex_array::dtype::PType;
+use vortex_array::require_input;
+use vortex_array::scalar::Scalar;
+use vortex_array::scalar_fn::Arity;
+use vortex_array::scalar_fn::ChildName;
+use vortex_array::scalar_fn::EmptyOptions;
+use vortex_array::scalar_fn::ExecutionArgs;
+use vortex_array::scalar_fn::ScalarFnExecutionResult;
+use vortex_array::scalar_fn::ScalarFnId;
+use vortex_array::scalar_fn::ScalarFnVTable;
+use vortex_buffer::Buffer;
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
+use vortex_session::VortexSession;
+use vortex_session::registry::CachedId;
+/// One-based character position of the first occurrence of `search` in `input`, or zero when
+/// absent, matching SQL `strpos`. An empty `search` is found at position one.
+#[derive(Clone)]
+pub struct Strpos;
+
+impl ScalarFnVTable for Strpos {
+    type Options = EmptyOptions;
+
+    fn id(&self) -> ScalarFnId {
+        static ID: CachedId = CachedId::new("vortex.strpos");
+        *ID
+    }
+
+    fn serialize(&self, _options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
+        Ok(Some(vec![]))
+    }
+
+    fn deserialize(
+        &self,
+        _metadata: &[u8],
+        _session: &VortexSession,
+    ) -> VortexResult<Self::Options> {
+        Ok(EmptyOptions)
+    }
+
+    fn arity(&self, _options: &Self::Options) -> Arity {
+        Arity::Exact(2)
+    }
+
+    fn child_name(&self, _options: &Self::Options, child_idx: usize) -> ChildName {
+        match child_idx {
+            0 => ChildName::from("input"),
+            1 => ChildName::from("search"),
+            _ => unreachable!("Invalid child index {child_idx} for strpos()"),
+        }
+    }
+
+    fn return_dtype(&self, _options: &Self::Options, arg_dtypes: &[DType]) -> VortexResult<DType> {
+        let (input, search) = (&arg_dtypes[0], &arg_dtypes[1]);
+        if !input.is_utf8() || !search.is_utf8() {
+            vortex_bail!("strpos() requires Utf8 arguments, got {input} and {search}");
+        }
+        Ok(DType::Primitive(
+            PType::I64,
+            (input.is_nullable() || search.is_nullable()).into(),
+        ))
+    }
+
+    fn execute(
+        &self,
+        _options: &Self::Options,
+        args: &dyn ExecutionArgs,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        let input = args.get(0)?;
+        let search = args.get(1)?;
+        let nullability =
+            Nullability::from(input.dtype().is_nullable() || search.dtype().is_nullable());
+        let input = input.execute::<VarBinViewArray>(ctx)?;
+        let haystack = input.resolved_views();
+
+        if let Some(search) = search.as_constant() {
+            let Some(needle) = search.as_utf8().value() else {
+                return Ok(ConstantArray::new(
+                    Scalar::null(DType::Primitive(PType::I64, Nullability::Nullable)),
+                    args.row_count(),
+                )
+                .into_array());
+            };
+            let finder = memmem::Finder::new(needle.as_bytes());
+            let positions: Buffer<i64> = (0..haystack.len())
+                .map(|i| position(haystack.bytes(i), finder.find(haystack.bytes(i))))
+                .collect();
+            let validity = input.validity()?.union_nullability(nullability);
+            return Ok(PrimitiveArray::new(positions, validity).into_array());
+        }
+
+        let search = search.execute::<VarBinViewArray>(ctx)?;
+        let needles = search.resolved_views();
+        let positions: Buffer<i64> = (0..haystack.len())
+            .map(|i| {
+                let bytes = haystack.bytes(i);
+                position(bytes, memmem::find(bytes, needles.bytes(i)))
+            })
+            .collect();
+        let validity = input
+            .validity()?
+            .and(search.validity()?)?
+            .union_nullability(nullability);
+        Ok(PrimitiveArray::new(positions, validity).into_array())
+    }
+
+    fn execute_step(
+        &self,
+        options: &Self::Options,
+        args: &dyn ExecutionArgs,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ScalarFnExecutionResult> {
+        require_input!(args, 0 => AnyColumnar);
+        require_input!(args, 1 => AnyColumnar);
+        self.execute(options, args, ctx)
+            .map(ScalarFnExecutionResult::done)
+    }
+
+    fn is_strict(&self, _options: &Self::Options) -> bool {
+        true
+    }
+
+    fn is_infallible(&self, _options: &Self::Options) -> bool {
+        true
+    }
+}
+
+/// Converts a byte offset into a one-based character position, or zero when not found.
+fn position(haystack: &[u8], offset: Option<usize>) -> i64 {
+    let Some(offset) = offset else {
+        return 0;
+    };
+    // Utf8 arrays hold valid UTF-8, so each character starts with exactly one byte that is not
+    // a continuation byte (`0b10xx_xxxx`).
+    let chars = haystack[..offset]
+        .iter()
+        .filter(|&&byte| (byte as i8) >= -0x40)
+        .count();
+    // A Vortex string length is at most `u32::MAX` bytes, so the position fits in an `i64`.
+    chars as i64 + 1
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::LazyLock;
+
+    use rstest::rstest;
+    use vortex_array::IntoArray;
+    use vortex_array::VortexSessionExecute;
+    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::arrays::RunEnd;
+    use vortex_array::arrays::StructArray;
+    use vortex_array::arrays::VarBinViewArray;
+    use vortex_array::assert_arrays_eq;
+    use vortex_array::expr::Expression;
+    use vortex_array::expr::get_item;
+    use vortex_array::expr::lit;
+    use vortex_array::expr::proto::ExprSerializeProtoExt;
+    use vortex_array::expr::root;
+    use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
+
+    use crate::expr::strpos;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+        let session = VortexSession::empty();
+        vortex_array::initialize(&session);
+        crate::initialize(&session);
+        session
+    });
+
+    #[rstest]
+    #[case::ascii("xxhello", "hello", 3)]
+    #[case::after_multibyte("é📊h", "h", 3)]
+    #[case::absent("abc", "x", 0)]
+    #[case::empty_needle("abc", "", 1)]
+    #[case::empty_haystack("", "", 1)]
+    fn constant_needle(
+        #[case] haystack: &str,
+        #[case] needle: &str,
+        #[case] expected: i64,
+    ) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let input = VarBinViewArray::from_iter_nullable_str([Some(haystack), None]).into_array();
+        assert_arrays_eq!(
+            input.apply(&strpos(root(), lit(needle)))?,
+            PrimitiveArray::from_option_iter([Some(expected), None]),
+            &mut ctx
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn column_needle() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let input = StructArray::from_fields(&[
+            (
+                "s",
+                VarBinViewArray::from_iter_nullable_str([
+                    Some("é📊hello"),
+                    Some("abc"),
+                    None,
+                    Some("abc"),
+                ])
+                .into_array(),
+            ),
+            (
+                "needle",
+                VarBinViewArray::from_iter_nullable_str([Some("h"), Some("x"), Some("a"), None])
+                    .into_array(),
+            ),
+        ])?
+        .into_array();
+        assert_arrays_eq!(
+            input.apply(&strpos(get_item("s", root()), get_item("needle", root())))?,
+            PrimitiveArray::from_option_iter([Some(3i64), Some(0), None, None]),
+            &mut ctx
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn roundtrips_through_proto() -> VortexResult<()> {
+        let expr = strpos(root(), lit("x"));
+        assert_eq!(
+            Expression::from_proto(&expr.serialize_proto()?, &SESSION)?,
+            expr
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn preserves_runs_of_a_slice() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let input = RunEnd::try_new(
+            PrimitiveArray::from_iter([2u32, 5, 6]).into_array(),
+            VarBinViewArray::from_iter_nullable_str([Some("cat"), None, Some("a")]).into_array(),
+            &mut ctx,
+        )?
+        .into_array()
+        .slice(1..6)?;
+        let result = input
+            .apply(&strpos(root(), lit("a")))?
+            .execute_until::<RunEnd>(&mut ctx)?;
+        assert!(result.is::<RunEnd>());
+        assert_arrays_eq!(
+            result,
+            PrimitiveArray::from_option_iter([Some(2i64), None, None, None, Some(1)]),
+            &mut ctx
+        );
+        Ok(())
+    }
+}

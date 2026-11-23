@@ -27,42 +27,53 @@ fn env(vars: &[(&str, &str)]) -> impl Fn(&str) -> Option<String> + use<> {
 
 /// Parse a URL with no environment configuration at all, so no token is found and the default
 /// endpoint applies.
-fn parse(url: &str) -> Result<(HfConfig, String), Box<dyn std::error::Error>> {
+fn parse(url: &str) -> Result<(HfConfig, String, usize), Box<dyn std::error::Error>> {
     let url = Url::parse(url)?;
-    let (config, path) = url_to_config(&url, env(&[]))?;
-    Ok((config, path.as_ref().to_string()))
+    let (config, path, prefix_segments) = url_to_config(&url, env(&[]))?;
+    Ok((config, path.as_ref().to_string(), prefix_segments))
 }
 
 #[rstest]
 // A dataset repository, with and without an explicit revision.
-#[case("hf://datasets/org/name", HfRepoType::Dataset, "org/name", "main", "")]
+#[case(
+    "hf://datasets/org/name",
+    HfRepoType::Dataset,
+    "org/name",
+    "main",
+    "",
+    2
+)]
 #[case(
     "hf://datasets/org/name@main",
     HfRepoType::Dataset,
     "org/name",
     "main",
-    ""
+    "",
+    2
 )]
 #[case(
     "hf://datasets/org/name/train.vortex",
     HfRepoType::Dataset,
     "org/name",
     "main",
-    "train.vortex"
+    "train.vortex",
+    2
 )]
 #[case(
     "hf://datasets/org/name/data/nested/train.vortex",
     HfRepoType::Dataset,
     "org/name",
     "main",
-    "data/nested/train.vortex"
+    "data/nested/train.vortex",
+    2
 )]
 #[case(
     "hf://datasets/org/name@v1.0/train.vortex",
     HfRepoType::Dataset,
     "org/name",
     "v1.0",
-    "train.vortex"
+    "train.vortex",
+    2
 )]
 // A revision containing `/` arrives percent-encoded and must be held decoded.
 #[case(
@@ -70,7 +81,8 @@ fn parse(url: &str) -> Result<(HfConfig, String), Box<dyn std::error::Error>> {
     HfRepoType::Dataset,
     "org/name",
     "refs/convert/parquet",
-    "data/train.vortex"
+    "data/train.vortex",
+    2
 )]
 // A bare owner/name is a model repository: the owner is the URL authority.
 #[case(
@@ -78,21 +90,24 @@ fn parse(url: &str) -> Result<(HfConfig, String), Box<dyn std::error::Error>> {
     HfRepoType::Model,
     "org/name",
     "main",
-    "model.vortex"
+    "model.vortex",
+    1
 )]
 #[case(
     "hf://org/name@abc123/model.vortex",
     HfRepoType::Model,
     "org/name",
     "abc123",
-    "model.vortex"
+    "model.vortex",
+    1
 )]
 #[case(
     "hf://spaces/org/name/app.vortex",
     HfRepoType::Space,
     "org/name",
     "main",
-    "app.vortex"
+    "app.vortex",
+    2
 )]
 fn test_url_to_config(
     #[case] url: &str,
@@ -100,13 +115,15 @@ fn test_url_to_config(
     #[case] repo_id: &str,
     #[case] revision: &str,
     #[case] path: &str,
+    #[case] expected_prefix_segments: usize,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let (config, parsed_path) = parse(url)?;
+    let (config, parsed_path, prefix_segments) = parse(url)?;
 
     assert_eq!(config.repo_type, repo_type);
     assert_eq!(config.repo_id, repo_id);
     assert_eq!(config.revision, revision);
     assert_eq!(parsed_path, path);
+    assert_eq!(prefix_segments, expected_prefix_segments);
     Ok(())
 }
 
@@ -178,8 +195,9 @@ fn test_resolve_prefix(
 /// `refs/convert/parquet` read reaches the Hub.
 #[test]
 fn test_slash_revision_round_trips() -> Result<(), Box<dyn std::error::Error>> {
-    let (config, path) =
+    let (config, path, prefix_segments) =
         parse("hf://datasets/org/name@refs%2Fconvert%2Fparquet/data/train.vortex")?;
+    assert_eq!(prefix_segments, 2);
 
     assert_eq!(config.revision, "refs/convert/parquet");
     assert_eq!(
@@ -193,7 +211,8 @@ fn test_slash_revision_round_trips() -> Result<(), Box<dyn std::error::Error>> {
 #[test]
 fn test_endpoint_override() -> Result<(), Box<dyn std::error::Error>> {
     let url = Url::parse("hf://datasets/org/name/train.vortex")?;
-    let (config, _path) = url_to_config(&url, env(&[("HF_ENDPOINT", "https://hub.example.com/")]))?;
+    let (config, _path, _) =
+        url_to_config(&url, env(&[("HF_ENDPOINT", "https://hub.example.com/")]))?;
 
     assert_eq!(config.endpoint, "https://hub.example.com/");
     // The trailing slash on the endpoint must not double up in the resolve prefix.
@@ -208,10 +227,10 @@ fn test_endpoint_override() -> Result<(), Box<dyn std::error::Error>> {
 fn test_default_endpoint_when_unset_or_empty() -> Result<(), Box<dyn std::error::Error>> {
     let url = Url::parse("hf://datasets/org/name")?;
 
-    let (unset, _) = url_to_config(&url, env(&[]))?;
+    let (unset, ..) = url_to_config(&url, env(&[]))?;
     assert_eq!(unset.endpoint, DEFAULT_ENDPOINT);
 
-    let (empty, _) = url_to_config(&url, env(&[("HF_ENDPOINT", "")]))?;
+    let (empty, ..) = url_to_config(&url, env(&[("HF_ENDPOINT", "")]))?;
     assert_eq!(empty.endpoint, DEFAULT_ENDPOINT);
     Ok(())
 }
@@ -219,7 +238,7 @@ fn test_default_endpoint_when_unset_or_empty() -> Result<(), Box<dyn std::error:
 #[test]
 fn test_token_from_env() -> Result<(), Box<dyn std::error::Error>> {
     let url = Url::parse("hf://datasets/org/name")?;
-    let (config, _path) = url_to_config(&url, env(&[("HF_TOKEN", "hf_from_env")]))?;
+    let (config, _path, _) = url_to_config(&url, env(&[("HF_TOKEN", "hf_from_env")]))?;
 
     assert_eq!(config.token.as_deref(), Some("hf_from_env"));
     Ok(())
@@ -233,7 +252,7 @@ fn test_token_from_token_file() -> Result<(), Box<dyn std::error::Error>> {
     std::fs::write(&token_file, "hf_from_file\n")?;
 
     let url = Url::parse("hf://datasets/org/name")?;
-    let (config, _path) = url_to_config(
+    let (config, _path, _) = url_to_config(
         &url,
         env(&[("HF_TOKEN_PATH", &token_file.to_string_lossy())]),
     )?;
@@ -249,7 +268,7 @@ fn test_token_env_wins_over_file() -> Result<(), Box<dyn std::error::Error>> {
     std::fs::write(&token_file, "hf_from_file")?;
 
     let url = Url::parse("hf://datasets/org/name")?;
-    let (config, _path) = url_to_config(
+    let (config, _path, _) = url_to_config(
         &url,
         env(&[
             ("HF_TOKEN", "hf_from_env"),
@@ -265,7 +284,7 @@ fn test_token_env_wins_over_file() -> Result<(), Box<dyn std::error::Error>> {
 #[test]
 fn test_no_token_reads_anonymously() -> Result<(), Box<dyn std::error::Error>> {
     let url = Url::parse("hf://datasets/org/name")?;
-    let (config, _path) = url_to_config(&url, env(&[("HF_TOKEN_PATH", "/nonexistent/token")]))?;
+    let (config, _path, _) = url_to_config(&url, env(&[("HF_TOKEN_PATH", "/nonexistent/token")]))?;
 
     assert!(config.token.is_none());
     Ok(())
@@ -335,7 +354,7 @@ fn test_from_env_matches_url_resolution() -> Result<(), Box<dyn std::error::Erro
     ];
     let url = Url::parse("hf://datasets/org/name/train.vortex")?;
 
-    let (from_url, _path) = url_to_config(&url, env(vars))?;
+    let (from_url, _path, _) = url_to_config(&url, env(vars))?;
     let direct = HfConfig::from_env_lookup(HfRepoType::Dataset, "org/name", None, env(vars));
 
     for config in [from_url, direct] {

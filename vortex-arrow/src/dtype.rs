@@ -328,9 +328,10 @@ mod test {
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
     use vortex_array::dtype::StructFields;
+    use vortex_session::VortexSession;
 
     use super::*;
-    use crate::ArrowSession;
+    use crate::ArrowSessionExt;
 
     #[test]
     fn test_dtype_conversion_success() {
@@ -456,7 +457,8 @@ mod test {
         let schema_nonnull = DType::Struct(the_struct, Nullability::NonNullable);
 
         assert_eq!(
-            ArrowSession::default()
+            VortexSession::empty()
+                .arrow()
                 .to_arrow_schema(&schema_nonnull)
                 .unwrap(),
             Schema::new(Fields::from(vec![
@@ -630,7 +632,12 @@ mod test {
         let field = Field::new("c0", data_type, true);
         assert!(from_arrow_field_naive(&field).is_err());
         let schema = Schema::new(vec![field]);
-        assert!(ArrowSession::default().from_arrow_schema(&schema).is_err());
+        assert!(
+            VortexSession::empty()
+                .arrow()
+                .from_arrow_schema(&schema)
+                .is_err()
+        );
     }
 
     #[test]

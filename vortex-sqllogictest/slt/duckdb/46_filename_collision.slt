@@ -1,0 +1,23 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+include ../setup.slt.no
+
+statement ok
+CREATE TABLE partitioned AS SELECT range % 3 AS i, range AS j FROM range(4);
+
+statement ok
+COPY (SELECT i AS filename, j FROM partitioned)
+TO '${WORK_DIR}/filename-collision.vortex' (FORMAT vortex);
+
+statement error
+SELECT * FROM read_vortex('${WORK_DIR}/filename-collision.vortex', filename=true);
+
+query IIT
+SELECT * FROM read_vortex('${WORK_DIR}/filename-collision.vortex', filename='other_filename')
+ORDER BY j;
+----
+0 0 ${WORK_DIR}/filename-collision.vortex
+1 1 ${WORK_DIR}/filename-collision.vortex
+2 2 ${WORK_DIR}/filename-collision.vortex
+0 3 ${WORK_DIR}/filename-collision.vortex

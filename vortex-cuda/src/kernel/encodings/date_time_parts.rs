@@ -164,9 +164,9 @@ where
     } = subseconds.into_data_parts();
 
     // Move buffers to device if not already there
-    let days_device = ctx.ensure_on_device(days_buffer).await?;
-    let seconds_device = ctx.ensure_on_device(seconds_buffer).await?;
-    let subseconds_device = ctx.ensure_on_device(subseconds_buffer).await?;
+    let days_device = ctx.ensure_on_device(days_buffer)?;
+    let seconds_device = ctx.ensure_on_device(seconds_buffer)?;
+    let subseconds_device = ctx.ensure_on_device(subseconds_buffer)?;
 
     // Allocate output buffer
     let mut output_slice = ctx.device_alloc::<i64>(output_len)?;
@@ -191,7 +191,7 @@ where
             .arg(&array_len_u64);
     })?;
 
-    let output_device = CudaDeviceBuffer::new(output_slice);
+    let output_device = CudaDeviceBuffer::new(output_slice)?;
     let output_buffer = BufferHandle::new_device(Arc::new(output_device));
     let output_primitive = PrimitiveArray::from_buffer_handle(output_buffer, PType::I64, validity);
 

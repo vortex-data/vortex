@@ -407,6 +407,33 @@ fn density_sweep_random(bencher: Bencher, density: f64) {
         });
 }
 
+/// Densities that reach the sparse threshold, the uniform kernel and the dense kernel.
+const VALIDITY_DENSITIES: &[f64] = &[0.02, 0.1, 0.5, 0.99];
+
+/// Validity bitmaps are usually mostly set, even when the selection is random.
+#[divan::bench(args = VALIDITY_DENSITIES)]
+fn density_sweep_validity(bencher: Bencher, density: f64) {
+    let mut rng = StdRng::seed_from_u64(ARRAY_SEED);
+    let array = BoolArray::from_iter((0..DENSITY_SWEEP_SIZE).map(|_| rng.random_bool(0.99)));
+    mark_optimized(array.as_array(), &SESSION).unwrap();
+
+    bencher
+        .with_inputs(|| {
+            (
+                array.clone(),
+                make_density_mask(DENSITY_SWEEP_SIZE, density, &mut mask_rng()),
+                SESSION.create_execution_ctx(),
+            )
+        })
+        .bench_refs(|(array, mask, ctx)| {
+            array
+                .clone()
+                .filter(mask.clone())
+                .unwrap()
+                .execute::<RecursiveCanonical>(ctx)
+        });
+}
+
 #[divan::bench(args = DENSITIES)]
 fn density_sweep_dense_runs(bencher: Bencher, density: f64) {
     let array = make_random_bool_array(DENSITY_SWEEP_SIZE, &mut StdRng::seed_from_u64(ARRAY_SEED));

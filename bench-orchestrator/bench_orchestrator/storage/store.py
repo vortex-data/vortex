@@ -4,7 +4,10 @@
 """Result storage and retrieval."""
 
 import json
+import os
+import re
 import subprocess
+import uuid
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import datetime
@@ -61,6 +64,26 @@ def _get_env_triple() -> EnvTriple:
     )
 
 
+def _read_metadata(metadata_path: Path) -> RunMetadata | None:
+    """Read and validate a run metadata file, returning None if malformed."""
+    try:
+        with open(metadata_path) as f:
+            data = json.load(f)
+        if not isinstance(data, dict):
+            return None
+        metadata = RunMetadata.from_dict(data)
+    except (OSError, json.JSONDecodeError, KeyError, TypeError, ValueError, AttributeError):
+        return None
+    if (
+        not isinstance(metadata.run_id, str)
+        or not isinstance(metadata.benchmark, str)
+        or metadata.timestamp.tzinfo is not None
+        or (metadata.label is not None and not isinstance(metadata.label, str))
+    ):
+        return None
+    return metadata
+
+
 class RunContext:
     """Context manager for writing results to a run."""
 
@@ -72,7 +95,7 @@ class RunContext:
 
     def __enter__(self) -> "RunContext":
         self.run_dir.mkdir(parents=True, exist_ok=True)
-        self._results_file = open(self.run_dir / "results.jsonl", "w")
+        self._results_file = open(self.run_dir / "results.jsonl", "x")
         return self
 
     def __exit__(
@@ -123,26 +146,52 @@ class ResultStore:
     def __init__(self, base_dir: Path | None = None) -> None:
         self.base_dir = base_dir or get_results_dir()
 
-    def _generate_run_id(self, config: RunConfig) -> str:
-        """Generate a unique run ID."""
-        timestamp = datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
+    def _generate_run_id(self, config: RunConfig, timestamp: datetime | None = None) -> str:
+        """Generate a flat base run ID with timestamp prefix."""
+        ts = (timestamp or datetime.now()).strftime("%Y-%m-%dT%H-%M-%S")
         benchmark = config.benchmark.value
         if config.label:
-            return f"{timestamp}_{benchmark}_{config.label}"
-        return f"{timestamp}_{benchmark}"
+            safe_label = re.sub(r"[/\\]+", "_", config.label).strip("_.")
+            if safe_label:
+                return f"{ts}_{benchmark}_{safe_label}"
+        return f"{ts}_{benchmark}"
+
+    def _reserve_run_dir(self, base_run_id: str) -> tuple[str, Path]:
+        """Exclusively reserve a top-level run directory, appending a unique suffix on collision."""
+        self.base_dir.mkdir(parents=True, exist_ok=True)
+        run_id = base_run_id
+        while True:
+            run_dir = self.base_dir / run_id
+            try:
+                run_dir.mkdir(parents=False, exist_ok=False)
+                return run_id, run_dir
+            except FileExistsError:
+                run_id = f"{base_run_id}_{uuid.uuid4().hex[:8]}"
+
+    def _publish_latest(self, run_id: str) -> None:
+        """Atomically point the latest symlink at run_id."""
+        latest_link = self.base_dir / "latest"
+        tmp_link = self.base_dir / f".latest.{os.getpid()}.{uuid.uuid4().hex}.tmp"
+        try:
+            tmp_link.symlink_to(run_id)
+            os.replace(tmp_link, latest_link)
+        except BaseException:
+            tmp_link.unlink(missing_ok=True)
+            raise
 
     @contextmanager
     def create_run(self, config: RunConfig, build_config: BuildConfig) -> Iterator[RunContext]:
         """Create a new run and return a context for writing results."""
-        run_id = self._generate_run_id(config)
-        run_dir = self.base_dir / run_id
-
+        now = datetime.now()
         git_commit, git_branch, git_dirty = _get_git_info()
         env_triple = _get_env_triple()
 
+        base_run_id = self._generate_run_id(config, timestamp=now)
+        run_id, run_dir = self._reserve_run_dir(base_run_id)
+
         metadata = RunMetadata(
             run_id=run_id,
-            timestamp=datetime.now(),
+            timestamp=now,
             label=config.label,
             benchmark=config.benchmark.value,
             dataset_config=config.options,
@@ -163,13 +212,8 @@ class ResultStore:
         with ctx:
             yield ctx
 
-        # Update the latest symlink
-        latest_link = self.base_dir / "latest"
-        if latest_link.is_symlink():
-            latest_link.unlink()
-        elif latest_link.exists():
-            latest_link.unlink()
-        latest_link.symlink_to(run_id)
+        if not ctx.metadata.partial:
+            self._publish_latest(run_id)
 
     def list_runs(
         self,
@@ -183,34 +227,34 @@ class ResultStore:
 
         summaries = []
         for run_dir in self.base_dir.iterdir():
-            if not run_dir.is_dir() or run_dir.name == "latest":
+            if not run_dir.is_dir() or run_dir.is_symlink() or run_dir.name == "latest" or run_dir.name.startswith("."):
                 continue
 
             metadata_path = run_dir / "metadata.json"
             if not metadata_path.exists():
                 continue
 
-            try:
-                with open(metadata_path) as f:
-                    data = json.load(f)
-                metadata = RunMetadata.from_dict(data)
-
-                # Apply filters
-                if benchmark and metadata.benchmark != benchmark:
-                    continue
-                if since and metadata.timestamp < since:
-                    continue
-
-                # Count results
-                results_path = run_dir / "results.jsonl"
-                result_count = 0
-                if results_path.exists():
-                    with open(results_path) as f:
-                        result_count = sum(1 for _ in f)
-
-                summaries.append(RunSummary.from_metadata(metadata, result_count))
-            except (json.JSONDecodeError, KeyError):
+            metadata = _read_metadata(metadata_path)
+            if metadata is None:
                 continue
+
+            # Apply filters
+            if benchmark and metadata.benchmark != benchmark:
+                continue
+            if since and metadata.timestamp < since:
+                continue
+
+            # Count results
+            results_path = run_dir / "results.jsonl"
+            result_count = 0
+            if results_path.exists():
+                try:
+                    with open(results_path, "rb") as f:
+                        result_count = sum(1 for _ in f)
+                except OSError:
+                    continue
+
+            summaries.append(RunSummary.from_metadata(metadata, result_count))
 
         # Sort by timestamp descending
         summaries.sort(key=lambda s: s.timestamp, reverse=True)
@@ -226,8 +270,8 @@ class ResultStore:
             if latest_link.is_symlink():
                 run_id_or_label = latest_link.resolve().name
             else:
-                # Find most recent run
-                runs = self.list_runs(limit=1)
+                # Find most recent non-partial run
+                runs = [r for r in self.list_runs(limit=None) if not r.partial]
                 if not runs:
                     return None
                 run_id_or_label = runs[0].run_id
@@ -237,23 +281,20 @@ class ResultStore:
         if run_dir.exists():
             metadata_path = run_dir / "metadata.json"
             if metadata_path.exists():
-                with open(metadata_path) as f:
-                    return RunMetadata.from_dict(json.load(f))
+                return _read_metadata(metadata_path)
 
         # Try to find by label
+        if not self.base_dir.exists():
+            return None
         for run_dir in self.base_dir.iterdir():
-            if not run_dir.is_dir():
+            if not run_dir.is_dir() or run_dir.is_symlink() or run_dir.name == "latest" or run_dir.name.startswith("."):
                 continue
             metadata_path = run_dir / "metadata.json"
             if not metadata_path.exists():
                 continue
-            try:
-                with open(metadata_path) as f:
-                    data = json.load(f)
-                if data.get("label") == run_id_or_label:
-                    return RunMetadata.from_dict(data)
-            except (json.JSONDecodeError, KeyError):
-                continue
+            metadata = _read_metadata(metadata_path)
+            if metadata is not None and metadata.label == run_id_or_label:
+                return metadata
 
         return None
 

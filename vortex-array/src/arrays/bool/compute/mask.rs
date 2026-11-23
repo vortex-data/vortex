@@ -8,7 +8,7 @@ use crate::IntoArray;
 use crate::array::ArrayView;
 use crate::arrays::Bool;
 use crate::arrays::BoolArray;
-use crate::scalar_fn::fns::mask::MaskReduce;
+use crate::scalar_fn::builtin::mask::MaskReduce;
 use crate::validity::Validity;
 
 impl MaskReduce for Bool {
@@ -52,7 +52,7 @@ mod tests {
     use crate::buffer::BufferHandle;
     use crate::buffer::DeviceBuffer;
     use crate::compute::conformance::mask::test_mask_conformance;
-    use crate::scalar_fn::fns::mask::MaskReduce;
+    use crate::scalar_fn::builtin::mask::MaskReduce;
     use crate::validity::Validity;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);

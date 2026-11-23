@@ -1,47 +1,40 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-import { useState, useCallback } from 'react';
+import { useCallback, useId, useState } from 'react';
 
 interface TreeSearchProps {
   onSearch: (query: string) => void;
 }
 
+/** A search field that filters the tree. Escape clears it, as in any search field. */
 export function TreeSearch({ onSearch }: TreeSearchProps) {
   const [value, setValue] = useState('');
+  const id = useId();
 
   const handleChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
-      const q = e.target.value;
-      setValue(q);
-      onSearch(q);
+      setValue(e.target.value);
+      onSearch(e.target.value);
     },
     [onSearch],
   );
 
-  const handleClear = useCallback(() => {
-    setValue('');
-    onSearch('');
-  }, [onSearch]);
-
   return (
-    <div className="flex items-center gap-1">
-      <span className="text-[10px] text-vortex-grey-dark">&#x2315;</span>
+    <>
+      <label className="vx-sr-only" htmlFor={id}>
+        Filter columns
+      </label>
       <input
-        type="text"
+        id={id}
+        className="vx-field is-sm"
+        type="search"
         value={value}
         onChange={handleChange}
-        placeholder="Filter…"
-        className="flex-1 min-w-0 bg-transparent text-[11px] text-vortex-fg-light dark:text-vortex-fg outline-none placeholder:text-vortex-grey-dark/50"
+        placeholder="Column name"
+        autoComplete="off"
+        spellCheck={false}
       />
-      {value && (
-        <button
-          onClick={handleClear}
-          className="text-[10px] text-vortex-grey-dark hover:text-vortex-fg-light dark:hover:text-vortex-fg"
-        >
-          &#x2715;
-        </button>
-      )}
-    </div>
+    </>
   );
 }

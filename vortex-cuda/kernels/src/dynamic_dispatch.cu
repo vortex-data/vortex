@@ -8,7 +8,7 @@
 // Vortex arrays are stored as nested encodings — e.g. ALP(FoR(BitPacked))
 // or Dict(codes=BitPacked, values=FoR(BitPacked)). This kernel walks
 // such a tree in a single launch by decomposing it into a linear sequence
-// of stages described by a packed plan buffer on the device.
+// of stages described by a packed plan passed as a kernel parameter.
 //
 // Each block produces ELEMENTS_PER_BLOCK output elements. Input stages
 // are fully decoded per block (every block independently decodes the
@@ -56,6 +56,7 @@
 #include <stdint.h>
 #include <thrust/binary_search.h>
 #include <thrust/execution_policy.h>
+#include <type_traits>
 
 #include "bit_unpack.cuh"
 #include "dynamic_dispatch.h"
@@ -177,6 +178,24 @@ __device__ inline void scalar_op(T *values, const struct ScalarOp &op, char *__r
     case ScalarOp::CAST:
         // Values are casted as part of LOAD as defined by the dispatch plan.
         break;
+    case ScalarOp::EXTEND: {
+        using Signed = std::make_signed_t<T>;
+        const PTypeTag source = op.params.extend.source_ptype;
+        const uint32_t shift = (sizeof(T) - ptype_byte_width(source)) * 8;
+        if (source == ptype_to_unsigned(source)) {
+            const T mask = static_cast<T>(~T {0}) >> shift;
+#pragma unroll
+            for (uint32_t i = 0; i < N; ++i) {
+                values[i] &= mask;
+            }
+        } else {
+#pragma unroll
+            for (uint32_t i = 0; i < N; ++i) {
+                values[i] = static_cast<T>(static_cast<Signed>(static_cast<T>(values[i] << shift)) >> shift);
+            }
+        }
+        break;
+    }
     default:
         __builtin_unreachable();
     }
@@ -278,9 +297,15 @@ __device__ inline void widen_inplace(DESTINATION *dst, uint32_t len) {
     __syncthreads();
 }
 
+// Splitting 32- and 64-bit lanes gives every thread of a block one slice of a chunk.
+static_assert(FL_LANES<uint32_t> * LANE_SLICES<uint32_t> == BLOCK_SIZE);
+static_assert(FL_LANES<uint64_t> * LANE_SLICES<uint64_t> == BLOCK_SIZE);
+
 /// FastLanes cooperative unpack — all threads in the block scatter-write
-/// decoded elements into `dst`. Caller must issue __syncthreads() before
-/// any thread reads from `dst`.
+/// decoded elements into `dst`. Work is distributed over (chunk, slice, lane)
+/// so that every thread decodes even when a chunk has fewer lanes than the
+/// block has threads. Caller must issue __syncthreads() before any thread
+/// reads from `dst`.
 template <typename T>
 __device__ inline void bitunpack(const T *__restrict packed,
                                  T *__restrict dst,
@@ -296,17 +321,24 @@ __device__ inline void bitunpack(const T *__restrict packed,
     static_assert((ELEMENTS_PER_BLOCK % FL_CHUNK) == 0);
     const uint32_t n_chunks = (chunk_len + dst_off + FL_CHUNK - 1) / FL_CHUNK;
 
-    for (uint32_t c = 0; c < n_chunks; ++c) {
-        const T *src_chunk = packed + (first_block + c) * words_per_block;
-        T *chunk_dst = dst + c * FL_CHUNK;
-        for (uint32_t lane = threadIdx.x; lane < FL_LANES<T>; lane += blockDim.x) {
-            bit_unpack_lane<T>(src_chunk, chunk_dst, 0, lane, bw);
-        }
-        // Apply BitPacked patches inline, matching the standalone kernel pattern.
-        if (src.params.bitunpack.patches_ptr != 0) {
-            __syncthreads();
-            const auto &patches = *reinterpret_cast<const GPUPatches *>(src.params.bitunpack.patches_ptr);
-            scatter_patches_chunk<T>(patches, chunk_dst, first_block + c);
+    constexpr uint32_t work_per_chunk = FL_LANES<T> * LANE_SLICES<T>;
+    for (uint32_t work = threadIdx.x; work < n_chunks * work_per_chunk; work += blockDim.x) {
+        const uint32_t c = work / work_per_chunk;
+        const uint32_t lane = work % FL_LANES<T>;
+        const uint32_t slice = (work % work_per_chunk) / FL_LANES<T>;
+        bit_unpack_lane_slice<T>(packed + (first_block + c) * words_per_block,
+                                 dst + c * FL_CHUNK,
+                                 lane,
+                                 bw,
+                                 slice);
+    }
+
+    // Apply BitPacked patches once every chunk has decoded, matching the standalone kernel pattern.
+    if (src.params.bitunpack.patches_ptr != 0) {
+        __syncthreads();
+        const auto &patches = *reinterpret_cast<const GPUPatches *>(src.params.bitunpack.patches_ptr);
+        for (uint32_t c = 0; c < n_chunks; ++c) {
+            scatter_patches_chunk<T>(patches, dst + c * FL_CHUNK, first_block + c);
         }
     }
 }
@@ -630,7 +662,11 @@ __device__ void execute_input_stage(const Stage &stage, char *__restrict smem) {
 
 /// Kernel entry point. Parses the packed plan, runs all input stages to
 /// populate shared memory, then runs the output stage to produce results.
-template <typename T>
+///
+/// With `LOOP_RANGES`, each block loops over several ranges so that it decodes
+/// the input stages once for all of them. It is a separate kernel because the
+/// loop slows down plans that don't need it.
+template <typename T, bool LOOP_RANGES>
 __device__ void
 dynamic_dispatch(T *__restrict output, uint64_t array_len, const uint8_t *__restrict packed_plan) {
     extern __shared__ char smem[];
@@ -645,13 +681,28 @@ dynamic_dispatch(T *__restrict output, uint64_t array_len, const uint8_t *__rest
     }
 
     Stage output_stage = parse_stage(cursor);
-    const uint64_t block_start = static_cast<uint64_t>(blockIdx.x) * ELEMENTS_PER_BLOCK;
-    const uint64_t block_end = min(block_start + ELEMENTS_PER_BLOCK, array_len);
-    execute_output_stage<T>(output,
-                            output_stage,
-                            smem,
-                            block_start,
-                            static_cast<uint32_t>(block_end - block_start));
+    if constexpr (!LOOP_RANGES) {
+        const uint64_t block_start = static_cast<uint64_t>(blockIdx.x) * ELEMENTS_PER_BLOCK;
+        const uint64_t block_end = min(block_start + ELEMENTS_PER_BLOCK, array_len);
+        execute_output_stage<T>(output,
+                                output_stage,
+                                smem,
+                                block_start,
+                                static_cast<uint32_t>(block_end - block_start));
+    } else {
+        const uint64_t grid_stride = static_cast<uint64_t>(gridDim.x) * ELEMENTS_PER_BLOCK;
+        // The loop bounds are uniform across the block, so every thread reaches the same barriers.
+        for (uint64_t block_start = static_cast<uint64_t>(blockIdx.x) * ELEMENTS_PER_BLOCK;
+             block_start < array_len;
+             block_start += grid_stride) {
+            const uint64_t block_end = min(block_start + ELEMENTS_PER_BLOCK, array_len);
+            execute_output_stage<T>(output,
+                                    output_stage,
+                                    smem,
+                                    block_start,
+                                    static_cast<uint32_t>(block_end - block_start));
+        }
+    }
 }
 
 // Kernels are instantiated only for unsigned integer types. Signed and
@@ -665,8 +716,14 @@ dynamic_dispatch(T *__restrict output, uint64_t array_len, const uint8_t *__rest
     extern "C" __global__ void __launch_bounds__(BLOCK_SIZE, 32)                                             \
         dynamic_dispatch_##suffix(Type *__restrict output,                                                   \
                                   uint64_t array_len,                                                        \
-                                  const uint8_t *__restrict packed_plan) {                                   \
-        dynamic_dispatch<Type>(output, array_len, packed_plan);                                              \
+                                  const __grid_constant__ struct DispatchPlanParam plan) {                   \
+        dynamic_dispatch<Type, false>(output, array_len, plan.bytes);                                        \
+    }                                                                                                        \
+    extern "C" __global__ void __launch_bounds__(BLOCK_SIZE, 32)                                             \
+        dynamic_dispatch_##suffix##_loop_ranges(Type *__restrict output,                                     \
+                                                uint64_t array_len,                                          \
+                                                const __grid_constant__ struct DispatchPlanParam plan) {     \
+        dynamic_dispatch<Type, true>(output, array_len, plan.bytes);                                         \
     }
 
 FOR_EACH_UNSIGNED_INT(GENERATE_KERNEL)
