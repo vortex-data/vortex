@@ -18,6 +18,7 @@ use vortex_array::arrays::struct_::StructArrayExt;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::extension::ExtDType;
+use vortex_array::dtype::extension::Matcher;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar_fn::Arity;
 use vortex_array::scalar_fn::ChildName;
@@ -39,6 +40,7 @@ use vortex_mask::Mask;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
+use crate::extension::AnyNativeGeometry;
 use crate::extension::Rect;
 use crate::extension::SpatialMetadata;
 use crate::extension::box_field_names;
@@ -86,11 +88,15 @@ impl SpatialEnvelope {
     }
 }
 
-/// The output dtype: a nullable, unreferenced 2D box ([`Rect`], `geoarrow.box`). Rows with null or
-/// empty geometries produce null boxes.
-fn output_box_dtype() -> VortexResult<ExtDType<Rect>> {
+/// The output dtype: a nullable 2D box ([`Rect`], `geoarrow.box`) in the CRS of the operand
+/// `dtype`. Rows with null or empty geometries produce null boxes.
+fn output_box_dtype(dtype: &DType) -> VortexResult<ExtDType<Rect>> {
+    let crs = dtype
+        .as_extension_opt()
+        .and_then(AnyNativeGeometry::try_match)
+        .and_then(SpatialMetadata::get_crs);
     ExtDType::<Rect>::try_new(
-        SpatialMetadata::default().with_dimension(Dimension::Xy),
+        SpatialMetadata::new(crs.map(str::to_owned)).with_dimension(Dimension::Xy),
         Nullability::Nullable,
     )
 }
@@ -235,7 +241,7 @@ impl ScalarFnVTable for SpatialEnvelope {
         validate_envelope_operands(dtypes)?;
         // Always nullable: an empty geometry has no box, so nulls can appear even over a
         // non-nullable operand.
-        Ok(DType::Extension(output_box_dtype()?.erased()))
+        Ok(DType::Extension(output_box_dtype(&dtypes[0])?.erased()))
     }
 
     /// Compute each row's box directly over the native coordinate storage — no decode to
@@ -248,7 +254,7 @@ impl ScalarFnVTable for SpatialEnvelope {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
         let array = args.get(0)?;
-        let output_dtype = output_box_dtype()?;
+        let output_dtype = output_box_dtype(array.dtype())?;
         dispatch_unary(
             &array,
             DType::Extension(output_dtype.clone().erased()),
@@ -278,6 +284,7 @@ impl ScalarFnVTable for SpatialEnvelope {
 
 #[cfg(test)]
 mod tests {
+    use rstest::rstest;
     use vortex_array::ArrayRef;
     use vortex_array::Columnar;
     use vortex_array::IntoArray;
@@ -308,7 +315,9 @@ mod tests {
     use crate::test_harness::nullable_multipolygon_column;
     use crate::test_harness::nullable_point_column;
     use crate::test_harness::nullable_rect_column;
+    use crate::test_harness::nullable_wgs84_rect_column;
     use crate::test_harness::point_column;
+    use crate::test_harness::point_column_with_crs;
     use crate::test_harness::polygon_column;
     use crate::test_harness::rect_column;
 
@@ -324,8 +333,10 @@ mod tests {
         let mut ctx = session.create_execution_ctx();
 
         let points = point_column(vec![1.0, 3.0], vec![2.0, 4.0])?;
-        let expected =
-            nullable_rect_column(vec![Some((1.0, 2.0, 1.0, 2.0)), Some((3.0, 4.0, 3.0, 4.0))])?;
+        let expected = nullable_wgs84_rect_column(vec![
+            Some((1.0, 2.0, 1.0, 2.0)),
+            Some((3.0, 4.0, 3.0, 4.0)),
+        ])?;
         assert_arrays_eq!(boxes(points)?, expected, &mut ctx);
         Ok(())
     }
@@ -340,7 +351,7 @@ mod tests {
             vec![vec![(0.0, 0.0), (4.0, 0.0), (2.0, 5.0)]],
             vec![vec![(-3.0, 7.0), (-2.0, 7.0), (-2.0, 9.0), (-3.0, 9.0)]],
         ])?;
-        let expected = nullable_rect_column(vec![
+        let expected = nullable_wgs84_rect_column(vec![
             Some((0.0, 0.0, 4.0, 5.0)),
             Some((-3.0, 7.0, -2.0, 9.0)),
         ])?;
@@ -355,7 +366,7 @@ mod tests {
         let mut ctx = session.create_execution_ctx();
 
         let rects = rect_column(vec![(0.0, 0.0, 2.0, 3.0), (-1.0, -1.0, 1.0, 1.0)])?;
-        let expected = nullable_rect_column(vec![
+        let expected = nullable_wgs84_rect_column(vec![
             Some((0.0, 0.0, 2.0, 3.0)),
             Some((-1.0, -1.0, 1.0, 1.0)),
         ])?;
@@ -406,7 +417,7 @@ mod tests {
             multilinestring_column(vec![vec![vertices.clone()]])?,
             multipolygon_column(vec![vec![vec![vertices]]])?,
         ];
-        let expected = nullable_rect_column(vec![Some((-1.0, 2.0, 3.0, 5.0))])?;
+        let expected = nullable_wgs84_rect_column(vec![Some((-1.0, 2.0, 3.0, 5.0))])?;
         for column in columns {
             assert_arrays_eq!(boxes(column)?, expected.clone(), &mut ctx);
         }
@@ -428,7 +439,7 @@ mod tests {
             ],
             vec![vec![vec![(10.0, 10.0), (11.0, 12.0)]]],
         ])?;
-        let expected = nullable_rect_column(vec![
+        let expected = nullable_wgs84_rect_column(vec![
             Some((0.0, -3.0, 6.0, 7.0)),
             Some((10.0, 10.0, 11.0, 12.0)),
         ])?;
@@ -447,7 +458,7 @@ mod tests {
             vec![vec![vec![(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)]]],
             vec![],
         ])?;
-        let expected = nullable_rect_column(vec![Some((0.0, 0.0, 1.0, 1.0)), None])?;
+        let expected = nullable_wgs84_rect_column(vec![Some((0.0, 0.0, 1.0, 1.0)), None])?;
         assert_arrays_eq!(boxes(multipolygons)?, expected, &mut ctx);
         Ok(())
     }
@@ -463,7 +474,7 @@ mod tests {
             vec![vec![]],
             vec![vec![(1.0, 2.0), (3.0, 4.0), (1.0, 4.0)]],
         ])?;
-        let expected = nullable_rect_column(vec![None, Some((1.0, 2.0, 3.0, 4.0))])?;
+        let expected = nullable_wgs84_rect_column(vec![None, Some((1.0, 2.0, 3.0, 4.0))])?;
         assert_arrays_eq!(boxes(polygons)?, expected, &mut ctx);
         Ok(())
     }
@@ -480,8 +491,10 @@ mod tests {
             vec![(1.0, 2.0), (3.0, 4.0)],
             vec![(5.0, 6.0)],
         ])?;
-        let expected =
-            nullable_rect_column(vec![Some((1.0, 2.0, 3.0, 4.0)), Some((5.0, 6.0, 5.0, 6.0))])?;
+        let expected = nullable_wgs84_rect_column(vec![
+            Some((1.0, 2.0, 3.0, 4.0)),
+            Some((5.0, 6.0, 5.0, 6.0)),
+        ])?;
         assert_arrays_eq!(boxes(multipoints.slice(1..3)?)?, expected, &mut ctx);
         Ok(())
     }
@@ -493,8 +506,10 @@ mod tests {
         let mut ctx = session.create_execution_ctx();
 
         let points = point_column(vec![9.0, 1.0, 3.0], vec![8.0, 2.0, 4.0])?;
-        let expected =
-            nullable_rect_column(vec![Some((1.0, 2.0, 1.0, 2.0)), Some((3.0, 4.0, 3.0, 4.0))])?;
+        let expected = nullable_wgs84_rect_column(vec![
+            Some((1.0, 2.0, 1.0, 2.0)),
+            Some((3.0, 4.0, 3.0, 4.0)),
+        ])?;
         assert_arrays_eq!(boxes(points.slice(1..3)?)?, expected, &mut ctx);
         Ok(())
     }
@@ -506,7 +521,7 @@ mod tests {
         let mut ctx = session.create_execution_ctx();
 
         let points = nullable_point_column(vec![Some((1.0, 2.0)), None, Some((3.0, 4.0))])?;
-        let expected = nullable_rect_column(vec![
+        let expected = nullable_wgs84_rect_column(vec![
             Some((1.0, 2.0, 1.0, 2.0)),
             None,
             Some((3.0, 4.0, 3.0, 4.0)),
@@ -532,7 +547,7 @@ mod tests {
             Some(vec![]),
             None,
         ])?;
-        let expected = nullable_rect_column(vec![Some((0.0, 0.0, 1.0, 1.0)), None, None])?;
+        let expected = nullable_wgs84_rect_column(vec![Some((0.0, 0.0, 1.0, 1.0)), None, None])?;
         assert_arrays_eq!(boxes(multipolygons)?, expected, &mut ctx);
         Ok(())
     }
@@ -545,7 +560,7 @@ mod tests {
 
         let point_dtype = point_column(vec![0.0], vec![0.0])?.dtype().as_nullable();
         let null_const = ConstantArray::new(Scalar::null(point_dtype), 2).into_array();
-        let expected = nullable_rect_column(vec![None, None])?;
+        let expected = nullable_wgs84_rect_column(vec![None, None])?;
         assert_arrays_eq!(boxes(null_const)?, expected, &mut ctx);
         Ok(())
     }
@@ -564,8 +579,21 @@ mod tests {
         };
         assert_eq!(boxes.len(), 3);
 
-        let expected = nullable_rect_column(vec![Some((1.0, 2.0, 1.0, 2.0)); 3])?;
+        let expected = nullable_wgs84_rect_column(vec![Some((1.0, 2.0, 1.0, 2.0)); 3])?;
         assert_arrays_eq!(boxes.into_array(), expected, &mut ctx);
+        Ok(())
+    }
+
+    /// The box is in the operand's CRS, so it can be compared with other geometries in that CRS.
+    #[rstest]
+    #[case::referenced(Some("EPSG:32633"))]
+    #[case::unreferenced(None)]
+    fn box_keeps_operand_crs(#[case] crs: Option<&str>) -> VortexResult<()> {
+        let dtype = point_column_with_crs(vec![0.0], vec![0.0], crs)?
+            .dtype()
+            .clone();
+        let out = SpatialEnvelope.return_dtype(&EmptyOptions, &[dtype])?;
+        assert_eq!(out.as_extension().metadata::<Rect>().get_crs(), crs);
         Ok(())
     }
 
