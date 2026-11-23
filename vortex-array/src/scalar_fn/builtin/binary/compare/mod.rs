@@ -56,6 +56,9 @@ pub use nested::RowComparator;
 pub use nested::build_comparator as build_row_comparator;
 
 mod primitive;
+mod sorted;
+
+pub(crate) use sorted::compare_sorted_constant;
 
 /// Trait for encoding-specific comparison kernels that operate in encoded space.
 ///
@@ -180,6 +183,10 @@ pub(crate) fn execute_compare(
     {
         let result = scalar_cmp(lhs_const.scalar(), rhs_const.scalar(), op)?;
         return Ok(ConstantArray::new(result, lhs.len()).into_array());
+    }
+
+    if let Some(result) = compare_sorted_constant(lhs, rhs, op, ctx)? {
+        return Ok(result);
     }
 
     compare_arrays(lhs, rhs, op, ctx)

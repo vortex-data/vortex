@@ -10,7 +10,10 @@ use vortex_array::ExecutionCtx;
 use vortex_array::VortexSessionExecute;
 use vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes;
 use vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::uncompressed_size_in_bytes;
+use vortex_array::expr::stats::Precision;
 use vortex_array::expr::stats::Stat;
+use vortex_array::expr::stats::StatsProviderExt;
+use vortex_array::scalar::ScalarValue;
 use vortex_btrblocks::BtrBlocksCompressor;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
@@ -142,6 +145,7 @@ impl LayoutStrategy for CompressingStrategy {
                         };
 
                     let compressed = compressor.compress_chunk(&chunk, &mut ctx)?;
+                    retain_sortedness(&chunk, &compressed);
                     let compressed_size = compressed.nbytes();
                     size_scope.record(uncompressed_size, compressed_size);
 
@@ -170,17 +174,41 @@ impl LayoutStrategy for CompressingStrategy {
     }
 }
 
+/// Copy exact sortedness from `chunk` onto its compressed form so it is persisted with the array.
+///
+/// Sortedness is a property of the values, so compression preserves it, but compressors build new
+/// arrays without the stats computed on their input. Readers rely on the persisted statistic to
+/// take sorted fast paths, such as binary search comparisons, without rescanning the values.
+fn retain_sortedness(chunk: &ArrayRef, compressed: &ArrayRef) {
+    for stat in [Stat::IsSorted, Stat::IsStrictSorted] {
+        if let Precision::Exact(value) = chunk.statistics().get_as::<bool>(stat) {
+            compressed
+                .statistics()
+                .set(stat, Precision::exact(ScalarValue::from(value)));
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
 
+    use rstest::rstest;
     use vortex_array::ArrayContext;
     use vortex_array::ArrayRef;
     use vortex_array::ExecutionCtx;
     use vortex_array::IntoArray;
+    use vortex_array::MaskFuture;
     use vortex_array::arrays::ChunkedArray;
     use vortex_array::arrays::ConstantArray;
+    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::expr::root;
+    use vortex_array::expr::stats::Precision;
+    use vortex_array::expr::stats::Stat;
+    use vortex_array::expr::stats::StatsProviderExt;
+    use vortex_array::validity::Validity;
     use vortex_buffer::Buffer;
+    use vortex_buffer::buffer;
     use vortex_error::VortexResult;
     use vortex_io::runtime::single::block_on;
     use vortex_io::session::RuntimeSessionExt;
@@ -193,6 +221,7 @@ mod tests {
     use crate::segments::TestSegments;
     use crate::sequence::SequenceId;
     use crate::sequence::SequentialArrayStreamExt;
+    use crate::test::SESSION;
     use crate::test::new_session;
 
     const CHUNK_LEN: usize = 1024;
@@ -232,6 +261,64 @@ mod tests {
         assert!(size_scope.compression_ratio() < 64.0 / input_bytes);
         assert_eq!(size_scope.uncompressed_bytes(), 0);
         assert_eq!(buffered_bytes.buffered_bytes(), 0);
+        Ok(())
+    }
+
+    /// Write `array` through a compressing flat layout and read it back.
+    fn round_trip(array: ArrayRef) -> VortexResult<ArrayRef> {
+        block_on(|handle| async move {
+            let session = new_session().with_handle(handle);
+            let segments = Arc::new(TestSegments::default());
+            let (ptr, eof) = SequenceId::root().split();
+            // A compressor that rebuilds the array, dropping any stats computed on its input.
+            let compressor = |chunk: &ArrayRef, ctx: &mut ExecutionCtx| -> VortexResult<ArrayRef> {
+                let values = chunk
+                    .clone()
+                    .execute::<PrimitiveArray>(ctx)?
+                    .into_buffer::<i64>();
+                Ok(PrimitiveArray::new(values, Validity::NonNullable).into_array())
+            };
+            let layout = CompressingStrategy::new(FlatLayoutStrategy::default(), compressor)
+                .write_stream(
+                    LayoutWriterContext::new(ArrayContext::empty()),
+                    Arc::<TestSegments>::clone(&segments),
+                    array.to_array_stream().sequenced(ptr),
+                    eof,
+                    &session,
+                )
+                .await?;
+
+            let reader = layout.new_reader("".into(), segments, &SESSION, &Default::default())?;
+            let expr = root().bind(reader.dtype())?;
+            reader
+                .projection_evaluation(
+                    &(0..layout.row_count()),
+                    &expr,
+                    MaskFuture::new_true(usize::try_from(layout.row_count())?),
+                )?
+                .await
+        })
+    }
+
+    #[rstest]
+    #[case::strict(buffer![1i64, 2, 3, 5].into_array(), true, true)]
+    #[case::sorted(buffer![1i64, 2, 2, 5].into_array(), true, false)]
+    #[case::unsorted(buffer![3i64, 1, 2, 5].into_array(), false, false)]
+    fn persists_sortedness(
+        #[case] array: ArrayRef,
+        #[case] sorted: bool,
+        #[case] strict: bool,
+    ) -> VortexResult<()> {
+        let result = round_trip(array)?;
+        let stats = result.statistics();
+        assert_eq!(
+            stats.get_as::<bool>(Stat::IsSorted),
+            Precision::Exact(sorted)
+        );
+        assert_eq!(
+            stats.get_as::<bool>(Stat::IsStrictSorted),
+            Precision::Exact(strict)
+        );
         Ok(())
     }
 }
