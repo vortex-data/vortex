@@ -121,7 +121,36 @@ async fn main() -> anyhow::Result<()> {
 /// Generate a DuckDB database from Parquet files using the DuckDB CLI.
 fn generate_duckdb(base_path: &Path, benchmark: &dyn Benchmark) -> anyhow::Result<()> {
     let duckdb_dir = base_path.join(Format::OnDiskDuckDB.name());
-    std::fs::create_dir_all(&duckdb_dir)?;
+    let parquet_dir = base_path.join(Format::Parquet.name());
+    let sql = generate_duckdb_registration_sql(
+        benchmark,
+        parquet_dir
+            .to_str()
+            .vortex_expect("value must be str displayable"),
+        Format::Parquet,
+        "TABLE",
+    );
+
+    run_duckdb_statements(&duckdb_dir, &sql, |path, stmt| {
+        let output = Command::new("duckdb")
+            .arg(path)
+            .arg("-c")
+            .arg(stmt)
+            .output()?;
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            anyhow::bail!("DuckDB CLI failed: {}", stderr);
+        }
+        Ok(())
+    })
+}
+
+fn run_duckdb_statements(
+    duckdb_dir: &Path,
+    sql: &[String],
+    mut run_stmt: impl FnMut(&Path, &str) -> anyhow::Result<()>,
+) -> anyhow::Result<()> {
+    std::fs::create_dir_all(duckdb_dir)?;
 
     let db_path = duckdb_dir.join("duckdb.db");
     let tmp_path = duckdb_dir.join("duckdb.db.tmp");
@@ -136,38 +165,99 @@ fn generate_duckdb(base_path: &Path, benchmark: &dyn Benchmark) -> anyhow::Resul
         }
     }
 
-    // Skip if database already exists
+    // Re-run `CREATE TABLE IF NOT EXISTS` against an existing database so a
+    // pre-existing partial database gets its missing tables without rebuilding.
     if db_path.exists() {
-        info!("DuckDB database already exists at {}", db_path.display());
+        info!(
+            "DuckDB database already exists at {}; ensuring all tables are imported",
+            db_path.display()
+        );
+        for stmt in sql {
+            run_stmt(&db_path, stmt)?;
+        }
         return Ok(());
     }
 
-    let parquet_dir = base_path.join(Format::Parquet.name());
-    let sql = generate_duckdb_registration_sql(
-        benchmark,
-        parquet_dir
-            .to_str()
-            .vortex_expect("value must be str displayable"),
-        Format::Parquet,
-        "TABLE",
-    );
-
-    for stmt in sql.into_iter() {
-        let output = Command::new("duckdb")
-            .arg(&tmp_path)
-            .arg("-c")
-            .arg(&stmt)
-            .output()?;
-
-        if !output.status.success() {
+    for stmt in sql {
+        if let Err(err) = run_stmt(&tmp_path, stmt) {
             drop(std::fs::remove_file(&tmp_path));
             drop(std::fs::remove_file(&tmp_wal_path));
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            anyhow::bail!("DuckDB CLI failed: {}", stderr);
+            return Err(err);
         }
     }
 
     std::fs::rename(&tmp_path, &db_path)?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io::Write;
+
+    use super::*;
+
+    fn two_table_sql() -> Vec<String> {
+        vec![
+            "CREATE TABLE IF NOT EXISTS first_tbl AS SELECT 1;".to_string(),
+            "CREATE TABLE IF NOT EXISTS second_tbl AS SELECT 2;".to_string(),
+        ]
+    }
+
+    fn append_table_if_missing(path: &Path, stmt: &str) -> anyhow::Result<()> {
+        let existing = if path.exists() {
+            std::fs::read_to_string(path)?
+        } else {
+            String::new()
+        };
+        if !existing.lines().any(|line| line == stmt) {
+            let mut file = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(path)?;
+            writeln!(file, "{stmt}")?;
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn failed_second_table_stages_and_retries_cleanly() -> anyhow::Result<()> {
+        let dir = tempfile::tempdir()?;
+        let duckdb_dir = dir.path().join("duckdb");
+        let sql = two_table_sql();
+
+        let err = run_duckdb_statements(&duckdb_dir, &sql, |path, stmt| {
+            if stmt.contains("second_tbl") {
+                anyhow::bail!("missing second_tbl parquet");
+            }
+            append_table_if_missing(path, stmt)
+        })
+        .unwrap_err();
+        assert!(err.to_string().contains("missing second_tbl"));
+        assert!(!duckdb_dir.join("duckdb.db").exists());
+        assert!(!duckdb_dir.join("duckdb.db.tmp").exists());
+
+        run_duckdb_statements(&duckdb_dir, &sql, append_table_if_missing)?;
+        let contents = std::fs::read_to_string(duckdb_dir.join("duckdb.db"))?;
+        assert!(contents.contains("first_tbl"));
+        assert!(contents.contains("second_tbl"));
+        Ok(())
+    }
+
+    #[test]
+    fn existing_partial_database_imports_missing_table() -> anyhow::Result<()> {
+        let dir = tempfile::tempdir()?;
+        let duckdb_dir = dir.path().join("duckdb");
+        std::fs::create_dir_all(&duckdb_dir)?;
+        let sql = two_table_sql();
+        let db_path = duckdb_dir.join("duckdb.db");
+        std::fs::write(&db_path, format!("{}\n", sql[0]))?;
+
+        run_duckdb_statements(&duckdb_dir, &sql, append_table_if_missing)?;
+        let contents = std::fs::read_to_string(&db_path)?;
+        assert_eq!(contents.lines().count(), 2);
+        assert!(contents.contains("first_tbl"));
+        assert!(contents.contains("second_tbl"));
+        Ok(())
+    }
 }
