@@ -556,6 +556,7 @@ mod tests {
     use parquet_variant_compute::VariantArrayBuilder;
     use parquet_variant_compute::json_to_variant;
     use parquet_variant_compute::shred_variant;
+    use rstest::rstest;
     use vortex_array::Canonical;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
@@ -571,6 +572,7 @@ mod tests {
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
     use vortex_error::vortex_err;
+    use vortex_mask::Mask;
     use vortex_session::VortexSession;
 
     use crate::ParquetVariant;
@@ -841,6 +843,45 @@ mod tests {
         let expected = parquet_array.execute_scalar(0, &mut ctx)?;
         let canonical = parquet_array.execute::<Canonical>(&mut ctx)?.into_array();
         assert_eq!(canonical.execute_scalar(0, &mut ctx)?, expected);
+        Ok(())
+    }
+
+    /// Each list element reads the metadata of the row that holds it. The lists differ in length
+    /// and hold objects whose field names differ, so every row has its own metadata dictionary and
+    /// field `p` has another ID in the first row than in the last. Filtering makes the shredded
+    /// list lazy, so canonicalizing must execute it first.
+    #[rstest]
+    #[case::list(false)]
+    #[case::filtered(true)]
+    fn canonical_reads_list_elements_with_their_row_metadata(
+        #[case] filtered: bool,
+    ) -> VortexResult<()> {
+        let json: ArrowArrayRef = Arc::new(StringArray::from(vec![
+            r#"{"tags":[{"p":1},{"p":2},"x"]}"#,
+            r#"{"tags":[{"q":"z"}]}"#,
+            r#"{"tags":[10,{"r":true,"p":3}]}"#,
+        ]));
+        let list_type = DataType::List(Arc::new(Field::new("item", DataType::Int32, true)));
+        let shredding = ShreddedSchemaBuilder::new()
+            .with_path("tags", &list_type)?
+            .build();
+        let shredded = shred_variant(&json_to_variant(&json)?, &shredding)?;
+        let mut array = ParquetVariant::from_arrow_variant(&shredded, &SESSION.arrow())?;
+        if filtered {
+            array = array.filter(Mask::from_iter([true, false, true]))?;
+        }
+
+        let mut ctx = SESSION.create_execution_ctx();
+        let canonical = array.clone().execute::<Canonical>(&mut ctx)?.into_array();
+
+        assert_eq!(canonical.len(), array.len());
+        for row in 0..array.len() {
+            assert_eq!(
+                canonical.execute_scalar(row, &mut ctx)?,
+                array.execute_scalar(row, &mut ctx)?,
+                "row {row}"
+            );
+        }
         Ok(())
     }
 
