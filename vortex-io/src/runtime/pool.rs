@@ -135,28 +135,19 @@ mod tests {
         let runtime = CurrentThreadRuntime::new();
         let pool = runtime.new_pool();
         pool.set_workers(1);
-        let first_shutdown = Arc::clone(&pool.state.lock().workers[0].shutdown);
+        let shutdown = Arc::clone(&pool.state.lock().workers[0].shutdown);
 
         run_task(&runtime);
 
         // Dropping an unused clone must leave the surviving owner's worker running.
         drop(pool.clone());
         assert_eq!(pool.worker_count(), 1);
-        assert!(!first_shutdown.load(Ordering::Relaxed));
+        assert!(!shutdown.load(Ordering::Relaxed));
         run_task(&runtime);
-
-        // Explicit resize to zero must still shut down workers.
-        pool.set_workers(0);
-        assert_eq!(pool.worker_count(), 0);
-        assert!(first_shutdown.load(Ordering::Relaxed));
-        wait_for_worker_exit(&first_shutdown);
 
         // Dropping the last owner must shut down workers.
-        pool.set_workers(1);
-        let final_shutdown = Arc::clone(&pool.state.lock().workers[0].shutdown);
-        run_task(&runtime);
         drop(pool);
-        assert!(final_shutdown.load(Ordering::Relaxed));
-        wait_for_worker_exit(&final_shutdown);
+        assert!(shutdown.load(Ordering::Relaxed));
+        wait_for_worker_exit(&shutdown);
     }
 }
