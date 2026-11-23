@@ -5,7 +5,6 @@
 
 import json
 import os
-import re
 import subprocess
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
@@ -21,6 +20,7 @@ from rich.markup import escape
 from rich.table import Table
 
 from .ci_matrix import MATRIX_PRESETS, resolve_matrix
+from .ci_matrix.selection import parse_selection
 from .comparison import analyzer
 from .comparison.reporter import pivot_comparison_table
 from .config import (
@@ -347,7 +347,10 @@ def matrix(
         str | None,
         typer.Option(
             "--only",
-            help="Benchmark IDs to keep (comma- or space-separated); empty keeps the whole preset",
+            help=(
+                "Benchmarks to keep, separated by spaces or commas, each optionally with queries: "
+                "polarsignals tpch-nvme:q1-4. Empty keeps the whole preset"
+            ),
         ),
     ] = None,
 ) -> None:
@@ -362,9 +365,8 @@ def matrix(
         console.print(f"[red]Unknown matrix preset '{preset}'. Available: {known}[/red]")
         raise typer.Exit(1)
 
-    only_ids = [benchmark_id for benchmark_id in re.split(r"[,\s]+", only or "") if benchmark_id]
     try:
-        entries = resolve_matrix(preset, only_ids)
+        entries = resolve_matrix(preset, parse_selection(only))
     except ValueError as exc:
         console.print(f"[red]{exc}[/red]")
         raise typer.Exit(1) from exc
