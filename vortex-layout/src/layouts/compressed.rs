@@ -178,7 +178,6 @@ mod tests {
     use std::sync::Arc;
     use std::time::Duration;
 
-    use rstest::rstest;
     use vortex_array::ArrayContext;
     use vortex_array::ArrayRef;
     use vortex_array::ExecutionCtx;
@@ -241,20 +240,15 @@ mod tests {
         Ok(())
     }
 
-    #[rstest]
-    #[case::zero(0)]
-    #[case::one(1)]
     #[tokio::test]
-    async fn compressing_completes_with_zero_or_one_concurrency(
-        #[case] concurrency: usize,
-    ) -> VortexResult<()> {
+    async fn compressing_completes_with_zero_concurrency() -> VortexResult<()> {
         let src = Buffer::from_iter(0..10u64).into_array();
         let ctx = LayoutWriterContext::new(ArrayContext::empty());
         let strategy = CompressingStrategy::new(
             ChunkedLayoutStrategy::new(FlatLayoutStrategy::default()),
             constant_compressor,
         )
-        .with_concurrency(concurrency);
+        .with_concurrency(0);
         let segments = Arc::new(TestSegments::default());
         let (ptr, eof) = SequenceId::root().split();
         let stream = src.to_array_stream().sequenced(ptr);

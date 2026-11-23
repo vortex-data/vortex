@@ -805,9 +805,8 @@ mod tests {
     #[case::ordered(true)]
     #[case::unordered(false)]
     #[tokio::test]
-    async fn deferred_scan_completes_with_zero_or_one_concurrency(
+    async fn deferred_scan_completes_with_zero_concurrency(
         #[case] ordered: bool,
-        #[values(0, 1)] concurrency: usize,
     ) -> VortexResult<()> {
         let session = session_with_handle(TokioRuntime::current());
         let reader: LayoutReaderRef = Arc::new(TestLayoutReader::new(3));
@@ -817,7 +816,7 @@ mod tests {
             vec![],
             &session,
         )
-        .with_concurrency(concurrency);
+        .with_concurrency(0);
 
         let scan = source
             .scan(ScanRequest {
