@@ -21,16 +21,7 @@ use crate::VortexWrite;
 
 /// Adapter type to write data through a [`ObjectStore`] instance.
 ///
-/// Buffers at most the configured number of in-flight 16 MiB parts and one 16 MiB staging part.
-/// [`Self::with_concurrency`] defaults to eight, matching [`object_store::buffered::BufWriter`].
-/// This bound excludes caller-owned buffers and allocations internal to the object store.
-///
-/// [`VortexWrite::flush`] waits for submitted parts without publishing the object or uploading a
-/// partial tail. Only [`VortexWrite::shutdown`] publishes it, so callers can validate the completed
-/// Vortex file's footer and statistics before committing the upload.
-///
-/// Upload errors trigger best-effort cleanup without replacing the original error. Call
-/// [`Self::abort`] for external errors, empty output, or after cancelling a write or shutdown.
+/// Call [`VortexWrite::shutdown`] to publish the object or [`Self::abort`] to discard it.
 /// Dropping this writer does not guarantee cleanup. A cancelled operation must not be resumed.
 pub struct ObjectStoreWrite {
     upload: Box<dyn MultipartUpload>,
@@ -42,7 +33,6 @@ pub struct ObjectStoreWrite {
 }
 
 const CHUNK_SIZE: usize = 16 * 1024 * 1024;
-const DEFAULT_CONCURRENCY: usize = 8;
 
 enum State {
     Open,
@@ -59,19 +49,20 @@ impl ObjectStoreWrite {
             upload,
             buffer: BytesMut::with_capacity(CHUNK_SIZE),
             parts: FuturesUnordered::new(),
-            concurrency: DEFAULT_CONCURRENCY,
+            concurrency: 0,
             put_result: None,
             state: State::Open,
         })
     }
 
-    /// Set the maximum number of in-flight parts, defaulting to eight.
+    /// Set the maximum number of in-flight parts. Defaults to zero, meaning unlimited.
     ///
-    /// Lower concurrency reduces adapter-owned buffering; higher concurrency may improve upload
-    /// throughput. Zero is treated as one. Configure this before writing: parts already submitted
-    /// are not cancelled when lowering the limit.
+    /// Upload concurrency controls network throughput, not CPU parallelism. The default avoids
+    /// imposing an arbitrary throughput cap. Set a positive limit to bound adapter-owned buffering
+    /// to that many 16 MiB parts plus one staging part, excluding caller buffers and store internals.
+    /// Configure this before writing; lowering the limit does not cancel existing uploads.
     pub fn with_concurrency(mut self, concurrency: usize) -> Self {
-        self.concurrency = concurrency.max(1);
+        self.concurrency = concurrency;
         self
     }
 
@@ -80,12 +71,12 @@ impl ObjectStoreWrite {
         self.put_result.as_ref()
     }
 
-    /// Discard staged bytes, settle all submitted parts, and abort this upload.
+    /// Abort this upload, waiting for pending parts before cleanup.
     ///
-    /// May be retried after cleanup fails, including after a completion error. Repeated calls
-    /// after a successful abort are harmless. A successfully published object cannot be aborted.
-    /// When handling an external write or validation error, preserve that error if abort also
-    /// fails. For otherwise successful empty output, propagate the abort error instead.
+    /// Upload errors attempt this automatically without replacing the original error. Call this
+    /// for external errors, empty output, or cancelled operations. Cleanup failures can be retried,
+    /// including after completion fails. Aborting again after success is harmless; aborting a
+    /// published object is an error.
     pub async fn abort(&mut self) -> io::Result<()> {
         match self.state {
             State::Aborted => return Ok(()),
@@ -109,7 +100,7 @@ impl ObjectStoreWrite {
     }
 
     async fn upload_buffer(&mut self) -> io::Result<()> {
-        while self.parts.len() >= self.concurrency {
+        while self.concurrency != 0 && self.parts.len() >= self.concurrency {
             self.parts.next().await.transpose()?;
         }
         // Do not split a growing allocation: each submitted part and the new staging buffer
@@ -147,6 +138,7 @@ impl VortexWrite for ObjectStoreWrite {
         Ok(buffer)
     }
 
+    /// Wait for submitted parts without uploading a partial tail or publishing the object.
     async fn flush(&mut self) -> io::Result<()> {
         if matches!(self.state, State::Completed) {
             return Ok(());
@@ -205,11 +197,9 @@ mod tests {
     #[tokio::test]
     #[rstest]
     #[case(0)]
-    #[case(100)]
-    #[case(8 * 1024 * 1024)]
+    #[case(CHUNK_SIZE / 2)]
     #[case(CHUNK_SIZE)]
-    #[case(25 * 1024 * 1024)]
-    #[case(26 * 1024 * 1024)]
+    #[case(CHUNK_SIZE + CHUNK_SIZE / 2)]
     async fn test_object_store_writer_multiple_flushes(
         #[case] chunk_size: usize,
     ) -> VortexResult<()> {
@@ -320,8 +310,9 @@ mod tests {
     ) -> VortexResult<(ObjectStoreWrite, Arc<Probe>, Arc<dyn ObjectStore>)> {
         let store =
             Arc::new(LocalFileSystem::new_with_prefix(directory.path())?) as Arc<dyn ObjectStore>;
+        let mut writer = ObjectStoreWrite::new(Arc::clone(&store), &Path::from("test.bin")).await?;
         let probe = Arc::new(Probe {
-            upload: tokio::sync::Mutex::new(store.put_multipart(&Path::from("test.bin")).await?),
+            upload: tokio::sync::Mutex::new(writer.upload),
             sizes: Mutex::new(Vec::new()),
             settled: AtomicUsize::new(0),
             aborts: AtomicUsize::new(0),
@@ -331,15 +322,7 @@ mod tests {
             fail_complete,
             fail_abort: AtomicBool::new(fail_abort),
         });
-        let writer = ObjectStoreWrite {
-            upload: Box::new(ProbedUpload(Arc::clone(&probe))),
-            buffer: BytesMut::with_capacity(CHUNK_SIZE),
-            parts: FuturesUnordered::new(),
-            concurrency: DEFAULT_CONCURRENCY,
-            put_result: None,
-            state: State::Open,
-        }
-        .with_concurrency(4);
+        writer.upload = Box::new(ProbedUpload(Arc::clone(&probe)));
         Ok((writer, probe, store))
     }
 
@@ -349,12 +332,11 @@ mod tests {
     #[tokio::test]
     async fn test_oversized_write_backpressure_and_order(
         #[case] tail: usize,
-        #[values(0, 1, 4, 8)] concurrency: usize,
+        #[values(1, 4)] concurrency: usize,
     ) -> VortexResult<()> {
         let directory = tempdir()?;
         let (writer, probe, store) = probed_writer(&directory, false, false, false).await?;
         let mut writer = writer.with_concurrency(concurrency);
-        let concurrency = concurrency.max(1);
         writer.write_all(*b"prefix!").await?;
         writer.flush().await?;
         assert!(probe.sizes.lock().is_empty());
@@ -390,6 +372,42 @@ mod tests {
     }
 
     #[rstest]
+    #[case::default(None)]
+    #[case::explicit_zero(Some(0))]
+    #[tokio::test]
+    async fn test_unlimited_concurrency(#[case] concurrency: Option<usize>) -> VortexResult<()> {
+        let directory = tempdir()?;
+        let (mut writer, probe, store) = probed_writer(&directory, false, false, false).await?;
+        if let Some(concurrency) = concurrency {
+            writer = writer.with_concurrency(concurrency);
+        }
+        let data = (0u8..=250)
+            .cycle()
+            .take(9 * CHUNK_SIZE + 31)
+            .collect::<Vec<_>>();
+        let pointer = data.as_ptr();
+        // No part can finish, but unlimited writes must not wait for upload capacity.
+        let returned = writer.write_all(data).now_or_never().unwrap()?;
+        assert_eq!(returned.as_ptr(), pointer);
+        assert_eq!(*probe.sizes.lock(), vec![CHUNK_SIZE; 9]);
+        {
+            let flush = writer.flush();
+            tokio::pin!(flush);
+            assert!(futures::poll!(&mut flush).is_pending());
+            probe.permits.add_permits(10);
+            flush.await?;
+        }
+        assert!(store.head(&Path::from("test.bin")).await.is_err());
+        writer.shutdown().await?;
+        let mut sizes = vec![CHUNK_SIZE; 9];
+        sizes.push(31);
+        assert_eq!(*probe.sizes.lock(), sizes);
+        let bytes = store.get(&Path::from("test.bin")).await?.bytes().await?;
+        assert_eq!(bytes, returned);
+        Ok(())
+    }
+
+    #[rstest]
     #[case::part_during_write(5 * CHUNK_SIZE, true, false, false, false)]
     #[case::part_during_flush(CHUNK_SIZE, true, false, false, true)]
     #[case::part_during_shutdown(101, true, false, false, false)]
@@ -405,8 +423,9 @@ mod tests {
         #[case] flush: bool,
     ) -> VortexResult<()> {
         let directory = tempdir()?;
-        let (mut writer, probe, _) =
+        let (writer, probe, _) =
             probed_writer(&directory, fail_part, fail_complete, fail_abort).await?;
+        let mut writer = writer.with_concurrency(4);
         probe.permits.add_permits(8);
         let write = writer.write_all(vec![3; size]).await;
         let result = if size == 5 * CHUNK_SIZE {
@@ -452,7 +471,8 @@ mod tests {
         #[case] fail_abort: bool,
     ) -> VortexResult<()> {
         let directory = tempdir()?;
-        let (mut writer, probe, _) = probed_writer(&directory, false, false, fail_abort).await?;
+        let (writer, probe, _) = probed_writer(&directory, false, false, fail_abort).await?;
+        let mut writer = writer.with_concurrency(4);
         if size > 5 * CHUNK_SIZE {
             let write = writer.write_all(vec![7; size]);
             tokio::pin!(write);
