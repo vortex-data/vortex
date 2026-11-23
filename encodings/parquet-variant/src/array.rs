@@ -388,6 +388,19 @@ pub(crate) fn parquet_typed_value_from_logical_shredded(
         .into_array());
     }
 
+    if shredded.dtype().is_list() {
+        let list_view = shredded.execute::<ListViewArray>(ctx)?;
+        let elements = parquet_shredded_field_from_logical(list_view.elements().clone(), ctx)?;
+        return Ok(ListViewArray::try_new(
+            elements,
+            list_view.offsets().clone(),
+            list_view.sizes().clone(),
+            list_view.validity()?,
+            ctx,
+        )?
+        .into_array());
+    }
+
     // A shredded object read from a file can be chunked, which hides its fields.
     let shredded = if shredded.dtype().is_struct() && !shredded.is::<Struct>() {
         shredded.execute::<StructArray>(ctx)?.into_array()

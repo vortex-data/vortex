@@ -310,69 +310,96 @@ fn variant_get_scalar(
         return Ok(Scalar::null(output_dtype.clone()));
     }
 
-    cast_variant_scalar(value, output_dtype)
+    Ok(cast_variant_scalar(value, output_dtype)?
+        .unwrap_or_else(|| Scalar::null(output_dtype.clone())))
 }
 
-fn cast_variant_scalar(value: Scalar, output_dtype: &DType) -> VortexResult<Scalar> {
+fn cast_variant_scalar(value: Scalar, output_dtype: &DType) -> VortexResult<Option<Scalar>> {
     let Some(value) = variant_payload(value) else {
-        return Ok(Scalar::null(output_dtype.clone()));
+        return Ok(None);
     };
 
     if value.is_null() {
-        return Ok(Scalar::null(output_dtype.clone()));
+        return Ok(None);
     }
 
     if output_dtype.is_variant() {
-        return Scalar::variant(value).cast(output_dtype);
+        return Scalar::variant(value).cast(output_dtype).map(Some);
     }
 
     if let DType::Struct(target_fields, _) = output_dtype {
         let Some(struct_scalar) = value.as_struct_opt() else {
-            return Ok(Scalar::null(output_dtype.clone()));
+            return Ok(None);
         };
         if struct_scalar.is_null() {
-            return Ok(Scalar::null(output_dtype.clone()));
+            return Ok(None);
         }
         let mut fields = Vec::with_capacity(target_fields.nfields());
         for (name, field_dtype) in target_fields.names().iter().zip(target_fields.fields()) {
             let field = match struct_scalar.field(name.as_ref()) {
-                Some(field) => cast_variant_scalar(field, &field_dtype)?,
-                None if field_dtype.is_nullable() => Scalar::null(field_dtype.clone()),
-                None => return Ok(Scalar::null(output_dtype.clone())),
+                Some(field) => match cast_variant_scalar(field, &field_dtype)? {
+                    Some(cast_field) => cast_field,
+                    None if field_dtype.is_nullable() => Scalar::null(field_dtype),
+                    None => return Ok(None),
+                },
+                None if field_dtype.is_nullable() => Scalar::null(field_dtype),
+                None => return Ok(None),
             };
-            if field.is_null() && !field_dtype.is_nullable() {
-                return Ok(Scalar::null(output_dtype.clone()));
-            }
             fields.push(field);
         }
-        return Ok(Scalar::struct_(output_dtype.clone(), fields));
+        return Ok(Some(Scalar::struct_(output_dtype.clone(), fields)));
     }
 
     if let DType::List(elem_dtype, _) = output_dtype {
         let Some(list_scalar) = value.as_list_opt() else {
-            return Ok(Scalar::null(output_dtype.clone()));
+            return Ok(None);
         };
         let Some(elements) = list_scalar.elements() else {
-            return Ok(Scalar::null(output_dtype.clone()));
+            return Ok(None);
         };
         let mut cast_elements = Vec::with_capacity(elements.len());
         for element in elements {
-            let cast_element = cast_variant_scalar(element, elem_dtype)?;
-            if cast_element.is_null() && !elem_dtype.is_nullable() {
-                return Ok(Scalar::null(output_dtype.clone()));
-            }
+            let cast_element = match cast_variant_scalar(element, elem_dtype)? {
+                Some(cast_element) => cast_element,
+                None if elem_dtype.is_nullable() => Scalar::null(elem_dtype.as_ref().clone()),
+                None => return Ok(None),
+            };
             cast_elements.push(cast_element);
         }
-        return Ok(Scalar::list(
+        return Ok(Some(Scalar::list(
             Arc::clone(elem_dtype),
             cast_elements,
             output_dtype.nullability(),
-        ));
+        )));
     }
 
-    value
-        .cast(output_dtype)
-        .or_else(|_| Ok(Scalar::null(output_dtype.clone())))
+    if let DType::FixedSizeList(elem_dtype, size, _) = output_dtype {
+        let Some(list_scalar) = value.as_list_opt() else {
+            return Ok(None);
+        };
+        let Some(elements) = list_scalar.elements() else {
+            return Ok(None);
+        };
+        if elements.len() != *size as usize {
+            return Ok(None);
+        }
+        let mut cast_elements = Vec::with_capacity(elements.len());
+        for element in elements {
+            let cast_element = match cast_variant_scalar(element, elem_dtype)? {
+                Some(cast_element) => cast_element,
+                None if elem_dtype.is_nullable() => Scalar::null(elem_dtype.as_ref().clone()),
+                None => return Ok(None),
+            };
+            cast_elements.push(cast_element);
+        }
+        return Ok(Some(Scalar::fixed_size_list(
+            Arc::clone(elem_dtype),
+            cast_elements,
+            output_dtype.nullability(),
+        )));
+    }
+
+    Ok(value.cast(output_dtype).ok())
 }
 
 fn variant_path_scalar(
@@ -589,6 +616,7 @@ impl From<u64> for VariantPathElement {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
     use std::sync::LazyLock;
 
     use vortex_array::ArrayRef;
@@ -1118,6 +1146,155 @@ mod tests {
             PrimitiveArray::from_option_iter([Some(40i32), Some(50), Some(60)]),
             &mut ctx
         );
+        Ok(())
+    }
+
+    #[test]
+    fn variant_get_non_nullable_nested_target_returns_null_without_panicking() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let row0 = Scalar::variant(Scalar::struct_(
+            DType::Struct(
+                StructFields::new(
+                    FieldNames::from(["x"]),
+                    vec![DType::Variant(Nullability::NonNullable)],
+                ),
+                Nullability::NonNullable,
+            ),
+            vec![Scalar::variant(Scalar::utf8(
+                "not_an_int",
+                Nullability::NonNullable,
+            ))],
+        ));
+        let row1 = Scalar::variant(Scalar::struct_(
+            DType::Struct(
+                StructFields::new(
+                    FieldNames::from(["x"]),
+                    vec![DType::Variant(Nullability::NonNullable)],
+                ),
+                Nullability::NonNullable,
+            ),
+            vec![Scalar::variant(Scalar::primitive(
+                7i32,
+                Nullability::NonNullable,
+            ))],
+        ));
+        let input = ChunkedArray::try_new(
+            vec![
+                ConstantArray::new(row0, 1).into_array(),
+                ConstantArray::new(row1, 1).into_array(),
+            ],
+            DType::Variant(Nullability::NonNullable),
+        )?
+        .into_array();
+
+        let struct_target = DType::Struct(
+            StructFields::new(
+                FieldNames::from(["x"]),
+                vec![DType::Primitive(PType::I32, Nullability::NonNullable)],
+            ),
+            Nullability::Nullable,
+        );
+        let expr = variant_get(root(), VariantPath::root(), Some(struct_target));
+        let result = input.apply(&expr)?.execute::<ArrayRef>(&mut ctx)?;
+        assert!(result.is_invalid(0, &mut ctx)?);
+        assert_eq!(
+            result
+                .execute_scalar(1, &mut ctx)?
+                .as_struct()
+                .field("x")
+                .and_then(|s| s.as_primitive().typed_value::<i32>()),
+            Some(7)
+        );
+
+        let list_row0 = Scalar::variant(Scalar::list(
+            DType::Variant(Nullability::NonNullable),
+            vec![Scalar::variant(Scalar::utf8(
+                "bad",
+                Nullability::NonNullable,
+            ))],
+            Nullability::NonNullable,
+        ));
+        let list_row1 = Scalar::variant(Scalar::list(
+            DType::Variant(Nullability::NonNullable),
+            vec![Scalar::variant(Scalar::primitive(
+                9i32,
+                Nullability::NonNullable,
+            ))],
+            Nullability::NonNullable,
+        ));
+        let list_input = ChunkedArray::try_new(
+            vec![
+                ConstantArray::new(list_row0, 1).into_array(),
+                ConstantArray::new(list_row1, 1).into_array(),
+            ],
+            DType::Variant(Nullability::NonNullable),
+        )?
+        .into_array();
+
+        let list_target = DType::List(
+            Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable)),
+            Nullability::Nullable,
+        );
+        let list_expr = variant_get(root(), VariantPath::root(), Some(list_target));
+        let list_result = list_input
+            .apply(&list_expr)?
+            .execute::<ArrayRef>(&mut ctx)?;
+        assert!(list_result.is_invalid(0, &mut ctx)?);
+        assert_eq!(
+            list_result
+                .execute_scalar(1, &mut ctx)?
+                .as_list()
+                .element(0)
+                .and_then(|s| s.as_primitive().typed_value::<i32>()),
+            Some(9)
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn variant_get_fixed_size_list_target() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let row0 = Scalar::variant(Scalar::list(
+            DType::Variant(Nullability::NonNullable),
+            vec![
+                Scalar::variant(Scalar::primitive(1i64, Nullability::NonNullable)),
+                Scalar::variant(Scalar::primitive(2i64, Nullability::NonNullable)),
+            ],
+            Nullability::NonNullable,
+        ));
+        let row1 = Scalar::variant(Scalar::list(
+            DType::Variant(Nullability::NonNullable),
+            vec![Scalar::variant(Scalar::primitive(
+                3i64,
+                Nullability::NonNullable,
+            ))],
+            Nullability::NonNullable,
+        ));
+        let input = ChunkedArray::try_new(
+            vec![
+                ConstantArray::new(row0, 1).into_array(),
+                ConstantArray::new(row1, 1).into_array(),
+            ],
+            DType::Variant(Nullability::NonNullable),
+        )?
+        .into_array();
+
+        let target = DType::FixedSizeList(
+            Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable)),
+            2,
+            Nullability::Nullable,
+        );
+        let expr = variant_get(root(), VariantPath::root(), Some(target));
+        let result = input.apply(&expr)?.execute::<ArrayRef>(&mut ctx)?;
+        let scalar0 = result.execute_scalar(0, &mut ctx)?;
+        assert_eq!(
+            scalar0.as_list().elements().map(|elems| elems
+                .into_iter()
+                .map(|e| e.as_primitive().typed_value::<i32>())
+                .collect::<Vec<_>>()),
+            Some(vec![Some(1), Some(2)])
+        );
+        assert!(result.is_invalid(1, &mut ctx)?);
         Ok(())
     }
 }
