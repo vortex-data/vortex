@@ -577,20 +577,28 @@ fn union_shredding_moves_values_into_members() -> VortexResult<()> {
     let schema = object(&[("n", union(&[("int", int(PType::I64)), ("str", utf8())]))]);
     let shredded = shred_into_union(array, schema)?;
 
-    let variant = shredded
-        .clone()
-        .execute::<VariantArray>(&mut SESSION.create_execution_ctx())?;
-    let shredded_dtype = variant
+    // `n` keeps the values that fit no member, so it canonicalizes to a nested Variant whose own
+    // shredded child is the union.
+    let mut ctx = SESSION.create_execution_ctx();
+    let variant = shredded.clone().execute::<VariantArray>(&mut ctx)?;
+    let fields = variant
         .shredded()
         .ok_or_else(|| vortex_err!("not shredded"))?
-        .dtype()
-        .clone();
-    assert!(super::has_union(&shredded_dtype), "{shredded_dtype}");
+        .clone()
+        .execute::<StructArray>(&mut ctx)?;
+    let n = fields
+        .unmasked_field_by_name("n")?
+        .clone()
+        .execute::<VariantArray>(&mut ctx)?;
+    let n_dtype = n
+        .shredded()
+        .ok_or_else(|| vortex_err!("n is not shredded"))?
+        .dtype();
+    assert!(n_dtype.is_union(), "{n_dtype}");
 
-    let mut ctx = SESSION.create_execution_ctx();
     assert_arrays_eq!(
         get(shredded.clone(), &["n"], int(PType::I64))?,
-        PrimitiveArray::from_option_iter([Some(1i64), None, None, None]),
+        PrimitiveArray::from_option_iter([Some(1i64), None, Some(1), None]),
         &mut ctx
     );
     assert_arrays_eq!(
@@ -600,7 +608,7 @@ fn union_shredding_moves_values_into_members() -> VortexResult<()> {
     );
     assert_arrays_eq!(
         get(shredded, &["n"], boolean())?,
-        BoolArray::from_iter([None, None, Some(true), None]),
+        BoolArray::from_iter([Some(true), None, Some(true), None]),
         &mut ctx
     );
     Ok(())
