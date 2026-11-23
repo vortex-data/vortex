@@ -23,9 +23,10 @@ impl TimedLaunchStrategy {
 }
 
 impl LaunchStrategy for TimedLaunchStrategy {
-    fn event_flags(&self) -> CUevent_flags {
-        // using blocking_sync to make sure all events flush before we complete.
-        CUevent_flags::CU_EVENT_BLOCKING_SYNC
+    fn event_flags(&self) -> Option<CUevent_flags> {
+        // Let the benchmark thread block rather than busy-wait while `duration()`
+        // waits for the CUDA events recorded just before and just after the kernel.
+        Some(CUevent_flags::CU_EVENT_BLOCKING_SYNC)
     }
 
     fn on_complete(&self, events: &CudaKernelEvents, _len: usize) -> VortexResult<()> {
