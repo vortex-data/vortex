@@ -283,3 +283,6 @@ impl ScalarFnVTable for Boolean {
         true
     }
 }
+
+#[cfg(test)]
+mod tests;

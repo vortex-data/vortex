@@ -177,7 +177,7 @@ pub fn bound_boolean(
         .vortex_expect("boolean expressions must have compatible operand dtypes")
 }
 
-/// Creates a arithmetic expression with the given operator.
+/// Creates an arithmetic expression with the given operator.
 pub fn numeric(operator: NumericOperator, lhs: Expression, rhs: Expression) -> Expression {
     Numeric
         .try_new_expr(operator, [lhs, rhs])
@@ -220,7 +220,7 @@ pub fn bound_numeric(
 pub fn eq(lhs: Expression, rhs: Expression) -> Expression {
     Compare
         .try_new_expr(CompareOperator::Eq, [lhs, rhs])
-        .vortex_expect("Failed to create Eq binary expression")
+        .vortex_expect("Failed to create Eq comparison expression")
 }
 
 /// Creates a bound equality expression.
@@ -253,7 +253,7 @@ pub fn bound_eq(lhs: BoundExpression, rhs: BoundExpression) -> BoundExpression {
 pub fn not_eq(lhs: Expression, rhs: Expression) -> Expression {
     Compare
         .try_new_expr(CompareOperator::NotEq, [lhs, rhs])
-        .vortex_expect("Failed to create NotEq binary expression")
+        .vortex_expect("Failed to create NotEq comparison expression")
 }
 
 /// Creates a bound inequality expression.
@@ -286,7 +286,7 @@ pub fn bound_not_eq(lhs: BoundExpression, rhs: BoundExpression) -> BoundExpressi
 pub fn gt_eq(lhs: Expression, rhs: Expression) -> Expression {
     Compare
         .try_new_expr(CompareOperator::Gte, [lhs, rhs])
-        .vortex_expect("Failed to create Gte binary expression")
+        .vortex_expect("Failed to create Gte comparison expression")
 }
 
 /// Creates a bound greater-than-or-equal expression.
@@ -319,7 +319,7 @@ pub fn bound_gt_eq(lhs: BoundExpression, rhs: BoundExpression) -> BoundExpressio
 pub fn gt(lhs: Expression, rhs: Expression) -> Expression {
     Compare
         .try_new_expr(CompareOperator::Gt, [lhs, rhs])
-        .vortex_expect("Failed to create Gt binary expression")
+        .vortex_expect("Failed to create Gt comparison expression")
 }
 
 /// Creates a bound greater-than expression.
@@ -352,7 +352,7 @@ pub fn bound_gt(lhs: BoundExpression, rhs: BoundExpression) -> BoundExpression {
 pub fn lt_eq(lhs: Expression, rhs: Expression) -> Expression {
     Compare
         .try_new_expr(CompareOperator::Lte, [lhs, rhs])
-        .vortex_expect("Failed to create Lte binary expression")
+        .vortex_expect("Failed to create Lte comparison expression")
 }
 
 /// Creates a bound less-than-or-equal expression.
@@ -385,7 +385,7 @@ pub fn bound_lt_eq(lhs: BoundExpression, rhs: BoundExpression) -> BoundExpressio
 pub fn lt(lhs: Expression, rhs: Expression) -> Expression {
     Compare
         .try_new_expr(CompareOperator::Lt, [lhs, rhs])
-        .vortex_expect("Failed to create Lt binary expression")
+        .vortex_expect("Failed to create Lt comparison expression")
 }
 
 /// Creates a bound less-than expression.
@@ -416,7 +416,7 @@ pub fn bound_lt(lhs: BoundExpression, rhs: BoundExpression) -> BoundExpression {
 pub fn or(lhs: Expression, rhs: Expression) -> Expression {
     Boolean
         .try_new_expr(BooleanOperator::Or, [lhs, rhs])
-        .vortex_expect("Failed to create Or binary expression")
+        .vortex_expect("Failed to create Or boolean expression")
 }
 
 /// Creates a bound boolean OR expression.
@@ -468,7 +468,7 @@ where
 pub fn and(lhs: Expression, rhs: Expression) -> Expression {
     Boolean
         .try_new_expr(BooleanOperator::And, [lhs, rhs])
-        .vortex_expect("Failed to create And binary expression")
+        .vortex_expect("Failed to create And boolean expression")
 }
 
 /// Creates a bound boolean AND expression.
@@ -519,7 +519,7 @@ where
 pub fn checked_add(lhs: Expression, rhs: Expression) -> Expression {
     Numeric
         .try_new_expr(NumericOperator::Add, [lhs, rhs])
-        .vortex_expect("Failed to create Add binary expression")
+        .vortex_expect("Failed to create Add arithmetic expression")
 }
 
 /// Creates a bound checked-add expression.

@@ -22,17 +22,6 @@ pub enum BooleanOperator {
     Or,
 }
 
-impl BooleanOperator {
-    /// Returns the operator that De Morgan's laws pair with this one: `AND` for `OR`, and `OR`
-    /// for `AND`.
-    pub fn inverse(self) -> Self {
-        match self {
-            BooleanOperator::And => BooleanOperator::Or,
-            BooleanOperator::Or => BooleanOperator::And,
-        }
-    }
-}
-
 impl Display for BooleanOperator {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         let display = match self {
