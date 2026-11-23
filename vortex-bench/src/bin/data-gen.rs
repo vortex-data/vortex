@@ -6,9 +6,15 @@
 //! This binary generates benchmark data for all formats needed, consolidating
 //! data generation that was previously duplicated across datafusion-bench and duckdb-bench.
 
+use std::path::Path;
+use std::process::Command;
+
 use clap::Parser;
 use clap::value_parser;
 use mimalloc::MiMalloc;
+use tracing::info;
+use vortex::error::VortexExpect;
+use vortex_bench::Benchmark;
 use vortex_bench::BenchmarkArg;
 use vortex_bench::CompactionStrategy;
 use vortex_bench::Format;
@@ -17,7 +23,7 @@ use vortex_bench::Opt;
 use vortex_bench::Opts;
 use vortex_bench::conversions::convert_parquet_directory_to_vortex;
 use vortex_bench::create_benchmark;
-use vortex_bench::generate_duckdb;
+use vortex_bench::generate_duckdb_registration_sql;
 use vortex_bench::parquet_copies::SizeFormat;
 use vortex_bench::parquet_copies::write_size_format;
 use vortex_bench::setup_logging_and_tracing_with_format;
@@ -108,6 +114,60 @@ async fn main() -> anyhow::Result<()> {
             tokio::task::spawn_blocking(move || write_size_format(&base_path, format)).await??;
         }
     }
+
+    Ok(())
+}
+
+/// Generate a DuckDB database from Parquet files using the DuckDB CLI.
+fn generate_duckdb(base_path: &Path, benchmark: &dyn Benchmark) -> anyhow::Result<()> {
+    let duckdb_dir = base_path.join(Format::OnDiskDuckDB.name());
+    std::fs::create_dir_all(&duckdb_dir)?;
+
+    let db_path = duckdb_dir.join("duckdb.db");
+    let tmp_path = duckdb_dir.join("duckdb.db.tmp");
+    let tmp_wal_path = duckdb_dir.join("duckdb.db.tmp.wal");
+
+    // Remove any stale staging files from an earlier interrupted run.
+    for path in [&tmp_path, &tmp_wal_path] {
+        if let Err(err) = std::fs::remove_file(path)
+            && err.kind() != std::io::ErrorKind::NotFound
+        {
+            return Err(err.into());
+        }
+    }
+
+    // Skip if database already exists
+    if db_path.exists() {
+        info!("DuckDB database already exists at {}", db_path.display());
+        return Ok(());
+    }
+
+    let parquet_dir = base_path.join(Format::Parquet.name());
+    let sql = generate_duckdb_registration_sql(
+        benchmark,
+        parquet_dir
+            .to_str()
+            .vortex_expect("value must be str displayable"),
+        Format::Parquet,
+        "TABLE",
+    );
+
+    for stmt in sql.into_iter() {
+        let output = Command::new("duckdb")
+            .arg(&tmp_path)
+            .arg("-c")
+            .arg(&stmt)
+            .output()?;
+
+        if !output.status.success() {
+            drop(std::fs::remove_file(&tmp_path));
+            drop(std::fs::remove_file(&tmp_wal_path));
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            anyhow::bail!("DuckDB CLI failed: {}", stderr);
+        }
+    }
+
+    std::fs::rename(&tmp_path, &db_path)?;
 
     Ok(())
 }
