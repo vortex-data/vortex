@@ -169,6 +169,24 @@ jobs:
             -v "COMMIT=${{ inputs.commit }}" \
             -v "ARTIFACT_URL=${{ inputs.artifact_url }}"
 
+      - name: Alert incident.io on new fuzzer issue
+        if: steps.report.outputs.issue_created == 'true'
+        uses: ./.github/actions/alert-incident-io
+        with:
+          api-key: ${{ secrets.incident_io_alert_token }}
+          alert-title: "Fuzzer issue #${{ steps.report.outputs.issue_number }}: crash in ${{ inputs.fuzz_name || inputs.fuzz_target }}"
+          alert-description: |
+            The ${{ inputs.fuzz_name || inputs.fuzz_target }} fuzzer found a new crash on ${{ inputs.branch }} at ${{ inputs.commit }}.
+            ${{ github.server_url }}/${{ github.repository }}/issues/${{ steps.report.outputs.issue_number }}
+          deduplication-key: on-call-fuzzer-${{ steps.report.outputs.issue_number }}
+          source-url: ${{ github.server_url }}/${{ github.repository }}/issues/${{ steps.report.outputs.issue_number }}
+          custom-fields: |
+            {
+              "kind": "Issue",
+              "reason": "fuzzer",
+              "fuzz_target": "${{ inputs.fuzz_target }}"
+            }
+
       - name: Alert incident.io on validation failure
         if: failure() && steps.report.outputs.validation_failed == 'true'
         uses: ./.github/actions/alert-incident-io

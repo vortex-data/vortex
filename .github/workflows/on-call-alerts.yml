@@ -1,0 +1,76 @@
+#  SPDX-License-Identifier: Apache-2.0
+#  SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+# Pages the incident.io on-call for issues and PRs opened by external contributors, and for
+# issues that a person labels `fuzzer`. Fuzzer issues filed by the fuzz workflows alert from
+# report-fuzz-crash.yml, because events from GITHUB_TOKEN do not start other workflows.
+name: On-call Alerts
+
+on:
+  issues:
+    types: [opened, labeled]
+  # Safe: the job checks out only the base branch's .github/actions and runs no PR code.
+  pull_request_target:
+    types: [opened, reopened]
+
+permissions:
+  contents: read
+
+jobs:
+  alert:
+    name: Alert on-call
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      # GitHub logins of the Vortex team at Spiral. Anyone else is an external contributor.
+      TEAM: >-
+        0ax1 a10y AdamGS blaginin connortsui20 danking delta003 gargiulofrancesco gatesn
+        HarukiMoriarty joseph-isaacs lwwmanning mhk197 mprammer myrrc onursatici palaska
+        robert3005
+      KIND: ${{ github.event.pull_request && 'PR' || 'Issue' }}
+      NUMBER: ${{ github.event.pull_request.number || github.event.issue.number }}
+      AUTHOR: ${{ github.event.pull_request.user.login || github.event.issue.user.login }}
+      AUTHOR_TYPE: ${{ github.event.pull_request.user.type || github.event.issue.user.type }}
+    steps:
+      - name: Classify event
+        id: classify
+        env:
+          ACTION: ${{ github.event.action }}
+          LABEL: ${{ github.event.label.name }}
+        run: |
+          reason=""
+          if [ "$ACTION" = "labeled" ]; then
+            [ "$LABEL" = "fuzzer" ] && reason="fuzzer"
+          elif [ "$AUTHOR_TYPE" != "Bot" ] && ! tr ' ' '\n' <<< "$TEAM" | grep -qixF "$AUTHOR"; then
+            reason="external"
+          fi
+          echo "reason=$reason" >> "$GITHUB_OUTPUT"
+          echo "$KIND #$NUMBER by $AUTHOR: reason='${reason:-none}'"
+
+      - name: Checkout alert action
+        if: steps.classify.outputs.reason != ''
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          sparse-checkout: .github/actions
+          persist-credentials: false
+
+      - name: Alert incident.io
+        if: steps.classify.outputs.reason != ''
+        uses: ./.github/actions/alert-incident-io
+        with:
+          api-key: ${{ secrets.INCIDENT_IO_ALERT_TOKEN }}
+          alert-title: >-
+            ${{ steps.classify.outputs.reason == 'fuzzer' && 'Fuzzer issue' || format('External {0}', env.KIND) }}
+            #${{ env.NUMBER }}: ${{ github.event.pull_request.title || github.event.issue.title }}
+          alert-description: |
+            ${{ env.KIND }} #${{ env.NUMBER }} by @${{ env.AUTHOR }} needs triage by the on-call.
+            ${{ github.event.pull_request.html_url || github.event.issue.html_url }}
+          deduplication-key: on-call-${{ steps.classify.outputs.reason }}-${{ env.NUMBER }}
+          source-url: ${{ github.event.pull_request.html_url || github.event.issue.html_url }}
+          custom-fields: |
+            {
+              "kind": "${{ env.KIND }}",
+              "reason": "${{ steps.classify.outputs.reason }}",
+              "author": "${{ env.AUTHOR }}"
+            }
