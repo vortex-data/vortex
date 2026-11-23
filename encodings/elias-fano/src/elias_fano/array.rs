@@ -14,8 +14,10 @@ use super::vtable::EliasFano;
 pub struct EliasFanoSlots {
     /// The number of values in each bucket of high bits.
     ///
-    /// It must be [`Unary`](crate::Unary) encoded for Elias-Fano's space bound of about
-    /// `2 + lower_bits` bits per value. The EF scheme in `vortex-btrblocks` forces that.
+    /// It must be [`Unary`](crate::Unary) encoded for Elias-Fano's space bound of at most
+    /// `3 + lower_bits` bits per value: [`elias_fano_lower_bits`](crate::elias_fano_lower_bits)
+    /// leaves at most two buckets per value, and `Unary` takes one bit per value and one per
+    /// bucket. The EF scheme in `vortex-btrblocks` forces that.
     #[slot(0)]
     pub upper: ArrayRef,
     /// The low `lower_bits` bits of each value.
@@ -23,9 +25,13 @@ pub struct EliasFanoSlots {
     pub lower: ArrayRef,
 }
 
-/// The parts of an [`EliasFano`] array besides its children.
+/// The data of an [`EliasFano`] array besides its children: the logical bit width of the low
+/// parts.
 #[derive(Clone, Debug)]
 pub struct EliasFanoData {
+    /// The logical bit width of each value's low part. `lower` keeps the array's dtype, but every
+    /// value in it is below `2^lower_bits`, and the bits above, `value >> lower_bits`, pick the
+    /// value's bucket in `upper`.
     pub(super) lower_bits: u8,
 }
 
@@ -36,7 +42,7 @@ impl Display for EliasFanoData {
 }
 
 /// Accessors for an [`EliasFano`] array.
-pub trait EliasFanoArrayExt: EliasFanoArraySlotsExt {
+pub trait EliasFanoArrayExt: TypedArrayRef<EliasFano> {
     /// How many low bits of each value `lower` holds.
     fn lower_bits(&self) -> u8 {
         self.lower_bits

@@ -8,15 +8,15 @@ use prost::Message;
 use rstest::rstest;
 use vortex_array::Array;
 use vortex_array::ArrayContext;
+use vortex_array::ArrayDeserialization;
 use vortex_array::ArrayParts;
+use vortex_array::ArrayPlugin;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionStep;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::arrays::Widen;
-use vortex_array::arrays::widen::WidenArraySlotsExt;
 use vortex_array::assert_arrays_eq;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::compute::conformance::consistency::test_array_consistency;
@@ -60,10 +60,7 @@ fn primitive(ptype: PType, values: &[u64]) -> PrimitiveArray {
 }
 
 fn encode_as(ptype: PType, values: &[u64]) -> VortexResult<Option<EliasFanoArray>> {
-    elias_fano_encode(
-        primitive(ptype, values).as_ref().as_::<Primitive>(),
-        &mut SESSION.create_execution_ctx(),
-    )
+    elias_fano_encode(primitive(ptype, values).as_ref().as_::<Primitive>())
 }
 
 fn serde_roundtrip(array: &ArrayRef) -> VortexResult<ArrayRef> {
@@ -72,6 +69,7 @@ fn serde_roundtrip(array: &ArrayRef) -> VortexResult<ArrayRef> {
     for buffer in array.serialize(&array_ctx, &SESSION, &SerializeOptions::default())? {
         concat.extend_from_slice(buffer.as_ref());
     }
+
     SerializedArray::try_from(concat.freeze())?.decode(
         array.dtype(),
         array.len(),
@@ -85,12 +83,8 @@ fn test_layout_example() -> VortexResult<()> {
     let array = encode_as(PType::U64, &[3, 4, 9])?
         .ok_or_else(|| vortex_err!("the example did not encode"))?;
     let mut ctx = SESSION.create_execution_ctx();
+
     assert_eq!(array.lower_bits, 1);
-    // No count exceeds 1, so `upper` stores them as `u8` under its `u64` dtype.
-    assert_eq!(
-        array.upper().as_::<Widen>().values().dtype(),
-        &DType::Primitive(PType::U8, NonNullable)
-    );
     assert_arrays_eq!(
         array.upper().clone(),
         PrimitiveArray::from_iter([0u64, 1, 1, 0, 1]),
@@ -101,6 +95,7 @@ fn test_layout_example() -> VortexResult<()> {
         PrimitiveArray::from_iter([1u64, 0, 1]),
         &mut ctx
     );
+
     Ok(())
 }
 
@@ -114,19 +109,18 @@ fn test_layout_example() -> VortexResult<()> {
 #[case::squares(PType::U64, (0..1000).map(|i| i * i).collect())]
 fn test_roundtrip(#[case] ptype: PType, #[case] values: Vec<u64>) -> VortexResult<()> {
     let expected = primitive(ptype, &values);
-    let ef = encode_as(ptype, &values)?
-        .ok_or_else(|| vortex_err!("{} values did not encode", values.len()))?;
-    let encoded = ef.clone().into_array();
+    let encoded = encode_as(ptype, &values)?
+        .ok_or_else(|| vortex_err!("{} values did not encode", values.len()))?
+        .into_array();
     let mut ctx = SESSION.create_execution_ctx();
     assert_arrays_eq!(encoded, expected, &mut ctx);
-    // `Widen` has no wire form, so the counts are written as a `u64` Primitive.
-    let counts = ef.upper().clone().execute::<PrimitiveArray>(&mut ctx)?;
-    let writable =
-        EliasFano::try_new(counts.into_array(), ef.lower().clone(), ef.lower_bits())?.into_array();
-    let decoded = serde_roundtrip(&writable)?;
+
+    let decoded = serde_roundtrip(&encoded)?;
     assert!(decoded.is::<EliasFano>());
     assert_arrays_eq!(decoded, expected, &mut ctx);
+
     test_array_consistency(&encoded, &mut ctx);
+
     Ok(())
 }
 
@@ -148,6 +142,7 @@ fn test_unary_upper(#[case] ptype: PType, #[case] values: Vec<u64>) -> VortexRes
     let upper = unary_encode(counts.as_ref().as_::<Primitive>(), &mut ctx)?
         .ok_or_else(|| vortex_err!("the counts did not encode"))?;
     let array = EliasFano::try_new(upper.into_array(), ef.lower().clone(), ef.lower_bits())?;
+
     // The bits are decoded as they are, without executing `upper` first.
     assert!(matches!(
         EliasFano::execute(array.clone(), &mut ctx)?.step(),
@@ -155,11 +150,14 @@ fn test_unary_upper(#[case] ptype: PType, #[case] values: Vec<u64>) -> VortexRes
     ));
     let array = array.into_array();
     assert_arrays_eq!(array, expected, &mut ctx);
+
     // It reads back with `upper` still in Unary.
     let decoded = serde_roundtrip(&array)?;
     assert!(decoded.as_::<EliasFano>().upper().is::<Unary>());
     assert_arrays_eq!(decoded, expected, &mut ctx);
+
     test_array_consistency(&array, &mut ctx);
+
     Ok(())
 }
 
@@ -172,21 +170,19 @@ fn test_encode_returns_none() -> VortexResult<()> {
     ];
     for input in inputs {
         assert!(
-            elias_fano_encode(
-                input.as_ref().as_::<Primitive>(),
-                &mut SESSION.create_execution_ctx()
-            )?
-            .is_none(),
+            elias_fano_encode(input.as_ref().as_::<Primitive>())?.is_none(),
             "{} encoded",
             input.dtype()
         );
     }
+
     Ok(())
 }
 
 #[test]
 fn test_rejects() -> VortexResult<()> {
     let u64s = |values: &[u64]| primitive(PType::U64, values).into_array();
+
     let rejected = [
         (
             "lower_bits at the bit width",
@@ -238,6 +234,7 @@ fn test_rejects() -> VortexResult<()> {
         ))
         .is_err()
     );
+
     // One slot short.
     assert!(
         Array::try_from_parts(ArrayParts::new(
@@ -265,12 +262,14 @@ fn test_rejects() -> VortexResult<()> {
             1,
         ),
     ];
+
     let mut ctx = SESSION.create_execution_ctx();
     for (case, counts, lower, lower_bits) in undecodable {
         // Each case runs on the counts, and on the same counts in Unary, which decodes its bits.
         let unary = unary_encode(counts.as_::<Primitive>(), &mut ctx)?
             .ok_or_else(|| vortex_err!("the counts for {case} did not encode"))?
             .into_array();
+
         for upper in [counts, unary] {
             let array = EliasFano::try_new(upper, lower.clone(), lower_bits)?.into_array();
             assert!(
@@ -279,6 +278,7 @@ fn test_rejects() -> VortexResult<()> {
             );
         }
     }
+
     Ok(())
 }
 
@@ -297,18 +297,28 @@ fn test_deserialize_rejects() -> VortexResult<()> {
         primitive(PType::U64, &[0]).into_array(),
     ];
     let deserialize = |metadata: &[u8], buffers: &[BufferHandle], children: &[ArrayRef]| {
-        VTable::deserialize(
-            &EliasFano, &dtype, 1, metadata, buffers, &children, &SESSION,
+        ArrayPlugin::deserialize(
+            &EliasFano,
+            ArrayDeserialization::new(
+                VTable::id(&EliasFano),
+                &dtype,
+                1,
+                metadata,
+                buffers,
+                &children,
+            ),
+            &SESSION,
         )
-        .and_then(Array::try_from_parts)
     };
 
     deserialize(&metadata(0), &[], &children)?;
+
     let buffer = BufferHandle::new_host(buffer![0u8]);
     assert!(deserialize(&metadata(0), &[buffer], &children).is_err());
     assert!(deserialize(&metadata(0), &[], &children[..1]).is_err());
     // Too wide for the `u8` that holds `lower_bits`, where a cast would wrap it to 0.
     assert!(deserialize(&metadata(256), &[], &children).is_err());
+
     Ok(())
 }
 

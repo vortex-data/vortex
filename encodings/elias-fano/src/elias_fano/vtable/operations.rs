@@ -26,6 +26,7 @@ impl OperationsVTable<EliasFano> for EliasFano {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
         let missing = || vortex_err!("EliasFanoArray has no bucket for index {index}");
+
         let bucket = match array.upper().as_opt::<Unary>() {
             // The value is the `index`-th set bit, and each unset bit before it closes a bucket.
             Some(upper) => upper.to_bit_buffer().select(index).ok_or_else(missing)? - index,
@@ -33,6 +34,7 @@ impl OperationsVTable<EliasFano> for EliasFano {
                 let counts = array.upper().clone().execute::<PrimitiveArray>(ctx)?;
                 let index = u128::try_from(index)?;
                 let mut seen = 0;
+
                 counts
                     .as_slice::<u64>()
                     .iter()
@@ -43,6 +45,7 @@ impl OperationsVTable<EliasFano> for EliasFano {
                     .ok_or_else(missing)?
             }
         };
+
         let low = array
             .lower()
             .execute_scalar(index, ctx)?
@@ -54,6 +57,7 @@ impl OperationsVTable<EliasFano> for EliasFano {
             0,
             "EliasFanoArray low bits must fit in lower_bits"
         );
+
         let value = (u64::try_from(bucket)? << array.lower_bits) | low;
         // `validate` keeps every bucket's high bits within the ptype.
         Ok(match_each_unsigned_integer_ptype!(

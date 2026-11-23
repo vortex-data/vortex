@@ -12,6 +12,7 @@ pub use array::EliasFanoData;
 
 mod compress;
 pub use compress::elias_fano_encode;
+pub use compress::elias_fano_lower_bits;
 
 mod vtable;
 pub use vtable::EliasFano;

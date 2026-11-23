@@ -20,6 +20,7 @@ use vortex_elias_fano::EliasFanoArrayExt;
 use vortex_elias_fano::EliasFanoArraySlotsExt;
 use vortex_elias_fano::Unary;
 use vortex_elias_fano::elias_fano_encode;
+use vortex_elias_fano::elias_fano_lower_bits;
 use vortex_elias_fano::unary_encode;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -72,13 +73,15 @@ impl Scheme for EliasFanoScheme {
         // The split `elias_fano_encode` makes once FoR has removed the minimum.
         let len = data.array_len() as u64;
         let range = data.integer_stats(exec_ctx).erased().max_minus_min();
-        let lower_bits = (range / len).checked_ilog2().unwrap_or(0);
+        let lower_bits = elias_fano_lower_bits(range, data.array_len());
         let buckets = (range >> lower_bits) + 1;
+
         // `unary_encode` refuses counts that average more than 63 values per bucket, which
         // run-length and dictionary encodings suit better.
         if buckets.saturating_mul(63) < len {
             return CompressionEstimate::Verdict(EstimateVerdict::Skip);
         }
+
         // `len + buckets` upper bits, and `lower_bits` lower bits per value, which BitPacked pads
         // to whole `FL_CHUNK_SIZE` chunks.
         let padded_len = data.array_len().next_multiple_of(FL_CHUNK_SIZE);
@@ -87,13 +90,16 @@ impl Scheme for EliasFanoScheme {
             + padded_len as f64 / len as f64 * f64::from(lower_bits);
         let ratio = data.array_as_primitive().ptype().bit_width() as f64 / bits_per_value;
 
+        // The ratio is exact, but EF needs sorted input, and confirming that reads every value
+        // unless the statistic is cached. So the estimate is deferred, and the check runs only
+        // when EF could beat the best scheme so far.
         CompressionEstimate::Deferred(DeferredEstimate::Callback(Box::new(
             move |_compressor, data, best_so_far, _ctx, exec_ctx| {
-                // The sorted check reads every value, so it runs only when EF could win.
                 let threshold = best_so_far.and_then(EstimateScore::finite_ratio);
                 if threshold.is_some_and(|t| ratio <= t) || !is_sorted(data.array(), exec_ctx)? {
                     return Ok(EstimateVerdict::Skip);
                 }
+
                 Ok(EstimateVerdict::Ratio(ratio))
             },
         )))
@@ -111,16 +117,18 @@ impl Scheme for EliasFanoScheme {
         let FoRReferences::Global(reference) = for_array.references() else {
             vortex_bail!("FoR::encode produced per-chunk references");
         };
+
         let biased = for_array
             .encoded()
             .clone()
             .execute::<PrimitiveArray>(exec_ctx)?;
-        let ef = elias_fano_encode(biased.as_view(), exec_ctx)?
+        let ef = elias_fano_encode(biased.as_view())?
             .ok_or_else(|| vortex_err!("cannot Elias-Fano encode an unsorted array"))?;
 
         let counts = ef.upper().clone().execute::<PrimitiveArray>(exec_ctx)?;
         let upper = unary_encode(counts.as_view(), exec_ctx)?
             .ok_or_else(|| vortex_err!("Elias-Fano bucket counts do not fit Unary"))?;
+
         let lows = ArrayAndStats::new(ef.lower().clone(), compress_ctx.merged_stats_options());
         let lower = BITPACKING_V1.compress(compressor, &lows, compress_ctx, exec_ctx)?;
 
@@ -172,6 +180,7 @@ mod tests {
         // Sorted, but with too many values per bucket for Unary, so the scheme skips them.
         let duplicates = PrimitiveArray::from_iter((0..4096u64).map(|i| i / 410)).into_array();
         assert!(!compressor.compress(&duplicates, &mut ctx)?.is::<FoR>());
+
         Ok(())
     }
 }
