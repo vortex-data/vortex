@@ -13,8 +13,8 @@ use crate::arrays::VarBinArray;
 use crate::arrays::varbin::VarBinArraySlotsExt;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
-use crate::scalar_fn::fns::cast::CastKernel;
-use crate::scalar_fn::fns::cast::CastReduce;
+use crate::scalar_fn::builtin::cast::CastKernel;
+use crate::scalar_fn::builtin::cast::CastReduce;
 use crate::validity::Validity;
 
 fn build_with_validity(

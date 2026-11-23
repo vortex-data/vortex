@@ -13,11 +13,11 @@ use vortex_array::arrays::slice::SliceExecuteAdaptor;
 use vortex_array::arrays::slice::SliceKernel;
 use vortex_array::optimizer::kernels::ArrayKernelsExt;
 use vortex_array::scalar_fn::ScalarFnVTable;
-use vortex_array::scalar_fn::fns::between::Between;
-use vortex_array::scalar_fn::fns::between::BetweenExecuteAdaptor;
-use vortex_array::scalar_fn::fns::binary::Binary;
-use vortex_array::scalar_fn::fns::binary::CompareExecuteAdaptor;
+use vortex_array::scalar_fn::builtin::binary::Binary;
+use vortex_array::scalar_fn::builtin::binary::CompareExecuteAdaptor;
 use vortex_error::VortexResult;
+use vortex_functions::between::Between;
+use vortex_functions::between::BetweenExecuteAdaptor;
 use vortex_session::VortexSession;
 
 use crate::FL_CHUNK_SIZE;

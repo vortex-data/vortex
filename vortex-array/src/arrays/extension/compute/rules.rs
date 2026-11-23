@@ -23,12 +23,10 @@ use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ArrayReduceRule;
 use crate::optimizer::rules::ReduceRuleSet;
 use crate::scalar::Scalar;
-use crate::scalar_fn::fns::cast::Cast;
-use crate::scalar_fn::fns::cast::CastReduceAdaptor;
-use crate::scalar_fn::fns::mask::Mask as MaskFn;
-use crate::scalar_fn::fns::mask::MaskReduceAdaptor;
-use crate::scalar_fn::fns::zip::Zip;
-use crate::scalar_fn::fns::zip::ZipReduceAdaptor;
+use crate::scalar_fn::builtin::cast::Cast;
+use crate::scalar_fn::builtin::cast::CastReduceAdaptor;
+use crate::scalar_fn::builtin::mask::Mask as MaskFn;
+use crate::scalar_fn::builtin::mask::MaskReduceAdaptor;
 
 pub(crate) const RULES: ReduceRuleSet<Extension> = ReduceRuleSet::new(&[&ExtensionConstantRule]);
 
@@ -67,7 +65,6 @@ pub(crate) fn register_parent_rules(session: &VortexSession) {
     kernels.register_reduce_parent_rule(MaskFn, Extension, const { &MaskReduceAdaptor(Extension) });
     kernels.register_reduce_parent_rule(Slice, Extension, const { &SliceReduceAdaptor(Extension) });
     kernels.register_reduce_parent_rule(Dict, Extension, const { &TakeReduceAdaptor(Extension) });
-    kernels.register_reduce_parent_rule(Zip, Extension, const { &ZipReduceAdaptor(Extension) });
 }
 
 /// Push filter operations into the storage array of an extension array.
@@ -126,8 +123,8 @@ mod tests {
     use crate::optimizer::ArrayOptimizer;
     use crate::scalar::Scalar;
     use crate::scalar::ScalarValue;
-    use crate::scalar_fn::fns::binary::Binary;
-    use crate::scalar_fn::fns::operators::Operator;
+    use crate::scalar_fn::builtin::binary::Binary;
+    use crate::scalar_fn::builtin::operators::Operator;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 

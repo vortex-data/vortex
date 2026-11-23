@@ -2,12 +2,10 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 pub(crate) mod cast;
-mod fill_null;
 mod mask;
 pub(crate) mod rules;
 mod slice;
 mod take;
-mod zip;
 
 #[cfg(test)]
 mod tests {
