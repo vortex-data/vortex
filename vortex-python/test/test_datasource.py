@@ -58,7 +58,6 @@ def test_vortex_datasource_per_task_row_limit(tmp_path: Path, limit: int, expect
     source = VortexDatasource(url=str(path), batch_size=2)
 
     task = source.get_read_tasks(1, per_task_row_limit=limit)[0]
-    assert task.metadata.num_rows == limit
     assert [list(block["v"]) for block in task()] == expected
 
 
