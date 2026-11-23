@@ -255,7 +255,7 @@ def test_resolve_axis_targets_skips_jsonbench_vortex_on_duckdb() -> None:
 
     assert targets == [
         BenchmarkTarget(engine=Engine.DATAFUSION, format=Format.PARQUET),
-        BenchmarkTarget(engine=Engine.DATAFUSION, format=Format.VORTEX),
+        BenchmarkTarget(Engine.DATAFUSION, Format.VORTEX, Integration.FILE, ScanEngine.V2),
         BenchmarkTarget(engine=Engine.DUCKDB, format=Format.PARQUET),
     ]
     assert warnings == ["Benchmark jsonbench does not support format vortex on engine duckdb"]
