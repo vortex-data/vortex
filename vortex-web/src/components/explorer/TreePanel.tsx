@@ -8,11 +8,12 @@ import {
   flattenTree,
   filterTreeBySearch,
   findPathToNode,
+  isFlatLayout,
+  findNodeById,
   formatBytes,
   collectSubtreeSegments,
   hasExpandableChildren,
 } from '../swimlane/utils';
-import { useExpandArrayTrees } from '../swimlane/useExpandArrayTrees';
 import { arraySubtreeBytes } from './physicalStats';
 import { Switch } from '../Switch';
 import { TreeRow } from '../swimlane/TreeRow';
@@ -103,7 +104,28 @@ export function TreePanel() {
   }, [selection.hoveredNodeId, file.layoutTree]);
 
   // When a flat layout node is expanded, lazily attach array encoding children.
-  useExpandArrayTrees(expanded, file);
+  // Track requested and failed nodes so pending requests are shared and failures retry after collapse.
+  const expandedArrayRequests = useRef(new Set<string>());
+  const failedArrayRequests = useRef(new Set<string>());
+  useEffect(() => {
+    for (const id of failedArrayRequests.current) {
+      if (!expanded.has(id)) {
+        failedArrayRequests.current.delete(id);
+        expandedArrayRequests.current.delete(id);
+      }
+    }
+    for (const id of expanded) {
+      if (expandedArrayRequests.current.has(id)) continue;
+      const node = findNodeById(file.layoutTree, id);
+      if (node && isFlatLayout(node) && !node.children.some((c) => c.isArrayNode)) {
+        expandedArrayRequests.current.add(id);
+        file.expandArrayTree(id).catch((err) => {
+          console.error('Explorer: failed to expand array tree', err);
+          failedArrayRequests.current.add(id);
+        });
+      }
+    }
+  }, [expanded, file]);
 
   const toggleExpanded = useCallback((id: string) => {
     setExpanded((prev) => {

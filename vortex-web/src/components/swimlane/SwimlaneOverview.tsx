@@ -1,19 +1,20 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-import { useCallback, useMemo, useState, type CSSProperties } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { useVortexFile } from '../../contexts/VortexFileContextCore';
 import { useSelection } from '../../contexts/SelectionContextCore';
 import type { LayoutTreeNode } from './types';
 import {
   buildSegmentIndex,
   flattenTree,
+  findNodeById,
   getNodeDisplayName,
   dtypeClass,
   hasExpandableChildren,
+  isFlatLayout,
   formatBytes,
 } from './utils';
-import { useExpandArrayTrees } from './useExpandArrayTrees';
 import { Icon } from '../Icon';
 import { SwimlaneBar } from './SwimlaneBar';
 import { Tooltip } from './Tooltip';
@@ -61,7 +62,27 @@ export function SwimlaneOverview() {
 
   // Expanding a flat layout node lazily attaches its array-encoding children.
   // The tree is hidden in this view, so the swimlane drives the load itself.
-  useExpandArrayTrees(expanded, file);
+  const arrayRequests = useRef(new Set<string>());
+  const failedArrayRequests = useRef(new Set<string>());
+  useEffect(() => {
+    for (const id of failedArrayRequests.current) {
+      if (!expanded.has(id)) {
+        failedArrayRequests.current.delete(id);
+        arrayRequests.current.delete(id);
+      }
+    }
+    for (const id of expanded) {
+      if (arrayRequests.current.has(id)) continue;
+      const node = findNodeById(file.layoutTree, id);
+      if (node && isFlatLayout(node) && !node.children.some((c) => c.isArrayNode)) {
+        arrayRequests.current.add(id);
+        file.expandArrayTree(id).catch((err) => {
+          console.error('Explorer: failed to expand array tree', err);
+          failedArrayRequests.current.add(id);
+        });
+      }
+    }
+  }, [expanded, file]);
 
   const toggleSelect = useCallback(
     (nodeId: string) => selectNode(selection.selectedNodeId === nodeId ? null : nodeId),
