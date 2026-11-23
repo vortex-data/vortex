@@ -190,7 +190,7 @@ indicatif = "0.18.0"
 insta = "1.43"
 inventory = "0.3.20"
 itertools = "0.14.0"
-jiff = "0.2.28"
+jiff = "1.0.0"
 jni = { version = "0.22.0" }
 lasso = { version = "0.7", features = ["multi-threaded", "inline-more"] }
 libfuzzer-sys = "0.4"
