@@ -1,0 +1,22 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+include ./setup.slt.no
+
+query I
+COPY (SELECT * FROM (VALUES
+    (['apple', 'banana', 'cherry']),
+    (['date', 'elderberry']),
+    (['fig', 'grape', 'honeydew', 'kiwi']),
+    (['lemon', 'mango', 'nectarine'])
+) t(string_list)) TO '${WORK_DIR}/string-lists.vortex';
+----
+4
+
+query ? rowsort
+SELECT string_list FROM '${WORK_DIR}/string-lists.vortex';
+----
+[apple, banana, cherry]
+[date, elderberry]
+[fig, grape, honeydew, kiwi]
+[lemon, mango, nectarine]
