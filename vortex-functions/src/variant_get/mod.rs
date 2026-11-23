@@ -411,27 +411,41 @@ fn cast_variant_scalar(value: Scalar, output_dtype: &DType) -> VortexResult<Opti
     Ok(value
         .cast(output_dtype)
         .ok()
-        .or_else(|| number_as_bool(&value, output_dtype)))
+        .or_else(|| convert_to_bool(&value, output_dtype)))
 }
 
-/// Converts a number to a Boolean as Arrow's Variant conversion does: zero is false and any other
-/// number is true. A Vortex cast does not convert numbers to Booleans.
+/// Converts a number or a string to a Boolean as Arrow's Variant conversion does. A Vortex cast
+/// converts neither to a Boolean.
 ///
-/// The number can be in a Variant, as a partially shredded field holds its values.
-pub(super) fn number_as_bool(scalar: &Scalar, dtype: &DType) -> Option<Scalar> {
+/// Zero is false and any other number is true. A string converts as [`string_as_bool`] reads it.
+/// The value can be in a Variant, as a partially shredded field holds its values.
+pub(super) fn convert_to_bool(scalar: &Scalar, dtype: &DType) -> Option<Scalar> {
     if !dtype.is_boolean() {
         return None;
     }
-    let number = if scalar.dtype().is_variant() {
+
+    let value = if scalar.dtype().is_variant() {
         scalar.as_variant().value()?
     } else {
         scalar
     };
-    if !number.dtype().is_primitive() {
-        return None;
+
+    let boolean = match value.dtype() {
+        DType::Primitive(..) => !value.is_zero()?,
+        DType::Utf8(_) => string_as_bool(value.as_utf8().value()?.as_str())?,
+        _ => return None,
+    };
+    Some(Scalar::bool(boolean, dtype.nullability()))
+}
+
+/// Reads a string as a Boolean with the spellings that Arrow's string cast accepts, ignoring case
+/// and the whitespace around the string. Returns `None` for any other string.
+fn string_as_bool(string: &str) -> Option<bool> {
+    match string.trim().to_ascii_lowercase().as_str() {
+        "t" | "tr" | "tru" | "true" | "y" | "ye" | "yes" | "on" | "1" => Some(true),
+        "f" | "fa" | "fal" | "fals" | "false" | "n" | "no" | "of" | "off" | "0" => Some(false),
+        _ => None,
     }
-    let is_zero = number.is_zero()?;
-    Some(Scalar::bool(!is_zero, dtype.nullability()))
 }
 
 fn variant_path_scalar(

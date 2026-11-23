@@ -28,6 +28,7 @@ use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
+use vortex_mask::Mask;
 use vortex_session::VortexSession;
 
 use crate::builtins::ArrayFunctions;
@@ -35,7 +36,7 @@ use crate::variant_get::VariantGet;
 use crate::variant_get::VariantGetOptions;
 use crate::variant_get::VariantPath;
 use crate::variant_get::VariantPathElement;
-use crate::variant_get::number_as_bool;
+use crate::variant_get::convert_to_bool;
 
 pub(crate) fn initialize(session: &VortexSession) {
     let kernels = session.kernels();
@@ -96,12 +97,27 @@ impl ExecuteParentKernel<Variant> for VariantGetKernel {
                     .dtype()
                     .is_some_and(|dtype| !dtype.is_variant()))
         {
-            return execute_fallback_variant_get(
+            let typed_mask = typed.validity()?.execute_mask(typed.len(), ctx)?;
+            if typed_mask.all_false() {
+                return make_fallback(ctx).map(Some);
+            }
+
+            let nested = execute_fallback_variant_get(
                 VariantGetOptions::new(
                     VariantPath::new(remaining.iter().cloned()),
                     parent.options.dtype().cloned(),
                 ),
                 typed,
+                ctx,
+            )?;
+
+            // A row without the nested Variant can still hold the path in core storage, as the
+            // rows of an unshredded chunk do once canonicalization pads the shredded child.
+            return fill_absent_from_core(
+                nested,
+                typed_mask,
+                array.core_storage(),
+                &parent.options,
                 ctx,
             )
             .map(Some);
@@ -149,47 +165,63 @@ impl ExecuteParentKernel<Variant> for VariantGetKernel {
         // The core storage holds no value of a row that the typed child holds, so a typed value
         // of another dtype than the requested one converts from the typed child.
         let typed = convert_typed(typed, parent.dtype(), ctx)?;
-        if typed_mask.all_true() {
-            return Ok(Some(typed));
-        }
-        // Usually the null typed rows are missing from core storage as well, as for a field
-        // that only some objects have. Extract from just those rows first: when none of them
-        // holds a value, the typed child is the whole answer and the rest of core storage is
-        // never read.
-        let null_rows = !&typed_mask;
-        let null_rows_fallback = execute_fallback_variant_get(
-            parent.options.clone(),
-            array.core_storage().filter(null_rows)?,
+        fill_absent_from_core(
+            typed,
+            typed_mask,
+            array.core_storage(),
+            &parent.options,
             ctx,
-        )?;
-        if null_rows_fallback
-            .validity()?
-            .execute_mask(null_rows_fallback.len(), ctx)?
-            .all_false()
-        {
-            return Ok(Some(typed));
-        }
-
-        // Scatter the extracted rows back to their positions: row `i` reads the extracted row
-        // that it is the n-th null typed row for. Valid typed rows read an arbitrary extracted
-        // row, which the zip discards.
-        let mut extracted = 0u64;
-        let positions = typed_mask
-            .to_bit_buffer()
-            .iter()
-            .map(|valid| {
-                let position = extracted;
-                extracted += u64::from(!valid);
-                position.min(null_rows_fallback.len() as u64 - 1)
-            })
-            .collect::<Buffer<u64>>();
-        let fallback = null_rows_fallback.take(positions.into_array())?;
-        typed_mask
-            .into_array()
-            .zip(typed, fallback)?
-            .execute::<ArrayRef>(ctx)
-            .map(Some)
+        )
+        .map(Some)
     }
+}
+
+/// Fills the rows of `extracted` that `present` marks absent from the shredded child, with the
+/// extraction of the whole path from `core`.
+///
+/// Usually the absent rows are missing from core storage as well, as for a field that only some
+/// objects have. These rows are extracted on their own first: when none of them holds a value,
+/// `extracted` is the whole answer and the rest of core storage is never read.
+fn fill_absent_from_core(
+    extracted: ArrayRef,
+    present: Mask,
+    core: &ArrayRef,
+    options: &VariantGetOptions,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ArrayRef> {
+    if present.all_true() {
+        return Ok(extracted);
+    }
+
+    let absent = execute_fallback_variant_get(options.clone(), core.filter(!&present)?, ctx)?;
+    if absent
+        .validity()?
+        .execute_mask(absent.len(), ctx)?
+        .all_false()
+    {
+        return Ok(extracted);
+    }
+
+    // Scatter the extracted rows back to their positions: row `i` reads the extracted row that
+    // it is the n-th absent row for. Present rows read an arbitrary extracted row, which the zip
+    // discards.
+    let last = absent.len() as u64 - 1;
+    let mut taken = 0u64;
+    let positions = present
+        .to_bit_buffer()
+        .iter()
+        .map(|is_present| {
+            let position = taken;
+            taken += u64::from(!is_present);
+            position.min(last)
+        })
+        .collect::<Buffer<u64>>();
+    let fallback = absent.take(positions.into_array())?;
+
+    present
+        .into_array()
+        .zip(extracted, fallback)?
+        .execute::<ArrayRef>(ctx)
 }
 
 /// Converts the typed values `typed` to `dtype`, as a single value converts: a value that does
@@ -215,7 +247,7 @@ fn convert_typed(typed: ArrayRef, dtype: &DType, ctx: &mut ExecutionCtx) -> Vort
         let converted = scalar
             .cast(dtype)
             .ok()
-            .or_else(|| number_as_bool(&scalar, dtype))
+            .or_else(|| convert_to_bool(&scalar, dtype))
             .unwrap_or_else(|| Scalar::null(dtype.clone()));
         builder.append_scalar(&converted)?;
     }
@@ -311,6 +343,7 @@ mod tests {
     use vortex_array::arrays::ConstantArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::StructArray;
+    use vortex_array::arrays::VarBinViewArray;
     use vortex_array::arrays::VariantArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::builders::VariantBuilder;
@@ -407,6 +440,35 @@ mod tests {
         assert_arrays_eq!(
             actual,
             BoolArray::from_iter([Some(false), Some(true), None]).into_array(),
+            &mut ctx
+        );
+        Ok(())
+    }
+
+    /// A string reads as a Boolean as Arrow's Variant conversion reads it, so a shredded string
+    /// field gives what the unshredded value gives.
+    #[test]
+    fn converts_typed_strings_to_booleans() -> VortexResult<()> {
+        let typed = VarBinViewArray::from_iter_nullable_str([
+            Some("true"),
+            Some(" No "),
+            Some("1"),
+            Some("maybe"),
+            None,
+        ]);
+        let array = shredded_a(typed.into_array())?;
+        let expr = variant_get(
+            root(),
+            VariantPath::field("a"),
+            Some(DType::Bool(Nullability::Nullable)),
+        );
+
+        let mut ctx = SESSION.create_execution_ctx();
+        let actual = array.apply(&expr)?.execute::<ArrayRef>(&mut ctx)?;
+
+        assert_arrays_eq!(
+            actual,
+            BoolArray::from_iter([Some(true), Some(false), Some(true), None, None]).into_array(),
             &mut ctx
         );
         Ok(())

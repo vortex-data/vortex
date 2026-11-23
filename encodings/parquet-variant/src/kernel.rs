@@ -1573,6 +1573,8 @@ mod tests {
         DataType::Int64,
         VortexDType::Primitive(PType::I64, Nullability::Nullable)
     )]
+    // Arrow reads the string "y" as true, so the shredded strings must convert as it does.
+    #[case::strings_as_boolean(DataType::Utf8, VortexDType::Bool(Nullability::Nullable))]
     fn test_variant_get_fills_rows_the_shredded_column_lacks(
         #[case] shredded_type: DataType,
         #[case] requested: VortexDType,
@@ -1610,6 +1612,68 @@ mod tests {
         assert_arrays_eq!(
             execute_variant_get(shredded.into_array(), "$.a", Some(requested))?,
             expected,
+            &mut ctx
+        );
+        Ok(())
+    }
+
+    /// A chunk whose field `b` is shredded with only a `value` column, and an unshredded chunk,
+    /// canonicalize to one Variant whose shredded child is null in the rows of the unshredded
+    /// chunk. Those rows must read `b` from the core storage.
+    #[test]
+    fn test_variant_get_reads_core_for_rows_padded_by_canonicalization() -> VortexResult<()> {
+        // Metadata with the dictionary `["b"]`, and the short string "left".
+        let metadata = binary_view_array(&[b"\x01\x01\x00\x01b".as_slice()]);
+        let b_value = binary_view_array(&[b"\x11left".as_slice()]);
+        let b_shell: ArrowArrayRef = Arc::new(StructArray::try_new(
+            vec![Arc::new(Field::new("value", DataType::BinaryView, true))].into(),
+            vec![b_value],
+            None,
+        )?);
+        let typed_value: ArrowArrayRef = Arc::new(StructArray::try_new(
+            vec![Arc::new(Field::new(
+                "b",
+                b_shell.data_type().clone(),
+                false,
+            ))]
+            .into(),
+            vec![b_shell],
+            None,
+        )?);
+        let storage = StructArray::try_new(
+            vec![
+                Arc::new(Field::new("metadata", DataType::BinaryView, false)),
+                Arc::new(Field::new("value", DataType::BinaryView, true)),
+                Arc::new(Field::new(
+                    "typed_value",
+                    typed_value.data_type().clone(),
+                    true,
+                )),
+            ]
+            .into(),
+            vec![metadata, nullable_binary_view_array(&[None]), typed_value],
+            None,
+        )?;
+        let shredded = ParquetVariant::from_arrow_variant(
+            &ArrowVariantArray::try_new(&storage)?,
+            &SESSION.arrow(),
+        )?;
+        let unshredded = make_unshredded_json_array(vec![Some(r#"{"b":"right"}"#)])?;
+
+        let dtype = shredded.dtype().clone();
+        let chunked = ChunkedArray::try_new([shredded, unshredded], dtype)?.into_array();
+        let mut ctx = SESSION.create_execution_ctx();
+        let Canonical::Variant(canonical) = chunked.execute::<Canonical>(&mut ctx)? else {
+            return Err(vortex_err!("expected canonical variant array"));
+        };
+
+        assert_arrays_eq!(
+            execute_variant_get(
+                canonical.into_array(),
+                "$.b",
+                Some(VortexDType::Utf8(Nullability::Nullable)),
+            )?,
+            VarBinViewArray::from_iter_nullable_str([Some("left"), Some("right")]),
             &mut ctx
         );
         Ok(())
