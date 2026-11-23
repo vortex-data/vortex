@@ -6,10 +6,8 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { EncodingPane } from '../src/components/detail/EncodingPane';
 import type { ArrayEncodingNode, LayoutTreeNode } from '../src/components/swimlane/types';
-import {
-  VortexFileContext,
-  type VortexFileContextValue,
-} from '../src/contexts/VortexFileContextCore';
+import type { VortexFileContextValue } from '../src/contexts/VortexFileContext';
+import { VortexFileContext } from '../src/contexts/VortexFileContextCore';
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
@@ -32,22 +30,26 @@ function deferred<T>(): Deferred<T> {
 function encodingTree(encoding: string): ArrayEncodingNode {
   return {
     encoding,
-    children: [],
-    bufferLengths: [],
+    dtype: 'u8',
     metadataBytes: 0,
+    numBuffers: 0,
+    bufferLengths: [],
+    bufferNames: [],
+    children: [],
+    childNames: [],
   };
 }
 
 function makeNode(id: string, extra: Partial<LayoutTreeNode> = {}): LayoutTreeNode {
   return {
     id,
-    name: id,
     encoding: 'vortex.flat',
     dtype: 'u8',
-    byteSize: 1,
     rowCount: 1,
+    rowOffset: 0,
     metadataBytes: 0,
     segmentIds: [1],
+    childType: { kind: 'root' },
     children: [],
     ...extra,
   };
@@ -122,6 +124,8 @@ describe('EncodingPane', () => {
     expect(container.textContent).not.toContain('primitive');
   });
 
+  // Component contract test: current DetailPanel passes a selection snapshot, so same-id inline
+  // updates do not happen in the app today, but EncodingPane still clears loading if props update.
   test('clears loading when inline metadata is added to a pending node', async () => {
     const req = deferred<ArrayEncodingNode | null>();
     const { container, render } = createHarness(() => req.promise);
