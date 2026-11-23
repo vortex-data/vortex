@@ -46,6 +46,13 @@ static GLOBAL: MiMalloc = MiMalloc;
 
 fn main() {
     LazyLock::force(&SESSION);
+    // Initialize executor globals before CodSpeed starts measuring any benchmark case.
+    let (array, rhs, mut ctx) = setup::<u64>(1);
+    array
+        .binary(rhs, OP)
+        .unwrap()
+        .execute::<BoolArray>(&mut ctx)
+        .unwrap();
     divan::main();
 }
 
