@@ -81,8 +81,6 @@ impl BlockProgram {
             !self.ops.is_empty(),
             "a block program needs at least one op"
         );
-        #[cfg(any(test, feature = "_test-harness"))]
-        super::FUSED_CHAINS.with(|count| count.set(count.get() + 1));
         let (len, out_ptype) = (self.len, *self.ptypes.last().vortex_expect("input type"));
         let mut source = self.source;
         // When every op keeps the width and the source owns its buffer outright, such as a
@@ -97,8 +95,6 @@ impl BlockProgram {
             // SAFETY: `values` holds `len` initialized values of `ptypes[0]`, and every op keeps
             // the width, so each block is overwritten in place.
             unsafe { run_blocks_in_place(&mut self.ops, &self.ptypes, len, values.as_mut_ptr())? };
-            #[cfg(any(test, feature = "_test-harness"))]
-            super::IN_PLACE_CHAINS.with(|count| count.set(count.get() + 1));
             return Ok(PrimitiveArray::from_byte_buffer(
                 values.freeze(),
                 out_ptype,
