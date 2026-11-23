@@ -934,6 +934,90 @@ fn test_literal_rejected_by_importer_is_unsupported() -> anyhow::Result<()> {
     Ok(())
 }
 
+const ABSOLUTE_EXTENSION_NAME: &str = "test.absolute";
+static ABSOLUTE_ID: CachedId = CachedId::new(ABSOLUTE_EXTENSION_NAME);
+
+/// An Arrow importer that imports every `Int32` as its absolute value, so two Arrow values can
+/// import as one Vortex value.
+#[derive(Debug)]
+struct AbsoluteValueImporter;
+
+impl ArrowImportVTable for AbsoluteValueImporter {
+    fn arrow_ext_id(&self) -> Id {
+        *ABSOLUTE_ID
+    }
+
+    fn from_arrow_field(
+        &self,
+        field: &Field,
+        session: &ArrowSession,
+    ) -> VortexResult<Option<DType>> {
+        session
+            .from_arrow_datatype(field.data_type(), field.is_nullable().into())
+            .map(Some)
+    }
+
+    fn from_arrow_array(
+        &self,
+        array: ArrowArrayRef,
+        field: &Field,
+        _dtype: &DType,
+        session: &ArrowSession,
+    ) -> VortexResult<ArrowImport> {
+        let Some(values) = array.as_any().downcast_ref::<Int32Array>() else {
+            vortex_bail!(
+                "{ABSOLUTE_EXTENSION_NAME} imports Int32, got {}",
+                array.data_type()
+            );
+        };
+        let absolute: Int32Array = values.unary(i32::wrapping_abs);
+
+        session
+            .from_arrow_array(Arc::new(absolute), field.is_nullable())
+            .map(ArrowImport::Imported)
+    }
+}
+
+/// A literal with an importer converts only if it exports back to its own Arrow value.
+///
+/// DataFusion distinguishes `1` from `-1`, but both import as `1`, including in a struct child.
+#[rstest]
+#[case::keeps_value(1, true)]
+#[case::changes_value(-1, false)]
+fn test_literal_importer_must_round_trip(
+    #[case] value: i32,
+    #[case] expect_native: bool,
+    #[values(false, true)] nested: bool,
+) -> anyhow::Result<()> {
+    let session = VortexSession::default();
+    session
+        .arrow()
+        .register_importer(Arc::new(AbsoluteValueImporter));
+    let field = Field::new("v", DataType::Int32, false).with_metadata(Metadata::from_iter([(
+        EXTENSION_TYPE_NAME_KEY.to_string(),
+        ABSOLUTE_EXTENSION_NAME.to_string(),
+    )]));
+    let literal = if nested {
+        let structure = StructArray::try_new(
+            vec![field].into(),
+            vec![Arc::new(Int32Array::from(vec![value]))],
+            None,
+        )?;
+        df_expr::Literal::new(ScalarValue::Struct(Arc::new(structure)))
+    } else {
+        df_expr::Literal::new_with_metadata(
+            ScalarValue::Int32(Some(value)),
+            Some(FieldMetadata::new_from_field(&field)),
+        )
+    };
+    let literal: Arc<dyn PhysicalExpr> = Arc::new(literal);
+
+    let converted =
+        DefaultExpressionConverter::new(session).try_convert(&literal, &Schema::empty())?;
+    assert_eq!(converted.is_some(), expect_native);
+    Ok(())
+}
+
 #[rstest]
 #[case::comparison(false)]
 #[case::membership(true)]
@@ -2703,15 +2787,15 @@ fn test_get_field_reads_extension_storage(
 ///
 /// The converter cannot know that before the export runs, so it treats the plugin as opaque.
 #[derive(Debug)]
-struct DecliningPointExporter;
+struct DecliningExporter(Id);
 
-impl ArrowExportVTable for DecliningPointExporter {
+impl ArrowExportVTable for DecliningExporter {
     fn arrow_ext_id(&self) -> Id {
-        *ANY_STORAGE_ID
+        self.0
     }
 
     fn vortex_id(&self) -> Id {
-        *ANY_STORAGE_ID
+        self.0
     }
 
     fn to_arrow_field(
@@ -2746,7 +2830,7 @@ fn test_get_field_on_plugin_export_stays_in_datafusion(
     let batch = point_batch(&session)?;
     session
         .arrow()
-        .register_exporter(Arc::new(DecliningPointExporter));
+        .register_exporter(Arc::new(DecliningExporter(*ANY_STORAGE_ID)));
 
     // The plugin leaves the inferred field as it is, so the field alone does not show the plugin.
     let schema = batch.schema();
@@ -2758,6 +2842,51 @@ fn test_get_field_on_plugin_export_stays_in_datafusion(
 
     let source = Arc::new(df_expr::Column::new(column, schema.index_of(column)?));
     let expr = get_field_expr(source, path, &schema)?;
+    let converter = DefaultExpressionConverter::new(session);
+    assert!(converter.try_convert(&expr, &schema)?.is_none());
+    Ok(())
+}
+
+static RAW_CHILD_EXPORTER_ID: CachedId = CachedId::new("test.raw_child_exporter");
+
+#[rstest]
+#[case::extension_child(true)]
+#[case::plain_child(false)]
+fn test_get_field_leaves_plugin_exported_child_in_datafusion(
+    #[case] extension_child: bool,
+) -> anyhow::Result<()> {
+    let session = VortexSession::default();
+    session.dtypes().register(AnyStorage);
+
+    let child = if extension_child {
+        let mut child = Field::new("child", DataType::FixedSizeBinary(16), false);
+        child.try_with_extension_type(ArrowUuid)?;
+        child
+    } else {
+        session
+            .arrow()
+            .register_exporter(Arc::new(DecliningExporter(*RAW_CHILD_EXPORTER_ID)));
+        Field::new("child", DataType::Int32, false).with_metadata(Metadata::from_iter([(
+            EXTENSION_TYPE_NAME_KEY.to_string(),
+            RAW_CHILD_EXPORTER_ID.to_string(),
+        )]))
+    };
+    let child_dtype = session.arrow().from_arrow_field(&child)?;
+    let storage = DType::struct_([("child", child_dtype)], Nullability::NonNullable);
+    let holder = DType::Extension(AnyStorage::dtype(storage)?);
+    let holder_field = session
+        .arrow()
+        .to_arrow_field("holder", &holder)?
+        .with_data_type(DataType::Struct(vec![child].into()));
+    assert!(
+        session
+            .arrow()
+            .exports_extension_storage(holder.as_extension(), &holder_field)
+    );
+    let schema = Schema::new(vec![holder_field]);
+
+    let source = Arc::new(df_expr::Column::new("holder", 0));
+    let expr = get_field_expr(source, &["child"], &schema)?;
     let converter = DefaultExpressionConverter::new(session);
     assert!(converter.try_convert(&expr, &schema)?.is_none());
     Ok(())
