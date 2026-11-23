@@ -2,16 +2,24 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 mod variant;
+
+use std::cell::Cell;
 use std::fmt;
 use std::fmt::Display;
 use std::fmt::Formatter;
+use std::sync::Arc;
 
 use prost::Message;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
+use vortex_array::arrays::Chunked;
+use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::ScalarFn;
 use vortex_array::arrays::ScalarFnArray;
+use vortex_array::arrays::Variant;
+use vortex_array::arrays::VariantArray;
+use vortex_array::arrays::chunked::ChunkedArrayExt;
 use vortex_array::arrays::scalar_fn::ScalarFnArrayExt;
 use vortex_array::builders::VariantBuilder;
 use vortex_array::builders::builder_with_capacity_in;
@@ -37,6 +45,14 @@ use vortex_error::vortex_err;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 use vortex_utils::aliases::StringEscape;
+
+/// How many lazy layers `variant_get` unwraps from its input before it extracts row by row.
+const MAX_CANONICALIZE_DEPTH: usize = 8;
+
+thread_local! {
+    /// How many inputs the executions of `variant_get` on this thread's stack have canonicalized.
+    static CANONICALIZE_DEPTH: Cell<usize> = const { Cell::new(0) };
+}
 
 /// Registers [`VariantGet`] and its kernel for canonical variant arrays.
 pub(crate) fn initialize(session: &VortexSession) {
@@ -152,6 +168,20 @@ impl ScalarFnVTable for VariantGet {
             .dtype()
             .map_or(DType::Variant(Nullability::Nullable), DType::as_nullable);
 
+        // The kernels that extract in bulk are keyed on the Variant encodings. A lazy input, such
+        // as a filtered or chunked Variant read from a file, reaches this point without one, so
+        // bring it to those encodings before falling back to extracting row by row.
+        if let Some(chunked) = input.as_opt::<Chunked>() {
+            let chunks = chunked
+                .iter_chunks()
+                .map(|chunk| {
+                    VariantGet::try_new(chunk.clone(), options.clone())?
+                        .into_array()
+                        .execute::<ArrayRef>(ctx)
+                })
+                .collect::<VortexResult<Vec<_>>>()?;
+            return Ok(ChunkedArray::try_new(chunks, dtype)?.into_array());
+        }
         // A mask only nulls rows out, so it commutes with extraction.
         if let Some(masked) = input.as_opt::<ScalarFn>()
             && masked.scalar_fn().id() == Mask.id()
@@ -161,6 +191,17 @@ impl ScalarFnVTable for VariantGet {
                 .execute::<ArrayRef>(ctx)?
                 .mask(masked.child_at(1).clone())?
                 .execute::<ArrayRef>(ctx);
+        }
+        // Each canonicalization unwraps one lazy layer, such as a filter over a slice over a
+        // shared array. An input that canonicalizes to itself, such as a constant, would recurse
+        // forever, so the depth is bounded.
+        if !input.is::<Variant>() && CANONICALIZE_DEPTH.get() < MAX_CANONICALIZE_DEPTH {
+            let canonical = input.clone().execute::<VariantArray>(ctx)?;
+            CANONICALIZE_DEPTH.set(CANONICALIZE_DEPTH.get() + 1);
+            let result = VariantGet::try_new(canonical.into_array(), options.clone())
+                .and_then(|array| array.into_array().execute::<ArrayRef>(ctx));
+            CANONICALIZE_DEPTH.set(CANONICALIZE_DEPTH.get() - 1);
+            return result;
         }
 
         if !dtype.is_variant() {
@@ -204,9 +245,144 @@ fn variant_get_scalar(
         return Ok(Scalar::null(output_dtype.clone()));
     }
 
-    value
+    Ok(cast_variant_scalar(value, output_dtype)?
+        .unwrap_or_else(|| Scalar::null(output_dtype.clone())))
+}
+
+fn cast_variant_scalar(value: Scalar, output_dtype: &DType) -> VortexResult<Option<Scalar>> {
+    if value.is_null() {
+        return Ok(None);
+    }
+
+    if output_dtype.is_variant() {
+        let variant = if value.dtype().is_variant() {
+            value
+        } else {
+            Scalar::variant(value)
+        };
+        return variant.cast(output_dtype).map(Some);
+    }
+
+    let Some(value) = variant_payload(value) else {
+        return Ok(None);
+    };
+
+    if value.is_null() {
+        return Ok(None);
+    }
+
+    if let DType::Struct(target_fields, _) = output_dtype {
+        let Some(struct_scalar) = value.as_struct_opt() else {
+            return Ok(None);
+        };
+        if struct_scalar.is_null() {
+            return Ok(None);
+        }
+        let mut fields = Vec::with_capacity(target_fields.nfields());
+        for (name, field_dtype) in target_fields.names().iter().zip(target_fields.fields()) {
+            let field = match struct_scalar.field(name.as_ref()) {
+                Some(field) => match cast_variant_scalar(field, &field_dtype)? {
+                    Some(cast_field) => cast_field,
+                    None if field_dtype.is_nullable() => Scalar::null(field_dtype),
+                    None => return Ok(None),
+                },
+                None if field_dtype.is_nullable() => Scalar::null(field_dtype),
+                None => return Ok(None),
+            };
+            fields.push(field);
+        }
+        return Ok(Some(Scalar::struct_(output_dtype.clone(), fields)));
+    }
+
+    if let DType::List(elem_dtype, _) = output_dtype {
+        let Some(list_scalar) = value.as_list_opt() else {
+            return Ok(None);
+        };
+        let Some(elements) = list_scalar.elements() else {
+            return Ok(None);
+        };
+        let mut cast_elements = Vec::with_capacity(elements.len());
+        for element in elements {
+            let cast_element = match cast_variant_scalar(element, elem_dtype)? {
+                Some(cast_element) => cast_element,
+                None if elem_dtype.is_nullable() => Scalar::null(elem_dtype.as_ref().clone()),
+                None => return Ok(None),
+            };
+            cast_elements.push(cast_element);
+        }
+        return Ok(Some(Scalar::list(
+            Arc::clone(elem_dtype),
+            cast_elements,
+            output_dtype.nullability(),
+        )));
+    }
+
+    if let DType::FixedSizeList(elem_dtype, size, _) = output_dtype {
+        let Some(list_scalar) = value.as_list_opt() else {
+            return Ok(None);
+        };
+        let Some(elements) = list_scalar.elements() else {
+            return Ok(None);
+        };
+        if elements.len() != *size as usize {
+            return Ok(None);
+        }
+        let mut cast_elements = Vec::with_capacity(elements.len());
+        for element in elements {
+            let cast_element = match cast_variant_scalar(element, elem_dtype)? {
+                Some(cast_element) => cast_element,
+                None if elem_dtype.is_nullable() => Scalar::null(elem_dtype.as_ref().clone()),
+                None => return Ok(None),
+            };
+            cast_elements.push(cast_element);
+        }
+        return Ok(Some(Scalar::fixed_size_list(
+            Arc::clone(elem_dtype),
+            cast_elements,
+            output_dtype.nullability(),
+        )));
+    }
+
+    Ok(value
         .cast(output_dtype)
-        .or_else(|_| Ok(Scalar::null(output_dtype.clone())))
+        .ok()
+        .or_else(|| convert_to_bool(&value, output_dtype)))
+}
+
+/// Converts a number or a string to a Boolean as Arrow's Variant conversion does. A Vortex cast
+/// converts neither to a Boolean.
+///
+/// Zero is false and any other number is true. A string converts as [`string_as_bool`] reads it.
+/// The value can be in a Variant, as a partially shredded field holds its values.
+pub(super) fn convert_to_bool(scalar: &Scalar, dtype: &DType) -> Option<Scalar> {
+    if !dtype.is_boolean() {
+        return None;
+    }
+
+    let value = if scalar.dtype().is_variant() {
+        scalar.as_variant().value()?
+    } else {
+        scalar
+    };
+
+    let boolean = match value.dtype() {
+        DType::Primitive(..) => !value.is_zero()?,
+        DType::Utf8(_) => string_as_bool(value.as_utf8().value()?.as_str())?,
+        _ => return None,
+    };
+    Some(Scalar::bool(boolean, dtype.nullability()))
+}
+
+/// Reads a string as a Boolean with the spellings that Arrow's string cast accepts, ignoring case
+/// and the whitespace around the string. Returns `None` for any other string.
+fn string_as_bool(string: &str) -> Option<bool> {
+    match string.trim().to_ascii_lowercase().as_str() {
+        // spellchecker:off
+        "t" | "tr" | "tru" | "true" | "y" | "ye" | "yes" | "on" | "1" => Some(true),
+        "f" | "fa" | "fal" | "fals" | "false" | "n" | "no" | "of" | "off" | "0" => Some(false),
+        // spellchecker:on
+        _ => None,
+    }
 }
 
 fn variant_path_scalar(

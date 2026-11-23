@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::sync::Arc;
 use std::sync::LazyLock;
 
 use rstest::rstest;
@@ -941,5 +942,196 @@ fn variant_get_unwraps_nested_variant_core_storage() -> VortexResult<()> {
         PrimitiveArray::from_option_iter([Some(10i32), Some(20)]),
         &mut ctx
     );
+    Ok(())
+}
+
+#[test]
+fn variant_get_non_nullable_nested_target_returns_null_without_panicking() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let row0 = Scalar::variant(Scalar::struct_(
+        DType::Struct(
+            StructFields::new(
+                FieldNames::from(["x"]),
+                vec![DType::Variant(Nullability::NonNullable)],
+            ),
+            Nullability::NonNullable,
+        ),
+        vec![Scalar::variant(Scalar::utf8(
+            "not_an_int",
+            Nullability::NonNullable,
+        ))],
+    ));
+    let row1 = Scalar::variant(Scalar::struct_(
+        DType::Struct(
+            StructFields::new(
+                FieldNames::from(["x"]),
+                vec![DType::Variant(Nullability::NonNullable)],
+            ),
+            Nullability::NonNullable,
+        ),
+        vec![Scalar::variant(Scalar::primitive(
+            7i32,
+            Nullability::NonNullable,
+        ))],
+    ));
+    let input = ChunkedArray::try_new(
+        vec![
+            ConstantArray::new(row0, 1).into_array(),
+            ConstantArray::new(row1, 1).into_array(),
+        ],
+        DType::Variant(Nullability::NonNullable),
+    )?
+    .into_array();
+
+    let struct_target = DType::Struct(
+        StructFields::new(
+            FieldNames::from(["x"]),
+            vec![DType::Primitive(PType::I32, Nullability::NonNullable)],
+        ),
+        Nullability::Nullable,
+    );
+    let expr = variant_get(root(), VariantPath::root(), Some(struct_target));
+    let result = input.apply(&expr)?.execute::<ArrayRef>(&mut ctx)?;
+    assert!(result.is_invalid(0, &mut ctx)?);
+    assert_eq!(
+        result
+            .execute_scalar(1, &mut ctx)?
+            .as_struct()
+            .field("x")
+            .and_then(|s| s.as_primitive().typed_value::<i32>()),
+        Some(7)
+    );
+
+    let list_row0 = Scalar::variant(Scalar::list(
+        DType::Variant(Nullability::NonNullable),
+        vec![Scalar::variant(Scalar::utf8(
+            "bad",
+            Nullability::NonNullable,
+        ))],
+        Nullability::NonNullable,
+    ));
+    let list_row1 = Scalar::variant(Scalar::list(
+        DType::Variant(Nullability::NonNullable),
+        vec![Scalar::variant(Scalar::primitive(
+            9i32,
+            Nullability::NonNullable,
+        ))],
+        Nullability::NonNullable,
+    ));
+    let list_input = ChunkedArray::try_new(
+        vec![
+            ConstantArray::new(list_row0, 1).into_array(),
+            ConstantArray::new(list_row1, 1).into_array(),
+        ],
+        DType::Variant(Nullability::NonNullable),
+    )?
+    .into_array();
+
+    let list_target = DType::List(
+        Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable)),
+        Nullability::Nullable,
+    );
+    let list_expr = variant_get(root(), VariantPath::root(), Some(list_target));
+    let list_result = list_input
+        .apply(&list_expr)?
+        .execute::<ArrayRef>(&mut ctx)?;
+    assert!(list_result.is_invalid(0, &mut ctx)?);
+    assert_eq!(
+        list_result
+            .execute_scalar(1, &mut ctx)?
+            .as_list()
+            .element(0)
+            .and_then(|s| s.as_primitive().typed_value::<i32>()),
+        Some(9)
+    );
+    Ok(())
+}
+
+#[test]
+fn variant_get_fixed_size_list_target() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let row0 = Scalar::variant(Scalar::list(
+        DType::Variant(Nullability::NonNullable),
+        vec![
+            Scalar::variant(Scalar::primitive(1i64, Nullability::NonNullable)),
+            Scalar::variant(Scalar::primitive(2i64, Nullability::NonNullable)),
+        ],
+        Nullability::NonNullable,
+    ));
+    let row1 = Scalar::variant(Scalar::list(
+        DType::Variant(Nullability::NonNullable),
+        vec![Scalar::variant(Scalar::primitive(
+            3i64,
+            Nullability::NonNullable,
+        ))],
+        Nullability::NonNullable,
+    ));
+    let input = ChunkedArray::try_new(
+        vec![
+            ConstantArray::new(row0, 1).into_array(),
+            ConstantArray::new(row1, 1).into_array(),
+        ],
+        DType::Variant(Nullability::NonNullable),
+    )?
+    .into_array();
+
+    let target = DType::FixedSizeList(
+        Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable)),
+        2,
+        Nullability::Nullable,
+    );
+    let expr = variant_get(root(), VariantPath::root(), Some(target));
+    let result = input.apply(&expr)?.execute::<ArrayRef>(&mut ctx)?;
+    let scalar0 = result.execute_scalar(0, &mut ctx)?;
+    assert_eq!(
+        scalar0.as_list().elements().map(|elems| elems
+            .into_iter()
+            .map(|e| e.as_primitive().typed_value::<i32>())
+            .collect::<Vec<_>>()),
+        Some(vec![Some(1), Some(2)])
+    );
+    assert!(result.is_invalid(1, &mut ctx)?);
+    Ok(())
+}
+
+#[test]
+fn variant_get_fixed_size_list_preserves_variant_nulls() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let variant_null = Scalar::variant(Scalar::null(DType::Null));
+    let row = Scalar::variant(Scalar::list(
+        DType::Variant(Nullability::NonNullable),
+        vec![
+            Scalar::variant(Scalar::primitive(7i32, Nullability::NonNullable)),
+            variant_null,
+        ],
+        Nullability::NonNullable,
+    ));
+    let input = ConstantArray::new(row, 1).into_array();
+
+    for elem_nullability in [Nullability::NonNullable, Nullability::Nullable] {
+        let target = DType::FixedSizeList(
+            Arc::new(DType::Variant(elem_nullability)),
+            2,
+            Nullability::Nullable,
+        );
+        let expr = variant_get(root(), VariantPath::root(), Some(target));
+        let result = input.clone().apply(&expr)?.execute::<ArrayRef>(&mut ctx)?;
+        assert!(result.is_valid(0, &mut ctx)?);
+        let list = result.execute_scalar(0, &mut ctx)?;
+        let elems = list
+            .as_list()
+            .elements()
+            .ok_or_else(|| vortex_error::vortex_err!("expected non-null fixed-size list"))?;
+        assert_eq!(elems.len(), 2);
+        assert_eq!(
+            elems[0]
+                .as_variant()
+                .value()
+                .and_then(|v| v.as_primitive().typed_value::<i32>()),
+            Some(7)
+        );
+        assert!(!elems[1].is_null());
+        assert_eq!(elems[1].as_variant().is_variant_null(), Some(true));
+    }
     Ok(())
 }
