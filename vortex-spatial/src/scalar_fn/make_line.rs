@@ -36,6 +36,7 @@ use crate::extension::linestring_array_from_point_pairs;
 use crate::scalar_fn::execute::Execution;
 use crate::scalar_fn::execute::Operand;
 use crate::scalar_fn::execute::dispatch_binary;
+use crate::scalar_fn::row::ensure_eq_crs;
 
 /// Validate the two point operands accepted by `ST_MakeLine`.
 fn validate_make_line_operands(dtypes: &[DType]) -> VortexResult<()> {
@@ -61,8 +62,8 @@ fn make_line_dtype(dtypes: &[DType]) -> VortexResult<ExtDType<LineString>> {
     let left = dtypes[0].as_extension().metadata::<Point>();
     let right = dtypes[1].as_extension().metadata::<Point>();
     let dimension = left.native_dimension().promote(right.native_dimension());
-    let crs = left.unify_crs(right)?;
-    let metadata = SpatialMetadata::new(crs.map(str::to_owned));
+    ensure_eq_crs(dtypes)?;
+    let metadata = SpatialMetadata::new(left.get_crs().map(str::to_owned));
     let nullability = Nullability::from(dtypes.iter().any(DType::is_nullable));
     ExtDType::try_new(metadata.with_dimension(dimension), nullability)
 }

@@ -16,7 +16,7 @@ use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
-use crate::scalar_fn::row::ensure_common_crs;
+use crate::scalar_fn::row::ensure_eq_crs;
 use crate::scalar_fn::row::visit_binary_geo_predicate;
 
 /// OGC `ST_Intersects` (not disjoint; boundary contact counts) between two native geometry
@@ -60,7 +60,7 @@ impl RowFn for SpatialIntersects {
         args: &[DType],
         visitor: V,
     ) -> VortexResult<V::VisitResult> {
-        ensure_common_crs(args)?;
+        ensure_eq_crs(args)?;
         // Disjoint bounding rects prove the geometries disjoint; rect contact (closed test)
         // falls through to the exact test.
         visit_binary_geo_predicate(
