@@ -460,7 +460,7 @@ impl<'py> FromPyObject<'_, 'py> for PyIntoArrayIterator {
 
     fn extract(ob: Borrowed<'_, 'py, PyAny>) -> Result<Self, Self::Error> {
         if let Ok(py_iter) = ob.cast::<PyArrayIterator>() {
-            return Ok(PyVortex(py_iter.get().take().unwrap_or_else(|| {
+            return Ok(PyVortex(py_iter.get().take()?.unwrap_or_else(|| {
                 Box::new(
                     Canonical::empty(py_iter.get().dtype())
                         .into_array()

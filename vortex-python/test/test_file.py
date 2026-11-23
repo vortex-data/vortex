@@ -160,3 +160,31 @@ def test_memory_map_rejects_segment_cache(vxf: VortexFile) -> None:
 def test_memory_map_rejects_remote_url() -> None:
     with pytest.raises(ValueError, match="local path"):
         vx.open("s3://bucket/key.vortex", memory_map=True)
+
+
+@pytest.mark.parametrize("method", ["next", "read_all", "to_arrow_array", "to_arrow", "write"])
+def test_python_array_iterator_rejects_reentrant_access(tmp_path, method: str) -> None:
+    batch = vx.array(pa.table({"a": [1, 2]}))
+    holder: dict[str, vx.ArrayIterator] = {}
+
+    def gen():
+        it = holder["it"]
+        with pytest.raises(RuntimeError, match="already being advanced"):
+            if method == "next":
+                next(it)
+            elif method == "read_all":
+                it.read_all()
+            elif method == "to_arrow_array":
+                it.to_arrow_array()
+            elif method == "to_arrow":
+                it.to_arrow()
+            else:
+                vx.io.write(it, str(tmp_path / "reentrant.vortex"))
+        yield batch
+
+    it = vx.ArrayIterator.from_iter(batch.dtype, gen())
+    holder["it"] = it
+
+    assert next(it).to_pylist() == [{"a": 1}, {"a": 2}]
+    with pytest.raises(StopIteration):
+        next(it)
