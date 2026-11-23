@@ -45,6 +45,7 @@ use crate::arrays::VarBinView;
 use crate::arrays::VarBinViewArray;
 use crate::arrays::Variant;
 use crate::arrays::VariantArray;
+use crate::arrays::bool::BoolArraySlotsExt;
 use crate::arrays::bool::BoolDataParts;
 use crate::arrays::decimal::DecimalDataParts;
 use crate::arrays::extension::ExtensionArrayExt;
@@ -58,6 +59,7 @@ use crate::arrays::struct_::StructDataParts;
 use crate::arrays::union::UnionDataParts;
 use crate::arrays::varbinview::VarBinViewDataParts;
 use crate::arrays::variant::VariantArraySlotsExt;
+use crate::builders::VariantBuilder;
 use crate::dtype::DType;
 use crate::dtype::NativePType;
 use crate::dtype::Nullability;
@@ -252,9 +254,11 @@ impl Canonical {
             DType::Union(variants, nullability) => {
                 Canonical::Union(UnionArray::empty(variants.clone(), *nullability))
             }
-            DType::Variant(_) => {
-                vortex_panic!("Canonical empty is not supported for Variant")
-            }
+            DType::Variant(n) => Canonical::Variant(
+                VariantBuilder::new(*n)
+                    .finish_into_variant()
+                    .vortex_expect("an empty VariantBuilder finishes into an empty Variant"),
+            ),
             DType::Extension(ext_dtype) => Canonical::Extension(ExtensionArray::new(
                 ext_dtype.clone(),
                 Canonical::empty(ext_dtype.storage_dtype()).into_array(),
@@ -522,7 +526,7 @@ impl Executable for CanonicalValidity {
         match array.execute::<Canonical>(ctx)? {
             n @ Canonical::Null(_) => Ok(CanonicalValidity(n)),
             Canonical::Bool(b) => {
-                let validity = child_to_validity(b.slots()[0].as_ref(), b.dtype().nullability());
+                let validity = child_to_validity(b.validity_child(), b.dtype().nullability());
                 let len = b.len();
                 let BoolDataParts { bits, meta } = b.into_data().into_parts(len);
                 Ok(CanonicalValidity(Canonical::Bool(
@@ -699,7 +703,7 @@ impl Executable for RecursiveCanonical {
         match array.execute::<Canonical>(ctx)? {
             n @ Canonical::Null(_) => Ok(RecursiveCanonical(n)),
             Canonical::Bool(b) => {
-                let validity = child_to_validity(b.slots()[0].as_ref(), b.dtype().nullability());
+                let validity = child_to_validity(b.validity_child(), b.dtype().nullability());
                 let len = b.len();
                 let BoolDataParts { bits, meta } = b.into_data().into_parts(len);
                 Ok(RecursiveCanonical(Canonical::Bool(
@@ -1259,18 +1263,43 @@ mod tests {
                 UnionVariants::new(["a"].into(), vec![i32_dtype])?,
                 nullability,
             ),
+            DType::Variant(nullability),
             DType::Extension(Timestamp::new(TimeUnit::Microseconds, nullability).erased()),
         ];
-        let mut arrays: Vec<_> = dtypes
+        let arrays: Vec<_> = dtypes
             .iter()
             .map(|dtype| Canonical::empty(dtype).into_array())
             .collect();
-        let value = Scalar::variant(Scalar::primitive(1i32, nullability))
-            .cast(&DType::Variant(nullability))?;
-        arrays.push(
-            VariantArray::try_new(ConstantArray::new(value, 2).into_array(), None)?.into_array(),
-        );
         Ok(arrays)
+    }
+
+    #[rstest]
+    fn empty_variant_is_a_valid_canonical(
+        #[values(Nullability::NonNullable, Nullability::Nullable)] nullability: Nullability,
+    ) -> VortexResult<()> {
+        let dtype = DType::Variant(nullability);
+        let canonical = Canonical::empty(&dtype);
+        assert!(matches!(canonical, Canonical::Variant(_)));
+        assert_eq!(canonical.dtype(), &dtype);
+        assert!(canonical.is_empty());
+
+        let array = canonical.into_array();
+        assert!(array.is_empty());
+        assert_eq!(array.dtype(), &dtype);
+        assert_eq!(array.len(), 0);
+        Ok(())
+    }
+
+    #[test]
+    fn empty_variant_slice_executes() -> VortexResult<()> {
+        let source =
+            ConstantArray::new(Scalar::null(DType::Variant(Nullability::Nullable)), 1).into_array();
+
+        let mut ctx = SESSION.create_execution_ctx();
+        let result = source.slice(0..0)?.execute::<ArrayRef>(&mut ctx)?;
+        assert!(result.is_empty());
+        assert_eq!(result.dtype(), source.dtype());
+        Ok(())
     }
 
     #[rstest]

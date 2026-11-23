@@ -80,7 +80,7 @@ where
         buffer, validity, ..
     } = primitive.into_data_parts();
 
-    let device_input = ctx.ensure_on_device(buffer).await?;
+    let device_input = ctx.ensure_on_device(buffer)?;
     let input_view = device_input.cuda_view::<A::ALPInt>()?;
 
     // Allocate output rounded up to a full chunk: the fused kernel writes a
@@ -96,7 +96,7 @@ where
     } else {
         None
     };
-    let patches_arg = build_gpu_patches(device_patches.as_ref())?;
+    let patches_arg = build_gpu_patches(device_patches.as_ref(), ctx.stream())?;
 
     // Load the kernel: alp_{enc}_{float}_32t
     let enc_suffix = A::ALPInt::PTYPE.to_string();

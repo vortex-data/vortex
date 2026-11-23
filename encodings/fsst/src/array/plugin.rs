@@ -3,7 +3,6 @@
 
 //! [`ArrayPlugin`] implementation for [`FSST`].
 
-use fsst::Symbol;
 use prost::Message;
 use vortex_array::Array;
 use vortex_array::ArrayDeserialization;
@@ -20,7 +19,6 @@ use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::validity_to_child;
-use vortex_buffer::Buffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure_eq;
@@ -31,6 +29,7 @@ use crate::array::FSSTArraySlotsExt;
 use crate::array::FSSTData;
 use crate::array::FSSTMetadata;
 use crate::array::FSSTSlots;
+use crate::array::read_symbol_table;
 
 impl ArrayPlugin for FSST {
     fn id(&self) -> ArrayId {
@@ -106,11 +105,9 @@ impl ArrayPlugin for FSST {
             ..
         } = parts;
         let metadata = FSSTMetadata::decode(metadata)?;
-        let symbols = Buffer::<Symbol>::from_byte_buffer(buffers[0].clone().try_to_host_sync()?);
-        let symbol_lengths = Buffer::<u8>::from_byte_buffer(buffers[1].clone().try_to_host_sync()?);
-
         let mut ctx = session.create_execution_ctx();
-        if buffers.len() == 2 {
+        if let [symbols, lengths] = buffers {
+            let (symbols, symbol_lengths) = read_symbol_table(symbols, lengths)?;
             return Ok(Array::try_from_parts(Self::deserialize_legacy(
                 self,
                 dtype,
@@ -124,7 +121,8 @@ impl ArrayPlugin for FSST {
             .into_array());
         }
 
-        if buffers.len() == 3 {
+        if let [symbols, lengths, codes_bytes] = buffers {
+            let (symbols, symbol_lengths) = read_symbol_table(symbols, lengths)?;
             let uncompressed_lengths = children.get(
                 0,
                 &DType::Primitive(
@@ -134,7 +132,6 @@ impl ArrayPlugin for FSST {
                 len,
             )?;
 
-            let codes_bytes = buffers[2].clone();
             let codes_offsets = children.get(
                 1,
                 &DType::Primitive(
@@ -163,14 +160,14 @@ impl ArrayPlugin for FSST {
                 dtype,
                 len,
             )?;
-            FSSTData::validate_codes_bounds(&codes_bytes, &codes_offsets, &mut ctx)?;
+            FSSTData::validate_codes_bounds(codes_bytes, &codes_offsets, &mut ctx)?;
             let slots = FSSTSlots {
                 uncompressed_lengths,
                 codes_offsets,
                 codes_validity: validity_to_child(&codes_validity, len),
             }
             .into_slots();
-            let data = FSSTData::try_new(symbols, symbol_lengths, codes_bytes, len)?;
+            let data = FSSTData::try_new(symbols, symbol_lengths, codes_bytes.clone(), len)?;
             return Ok(Array::try_from_parts(ArrayParts::new(
                 self.clone(),
                 dtype.clone(),

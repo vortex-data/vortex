@@ -21,6 +21,7 @@ use pyo3::exceptions::PyValueError;
 use pyo3::ffi;
 use pyo3::ffi::c_str;
 use pyo3::prelude::*;
+use pyo3::sync::critical_section::with_critical_section;
 use pyo3::types::PyCapsule;
 use pyo3::types::PyDict;
 use pyo3::types::PyList;
@@ -52,6 +53,7 @@ use vortex_cuda::arrow::DeviceArrayExt;
 use vortex_cuda::arrow::release_device_array;
 use vortex_cuda::arrow::release_schema;
 use vortex_python_abi::BUFFER_EXPORT_CAPSULE_NAME;
+use vortex_python_abi::USED_BUFFER_EXPORT_CAPSULE_NAME;
 use vortex_python_abi::VORTEX_BUFFER_EXPORT_VERSION;
 use vortex_python_abi::VORTEX_BUFFER_HOST;
 use vortex_python_abi::VortexBufferExport;
@@ -98,57 +100,65 @@ unsafe impl Send for BufferExportGuard {}
 unsafe impl Sync for BufferExportGuard {}
 
 fn import_buffer_from_capsule(capsule: &Bound<'_, PyCapsule>) -> PyResult<BufferHandle> {
-    let export_ptr = capsule
-        .pointer_checked(Some(BUFFER_EXPORT_CAPSULE_NAME))?
-        .cast::<VortexBufferExport>();
-    let export = unsafe { export_ptr.as_ref() };
+    let (guard, len, alignment) = with_critical_section(capsule, || {
+        if capsule.is_valid_checked(Some(USED_BUFFER_EXPORT_CAPSULE_NAME)) {
+            return Err(PyValueError::new_err(
+                "VortexBufferExport capsule has already been consumed",
+            ));
+        }
 
-    if export.version != VORTEX_BUFFER_EXPORT_VERSION {
-        return Err(PyValueError::new_err(format!(
-            "unsupported VortexBufferExport version {}",
-            export.version
-        )));
-    }
-    if export.kind != VORTEX_BUFFER_HOST {
-        return Err(PyValueError::new_err(format!(
-            "unsupported buffer kind {} (only host buffers are supported in metadata bridge)",
-            export.kind
-        )));
-    }
+        let export_ptr = capsule
+            .pointer_checked(Some(BUFFER_EXPORT_CAPSULE_NAME))?
+            .cast::<VortexBufferExport>();
+        let export = unsafe { export_ptr.as_ref() };
 
-    if export.len != 0 && export.ptr.is_null() {
-        return Err(PyValueError::new_err(
-            "non-empty VortexBufferExport has null data pointer",
-        ));
-    }
-    if export.release.is_none() {
-        return Err(PyValueError::new_err(
-            "VortexBufferExport is missing a release callback",
-        ));
-    }
+        if export.version != VORTEX_BUFFER_EXPORT_VERSION {
+            return Err(PyValueError::new_err(format!(
+                "unsupported VortexBufferExport version {}",
+                export.version
+            )));
+        }
+        if export.kind != VORTEX_BUFFER_HOST {
+            return Err(PyValueError::new_err(format!(
+                "unsupported buffer kind {} (only host buffers are supported in metadata bridge)",
+                export.kind
+            )));
+        }
 
-    let len = export.len;
-    let alignment = vortex::buffer::Alignment::try_from(
-        u32::try_from(export.alignment)
-            .map_err(|_| PyValueError::new_err("buffer alignment exceeds u32"))?,
-    )
-    .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        if export.len != 0 && export.ptr.is_null() {
+            return Err(PyValueError::new_err(
+                "non-empty VortexBufferExport has null data pointer",
+            ));
+        }
+        if export.release.is_none() {
+            return Err(PyValueError::new_err(
+                "VortexBufferExport is missing a release callback",
+            ));
+        }
 
-    if len != 0 && !alignment.is_ptr_aligned(export.ptr) {
-        return Err(PyValueError::new_err(format!(
-            "buffer pointer is not aligned to requested alignment {alignment}"
-        )));
-    }
+        let len = export.len;
+        let alignment = vortex::buffer::Alignment::try_from(
+            u32::try_from(export.alignment)
+                .map_err(|_| PyValueError::new_err("buffer alignment exceeds u32"))?,
+        )
+        .map_err(|e| PyValueError::new_err(e.to_string()))?;
 
-    // Transfer ownership of the boxed VortexBufferExport from the producer capsule into the Bytes
-    // owner below. Otherwise the producer capsule could be dropped before the reconstructed
-    // BufferHandle, leaving the Bytes owner with a dangling export pointer.
-    unsafe { ffi::PyCapsule_SetDestructor(capsule.as_ptr(), None) };
-    if PyErr::occurred(capsule.py()) {
-        return Err(PyErr::fetch(capsule.py()));
-    }
+        if len != 0 && !alignment.is_ptr_aligned(export.ptr) {
+            return Err(PyValueError::new_err(format!(
+                "buffer pointer is not aligned to requested alignment {alignment}"
+            )));
+        }
 
-    let guard = BufferExportGuard { export: export_ptr };
+        // Transfer ownership of the boxed VortexBufferExport from the producer capsule into the
+        // guard below inside a capsule-level critical section.
+        let py = capsule.py();
+        set_capsule_name(capsule, USED_BUFFER_EXPORT_CAPSULE_NAME)?;
+        if unsafe { ffi::PyCapsule_SetDestructor(capsule.as_ptr(), None) } != 0 {
+            return Err(PyErr::fetch(py));
+        }
+
+        Ok((BufferExportGuard { export: export_ptr }, len, alignment))
+    })?;
 
     let byte_buffer = if len == 0 {
         drop(guard);
@@ -252,6 +262,11 @@ fn parse_array_metadata(value: &Bound<'_, PyAny>) -> PyResult<ArrayMetadata> {
         )));
     }
 
+    let encoding_id = tuple.get_item(0)?.extract()?;
+    let dtype = tuple.get_item(1)?.extract()?;
+    let len = tuple.get_item(2)?.extract()?;
+    let metadata = tuple.get_item(3)?.extract()?;
+
     let buffers = tuple
         .get_item(4)?
         .cast::<PyList>()?
@@ -270,10 +285,10 @@ fn parse_array_metadata(value: &Bound<'_, PyAny>) -> PyResult<ArrayMetadata> {
         .collect::<PyResult<Vec<_>>>()?;
 
     Ok(ArrayMetadata {
-        encoding_id: tuple.get_item(0)?.extract()?,
-        dtype: tuple.get_item(1)?.extract()?,
-        len: tuple.get_item(2)?.extract()?,
-        metadata: tuple.get_item(3)?.extract()?,
+        encoding_id,
+        dtype,
+        len,
+        metadata,
         buffers,
         children,
     })
@@ -668,4 +683,195 @@ fn _lib(m: &Bound<PyModule>) -> PyResult<()> {
     )?)?;
     m.add_function(wrap_pyfunction!(export_device_array, m)?)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::ptr;
+    use std::sync::Arc;
+    use std::sync::atomic::AtomicUsize;
+    use std::sync::atomic::Ordering;
+
+    use pyo3::types::PyBytes;
+
+    use super::*;
+
+    struct TestBufferOwner {
+        _bytes: Vec<u8>,
+        releases: Arc<AtomicUsize>,
+    }
+
+    unsafe extern "C" fn release_test_export(export: *mut VortexBufferExport) {
+        if export.is_null() {
+            return;
+        }
+        let mut export = unsafe { Box::from_raw(export) };
+        if !export.private_data.is_null() {
+            let owner = unsafe { Box::from_raw(export.private_data.cast::<TestBufferOwner>()) };
+            owner.releases.fetch_add(1, Ordering::SeqCst);
+            export.private_data = ptr::null_mut();
+        }
+    }
+
+    unsafe extern "C" fn release_test_capsule(capsule: *mut ffi::PyObject) {
+        let ptr =
+            unsafe { ffi::PyCapsule_GetPointer(capsule, BUFFER_EXPORT_CAPSULE_NAME.as_ptr()) };
+        if ptr.is_null() {
+            unsafe { ffi::PyErr_Clear() };
+            return;
+        }
+        unsafe { release_test_export(ptr.cast::<VortexBufferExport>()) };
+    }
+
+    fn make_test_capsule<'py>(
+        py: Python<'py>,
+        bytes: Vec<u8>,
+        releases: Arc<AtomicUsize>,
+        version: u32,
+    ) -> PyResult<Bound<'py, PyCapsule>> {
+        let len = bytes.len();
+        let owner = Box::new(TestBufferOwner {
+            _bytes: bytes,
+            releases,
+        });
+        let data_ptr = if len == 0 {
+            ptr::null()
+        } else {
+            owner._bytes.as_ptr()
+        };
+        let export = VortexBufferExport {
+            version,
+            kind: VORTEX_BUFFER_HOST,
+            ptr: data_ptr,
+            len,
+            alignment: 1,
+            device_id: -1,
+            sync_event: ptr::null_mut(),
+            private_data: Box::into_raw(owner).cast::<c_void>(),
+            release: Some(release_test_export),
+        };
+        let ptr = NonNull::new(Box::into_raw(Box::new(export)).cast::<c_void>())
+            .ok_or_else(|| PyRuntimeError::new_err("failed to allocate test export"))?;
+        unsafe {
+            PyCapsule::new_with_pointer_and_destructor(
+                py,
+                ptr,
+                BUFFER_EXPORT_CAPSULE_NAME,
+                Some(release_test_capsule),
+            )
+        }
+    }
+
+    #[test]
+    fn nonempty_buffer_releases_on_drop_and_rejects_second_import() -> PyResult<()> {
+        Python::initialize();
+        Python::attach(|py| {
+            let releases = Arc::new(AtomicUsize::new(0));
+            let capsule = make_test_capsule(
+                py,
+                vec![10, 20, 30, 40],
+                Arc::clone(&releases),
+                VORTEX_BUFFER_EXPORT_VERSION,
+            )?;
+
+            let handle = import_buffer_from_capsule(&capsule)?;
+            assert_eq!(handle.as_host().as_slice(), &[10, 20, 30, 40]);
+            assert!(capsule.is_valid_checked(Some(USED_BUFFER_EXPORT_CAPSULE_NAME)));
+            assert!(!capsule.is_valid_checked(Some(BUFFER_EXPORT_CAPSULE_NAME)));
+            assert_eq!(releases.load(Ordering::SeqCst), 0);
+
+            let second_err = import_buffer_from_capsule(&capsule)
+                .expect_err("consumed capsule must be rejected");
+            assert!(
+                second_err.to_string().contains("already been consumed"),
+                "unexpected error: {second_err}"
+            );
+            assert_eq!(releases.load(Ordering::SeqCst), 0);
+
+            drop(handle);
+            assert_eq!(
+                releases.load(Ordering::SeqCst),
+                1,
+                "dropping the imported buffer must release the export once"
+            );
+            drop(capsule);
+            assert_eq!(releases.load(Ordering::SeqCst), 1);
+            Ok(())
+        })
+    }
+
+    #[test]
+    fn validation_failure_preserves_producer_cleanup() -> PyResult<()> {
+        Python::initialize();
+        Python::attach(|py| {
+            let releases = Arc::new(AtomicUsize::new(0));
+            let capsule = make_test_capsule(
+                py,
+                vec![1, 2, 3],
+                Arc::clone(&releases),
+                VORTEX_BUFFER_EXPORT_VERSION + 1,
+            )?;
+
+            let err = import_buffer_from_capsule(&capsule)
+                .expect_err("unsupported version must be rejected");
+            assert!(
+                err.to_string()
+                    .contains("unsupported VortexBufferExport version"),
+                "unexpected error: {err}"
+            );
+            assert!(capsule.is_valid_checked(Some(BUFFER_EXPORT_CAPSULE_NAME)));
+            assert_eq!(releases.load(Ordering::SeqCst), 0);
+
+            drop(capsule);
+            assert_eq!(
+                releases.load(Ordering::SeqCst),
+                1,
+                "producer destructor must clean up after a failed validation"
+            );
+            Ok(())
+        })
+    }
+
+    #[test]
+    fn parse_array_metadata_cleans_up_on_duplicate_capsule() -> PyResult<()> {
+        Python::initialize();
+        Python::attach(|py| {
+            let releases = Arc::new(AtomicUsize::new(0));
+            let capsule = make_test_capsule(
+                py,
+                vec![1, 2, 3, 4],
+                Arc::clone(&releases),
+                VORTEX_BUFFER_EXPORT_VERSION,
+            )?;
+
+            let dup_buffers = PyList::new(py, [capsule.as_any(), capsule.as_any()])?;
+            let empty_children = PyList::empty(py);
+            let dup_tuple = PyTuple::new(
+                py,
+                [
+                    "vortex.primitive".into_pyobject(py)?.into_any(),
+                    PyBytes::new(py, b"").into_any(),
+                    4usize.into_pyobject(py)?.into_any(),
+                    PyBytes::new(py, b"").into_any(),
+                    dup_buffers.into_any(),
+                    empty_children.as_any().clone(),
+                ],
+            )?;
+            let dup_err = parse_array_metadata(dup_tuple.as_any())
+                .err()
+                .expect("duplicate capsule must be rejected");
+            assert!(
+                dup_err.to_string().contains("already been consumed"),
+                "unexpected error: {dup_err}"
+            );
+            drop(dup_tuple);
+            drop(capsule);
+            assert_eq!(
+                releases.load(Ordering::SeqCst),
+                1,
+                "already-transferred buffer must be released once when a later buffer fails"
+            );
+            Ok(())
+        })
+    }
 }

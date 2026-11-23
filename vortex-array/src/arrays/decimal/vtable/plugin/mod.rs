@@ -113,7 +113,7 @@ impl ArrayPlugin for Decimal {
         )?;
 
         if !stored.is_legacy() {
-            return Ok(Array::<Decimal>::try_from_parts(stored.into_array_parts()?)?.into_array());
+            return Ok(Array::<Decimal>::try_from_parts(stored.into_array_parts())?.into_array());
         }
 
         // This is a legacy node, whose width a `Decimal` leaf no longer allows, so the valid values

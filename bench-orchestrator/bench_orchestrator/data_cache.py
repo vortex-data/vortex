@@ -11,11 +11,15 @@ A cache entry is ``s3://bucket/prefix/<key>/`` holding the directory's files plu
 which is written last so that an entry without it is incomplete.
 """
 
+from __future__ import annotations
+
 import hashlib
 import json
 import os
 import shutil
+from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -42,6 +46,98 @@ _PART_CONCURRENCY = 16
 _PART_SIZE = 16 * 1024 * 1024
 
 console = Console(stderr=True)
+
+# Sibling format directories written by ``vortex-bench`` beside the cached base directory.
+# Keep in sync with ``Format::name()`` in ``vortex-bench/src/lib.rs``, ``PARQUET_SNAPPY_DIR`` in
+# ``vortex-bench/src/parquet_copies.rs``, and ``formats_to_capture`` in ``scripts/capture-file-sizes.py``.
+_MANAGED_FORMAT_DIRS: frozenset[str] = frozenset(
+    {
+        "arrow-ipc",
+        "csv",
+        "parquet",
+        "parquet-snappy",
+        "vortex-file-compressed",
+        "vortex-compact",
+        "vortex-spatial-native",
+        "duckdb",
+        "lance",
+        "litdata",
+    }
+)
+
+
+def _marker_path(dataset: CachedDataset) -> Path:
+    """Path to the fingerprint marker stored beside ``dataset.directory``."""
+    return dataset.directory.with_name(f".{dataset.directory.name}.cache-key")
+
+
+def _has_matching_local_cache(dataset: CachedDataset) -> bool:
+    """Return whether ``dataset.directory`` exists and its sibling marker matches ``dataset.key``."""
+    if not dataset.directory.is_dir():
+        return False
+    marker = _marker_path(dataset)
+    if not marker.is_file():
+        return False
+    try:
+        return marker.read_text(encoding="utf-8").strip() == dataset.key
+    except OSError:
+        return False
+
+
+def _write_marker(dataset: CachedDataset) -> None:
+    """Write the completed fingerprint marker beside ``dataset.directory``."""
+    marker = _marker_path(dataset)
+    marker.parent.mkdir(parents=True, exist_ok=True)
+    marker.write_text(f"{dataset.key}\n", encoding="utf-8")
+
+
+def _remove_stale_derived_dirs(dataset: CachedDataset) -> None:
+    """Remove sibling derived-format directories owned by the generator."""
+    parent = dataset.directory.parent
+    if not parent.is_dir():
+        return
+    for entry in parent.iterdir():
+        if entry.name == dataset.directory.name or entry.name not in _MANAGED_FORMAT_DIRS:
+            continue
+        if entry.is_symlink():
+            entry.unlink()
+        elif entry.is_dir():
+            shutil.rmtree(entry)
+
+
+def _invalidate_local(dataset: CachedDataset) -> None:
+    """Clear marker, obsolete base directory, and sibling derived-format directories."""
+    _marker_path(dataset).unlink(missing_ok=True)
+    _remove_stale_derived_dirs(dataset)
+    if dataset.directory.is_symlink() or dataset.directory.is_file():
+        dataset.directory.unlink(missing_ok=True)
+    elif dataset.directory.is_dir():
+        shutil.rmtree(dataset.directory)
+
+
+@contextmanager
+def prepare_dataset(dataset: CachedDataset, cache: S3DataCache | None = None) -> Iterator[bool]:
+    """Coordinate local cache validation, optional S3 restore/save, and clean regeneration.
+
+    Yields ``True`` when the local dataset already matches ``dataset.key`` (or was restored from
+    S3), and ``False`` when the caller must generate ``dataset.directory`` from scratch.
+    """
+    if cache is not None:
+        restored = cache.restore(dataset)
+    elif _has_matching_local_cache(dataset):
+        console.print(f"{dataset.directory} already matches {dataset.key}")
+        restored = True
+    else:
+        _invalidate_local(dataset)
+        restored = False
+
+    yield restored
+
+    if not restored:
+        if cache is not None:
+            cache.save(dataset)
+        elif dataset.directory.is_dir():
+            _write_marker(dataset)
 
 
 class S3Client(Protocol):
@@ -74,7 +170,7 @@ def cached_dataset(benchmark: Benchmark, options: dict[str, str], workspace_root
             f"statpopgen-{n_rows}",
             data_dir / "statpopgen" / str(n_rows) / "parquet",
             workspace_root,
-            ["vortex-bench/src/statpopgen"],
+            ["vortex-bench/src/statpopgen", "vortex-bench/src/utils/parquet.rs"],
         )
     if benchmark is Benchmark.CLICKBENCH_SORTED:
         return _dataset(
@@ -146,13 +242,16 @@ class S3DataCache:
     def restore(self, dataset: CachedDataset) -> bool:
         """Download the dataset if a fresh entry exists. Return whether ``data-gen`` can skip it.
 
-        An existing local directory counts as restored. The directory only appears once every file
-        is downloaded. S3 errors are reported and treated as a miss, so a cache outage only costs
-        regeneration.
+        Only a local directory whose sibling fingerprint marker matches ``dataset.key`` counts as
+        restored. Stale or unmarked local data is invalidated before downloading, and the directory
+        only appears once every file is downloaded. S3 errors are reported and treated as a miss,
+        so a cache outage only costs regeneration.
         """
-        if dataset.directory.exists():
-            console.print(f"{dataset.directory} already exists locally")
+        if _has_matching_local_cache(dataset):
+            console.print(f"{dataset.directory} already matches {dataset.key}")
             return True
+
+        _invalidate_local(dataset)
 
         staging = dataset.directory.with_name(f".{dataset.directory.name}.partial")
         try:
@@ -162,7 +261,12 @@ class S3DataCache:
                 return False
 
             console.print(f"Restoring {len(files)} cached file(s) for {dataset.key}")
-            shutil.rmtree(staging, ignore_errors=True)
+            if staging.is_symlink() or staging.is_file():
+                staging.unlink()
+            elif staging.exists():
+                shutil.rmtree(staging)
+            staging.parent.mkdir(parents=True, exist_ok=True)
+            staging.mkdir(exist_ok=False)
 
             def download(file: str) -> None:
                 path = staging / file
@@ -174,6 +278,7 @@ class S3DataCache:
             with ThreadPoolExecutor(_FILE_CONCURRENCY) as pool:
                 list(pool.map(download, files))
             os.replace(staging, dataset.directory)
+            _write_marker(dataset)
         except (BotoCoreError, ClientError, OSError) as exc:
             shutil.rmtree(staging, ignore_errors=True)
             console.print(f"[yellow]S3 cache restore failed for {dataset.key}, regenerating: {exc}[/yellow]")
@@ -181,16 +286,23 @@ class S3DataCache:
         return True
 
     def save(self, dataset: CachedDataset) -> None:
-        """Upload the generated directory. S3 errors are reported but do not fail data generation."""
+        """Record the local marker and upload the generated directory.
+
+        S3 errors are reported but do not fail data generation.
+        """
         if not dataset.directory.is_dir():
             raise FileNotFoundError(f"data-gen did not write {dataset.directory}")
+        _write_marker(dataset)
         files = sorted(
             path.relative_to(dataset.directory).as_posix() for path in dataset.directory.rglob("*") if path.is_file()
         )
 
         def upload(file: str) -> None:
             self.client.upload_file(
-                str(dataset.directory / file), self.bucket, self.object_key(dataset, file), Config=self._transfer_config
+                str(dataset.directory / file),
+                self.bucket,
+                self.object_key(dataset, file),
+                Config=self._transfer_config,
             )
 
         console.print(f"Uploading {len(files)} file(s) to the cache for {dataset.key}")

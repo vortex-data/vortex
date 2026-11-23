@@ -60,6 +60,24 @@ impl Default for SplitBy {
 }
 
 impl SplitBy {
+    /// Validate that the split configuration uses a positive split size.
+    pub(crate) fn validate(&self) -> VortexResult<()> {
+        match *self {
+            SplitBy::Layout => Ok(()),
+            SplitBy::LayoutSubSplitting { max_rows } => {
+                vortex_ensure!(
+                    max_rows > 0,
+                    "SplitBy::LayoutSubSplitting max_rows must be greater than zero"
+                );
+                Ok(())
+            }
+            SplitBy::RowCount(n) => {
+                vortex_ensure!(n > 0, "SplitBy::RowCount must be greater than zero");
+                Ok(())
+            }
+        }
+    }
+
     /// Compute the splits for the given layout.
     // TODO(ngates): remove this once layout readers are stream based.
     pub fn splits(
@@ -68,13 +86,10 @@ impl SplitBy {
         row_range: &Range<u64>,
         field_mask: &[FieldMask],
     ) -> VortexResult<Vec<u64>> {
+        self.validate()?;
         Ok(match *self {
             SplitBy::Layout => layout_boundaries(layout_reader, row_range, field_mask)?,
             SplitBy::LayoutSubSplitting { max_rows } => {
-                vortex_ensure!(
-                    max_rows > 0,
-                    "SplitBy::LayoutSubSplitting requires a non-zero max_rows"
-                );
                 let (boundaries, soft) = register_boundaries(
                     layout_reader,
                     row_range,
@@ -318,17 +333,20 @@ mod test {
     }
 
     #[test]
-    fn test_row_count_splits() {
+    fn test_row_count_splits() -> VortexResult<()> {
         let reader = reader();
+        let field_mask = [FieldMask::Exact(FieldPath::root())];
 
-        let splits = SplitBy::RowCount(3)
-            .splits(
-                reader.as_ref(),
-                &(0..10),
-                &[FieldMask::Exact(FieldPath::root())],
-            )
-            .unwrap();
+        let splits = SplitBy::RowCount(3).splits(reader.as_ref(), &(0..10), &field_mask)?;
         assert_eq!(splits, vec![0u64, 3, 6, 9, 10]);
+
+        assert!(
+            SplitBy::RowCount(0)
+                .splits(reader.as_ref(), &(0..10), &field_mask)
+                .is_err()
+        );
+
+        Ok(())
     }
 
     /// A reader that registers a fixed set of interior split points (which may repeat) plus the
@@ -439,12 +457,10 @@ mod test {
     #[test]
     fn test_layout_sub_splitting_rejects_zero_max_rows() {
         let reader = StubReader::new(10, vec![]);
-        let result = SplitBy::LayoutSubSplitting { max_rows: 0 }.splits(
-            &reader,
-            &(0..10),
-            &[FieldMask::All],
-        );
-        assert!(result.is_err());
+        let err = SplitBy::LayoutSubSplitting { max_rows: 0 }
+            .splits(&reader, &(0..10), &[FieldMask::All])
+            .unwrap_err();
+        assert!(err.to_string().contains("must be greater than zero"));
     }
 
     #[test]

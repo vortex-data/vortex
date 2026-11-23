@@ -9,17 +9,18 @@ use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ConstantArray;
-use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::NativeDType;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::Nullability;
+use vortex_array::patches::Patches;
 use vortex_array::scalar::PValue;
 use vortex_array::scalar::Scalar;
-use vortex_array::scalar_fn::fns::between::BetweenKernel;
-use vortex_array::scalar_fn::fns::between::BetweenOptions;
-use vortex_array::scalar_fn::fns::between::BetweenReduce;
-use vortex_array::scalar_fn::fns::between::StrictComparison;
 use vortex_error::VortexResult;
+use vortex_functions::between::BetweenKernel;
+use vortex_functions::between::BetweenOptions;
+use vortex_functions::between::BetweenReduce;
+use vortex_functions::between::StrictComparison;
+use vortex_functions::builtins::ArrayFunctions;
 
 use crate::ALP;
 use crate::ALPFloat;
@@ -84,20 +85,43 @@ impl BetweenKernel for ALP {
         let nullability =
             array.dtype().nullability() | lower.dtype().nullability() | upper.dtype().nullability();
         match_each_alp_float_ptype!(array.dtype().as_ptype(), |F| {
-            let lower = F::try_from(lower)?;
-            let upper = F::try_from(upper)?;
-            let encoded = between_impl::<F>(array, lower, upper, nullability, options)?;
-            let lower_fn = options.lower_strict.to_predicate::<F>();
-            let upper_fn = options.upper_strict.to_predicate::<F>();
-            apply_patch_predicate(
-                encoded,
+            between_patched_impl::<F>(
+                array,
+                F::try_from(lower)?,
+                F::try_from(upper)?,
                 &patches,
-                |value: F| lower_fn(lower, value) & upper_fn(value, upper),
+                nullability,
+                options,
                 ctx,
             )
         })
         .map(Some)
     }
+}
+
+/// Answers a between from the encoded integers, then re-evaluates the patched rows exactly.
+fn between_patched_impl<T: NativePType + ALPFloat>(
+    array: ArrayView<'_, ALP>,
+    lower: T,
+    upper: T,
+    patches: &Patches,
+    nullability: Nullability,
+    options: &BetweenOptions,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ArrayRef>
+where
+    Scalar: From<T::ALPInt>,
+    <T as ALPFloat>::ALPInt: NativeDType + NativePType + Into<PValue> + Debug,
+{
+    let encoded = between_impl::<T>(array, lower, upper, nullability, options)?;
+    let lower_fn = options.lower_strict.to_predicate::<T>();
+    let upper_fn = options.upper_strict.to_predicate::<T>();
+    apply_patch_predicate(
+        encoded,
+        patches,
+        |value: T| lower_fn(lower, value) & upper_fn(value, upper),
+        ctx,
+    )
 }
 
 fn between_impl<T: NativePType + ALPFloat>(
@@ -199,12 +223,12 @@ mod tests {
     use vortex_array::arrays::ConstantArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
-    use vortex_array::builtins::ArrayBuiltins;
     use vortex_array::dtype::Nullability;
     use vortex_array::scalar::Scalar;
-    use vortex_array::scalar_fn::fns::between::BetweenOptions;
-    use vortex_array::scalar_fn::fns::between::StrictComparison;
     use vortex_error::VortexResult;
+    use vortex_functions::between::BetweenOptions;
+    use vortex_functions::between::StrictComparison;
+    use vortex_functions::builtins::ArrayFunctions;
     use vortex_session::VortexSession;
 
     use crate::ALPArray;

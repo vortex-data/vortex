@@ -68,8 +68,7 @@ fn all_valid_is_constant(
         // At most two partial chunks: decode the array.
         let decoded = array.array().clone().execute::<PrimitiveArray>(ctx)?;
         return Ok(match_each_integer_ptype!(decoded.ptype(), |P| {
-            let values = decoded.as_slice::<P>();
-            values.iter().all(|&value| value == values[0])
+            all_equal(decoded.as_slice::<P>())
         }));
     }
 
@@ -98,16 +97,23 @@ fn all_valid_is_constant(
                 .as_primitive()
                 .typed_value::<P>()
                 .vortex_expect("bases are non-nullable");
-            decoded
-                .as_slice::<P>()
-                .iter()
-                .all(|&value| value == constant)
+            all_equal_to(decoded.as_slice::<P>(), constant)
         });
         if !equal {
             return Ok(false);
         }
     }
     Ok(true)
+}
+
+/// Whether every value equals the first.
+fn all_equal<P: Copy + PartialEq>(values: &[P]) -> bool {
+    values.iter().all(|&value| value == values[0])
+}
+
+/// Whether every value equals `constant`.
+fn all_equal_to<P: Copy + PartialEq>(values: &[P], constant: P) -> bool {
+    values.iter().all(|&value| value == constant)
 }
 
 /// Whether every delta is zero.

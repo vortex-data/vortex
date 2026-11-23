@@ -6,8 +6,6 @@
 use std::fmt;
 use std::hash::Hash;
 
-use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
 use vortex_error::vortex_panic;
 
 use crate::dtype::DType;
@@ -82,25 +80,6 @@ impl<'a> ExtScalar<'a> {
     /// Returns a reference to the underlying value
     pub fn value(&self) -> Option<&ScalarValue> {
         self.value
-    }
-
-    /// Casts this scalar to the given `dtype`.
-    pub(crate) fn cast(&self, target_dtype: &DType) -> VortexResult<Scalar> {
-        if self
-            .ext_dtype
-            .storage_dtype()
-            .eq_ignore_nullability(target_dtype)
-        {
-            // Casting from an extension type to the underlying storage type is OK.
-            return Scalar::try_new(target_dtype.clone(), self.value.cloned());
-        }
-
-        vortex_bail!(
-            "cannot cast extension dtype with id {} and storage type {} to {}",
-            self.ext_dtype.id(),
-            self.ext_dtype.storage_dtype(),
-            target_dtype
-        );
     }
 }
 

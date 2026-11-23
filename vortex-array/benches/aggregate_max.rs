@@ -99,11 +99,13 @@ fn bench_decimal_min_max<T: NativeDecimalType>(
 
     bencher
         .with_inputs(|| {
+            let mut ctx = SESSION.create_execution_ctx();
             let array =
-                DecimalArray::new(values.clone(), decimal_dtype, validity.clone()).into_array();
+                DecimalArray::new(values.clone(), decimal_dtype, validity.clone(), &mut ctx)
+                    .into_array();
             mark_optimized(&array, &SESSION).unwrap();
 
-            (array, SESSION.create_execution_ctx())
+            (array, ctx)
         })
         .bench_refs(|(array, ctx)| min_max(array, ctx, NumericalAggregateOpts::default()));
 }

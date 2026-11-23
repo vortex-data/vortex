@@ -81,11 +81,10 @@ checksum = "683d7910e743518b0e34f1186f92494becacb047c7b6bf616c96772180fef923"
 
 [[package]]
 name = "alp"
-version = "0.0.4"
+version = "0.0.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b23203d5e87df8d8393c8021b53f9193b697ba13fc4ef653911dc1235e87bfd7"
+checksum = "2916af7a226350979de64665dc17a8b3f04568c00a1eb5485278aa1bcaa62591"
 dependencies = [
- "fastlanes 0.6.1",
  "itertools 0.15.0",
  "num-traits",
 ]
@@ -214,24 +213,6 @@ checksum = "d3fb67a6e08acf24fdeccbac2cb6ac4305825bd1f117462e0e6f2f193345ad56"
 
 [[package]]
 name = "arrow"
-version = "56.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4fb98341a7e051bb79731ecb33ec00cbd6e0e315a542d6732b46d462c9215ea2"
-dependencies = [
- "arrow-arith 56.2.1",
- "arrow-array 56.2.1",
- "arrow-buffer 56.2.1",
- "arrow-cast 56.2.1",
- "arrow-data 56.2.1",
- "arrow-ord 56.2.1",
- "arrow-row 56.2.1",
- "arrow-schema 56.2.1",
- "arrow-select 56.2.1",
- "arrow-string 56.2.1",
-]
-
-[[package]]
-name = "arrow"
 version = "58.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c943b9bec582e47f8394e44713c3cbfbe645fd049e3a7771585f54849c710fe6"
@@ -274,20 +255,6 @@ dependencies = [
 
 [[package]]
 name = "arrow-arith"
-version = "56.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6ce4751cbc4bcccfeeea79df9571ff1dc066d61e44723c7604d11c7937f5b560"
-dependencies = [
- "arrow-array 56.2.1",
- "arrow-buffer 56.2.1",
- "arrow-data 56.2.1",
- "arrow-schema 56.2.1",
- "chrono",
- "num",
-]
-
-[[package]]
-name = "arrow-arith"
 version = "58.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8b13b85a6a547a1669114e418f6ab3c3e39c2edb1b8be5ab2889e5739a433ae9"
@@ -312,22 +279,6 @@ dependencies = [
  "arrow-schema 60.1.0",
  "chrono",
  "num-traits",
-]
-
-[[package]]
-name = "arrow-array"
-version = "56.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b02ccba2e977a3aabb4384036109ca32f552399a2bc0588f925f91ed073ce70c"
-dependencies = [
- "ahash",
- "arrow-buffer 56.2.1",
- "arrow-data 56.2.1",
- "arrow-schema 56.2.1",
- "chrono",
- "half",
- "hashbrown 0.16.1",
- "num",
 ]
 
 [[package]]
@@ -395,17 +346,6 @@ dependencies = [
 
 [[package]]
 name = "arrow-buffer"
-version = "56.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a90f8bece6a9ee316a699fbbfde368a206676a1206ce89b50f07937648e76c3c"
-dependencies = [
- "bytes",
- "half",
- "num",
-]
-
-[[package]]
-name = "arrow-buffer"
 version = "58.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "53ee609a07eb721c2e4a7669d7bb88e2106c560e7dec1219096fecf5eae356d1"
@@ -426,27 +366,6 @@ dependencies = [
  "half",
  "num-bigint 0.5.1",
  "num-traits",
-]
-
-[[package]]
-name = "arrow-cast"
-version = "56.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "61ffe645cfb4e80b1ca37a3a106ce7b4af66ccdd60c655a57e6b9aab096164a7"
-dependencies = [
- "arrow-array 56.2.1",
- "arrow-buffer 56.2.1",
- "arrow-data 56.2.1",
- "arrow-schema 56.2.1",
- "arrow-select 56.2.1",
- "atoi 2.0.0",
- "base64 0.22.1",
- "chrono",
- "comfy-table 7.1.2",
- "half",
- "lexical-core",
- "num",
- "ryu",
 ]
 
 [[package]]
@@ -536,18 +455,6 @@ dependencies = [
 
 [[package]]
 name = "arrow-data"
-version = "56.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "78468c813909465dd0f858950c8a0614eb63608134acf95c602ec21381258b28"
-dependencies = [
- "arrow-buffer 56.2.1",
- "arrow-schema 56.2.1",
- "half",
- "num",
-]
-
-[[package]]
-name = "arrow-data"
 version = "58.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "10791765e6927cdd8ace5bf0e51a69f38a1c3aded2db93561b003c332d02ee2a"
@@ -570,20 +477,6 @@ dependencies = [
  "half",
  "num-integer",
  "num-traits",
-]
-
-[[package]]
-name = "arrow-ipc"
-version = "56.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "31f88b0fbb33af28089ccd3e4dcd0ff09de46842168d00220b920f7231feddf5"
-dependencies = [
- "arrow-array 56.2.1",
- "arrow-buffer 56.2.1",
- "arrow-data 56.2.1",
- "arrow-schema 56.2.1",
- "arrow-select 56.2.1",
- "flatbuffers",
 ]
 
 [[package]]
@@ -670,19 +563,6 @@ dependencies = [
 
 [[package]]
 name = "arrow-ord"
-version = "56.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "aed58a38c3db0a2cf75ef70e3cb6bc4bd0da0a3d390de37c36139b31fae826e8"
-dependencies = [
- "arrow-array 56.2.1",
- "arrow-buffer 56.2.1",
- "arrow-data 56.2.1",
- "arrow-schema 56.2.1",
- "arrow-select 56.2.1",
-]
-
-[[package]]
-name = "arrow-ord"
 version = "58.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "908a1b5aeefce5c6eb2a0a4e98f4ccacbd441fe0ed23fb799e634cd0135821e5"
@@ -706,19 +586,6 @@ dependencies = [
  "arrow-data 60.1.0",
  "arrow-schema 60.1.0",
  "arrow-select 60.1.0",
-]
-
-[[package]]
-name = "arrow-row"
-version = "56.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "079ced0517daf4f09b070d09ff641cee7cc331aa216bebcb25d1a6474ad53086"
-dependencies = [
- "arrow-array 56.2.1",
- "arrow-buffer 56.2.1",
- "arrow-data 56.2.1",
- "arrow-schema 56.2.1",
- "half",
 ]
 
 [[package]]
@@ -749,12 +616,6 @@ dependencies = [
 
 [[package]]
 name = "arrow-schema"
-version = "56.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5a0d5eb3fe25337ff83e8333a08379bdd1540b0961b1c888f6e505d971c198e1"
-
-[[package]]
-name = "arrow-schema"
 version = "58.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8506ad465ebb9483bb6efa1e2e78a313549122c6dd67dc2f7087297b762eaede"
@@ -773,20 +634,6 @@ dependencies = [
  "bitflags 2.13.2",
  "serde_core",
  "serde_json",
-]
-
-[[package]]
-name = "arrow-select"
-version = "56.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2368a78bd32902dba39d52519d70f63799c8b5dc8a9477129a30c2fd3dc70c19"
-dependencies = [
- "ahash",
- "arrow-array 56.2.1",
- "arrow-buffer 56.2.1",
- "arrow-data 56.2.1",
- "arrow-schema 56.2.1",
- "num",
 ]
 
 [[package]]
@@ -816,23 +663,6 @@ dependencies = [
  "arrow-data 60.1.0",
  "arrow-schema 60.1.0",
  "num-traits",
-]
-
-[[package]]
-name = "arrow-string"
-version = "56.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dece58a130b9187756ded8bc071bd8ee9dd7a146566af244b297c7e632fd1ef7"
-dependencies = [
- "arrow-array 56.2.1",
- "arrow-buffer 56.2.1",
- "arrow-data 56.2.1",
- "arrow-schema 56.2.1",
- "arrow-select 56.2.1",
- "memchr",
- "num",
- "regex",
- "regex-syntax",
 ]
 
 [[package]]
@@ -1604,7 +1434,7 @@ dependencies = [
  "bitflags 2.13.2",
  "cexpr",
  "clang-sys",
- "itertools 0.13.0",
+ "itertools 0.10.5",
  "log",
  "prettyplease",
  "proc-macro2",
@@ -2198,7 +2028,7 @@ version = "3.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "faf9468729b8cbcea668e36183cb69d317348c2e08e994829fb56ebfdfbaac34"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -2812,7 +2642,7 @@ dependencies = [
 [[package]]
 name = "datafusion"
 version = "56.0.0"
-source = "git+https://github.com/apache/datafusion?tag=56.0.0-rc1#cce6374e6256b3b8892ec60674578cf32bc3a32c"
+source = "git+https://github.com/apache/datafusion?tag=56.0.0#7e7ae72a820e2bf87da1205b96639fba334ed2f7"
 dependencies = [
  "arrow 60.1.0",
  "arrow-schema 60.1.0",
@@ -2917,7 +2747,7 @@ dependencies = [
 [[package]]
 name = "datafusion-catalog"
 version = "56.0.0"
-source = "git+https://github.com/apache/datafusion?tag=56.0.0-rc1#cce6374e6256b3b8892ec60674578cf32bc3a32c"
+source = "git+https://github.com/apache/datafusion?tag=56.0.0#7e7ae72a820e2bf87da1205b96639fba334ed2f7"
 dependencies = [
  "arrow 60.1.0",
  "async-trait",
@@ -2964,7 +2794,7 @@ dependencies = [
 [[package]]
 name = "datafusion-catalog-listing"
 version = "56.0.0"
-source = "git+https://github.com/apache/datafusion?tag=56.0.0-rc1#cce6374e6256b3b8892ec60674578cf32bc3a32c"
+source = "git+https://github.com/apache/datafusion?tag=56.0.0#7e7ae72a820e2bf87da1205b96639fba334ed2f7"
 dependencies = [
  "arrow 60.1.0",
  "async-trait",
@@ -3011,7 +2841,7 @@ dependencies = [
 [[package]]
 name = "datafusion-common"
 version = "56.0.0"
-source = "git+https://github.com/apache/datafusion?tag=56.0.0-rc1#cce6374e6256b3b8892ec60674578cf32bc3a32c"
+source = "git+https://github.com/apache/datafusion?tag=56.0.0#7e7ae72a820e2bf87da1205b96639fba334ed2f7"
 dependencies = [
  "arrow 60.1.0",
  "arrow-ipc 60.1.0",
@@ -3048,7 +2878,7 @@ dependencies = [
 [[package]]
 name = "datafusion-common-runtime"
 version = "56.0.0"
-source = "git+https://github.com/apache/datafusion?tag=56.0.0-rc1#cce6374e6256b3b8892ec60674578cf32bc3a32c"
+source = "git+https://github.com/apache/datafusion?tag=56.0.0#7e7ae72a820e2bf87da1205b96639fba334ed2f7"
 dependencies = [
  "futures",
  "log",
@@ -3088,7 +2918,7 @@ dependencies = [
 [[package]]
 name = "datafusion-datasource"
 version = "56.0.0"
-source = "git+https://github.com/apache/datafusion?tag=56.0.0-rc1#cce6374e6256b3b8892ec60674578cf32bc3a32c"
+source = "git+https://github.com/apache/datafusion?tag=56.0.0#7e7ae72a820e2bf87da1205b96639fba334ed2f7"
 dependencies = [
  "arrow 60.1.0",
  "async-compression",
@@ -3148,7 +2978,7 @@ dependencies = [
 [[package]]
 name = "datafusion-datasource-arrow"
 version = "56.0.0"
-source = "git+https://github.com/apache/datafusion?tag=56.0.0-rc1#cce6374e6256b3b8892ec60674578cf32bc3a32c"
+source = "git+https://github.com/apache/datafusion?tag=56.0.0#7e7ae72a820e2bf87da1205b96639fba334ed2f7"
 dependencies = [
  "arrow 60.1.0",
  "arrow-ipc 60.1.0",
@@ -3171,7 +3001,7 @@ dependencies = [
 [[package]]
 name = "datafusion-datasource-avro"
 version = "56.0.0"
-source = "git+https://github.com/apache/datafusion?tag=56.0.0-rc1#cce6374e6256b3b8892ec60674578cf32bc3a32c"
+source = "git+https://github.com/apache/datafusion?tag=56.0.0#7e7ae72a820e2bf87da1205b96639fba334ed2f7"
 dependencies = [
  "arrow 60.1.0",
  "arrow-avro",
@@ -3217,7 +3047,7 @@ dependencies = [
 [[package]]
 name = "datafusion-datasource-csv"
 version = "56.0.0"
-source = "git+https://github.com/apache/datafusion?tag=56.0.0-rc1#cce6374e6256b3b8892ec60674578cf32bc3a32c"
+source = "git+https://github.com/apache/datafusion?tag=56.0.0#7e7ae72a820e2bf87da1205b96639fba334ed2f7"
 dependencies = [
  "arrow 60.1.0",
  "async-trait",
@@ -3262,7 +3092,7 @@ dependencies = [
 [[package]]
 name = "datafusion-datasource-json"
 version = "56.0.0"
-source = "git+https://github.com/apache/datafusion?tag=56.0.0-rc1#cce6374e6256b3b8892ec60674578cf32bc3a32c"
+source = "git+https://github.com/apache/datafusion?tag=56.0.0#7e7ae72a820e2bf87da1205b96639fba334ed2f7"
 dependencies = [
  "arrow 60.1.0",
  "async-trait",
@@ -3284,7 +3114,7 @@ dependencies = [
 [[package]]
 name = "datafusion-datasource-parquet"
 version = "56.0.0"
-source = "git+https://github.com/apache/datafusion?tag=56.0.0-rc1#cce6374e6256b3b8892ec60674578cf32bc3a32c"
+source = "git+https://github.com/apache/datafusion?tag=56.0.0#7e7ae72a820e2bf87da1205b96639fba334ed2f7"
 dependencies = [
  "arrow 60.1.0",
  "arrow-schema 60.1.0",
@@ -3321,7 +3151,7 @@ checksum = "d69bb69d8769e34f76839c960dbde24c1ac0c885a79b6c3c2287bdc56ec67891"
 [[package]]
 name = "datafusion-doc"
 version = "56.0.0"
-source = "git+https://github.com/apache/datafusion?tag=56.0.0-rc1#cce6374e6256b3b8892ec60674578cf32bc3a32c"
+source = "git+https://github.com/apache/datafusion?tag=56.0.0#7e7ae72a820e2bf87da1205b96639fba334ed2f7"
 
 [[package]]
 name = "datafusion-execution"
@@ -3348,7 +3178,7 @@ dependencies = [
 [[package]]
 name = "datafusion-execution"
 version = "56.0.0"
-source = "git+https://github.com/apache/datafusion?tag=56.0.0-rc1#cce6374e6256b3b8892ec60674578cf32bc3a32c"
+source = "git+https://github.com/apache/datafusion?tag=56.0.0#7e7ae72a820e2bf87da1205b96639fba334ed2f7"
 dependencies = [
  "arrow 60.1.0",
  "arrow-buffer 60.1.0",
@@ -3395,7 +3225,7 @@ dependencies = [
 [[package]]
 name = "datafusion-expr"
 version = "56.0.0"
-source = "git+https://github.com/apache/datafusion?tag=56.0.0-rc1#cce6374e6256b3b8892ec60674578cf32bc3a32c"
+source = "git+https://github.com/apache/datafusion?tag=56.0.0#7e7ae72a820e2bf87da1205b96639fba334ed2f7"
 dependencies = [
  "arrow 60.1.0",
  "arrow-schema 60.1.0",
@@ -3430,7 +3260,7 @@ dependencies = [
 [[package]]
 name = "datafusion-expr-common"
 version = "56.0.0"
-source = "git+https://github.com/apache/datafusion?tag=56.0.0-rc1#cce6374e6256b3b8892ec60674578cf32bc3a32c"
+source = "git+https://github.com/apache/datafusion?tag=56.0.0#7e7ae72a820e2bf87da1205b96639fba334ed2f7"
 dependencies = [
  "arrow 60.1.0",
  "datafusion-common 56.0.0",
@@ -3473,7 +3303,7 @@ dependencies = [
 [[package]]
 name = "datafusion-functions"
 version = "56.0.0"
-source = "git+https://github.com/apache/datafusion?tag=56.0.0-rc1#cce6374e6256b3b8892ec60674578cf32bc3a32c"
+source = "git+https://github.com/apache/datafusion?tag=56.0.0#7e7ae72a820e2bf87da1205b96639fba334ed2f7"
 dependencies = [
  "arrow 60.1.0",
  "arrow-buffer 60.1.0",
@@ -3526,7 +3356,7 @@ dependencies = [
 [[package]]
 name = "datafusion-functions-aggregate"
 version = "56.0.0"
-source = "git+https://github.com/apache/datafusion?tag=56.0.0-rc1#cce6374e6256b3b8892ec60674578cf32bc3a32c"
+source = "git+https://github.com/apache/datafusion?tag=56.0.0#7e7ae72a820e2bf87da1205b96639fba334ed2f7"
 dependencies = [
  "arrow 60.1.0",
  "arrow-select 60.1.0",
@@ -3560,7 +3390,7 @@ dependencies = [
 [[package]]
 name = "datafusion-functions-aggregate-common"
 version = "56.0.0"
-source = "git+https://github.com/apache/datafusion?tag=56.0.0-rc1#cce6374e6256b3b8892ec60674578cf32bc3a32c"
+source = "git+https://github.com/apache/datafusion?tag=56.0.0#7e7ae72a820e2bf87da1205b96639fba334ed2f7"
 dependencies = [
  "arrow 60.1.0",
  "datafusion-common 56.0.0",
@@ -3596,7 +3426,7 @@ dependencies = [
 [[package]]
 name = "datafusion-functions-nested"
 version = "56.0.0"
-source = "git+https://github.com/apache/datafusion?tag=56.0.0-rc1#cce6374e6256b3b8892ec60674578cf32bc3a32c"
+source = "git+https://github.com/apache/datafusion?tag=56.0.0#7e7ae72a820e2bf87da1205b96639fba334ed2f7"
 dependencies = [
  "arrow 60.1.0",
  "arrow-ord 60.1.0",
@@ -3636,7 +3466,7 @@ dependencies = [
 [[package]]
 name = "datafusion-functions-table"
 version = "56.0.0"
-source = "git+https://github.com/apache/datafusion?tag=56.0.0-rc1#cce6374e6256b3b8892ec60674578cf32bc3a32c"
+source = "git+https://github.com/apache/datafusion?tag=56.0.0#7e7ae72a820e2bf87da1205b96639fba334ed2f7"
 dependencies = [
  "arrow 60.1.0",
  "async-trait",
@@ -3668,7 +3498,7 @@ dependencies = [
 [[package]]
 name = "datafusion-functions-window"
 version = "56.0.0"
-source = "git+https://github.com/apache/datafusion?tag=56.0.0-rc1#cce6374e6256b3b8892ec60674578cf32bc3a32c"
+source = "git+https://github.com/apache/datafusion?tag=56.0.0#7e7ae72a820e2bf87da1205b96639fba334ed2f7"
 dependencies = [
  "arrow 60.1.0",
  "datafusion-common 56.0.0",
@@ -3694,7 +3524,7 @@ dependencies = [
 [[package]]
 name = "datafusion-functions-window-common"
 version = "56.0.0"
-source = "git+https://github.com/apache/datafusion?tag=56.0.0-rc1#cce6374e6256b3b8892ec60674578cf32bc3a32c"
+source = "git+https://github.com/apache/datafusion?tag=56.0.0#7e7ae72a820e2bf87da1205b96639fba334ed2f7"
 dependencies = [
  "datafusion-common 56.0.0",
  "datafusion-physical-expr-common 56.0.0",
@@ -3714,7 +3544,7 @@ dependencies = [
 [[package]]
 name = "datafusion-macros"
 version = "56.0.0"
-source = "git+https://github.com/apache/datafusion?tag=56.0.0-rc1#cce6374e6256b3b8892ec60674578cf32bc3a32c"
+source = "git+https://github.com/apache/datafusion?tag=56.0.0#7e7ae72a820e2bf87da1205b96639fba334ed2f7"
 dependencies = [
  "datafusion-doc 56.0.0",
  "quote",
@@ -3743,7 +3573,7 @@ dependencies = [
 [[package]]
 name = "datafusion-optimizer"
 version = "56.0.0"
-source = "git+https://github.com/apache/datafusion?tag=56.0.0-rc1#cce6374e6256b3b8892ec60674578cf32bc3a32c"
+source = "git+https://github.com/apache/datafusion?tag=56.0.0#7e7ae72a820e2bf87da1205b96639fba334ed2f7"
 dependencies = [
  "arrow 60.1.0",
  "chrono",
@@ -3783,7 +3613,7 @@ dependencies = [
 [[package]]
 name = "datafusion-physical-expr"
 version = "56.0.0"
-source = "git+https://github.com/apache/datafusion?tag=56.0.0-rc1#cce6374e6256b3b8892ec60674578cf32bc3a32c"
+source = "git+https://github.com/apache/datafusion?tag=56.0.0#7e7ae72a820e2bf87da1205b96639fba334ed2f7"
 dependencies = [
  "arrow 60.1.0",
  "arrow-schema 60.1.0",
@@ -3821,7 +3651,7 @@ dependencies = [
 [[package]]
 name = "datafusion-physical-expr-adapter"
 version = "56.0.0"
-source = "git+https://github.com/apache/datafusion?tag=56.0.0-rc1#cce6374e6256b3b8892ec60674578cf32bc3a32c"
+source = "git+https://github.com/apache/datafusion?tag=56.0.0#7e7ae72a820e2bf87da1205b96639fba334ed2f7"
 dependencies = [
  "arrow 60.1.0",
  "datafusion-common 56.0.0",
@@ -3852,7 +3682,7 @@ dependencies = [
 [[package]]
 name = "datafusion-physical-expr-common"
 version = "56.0.0"
-source = "git+https://github.com/apache/datafusion?tag=56.0.0-rc1#cce6374e6256b3b8892ec60674578cf32bc3a32c"
+source = "git+https://github.com/apache/datafusion?tag=56.0.0#7e7ae72a820e2bf87da1205b96639fba334ed2f7"
 dependencies = [
  "arrow 60.1.0",
  "chrono",
@@ -3887,7 +3717,7 @@ dependencies = [
 [[package]]
 name = "datafusion-physical-optimizer"
 version = "56.0.0"
-source = "git+https://github.com/apache/datafusion?tag=56.0.0-rc1#cce6374e6256b3b8892ec60674578cf32bc3a32c"
+source = "git+https://github.com/apache/datafusion?tag=56.0.0#7e7ae72a820e2bf87da1205b96639fba334ed2f7"
 dependencies = [
  "arrow 60.1.0",
  "datafusion-common 56.0.0",
@@ -3940,7 +3770,7 @@ dependencies = [
 [[package]]
 name = "datafusion-physical-plan"
 version = "56.0.0"
-source = "git+https://github.com/apache/datafusion?tag=56.0.0-rc1#cce6374e6256b3b8892ec60674578cf32bc3a32c"
+source = "git+https://github.com/apache/datafusion?tag=56.0.0#7e7ae72a820e2bf87da1205b96639fba334ed2f7"
 dependencies = [
  "arrow 60.1.0",
  "arrow-data 60.1.0",
@@ -3993,7 +3823,7 @@ dependencies = [
 [[package]]
 name = "datafusion-pruning"
 version = "56.0.0"
-source = "git+https://github.com/apache/datafusion?tag=56.0.0-rc1#cce6374e6256b3b8892ec60674578cf32bc3a32c"
+source = "git+https://github.com/apache/datafusion?tag=56.0.0#7e7ae72a820e2bf87da1205b96639fba334ed2f7"
 dependencies = [
  "arrow 60.1.0",
  "datafusion-common 56.0.0",
@@ -4022,7 +3852,7 @@ dependencies = [
 [[package]]
 name = "datafusion-session"
 version = "56.0.0"
-source = "git+https://github.com/apache/datafusion?tag=56.0.0-rc1#cce6374e6256b3b8892ec60674578cf32bc3a32c"
+source = "git+https://github.com/apache/datafusion?tag=56.0.0#7e7ae72a820e2bf87da1205b96639fba334ed2f7"
 dependencies = [
  "arrow-schema 60.1.0",
  "async-trait",
@@ -4037,7 +3867,7 @@ dependencies = [
 [[package]]
 name = "datafusion-spark"
 version = "56.0.0"
-source = "git+https://github.com/apache/datafusion?tag=56.0.0-rc1#cce6374e6256b3b8892ec60674578cf32bc3a32c"
+source = "git+https://github.com/apache/datafusion?tag=56.0.0#7e7ae72a820e2bf87da1205b96639fba334ed2f7"
 dependencies = [
  "arrow 60.1.0",
  "base64 0.23.1",
@@ -4085,7 +3915,7 @@ dependencies = [
 [[package]]
 name = "datafusion-sql"
 version = "56.0.0"
-source = "git+https://github.com/apache/datafusion?tag=56.0.0-rc1#cce6374e6256b3b8892ec60674578cf32bc3a32c"
+source = "git+https://github.com/apache/datafusion?tag=56.0.0#7e7ae72a820e2bf87da1205b96639fba334ed2f7"
 dependencies = [
  "arrow 60.1.0",
  "arrow-schema 60.1.0",
@@ -4105,7 +3935,7 @@ dependencies = [
 [[package]]
 name = "datafusion-sqllogictest"
 version = "56.0.0"
-source = "git+https://github.com/apache/datafusion?tag=56.0.0-rc1#cce6374e6256b3b8892ec60674578cf32bc3a32c"
+source = "git+https://github.com/apache/datafusion?tag=56.0.0#7e7ae72a820e2bf87da1205b96639fba334ed2f7"
 dependencies = [
  "arrow 60.1.0",
  "async-trait",
@@ -4237,7 +4067,7 @@ dependencies = [
  "libc",
  "option-ext",
  "redox_users",
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -4437,7 +4267,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -4473,35 +4303,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "ext-trait"
-version = "1.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d772df1c1a777963712fb68e014235e80863d6a91a85c4e06ba2d16243a310e5"
-dependencies = [
- "ext-trait-proc_macros",
-]
-
-[[package]]
-name = "ext-trait-proc_macros"
-version = "1.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1ab7934152eaf26aa5aa9f7371408ad5af4c31357073c9e84c3b9d7f11ad639a"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 1.0.109",
-]
-
-[[package]]
-name = "extension-traits"
-version = "1.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a296e5a895621edf9fa8329c83aa1cb69a964643e36cf54d8d7a69b789089537"
-dependencies = [
- "ext-trait",
-]
-
-[[package]]
 name = "fast-float2"
 version = "0.2.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4509,21 +4310,9 @@ checksum = "c6e8948ce679d00a02a94739ea185595dca7118ed04feb991127e443bd3d761f"
 
 [[package]]
 name = "fastlanes"
-version = "0.6.1"
+version = "0.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4a516528425408429de7661e7101f7e7ad54f7d3fab859a3a6de239f508d17e2"
-dependencies = [
- "const_for",
- "num-traits",
- "pastey",
- "seq-macro",
-]
-
-[[package]]
-name = "fastlanes"
-version = "0.8.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "72b17a9745105c3ee766915d6e26989b7594e97f3c0cbcf7b28b116d4f2b4739"
+checksum = "27b6ffac7ffa7b170248358e13c114d5ace91bfe4135a3f6e590c1548d0e60b5"
 dependencies = [
  "const_for",
  "cpufeatures 0.3.1",
@@ -4939,25 +4728,12 @@ dependencies = [
 ]
 
 [[package]]
-name = "geojson"
-version = "0.24.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e26f3c45b36fccc9cf2805e61d4da6bc4bbd5a3a9589b01afa3a40eff703bd79"
-dependencies = [
- "log",
- "serde",
- "serde_json",
- "thiserror 2.0.21",
-]
-
-[[package]]
 name = "geozero"
 version = "0.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e5f28f34864745eb2f123c990c6ffd92c1584bd39439b3f27ff2a0f4ea5b309b"
 dependencies = [
  "geo-types",
- "geojson",
  "log",
  "scroll",
  "serde_json",
@@ -5805,7 +5581,7 @@ checksum = "3640c1c38b8e4e43584d8df18be5fc6b0aa314ce6ebf51b53313d4306cca8e46"
 dependencies = [
  "hermit-abi",
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -6630,31 +6406,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "20870f649af7073d53e38067b2a84312175d56ea15217e1b15bc83506ec50afb"
 
 [[package]]
-name = "lending-iterator"
-version = "0.1.7"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bc07588c853b50689205fb5c00498aa681d89828e0ce8cbd965ebc7a5d8ae260"
-dependencies = [
- "extension-traits",
- "lending-iterator-proc_macros",
- "macro_rules_attribute",
- "never-say-never",
- "nougat",
- "polonius-the-crab",
-]
-
-[[package]]
-name = "lending-iterator-proc_macros"
-version = "0.1.7"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b5445dd1c0deb1e97b8a16561d17fc686ca83e8411128fb036e9668a72d51b1d"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 1.0.109",
-]
-
-[[package]]
 name = "lexical-core"
 version = "1.0.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7020,15 +6771,6 @@ dependencies = [
 
 [[package]]
 name = "lz4_flex"
-version = "0.11.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "373f5eceeeab7925e0c1098212f2fbc4d416adec9d35051a6ab251e824c1854a"
-dependencies = [
- "twox-hash",
-]
-
-[[package]]
-name = "lz4_flex"
 version = "0.13.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7ef0d4ed8669f8f8826eb00dc878084aa8f253506c4fd5e8f58f5bce72ddb97e"
@@ -7053,22 +6795,6 @@ checksum = "f1c46f3fcd2e888afdb01a07efc071cb21300e07c68d32c3e8b01b5c8cb1fcaa"
 dependencies = [
  "sha2",
 ]
-
-[[package]]
-name = "macro_rules_attribute"
-version = "0.1.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cf0c9b980bf4f3a37fd7b1c066941dd1b1d0152ce6ee6e8fe8c49b9f6810d862"
-dependencies = [
- "macro_rules_attribute-proc_macro",
- "paste",
-]
-
-[[package]]
-name = "macro_rules_attribute-proc_macro"
-version = "0.1.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "58093314a45e00c77d5c508f76e77c3396afbbc0d01506e7fae47b018bac2b1d"
 
 [[package]]
 name = "matchers"
@@ -7274,12 +7000,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "never-say-never"
-version = "6.6.666"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cf5a574dadd7941adeaa71823ecba5e28331b8313fb2e1c6a5c7e5981ea53ad6"
-
-[[package]]
 name = "nix"
 version = "0.31.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7383,27 +7103,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "nougat"
-version = "0.2.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "97b57b9ced431322f054fc673f1d3c7fa52d80efd9df74ad2fc759f044742510"
-dependencies = [
- "macro_rules_attribute",
- "nougat-proc_macros",
-]
-
-[[package]]
-name = "nougat-proc_macros"
-version = "0.2.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c84f77a45e99a2f9b492695d99e1c23844619caa5f3e57647cffacad773ca257"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 1.0.109",
-]
-
-[[package]]
 name = "ntapi"
 version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7418,21 +7117,7 @@ version = "0.50.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7957b9740744892f114936ab4a57b3f487491bbeafaf8083688b16841a4240e5"
 dependencies = [
- "windows-sys 0.61.2",
-]
-
-[[package]]
-name = "num"
-version = "0.4.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "35bd024e8b2ff75562e5f34e7f4905839deb4b22955ef5e73d2fea1b9813cb23"
-dependencies = [
- "num-bigint 0.4.8",
- "num-complex",
- "num-integer",
- "num-iter",
- "num-rational",
- "num-traits",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -7476,16 +7161,6 @@ version = "0.1.47"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7ce2d95d4b3734dc35aa2f45e1aa22cd416814592a4f9d9205e11affd5b8e10b"
 dependencies = [
- "num-traits",
-]
-
-[[package]]
-name = "num-iter"
-version = "0.1.46"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c92800bd69a1eac91786bcfe9da64a897eb72911b8dc3095decbd07429e8048b"
-dependencies = [
- "num-integer",
  "num-traits",
 ]
 
@@ -7688,11 +7363,13 @@ checksum = "384b8ab6d37215f3c5301a95a4accb5d64aa607f1fcb26a11b5303878451b4fe"
 
 [[package]]
 name = "onpair"
-version = "0.3.0"
+version = "0.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5362b0df3c0d019c103db2c25eab441ef5b74886e0219764022933c844707e60"
+checksum = "551fd23025cecec818858be20d2259b61eb45ea386f96aceb6dff861166a518c"
 dependencies = [
+ "fearless_simd",
  "hashbrown 0.17.1",
+ "memchr",
  "rand 0.10.3",
 ]
 
@@ -7957,15 +7634,6 @@ checksum = "04744f49eae99ab78e0d5c0b603ab218f515ea8cfe5a456d7629ad883a3b6e7d"
 
 [[package]]
 name = "ordered-float"
-version = "2.10.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "68f19d67e5a2795c94e73e0bb1cc1a7edeb2e28efd39e2e1c9b7a40c1108b11c"
-dependencies = [
- "num-traits",
-]
-
-[[package]]
-name = "ordered-float"
 version = "3.9.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f1e1c390732d15f1d48471625cd92d154e66db2c56645e29a9cd26f4699f72dc"
@@ -8129,41 +7797,6 @@ dependencies = [
 
 [[package]]
 name = "parquet"
-version = "56.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d3abbfef8a25900f4925c86e4cb881ea24672ca3c31ee4fb50a8083c4c56d313"
-dependencies = [
- "ahash",
- "arrow-array 56.2.1",
- "arrow-buffer 56.2.1",
- "arrow-cast 56.2.1",
- "arrow-data 56.2.1",
- "arrow-ipc 56.2.1",
- "arrow-schema 56.2.1",
- "arrow-select 56.2.1",
- "base64 0.22.1",
- "brotli 8.0.4",
- "bytes",
- "chrono",
- "flate2",
- "futures",
- "half",
- "hashbrown 0.16.1",
- "lz4_flex 0.11.6",
- "num",
- "num-bigint 0.4.8",
- "paste",
- "seq-macro",
- "simdutf8",
- "snap",
- "thrift 0.17.0",
- "tokio",
- "twox-hash",
- "zstd 0.13.4",
-]
-
-[[package]]
-name = "parquet"
 version = "58.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b967e8aa77dbc32719087ff91f0f100948a0a7e4c88609bd91b0ccf47e594d7e"
@@ -8190,7 +7823,7 @@ dependencies = [
  "seq-macro",
  "simdutf8",
  "snap",
- "thrift 0.23.0",
+ "thrift",
  "twox-hash",
  "zstd 0.13.4",
 ]
@@ -8397,7 +8030,7 @@ checksum = "044b1fa4f259f4df9ad5078e587b208f5d288a25407575fcddb9face30c7c692"
 dependencies = [
  "rand 0.9.5",
  "socket2",
- "thiserror 2.0.21",
+ "thiserror 1.0.69",
 ]
 
 [[package]]
@@ -8458,12 +8091,6 @@ dependencies = [
  "rustix",
  "windows-sys 0.61.2",
 ]
-
-[[package]]
-name = "polonius-the-crab"
-version = "0.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c2a69ee997a6282f8462abf1e0d8c38c965e968799e912b3bed8c9e8a28c2f9f"
 
 [[package]]
 name = "portable-atomic"
@@ -8877,7 +8504,7 @@ dependencies = [
  "once_cell",
  "socket2",
  "tracing",
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -9597,7 +9224,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -9655,7 +9282,7 @@ dependencies = [
  "security-framework",
  "security-framework-sys",
  "webpki-root-certs",
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -10195,18 +9822,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "spatialbench-arrow"
-version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ad89c32ed9e258bcc89713c296c7437963ce31f511eb8a408d2046e853294206"
-dependencies = [
- "arrow 56.2.1",
- "geo",
- "geozero",
- "spatialbench",
-]
-
-[[package]]
 name = "spin"
 version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -10425,17 +10040,6 @@ checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
 
 [[package]]
 name = "syn"
-version = "1.0.109"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "72b64191b275b66ffe2469e8af2c1cfe3bafa67b529ead792a6d0160888b4237"
-dependencies = [
- "proc-macro2",
- "quote",
- "unicode-ident",
-]
-
-[[package]]
-name = "syn"
 version = "2.0.119"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "872831b642d1a07999a962a351ed35b955ea2cfc8f3862091e2a240a84f17297"
@@ -10581,7 +10185,7 @@ dependencies = [
  "getrandom 0.4.3",
  "once_cell",
  "rustix",
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -10591,7 +10195,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "230a1b821ccbd75b185820a1f1ff7b14d21da1e442e22c0863ea5f08771a8874"
 dependencies = [
  "rustix",
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -10712,17 +10316,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1ad99c4c6d32803332c548b1af0540b357b3f5fc0be8f6c6bfe8b2e6ae784070"
 dependencies = [
  "cfg-if",
-]
-
-[[package]]
-name = "thrift"
-version = "0.17.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7e54bc85fc7faa8bc175c4bab5b92ba8d9a3ce893d0e9f42cc455c8ab16a9e09"
-dependencies = [
- "byteorder",
- "integer-encoding",
- "ordered-float 2.10.1",
 ]
 
 [[package]]
@@ -11371,7 +10964,7 @@ dependencies = [
  "arrow-array 60.1.0",
  "arrow-schema 60.1.0",
  "codspeed-divan-compat",
- "fastlanes 0.8.0",
+ "fastlanes",
  "mimalloc",
  "parquet 60.1.0",
  "rand 0.10.3",
@@ -11396,6 +10989,7 @@ dependencies = [
  "vortex-fastlanes",
  "vortex-file",
  "vortex-fsst",
+ "vortex-functions",
  "vortex-io",
  "vortex-ipc",
  "vortex-layout",
@@ -11419,6 +11013,8 @@ version = "0.1.0"
 dependencies = [
  "alp",
  "codspeed-divan-compat",
+ "fearless_simd",
+ "fearless_simd_macros",
  "itertools 0.14.0",
  "mimalloc",
  "num-traits",
@@ -11429,6 +11025,7 @@ dependencies = [
  "vortex-buffer",
  "vortex-error",
  "vortex-fastlanes",
+ "vortex-functions",
  "vortex-mask",
  "vortex-session",
 ]
@@ -11457,7 +11054,6 @@ dependencies = [
  "inventory",
  "itertools 0.14.0",
  "jiff",
- "memchr",
  "mimalloc",
  "num-traits",
  "num_enum",
@@ -11469,8 +11065,6 @@ dependencies = [
  "prost-types",
  "rand 0.10.3",
  "rand_distr 0.6.0",
- "regex",
- "regex-syntax",
  "rstest",
  "rstest_reuse",
  "rustc-hash",
@@ -11489,6 +11083,7 @@ dependencies = [
  "vortex-buffer",
  "vortex-compute",
  "vortex-error",
+ "vortex-functions",
  "vortex-mask",
  "vortex-session",
  "vortex-utils",
@@ -11512,8 +11107,12 @@ dependencies = [
  "arrow-cast 60.1.0",
  "arrow-data 60.1.0",
  "arrow-schema 60.1.0",
+ "arrow-select 60.1.0",
  "base64 0.23.1",
  "codspeed-divan-compat",
+ "futures",
+ "half",
+ "hegeltest",
  "itertools 0.14.0",
  "mimalloc",
  "num-traits",
@@ -11525,8 +11124,10 @@ dependencies = [
  "vortex-decimal-byte-parts",
  "vortex-error",
  "vortex-fsst",
+ "vortex-functions",
  "vortex-mask",
  "vortex-onpair",
+ "vortex-scan",
  "vortex-session",
  "vortex-zstd",
 ]
@@ -11551,6 +11152,7 @@ dependencies = [
  "geo-traits",
  "geoarrow",
  "geoarrow-cast",
+ "geozero",
  "get_dir",
  "glob",
  "humansize",
@@ -11563,7 +11165,6 @@ dependencies = [
  "noodles-vcf",
  "object_store 0.14.2",
  "parking_lot 0.12.5",
- "parquet 56.2.1",
  "parquet 60.1.0",
  "rand 0.10.3",
  "regex",
@@ -11572,7 +11173,6 @@ dependencies = [
  "serde",
  "serde_json",
  "spatialbench",
- "spatialbench-arrow",
  "sysinfo",
  "tabled",
  "target-lexicon",
@@ -11736,7 +11336,6 @@ name = "vortex-compressor"
 version = "0.1.0"
 dependencies = [
  "codspeed-divan-compat",
- "itertools 0.14.0",
  "mimalloc",
  "num-traits",
  "parking_lot 0.12.5",
@@ -11746,6 +11345,7 @@ dependencies = [
  "tracing",
  "vortex-array",
  "vortex-buffer",
+ "vortex-compute",
  "vortex-error",
  "vortex-mask",
  "vortex-session",
@@ -11760,6 +11360,7 @@ dependencies = [
  "mimalloc",
  "num-traits",
  "rand 0.10.3",
+ "rstest",
  "vortex-bench-support",
  "vortex-buffer",
 ]
@@ -11784,7 +11385,7 @@ dependencies = [
  "async-trait",
  "bindgen",
  "codspeed-criterion-compat-walltime",
- "fastlanes 0.8.0",
+ "fastlanes",
  "futures",
  "itertools 0.14.0",
  "memmap2",
@@ -11903,6 +11504,7 @@ dependencies = [
  "vortex-buffer",
  "vortex-compute",
  "vortex-error",
+ "vortex-functions",
  "vortex-mask",
  "vortex-session",
 ]
@@ -11922,7 +11524,9 @@ dependencies = [
  "vortex-array",
  "vortex-bench-support",
  "vortex-buffer",
+ "vortex-compute",
  "vortex-error",
+ "vortex-functions",
  "vortex-mask",
  "vortex-session",
 ]
@@ -12017,6 +11621,7 @@ dependencies = [
  "vortex-array",
  "vortex-buffer",
  "vortex-error",
+ "vortex-functions",
  "vortex-session",
  "vortex-utils",
 ]
@@ -12026,11 +11631,10 @@ name = "vortex-fastlanes"
 version = "0.1.0"
 dependencies = [
  "codspeed-divan-compat",
- "fastlanes 0.8.0",
+ "fastlanes",
  "fearless_simd",
  "hegeltest",
  "itertools 0.14.0",
- "lending-iterator",
  "mimalloc",
  "num-traits",
  "prost 0.14.4",
@@ -12043,8 +11647,10 @@ dependencies = [
  "vortex-compute",
  "vortex-error",
  "vortex-fastlanes",
+ "vortex-functions",
  "vortex-mask",
  "vortex-session",
+ "vortex-sparse",
 ]
 
 [[package]]
@@ -12110,6 +11716,7 @@ dependencies = [
  "vortex-expr",
  "vortex-fastlanes",
  "vortex-fsst",
+ "vortex-functions",
  "vortex-io",
  "vortex-layout",
  "vortex-mask",
@@ -12141,8 +11748,38 @@ dependencies = [
  "vortex-array",
  "vortex-buffer",
  "vortex-error",
+ "vortex-functions",
  "vortex-mask",
  "vortex-session",
+]
+
+[[package]]
+name = "vortex-functions"
+version = "0.1.0"
+dependencies = [
+ "arrow-buffer 60.1.0",
+ "codspeed-divan-compat",
+ "insta",
+ "itertools 0.14.0",
+ "jiff",
+ "memchr",
+ "mimalloc",
+ "num-traits",
+ "parking_lot 0.12.5",
+ "prost 0.14.4",
+ "rand 0.10.3",
+ "regex",
+ "regex-syntax",
+ "rstest",
+ "rustc-hash",
+ "tracing",
+ "vortex-array",
+ "vortex-buffer",
+ "vortex-compute",
+ "vortex-error",
+ "vortex-mask",
+ "vortex-session",
+ "vortex-utils",
 ]
 
 [[package]]
@@ -12153,6 +11790,7 @@ dependencies = [
  "itertools 0.14.0",
  "libfuzzer-sys",
  "num-traits",
+ "parquet-variant",
  "rstest",
  "strum 0.28.0",
  "tokio",
@@ -12160,18 +11798,29 @@ dependencies = [
  "tracing-subscriber",
  "vortex",
  "vortex-array",
+ "vortex-arrow",
  "vortex-btrblocks",
  "vortex-buffer",
  "vortex-cuda",
  "vortex-error",
  "vortex-file",
  "vortex-fsst",
+ "vortex-functions",
  "vortex-io",
+ "vortex-json",
  "vortex-mask",
+ "vortex-parquet-variant",
  "vortex-row",
  "vortex-session",
+ "vortex-spatial",
+ "vortex-tensor",
  "vortex-utils",
+ "vortex-uuid",
 ]
+
+[[package]]
+name = "vortex-index"
+version = "0.1.0"
 
 [[package]]
 name = "vortex-io"
@@ -12256,11 +11905,14 @@ version = "0.1.0"
 dependencies = [
  "arrow-array 60.1.0",
  "arrow-schema 60.1.0",
+ "hegeltest",
  "prost 0.14.4",
+ "serde_json",
  "vortex-array",
  "vortex-arrow",
  "vortex-edition",
  "vortex-error",
+ "vortex-functions",
  "vortex-session",
 ]
 
@@ -12295,7 +11947,6 @@ dependencies = [
  "roaring",
  "rstest",
  "rustc-hash",
- "sketches-ddsketch",
  "smallvec",
  "temp-env",
  "termtree",
@@ -12307,10 +11958,12 @@ dependencies = [
  "vortex-arrow",
  "vortex-btrblocks",
  "vortex-buffer",
+ "vortex-decimal-byte-parts",
  "vortex-edition",
  "vortex-error",
  "vortex-expr",
  "vortex-file",
+ "vortex-functions",
  "vortex-io",
  "vortex-mask",
  "vortex-metrics",
@@ -12369,6 +12022,7 @@ dependencies = [
  "vortex-array",
  "vortex-buffer",
  "vortex-error",
+ "vortex-functions",
  "vortex-mask",
  "vortex-session",
 ]
@@ -12381,6 +12035,7 @@ dependencies = [
  "arrow-buffer 60.1.0",
  "arrow-schema 60.1.0",
  "chrono",
+ "hegeltest",
  "parquet-variant",
  "parquet-variant-compute",
  "prost 0.14.4",
@@ -12392,6 +12047,7 @@ dependencies = [
  "vortex-edition",
  "vortex-error",
  "vortex-file",
+ "vortex-functions",
  "vortex-io",
  "vortex-json",
  "vortex-layout",
@@ -12427,6 +12083,7 @@ dependencies = [
  "async-lock",
  "bytes",
  "futures",
+ "glob",
  "itertools 0.14.0",
  "log",
  "memmap2",
@@ -12488,15 +12145,26 @@ dependencies = [
 name = "vortex-scan"
 version = "0.1.0"
 dependencies = [
+ "async-lock",
  "async-trait",
+ "bit-vec 0.10.1",
  "futures",
+ "insta",
+ "itertools 0.14.0",
+ "once_cell",
  "parking_lot 0.12.5",
  "roaring",
  "rstest",
+ "rustc-hash",
+ "sketches-ddsketch",
+ "smallvec",
+ "tokio",
  "tracing",
  "vortex-array",
  "vortex-buffer",
  "vortex-error",
+ "vortex-expr",
+ "vortex-functions",
  "vortex-io",
  "vortex-mask",
  "vortex-session",
@@ -12518,6 +12186,7 @@ dependencies = [
  "vortex-buffer",
  "vortex-compute",
  "vortex-error",
+ "vortex-functions",
  "vortex-mask",
  "vortex-session",
 ]
@@ -12547,6 +12216,7 @@ dependencies = [
  "vortex-arrow",
  "vortex-buffer",
  "vortex-error",
+ "vortex-functions",
  "vortex-mask",
  "vortex-session",
 ]
@@ -12556,6 +12226,7 @@ name = "vortex-spatial"
 version = "0.1.0"
 dependencies = [
  "arrow-array 60.1.0",
+ "arrow-buffer 60.1.0",
  "arrow-schema 60.1.0",
  "codspeed-divan-compat",
  "geo",
@@ -12563,6 +12234,7 @@ dependencies = [
  "geo-types",
  "geoarrow",
  "geoarrow-cast",
+ "hegeltest",
  "mimalloc",
  "prost 0.14.4",
  "rstest",
@@ -12573,6 +12245,7 @@ dependencies = [
  "vortex-error",
  "vortex-expr",
  "vortex-file",
+ "vortex-functions",
  "vortex-io",
  "vortex-layout",
  "vortex-mask",
@@ -12605,18 +12278,39 @@ dependencies = [
 ]
 
 [[package]]
+name = "vortex-table"
+version = "0.1.0"
+dependencies = [
+ "futures",
+ "tempfile",
+ "tokio",
+ "vortex",
+ "vortex-array",
+ "vortex-buffer",
+ "vortex-error",
+ "vortex-file",
+ "vortex-io",
+ "vortex-layout",
+ "vortex-session",
+]
+
+[[package]]
 name = "vortex-tensor"
 version = "0.1.0"
 dependencies = [
  "arrow-array 60.1.0",
+ "arrow-buffer 60.1.0",
  "arrow-schema 60.1.0",
  "codspeed-divan-compat",
  "half",
+ "hegeltest",
  "itertools 0.14.0",
  "mimalloc",
  "num-traits",
  "prost 0.14.4",
  "rstest",
+ "serde",
+ "serde_json",
  "vortex-array",
  "vortex-arrow",
  "vortex-btrblocks",
@@ -12687,6 +12381,8 @@ dependencies = [
  "arrow-array 60.1.0",
  "arrow-buffer 60.1.0",
  "arrow-schema 60.1.0",
+ "base64 0.23.1",
+ "hegeltest",
  "rstest",
  "uuid",
  "vortex-array",
@@ -12937,7 +12633,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
