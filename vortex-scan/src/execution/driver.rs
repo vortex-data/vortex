@@ -15,10 +15,13 @@ use std::future;
 use std::sync::Arc;
 use std::task::Poll;
 
+use async_lock::Semaphore;
+use async_lock::SemaphoreGuardArc;
 use futures::SinkExt;
 use futures::StreamExt;
 use futures::TryStreamExt;
 use futures::channel::mpsc;
+use futures::future::Either;
 use futures::stream;
 use futures::stream::BoxStream;
 use vortex_array::ArrayRef;
@@ -41,7 +44,26 @@ use crate::prepare::ScanBuilder;
 pub struct ScanDriver {
     handle: Handle,
     concurrency: usize,
+    budget: Option<ChunkBudget>,
     ordered: bool,
+}
+
+/// A bound on the chunks in flight that the scans of several drivers share, so a scan with more
+/// work left can use the slots the others leave idle.
+#[derive(Clone)]
+pub struct ChunkBudget {
+    chunks: usize,
+    slots: Arc<Semaphore>,
+}
+
+impl ChunkBudget {
+    /// A budget of `chunks` chunks in flight at once.
+    pub fn new(chunks: usize) -> Self {
+        Self {
+            chunks,
+            slots: Arc::new(Semaphore::new(chunks)),
+        }
+    }
 }
 
 impl ScanDriver {
@@ -53,6 +75,19 @@ impl ScanDriver {
         Self {
             handle,
             concurrency,
+            budget: None,
+            ordered,
+        }
+    }
+
+    /// A driver spawning on `handle` whose chunks take their slots from `budget`, shared with
+    /// every other driver holding it. Each driver can also always run one chunk of its own, so a
+    /// scan whose output is not being read cannot hold up the others.
+    pub fn with_budget(handle: Handle, budget: ChunkBudget, ordered: bool) -> Self {
+        Self {
+            handle,
+            concurrency: budget.chunks + 1,
+            budget: Some(budget),
             ordered,
         }
     }
@@ -109,18 +144,33 @@ impl ScanDriver {
         let root = compose(&scan);
         let (chunk_handle, chunk_io, chunk_map) =
             (self.handle.clone(), Arc::clone(&io), Arc::clone(&map_fn));
+        let slots = self
+            .budget
+            .map(|budget| (Arc::new(Semaphore::new(1)), budget.slots));
         let batches = run_stream(self.handle, root, scope, io, map_fn, inline)
             .map_ok(move |yielded| match yielded {
                 Yielded::Batch(start, batch) => {
                     stream::once(future::ready(Ok((start, batch)))).boxed()
                 }
-                Yielded::Spawn(scope, chunk) => chunk_stream(
-                    &chunk_handle,
-                    chunk,
-                    scope,
-                    Arc::clone(&chunk_io),
-                    Arc::clone(&chunk_map),
-                ),
+                Yielded::Spawn(scope, chunk) => {
+                    let (handle, io, map_fn) = (
+                        chunk_handle.clone(),
+                        Arc::clone(&chunk_io),
+                        Arc::clone(&chunk_map),
+                    );
+                    let Some((own, shared)) = slots.clone() else {
+                        return chunk_stream(&handle, chunk, scope, io, map_fn);
+                    };
+                    stream::once(async move {
+                        let slot = acquire_slot(own, shared).await;
+                        chunk_stream(&handle, chunk, scope, io, map_fn).map(move |batch| {
+                            let _ = &slot;
+                            batch
+                        })
+                    })
+                    .flatten()
+                    .boxed()
+                }
             })
             .try_flatten_unordered(in_flight);
         // The prepared scan holds the file's shared cache: keep it until the stream ends, so
@@ -140,6 +190,18 @@ impl ScanDriver {
         })
         .try_flatten()
         .boxed()
+    }
+}
+
+/// Waits for a slot to run a chunk in: the driver's own slot or one from the shared budget,
+/// whichever frees first. The chunk holds it until it ends.
+async fn acquire_slot(own: Arc<Semaphore>, shared: Arc<Semaphore>) -> SemaphoreGuardArc {
+    if let Some(slot) = own.try_acquire_arc().or_else(|| shared.try_acquire_arc()) {
+        return slot;
+    }
+    match futures::future::select(Box::pin(own.acquire_arc()), Box::pin(shared.acquire_arc())).await
+    {
+        Either::Left((slot, _)) | Either::Right((slot, _)) => slot,
     }
 }
 
