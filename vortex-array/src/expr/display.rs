@@ -180,7 +180,7 @@ mod tests {
         use insta::assert_snapshot;
         let binary_expr = gt(get_item("x", root()), lit(10));
         assert_snapshot!(binary_expr.display_tree().to_string(), @r"
-        vortex.binary(>)
+        vortex.compare(>)
         ├── lhs: vortex.get_item(x)
         │   └── input: vortex.root()
         └── rhs: vortex.literal(10i32)
@@ -195,12 +195,12 @@ mod tests {
             gt(get_item("age", root()), lit(18)),
         );
         assert_snapshot!(complex_binary.display_tree().to_string(), @r#"
-        vortex.binary(and)
-        ├── lhs: vortex.binary(=)
+        vortex.boolean(and)
+        ├── lhs: vortex.compare(=)
         │   ├── lhs: vortex.get_item(name)
         │   │   └── input: vortex.root()
         │   └── rhs: vortex.literal("alice")
-        └── rhs: vortex.binary(>)
+        └── rhs: vortex.compare(>)
             ├── lhs: vortex.get_item(age)
             │   └── input: vortex.root()
             └── rhs: vortex.literal(18i32)
@@ -227,7 +227,7 @@ mod tests {
         let not_expr = not(eq(get_item("active", root()), lit(true)));
         assert_snapshot!(not_expr.display_tree().to_string(), @r"
         vortex.not()
-        └── input: vortex.binary(=)
+        └── input: vortex.compare(=)
             ├── lhs: vortex.get_item(active)
             │   └── input: vortex.root()
             └── rhs: vortex.literal(true)

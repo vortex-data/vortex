@@ -73,13 +73,17 @@ use vortex::functions::list_contains::ListContainsOptions;
 use vortex::functions::merge::DuplicateHandling;
 use vortex::layout::layouts::row_idx::row_idx;
 use vortex::scalar::DecimalValue;
+use vortex::scalar::NumericOperator;
 use vortex::scalar::Scalar;
 use vortex::scalar::ScalarValue;
 use vortex::scalar_fn::EmptyOptions;
 use vortex::scalar_fn::ScalarFnVTableExt;
-use vortex::scalar_fn::builtin::binary::Binary;
+use vortex::scalar_fn::builtin::boolean::Boolean;
+use vortex::scalar_fn::builtin::compare::Compare;
 use vortex::scalar_fn::builtin::literal::Literal;
-use vortex::scalar_fn::builtin::operators::Operator;
+use vortex::scalar_fn::builtin::numeric::Numeric;
+use vortex::scalar_fn::builtin::operators::BooleanOperator;
+use vortex::scalar_fn::builtin::operators::CompareOperator;
 use vortex::session::VortexSession;
 use vortex_spatial::extension::native_geometry_scalar_from_wkb;
 use vortex_spatial::scalar_fn::area::SpatialArea;
@@ -105,20 +109,38 @@ unsafe fn expr_ref<'a>(ptr: jlong) -> &'a Expression {
     unsafe { &*(ptr as *const Expression) }
 }
 
-fn parse_op(op: jbyte) -> Result<Operator, JNIError> {
+/// An operator of one of the binary scalar functions that the wire-encoded operator code maps to.
+enum BinaryOperator {
+    Compare(CompareOperator),
+    Boolean(BooleanOperator),
+    Numeric(NumericOperator),
+}
+
+impl BinaryOperator {
+    /// Builds the expression `lhs OP rhs` with the scalar function that owns the operator.
+    fn new_expr(self, lhs: Expression, rhs: Expression) -> Expression {
+        match self {
+            BinaryOperator::Compare(operator) => Compare.new_expr(operator, [lhs, rhs]),
+            BinaryOperator::Boolean(operator) => Boolean.new_expr(operator, [lhs, rhs]),
+            BinaryOperator::Numeric(operator) => Numeric.new_expr(operator, [lhs, rhs]),
+        }
+    }
+}
+
+fn parse_op(op: jbyte) -> Result<BinaryOperator, JNIError> {
     Ok(match op {
-        0 => Operator::Eq,
-        1 => Operator::NotEq,
-        2 => Operator::Gt,
-        3 => Operator::Gte,
-        4 => Operator::Lt,
-        5 => Operator::Lte,
-        6 => Operator::And,
-        7 => Operator::Or,
-        8 => Operator::Add,
-        9 => Operator::Sub,
-        10 => Operator::Mul,
-        11 => Operator::Div,
+        0 => BinaryOperator::Compare(CompareOperator::Eq),
+        1 => BinaryOperator::Compare(CompareOperator::NotEq),
+        2 => BinaryOperator::Compare(CompareOperator::Gt),
+        3 => BinaryOperator::Compare(CompareOperator::Gte),
+        4 => BinaryOperator::Compare(CompareOperator::Lt),
+        5 => BinaryOperator::Compare(CompareOperator::Lte),
+        6 => BinaryOperator::Boolean(BooleanOperator::And),
+        7 => BinaryOperator::Boolean(BooleanOperator::Or),
+        8 => BinaryOperator::Numeric(NumericOperator::Add),
+        9 => BinaryOperator::Numeric(NumericOperator::Sub),
+        10 => BinaryOperator::Numeric(NumericOperator::Mul),
+        11 => BinaryOperator::Numeric(NumericOperator::Div),
         other => throw_runtime!("unknown binary operator code: {other}"),
     })
 }
@@ -303,7 +325,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeExpression_binary(
         let operator = parse_op(op)?;
         let lhs = unsafe { expr_ref(lhs) }.clone();
         let rhs = unsafe { expr_ref(rhs) }.clone();
-        Ok(into_raw(Binary.new_expr(operator, [lhs, rhs])))
+        Ok(into_raw(operator.new_expr(lhs, rhs)))
     })
 }
 

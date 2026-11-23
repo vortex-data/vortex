@@ -5,195 +5,58 @@ use core::fmt;
 use std::fmt::Display;
 use std::fmt::Formatter;
 
-use vortex_error::VortexError;
-
 use crate::dtype::NativePType;
-use crate::proto::expr::binary_opts::BinaryOp;
+use crate::proto::expr::boolean_opts::BooleanOp;
+use crate::proto::expr::compare_opts::CompareOp;
 
-/// Equalities, inequalities, and boolean operations over possibly null values.
+/// The two boolean operators.
 ///
-/// For most operations, if either side is null, the result is null.
-///
-/// The Boolean operators (And, Or) obey [Kleene (three-valued) logic](https://en.wikipedia.org/wiki/Three-valued_logic#Kleene_and_Priest_logics).
+/// They obey [Kleene (three-valued) logic](https://en.wikipedia.org/wiki/Three-valued_logic#Kleene_and_Priest_logics),
+/// so they are not strict: `false AND null` is `false`, and `true OR null` is `true`.
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub enum Operator {
-    /// Expressions are equal.
-    Eq,
-    /// Expressions are not equal.
-    NotEq,
-    /// Expression is greater than another
-    Gt,
-    /// Expression is greater or equal to another
-    Gte,
-    /// Expression is less than another
-    Lt,
-    /// Expression is less or equal to another
-    Lte,
+pub enum BooleanOperator {
     /// Boolean AND (∧).
-    // TODO(joe): rename to KleeneAnd
     And,
     /// Boolean OR (∨).
-    // TODO(joe): rename to KleeneOr
     Or,
-    /// The sum of the arguments.
-    ///
-    /// Errs at runtime if the sum would overflow or underflow.
-    Add,
-    /// The difference between the arguments.
-    ///
-    /// Errs at runtime if the sum would overflow or underflow.
-    ///
-    /// The result is null at any index that either input is null.
-    Sub,
-    /// Multiple two numbers
-    Mul,
-    /// Divide the left side by the right side
-    Div,
 }
 
-impl From<Operator> for i32 {
-    fn from(value: Operator) -> Self {
-        let op: BinaryOp = value.into();
-        op.into()
-    }
-}
-
-impl From<Operator> for BinaryOp {
-    fn from(value: Operator) -> Self {
-        match value {
-            Operator::Eq => BinaryOp::Eq,
-            Operator::NotEq => BinaryOp::NotEq,
-            Operator::Gt => BinaryOp::Gt,
-            Operator::Gte => BinaryOp::Gte,
-            Operator::Lt => BinaryOp::Lt,
-            Operator::Lte => BinaryOp::Lte,
-            Operator::And => BinaryOp::And,
-            Operator::Or => BinaryOp::Or,
-            Operator::Add => BinaryOp::Add,
-            Operator::Sub => BinaryOp::Sub,
-            Operator::Mul => BinaryOp::Mul,
-            Operator::Div => BinaryOp::Div,
+impl BooleanOperator {
+    /// Returns the operator that De Morgan's laws pair with this one: `AND` for `OR`, and `OR`
+    /// for `AND`.
+    pub fn inverse(self) -> Self {
+        match self {
+            BooleanOperator::And => BooleanOperator::Or,
+            BooleanOperator::Or => BooleanOperator::And,
         }
     }
 }
 
-impl TryFrom<i32> for Operator {
-    type Error = VortexError;
-
-    fn try_from(value: i32) -> Result<Self, Self::Error> {
-        Ok(BinaryOp::try_from(value)?.into())
-    }
-}
-
-impl From<BinaryOp> for Operator {
-    fn from(value: BinaryOp) -> Self {
-        match value {
-            BinaryOp::Eq => Operator::Eq,
-            BinaryOp::NotEq => Operator::NotEq,
-            BinaryOp::Gt => Operator::Gt,
-            BinaryOp::Gte => Operator::Gte,
-            BinaryOp::Lt => Operator::Lt,
-            BinaryOp::Lte => Operator::Lte,
-            BinaryOp::And => Operator::And,
-            BinaryOp::Or => Operator::Or,
-            BinaryOp::Add => Operator::Add,
-            BinaryOp::Sub => Operator::Sub,
-            BinaryOp::Mul => Operator::Mul,
-            BinaryOp::Div => Operator::Div,
-        }
-    }
-}
-
-impl Display for Operator {
+impl Display for BooleanOperator {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        let display = match &self {
-            Operator::Eq => "=",
-            Operator::NotEq => "!=",
-            Operator::Gt => ">",
-            Operator::Gte => ">=",
-            Operator::Lt => "<",
-            Operator::Lte => "<=",
-            Operator::And => "and",
-            Operator::Or => "or",
-            Operator::Add => "+",
-            Operator::Sub => "-",
-            Operator::Mul => "*",
-            Operator::Div => "/",
+        let display = match self {
+            BooleanOperator::And => "and",
+            BooleanOperator::Or => "or",
         };
         Display::fmt(display, f)
     }
 }
 
-impl Operator {
-    pub fn inverse(self) -> Option<Self> {
-        match self {
-            Operator::Eq => Some(Operator::NotEq),
-            Operator::NotEq => Some(Operator::Eq),
-            Operator::Gt => Some(Operator::Lte),
-            Operator::Gte => Some(Operator::Lt),
-            Operator::Lt => Some(Operator::Gte),
-            Operator::Lte => Some(Operator::Gt),
-            Operator::And
-            | Operator::Or
-            | Operator::Add
-            | Operator::Sub
-            | Operator::Mul
-            | Operator::Div => None,
+impl From<BooleanOperator> for BooleanOp {
+    fn from(value: BooleanOperator) -> Self {
+        match value {
+            BooleanOperator::And => BooleanOp::And,
+            BooleanOperator::Or => BooleanOp::Or,
         }
     }
+}
 
-    pub fn logical_inverse(self) -> Option<Self> {
-        match self {
-            Operator::And => Some(Operator::Or),
-            Operator::Or => Some(Operator::And),
-            _ => None,
-        }
-    }
-
-    /// Change the sides of the operator, so that changing lhs and rhs won't change the result of the operation
-    pub fn swap(self) -> Option<Self> {
-        match self {
-            Operator::Eq => Some(Operator::Eq),
-            Operator::NotEq => Some(Operator::NotEq),
-            Operator::Gt => Some(Operator::Lt),
-            Operator::Gte => Some(Operator::Lte),
-            Operator::Lt => Some(Operator::Gt),
-            Operator::Lte => Some(Operator::Gte),
-            Operator::And => Some(Operator::And),
-            Operator::Or => Some(Operator::Or),
-            Operator::Add => Some(Operator::Add),
-            Operator::Mul => Some(Operator::Mul),
-            Operator::Sub | Operator::Div => None,
-        }
-    }
-
-    pub fn is_arithmetic(&self) -> bool {
-        matches!(self, Self::Add | Self::Sub | Self::Mul | Self::Div)
-    }
-
-    pub fn is_comparison(&self) -> bool {
-        self.to_compare_operator().is_some()
-    }
-
-    /// Return the [`CompareOperator`] for this operator, or `None` if it is not a comparison.
-    ///
-    /// Prefer this over [`CompareOperator::try_from`] when a non-comparison operator is an expected
-    /// case, since it does not construct an error.
-    pub fn to_compare_operator(self) -> Option<CompareOperator> {
-        match self {
-            Operator::Eq => Some(CompareOperator::Eq),
-            Operator::NotEq => Some(CompareOperator::NotEq),
-            Operator::Gt => Some(CompareOperator::Gt),
-            Operator::Gte => Some(CompareOperator::Gte),
-            Operator::Lt => Some(CompareOperator::Lt),
-            Operator::Lte => Some(CompareOperator::Lte),
-            Operator::And
-            | Operator::Or
-            | Operator::Add
-            | Operator::Sub
-            | Operator::Mul
-            | Operator::Div => None,
+impl From<BooleanOp> for BooleanOperator {
+    fn from(value: BooleanOp) -> Self {
+        match value {
+            BooleanOp::And => BooleanOperator::And,
+            BooleanOp::Or => BooleanOperator::Or,
         }
     }
 }
@@ -269,26 +132,29 @@ impl Display for CompareOperator {
     }
 }
 
-impl From<CompareOperator> for Operator {
+impl From<CompareOperator> for CompareOp {
     fn from(value: CompareOperator) -> Self {
         match value {
-            CompareOperator::Eq => Operator::Eq,
-            CompareOperator::NotEq => Operator::NotEq,
-            CompareOperator::Gt => Operator::Gt,
-            CompareOperator::Gte => Operator::Gte,
-            CompareOperator::Lt => Operator::Lt,
-            CompareOperator::Lte => Operator::Lte,
+            CompareOperator::Eq => CompareOp::Eq,
+            CompareOperator::NotEq => CompareOp::NotEq,
+            CompareOperator::Gt => CompareOp::Gt,
+            CompareOperator::Gte => CompareOp::Gte,
+            CompareOperator::Lt => CompareOp::Lt,
+            CompareOperator::Lte => CompareOp::Lte,
         }
     }
 }
 
-impl TryFrom<Operator> for CompareOperator {
-    type Error = VortexError;
-
-    fn try_from(value: Operator) -> Result<Self, Self::Error> {
-        value
-            .to_compare_operator()
-            .ok_or_else(|| vortex_error::vortex_err!("{value} is not a comparison operator"))
+impl From<CompareOp> for CompareOperator {
+    fn from(value: CompareOp) -> Self {
+        match value {
+            CompareOp::Eq => CompareOperator::Eq,
+            CompareOp::NotEq => CompareOperator::NotEq,
+            CompareOp::Gt => CompareOperator::Gt,
+            CompareOp::Gte => CompareOperator::Gte,
+            CompareOp::Lt => CompareOperator::Lt,
+            CompareOp::Lte => CompareOperator::Lte,
+        }
     }
 }
 

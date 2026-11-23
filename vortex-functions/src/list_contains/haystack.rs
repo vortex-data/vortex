@@ -30,7 +30,7 @@ use vortex_array::dtype::i256;
 use vortex_array::match_each_decimal_value_type;
 use vortex_array::match_each_integer_ptype;
 use vortex_array::optimizer::ArrayOptimizer;
-use vortex_array::scalar_fn::builtin::binary::build_row_comparator;
+use vortex_array::scalar_fn::builtin::compare::build_row_comparator;
 use vortex_array::validity::Validity;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::BitBufferMut;

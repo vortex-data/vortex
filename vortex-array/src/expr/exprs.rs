@@ -12,11 +12,13 @@ use crate::dtype::FieldNames;
 use crate::dtype::Nullability;
 use crate::expr::BoundExpression;
 use crate::expr::Expression;
+use crate::scalar::NumericOperator;
 use crate::scalar::Scalar;
 use crate::scalar_fn::EmptyOptions;
 use crate::scalar_fn::ScalarFnVTableExt;
-use crate::scalar_fn::builtin::binary::Binary;
+use crate::scalar_fn::builtin::boolean::Boolean;
 use crate::scalar_fn::builtin::cast::Cast;
+use crate::scalar_fn::builtin::compare::Compare;
 use crate::scalar_fn::builtin::fill_null::FillNull;
 use crate::scalar_fn::builtin::get_item::GetItem;
 use crate::scalar_fn::builtin::is_not_null::IsNotNull;
@@ -24,7 +26,9 @@ use crate::scalar_fn::builtin::is_null::IsNull;
 use crate::scalar_fn::builtin::literal::Literal;
 use crate::scalar_fn::builtin::mask::Mask;
 use crate::scalar_fn::builtin::not::Not;
-use crate::scalar_fn::builtin::operators::Operator;
+use crate::scalar_fn::builtin::numeric::Numeric;
+use crate::scalar_fn::builtin::operators::BooleanOperator;
+use crate::scalar_fn::builtin::operators::CompareOperator;
 use crate::scalar_fn::builtin::pack::Pack;
 use crate::scalar_fn::builtin::pack::PackOptions;
 use crate::scalar_fn::builtin::select::FieldSelection;
@@ -137,25 +141,61 @@ pub fn var(name: impl Into<FieldName>) -> Expression {
 
 // ---- Binary operators ----
 
-/// Creates a binary expression with the given operator.
-pub fn binary(operator: Operator, lhs: Expression, rhs: Expression) -> Expression {
-    Binary
+/// Creates a comparison with the given operator.
+pub fn compare(operator: CompareOperator, lhs: Expression, rhs: Expression) -> Expression {
+    Compare
         .try_new_expr(operator, [lhs, rhs])
-        .vortex_expect("Failed to create binary expression")
+        .vortex_expect("Failed to create compare expression")
 }
 
-/// Creates a bound binary expression with the given operator.
-pub fn bound_binary(
-    operator: Operator,
+/// Creates a bound comparison with the given operator.
+pub fn bound_compare(
+    operator: CompareOperator,
     lhs: BoundExpression,
     rhs: BoundExpression,
 ) -> BoundExpression {
-    Binary
+    Compare
         .try_new_bound_expr(operator, [lhs, rhs])
-        .vortex_expect("binary expressions must have compatible operand dtypes")
+        .vortex_expect("compare expressions must have compatible operand dtypes")
 }
 
-/// Create a new [`Binary`] using the [`Eq`](Operator::Eq) operator.
+/// Creates a Kleene boolean expression with the given operator.
+pub fn boolean(operator: BooleanOperator, lhs: Expression, rhs: Expression) -> Expression {
+    Boolean
+        .try_new_expr(operator, [lhs, rhs])
+        .vortex_expect("Failed to create boolean expression")
+}
+
+/// Creates a bound Kleene boolean expression with the given operator.
+pub fn bound_boolean(
+    operator: BooleanOperator,
+    lhs: BoundExpression,
+    rhs: BoundExpression,
+) -> BoundExpression {
+    Boolean
+        .try_new_bound_expr(operator, [lhs, rhs])
+        .vortex_expect("boolean expressions must have compatible operand dtypes")
+}
+
+/// Creates a arithmetic expression with the given operator.
+pub fn numeric(operator: NumericOperator, lhs: Expression, rhs: Expression) -> Expression {
+    Numeric
+        .try_new_expr(operator, [lhs, rhs])
+        .vortex_expect("Failed to create numeric expression")
+}
+
+/// Creates a bound arithmetic expression with the given operator.
+pub fn bound_numeric(
+    operator: NumericOperator,
+    lhs: BoundExpression,
+    rhs: BoundExpression,
+) -> BoundExpression {
+    Numeric
+        .try_new_bound_expr(operator, [lhs, rhs])
+        .vortex_expect("numeric expressions must have compatible operand dtypes")
+}
+
+/// Create a new [`Compare`] using the [`Eq`](CompareOperator::Eq) operator.
 ///
 /// ## Example usage
 ///
@@ -178,17 +218,17 @@ pub fn bound_binary(
 /// );
 /// ```
 pub fn eq(lhs: Expression, rhs: Expression) -> Expression {
-    Binary
-        .try_new_expr(Operator::Eq, [lhs, rhs])
+    Compare
+        .try_new_expr(CompareOperator::Eq, [lhs, rhs])
         .vortex_expect("Failed to create Eq binary expression")
 }
 
 /// Creates a bound equality expression.
 pub fn bound_eq(lhs: BoundExpression, rhs: BoundExpression) -> BoundExpression {
-    bound_binary(Operator::Eq, lhs, rhs)
+    bound_compare(CompareOperator::Eq, lhs, rhs)
 }
 
-/// Create a new [`Binary`] using the [`NotEq`](Operator::NotEq) operator.
+/// Create a new [`Compare`] using the [`NotEq`](CompareOperator::NotEq) operator.
 ///
 /// ## Example usage
 ///
@@ -211,17 +251,17 @@ pub fn bound_eq(lhs: BoundExpression, rhs: BoundExpression) -> BoundExpression {
 /// );
 /// ```
 pub fn not_eq(lhs: Expression, rhs: Expression) -> Expression {
-    Binary
-        .try_new_expr(Operator::NotEq, [lhs, rhs])
+    Compare
+        .try_new_expr(CompareOperator::NotEq, [lhs, rhs])
         .vortex_expect("Failed to create NotEq binary expression")
 }
 
 /// Creates a bound inequality expression.
 pub fn bound_not_eq(lhs: BoundExpression, rhs: BoundExpression) -> BoundExpression {
-    bound_binary(Operator::NotEq, lhs, rhs)
+    bound_compare(CompareOperator::NotEq, lhs, rhs)
 }
 
-/// Create a new [`Binary`] using the [`Gte`](Operator::Gte) operator.
+/// Create a new [`Compare`] using the [`Gte`](CompareOperator::Gte) operator.
 ///
 /// ## Example usage
 ///
@@ -244,17 +284,17 @@ pub fn bound_not_eq(lhs: BoundExpression, rhs: BoundExpression) -> BoundExpressi
 /// );
 /// ```
 pub fn gt_eq(lhs: Expression, rhs: Expression) -> Expression {
-    Binary
-        .try_new_expr(Operator::Gte, [lhs, rhs])
+    Compare
+        .try_new_expr(CompareOperator::Gte, [lhs, rhs])
         .vortex_expect("Failed to create Gte binary expression")
 }
 
 /// Creates a bound greater-than-or-equal expression.
 pub fn bound_gt_eq(lhs: BoundExpression, rhs: BoundExpression) -> BoundExpression {
-    bound_binary(Operator::Gte, lhs, rhs)
+    bound_compare(CompareOperator::Gte, lhs, rhs)
 }
 
-/// Create a new [`Binary`] using the [`Gt`](Operator::Gt) operator.
+/// Create a new [`Compare`] using the [`Gt`](CompareOperator::Gt) operator.
 ///
 /// ## Example usage
 ///
@@ -277,17 +317,17 @@ pub fn bound_gt_eq(lhs: BoundExpression, rhs: BoundExpression) -> BoundExpressio
 /// );
 /// ```
 pub fn gt(lhs: Expression, rhs: Expression) -> Expression {
-    Binary
-        .try_new_expr(Operator::Gt, [lhs, rhs])
+    Compare
+        .try_new_expr(CompareOperator::Gt, [lhs, rhs])
         .vortex_expect("Failed to create Gt binary expression")
 }
 
 /// Creates a bound greater-than expression.
 pub fn bound_gt(lhs: BoundExpression, rhs: BoundExpression) -> BoundExpression {
-    bound_binary(Operator::Gt, lhs, rhs)
+    bound_compare(CompareOperator::Gt, lhs, rhs)
 }
 
-/// Create a new [`Binary`] using the [`Lte`](Operator::Lte) operator.
+/// Create a new [`Compare`] using the [`Lte`](CompareOperator::Lte) operator.
 ///
 /// ## Example usage
 ///
@@ -310,17 +350,17 @@ pub fn bound_gt(lhs: BoundExpression, rhs: BoundExpression) -> BoundExpression {
 /// );
 /// ```
 pub fn lt_eq(lhs: Expression, rhs: Expression) -> Expression {
-    Binary
-        .try_new_expr(Operator::Lte, [lhs, rhs])
+    Compare
+        .try_new_expr(CompareOperator::Lte, [lhs, rhs])
         .vortex_expect("Failed to create Lte binary expression")
 }
 
 /// Creates a bound less-than-or-equal expression.
 pub fn bound_lt_eq(lhs: BoundExpression, rhs: BoundExpression) -> BoundExpression {
-    bound_binary(Operator::Lte, lhs, rhs)
+    bound_compare(CompareOperator::Lte, lhs, rhs)
 }
 
-/// Create a new [`Binary`] using the [`Lt`](Operator::Lt) operator.
+/// Create a new [`Compare`] using the [`Lt`](CompareOperator::Lt) operator.
 ///
 /// ## Example usage
 ///
@@ -343,17 +383,17 @@ pub fn bound_lt_eq(lhs: BoundExpression, rhs: BoundExpression) -> BoundExpressio
 /// );
 /// ```
 pub fn lt(lhs: Expression, rhs: Expression) -> Expression {
-    Binary
-        .try_new_expr(Operator::Lt, [lhs, rhs])
+    Compare
+        .try_new_expr(CompareOperator::Lt, [lhs, rhs])
         .vortex_expect("Failed to create Lt binary expression")
 }
 
 /// Creates a bound less-than expression.
 pub fn bound_lt(lhs: BoundExpression, rhs: BoundExpression) -> BoundExpression {
-    bound_binary(Operator::Lt, lhs, rhs)
+    bound_compare(CompareOperator::Lt, lhs, rhs)
 }
 
-/// Create a new [`Binary`] using the [`Or`](Operator::Or) operator.
+/// Create a new [`Boolean`] using the [`Or`](BooleanOperator::Or) operator.
 ///
 /// ## Example usage
 ///
@@ -374,14 +414,14 @@ pub fn bound_lt(lhs: BoundExpression, rhs: BoundExpression) -> BoundExpression {
 /// );
 /// ```
 pub fn or(lhs: Expression, rhs: Expression) -> Expression {
-    Binary
-        .try_new_expr(Operator::Or, [lhs, rhs])
+    Boolean
+        .try_new_expr(BooleanOperator::Or, [lhs, rhs])
         .vortex_expect("Failed to create Or binary expression")
 }
 
 /// Creates a bound boolean OR expression.
 pub fn bound_or(lhs: BoundExpression, rhs: BoundExpression) -> BoundExpression {
-    bound_binary(Operator::Or, lhs, rhs)
+    bound_boolean(BooleanOperator::Or, lhs, rhs)
 }
 
 /// Collects a list of `or`ed values into a single expression using a balanced tree.
@@ -405,7 +445,7 @@ where
     iter.into_iter().reduce_balanced(bound_or)
 }
 
-/// Create a new [`Binary`] using the [`And`](Operator::And) operator.
+/// Create a new [`Boolean`] using the [`And`](BooleanOperator::And) operator.
 ///
 /// ## Example usage
 ///
@@ -426,14 +466,14 @@ where
 /// );
 /// ```
 pub fn and(lhs: Expression, rhs: Expression) -> Expression {
-    Binary
-        .try_new_expr(Operator::And, [lhs, rhs])
+    Boolean
+        .try_new_expr(BooleanOperator::And, [lhs, rhs])
         .vortex_expect("Failed to create And binary expression")
 }
 
 /// Creates a bound boolean AND expression.
 pub fn bound_and(lhs: BoundExpression, rhs: BoundExpression) -> BoundExpression {
-    bound_binary(Operator::And, lhs, rhs)
+    bound_boolean(BooleanOperator::And, lhs, rhs)
 }
 
 /// Collects a list of `and`ed values into a single expression using a balanced tree.
@@ -457,7 +497,7 @@ where
     iter.into_iter().reduce_balanced(bound_and)
 }
 
-/// Create a new [`Binary`] using the [`Add`](Operator::Add) operator.
+/// Create a new [`Numeric`] using the [`Add`](NumericOperator::Add) operator.
 ///
 /// ## Example usage
 ///
@@ -477,14 +517,14 @@ where
 /// assert_eq!(result.as_slice::<i32>(), [6, 7, 8]);
 /// ```
 pub fn checked_add(lhs: Expression, rhs: Expression) -> Expression {
-    Binary
-        .try_new_expr(Operator::Add, [lhs, rhs])
+    Numeric
+        .try_new_expr(NumericOperator::Add, [lhs, rhs])
         .vortex_expect("Failed to create Add binary expression")
 }
 
 /// Creates a bound checked-add expression.
 pub fn bound_checked_add(lhs: BoundExpression, rhs: BoundExpression) -> BoundExpression {
-    bound_binary(Operator::Add, lhs, rhs)
+    bound_numeric(NumericOperator::Add, lhs, rhs)
 }
 
 // ---- Not ----
@@ -704,10 +744,11 @@ pub fn bound_select_exclude(
 pub mod bound {
     pub use super::bound_and as and;
     pub use super::bound_and_collect as and_collect;
-    pub use super::bound_binary as binary;
+    pub use super::bound_boolean as boolean;
     pub use super::bound_cast as cast;
     pub use super::bound_checked_add as checked_add;
     pub use super::bound_col as col;
+    pub use super::bound_compare as compare;
     pub use super::bound_eq as eq;
     pub use super::bound_fill_null as fill_null;
     pub use super::bound_get_item as get_item;
@@ -721,6 +762,7 @@ pub mod bound {
     pub use super::bound_mask as mask;
     pub use super::bound_not as not;
     pub use super::bound_not_eq as not_eq;
+    pub use super::bound_numeric as numeric;
     pub use super::bound_or as or;
     pub use super::bound_or_collect as or_collect;
     pub use super::bound_pack as pack;

@@ -44,9 +44,8 @@ use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::optimizer::ArrayOptimizer;
 use crate::scalar::Scalar;
-use crate::scalar_fn::builtin::binary::CompareKernel;
+use crate::scalar_fn::builtin::compare::CompareKernel;
 use crate::scalar_fn::builtin::operators::CompareOperator;
-use crate::scalar_fn::builtin::operators::Operator;
 use crate::validity::Validity;
 
 /// Slice, filter and mask run on the values, so each result is a `Widen`. The conformance suites
@@ -238,14 +237,14 @@ fn test_compare_constant_matches_canonical(
     #[case] array: WidenArray,
     #[case] constant: Scalar,
     #[values(
-        Operator::Eq,
-        Operator::NotEq,
-        Operator::Lt,
-        Operator::Lte,
-        Operator::Gt,
-        Operator::Gte
+        CompareOperator::Eq,
+        CompareOperator::NotEq,
+        CompareOperator::Lt,
+        CompareOperator::Lte,
+        CompareOperator::Gt,
+        CompareOperator::Gte
     )]
-    operator: Operator,
+    operator: CompareOperator,
 ) -> VortexResult<()> {
     let mut ctx = SESSION.create_execution_ctx();
     let constant = ConstantArray::new(constant, array.len()).into_array();
@@ -256,14 +255,14 @@ fn test_compare_constant_matches_canonical(
 #[rstest]
 fn test_compare_two_widen_matches_canonical(
     #[values(
-        Operator::Eq,
-        Operator::NotEq,
-        Operator::Lt,
-        Operator::Lte,
-        Operator::Gt,
-        Operator::Gte
+        CompareOperator::Eq,
+        CompareOperator::NotEq,
+        CompareOperator::Lt,
+        CompareOperator::Lte,
+        CompareOperator::Gt,
+        CompareOperator::Gte
     )]
-    operator: Operator,
+    operator: CompareOperator,
 ) -> VortexResult<()> {
     let mut ctx = SESSION.create_execution_ctx();
     // The nullable `i16` values of `partially_valid` against non-nullable `i8` values.
@@ -290,7 +289,7 @@ fn test_compare_runs_at_narrowest_width(
 
     let step = signed()
         .into_array()
-        .binary(rhs, Operator::Lt)?
+        .compare(rhs, CompareOperator::Lt)?
         .execute::<ArrayRef>(&mut ctx)?;
 
     let compared = step

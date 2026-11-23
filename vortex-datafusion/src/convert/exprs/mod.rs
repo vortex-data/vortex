@@ -71,11 +71,15 @@ use vortex::expr::var;
 use vortex::functions::like::Like;
 use vortex::functions::like::LikeOptions;
 use vortex::layout::layouts::row_idx;
+use vortex::scalar::NumericOperator;
 use vortex::scalar::Scalar;
 use vortex::scalar_fn::ScalarFnVTableExt;
-use vortex::scalar_fn::builtin::binary::Binary;
+use vortex::scalar_fn::builtin::boolean::Boolean;
+use vortex::scalar_fn::builtin::compare::Compare;
 use vortex::scalar_fn::builtin::get_item::GetItem;
-use vortex::scalar_fn::builtin::operators::Operator;
+use vortex::scalar_fn::builtin::numeric::Numeric;
+use vortex::scalar_fn::builtin::operators::BooleanOperator;
+use vortex::scalar_fn::builtin::operators::CompareOperator;
 use vortex::session::VortexSession;
 use vortex_arrow::ArrowSessionExt;
 
@@ -377,7 +381,7 @@ impl DefaultExpressionConverter {
         if let Some(binary_expr) = expr.downcast_ref::<df_expr::BinaryExpr>() {
             let operator =
                 try_operator_from_df(binary_expr.op()).ok_or(Unconverted::Unsupported)?;
-            let boolean_operator = matches!(operator, Operator::And | Operator::Or);
+            let boolean_operator = matches!(operator, BinaryOperator::Boolean(_));
             let left_type = binary_expr.left().data_type(schema)?;
             let right_type = binary_expr.right().data_type(schema)?;
             if boolean_operator {
@@ -414,7 +418,7 @@ impl DefaultExpressionConverter {
             {
                 return Err(Unconverted::Unsupported);
             }
-            return Ok(Binary.new_expr(operator, [left, right]));
+            return Ok(operator.new_expr(left, right));
         }
 
         if let Some(col_expr) = expr.downcast_ref::<df_expr::Column>() {
@@ -532,11 +536,11 @@ impl DefaultExpressionConverter {
         &self,
         expr: &Arc<dyn PhysicalExpr>,
         other: &Arc<dyn PhysicalExpr>,
-        operator: Operator,
+        operator: BinaryOperator,
         schema: &Schema,
         input_dtype: &DType,
     ) -> Conversion<Expression> {
-        if operator.is_comparison()
+        if matches!(operator, BinaryOperator::Compare(_))
             && let Some(literal) = expr.downcast_ref::<df_expr::Literal>()
         {
             let field = other.return_field(schema)?;
@@ -1032,20 +1036,39 @@ fn classify_cast_types(source: &DataType, target: &DataType) -> Conversion<CastP
     })
 }
 
-fn try_operator_from_df(value: &DFOperator) -> Option<Operator> {
+/// An operator of one of the binary scalar functions that a DataFusion operator converts to.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum BinaryOperator {
+    Compare(CompareOperator),
+    Boolean(BooleanOperator),
+    Numeric(NumericOperator),
+}
+
+impl BinaryOperator {
+    /// Builds the expression `left OP right` with the scalar function that owns the operator.
+    fn new_expr(self, left: Expression, right: Expression) -> Expression {
+        match self {
+            BinaryOperator::Compare(operator) => Compare.new_expr(operator, [left, right]),
+            BinaryOperator::Boolean(operator) => Boolean.new_expr(operator, [left, right]),
+            BinaryOperator::Numeric(operator) => Numeric.new_expr(operator, [left, right]),
+        }
+    }
+}
+
+fn try_operator_from_df(value: &DFOperator) -> Option<BinaryOperator> {
     match value {
-        DFOperator::Eq => Some(Operator::Eq),
-        DFOperator::NotEq => Some(Operator::NotEq),
-        DFOperator::Lt => Some(Operator::Lt),
-        DFOperator::LtEq => Some(Operator::Lte),
-        DFOperator::Gt => Some(Operator::Gt),
-        DFOperator::GtEq => Some(Operator::Gte),
-        DFOperator::And => Some(Operator::And),
-        DFOperator::Or => Some(Operator::Or),
-        DFOperator::Plus => Some(Operator::Add),
-        DFOperator::Minus => Some(Operator::Sub),
-        DFOperator::Multiply => Some(Operator::Mul),
-        DFOperator::Divide => Some(Operator::Div),
+        DFOperator::Eq => Some(BinaryOperator::Compare(CompareOperator::Eq)),
+        DFOperator::NotEq => Some(BinaryOperator::Compare(CompareOperator::NotEq)),
+        DFOperator::Lt => Some(BinaryOperator::Compare(CompareOperator::Lt)),
+        DFOperator::LtEq => Some(BinaryOperator::Compare(CompareOperator::Lte)),
+        DFOperator::Gt => Some(BinaryOperator::Compare(CompareOperator::Gt)),
+        DFOperator::GtEq => Some(BinaryOperator::Compare(CompareOperator::Gte)),
+        DFOperator::And => Some(BinaryOperator::Boolean(BooleanOperator::And)),
+        DFOperator::Or => Some(BinaryOperator::Boolean(BooleanOperator::Or)),
+        DFOperator::Plus => Some(BinaryOperator::Numeric(NumericOperator::Add)),
+        DFOperator::Minus => Some(BinaryOperator::Numeric(NumericOperator::Sub)),
+        DFOperator::Multiply => Some(BinaryOperator::Numeric(NumericOperator::Mul)),
+        DFOperator::Divide => Some(BinaryOperator::Numeric(NumericOperator::Div)),
         DFOperator::IsDistinctFrom
         | DFOperator::IsNotDistinctFrom
         | DFOperator::RegexMatch

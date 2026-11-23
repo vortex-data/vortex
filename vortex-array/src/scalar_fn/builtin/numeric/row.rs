@@ -3,7 +3,7 @@
 
 //! Primitive arithmetic execution through [`RowFn`].
 //!
-//! `Binary` keeps its registered contract; [`NumericBinary`] is only an execution helper. Decimal
+//! `Numeric` keeps its registered contract; [`NumericBinary`] is only an execution helper. Decimal
 //! arithmetic remains on its existing columnar path.
 
 use vortex_error::VortexError;
@@ -26,7 +26,7 @@ use crate::scalar::NumericOperator;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
 use crate::scalar_fn::VecExecutionArgs;
-use crate::scalar_fn::builtin::binary::Binary;
+use crate::scalar_fn::builtin::numeric::Numeric;
 use crate::scalar_fn::unstable::row::InitializedElement;
 use crate::scalar_fn::unstable::row::RowFn;
 use crate::scalar_fn::unstable::row::RowVisitor;
@@ -57,10 +57,10 @@ impl RowFn for NumericBinary {
     const INFALLIBLE: bool = false;
 
     fn id(&self) -> ScalarFnId {
-        // `NumericBinary` is a private implementation detail of `Binary`: it is never registered or
+        // `NumericBinary` is a private implementation detail of `Numeric`: it is never registered or
         // serialized independently. Reusing the public ID keeps execution errors attributed to
-        // `Binary`. If this type becomes registrable, it needs its own ID and persistence contract.
-        ScalarFnVTable::id(&Binary)
+        // `Numeric`. If this type becomes registrable, it needs its own ID and persistence contract.
+        ScalarFnVTable::id(&Numeric)
     }
 
     fn dispatch<V: RowVisitor>(

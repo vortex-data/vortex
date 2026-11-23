@@ -12,18 +12,22 @@
 //! negative infinity, positive NaNs sort above positive infinity, and `-0.0 < +0.0`. Equality is
 //! bitwise, so signed zeros and distinct NaN payloads remain distinct.
 //!
-//! Binary scalar functions can execute through encoding-specific kernels before reaching the native
-//! dispatcher. [`CompareExecuteAdaptor`] connects these execution paths to [`CompareKernel`], which
+//! [`Compare`] binds a [`CompareOperator`] to two operands. It can execute through
+//! encoding-specific kernels before reaching the native dispatcher. [`CompareExecuteAdaptor`] connects these execution paths to [`CompareKernel`], which
 //! lets an encoding compare values without first converting them to canonical arrays.
 //!
 //! [`RowFn`]: crate::scalar_fn::unstable::row::RowFn
 
 use std::cmp::Ordering;
+use std::fmt::Formatter;
 
+use prost::Message;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
+use vortex_session::VortexSession;
+use vortex_session::registry::CachedId;
 
 use crate::ArrayRef;
 use crate::Canonical;
@@ -35,15 +39,30 @@ use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
 use crate::arrays::ExtensionArray;
 use crate::arrays::ScalarFn;
+use crate::arrays::ScalarFnArray;
 use crate::arrays::extension::ExtensionArrayExt;
 use crate::arrays::scalar_fn::ExactScalarFn;
 use crate::arrays::scalar_fn::ScalarFnArrayExt;
 use crate::arrays::scalar_fn::ScalarFnArrayView;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
+use crate::expr::BoundExpression;
+use crate::expr::bound;
+use crate::expr::display::ExprDisplay;
 use crate::kernel::ExecuteParentKernel;
+use crate::proto::expr as pb;
 use crate::scalar::Scalar;
-use crate::scalar_fn::builtin::binary::Binary;
+use crate::scalar_fn::Arity;
+use crate::scalar_fn::ChildName;
+use crate::scalar_fn::ExecutionArgs;
+use crate::scalar_fn::ScalarFnExecutionResult;
+use crate::scalar_fn::ScalarFnId;
+use crate::scalar_fn::ScalarFnVTable;
+use crate::scalar_fn::ScalarFnVTableExt;
+use crate::scalar_fn::builtin::binary::binary_child_name;
+use crate::scalar_fn::builtin::binary::execute_strict_step;
+use crate::scalar_fn::builtin::binary::fmt_infix;
+use crate::scalar_fn::builtin::literal::Literal;
 use crate::scalar_fn::builtin::operators::CompareOperator;
 use crate::validity::Validity;
 
@@ -56,6 +75,136 @@ pub use nested::RowComparator;
 pub use nested::build_comparator as build_row_comparator;
 
 mod primitive;
+
+/// A comparison of two operands with a [`CompareOperator`].
+///
+/// The result is null where an operand is null.
+#[derive(Clone)]
+pub struct Compare;
+
+impl Compare {
+    /// Creates a lazy comparison of `lhs` and `rhs`.
+    ///
+    /// The operands must have the same logical dtype, ignoring nullability, even when they are
+    /// empty or null. Extension dtypes must match, including their metadata; storage dtypes are
+    /// distinct.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the children have different lengths or incompatible dtypes.
+    pub fn try_new(
+        lhs: ArrayRef,
+        rhs: ArrayRef,
+        operator: CompareOperator,
+    ) -> VortexResult<ScalarFnArray> {
+        ScalarFnArray::try_new(Compare.bind(operator), [lhs, rhs])
+    }
+}
+
+impl ScalarFnVTable for Compare {
+    type Options = CompareOperator;
+
+    fn id(&self) -> ScalarFnId {
+        static ID: CachedId = CachedId::new("vortex.compare");
+        *ID
+    }
+
+    fn serialize(&self, operator: &CompareOperator) -> VortexResult<Option<Vec<u8>>> {
+        Ok(Some(
+            pb::CompareOpts {
+                op: pb::compare_opts::CompareOp::from(*operator).into(),
+            }
+            .encode_to_vec(),
+        ))
+    }
+
+    fn deserialize(
+        &self,
+        metadata: &[u8],
+        _session: &VortexSession,
+    ) -> VortexResult<CompareOperator> {
+        let opts = pb::CompareOpts::decode(metadata)?;
+
+        Ok(pb::compare_opts::CompareOp::try_from(opts.op)?.into())
+    }
+
+    fn arity(&self, _operator: &CompareOperator) -> Arity {
+        Arity::Exact(2)
+    }
+
+    fn child_name(&self, _operator: &CompareOperator, child_idx: usize) -> ChildName {
+        binary_child_name(child_idx)
+    }
+
+    fn fmt_sql(
+        &self,
+        operator: &CompareOperator,
+        expr: &dyn ExprDisplay,
+        f: &mut Formatter<'_>,
+    ) -> std::fmt::Result {
+        fmt_infix(operator, expr, f)
+    }
+
+    fn return_dtype(
+        &self,
+        _operator: &CompareOperator,
+        arg_dtypes: &[DType],
+    ) -> VortexResult<DType> {
+        let lhs = &arg_dtypes[0];
+        let rhs = &arg_dtypes[1];
+        validate_comparison_dtypes(lhs, rhs)?;
+
+        Ok(DType::Bool((lhs.is_nullable() || rhs.is_nullable()).into()))
+    }
+
+    fn execute(
+        &self,
+        operator: &CompareOperator,
+        args: &dyn ExecutionArgs,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        let lhs = args.get(0)?;
+        let rhs = args.get(1)?;
+
+        execute_compare(&lhs, &rhs, *operator, ctx)
+    }
+
+    fn simplify(
+        &self,
+        _operator: &CompareOperator,
+        expr: &BoundExpression,
+    ) -> VortexResult<Option<BoundExpression>> {
+        let is_literal_null =
+            |expr: &BoundExpression| expr.as_opt::<Literal>().is_some_and(Scalar::is_null);
+
+        // Binding already rejected ill-typed comparisons such as `int_col = null_utf8`, so a
+        // comparison against a null literal always evaluates to null.
+        if is_literal_null(expr.child(0)) || is_literal_null(expr.child(1)) {
+            return Ok(Some(bound::lit(Scalar::null(DType::Bool(
+                Nullability::Nullable,
+            )))));
+        }
+
+        Ok(None)
+    }
+
+    fn execute_step(
+        &self,
+        operator: &CompareOperator,
+        args: &dyn ExecutionArgs,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ScalarFnExecutionResult> {
+        execute_strict_step(self, operator, args, ctx)
+    }
+
+    fn is_strict(&self, _operator: &CompareOperator) -> bool {
+        true
+    }
+
+    fn is_infallible(&self, _operator: &CompareOperator) -> bool {
+        true
+    }
+}
 
 /// Trait for encoding-specific comparison kernels that operate in encoded space.
 ///
@@ -77,7 +226,7 @@ pub trait CompareKernel: VTable {
 
 /// Adaptor that bridges [`CompareKernel`] implementations to [`ExecuteParentKernel`].
 ///
-/// When a `ScalarFnArray(Binary, cmp_op)` wraps a child that implements `CompareKernel`,
+/// When a `ScalarFnArray(Compare, cmp_op)` wraps a child that implements `CompareKernel`,
 /// this adaptor extracts the comparison operator and other operand, normalizes operand order
 /// (swapping the operator if the encoded array is on the RHS), and delegates to the kernel.
 #[derive(Default, Debug)]
@@ -90,20 +239,16 @@ impl<V> ExecuteParentKernel<V> for CompareExecuteAdaptor<V>
 where
     V: CompareKernel,
 {
-    type Parent = ExactScalarFn<Binary>;
+    type Parent = ExactScalarFn<Compare>;
 
     fn execute_parent(
         &self,
         array: ArrayView<'_, V>,
-        parent: ScalarFnArrayView<'_, Binary>,
+        parent: ScalarFnArrayView<'_, Compare>,
         child_idx: usize,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        // Non-comparison operators are normal kernel misses, so decline them without constructing
-        // an error (which would capture a backtrace, or panic under `VORTEX_PANIC_ON_ERR`).
-        let Some(cmp_op) = parent.options.to_compare_operator() else {
-            return Ok(None);
-        };
+        let cmp_op = *parent.options;
 
         // Get the ScalarFnArray to access children
         let Some(scalar_fn_array) = parent.as_opt::<ScalarFn>() else {
@@ -142,7 +287,7 @@ where
 
 /// Execute a compare operation between two arrays.
 ///
-/// This is the entry point for compare operations from the binary expression.
+/// This is the entry point for compare operations from the [`Compare`] function.
 /// Handles empty, constant-null, and constant-constant directly, otherwise dispatches to a
 /// native per-dtype kernel.
 pub(crate) fn execute_compare(

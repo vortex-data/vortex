@@ -27,7 +27,7 @@ use crate::dtype::NativeDecimalType;
 use crate::dtype::Nullability;
 use crate::match_each_decimal_value_type;
 use crate::scalar::DecimalValue;
-use crate::scalar_fn::builtin::binary::compare::compare_validity;
+use crate::scalar_fn::builtin::compare::compare_validity;
 use crate::scalar_fn::builtin::operators::CompareOperator;
 use crate::validity::Validity;
 

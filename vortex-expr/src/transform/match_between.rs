@@ -7,10 +7,12 @@ use std::ptr;
 
 use vortex_array::expr::BoundExpression;
 use vortex_array::scalar_fn::ScalarFnVTableExt;
-use vortex_array::scalar_fn::builtin::binary::Binary;
+use vortex_array::scalar_fn::builtin::boolean::Boolean;
+use vortex_array::scalar_fn::builtin::compare::Compare;
 use vortex_array::scalar_fn::builtin::get_item::GetItem;
 use vortex_array::scalar_fn::builtin::literal::Literal;
-use vortex_array::scalar_fn::builtin::operators::Operator;
+use vortex_array::scalar_fn::builtin::operators::BooleanOperator;
+use vortex_array::scalar_fn::builtin::operators::CompareOperator;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_functions::between::Between;
@@ -98,7 +100,7 @@ fn merge_straddling_pairs(expr: &BoundExpression) -> VortexResult<Option<BoundEx
 }
 
 fn is_and(expr: &BoundExpression) -> bool {
-    expr.as_opt::<Binary>() == Some(&Operator::And)
+    expr.as_opt::<Boolean>() == Some(&BooleanOperator::And)
 }
 
 /// Return the first `Some` produced by `f` over the conjuncts of the `AND` tree rooted at `expr`.
@@ -156,7 +158,7 @@ struct RangeComparison<'a> {
 
 impl<'a> RangeComparison<'a> {
     fn try_new(expr: &'a BoundExpression) -> Option<Self> {
-        let operator = *expr.as_opt::<Binary>()?;
+        let operator = *expr.as_opt::<Compare>()?;
         let lhs = expr.child(0);
         let rhs = expr.child(1);
 
@@ -164,16 +166,16 @@ impl<'a> RangeComparison<'a> {
         let (column, literal, operator) = if lhs.is::<GetItem>() && rhs.is::<Literal>() {
             (lhs, rhs, operator)
         } else if rhs.is::<GetItem>() && lhs.is::<Literal>() {
-            (rhs, lhs, operator.swap()?)
+            (rhs, lhs, operator.swap())
         } else {
             return None;
         };
 
         let (is_lower, strict) = match operator {
-            Operator::Gt => (true, StrictComparison::Strict),
-            Operator::Gte => (true, StrictComparison::NonStrict),
-            Operator::Lt => (false, StrictComparison::Strict),
-            Operator::Lte => (false, StrictComparison::NonStrict),
+            CompareOperator::Gt => (true, StrictComparison::Strict),
+            CompareOperator::Gte => (true, StrictComparison::NonStrict),
+            CompareOperator::Lt => (false, StrictComparison::Strict),
+            CompareOperator::Lte => (false, StrictComparison::NonStrict),
             _ => return None,
         };
 
