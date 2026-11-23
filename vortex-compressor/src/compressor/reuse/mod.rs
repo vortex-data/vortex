@@ -276,7 +276,9 @@ impl CascadingCompressor {
             self.compress_with_plan(array, Some(Arc::clone(&cached.plan)), reuse, exec_ctx)?;
         let replayed_ratio = ratio_of(&replayed);
 
-        if replayed_plan.root_decision() != cached.plan.root_decision() {
+        if matches!(replayed_plan.root_decision(), Some(Decision::Scheme(_)))
+            && replayed_plan.root_decision() != cached.plan.root_decision()
+        {
             reuse.replace(replayed_plan, replayed_ratio);
             return Ok(replayed);
         }
