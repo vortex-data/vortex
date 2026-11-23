@@ -6,6 +6,8 @@
 
 use std::clone::Clone;
 use std::fmt::Display;
+use std::path::Path;
+use std::process::Command;
 use std::str::FromStr;
 use std::sync::LazyLock;
 
@@ -647,4 +649,209 @@ where
     }
 
     sql_statements
+}
+
+/// Generate a DuckDB database from Parquet files using the DuckDB CLI.
+pub fn generate_duckdb(base_path: &Path, benchmark: &dyn Benchmark) -> anyhow::Result<()> {
+    generate_duckdb_with(base_path, benchmark, |db_path, stmt| {
+        let output = Command::new("duckdb")
+            .arg(db_path)
+            .arg("-c")
+            .arg(stmt)
+            .output()?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            anyhow::bail!("DuckDB CLI failed: {}", stderr);
+        }
+
+        Ok(())
+    })
+}
+
+fn generate_duckdb_with(
+    base_path: &Path,
+    benchmark: &dyn Benchmark,
+    mut run_stmt: impl FnMut(&Path, &str) -> anyhow::Result<()>,
+) -> anyhow::Result<()> {
+    let duckdb_dir = base_path.join(Format::OnDiskDuckDB.name());
+    std::fs::create_dir_all(&duckdb_dir)?;
+
+    let db_path = duckdb_dir.join("duckdb.db");
+
+    // Skip if database already exists
+    if db_path.exists() {
+        tracing::info!("DuckDB database already exists at {}", db_path.display());
+        return Ok(());
+    }
+
+    let parquet_dir = base_path.join(Format::Parquet.name());
+    let sql = generate_duckdb_registration_sql(
+        benchmark,
+        parquet_dir
+            .to_str()
+            .vortex_expect("value must be str displayable"),
+        Format::Parquet,
+        "TABLE",
+    );
+    if sql.is_empty() {
+        return Ok(());
+    }
+
+    let staging_dir = tempfile::tempdir_in(&duckdb_dir)?;
+    let staged_db_path = staging_dir.path().join("duckdb.db");
+
+    for stmt in sql {
+        run_stmt(&staged_db_path, &stmt)?;
+    }
+
+    std::fs::rename(&staged_db_path, &db_path)?;
+
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::fs::OpenOptions;
+    use std::io::Write;
+    use std::path::Path;
+
+    use anyhow::Result;
+    use anyhow::bail;
+    use glob::Pattern;
+    use url::Url;
+
+    use crate::Benchmark;
+    use crate::BenchmarkDataset;
+    use crate::Format;
+    use crate::TableSpec;
+    use crate::generate_duckdb_with;
+
+    struct TwoTableBenchmark {
+        url: Url,
+    }
+
+    #[async_trait::async_trait]
+    impl Benchmark for TwoTableBenchmark {
+        fn queries(&self) -> Result<Vec<(usize, String)>> {
+            Ok(Vec::new())
+        }
+
+        async fn generate_base_data(&self) -> Result<()> {
+            Ok(())
+        }
+
+        fn dataset(&self) -> BenchmarkDataset {
+            BenchmarkDataset::TpcH {
+                scale_factor: "1".into(),
+            }
+        }
+
+        fn doc_path(&self) -> &'static str {
+            ""
+        }
+
+        fn dataset_name(&self) -> &str {
+            "two_table"
+        }
+
+        fn dataset_display(&self) -> String {
+            "two_table".into()
+        }
+
+        fn data_url(&self) -> &Url {
+            &self.url
+        }
+
+        fn table_specs(&self) -> Vec<TableSpec> {
+            vec![
+                TableSpec::new("first_table", None),
+                TableSpec::new("second_table", None),
+            ]
+        }
+
+        fn pattern(&self, table_name: &str, format: Format) -> Option<Pattern> {
+            Pattern::new(&format!("{table_name}.{}", format.ext())).ok()
+        }
+    }
+
+    fn simulate_duckdb_import(parquet_dir: &Path, db_path: &Path, stmt: &str) -> Result<()> {
+        let table = ["first_table", "second_table"]
+            .into_iter()
+            .find(|name| stmt.contains(name))
+            .expect("statement names a known table");
+
+        if !parquet_dir.join(format!("{table}.parquet")).exists() {
+            bail!("missing input for {table}");
+        }
+
+        let mut file = OpenOptions::new().create(true).append(true).open(db_path)?;
+        writeln!(file, "{table}")?;
+        Ok(())
+    }
+
+    #[test]
+    fn generate_duckdb_retries_after_partial_import_and_reuses_complete_db() -> Result<()> {
+        let retry_root = tempfile::tempdir()?;
+        let parquet_dir = retry_root.path().join(Format::Parquet.name());
+        std::fs::create_dir_all(&parquet_dir)?;
+        std::fs::write(parquet_dir.join("first_table.parquet"), b"p1")?;
+
+        let bench = TwoTableBenchmark {
+            url: Url::from_directory_path(retry_root.path())
+                .map_err(|()| anyhow::anyhow!("invalid directory path"))?,
+        };
+
+        // First attempt fails on the missing second table and must not leave duckdb.db behind.
+        let err = generate_duckdb_with(retry_root.path(), &bench, |db, stmt| {
+            simulate_duckdb_import(&parquet_dir, db, stmt)
+        })
+        .unwrap_err();
+        assert!(err.to_string().contains("second_table"));
+
+        let duckdb_dir = retry_root.path().join(Format::OnDiskDuckDB.name());
+        let db_path = duckdb_dir.join("duckdb.db");
+        assert!(!db_path.exists());
+        assert_eq!(std::fs::read_dir(&duckdb_dir)?.count(), 0);
+
+        // Once the second input arrives, retrying at the same path publishes both tables.
+        std::fs::write(parquet_dir.join("second_table.parquet"), b"p2")?;
+        generate_duckdb_with(retry_root.path(), &bench, |db, stmt| {
+            simulate_duckdb_import(&parquet_dir, db, stmt)
+        })?;
+
+        // Compare against a fresh generation with both inputs present from the start.
+        let fresh_root = tempfile::tempdir()?;
+        let fresh_parquet = fresh_root.path().join(Format::Parquet.name());
+        std::fs::create_dir_all(&fresh_parquet)?;
+        std::fs::write(fresh_parquet.join("first_table.parquet"), b"p1")?;
+        std::fs::write(fresh_parquet.join("second_table.parquet"), b"p2")?;
+        let fresh_bench = TwoTableBenchmark {
+            url: Url::from_directory_path(fresh_root.path())
+                .map_err(|()| anyhow::anyhow!("invalid directory path"))?,
+        };
+        generate_duckdb_with(fresh_root.path(), &fresh_bench, |db, stmt| {
+            simulate_duckdb_import(&fresh_parquet, db, stmt)
+        })?;
+
+        let retry_contents = std::fs::read_to_string(&db_path)?;
+        let fresh_contents = std::fs::read_to_string(
+            fresh_root
+                .path()
+                .join(Format::OnDiskDuckDB.name())
+                .join("duckdb.db"),
+        )?;
+        assert_eq!(retry_contents, "first_table\nsecond_table\n");
+        assert_eq!(retry_contents, fresh_contents);
+
+        // Re-running on an existing complete database reuses it without running any statements.
+        let mut invoked = 0;
+        generate_duckdb_with(retry_root.path(), &bench, |_db, _stmt| {
+            invoked += 1;
+            Ok(())
+        })?;
+        assert_eq!(invoked, 0);
+
+        Ok(())
+    }
 }
