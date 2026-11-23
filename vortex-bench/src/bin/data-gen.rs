@@ -9,6 +9,7 @@
 use std::path::Path;
 use std::process::Command;
 
+use anyhow::Context;
 use clap::Parser;
 use clap::value_parser;
 use mimalloc::MiMalloc;
@@ -139,7 +140,8 @@ fn generate_duckdb(base_path: &Path, benchmark: &dyn Benchmark) -> anyhow::Resul
             .arg(&db_path)
             .arg("-c")
             .arg(&stmt)
-            .output()?;
+            .output()
+            .context("failed to run the `duckdb` CLI; install it and put it on PATH")?;
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
