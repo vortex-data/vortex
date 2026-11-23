@@ -182,3 +182,25 @@ def test_malformed_metadata_is_skipped_by_discovery_and_lookups(
     assert store.get_run(bad_dir.name) is None
     assert store.get_run(aware_dir.name) is None
     assert store.get_run("aware-run") is None
+
+
+def test_deleting_latest_run_falls_back_to_surviving_complete_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _patch_store_env(monkeypatch)
+    store = ResultStore(base_dir=tmp_path / "runs")
+
+    with store.create_run(*_make_configs(label="keep")) as older_ctx:
+        older_id = older_ctx.metadata.run_id
+        older_ctx.write_raw_json(json.dumps({"run": 1}))
+
+    with store.create_run(*_make_configs(label=None)) as newer_ctx:
+        newer_id = newer_ctx.metadata.run_id
+        newer_ctx.write_raw_json(json.dumps({"run": 2}))
+
+    assert store.resolve_reference("latest") == newer_id
+
+    assert store.delete_run(newer_id) is True
+    assert store.resolve_reference("latest") == older_id
+    latest = store.get_run("latest")
+    assert latest is not None and latest.run_id == older_id
