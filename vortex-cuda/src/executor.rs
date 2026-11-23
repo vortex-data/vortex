@@ -566,7 +566,7 @@ mod tests {
             calls: AtomicUsize::new(0),
         });
         let mut ctx = CudaSession::create_execution_ctx(&cuda_session())?
-            .with_launch_strategy(strategy.clone());
+            .with_launch_strategy(Arc::<CountLaunches>::clone(&strategy));
         let mut ran_external = false;
         ctx.launch_external(1, || {
             ran_external = true;
