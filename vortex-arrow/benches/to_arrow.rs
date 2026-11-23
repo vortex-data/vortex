@@ -596,8 +596,6 @@ fn dict_array(case: DictExportCase) -> ArrayRef {
     array
 }
 
-/// Measures export to an Arrow dictionary with `Int32` keys, the key type that DataFusion and
-/// Arrow-sourced schemas request.
 #[divan::bench(args = DICT_EXPORT_CASES)]
 fn dictionary_export(bencher: Bencher, case: DictExportCase) {
     let array = dict_array(case);
