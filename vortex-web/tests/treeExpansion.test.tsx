@@ -8,10 +8,8 @@ import { TreePanel } from '../src/components/explorer/TreePanel';
 import { SwimlaneOverview } from '../src/components/swimlane/SwimlaneOverview';
 import type { LayoutTreeNode } from '../src/components/swimlane/types';
 import { SelectionContext, type SelectionContextValue } from '../src/contexts/SelectionContextCore';
-import {
-  VortexFileContext,
-  type VortexFileContextValue,
-} from '../src/contexts/VortexFileContextCore';
+import type { VortexFileContextValue } from '../src/contexts/VortexFileContext';
+import { VortexFileContext } from '../src/contexts/VortexFileContextCore';
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 

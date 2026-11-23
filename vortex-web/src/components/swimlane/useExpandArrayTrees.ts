@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 import { useEffect, useRef } from 'react';
-import type { VortexFileContextValue } from '../../contexts/VortexFileContextCore';
+import type { VortexFileContextValue } from '../../contexts/VortexFileContext';
 import { findNodeById, isFlatLayout } from './utils';
 
 type RequestStatus = 'pending' | 'failed' | 'done';
