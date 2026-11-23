@@ -216,6 +216,7 @@ pub fn reader_initialize(file: &mut OpenFileReader, global: &GlobalState) -> Vor
         // DuckDB releases a skipped file under the global lock. Here only the
         // file-local lock is held, so drop the scan state now.
         file.scan_state = None;
+        crate::diag::inc(&crate::diag::SKIPPED);
         return Ok(true);
     }
 
@@ -223,6 +224,7 @@ pub fn reader_initialize(file: &mut OpenFileReader, global: &GlobalState) -> Vor
     // doing it here under file lock and not in reader_try_initialize_scan under
     // global lock.
     if global.scan_v2 {
+        crate::diag::inc(&crate::diag::FILES);
         let state = file.scan_state();
         let splits = ScanBuilder::new(SESSION.clone(), Arc::clone(&state.reader))
             .with_projection(global.projection.clone())
@@ -285,6 +287,7 @@ enum SplitItem {
 
 /// Takes the next array of the thread's split, keeping the split while it has more to yield.
 fn next_split_item(local: &mut LocalState) -> VortexResult<SplitItem> {
+    crate::diag::inc(&crate::diag::NSI);
     match local.split.take() {
         None => Ok(SplitItem::Done),
         Some(Split::V1(task)) => Ok(RUNTIME
@@ -300,8 +303,10 @@ fn next_split_item(local: &mut LocalState) -> VortexResult<SplitItem> {
                 Some(array) => array,
                 None => {
                     let Some(array) = scan.next_array(&mut local.run)? else {
+                        crate::diag::split_done();
                         return Ok(SplitItem::Done);
                     };
+                    crate::diag::yielded();
                     // A V2 batch can join chunks of several layout chunks. Canonicalizing it
                     // would decode their dictionaries, so export each chunk on its own, as a V1
                     // scan yields them.
@@ -360,6 +365,9 @@ pub fn reader_try_initialize_scan(file: &mut OpenFileReader, local: &mut LocalSt
         local.retired_files.extend(previous);
     }
 
+    if matches!(split, Split::V2) {
+        crate::diag::joined();
+    }
     local.split = Some(split);
     true
 }

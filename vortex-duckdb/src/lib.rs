@@ -26,6 +26,7 @@ use crate::duckdb::DatabaseRef;
 
 mod column_statistics;
 mod convert;
+mod diag;
 pub mod duckdb;
 mod exporter;
 mod ffi;

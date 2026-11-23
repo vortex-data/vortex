@@ -100,7 +100,10 @@ impl FileScan {
         loop {
             match root.advance()? {
                 Progress::Batch(batch) => queue.push_back(Work::Batch(batch.array)),
-                Progress::Spawn(scope, chunk) => queue.push_back(Work::Chunk(scope, chunk)),
+                Progress::Spawn(scope, chunk) => {
+                    crate::diag::inc(&crate::diag::PARTS);
+                    queue.push_back(Work::Chunk(scope, chunk))
+                }
                 Progress::RootDone(_) if root.live_roots() > 0 => {}
                 Progress::RootDone(_) | Progress::Idle => break,
                 Progress::Waiting => {
@@ -154,7 +157,9 @@ impl FileScan {
                 Progress::RootDone(_) => {}
                 Progress::Idle => return Ok(None),
                 Progress::Waiting => {
-                    RUNTIME.block_on(future::poll_fn(|cx| run.poll_completion(cx)))?;
+                    RUNTIME.block_on(crate::diag::counted(future::poll_fn(|cx| {
+                        run.poll_completion(cx)
+                    })))?;
                 }
             }
         }

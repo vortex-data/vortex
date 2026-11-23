@@ -203,6 +203,12 @@ pub struct AggregateState {
 }
 assert_impl_all!(GlobalState: Send, Sync);
 
+impl Drop for GlobalState {
+    fn drop(&mut self) {
+        crate::diag::report();
+    }
+}
+
 /// A unit of scan work that one thread takes at a time.
 pub enum Split {
     /// A V1 scan task yielding one array, or `None` if the filter removed every row.
