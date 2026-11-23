@@ -157,6 +157,15 @@ pub struct vx_estimate {
     pub estimate: u64,
 }
 
+fn selection_indices(selection: &vx_scan_selection) -> VortexResult<StrictSortedBuffer<u64>> {
+    if selection.idx_len == 0 {
+        return StrictSortedBuffer::try_new(Buffer::empty());
+    }
+    vortex_ensure!(!selection.idx.is_null());
+    let buf = unsafe { slice::from_raw_parts(selection.idx, selection.idx_len) };
+    StrictSortedBuffer::try_new(Buffer::copy_from(buf))
+}
+
 fn scan_request(opts: *const vx_scan_options) -> VortexResult<ScanRequest> {
     if opts.is_null() {
         return Ok(ScanRequest::default());
@@ -179,16 +188,10 @@ fn scan_request(opts: *const vx_scan_options) -> VortexResult<ScanRequest> {
     let selection = match selection.include {
         vx_scan_selection_include::VX_SELECTION_INCLUDE_ALL => Selection::All,
         vx_scan_selection_include::VX_SELECTION_INCLUDE_RANGE => {
-            vortex_ensure!(!selection.idx.is_null());
-            let buf = unsafe { slice::from_raw_parts(selection.idx, selection.idx_len) };
-            let buf = Buffer::copy_from(buf);
-            Selection::IncludeByIndex(StrictSortedBuffer::try_new(buf)?)
+            Selection::IncludeByIndex(selection_indices(selection)?)
         }
         vx_scan_selection_include::VX_SELECTION_EXCLUDE_RANGE => {
-            vortex_ensure!(!selection.idx.is_null());
-            let buf = unsafe { slice::from_raw_parts(selection.idx, selection.idx_len) };
-            let buf = Buffer::copy_from(buf);
-            Selection::ExcludeByIndex(StrictSortedBuffer::try_new(buf)?)
+            Selection::ExcludeByIndex(selection_indices(selection)?)
         }
     };
 
@@ -813,6 +816,113 @@ mod tests {
         let expected = expected_rows(&source, &[0, 50, 100, 150, 199]);
         assert_arrays_eq!(vx_array::as_ref(array), expected, &mut ctx);
         unsafe { vx_array_free(array) };
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore)]
+    fn test_empty_selection_with_null_and_non_null_pointer() {
+        let empty: [u64; 0] = [];
+        for idx in [ptr::null(), empty.as_ptr()] {
+            unsafe {
+                let session = vx_session_new();
+                let (sample, struct_array) = write_sample(session);
+                let path = vx_view::from_str(sample.path().to_str().unwrap());
+                let ds_options = vx_data_source_options {
+                    paths: &raw const path,
+                    paths_len: 1,
+                };
+                let mut error = ptr::null_mut();
+                let ds = vx_data_source_new(session, &raw const ds_options, &raw mut error);
+                assert_no_error(error);
+
+                let include_opts = vx_scan_options {
+                    selection: vx_scan_selection {
+                        idx,
+                        idx_len: 0,
+                        include: vx_scan_selection_include::VX_SELECTION_INCLUDE_RANGE,
+                    },
+                    ..Default::default()
+                };
+                let include_scan = vx_data_source_scan(
+                    ds,
+                    &raw const include_opts,
+                    ptr::null_mut(),
+                    &raw mut error,
+                );
+                assert_no_error(error);
+                assert!(!include_scan.is_null());
+                let mut include_rows = 0usize;
+                loop {
+                    let partition = vx_scan_next_partition(include_scan, &raw mut error);
+                    assert_no_error(error);
+                    if partition.is_null() {
+                        break;
+                    }
+                    loop {
+                        let array = vx_partition_next(partition, &raw mut error);
+                        assert_no_error(error);
+                        if array.is_null() {
+                            break;
+                        }
+                        include_rows += vx_array::as_ref(array).len();
+                        vx_array_free(array);
+                    }
+                    vx_partition_free(partition);
+                }
+                assert_eq!(include_rows, 0);
+                vx_scan_free(include_scan);
+
+                let exclude_opts = vx_scan_options {
+                    selection: vx_scan_selection {
+                        idx,
+                        idx_len: 0,
+                        include: vx_scan_selection_include::VX_SELECTION_EXCLUDE_RANGE,
+                    },
+                    ..Default::default()
+                };
+                let exclude_scan = vx_data_source_scan(
+                    ds,
+                    &raw const exclude_opts,
+                    ptr::null_mut(),
+                    &raw mut error,
+                );
+                assert_no_error(error);
+                assert!(!exclude_scan.is_null());
+                let partition = vx_scan_next_partition(exclude_scan, &raw mut error);
+                assert_no_error(error);
+                assert!(!partition.is_null());
+                let array = vx_partition_next(partition, &raw mut error);
+                assert_no_error(error);
+                assert!(!array.is_null());
+                let mut ctx = SESSION.create_execution_ctx();
+                assert_arrays_eq!(vx_array::as_ref(array), struct_array, &mut ctx);
+                vx_array_free(array);
+                vx_partition_free(partition);
+                vx_scan_free(exclude_scan);
+
+                vx_data_source_free(ds);
+                vx_session_free(session);
+            }
+        }
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore)]
+    fn test_null_selection_with_nonzero_length_is_rejected() {
+        for include in [
+            vx_scan_selection_include::VX_SELECTION_INCLUDE_RANGE,
+            vx_scan_selection_include::VX_SELECTION_EXCLUDE_RANGE,
+        ] {
+            let opts = vx_scan_options {
+                selection: vx_scan_selection {
+                    idx: ptr::null(),
+                    idx_len: 1,
+                    include,
+                },
+                ..Default::default()
+            };
+            assert!(super::scan_request(&raw const opts).is_err());
+        }
     }
 
     #[test]

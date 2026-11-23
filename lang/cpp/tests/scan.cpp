@@ -365,5 +365,42 @@ TEST_CASE("Selection", "[scan]") {
     REQUIRE(array->size() == 97);
 
     verify_age_field(session, array->field(0), 3, 97);
+
+    SECTION("Empty include") {
+        for (size_t capacity : {size_t {0}, size_t {1}}) {
+            ScanOptions options;
+            options.selection.emplace();
+            options.selection->kind = Include;
+            options.selection->indices.reserve(capacity);
+
+            Scan empty_scan = ds.scan(options);
+            size_t rows = 0;
+            for (Partition &part : empty_scan.partitions()) {
+                for (Array &batch : part.batches()) {
+                    rows += batch.size();
+                }
+            }
+            REQUIRE(rows == 0);
+        }
+    }
+
+    SECTION("Empty exclude") {
+        for (size_t capacity : {size_t {0}, size_t {1}}) {
+            ScanOptions options;
+            options.selection.emplace();
+            options.selection->kind = Exclude;
+            options.selection->indices.reserve(capacity);
+
+            Scan empty_scan = ds.scan(options);
+            size_t rows = 0;
+            for (Partition &part : empty_scan.partitions()) {
+                for (Array &batch : part.batches()) {
+                    verify_sample_array(session, batch, rows, batch.size());
+                    rows += batch.size();
+                }
+            }
+            REQUIRE(rows == SAMPLE_ROWS);
+        }
+    }
 }
 } // namespace
