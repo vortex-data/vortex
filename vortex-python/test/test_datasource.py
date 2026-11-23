@@ -58,15 +58,32 @@ def test_vortex_datasource_per_task_row_limit(tmp_path: Path) -> None:
 
     unlimited = source.get_read_tasks(1, per_task_row_limit=None)[0]
     assert unlimited.per_task_row_limit is None
+    assert unlimited.metadata.num_rows == 3
     assert [list(block["v"]) for block in unlimited()] == [[10, 11], [12]]
 
     one = source.get_read_tasks(1, per_task_row_limit=1)[0]
     assert one.per_task_row_limit == 1
+    assert one.metadata.num_rows == 1
     assert [list(block["v"]) for block in one()] == [[10]]
 
     zero = source.get_read_tasks(1, per_task_row_limit=0)[0]
     assert zero.per_task_row_limit == 0
+    assert zero.metadata.num_rows == 0
     assert list(zero()) == []
+
+    filtered_zero = VortexDatasource(url=str(path), filter=ve.column("v") > 10).get_read_tasks(1, per_task_row_limit=0)[
+        0
+    ]
+    assert filtered_zero.metadata.num_rows == 0
+    assert list(filtered_zero()) == []
+
+    # Slicing before to_pandas() avoids promoting a limited non-null integer row to float64
+    # when a dropped trailing row in the same batch is null.
+    precision_path = tmp_path / "precision.vortex"
+    big = (1 << 53) + 1
+    vx.io.write(pa.table({"v": pa.array([big, None], type=pa.int64())}), str(precision_path))
+    limited = VortexDatasource(url=str(precision_path), batch_size=2).get_read_tasks(1, per_task_row_limit=1)[0]
+    assert [list(block["v"]) for block in limited()] == [[big]]
 
 
 def test_partition() -> None:

@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import inspect
 from collections.abc import Iterable
 from typing import TYPE_CHECKING, TypeVar, final
 from urllib.parse import quote
@@ -137,6 +138,9 @@ class VortexDatasource(Datasource):
         return True
 
 
+_READ_TASK_SUPPORTS_ROW_LIMIT = "per_task_row_limit" in inspect.signature(ReadTask.__init__).parameters
+
+
 def _read_task(
     paths: list[str],
     columns: list[str] | None,
@@ -148,8 +152,16 @@ def _read_task(
         raise ValueError("no paths specified")
 
     dataset = _open_exact_files(paths)
+    if per_task_row_limit is not None and per_task_row_limit <= 0:
+        num_rows: int | None = 0
+    elif filter is not None:
+        num_rows = None
+    else:
+        count = dataset.count_rows()
+        num_rows = min(count, per_task_row_limit) if per_task_row_limit is not None else count
+
     metadata = BlockMetadata(
-        num_rows=None if filter is not None else dataset.count_rows(),
+        num_rows=num_rows,
         size_bytes=None,
         exec_stats=None,
         input_files=tuple(paths),
@@ -157,16 +169,25 @@ def _read_task(
     output_schema = dataset.scanner(columns=columns).projected_schema
 
     def read() -> Iterable[pandas.DataFrame]:
-        if per_task_row_limit is not None and per_task_row_limit <= 0:
+        remaining = per_task_row_limit
+        if remaining is not None and remaining <= 0:
             return
         # A VortexDataset cannot be pickled, so the task opens its files again on the worker.
         reader = _open_exact_files(paths).to_record_batch_reader(columns=columns, filter=filter, batch_size=batch_size)
 
         for rb in reader:
+            if remaining is not None:
+                if rb.num_rows > remaining:
+                    rb = rb.slice(0, remaining)
+                remaining -= rb.num_rows
             # We would prefer to generate Arrow, but we run into this issue: https://github.com/apache/arrow/issues/47279
             #
             # yield pa.Table.from_batches([rb])
             #
             yield rb.to_pandas()
+            if remaining == 0:
+                break
 
-    return ReadTask(read, metadata, output_schema, per_task_row_limit=per_task_row_limit)
+    if _READ_TASK_SUPPORTS_ROW_LIMIT:
+        return ReadTask(read, metadata, output_schema, per_task_row_limit=per_task_row_limit)
+    return ReadTask(read, metadata, output_schema)
