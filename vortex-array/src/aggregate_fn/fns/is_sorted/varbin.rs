@@ -3,13 +3,13 @@
 
 use vortex_error::VortexResult;
 
-use super::IsSortedIteratorExt;
+use super::IsSortedOptions;
 use crate::ExecutionCtx;
 use crate::arrays::VarBinViewArray;
 
 pub(super) fn check_varbinview_sorted(
     array: &VarBinViewArray,
-    strict: bool,
+    options: &IsSortedOptions,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<bool> {
     let mask = array
@@ -32,9 +32,5 @@ pub(super) fn check_varbinview_sorted(
             }
         })
     });
-    Ok(if strict {
-        iter.is_strict_sorted()
-    } else {
-        iter.is_sorted()
-    })
+    Ok(options.is_nullable_sorted(iter))
 }

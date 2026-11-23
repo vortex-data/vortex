@@ -34,6 +34,8 @@ use crate::aggregate_fn::fns::first::First;
 use crate::aggregate_fn::fns::is_constant::IsConstant;
 use crate::aggregate_fn::fns::is_sorted::IsSorted;
 use crate::aggregate_fn::fns::is_sorted::IsSortedOptions;
+use crate::aggregate_fn::fns::is_sorted::NullOrder;
+use crate::aggregate_fn::fns::is_sorted::SortDirection;
 use crate::aggregate_fn::fns::last::Last;
 use crate::aggregate_fn::fns::max::Max;
 use crate::aggregate_fn::fns::min::Min;
@@ -66,14 +68,27 @@ fn aggregates() -> Vec<(AggregateFnRef, bool)> {
     let skip_nans = NumericalAggregateOpts::default();
     let include_nans = NumericalAggregateOpts { skip_nans: false };
     let max_bytes = NonZeroUsize::MIN;
+    let sort_options = IsSortedOptions::default();
 
     vec![
         (MinMax.bind(skip_nans), true),
         (Min.bind(skip_nans), true),
         (Max.bind(skip_nans), true),
         (IsConstant.bind(EmptyOptions), true),
-        (IsSorted.bind(IsSortedOptions { strict: false }), true),
-        (IsSorted.bind(IsSortedOptions { strict: true }), true),
+        (IsSorted.bind(sort_options), true),
+        (IsSorted.bind(sort_options.with_strict(true)), true),
+        (
+            IsSorted.bind(sort_options.with_direction(SortDirection::Desc)),
+            true,
+        ),
+        (
+            IsSorted.bind(
+                sort_options
+                    .with_strict(true)
+                    .with_null_order(NullOrder::Last),
+            ),
+            true,
+        ),
         (Sum.bind(skip_nans), true),
         (Sum.bind(include_nans), false),
         (SumV2.bind(skip_nans), false),
