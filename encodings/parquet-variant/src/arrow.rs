@@ -35,6 +35,7 @@ use vortex_array::arrays::Masked;
 use vortex_array::arrays::Struct;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::Variant;
+use vortex_array::arrays::VariantArray;
 use vortex_array::arrays::chunked::ChunkedArrayExt;
 use vortex_array::arrays::list::ListArraySlotsExt;
 use vortex_array::arrays::listview::ListViewArraySlotsExt;
@@ -352,7 +353,7 @@ fn constant_variant_storage(
     };
 
     let full_value = ConstantArray::new(
-        Scalar::binary(full_value_bytes.clone(), Nullability::NonNullable),
+        Scalar::binary(full_value_bytes, Nullability::NonNullable),
         len,
     )
     .into_array();
@@ -387,47 +388,44 @@ fn constant_variant_storage(
             if !has_overlap {
                 full_value
             } else {
-                let residual_fields: Vec<_> = struct_scalar
-                    .names()
-                    .iter()
-                    .enumerate()
-                    .filter(|(_, name)| shredded_fields.find(name.as_ref()).is_none())
-                    .collect();
-                if residual_fields.is_empty() {
-                    full_value.mask(typed_value.is_null()?)?
-                } else {
-                    let mut residual_builder = VariantBuilder::new()
-                        .with_field_names(field_names.iter().map(|s| s.as_ref()));
-                    let mut object = residual_builder.new_object();
-                    for (idx, name) in residual_fields {
-                        let Some(field) = struct_scalar.field_by_idx(idx) else {
-                            continue;
-                        };
-                        let mut field_builder = VariantBuilder::new();
-                        append_scalar_to_variant(&mut field_builder, &field)?;
-                        let (field_meta, field_val) = field_builder.finish();
-                        object.insert(name.as_ref(), PqVariant::try_new(&field_meta, &field_val)?);
-                    }
-                    object.finish();
-                    let (_residual_metadata, residual_bytes) = residual_builder.finish();
-                    if typed_value.all_valid(ctx)? {
-                        ConstantArray::new(
-                            Scalar::binary(residual_bytes, Nullability::NonNullable),
-                            len,
-                        )
-                        .into_array()
+                // When a constant struct core shares keys with a shredded struct, null shredded
+                // fields still fall back to the constant core and nested objects merge recursively.
+                // Encode the logically merged rows directly as unshredded Parquet Variant storage
+                // so every row keeps its exact fallback values and matching metadata dictionary.
+                let metadata_arr =
+                    ConstantArray::new(Scalar::binary(metadata, Nullability::NonNullable), len)
+                        .into_array();
+                let logical_shredded = crate::array::logical_shredded_from_parquet_typed_value(
+                    &metadata_arr,
+                    typed_value.clone(),
+                    ctx,
+                )?;
+                let merged = VariantArray::try_new(
+                    ConstantArray::new(scalar.clone(), len).into_array(),
+                    Some(logical_shredded),
+                )?
+                .into_array();
+                let mut meta_rows = Vec::with_capacity(len);
+                let mut val_rows = Vec::with_capacity(len);
+                for row in 0..len {
+                    let row_scalar = merged.execute_scalar(row, ctx)?;
+                    let mut row_builder = VariantBuilder::new();
+                    if let Some(row_payload) = row_scalar.as_variant().value() {
+                        append_scalar_to_variant(&mut row_builder, row_payload)?;
                     } else {
-                        let mut rows = Vec::with_capacity(len);
-                        for row in 0..len {
-                            if typed_value.is_valid(row, ctx)? {
-                                rows.push(residual_bytes.as_slice());
-                            } else {
-                                rows.push(full_value_bytes.as_slice());
-                            }
-                        }
-                        VarBinViewArray::from_iter_bin(rows).into_array()
+                        row_builder.append_value(PqVariant::Null);
                     }
+                    let (row_meta, row_val) = row_builder.finish();
+                    meta_rows.push(row_meta);
+                    val_rows.push(row_val);
                 }
+                return ParquetVariant::try_new(
+                    validity,
+                    VarBinViewArray::from_iter_bin(meta_rows).into_array(),
+                    Some(VarBinViewArray::from_iter_bin(val_rows).into_array()),
+                    None,
+                )
+                .map(IntoArray::into_array);
             }
         }
     };
@@ -1720,6 +1718,97 @@ mod tests {
     }
 
     #[rstest]
+    fn canonicalized_aliased_list_view_preserves_per_row_metadata(
+        session: VortexSession,
+    ) -> VortexResult<()> {
+        let mut ctx = session.create_execution_ctx();
+        let mut b0 = VariantBuilder::new();
+        {
+            let mut obj = b0.new_object();
+            obj.insert("x", 5i64);
+            obj.finish();
+        }
+        let (meta_x, raw_obj_x) = b0.finish();
+
+        let mut b1 = VariantBuilder::new();
+        {
+            let mut obj = b1.new_object();
+            obj.insert("y", 5i64);
+            obj.finish();
+        }
+        let (meta_y, raw_obj_y) = b1.finish();
+        assert_eq!(raw_obj_x, raw_obj_y);
+
+        let metadata =
+            VarBinViewArray::from_iter_bin([meta_x.as_slice(), meta_y.as_slice()]).into_array();
+        let value =
+            ConstantArray::new(Scalar::null(DType::Binary(Nullability::Nullable)), 2).into_array();
+        let elem_wrapper = vortex_array::arrays::StructArray::try_new(
+            FieldNames::from_iter(["value"]),
+            vec![
+                ConstantArray::new(Scalar::binary(raw_obj_x, Nullability::Nullable), 1)
+                    .into_array(),
+            ],
+            1,
+            Validity::NonNullable,
+        )?
+        .into_array();
+        // Both rows reference element slot 0.
+        let typed_list = vortex_array::arrays::ListViewArray::try_new(
+            elem_wrapper,
+            PrimitiveArray::from_iter([0u32, 0]).into_array(),
+            PrimitiveArray::from_iter([1u32, 1]).into_array(),
+            Validity::AllValid,
+            &mut ctx,
+        )?
+        .into_array();
+
+        let parquet_array = ParquetVariant::try_new(
+            Validity::NonNullable,
+            metadata,
+            Some(value),
+            Some(typed_list),
+        )?
+        .into_array();
+        let canonical = parquet_array.execute::<Canonical>(&mut ctx)?.into_array();
+
+        let exported = canonical.execute_arrow(None, &mut ctx)?;
+        let arrow_variant = ArrowVariantArray::try_new(&exported)?;
+        assert_eq!(arrow_variant.len(), 2);
+
+        let row0 = arrow_variant.value(0);
+        let row0_elem = row0
+            .as_list()
+            .expect("row 0 should be a list")
+            .get(0)
+            .expect("row 0 should have element 0");
+        assert_eq!(
+            row0_elem
+                .as_object()
+                .and_then(|o| o.get("x"))
+                .and_then(|v| v.as_int64()),
+            Some(5)
+        );
+        assert!(row0_elem.as_object().and_then(|o| o.get("y")).is_none());
+
+        let row1 = arrow_variant.value(1);
+        let row1_elem = row1
+            .as_list()
+            .expect("row 1 should be a list")
+            .get(0)
+            .expect("row 1 should have element 0");
+        assert_eq!(
+            row1_elem
+                .as_object()
+                .and_then(|o| o.get("y"))
+                .and_then(|v| v.as_int64()),
+            Some(5)
+        );
+        assert!(row1_elem.as_object().and_then(|o| o.get("x")).is_none());
+        Ok(())
+    }
+
+    #[rstest]
     fn export_constant_variant_with_shredded_override(session: VortexSession) -> VortexResult<()> {
         let mut ctx = session.create_execution_ctx();
         let core = ConstantArray::new(
@@ -1735,6 +1824,78 @@ mod tests {
         assert_eq!(arrow_variant.len(), 2);
         assert_eq!(arrow_variant.value(0).as_int64(), Some(7));
         assert_eq!(arrow_variant.value(1).as_int64(), Some(42));
+        Ok(())
+    }
+
+    #[rstest]
+    fn export_constant_struct_variant_preserves_fallback_and_nested_keys(
+        session: VortexSession,
+    ) -> VortexResult<()> {
+        let mut ctx = session.create_execution_ctx();
+        let inner_a_dtype = DType::struct_(
+            [(
+                "x",
+                DType::Primitive(vortex_array::dtype::PType::I64, Nullability::NonNullable),
+            )],
+            Nullability::NonNullable,
+        );
+        let inner_b_dtype = DType::struct_(
+            [(
+                "y",
+                DType::Primitive(vortex_array::dtype::PType::I64, Nullability::NonNullable),
+            )],
+            Nullability::NonNullable,
+        );
+        let core_struct_dtype = DType::struct_(
+            [("a", inner_a_dtype.clone()), ("b", inner_b_dtype.clone())],
+            Nullability::NonNullable,
+        );
+        let core_scalar = Scalar::variant(Scalar::struct_(
+            core_struct_dtype,
+            vec![
+                Scalar::struct_(
+                    inner_a_dtype,
+                    vec![Scalar::primitive(1i64, Nullability::NonNullable)],
+                ),
+                Scalar::struct_(
+                    inner_b_dtype,
+                    vec![Scalar::primitive(2i64, Nullability::NonNullable)],
+                ),
+            ],
+        ));
+        let core = ConstantArray::new(core_scalar, 2).into_array();
+        // Row 0 overrides `a` with 7; row 1 has null `a` so it must fall back to `{"x": 1}`.
+        let shredded = vortex_array::arrays::StructArray::try_new(
+            FieldNames::from_iter(["a"]),
+            vec![PrimitiveArray::from_option_iter([Some(7i64), None]).into_array()],
+            2,
+            Validity::NonNullable,
+        )?
+        .into_array();
+        let variant = VariantArray::try_new(core, Some(shredded))?.into_array();
+
+        let exported = variant.execute_arrow(None, &mut ctx)?;
+        let arrow_variant = ArrowVariantArray::try_new(&exported)?;
+        assert_eq!(arrow_variant.len(), 2);
+
+        let row0 = arrow_variant.value(0);
+        let row0_obj = row0.as_object().expect("row 0 should be an object");
+        assert_eq!(row0_obj.get("a").and_then(|v| v.as_int64()), Some(7));
+        let row0_b_val = row0_obj.get("b").expect("row 0 b should exist");
+        let row0_b = row0_b_val.as_object().expect("row 0 b should be an object");
+        assert_eq!(row0_b.get("y").and_then(|v| v.as_int64()), Some(2));
+        assert!(row0_b.get("x").is_none());
+
+        let row1 = arrow_variant.value(1);
+        let row1_obj = row1.as_object().expect("row 1 should be an object");
+        let row1_a_val = row1_obj
+            .get("a")
+            .expect("row 1 a should fall back to constant object");
+        let row1_a = row1_a_val.as_object().expect("row 1 a should be an object");
+        assert_eq!(row1_a.get("x").and_then(|v| v.as_int64()), Some(1));
+        let row1_b_val = row1_obj.get("b").expect("row 1 b should exist");
+        let row1_b = row1_b_val.as_object().expect("row 1 b should be an object");
+        assert_eq!(row1_b.get("y").and_then(|v| v.as_int64()), Some(2));
         Ok(())
     }
 

@@ -188,12 +188,22 @@ pub(crate) fn logical_shredded_from_parquet_typed_value(
 ) -> VortexResult<ArrayRef> {
     if typed_value.dtype().is_list() {
         let list_view = typed_value.execute::<ListViewArray>(ctx)?;
-        let (elements, element_metadata) = if list_view.is_empty() {
-            (list_view.elements().slice(0..0)?, metadata.slice(0..0)?)
+        let (elements, element_metadata, out_offsets, out_sizes) = if list_view.is_empty() {
+            (
+                list_view.elements().slice(0..0)?,
+                metadata.slice(0..0)?,
+                list_view.offsets().clone(),
+                list_view.sizes().clone(),
+            )
         } else {
             let elements = list_view.elements().clone();
-            let element_metadata = if elements.is_empty() {
-                metadata.slice(0..0)?
+            if elements.is_empty() {
+                (
+                    elements,
+                    metadata.slice(0..0)?,
+                    list_view.offsets().clone(),
+                    list_view.sizes().clone(),
+                )
             } else {
                 let offsets = list_view
                     .offsets()
@@ -203,7 +213,8 @@ pub(crate) fn logical_shredded_from_parquet_typed_value(
                     .sizes()
                     .cast(DType::Primitive(PType::U64, Nullability::NonNullable))?
                     .execute::<PrimitiveArray>(ctx)?;
-                let mut row_indices = vec![0u64; elements.len()];
+                let mut row_indices = vec![None::<u64>; elements.len()];
+                let mut has_aliasing = false;
                 for (row, (&offset, &size)) in offsets
                     .as_slice::<u64>()
                     .iter()
@@ -213,22 +224,74 @@ pub(crate) fn logical_shredded_from_parquet_typed_value(
                     let start =
                         usize::try_from(offset).vortex_expect("list offset must fit in usize");
                     let len = usize::try_from(size).vortex_expect("list size must fit in usize");
-                    for idx in &mut row_indices[start..start + len] {
-                        *idx = row as u64;
+                    for slot in &mut row_indices[start..start + len] {
+                        if slot.is_some() {
+                            has_aliasing = true;
+                            break;
+                        }
+                        *slot = Some(row as u64);
+                    }
+                    if has_aliasing {
+                        break;
                     }
                 }
-                metadata
-                    .take(PrimitiveArray::from_iter(row_indices).into_array())?
-                    .optimize_ctx(ctx)?
-            };
-            (elements, element_metadata)
+                if has_aliasing {
+                    // Two or more rows share an element slot; flatten into non-overlapping ranges
+                    // so each row's own metadata dictionary stays paired with its elements.
+                    let total_elems: usize = sizes
+                        .as_slice::<u64>()
+                        .iter()
+                        .map(|&s| usize::try_from(s).vortex_expect("list size must fit in usize"))
+                        .sum();
+                    let mut flat_elem_indices = Vec::with_capacity(total_elems);
+                    let mut flat_row_indices = Vec::with_capacity(total_elems);
+                    let mut flat_offsets = Vec::with_capacity(offsets.len());
+                    for (row, (&offset, &size)) in offsets
+                        .as_slice::<u64>()
+                        .iter()
+                        .zip(sizes.as_slice::<u64>())
+                        .enumerate()
+                    {
+                        flat_offsets.push(flat_elem_indices.len() as u64);
+                        for i in 0..size {
+                            flat_elem_indices.push(offset + i);
+                            flat_row_indices.push(row as u64);
+                        }
+                    }
+                    let flat_elements = elements
+                        .take(PrimitiveArray::from_iter(flat_elem_indices).into_array())?
+                        .optimize_ctx(ctx)?;
+                    let element_metadata = metadata
+                        .take(PrimitiveArray::from_iter(flat_row_indices).into_array())?
+                        .optimize_ctx(ctx)?;
+                    (
+                        flat_elements,
+                        element_metadata,
+                        PrimitiveArray::from_iter(flat_offsets).into_array(),
+                        sizes.into_array(),
+                    )
+                } else {
+                    let row_indices: Vec<u64> =
+                        row_indices.into_iter().map(|r| r.unwrap_or(0)).collect();
+                    let element_metadata = metadata
+                        .take(PrimitiveArray::from_iter(row_indices).into_array())?
+                        .optimize_ctx(ctx)?;
+                    (
+                        elements,
+                        element_metadata,
+                        list_view.offsets().clone(),
+                        list_view.sizes().clone(),
+                    )
+                }
+            }
         };
-        let elements = logical_shredded_from_parquet_field(&element_metadata, elements, true, ctx)?
-            .unwrap_or_else(|| list_view.elements().clone());
+        let elements =
+            logical_shredded_from_parquet_field(&element_metadata, elements.clone(), true, ctx)?
+                .unwrap_or(elements);
         return Ok(ListViewArray::try_new(
             elements,
-            list_view.offsets().clone(),
-            list_view.sizes().clone(),
+            out_offsets,
+            out_sizes,
             list_view.validity()?,
             ctx,
         )?
