@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! A `variant_get(variant, path, type)` function for DataFusion.
+//! A `try_variant_get(variant, path, type)` function for DataFusion.
 //!
 //! This is a stand-in for the function of the same name and signature in
 //! [`datafusion-variant`](https://github.com/datafusion-contrib/datafusion-variant), which has no
@@ -37,11 +37,12 @@ pub fn register_variant_functions(ctx: &SessionContext) {
     ctx.register_udf(ScalarUDF::new_from_impl(VariantGetUdf::new()));
 }
 
-/// `variant_get(variant, path, type)`: the value at `path` of each Variant, cast to the SQL type
-/// named `type`.
+/// `try_variant_get(variant, path, type)`: the value at `path` of each Variant, cast to the SQL
+/// type named `type`.
 ///
-/// `path` is a dot-separated list of object fields, such as `'commit.collection'`. A missing path
-/// or a value that cannot be cast yields null. Both `path` and `type` must be string literals.
+/// `path` is `$.` and a dot-separated list of object fields, such as `'$.commit.collection'`. A
+/// missing path or a value that cannot be cast yields null. Both `path` and `type` must be string
+/// literals.
 #[derive(Debug, PartialEq, Eq, Hash)]
 struct VariantGetUdf {
     signature: Signature,
@@ -57,7 +58,7 @@ impl VariantGetUdf {
 
 impl ScalarUDFImpl for VariantGetUdf {
     fn name(&self) -> &str {
-        "variant_get"
+        "try_variant_get"
     }
 
     fn signature(&self) -> &Signature {
@@ -65,19 +66,19 @@ impl ScalarUDFImpl for VariantGetUdf {
     }
 
     fn return_type(&self, _arg_types: &[DataType]) -> DFResult<DataType> {
-        plan_err!("variant_get derives its return type from its type argument")
+        plan_err!("try_variant_get derives its return type from its type argument")
     }
 
     fn return_field_from_args(&self, args: ReturnFieldArgs) -> DFResult<FieldRef> {
         let Some(Some(type_name)) = args.scalar_arguments.get(2) else {
-            return plan_err!("the type argument of variant_get must be a literal");
+            return plan_err!("the type argument of try_variant_get must be a literal");
         };
         let data_type = sql_type(string_literal("type", type_name)?)?;
         Ok(Arc::new(Field::new(self.name(), data_type, true)))
     }
 
     /// Extraction is cheap next to reading a whole Variant, so DataFusion moves it into a
-    /// projection above the scan, which a source that understands `variant_get` can absorb.
+    /// projection above the scan, which a source that understands `try_variant_get` can absorb.
     fn placement(&self, args: &[ExpressionPlacement]) -> ExpressionPlacement {
         match args {
             [
@@ -91,12 +92,15 @@ impl ScalarUDFImpl for VariantGetUdf {
 
     fn invoke_with_args(&self, args: ScalarFunctionArgs) -> DFResult<ColumnarValue> {
         let [variant, path, _type] = args.args.as_slice() else {
-            return exec_err!("variant_get expects 3 arguments, got {}", args.args.len());
+            return exec_err!("try_variant_get expects 3 arguments, got {}", args.args.len());
         };
         let ColumnarValue::Scalar(path) = path else {
-            return exec_err!("the path argument of variant_get must be a literal");
+            return exec_err!("the path argument of try_variant_get must be a literal");
         };
-        let path = VariantPath::try_from(string_literal("path", path)?)?;
+        let Some(path) = string_literal("path", path)?.strip_prefix("$.") else {
+            return exec_err!("the path argument of try_variant_get must start with `$.`");
+        };
+        let path = VariantPath::try_from(path)?;
         let options = GetOptions::new_with_path(path).with_as_type(Some(args.return_field));
 
         let input: ArrayRef = variant.to_array(args.number_rows)?;
@@ -104,14 +108,14 @@ impl ScalarUDFImpl for VariantGetUdf {
     }
 }
 
-/// The value of the string literal `scalar`, which is the `argument` of `variant_get`.
+/// The value of the string literal `scalar`, which is the `argument` of `try_variant_get`.
 fn string_literal<'a>(argument: &str, scalar: &'a ScalarValue) -> DFResult<&'a str> {
     match scalar {
         ScalarValue::Utf8(Some(value))
         | ScalarValue::Utf8View(Some(value))
         | ScalarValue::LargeUtf8(Some(value)) => Ok(value),
         other => exec_err!(
-            "the {argument} argument of variant_get must be a non-null string literal, got {}",
+            "the {argument} argument of try_variant_get must be a non-null string literal, got {}",
             other.data_type()
         ),
     }
@@ -125,6 +129,6 @@ fn sql_type(name: &str) -> DFResult<DataType> {
         "INT" | "INTEGER" => DataType::Int32,
         "DOUBLE" => DataType::Float64,
         "BOOLEAN" => DataType::Boolean,
-        _ => return plan_err!("variant_get does not support the type {name}"),
+        _ => return plan_err!("try_variant_get does not support the type {name}"),
     })
 }

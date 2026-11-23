@@ -38,7 +38,7 @@ Variant access has no SQL syntax that both engines accept, so each engine has it
 [`jsonbench/`](./jsonbench). The queries are numbered from Q0 in file order, and return the
 same rows on both engines.
 
-- [`datafusion.sql`](./jsonbench/datafusion.sql) calls `variant_get(data, path, type)`. This
+- [`datafusion.sql`](./jsonbench/datafusion.sql) calls `try_variant_get(data, '$.path', type)`. This
   is the signature of [datafusion-variant](https://github.com/datafusion-contrib/datafusion-variant),
   which has no release for the DataFusion and Arrow versions Vortex builds against. Until it
   does, `datafusion-bench` registers its own function with that signature, on the same
@@ -59,7 +59,7 @@ Vortex Variant to a DuckDB `VARIANT`. The `duckdb` format needs a `duckdb` CLI w
 
 ## Performance
 
-DataFusion hoists each `variant_get` call into a projection above the scan, and the Vortex
+DataFusion hoists each `try_variant_get` call into a projection above the scan, and the Vortex
 scan absorbs it: `vortex-datafusion` converts the call to the Vortex `variant_get`
 expression, in projections and in filters. Parquet has no such pushdown, so DataFusion reads
 the whole Variant column and extracts from it.
