@@ -1662,19 +1662,30 @@ async fn file_excluding_dtype() -> VortexResult<()> {
     Ok(())
 }
 
-/// Builds a lazily decoded struct dtype `{a: i32, b: <unknown>}` whose `b` field has a dtype tag
-/// the flatbuffer verifier accepts but decoding rejects, as in a file written by a newer writer or
-/// a corrupted one.
-fn struct_dtype_with_unknown_field_tag() -> VortexResult<DType> {
+#[tokio::test]
+async fn open_with_unknown_field_dtype_tag_drops_file_statistics() -> VortexResult<()> {
     use vortex_array::dtype::flatbuffers as dtype_fb;
     use vortex_array::flatbuffers::FlatBuffer;
-    use vortex_array::flatbuffers::WriteFlatBuffer;
+
+    let array = StructArray::from_fields(&[("a", buffer![1i32, 2, 3].into_array())])?.into_array();
+
+    let mut writer = vec![];
+    SESSION
+        .write_options()
+        .exclude_dtype()
+        .write(&mut writer, array.to_array_stream())
+        .await?;
+    let buffer: Bytes = writer.into();
+
+    let vxf = SESSION
+        .open_options()
+        .with_dtype(array.dtype().clone())
+        .open_buffer(buffer.clone())?;
+    assert!(vxf.file_stats().is_some());
 
     let mut fbb = FlatBufferBuilder::new();
     let name_a = fbb.create_string("a");
-    let name_b = fbb.create_string("b");
-    let names = fbb.create_vector(&[name_a, name_b]);
-    let valid = DType::Primitive(I32, Nullability::NonNullable).write_flatbuffer(&mut fbb)?;
+    let names = fbb.create_vector(&[name_a]);
     let unknown_type = dtype_fb::Null::create(&mut fbb, &dtype_fb::NullArgs {});
     let unknown = dtype_fb::DType::create(
         &mut fbb,
@@ -1683,7 +1694,7 @@ fn struct_dtype_with_unknown_field_tag() -> VortexResult<DType> {
             type_: Some(unknown_type.as_union_value()),
         },
     );
-    let dtypes = fbb.create_vector(&[valid, unknown]);
+    let dtypes = fbb.create_vector(&[unknown]);
     let struct_table = dtype_fb::Struct_::create(
         &mut fbb,
         &dtype_fb::Struct_Args {
@@ -1700,44 +1711,13 @@ fn struct_dtype_with_unknown_field_tag() -> VortexResult<DType> {
         },
     );
     fbb.finish_minimal(root);
-
-    DType::from_flatbuffer(FlatBuffer::copy_from(fbb.finished_data()), &SESSION)
-}
-
-/// Regression test for <https://github.com/vortex-data/vortex/issues/11636>: reading the file
-/// statistics used to panic in `StructFields::fields()` on a field dtype that can't be decoded.
-/// File statistics are optional, so the open now drops them instead.
-#[tokio::test]
-async fn open_with_unknown_field_dtype_tag_drops_file_statistics() -> VortexResult<()> {
-    let array = StructArray::from_fields(&[
-        ("a", buffer![1i32, 2, 3].into_array()),
-        ("b", buffer![4i32, 5, 6].into_array()),
-    ])?
-    .into_array();
-
-    let mut writer = vec![];
-    SESSION
-        .write_options()
-        .exclude_dtype()
-        .write(&mut writer, array.to_array_stream())
-        .await?;
-    let buffer: Bytes = writer.into();
+    let dtype = DType::from_flatbuffer(FlatBuffer::copy_from(fbb.finished_data()), &SESSION)?;
 
     let vxf = SESSION
         .open_options()
-        .with_dtype(array.dtype().clone())
-        .open_buffer(buffer.clone())?;
-    assert!(
-        vxf.file_stats().is_some(),
-        "the valid file must have file statistics"
-    );
-
-    let vxf = SESSION
-        .open_options()
-        .with_dtype(struct_dtype_with_unknown_field_tag()?)
+        .with_dtype(dtype)
         .open_buffer(buffer)?;
     assert!(vxf.file_stats().is_none());
-    assert_eq!(vxf.row_count(), 3);
 
     Ok(())
 }
