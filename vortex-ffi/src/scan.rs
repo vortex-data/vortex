@@ -108,6 +108,7 @@ pub enum vx_scan_selection_include {
 pub struct vx_scan_selection {
     /// Used only when "include" is not VX_SELECTION_INCLUDE_ALL.
     /// If set, must point to an array of len "idx_len" row_indices.
+    /// May be NULL when idx_len is 0.
     pub idx: *const u64,
     /// Used only when "include" is not VX_SELECTION_INCLUDE_ALL
     pub idx_len: usize,
