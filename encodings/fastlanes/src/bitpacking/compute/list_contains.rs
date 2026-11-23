@@ -18,10 +18,7 @@ use num_traits::AsPrimitive;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
-use vortex_array::IntoArray;
-use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::Constant;
-use vortex_array::arrays::ConstantArray;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::IntegerPType;
 use vortex_array::dtype::NativePType;
@@ -29,8 +26,6 @@ use vortex_array::dtype::PhysicalPType;
 use vortex_array::match_each_integer_ptype;
 use vortex_array::scalar::PValue;
 use vortex_array::scalar::Scalar;
-use vortex_array::validity::Validity;
-use vortex_buffer::BitBuffer;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
 use vortex_functions::list_contains::ListContainsElementKernel;
@@ -47,6 +42,7 @@ use crate::BitWidthsView;
 use crate::unpack_iter::BitPacked as BitPackedIter;
 
 const MAX_FUSED_MEMBERS: usize = 4;
+const PATCH_BINARY_SEARCH_THRESHOLD: usize = 8;
 
 impl ListContainsElementKernel for BitPacked {
     fn list_contains(
@@ -153,25 +149,27 @@ where
 
     // Fast path: zero in-domain members and no patches that could match.
     if in_domain.is_empty() && patch_only.is_empty() {
-        return finish_all_false(
-            element,
-            list_dtype,
-            is_empty,
-            has_null_element,
-            options,
-            ctx,
-        )
-        .map(Some);
+        return options
+            .all_false_result(
+                element.len(),
+                element.validity()?,
+                list_dtype,
+                element.dtype(),
+                is_empty,
+                has_null_element,
+            )
+            .map(Some);
     }
 
-    if patch_only.len() > 8 {
+    let use_binary_search = patch_only.len() > PATCH_BINARY_SEARCH_THRESHOLD;
+    if use_binary_search {
         patch_only.sort_unstable();
         patch_only.dedup();
     }
 
     let exact = |value: T| {
         in_domain.contains(&value)
-            || if patch_only.len() > 8 {
+            || if use_binary_search {
                 patch_only.binary_search(&value).is_ok()
             } else {
                 patch_only.contains(&value)
@@ -240,46 +238,16 @@ where
             .map(Some);
     }
 
-    let nullability = options.result_nullability(list_dtype, element.dtype());
-    let validity = if is_empty && !options.sql_null_semantics {
-        Validity::NonNullable
-    } else if options.sql_null_semantics && has_null_element {
-        needle_validity.and(Validity::from(bits.clone()))?
-    } else {
-        needle_validity
-    };
-    Ok(Some(
-        BoolArray::new(bits, validity.union_nullability(nullability)).into_array(),
-    ))
-}
-
-fn finish_all_false(
-    element: ArrayView<'_, BitPacked>,
-    list_dtype: &DType,
-    is_empty: bool,
-    has_null_element: bool,
-    options: &ListContainsOptions,
-    ctx: &ExecutionCtx,
-) -> VortexResult<ArrayRef> {
-    let len = element.len();
-    let nullability = options.result_nullability(list_dtype, element.dtype());
-
-    if options.sql_null_semantics && has_null_element {
-        return Ok(ConstantArray::new(Scalar::null(DType::Bool(nullability)), len).into_array());
-    }
-    if is_empty && !options.sql_null_semantics {
-        return Ok(ConstantArray::new(Scalar::bool(false, nullability), len).into_array());
-    }
-
-    let validity = element.validity()?.union_nullability(nullability);
-    if validity.definitely_no_nulls() {
-        return Ok(
-            ConstantArray::new(Scalar::bool(false, validity.nullability()), len).into_array(),
-        );
-    }
-
-    let bits = BitBuffer::full_in(false, len, ctx.allocator().clone());
-    Ok(BoolArray::new(bits, validity).into_array())
+    options
+        .result_from_bits(
+            bits,
+            needle_validity,
+            list_dtype,
+            element.dtype(),
+            is_empty,
+            has_null_element,
+        )
+        .map(Some)
 }
 
 #[cfg(test)]
@@ -308,6 +276,7 @@ mod tests {
     use vortex_session::VortexSession;
 
     use crate::BitPackedData;
+    use crate::FoRArraySlotsExt;
     use crate::bitpack_compress::bitpack_encode;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
@@ -645,6 +614,265 @@ mod tests {
             opts,
         )?;
         assert_arrays_eq!(blocked_expr, expected, &mut ctx);
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::non_sql(false)]
+    #[case::sql(true)]
+    fn test_bitpacked_boundary_and_combined_edge_cases(
+        #[case] sql_null_semantics: bool,
+    ) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let opts = ListContainsOptions { sql_null_semantics };
+
+        // Boundary members: 2^W - 1 (= 15) and 2^W (= 16), plus T::MIN / T::MAX.
+        let values: Vec<Option<i32>> = (0..2200)
+            .map(|i| match i % 11 {
+                0 => None,
+                1 => Some(15),       // 2^4 - 1 (largest packed value)
+                2 => Some(16),       // 2^4 (first patch-only value)
+                3 => Some(i32::MAX), // T::MAX patch
+                _ => Some(i % 15),
+            })
+            .collect();
+        let prim = PrimitiveArray::from_option_iter(values);
+        let bp = bitpack_encode(&prim, 4, None, &mut ctx)?.into_array();
+        // Nullable + patched + sliced across chunk boundaries.
+        let sliced_bp = bp.slice(13..2077)?;
+        let sliced_prim = prim.into_array().slice(13..2077)?;
+
+        for members in [
+            vec![Some(15i32), Some(16), Some(i32::MIN), Some(i32::MAX)],
+            vec![Some(15i32), Some(16), None],
+            vec![Some(16i32), Some(i32::MIN), Some(i32::MAX)],
+            vec![Some(i32::MIN), Some(i32::MAX), None],
+        ] {
+            let list = Scalar::list(
+                Arc::new(DType::Primitive(PType::I32, Nullability::Nullable)),
+                members
+                    .into_iter()
+                    .map(|m| match m {
+                        Some(v) => Scalar::primitive(v, Nullability::Nullable),
+                        None => Scalar::null(DType::Primitive(PType::I32, Nullability::Nullable)),
+                    })
+                    .collect(),
+                Nullability::NonNullable,
+            );
+            let actual = eval_list_contains(&sliced_bp, list.clone(), opts)?;
+            let expected = eval_list_contains(&sliced_prim, list, opts)?;
+            assert_eq!(actual.dtype(), expected.dtype());
+            assert_arrays_eq!(actual, expected, &mut ctx);
+        }
+
+        // FoR over patched BitPacked + FoR shift overflow on query members (reference = i32::MIN).
+        let for_bp_values: Vec<Option<i32>> = (0..1500)
+            .map(|i| match i % 13 {
+                0 => None,
+                1 => Some(i32::MIN),
+                2 => Some(i32::MIN + 15),
+                3 => Some(i32::MIN + 16), // forces patch in bit_width=4 child
+                _ => Some(i32::MIN + (i % 14)),
+            })
+            .collect();
+        let for_bp_prim = PrimitiveArray::from_option_iter(for_bp_values);
+        let for_bp_arr = crate::FoRData::encode(for_bp_prim.clone(), &mut ctx)?;
+        let encoded_child = for_bp_arr
+            .encoded()
+            .clone()
+            .execute::<PrimitiveArray>(&mut ctx)?;
+        let patched_bp = bitpack_encode(&encoded_child, 4, None, &mut ctx)?.into_array();
+        let for_over_bp = crate::FoR::try_new(
+            patched_bp,
+            Scalar::primitive(i32::MIN, Nullability::Nullable),
+        )?
+        .into_array()
+        .slice(7..1400)?;
+        let for_bp_prim_sliced = for_bp_prim.into_array().slice(7..1400)?;
+
+        // FoR with extreme spread (i32::MIN .. i32::MAX) where wrapping_sub overflows signed i32.
+        let for_overflow_prim = PrimitiveArray::from_option_iter([
+            Some(i32::MIN),
+            Some(i32::MIN + 1),
+            Some(0),
+            Some(i32::MAX),
+            None,
+        ]);
+        let for_overflow =
+            crate::FoRData::encode(for_overflow_prim.clone(), &mut ctx)?.into_array();
+        let for_overflow_expected = for_overflow_prim.into_array();
+
+        for members in [
+            vec![
+                Some(i32::MIN),
+                Some(i32::MIN + 15),
+                Some(i32::MIN + 16),
+                Some(i32::MAX),
+            ],
+            vec![Some(i32::MIN + 16), Some(i32::MAX), None],
+            vec![Some(i32::MAX)],
+        ] {
+            let list = Scalar::list(
+                Arc::new(DType::Primitive(PType::I32, Nullability::Nullable)),
+                members
+                    .into_iter()
+                    .map(|m| match m {
+                        Some(v) => Scalar::primitive(v, Nullability::Nullable),
+                        None => Scalar::null(DType::Primitive(PType::I32, Nullability::Nullable)),
+                    })
+                    .collect(),
+                Nullability::NonNullable,
+            );
+            let actual = eval_list_contains(&for_over_bp, list.clone(), opts)?;
+            let expected = eval_list_contains(&for_bp_prim_sliced, list.clone(), opts)?;
+            assert_eq!(actual.dtype(), expected.dtype());
+            assert_arrays_eq!(actual, expected, &mut ctx);
+
+            let actual_ovf = eval_list_contains(&for_overflow, list.clone(), opts)?;
+            let expected_ovf = eval_list_contains(&for_overflow_expected, list, opts)?;
+            assert_eq!(actual_ovf.dtype(), expected_ovf.dtype());
+            assert_arrays_eq!(actual_ovf, expected_ovf, &mut ctx);
+        }
+        Ok(())
+    }
+
+    fn next_rand(state: &mut u64) -> u64 {
+        *state = state
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
+        *state
+    }
+
+    #[test]
+    fn test_bitpacked_and_for_seeded_differential() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let mut rng = 0x5EED_C0DE_1234_5678u64;
+
+        let ptypes = [
+            PType::U8,
+            PType::U16,
+            PType::U32,
+            PType::U64,
+            PType::I8,
+            PType::I16,
+            PType::I32,
+            PType::I64,
+        ];
+
+        for ptype in ptypes {
+            let max_bw = (ptype.byte_width() * 8) as u8;
+            let bit_widths = [0u8, 1, 3, 4, 7.min(max_bw - 1), max_bw - 1];
+
+            for &bw in &bit_widths {
+                let packed_max: u64 = if bw == 0 { 0 } else { (1u64 << bw) - 1 };
+                let len = (next_rand(&mut rng) % 1300) as usize + 1;
+                let nullable = (next_rand(&mut rng) & 1) == 1;
+                let is_signed = ptype.is_signed_int();
+                let max_pos: u64 = if is_signed {
+                    (1u64 << (max_bw - 1)) - 1
+                } else if max_bw == 64 {
+                    u64::MAX
+                } else {
+                    (1u64 << max_bw) - 1
+                };
+
+                let raw: Vec<Option<u64>> = (0..len)
+                    .map(|_| {
+                        if nullable && next_rand(&mut rng).is_multiple_of(7) {
+                            None
+                        } else if next_rand(&mut rng).is_multiple_of(20) {
+                            Some(next_rand(&mut rng) % max_pos.max(1))
+                        } else {
+                            Some(if packed_max == 0 {
+                                0
+                            } else {
+                                next_rand(&mut rng) % (packed_max + 1)
+                            })
+                        }
+                    })
+                    .collect();
+
+                let prim = match ptype {
+                    PType::U8 => {
+                        PrimitiveArray::from_option_iter(raw.iter().map(|v| v.map(|x| x as u8)))
+                    }
+                    PType::U16 => {
+                        PrimitiveArray::from_option_iter(raw.iter().map(|v| v.map(|x| x as u16)))
+                    }
+                    PType::U32 => {
+                        PrimitiveArray::from_option_iter(raw.iter().map(|v| v.map(|x| x as u32)))
+                    }
+                    PType::U64 => PrimitiveArray::from_option_iter(raw.iter().copied()),
+                    PType::I8 => {
+                        PrimitiveArray::from_option_iter(raw.iter().map(|v| v.map(|x| x as i8)))
+                    }
+                    PType::I16 => {
+                        PrimitiveArray::from_option_iter(raw.iter().map(|v| v.map(|x| x as i16)))
+                    }
+                    PType::I32 => {
+                        PrimitiveArray::from_option_iter(raw.iter().map(|v| v.map(|x| x as i32)))
+                    }
+                    PType::I64 => {
+                        PrimitiveArray::from_option_iter(raw.iter().map(|v| v.map(|x| x as i64)))
+                    }
+                    _ => unreachable!(),
+                };
+                let bp = bitpack_encode(&prim, bw, None, &mut ctx)?.into_array();
+
+                let slice_start = (next_rand(&mut rng) as usize) % len;
+                let slice_end =
+                    slice_start + ((next_rand(&mut rng) as usize) % (len - slice_start + 1));
+                let bp_sliced = bp.slice(slice_start..slice_end)?;
+                let prim_sliced = prim.into_array().slice(slice_start..slice_end)?;
+
+                let set_len = (next_rand(&mut rng) % 7) as usize;
+                let list_has_null = (next_rand(&mut rng) & 1) == 1;
+                let elem_nullability = if list_has_null {
+                    Nullability::Nullable
+                } else {
+                    Nullability::NonNullable
+                };
+                let mut members: Vec<Scalar> = (0..set_len)
+                    .map(|i| {
+                        let v = match i {
+                            0 => packed_max.min(max_pos),
+                            1 => packed_max.saturating_add(1).min(max_pos),
+                            _ => {
+                                next_rand(&mut rng)
+                                    % (packed_max.saturating_add(4)).min(max_pos).max(1)
+                            }
+                        };
+                        match ptype {
+                            PType::U8 => Scalar::primitive(v as u8, elem_nullability),
+                            PType::U16 => Scalar::primitive(v as u16, elem_nullability),
+                            PType::U32 => Scalar::primitive(v as u32, elem_nullability),
+                            PType::U64 => Scalar::primitive(v, elem_nullability),
+                            PType::I8 => Scalar::primitive(v as i8, elem_nullability),
+                            PType::I16 => Scalar::primitive(v as i16, elem_nullability),
+                            PType::I32 => Scalar::primitive(v as i32, elem_nullability),
+                            PType::I64 => Scalar::primitive(v as i64, elem_nullability),
+                            _ => unreachable!(),
+                        }
+                    })
+                    .collect();
+                if list_has_null {
+                    members.push(Scalar::null(DType::Primitive(ptype, Nullability::Nullable)));
+                }
+                let list_scalar = Scalar::list(
+                    Arc::new(DType::Primitive(ptype, elem_nullability)),
+                    members,
+                    Nullability::NonNullable,
+                );
+
+                for sql_null_semantics in [false, true] {
+                    let opts = ListContainsOptions { sql_null_semantics };
+                    let actual = eval_list_contains(&bp_sliced, list_scalar.clone(), opts)?;
+                    let expected = eval_list_contains(&prim_sliced, list_scalar.clone(), opts)?;
+                    assert_eq!(actual.dtype(), expected.dtype());
+                    assert_arrays_eq!(actual, expected, &mut ctx);
+                }
+            }
+        }
         Ok(())
     }
 }

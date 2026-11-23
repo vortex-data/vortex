@@ -14,15 +14,12 @@ use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::IntoArray;
 use vortex_array::arrays::Constant;
-use vortex_array::arrays::ConstantArray;
-use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::IntegerPType;
 use vortex_array::dtype::Nullability;
 use vortex_array::match_each_integer_ptype;
 use vortex_array::scalar::PValue;
 use vortex_array::scalar::Scalar;
-use vortex_array::validity::Validity;
 use vortex_error::VortexError;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -125,36 +122,17 @@ where
 
     // No valid row can match any element.
     if shifted.is_empty() {
-        let len = element.len();
         let list_dtype = DType::List(Arc::clone(member_dtype), list_nullability);
-        let nullability = options.result_nullability(&list_dtype, element.dtype());
-
-        if options.sql_null_semantics && has_null {
-            return Ok(Some(
-                ConstantArray::new(Scalar::null(DType::Bool(nullability)), len).into_array(),
-            ));
-        }
-        if list_elements.is_empty() && !options.sql_null_semantics {
-            return Ok(Some(
-                ConstantArray::new(Scalar::bool(false, nullability), len).into_array(),
-            ));
-        }
-
-        return Ok(Some(
-            match element.validity()?.union_nullability(nullability) {
-                Validity::NonNullable | Validity::AllValid => {
-                    ConstantArray::new(Scalar::bool(false, nullability), len).into_array()
-                }
-                Validity::AllInvalid => {
-                    ConstantArray::new(Scalar::null(DType::Bool(nullability)), len).into_array()
-                }
-                Validity::Array(validity) => {
-                    ConstantArray::new(Scalar::bool(false, nullability), len)
-                        .into_array()
-                        .mask(validity)?
-                }
-            },
-        ));
+        return options
+            .all_false_result(
+                element.len(),
+                element.validity()?,
+                &list_dtype,
+                element.dtype(),
+                list_elements.is_empty(),
+                has_null,
+            )
+            .map(Some);
     }
 
     if has_null {
