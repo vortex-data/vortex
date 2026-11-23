@@ -1,0 +1,101 @@
+"""The few Slack Web API calls the triage publisher needs."""
+
+from __future__ import annotations
+
+import json
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
+from collections.abc import Iterator
+from typing import Any
+
+# Marks the messages this tool posts, in Slack message metadata.
+EVENT_TYPE = "vortex_triage"
+
+
+class SlackError(Exception):
+    """Slack rejected a call, so nothing was posted."""
+
+
+class SlackUnknown(Exception):
+    """A call failed without an answer from Slack, so a message may or may not have been posted."""
+
+
+class Slack:
+    def __init__(self, token: str, channel: str, attempts: int = 3) -> None:
+        self.token = token
+        self.channel = channel
+        self.attempts = attempts
+
+    def _call(self, method: str, params: dict[str, object], post: bool) -> dict[str, Any]:
+        url = f"https://slack.com/api/{method}"
+        headers = {"Authorization": f"Bearer {self.token}"}
+        data = None
+        if post:
+            data = json.dumps(params).encode()
+            headers["Content-Type"] = "application/json; charset=utf-8"
+        else:
+            url += "?" + urllib.parse.urlencode(params)
+        for attempt in range(self.attempts):
+            request = urllib.request.Request(url, data=data, headers=headers)
+            try:
+                with urllib.request.urlopen(request, timeout=30) as response:
+                    body = json.load(response)
+            except urllib.error.HTTPError as error:
+                # Slack rejects a rate-limited call before acting on it, so a retry is safe.
+                if error.code == 429 and attempt + 1 < self.attempts:
+                    time.sleep(int(error.headers.get("Retry-After", "1")))
+                    continue
+                if error.code >= 500:
+                    raise SlackUnknown(f"{method}: HTTP {error.code}") from error
+                raise SlackError(f"{method}: HTTP {error.code}") from error
+            except (OSError, ValueError) as error:
+                raise SlackUnknown(f"{method}: {error}") from error
+            if not body.get("ok"):
+                raise SlackError(f"{method}: {body.get('error')}")
+            return body
+        raise SlackError(f"{method}: rate limited")
+
+    def post(self, text: str, key: str, payload: dict[str, str], thread_ts: str | None) -> str:
+        """Post a message tagged with `key` and return its timestamp."""
+        params: dict[str, object] = {
+            "channel": self.channel,
+            "text": text,
+            "unfurl_links": False,
+            "metadata": {"event_type": EVENT_TYPE, "event_payload": {"key": key, **payload}},
+        }
+        if thread_ts:
+            params["thread_ts"] = thread_ts
+        return self._call("chat.postMessage", params, post=True)["ts"]
+
+    def _messages(self, thread_ts: str | None, oldest: float) -> Iterator[dict[str, Any]]:
+        method = "conversations.replies" if thread_ts else "conversations.history"
+        params: dict[str, object] = {
+            "channel": self.channel,
+            "include_all_metadata": "true",
+            "limit": 200,
+        }
+        if thread_ts:
+            params["ts"] = thread_ts
+        else:
+            params["oldest"] = f"{oldest:.6f}"
+        while True:
+            body = self._call(method, params, post=False)
+            yield from body["messages"]
+            cursor = body.get("response_metadata", {}).get("next_cursor")
+            if not cursor:
+                return
+            params["cursor"] = cursor
+
+    def find(self, key: str, thread_ts: str | None, oldest: float) -> dict[str, Any] | None:
+        """Find a message posted with `key`, in a thread or in the channel since `oldest`.
+
+        Returns the message's `ts` and the payload it was posted with, or None.
+        """
+        for message in self._messages(thread_ts, oldest):
+            metadata = message.get("metadata") or {}
+            payload = metadata.get("event_payload") or {}
+            if metadata.get("event_type") == EVENT_TYPE and payload.get("key") == key:
+                return {"ts": message["ts"], **payload}
+        return None
