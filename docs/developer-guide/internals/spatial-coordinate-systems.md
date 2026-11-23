@@ -17,8 +17,11 @@ This page is a design proposal. Only [Current state](#current-state) describes w
      them. This is query planning.
 - **Split.** Vortex answers the first question. The query engine (SpiralDB, DuckDB, DataFusion)
   answers the second. Vortex refuses to combine inputs whose CRSs differ.
-- **First step.** Support two CRSs, EPSG:4326 and EPSG:32633, which is enough to run the example
-  below end to end.
+- **Storage.** The coordinate layout does not change. A CRS is already stored per column; phase 2
+  adds one optional metadata field, `edges`.
+- **First step.** Support the WGS 84 family (longitude/latitude, the UTM zones, optionally Web
+  Mercator), choosing the curved-surface kernel by function name. That is enough to run the example
+  below end to end without a datum transform.
 
 ## Running example
 
@@ -80,8 +83,32 @@ between two vertices can be drawn in different ways. On longitude/latitude it ca
   after the algorithm that computes it).
 
 [GeoArrow](https://geoarrow.org/extension-types.html) and GeoParquet store this as the `edges`
-metadata key, separate from `crs`. The default is `planar`. Points do not depend on `edges`; lines
-and polygons do.
+metadata key, separate from `crs`. The default is `planar`.
+
+`edges` also fixes how distance is measured: the distance between two points is the length of the
+edge that would connect them. Planar edges give a straight-line distance in the coordinates,
+spherical edges a great-circle distance, geodesic edges an ellipsoidal one. So `edges` matters for
+points too, even though points have no edges. GeoArrow defines `edges` only as the interpolation
+rule; using it to choose the distance metric follows from that definition.
+
+### CRS and edges answer different questions
+
+The CRS says where the vertices are: which surface (a flat projected plane or the ellipsoid), its
+shape, the units, the origin, the axis order. `edges` says what connects the vertices. A
+geographic CRS provides a curved surface; `edges` decides whether computation follows it.
+
+| How two datasets differ | Differs in `crs` | Differs in `edges` |
+| --- | --- | --- |
+| US feet and metres, same projection (EPSG:2263, EPSG:32118) | yes: unit | no |
+| UTM north and south (EPSG:32633, EPSG:32733) | yes: origin | no |
+| EPSG:4326 with planar edges and EPSG:4326 with geodesic edges | no | yes |
+| WGS 84 and NAD27, both with geodesic edges (EPSG:4326, EPSG:4267) | yes: datum and ellipsoid | no |
+| UTM and EPSG:4326 with geodesic edges | yes | yes |
+
+Only a geographic CRS gives `edges` a real choice. In a projected CRS the coordinates already lie
+on a plane, where the shortest path is a straight line, so `edges` is always `planar`. Folding
+`edges` into the CRS string would mix positions with shapes and break interoperability with
+GeoArrow, GeoParquet, and DuckDB.
 
 ## Current state
 
@@ -146,8 +173,9 @@ all reuse the existing flat code.
 
 ### Choosing a kernel
 
-The kernel follows from two values: the kind of coordinate space, which comes from the CRS, and
-`edges`.
+The target design chooses the kernel from two values: the kind of coordinate space, which comes
+from the CRS, and `edges`. Phase 1 has no `edges` yet and chooses by function name instead; see
+[Implementation plan](#implementation-plan).
 
 | Coordinate space | `edges` | Kernel |
 | --- | --- | --- |
@@ -256,6 +284,16 @@ For a function over two inputs, `f(a, b)`:
    Lines and polygons need extra vertices added along each segment before transforming
    (densification), because a straight segment becomes a curve.
 
+Rule 2 is an implicit transform, so it applies only when the transform is exact and the result
+does not depend on which side is transformed. A literal point under a predicate qualifies. Distance
+and area over two CRSs do not: computed in UTM they come back in metres, computed in EPSG:4326 in
+degrees, so the query must say which space it means. Two columns in different CRSs never qualify,
+because there is no single direction to choose. PostGIS rejects mixed SRIDs for the same reasons.
+
+The first version applies only rule 1 and otherwise requires an explicit `ST_Transform`.
+Relaxing later, starting with literal points under predicates, breaks no existing query;
+tightening would.
+
 Pruning follows the same logic. Transform the query window into the column's CRS. At level 0 to 4
 its bounding box transforms directly. At level 5, densify the window's boundary first and take the
 bounds of the result: transforming only the four corners can miss where an edge bulges.
@@ -295,7 +333,7 @@ For the running example:
 | --- | --- | --- |
 | 1. Pixel to UTM | Engine | The tile's geotransform, folded into the same PROJ pipeline as step 2 |
 | 2. UTM to EPSG:4326 | Engine | `ST_Transform` through PROJ; two points need no densification |
-| 3. Geodesic distance | Vortex | `vortex.st.distance` picks K3 from the column's `crs` and `edges` |
+| 3. Geodesic distance | Vortex | `vortex.st.distance_spheroid` runs K3 for the column's geographic `crs`; from phase 2, `vortex.st.distance` can also pick K3 from `crs` and `edges` |
 
 Written for DuckDB spatial today, which has separate functions per kernel instead of reading
 `edges`:
@@ -315,11 +353,28 @@ speed-up, not a requirement.
 
 ## Vortex-side design
 
-### Metadata
+### Storage
 
-Add `edges` to `SpatialMetadata` next to `crs`, with GeoArrow's values, and keep it through Arrow
-export and import. A missing value means `planar`, as in GeoArrow. This is the only storage change:
-coordinates keep their current layout.
+The coordinate layout does not change. Every CRS uses the same `Struct<x, y[, z][, m]>`; only the
+meaning of the fields depends on the CRS (easting and northing, longitude and latitude, or
+Earth-centred X, Y, Z). The geometry types and the encodings of their `f64` columns are unaffected.
+
+Phase 1 changes no metadata either. Phase 2 adds `edges` to `SpatialMetadata` next to `crs`, with
+GeoArrow's values, as optional field 2 of the protobuf that holds the CRS today:
+
+- **New readers, old files:** the field is missing and reads as `planar`, which is today's
+  behavior.
+- **Old readers, new files:** protobuf skips the unknown field, so an old reader computes on
+  geodesic data as planar without an error. Tying the field to an edition would turn that into an
+  error.
+- **Dtype equality:** two columns that differ only in `edges` have different dtypes, which is the
+  intended effect.
+
+Three conventions need no storage change but must be stated. Longitude is always `x`, even for
+EPSG:4326, whose official axis order is latitude first. A bounding box (`Rect` and the AABB
+statistics) that crosses the 180-degree meridian can follow GeoParquet's convention of
+`xmin > xmax`. And for an Earth-centred CRS `z` is a coordinate, not the elevation that
+`coordinate.rs` documents.
 
 ### Mapping a CRS to its coordinate space
 
@@ -340,9 +395,14 @@ pub struct CoordSpace {
 }
 ```
 
+This view is derived from the stored CRS when needed and never written to the file. It is the only
+place where Vortex interprets a CRS.
+
 - **PROJJSON** states the coordinate system type (`coordinate_system.subtype`) and the ellipsoid,
-  so it can be mapped by parsing JSON alone.
-- **Bare codes** such as `EPSG:4326` are mapped from a small built-in table.
+  so it can be mapped by parsing JSON alone. Phase 1 reads only its `id` member
+  (`{"authority": "EPSG", "code": 32633}`).
+- **Bare codes** such as `EPSG:4326` are mapped by a few rules. The UTM zones are one rule with two
+  parameters, the zone and the hemisphere, not 120 table entries.
 - **Unknown or missing CRS** keeps today's behavior: flat math. Changing that default would change
   results on existing files and is a separate decision.
 - **Axis order** is normalized to (lon, lat) when data is loaded, as GeoArrow requires, so kernels
@@ -350,9 +410,21 @@ pub struct CoordSpace {
 
 ### CRS check
 
-Functions over two geometries (`vortex.st.distance`, `vortex.st.intersects`, `vortex.st.contains`)
-check that both inputs have the same `crs` and `edges`, and return an error otherwise. This is the
-contract with the engine: Vortex never guesses a transformation.
+Functions over two geometries (`vortex.st.distance`, `vortex.st.intersects`, `vortex.st.contains`,
+`vortex.st.make_line`) check that both inputs have a common CRS when the expression is typed, and
+return an error otherwise. This is the contract with the engine: Vortex never guesses a
+transformation, the same way Vortex's binary comparison and arithmetic reject operands of
+different dtypes.
+
+- **Same CRS:** accepted.
+- **One side without a CRS:** accepted, and the result takes the other side's CRS. Geometry
+  literals that DuckDB pushes down arrive without one.
+- **Both sides with different CRSs:** rejected.
+
+The rule is a method, `SpatialMetadata::unify_crs`, in the same way that `Dimension::promote`
+combines two dimensions. Phase 1 compares CRS strings exactly, so `EPSG:4326` and `OGC:CRS84` are
+rejected together. Comparing the derived coordinate spaces instead, and adding `edges` to the
+comparison in phase 2, changes only that method.
 
 ### Pruning
 
@@ -367,55 +439,77 @@ break them in three ways:
 - A `dwithin` radius in metres covers more degrees of longitude the closer it is to a pole, in
   proportion to 1 / cos(latitude).
 
-Until these are handled, the pruning rules skip columns whose edges are not planar.
+Phase 1 is unaffected: the existing rules only match the flat functions, and the new spheroid
+functions have no pruning rules. From phase 2, until these are handled, the pruning rules skip
+columns whose edges are not planar.
 
 ## Implementation plan
 
-### Phase 1: two CRSs
+### Phase 1: the WGS 84 family, kernels chosen by function name
 
-The first phase supports the two CRSs of the running example:
+The first phase supports CRSs that share the WGS 84 datum:
 
-| CRS | Coordinate space | Kernel |
+| CRS | Coordinate space | Why |
 | --- | --- | --- |
-| EPSG:4326 (also accepted as OGC:CRS84) | Geographic, WGS 84 ellipsoid | K3 with geodesic edges, K1 with planar edges |
-| EPSG:32633 (WGS 84 / UTM zone 33N) | Planar, metres | K1 |
+| EPSG:4326, OGC:CRS84 | Geographic, WGS 84 ellipsoid | The most common CRS; GeoParquet's default |
+| WGS 84 / UTM, EPSG:32601 to 32660 (north) and 32701 to 32760 (south) | Planar, metres | Satellite tiles; the running example |
+| EPSG:3857 (Web Mercator), optional | Planar, metres | Web map tiles; a clear case of flat distance differing from ground distance |
 
-Two CRSs are enough to exercise every part of the design: choosing a kernel by coordinate space, a
-curved-surface kernel, the CRS check, and an engine-side transform between them. Every other CRS
-keeps today's flat behavior.
+A single datum keeps phase 1 small:
+
+- **One ellipsoid:** K3 has one fixed pair of parameters.
+- **No datum transforms:** every transform between these CRSs is projection math (transverse
+  Mercator, Mercator), with no Helmert parameters and no correction grids. The engine may manage
+  with the pure-Rust `proj4rs` instead of PROJ; this is not yet verified.
+- **Enough levels to test:** EPSG:4326 and OGC:CRS84 differ by an axis swap (level 0), UTM north
+  and south by a shift (level 2), and UTM or Web Mercator and EPSG:4326 by a projection (level 5).
+
+Phase 1 adds no `edges`. The curved-surface kernel is chosen by function name, as DuckDB spatial
+does with `ST_Distance_Spheroid`: `vortex.st.distance` stays flat, and new spheroid functions run
+K3. This changes no existing result and no storage, and it covers the running example, whose two
+points have no edges to interpret.
 
 Vortex:
 
-1. Add `edges` to `SpatialMetadata` with Arrow round-trip.
-2. Check that `crs` and `edges` match in functions over two geometries.
-3. Map CRSs to coordinate spaces with a two-entry table: EPSG:4326 and OGC:CRS84 are geographic,
-   EPSG:32633 is planar, anything else is unknown and stays flat.
-4. Add K3 distance and length, chosen by `vortex.st.distance` and `vortex.st.length` for
-   EPSG:4326 with geodesic edges.
-5. Skip pruning for columns whose edges are not planar.
+1. Reject functions over two geometries whose CRSs differ (see [CRS check](#crs-check)).
+2. Map CRSs to coordinate spaces for the family above, from authority codes and the PROJJSON `id`
+   member. Any other CRS is unknown and keeps today's flat behavior.
+3. Add `vortex.st.distance_spheroid` and `vortex.st.length_spheroid`, which run K3 and require a
+   geographic CRS.
+4. Reject GeoArrow input whose `edges` is not `planar`. Import drops `edges` today
+   (`spatial_metadata_from_arrow`), so spherical data is computed on as planar without an error.
+   Rejecting it is a behavior change.
 
 Engine, starting with DataFusion:
 
-1. Read `crs` and `edges` from field metadata during planning.
-2. Implement `ST_Transform` from EPSG:32633 to EPSG:4326 through PROJ, setting the output's `crs`.
+1. Read `crs` from field metadata during planning.
+2. Implement `ST_Transform` between the CRSs above, setting the output's `crs`.
 3. Refuse functions over different CRSs, with an error that points at `ST_Transform`.
 4. Run the example end to end, and compare K1 in UTM with K3 in EPSG:4326.
 
-Vortex steps 1 and 2 do not depend on the engine and can land first.
+Vortex steps do not depend on the engine and can land first.
 
-### Phase 2: generalize
+### Phase 2: edges and curved predicates
 
-1. Map any CRS given as PROJJSON, so no table entry is needed.
-2. Add K2 sphere predicates, then bounding-box statistics and pruning that are safe for curved
+1. Add `edges` to `SpatialMetadata` (see [Storage](#storage)), keep it through Arrow export and
+   import, and include it in the CRS check.
+2. Choose kernels from `(kind, edges)`, so `vortex.st.distance` picks K3 for geodesic edges. The
+   spheroid functions remain as an explicit spelling.
+3. Add K2 sphere predicates, then bounding-box statistics and pruning that are safe for curved
    edges.
-3. Transform literals in the engine for levels 0 to 4, instead of refusing.
-4. Consider `vortex.st.affine` for the affine part of a pipeline.
+4. Map any CRS given as PROJJSON, and add CRSs on other datums, which need PROJ.
+5. Transform literals in the engine for the safe cases of [What the planner does](#what-the-planner-does).
+6. Consider `vortex.st.affine` for the affine part of a pipeline.
 
 ## Open questions
 
-- **Asking for geodesic edges.** After `ST_Transform` to EPSG:4326 the output has planar edges by
-  default. How does a query ask for geodesic ones: a cast, as PostGIS does with `geography`, a
-  function that sets `edges`, or separate functions, as DuckDB does with `ST_Distance_Spheroid`?
+- **Asking for geodesic edges in phase 2.** Phase 1 uses separate spheroid functions. Once `edges`
+  exists, how does a query set it after `ST_Transform`: a cast, as PostGIS does with `geography`,
+  or a function that sets `edges`?
+- **Data without a CRS.** GeoParquet treats a missing CRS as OGC:CRS84; GeoArrow treats it as
+  unknown. SpatialBench data has none. Treating it as unknown keeps today's results; the engine
+  could write OGC:CRS84 explicitly when it reads GeoParquet.
+- **Web Mercator in phase 1.** The running example does not need it.
 - **Distance with planar edges on longitude/latitude.** Return degrees, as PostGIS `geometry`
   does, or return an error?
 - **Unknown CRS.** Keep flat math by default, or require a known CRS for functions that return
