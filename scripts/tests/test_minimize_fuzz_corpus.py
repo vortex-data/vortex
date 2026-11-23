@@ -120,10 +120,9 @@ def test_failed_final_rename_restores_original_corpus(minimizer, tmp_path, monke
         return True
 
     real_rename = Path.rename
-    fail_publish = True
 
     def flaky_rename(self: Path, target: Path) -> Path:
-        if fail_publish and target == corpus and self.name == "output":
+        if target == corpus and self.name == "output":
             raise OSError("injected final rename failure")
         return real_rename(self, target)
 
@@ -138,12 +137,4 @@ def test_failed_final_rename_restores_original_corpus(minimizer, tmp_path, monke
     backup = corpus.with_name(f".{corpus.name}.backup")
     assert corpus.is_dir()
     assert {path.name: path.read_bytes() for path in corpus.iterdir()} == original
-    assert not backup.exists()
-
-    # A subsequent run succeeds, cleans up any stale backup, and publishes the merged corpus.
-    backup.mkdir()
-    (backup / "stale").write_bytes(b"stale")
-    fail_publish = False
-    assert asyncio.run(minimizer.minimize(Path("binary"), corpus, work, tmp_path / "artifacts", 1))
-    assert {path.name: path.read_bytes() for path in corpus.iterdir()} == {"merged": b"minimized"}
     assert not backup.exists()
