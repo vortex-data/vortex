@@ -474,7 +474,7 @@ jobs:
             --effort high
             --max-turns 150
             --add-dir ${{ runner.temp }}/fuzz-fix
-            --allowedTools "Read,Write,Edit,Glob,Grep,Agent,Skill(fuzz-fix-review),Skill(fuzz-fix-review *),Bash(cargo:*),Bash(RUST_BACKTRACE=* cargo:*),Bash(git diff:*),Bash(git status:*),Bash(git show:*),Bash(git log:*),Bash(gh issue comment:*),Bash(find:*),Bash(ls:*),Bash(cat:*),Bash(head:*),Bash(tail:*),Bash(xxd:*),Bash(jq:*)"
+            --allowedTools "Read,Write,Edit,Glob,Grep,Agent,Skill(fuzz-fix-review),Skill(fuzz-fix-review *),Bash(cargo:*),Bash(RUST_BACKTRACE=* cargo:*),Bash(git diff:*),Bash(git status:*),Bash(git show:*),Bash(git log:*),Bash(git blame:*),Bash(git grep:*),Bash(gh issue comment:*),Bash(find:*),Bash(ls:*),Bash(cat:*),Bash(head:*),Bash(tail:*),Bash(xxd:*),Bash(jq:*)"
 
       # Job logs expire after about 90 days, so keep the session transcript as an
       # artifact for longer and put the numbers that explain a run in the summary.
