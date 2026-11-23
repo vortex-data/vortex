@@ -22,7 +22,6 @@ use vortex_error::SharedVortexResult;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_expr::BoundExpression;
-use vortex_expr::ExactBoundExpr;
 use vortex_expr::root;
 use vortex_expr::stats::rewrite::BoundExpressionPruneExt;
 use vortex_functions::dynamic::DynamicExprUpdates;

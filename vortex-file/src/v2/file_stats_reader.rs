@@ -15,7 +15,6 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldMask;
 use vortex_error::VortexResult;
 use vortex_expr::BoundExpression;
-use vortex_expr::ExactBoundExpr;
 use vortex_functions::dynamic::DynamicExprUpdates;
 use vortex_layout::ArrayFuture;
 use vortex_layout::LayoutReader;

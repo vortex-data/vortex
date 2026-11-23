@@ -26,7 +26,6 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_expr::ArrayExprExt;
 use vortex_expr::BoundExpression;
-use vortex_expr::ExactBoundExpr;
 use vortex_expr::transform::partition_bound;
 use vortex_expr::traversal::NodeExt;
 use vortex_expr::traversal::Transformed;
