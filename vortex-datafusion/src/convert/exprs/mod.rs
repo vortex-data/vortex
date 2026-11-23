@@ -86,7 +86,7 @@ use vortex_arrow::ArrowSessionExt;
 use crate::row_index::RowIndex;
 
 /// Name of the Variant extraction function of datafusion-variant.
-const VARIANT_GET: &str = "variant_get";
+const TRY_VARIANT_GET: &str = "try_variant_get";
 
 /// Result of splitting a projection into Vortex expressions and leftover DataFusion projections.
 pub struct ProcessedProjection {
@@ -814,7 +814,7 @@ impl DefaultExpressionConverter {
             return self.convert_array_sum(scalar_fn, schema, input_dtype);
         }
 
-        if scalar_fn.name() == VARIANT_GET {
+        if scalar_fn.name() == TRY_VARIANT_GET {
             return self.convert_variant_get(scalar_fn, schema, input_dtype);
         }
 
@@ -855,15 +855,17 @@ impl DefaultExpressionConverter {
         Ok(cast(length(input), return_dtype))
     }
 
-    /// Converts `variant_get(variant, path, type)` to the Vortex `variant_get`, so that the scan
-    /// reads a shredded path from its typed column instead of materializing the whole Variant.
+    /// Converts `try_variant_get(variant, path, type)` to the Vortex `variant_get`, so that the
+    /// scan reads a shredded path from its typed column instead of materializing the whole Variant.
     ///
     /// The function is matched by name, because it is not part of DataFusion: it has the contract
-    /// of [datafusion-variant], which extracts with the `variant_get` kernel of
-    /// `parquet-variant-compute`, as the Vortex Parquet Variant encoding does. Both yield null for
-    /// a missing path and for a value that does not cast to the requested type.
+    /// of [datafusion-variant], where `try_variant_get` returns null for a missing path or a value
+    /// that does not cast to the requested type (`CastOptions { safe: true }`), matching Vortex's
+    /// `variant_get` extraction. `variant_get` raises an error on failed casts (`safe: false`) and
+    /// is left in DataFusion.
     ///
-    /// Only the typed form over a path of plain object fields converts.
+    /// Only the typed form over a `$`-rooted path of plain object fields (`$.field(.field)*`)
+    /// converts.
     ///
     /// [datafusion-variant]: https://github.com/datafusion-contrib/datafusion-variant
     fn convert_variant_get(
@@ -881,13 +883,16 @@ impl DefaultExpressionConverter {
         else {
             return Err(Unconverted::Unsupported);
         };
+        let Some(fields) = path.strip_prefix("$.") else {
+            return Err(Unconverted::Unsupported);
+        };
         let is_field = |field: &str| {
             !field.is_empty() && field.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
         };
-        if !path.split('.').all(is_field) {
+        if !fields.split('.').all(is_field) {
             return Err(Unconverted::Unsupported);
         }
-        let path = path
+        let path = fields
             .split('.')
             .map(VariantPathElement::field)
             .collect::<VariantPath>();

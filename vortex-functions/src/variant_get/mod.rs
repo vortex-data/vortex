@@ -277,7 +277,7 @@ impl ScalarFnVTable for VariantGet {
                 (dtype, None)
                     if options.dtype().is_some_and(|requested| {
                         !requested.is_variant() && dtype.eq_ignore_nullability(requested)
-                    }) && (descended || pack.complete()) =>
+                    }) && (descended || (pack.complete() && !pack.shredded_validity())) =>
                 {
                     return node
                         .new_node(Cast.bind(node.node_dtype()?), &[current])
@@ -632,6 +632,7 @@ mod tests {
     use vortex_array::Canonical;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
+    use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::Chunked;
     use vortex_array::arrays::ChunkedArray;
     use vortex_array::arrays::ConstantArray;
@@ -654,6 +655,7 @@ mod tests {
     use vortex_array::scalar::Scalar;
     use vortex_array::scalar::ScalarValue;
     use vortex_array::scalar_fn::ScalarFnVTable;
+    use vortex_array::validity::Validity;
     use vortex_error::VortexResult;
     use vortex_error::vortex_bail;
     use vortex_error::vortex_ensure;
@@ -665,6 +667,7 @@ mod tests {
     use crate::variant_get::VariantGetOptions;
     use crate::variant_get::VariantPath;
     use crate::variant_get::VariantPathElement;
+    use crate::variant_pack::VariantPack;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
         let session = VortexSession::empty();
@@ -1346,6 +1349,46 @@ mod tests {
             assert!(!elems[1].is_null());
             assert_eq!(elems[1].as_variant().is_variant_null(), Some(true));
         }
+        Ok(())
+    }
+
+    #[test]
+    fn variant_get_root_struct_respects_variant_pack_shredded_validity() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let core = variant_rows([
+            Scalar::variant(variant_object([])),
+            Scalar::null(DType::Variant(Nullability::Nullable)),
+        ])?;
+        let shredded = StructArray::try_new(
+            FieldNames::from_iter(["a"]),
+            vec![PrimitiveArray::from_option_iter([Some(10i32), None]).into_array()],
+            2,
+            Validity::NonNullable,
+        )?
+        .into_array();
+        let validity = BoolArray::from_iter([true, false]).into_array();
+        let packed =
+            VariantPack::try_new_with_validity(core, shredded, validity, true)?.into_array();
+
+        let target = DType::struct_(
+            [("a", DType::Primitive(PType::I32, Nullability::Nullable))],
+            Nullability::Nullable,
+        );
+        let expr = variant_get(root(), VariantPath::root(), Some(target));
+        let result = packed
+            .apply(&expr)?
+            .optimize_ctx(&ctx)?
+            .execute::<ArrayRef>(&mut ctx)?;
+        assert!(result.is_valid(0, &mut ctx)?);
+        assert_eq!(
+            result
+                .execute_scalar(0, &mut ctx)?
+                .as_struct()
+                .field("a")
+                .and_then(|s| s.as_primitive().typed_value::<i32>()),
+            Some(10),
+        );
+        assert!(result.is_invalid(1, &mut ctx)?);
         Ok(())
     }
 }
