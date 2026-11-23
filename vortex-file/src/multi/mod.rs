@@ -301,7 +301,12 @@ impl LayoutReaderFactory for VortexFileReaderFactory {
 mod tests {
     use std::fmt;
 
+    use futures::TryStreamExt;
     use vortex_array::IntoArray;
+    use vortex_array::expr::eq;
+    use vortex_array::expr::lit;
+    use vortex_array::expr::root;
+    use vortex_array::expr::stats::Precision;
     use vortex_buffer::ByteBuffer;
     use vortex_buffer::ByteBufferMut;
     use vortex_buffer::buffer;
@@ -309,9 +314,12 @@ mod tests {
     use vortex_io::filesystem::FileSystem;
     use vortex_io::session::RuntimeSession;
     use vortex_layout::session::LayoutSession;
+    use vortex_scan::DataSource;
+    use vortex_scan::ScanRequest;
     use vortex_session::VortexSession;
 
     use super::*;
+    use crate::OpenOptionsSessionExt;
     use crate::WriteOptionsSessionExt;
 
     struct MetadataFileSystem {
@@ -493,6 +501,53 @@ mod tests {
             fb.metadata_segment("k").map(ByteBuffer::as_slice),
             Some(b"file-b".as_slice())
         );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn filtered_multi_layout_partition_count_is_inexact_before_pruning() -> VortexResult<()> {
+        let session = VortexSession::empty()
+            .with::<LayoutSession>()
+            .with::<RuntimeSession>()
+            .with::<MultiFileSession>();
+        crate::register_default_encodings(&session);
+        crate::enable_all_registered_array_encodings(&session);
+
+        let mut bytes = ByteBufferMut::empty();
+        session
+            .write_options()
+            .write(
+                &mut bytes,
+                buffer![1u32, 2, 3].into_array().to_array_stream(),
+            )
+            .await?;
+        let file = session
+            .open_options()
+            .open(Arc::new(ByteBuffer::from(bytes)))
+            .await?;
+
+        let source =
+            MultiLayoutDataSource::new_with_first(file.layout_reader()?, vec![], vec![], &session);
+
+        let unfiltered = source.scan(ScanRequest::default()).await?;
+        assert_eq!(unfiltered.partition_count(), Precision::exact(1usize));
+        assert_eq!(
+            unfiltered.partitions().try_collect::<Vec<_>>().await?.len(),
+            1
+        );
+
+        let filtered = source
+            .scan(ScanRequest {
+                filter: Some(eq(root(), lit(999u32))),
+                ..Default::default()
+            })
+            .await?;
+        assert_eq!(filtered.partition_count(), Precision::inexact(1usize));
+        assert_eq!(
+            filtered.partitions().try_collect::<Vec<_>>().await?.len(),
+            0
+        );
+
         Ok(())
     }
 }

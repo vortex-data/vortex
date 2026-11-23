@@ -395,10 +395,19 @@ impl DataSourceScan for MultiLayoutScan {
 
     fn partition_count(&self) -> Precision<usize> {
         let count = self.ready.len() + self.deferred.len();
-        if self.deferred.is_empty() {
-            Precision::exact(count)
-        } else {
+        if count == 0 {
+            return Precision::exact(0usize);
+        }
+
+        let may_prune = !self.deferred.is_empty()
+            || matches!(self.request.filter, Ok(Some(_)))
+            || self.request.partition_range.is_some()
+            || !matches!(self.request.partition_selection, Selection::All);
+
+        if may_prune {
             Precision::inexact(count)
+        } else {
+            Precision::exact(count)
         }
     }
 
@@ -796,6 +805,59 @@ mod tests {
             default_peak > max,
             "the default read {default_peak} at once"
         );
+        Ok(())
+    }
+
+    #[test]
+    fn partition_count_precision_reflects_possible_pruning() -> VortexResult<()> {
+        let runtime = SingleThreadRuntime::default();
+        let session = session_with_handle(runtime.handle());
+        let reader: LayoutReaderRef = Arc::new(TestLayoutReader::new(3));
+
+        let empty =
+            MultiLayoutDataSource::new_deferred(reader.dtype().clone(), vec![], vec![], &session);
+        let empty_scan = runtime.block_on(empty.scan(ScanRequest {
+            filter: Some(eq(root(), lit(1i32))),
+            ..Default::default()
+        }))?;
+        assert_eq!(empty_scan.partition_count(), Precision::exact(0usize));
+
+        let opened =
+            MultiLayoutDataSource::new_with_first(Arc::clone(&reader), vec![], vec![], &session);
+        let unfiltered = runtime.block_on(opened.scan(ScanRequest::default()))?;
+        assert_eq!(unfiltered.partition_count(), Precision::exact(1usize));
+
+        let filtered = runtime.block_on(opened.scan(ScanRequest {
+            filter: Some(eq(root(), lit(1i32))),
+            ..Default::default()
+        }))?;
+        assert_eq!(filtered.partition_count(), Precision::inexact(1usize));
+
+        let ranged = runtime.block_on(opened.scan(ScanRequest {
+            partition_range: Some(1..2),
+            ..Default::default()
+        }))?;
+        assert_eq!(ranged.partition_count(), Precision::inexact(1usize));
+
+        let selected = runtime.block_on(opened.scan(ScanRequest {
+            partition_selection: Selection::ExcludeByIndex(
+                vortex_scan::strict_sorted_buffer::StrictSortedBuffer::try_new(
+                    vortex_buffer::buffer![0u64],
+                )?,
+            ),
+            ..Default::default()
+        }))?;
+        assert_eq!(selected.partition_count(), Precision::inexact(1usize));
+
+        let deferred = MultiLayoutDataSource::new_deferred(
+            reader.dtype().clone(),
+            vec![Arc::new(StaticReaderFactory { reader })],
+            vec![],
+            &session,
+        );
+        let deferred_scan = runtime.block_on(deferred.scan(ScanRequest::default()))?;
+        assert_eq!(deferred_scan.partition_count(), Precision::inexact(1usize));
+
         Ok(())
     }
 }
