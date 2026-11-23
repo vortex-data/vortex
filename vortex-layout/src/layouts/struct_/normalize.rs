@@ -12,6 +12,7 @@ use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::scalar::Scalar;
+use vortex_array::validity::Validity;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
@@ -30,8 +31,7 @@ pub(super) fn normalize_struct_children(
             .iter_unmasked_fields()
             .map(|field| normalize_struct_children(field.clone(), &child_visible, ctx))
             .collect::<VortexResult<Vec<_>>>()?;
-        // EXPERIMENT: keep each struct's own validity to isolate the leaf rewrite's effect.
-        let validity = array.as_ref().validity()?;
+        let validity = Validity::from_mask(validity | &!visible, array.dtype().nullability());
         return Ok(
             StructArray::try_new(array.names().clone(), fields, array.len(), validity)?
                 .into_array(),
