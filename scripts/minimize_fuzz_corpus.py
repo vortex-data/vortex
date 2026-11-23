@@ -181,8 +181,16 @@ async def minimize(binary: Path, corpus: Path, work_dir: Path, artifacts: Path, 
             output.write(f"### {corpus.name} corpus minimization\n\n{summary}\n")
     # Only publish a fully completed, crash-free merge. The remote update still
     # uses the original ETag in checkpoint-fuzz-corpus.sh.
-    shutil.rmtree(corpus)
-    final.output.rename(corpus)
+    backup = corpus.with_name(f".{corpus.name}.backup")
+    shutil.rmtree(backup, ignore_errors=True)
+    corpus.rename(backup)
+    try:
+        final.output.rename(corpus)
+    except BaseException:
+        if not corpus.exists() and backup.exists():
+            backup.rename(corpus)
+        raise
+    shutil.rmtree(backup)
     return True
 
 

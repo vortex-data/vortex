@@ -104,3 +104,46 @@ def test_merge_rejects_skipped_inputs_even_with_success_exit(minimizer, tmp_path
     merge = minimizer.Merge("test", [], tmp_path / "merge", 1)
     assert not asyncio.run(minimizer.run_phase([merge], binary, tmp_path / "artifacts", {}))
     assert merge.processed == merge.total
+
+
+def test_failed_final_rename_restores_original_corpus(minimizer, tmp_path, monkeypatch):
+    corpus = tmp_path / "corpus"
+    corpus.mkdir()
+    original = {"a": b"seed-a", "b": b"seed-b"}
+    for name, data in original.items():
+        (corpus / name).write_bytes(data)
+
+    async def fake_phase(merges, *_args: object) -> bool:
+        for merge in merges:
+            merge.output.mkdir(parents=True)
+            (merge.output / "merged").write_bytes(b"minimized")
+        return True
+
+    real_rename = Path.rename
+    fail_publish = True
+
+    def flaky_rename(self: Path, target: Path) -> Path:
+        if fail_publish and target == corpus and self.name == "output":
+            raise OSError("injected final rename failure")
+        return real_rename(self, target)
+
+    monkeypatch.setattr(minimizer, "run_phase", fake_phase)
+    monkeypatch.setattr(Path, "rename", flaky_rename)
+    monkeypatch.delenv("GITHUB_STEP_SUMMARY", raising=False)
+
+    work = tmp_path / "work"
+    with pytest.raises(OSError, match="injected final rename failure"):
+        asyncio.run(minimizer.minimize(Path("binary"), corpus, work, tmp_path / "artifacts", 1))
+
+    backup = corpus.with_name(f".{corpus.name}.backup")
+    assert corpus.is_dir()
+    assert {path.name: path.read_bytes() for path in corpus.iterdir()} == original
+    assert not backup.exists()
+
+    # A subsequent run succeeds, cleans up any stale backup, and publishes the merged corpus.
+    backup.mkdir()
+    (backup / "stale").write_bytes(b"stale")
+    fail_publish = False
+    assert asyncio.run(minimizer.minimize(Path("binary"), corpus, work, tmp_path / "artifacts", 1))
+    assert {path.name: path.read_bytes() for path in corpus.iterdir()} == {"merged": b"minimized"}
+    assert not backup.exists()
