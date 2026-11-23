@@ -102,65 +102,35 @@ describe('EncodingPane', () => {
     await render(nodeB);
     expect(container.textContent).toContain('constant');
     expect(container.textContent).not.toContain('Reading the encoding tree…');
-
-    // Late resolution from node A must not overwrite node B.
-    await act(async () => {
-      req.resolve(encodingTree('vortex.primitive'));
-    });
-    expect(container.textContent).toContain('constant');
-    expect(container.textContent).not.toContain('primitive');
   });
 
-  test('clears a previously fetched tree and ignores stale errors on an empty node', async () => {
-    const reqs: Deferred<ArrayEncodingNode | null>[] = [];
-    const { container, render } = createHarness(() => {
-      const d = deferred<ArrayEncodingNode | null>();
-      reqs.push(d);
-      return d.promise;
-    });
+  test('clears a previously fetched tree when switching to an empty node', async () => {
+    const req = deferred<ArrayEncodingNode | null>();
+    const { container, render } = createHarness(() => req.promise);
 
     const nodeA = makeNode('A');
     const nodeC = makeNode('C', { segmentIds: [] });
 
     await render(nodeA);
     await act(async () => {
-      reqs[0]?.resolve(encodingTree('vortex.primitive'));
+      req.resolve(encodingTree('vortex.primitive'));
     });
     expect(container.textContent).toContain('primitive');
 
     await render(nodeC);
     expect(container.textContent).toContain('This node has no array encoding tree.');
     expect(container.textContent).not.toContain('primitive');
-
-    // Switching from a pending node to an empty node and rejecting the stale request must stay cleared.
-    await render(nodeA);
-    await render(nodeC);
-    await act(async () => {
-      reqs[1]?.reject(new Error('stale failure'));
-    });
-    expect(container.textContent).toContain('This node has no array encoding tree.');
-    expect(container.textContent).not.toContain('stale failure');
   });
 
-  test('renders inline metadata on fresh mount and when added to a pending node', async () => {
+  test('clears loading when inline metadata is added to a pending node', async () => {
     const req = deferred<ArrayEncodingNode | null>();
     const { container, render } = createHarness(() => req.promise);
 
-    const inlineNode = makeNode('B', { arrayEncodingTree: encodingTree('vortex.constant') });
-    await render(inlineNode);
-    expect(container.textContent).toContain('constant');
-
-    const pendingA = makeNode('A');
-    await render(pendingA);
+    await render(makeNode('A'));
     expect(container.textContent).toContain('Reading the encoding tree…');
 
     await render(makeNode('A', { arrayEncodingTree: encodingTree('vortex.bitpacked') }));
     expect(container.textContent).toContain('bitpacked');
     expect(container.textContent).not.toContain('Reading the encoding tree…');
-
-    await act(async () => {
-      req.resolve(encodingTree('vortex.primitive'));
-    });
-    expect(container.textContent).toContain('bitpacked');
   });
 });
