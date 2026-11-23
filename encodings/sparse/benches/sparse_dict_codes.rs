@@ -3,8 +3,7 @@
 
 //! Canonicalize a dictionary whose codes are null-filled sparse patches.
 
-#![expect(clippy::cast_possible_truncation)]
-
+use std::iter::successors;
 use std::sync::LazyLock;
 
 use divan::Bencher;
@@ -13,11 +12,9 @@ use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
-use vortex_array::aggregate_fn::session::AggregateFnSession;
 use vortex_array::arrays::DictArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::VarBinViewArray;
-use vortex_array::memory::MemorySession;
 use vortex_array::optimizer::kernels::KernelSession;
 use vortex_array::scalar::Scalar;
 use vortex_array::session::ArraySession;
@@ -37,15 +34,16 @@ fn main() {
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     let session = VortexSession::empty()
         .with::<ArraySession>()
-        .with::<KernelSession>()
-        .with::<AggregateFnSession>()
-        .with::<MemorySession>();
+        .with::<KernelSession>();
     vortex_sparse::initialize(&session);
     session
 });
 
-const LEN: usize = 65_536;
-const DICT_SIZE: usize = 1_000;
+const LEN: u32 = 65_536;
+const DICT_SIZE: u16 = 1_000;
+/// Step between consecutive present codes. It is coprime with `DICT_SIZE`, so the codes cycle
+/// through the whole dictionary.
+const CODE_STEP: u16 = 919;
 
 /// Distance between present rows: every 100th row (1%) or every 10th row (10%).
 const PATCH_STRIDES: &[usize] = &[100, 10];
@@ -54,53 +52,65 @@ const PATCH_STRIDES: &[usize] = &[100, 10];
 ///
 /// The array is left unoptimized, as a reader produces it, so canonicalization chooses how to
 /// combine the dictionary with its sparse codes.
-fn make_dict_of_sparse_codes(patch_stride: usize, values: ArrayRef) -> ArrayRef {
+fn make_dict_of_sparse_codes(patch_stride: usize, values: &ArrayRef) -> ArrayRef {
     let mut ctx = SESSION.create_execution_ctx();
-    let positions: Buffer<u32> = (0..LEN).step_by(patch_stride).map(|i| i as u32).collect();
+    let positions: Buffer<u32> = (0..LEN).step_by(patch_stride).collect();
     // Spread the present codes over the dictionary, with repeats. The codes share the null
     // fill's nullable dtype.
     let codes = PrimitiveArray::from_option_iter(
-        (0..positions.len()).map(|i| Some(((i * 7_919) % DICT_SIZE) as u16)),
+        successors(Some(0u16), |code| Some((code + CODE_STEP) % DICT_SIZE))
+            .take(positions.len())
+            .map(Some),
     )
     .into_array();
     let sparse_codes = Sparse::try_new(
         positions.into_array(),
         codes,
-        LEN,
+        LEN as usize,
         Scalar::null_native::<u16>(),
         &mut ctx,
     )
     .vortex_expect("sparse codes should be valid")
     .into_array();
 
-    DictArray::try_new(sparse_codes, values)
+    DictArray::try_new(sparse_codes, values.clone())
         .vortex_expect("dictionary over sparse codes should be valid")
         .into_array()
 }
 
+static PRIMITIVE_VALUES: LazyLock<ArrayRef> = LazyLock::new(|| {
+    PrimitiveArray::from_iter((0..i64::from(DICT_SIZE)).map(|i| i * 1_000)).into_array()
+});
+
+static UTF8_VALUES: LazyLock<ArrayRef> = LazyLock::new(|| {
+    VarBinViewArray::from_iter_str(
+        (0..DICT_SIZE).map(|i| format!("dictionary value number {i:04}")),
+    )
+    .into_array()
+});
+
 #[divan::bench(args = PATCH_STRIDES)]
 fn canonicalize_dict_sparse_codes_primitive(bencher: Bencher, patch_stride: usize) {
-    let values = PrimitiveArray::from_iter((0i64..).step_by(1_000).take(DICT_SIZE)).into_array();
-    bench_canonicalize(bencher, make_dict_of_sparse_codes(patch_stride, values));
+    bench_canonicalize(
+        bencher,
+        make_dict_of_sparse_codes(patch_stride, &PRIMITIVE_VALUES),
+    );
 }
 
 #[divan::bench(args = PATCH_STRIDES)]
 fn canonicalize_dict_sparse_codes_utf8(bencher: Bencher, patch_stride: usize) {
-    let values = VarBinViewArray::from_iter_str(
-        (0..DICT_SIZE).map(|i| format!("dictionary value number {i:04}")),
-    )
-    .into_array();
-    bench_canonicalize(bencher, make_dict_of_sparse_codes(patch_stride, values));
+    bench_canonicalize(
+        bencher,
+        make_dict_of_sparse_codes(patch_stride, &UTF8_VALUES),
+    );
 }
 
 fn bench_canonicalize(bencher: Bencher, dict: ArrayRef) {
     bencher
         .with_inputs(|| (dict.clone(), SESSION.create_execution_ctx()))
         .bench_values(|(array, mut ctx)| {
-            divan::black_box(
-                array
-                    .execute::<Canonical>(&mut ctx)
-                    .vortex_expect("dictionary over sparse codes canonicalization"),
-            )
+            array
+                .execute::<Canonical>(&mut ctx)
+                .vortex_expect("dictionary over sparse codes canonicalization")
         });
 }
