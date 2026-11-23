@@ -442,8 +442,10 @@ pub(super) fn convert_to_bool(scalar: &Scalar, dtype: &DType) -> Option<Scalar> 
 /// and the whitespace around the string. Returns `None` for any other string.
 fn string_as_bool(string: &str) -> Option<bool> {
     match string.trim().to_ascii_lowercase().as_str() {
+        // spellchecker:off
         "t" | "tr" | "tru" | "true" | "y" | "ye" | "yes" | "on" | "1" => Some(true),
         "f" | "fa" | "fal" | "fals" | "false" | "n" | "no" | "of" | "off" | "0" => Some(false),
+        // spellchecker:on
         _ => None,
     }
 }

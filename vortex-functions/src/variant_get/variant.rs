@@ -117,7 +117,7 @@ impl ExecuteParentKernel<Variant> for VariantGetKernel {
                 nested,
                 typed_mask,
                 array.core_storage(),
-                &parent.options,
+                parent.options,
                 ctx,
             )
             .map(Some);
@@ -165,14 +165,8 @@ impl ExecuteParentKernel<Variant> for VariantGetKernel {
         // The core storage holds no value of a row that the typed child holds, so a typed value
         // of another dtype than the requested one converts from the typed child.
         let typed = convert_typed(typed, parent.dtype(), ctx)?;
-        fill_absent_from_core(
-            typed,
-            typed_mask,
-            array.core_storage(),
-            &parent.options,
-            ctx,
-        )
-        .map(Some)
+        fill_absent_from_core(typed, typed_mask, array.core_storage(), parent.options, ctx)
+            .map(Some)
     }
 }
 
