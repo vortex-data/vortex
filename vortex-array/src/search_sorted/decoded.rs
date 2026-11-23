@@ -16,7 +16,7 @@ use crate::match_each_unsigned_integer_ptype;
 ///
 /// A repeated probe decodes such a child once instead of reading it a value at a time on every
 /// search. A one-off search should not call this: it costs a full decode.
-pub fn decode_sorted_positions(
+pub(crate) fn decode_sorted_positions(
     array: &ArrayRef,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Buffer<u64>> {
