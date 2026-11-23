@@ -18,6 +18,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / ".github" / "script
 github = importlib.import_module("triage.github")
 publish = importlib.import_module("triage.publish")
 slack = importlib.import_module("triage.slack")
+cli = importlib.import_module("triage.__main__")
 
 TEAM = {"login": "gatesn", "__typename": "User"}
 OUTSIDER = {"login": "alamb", "__typename": "User"}
@@ -116,6 +117,13 @@ def test_scan_follows_pages_and_sorts():
     items = github.scan("o/r", query)
     assert [(item.number, item.kind) for item in items] == [(3, "issue"), (4, "pr"), (5, "issue")]
     assert [call.get("cursor") for call in calls] == [None, "next", None]
+
+
+def test_scan_table_shows_titles_as_literal_text():
+    hostile = github.classify("issue", node(OUTSIDER))
+    hostile = github.Item(**{**hostile.__dict__, "title": "[click](https://example.com) `a``b` | <img>"})
+    row = cli._table([hostile]).splitlines()[-1]
+    assert row.endswith("| ``` [click](https://example.com) `a``b` \\| <img> ``` |")
 
 
 class FakeSlack:

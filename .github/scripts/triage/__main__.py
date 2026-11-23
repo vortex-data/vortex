@@ -8,11 +8,19 @@ Usage, from `.github/scripts`:
 from __future__ import annotations
 
 import argparse
+import re
 import sys
 from collections import Counter
 
 from .github import Item, closed_state, scan
 from .publish import MemoryStore, Publisher
+
+
+def _literal(text: str) -> str:
+    """Wrap contributor-written text in a code span, so Markdown shows it and does not render it."""
+    fence = "`" * (max((len(run) for run in re.findall("`+", text)), default=0) + 1)
+    escaped = text.replace("|", "\\|")
+    return f"{fence} {escaped} {fence}"
 
 
 def _table(items: list[Item]) -> str:
@@ -34,7 +42,7 @@ def _table(items: list[Item]) -> str:
             ", ".join(item.assignees),
             (item.external_at or "")[:10],
             (item.team_at or "")[:10],
-            item.title.replace("|", "\\|"),
+            _literal(item.title),
         ]
         lines.append("| " + " | ".join(cells) + " |")
     return "\n".join(lines)
