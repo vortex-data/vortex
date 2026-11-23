@@ -1340,9 +1340,11 @@ fn variant_get_over_variant_pack_reduces(
     // The optimizer can push the extraction into the chunks of `core`, so any of its arrays
     // counts as reading it.
     let core_nodes = core.depth_first_traversal().collect::<Vec<_>>();
-    let reads_core = nodes
-        .iter()
-        .any(|node| core_nodes.iter().any(|core_node| ArrayRef::ptr_eq(node, core_node)));
+    let reads_core = nodes.iter().any(|node| {
+        core_nodes
+            .iter()
+            .any(|core_node| ArrayRef::ptr_eq(node, core_node))
+    });
     match reduced {
         Reduced::ToShredded => assert!(!has_pack && !reads_core, "{actual}"),
         Reduced::ToCore => assert!(!has_pack && reads_core, "{actual}"),
