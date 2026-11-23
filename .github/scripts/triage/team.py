@@ -5,6 +5,8 @@
 TEAM = frozenset(
     {
         "0ax1",
+        "a10y",
+        "adamgs",
         "blaginin",
         "brancz",
         "connortsui20",
