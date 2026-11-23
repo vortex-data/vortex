@@ -14,7 +14,10 @@ name: Fuzzer Issue Autofix
 # A gate job runs first, WITHOUT the claude-automation environment, so untrusted
 # triggers are rejected before the write-capable App token is minted. The
 # "fuzzer" label alone is not a trust boundary: applying a label only needs
-# triage permission, which is below write.
+# triage permission, which is below write. The gate also rejects an issue whose
+# author does not have write access, because that author can edit the issue body
+# after a maintainer adds the label. To fix such an issue, a maintainer files a
+# new issue with the crash details.
 
 concurrency:
   # Keyed on the issue so repeat triggers for the same issue collapse into a
@@ -63,18 +66,17 @@ jobs:
               trustedAuthors.push(process.env.EXTRA_TRUSTED_AUTHOR);
             }
 
-            let reason = '';
-            if (!trustedAuthors.includes(author)) {
-              // Otherwise the human who opened/labeled the issue must have
-              // write-or-higher access. Triage can apply labels but is not
-              // trusted to run write-capable automation on attacker-controlled
-              // issue content.
+            const hasWriteAccess = async (username) => {
+              if (!username) {
+                return false;
+              }
+
               let permission = 'none';
               try {
                 const { data } = await github.rest.repos.getCollaboratorPermissionLevel({
                   owner: context.repo.owner,
                   repo: context.repo.repo,
-                  username: sender,
+                  username,
                 });
                 permission = data.permission;
               } catch (error) {
@@ -82,8 +84,26 @@ jobs:
                   throw error;
                 }
               }
-              if (!['admin', 'maintain', 'write'].includes(permission)) {
+
+              return ['admin', 'maintain', 'write'].includes(permission);
+            };
+
+            let reason = '';
+            if (!trustedAuthors.includes(author)) {
+              // Otherwise the person who added the label and the person who
+              // opened the issue must each have write-or-higher access. Triage
+              // can apply labels but is not trusted to run write-capable
+              // automation on attacker-controlled issue content.
+              //
+              // The check on the author is necessary because the fix job reads
+              // the issue body again when it runs. An author can edit the body
+              // after a maintainer reads it and adds the label. Only the author
+              // and users with write access can edit the body, so this check
+              // makes sure that all possible editors are trusted.
+              if (!(await hasWriteAccess(sender))) {
                 reason = 'actor_lacks_write';
+              } else if (!(await hasWriteAccess(author))) {
+                reason = 'author_lacks_write';
               }
             }
 

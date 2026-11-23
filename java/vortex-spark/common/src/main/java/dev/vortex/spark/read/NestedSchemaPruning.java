@@ -27,6 +27,9 @@ import org.apache.spark.sql.types.StructType;
  * <p>Only struct fields are pruned and resolved by name. Structs inside arrays and maps, and extension types that
  * export as Arrow structs such as Variant, are read whole and by position, since projecting each element needs a
  * per-element expression the native scan does not expose yet.
+ *
+ * <p>The same walk passes each resolved field that the scan returns as stored to {@link ReadTypes#check}. A file that
+ * stores a column in a type that cannot be read as the type asked thus fails before the scan starts.
  */
 final class NestedSchemaPruning {
     private NestedSchemaPruning() {}
@@ -96,6 +99,8 @@ final class NestedSchemaPruning {
      * <p>Fields resolve by name under Spark's case sensitivity, at every level, and are read under the file's names, in
      * the order Spark reads them and only as far down as Spark reads them. A nullable field the file does not carry is
      * left out and filled in with nulls through {@link Projection#shape}.
+     *
+     * @throws IllegalArgumentException if the file stores a field in a type that cannot be read as the type asked
      */
     static Projection projection(
             StructType readSchema, List<Field> fileColumns, boolean caseSensitive, String fileName) {
@@ -173,7 +178,11 @@ final class NestedSchemaPruning {
                 }
                 shapes[i] = nested.shape();
                 filled |= nested.shape() != null;
+            } else {
+                // The scan returns this field as the file stores it, so the stored type must read as the type asked.
+                ReadTypes.check(fields[i].dataType(), fileField, path, caseSensitive, fileName);
             }
+
             names.add(fileField.getName());
             children.add(child);
         }

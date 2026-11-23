@@ -45,8 +45,10 @@ use vortex_array::arrays::struct_::StructArrayExt;
 use vortex_array::arrays::widen::WidenArraySlotsExt;
 use vortex_array::assert_arrays_eq;
 use vortex_array::builders::MapBuilder;
+use vortex_array::dtype::BigCast;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::DecimalDType;
+use vortex_array::dtype::FieldMask;
 use vortex_array::dtype::FieldPath;
 use vortex_array::dtype::MapDType;
 use vortex_array::dtype::Nullability;
@@ -64,7 +66,6 @@ use vortex_array::expr::get_item;
 use vortex_array::expr::gt;
 use vortex_array::expr::gt_eq;
 use vortex_array::expr::lit;
-use vortex_array::expr::lower;
 use vortex_array::expr::lt;
 use vortex_array::expr::lt_eq;
 use vortex_array::expr::or;
@@ -77,11 +78,12 @@ use vortex_array::extension::datetime::Timestamp;
 use vortex_array::extension::datetime::TimestampOptions;
 use vortex_array::field_path;
 use vortex_array::flatbuffers::WriteFlatBufferExt;
+use vortex_array::match_each_decimal_value_type;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar::ScalarValue;
 use vortex_array::scalar_fn::ScalarFnVTableExt;
-use vortex_array::scalar_fn::fns::pack::Pack;
-use vortex_array::scalar_fn::fns::pack::PackOptions;
+use vortex_array::scalar_fn::builtin::pack::Pack;
+use vortex_array::scalar_fn::builtin::pack::PackOptions;
 use vortex_array::stream::ArrayStreamAdapter;
 use vortex_array::stream::ArrayStreamExt;
 use vortex_array::validity::Validity;
@@ -103,6 +105,7 @@ use vortex_edition::declarations::preview::PREVIEW_2026_08_0;
 use vortex_edition::declarations::unstable::UNSTABLE;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_functions::expr::lower;
 use vortex_io::VortexWrite;
 use vortex_io::runtime::tokio::TokioRuntime;
 use vortex_io::session::RuntimeSession;
@@ -126,6 +129,7 @@ use vortex_session::VortexSession;
 use vortex_session::registry::Id;
 use vortex_zigzag::ZigZag;
 
+use crate::MAX_METADATA_SEGMENTS;
 use crate::MAX_POSTSCRIPT_SIZE;
 use crate::OpenOptionsSessionExt;
 use crate::V1_FOOTER_FBS_SIZE;
@@ -429,6 +433,57 @@ async fn decimal_writer_uses_default_or_session_restrictions(
         assert_eq!(uses_v2, v2_permitted && !custom_strategy);
         assert_arrays_eq!(array, actual, &mut session.create_execution_ctx());
     }
+    Ok(())
+}
+
+/// Low-cardinality decimal columns of every values width are written as dict layouts and read back
+/// unchanged, including their nulls.
+#[rstest]
+#[tokio::test]
+#[cfg_attr(miri, ignore)]
+async fn low_cardinality_decimal_uses_dict_layout(
+    #[values(2, 4, 9, 18, 38, 76)] precision: u8,
+    #[values(false, true)] nullable: bool,
+) -> VortexResult<()> {
+    const LEN: usize = 16_384;
+    let decimal_dtype = DecimalDType::new(precision, 2);
+    let distinct = [12i64, -98, 42, 55];
+    let validity = if nullable {
+        Validity::from_iter((0..LEN).map(|i| i % 11 != 0))
+    } else {
+        Validity::NonNullable
+    };
+    let decimal = match_each_decimal_value_type!(decimal_dtype.canonical_values_type(), |T| {
+        let values = (0..LEN)
+            .map(|i| {
+                <T as BigCast>::from(distinct[(i * 7 + i / 3) % distinct.len()])
+                    .vortex_expect("value fits the precision")
+            })
+            .collect::<Buffer<T>>();
+        DecimalArray::new(
+            values,
+            decimal_dtype,
+            validity,
+            &mut SESSION.create_execution_ctx(),
+        )
+    });
+    let array = StructArray::from_fields(&[("decimal", decimal.into_array())])?.into_array();
+
+    let mut buffer = ByteBufferMut::empty();
+    let summary = SESSION
+        .write_options()
+        .write(&mut buffer, array.clone().to_array_stream())
+        .await?;
+    assert!(layout_has_dict(summary.footer().layout().as_ref()));
+
+    let actual = SESSION
+        .open_options()
+        .open_buffer(buffer)?
+        .scan()?
+        .into_array_stream()?
+        .read_all()
+        .await?;
+    assert_arrays_eq!(actual, array, &mut SESSION.create_execution_ctx());
     Ok(())
 }
 
@@ -2213,12 +2268,18 @@ async fn test_buffered_bytes_are_writer_scoped() -> VortexResult<()> {
     first.push(array.clone()).await?;
     first.push(array.clone()).await?;
     first.push(array.clone()).await?;
+
+    // Each leaf retains two chunks. The count also includes the segments that wait for the
+    // output, and how many wait depends on the progress of the write task. So only check the
+    // lower bound. The second writer has its own count.
+    assert!(first.buffered_bytes() >= 2 * BUFFER_SIZE);
+    assert_eq!(second.buffered_bytes(), 0);
+
     second.push(array.clone()).await?;
     second.push(array.clone()).await?;
     second.push(array).await?;
 
-    assert_eq!(first.buffered_bytes(), 2 * BUFFER_SIZE);
-    assert_eq!(second.buffered_bytes(), 2 * BUFFER_SIZE);
+    assert!(second.buffered_bytes() >= 2 * BUFFER_SIZE);
 
     first.finish().await?;
     second.finish().await?;
@@ -2864,6 +2925,123 @@ async fn test_file_metadata_roundtrip() -> VortexResult<()> {
     };
     let resolved = file.metadata_segment("json").vortex_expect("json");
     assert!(!file_range.contains(&(resolved.as_ptr() as usize)));
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_file_metadata_added_at_finish() -> VortexResult<()> {
+    let dtype = DType::Struct(
+        StructFields::from_iter([("numbers", DType::from(PType::U32))]),
+        Nullability::NonNullable,
+    );
+
+    let mut buf = ByteBufferMut::empty();
+    let mut writer = SESSION
+        .write_options()
+        .with_metadata_segment("schema", ByteBuffer::copy_from(b"create"))
+        .with_metadata_segment("bloom", ByteBuffer::copy_from(b"placeholder"))
+        .writer(&mut buf, dtype);
+
+    writer
+        .push(
+            StructArray::from_fields(&[("numbers", buffer![1u32, 2, 3].into_array())])?
+                .into_array(),
+        )
+        .await?;
+
+    // The finish-time value replaces the create-time value for the same key.
+    let summary = writer
+        .finish_with_metadata([
+            ("bloom", ByteBuffer::copy_from(b"bloom-bits")),
+            ("min_key", ByteBuffer::copy_from(b"a")),
+        ])
+        .await?;
+    assert_eq!(summary.footer().metadata_segments().count(), 3);
+
+    let file = SESSION
+        .open_options()
+        .include_metadata()
+        .open_buffer(ByteBuffer::from(buf))?;
+    assert_eq!(file.row_count(), 3);
+    assert_eq!(file.metadata_segments().count(), 3);
+    assert_eq!(
+        file.metadata_segment("schema").map(ByteBuffer::as_slice),
+        Some(b"create".as_slice())
+    );
+    assert_eq!(
+        file.metadata_segment("bloom").map(ByteBuffer::as_slice),
+        Some(b"bloom-bits".as_slice())
+    );
+    assert_eq!(
+        file.metadata_segment("min_key").map(ByteBuffer::as_slice),
+        Some(b"a".as_slice())
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_deferred_metadata_with_stream_write() -> VortexResult<()> {
+    let array =
+        StructArray::from_fields(&[("numbers", buffer![1u32, 2, 3].into_array())])?.into_array();
+
+    let options = SESSION.write_options();
+    let deferred = options.deferred_metadata();
+
+    // The write reads the handle only after the input stream ends, so a stream can add segments
+    // while it produces chunks.
+    let stream = array.to_array_stream().map(move |chunk| {
+        deferred.insert("seen", ByteBuffer::copy_from(b"yes"));
+        chunk
+    });
+    let stream = ArrayStreamAdapter::new(array.dtype().clone(), stream);
+
+    let mut buf = ByteBufferMut::empty();
+    options.write(&mut buf, stream).await?;
+
+    let file = SESSION
+        .open_options()
+        .include_metadata()
+        .open_buffer(ByteBuffer::from(buf))?;
+    assert_eq!(
+        file.metadata_segment("seen").map(ByteBuffer::as_slice),
+        Some(b"yes".as_slice())
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_file_metadata_added_at_finish_is_validated() -> VortexResult<()> {
+    let dtype = DType::Struct(
+        StructFields::from_iter([("numbers", DType::from(PType::U32))]),
+        Nullability::NonNullable,
+    );
+
+    // Each set is in the limits, but the merged set has one segment too many.
+    let mut buf = ByteBufferMut::empty();
+    let mut writer = SESSION
+        .write_options()
+        .with_metadata_segments(
+            (0..MAX_METADATA_SEGMENTS).map(|idx| (format!("create-{idx}"), ByteBuffer::empty())),
+        )
+        .writer(&mut buf, dtype);
+
+    writer
+        .push(StructArray::from_fields(&[("numbers", buffer![1u32].into_array())])?.into_array())
+        .await?;
+
+    let Err(error) = writer
+        .finish_with_metadata([("finish", ByteBuffer::empty())])
+        .await
+    else {
+        panic!("the merged metadata must be rejected");
+    };
+    assert!(
+        error.to_string().contains("metadata segments"),
+        "unexpected error: {error}"
+    );
 
     Ok(())
 }
@@ -3727,4 +3905,149 @@ async fn null_dominated_clustered_f32_writes() -> VortexResult<()> {
         .write(&mut ByteBufferMut::empty(), stream)
         .await?;
     Ok(())
+}
+#[tokio::test]
+#[cfg_attr(miri, ignore)]
+async fn test_splits_follow_only_the_masked_fields() -> VortexResult<()> {
+    // The strings chunk at a few thousand rows, and the integers fit in one chunk. The splits of
+    // the integer column alone must not follow the chunks of the strings.
+    const N_ROWS: usize = 40_000;
+    let strings = VarBinArray::from_iter(
+        (0..N_ROWS).map(|i| Some(format!("{i:0>120}"))),
+        DType::Utf8(Nullability::Nullable),
+    )
+    .into_array();
+    let numbers = Buffer::from_iter(0..N_ROWS as i32).into_array();
+    let st = StructArray::from_fields(&[("s", strings), ("n", numbers)])?.into_array();
+
+    let mut buf = ByteBufferMut::empty();
+    SESSION
+        .write_options()
+        .write(&mut buf, st.to_array_stream())
+        .await?;
+
+    let file = SESSION.open_options().open_buffer(buf)?;
+
+    let strings_only = file.splits_for(&[FieldMask::Prefix(FieldPath::from_name("s"))])?;
+    let numbers_only = file.splits_for(&[FieldMask::Prefix(FieldPath::from_name("n"))])?;
+
+    assert!(
+        strings_only.len() > 1,
+        "expected multiple string chunks: {strings_only:?}"
+    );
+    assert!(
+        numbers_only.len() < strings_only.len(),
+        "the splits of `n` should not follow the chunks of `s`: {numbers_only:?}"
+    );
+
+    for splits in [&strings_only, &numbers_only] {
+        assert_eq!(splits.first().map(|r| r.start), Some(0));
+        assert_eq!(splits.last().map(|r| r.end), Some(N_ROWS as u64));
+        assert!(splits.windows(2).all(|w| w[0].end == w[1].start));
+    }
+
+    Ok(())
+}
+
+mod writer_terminal_error_tests {
+    use std::future::Future;
+    use std::io;
+    use std::sync::Arc;
+    use std::sync::atomic::AtomicUsize;
+    use std::sync::atomic::Ordering;
+    use std::time::Duration;
+
+    use vortex_array::ArrayRef;
+    use vortex_array::IntoArray;
+    use vortex_array::arrays::StructArray;
+    use vortex_array::stream::ArrayStreamAdapter;
+    use vortex_array::stream::ArrayStreamExt;
+    use vortex_buffer::Buffer;
+    use vortex_error::VortexResult;
+    use vortex_io::IoBuf;
+    use vortex_io::VortexWrite;
+
+    use super::SESSION;
+    use crate::WriteOptionsSessionExt;
+
+    fn make_chunk(values: &[u32]) -> VortexResult<ArrayRef> {
+        Ok(
+            StructArray::from_fields(&[("numbers", Buffer::copy_from(values).into_array())])?
+                .into_array(),
+        )
+    }
+
+    async fn expect_replayed<T>(fut: impl Future<Output = VortexResult<T>>, msg: &str) {
+        let Err(err) = tokio::time::timeout(Duration::from_secs(2), fut)
+            .await
+            .expect("call hung after terminal error")
+        else {
+            panic!("expected replayed error containing {msg:?}, got Ok");
+        };
+        assert!(err.to_string().contains(msg), "unexpected error: {err}");
+    }
+
+    struct FailingWrite {
+        write_calls: Arc<AtomicUsize>,
+        message: &'static str,
+    }
+
+    impl VortexWrite for FailingWrite {
+        async fn write_all<B: IoBuf>(&mut self, _buffer: B) -> io::Result<B> {
+            self.write_calls.fetch_add(1, Ordering::SeqCst);
+            Err(io::Error::new(io::ErrorKind::BrokenPipe, self.message))
+        }
+
+        async fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+
+        async fn shutdown(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[tokio::test]
+    async fn test_writer_push_replays_terminal_error() -> VortexResult<()> {
+        let chunk = make_chunk(&[1, 2, 3])?;
+        let dtype = chunk.dtype().clone();
+        let write_calls = Arc::new(AtomicUsize::new(0));
+        let msg = "controlled push sink failure";
+        let sink = FailingWrite {
+            write_calls: Arc::clone(&write_calls),
+            message: msg,
+        };
+
+        let mut writer = SESSION.write_options().writer(sink, dtype.clone());
+        let mut first_err = None;
+        // `bounded(1)` plus `futures::select!` branch order can let the first push buffer before
+        // the writer task polls the failing sink, so push until the terminal error surfaces.
+        for _ in 0..4 {
+            if let Err(err) = writer.push(chunk.clone()).await {
+                first_err = Some(err);
+                break;
+            }
+        }
+        assert!(
+            first_err
+                .expect("expected sink failure")
+                .to_string()
+                .contains(msg)
+        );
+        let calls_after_failure = write_calls.load(Ordering::SeqCst);
+
+        expect_replayed(writer.push(chunk.clone()), msg).await;
+        assert_eq!(write_calls.load(Ordering::SeqCst), calls_after_failure);
+
+        let stream = ArrayStreamExt::boxed(ArrayStreamAdapter::new(
+            dtype,
+            futures::stream::iter(vec![Ok(chunk)]),
+        ));
+        expect_replayed(writer.push_stream(stream), msg).await;
+        assert_eq!(write_calls.load(Ordering::SeqCst), calls_after_failure);
+
+        expect_replayed(writer.finish(), msg).await;
+        assert_eq!(write_calls.load(Ordering::SeqCst), calls_after_failure);
+        Ok(())
+    }
 }

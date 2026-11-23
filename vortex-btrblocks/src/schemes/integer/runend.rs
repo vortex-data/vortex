@@ -13,6 +13,7 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::RunEnd;
 use vortex_array::arrays::runend::compress::runend_encode;
 use vortex_compressor::builtins::BinaryDictScheme;
+use vortex_compressor::builtins::DecimalDictScheme;
 use vortex_compressor::builtins::FloatDictScheme;
 use vortex_compressor::builtins::IntDictScheme;
 use vortex_compressor::builtins::StringDictScheme;
@@ -98,6 +99,10 @@ impl Scheme for RunEndScheme {
             },
             AncestorExclusion {
                 ancestor: BinaryDictScheme.id(),
+                children: ChildSelection::One(0),
+            },
+            AncestorExclusion {
+                ancestor: DecimalDictScheme.id(),
                 children: ChildSelection::One(0),
             },
         ]

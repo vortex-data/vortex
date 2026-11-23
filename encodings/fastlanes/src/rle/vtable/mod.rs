@@ -20,6 +20,7 @@ use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
+use vortex_array::require_child;
 use vortex_array::vtable::VTable;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
@@ -30,6 +31,7 @@ use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
 use crate::RLEData;
+use crate::rle::RLEArraySlotsExt;
 use crate::rle::array::RLESlots;
 use crate::rle::array::RLESlotsView;
 use crate::rle::array::rle_decompress::rle_decompress;
@@ -148,6 +150,15 @@ impl VTable for RLE {
     }
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+        // The indices stay encoded: `rle_decompress` decodes BitPacked and Delta indices one chunk
+        // at a time, which is faster than executing them to a primitive array first.
+        let array = require_child!(array, array.values(), RLESlots::VALUES => Primitive);
+        let array = require_child!(
+            array,
+            array.values_idx_offsets(),
+            RLESlots::VALUES_IDX_OFFSETS => Primitive
+        );
+
         Ok(ExecutionResult::done(
             rle_decompress(&array, ctx)?.into_array(),
         ))

@@ -29,6 +29,7 @@ vortex-array = { workspace = true }
 vortex-buffer = { workspace = true }
 vortex-compute = { workspace = true }
 vortex-error = { workspace = true }
+vortex-functions = { workspace = true }
 vortex-mask = { workspace = true }
 vortex-session = { workspace = true }
 
@@ -50,6 +51,10 @@ _test-harness = ["dep:rand"]
 
 [[bench]]
 name = "bitpacking_take"
+harness = false
+
+[[bench]]
+name = "chunked_fsl_take"
 harness = false
 
 [[bench]]

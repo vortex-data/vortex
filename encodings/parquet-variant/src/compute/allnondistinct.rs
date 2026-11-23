@@ -53,7 +53,8 @@ impl DynAggregateKernel for AllNonDistinctParquetVariant {
 
         let typed_identical = match (lhs.typed_value(), rhs.typed_value()) {
             (Some(lhs_typed), Some(rhs_typed)) => {
-                if lhs_typed.dtype().eq_ignore_nullability(rhs_typed.dtype()) {
+                // `all_non_distinct` requires equal dtypes, including nullability.
+                if lhs_typed.dtype() == rhs_typed.dtype() {
                     all_non_distinct(lhs_typed, rhs_typed, ctx)?
                 } else {
                     return Ok(None);
@@ -66,7 +67,12 @@ impl DynAggregateKernel for AllNonDistinctParquetVariant {
 
         if typed_identical {
             let values_identical = match (lhs.value(), rhs.value()) {
-                (Some(lhs_value), Some(rhs_value)) => all_non_distinct(lhs_value, rhs_value, ctx)?,
+                (Some(lhs_value), Some(rhs_value)) if lhs_value.dtype() == rhs_value.dtype() => {
+                    all_non_distinct(lhs_value, rhs_value, ctx)?
+                }
+                // Value children that differ in nullability: let the generic canonical path
+                // handle it.
+                (Some(_), Some(_)) => return Ok(None),
                 (None, None) => true,
                 // Mixed shredding layouts: let the generic canonical path handle it.
                 _ => return Ok(None),

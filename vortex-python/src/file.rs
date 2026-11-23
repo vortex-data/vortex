@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::num::NonZeroUsize;
 use std::sync::Arc;
 
 use arrow_array::RecordBatchReader;
@@ -489,7 +490,7 @@ impl PyVortexFile {
         }
     }
 
-    #[pyo3(signature = (projection = None, *, expr = None, limit = None, indices = None, batch_size = None))]
+    #[pyo3(signature = (projection = None, *, expr = None, limit = None, indices = None, batch_size = None, concurrency = None))]
     fn scan(
         slf: Bound<Self>,
         projection: Option<PyIntoProjection>,
@@ -497,20 +498,30 @@ impl PyVortexFile {
         limit: Option<u64>,
         indices: Option<PyArrayRef>,
         batch_size: Option<usize>,
+        concurrency: Option<usize>,
     ) -> PyVortexResult<PyArrayIterator> {
         let vxf = &slf.get().vxf;
         let projection = projection.map(|p| p.0);
         let expr = expr.map(|e| e.into_inner());
         let indices = row_indices(slf.py(), indices)?;
+        let concurrency = check_concurrency(concurrency)?;
 
         // Building the scan is lazy and cheap, so it runs without releasing the GIL.
-        let builder = scan_builder(vxf, projection, expr, limit, indices, batch_size)?;
+        let builder = scan_builder(
+            vxf,
+            projection,
+            expr,
+            limit,
+            indices,
+            batch_size,
+            concurrency,
+        )?;
         Ok(PyArrayIterator::new(Box::new(
             builder.into_array_iter(&current_runtime())?,
         )))
     }
 
-    #[pyo3(signature = (projection = None, *, expr = None, limit = None, indices = None, batch_size = None))]
+    #[pyo3(signature = (projection = None, *, expr = None, limit = None, indices = None, batch_size = None, concurrency = None))]
     fn prepare(
         slf: Bound<Self>,
         projection: Option<PyIntoProjection>,
@@ -518,13 +529,24 @@ impl PyVortexFile {
         limit: Option<u64>,
         indices: Option<PyArrayRef>,
         batch_size: Option<usize>,
+        concurrency: Option<usize>,
     ) -> PyVortexResult<PyRepeatedScan> {
         let vxf = &slf.get().vxf;
         let projection = projection.map(|p| p.0);
         let expr = expr.map(|e| e.into_inner());
         let indices = row_indices(slf.py(), indices)?;
+        let concurrency = check_concurrency(concurrency)?;
 
-        let scan = scan_builder(vxf, projection, expr, limit, indices, batch_size)?.prepare()?;
+        let scan = scan_builder(
+            vxf,
+            projection,
+            expr,
+            limit,
+            indices,
+            batch_size,
+            concurrency,
+        )?
+        .prepare()?;
 
         Ok(PyRepeatedScan {
             scan: Arc::new(scan),
@@ -532,7 +554,11 @@ impl PyVortexFile {
         })
     }
 
-    #[pyo3(signature = (projection = None, *, expr = None, limit = None, indices = None, batch_size = None, schema = None))]
+    #[pyo3(signature = (projection = None, *, expr = None, limit = None, indices = None, batch_size = None, schema = None, concurrency = None))]
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "mirrors the Python keyword arguments"
+    )]
     fn to_arrow(
         slf: Bound<Self>,
         projection: Option<PyIntoProjection>,
@@ -541,11 +567,13 @@ impl PyVortexFile {
         indices: Option<PyArrayRef>,
         batch_size: Option<usize>,
         schema: Option<&Bound<PyAny>>,
+        concurrency: Option<usize>,
     ) -> PyVortexResult<Py<PyAny>> {
         let vxf = &slf.get().vxf;
         let projection = projection.map(|p| p.0);
         let expr = expr.map(|e| e.into_inner());
         let indices = row_indices(slf.py(), indices)?;
+        let concurrency = check_concurrency(concurrency)?;
         let schema = schema
             .map(|schema| Schema::from_pyarrow(&schema.as_borrowed()))
             .transpose()?
@@ -553,7 +581,15 @@ impl PyVortexFile {
 
         // Building the reader is lazy and cheap, so it runs without releasing the GIL. The scan
         // runs as pyarrow pulls batches, and pyarrow releases the GIL while it does.
-        let builder = scan_builder(vxf, projection, expr, limit, indices, batch_size)?;
+        let builder = scan_builder(
+            vxf,
+            projection,
+            expr,
+            limit,
+            indices,
+            batch_size,
+            concurrency,
+        )?;
 
         let schema = match schema {
             Some(schema) => schema,
@@ -565,8 +601,13 @@ impl PyVortexFile {
         Ok(rbr.into_pyarrow(slf.py())?)
     }
 
-    fn to_dataset(slf: Bound<Self>) -> PyVortexResult<PyVortexDataset> {
-        Ok(PyVortexDataset::try_new(slf.get().vxf.clone())?)
+    #[pyo3(signature = (*, concurrency = None))]
+    fn to_dataset(slf: Bound<Self>, concurrency: Option<usize>) -> PyVortexResult<PyVortexDataset> {
+        let concurrency = check_concurrency(concurrency)?;
+        Ok(PyVortexDataset::try_new(
+            slf.get().vxf.clone(),
+            concurrency,
+        )?)
     }
 
     #[pyo3(signature = (*))]
@@ -611,6 +652,21 @@ pub(crate) fn row_indices(
     if detach { py.detach(decode) } else { decode() }
 }
 
+pub(crate) fn validate_positive_split_size(size: Option<usize>) -> PyVortexResult<Option<usize>> {
+    if size == Some(0) {
+        return Err(PyValueError::new_err("batch_size must be greater than zero").into());
+    }
+    Ok(size)
+}
+
+/// Check a `concurrency` argument from Python, which must be at least 1 when given.
+pub(crate) fn check_concurrency(concurrency: Option<usize>) -> PyResult<Option<usize>> {
+    match concurrency {
+        Some(0) => Err(PyValueError::new_err("concurrency must be at least 1")),
+        concurrency => Ok(concurrency),
+    }
+}
+
 fn scan_builder(
     vxf: &VortexFile,
     projection: Option<Expression>,
@@ -618,7 +674,9 @@ fn scan_builder(
     limit: Option<u64>,
     indices: Option<StrictSortedBuffer<u64>>,
     batch_size: Option<usize>,
-) -> VortexResult<ScanBuilder<ArrayRef>> {
+    concurrency: Option<usize>,
+) -> PyVortexResult<ScanBuilder<ArrayRef>> {
+    let batch_size = validate_positive_split_size(batch_size)?;
     let projection = projection
         .unwrap_or_else(root)
         .bind(vxf.dtype())?
@@ -641,6 +699,14 @@ fn scan_builder(
 
     if let Some(batch_size) = batch_size {
         builder = builder.with_split_by(SplitBy::RowCount(batch_size));
+    }
+
+    // The bound applies to the per-worker concurrency scaled by the worker count. Setting both to
+    // `concurrency` makes it the total, so it can also raise the default.
+    if let Some(concurrency) = concurrency {
+        builder = builder
+            .with_concurrency(concurrency)
+            .with_some_max_splits_in_flight(NonZeroUsize::new(concurrency));
     }
 
     Ok(builder)

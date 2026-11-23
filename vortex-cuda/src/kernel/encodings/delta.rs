@@ -122,8 +122,8 @@ async fn decode_delta(array: DeltaArray, ctx: &mut CudaExecutionCtx) -> VortexRe
         buffer: bases_buffer,
         ..
     } = bases.into_data_parts();
-    let deltas_device = ctx.ensure_on_device(deltas_buffer).await?;
-    let bases_device = ctx.ensure_on_device(bases_buffer).await?;
+    let deltas_device = ctx.ensure_on_device(deltas_buffer)?;
+    let bases_device = ctx.ensure_on_device(bases_buffer)?;
 
     let num_chunks_u64 = num_chunks as u64;
     let config = LaunchConfig {

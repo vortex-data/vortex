@@ -28,18 +28,23 @@ import org.apache.arrow.vector.types.pojo.Schema;
  *
  * <p>Use {@link #writeBatch(VectorSchemaRoot, BufferAllocator)} for zero-copy Java batches with independent buffer
  * lifetimes. Batches are also accepted via the Arrow C Data Interface: callers export an Arrow record batch to an
- * {@code ArrowArray} / {@code ArrowSchema} pair and pass the addresses to {@link #writeBatch(long, long)}. The writer
- * accepts up to four in-flight batches on the session's runtime thread before back-pressuring the caller.
+ * {@code ArrowArray} / {@code ArrowSchema} pair and pass the addresses to {@link #writeBatch(long, long)}, or export
+ * only the {@code ArrowArray} and pass its address to {@link #writeBatch(long)}. The writer accepts up to four
+ * in-flight batches on the session's runtime thread before back-pressuring the caller.
  *
- * <p>Call {@link #close()} to flush remaining batches and finalize the file. If the writer becomes unreachable without
- * an explicit {@code close()}, {@link VortexCleaner} will flush and release native resources as a backstop — but
- * callers should always finalize explicitly so that I/O errors surface through the normal call path.
+ * <p>Call {@link #close()} to flush remaining batches and finalize the file. Call {@link #finish(Map)} instead to add
+ * metadata segments that are known only after the last batch, for example a bloom filter of the written keys.
+ *
+ * <p>If the writer becomes unreachable without an explicit {@code close()}, {@link VortexCleaner} will flush and
+ * release native resources as a backstop — but callers should always finalize explicitly so that I/O errors surface
+ * through the normal call path.
  */
 public final class VortexWriter implements AutoCloseable {
     private final long pointer;
     private final Schema arrowSchema;
     private final AtomicBoolean closed = new AtomicBoolean(false);
     private volatile VortexWriteSummary summary;
+    private double finalCompressionRatio = 1.0;
 
     private VortexWriter(long pointer, Schema arrowSchema) {
         Preconditions.checkArgument(pointer != 0, "invalid writer pointer");
@@ -246,6 +251,33 @@ public final class VortexWriter implements AutoCloseable {
     }
 
     /**
+     * Write a batch from an Arrow C Data Interface array. Native code imports it with the schema of this writer.
+     *
+     * <p>The array must be a struct array that agrees with the writer schema. Native code rejects incorrect buffer or
+     * child counts with an {@link IOException}, but it cannot find all type mismatches (for example {@code Int64} in
+     * the place of {@code Int32}), and such an array can cause incorrect data or a crash.
+     *
+     * <p>Native code takes the array struct and releases it, also when the call fails.
+     *
+     * @param arrowArrayAddr address of an exported {@code ArrowArray} struct
+     */
+    public synchronized void writeBatch(long arrowArrayAddr) throws IOException {
+        Preconditions.checkState(!closed.get(), "writer already closed");
+        Preconditions.checkArgument(arrowArrayAddr != 0, "null arrow array address");
+
+        final boolean ok;
+        try {
+            ok = NativeWriter.writeArray(pointer, arrowArrayAddr);
+        } catch (RuntimeException e) {
+            throw new IOException("failed to write batch", e);
+        }
+
+        if (!ok) {
+            throw new IOException("failed to write batch");
+        }
+    }
+
+    /**
      * Return the number of bytes successfully written to the underlying sink so far.
      *
      * <p>This count does not include queued batches or data still buffered by layout strategies, so it may lag the
@@ -263,11 +295,12 @@ public final class VortexWriter implements AutoCloseable {
     }
 
     /**
-     * Return the number of uncompressed bytes accepted by the writer but not yet written to the sink.
+     * Return the number of compressed bytes that the writer holds and did not write to the sink yet.
      *
-     * <p>Together with {@link #bytesWritten()}, this lets callers estimate the in-progress file size: bytes that
-     * reached the sink are already compressed, while buffered bytes are still uncompressed and will shrink by roughly
-     * the file's observed compression ratio once flushed. After {@link #finish()}, this is zero.
+     * <p>The count includes the compressed data that layout strategies hold and the compressed segments that wait for
+     * earlier segments. It does not include the data that the writer did not compress yet, such as queued batches and
+     * the data that the writer coalesces before compression. Use {@link #estimatedSize()} for an estimate of the file
+     * size. After {@link #finish()}, this is zero.
      */
     public synchronized long bufferedBytes() {
         if (summary != null) {
@@ -280,21 +313,94 @@ public final class VortexWriter implements AutoCloseable {
     }
 
     /**
+     * Return an estimate of the size of the file if the writer finished now.
+     *
+     * <p>The estimate is {@link #bytesWritten()}, plus {@link #bufferedBytes()}, plus the bytes that the writer
+     * accepted but did not compress yet multiplied by {@link #compressionRatio()}. The uncompressed bytes include the
+     * queued batches, the data that the writer coalesces before compression, and the chunks that are being compressed.
+     * The estimate does not include the footer.
+     *
+     * <p>Use this to roll files at a target size. The estimate goes up as batches are written, and it can go down a
+     * small amount when the measured compression ratio changes. After {@link #finish()}, it is the exact completed file
+     * size and is equal to {@link VortexWriteSummary#fileSize()}.
+     */
+    public synchronized long estimatedSize() {
+        if (summary != null) {
+            return summary.fileSize();
+        }
+        Preconditions.checkState(!closed.get(), "writer closed without a write summary");
+        long estimatedSize = NativeWriter.estimatedSize(pointer);
+        Preconditions.checkState(estimatedSize >= 0, "native writer returned an invalid estimated size");
+        return estimatedSize;
+    }
+
+    /**
+     * Return the compressed bytes divided by the uncompressed bytes over the data that the writer compressed so far.
+     *
+     * <p>Before the writer compresses its first full chunk, the ratio comes from the small probes that the writer
+     * compresses to choose encodings. Before any compression, the ratio is {@code 1.0}. Multiply the uncompressed size
+     * of data that the caller holds by this ratio to estimate its compressed size. After {@link #finish()}, this is the
+     * ratio that the writer measured before {@code finish()} started.
+     */
+    public synchronized double compressionRatio() {
+        if (summary != null) {
+            return finalCompressionRatio;
+        }
+        Preconditions.checkState(!closed.get(), "writer closed without a write summary");
+        double ratio = NativeWriter.compressionRatio(pointer);
+        Preconditions.checkState(ratio >= 0, "native writer returned an invalid compression ratio");
+        return ratio;
+    }
+
+    /**
      * Flush pending batches, finalize the file, and return its statistics and physical sizes.
      *
      * <p>This method is idempotent. Later calls return the same immutable summary.
      */
     public synchronized VortexWriteSummary finish() throws IOException {
+        return finishWith(null);
+    }
+
+    /**
+     * Flush pending batches, add {@code metadata} to the file footer, finalize the file, and return its statistics and
+     * physical sizes.
+     *
+     * <p>The segments merge with the segments from {@link Builder#metadata(Map)}, and a key in {@code metadata}
+     * replaces the builder segment with the same key. The native limits apply to the merged set.
+     *
+     * <p>This method is not idempotent: a call after the writer is finished or closed throws
+     * {@link IllegalStateException}.
+     *
+     * @param metadata the segments to add; keys and values must not be null
+     * @throws IllegalStateException if the writer is already finished or closed
+     * @throws IOException if the file cannot be finalized
+     */
+    public synchronized VortexWriteSummary finish(Map<String, byte[]> metadata) throws IOException {
+        Objects.requireNonNull(metadata, "metadata");
+        Preconditions.checkState(!closed.get(), "writer already finished; metadata must be given to the first finish");
+
+        // Check and copy the entries before the native call consumes the writer.
+        Map<String, byte[]> segments = new HashMap<>();
+        metadata.forEach((key, value) -> segments.put(
+                Objects.requireNonNull(key, "metadata key"), Objects.requireNonNull(value, "metadata value")));
+
+        return finishWith(segments);
+    }
+
+    private VortexWriteSummary finishWith(Map<String, byte[]> metadata) throws IOException {
         if (closed.compareAndSet(false, true)) {
             try {
-                summary = NativeWriter.finish(pointer);
+                finalCompressionRatio = NativeWriter.compressionRatio(pointer);
+                summary = NativeWriter.finish(pointer, metadata);
             } catch (RuntimeException e) {
                 throw new IOException("failed to close writer", e);
             }
         }
+
         if (summary == null) {
             throw new IOException("writer was closed without retaining its write summary");
         }
+
         return summary;
     }
 
