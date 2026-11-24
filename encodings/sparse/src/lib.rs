@@ -51,6 +51,7 @@ use vortex_buffer::Buffer;
 use vortex_error::VortexExpect as _;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_panic;
 use vortex_mask::AllOr;
@@ -549,6 +550,11 @@ impl SparseData {
         let fill = if let Some(fill) = fill_value {
             fill.cast(array.dtype())?
         } else {
+            vortex_ensure!(
+                matches!(array.dtype(), DType::Primitive(..)),
+                "Sparse::encode needs a fill value for {} arrays that are not mostly null",
+                array.dtype()
+            );
             // TODO(robert): Support other dtypes, only thing missing is getting most common value out of the array
             let primitive = array.clone().execute::<PrimitiveArray>(ctx)?;
             let (top_pvalue, _) = primitive
@@ -929,6 +935,16 @@ mod test {
         let indices = buffer![10_u64, 11, 50, 100].into_array();
 
         Sparse::try_new(indices, values, 101, 0_u32.into(), &mut ctx).unwrap();
+    }
+
+    #[test]
+    fn encode_without_fill_rejects_mostly_valid_strings() {
+        let mut ctx = SESSION.create_execution_ctx();
+        let array = VarBinViewArray::from_iter_str(["a", "b", "b", "b"]).into_array();
+
+        let err = Sparse::encode(&array, None, &mut ctx).unwrap_err();
+
+        assert!(err.to_string().contains("needs a fill value"), "{err}");
     }
 
     #[test]
