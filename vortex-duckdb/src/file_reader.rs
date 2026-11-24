@@ -285,6 +285,17 @@ enum SplitItem {
 
 /// Takes the next array of the thread's split, keeping the split while it has more to yield.
 fn next_split_item(local: &mut LocalState) -> VortexResult<SplitItem> {
+    let item = next_split_item_uncounted(local)?;
+    if !matches!(item, SplitItem::Done) {
+        vortex::io::diag::BATCHES.inc();
+    }
+    if matches!(item, SplitItem::Empty) {
+        vortex::io::diag::EMPTY_BATCHES.inc();
+    }
+    Ok(item)
+}
+
+fn next_split_item_uncounted(local: &mut LocalState) -> VortexResult<SplitItem> {
     match local.split.take() {
         None => Ok(SplitItem::Done),
         Some(Split::V1(task)) => Ok(RUNTIME
@@ -360,6 +371,7 @@ pub fn reader_try_initialize_scan(file: &mut OpenFileReader, local: &mut LocalSt
         local.retired_files.extend(previous);
     }
 
+    vortex::io::diag::JOINS.inc();
     local.split = Some(split);
     true
 }

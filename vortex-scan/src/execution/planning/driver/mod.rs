@@ -213,6 +213,7 @@ impl Drop for Run {
 impl Run {
     /// Creates a run with nothing admitted.
     pub fn new() -> Self {
+        vortex_io::diag::RUNS.inc();
         Self::default()
     }
 
