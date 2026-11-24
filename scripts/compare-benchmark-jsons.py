@@ -1174,14 +1174,12 @@ def format_attributed_cell(verdict: dict[str, str] | None) -> str:
     return verdict["impact"]
 
 
-def format_change_counts(
-    ratios: pd.Series, improvement_threshold: float, regression_threshold: float
-) -> tuple[str, str]:
-    """Count the cells that clear the threshold faster and slower."""
+def format_change_counts(ratios: pd.Series, improvement_threshold: float, regression_threshold: float) -> str:
+    """Count the cells that clear the threshold faster (↑) and slower (↓), as in `(3↑ 0↓)`."""
 
     faster = int((ratios <= improvement_threshold).sum())
     slower = int((ratios >= regression_threshold).sum())
-    return str(faster), str(slower)
+    return f"({faster}↑ {slower}↓)"
 
 
 def format_target_summary_row(
@@ -1191,14 +1189,14 @@ def format_target_summary_row(
     improvement_threshold: float,
     regression_threshold: float,
 ) -> list[str]:
-    """Render the geomean ratio and the change counts of each run for one row of the target table."""
+    """Render one row of the target table: each run's geomean ratio, with its change counts beside it."""
 
     row = [label]
     for run_ratio in ("ratio", "cold_ratio") if show_cold else ("ratio",):
         ratios = rows[run_ratio]
         geomean = geometric_mean_from_values(ratios)
-        row.append(format_ratio_cell(geomean, improvement_threshold, regression_threshold))
-        row += format_change_counts(ratios, improvement_threshold, regression_threshold)
+        ratio_cell = format_ratio_cell(geomean, improvement_threshold, regression_threshold)
+        row.append(f"{ratio_cell} {format_change_counts(ratios, improvement_threshold, regression_threshold)}")
     return row
 
 
@@ -1252,7 +1250,7 @@ def format_target_summary_table(
 
     headers = ["target"]
     for run in ("hot", "cold") if show_cold else ("hot",):
-        headers += [run, f"{run} ↑", f"{run} ↓"]
+        headers.append(run)
     if show_attribution:
         headers.append("vs parquet")
 
@@ -1297,8 +1295,8 @@ def format_report_help() -> str:
             "",
             "- **Target table**: One row per target, in the same order as the query table "
             "columns. `hot` and `cold` are the geomean "
-            "of PR ÷ develop over the queries, marked like the query cells, and the ↑ and ↓ "
-            "columns count the queries that cleared this suite's threshold faster or slower.",
+            "of PR ÷ develop over the queries, marked like the query cells. Beside it, `(3↑ 0↓)` "
+            "counts the queries that cleared this suite's threshold faster or slower.",
             "- **vs parquet**: The change after the drift of the Parquet control on the same "
             "engine is removed. It is marked 🟢 or 🔴 only when it is above the noise floor, and it shows "
             "`—` when the control is too noisy to remove.",
