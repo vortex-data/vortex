@@ -73,7 +73,7 @@ impl ArrayPlugin for EliasFano {
             ..
         } = parts;
         vortex_ensure_eq!(buffers.len(), 0);
-        vortex_ensure_eq!(children.len(), 2);
+        vortex_ensure_eq!(children.len(), EliasFanoSlots::COUNT);
 
         let metadata = EliasFanoMetadata::decode(metadata)?;
         let upper = children.get(

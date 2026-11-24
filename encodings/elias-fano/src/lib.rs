@@ -16,9 +16,10 @@
 //! writers reject them for now. [`initialize`] registers them in a session.
 #![deny(missing_docs)]
 
-mod elias_fano;
-mod unary;
+use vortex_array::session::ArraySessionExt;
+use vortex_session::VortexSession;
 
+mod elias_fano;
 pub use elias_fano::EliasFano;
 pub use elias_fano::EliasFanoArray;
 pub use elias_fano::EliasFanoArrayExt;
@@ -26,15 +27,25 @@ pub use elias_fano::EliasFanoArraySlotsExt;
 pub use elias_fano::EliasFanoData;
 pub use elias_fano::elias_fano_encode;
 pub use elias_fano::elias_fano_lower_bits;
+
+mod unary;
 pub use unary::Unary;
 pub use unary::UnaryArray;
 pub use unary::UnaryData;
 pub use unary::unary_encode;
-use vortex_array::session::ArraySessionExt;
-use vortex_session::VortexSession;
 
 /// Register this crate's encodings in `session`.
 pub fn initialize(session: &VortexSession) {
     session.arrays().register(EliasFano);
     session.arrays().register(Unary);
 }
+
+#[cfg(test)]
+static SESSION: std::sync::LazyLock<VortexSession> = std::sync::LazyLock::new(|| {
+    let session = VortexSession::empty();
+    initialize(&session);
+    session
+});
+
+#[cfg(test)]
+mod test_support;
