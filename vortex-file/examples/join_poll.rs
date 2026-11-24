@@ -460,14 +460,18 @@ impl DevV2File {
         loop {
             while run.live_roots() < 1 {
                 match self.next_work() {
-                    Some(Work::Chunk(scope, chunk)) => run.admit(chunk, scope, self.io.session()),
+                    Some(Work::Chunk(scope, chunk)) => {
+                        run.admit(chunk, scope, self.io.session());
+                    }
                     Some(Work::Batch(array)) => return Ok(Some(array)),
                     None => break,
                 }
             }
             match run.advance()? {
                 Progress::Batch(batch) => return Ok(Some(batch.array)),
-                Progress::Spawn(scope, child) => run.admit(child, scope, self.io.session()),
+                Progress::Spawn(scope, child) => {
+                    run.admit(child, scope, self.io.session());
+                }
                 Progress::RootDone(_) => {}
                 Progress::Idle => return Ok(None),
                 Progress::Waiting => {
