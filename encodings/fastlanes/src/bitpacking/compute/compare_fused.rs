@@ -60,11 +60,8 @@ const WORDS_PER_CHUNK: usize = CHUNK_SIZE / U64_BITS;
 /// Compare the unpacked values of a [`BitPackedArray`] using the fused FastLanes `unpack_cmp`
 /// kernel for `op`, producing a [`BoolArray`].
 ///
-/// `op` compares the packed values of the physical type, so it may assume `[0, 2^W - 1]`. FastLanes
-/// compiles its kernels, so this crate does not instantiate them. When `negate` is set, the result
-/// of `op` is inverted, so one kernel serves an operator and its negation.
-/// `predicate(value)` is exact and handles patches and width 0; it is `&dyn` since that path is
-/// cold.
+/// When `negate` is set, the result of `op` is inverted. `predicate(value)` is exact and handles
+/// patches and width 0.
 ///
 /// [`BitPackedArray`]: crate::BitPackedArray
 pub(super) fn stream_compare_fused<T>(
