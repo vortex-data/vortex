@@ -32,7 +32,7 @@ use vortex_fastlanes::FoRArraySlotsExt;
 use vortex_fastlanes::FoRReferences;
 use vortex_fastlanes::for_v1_id;
 
-use super::BITPACKING_V1;
+use super::BitPackingScheme;
 use crate::ArrayAndStats;
 use crate::CascadingCompressor;
 use crate::CompressorContext;
@@ -60,7 +60,7 @@ impl Scheme for EliasFanoScheme {
 
     fn produced_encodings(&self) -> Vec<ArrayId> {
         let mut encodings = vec![for_v1_id(), EliasFano.id(), Unary.id()];
-        encodings.extend(BITPACKING_V1.produced_encodings());
+        encodings.extend(BitPackingScheme.produced_encodings());
         encodings
     }
 
@@ -130,7 +130,7 @@ impl Scheme for EliasFanoScheme {
             .ok_or_else(|| vortex_err!("Elias-Fano bucket counts do not fit Unary"))?;
 
         let lows = ArrayAndStats::new(ef.lower().clone(), compress_ctx.merged_stats_options());
-        let lower = BITPACKING_V1.compress(compressor, &lows, compress_ctx, exec_ctx)?;
+        let lower = BitPackingScheme.compress(compressor, &lows, compress_ctx, exec_ctx)?;
 
         let ef = EliasFano::try_new(upper.into_array(), lower, ef.lower_bits())?;
         Ok(FoR::try_new(ef.into_array(), reference.clone())?.into_array())

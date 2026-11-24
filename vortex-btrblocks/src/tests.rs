@@ -543,7 +543,7 @@ fn test_child_policy_overrides_schemes(#[case] keep: bool) -> VortexResult<()> {
     let input = PrimitiveArray::from_iter((0..1_000_000).map(|i| i / 100)).into_array();
     let mut builder = BtrBlocksCompressorBuilder::empty()
         .with_new_scheme(&RunEndScheme)
-        .with_new_scheme(&BITPACKING_V1);
+        .with_new_scheme(&BitPackingScheme);
     if keep {
         builder = builder.with_child_policy(Arc::new(KeepEverything));
     }
