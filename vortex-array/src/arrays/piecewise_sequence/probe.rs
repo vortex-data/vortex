@@ -117,21 +117,28 @@ fn locate_once(
 ) -> VortexResult<LocatedPiece> {
     if let Some(primitive) = lengths.as_opt::<Primitive>() {
         return match_each_unsigned_integer_ptype!(primitive.ptype(), |T| {
-            let values = primitive.as_slice::<T>();
-            let mut remaining = index;
-            for (piece, &length) in values.iter().enumerate() {
-                let length: usize = length.as_();
-                if remaining < length {
-                    let start = index - remaining;
-                    let end = start + length.min(output_len - start);
-                    return Ok(LocatedPiece { piece, start, end });
-                }
-                remaining -= length;
-            }
-            Err(out_of_bounds(index))
+            locate_in_slice(primitive.as_slice::<T>(), index, output_len)
         });
     }
     locate_in_range(lengths, 0..lengths.len(), 0, index, output_len, ctx)
+}
+
+fn locate_in_slice<T: AsPrimitive<usize>>(
+    lengths: &[T],
+    index: usize,
+    output_len: usize,
+) -> VortexResult<LocatedPiece> {
+    let mut remaining = index;
+    for (piece, &length) in lengths.iter().enumerate() {
+        let length: usize = length.as_();
+        if remaining < length {
+            let start = index - remaining;
+            let end = start + length.min(output_len - start);
+            return Ok(LocatedPiece { piece, start, end });
+        }
+        remaining -= length;
+    }
+    Err(out_of_bounds(index))
 }
 
 impl PieceIndex {
@@ -247,14 +254,22 @@ fn visit_primitive(
     visit: &mut impl FnMut(usize, usize) -> VortexResult<bool>,
 ) -> VortexResult<bool> {
     match_each_unsigned_integer_ptype!(primitive.ptype(), |T| {
-        let values = primitive.as_slice::<T>();
-        for piece in pieces {
-            if !visit(base + piece, values[piece].as_())? {
-                return Ok(false);
-            }
-        }
-        Ok(true)
+        visit_slice(primitive.as_slice::<T>(), pieces, base, visit)
     })
+}
+
+fn visit_slice<T: AsPrimitive<usize>>(
+    lengths: &[T],
+    pieces: Range<usize>,
+    base: usize,
+    visit: &mut impl FnMut(usize, usize) -> VortexResult<bool>,
+) -> VortexResult<bool> {
+    for piece in pieces {
+        if !visit(base + piece, lengths[piece].as_())? {
+            return Ok(false);
+        }
+    }
+    Ok(true)
 }
 
 fn unsigned_scalar_usize(scalar: &Scalar) -> VortexResult<usize> {
