@@ -143,7 +143,7 @@ pub struct BtrBlocksCompressorBuilder {
     allowed: AllowedIds,
     mode: CompressionMode,
     child_policy: Option<Arc<dyn ChildPolicy>>,
-    run_model: Option<integer::RunModel>,
+    run_model: Option<Box<integer::RunModel>>,
 }
 
 impl BtrBlocksCompressorBuilder {
@@ -220,7 +220,7 @@ impl BtrBlocksCompressorBuilder {
     /// its decode time. See [`RunModel`](integer::RunModel). Off by default. Only schemes already
     /// in the builder are affected.
     pub fn with_run_model(mut self, model: integer::RunModel) -> Self {
-        self.run_model = Some(model);
+        self.run_model = Some(Box::new(model));
         self
     }
 
@@ -268,7 +268,11 @@ impl BtrBlocksCompressorBuilder {
         let excluded: HashSet<SchemeId> = self.mode.excluded_schemes().into_iter().collect();
         let excluded_ids: HashSet<ArrayId> = self.mode.excluded_encodings().into_iter().collect();
         let allowed = |id: &ArrayId| self.allowed.is_allowed(id) && !excluded_ids.contains(id);
-        let modeled = self.run_model.map(integer::modeled_schemes);
+        let modeled = self
+            .run_model
+            .as_deref()
+            .copied()
+            .map(integer::modeled_schemes);
         self.schemes
             .iter()
             .copied()

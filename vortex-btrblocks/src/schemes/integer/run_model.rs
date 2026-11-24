@@ -36,6 +36,7 @@ use vortex_compressor::scheme::DescendantExclusion;
 use vortex_compressor::scheme::Encoded;
 use vortex_compressor::scheme::EstimateVerdict;
 use vortex_error::VortexResult;
+use vortex_utils::aliases::hash_map::HashMap;
 
 use super::IntRLEScheme;
 use super::RunEndScheme;
@@ -99,6 +100,21 @@ impl RunModel {
         let mut model = Self::size_only();
         model.bandwidth = Some(bandwidth);
         model
+    }
+
+    /// The model's fields as bits, so equal models, NaNs included, share one cache entry.
+    fn key(&self) -> [u64; 9] {
+        [
+            u64::from(self.bandwidth.is_some()),
+            self.bandwidth.unwrap_or_default().to_bits(),
+            self.baseline_ns_per_value.to_bits(),
+            self.runend_ns_per_run.to_bits(),
+            self.rle_ns_per_value.to_bits(),
+            self.sparse_ns_per_value.to_bits(),
+            self.sparse_ns_per_patch.to_bits(),
+            self.rle_min_average_run.to_bits(),
+            self.runend_min_average_run.to_bits(),
+        ]
     }
 
     /// Converts decode time beyond bit-packing's into the bits that time could have transferred.
@@ -342,17 +358,18 @@ impl Scheme for Modeled {
 /// The modeled RunEnd, RLE and Sparse schemes, in that order.
 type ModeledSchemes = [&'static dyn Scheme; 3];
 
-/// Modeled schemes built so far, one set per distinct model.
+/// Modeled schemes built so far, one set per distinct model, keyed by the model's bits.
 ///
 /// Schemes are registered as `&'static`, so each model's schemes are leaked once and reused by
-/// every later builder with an equal model.
-static MODELED: LazyLock<Mutex<Vec<(RunModel, ModeledSchemes)>>> =
-    LazyLock::new(|| Mutex::new(Vec::new()));
+/// every later builder with a bitwise-equal model, including one holding a NaN.
+static MODELED: LazyLock<Mutex<HashMap<[u64; 9], ModeledSchemes>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
 
 /// Returns the modeled RunEnd, RLE and Sparse schemes for `model`.
 pub(crate) fn modeled_schemes(model: RunModel) -> ModeledSchemes {
     let mut cache = MODELED.lock();
-    if let Some((_, schemes)) = cache.iter().find(|(m, _)| *m == model) {
+    let key = model.key();
+    if let Some(schemes) = cache.get(&key) {
         return *schemes;
     }
     let leak = |inner: &'static dyn Scheme, kind| -> &'static dyn Scheme {
@@ -363,6 +380,6 @@ pub(crate) fn modeled_schemes(model: RunModel) -> ModeledSchemes {
         leak(&IntRLEScheme, Kind::Rle),
         leak(&SparseScheme, Kind::Sparse),
     ];
-    cache.push((model, schemes));
+    cache.insert(key, schemes);
     schemes
 }
