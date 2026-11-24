@@ -256,7 +256,7 @@ impl QueryState {
     /// Get total number of pages.
     pub fn total_pages(&self) -> usize {
         match self.total_row_count {
-            Some(total) if total > 0 => total.div_ceil(self.page_size),
+            Some(total) if total > 0 && self.page_size > 0 => total.div_ceil(self.page_size),
             _ => 1,
         }
     }
@@ -830,5 +830,24 @@ mod tests {
                 Some(5),
             )
         );
+    }
+
+    #[test]
+    fn limit_zero_pagination_does_not_panic() {
+        let mut state = QueryState {
+            sql_input: "SELECT * FROM data LIMIT 0".to_string(),
+            ..Default::default()
+        };
+        state.prepare_initial_query();
+        assert_eq!(state.page_size, 0);
+        assert_eq!(state.sql_input, "SELECT * FROM data LIMIT 0 OFFSET 0");
+
+        state.total_row_count = Some(19);
+        assert_eq!(state.total_pages(), 1);
+
+        state.pending_execution = false;
+        state.prepare_next_page();
+        assert_eq!(state.current_page, 0);
+        assert!(!state.pending_execution);
     }
 }

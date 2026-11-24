@@ -93,6 +93,21 @@ impl FSSTMetadata {
 /// symbol lengths buffers out to it on construction.
 pub const FSST_SYMBOL_TABLE_LEN: usize = 255;
 
+fn read_symbol_table(
+    symbols: &BufferHandle,
+    lengths: &BufferHandle,
+) -> VortexResult<(Buffer<Symbol>, Buffer<u8>)> {
+    // An empty table encodes every byte as an escape. Even a zero-byte device copy can wait
+    // for the stream, so use the buffer lengths rather than issuing two readbacks.
+    if symbols.is_empty() && lengths.is_empty() {
+        return Ok((Buffer::empty(), Buffer::empty()));
+    }
+    Ok((
+        Buffer::from_byte_buffer(symbols.try_to_host_sync()?),
+        Buffer::from_byte_buffer(lengths.try_to_host_sync()?),
+    ))
+}
+
 impl ArrayHash for FSSTData {
     fn array_hash<H: Hasher>(&self, state: &mut H, precision: EqMode) {
         self.padded_symbols().array_hash(state, precision);
@@ -173,8 +188,7 @@ impl VTable for FSST {
         buffers: &[BufferHandle],
     ) -> VortexResult<ArrayParts<Self>> {
         vortex_ensure_eq!(buffers.len(), 3);
-        let symbols = Buffer::<Symbol>::from_byte_buffer(buffers[0].clone().try_to_host_sync()?);
-        let symbol_lengths = Buffer::<u8>::from_byte_buffer(buffers[1].clone().try_to_host_sync()?);
+        let (symbols, symbol_lengths) = read_symbol_table(&buffers[0], &buffers[1])?;
         let data = FSSTData::try_new(symbols, symbol_lengths, buffers[2].clone(), array.len())?;
         Ok(ArrayParts::new(
             self.clone(),
@@ -922,25 +936,36 @@ impl ValidityVTable<FSST> for FSST {
 
 #[cfg(test)]
 mod test {
+    use std::any::Any;
+    use std::future::Future;
+    use std::ops::Range;
+    use std::pin::Pin;
+    use std::sync::Arc;
     use std::sync::LazyLock;
 
     use fsst::Compressor;
     use fsst::Symbol;
     use prost::Message;
+    use rstest::rstest;
     use vortex_array::ArrayDeserialization;
     use vortex_array::ArrayPlugin;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::VarBinViewArray;
+    use vortex_array::assert_arrays_eq;
     use vortex_array::buffer::BufferHandle;
+    use vortex_array::buffer::DeviceBuffer;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
     use vortex_array::optimizer::ArrayOptimizer;
     use vortex_array::test_harness::check_metadata;
     use vortex_array::vtable::VTable as _;
+    use vortex_buffer::Alignment;
     use vortex_buffer::Buffer;
+    use vortex_buffer::ByteBuffer;
     use vortex_error::VortexResult;
+    use vortex_error::vortex_bail;
     use vortex_error::vortex_err;
     use vortex_session::VortexSession;
 
@@ -953,7 +978,6 @@ mod test {
     use crate::array::FSSTSymbolTable;
     use crate::array::padded_symbol_table;
     use crate::fsst_compress;
-    use crate::fsst_train_compressor;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
         let session = VortexSession::empty();
@@ -1028,30 +1052,65 @@ mod test {
         Ok(())
     }
 
+    /// A zero-byte device buffer that makes even an attempted host readback observable.
+    #[derive(Debug, PartialEq, Eq, Hash)]
+    struct EmptyDeviceBuffer;
+
+    impl DeviceBuffer for EmptyDeviceBuffer {
+        fn as_any(&self) -> &dyn Any {
+            self
+        }
+
+        fn len(&self) -> usize {
+            0
+        }
+
+        fn alignment(&self) -> Alignment {
+            Alignment::of::<Symbol>()
+        }
+
+        fn copy_to_host_sync(&self, _: Alignment) -> VortexResult<ByteBuffer> {
+            vortex_bail!("unexpected readback of empty FSST symbol table")
+        }
+
+        fn copy_to_host(
+            &self,
+            _: Alignment,
+        ) -> VortexResult<Pin<Box<dyn Future<Output = VortexResult<ByteBuffer>> + Send>>> {
+            vortex_bail!("unexpected readback of empty FSST symbol table")
+        }
+
+        fn slice(&self, range: Range<usize>) -> Arc<dyn DeviceBuffer> {
+            assert_eq!(range, 0..0);
+            Arc::new(Self)
+        }
+
+        fn aligned(self: Arc<Self>, alignment: Alignment) -> VortexResult<Arc<dyn DeviceBuffer>> {
+            assert!(self.alignment().is_aligned_to(alignment));
+            Ok(self)
+        }
+    }
+
     /// Buffers arriving from a file hold the unpadded symbol table, so deserialization must pad
     /// them before a `Decompressor` can borrow them.
-    #[test]
-    fn symbol_table_padded_on_deserialize() -> VortexResult<()> {
+    #[rstest]
+    #[case::empty_device(Compressor::rebuild_from([], []))]
+    #[case::populated(Compressor::rebuild_from([Symbol::from_slice(b"abc00000")], [3]))]
+    fn symbol_table_padded_on_deserialize(#[case] compressor: Compressor) -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
         let input = VarBinViewArray::from_iter_str(["abcabcab", "defghijk"]).into_array();
-        let compressor = fsst_train_compressor(&input, &mut ctx)?;
         let fsst_array = fsst_compress(&input, &compressor, &mut ctx)?;
 
-        let buffers = [
-            BufferHandle::new_host(
-                fsst_array
-                    .padded_symbols()
-                    .slice(0..fsst_array.n_symbols())
-                    .into_byte_buffer(),
-            ),
-            BufferHandle::new_host(
-                fsst_array
-                    .padded_symbol_lengths()
-                    .slice(0..fsst_array.n_symbols())
-                    .into_byte_buffer(),
-            ),
-            fsst_array.codes_bytes_handle().clone(),
-        ];
+        let (symbols, lengths) = if fsst_array.n_symbols() == 0 {
+            let empty = BufferHandle::new_device(Arc::new(EmptyDeviceBuffer));
+            (empty.clone(), empty)
+        } else {
+            (
+                FSST::buffer(fsst_array.as_view(), 0),
+                FSST::buffer(fsst_array.as_view(), 1),
+            )
+        };
+        let buffers = [symbols, lengths, fsst_array.codes_bytes_handle().clone()];
         assert!(buffers[1].len() < FSST_SYMBOL_TABLE_LEN);
 
         let children = vec![
@@ -1087,9 +1146,7 @@ mod test {
         assert_eq!(padded.padded_symbols().len(), FSST_SYMBOL_TABLE_LEN);
         assert_eq!(padded.n_symbols(), fsst_array.symbols().len());
 
-        let decompressed = deserialized.execute::<VarBinViewArray>(&mut ctx)?;
-        assert_eq!(decompressed.bytes_at(0).as_slice(), b"abcabcab".as_ref());
-        assert_eq!(decompressed.bytes_at(1).as_slice(), b"defghijk".as_ref());
+        assert_arrays_eq!(deserialized, input, &mut ctx);
         Ok(())
     }
 

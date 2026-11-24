@@ -427,6 +427,7 @@ jobs:
             --bench bitpacked_cuda \
             --bench dynamic_dispatch_cuda \
             --bench alp_cuda \
+            --bench alprd_cuda \
             --bench date_time_parts_cuda \
             --bench delta_cuda \
             --bench dict_cuda \
@@ -497,6 +498,7 @@ jobs:
           run: >-
             cargo codspeed run
             --bench bitpacked_cuda --bench dynamic_dispatch_cuda --bench alp_cuda
+            --bench alprd_cuda
             --bench date_time_parts_cuda --bench delta_cuda --bench dict_cuda
             --bench fsst_cuda --bench runend_cuda
           token: ${{ secrets.CODSPEED_TOKEN }}

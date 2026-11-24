@@ -160,7 +160,7 @@ impl VTable for RLE {
         );
 
         Ok(ExecutionResult::done(
-            rle_decompress(&array, ctx)?.into_array(),
+            rle_decompress(array, ctx)?.into_array(),
         ))
     }
 }

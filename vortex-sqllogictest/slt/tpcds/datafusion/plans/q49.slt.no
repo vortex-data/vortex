@@ -187,7 +187,7 @@ physical_plan
 02)--SortExec: TopK(fetch=100), expr=[channel@0 ASC, return_rank@3 ASC, currency_rank@4 ASC, item@1 ASC], preserve_partitioning=[true]
 03)----AggregateExec: mode=FinalPartitioned, gby=[channel@0 as channel, item@1 as item, return_ratio@2 as return_ratio, return_rank@3 as return_rank, currency_rank@4 as currency_rank], aggr=[]
 04)------RepartitionExec: partitioning=Hash([channel@0, item@1, return_ratio@2, return_rank@3, currency_rank@4], 4), input_partitions=12
-05)--------AggregateExec: mode=Partial, gby=[channel@0 as channel, item@1 as item, return_ratio@2 as return_ratio, return_rank@3 as return_rank, currency_rank@4 as currency_rank], aggr=[], ordering_mode=PartiallySorted([0, 4])
+05)--------AggregateExec: mode=Partial, gby=[channel@0 as channel, item@1 as item, return_ratio@2 as return_ratio, return_rank@3 as return_rank, currency_rank@4 as currency_rank], aggr=[], group_clustering_mode=Partial([4])
 06)----------UnionExec
 07)------------ProjectionExec: expr=[web as channel, item@0 as item, return_ratio@1 as return_ratio, rank() ORDER BY [in_web.return_ratio ASC NULLS LAST] RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW@2 as return_rank, rank() ORDER BY [in_web.currency_ratio ASC NULLS LAST] RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW@3 as currency_rank]
 08)--------------FilterExec: rank() ORDER BY [in_web.return_ratio ASC NULLS LAST] RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW@2 <= 10 OR rank() ORDER BY [in_web.currency_ratio ASC NULLS LAST] RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW@3 <= 10

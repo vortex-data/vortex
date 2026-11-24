@@ -12,10 +12,7 @@ immutable = false
 
 # Components added by this edition.
 [added]
-arrays = [
-    "vortex.decimal_byte_parts.v2",
-    "vortex.widen",
-]
+arrays = []
 layouts = []
 dtypes = []
 aggregates = []
@@ -23,10 +20,7 @@ aggregates = []
 # The edition's full membership: the members above, plus every member of earlier
 # editions of the family.
 [components]
-arrays = [
-    "vortex.decimal_byte_parts.v2",
-    "vortex.widen",
-]
+arrays = []
 layouts = []
 dtypes = []
 aggregates = []

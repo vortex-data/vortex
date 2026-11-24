@@ -41,3 +41,7 @@ harness = false
 [[bench]]
 name = "sparse_pushdown"
 harness = false
+
+[[bench]]
+name = "sparse_dict_codes"
+harness = false

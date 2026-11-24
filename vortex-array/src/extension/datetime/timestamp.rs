@@ -149,7 +149,7 @@ impl fmt::Display for TimestampValue<'_> {
             None => write!(f, "{ts}"),
             Some(tz) => {
                 let zone = resolve_time_zone(Some(tz)).vortex_expect("unknown timezone");
-                let adjusted_ts = ts.to_zoned(zone);
+                let adjusted_ts = ts.to_zoned_datetime(zone);
                 write!(f, "{adjusted_ts}",)
             }
         }

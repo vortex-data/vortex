@@ -48,7 +48,7 @@ use crate::hybrid_dispatch;
 use crate::kernel::DefaultLaunchStrategy;
 use crate::kernel::LaunchStrategy;
 use crate::kernel::LaunchStrategyExt;
-use crate::kernel::launch_cuda_kernel_impl;
+use crate::kernel::default_launch_config;
 use crate::kernel::launch_cuda_kernel_with_config;
 use crate::session::CudaSessionExt;
 use crate::stream::VortexCudaStream;
@@ -156,11 +156,11 @@ impl CudaExecutionCtx {
         self
     }
 
-    /// Perform an external kernel launch, with events created and logged via the configured
-    /// [`LaunchStrategy`].
+    /// Perform an external kernel launch, recording events if the configured [`LaunchStrategy`]
+    /// requests them.
     ///
     /// We use CUB and NVCOMP routines, and those don't match the normal launch entrypoints, so
-    /// to inject the configured launch strategy we need to bracket it ourselves.
+    /// we bracket the whole call rather than each kernel the routine launches internally.
     pub fn launch_external<F: FnMut() -> VortexResult<()>>(
         &self,
         len: usize,
@@ -185,12 +185,7 @@ impl CudaExecutionCtx {
     where
         F: FnOnce(&mut LaunchArgs<'a>),
     {
-        let mut launcher = self.launch_builder(function);
-        build_args(&mut launcher);
-
-        let events = launch_cuda_kernel_impl(&mut launcher, self.strategy.event_flags(), len)?;
-        self.strategy.on_complete(&events, len)?;
-        Ok(())
+        self.launch_kernel_config(function, default_launch_config(len)?, len, build_args)
     }
 
     /// Launch a function with args provided by the `build_args` closure, with an explicit
@@ -208,9 +203,10 @@ impl CudaExecutionCtx {
         let mut launcher = self.launch_builder(function);
         build_args(&mut launcher);
 
-        let events =
-            launch_cuda_kernel_with_config(&mut launcher, cfg, self.strategy.event_flags())?;
-        self.strategy.on_complete(&events, len)?;
+        let event_flags = self.strategy.event_flags();
+        if let Some(events) = launch_cuda_kernel_with_config(&mut launcher, cfg, event_flags)? {
+            self.strategy.on_complete(&events, len)?;
+        }
         Ok(())
     }
 
@@ -512,6 +508,8 @@ impl CudaArrayExt for ArrayRef {
 mod tests {
     use std::ops::Range;
     use std::sync::Arc;
+    use std::sync::atomic::AtomicUsize;
+    use std::sync::atomic::Ordering;
 
     use rstest::rstest;
     use vortex::array::Canonical;
@@ -524,11 +522,71 @@ mod tests {
     use vortex::buffer::Buffer;
     use vortex::dtype::DecimalDType;
     use vortex::dtype::DecimalType;
+    use vortex::dtype::PType;
     use vortex::error::VortexResult;
+    use vortex::error::vortex_err;
+    use vortex_cuda_driver::PushKernelArg;
+    use vortex_cuda_driver::sys::CUevent_flags;
 
     use crate::CanonicalCudaExt;
+    use crate::CudaKernelEvents;
     use crate::CudaSession;
+    use crate::LaunchStrategy;
     use crate::cuda_session;
+
+    #[derive(Debug)]
+    struct CountLaunches {
+        record: bool,
+        calls: AtomicUsize,
+    }
+
+    impl LaunchStrategy for CountLaunches {
+        fn event_flags(&self) -> Option<CUevent_flags> {
+            self.record.then_some(CUevent_flags::CU_EVENT_DEFAULT)
+        }
+
+        fn on_complete(&self, events: &CudaKernelEvents, len: usize) -> VortexResult<()> {
+            assert_eq!(len, 1);
+            events.duration()?;
+            self.calls.fetch_add(1, Ordering::Relaxed);
+            Ok(())
+        }
+    }
+
+    #[rstest]
+    #[case::events_disabled(false, 0)]
+    #[case::events_enabled(true, 2)]
+    #[crate::test]
+    async fn optional_launch_events(
+        #[case] record: bool,
+        #[case] expected_callbacks: usize,
+    ) -> VortexResult<()> {
+        let strategy = Arc::new(CountLaunches {
+            record,
+            calls: AtomicUsize::new(0),
+        });
+        let mut ctx = CudaSession::create_execution_ctx(&cuda_session())?
+            .with_launch_strategy(Arc::<CountLaunches>::clone(&strategy));
+        let mut ran_external = false;
+        ctx.launch_external(1, || {
+            ran_external = true;
+            Ok(())
+        })?;
+        assert!(ran_external);
+
+        let kernel = ctx.load_function("constant_numeric", &[PType::U32])?;
+        let mut output = ctx.device_alloc::<u32>(1)?;
+        ctx.launch_kernel(&kernel, 1, |args| {
+            args.arg(&mut output).arg(&42u32).arg(&1u64);
+        })?;
+        let values = ctx
+            .stream()
+            .clone_dtoh(&output)
+            .map_err(|e| vortex_err!("Failed to read kernel output: {e}"))?;
+        assert_eq!(values, [42]);
+        assert_eq!(strategy.calls.load(Ordering::Relaxed), expected_callbacks);
+        Ok(())
+    }
 
     #[rstest]
     #[case::i8(DecimalType::I8, 2)]

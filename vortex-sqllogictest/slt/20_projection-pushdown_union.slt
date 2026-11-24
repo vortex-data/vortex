@@ -1,0 +1,63 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+include ./setup.slt.no
+
+# Check projection pushdowns with different sets of pre- and
+# post-filter column set
+
+query I
+COPY (SELECT 'ololo' AS id) TO '${WORK_DIR}/projection-pushdown-id.vortex';
+----
+1
+
+onlyif duckdb
+query I
+SELECT first(const) FROM (
+    SELECT id, 0 AS const FROM '${WORK_DIR}/projection-pushdown-id.vortex'
+    UNION ALL SELECT id, 0 AS const FROM '${WORK_DIR}/projection-pushdown-id.vortex'
+)
+GROUP BY id;
+----
+0
+
+query TI
+SELECT * FROM (
+    SELECT id, 0 AS const FROM '${WORK_DIR}/projection-pushdown-id.vortex'
+    UNION ALL SELECT id, 0 AS const FROM '${WORK_DIR}/projection-pushdown-id.vortex'
+)
+----
+ololo 0
+ololo 0
+
+onlyif duckdb
+query TI
+SELECT * FROM (
+    SELECT id, 0 AS const FROM '${WORK_DIR}/projection-pushdown-id.vortex'
+    UNION ALL SELECT 'd', 0 AS const
+)
+----
+ololo 0
+d 0
+
+onlyif datafusion
+query TI
+SELECT * FROM (
+    SELECT id, 0 AS const FROM '${WORK_DIR}/projection-pushdown-id.vortex'
+    UNION ALL SELECT '', 0 AS const
+)
+ORDER BY id;
+----
+(empty) 0
+ololo 0
+
+onlyif duckdb
+query I
+SELECT first(t) AS sales
+FROM (
+    SELECT id, 0 AS t FROM '${WORK_DIR}/projection-pushdown-id.vortex'
+    UNION ALL SELECT id, 0 AS t FROM '${WORK_DIR}/projection-pushdown-id.vortex'
+)
+GROUP BY id;
+----
+0
