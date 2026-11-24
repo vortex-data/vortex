@@ -54,6 +54,10 @@ name = "bitpacking_take"
 harness = false
 
 [[bench]]
+name = "bitpacking_list_contains"
+harness = false
+
+[[bench]]
 name = "chunked_fsl_take"
 harness = false
 

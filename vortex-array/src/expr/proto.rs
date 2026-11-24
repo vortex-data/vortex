@@ -23,8 +23,25 @@ pub trait ExprSerializeProtoExt {
 /// already-serialized expressions keep round-tripping.
 pub(crate) const ROOT_ID: &str = "vortex.root";
 
+const MAX_EXPR_PROTO_DEPTH: usize = 100;
+
+fn ensure_proto_depth(depth: usize) -> VortexResult<()> {
+    vortex_ensure!(
+        depth <= MAX_EXPR_PROTO_DEPTH,
+        "expression nesting depth exceeds the maximum of {MAX_EXPR_PROTO_DEPTH}"
+    );
+    Ok(())
+}
+
 impl ExprSerializeProtoExt for Expression {
     fn serialize_proto(&self) -> VortexResult<pb::Expr> {
+        self.serialize_proto_at_depth(1)
+    }
+}
+
+impl Expression {
+    fn serialize_proto_at_depth(&self, depth: usize) -> VortexResult<pb::Expr> {
+        ensure_proto_depth(depth)?;
         if let Expression::Variable(name) = self {
             return Err(unbound_variable(name));
         }
@@ -39,7 +56,7 @@ impl ExprSerializeProtoExt for Expression {
         let children = self
             .children()
             .iter()
-            .map(|child| child.serialize_proto())
+            .map(|child| child.serialize_proto_at_depth(depth + 1))
             .try_collect()?;
 
         let metadata = scalar_fn.options().serialize()?.ok_or_else(|| {
@@ -60,6 +77,15 @@ impl ExprSerializeProtoExt for Expression {
 
 impl Expression {
     pub fn from_proto(expr: &pb::Expr, session: &VortexSession) -> VortexResult<Expression> {
+        Self::from_proto_at_depth(expr, session, 1)
+    }
+
+    fn from_proto_at_depth(
+        expr: &pb::Expr,
+        session: &VortexSession,
+        depth: usize,
+    ) -> VortexResult<Expression> {
+        ensure_proto_depth(depth)?;
         // Root is not a registered scalar fn, so it must be resolved before the registry lookup.
         if expr.id == ROOT_ID {
             vortex_ensure!(
@@ -75,7 +101,7 @@ impl Expression {
         let children = expr
             .children
             .iter()
-            .map(|e| Expression::from_proto(e, session))
+            .map(|e| Expression::from_proto_at_depth(e, session, depth + 1))
             .collect::<VortexResult<Vec<_>>>()?;
 
         let scalar_fn = if let Some(vtable) = session.scalar_fns().registry().get(&expr_id) {
@@ -104,15 +130,18 @@ mod tests {
     use std::sync::LazyLock;
 
     use prost::Message;
+    use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
     use super::ExprSerializeProtoExt;
+    use super::MAX_EXPR_PROTO_DEPTH;
     use crate::expr::Expression;
     use crate::expr::and;
     use crate::expr::eq;
     use crate::expr::get_item;
     use crate::expr::lit;
     use crate::expr::lt;
+    use crate::expr::not;
     use crate::expr::or;
     use crate::expr::root;
     use crate::proto::expr as pb;
@@ -157,5 +186,68 @@ mod tests {
         assert_eq!(roundtrip.id, expr_proto.id);
         assert_eq!(roundtrip.metadata(), expr_proto.metadata());
         assert_eq!(roundtrip.children, expr_proto.children);
+    }
+
+    fn nested_not(depth: usize) -> Expression {
+        (1..depth).fold(root(), |expr, _| not(expr))
+    }
+
+    fn nested_not_proto(depth: usize) -> VortexResult<pb::Expr> {
+        let not_proto = not(root()).serialize_proto()?;
+        Ok(
+            (1..depth).fold(root().serialize_proto()?, |child, _| pb::Expr {
+                children: vec![child],
+                ..not_proto.clone()
+            }),
+        )
+    }
+
+    #[test]
+    fn serialize_proto_depth_limit() -> VortexResult<()> {
+        nested_not(MAX_EXPR_PROTO_DEPTH).serialize_proto()?;
+
+        let err = nested_not(MAX_EXPR_PROTO_DEPTH + 1)
+            .serialize_proto()
+            .unwrap_err();
+        assert!(err.to_string().contains("nesting depth"), "{err}");
+        Ok(())
+    }
+
+    #[test]
+    fn from_proto_depth_limit() -> VortexResult<()> {
+        let expr = Expression::from_proto(&nested_not_proto(MAX_EXPR_PROTO_DEPTH)?, &SESSION)?;
+        assert_eq!(expr, nested_not(MAX_EXPR_PROTO_DEPTH));
+
+        let err = Expression::from_proto(&nested_not_proto(MAX_EXPR_PROTO_DEPTH + 1)?, &SESSION)
+            .unwrap_err();
+        assert!(err.to_string().contains("nesting depth"), "{err}");
+        Ok(())
+    }
+
+    #[test]
+    fn encoded_proto_depth_limit() -> VortexResult<()> {
+        let expr = nested_not(MAX_EXPR_PROTO_DEPTH);
+        let buf = expr.serialize_proto()?.encode_to_vec();
+        let decoded = pb::Expr::decode(buf.as_slice())?;
+        assert_eq!(Expression::from_proto(&decoded, &SESSION)?, expr);
+
+        let buf = nested_not_proto(MAX_EXPR_PROTO_DEPTH + 1)?.encode_to_vec();
+        let decoded = pb::Expr::decode(buf.as_slice())?;
+        let err = Expression::from_proto(&decoded, &SESSION).unwrap_err();
+        assert!(err.to_string().contains("nesting depth"), "{err}");
+        Ok(())
+    }
+
+    #[test]
+    fn deeply_nested_expression_errors() -> VortexResult<()> {
+        let depth = 10_000;
+        assert!(nested_not(depth).serialize_proto().is_err());
+
+        let mut proto = nested_not_proto(depth)?;
+        assert!(Expression::from_proto(&proto, &SESSION).is_err());
+        while let Some(child) = proto.children.pop() {
+            proto = child;
+        }
+        Ok(())
     }
 }

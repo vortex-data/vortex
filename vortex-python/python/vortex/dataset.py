@@ -445,6 +445,7 @@ class VortexDataset(pyarrow.dataset.Dataset):
         memory_pool: pyarrow.MemoryPool | None = None,
         _row_range: tuple[int, int] | None = None,
         *,
+        limit: int | None = None,
         concurrency: int | None = None,
     ) -> pyarrow.RecordBatchReader:
         """Construct a :class:`.pyarrow.RecordBatchReader`.
@@ -477,6 +478,8 @@ class VortexDataset(pyarrow.dataset.Dataset):
             unthreaded reader closes and restores the saved count.
         memory_pool : :class:`.pyarrow.MemoryPool` | None
             Not implemented.
+        limit : int | None
+            The maximum number of rows to read. Reading stops once this many rows are produced.
         concurrency : int | None
             The maximum number of splits fetched and decoded ahead of the consumer, across all the
             files of the dataset. Defaults to the dataset's :attr:`concurrency`.
@@ -502,6 +505,7 @@ class VortexDataset(pyarrow.dataset.Dataset):
             row_filter=self._filter_expression(filter),
             split_by=batch_size,
             row_range=_row_range,
+            limit=limit,
             concurrency=concurrency,
         )
         # Route through Arrow's C stream interface so `RecordBatchReader.close()`

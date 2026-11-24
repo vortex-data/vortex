@@ -36,8 +36,8 @@ use crate::expr::stats::Stat;
 use crate::match_each_integer_ptype;
 use crate::match_each_native_ptype;
 use crate::optimizer::ArrayOptimizer;
+use crate::scalar::NumericOperator;
 use crate::scalar::ScalarValue;
-use crate::scalar_fn::builtin::operators::Operator;
 use crate::validity::Validity;
 
 #[array_slots(List)]
@@ -364,9 +364,9 @@ pub trait ListArrayExt: TypedArrayRef<List> {
         let adjusted_offsets = if first_offset.is_zero() == Some(true) {
             offsets.clone()
         } else {
-            offsets.clone().binary(
+            offsets.clone().numeric(
                 ConstantArray::new(first_offset, offsets.len()).into_array(),
-                Operator::Sub,
+                NumericOperator::Sub,
             )?
         };
 

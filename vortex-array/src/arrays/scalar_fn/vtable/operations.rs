@@ -86,11 +86,13 @@ mod tests {
     use crate::arrays::scalar_fn::vtable::ScalarFn;
     use crate::assert_arrays_eq;
     use crate::dtype::PType;
+    use crate::scalar::NumericOperator;
     use crate::scalar::Scalar;
     use crate::scalar_fn::TypedScalarFnInstance;
-    use crate::scalar_fn::builtin::binary::Binary;
+    use crate::scalar_fn::builtin::compare::Compare;
     use crate::scalar_fn::builtin::literal::Literal;
-    use crate::scalar_fn::builtin::operators::Operator;
+    use crate::scalar_fn::builtin::numeric::Numeric;
+    use crate::scalar_fn::builtin::operators::CompareOperator;
     use crate::validity::Validity;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
@@ -101,7 +103,7 @@ mod tests {
         let lhs = buffer![1i32, 2, 3].into_array();
         let rhs = buffer![10i32, 20, 30].into_array();
 
-        let scalar_fn = TypedScalarFnInstance::new(Binary, Operator::Add).erased();
+        let scalar_fn = TypedScalarFnInstance::new(Numeric, NumericOperator::Add).erased();
         let scalar_fn_array = ScalarFnArray::try_new(scalar_fn, vec![lhs, rhs])?;
 
         assert_eq!(scalar_fn_array.len(), 3);
@@ -117,7 +119,7 @@ mod tests {
         let lhs = buffer![1i32, 2, 3].into_array();
         let rhs = buffer![10i32, 20].into_array();
 
-        let scalar_fn = TypedScalarFnInstance::new(Binary, Operator::Add).erased();
+        let scalar_fn = TypedScalarFnInstance::new(Numeric, NumericOperator::Add).erased();
         let err = ScalarFnArray::try_new(scalar_fn, vec![lhs, rhs])
             .expect_err("ScalarFnArray::try_new must reject mismatched child lengths");
 
@@ -130,10 +132,10 @@ mod tests {
     #[test]
     fn rejects_wrong_arity() {
         let child = buffer![1i32, 2, 3].into_array();
-        let scalar_fn = TypedScalarFnInstance::new(Binary, Operator::Add).erased();
+        let scalar_fn = TypedScalarFnInstance::new(Numeric, NumericOperator::Add).erased();
 
         let Err(err) = ScalarFnArray::try_new(scalar_fn.clone(), vec![child.clone()]) else {
-            panic!("Binary must reject one child");
+            panic!("Numeric must reject one child");
         };
         assert!(
             err.to_string()
@@ -142,7 +144,7 @@ mod tests {
 
         let Err(err) = ScalarFnArray::try_new(scalar_fn, vec![child.clone(), child.clone(), child])
         else {
-            panic!("Binary must reject three children");
+            panic!("Numeric must reject three children");
         };
         assert!(
             err.to_string()
@@ -154,7 +156,7 @@ mod tests {
     fn rejects_missing_child_slot() {
         let lhs = buffer![1i32, 2, 3].into_array();
         let dtype = lhs.dtype().clone();
-        let scalar_fn = TypedScalarFnInstance::new(Binary, Operator::Add).erased();
+        let scalar_fn = TypedScalarFnInstance::new(Numeric, NumericOperator::Add).erased();
         let vtable = ScalarFn { id: scalar_fn.id() };
         let data = ScalarFnData { scalar_fn };
         let slots = [Some(lhs), None].into_iter().collect::<ArraySlots>();
@@ -202,7 +204,7 @@ mod tests {
         let lhs = buffer![2i32, 3, 4].into_array();
         let rhs = buffer![5i32, 6, 7].into_array();
 
-        let scalar_fn = TypedScalarFnInstance::new(Binary, Operator::Mul).erased();
+        let scalar_fn = TypedScalarFnInstance::new(Numeric, NumericOperator::Mul).erased();
         let scalar_fn_array = ScalarFnArray::try_new(scalar_fn, vec![lhs, rhs])?;
 
         let expected = buffer![10i32, 18, 28].into_array();
@@ -221,7 +223,7 @@ mod tests {
         )
         .into_array();
 
-        let scalar_fn = TypedScalarFnInstance::new(Binary, Operator::Add).erased();
+        let scalar_fn = TypedScalarFnInstance::new(Numeric, NumericOperator::Add).erased();
         let scalar_fn_array = ScalarFnArray::try_new(scalar_fn, vec![lhs, rhs])?;
 
         let expected = PrimitiveArray::new(
@@ -240,7 +242,7 @@ mod tests {
         let lhs = buffer![1i32, 5, 3].into_array();
         let rhs = buffer![2i32, 5, 1].into_array();
 
-        let scalar_fn = TypedScalarFnInstance::new(Binary, Operator::Eq).erased();
+        let scalar_fn = TypedScalarFnInstance::new(Compare, CompareOperator::Eq).erased();
         let scalar_fn_array = ScalarFnArray::try_new(scalar_fn, vec![lhs, rhs])?;
 
         let expected = BoolArray::from_iter([false, true, false]).into_array();
@@ -254,13 +256,13 @@ mod tests {
         let lhs_n = PrimitiveArray::from_option_iter((0..10i64).map(|i| (i % 4 != 0).then_some(i)));
         let rhs_r = PrimitiveArray::from_iter(0..10i64);
 
-        let scalar_fn_n = TypedScalarFnInstance::new(Binary, Operator::Add).erased();
+        let scalar_fn_n = TypedScalarFnInstance::new(Numeric, NumericOperator::Add).erased();
         let args_n = vec![lhs_n.into_array(), rhs_r.into_array()];
 
         let lhs = ScalarFnArray::try_new(scalar_fn_n, args_n)?.into_array();
         let rhs = PrimitiveArray::from_iter(0..10i64);
 
-        let scalar_fn = TypedScalarFnInstance::new(Binary, Operator::Mul).erased();
+        let scalar_fn = TypedScalarFnInstance::new(Numeric, NumericOperator::Mul).erased();
         let args = vec![lhs, rhs.into_array()];
 
         Ok(ScalarFnArray::try_new(scalar_fn, args)?.into_array())

@@ -18,18 +18,22 @@ use crate::arrays::InterleaveArray;
 use crate::dtype::DType;
 use crate::dtype::FieldName;
 use crate::expr::Expression;
+use crate::scalar::NumericOperator;
 use crate::scalar::Scalar;
 use crate::scalar_fn::EmptyOptions;
 use crate::scalar_fn::ScalarFnVTableExt;
-use crate::scalar_fn::builtin::binary::Binary;
+use crate::scalar_fn::builtin::boolean::Boolean;
 use crate::scalar_fn::builtin::cast::Cast;
+use crate::scalar_fn::builtin::compare::Compare;
 use crate::scalar_fn::builtin::fill_null::FillNull;
 use crate::scalar_fn::builtin::get_item::GetItem;
 use crate::scalar_fn::builtin::is_not_null::IsNotNull;
 use crate::scalar_fn::builtin::is_null::IsNull;
 use crate::scalar_fn::builtin::mask::Mask;
 use crate::scalar_fn::builtin::not::Not;
-use crate::scalar_fn::builtin::operators::Operator;
+use crate::scalar_fn::builtin::numeric::Numeric;
+use crate::scalar_fn::builtin::operators::BooleanOperator;
+use crate::scalar_fn::builtin::operators::CompareOperator;
 
 /// A collection of built-in scalar functions that can be applied to expressions or arrays.
 pub trait ExprBuiltins: Sized {
@@ -58,8 +62,14 @@ pub trait ExprBuiltins: Sized {
 
     // TODO(joe): add an `interleave` expression builtin mirroring `ArrayBuiltins::interleave`.
 
-    /// Apply a binary operator to this expression and another.
-    fn binary(&self, rhs: Expression, op: Operator) -> VortexResult<Expression>;
+    /// Compare this expression with another.
+    fn compare(&self, rhs: Expression, op: CompareOperator) -> VortexResult<Expression>;
+
+    /// Apply a Kleene boolean operator to this expression and another.
+    fn boolean(&self, rhs: Expression, op: BooleanOperator) -> VortexResult<Expression>;
+
+    /// Apply an arithmetic operator to this expression and another.
+    fn numeric(&self, rhs: Expression, op: NumericOperator) -> VortexResult<Expression>;
 }
 
 impl ExprBuiltins for Expression {
@@ -91,8 +101,16 @@ impl ExprBuiltins for Expression {
         Not.try_new_expr(EmptyOptions, [self.clone()])
     }
 
-    fn binary(&self, rhs: Expression, op: Operator) -> VortexResult<Expression> {
-        Binary.try_new_expr(op, [self.clone(), rhs])
+    fn compare(&self, rhs: Expression, op: CompareOperator) -> VortexResult<Expression> {
+        Compare.try_new_expr(op, [self.clone(), rhs])
+    }
+
+    fn boolean(&self, rhs: Expression, op: BooleanOperator) -> VortexResult<Expression> {
+        Boolean.try_new_expr(op, [self.clone(), rhs])
+    }
+
+    fn numeric(&self, rhs: Expression, op: NumericOperator) -> VortexResult<Expression> {
+        Numeric.try_new_expr(op, [self.clone(), rhs])
     }
 }
 
@@ -130,8 +148,14 @@ pub trait ArrayBuiltins: Sized {
         row_indices: ArrayRef,
     ) -> VortexResult<ArrayRef>;
 
-    /// Apply a binary operator to this array and another.
-    fn binary(&self, rhs: ArrayRef, op: Operator) -> VortexResult<ArrayRef>;
+    /// Compare this array with another.
+    fn compare(&self, rhs: ArrayRef, op: CompareOperator) -> VortexResult<ArrayRef>;
+
+    /// Apply a Kleene boolean operator to this array and another.
+    fn boolean(&self, rhs: ArrayRef, op: BooleanOperator) -> VortexResult<ArrayRef>;
+
+    /// Apply an arithmetic operator to this array and another.
+    fn numeric(&self, rhs: ArrayRef, op: NumericOperator) -> VortexResult<ArrayRef>;
 }
 
 impl ArrayBuiltins for ArrayRef {
@@ -185,7 +209,15 @@ impl ArrayBuiltins for ArrayRef {
         )
     }
 
-    fn binary(&self, rhs: ArrayRef, op: Operator) -> VortexResult<ArrayRef> {
-        Ok(Binary::try_new(self.clone(), rhs, op)?.into_array())
+    fn compare(&self, rhs: ArrayRef, op: CompareOperator) -> VortexResult<ArrayRef> {
+        Ok(Compare::try_new(self.clone(), rhs, op)?.into_array())
+    }
+
+    fn boolean(&self, rhs: ArrayRef, op: BooleanOperator) -> VortexResult<ArrayRef> {
+        Ok(Boolean::try_new(self.clone(), rhs, op)?.into_array())
+    }
+
+    fn numeric(&self, rhs: ArrayRef, op: NumericOperator) -> VortexResult<ArrayRef> {
+        Ok(Numeric::try_new(self.clone(), rhs, op)?.into_array())
     }
 }

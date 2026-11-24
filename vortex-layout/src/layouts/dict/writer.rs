@@ -71,7 +71,8 @@ use crate::sequence::SequentialStreamExt;
 /// cardinality, the fallback encoding strategy should be used instead.
 #[derive(Clone)]
 pub struct DictLayoutConstraints {
-    /// Maximum size of the dictionary in bytes.
+    /// Maximum size of the dictionary in bytes, measured on the values before compression. Once a
+    /// dictionary reaches it, the remaining rows start a new dictionary.
     pub max_bytes: usize,
     /// Maximum dictionary length. Limited to `u16` because dictionaries with more than 64k unique
     /// values provide diminishing compression returns given typical chunk sizes (~8k elements).
@@ -99,7 +100,7 @@ impl From<DictLayoutConstraints> for DictConstraints {
 impl Default for DictLayoutConstraints {
     fn default() -> Self {
         Self {
-            max_bytes: 1024 * 1024,
+            max_bytes: 2 * 1024 * 1024,
             max_len: u16::MAX,
         }
     }
@@ -228,7 +229,14 @@ impl LayoutStrategy for DictStrategy {
         let child_layouts = stream! {
             pin_mut!(runs);
 
-            while let Some((codes_stream, values_fut)) = runs.next().await {
+            while let Some(run) = runs.next().await {
+                let (codes_stream, values_fut) = match run {
+                    Ok(run) => run,
+                    Err(e) => {
+                        yield async move { Err(e) }.boxed();
+                        break;
+                    }
+                };
                 let codes = Arc::clone(&self.codes);
                 let codes_eof = eof.split_off();
                 let ctx2 = ctx.clone().with_child_size_scope();
@@ -450,7 +458,7 @@ impl DictionaryTransformer {
 }
 
 impl Stream for DictionaryTransformer {
-    type Item = (SendableSequentialStream, BoxFuture<'static, SequencedChunk>);
+    type Item = VortexResult<(SendableSequentialStream, BoxFuture<'static, SequencedChunk>)>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         loop {
@@ -510,7 +518,7 @@ impl Stream for DictionaryTransformer {
                         }
                         .boxed();
 
-                        return Poll::Ready(Some((codes_stream, values_future)));
+                        return Poll::Ready(Some(Ok((codes_stream, values_future))));
                     }
 
                     // Continue streaming codes to existing group
@@ -528,13 +536,12 @@ impl Stream for DictionaryTransformer {
                     self.active_codes_tx = None; // Close codes stream
                 }
                 Poll::Ready(Some(Err(e))) => {
-                    // Send error to active channels if any
+                    self.active_codes_tx = None;
                     if let Some(values_tx) = self.active_values_tx.take() {
                         drop(values_tx.send(Err(e)));
+                        return Poll::Ready(None);
                     }
-                    self.active_codes_tx = None;
-                    // And terminate the stream
-                    return Poll::Ready(None);
+                    return Poll::Ready(Some(Err(e)));
                 }
                 Poll::Ready(None) => {
                     // Handle any incomplete group
@@ -668,6 +675,8 @@ mod tests {
     use vortex_array::IntoArray;
     use vortex_array::MaskFuture;
     use vortex_array::VortexSessionExecute;
+    use vortex_array::arrays::ChunkedArray;
+    use vortex_array::arrays::DecimalArray;
     use vortex_array::arrays::DictArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::VarBinArray;
@@ -675,6 +684,7 @@ mod tests {
     use vortex_array::assert_arrays_eq;
     use vortex_array::builders::dict::DictConstraints;
     use vortex_array::builders::dict::dict_encode;
+    use vortex_array::builtins::ArrayBuiltins;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::DecimalDType;
     use vortex_array::dtype::Nullability::NonNullable;
@@ -716,7 +726,7 @@ mod tests {
     /// produces U8 codes, but the stream was incorrectly typed as U16, causing a dtype mismatch
     /// assertion failure in [`SequentialStreamAdapter`].
     #[tokio::test]
-    async fn test_dict_transformer_uses_u8_for_small_dictionaries() {
+    async fn test_dict_transformer_uses_u8_for_small_dictionaries() -> VortexResult<()> {
         // Use max_len = 100 to force U8 codes (since 100 <= 255).
         let constraints = DictConstraints {
             max_bytes: 1024 * 1024,
@@ -745,7 +755,7 @@ mod tests {
         let (codes_stream, _values_fut) = transformer
             .next()
             .await
-            .expect("expected at least one dictionary run");
+            .expect("expected at least one dictionary run")?;
 
         // The key assertion: codes stream dtype should be U8, not U16.
         assert_eq!(
@@ -753,11 +763,12 @@ mod tests {
             &DType::Primitive(PType::U8, NonNullable),
             "codes stream should use U8 dtype for small dictionaries, not U16"
         );
+        Ok(())
     }
 
     /// Test that the codes stream uses U16 dtype when the dictionary has more than 255 entries.
     #[tokio::test]
-    async fn test_dict_transformer_uses_u16_for_large_dictionaries() {
+    async fn test_dict_transformer_uses_u16_for_large_dictionaries() -> VortexResult<()> {
         // Use max_len = 1000 to allow U16 codes (since 1000 > 255).
         let constraints = DictConstraints {
             max_bytes: 1024 * 1024,
@@ -788,7 +799,7 @@ mod tests {
         let (codes_stream, _values_fut) = transformer
             .next()
             .await
-            .expect("expected at least one dictionary run");
+            .expect("expected at least one dictionary run")?;
 
         // Codes stream dtype should be U16 since we have more than 255 distinct values.
         assert_eq!(
@@ -796,6 +807,7 @@ mod tests {
             &DType::Primitive(PType::U16, NonNullable),
             "codes stream should use U16 dtype for dictionaries with >255 entries"
         );
+        Ok(())
     }
 
     fn encoded_row_count(chunks: &[DictionaryChunk]) -> usize {
@@ -973,6 +985,59 @@ mod tests {
 
         assert_eq!(probe_dict_codes(&parts.into_array()).is_some(), expected);
 
+        Ok(())
+    }
+
+    #[test]
+    fn dict_strategy_propagates_first_encode_error() -> VortexResult<()> {
+        let mut ctx = new_session().create_execution_ctx();
+        let dtype = DType::Decimal(DecimalDType::new(38, 20), NonNullable);
+        let good = PrimitiveArray::from_iter([1u64, 1, 1, 1])
+            .into_array()
+            .cast(dtype.clone())?
+            .execute::<DecimalArray>(&mut ctx)?
+            .into_array();
+        let bad = PrimitiveArray::from_iter([u64::MAX])
+            .into_array()
+            .cast(dtype.clone())?;
+        let chunk = ChunkedArray::try_new([good, bad], dtype.clone())?.into_array();
+
+        let probe = |sample: &ArrayRef, ctx: &mut ExecutionCtx| -> VortexResult<ArrayRef> {
+            let canonical = sample.clone().execute::<Canonical>(ctx)?.into_array();
+            Ok(dict_encode(&canonical, ctx)?.into_array())
+        };
+        let strategy = DictStrategy::new(
+            ChunkedLayoutStrategy::new(FlatLayoutStrategy::default()),
+            FlatLayoutStrategy::default(),
+            ChunkedLayoutStrategy::new(FlatLayoutStrategy::default()),
+            DictLayoutOptions {
+                probe_len: 2,
+                ..Default::default()
+            },
+            Arc::new(probe),
+        );
+        let (mut seq, eof) = SequenceId::root().split();
+        let input: Vec<VortexResult<_>> = vec![Ok((seq.advance(), chunk))];
+        drop(seq);
+
+        let err = block_on(|handle| async move {
+            let session = new_session().with_handle(handle);
+            strategy
+                .write_stream(
+                    ArrayContext::empty().into(),
+                    Arc::new(TestSegments::default()),
+                    SequentialStreamAdapter::new(dtype, futures::stream::iter(input)).sendable(),
+                    eof,
+                    &session,
+                )
+                .await
+        })
+        .expect_err("failed dictionary encode must return an error");
+
+        assert!(
+            err.to_string().contains("does not fit in precision"),
+            "unexpected error: {err}"
+        );
         Ok(())
     }
 }

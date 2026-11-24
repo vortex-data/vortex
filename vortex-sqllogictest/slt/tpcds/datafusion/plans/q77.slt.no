@@ -187,7 +187,7 @@ physical_plan
 05)--------RepartitionExec: partitioning=Hash([channel@0, id@1, __grouping_id@2], 4), input_partitions=12
 06)----------AggregateExec: mode=Partial, gby=[(NULL as channel, NULL as id), (channel@0 as channel, NULL as id), (channel@0 as channel, id@1 as id)], aggr=[sum(x.sales), sum(x.returns_), sum(x.profit)]
 07)------------UnionExec
-08)--------------ProjectionExec: expr=[store channel as channel, CAST(s_store_sk@2 AS Int32) as id, sales@3 as sales, CAST(CASE WHEN __common_expr_1@0 IS NOT NULL THEN __common_expr_1@0 ELSE 0.00 END AS Decimal128(22, 2)) as returns_, profit@4 - CASE WHEN __common_expr_2@1 IS NOT NULL THEN __common_expr_2@1 ELSE 0.00 END as profit]
+08)--------------ProjectionExec: expr=[store channel as channel, CAST(s_store_sk@2 AS Int32;N) as id, sales@3 as sales, CAST(CASE WHEN __common_expr_1@0 IS NOT NULL THEN __common_expr_1@0 ELSE 0.00 END AS Decimal128(22, 2);N) as returns_, profit@4 - CASE WHEN __common_expr_2@1 IS NOT NULL THEN __common_expr_2@1 ELSE 0.00 END as profit]
 09)----------------ProjectionExec: expr=[CAST(returns_@0 AS Decimal128(22, 2)) as __common_expr_1, CAST(profit_loss@1 AS Decimal128(22, 2)) as __common_expr_2, s_store_sk@2 as s_store_sk, sales@3 as sales, profit@4 as profit]
 10)------------------HashJoinExec: mode=CollectLeft, join_type=Right, on=[(s_store_sk@0, s_store_sk@0)], projection=[returns_@1, profit_loss@2, s_store_sk@3, sales@4, profit@5]
 11)--------------------CoalescePartitionsExec
@@ -228,7 +228,7 @@ physical_plan
 46)--------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(d_date_sk@0, cs_sold_date_sk@0)], projection=[cs_call_center_sk@2, cs_ext_sales_price@3, cs_net_profit@4]
 47)----------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_date_sk], file_type=vortex, predicate: d_date@2 >= 2000-08-23 AND d_date@2 <= 2000-09-22
 48)----------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/catalog_sales.vortex:<slt:ignore>], [${WORK_DIR}/catalog_sales.vortex:<slt:ignore>], [${WORK_DIR}/catalog_sales.vortex:<slt:ignore>], [${WORK_DIR}/catalog_sales.vortex:<slt:ignore>]]}, projection=[cs_sold_date_sk, cs_call_center_sk, cs_ext_sales_price, cs_net_profit], file_type=vortex
-49)--------------ProjectionExec: expr=[web channel as channel, CAST(wp_web_page_sk@2 AS Int32) as id, sales@3 as sales, CAST(CASE WHEN __common_expr_3@0 IS NOT NULL THEN __common_expr_3@0 ELSE 0.00 END AS Decimal128(22, 2)) as returns_, profit@4 - CASE WHEN __common_expr_4@1 IS NOT NULL THEN __common_expr_4@1 ELSE 0.00 END as profit]
+49)--------------ProjectionExec: expr=[web channel as channel, CAST(wp_web_page_sk@2 AS Int32;N) as id, sales@3 as sales, CAST(CASE WHEN __common_expr_3@0 IS NOT NULL THEN __common_expr_3@0 ELSE 0.00 END AS Decimal128(22, 2);N) as returns_, profit@4 - CASE WHEN __common_expr_4@1 IS NOT NULL THEN __common_expr_4@1 ELSE 0.00 END as profit]
 50)----------------ProjectionExec: expr=[CAST(returns_@0 AS Decimal128(22, 2)) as __common_expr_3, CAST(profit_loss@1 AS Decimal128(22, 2)) as __common_expr_4, wp_web_page_sk@2 as wp_web_page_sk, sales@3 as sales, profit@4 as profit]
 51)------------------HashJoinExec: mode=CollectLeft, join_type=Right, on=[(wp_web_page_sk@0, wp_web_page_sk@0)], projection=[returns_@1, profit_loss@2, wp_web_page_sk@3, sales@4, profit@5]
 52)--------------------CoalescePartitionsExec

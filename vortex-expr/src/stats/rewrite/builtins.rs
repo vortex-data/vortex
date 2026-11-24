@@ -14,8 +14,8 @@ use vortex_array::dtype::DType;
 use vortex_array::expr::BoundExpression;
 use vortex_array::expr::bound::and;
 use vortex_array::expr::bound::and_collect;
-use vortex_array::expr::bound::binary;
 use vortex_array::expr::bound::cast;
+use vortex_array::expr::bound::compare;
 use vortex_array::expr::bound::eq;
 use vortex_array::expr::bound::gt;
 use vortex_array::expr::bound::gt_eq;
@@ -31,13 +31,14 @@ use vortex_array::scalar_fn::EmptyOptions;
 use vortex_array::scalar_fn::ScalarFnId;
 use vortex_array::scalar_fn::ScalarFnVTable;
 use vortex_array::scalar_fn::ScalarFnVTableExt;
-use vortex_array::scalar_fn::builtin::binary::Binary;
+use vortex_array::scalar_fn::builtin::boolean::Boolean;
 use vortex_array::scalar_fn::builtin::cast::Cast;
+use vortex_array::scalar_fn::builtin::compare::Compare;
 use vortex_array::scalar_fn::builtin::is_not_null::IsNotNull;
 use vortex_array::scalar_fn::builtin::is_null::IsNull;
 use vortex_array::scalar_fn::builtin::literal::Literal;
+use vortex_array::scalar_fn::builtin::operators::BooleanOperator;
 use vortex_array::scalar_fn::builtin::operators::CompareOperator;
-use vortex_array::scalar_fn::builtin::operators::Operator;
 use vortex_array::scalar_fn::internal::row_count::RowCount;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -65,8 +66,10 @@ use crate::stats::session::StatsSession;
 
 /// Register built-in stats rewrite rules.
 pub(crate) fn register_builtins(session: &StatsSession) {
-    session.register_rewrite(BinaryNanCountStatsRewrite);
-    session.register_rewrite(BinaryAllNonNanStatsRewrite);
+    session.register_rewrite(CompareNanCountStatsRewrite);
+    session.register_rewrite(CompareAllNonNanStatsRewrite);
+    session.register_rewrite(BooleanNanCountStatsRewrite);
+    session.register_rewrite(BooleanAllNonNanStatsRewrite);
     session.register_rewrite(BetweenStatsRewrite);
     session.register_rewrite(LiteralStatsRewrite);
     session.register_rewrite(IsNullNullCountStatsRewrite);
@@ -123,28 +126,45 @@ fn literal_truth(expr: &BoundExpression) -> Option<bool> {
 }
 
 #[derive(Debug)]
-struct BinaryNanCountStatsRewrite;
+struct CompareNanCountStatsRewrite;
 
-impl StatsRewriteRule for BinaryNanCountStatsRewrite {
+impl StatsRewriteRule for CompareNanCountStatsRewrite {
     fn scalar_fn_id(&self) -> ScalarFnId {
-        Binary.id()
+        Compare.id()
     }
 
     fn falsify(
         &self,
         expr: &BoundExpression,
-        session: &VortexSession,
+        _session: &VortexSession,
     ) -> VortexResult<Option<BoundExpression>> {
-        binary_falsify::<NanCountProof>(expr, session)
+        compare_falsify::<NanCountProof>(expr)
     }
 }
 
 #[derive(Debug)]
-struct BinaryAllNonNanStatsRewrite;
+struct CompareAllNonNanStatsRewrite;
 
-impl StatsRewriteRule for BinaryAllNonNanStatsRewrite {
+impl StatsRewriteRule for CompareAllNonNanStatsRewrite {
     fn scalar_fn_id(&self) -> ScalarFnId {
-        Binary.id()
+        Compare.id()
+    }
+
+    fn falsify(
+        &self,
+        expr: &BoundExpression,
+        _session: &VortexSession,
+    ) -> VortexResult<Option<BoundExpression>> {
+        compare_falsify::<AllNonNanProof>(expr)
+    }
+}
+
+#[derive(Debug)]
+struct BooleanNanCountStatsRewrite;
+
+impl StatsRewriteRule for BooleanNanCountStatsRewrite {
+    fn scalar_fn_id(&self) -> ScalarFnId {
+        Boolean.id()
     }
 
     fn falsify(
@@ -152,20 +172,36 @@ impl StatsRewriteRule for BinaryAllNonNanStatsRewrite {
         expr: &BoundExpression,
         session: &VortexSession,
     ) -> VortexResult<Option<BoundExpression>> {
-        binary_falsify::<AllNonNanProof>(expr, session)
+        boolean_falsify::<NanCountProof>(expr, session)
     }
 }
 
-fn binary_falsify<P: NonNanProof>(
+#[derive(Debug)]
+struct BooleanAllNonNanStatsRewrite;
+
+impl StatsRewriteRule for BooleanAllNonNanStatsRewrite {
+    fn scalar_fn_id(&self) -> ScalarFnId {
+        Boolean.id()
+    }
+
+    fn falsify(
+        &self,
+        expr: &BoundExpression,
+        session: &VortexSession,
+    ) -> VortexResult<Option<BoundExpression>> {
+        boolean_falsify::<AllNonNanProof>(expr, session)
+    }
+}
+
+fn compare_falsify<P: NonNanProof>(
     expr: &BoundExpression,
-    session: &VortexSession,
 ) -> VortexResult<Option<BoundExpression>> {
-    let operator = expr.as_::<Binary>();
+    let operator = expr.as_::<Compare>();
     let lhs = expr.child(0);
     let rhs = expr.child(1);
 
     Ok(match operator {
-        Operator::Eq => {
+        CompareOperator::Eq => {
             let left = min(lhs).zip(max(rhs)).map(|(a, b)| gt(a, b));
             let right = min(rhs).zip(max(lhs)).map(|(a, b)| gt(a, b));
             or_collect(left.into_iter().chain(right))
@@ -173,7 +209,7 @@ fn binary_falsify<P: NonNanProof>(
                 .transpose()?
                 .flatten()
         }
-        Operator::NotEq => min(lhs)
+        CompareOperator::NotEq => min(lhs)
             .zip(max(rhs))
             .zip(max(lhs).zip(min(rhs)))
             .map(|((min_lhs, max_rhs), (max_lhs, min_rhs))| {
@@ -184,27 +220,39 @@ fn binary_falsify<P: NonNanProof>(
             })
             .transpose()?
             .flatten(),
-        Operator::Gt => max(lhs)
+        CompareOperator::Gt => max(lhs)
             .zip(min(rhs))
             .map(|(a, b)| with_non_nan_guards::<P>([lhs, rhs], lt_eq(a, b)))
             .transpose()?
             .flatten(),
-        Operator::Gte => max(lhs)
+        CompareOperator::Gte => max(lhs)
             .zip(min(rhs))
             .map(|(a, b)| with_non_nan_guards::<P>([lhs, rhs], lt(a, b)))
             .transpose()?
             .flatten(),
-        Operator::Lt => min(lhs)
+        CompareOperator::Lt => min(lhs)
             .zip(max(rhs))
             .map(|(a, b)| with_non_nan_guards::<P>([lhs, rhs], gt_eq(a, b)))
             .transpose()?
             .flatten(),
-        Operator::Lte => min(lhs)
+        CompareOperator::Lte => min(lhs)
             .zip(max(rhs))
             .map(|(a, b)| with_non_nan_guards::<P>([lhs, rhs], gt(a, b)))
             .transpose()?
             .flatten(),
-        Operator::And => {
+    })
+}
+
+fn boolean_falsify<P: NonNanProof>(
+    expr: &BoundExpression,
+    session: &VortexSession,
+) -> VortexResult<Option<BoundExpression>> {
+    let operator = expr.as_::<Boolean>();
+    let lhs = expr.child(0);
+    let rhs = expr.child(1);
+
+    Ok(match operator {
+        BooleanOperator::And => {
             if !P::EMIT_UNGUARDED_REWRITES {
                 return Ok(None);
             }
@@ -213,9 +261,9 @@ fn binary_falsify<P: NonNanProof>(
             let rhs_falsifier = falsify(rhs, session)?;
             or_collect(lhs_falsifier.into_iter().chain(rhs_falsifier))
         }
-        Operator::Or => {
+        BooleanOperator::Or => {
             // Check before recursing: falsifying the children first would repeat the
-            // whole recursive rewrite once per registered `Binary` rule, which is
+            // whole recursive rewrite once per registered `Boolean` rule, which is
             // exponential in `Or`-nesting depth for chains like `a = 1 OR a = 2 OR ...`.
             if !P::EMIT_UNGUARDED_REWRITES {
                 return Ok(None);
@@ -226,7 +274,6 @@ fn binary_falsify<P: NonNanProof>(
                 _ => None,
             }
         }
-        Operator::Add | Operator::Sub | Operator::Mul | Operator::Div => None,
     })
 }
 
@@ -248,8 +295,8 @@ impl StatsRewriteRule for BetweenStatsRewrite {
         let lower = expr.child(1).clone();
         let upper = expr.child(2).clone();
 
-        let lhs = binary(options.lower_strict.to_operator(), lower, arr.clone());
-        let rhs = binary(options.upper_strict.to_operator(), arr, upper);
+        let lhs = compare(options.lower_strict.to_operator(), lower, arr.clone());
+        let rhs = compare(options.upper_strict.to_operator(), arr, upper);
         falsify(&and(lhs, rhs), session)
     }
 }
@@ -896,7 +943,8 @@ mod tests {
     use vortex_array::scalar_fn::ScalarFnId;
     use vortex_array::scalar_fn::ScalarFnVTable;
     use vortex_array::scalar_fn::ScalarFnVTableExt;
-    use vortex_array::scalar_fn::builtin::binary::Binary;
+    use vortex_array::scalar_fn::builtin::boolean::Boolean;
+    use vortex_array::scalar_fn::builtin::compare::Compare;
     use vortex_array::scalar_fn::builtin::operators::CompareOperator;
     use vortex_array::scalar_fn::internal::row_count::RowCount;
     use vortex_error::VortexResult;
@@ -1049,13 +1097,13 @@ mod tests {
         Ok(())
     }
 
-    /// Counts how many times the stats rewrite visits a `Binary` node.
+    /// Counts how many times the stats rewrite visits a node of one scalar function.
     #[derive(Debug)]
-    struct BinaryVisitCounter(Arc<AtomicUsize>);
+    struct VisitCounter(ScalarFnId, Arc<AtomicUsize>);
 
-    impl StatsRewriteRule for BinaryVisitCounter {
+    impl StatsRewriteRule for VisitCounter {
         fn scalar_fn_id(&self) -> ScalarFnId {
-            Binary.id()
+            self.0
         }
 
         fn falsify(
@@ -1063,7 +1111,7 @@ mod tests {
             _expr: &BoundExpression,
             _session: &VortexSession,
         ) -> VortexResult<Option<BoundExpression>> {
-            self.0.fetch_add(1, Ordering::Relaxed);
+            self.1.fetch_add(1, Ordering::Relaxed);
             Ok(None)
         }
     }
@@ -1074,7 +1122,10 @@ mod tests {
         let visits = Arc::new(AtomicUsize::new(0));
         session
             .stats()
-            .register_rewrite(BinaryVisitCounter(Arc::clone(&visits)));
+            .register_rewrite(VisitCounter(Compare.id(), Arc::clone(&visits)));
+        session
+            .stats()
+            .register_rewrite(VisitCounter(Boolean.id(), Arc::clone(&visits)));
 
         let expr = (1..16).fold(eq(col("a"), lit(0)), |chain, i| {
             or(chain, eq(col("a"), lit(i)))
@@ -1082,7 +1133,7 @@ mod tests {
         let falsifier = expr.bind(&test_scope())?.falsify(&session)?;
         assert!(falsifier.is_some());
 
-        // One visit per `Binary` node: 16 comparisons plus 15 `or`s.
+        // One visit per `Compare` or `Boolean` node: 16 comparisons plus 15 `or`s.
         assert_eq!(visits.load(Ordering::Relaxed), 31);
         Ok(())
     }

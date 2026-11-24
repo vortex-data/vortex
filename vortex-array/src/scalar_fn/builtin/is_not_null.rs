@@ -24,10 +24,10 @@ use crate::scalar_fn::ReduceNodeValidity;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
 use crate::scalar_fn::ScalarFnVTableExt;
-use crate::scalar_fn::builtin::binary::Binary;
+use crate::scalar_fn::builtin::boolean::Boolean;
 use crate::scalar_fn::builtin::is_null::IsNull;
 use crate::scalar_fn::builtin::not::Not;
-use crate::scalar_fn::builtin::operators::Operator;
+use crate::scalar_fn::builtin::operators::BooleanOperator;
 use crate::scalar_fn::is_not_null_node;
 
 /// In array context, reduce
@@ -64,14 +64,10 @@ pub(crate) fn reduce_null<T: ReduceNode>(is_null: bool, node: &T) -> VortexResul
     let Some(child_fn) = child.scalar_fn() else {
         return Ok(None);
     };
-    let Some(operator) = child_fn.as_opt::<Binary>() else {
+    let Some(operator) = child_fn.as_opt::<Boolean>() else {
         return Ok(None);
     };
-    let is_and = match operator {
-        Operator::And => true,
-        Operator::Or => false,
-        _ => return Ok(None),
-    };
+    let is_and = *operator == BooleanOperator::And;
 
     let left = child.child(0);
     let right = child.child(1);
@@ -99,8 +95,12 @@ pub(crate) fn reduce_null<T: ReduceNode>(is_null: bool, node: &T) -> VortexResul
     } else {
         non_nullable.new_node(Not.bind(EmptyOptions), std::slice::from_ref(&non_nullable))?
     };
-    let combine = if is_null { Operator::And } else { Operator::Or };
-    Ok(Some(node.new_node(Binary.bind(combine), &[left, right])?))
+    let combine = if is_null {
+        BooleanOperator::And
+    } else {
+        BooleanOperator::Or
+    };
+    Ok(Some(node.new_node(Boolean.bind(combine), &[left, right])?))
 }
 
 /// Expression that checks for non-null values.
