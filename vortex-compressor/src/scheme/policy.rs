@@ -98,4 +98,12 @@ pub trait CompressionPolicy: Debug + Send + Sync {
     /// own cascade history, so a recorder keeps only those below the schemes their parents
     /// applied.
     fn observe(&self, _outcome: &SiteOutcome<'_>) {}
+
+    /// Observes one candidate tried under [`SchemeSelection::Best`], winner or not, with its full
+    /// output.
+    ///
+    /// Called once per candidate that succeeded and made the array smaller, before
+    /// [`observe`](Self::observe) reports the site's winner. The candidate's children were
+    /// observed first, under cascade histories that end in its scheme.
+    fn observe_candidate(&self, _candidate: &SiteOutcome<'_>) {}
 }
