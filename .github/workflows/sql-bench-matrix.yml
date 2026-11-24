@@ -207,6 +207,10 @@ jobs:
       matrix:
         include: ${{ fromJSON(needs.resolve-matrix.outputs.benchmark_matrix) }}
 
+    # Artifacts cross regions. GitHub holds the files: since RunsOn v3.4.0 the runner agent forwards
+    # artifact requests to GitHub, so this job can download what the us-east-1 build uploaded, and
+    # the us-east-1 jobs can read its results. Only the `s3-cache` cache belongs to one region's
+    # stack.
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
           && format('runs-on={0}/region={4}/runner=bench-dedicated/family={1}/image=ubuntu26-full-arm64-pre-v2/tag={2}{3}', github.run_id, inputs.machine_type, matrix.id, (inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false) && '/extras=s3-cache' || '', matrix.region)
