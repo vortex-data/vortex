@@ -171,7 +171,9 @@ checks and tests, and validates the documentation.
 
 ### Releases
 
-Maintainers cut releases with the [release runbook](.github/workflows/README.md).
+Maintainers cut releases with the [release runbook](.github/workflows/README.md). Some checks,
+such as the Linux ARM64 tests, Windows, musl, the sanitizers and Miri, run only before a release.
+To run them on a pull request, add the `action/release-checks` label.
 
 ### Documentation
 
