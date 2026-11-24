@@ -8,7 +8,9 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from datetime import date, datetime
 
+from .hours import add_working_days, add_working_hours, morning, working_days_between
 from .rules import Tier
 
 MAX_HOURS = 168
@@ -16,7 +18,8 @@ MAX_DAYS = 60
 
 USAGE = (
     f"`!snooze 5h` (working hours, at most {MAX_HOURS}), "
-    f"`!snooze 2d` (working days, at most {MAX_DAYS}), `!unsnooze`, "
+    f"`!snooze 2d` (working days, at most {MAX_DAYS}), `!snooze YYYY-MM-DD` (until that "
+    "morning), `!unsnooze`, "
     "or `!priority high`, `normal`, `low`, or `auto`"
 )
 # The word that hands the priority back to the bot.
@@ -25,6 +28,7 @@ _LEVELS = ", ".join(f"`{level}`" for level in (*(t.value for t in Tier), AUTO))
 
 _MENTIONS = re.compile(r"^(?:<@[A-Z0-9]+>\s*)+")
 _DURATION = re.compile(r"^(\d+)\s*([a-z]*)$")
+_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 _UNITS = {
     "h": "h",
     "hr": "h",
@@ -46,6 +50,12 @@ class Snooze:
 
 
 @dataclass(frozen=True)
+class SnoozeUntil:
+    # The snooze ends when the window opens on this London date, or on the next weekday after it.
+    day: date
+
+
+@dataclass(frozen=True)
 class Unsnooze:
     pass
 
@@ -63,7 +73,7 @@ class Invalid:
     error: str
 
 
-Command = Snooze | Unsnooze | Priority | Invalid
+Command = Snooze | SnoozeUntil | Unsnooze | Priority | Invalid
 
 
 def _echo(text: str) -> str:
@@ -106,12 +116,20 @@ def _priority(argument: str) -> Command:
 
 def _snooze(argument: str) -> Command:
     if not argument:
-        return Invalid("`!snooze` needs a duration, for example `!snooze 5h` or `!snooze 2d`.")
+        return Invalid(
+            "`!snooze` needs a duration or a date, for example `!snooze 5h`, `!snooze 2d`, or "
+            "`!snooze YYYY-MM-DD`."
+        )
+    if _DATE.match(argument):
+        try:
+            return SnoozeUntil(date.fromisoformat(argument))
+        except ValueError:
+            return Invalid(f"{_echo(argument)} is not a date in the calendar.")
     match = _DURATION.match(argument.lower())
     if match is None:
         return Invalid(
-            f"{_echo(argument)} is not a duration. Use a whole number and a unit, "
-            "for example `!snooze 5h` or `!snooze 2d`."
+            f"{_echo(argument)} is not a duration or a date. Use a whole number and a unit, "
+            "for example `!snooze 5h` or `!snooze 2d`, or a date as `YYYY-MM-DD`."
         )
     amount, unit_text = int(match.group(1)), match.group(2)
     if not unit_text:
@@ -134,3 +152,18 @@ def _snooze(argument: str) -> Command:
     if unit == "d" and amount > MAX_DAYS:
         return Invalid(f"`{amount}d` is more than the limit of {MAX_DAYS} working days.")
     return Snooze(amount, unit)
+
+
+def snooze_end(command: Snooze | SnoozeUntil, requested: datetime) -> datetime | Invalid:
+    """Return when a snooze that someone sent at `requested` ends, or why it cannot."""
+    if isinstance(command, Snooze):
+        if command.unit == "h":
+            return add_working_hours(requested, command.amount)
+        return add_working_days(requested, command.amount)
+    until = morning(command.day)
+    label = f"`{command.day.isoformat()}`"
+    if until <= requested:
+        return Invalid(f"The working day of {label} has already started. Pick a later date.")
+    if working_days_between(requested, until) > MAX_DAYS:
+        return Invalid(f"{label} is more than {MAX_DAYS} working days away.")
+    return until

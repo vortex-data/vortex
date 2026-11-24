@@ -419,7 +419,8 @@ def activity(item: Item, events: Sequence[Event], snooze_ended: bool, people: Pe
 def snoozed(until: datetime, user: str) -> Message:
     when = date_token(until)
     return Message(
-        text=f"😴 Snoozed until {when} by <@{user}>. New contributor activity ends it early."
+        text=f"😴 Snoozed until {when} by <@{user}>. Its owners get a reminder here when the "
+        "snooze ends, and new contributor activity ends it early."
     )
 
 
@@ -478,17 +479,24 @@ def reminder_summary(due: Mapping[str | None, Sequence[Row]]) -> Message:
     return Message(text=text, blocks=tuple(blocks))
 
 
-def item_reminder(row: Row, owners: Sequence[str | None], on_call: bool, now: datetime) -> Message:
-    """Build the reminder in an item's own thread, which mentions the people who own the item."""
+def item_reminder(
+    row: Row, owners: Sequence[str | None], on_call: bool, snooze_ended: bool, now: datetime
+) -> Message:
+    """Build the reminder in an item's own thread, which mentions the people who own the item.
+
+    The reminder at the end of a snooze says so, because the item may not wait on its owners.
+    """
     who = ", ".join(_mention(user) for user in owners)
     if on_call and all(owners):
         who += " (on call)"
+    assessment = row.assessment
     detail = _parts(
         f"{row.section.marker} {row.section.title}",
         _wait(row, now),
-        escape(row.assessment.tier_reason),
+        escape(assessment.owes_reason if row.section is WAITING else assessment.tier_reason),
     )
-    text = f"⏰ {who}, this item waits on you · {detail}"
+    headline = "the snooze on this item ended" if snooze_ended else "this item waits on you"
+    text = f"⏰ {who}, {headline} · {detail}"
     footer = "Reply `!snooze 2d` here to pause its reminders for 2 working days."
     return Message(text=text, blocks=(_mrkdwn(text), _context(footer)))
 
@@ -532,6 +540,9 @@ def instructions() -> Message:
             "`!snooze 5h` hides the item from the overview and pauses its reminders for 5 working "
             f"hours (at most {MAX_HOURS}).",
             f"`!snooze 2d` does the same for 2 working days (at most {MAX_DAYS}).",
+            "`!snooze YYYY-MM-DD` does the same until the working day starts on that date, or on "
+            f"the next weekday (at most {MAX_DAYS} working days away).",
+            "When a snooze ends, the item's owners get a reminder in its thread.",
             "`!unsnooze` ends a snooze.",
             "`!priority high`, `!priority normal`, or `!priority low` sets the item's priority "
             "until `!priority auto` hands it back to the bot.",

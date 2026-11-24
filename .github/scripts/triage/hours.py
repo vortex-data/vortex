@@ -56,6 +56,11 @@ def next_window_moment(moment: datetime) -> datetime:
         day += timedelta(days=1)
 
 
+def morning(day: date) -> datetime:
+    """Return the start of the window on `day`, or on the next weekday if `day` is a weekend."""
+    return next_window_moment(datetime.combine(day, time(0), LONDON))
+
+
 def working_seconds(start: datetime, end: datetime) -> float:
     """Return the working time between two moments, in seconds."""
     total = 0.0

@@ -17,11 +17,9 @@ from functools import partial
 from typing import Any, Protocol
 
 from . import render
-from .commands import Invalid, Priority, Snooze, Unsnooze, parse
+from .commands import Invalid, Priority, Snooze, SnoozeUntil, Unsnooze, parse, snooze_end
 from .github import Ended, Item
 from .hours import (
-    add_working_days,
-    add_working_hours,
     in_window,
     london_date,
     window,
@@ -321,18 +319,18 @@ class Run:
             return state
         user = str(request.get("user") or "")
         requested = datetime.fromtimestamp(float(request["ts"]), UTC)
-        if isinstance(command, Snooze):
-            if command.unit == "h":
-                until = add_working_hours(requested, command.amount)
+        if isinstance(command, Snooze | SnoozeUntil):
+            until = snooze_end(command, requested)
+            if isinstance(until, Invalid):
+                reply = render.invalid(until.error)
             else:
-                until = add_working_days(requested, command.amount)
-            state = replace(
-                state,
-                snoozed_at=requested.timestamp(),
-                snooze_until=until.timestamp(),
-                snoozed_by=user,
-            )
-            reply = render.snoozed(until, user)
+                state = replace(
+                    state,
+                    snoozed_at=requested.timestamp(),
+                    snooze_until=until.timestamp(),
+                    snoozed_by=user,
+                )
+                reply = render.snoozed(until, user)
         elif isinstance(command, Unsnooze):
             reply = render.unsnoozed(user, state.snoozed(self.now))
             state = state.unsnoozed()
@@ -440,11 +438,19 @@ class Run:
         ]
         return list(dict.fromkeys(users)) or [self.config.oncall]
 
+    def _snooze_ended(self, state: ItemState) -> bool:
+        # A snooze that ran out reminds the owners once, whatever the item's tier and whoever owes
+        # the next move, because the person who snoozed it chose to look at it again then.
+        # `!unsnooze` and new activity clear the snooze instead, so they never get here.
+        return state.reminded_at < state.snooze_until <= self.now.timestamp()
+
     def _due(self, row: render.Row) -> bool:
         state, assessment = row.state, row.assessment
-        if state is None or assessment.owes is not Owes.VORTEX or assessment.tier is Tier.LOW:
+        if state is None or state.snoozed(self.now):
             return False
-        if state.snoozed(self.now):
+        if self._snooze_ended(state):
+            return True
+        if assessment.owes is not Owes.VORTEX or assessment.tier is Tier.LOW:
             return False
         if not state.reminded_at:
             return True
@@ -490,6 +496,7 @@ class Run:
             return
         owners = self._owners(row.item)
         on_call = not any(a.lower() in self.config.users for a in row.item.assignees)
-        reminder = render.item_reminder(row, owners, on_call, self.now)
+        ended = self._snooze_ended(root.state)
+        reminder = render.item_reminder(row, owners, on_call, ended, self.now)
         self._reply(root.thread, f"remind:{day}", lambda _people: reminder)
         root.state = replace(root.state, reminded_at=self.now.timestamp())

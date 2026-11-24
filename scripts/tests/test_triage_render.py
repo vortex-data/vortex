@@ -222,11 +222,15 @@ def test_summary_mentions_each_person_once_and_links_their_item_threads():
 
 
 def test_item_reminder_mentions_its_owners_and_marks_on_call():
-    text = render.item_reminder(row(1), ["UALICE", "UBOB"], False, NOW).text
+    text = render.item_reminder(row(1), ["UALICE", "UBOB"], False, False, NOW).text
     assert text.startswith("⏰ <@UALICE>, <@UBOB>, this item waits on you · 🔴 High · waiting 2d")
-    on_call = render.item_reminder(row(1), ["UONCALL"], True, NOW).text
+    on_call = render.item_reminder(row(1), ["UONCALL"], True, False, NOW).text
     assert on_call.startswith("⏰ <@UONCALL> (on call), this item waits on you")
-    assert render.item_reminder(row(1), [None], True, NOW).text.startswith("⏰ On-call (not set), this")
+    assert render.item_reminder(row(1), [None], True, False, NOW).text.startswith("⏰ On-call (not set), this")
+    # At the end of a snooze, an item that waits on the contributor shows why instead of its tier.
+    waiting = row(2, owes=Owes.CONTRIBUTOR, reason="asked for a benchmark")
+    ended = render.item_reminder(waiting, ["UALICE"], False, True, NOW).text
+    assert ended == "⏰ <@UALICE>, the snooze on this item ended · 🔵 Waiting on contributor · asked for a benchmark"
 
 
 def test_scan_table_shows_titles_as_literal_text():

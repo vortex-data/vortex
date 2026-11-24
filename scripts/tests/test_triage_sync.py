@@ -10,7 +10,7 @@ also check that the state in Slack is enough to continue after a crash.
 import importlib
 import json
 import re
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
@@ -146,6 +146,34 @@ def test_priority_set_in_the_thread_holds_until_auto():
     assert payload(fake, 1)["priority"] == ""
     assert "🔴" in card_text(fake, 1)
     assert len(item_reminders(fake, 1)) == 1
+
+
+def test_end_of_a_snooze_reminds_the_owners_once_whoever_owes_the_next_move():
+    # A ready PR stays High however old it gets, so it is due every working day.
+    owed = item(1, kind="pr", created=ago(days=1), assignees=["alice"])
+    waiting = item(2, created=ago(days=3), events=[event(ago(days=2), TEAMMATE)], assignees=["alice"])
+    fake = FakeSlack()
+    run(fake, [owed, waiting], pings=True)
+    for number in (1, 2):
+        fake.say(fake.root(number)["ts"], "!snooze 2026-11-28", NOW + timedelta(minutes=number))
+    run(fake, [owed, waiting], NOW + HOUR, pings=True)
+    assert fake.bot_replies(fake.root(2)["ts"])[0].startswith("😴 Snoozed until <!date^")
+    assert float(payload(fake, 2)["snooze_until"]) == datetime(2026, 11, 30, 9, tzinfo=UTC).timestamp()
+
+    # Friday passes without reminders, and the snooze ends on Monday morning.
+    friday = datetime(2026, 11, 27, 10, tzinfo=UTC)
+    run(fake, [owed, waiting], friday, pings=True)
+    assert [len(item_reminders(fake, n)) for n in (1, 2)] == [1, 0]
+    monday = datetime(2026, 11, 30, 9, 5, tzinfo=UTC)
+    run(fake, [owed, waiting], monday, pings=True)
+    reminders = [item_reminders(fake, n) for n in (1, 2)]
+    assert [len(r) for r in reminders] == [2, 1]
+    assert "the snooze on this item ended · 🔴 High" in reminders[0][1]
+    assert reminders[1][0].startswith("⏰ <@UALICE>, the snooze on this item ended · 🔵 Waiting on contributor")
+    # The item that waits on the contributor gets no more reminders.
+    run(fake, [owed, waiting], monday + 2 * HOUR, pings=True)
+    run(fake, [owed, waiting], monday + timedelta(days=1), pings=True)
+    assert [len(item_reminders(fake, n)) for n in (1, 2)] == [3, 1]
 
 
 def test_commands_in_the_overview_thread_point_to_the_item_thread():
