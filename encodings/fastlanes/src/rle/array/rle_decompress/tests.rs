@@ -17,7 +17,6 @@ use vortex_buffer::Buffer;
 use vortex_error::VortexResult;
 
 use crate::BitPacked;
-use crate::BitPackedData;
 use crate::Delta;
 use crate::DeltaArraySlotsExt;
 use crate::FL_CHUNK_SIZE;
@@ -186,7 +185,6 @@ fn test_decode_in_bounds_indices_roundtrip() -> VortexResult<()> {
 enum Indices {
     Primitive,
     BitPacked,
-    BlockedBitPacked,
     Delta,
 }
 
@@ -220,18 +218,13 @@ fn bits_needed(max: u64) -> u8 {
 
 /// Bit-pack `array` at the width its maximum needs, or keep it as is when that width is its
 /// native width, which BitPacked cannot represent.
-fn bitpack(array: PrimitiveArray, max: u64, blocked: bool) -> VortexResult<ArrayRef> {
+fn bitpack(array: PrimitiveArray, max: u64) -> VortexResult<ArrayRef> {
     let mut ctx = SESSION.create_execution_ctx();
     let width = bits_needed(max);
     if usize::from(width) >= array.ptype().bit_width() {
         return Ok(array.into_array());
     }
-    Ok(if blocked {
-        let widths = vec![width; array.len().div_ceil(FL_CHUNK_SIZE)];
-        BitPackedData::encode_blocked(&array.into_array(), &widths, &mut ctx)?.into_array()
-    } else {
-        BitPacked::encode(&array.into_array(), width, &mut ctx)?.into_array()
-    })
+    Ok(BitPacked::encode(&array.into_array(), width, &mut ctx)?.into_array())
 }
 
 /// RLE-encode `array` with narrowed indices stored as `encoding`.
@@ -249,8 +242,7 @@ fn rle_with_indices(array: &PrimitiveArray, encoding: Indices) -> VortexResult<R
         .unwrap_or_default();
     let indices: ArrayRef = match encoding {
         Indices::Primitive => indices.into_array(),
-        Indices::BitPacked => bitpack(indices, max, false)?,
-        Indices::BlockedBitPacked => bitpack(indices, max, true)?,
+        Indices::BitPacked => bitpack(indices, max)?,
         Indices::Delta => {
             let delta = Delta::try_from_primitive_array(&indices, &mut ctx)?;
             let deltas = delta.deltas().clone().execute::<PrimitiveArray>(&mut ctx)?;
@@ -261,7 +253,7 @@ fn rle_with_indices(array: &PrimitiveArray, encoding: Indices) -> VortexResult<R
             let deltas = if max_delta == 0 {
                 ConstantArray::new(0u8, deltas.len()).into_array()
             } else {
-                bitpack(deltas, max_delta, false)?
+                bitpack(deltas, max_delta)?
             };
             Delta::try_new(
                 delta.bases().clone(),
@@ -284,13 +276,7 @@ fn rle_with_indices(array: &PrimitiveArray, encoding: Indices) -> VortexResult<R
 
 #[rstest]
 fn decode_any_index_encoding(
-    #[values(
-        Indices::Primitive,
-        Indices::BitPacked,
-        Indices::BlockedBitPacked,
-        Indices::Delta
-    )]
-    encoding: Indices,
+    #[values(Indices::Primitive, Indices::BitPacked, Indices::Delta)] encoding: Indices,
     #[values((1, false), (8, true), (16, true), (8, false), (15, false), (64, false))] runs_of: (
         usize,
         bool,

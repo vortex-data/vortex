@@ -14,20 +14,21 @@ use vortex_array::patches::Patches;
 use vortex_error::VortexResult;
 
 use crate::BitPacked;
-use crate::BitWidthsView;
 use crate::bitpacking::array::BitPackedArrayExt;
 
 impl SliceReduce for BitPacked {
     fn slice(array: ArrayView<'_, Self>, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
-        let BitWidthsView::Global(bit_width) = array.bit_widths() else {
-            return Ok(None);
-        };
         // We cannot access buffers (to slice the patches).
         if array.patches().is_some() {
             return Ok(None);
         }
 
-        Ok(Some(slice_bitpacked(array, bit_width, range, None)?))
+        Ok(Some(slice_bitpacked(
+            array,
+            array.bit_width(),
+            range,
+            None,
+        )?))
     }
 }
 
@@ -37,16 +38,18 @@ impl SliceKernel for BitPacked {
         range: Range<usize>,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        let BitWidthsView::Global(bit_width) = array.bit_widths() else {
-            return Ok(None);
-        };
         let patches = array
             .patches()
             .map(|p| p.slice(range.clone(), ctx))
             .transpose()?
             .flatten();
 
-        Ok(Some(slice_bitpacked(array, bit_width, range, patches)?))
+        Ok(Some(slice_bitpacked(
+            array,
+            array.bit_width(),
+            range,
+            patches,
+        )?))
     }
 }
 

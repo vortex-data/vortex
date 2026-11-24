@@ -40,7 +40,6 @@ use vortex::encodings::alp::alp_encode;
 use vortex::encodings::fastlanes::BitPackedArray;
 use vortex::encodings::fastlanes::BitPackedArrayExt;
 use vortex::encodings::fastlanes::BitPackedData;
-use vortex::encodings::fastlanes::BitWidthsView;
 use vortex::encodings::fastlanes::FoR;
 use vortex::encodings::fastlanes::FoRArray;
 use vortex::encodings::fastlanes::FoRArrayExt;
@@ -488,8 +487,8 @@ mod standalone {
             cuda_session: &CudaSession,
             cuda_ctx: &mut CudaExecutionCtx,
         ) -> Self {
-            assert!(matches!(values_bp.bit_widths(), BitWidthsView::Global(6)));
-            assert!(matches!(codes_bp.bit_widths(), BitWidthsView::Global(6)));
+            assert_eq!(values_bp.bit_width(), 6);
+            assert_eq!(codes_bp.bit_width(), 6);
 
             let values_packed = cuda_ctx
                 .ensure_on_device(values_bp.packed().clone())

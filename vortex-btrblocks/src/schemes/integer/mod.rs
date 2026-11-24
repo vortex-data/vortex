@@ -16,7 +16,6 @@ mod zigzag;
 #[cfg(feature = "pco")]
 mod pco;
 
-pub(crate) use bitpacking::BITPACKING_V1;
 pub use bitpacking::BitPackingScheme;
 pub use delta::DeltaScheme;
 pub use elias_fano::EliasFanoScheme;

@@ -7,7 +7,6 @@ use std::sync::Arc;
 
 use vortex_array::ArrayId;
 use vortex_decimal_byte_parts::decimal_byte_parts_v2_id;
-use vortex_fastlanes::bitpacked_v2_id;
 use vortex_fastlanes::for_v2_id;
 use vortex_session::VortexSession;
 use vortex_utils::aliases::hash_set::HashSet;
@@ -100,9 +99,9 @@ impl CompressionMode {
     fn excluded_encodings(self) -> Vec<ArrayId> {
         match self {
             Self::All | Self::Default | Self::Compact => Vec::new(),
-            // Multi-part DecimalByteParts arrays, FoR arrays with per-chunk references and
-            // BitPacked arrays with per-block bit widths have no CUDA decode kernel.
-            Self::Cuda => vec![decimal_byte_parts_v2_id(), for_v2_id(), bitpacked_v2_id()],
+            // Multi-part DecimalByteParts arrays and FoR arrays with per-chunk references have no
+            // CUDA decode kernel.
+            Self::Cuda => vec![decimal_byte_parts_v2_id(), for_v2_id()],
         }
     }
 }
@@ -282,8 +281,7 @@ mod tests {
     use vortex_edition::declarations::core::CORE_2026_08_3;
     use vortex_edition::declarations::preview::PREVIEW_2026_11_0;
     use vortex_error::VortexResult;
-    use vortex_fastlanes::bitpacked_v1_id;
-    use vortex_fastlanes::bitpacked_v2_id;
+    use vortex_fastlanes::BitPacked;
     use vortex_fastlanes::for_v1_id;
     use vortex_fsst::FSST;
 
@@ -301,29 +299,19 @@ mod tests {
     #[case::decimal_v1_id(&DECIMAL_V1, vec![decimal_byte_parts_v1_id()], true)]
     #[case::decimal_both_ids(&DECIMAL_V2, vec![decimal_byte_parts_v1_id(), DecimalByteParts.id()], true)]
     #[case::bitpacking_without_constant(
-        &integer::BITPACKING_V1,
-        vec![bitpacked_v1_id(), Patched.id()],
+        &integer::BitPackingScheme,
+        vec![BitPacked.id(), Patched.id()],
         false
     )]
-    #[case::bitpacking_v1_id(
-        &integer::BITPACKING_V1,
-        vec![bitpacked_v1_id(), Constant.id(), Patched.id()],
+    #[case::bitpacking_with_dependencies(
+        &integer::BitPackingScheme,
+        vec![BitPacked.id(), Constant.id(), Patched.id()],
         true
-    )]
-    #[case::bitpacking_both_ids(
-        &integer::BITPACKING_V1,
-        vec![bitpacked_v1_id(), bitpacked_v2_id(), Constant.id(), Patched.id()],
-        true
-    )]
-    #[case::bitpacking_v2_only(
-        &integer::BITPACKING_V1,
-        vec![bitpacked_v2_id(), Constant.id(), Patched.id()],
-        false
     )]
     #[case::for_without_bitpacked(&integer::FOR_V1, vec![for_v1_id()], false)]
     #[case::for_with_bitpacked(
         &integer::FOR_V1,
-        vec![for_v1_id(), bitpacked_v1_id(), Constant.id(), Patched.id()],
+        vec![for_v1_id(), BitPacked.id(), Constant.id(), Patched.id()],
         true
     )]
     #[case::alp_without_constant(
@@ -343,12 +331,12 @@ mod tests {
     )]
     #[case::alprd_without_constant(
         &float::ALPRDScheme,
-        vec![vortex_alp::ALPRD.id(), bitpacked_v1_id()],
+        vec![vortex_alp::ALPRD.id(), BitPacked.id()],
         false
     )]
     #[case::alprd_with_dependencies(
         &float::ALPRDScheme,
-        vec![vortex_alp::ALPRD.id(), bitpacked_v1_id(), Constant.id()],
+        vec![vortex_alp::ALPRD.id(), BitPacked.id(), Constant.id()],
         true
     )]
     fn test_allowed_schemes(

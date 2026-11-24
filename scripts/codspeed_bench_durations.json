@@ -102,8 +102,6 @@
       "expr_optimize": 2.377
     },
     "vortex-fastlanes": {
-      "bitpack_blocked": 0.367,
-      "bitpack_blocked_decompress": 0.369,
       "bitpack_compare": 2.911,
       "bitpack_compare_sweep": 6.813,
       "bitpacking_filter": 0.368,

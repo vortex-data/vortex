@@ -8,7 +8,6 @@ use std::ops::Range;
 use fastlanes::BitPacking;
 use vortex_array::dtype::PhysicalPType;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
 
@@ -101,13 +100,10 @@ impl<'a, T: BitPacked> BitUnpackedChunks<'a, T> {
         len: usize,
         scratch: &'a mut [MaybeUninit<T>; CHUNK_SIZE],
     ) -> VortexResult<Self> {
-        let Some(bit_width) = array.global_bit_width else {
-            vortex_bail!("BitPacked array has per-block bit widths");
-        };
         Self::try_new_with_strategy(
             BitPackingStrategy,
             array.packed_slice::<T::Physical>(),
-            bit_width as usize,
+            array.bit_width() as usize,
             array.offset() as usize,
             len,
             scratch,

@@ -101,8 +101,6 @@ enum Layout {
     PrimitiveDeltas,
     /// Bit-packed deltas at one width.
     GlobalBitPacked,
-    /// Bit-packed deltas at a width per 1024-value block.
-    BlockedBitPacked,
     /// Bit-packed deltas one bit narrower than the widest, so the widest become patches.
     PatchedBitPacked,
     /// Primitive deltas over bit-packed bases, which the probe reads through the bases array.
@@ -139,14 +137,6 @@ fn with_layout(
             );
             (bases, packed.into_array())
         }
-        Layout::BlockedBitPacked => {
-            let deltas = deltas.execute::<PrimitiveArray>(ctx)?;
-            (
-                bases,
-                crate::bitpack_compress::bitpack_blocked_to_best_bit_widths(&deltas, ctx)?
-                    .into_array(),
-            )
-        }
         Layout::PackedBases => {
             let width = u8::try_from(8 * bases.dtype().as_ptype().byte_width() - 1)?;
             (BitPacked::encode(&bases, width, ctx)?.into_array(), deltas)
@@ -169,7 +159,6 @@ fn every_row_matches_decode(
     #[values(
         Layout::PrimitiveDeltas,
         Layout::GlobalBitPacked,
-        Layout::BlockedBitPacked,
         Layout::PatchedBitPacked,
         Layout::PackedBases
     )]
@@ -179,10 +168,7 @@ fn every_row_matches_decode(
     let mut ctx = crate::test::SESSION.create_execution_ctx();
     // Bit-packing needs non-negative values, so signed inputs only use primitive deltas and bases,
     // and the `u8` deltas, which need all 8 bits, are not bit-packed.
-    let packs_deltas = matches!(
-        layout,
-        Layout::GlobalBitPacked | Layout::BlockedBitPacked | Layout::PatchedBitPacked
-    );
+    let packs_deltas = matches!(layout, Layout::GlobalBitPacked | Layout::PatchedBitPacked);
     if !matches!(layout, Layout::PrimitiveDeltas) && input.ptype().is_signed_int()
         || packs_deltas && input.ptype() == PType::U8
     {

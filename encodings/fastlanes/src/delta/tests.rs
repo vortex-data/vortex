@@ -41,7 +41,6 @@ use vortex_session::registry::ReadContext;
 
 use crate::BitPacked;
 use crate::BitPackedArrayExt;
-use crate::BitPackedData;
 use crate::Delta;
 use crate::DeltaArray;
 use crate::DeltaArrayExt;
@@ -416,19 +415,15 @@ fn delta_deserialize_rejects_malformed_parts() -> VortexResult<()> {
     Ok(())
 }
 
-/// Replace the deltas of `source` encoded as Delta with deltas bit-packed at `bit_widths`: one
-/// global width, or one width per chunk.
+/// Replace the deltas of `source` encoded as Delta with deltas bit-packed at `bit_width`.
 fn delta_bitpacked(
     source: &PrimitiveArray,
-    bit_widths: &[u8],
+    bit_width: u8,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<DeltaArray> {
     let delta = Delta::try_from_primitive_array(source, ctx)?;
     let deltas = delta.deltas().clone();
-    let packed = match bit_widths {
-        [bit_width] => BitPacked::encode(&deltas, *bit_width, ctx)?,
-        _ => BitPackedData::encode_blocked(&deltas, bit_widths, ctx)?,
-    };
+    let packed = BitPacked::encode(&deltas, bit_width, ctx)?;
     Delta::try_new(
         delta.bases().clone(),
         packed.into_array(),
@@ -459,7 +454,7 @@ fn delta_bitpacked_fused_global(
 ) -> VortexResult<()> {
     let mut ctx = session().create_execution_ctx();
     let source = monotone(ptype, len);
-    let array = delta_bitpacked(&source, &[1], &mut ctx)?.into_array();
+    let array = delta_bitpacked(&source, 1, &mut ctx)?.into_array();
     assert!(fused(&array));
     assert_arrays_eq!(array, source, &mut ctx);
     Ok(())
@@ -472,35 +467,7 @@ fn delta_bitpacked_fused_global(
 #[case::signed_crossing_zero(PrimitiveArray::from_iter((-2500..2500i32).map(|i| i / 2)))]
 fn delta_bitpacked_fused_values(#[case] source: PrimitiveArray) -> VortexResult<()> {
     let mut ctx = session().create_execution_ctx();
-    let array = delta_bitpacked(&source, &[1], &mut ctx)?.into_array();
-    assert!(fused(&array));
-    assert_arrays_eq!(array, source, &mut ctx);
-    Ok(())
-}
-
-/// Each chunk's deltas grow by 4 bits, so each block has a different best width.
-fn blocked_source() -> PrimitiveArray {
-    PrimitiveArray::from_iter((0..4 * FL_CHUNK_SIZE as u64).scan(0u64, |acc, i| {
-        *acc += (i % 3) << (4 * (i as usize / FL_CHUNK_SIZE));
-        Some(*acc)
-    }))
-}
-
-#[rstest]
-#[case::fitting(&[2, 6, 10, 14], false)]
-// Width 0 of the third chunk does not fit its deltas, so that chunk is patched.
-#[case::patched_block(&[2, 6, 0, 14], true)]
-fn delta_bitpacked_fused_blocked(
-    #[case] bit_widths: &[u8],
-    #[case] patched: bool,
-) -> VortexResult<()> {
-    let mut ctx = session().create_execution_ctx();
-    let source = blocked_source();
-    let array = delta_bitpacked(&source, bit_widths, &mut ctx)?;
-    let bp = array.deltas().as_::<BitPacked>();
-    assert!(!bp.bit_widths().is_global());
-    assert_eq!(bp.patches().is_some(), patched);
-    let array = array.into_array();
+    let array = delta_bitpacked(&source, 1, &mut ctx)?.into_array();
     assert!(fused(&array));
     assert_arrays_eq!(array, source, &mut ctx);
     Ok(())
@@ -515,7 +482,7 @@ fn delta_bitpacked_patched() -> VortexResult<()> {
     let source = PrimitiveArray::from_iter(
         (0..4000u32).map(|i| if i == 100 || i == 2500 { i * 7 } else { i }),
     );
-    let array = delta_bitpacked(&source, &[3], &mut ctx)?;
+    let array = delta_bitpacked(&source, 3, &mut ctx)?;
     assert!(array.deltas().as_::<BitPacked>().patches().is_some());
     let array = array.into_array();
     assert!(fused(&array));
@@ -540,7 +507,7 @@ fn delta_bitpacked_fused_sliced(
     } else {
         monotone(PType::U32, 4000)
     };
-    let array = delta_bitpacked(&source, &[1], &mut ctx)?;
+    let array = delta_bitpacked(&source, 1, &mut ctx)?;
     assert_eq!(
         array.deltas().as_::<BitPacked>().patches().is_some(),
         patched
@@ -558,7 +525,7 @@ fn delta_lazy_sliced_bitpacked_fused() -> VortexResult<()> {
     let mut ctx = session().create_execution_ctx();
     let source =
         PrimitiveArray::from_iter((0..4000u32).map(|i| if i % 1000 == 7 { i * 7 } else { i / 32 }));
-    let array = delta_bitpacked(&source, &[1], &mut ctx)?;
+    let array = delta_bitpacked(&source, 1, &mut ctx)?;
     assert!(array.deltas().as_::<BitPacked>().patches().is_some());
     let lanes = u32::LANES;
     let deltas = SliceArray::new(array.deltas().clone(), 1024..3072).into_array();

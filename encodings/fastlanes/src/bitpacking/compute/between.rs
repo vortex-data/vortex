@@ -30,7 +30,6 @@ use vortex_functions::between::StrictComparison;
 
 use crate::BitPacked;
 use crate::BitPackedArrayExt;
-use crate::BitWidthsView;
 use crate::bitpacking::compute::compare_fused::stream_compare_fused;
 use crate::bitpacking::compute::packed_range::constant_result;
 use crate::bitpacking::compute::packed_range::packed_range;
@@ -45,9 +44,6 @@ impl BetweenKernel for BitPacked {
         options: &BetweenOptions,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        if !array.bit_widths().is_global() {
-            return Ok(None);
-        }
         // Only accelerate constant-bounds between; vary-by-row bounds fall through to the
         // default `compare + and` pipeline.
         let (Some(lower_const), Some(upper_const)) = (lower.as_constant(), upper.as_constant())
@@ -157,9 +153,7 @@ where
     Up: Fn(T, T) -> bool + Copy,
 {
     let predicate = move |v| lower_fn(lower, v) & upper_fn(v, upper);
-    let BitWidthsView::Global(bit_width) = array.bit_widths() else {
-        return stream_predicate::<T, _>(array, nullability, predicate, ctx);
-    };
+    let bit_width = array.bit_width();
     let Some((lo, hi)) = packed_range::<T>(bit_width) else {
         return stream_predicate::<T, _>(array, nullability, predicate, ctx);
     };

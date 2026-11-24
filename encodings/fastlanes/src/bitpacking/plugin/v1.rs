@@ -10,6 +10,7 @@ use vortex_array::ArrayParts;
 use vortex_array::ArrayRef;
 use vortex_array::ArraySerialization;
 use vortex_array::ArraySlots;
+use vortex_array::ArrayVTable;
 use vortex_array::ArrayView;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
@@ -23,7 +24,6 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_session::VortexSession;
 
-use super::bitpacked_v1_id;
 use crate::BitPacked;
 use crate::BitPackedArrayExt;
 use crate::BitPackedData;
@@ -54,7 +54,7 @@ pub(super) fn serialize(
     }
     .encode_to_vec();
     Ok(ArraySerialization::from_array(
-        bitpacked_v1_id(),
+        ArrayVTable::id(&BitPacked),
         array,
         metadata,
     ))
@@ -128,7 +128,6 @@ pub(super) fn deserialize(
         let mut s = ArraySlots::with_capacity(BitPackedSlots::COUNT);
         PatchesData::push_slots(&mut s, patches.as_ref());
         s.push(validity_to_child(&validity, len));
-        s.push(None);
         s
     };
     let data = BitPackedData::try_new(

@@ -64,7 +64,7 @@ impl Default for CompressionSession {
             &integer::FOR_V1,
             // NOTE: ZigZag should precede BitPacking because we don't want negative numbers.
             &integer::ZigZagScheme,
-            &integer::BITPACKING_V1,
+            &integer::BitPackingScheme,
             &integer::SparseScheme,
             &integer::IntDictScheme,
             &integer::RunEndScheme,
