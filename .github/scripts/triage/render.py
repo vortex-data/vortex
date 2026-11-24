@@ -272,8 +272,12 @@ def overview(rows: Sequence[Row], day: date, now: datetime, people: People, clau
         },
         _context(summary),
     ]
+    # An item that waits on the contributor needs nothing from its owners yet, so its owners are
+    # named without mentions.
     lines = {
-        section: [_entry(row, now, people) for row in members]
+        section: [
+            _entry(row, now, people.plain() if section is WAITING else people) for row in members
+        ]
         for section, members in grouped.items()
     }
     cut = {section: 0 for section in SECTIONS}
@@ -449,7 +453,8 @@ def instructions() -> Message:
             "*Owners*",
             "To take an item, assign yourself on GitHub. "
             "Reminders go to the assignees, or to on-call when nobody is assigned. Messages show "
-            "teammates as Slack mentions, but only reminders and command replies notify anyone.",
+            "teammates as Slack mentions, except in the overview's waiting section, but only "
+            "reminders and command replies notify anyone.",
             "",
             "*Commands*, as a reply in an item's thread:",
             "`!snooze 5h` hides the item from the overview and pauses its reminders for 5 working "

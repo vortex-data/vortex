@@ -69,6 +69,14 @@ def test_overview_groups_sections_in_order_with_colors():
     )
 
 
+def test_overview_mentions_nobody_for_items_that_wait_on_the_contributor():
+    rows = [row(1), row(2, owes=Owes.CONTRIBUTOR)]
+    rows = [replace(r, item=item(r.item.number, assignees=["alice"])) for r in rows]
+    texts = texts_of(render.overview(rows, NOW.date(), NOW, MENTIONS, ""))
+    assert "  <@UALICE> · waiting" in next(t for t in texts if "|#1 " in t)
+    assert "  alice · why" in next(t for t in texts if "|#2 " in t)
+
+
 def test_people_mention_mapped_logins_and_give_unassigned_items_to_on_call():
     assigned = item(1, assignees=["Alice", "bob"])
     assert MENTIONS.owners(assigned) == "<@UALICE>, bob"
