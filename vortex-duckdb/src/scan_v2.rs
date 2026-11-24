@@ -39,6 +39,7 @@ use vortex::scan::planning::planner::State;
 use vortex::scan::planning::planner::WorkScope;
 use vortex::scan::prepare::ChunkPlanner;
 use vortex::scan::prepare::PreparedScan;
+use vortex::scan::prepare::ListOffsetsPlanner;
 use vortex::scan::prepare::PrunePlanner;
 use vortex::scan::selection::Selection;
 
@@ -187,10 +188,23 @@ fn compose(scan: &Arc<PreparedScan>, splits: &[u64], dynamic: bool) -> Box<dyn P
             Box::new(PartPlanner::new(scan, parts, first_row, kept))
         }
     };
+    // The offsets of the lists the scan reads are read once pruning has run, so a scan whose
+    // rows are all pruned reads none.
+    let ahead = {
+        let scan = Arc::clone(scan);
+        let rows = rows.clone();
+        move |kept: Option<Mask>| -> Box<dyn Planner> {
+            Box::new(ListOffsetsPlanner::new(
+                scan,
+                rows,
+                Box::new(move || parts(kept)),
+            ))
+        }
+    };
     if dynamic && scan.filter().is_some() {
-        Box::new(PrunePlanner::new(Arc::clone(scan), rows, Box::new(parts)))
+        Box::new(PrunePlanner::new(Arc::clone(scan), rows, Box::new(ahead)))
     } else {
-        parts(None)
+        ahead(None)
     }
 }
 

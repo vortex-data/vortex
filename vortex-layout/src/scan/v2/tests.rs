@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::collections::BTreeSet;
 use std::future::poll_fn;
 use std::num::NonZeroUsize;
 use std::ops::Range;
@@ -24,10 +25,14 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::VarBinArray;
 use vortex_array::assert_arrays_eq;
+use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldNames;
+use vortex_array::dtype::Nullability;
 use vortex_array::expr::Expression;
+use vortex_array::expr::Lambda;
 use vortex_array::expr::and;
+use vortex_array::expr::col;
 use vortex_array::expr::eq;
 use vortex_array::expr::get_item;
 use vortex_array::expr::gt;
@@ -36,13 +41,18 @@ use vortex_array::expr::lit;
 use vortex_array::expr::lt;
 use vortex_array::expr::pack;
 use vortex_array::expr::root;
+use vortex_array::expr::var;
 use vortex_array::validity::Validity;
 use vortex_arrow::ArrowSessionExt;
 use vortex_buffer::Alignment;
 use vortex_buffer::Buffer;
 use vortex_buffer::buffer;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
+use vortex_functions::expr::list_length;
+use vortex_functions::expr::list_sum;
+use vortex_functions::expr::list_transform;
 use vortex_io::session::RuntimeSessionExt;
 use vortex_mask::Mask;
 use vortex_scan::execution::SegmentLocation;
@@ -53,17 +63,24 @@ use vortex_scan::planning::planner::Planner;
 use vortex_scan::planning::planner::WorkScope;
 use vortex_scan::strict_sorted_buffer::StrictSortedBuffer;
 use vortex_session::VortexSession;
+use vortex_utils::aliases::hash_map::HashMap;
 
 use super::ChunkPlanner;
+use super::ListOffsetsPlanner;
 use super::PreparedScan;
 use super::PrunePlanner;
 use super::ROW_BLOCK_SIZE;
 use super::ScanBuilder;
 use super::ScanFile;
+use crate::LayoutChildType;
 use crate::LayoutRef;
 use crate::LayoutStrategy;
 use crate::layouts::chunked::writer::ChunkedLayoutStrategy;
 use crate::layouts::flat::writer::FlatLayoutStrategy;
+use crate::layouts::list::List;
+use crate::layouts::list::writer::ListIndexOptions;
+use crate::layouts::repartition::RepartitionStrategy;
+use crate::layouts::repartition::RepartitionWriterOptions;
 use crate::layouts::row_idx::row_idx;
 use crate::layouts::table::TableStrategy;
 use crate::layouts::zoned::writer::ZonedLayoutOptions;
@@ -71,6 +88,7 @@ use crate::layouts::zoned::writer::ZonedStrategy;
 use crate::scan::arrow::to_record_batch;
 use crate::scan::scan_builder::ScanBuilder as V1ScanBuilder;
 use crate::segments::CountingSegmentSource;
+use crate::segments::SegmentId;
 use crate::segments::SegmentSource;
 use crate::segments::TestSegments;
 use crate::sequence::SequenceId;
@@ -218,10 +236,21 @@ fn compose(scan: &Arc<PreparedScan>, rows: Range<u64>) -> Box<dyn Planner> {
             Box::new(ChunkPlanner::new(scan, rows, selection, kept))
         }
     };
+    let ahead = {
+        let scan = Arc::clone(scan);
+        let rows = rows.clone();
+        move |kept: Option<Mask>| -> Box<dyn Planner> {
+            Box::new(ListOffsetsPlanner::new(
+                scan,
+                rows,
+                Box::new(move || chunks(kept)),
+            ))
+        }
+    };
     if scan.filter().is_some() {
-        Box::new(PrunePlanner::new(Arc::clone(scan), rows, Box::new(chunks)))
+        Box::new(PrunePlanner::new(Arc::clone(scan), rows, Box::new(ahead)))
     } else {
-        chunks(None)
+        ahead(None)
     }
 }
 
@@ -479,21 +508,184 @@ async fn arrow_stream_projects_across_chunks() -> VortexResult<()> {
     Ok(())
 }
 
-/// V2 rejects list layouts: their element ranges are only known once their offsets are read.
+/// A table chunk of `CHUNK_ROWS` rows starting at row `start`: an integer, a nullable list of 0
+/// to 4 integers, every seventh null, and a list of 0 to 2 nullable lists of 0 to 3 integers.
+fn list_chunk(start: usize) -> VortexResult<ArrayRef> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let rows = start..start + CHUNK_ROWS;
+    let ints = Buffer::from_iter(
+        rows.clone()
+            .map(|row| i32::try_from(row).unwrap_or(i32::MAX)),
+    );
+    let mut offsets = vec![0u32];
+    for row in rows.clone() {
+        offsets.push(offsets[offsets.len() - 1] + u32::try_from(row % 5).unwrap_or(0));
+    }
+    let elements = Buffer::from_iter((0..offsets[offsets.len() - 1]).map(|i| i64::from(i) * 3));
+    let lists = ListArray::try_new(
+        elements.into_array(),
+        Buffer::from_iter(offsets).into_array(),
+        Validity::from_iter(rows.clone().map(|row| row % 7 != 0)),
+        &mut ctx,
+    )?;
+    let mut outer = vec![0u32];
+    let mut inner = vec![0u32];
+    let mut inner_valid = Vec::new();
+    for row in rows {
+        let count = u32::try_from(row % 3).unwrap_or(0);
+        for j in 0..count as usize {
+            inner.push(inner[inner.len() - 1] + u32::try_from((row + j) % 4).unwrap_or(0));
+            inner_valid.push((row + j) % 5 != 0);
+        }
+        outer.push(outer[outer.len() - 1] + count);
+    }
+    let inner = ListArray::try_new(
+        Buffer::from_iter((0..inner[inner.len() - 1]).map(i64::from)).into_array(),
+        Buffer::from_iter(inner).into_array(),
+        Validity::from_iter(inner_valid),
+        &mut ctx,
+    )?;
+    let nested = ListArray::try_new(
+        inner.into_array(),
+        Buffer::from_iter(outer).into_array(),
+        Validity::NonNullable,
+        &mut ctx,
+    )?;
+    Ok(StructArray::from_fields(&[
+        ("ints", ints.into_array()),
+        ("lists", lists.into_array()),
+        ("nested", nested.into_array()),
+    ])?
+    .into_array())
+}
+
+/// Leaves repartitioned into zoned blocks of `block_len` rows, so a filter prunes to a block and
+/// a list's elements span many segments.
+fn small_zoned_leaves(block_len: usize) -> Arc<dyn LayoutStrategy> {
+    Arc::new(RepartitionStrategy::new(
+        ZonedStrategy::new(
+            ChunkedLayoutStrategy::new(FlatLayoutStrategy::default()),
+            FlatLayoutStrategy::default(),
+            ZonedLayoutOptions {
+                block_size: NonZeroUsize::new(block_len).unwrap_or(NonZeroUsize::MIN),
+                ..Default::default()
+            },
+        ),
+        RepartitionWriterOptions {
+            block_size_minimum: 0,
+            block_len_multiple: block_len,
+            block_size_target: None,
+            canonicalize: false,
+        },
+    ))
+}
+
+/// The rows of `input` a scan with these options returns.
+fn expected_rows(
+    input: &ArrayRef,
+    row_range: Option<Range<u64>>,
+    rows: Option<&[u64]>,
+    filter: Option<&Expression>,
+    column: Option<&str>,
+) -> VortexResult<ArrayRef> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let row_range = row_range.unwrap_or(0..input.len() as u64);
+    let mut keep = Mask::from_iter((0..input.len() as u64).map(|row| {
+        row_range.contains(&row) && rows.is_none_or(|rows| rows.binary_search(&row).is_ok())
+    }));
+    if let Some(filter) = filter {
+        let matches = input
+            .clone()
+            .apply(filter)?
+            .fill_null(false)?
+            .execute::<Mask>(&mut ctx)?;
+        keep = &keep & &matches;
+    }
+    let kept = input.filter(keep)?;
+    match column {
+        Some(column) => kept.apply(&get_item(column, root())),
+        None => Ok(kept),
+    }
+}
+
+/// The V2 scan reads list layouts, nested or not, under every way a scan selects rows.
+#[rstest]
+#[case::whole(None, None, None)]
+#[case::row_range(Some(250..3_100), None, None)]
+#[case::row_indices(None, Some(&[0, 1, 4, 999, 1000, 2500, 3999][..]), None)]
+#[case::range_filter(
+    None,
+    None,
+    Some(and(
+        gt(get_item("ints", root()), lit(995i32)),
+        lt(get_item("ints", root()), lit(2050i32))
+    ))
+)]
+#[case::sparse_filter(None, None, Some(eq(get_item("ints", root()), lit(1001i32))))]
+#[case::list_filter(None, None, Some(is_null(get_item("lists", root()))))]
+#[case::no_matches(None, None, Some(gt(get_item("ints", root()), lit(10_000i32))))]
 #[tokio::test]
-async fn list_layouts_return_an_error() -> VortexResult<()> {
+async fn list_layouts_return_the_selected_rows(
+    #[values(None, Some("lists"), Some("nested"))] column: Option<&str>,
+    #[values(None, Some(64))] block_len: Option<usize>,
+    #[values(false, true)] indexed: bool,
+    #[case] row_range: Option<Range<u64>>,
+    #[case] rows: Option<&'static [u64]>,
+    #[case] filter: Option<Expression>,
+) -> VortexResult<()> {
     let session = new_session().with_tokio();
-    let strategy = TableStrategy::new(chunked_flat(), chunked_flat()).with_list_layout();
-    let (segments, layout) = write(&session, &strategy).await?;
-    let error = run_scan(builder(&session, &segments, &layout)?)
-        .await
-        .expect_err("V2 must reject an unsupported layout");
-    assert!(error.to_string().contains("vortex.plan.list_pack"));
+    let leaves = block_len.map_or_else(chunked_flat, small_zoned_leaves);
+    // With `indexed`, every list is written with an index of its offsets, and the scan reads no
+    // offsets ahead of its chunks: it bounds each chunk's elements with the index instead.
+    let strategy =
+        TableStrategy::new(chunked_flat(), leaves).with_list_layout_factory(move |list| {
+            Arc::new(list.with_index_options(ListIndexOptions {
+                min_lists: if indexed { 0 } else { u64::MAX },
+                window: 16,
+            }))
+        });
+    let chunks = (0..CHUNKS)
+        .map(|chunk| list_chunk(chunk * CHUNK_ROWS))
+        .collect::<VortexResult<Vec<_>>>()?;
+    let (segments, layout) = write_chunks(&session, &strategy, chunks).await?;
+    let has_index = layout
+        .depth_first_traversal()
+        .filter_map(|layout| layout.ok())
+        .filter_map(|layout| layout.as_opt::<List>().map(|list| list.index()))
+        .collect::<VortexResult<Vec<_>>>()?;
+    assert!(!has_index.is_empty());
+    assert!(has_index.iter().all(|index| index.is_some() == indexed));
+    let input = ChunkedArray::try_new(
+        (0..CHUNKS)
+            .map(|chunk| list_chunk(chunk * CHUNK_ROWS))
+            .collect::<VortexResult<Vec<_>>>()?,
+        layout.dtype().clone(),
+    )?
+    .into_array();
+
+    let mut builder = builder(&session, &segments, &layout)?
+        .with_some_filter(filter.clone().map(|f| f.bind(layout.dtype())).transpose()?);
+    if indexed {
+        builder = builder.with_list_offsets_ahead_max(0);
+    }
+    if let Some(column) = column {
+        builder = builder.with_projection(get_item(column, root()).bind(layout.dtype())?);
+    }
+    if let Some(row_range) = row_range.clone() {
+        builder = builder.with_row_range(row_range);
+    }
+    if let Some(rows) = rows {
+        builder = builder.with_row_indices(StrictSortedBuffer::try_new(Buffer::copy_from(rows))?);
+    }
+    let dtype = builder.dtype().clone();
+    let actual = collect_scan(dtype, builder).await?;
+    let expected = expected_rows(&input, row_range, rows, filter.as_ref(), column)?;
+    assert_arrays_eq!(actual, expected, &mut session.create_execution_ctx());
     Ok(())
 }
 
 #[tokio::test]
-async fn projection_skips_unsupported_unselected_layouts() -> VortexResult<()> {
+async fn projection_skips_unselected_list_layouts() -> VortexResult<()> {
     let session = new_session().with_tokio();
     let strategy = TableStrategy::new(chunked_flat(), chunked_flat()).with_list_layout();
     let (segments, layout) = write(&session, &strategy).await?;
@@ -565,6 +757,170 @@ async fn nullable_struct_projection_preserves_validity(
         assert_eq!(source.requests(), expected_requests);
     }
 
+    Ok(())
+}
+
+/// The column each segment of `layout` belongs to, by the path of its children.
+fn segment_columns(
+    layout: &LayoutRef,
+    path: &str,
+    columns: &mut HashMap<SegmentId, String>,
+) -> VortexResult<()> {
+    for id in layout.segment_ids() {
+        columns.insert(id, path.to_string());
+    }
+    for (child_type, child) in layout.child_types().zip(layout.children()?) {
+        let child_path = match child_type {
+            LayoutChildType::Field(name) if path.is_empty() => name.to_string(),
+            LayoutChildType::Field(name) => format!("{path}.{name}"),
+            LayoutChildType::Auxiliary(name) => format!("{path}.{name}"),
+            LayoutChildType::Chunk(_) | LayoutChildType::Transparent(_) => path.to_string(),
+        };
+        segment_columns(&child, &child_path, columns)?;
+    }
+    Ok(())
+}
+
+/// `{l: list<struct<a: i32, f: i32, g: list<struct<h: i32, i: i32>>>>, o: i32}`. The five lists
+/// have lengths [2, 3, 0, 3, 2], and when `nullable` the second is null over elements that are
+/// still stored.
+fn transform_table(nullable: bool) -> VortexResult<ArrayRef> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let inner = StructArray::from_fields(&[
+        ("h", PrimitiveArray::from_iter(0..15_i32).into_array()),
+        ("i", PrimitiveArray::from_iter(100..115_i32).into_array()),
+    ])?
+    .into_array();
+    let g = ListArray::try_new(
+        inner,
+        Buffer::from_iter([0u32, 1, 3, 3, 4, 6, 6, 7, 9, 9, 15]).into_array(),
+        Validity::NonNullable,
+        &mut ctx,
+    )?
+    .into_array();
+    let elements = StructArray::from_fields(&[
+        ("a", PrimitiveArray::from_iter(0..10_i32).into_array()),
+        ("f", PrimitiveArray::from_iter(10..20_i32).into_array()),
+        ("g", g),
+    ])?
+    .into_array();
+    let validity = if nullable {
+        Validity::from_iter([true, false, true, true, true])
+    } else {
+        Validity::NonNullable
+    };
+    let l = ListArray::try_new(
+        elements,
+        Buffer::from_iter([0u32, 2, 5, 5, 8, 10]).into_array(),
+        validity,
+        &mut ctx,
+    )?
+    .into_array();
+    Ok(StructArray::from_fields(&[
+        ("l", l),
+        ("o", PrimitiveArray::from_iter(0..5_i32).into_array()),
+    ])?
+    .into_array())
+}
+
+fn lambda(param: &str, body: Expression) -> Lambda {
+    Lambda::new([param], body).vortex_expect("lambda is valid")
+}
+
+/// `list_transform(l, x -> body)`.
+fn transform(body: Expression) -> Expression {
+    list_transform(col("l"), lambda("x", body))
+}
+
+/// Leaves repartitioned into two-row chunks, so a read of part of a column skips segments.
+fn two_row_chunks() -> Arc<dyn LayoutStrategy> {
+    Arc::new(RepartitionStrategy::new(
+        ChunkedLayoutStrategy::new(FlatLayoutStrategy::default()),
+        RepartitionWriterOptions {
+            block_size_minimum: 0,
+            block_len_multiple: 2,
+            block_size_target: None,
+            canonicalize: true,
+        },
+    ))
+}
+
+const EVERY_LIST_COLUMN: &[&str] = &[
+    "l.offsets",
+    "l.elements.a",
+    "l.elements.f",
+    "l.elements.g.offsets",
+    "l.elements.g.elements.h",
+    "l.elements.g.elements.i",
+];
+
+/// An expression over a list reads only the list children it needs: a null check its validity,
+/// and its length its offsets. Anything else reads the lists whole, a `list_transform` too: its
+/// lambda is evaluated over the lists a chunk assembles.
+#[rstest]
+#[case::is_null(is_null(col("l")), &[])]
+#[case::length(list_length(col("l")), &["l.offsets"])]
+#[case::length_in_an_expression(gt(list_length(col("l")), lit(2u64)), &["l.offsets"])]
+#[case::length_beside_another_column(
+    pack([("n", list_length(col("l"))), ("o", col("o"))], Nullability::NonNullable),
+    &["l.offsets", "o"],
+)]
+#[case::whole(col("l"), EVERY_LIST_COLUMN)]
+#[case::transform(transform(get_item("f", var("x"))), EVERY_LIST_COLUMN)]
+#[case::transform_under_another_fn(
+    list_sum(transform(get_item("f", var("x")))),
+    EVERY_LIST_COLUMN
+)]
+#[case::length_beside_the_whole_list(
+    pack([("n", list_length(col("l"))), ("l", col("l"))], Nullability::NonNullable),
+    EVERY_LIST_COLUMN,
+)]
+#[tokio::test]
+async fn list_expressions_read_only_what_they_use(
+    #[case] expr: Expression,
+    #[case] columns: &[&str],
+    #[values(false, true)] nullable: bool,
+    #[values(None, Some(&[1u64, 3, 4][..]))] rows: Option<&'static [u64]>,
+) -> VortexResult<()> {
+    let session = new_session().with_tokio();
+    let table = transform_table(nullable)?;
+    let strategy = TableStrategy::new(two_row_chunks(), two_row_chunks()).with_list_layout();
+    let (segments, layout) = write_chunks(&session, &strategy, vec![table.clone()]).await?;
+    let source = Arc::new(CountingSegmentSource::new(segments));
+    let scan_source: Arc<dyn SegmentSource> = Arc::<CountingSegmentSource>::clone(&source);
+
+    let mut builder = builder(&session, &scan_source, &layout)?
+        .with_projection(expr.bind(layout.dtype())?);
+    if let Some(rows) = rows {
+        builder = builder.with_row_indices(StrictSortedBuffer::try_new(Buffer::copy_from(rows))?);
+    }
+    let dtype = builder.dtype().clone();
+    let actual = collect_scan(dtype, builder).await?;
+
+    let keep = Mask::from_iter(
+        (0..table.len() as u64).map(|row| rows.is_none_or(|rows| rows.contains(&row))),
+    );
+    let expected = table.filter(keep)?.apply(&expr)?;
+    assert_arrays_eq!(actual, expected, &mut session.create_execution_ctx());
+
+    let mut segment_column = HashMap::new();
+    segment_columns(&layout, "", &mut segment_column)?;
+    let read = source
+        .requested()
+        .iter()
+        .map(|id| segment_column[id].as_str())
+        .collect::<BTreeSet<_>>();
+    let columns: &[&str] = if columns.is_empty() && !nullable {
+        // A list that cannot be null has no validity to ask: its lengths answer instead.
+        &["l.offsets"]
+    } else {
+        columns
+    };
+    let mut expected_read = columns.iter().copied().collect::<BTreeSet<_>>();
+    if nullable {
+        expected_read.insert("l.validity");
+    }
+    assert_eq!(read, expected_read);
     Ok(())
 }
 

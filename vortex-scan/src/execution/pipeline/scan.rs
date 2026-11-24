@@ -660,7 +660,21 @@ impl Scan {
         rows: Range<u64>,
         mask: &Mask,
     ) -> VortexResult<Vec<SegmentId>> {
+        Self::segments_with(session, plan, rows, mask, &ValueCache::default())
+    }
+
+    /// [`segments`](Self::segments), compiling with the whole values in `values`: a plan whose
+    /// reads depend on values read earlier, as a list's elements depend on its offsets, lists
+    /// the segments it will read once those values are there.
+    pub fn segments_with(
+        session: &VortexSession,
+        plan: &PlanRef,
+        rows: Range<u64>,
+        mask: &Mask,
+        values: &ValueCache,
+    ) -> VortexResult<Vec<SegmentId>> {
         let mut core = Core::new(session.clone(), 0);
+        core.values = values.clone();
         core.compile(plan, rows, mask)?;
         let mut segments = core.segments;
         segments.sort_unstable();

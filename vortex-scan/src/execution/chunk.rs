@@ -3,6 +3,7 @@
 
 //! Cuts a scan's rows into chunks and plans each one.
 
+use std::sync::LazyLock;
 use std::ops::Range;
 use std::sync::Arc;
 use std::vec::IntoIter;
@@ -43,6 +44,52 @@ pub(crate) fn rows_per_chunk(row_count: u64, locations: &[SegmentLocation]) -> u
     let bytes_per_row = bytes.div_ceil(row_count).max(1);
     let blocks = TARGET_BYTES_PER_CHUNK / bytes_per_row / ROW_BLOCK_SIZE as u64;
     blocks.clamp(1, 8) as usize * ROW_BLOCK_SIZE
+}
+
+/// The rows of a chunk's grid for scans that read lists.
+const LIST_ROW_BLOCK_SIZE: u64 = 1024;
+/// The list elements of a chunk of a scan that reads lists.
+const TARGET_LIST_ELEMENTS_PER_CHUNK: u64 = 4 << 20;
+
+/// The rows of a chunk of a scan that reads lists, whose plans read `bytes` and `elements` list
+/// elements over `row_count` rows.
+///
+/// A row of lists holds as many elements as its lists are long, so a row count says little about
+/// the work in a chunk. Stored bytes say little more: the elements of long lists can compress to
+/// almost nothing and still have to be decoded, evaluated and exported. Chunks hold at most
+/// about [`TARGET_BYTES_PER_CHUNK`] of what the plans read and
+/// [`TARGET_LIST_ELEMENTS_PER_CHUNK`] elements, on a finer grid than [`ROW_BLOCK_SIZE`], since a
+/// block of long lists can be many times either.
+pub(crate) fn list_rows_per_chunk(
+    row_count: u64,
+    elements: u64,
+    bytes: impl FnOnce() -> VortexResult<u64>,
+) -> VortexResult<usize> {
+    static TARGETS: LazyLock<(u64, u64)> = LazyLock::new(|| {
+        let var = |name: &str, default: u64| {
+            std::env::var(name)
+                .ok()
+                .and_then(|value| value.parse().ok())
+                .unwrap_or(default)
+        };
+        (
+            var("VORTEX_LIST_CHUNK_TARGET_BYTES", TARGET_BYTES_PER_CHUNK),
+            var(
+                "VORTEX_LIST_CHUNK_TARGET_ELEMENTS",
+                TARGET_LIST_ELEMENTS_PER_CHUNK,
+            ),
+        )
+    });
+    let (target_bytes, target_elements) = *TARGETS;
+    let per_row = |total: u64| total.div_ceil(row_count.max(1)).max(1);
+    let mut rows = target_elements / per_row(elements);
+    // Finding the bytes the plans read compiles them over the whole file, which is not free for
+    // a wide table: the elements often settle the answer alone.
+    if rows > LIST_ROW_BLOCK_SIZE {
+        rows = rows.min(target_bytes / per_row(bytes()?));
+    }
+    let most = MAX_ROWS_PER_CHUNK as u64 / LIST_ROW_BLOCK_SIZE;
+    Ok(((rows / LIST_ROW_BLOCK_SIZE).clamp(1, most) * LIST_ROW_BLOCK_SIZE) as usize)
 }
 
 /// Fixed boundaries in the file's row domain, clipped to the requested range.

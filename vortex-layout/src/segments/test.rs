@@ -68,6 +68,7 @@ impl SegmentSink for TestSegments {
 pub struct CountingSegmentSource {
     inner: Arc<dyn SegmentSource>,
     requests: Arc<AtomicUsize>,
+    requested: Arc<Mutex<Vec<SegmentId>>>,
 }
 
 impl CountingSegmentSource {
@@ -76,7 +77,13 @@ impl CountingSegmentSource {
         Self {
             inner,
             requests: Arc::new(AtomicUsize::new(0)),
+            requested: Arc::default(),
         }
+    }
+
+    /// Returns the segments requested so far, in request order.
+    pub fn requested(&self) -> Vec<SegmentId> {
+        self.requested.lock().clone()
     }
 
     /// Returns how many segments have been requested so far.
@@ -88,6 +95,7 @@ impl CountingSegmentSource {
 impl SegmentSource for CountingSegmentSource {
     fn request(&self, id: SegmentId) -> SegmentFuture {
         self.requests.fetch_add(1, Ordering::Relaxed);
+        self.requested.lock().push(id);
         self.inner.request(id)
     }
 }

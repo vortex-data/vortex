@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::sync::Arc;
+use std::sync::LazyLock;
 
 use async_channel::Receiver;
 use async_channel::Sender;
@@ -31,6 +32,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_io::session::RuntimeSessionExt;
+use vortex_scan::plan::ListIndexBuilder;
 use vortex_session::VortexSession;
 
 use crate::LayoutRef;
@@ -74,6 +76,43 @@ pub struct ListLayoutStrategy {
     offsets: Arc<dyn LayoutStrategy>,
     validity: Arc<dyn LayoutStrategy>,
     fallback: Arc<dyn LayoutStrategy>,
+    index: ListIndexOptions,
+}
+
+/// When and how finely [`ListLayoutStrategy`] indexes a list column's offsets.
+///
+/// A scan reads the offsets of a list column whole before its chunks, so that each chunk knows
+/// the elements it reads without waiting for its offsets. That is cheap while the lists are few.
+/// A column of more than `min_lists` lists is written with an index: a coarse copy of the offsets
+/// a scan reads in their place, sampled at list boundaries `window` elements apart.
+#[derive(Clone, Copy, Debug)]
+pub struct ListIndexOptions {
+    /// The most lists a column holds without an index.
+    pub min_lists: u64,
+    /// The elements between index entries: a scan reads under this many elements too many on
+    /// either side of a run of selected lists.
+    pub window: u64,
+}
+
+impl Default for ListIndexOptions {
+    /// Indexes columns of more lists than a scan reads the offsets of whole, a window of 8,192
+    /// elements apart. `VORTEX_LIST_INDEX_MIN_LISTS` and `VORTEX_LIST_INDEX_WINDOW` override
+    /// either, for experiments.
+    fn default() -> Self {
+        static OPTIONS: LazyLock<ListIndexOptions> = LazyLock::new(|| {
+            let var = |name: &str, default: u64| {
+                std::env::var(name)
+                    .ok()
+                    .and_then(|value| value.parse().ok())
+                    .unwrap_or(default)
+            };
+            ListIndexOptions {
+                min_lists: var("VORTEX_LIST_INDEX_MIN_LISTS", 1 << 22),
+                window: var("VORTEX_LIST_INDEX_WINDOW", 8192),
+            }
+        });
+        *OPTIONS
+    }
 }
 
 impl Default for ListLayoutStrategy {
@@ -86,6 +125,7 @@ impl Default for ListLayoutStrategy {
             offsets: Arc::clone(&flat),
             validity: Arc::clone(&flat),
             fallback: flat,
+            index: ListIndexOptions::default(),
         }
     }
 }
@@ -106,6 +146,12 @@ impl ListLayoutStrategy {
     /// Strategy for the `validity` child (written only when the list is nullable).
     pub fn with_validity(mut self, validity: Arc<dyn LayoutStrategy>) -> Self {
         self.validity = validity;
+        self
+    }
+
+    /// Set when and how finely the offsets are indexed.
+    pub fn with_index_options(mut self, index: ListIndexOptions) -> Self {
+        self.index = index;
         self
     }
 
@@ -178,6 +224,7 @@ impl LayoutStrategy for ListLayoutStrategy {
             elements_tx,
             offsets_tx,
             validity_tx,
+            ListIndexBuilder::new(self.index.window),
         );
 
         // Spawn a writer per child sub-stream, concurrently.
@@ -212,16 +259,41 @@ impl LayoutStrategy for ListLayoutStrategy {
 
         // A child writer that fails drops its stream, which fails the transpose too. Report the
         // child writer's error, which is the cause, ahead of the transpose's.
+        // The index is written after the children it summarizes, once every offset is known.
+        let mut index_pointer = eof.split_off();
         let (fanout, layouts) = join(fanout_fut, try_join_all(layout_futures)).await;
         let layouts = layouts?;
-        fanout?;
+        let index = fanout?;
         let mut layouts = layouts.into_iter();
         let elements_layout = layouts.next().vortex_expect("elements layout present");
         let offsets_layout = layouts.next().vortex_expect("offsets layout present");
         let validity_layout =
             is_nullable.then(|| layouts.next().vortex_expect("validity layout present"));
 
-        Ok(ListLayout::new(dtype, elements_layout, offsets_layout, validity_layout).into_layout())
+        let index_layout = if index.list_count() > self.index.min_lists {
+            let entries = index.finish().into_array();
+            let chunk: ChildChunk = Ok((index_pointer.advance(), entries));
+            let stream = SequentialStreamAdapter::new(
+                DType::Primitive(PType::U64, Nullability::NonNullable),
+                futures::stream::iter([chunk]).boxed(),
+            )
+            .sendable();
+            let layout = FlatLayoutStrategy::default()
+                .write_stream(ctx, segment_sink, stream, index_pointer, session)
+                .await?;
+            Some(layout)
+        } else {
+            None
+        };
+
+        Ok(ListLayout::new_with_index(
+            dtype,
+            elements_layout,
+            offsets_layout,
+            validity_layout,
+            index_layout,
+        )
+        .into_layout())
     }
 }
 
@@ -239,7 +311,8 @@ async fn transpose_list_column(
     elements_tx: Sender<ChildChunk>,
     offsets_tx: Sender<ChildChunk>,
     validity_tx: Option<Sender<ChildChunk>>,
-) -> VortexResult<()> {
+    mut index: ListIndexBuilder,
+) -> VortexResult<ListIndexBuilder> {
     let mut exec_ctx = session.create_execution_ctx();
     let mut element_base: u64 = 0;
     let mut first = true;
@@ -256,6 +329,8 @@ async fn transpose_list_column(
         let n_elements = elements.len() as u64;
         let row_count = offsets.len().saturating_sub(1);
         let offsets = global_offsets(offsets, element_base, first, &mut exec_ctx)?;
+        index.push(offsets.as_slice::<u64>());
+        let offsets = offsets.into_array();
         element_base += n_elements;
         first = false;
 
@@ -280,7 +355,7 @@ async fn transpose_list_column(
             }
         }
     }
-    Ok(())
+    Ok(index)
 }
 
 /// Canonicalize a list-dtype array into [`ListDataParts`].
@@ -311,7 +386,7 @@ fn global_offsets(
     element_base: u64,
     first: bool,
     exec_ctx: &mut ExecutionCtx,
-) -> VortexResult<ArrayRef> {
+) -> VortexResult<PrimitiveArray> {
     let widened = offsets.cast(DType::Primitive(PType::U64, Nullability::NonNullable))?;
     let based = if element_base == 0 {
         widened
@@ -325,7 +400,7 @@ fn global_offsets(
         based.slice(1..based.len())?
     };
     // Materialize so the child sub-stream carries a concrete array rather than a lazy expression.
-    Ok(based.execute::<PrimitiveArray>(exec_ctx)?.into_array())
+    based.execute::<PrimitiveArray>(exec_ctx)
 }
 
 /// Matcher for `Array<List>` or `Array<ListView>`.

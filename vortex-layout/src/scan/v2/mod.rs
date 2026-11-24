@@ -15,6 +15,7 @@ pub use vortex_scan::prepare::ChunkPlanner;
 pub use vortex_scan::prepare::FilterPlans;
 pub use vortex_scan::prepare::PreparedScan;
 pub use vortex_scan::prepare::PruneNext;
+pub use vortex_scan::prepare::ListOffsetsPlanner;
 pub use vortex_scan::prepare::PrunePlanner;
 use vortex_scan::prepare::ScanBuilder as EngineScanBuilder;
 pub use vortex_scan::prepare::ScanCache;
@@ -82,6 +83,7 @@ pub struct ScanBuilder {
     selection: Selection,
     row_offset: u64,
     skip_unselective_dynamic: bool,
+    list_offsets_ahead_max: Option<u64>,
 }
 
 impl ScanBuilder {
@@ -96,7 +98,15 @@ impl ScanBuilder {
             selection: Selection::default(),
             row_offset: 0,
             skip_unselective_dynamic: false,
+            list_offsets_ahead_max: None,
         }
+    }
+
+    /// Sets the most offsets of one list column the scan reads whole ahead of its chunks. A
+    /// column of more lists is bounded by its index, when it was written with one.
+    pub fn with_list_offsets_ahead_max(mut self, max: u64) -> Self {
+        self.list_offsets_ahead_max = Some(max);
+        self
     }
 
     /// The output dtype after projection.
@@ -170,6 +180,9 @@ impl ScanBuilder {
             .with_skip_unselective_dynamic(self.skip_unselective_dynamic);
         if let Some(rows) = self.row_range {
             builder = builder.with_row_range(rows);
+        }
+        if let Some(max) = self.list_offsets_ahead_max {
+            builder = builder.with_list_offsets_ahead_max(max);
         }
         builder
     }

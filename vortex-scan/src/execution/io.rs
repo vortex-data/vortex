@@ -616,6 +616,7 @@ mod tests {
             row_offset: 0,
             values,
             chunk_rows: 1,
+            list_offsets_ahead_max: u64::MAX,
         });
 
         struct ParentPlanner(VecDeque<(WorkScope, Box<dyn Planner>)>);

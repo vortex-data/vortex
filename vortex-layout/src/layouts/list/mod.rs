@@ -44,7 +44,10 @@ pub const ELEMENTS_CHILD_INDEX: usize = 0;
 pub const OFFSETS_CHILD_INDEX: usize = 1;
 /// Child index of the optional validity layout.
 pub const VALIDITY_CHILD_INDEX: usize = 2;
-/// Number of children for a non-nullable list.
+/// Slot of the optional index of the offsets. Its child follows the validity child, or the
+/// offsets child when the list is not nullable.
+pub const INDEX_SLOT: usize = 3;
+/// Number of children for a non-nullable list without an index.
 pub const NUM_CHILDREN_NON_NULLABLE: usize = 2;
 
 /// List layout vtable.
@@ -58,6 +61,8 @@ pub use List as ListLayoutEncoding;
 #[derive(Clone, Debug)]
 pub struct ListData {
     offsets_ptype: PType,
+    /// Whether the last child is an index of the offsets.
+    has_index: bool,
 }
 
 /// A list layout shredded into elements, offsets, and optional validity children.
@@ -73,7 +78,10 @@ impl VTable for List {
     }
 
     fn metadata(layout: &Layout<Self>) -> Self::Metadata {
-        ProstMetadata(ListLayoutMetadata::new(layout.offsets_ptype))
+        ProstMetadata(ListLayoutMetadata::new(
+            layout.offsets_ptype,
+            layout.has_index,
+        ))
     }
 
     fn deserialize(
@@ -82,7 +90,8 @@ impl VTable for List {
         metadata: &ListLayoutMetadata,
     ) -> VortexResult<Self::LayoutData> {
         let offsets_ptype = metadata.get_offsets_ptype()?;
-        ListLayout::validate_children(args.dtype, args.children.nchildren())?;
+        let has_index = metadata.has_index;
+        ListLayout::validate_children(args.dtype, has_index, args.children.nchildren())?;
         let elements_dtype = args
             .dtype
             .as_list_element_opt()
@@ -105,18 +114,28 @@ impl VTable for List {
                 "List validity row count does not match parent"
             );
         }
-        Ok(ListData { offsets_ptype })
+        if has_index {
+            let index = args
+                .children
+                .child(index_child(args.dtype), &index_dtype())?;
+            vortex_ensure_eq!(index.row_count() % 2, 0, "List index does not hold pairs");
+        }
+        Ok(ListData {
+            offsets_ptype,
+            has_index,
+        })
     }
 
     fn nslots(_layout: &Layout<Self>) -> usize {
-        // Elements, offsets, and an always-slotted (optionally present) validity child.
-        VALIDITY_CHILD_INDEX + 1
+        // Elements, offsets, and always-slotted (optionally present) validity and index children.
+        INDEX_SLOT + 1
     }
 
     fn slot_to_child(layout: &Layout<Self>, slot: usize) -> Option<usize> {
         match slot {
             ELEMENTS_CHILD_INDEX | OFFSETS_CHILD_INDEX => Some(slot),
             VALIDITY_CHILD_INDEX => layout.dtype().is_nullable().then_some(VALIDITY_CHILD_INDEX),
+            INDEX_SLOT => layout.has_index.then(|| index_child(layout.dtype())),
             _ => None,
         }
     }
@@ -135,6 +154,7 @@ impl VTable for List {
             VALIDITY_CHILD_INDEX if layout.dtype().is_nullable() => {
                 Ok(DType::Bool(Nullability::NonNullable))
             }
+            INDEX_SLOT if layout.has_index => Ok(index_dtype()),
             _ => vortex_bail!("Invalid child index {idx} for ListLayout"),
         }
     }
@@ -146,6 +166,7 @@ impl VTable for List {
             VALIDITY_CHILD_INDEX if layout.dtype().is_nullable() => {
                 LayoutChildType::Auxiliary("validity".into())
             }
+            INDEX_SLOT if layout.has_index => LayoutChildType::Auxiliary("index".into()),
             _ => vortex_panic!("Invalid child index {idx} for ListLayout"),
         }
     }
@@ -168,8 +189,8 @@ impl VTable for List {
 
     fn new_plan(layout: &Layout<Self>) -> VortexResult<PlanRef> {
         // SAFETY: List layout construction validates its element, offsets, and optional validity
-        // child shapes. Its slots are `[elements, offsets, validity]`, which are the ListPack
-        // slots.
+        // and index child shapes. Its slots are `[elements, offsets, validity, index]`, which are
+        // the ListPack slots.
         let plan = unsafe {
             ListPackPlan::from_slots_unchecked(
                 layout.dtype().clone(),
@@ -189,18 +210,37 @@ impl Layout<List> {
         offsets: LayoutRef,
         validity: Option<LayoutRef>,
     ) -> Self {
+        Self::new_with_index(dtype, elements, offsets, validity, None)
+    }
+
+    /// Construct a list layout from its children and an index of its offsets: the list rows its
+    /// windows start at, then the element rows those lists start at. See
+    /// [`ListIndexBuilder`](vortex_scan::plan::ListIndexBuilder).
+    pub fn new_with_index(
+        dtype: DType,
+        elements: LayoutRef,
+        offsets: LayoutRef,
+        validity: Option<LayoutRef>,
+        index: Option<LayoutRef>,
+    ) -> Self {
         let row_count = offsets.row_count().saturating_sub(1);
         let offsets_ptype = offsets.dtype().as_ptype();
+        let has_index = index.is_some();
         let mut children = vec![elements, offsets];
         children.extend(validity);
-        Self::validate_children(&dtype, children.len()).vortex_expect("invalid list children");
+        children.extend(index);
+        Self::validate_children(&dtype, has_index, children.len())
+            .vortex_expect("invalid list children");
         LayoutParts::new(
             List,
             dtype,
             row_count,
             Vec::new(),
             OwnedLayoutChildren::layout_children(children),
-            ListData { offsets_ptype },
+            ListData {
+                offsets_ptype,
+                has_index,
+            },
         )
         .into_typed()
     }
@@ -222,6 +262,11 @@ impl Layout<List> {
         self.slot(VALIDITY_CHILD_INDEX)
     }
 
+    /// Returns the optional index of the offsets.
+    pub fn index(&self) -> VortexResult<Option<LayoutRef>> {
+        self.slot(INDEX_SLOT)
+    }
+
     /// Returns the integer ptype used by offsets.
     pub fn offsets_ptype(&self) -> PType {
         self.offsets_ptype
@@ -234,23 +279,38 @@ impl Layout<List> {
             .vortex_expect("ListLayout dtype must be a List")
     }
 
-    fn validate_children(dtype: &DType, nchildren: usize) -> VortexResult<()> {
-        let expected = NUM_CHILDREN_NON_NULLABLE + usize::from(dtype.is_nullable());
+    fn validate_children(dtype: &DType, has_index: bool, nchildren: usize) -> VortexResult<()> {
+        let expected =
+            NUM_CHILDREN_NON_NULLABLE + usize::from(dtype.is_nullable()) + usize::from(has_index);
         vortex_ensure_eq!(nchildren, expected);
         Ok(())
     }
+}
+
+/// The child holding the index of a list of `dtype` that has one.
+fn index_child(dtype: &DType) -> usize {
+    NUM_CHILDREN_NON_NULLABLE + usize::from(dtype.is_nullable())
+}
+
+/// The dtype of a list's index of its offsets.
+fn index_dtype() -> DType {
+    DType::Primitive(PType::U64, Nullability::NonNullable)
 }
 
 #[derive(prost::Message)]
 pub struct ListLayoutMetadata {
     #[prost(int32, tag = "1")]
     offsets_ptype: i32,
+    /// Whether the last child is an index of the offsets.
+    #[prost(bool, tag = "2")]
+    has_index: bool,
 }
 
 impl ListLayoutMetadata {
-    pub fn new(offsets_ptype: PType) -> Self {
+    pub fn new(offsets_ptype: PType, has_index: bool) -> Self {
         Self {
             offsets_ptype: offsets_ptype as i32,
+            has_index,
         }
     }
 
@@ -289,7 +349,11 @@ mod tests {
             Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable)),
             Nullability::NonNullable,
         );
-        let metadata = ListLayoutMetadata { offsets_ptype: 11 }.encode_to_vec();
+        let metadata = ListLayoutMetadata {
+            offsets_ptype: 11,
+            has_index: false,
+        }
+        .encode_to_vec();
         let children = layout_children(vec![]);
         let read_ctx = ReadContext::new([]);
         let build_ctx = LayoutBuildContext {
@@ -314,7 +378,7 @@ mod tests {
         }));
 
         assert_eq!(
-            ListLayoutMetadata::new(PType::U32).get_offsets_ptype()?,
+            ListLayoutMetadata::new(PType::U32, false).get_offsets_ptype()?,
             PType::U32
         );
 

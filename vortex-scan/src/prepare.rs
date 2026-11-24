@@ -9,17 +9,26 @@ use std::sync::Arc;
 use vortex_array::dtype::DType;
 use vortex_array::expr::BoundExpression;
 use vortex_error::VortexResult;
+use vortex_mask::Mask;
 use vortex_expr::analysis::referenced_field_paths;
 use vortex_session::VortexSession;
 
 pub use crate::execution::ChunkPlanner;
 use crate::execution::FILTERED_ROWS_PER_CHUNK;
 pub use crate::execution::FilterPlans;
+pub use crate::execution::ListOffsetsNext;
+pub use crate::execution::ListOffsetsPlanner;
 use crate::execution::MAX_ROWS_PER_CHUNK;
 pub use crate::execution::PreparedScan;
 pub use crate::execution::PruneNext;
 pub use crate::execution::PrunePlanner;
 use crate::execution::ROW_BLOCK_SIZE;
+use crate::execution::list_offsets::default_offsets_ahead_max;
+use crate::execution::list_offsets::list_structures;
+use crate::execution::list_rows_per_chunk;
+use crate::execution::pipeline::Scan;
+use crate::execution::pipeline::ValueCache;
+use crate::plan::PlanRef;
 pub use crate::execution::SegmentLocation;
 pub use crate::execution::cache::ScanCache;
 pub use crate::execution::cache::WeakScanCache;
@@ -44,6 +53,7 @@ pub struct ScanBuilder {
     selection: Selection,
     row_offset: u64,
     skip_unselective_dynamic: bool,
+    list_offsets_ahead_max: Option<u64>,
 }
 
 impl ScanBuilder {
@@ -59,7 +69,15 @@ impl ScanBuilder {
             selection: Selection::default(),
             row_offset: 0,
             skip_unselective_dynamic: false,
+            list_offsets_ahead_max: None,
         }
+    }
+
+    /// Sets the most offsets of one list column the scan reads whole ahead of its chunks. A
+    /// column of more lists is bounded by its index, when it was written with one.
+    pub fn with_list_offsets_ahead_max(mut self, max: u64) -> Self {
+        self.list_offsets_ahead_max = Some(max);
+        self
     }
 
     /// The output dtype after projection.
@@ -174,7 +192,22 @@ impl ScanBuilder {
                 cache.insert_projection(self.projection, plan)
             }
         };
-        let chunk_rows = if let Some(rows) = filtered_chunk_rows {
+        let values = cache.values();
+        // Every partition of a scan asks the same of the same plans: the first works it out
+        // while the others wait.
+        let list_chunk_rows = cache.list_chunk_rows(&projection, filter.as_ref(), || {
+            list_chunk_rows(
+                &self.session,
+                &projection,
+                filter.as_deref(),
+                row_count,
+                &file.locations,
+                &values,
+            )
+        })?;
+        let chunk_rows = if let Some(rows) = list_chunk_rows {
+            rows
+        } else if let Some(rows) = filtered_chunk_rows {
             rows
         } else if identity {
             rows_per_chunk(row_count, &file.locations)
@@ -185,7 +218,6 @@ impl ScanBuilder {
             Some(ranges) => ranges,
             None => cache.insert_ranges(segment_ranges(&file.locations)),
         };
-        let values = cache.values();
         Ok(PreparedScan {
             session: self.session,
             rows: self.row_range.unwrap_or(0..row_count),
@@ -199,8 +231,60 @@ impl ScanBuilder {
             row_offset: self.row_offset,
             values,
             chunk_rows,
+            list_offsets_ahead_max: self
+                .list_offsets_ahead_max
+                .unwrap_or_else(default_offsets_ahead_max),
         })
     }
+}
+
+/// The rows of a chunk of a scan whose projection or filter reads lists, sized by the list
+/// elements and the bytes their plans read over the file. `None` for a scan that reads no list.
+fn list_chunk_rows(
+    session: &VortexSession,
+    projection: &PlanRef,
+    filter: Option<&FilterPlans>,
+    row_count: u64,
+    locations: &[SegmentLocation],
+    values: &ValueCache,
+) -> VortexResult<Option<usize>> {
+    let plans = || {
+        std::iter::once(projection).chain(filter.into_iter().flat_map(|f| f.predicates().iter()))
+    };
+    let lists = list_structures(plans())?;
+    if row_count == 0 || lists.is_empty() {
+        return Ok(None);
+    }
+    let elements = lists.iter().map(|list| list.elements).sum();
+    let bytes = || -> VortexResult<u64> {
+        let rows = 0..row_count;
+        let mask = Mask::new_true(usize::try_from(row_count)?);
+        let mut segments = Vec::new();
+        for plan in plans() {
+            segments.extend(Scan::segments_with(
+                session,
+                plan,
+                rows.clone(),
+                &mask,
+                values,
+            )?);
+        }
+        segments.sort_unstable();
+        segments.dedup();
+        Ok(segments
+            .iter()
+            .map(|segment| u64::from(locations[**segment as usize].length))
+            .sum())
+    };
+    let chunk_rows = list_rows_per_chunk(row_count, elements, bytes)?;
+    tracing::debug!(
+        row_count,
+        elements,
+        chunk_rows,
+        lists = lists.len(),
+        "v2 list scan chunk size"
+    );
+    Ok(Some(chunk_rows))
 }
 
 pub(crate) fn filtered_rows_per_chunk(
