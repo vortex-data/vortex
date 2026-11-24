@@ -236,6 +236,16 @@ def test_reminders_group_items_per_person_and_follow_up_once():
     assert len(reminders) == 3
 
 
+def test_every_assignee_with_a_slack_id_is_reminded():
+    shared = item(1, created=ago(days=1), assignees=["Bob", "alice", "carol"])
+    fake = FakeSlack()
+    # carol has no Slack ID, so only alice and bob get the item. Logins match in any case.
+    run(fake, [shared], pings=True, users={"alice": "UALICE", "bob": "UBOB"})
+    reminders = fake.bot_replies(overview_ts(fake))
+    assert sorted(reminders) == ["<@UALICE>, 1 item waits on you today", "<@UBOB>, 1 item waits on you today"]
+    assert "Bob, alice, carol" in json.dumps(fake.messages[overview_ts(fake)], ensure_ascii=False)
+
+
 def test_next_day_replaces_the_overview_and_respects_cadence_and_snoozes():
     high = item(1, created=ago(days=1), assignees=["alice"])
     snoozed = item(2, created=ago(days=1), assignees=["alice"])
