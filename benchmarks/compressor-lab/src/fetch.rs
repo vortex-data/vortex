@@ -10,12 +10,14 @@
 //! - `reference`: `<cache>/<hh>/<sha256>`. The cache can be deleted; files are fetched again.
 //! - `copy`: `<store>/raw/<hh>/<sha256>`, so the store holds everything it needs.
 
+use std::collections::BTreeSet;
 use std::fs;
 use std::fs::File;
 use std::io::BufWriter;
 use std::io::Write;
 use std::path::Path;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use anyhow::Context;
 use anyhow::bail;
@@ -26,10 +28,12 @@ use object_store::ObjectStore;
 use object_store::ObjectStoreExt;
 use object_store::aws::AmazonS3Builder;
 use object_store::path::Path as ObjectPath;
+use parking_lot::Mutex;
 use sha2::Digest;
 use sha2::Sha256;
 
 use crate::spec::Storage;
+use crate::store::Store;
 
 /// The environment variable that overrides the default cache directory.
 pub const CACHE_ENV: &str = "VX_LAB_CACHE";
@@ -145,6 +149,11 @@ pub struct RawData {
     /// The store root, which holds `copy` sources under `raw/`. Without one, `copy` files stay in
     /// the cache until a run with a store copies them in.
     pub store: Option<PathBuf>,
+    /// A remote store, which holds `copy` sources under `raw/`. The cache holds the local copy
+    /// that runs read, and is filled from the store before going upstream.
+    pub remote: Option<Store>,
+    /// Remote keys known to exist, so each is checked at most once per process.
+    uploaded: Arc<Mutex<BTreeSet<String>>>,
 }
 
 impl RawData {
@@ -154,7 +163,70 @@ impl RawData {
             .or_else(|| std::env::var_os(CACHE_ENV).map(PathBuf::from))
             .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".cache/vx-lab")))
             .unwrap_or_else(|| std::env::temp_dir().join("vx-lab-cache"));
-        Self { cache_dir, store }
+        Self {
+            cache_dir,
+            store,
+            remote: None,
+            uploaded: Arc::default(),
+        }
+    }
+
+    /// Raw data for runs against `store`: `copy` files go into the store, local or remote.
+    pub fn for_store(cache_dir: Option<PathBuf>, store: &Store) -> Self {
+        match store.local_root() {
+            Some(root) => Self::new(cache_dir, Some(root.to_path_buf())),
+            None => Self {
+                remote: Some(store.clone()),
+                ..Self::new(cache_dir, None)
+            },
+        }
+    }
+
+    fn remote_key(sha256: &str) -> String {
+        format!("raw/{}/{sha256}", sha256.get(..2).unwrap_or("00"))
+    }
+
+    /// Uploads a cached `copy` file to the remote store unless it is already there.
+    fn ensure_uploaded(&self, path: &Path, sha256: &str) -> anyhow::Result<()> {
+        let Some(remote) = &self.remote else {
+            return Ok(());
+        };
+        let key = Self::remote_key(sha256);
+        if self.uploaded.lock().contains(&key) {
+            return Ok(());
+        }
+        // Content-addressed, so two machines uploading the same file at once is harmless.
+        if !remote.exists(&key)? {
+            remote.upload_file(&key, path)?;
+        }
+        self.uploaded.lock().insert(key);
+        Ok(())
+    }
+
+    /// Fills the cache with a `copy` file from the remote store, verifying its hash.
+    fn download_from_store(&self, sha256: &str) -> anyhow::Result<Option<PathBuf>> {
+        let Some(remote) = &self.remote else {
+            return Ok(None);
+        };
+        let target = self.cache_path(sha256);
+        if let Some(parent) = target.parent() {
+            fs::create_dir_all(parent).with_context(|| format!("creating {}", parent.display()))?;
+        }
+        let partial = target.with_extension(format!("partial{}", std::process::id()));
+        let key = Self::remote_key(sha256);
+        if !remote.download_file(&key, &partial)? {
+            return Ok(None);
+        }
+        let mut hasher = HashingWriter::new(std::io::sink());
+        std::io::copy(&mut File::open(&partial)?, &mut hasher)?;
+        let actual = hasher.finish();
+        if actual != sha256 {
+            fs::remove_file(&partial).ok();
+            bail!("{key} in {} has sha256 {actual}", remote.url());
+        }
+        fs::rename(&partial, &target)?;
+        self.uploaded.lock().insert(key);
+        Ok(Some(target))
     }
 
     fn cache_path(&self, sha256: &str) -> PathBuf {
@@ -210,10 +282,16 @@ impl RawData {
         }
         let cached = self.cache_path(sha256);
         if !cached.exists() {
+            if storage == Storage::Copy {
+                return self.download_from_store(sha256);
+            }
             return Ok(None);
         }
         if storage == Storage::Copy && self.store.is_some() {
             return self.place(&cached, sha256, storage).map(Some);
+        }
+        if storage == Storage::Copy {
+            self.ensure_uploaded(&cached, sha256)?;
         }
         Ok(Some(cached))
     }
@@ -237,6 +315,9 @@ impl RawData {
                 .with_context(|| format!("copying {} to {}", from.display(), partial.display()))?;
             fs::rename(&partial, &target)?;
             fs::remove_file(from).ok();
+        }
+        if storage == Storage::Copy {
+            self.ensure_uploaded(&target, sha256)?;
         }
         Ok(target)
     }

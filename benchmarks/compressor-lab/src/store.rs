@@ -42,6 +42,7 @@ use object_store::ObjectStoreExt;
 use object_store::PutMode;
 use object_store::PutOptions;
 use object_store::PutPayload;
+use object_store::WriteMultipart;
 use object_store::local::LocalFileSystem;
 use object_store::path::Path as ObjectPath;
 use object_store::registry::ObjectStoreRegistry;
@@ -52,6 +53,8 @@ use parquet::basic::ZstdLevel;
 use parquet::file::properties::WriterProperties;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
+use tokio::io::AsyncReadExt as _;
+use tokio::io::AsyncWriteExt as _;
 
 use crate::key::TaskKey;
 use crate::plan::TaskKind;
@@ -128,6 +131,18 @@ impl Store {
             inner: Arc::new(LocalFileSystem::new_with_prefix(&dir)?),
             prefix: ObjectPath::default(),
             local: true,
+        })
+    }
+
+    /// A store in a local directory that behaves as a remote one, for tests of the remote paths.
+    #[cfg(test)]
+    pub(crate) fn remote_in(dir: &Path) -> anyhow::Result<Self> {
+        fs::create_dir_all(dir)?;
+        Ok(Self {
+            url: format!("test://{}", dir.display()),
+            inner: Arc::new(LocalFileSystem::new_with_prefix(dir)?),
+            prefix: ObjectPath::default(),
+            local: false,
         })
     }
 
@@ -221,6 +236,60 @@ impl Store {
             Ok(()) | Err(object_store::Error::NotFound { .. }) => Ok(()),
             Err(e) => Err(e).with_context(|| format!("deleting {key}")),
         }
+    }
+
+    /// Whether an object exists.
+    pub fn exists(&self, key: &str) -> anyhow::Result<bool> {
+        let path = self.path(key);
+        match runtime()?.block_on(self.inner.head(&path)) {
+            Ok(_) => Ok(true),
+            Err(object_store::Error::NotFound { .. }) => Ok(false),
+            Err(e) => Err(e).with_context(|| format!("checking {key}")),
+        }
+    }
+
+    /// Uploads a local file in parts, so large files never sit in memory.
+    pub fn upload_file(&self, key: &str, file: &Path) -> anyhow::Result<()> {
+        let path = self.path(key);
+        runtime()?
+            .block_on(async {
+                let mut reader = tokio::fs::File::open(file)
+                    .await
+                    .with_context(|| format!("opening {}", file.display()))?;
+                let mut upload = WriteMultipart::new(self.inner.put_multipart(&path).await?);
+                let mut buf = vec![0u8; 8 << 20];
+                loop {
+                    let n = reader.read(&mut buf).await?;
+                    if n == 0 {
+                        break;
+                    }
+                    upload.wait_for_capacity(4).await?;
+                    upload.write(&buf[..n]);
+                }
+                upload.finish().await?;
+                anyhow::Ok(())
+            })
+            .with_context(|| format!("uploading {} to {key}", file.display()))
+    }
+
+    /// Streams an object into a local file. Returns false if the object does not exist.
+    pub fn download_file(&self, key: &str, file: &Path) -> anyhow::Result<bool> {
+        let path = self.path(key);
+        runtime()?.block_on(async {
+            let mut stream = match self.inner.get(&path).await {
+                Ok(result) => result.into_stream(),
+                Err(object_store::Error::NotFound { .. }) => return Ok(false),
+                Err(e) => return Err(anyhow::Error::from(e).context(format!("reading {key}"))),
+            };
+            let mut out = tokio::fs::File::create(file)
+                .await
+                .with_context(|| format!("creating {}", file.display()))?;
+            while let Some(chunk) = stream.try_next().await? {
+                out.write_all(&chunk).await?;
+            }
+            out.sync_all().await?;
+            Ok(true)
+        })
     }
 
     /// Reads the object at `path`, relative to the store root, if it exists.
