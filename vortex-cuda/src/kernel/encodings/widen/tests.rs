@@ -179,6 +179,29 @@ async fn test_decimal_pairs<T: NativeDecimalType + Bounded>(
     check_widen(child, device_child, dtype, &mut ctx).await
 }
 
+#[crate::test]
+async fn test_empty_device_decimal_child() -> VortexResult<()> {
+    let mut ctx = CudaSession::create_execution_ctx(&cuda_session())?;
+    let child = DecimalArray::from_iter([1i8, 2], DecimalDType::new(2, 0)).into_array();
+    let device_child = upload(child, &mut ctx).await?.slice(0..0)?;
+    assert!(!device_child.is_host());
+
+    let dtype = DType::Decimal(DecimalDType::new(3, 0), device_child.dtype().nullability());
+    let result = WidenArray::try_new(device_child, dtype.clone())?
+        .into_array()
+        .execute_cuda(&mut ctx)
+        .await?;
+    assert_eq!(result.dtype(), &dtype);
+    assert_eq!(result.len(), 0);
+
+    let actual = result.into_host(ctx.execution_ctx()).await?.into_array();
+    let expected =
+        DecimalArray::from_iter(Buffer::<i16>::empty(), DecimalDType::new(3, 0)).into_array();
+    assert_arrays_eq!(actual, expected, ctx.execution_ctx());
+
+    Ok(())
+}
+
 #[rstest]
 #[crate::test]
 async fn test_compressed_child(

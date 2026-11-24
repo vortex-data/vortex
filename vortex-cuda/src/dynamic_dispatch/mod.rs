@@ -573,6 +573,7 @@ mod tests {
     use vortex::buffer::buffer;
     use vortex::dtype::DType;
     use vortex::dtype::NativePType;
+    use vortex::dtype::Nullability;
     use vortex::dtype::PType;
     use vortex::encodings::alp::ALP;
     use vortex::encodings::alp::ALPArrayExt;
@@ -1093,6 +1094,57 @@ mod tests {
         let actual =
             run_dynamic_dispatch_plan(&cuda_ctx, len, &plan.dispatch_plan, plan.shared_mem_bytes)?;
         assert_eq!(actual, expected);
+
+        Ok(())
+    }
+
+    #[crate::test]
+    async fn test_widen_dict_for_codes_preserve_code_width() -> VortexResult<()> {
+        let mut cpu_ctx = SESSION.create_execution_ctx();
+        let codes = PrimitiveArray::new(Buffer::from([1i16, 2]), NonNullable);
+        let codes_for = FoR::try_new(codes.into_array(), Scalar::from(-1i16))?;
+        let values = PrimitiveArray::new(Buffer::from([11i16, 22]), NonNullable);
+        let dict = DictArray::try_new(codes_for.into_array(), values.into_array())?;
+        let array = WidenArray::try_new(
+            dict.into_array(),
+            DType::Primitive(PType::I64, Nullability::NonNullable),
+        )?
+        .into_array();
+
+        let unsigned_codes = PrimitiveArray::new(Buffer::from([u16::MAX, 0]), NonNullable);
+        let unsigned_codes_for = FoR::try_new(unsigned_codes.into_array(), Scalar::from(1u16))?;
+        let unsigned_values = PrimitiveArray::new(Buffer::from([11u16, 22]), NonNullable);
+        let unsigned_dict =
+            DictArray::try_new(unsigned_codes_for.into_array(), unsigned_values.into_array())?;
+        let unsigned_array = WidenArray::try_new(
+            unsigned_dict.into_array(),
+            DType::Primitive(PType::U64, Nullability::NonNullable),
+        )?
+        .into_array();
+
+        let cases = [
+            (
+                array,
+                PrimitiveArray::new(Buffer::from([11i64, 22]), NonNullable).into_array(),
+            ),
+            (
+                unsigned_array,
+                PrimitiveArray::new(Buffer::from([11u64, 22]), NonNullable).into_array(),
+            ),
+        ];
+        for (array, expected) in cases {
+            assert!(matches!(
+                DispatchPlan::new(&array, CudaDispatchMode::Auto)?,
+                DispatchPlan::Fused(..)
+            ));
+
+            let mut cuda_ctx = CudaSession::create_execution_ctx(&cuda_session())?;
+            let canonical = try_gpu_dispatch(&array, &mut cuda_ctx).await?;
+            let actual = CanonicalCudaExt::into_host(canonical, cuda_ctx.execution_ctx())
+                .await?
+                .into_array();
+            assert_arrays_eq!(actual, expected, &mut cpu_ctx);
+        }
 
         Ok(())
     }
