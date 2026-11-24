@@ -22,6 +22,7 @@ use datafusion_physical_expr::PhysicalExprRef;
 use datafusion_physical_expr::PhysicalSortExpr;
 use datafusion_physical_expr::conjunction;
 use datafusion_physical_expr::projection::ProjectionExprs;
+use datafusion_physical_expr::split_conjunction;
 use datafusion_physical_expr_adapter::DefaultPhysicalExprAdapterFactory;
 use datafusion_physical_expr_common::physical_expr::fmt_sql;
 use datafusion_physical_plan::DisplayFormatType;
@@ -437,10 +438,19 @@ impl FileSource for VortexSource {
         self.vortex_predicate.clone()
     }
 
-    // Pushed-down predicates are reported as `PushedDown::Yes`, so the scan applies them exactly
-    // and DataFusion may derive equivalences (such as constant columns) from them.
+    /// The conjuncts of the scan predicate that were reported as `PushedDown::Yes`, from which
+    /// DataFusion derives equivalences such as constant columns.
+    ///
+    /// Dynamic filters, which a V2 scan also evaluates, are reported as `PushedDown::No` and are
+    /// left out: their value changes while the query runs.
     fn exact_filter(&self) -> Option<Arc<dyn PhysicalExpr>> {
-        self.vortex_predicate.clone()
+        let predicate = self.vortex_predicate.as_ref()?;
+        let exact: Vec<_> = split_conjunction(predicate)
+            .into_iter()
+            .filter(|conjunct| !DynamicFilterTracking::classify(conjunct).contains_dynamic_filter())
+            .cloned()
+            .collect();
+        (!exact.is_empty()).then(|| conjunction(exact))
     }
 
     fn metrics(&self) -> &ExecutionPlanMetricsSet {
@@ -857,8 +867,9 @@ mod tests {
             .clone();
         assert_eq!(
             updated_source.vortex_predicate.as_ref(),
-            Some(&conjunction([exact, dynamic]))
+            Some(&conjunction([Arc::clone(&exact), dynamic]))
         );
+        assert_eq!(updated_source.exact_filter(), Some(exact));
         Ok(())
     }
 
