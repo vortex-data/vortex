@@ -26,6 +26,7 @@ use vortex::file::multi::parse_uri_or_path;
 use vortex::file::v2::FileStatsLayoutReader;
 use vortex::functions::dynamic::DynamicExprUpdates;
 use vortex::io::compat::Compat;
+use vortex::io::diag;
 use vortex::io::filesystem::FileSystemRef;
 use vortex::io::object_store::ObjectStoreFileSystem;
 use vortex::io::runtime::BlockingRuntime as _;
@@ -287,10 +288,10 @@ enum SplitItem {
 fn next_split_item(local: &mut LocalState) -> VortexResult<SplitItem> {
     let item = next_split_item_uncounted(local)?;
     if !matches!(item, SplitItem::Done) {
-        vortex::io::diag::BATCHES.inc();
+        diag::BATCHES.inc();
     }
     if matches!(item, SplitItem::Empty) {
-        vortex::io::diag::EMPTY_BATCHES.inc();
+        diag::EMPTY_BATCHES.inc();
     }
     Ok(item)
 }
@@ -371,7 +372,7 @@ pub fn reader_try_initialize_scan(file: &mut OpenFileReader, local: &mut LocalSt
         local.retired_files.extend(previous);
     }
 
-    vortex::io::diag::JOINS.inc();
+    diag::JOINS.inc();
     local.split = Some(split);
     true
 }
