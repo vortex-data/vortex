@@ -1,8 +1,8 @@
 name: Release Tag
 
-# Step 1 of a release: draft the release notes for a commit on `develop` and tag the commit with
-# the version that Release Drafter resolves. Step 2 is the Release Binaries workflow, which takes
-# the tag that this workflow creates.
+# Prepares a release of a commit on `develop`: drafts the release notes, tags the commit with the
+# version that Release Drafter resolves, and attaches the `vx` binaries to the draft. Publishing
+# the draft by hand then starts the Publish workflow.
 
 on:
   workflow_dispatch:
@@ -74,6 +74,8 @@ jobs:
     timeout-minutes: 10
     permissions:
       contents: write
+    outputs:
+      tag: ${{ steps.draft.outputs.tag_name }}
     steps:
       # Creates the draft release, or updates the existing draft, with the notes and version for
       # the changes between the last published release and the commit.
@@ -120,5 +122,15 @@ jobs:
           fi
           {
             echo "Tagged \`$RELEASE_SHA\` as \`$RELEASE_TAG\` and drafted the release: $RELEASE_URL"
-            echo "Next, run the Release Binaries workflow with tag \`$RELEASE_TAG\`."
           } >> "$GITHUB_STEP_SUMMARY"
+
+  binaries:
+    needs: [tag]
+    # A dry run drafts and tags nothing, so there is no release to attach binaries to.
+    if: github.event_name != 'pull_request' && !inputs.dry-run
+    uses: ./.github/workflows/release-binaries.yml
+    with:
+      tag: ${{ needs.tag.outputs.tag }}
+    secrets: inherit
+    permissions:
+      contents: write
