@@ -229,7 +229,7 @@ pub type DataSourceScanRef = Box<dyn DataSourceScan>;
 /// A source does the reads it needs to know a scan's units of work, such as pruning against zone
 /// maps before cutting the scan into pieces, in the async [`DataSource::scan`], which the host
 /// awaits. [`split`](Self::split) and [`open`](Self::open) are synchronous and read nothing, so
-/// no clone of an opened stream waits on another for its first work.
+/// no stream of an opened scan waits on another for its first work.
 ///
 /// A scan never starts threads. Its work may run as tasks on the session's runtime, which the
 /// host owns.
