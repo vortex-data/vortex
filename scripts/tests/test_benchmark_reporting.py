@@ -358,8 +358,8 @@ def test_comparison_report_retains_sql_analysis(tmp_path: Path) -> None:
 
     assert "**Verdict**" not in report
     # The summary has one row per target, in the order of the query table columns.
-    assert markdown_row(report, "datafusion:vortex")[:2] == ["datafusion:vortex", "🟢 **0.88** (1↑ 0↓)"]
-    assert markdown_row(report, "datafusion:parquet")[:2] == ["datafusion:parquet", "1.05 (0↑ 0↓)"]
+    assert markdown_row(report, "datafusion:vortex")[:2] == ["datafusion:vortex", "🟢 **0.88** (1↑)"]
+    assert markdown_row(report, "datafusion:parquet")[:2] == ["datafusion:parquet", "1.05"]
     assert "control" in markdown_row(report, "datafusion:parquet")
     assert "How to read the summary" in report
     # SQL queries share one table, with a row per query and a column per target.
@@ -454,10 +454,10 @@ def test_report_splits_cold_and_hot_runs(tmp_path: Path) -> None:
     # The top table carries each target's geomean and change counts.
     assert markdown_row(report, "target") == SUMMARY_HEADERS_WITH_COLD
     vortex = markdown_row(report, "datafusion:vortex")
-    assert vortex[1:3] == ["🟢 **0.50** (1↑ 0↓)", "🔴 **2.00** (0↑ 1↓)"]
+    assert vortex[1:3] == ["🟢 **0.50** (1↑)", "🔴 **2.00** (1↓)"]
     assert "-50.0%" in vortex[3]
     parquet = markdown_row(report, "datafusion:parquet")
-    assert parquet[1:] == ["1.00 (0↑ 0↓)", "1.00 (0↑ 0↓)", "control"]
+    assert parquet[1:] == ["1.00", "1.00", "control"]
     assert "**Commits**: PR `pr-sha` vs base " in report
 
 
@@ -486,7 +486,7 @@ def test_verdict_ignores_a_cold_start_only_regression(tmp_path: Path) -> None:
     report = render_report(tmp_path, base_rows, pr_rows, "TPC-H")
 
     vortex = markdown_row(report, "datafusion:vortex")
-    assert vortex[1:3] == ["1.00 (0↑ 0↓)", "🔴 **4.00** (0↑ 1↓)"]
+    assert vortex[1:3] == ["1.00", "🔴 **4.00** (1↓)"]
     assert "+0.0%" in vortex[3]
     hot, cold = markdown_rows(report, "tpch_q01")
     assert hot[1] == "100 ns (1.00)"
@@ -986,8 +986,8 @@ def test_summary_reports_hot_alone_when_no_row_recorded_its_runs(tmp_path: Path)
     report = render_report(tmp_path, base_rows, pr_rows, "Random Access")
 
     assert markdown_row(report, "target") == ["target", "hot", "vs parquet"]
-    assert markdown_row(report, "random-access:vortex")[1] == "🟢 **0.50** (1↑ 0↓)"
-    assert markdown_row(report, "random-access:parquet")[1:] == ["1.00 (0↑ 0↓)", "control"]
+    assert markdown_row(report, "random-access:vortex")[1] == "🟢 **0.50** (1↑)"
+    assert markdown_row(report, "random-access:parquet")[1:] == ["1.00", "control"]
 
 
 def test_capture_file_sizes_names_parquet_by_its_directory(tmp_path: Path) -> None:

@@ -1175,11 +1175,20 @@ def format_attributed_cell(verdict: dict[str, str] | None) -> str:
 
 
 def format_change_counts(ratios: pd.Series, improvement_threshold: float, regression_threshold: float) -> str:
-    """Count the cells that clear the threshold faster (↑) and slower (↓), as in `(3↑ 0↓)`."""
+    """Count the cells that clear the threshold faster (↑) and slower (↓), as in `(3↑ 1↓)`.
+
+    A zero count is left out, and a run with no change past the threshold gets no counts at all.
+    """
 
     faster = int((ratios <= improvement_threshold).sum())
     slower = int((ratios >= regression_threshold).sum())
-    return f"({faster}↑ {slower}↓)"
+
+    counts = []
+    if faster:
+        counts.append(f"{faster}↑")
+    if slower:
+        counts.append(f"{slower}↓")
+    return f"({' '.join(counts)})" if counts else ""
 
 
 def format_target_summary_row(
@@ -1196,7 +1205,8 @@ def format_target_summary_row(
         ratios = rows[run_ratio]
         geomean = geometric_mean_from_values(ratios)
         ratio_cell = format_ratio_cell(geomean, improvement_threshold, regression_threshold)
-        row.append(f"{ratio_cell} {format_change_counts(ratios, improvement_threshold, regression_threshold)}")
+        counts = format_change_counts(ratios, improvement_threshold, regression_threshold)
+        row.append(f"{ratio_cell} {counts}" if counts else ratio_cell)
     return row
 
 
@@ -1295,8 +1305,9 @@ def format_report_help() -> str:
             "",
             "- **Target table**: One row per target, in the same order as the query table "
             "columns. `hot` and `cold` are the geomean "
-            "of PR ÷ develop over the queries, marked like the query cells. Beside it, `(3↑ 0↓)` "
-            "counts the queries that cleared this suite's threshold faster or slower.",
+            "of PR ÷ develop over the queries, marked like the query cells. Beside it, `(3↑ 1↓)` "
+            "counts the queries that cleared this suite's threshold faster or slower; zero "
+            "counts are left out.",
             "- **vs parquet**: The change after the drift of the Parquet control on the same "
             "engine is removed. It is marked 🟢 or 🔴 only when it is above the noise floor, and it shows "
             "`—` when the control is too noisy to remove.",
