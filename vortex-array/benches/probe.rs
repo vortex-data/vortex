@@ -226,6 +226,7 @@ fn repeated(bencher: Bencher, name: &str) {
 #[divan::bench(args = SCALAR_FN_ARRAYS)]
 fn scalar_fn_same_row_once(bencher: Bencher, name: &str) {
     let array = array(name);
+    mark_optimized(&array, &SESSION).vortex_expect("optimize the benchmark input");
     bencher
         .with_inputs(|| SESSION.create_execution_ctx())
         .bench_refs(|ctx| {
@@ -242,6 +243,7 @@ fn scalar_fn_same_row_once(bencher: Bencher, name: &str) {
 #[divan::bench(args = SCALAR_FN_ARRAYS)]
 fn scalar_fn_same_row_repeated(bencher: Bencher, name: &str) {
     let array = array(name);
+    mark_optimized(&array, &SESSION).vortex_expect("optimize the benchmark input");
     bencher
         .with_inputs(|| (SESSION.create_execution_ctx(), array.repeated_probe()))
         .bench_refs(|(ctx, probe)| {

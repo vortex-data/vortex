@@ -14,6 +14,7 @@ use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::optimizer::kernels::KernelSession;
+use vortex_array::test_harness::mark_optimized;
 use vortex_array::validity::Validity;
 use vortex_parquet_variant::ParquetVariant;
 use vortex_session::VortexSession;
@@ -81,6 +82,7 @@ fn read_index(pattern: &str, read: usize) -> usize {
 #[divan::bench(args = CASES)]
 fn one_off(bencher: Bencher, (mode, pattern): (&str, &str)) {
     let array = fixture(mode);
+    mark_optimized(&array, &SESSION).unwrap();
     bencher
         .with_inputs(|| SESSION.create_execution_ctx())
         .bench_refs(|ctx| {
@@ -97,6 +99,7 @@ fn one_off(bencher: Bencher, (mode, pattern): (&str, &str)) {
 #[divan::bench(args = CASES)]
 fn repeated(bencher: Bencher, (mode, pattern): (&str, &str)) {
     let array = fixture(mode);
+    mark_optimized(&array, &SESSION).unwrap();
     bencher
         .with_inputs(|| (SESSION.create_execution_ctx(), array.repeated_probe()))
         .bench_refs(|(ctx, probe)| {

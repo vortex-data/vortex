@@ -48,5 +48,6 @@ vortex-layout = { workspace = true }
 vortex-uuid = { workspace = true }
 
 [[bench]]
-name = "probe"
+name = "parquet_variant_probe"
+path = "benches/probe.rs"
 harness = false
