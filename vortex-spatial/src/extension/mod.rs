@@ -210,12 +210,25 @@ pub(crate) fn single_geometry(
         .ok_or_else(|| vortex_err!("spatial: constant operand decoded to no geometry"))
 }
 
-/// Decode a WKB geometry literal (DuckDB's wire form for `GEOMETRY` constants) to its native
-/// `Point`/`Polygon`/`MultiPolygon` scalar. `None` for unsupported types. Plan-time, one value only.
+/// Convert a [`WellKnownBinary`] geometry literal (DuckDB's wire form for `GEOMETRY` constants) to
+/// its native geometry scalar, keeping the literal's CRS. `None` for a null literal or an
+/// unsupported geometry type. Plan-time, one value only.
 pub fn native_geometry_scalar_from_wkb(
-    bytes: &[u8],
+    wkb: &Scalar,
     session: &VortexSession,
 ) -> VortexResult<Option<Scalar>> {
+    let wkb_metadata = wkb
+        .dtype()
+        .as_extension_opt()
+        .and_then(|ext| ext.metadata_opt::<WellKnownBinary>())
+        .ok_or_else(|| vortex_err!("spatial: {} is not a WKB geometry literal", wkb.dtype()))?;
+    let stored_metadata = SpatialStoredMetadata::new(wkb_metadata.get_crs().map(str::to_owned));
+    let storage = wkb.as_extension().to_storage_scalar();
+    let Some(bytes) = storage.as_binary().value() else {
+        return Ok(None);
+    };
+    let bytes = bytes.as_slice();
+
     let metadata = geoarrow_metadata(&SpatialMetadata::default());
     let binary = BinaryArray::from(vec![Some(bytes)]);
     let wkb = GenericWkbArray::<i32>::try_from((
@@ -239,56 +252,62 @@ pub fn native_geometry_scalar_from_wkb(
                 PointType::new(GeoArrowDimension::XY, metadata)
                     .with_coord_type(CoordType::Separated),
             );
-            spatial_ext_scalar(Point, to_storage(&target)?, session)?
+            spatial_ext_scalar(Point, stored_metadata, to_storage(&target)?, session)?
         }
         GeometryType::LineString => {
             let target = GeoArrowType::LineString(
                 LineStringType::new(GeoArrowDimension::XY, metadata)
                     .with_coord_type(CoordType::Separated),
             );
-            spatial_ext_scalar(LineString, to_storage(&target)?, session)?
+            spatial_ext_scalar(LineString, stored_metadata, to_storage(&target)?, session)?
         }
         GeometryType::Polygon => {
             let target = GeoArrowType::Polygon(
                 PolygonType::new(GeoArrowDimension::XY, metadata)
                     .with_coord_type(CoordType::Separated),
             );
-            spatial_ext_scalar(Polygon, to_storage(&target)?, session)?
+            spatial_ext_scalar(Polygon, stored_metadata, to_storage(&target)?, session)?
         }
         GeometryType::MultiPoint => {
             let target = GeoArrowType::MultiPoint(
                 MultiPointType::new(GeoArrowDimension::XY, metadata)
                     .with_coord_type(CoordType::Separated),
             );
-            spatial_ext_scalar(MultiPoint, to_storage(&target)?, session)?
+            spatial_ext_scalar(MultiPoint, stored_metadata, to_storage(&target)?, session)?
         }
         GeometryType::MultiLineString => {
             let target = GeoArrowType::MultiLineString(
                 MultiLineStringType::new(GeoArrowDimension::XY, metadata)
                     .with_coord_type(CoordType::Separated),
             );
-            spatial_ext_scalar(MultiLineString, to_storage(&target)?, session)?
+            spatial_ext_scalar(
+                MultiLineString,
+                stored_metadata,
+                to_storage(&target)?,
+                session,
+            )?
         }
         GeometryType::MultiPolygon => {
             let target = GeoArrowType::MultiPolygon(
                 MultiPolygonType::new(GeoArrowDimension::XY, metadata)
                     .with_coord_type(CoordType::Separated),
             );
-            spatial_ext_scalar(MultiPolygon, to_storage(&target)?, session)?
+            spatial_ext_scalar(MultiPolygon, stored_metadata, to_storage(&target)?, session)?
         }
         _ => return Ok(None),
     };
     Ok(Some(scalar))
 }
 
-/// Wrap cast-from-WKB `storage`, which has XY coordinates, in its `vtable` extension type and pull
-/// out the single scalar.
+/// Wrap cast-from-WKB `storage`, which has XY coordinates, in its `vtable` extension type with
+/// `metadata` and pull out the single scalar.
 fn spatial_ext_scalar<V: ExtVTable<StoredMetadata = SpatialStoredMetadata>>(
     vtable: V,
+    metadata: SpatialStoredMetadata,
     storage: ArrayRef,
     session: &VortexSession,
 ) -> VortexResult<Scalar> {
-    ExtensionArray::try_from_storage_with_vtable(vtable, SpatialStoredMetadata::default(), storage)?
+    ExtensionArray::try_from_storage_with_vtable(vtable, metadata, storage)?
         .into_array()
         .execute_scalar(0, &mut session.create_execution_ctx())
 }
@@ -474,6 +493,7 @@ mod tests {
     use vortex_array::dtype::extension::ExtVTable;
     use vortex_array::dtype::proto::dtype as pb;
     use vortex_array::dtype::proto::dtype::d_type::DtypeType;
+    use vortex_array::scalar::Scalar;
     use vortex_error::VortexResult;
     use vortex_error::vortex_err;
     use vortex_session::VortexSession;
@@ -498,11 +518,17 @@ mod tests {
         SpatialMetadata::default().with_dimension(Dimension::Xy)
     }
 
-    /// Test shim: decode with an explicitly constructed session.
-    fn native_geometry_scalar_from_wkb(
-        bytes: &[u8],
-    ) -> VortexResult<Option<vortex_array::scalar::Scalar>> {
-        super::native_geometry_scalar_from_wkb(bytes, &VortexSession::empty())
+    /// Test shim: decode WKB `bytes` without a CRS, with an explicitly constructed session.
+    fn native_geometry_scalar_from_wkb(bytes: &[u8]) -> VortexResult<Option<Scalar>> {
+        super::native_geometry_scalar_from_wkb(&wkb_literal(bytes, None), &VortexSession::empty())
+    }
+
+    /// A non-null WKB geometry literal over `bytes` in coordinate reference system `crs`.
+    fn wkb_literal(bytes: &[u8], crs: Option<&str>) -> Scalar {
+        Scalar::extension::<WellKnownBinary>(
+            SpatialMetadata::new(crs.map(str::to_owned)),
+            Scalar::binary(bytes.to_vec(), Nullability::NonNullable),
+        )
     }
 
     #[test]
@@ -580,6 +606,30 @@ mod tests {
     ) {
         let result = ExtDType::try_with_vtable(vtable, metadata, Nullability::NonNullable);
         assert!(result.is_err_and(|error| error.to_string().contains(expected)));
+    }
+
+    /// A WKB literal's CRS carries over to its native scalar, and a null literal has none.
+    #[test]
+    fn wkb_literal_keeps_crs() -> VortexResult<()> {
+        let mut wkb = vec![1u8]; // little-endian byte order
+        wkb.extend_from_slice(&1u32.to_le_bytes()); // geometry type: point
+        wkb.extend_from_slice(&1.0f64.to_le_bytes()); // x
+        wkb.extend_from_slice(&2.0f64.to_le_bytes()); // y
+
+        let literal = wkb_literal(&wkb, Some("EPSG:32633"));
+        let scalar = super::native_geometry_scalar_from_wkb(&literal, &VortexSession::empty())?
+            .ok_or_else(|| vortex_err!("a point scalar"))?;
+        let DType::Extension(ext) = scalar.dtype() else {
+            return Err(vortex_err!(
+                "expected an extension dtype, got {}",
+                scalar.dtype()
+            ));
+        };
+        assert_eq!(ext.metadata::<Point>().get_crs(), Some("EPSG:32633"));
+
+        let null = Scalar::null(literal.dtype().as_nullable());
+        assert!(super::native_geometry_scalar_from_wkb(&null, &VortexSession::empty())?.is_none());
+        Ok(())
     }
 
     /// A little-endian WKB `POINT` literal decodes to the native `Point` extension scalar.
