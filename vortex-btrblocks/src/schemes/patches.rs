@@ -86,7 +86,7 @@ pub(crate) enum KeptPatches {
 }
 
 impl KeptPatches {
-    /// Registers the arrays of `patches` as kept children of `scheme`, numbered from `index`.
+    /// Returns the arrays of `patches` as kept children of `scheme`, numbered from `index`.
     ///
     /// `array` is the input that `patches` patch.
     ///
@@ -98,26 +98,20 @@ impl KeptPatches {
         index: usize,
         array: &ArrayRef,
         patches: Option<Patches>,
-        keep: &mut Vec<Child>,
         ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Self> {
+    ) -> VortexResult<(Self, Vec<Child>)> {
         let Some(patches) = patches else {
-            return Ok(Self::None);
+            return Ok((Self::None, Vec::new()));
         };
 
         if use_experimental_patches() {
             let patched = Patched::from_array_and_patches(array.clone(), &patches, ctx)?;
-            keep.extend(
-                [
-                    patched.lane_offsets(),
-                    patched.patch_indices(),
-                    patched.patch_values(),
-                ]
-                .into_iter()
-                .zip(index..)
-                .map(|(child, index)| Child::new(scheme, index, child.clone())),
-            );
-            return Ok(Self::Patched(patched.into_array()));
+            let keep = vec![
+                Child::new(scheme, index, patched.lane_offsets().clone()),
+                Child::new(scheme, index + 1, patched.patch_indices().clone()),
+                Child::new(scheme, index + 2, patched.patch_values().clone()),
+            ];
+            return Ok((Self::Patched(patched.into_array()), keep));
         }
 
         let PatchesParts {
@@ -129,19 +123,19 @@ impl KeptPatches {
             offset_within_chunk,
         } = compress_patches(patches, ctx)?.into_parts();
         let has_chunk_offsets = chunk_offsets.is_some();
-        keep.extend(
-            [Some(indices), Some(values), chunk_offsets]
-                .into_iter()
-                .flatten()
-                .zip(index..)
-                .map(|(child, index)| Child::new(scheme, index, child)),
-        );
-        Ok(Self::Interior {
+        let mut keep = Vec::with_capacity(2 + usize::from(has_chunk_offsets));
+        keep.push(Child::new(scheme, index, indices));
+        keep.push(Child::new(scheme, index + 1, values));
+        if let Some(chunk_offsets) = chunk_offsets {
+            keep.push(Child::new(scheme, index + 2, chunk_offsets));
+        }
+        let patches = Self::Interior {
             array_len,
             offset,
             has_chunk_offsets,
             offset_within_chunk,
-        })
+        };
+        Ok((patches, keep))
     }
 
     /// Builds the encoding with `build`, which receives the patches to store inside it, then wraps

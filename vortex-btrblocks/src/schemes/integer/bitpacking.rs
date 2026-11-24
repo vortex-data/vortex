@@ -114,16 +114,11 @@ impl BitPackingScheme {
             validity,
         } = BitPacked::into_parts(packed);
 
-        let mut compress = Vec::new();
-        let bit_width = match bit_widths {
-            BitWidths::Global(bw) => Some(bw),
-            BitWidths::Blocked(block_offsets) => {
-                compress.push(Child::new(self, 0, block_offsets));
-                None
-            }
+        let (compress, bit_width) = match bit_widths {
+            BitWidths::Global(bw) => (Vec::new(), Some(bw)),
+            BitWidths::Blocked(block_offsets) => (vec![Child::new(self, 0, block_offsets)], None),
         };
-        let mut keep = Vec::new();
-        let patches = KeptPatches::new(self, 1, data.array(), patches, &mut keep, exec_ctx)?;
+        let (patches, keep) = KeptPatches::new(self, 1, data.array(), patches, exec_ctx)?;
 
         Ok(Some(
             Encoded::new(compress, keep, move |children, _| {
