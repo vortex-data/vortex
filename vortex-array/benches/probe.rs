@@ -153,9 +153,19 @@ fn kleene_and_validity() -> ArrayRef {
         .to_array(LEN)
 }
 
-fn indices() -> Vec<usize> {
+/// Reads per iteration. Fixtures with costly reads use fewer, so that each benchmark stays under
+/// 1 ms in the CodSpeed simulation.
+fn accesses(name: &str) -> usize {
+    match name {
+        "list" | "listview" | "fixed_size_list" => 64,
+        "scalar_fn_validity" => 128,
+        _ => ACCESSES,
+    }
+}
+
+fn indices(count: usize) -> Vec<usize> {
     let mut seed = 42u64;
-    (0..ACCESSES)
+    (0..count)
         .map(|_| {
             seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
             (seed >> 32) as usize % LEN
@@ -205,7 +215,7 @@ fn array(name: &str) -> ArrayRef {
 fn once(bencher: Bencher, name: &str) {
     let array = array(name);
     mark_optimized(&array, &SESSION).vortex_expect("optimize the benchmark input");
-    let indices = indices();
+    let indices = indices(accesses(name));
     bencher
         .with_inputs(|| SESSION.create_execution_ctx())
         .bench_refs(|ctx| {
@@ -223,7 +233,7 @@ fn once(bencher: Bencher, name: &str) {
 fn repeated(bencher: Bencher, name: &str) {
     let array = array(name);
     mark_optimized(&array, &SESSION).vortex_expect("optimize the benchmark input");
-    let indices = indices();
+    let indices = indices(accesses(name));
     bencher
         .with_inputs(|| (SESSION.create_execution_ctx(), array.repeated_probe()))
         .bench_refs(|(ctx, probe)| {
