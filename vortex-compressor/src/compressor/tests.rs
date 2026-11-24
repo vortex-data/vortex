@@ -643,10 +643,10 @@ fn always_use_default_competes_with_candidates(
 /// chosen rather than no scheme.
 #[test]
 fn always_use_default_is_chosen_without_valid_estimates() -> VortexResult<()> {
-    let compressor =
-        CascadingCompressor::new(vec![&ZeroBytesSamplingScheme, &ZeroBytesAlwaysUseScheme]);
-    let schemes: [&'static dyn Scheme; 2] = [&ZeroBytesSamplingScheme, &ZeroBytesAlwaysUseScheme];
-    let data = estimate_test_data();
+    let compressor = CascadingCompressor::new(vec![&CallbackSkipScheme, &ZeroBytesAlwaysUseScheme]);
+    let schemes: [&'static dyn Scheme; 2] = [&CallbackSkipScheme, &ZeroBytesAlwaysUseScheme];
+    let array = PrimitiveArray::from_option_iter([None::<i32>; 4]).into_array();
+    let data = ArrayAndStats::new(array, GenerateStatsOptions::default());
     let mut exec_ctx = SESSION.create_execution_ctx();
 
     let winner =
@@ -697,7 +697,7 @@ fn callback_ratio_competes_numerically() -> VortexResult<()> {
 }
 
 #[test]
-fn zero_byte_sample_loses_to_finite_ratio() -> VortexResult<()> {
+fn zero_byte_sample_loses_to_larger_finite_ratio() -> VortexResult<()> {
     let compressor = CascadingCompressor::new(vec![&HugeRatioScheme, &ZeroBytesSamplingScheme]);
     let schemes: [&'static dyn Scheme; 2] = [&HugeRatioScheme, &ZeroBytesSamplingScheme];
     let data = estimate_test_data();
@@ -715,7 +715,7 @@ fn zero_byte_sample_loses_to_finite_ratio() -> VortexResult<()> {
 }
 
 #[test]
-fn finite_ratio_displaces_zero_byte_sample() -> VortexResult<()> {
+fn larger_finite_ratio_displaces_zero_byte_sample() -> VortexResult<()> {
     let compressor = CascadingCompressor::new(vec![&ZeroBytesSamplingScheme, &HugeRatioScheme]);
     let schemes: [&'static dyn Scheme; 2] = [&ZeroBytesSamplingScheme, &HugeRatioScheme];
     let data = estimate_test_data();
@@ -732,8 +732,10 @@ fn finite_ratio_displaces_zero_byte_sample() -> VortexResult<()> {
     Ok(())
 }
 
+/// A sample that compresses to 0 bytes is a real win, ranked as if it took 1 byte: the 16-byte
+/// test array gives a ratio of 16.
 #[test]
-fn zero_byte_sample_alone_selects_no_scheme() -> VortexResult<()> {
+fn zero_byte_sample_alone_is_selected() -> VortexResult<()> {
     let compressor = CascadingCompressor::new(vec![&ZeroBytesSamplingScheme]);
     let schemes: [&'static dyn Scheme; 1] = [&ZeroBytesSamplingScheme];
     let data = estimate_test_data();
@@ -742,7 +744,29 @@ fn zero_byte_sample_alone_selects_no_scheme() -> VortexResult<()> {
     let winner =
         compressor.choose_best_scheme(&schemes, &data, CompressorContext::new(), &mut exec_ctx)?;
 
-    assert!(winner.is_none());
+    assert!(matches!(
+        winner,
+        Some((scheme, WinnerEstimate::Score(EstimateScore::FiniteCompression(16.0))))
+            if scheme.id() == ZeroBytesSamplingScheme.id()
+    ));
+    Ok(())
+}
+
+#[test]
+fn zero_byte_sample_beats_smaller_finite_ratio() -> VortexResult<()> {
+    let compressor = CascadingCompressor::new(vec![&DirectRatioScheme, &ZeroBytesSamplingScheme]);
+    let schemes: [&'static dyn Scheme; 2] = [&DirectRatioScheme, &ZeroBytesSamplingScheme];
+    let data = estimate_test_data();
+    let mut exec_ctx = SESSION.create_execution_ctx();
+
+    let winner =
+        compressor.choose_best_scheme(&schemes, &data, CompressorContext::new(), &mut exec_ctx)?;
+
+    assert!(matches!(
+        winner,
+        Some((scheme, WinnerEstimate::Score(EstimateScore::FiniteCompression(16.0))))
+            if scheme.id() == ZeroBytesSamplingScheme.id()
+    ));
     Ok(())
 }
 
@@ -873,7 +897,7 @@ fn threshold_reflects_pass_one_best() -> VortexResult<()> {
 }
 
 #[test]
-fn threshold_is_none_when_only_prior_is_zero_bytes() -> VortexResult<()> {
+fn threshold_is_floored_zero_byte_sample() -> VortexResult<()> {
     let _guard = OBSERVER_LOCK.lock();
     *OBSERVED_THRESHOLD.lock() = None;
 
@@ -885,10 +909,11 @@ fn threshold_is_none_when_only_prior_is_zero_bytes() -> VortexResult<()> {
 
     compressor.choose_best_scheme(&schemes, &data, CompressorContext::new(), &mut exec_ctx)?;
 
-    // The observing callback was invoked (outer `Some`) and `best_so_far` was `None` (inner
-    // `None`) because the zero-byte sample is never stored as the best.
     let observed = *OBSERVED_THRESHOLD.lock();
-    assert_eq!(observed, Some(None));
+    assert!(matches!(
+        observed,
+        Some(Some(EstimateScore::FiniteCompression(r))) if r == 16.0
+    ));
     Ok(())
 }
 

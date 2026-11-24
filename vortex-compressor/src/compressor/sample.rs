@@ -360,13 +360,11 @@ pub(crate) fn estimate_compression_ratio_with_sampling(
         sample.data.array().len(),
         data.array().len(),
     );
-    let score = EstimateScore::from_sample_sizes(sample.before, after);
-
-    if matches!(score, EstimateScore::ZeroBytes) {
+    if after == 0 {
         trace::zero_byte_sample_result(scheme.id(), sample.before);
     }
 
-    Ok(score)
+    Ok(EstimateScore::from_sample_sizes(sample.before, after))
 }
 
 #[cfg(test)]

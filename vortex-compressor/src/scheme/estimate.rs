@@ -106,23 +106,21 @@ pub enum DeferredEstimate {
 pub enum EstimateScore {
     /// A finite compression ratio. Higher means a smaller amount of data, so it is better.
     FiniteCompression(f64),
-    /// Trial compression produced a 0-byte output, or sampled only null values.
+    /// The sample held only null values, so it says nothing about how the scheme handles the
+    /// array's values.
     ///
     /// This has no finite ratio and is not eligible for scheme selection.
-    ///
-    /// TODO(connor): A zero-byte sample usually means the sampler happened to hit an all-null
-    /// sample. Improve this logic so we can distinguish real zero-byte wins from sampling artifacts.
     ZeroBytes,
 }
 
 impl EstimateScore {
     /// Converts measured sample sizes into a ranked estimate.
+    ///
+    /// All-null samples are rejected before this is called, so a sample that compresses to 0 bytes
+    /// is a real win. It is ranked as if it took 1 byte, which keeps its ratio finite and lets
+    /// ties against other tiny outputs still break.
     pub(crate) fn from_sample_sizes(before_nbytes: u64, after_nbytes: u64) -> Self {
-        if after_nbytes == 0 {
-            Self::ZeroBytes
-        } else {
-            Self::FiniteCompression(before_nbytes as f64 / after_nbytes as f64)
-        }
+        Self::FiniteCompression(before_nbytes as f64 / after_nbytes.max(1) as f64)
     }
 
     /// Returns the finite compression ratio, or [`None`] for the zero-byte special case.
