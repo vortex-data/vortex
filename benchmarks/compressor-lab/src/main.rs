@@ -490,10 +490,10 @@ fn main() -> anyhow::Result<()> {
                 &spec_dir,
                 &identity,
                 &registered,
-                &RawData::new(
-                    cache_dir,
-                    store.filter(|s| !s.to_string_lossy().contains("://")),
-                ),
+                &match store {
+                    Some(store) => RawData::for_store(cache_dir, &Store::open(store)?),
+                    None => RawData::new(cache_dir, None),
+                },
             )?;
             let outcome = run.write(&out, replace)?;
             let verb = match outcome {
@@ -627,7 +627,7 @@ fn main() -> anyhow::Result<()> {
             let run = PlannedRun::read(&plan)?;
             check_identity(&run, allow_dirty)?;
             let store = Store::open(store)?;
-            let raw = RawData::new(cache_dir, store.local_root().map(PathBuf::from));
+            let raw = RawData::for_store(cache_dir, &store);
             let runner = Runner::new(&run, &store)?;
             runner.run(&RunOptions {
                 stages,
@@ -711,7 +711,7 @@ fn main() -> anyhow::Result<()> {
                     shard,
                     data: DataLocation {
                         data_root,
-                        raw: RawData::new(cache_dir, store.local_root().map(PathBuf::from)),
+                        raw: RawData::for_store(cache_dir, &store),
                     },
                 },
                 &out,
@@ -767,7 +767,7 @@ fn main() -> anyhow::Result<()> {
                 return spawn_workers(workers);
             }
             let store = Store::open(store)?;
-            let raw = RawData::new(cache_dir, store.local_root().map(PathBuf::from));
+            let raw = RawData::for_store(cache_dir, &store);
             let queue = Queue::open(&store, &plan_id)?;
             let run = queue.plan()?;
             check_identity(&run, allow_dirty)?;

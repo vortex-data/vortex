@@ -319,6 +319,7 @@ fn test_queue_workers_share_a_plan() -> anyhow::Result<()> {
 }
 
 mod sources {
+    use std::fs;
     use std::fs::File;
     use std::path::Path;
     use std::sync::Arc;
@@ -403,7 +404,7 @@ mod sources {
     fn test_remote_reference_matches_local_keys_and_refetches() -> anyhow::Result<()> {
         let dir = tempfile::tempdir()?;
         let upstream = dir.path().join("upstream");
-        std::fs::create_dir_all(&upstream)?;
+        fs::create_dir_all(&upstream)?;
         write_parquet(&upstream.join("a.parquet"))?;
         let cache = dir.path().join("cache");
         let raw = RawData::new(Some(cache.clone()), None);
@@ -426,7 +427,7 @@ mod sources {
         assert_eq!(remote.plan.skipped.len(), 1);
 
         // Deleting the cache only costs a re-fetch, verified against the recorded hash.
-        std::fs::remove_dir_all(&cache)?;
+        fs::remove_dir_all(&cache)?;
         let store = Store::open(dir.path().join("store"))?;
         assert_eq!(run_chunks(&remote, &store, raw)?, 3);
         assert!(cache.exists());
@@ -473,10 +474,54 @@ mod sources {
         assert!(kept.exists());
 
         // Upstream can disappear: the store has everything the run needs.
-        std::fs::remove_file(&upstream)?;
-        std::fs::remove_dir_all(dir.path().join("cache")).ok();
+        fs::remove_file(&upstream)?;
+        fs::remove_dir_all(dir.path().join("cache")).ok();
         let store = Store::open(&store_root)?;
         assert_eq!(run_chunks(&run, &store, raw)?, 3);
+        Ok(())
+    }
+
+    #[test]
+    fn test_remote_copy_keeps_files_in_an_object_store() -> anyhow::Result<()> {
+        let dir = tempfile::tempdir()?;
+        let upstream = dir.path().join("a.parquet");
+        write_parquet(&upstream)?;
+        let bucket = dir.path().join("bucket");
+        let store = Store::remote_in(&bucket)?;
+        let cache = dir.path().join("cache");
+        let raw = RawData::for_store(Some(cache.clone()), &store);
+        let run = plan_with(
+            &spec(&format!(
+                "[[sources]]\nkind = \"remote\"\nname = \"t\"\nstorage = \"copy\"\n\
+                 urls = [\"file://{}\"]\n",
+                upstream.display()
+            )),
+            dir.path(),
+            &raw,
+        )?;
+        let fingerprint = run
+            .tasks
+            .iter()
+            .find_map(|t| match &t.input {
+                crate::plan::TaskInput::Chunk(ChunkInput::Remote {
+                    file_fingerprint, ..
+                }) => Some(file_fingerprint.clone()),
+                _ => None,
+            })
+            .ok_or_else(|| anyhow::anyhow!("no remote chunk task"))?;
+        // Planning uploads the file once, under the same content-addressed key a local store uses.
+        let kept = bucket
+            .join("raw")
+            .join(&fingerprint[..2])
+            .join(&fingerprint);
+        assert_eq!(fs::read(&kept)?, fs::read(&upstream)?);
+
+        // Upstream and the cache can both disappear: a run fills the cache from the store.
+        fs::remove_file(&upstream)?;
+        fs::remove_dir_all(&cache)?;
+        let fresh = RawData::for_store(Some(cache.clone()), &store);
+        assert_eq!(run_chunks(&run, &store, fresh)?, 3);
+        assert!(cache.join(&fingerprint[..2]).join(&fingerprint).exists());
         Ok(())
     }
 

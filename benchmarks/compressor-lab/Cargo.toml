@@ -32,7 +32,7 @@ serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 sha2 = { workspace = true }
 tempfile = { workspace = true }
-tokio = { workspace = true, features = ["rt", "rt-multi-thread"] }
+tokio = { workspace = true, features = ["fs", "io-util", "rt", "rt-multi-thread"] }
 toml = { workspace = true }
 tpchgen = { workspace = true }
 tpchgen-arrow = { workspace = true }
