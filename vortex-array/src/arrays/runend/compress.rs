@@ -469,6 +469,8 @@ pub fn runend_decode_typed_primitive<T: NativePType>(
     length: usize,
     allocator: &BufferAllocatorRef,
 ) -> PrimitiveArray {
+    // An all-null decode never reads the run ends, so only the other paths are checked.
+    let checked = !values_validity.all_false();
     let mut run_count = 0;
     let (decoded, validity) = runend_decode_slice(
         run_ends.inspect(|_| run_count += 1),
@@ -478,11 +480,13 @@ pub fn runend_decode_typed_primitive<T: NativePType>(
         length,
         allocator,
     );
-    assert_eq!(
-        run_count,
-        values.len(),
-        "run ends and values must have the same length"
-    );
+    if checked {
+        assert_eq!(
+            run_count,
+            values.len(),
+            "run ends and values must have the same length"
+        );
+    }
     PrimitiveArray::new(decoded, validity)
 }
 
@@ -572,6 +576,7 @@ mod tests {
     use vortex_buffer::BitBuffer;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
+    use vortex_mask::Mask;
     use vortex_session::VortexSession;
 
     use crate::IntoArray;
@@ -582,8 +587,10 @@ mod tests {
     use crate::arrays::bool::BoolArrayExt;
     use crate::arrays::runend::compress::bool_run_count;
     use crate::arrays::runend::compress::runend_decode_primitive;
+    use crate::arrays::runend::compress::runend_decode_typed_primitive;
     use crate::arrays::runend::compress::runend_encode;
     use crate::assert_arrays_eq;
+    use crate::dtype::Nullability;
     use crate::validity::Validity;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
@@ -715,5 +722,35 @@ mod tests {
         )?;
         assert_arrays_eq!(decoded, expected, &mut ctx);
         Ok(())
+    }
+
+    #[test]
+    fn typed_primitive_decodes_all_null_values() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let decoded = runend_decode_typed_primitive(
+            [1, 3].into_iter(),
+            &[1i32, 2],
+            Mask::AllFalse(2),
+            Nullability::Nullable,
+            3,
+            ctx.allocator(),
+        );
+        let expected = PrimitiveArray::from_option_iter([None::<i32>, None, None]);
+        assert_arrays_eq!(decoded, expected, &mut ctx);
+        Ok(())
+    }
+
+    #[test]
+    #[should_panic(expected = "run ends and values must have the same length")]
+    fn typed_primitive_rejects_mismatched_run_ends() {
+        let ctx = SESSION.create_execution_ctx();
+        runend_decode_typed_primitive(
+            [1, 3, 4].into_iter(),
+            &[1i32, 2],
+            Mask::AllTrue(2),
+            Nullability::NonNullable,
+            4,
+            ctx.allocator(),
+        );
     }
 }
