@@ -36,7 +36,7 @@ It is the fastest and most extensible format for building data systems backed by
   - Apache-2.0 Licensed
 
 - **Integrations**
-  - Arrow, DataFusion, DuckDB, Spark, Pandas, Polars, & more
+  - Arrow, ClickHouse, DataFusion, DuckDB, Spark, Pandas, Polars, & more
   - Apache Iceberg (coming soon)
 
 > 🟢 **Development Status**: Library APIs may change from version to version, but we now consider
