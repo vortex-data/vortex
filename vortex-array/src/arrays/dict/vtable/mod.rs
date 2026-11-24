@@ -165,55 +165,58 @@ impl VTable for Dict {
         builder: &mut dyn ArrayBuilder,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
-        if !array.is_empty() {
-            let codes = array.codes().clone().execute::<PrimitiveArray>(ctx)?;
-            if !codes.validity()?.definitely_all_null() {
-                let values = array.values();
-                if array.len() <= values.len() / sparse_take_ratio(array.dtype())
-                    && !values.is::<AnyCanonical>()
-                {
-                    // A Dict with few codes over encoded values is usually a lazy `take`. Execute
-                    // it so the take kernel of the values (ALP-RD, BitPacked, the OnPair token-run
-                    // gather, ...) decodes only the selected rows, rather than decoding every value
-                    // and then gathering.
-                    // SAFETY: executing the codes keeps their values, dtype and length.
-                    let taken =
-                        unsafe { DictArray::new_unchecked(codes.into_array(), values.clone()) };
-                    let canonical = taken.into_array().execute::<Canonical>(ctx)?.into_array();
-                    return canonical.append_to_builder(builder, ctx);
-                }
+        if !array.is_empty() && !array.codes().validity()?.definitely_all_null() {
+            let values = array.values();
 
-                // Decode the children without taking values to the full row count. The
-                // variable-binary builders gather directly through these dictionary codes.
-                let values = if array.values().is::<AnyCanonical>() {
-                    array.values().clone()
-                } else {
-                    array
-                        .values()
-                        .clone()
-                        .execute::<Canonical>(ctx)?
-                        .into_array()
-                };
-                let values = values.as_::<AnyCanonical>();
-                let codes = codes.as_view();
-                if let CanonicalView::VarBinView(values) = values
-                    && let Some(result) = match_each_varbin_builder!(builder, |builder| {
-                        let validity = array.validity()?.execute_mask(array.len(), ctx)?;
-                        append_dict_to_varbin(codes, values, validity, builder)
-                    })
-                {
-                    return result;
-                }
-                if let CanonicalView::VarBinView(values) = values
-                    && let Some(builder) = builder.as_any_mut().downcast_mut::<VarBinViewBuilder>()
-                {
-                    let validity = array.validity()?.execute_mask(array.len(), ctx)?;
-                    return append_dict_to_varbinview(codes, values, validity, builder);
-                }
-                let canonical = take_canonical(values, codes, ctx)?.into_array();
-                canonical.append_to_builder(builder, ctx)?;
-                return Ok(());
+            if array.len() <= values.len() / sparse_take_ratio(array.dtype())
+                && !values.is::<AnyCanonical>()
+            {
+                // A Dict with few codes over encoded values is usually a lazy `take`. Execute it
+                // so the take kernel of the values (ALP-RD, BitPacked, the OnPair token-run
+                // gather, ...) decodes only the selected rows, rather than decoding every value
+                // and then gathering. The codes stay as they are: a kernel can take a structured
+                // index array, such as the runs of a `PiecewiseSequenceArray`, faster than the
+                // same indices expanded one by one.
+                let canonical = array
+                    .array()
+                    .clone()
+                    .execute::<Canonical>(ctx)?
+                    .into_array();
+                return canonical.append_to_builder(builder, ctx);
             }
+
+            let codes = array.codes().clone().execute::<PrimitiveArray>(ctx)?;
+
+            // Decode the children without taking values to the full row count. The
+            // variable-binary builders gather directly through these dictionary codes.
+            let values = if array.values().is::<AnyCanonical>() {
+                array.values().clone()
+            } else {
+                array
+                    .values()
+                    .clone()
+                    .execute::<Canonical>(ctx)?
+                    .into_array()
+            };
+            let values = values.as_::<AnyCanonical>();
+            let codes = codes.as_view();
+            if let CanonicalView::VarBinView(values) = values
+                && let Some(result) = match_each_varbin_builder!(builder, |builder| {
+                    let validity = array.validity()?.execute_mask(array.len(), ctx)?;
+                    append_dict_to_varbin(codes, values, validity, builder)
+                })
+            {
+                return result;
+            }
+            if let CanonicalView::VarBinView(values) = values
+                && let Some(builder) = builder.as_any_mut().downcast_mut::<VarBinViewBuilder>()
+            {
+                let validity = array.validity()?.execute_mask(array.len(), ctx)?;
+                return append_dict_to_varbinview(codes, values, validity, builder);
+            }
+            let canonical = take_canonical(values, codes, ctx)?.into_array();
+            canonical.append_to_builder(builder, ctx)?;
+            return Ok(());
         }
 
         let canonical = array

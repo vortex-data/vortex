@@ -427,12 +427,12 @@ mod native {
         let app = AppState::new(session, file).await?;
 
         let mut terminal = ratatui::init();
-        terminal.clear()?;
-
-        run(terminal, app).await?;
-
+        let result = match terminal.clear() {
+            Ok(()) => run(terminal, app).await,
+            Err(e) => Err(e.into()),
+        };
         ratatui::restore();
-        Ok(())
+        result
     }
 }
 

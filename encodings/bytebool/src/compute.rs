@@ -17,13 +17,13 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::IntegerPType;
 use vortex_array::match_each_integer_ptype;
 use vortex_array::scalar::Scalar;
-use vortex_array::scalar_fn::fns::binary::BooleanKernel;
-use vortex_array::scalar_fn::fns::binary::kleene_boolean_buffer_scalar;
-use vortex_array::scalar_fn::fns::binary::kleene_boolean_buffers;
-use vortex_array::scalar_fn::fns::cast::CastKernel;
-use vortex_array::scalar_fn::fns::cast::CastReduce;
-use vortex_array::scalar_fn::fns::mask::MaskReduce;
-use vortex_array::scalar_fn::fns::operators::Operator;
+use vortex_array::scalar_fn::builtin::boolean::BooleanKernel;
+use vortex_array::scalar_fn::builtin::boolean::kleene_boolean_buffer_scalar;
+use vortex_array::scalar_fn::builtin::boolean::kleene_boolean_buffers;
+use vortex_array::scalar_fn::builtin::cast::CastKernel;
+use vortex_array::scalar_fn::builtin::cast::CastReduce;
+use vortex_array::scalar_fn::builtin::mask::MaskReduce;
+use vortex_array::scalar_fn::builtin::operators::BooleanOperator;
 use vortex_array::validity::Validity;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::BufferMut;
@@ -133,7 +133,7 @@ impl BooleanKernel for ByteBool {
     fn boolean(
         lhs: ArrayView<'_, Self>,
         rhs: &ArrayRef,
-        operator: Operator,
+        operator: BooleanOperator,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         let nullability = lhs.dtype().nullability() | rhs.dtype().nullability();
@@ -222,7 +222,7 @@ mod tests {
     use vortex_array::compute::conformance::filter::test_filter_conformance;
     use vortex_array::compute::conformance::mask::test_mask_conformance;
     use vortex_array::compute::conformance::take::test_take_conformance;
-    use vortex_array::scalar_fn::fns::operators::Operator;
+    use vortex_array::scalar_fn::builtin::operators::CompareOperator;
     use vortex_error::vortex_err;
     use vortex_session::VortexSession;
 
@@ -265,7 +265,7 @@ mod tests {
 
         let arr = lhs
             .into_array()
-            .binary(rhs.into_array(), Operator::Eq)
+            .compare(rhs.into_array(), CompareOperator::Eq)
             .unwrap();
 
         let expected = bb(vec![true; 5]);
@@ -283,7 +283,7 @@ mod tests {
 
         let arr = lhs
             .into_array()
-            .binary(rhs.into_array(), Operator::Eq)
+            .compare(rhs.into_array(), CompareOperator::Eq)
             .unwrap();
 
         let expected = bb(vec![false; 5]);
@@ -301,7 +301,7 @@ mod tests {
 
         let arr = lhs
             .into_array()
-            .binary(rhs.into_array(), Operator::Eq)
+            .compare(rhs.into_array(), CompareOperator::Eq)
             .unwrap();
 
         let expected = bb_opt(vec![Some(true), Some(true), Some(true), Some(false), None]);
@@ -318,18 +318,26 @@ mod tests {
         let rhs = bb_opt(vec![None, None, Some(true), Some(false), None]).into_array();
         let mut ctx = SESSION.create_execution_ctx();
 
-        let and_result =
-            <ByteBool as BooleanKernel>::boolean(lhs.as_view(), &rhs, Operator::And, &mut ctx)?
-                .ok_or_else(|| vortex_err!("ByteBool should handle ByteBool boolean AND"))?;
+        let and_result = <ByteBool as BooleanKernel>::boolean(
+            lhs.as_view(),
+            &rhs,
+            BooleanOperator::And,
+            &mut ctx,
+        )?
+        .ok_or_else(|| vortex_err!("ByteBool should handle ByteBool boolean AND"))?;
         assert_arrays_eq!(
             and_result,
             BoolArray::from_iter([Some(false), None, None, Some(false), None]),
             &mut ctx
         );
 
-        let or_result =
-            <ByteBool as BooleanKernel>::boolean(lhs.as_view(), &rhs, Operator::Or, &mut ctx)?
-                .ok_or_else(|| vortex_err!("ByteBool should handle ByteBool boolean OR"))?;
+        let or_result = <ByteBool as BooleanKernel>::boolean(
+            lhs.as_view(),
+            &rhs,
+            BooleanOperator::Or,
+            &mut ctx,
+        )?
+        .ok_or_else(|| vortex_err!("ByteBool should handle ByteBool boolean OR"))?;
         assert_arrays_eq!(
             or_result,
             BoolArray::from_iter([None, Some(true), Some(true), Some(false), None]),

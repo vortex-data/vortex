@@ -307,23 +307,49 @@ fn test_widen_wire_rejects_invalid_child_metadata(
 #[test]
 fn test_widen_wire_rejects_invalid_node() {
     let dtype = DType::from(PType::I64);
-    let child = buffer![1i8].into_array();
     let metadata = [8, PType::I8 as u8];
-    let buffers = [BufferHandle::new_host(ByteBuffer::copy_from([1]))];
-    let children = [child.clone(), child];
-    let widen_id = ArrayVTable::id(&Widen);
-    let decimal_id = ArrayVTable::id(&Decimal);
+    let children = [buffer![1i8].into_array()];
     let cases = [
-        (decimal_id, &children[..1], &[][..], "wire ID"),
-        (widen_id, &children[..0], &[][..], "one child"),
-        (widen_id, &children[..], &[][..], "one child"),
-        (widen_id, &children[..1], buffers.as_slice(), "node buffers"),
+        (ArrayVTable::id(&Decimal), &children[..], "wire ID"),
+        (
+            ArrayVTable::id(&Widen),
+            &children[..0],
+            "at least one child",
+        ),
     ];
 
-    for (id, children, buffers, expected_error) in cases {
-        let parts = ArrayDeserialization::new(id, &dtype, 1, &metadata, buffers, &children);
+    for (id, children, expected_error) in cases {
+        let parts = ArrayDeserialization::new(id, &dtype, 1, &metadata, &[], &children);
         assert_widen_decode_error(parts, expected_error);
     }
+}
+
+/// A later writer may append children and node buffers that do not change the decoded values, so
+/// a reader ignores everything after the first child.
+#[test]
+fn test_widen_wire_ignores_trailing_children_and_node_buffers() -> VortexResult<()> {
+    let dtype = DType::from(PType::I64);
+    let metadata = [8, PType::I8 as u8];
+    let buffers = [BufferHandle::new_host(ByteBuffer::copy_from([1]))];
+    // In-memory children assert the requested dtype, so decoding this `u32` child would panic.
+    let children = [
+        buffer![1i8, -2, 3].into_array(),
+        buffer![7u32, 8, 9].into_array(),
+    ];
+    let parts = ArrayDeserialization::new(
+        ArrayVTable::id(&Widen),
+        &dtype,
+        3,
+        &metadata,
+        &buffers,
+        &children,
+    );
+
+    let decoded = WidenPlugin.deserialize(parts, &SESSION)?;
+    let expected = widen_over(buffer![1i8, -2, 3], dtype)?;
+    assert_arrays_eq!(decoded, expected, &mut SESSION.create_execution_ctx());
+
+    Ok(())
 }
 
 #[test]

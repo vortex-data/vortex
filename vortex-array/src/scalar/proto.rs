@@ -555,9 +555,7 @@ mod tests {
     use crate::scalar::Scalar;
     use crate::scalar::ScalarValue;
     use crate::scalar_fn::ScalarFnVTable;
-    use crate::scalar_fn::fns::list_contains::PreparedSet;
-    use crate::scalar_fn::fns::list_contains::PreparedSetData;
-    use crate::scalar_fn::fns::literal::Literal;
+    use crate::scalar_fn::builtin::literal::Literal;
 
     fn session() -> VortexSession {
         VortexSession::empty()
@@ -1259,21 +1257,8 @@ mod tests {
     }
 
     #[test]
-    fn scalar_fn_serializers_propagate_extension_metadata_error() {
-        let scalar = failing_metadata_scalar();
-        let err = Literal.serialize(&scalar).unwrap_err();
-        assert!(
-            err.to_string().contains("metadata serializer failed"),
-            "{err}"
-        );
-
-        let list = Scalar::list(
-            scalar.dtype().clone(),
-            vec![scalar],
-            Nullability::NonNullable,
-        );
-        let set = PreparedSetData::try_new(list).unwrap();
-        let err = PreparedSet.serialize(&set).unwrap_err();
+    fn literal_serializer_propagates_extension_metadata_error() {
+        let err = Literal.serialize(&failing_metadata_scalar()).unwrap_err();
         assert!(
             err.to_string().contains("metadata serializer failed"),
             "{err}"

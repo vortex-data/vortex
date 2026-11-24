@@ -31,7 +31,7 @@ parquet = { workspace = true }
 regex = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
-tempfile = { workspace = true, optional = true }
+tempfile = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 tracing = { workspace = true }
 vortex = { workspace = true }
@@ -44,7 +44,7 @@ arrow-select = { workspace = true }
 rstest = { workspace = true }
 
 [features]
-cuda = ["dep:tempfile", "dep:vortex-cuda"]
+cuda = ["dep:vortex-cuda"]
 lance = ["dep:lance-bench"]
 
 [[bin]]

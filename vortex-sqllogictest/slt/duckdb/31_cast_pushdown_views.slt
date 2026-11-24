@@ -1,0 +1,42 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+include ../setup.slt.no
+
+statement ok
+COPY (SELECT * FROM (
+    VALUES (1, 0),(1, 0),(1, 0),(1, 0),(1, 0),(1, 0),(2, 0),(3, 0),(3, 0),(3, 257)
+) AS t(column00, column01))
+TO '$__TEST_DIR__/cast_pushdown.vortex';
+
+statement ok
+CREATE VIEW v AS SELECT column01 AS x, column00 AS y FROM '$__TEST_DIR__/cast_pushdown.vortex' WHERE x > 0;
+
+query II
+SELECT x::BIGINT, y::SMALLINT FROM v;
+----
+257 3
+
+statement ok
+CREATE VIEW vdup AS SELECT column01 AS x, column01 AS y FROM '$__TEST_DIR__/cast_pushdown.vortex';
+
+query II
+SELECT x::BIGINT, y::BIGINT FROM vdup ORDER BY 1 DESC LIMIT 1;
+----
+257 257
+
+statement ok
+COPY (SELECT 1 AS x) TO '$__TEST_DIR__/cast_pushdown-vcol.vortex';
+
+query I
+SELECT file_row_number::BIGINT FROM '$__TEST_DIR__/cast_pushdown-vcol.vortex';
+----
+0
+
+statement ok
+CREATE VIEW virt_col AS SELECT x, file_row_number FROM '$__TEST_DIR__/cast_pushdown-vcol.vortex';
+
+query I
+SELECT file_row_number::BIGINT FROM virt_col;
+----
+0

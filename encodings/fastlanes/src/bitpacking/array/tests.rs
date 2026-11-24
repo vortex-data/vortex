@@ -21,8 +21,8 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::match_each_unsigned_integer_ptype;
-use vortex_array::scalar_fn::fns::cast::CastKernel;
-use vortex_array::scalar_fn::fns::cast::CastReduce;
+use vortex_array::scalar_fn::builtin::cast::CastKernel;
+use vortex_array::scalar_fn::builtin::cast::CastReduce;
 use vortex_array::validity::Validity;
 use vortex_buffer::ByteBuffer;
 use vortex_buffer::buffer;
@@ -388,5 +388,24 @@ fn into_parts_preserves_block_offsets(#[case] offsets: ArrayRef) -> VortexResult
     )?;
     assert_eq!(rebuilt.len(), 1500);
     assert_eq!(rebuilt.offset(), 17);
+    Ok(())
+}
+
+#[test]
+fn test_all_null_slice_keeps_all_invalid_validity() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let bitpacked = BitPacked::try_new(
+        BufferHandle::new_host(ByteBuffer::zeroed(1024)),
+        PType::U32,
+        Validity::AllInvalid,
+        None,
+        8,
+        1024,
+        0,
+    )?;
+    let decoded = bitpacked
+        .slice(10..20)?
+        .execute::<PrimitiveArray>(&mut ctx)?;
+    assert!(matches!(decoded.validity()?, Validity::AllInvalid));
     Ok(())
 }

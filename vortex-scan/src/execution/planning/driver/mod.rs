@@ -534,8 +534,11 @@ impl Driver {
         }
     }
 
-    /// Runs `root` and everything it spawns, returning batches in emission order. A planner
-    /// spawned as independent runs as another root of the same run.
+    /// Runs a single `root` to completion, returning batches in emission order.
+    ///
+    /// Returns an error if `root` spawns an independent root; use
+    /// [`ScanDriver`](crate::execution::driver::ScanDriver) or drive [`Run`] directly with a
+    /// separate [`IoSource`] per root instead.
     pub fn run(&self, root: Box<dyn Planner>) -> VortexResult<Vec<Batch>> {
         let mut run = Run::new();
         run.step_limit = self.step_limit;
@@ -548,10 +551,10 @@ impl Driver {
         loop {
             match run.advance()? {
                 Progress::Batch(batch) => batches.push(batch),
-                Progress::Spawn(scope, child) => {
-                    run.admit(child, scope, Arc::clone(&self.io));
-                }
-                Progress::RootDone(_) if run.live_roots() > 0 => {}
+                Progress::Spawn(..) => vortex_bail!(
+                    "Driver only supports a single root; use ScanDriver or drive Run directly \
+                     with a separate IoSource per root"
+                ),
                 Progress::RootDone(_) | Progress::Idle => return Ok(batches),
                 Progress::Waiting => run.complete(self.io.wait()?)?,
             }

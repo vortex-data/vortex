@@ -19,6 +19,7 @@
     "lint": "biome lint",
     "lint:fix": "biome lint --write",
     "typecheck": "tsc -b --noEmit",
+    "test": "bun test",
     "storybook": "storybook dev -p 6006",
     "build-storybook": "storybook build"
   },
@@ -32,6 +33,7 @@
   },
   "devDependencies": {
     "@biomejs/biome": "^2.6.2",
+    "@happy-dom/global-registrator": "^21.0.4",
     "@storybook/addon-docs": "^10.6.5",
     "@storybook/react-vite": "^10.6.5",
     "@types/d3-hierarchy": "^3.1.7",

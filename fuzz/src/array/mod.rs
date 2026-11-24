@@ -60,8 +60,7 @@ use vortex_array::dtype::Nullability;
 use vortex_array::optimizer::ArrayOptimizer;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar::arbitrary::random_scalar;
-use vortex_array::scalar_fn::fns::operators::CompareOperator;
-use vortex_array::scalar_fn::fns::operators::Operator;
+use vortex_array::scalar_fn::builtin::operators::CompareOperator;
 use vortex_array::search_sorted::SearchResult;
 use vortex_array::search_sorted::SearchSorted;
 use vortex_array::search_sorted::SearchSortedArray;
@@ -647,9 +646,9 @@ pub fn run_fuzz_action(fuzz_action: FuzzArrayAction) -> VortexFuzzResult<bool> {
             }
             Action::Compare(v, op) => {
                 let compare_result = current_array
-                    .binary(
+                    .compare(
                         ConstantArray::new(v.clone(), current_array.len()).into_array(),
-                        Operator::from(op),
+                        op,
                     )
                     .and_then(|array| array.optimize_ctx(&ctx))
                     .vortex_expect("compare operation should succeed in fuzz test");

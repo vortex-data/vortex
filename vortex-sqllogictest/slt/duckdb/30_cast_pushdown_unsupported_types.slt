@@ -1,0 +1,62 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+include ../setup.slt.no
+
+statement ok
+COPY (SELECT * FROM (
+    VALUES (1, 0),(1, 0),(1, 0),(1, 0),(1, 0),(1, 0),(2, 0),(3, 0),(3, 0),(3, 257)
+) AS t(column00, column01))
+TO '$__TEST_DIR__/cast_pushdown.vortex';
+
+# i128 and u128 casts are not allowed as Vortex doesn't support these types
+
+query TT
+EXPLAIN (FORMAT json)
+SELECT column00::HUGEINT FROM '$__TEST_DIR__/cast_pushdown.vortex';
+----
+<REGEX>:.*PROJECTION.*
+
+query TT
+EXPLAIN (FORMAT json)
+SELECT column00::UHUGEINT FROM '$__TEST_DIR__/cast_pushdown.vortex';
+----
+<REGEX>:.*PROJECTION.*
+
+query TT
+EXPLAIN SELECT column00
+FROM '$__TEST_DIR__/cast_pushdown.vortex'
+WHERE column01::HUGEINT >= column00;
+----
+<REGEX>:.*Filter.*
+
+query TT
+EXPLAIN SELECT column01
+FROM '$__TEST_DIR__/cast_pushdown.vortex'
+WHERE column00::UHUGEINT >= column01
+----
+<REGEX>:.*Filter.*
+
+statement ok
+CREATE OR REPLACE TABLE tbl(val FLOAT)
+
+statement ok
+INSERT INTO tbl VALUES (1), (-1.2), (-1.5)
+
+statement ok
+COPY (SELECT * FROM tbl) TO '$__TEST_DIR__/cast_pushdown-float.vortex';
+
+# floating point casts are not pushed down because Vortex's behaviour, truncate
+# to zero, differs from Duckdb's rounding
+query TT
+EXPLAIN (FORMAT json)
+SELECT CAST(val AS INTEGER) FROM '$__TEST_DIR__/cast_pushdown-float.vortex';
+----
+<REGEX>:.*PROJECTION.*
+
+query I
+SELECT CAST(val AS INTEGER) FROM '$__TEST_DIR__/cast_pushdown-float.vortex' ORDER BY 1;
+----
+-2
+-1
+1

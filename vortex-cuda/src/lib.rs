@@ -37,6 +37,7 @@ pub use executor::CudaKernelEvents;
 pub use file::CudaOpenOptions;
 pub use file::CudaOpenOptionsExt;
 use kernel::ALPExecutor;
+use kernel::ALPRDExecutor;
 use kernel::BitPackedExecutor;
 use kernel::ConstantNumericExecutor;
 use kernel::DateTimePartsExecutor;
@@ -83,6 +84,7 @@ use vortex::array::arrays::Masked;
 use vortex::array::arrays::Slice;
 use vortex::array::arrays::Widen;
 use vortex::encodings::alp::ALP;
+use vortex::encodings::alp::ALPRD;
 use vortex::encodings::datetime_parts::DateTimeParts;
 use vortex::encodings::decimal_byte_parts::DecimalByteParts;
 use vortex::encodings::fastlanes::BitPacked;
@@ -112,6 +114,7 @@ pub fn cuda_available() -> bool {
 pub fn initialize_cuda(session: &CudaSession) {
     info!("Registering CUDA kernels");
     session.register_kernel(ALP.id(), &ALPExecutor);
+    session.register_kernel(ALPRD.id(), &ALPRDExecutor);
     session.register_kernel(BitPacked.id(), &BitPackedExecutor);
     session.register_kernel(Constant.id(), &ConstantNumericExecutor);
     session.register_kernel(DateTimeParts.id(), &DateTimePartsExecutor);

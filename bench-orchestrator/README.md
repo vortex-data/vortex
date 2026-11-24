@@ -82,12 +82,19 @@ vx-bench matrix develop    # emit compact JSON
 vx-bench matrix pr-all      # emit the union of pr, pr-compact and pr-full
 vx-bench matrix pr-full     # emit full pull-request coverage
 vx-bench matrix nightly --pretty
+vx-bench matrix pr-all --only 'polarsignals tpch-nvme:q1-4'  # just these benchmarks and queries
 ```
 
 **Options:**
 
 - `--list`: List available presets and exit
 - `--pretty`: Pretty-print the JSON output
+- `--only`: Keep only these benchmark IDs (space- or comma-separated), at the preset's coverage.
+  An ID may be followed by queries, `tpch-nvme:q1,2` or `tpch-nvme:q1-4`, which its entries carry
+  as `queries` for `vx-bench run --queries`. An ID the preset does not schedule is an error that
+  lists the IDs it does.
+  A benchmark ID keeps every scan entry of that benchmark; a scan entry ID such as
+  `tpch-nvme-duckdb-file-v1` keeps just that one.
 
 ### `compare` - Compare Results
 
@@ -130,7 +137,7 @@ vx-bench show <run-ref>
 
 **Arguments:**
 
-- `run-ref`: Run ID, label, or `latest`
+- `run-ref`: Run ID, label, or `latest` (most recent non-partial run)
 
 ### `build` - Build Binaries
 
@@ -168,7 +175,8 @@ Vortex targets name an integration (`file` or `datasource`) and a scan engine (`
 coverage made with `with_all_scans` runs every valid combination, and each combination becomes a
 matrix entry of its own, `{id}-{engine}-{integration}-{scan}`, on its own machine. The default
 entry keeps the case's id. Every entry of a case shares its `group`, and the PR comment job merges
-a group's results into one table. `nightly` covers every scan on every benchmark; `develop` and
+a group's results into one table. `nightly` covers every scan on every benchmark, except the
+combinations in `NIGHTLY_SKIP_SCANS` (DataFusion datasource v1); `develop` and
 `pr-scan` cover them on ClickBench and TPC-H SF=1 on NVMe. The other PR presets run the default
 scans only.
 

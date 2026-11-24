@@ -254,10 +254,9 @@ factors are configurable per suite (e.g. `--opt scale-factor=10.0` for TPC-H SF=
 
 ### Unstable Encodings
 
-Benchmark sessions enable the newest `preview` edition and the `unstable` edition, so every
-benchmark measures Vortex files whose compressor may also choose their encodings. `preview`
-currently holds `fastlanes.delta`, and `unstable` holds `vortex.decimal_byte_parts.v2` and
-`vortex.widen`. `vortex_bench::enable_unstable_encodings` enables both on a session.
+`vortex_bench::enable_unstable_encodings` enables the newest `preview` edition and the
+`unstable` edition on benchmark sessions. The compressor can then use preview formats such as
+`fastlanes.delta` and `vortex.decimal_byte_parts.v2`.
 
 ### Running SQL Benchmarks
 
@@ -319,6 +318,15 @@ Benchmarks run automatically on all commits to `develop` and can be run on-deman
   and the `pr-all` SQL preset, the union of the `pr`, `pr-compact`, and `pr-full` coverage, without
   repeating shared jobs. Do not combine it with other benchmark labels;
   GPU compression is the only exception.
+
+To benchmark some SQL benchmarks or queries, run the `PR SQL Benchmarks` workflow by hand on the
+PR's branch, from the Actions tab or with
+`gh workflow run pr-bench-sql.yml --ref <branch> -f benchmarks='polarsignals tpch-nvme:q1-4'`.
+`benchmarks` lists benchmarks separated by spaces, each a `group` printed by
+`vx-bench matrix pr-all` and optionally followed by queries: `polarsignals` runs all its queries,
+`tpch-nvme:q1,2` runs queries 1 and 2, and `tpch-nvme:q1-4` runs queries 1 to 4. They run at the
+coverage of `matrix_preset`, `pr-all` by default, and the results are posted on the branch's open
+PR, in a comment of their own when they cover only some queries.
 
 All CI benchmarks run on dedicated instances with the `release_debug` profile and
 `-C target-cpu=native` to produce representative numbers.
