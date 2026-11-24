@@ -118,10 +118,9 @@ public final class VortexReadTypeParityTest {
     }
 
     static Stream<Case> cases() {
-        Stream<Case> collated =
-                org.apache.spark.package$.MODULE$.SPARK_VERSION().startsWith("3.")
-                        ? Stream.empty()
-                        : Stream.of(leaf("STRING", "'abc'", "'ABC'", "STRING COLLATE UTF8_LCASE"));
+        Stream<Case> collated = SparkTestLine.COLLATIONS
+                ? Stream.of(leaf("STRING", "'abc'", "'ABC'", "STRING COLLATE UTF8_LCASE"))
+                : Stream.empty();
         return Stream.concat(common(), collated);
     }
 

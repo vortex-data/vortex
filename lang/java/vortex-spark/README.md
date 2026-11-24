@@ -100,6 +100,15 @@ Options are case-insensitive and work with both V1 and V2 reads.
 Java callers supplying their own `NativeReadable` can override `coalesceDistance()` and
 `coalesceMaxSize()`. Native code captures these limits once when registering each source.
 
+## Source layout
+
+Each module compiles `common/src` together with its own `v<spark-line>/src`. Code and tests that
+differ between Spark lines go behind a small class that every `v<spark-line>/src` defines once,
+such as `SparkLine` and `SparkTestLine`, so shared code branches at compile time rather than
+through reflection or a runtime version check. The Spark 4.0 module's tests also run against
+Spark 4.1 to 4.3; tests that only one of those lines supports go in `v<spark-line>/src/test`,
+which adds to the Spark 4.0 tests rather than replacing them.
+
 ## Benchmarks
 
 JMH benchmarks live in `common/src/jmh/java`. They measure the per-file open cost of the

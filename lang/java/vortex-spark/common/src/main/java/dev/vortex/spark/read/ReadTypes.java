@@ -35,10 +35,6 @@ import org.apache.spark.sql.types.StructType;
  * resolves, so there is one walk and one name resolution for each file.
  */
 final class ReadTypes {
-    // Spark 4 lets Parquet widen decimal scales and read timestamps with a time zone as timestamps without one.
-    private static final boolean SPARK_4 =
-            !org.apache.spark.package$.MODULE$.SPARK_VERSION().startsWith("3.");
-
     private ReadTypes() {}
 
     /**
@@ -120,13 +116,15 @@ final class ReadTypes {
                 || (file.equals(DataTypes.DateType) && read.equals(DataTypes.IntegerType))
                 || (micros && read.equals(DataTypes.LongType))
                 || (file.equals(DataTypes.TimestampNTZType) && read.equals(DataTypes.TimestampType))
-                || (SPARK_4 && file.equals(DataTypes.TimestampType) && read.equals(DataTypes.TimestampNTZType))) {
+                || (SparkLine.PARQUET_READS_TIMESTAMP_AS_NTZ
+                        && file.equals(DataTypes.TimestampType)
+                        && read.equals(DataTypes.TimestampNTZType))) {
             return true;
         }
         // Decimal values are rescaled to the type read, so it only has to keep every digit.
         if (file instanceof DecimalType stored && read instanceof DecimalType wanted) {
             int scaleIncrease = wanted.scale() - stored.scale();
-            return (scaleIncrease == 0 || (SPARK_4 && scaleIncrease > 0))
+            return (scaleIncrease == 0 || (SparkLine.PARQUET_WIDENS_DECIMAL_SCALE && scaleIncrease > 0))
                     && wanted.precision() - stored.precision() >= scaleIncrease;
         }
         return false;

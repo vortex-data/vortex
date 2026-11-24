@@ -150,6 +150,9 @@ testing {
         }
 
         sparkCompatVersions.forEach { (line, version) ->
+            // vortex-spark/v<line>/src/test adds tests that need that Spark line. It extends the Spark 4.0
+            // module's tests, so it cannot replace their classes.
+            val compatSourceDir = rootProject.file("vortex-spark/v$line/src")
             register<JvmTestSuite>("spark${line.replace(".", "")}CompatTest") {
                 useJUnitJupiter()
                 sources {
@@ -157,18 +160,21 @@ testing {
                         listOf(
                             commonSourceDir.resolve("test/java"),
                             versionSourceDir.resolve("test/java"),
+                            compatSourceDir.resolve("test/java"),
                         ),
                     )
                     scala.setSrcDirs(
                         listOf(
                             commonSourceDir.resolve("test/scala"),
                             versionSourceDir.resolve("test/scala"),
+                            compatSourceDir.resolve("test/scala"),
                         ),
                     )
                     resources.setSrcDirs(
                         listOf(
                             commonSourceDir.resolve("test/resources"),
                             versionSourceDir.resolve("test/resources"),
+                            compatSourceDir.resolve("test/resources"),
                         ),
                     )
                 }
