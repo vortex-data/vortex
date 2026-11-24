@@ -142,6 +142,7 @@ pub struct BtrBlocksCompressorBuilder {
     schemes: Vec<&'static dyn Scheme>,
     allowed: AllowedIds,
     mode: CompressionMode,
+    run_model: Option<integer::RunModel>,
 }
 
 impl BtrBlocksCompressorBuilder {
@@ -153,6 +154,7 @@ impl BtrBlocksCompressorBuilder {
             schemes: session.compression().schemes().to_vec(),
             allowed: AllowedIds::from_session(session),
             mode: CompressionMode::Default,
+            run_model: None,
         }
     }
 
@@ -165,6 +167,7 @@ impl BtrBlocksCompressorBuilder {
             schemes: Vec::new(),
             allowed: AllowedIds::all(),
             mode: CompressionMode::All,
+            run_model: None,
         }
     }
 
@@ -207,6 +210,17 @@ impl BtrBlocksCompressorBuilder {
         self
     }
 
+    /// Estimates the integer RunEnd, RLE and Sparse schemes with `model` instead of their default
+    /// cutoffs and samples.
+    ///
+    /// The model sizes each scheme's output from bit widths, and with a bandwidth set also charges
+    /// its decode time. See [`RunModel`](integer::RunModel). Off by default. Only schemes already
+    /// in the builder are affected.
+    pub fn with_run_model(mut self, model: integer::RunModel) -> Self {
+        self.run_model = Some(model);
+        self
+    }
+
     /// Removes the specified compression schemes by their [`SchemeId`].
     pub fn exclude_schemes(mut self, ids: impl IntoIterator<Item = SchemeId>) -> Self {
         let ids: HashSet<_> = ids.into_iter().collect();
@@ -240,9 +254,14 @@ impl BtrBlocksCompressorBuilder {
         let excluded: HashSet<SchemeId> = self.mode.excluded_schemes().into_iter().collect();
         let excluded_ids: HashSet<ArrayId> = self.mode.excluded_encodings().into_iter().collect();
         let allowed = |id: &ArrayId| self.allowed.is_allowed(id) && !excluded_ids.contains(id);
+        let modeled = self.run_model.map(integer::modeled_schemes);
         self.schemes
             .iter()
             .copied()
+            .map(|s| match modeled {
+                Some(modeled) => modeled.into_iter().find(|m| m.id() == s.id()).unwrap_or(s),
+                None => s,
+            })
             .filter(|s| !excluded.contains(&s.id()))
             .map(|s| s.refine(&allowed))
             .filter(|s| s.produced_encodings().iter().all(&allowed))
