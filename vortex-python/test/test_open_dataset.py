@@ -3,6 +3,8 @@
 
 """Reading many Vortex files as one dataset with :func:`vortex.open_dataset`."""
 
+import multiprocessing
+import os
 from pathlib import Path
 
 import duckdb
@@ -299,3 +301,51 @@ def test_trailing_double_star_glob_reads_files(tmp_path: Path):
     vx.io.write(table(range(3, 6)), str(nested / "b.vortex"))
 
     assert vx.open_dataset(str(data / "**")).to_table() == table(range(0, 6))
+
+
+@pytest.mark.parametrize("memory_map", [False, True])
+def test_memory_map_reads_the_same_rows(root: Path, memory_map: bool):
+    ds = vx.open_dataset(root / "data", memory_map=memory_map)
+    assert ds.to_table() == expected("a.vortex", "b/b.vortex", "c.vortex")
+
+    # Rows from every file, out of order and repeated. The second take reuses what the first one
+    # kept of each file.
+    indices = pa.array([29, 3, 12, 0, 12, 24, 25])
+    rows = pc.take(expected("a.vortex", "b/b.vortex", "c.vortex"), indices)
+    assert ds.take(indices) == rows
+    assert ds.take(indices) == rows
+
+
+@pytest.mark.parametrize(
+    "source, store",
+    [
+        ("s3://bucket/data/", None),
+        ("data", LocalStore(prefix="/")),
+    ],
+)
+def test_memory_map_needs_local_paths(source: str, store: LocalStore | None):
+    with pytest.raises(ValueError, match="memory_map=True needs local paths"):
+        vx.open_dataset(source, store=store, memory_map=True)
+
+
+@pytest.mark.skipif(not hasattr(os, "fork"), reason="needs os.fork")
+def test_forked_process_reads_the_files_its_parent_mapped(root: Path):
+    ds = vx.open_dataset(root / "data", memory_map=True)
+    indices = pa.array([29, 3, 12])
+    rows = ds.take(indices)
+
+    # A DataLoader worker is a forked process. It reads with the maps its parent kept, which need
+    # no IO threads of the parent.
+    context = multiprocessing.get_context("fork")
+    queue = context.Queue()
+
+    def read() -> None:
+        queue.put(ds.take(indices).to_pylist())
+
+    process = context.Process(target=read)
+    process.start()
+    child_rows = queue.get(timeout=60)
+    process.join(timeout=60)
+
+    assert process.exitcode == 0
+    assert child_rows == rows.to_pylist()

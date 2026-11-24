@@ -49,4 +49,5 @@ def dataset_from_sources(
     store: ObjectStore | CosStore | HfStore | None = None,
     concurrency: int | None = None,
     expand: bool = True,
+    memory_map: bool = False,
 ) -> VortexDataset: ...

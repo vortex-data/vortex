@@ -2,7 +2,9 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::ops::Range;
+use std::path::PathBuf;
 use std::sync::Arc;
+use std::sync::OnceLock;
 use std::task::Poll;
 
 use arrow_array::RecordBatch;
@@ -40,6 +42,7 @@ use vortex::expr::BoundExpression;
 use vortex::expr::Expression;
 use vortex::expr::root;
 use vortex::expr::select;
+use vortex::file::Footer;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::file::VORTEX_FILE_EXTENSION;
 use vortex::file::VortexFile;
@@ -63,6 +66,7 @@ use crate::arrow::ToPyArrow;
 use crate::current_runtime;
 use crate::error::PyVortexResult;
 use crate::expr::PyExpr;
+use crate::file::open_memory_mapped_path;
 use crate::file::row_indices;
 use crate::file::validate_positive_split_size;
 use crate::install_module;
@@ -136,9 +140,49 @@ fn filter_from_python(row_filter: Option<&Bound<PyExpr>>) -> Option<Expression> 
 enum DatasetSource {
     Opened(Box<VortexFile>),
     Lazy {
-        files: Arc<[(FileSystemRef, FileListing)]>,
+        files: Arc<[DatasetFile]>,
         dtype: DType,
     },
+}
+
+/// A file of a dataset that opens its files lazily.
+#[derive(Clone)]
+struct DatasetFile {
+    fs: FileSystemRef,
+    listing: FileListing,
+
+    /// The local path to memory-map, if the dataset memory-maps its files.
+    mapped_path: Option<PathBuf>,
+
+    /// What the first open of the file keeps for the later opens.
+    ///
+    /// Each scan clones the source, and `for_file` clones the file, so the clones share this.
+    kept: Arc<OnceLock<KeptFile>>,
+}
+
+impl DatasetFile {
+    fn new(fs: FileSystemRef, listing: FileListing, memory_map: bool) -> Self {
+        let mapped_path = memory_map.then(|| PathBuf::from(&listing.path));
+
+        Self {
+            fs,
+            listing,
+            mapped_path,
+            kept: Arc::default(),
+        }
+    }
+}
+
+/// What a dataset keeps of a file after its first open, so that a later open reads no footer.
+#[derive(Clone)]
+enum KeptFile {
+    /// The footer. Each scan opens the file again with it, so a dataset of many files does not
+    /// hold a file handle for each file.
+    Footer(Footer),
+
+    /// The memory-mapped file. A map holds no file handle, and it reads segments from the page
+    /// cache, so the dataset keeps the file itself.
+    MemoryMapped(VortexFile),
 }
 
 #[derive(Clone)]
@@ -157,7 +201,10 @@ struct ScanParams {
 ///
 /// Multi-file datasets open only the first file eagerly to validate the source and read the schema;
 /// each file is opened lazily during scans and dropped once its splits finish, so a dataset with
-/// thousands of files does not hold every file open at once.
+/// thousands of files does not hold every file open at once. The dataset keeps the footer of each
+/// file it opened, so a later scan of the file reads no footer. A dataset that memory-maps its
+/// files keeps each map, which holds no file handle. The files must not change while the dataset
+/// reads them.
 #[pyclass(name = "VortexDataset", module = "dataset")]
 pub struct PyVortexDataset {
     source: DatasetSource,
@@ -176,7 +223,7 @@ impl PyVortexDataset {
     }
 
     fn from_lazy(
-        files: Vec<(FileSystemRef, FileListing)>,
+        files: Vec<DatasetFile>,
         dtype: DType,
         concurrency: Option<usize>,
     ) -> VortexResult<Self> {
@@ -280,28 +327,72 @@ fn default_read_concurrency() -> usize {
     DEFAULT_CONCURRENCY_PER_THREAD * get_available_parallelism().unwrap_or(1)
 }
 
+/// Open a file of a lazy dataset.
+///
+/// The first open of the file reads its footer and checks its dtype. It then keeps the footer, or
+/// the memory-mapped file, so that a later open reads no footer.
 async fn open_lazy_file(
-    fs: &FileSystemRef,
-    listing: &FileListing,
+    file: &DatasetFile,
     expected_dtype: Option<&DType>,
     first_name: &str,
 ) -> VortexResult<VortexFile> {
-    let source = fs.open_read(&listing.path).await?;
-    let mut options = session().open_options();
-    if let Some(size) = listing.size {
-        options = options.with_file_size(size);
+    match file.kept.get() {
+        Some(KeptFile::MemoryMapped(vxf)) => return Ok(vxf.clone()),
+        Some(KeptFile::Footer(footer)) => return open_lazy_read(file, Some(footer.clone())).await,
+        None => {}
     }
-    let file = options.open(source).await?;
+
+    let vxf = match &file.mapped_path {
+        Some(path) => {
+            let path = path.clone();
+
+            // The footer read can fault pages in from disk, so it runs on a blocking thread.
+            session()
+                .handle()
+                .spawn_blocking(move || open_memory_mapped_path(&path, None))
+                .await?
+        }
+
+        None => open_lazy_read(file, None).await?,
+    };
+
     if let Some(expected) = expected_dtype
-        && file.dtype() != expected
+        && vxf.dtype() != expected
     {
         vortex_bail!(
             "{} has dtype {}, but {first_name} has dtype {expected}; every file of a dataset needs the same dtype",
-            listing.path,
-            file.dtype(),
+            file.listing.path,
+            vxf.dtype(),
         );
     }
-    Ok(file)
+
+    let kept = match file.mapped_path {
+        Some(_) => KeptFile::MemoryMapped(vxf.clone()),
+        None => KeptFile::Footer(vxf.footer().clone()),
+    };
+
+    // Two scans can open the file at the same time. Both opens are correct, so the first one to
+    // finish is kept.
+    drop(file.kept.set(kept));
+
+    Ok(vxf)
+}
+
+/// Open a file of a lazy dataset through its file system, with its footer if it is known.
+async fn open_lazy_read(file: &DatasetFile, footer: Option<Footer>) -> VortexResult<VortexFile> {
+    let source = file.fs.open_read(&file.listing.path).await?;
+    let mut options = session().open_options();
+
+    // A known file size also lets a known footer check that the file did not change size.
+    if let Some(size) = file.listing.size {
+        options = options.with_file_size(size);
+    }
+
+    if let Some(footer) = footer {
+        options = options.with_footer(footer);
+    }
+
+    options.open(source).await
 }
 
 fn build_file_scan<A, F>(
@@ -362,7 +453,7 @@ where
 struct LazyOffsetState<F> {
     idx: usize,
     file_start: u64,
-    files: Arc<[(FileSystemRef, FileListing)]>,
+    files: Arc<[DatasetFile]>,
     dtype: DType,
     first_name: String,
     params: ScanParams,
@@ -401,7 +492,7 @@ where
             }
         }
         DatasetSource::Lazy { files, dtype } => {
-            let first_name = files[0].1.path.clone();
+            let first_name = files[0].listing.path.clone();
             if params.row_range.is_none() && params.indices.is_none() {
                 return stream::iter(0..files.len())
                     .then(move |idx| {
@@ -413,9 +504,9 @@ where
                             map_fn.clone(),
                         );
                         async move {
-                            let (fs, listing) = &files[idx];
+                            let dataset_file = &files[idx];
                             let file =
-                                open_lazy_file(fs, listing, Some(&dtype), &first_name).await?;
+                                open_lazy_file(dataset_file, Some(&dtype), &first_name).await?;
                             Ok::<_, VortexError>(
                                 file.scan()?
                                     .with_projection(params.projection)
@@ -446,10 +537,10 @@ where
                     {
                         return None;
                     }
-                    let (fs, listing) = &st.files[st.idx];
+                    let dataset_file = &st.files[st.idx];
                     st.idx += 1;
                     let file =
-                        match open_lazy_file(fs, listing, Some(&st.dtype), &st.first_name).await {
+                        match open_lazy_file(dataset_file, Some(&st.dtype), &st.first_name).await {
                             Ok(file) => file,
                             Err(e) => {
                                 st.idx = st.files.len();
@@ -738,15 +829,11 @@ impl PyVortexDataset {
     }
 }
 
-async fn map_lazy_files<T, F>(
-    files: Arc<[(FileSystemRef, FileListing)]>,
-    dtype: DType,
-    f: F,
-) -> VortexResult<Vec<T>>
+async fn map_lazy_files<T, F>(files: Arc<[DatasetFile]>, dtype: DType, f: F) -> VortexResult<Vec<T>>
 where
     F: Fn(&VortexFile) -> VortexResult<T> + Send + Sync + Clone,
 {
-    let first_name = files[0].1.path.clone();
+    let first_name = files[0].listing.path.clone();
     stream::iter(0..files.len())
         .map(|idx| {
             let (files, dtype, first_name, f) = (
@@ -756,8 +843,8 @@ where
                 f.clone(),
             );
             async move {
-                let (fs, listing) = &files[idx];
-                let file = open_lazy_file(fs, listing, Some(&dtype), &first_name).await?;
+                let dataset_file = &files[idx];
+                let file = open_lazy_file(dataset_file, Some(&dtype), &first_name).await?;
                 f(&file)
             }
         })
@@ -804,41 +891,69 @@ async fn collect_file_splits(source: DatasetSource) -> VortexResult<Vec<(u64, Ve
 
 /// Open the Vortex files that `sources` name as one dataset, in the order the sources name them.
 #[pyfunction]
-#[pyo3(signature = (sources, *, store = None, concurrency = None, expand = true))]
+#[pyo3(signature = (sources, *, store = None, concurrency = None, expand = true, memory_map = false))]
 pub fn dataset_from_sources(
     py: Python,
     sources: Vec<String>,
     store: Option<AnyVortexStore>,
     concurrency: Option<usize>,
     expand: bool,
+    memory_map: bool,
 ) -> PyVortexResult<PyVortexDataset> {
-    open_dataset(py, sources, store, concurrency, expand)
+    open_dataset(py, sources, store, concurrency, expand, memory_map)
 }
 
 /// Open the Vortex files that `sources` name as one dataset.
 ///
 /// Every Python entry point that reads from paths or URLs opens its files here, so all of them
-/// expand directories, prefixes and glob patterns the same way.
+/// expand directories, prefixes and glob patterns the same way. With `memory_map`, every source
+/// must be a local path.
 pub(crate) fn open_dataset(
     py: Python,
     sources: Vec<String>,
     store: Option<AnyVortexStore>,
     concurrency: Option<usize>,
     expand: bool,
+    memory_map: bool,
 ) -> PyVortexResult<PyVortexDataset> {
     let concurrency = check_concurrency(concurrency)?;
+
+    if memory_map {
+        check_local_sources(&sources, store.is_some())?;
+    }
+
     let store = store.map(AnyVortexStore::into_inner);
-    let (files, dtype) =
-        py.detach(move || current_runtime().block_on(discover_sources(sources, store, expand)))?;
+    let (files, dtype) = py.detach(move || {
+        current_runtime().block_on(discover_sources(sources, store, expand, memory_map))
+    })?;
 
     Ok(PyVortexDataset::from_lazy(files, dtype, concurrency)?)
+}
+
+/// Check that every source of a dataset that memory-maps its files is a local path.
+fn check_local_sources(sources: &[String], has_store: bool) -> PyVortexResult<()> {
+    if has_store {
+        return Err(PyValueError::new_err("memory_map=True needs local paths, not a store").into());
+    }
+
+    for source in sources {
+        if let ResolvedStore::ObjectStore(..) = resolve_store(source, None)? {
+            return Err(PyValueError::new_err(format!(
+                "memory_map=True needs local paths, not {source:?}"
+            ))
+            .into());
+        }
+    }
+
+    Ok(())
 }
 
 async fn discover_sources(
     sources: Vec<String>,
     store: Option<Arc<dyn ObjectStore>>,
     expand: bool,
-) -> VortexResult<(Vec<(FileSystemRef, FileListing)>, DType)> {
+    memory_map: bool,
+) -> VortexResult<(Vec<DatasetFile>, DType)> {
     if sources.is_empty() {
         vortex_bail!("a dataset needs at least one source");
     }
@@ -849,13 +964,17 @@ async fn discover_sources(
         if found.is_empty() {
             vortex_bail!("no Vortex files found for {source:?}");
         }
-        files.extend(found);
+        files.extend(
+            found
+                .into_iter()
+                .map(|(fs, listing)| DatasetFile::new(fs, listing, memory_map)),
+        );
     }
 
     // Open only the first file eagerly to confirm it is readable and learn the dataset's dtype;
-    // the remaining files open lazily when scanned.
-    let (first_fs, first_listing) = &files[0];
-    let first_file = open_lazy_file(first_fs, first_listing, None, &first_listing.path).await?;
+    // the remaining files open lazily when scanned. The first file keeps what its open read.
+    let first = &files[0];
+    let first_file = open_lazy_file(first, None, &first.listing.path).await?;
     let dtype = first_file.dtype().clone();
     drop(first_file);
 
