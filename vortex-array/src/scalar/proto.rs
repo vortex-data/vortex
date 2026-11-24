@@ -402,7 +402,9 @@ fn f64_from_proto(v: f64, dtype: &DType) -> VortexResult<ScalarValue> {
 fn string_from_proto(s: &str, dtype: &DType) -> VortexResult<ScalarValue> {
     match dtype {
         DType::Utf8(_) => Ok(ScalarValue::Utf8(BufferString::from(s))),
-        DType::Binary(_) => Ok(ScalarValue::Binary(ByteBuffer::copy_from(s.as_bytes()))),
+        DType::Binary(_) | DType::FixedSizeBinary(..) => {
+            Ok(ScalarValue::Binary(ByteBuffer::copy_from(s.as_bytes())))
+        }
         _ => vortex_bail!("expected Utf8 or Binary dtype for StringValue, got {dtype}"),
     }
 }
@@ -414,7 +416,9 @@ fn string_from_proto(s: &str, dtype: &DType) -> VortexResult<ScalarValue> {
 fn bytes_from_proto(bytes: &[u8], dtype: &DType) -> VortexResult<ScalarValue> {
     match dtype {
         DType::Utf8(_) => Ok(ScalarValue::Utf8(BufferString::try_from(bytes)?)),
-        DType::Binary(_) => Ok(ScalarValue::Binary(ByteBuffer::copy_from(bytes))),
+        DType::Binary(_) | DType::FixedSizeBinary(..) => {
+            Ok(ScalarValue::Binary(ByteBuffer::copy_from(bytes)))
+        }
         // TODO(connor): This is incorrect, we need to verify this matches the inner decimal_dtype.
         DType::Decimal(..) => Ok(ScalarValue::Decimal(match bytes.len() {
             1 => DecimalValue::I8(bytes[0] as i8),
