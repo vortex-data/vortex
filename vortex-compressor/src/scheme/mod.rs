@@ -104,6 +104,9 @@ impl fmt::Display for SchemeId {
 ///
 /// # Implementing a scheme
 ///
+/// A scheme implements [`encode`]. The deprecated [`compress`], which compresses the children
+/// itself, remains only for schemes written before `encode`.
+///
 /// [`expected_compression_ratio`] should return
 /// `CompressionEstimate::Deferred(DeferredEstimate::Sample)` when a cheap heuristic is not
 /// available, asking the compressor to estimate via sampling. Implementors should return an
@@ -120,6 +123,7 @@ impl fmt::Display for SchemeId {
 /// [`scheme_name`]: Scheme::scheme_name
 /// [`matches`]: Scheme::matches
 /// [`encode`]: Scheme::encode
+/// [`compress`]: Scheme::compress
 /// [`expected_compression_ratio`]: Scheme::expected_compression_ratio
 /// [`stats_options`]: Scheme::stats_options
 /// [`descendant_exclusions`]: Scheme::descendant_exclusions
@@ -233,9 +237,8 @@ pub trait Scheme: AsDynScheme + Debug + Send + Sync {
     /// leave it uncompressed, and register the encoding's own validity with
     /// [`Encoded::with_validity`].
     ///
-    /// Every scheme should implement this. The default falls back to the deprecated
-    /// [`compress`](Self::compress), which the compressor then calls instead, so that schemes
-    /// written before `encode` keep working until they migrate.
+    /// Every scheme should implement this. The default makes the compressor call the deprecated
+    /// [`compress`](Self::compress) instead, so that schemes written before `encode` keep working.
     ///
     /// # Errors
     ///
@@ -249,14 +252,15 @@ pub trait Scheme: AsDynScheme + Debug + Send + Sync {
         Ok(Encoded::uses_compress())
     }
 
-    /// Compress the array using this scheme, compressing its children itself.
+    /// Compresses the array using this scheme, compressing its children itself.
     ///
     /// The compressor calls this only for a scheme that does not implement
-    /// [`encode`](Self::encode). The default returns an error.
+    /// [`encode`](Self::encode).
     ///
     /// # Errors
     ///
-    /// Returns an error if compression fails.
+    /// Returns an error if compression fails. The default always returns an error, since the
+    /// scheme then implements neither this nor `encode`.
     #[deprecated(
         note = "implement `Scheme::encode` instead, which leaves the children to the compressor"
     )]
