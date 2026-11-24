@@ -14,6 +14,7 @@ use vortex::array::arrays::WidenArray;
 use vortex::array::arrays::decimal::DecimalArrayExt;
 use vortex::array::assert_arrays_eq;
 use vortex::array::buffer::BufferHandle;
+use vortex::array::buffer::DeviceBuffer;
 use vortex::array::validity::Validity;
 use vortex::buffer::Buffer;
 use vortex::dtype::DType;
