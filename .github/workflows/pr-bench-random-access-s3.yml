@@ -13,6 +13,8 @@ permissions:
 
 jobs:
   bench:
+    # Fork runs cannot upload the benchmark data to the private S3 bucket.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false
     uses: ./.github/workflows/pr-bench-runner.yml
     secrets: inherit
     with:
