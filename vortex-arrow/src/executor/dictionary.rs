@@ -69,16 +69,27 @@ pub(super) fn to_arrow_dictionary(
     if let Some(chunked) = array.as_opt::<Chunked>() {
         let chunks = chunked
             .iter_chunks()
-            .map(|chunk| to_arrow_dictionary(chunk.clone(), codes_type, values_field, options, ctx))
+            .map(|chunk| chunk.clone().execute_until::<ArrowDictExportable>(ctx))
             .collect::<VortexResult<Vec<_>>>()?;
-        let chunks = chunks
+        // Chunks that are not dictionaries are cheaper to encode as one array, into one dictionary.
+        if chunks
             .iter()
-            .map(|chunk| chunk.as_ref())
-            .collect::<Vec<_>>();
-        // Concatenating dictionaries merges their values without re-encoding every row. It fails
-        // only when the merged values overflow the codes type, which the row-wise path handles.
-        if let Ok(array) = arrow_select::concat::concat(&chunks) {
-            return Ok(array);
+            .all(|chunk| chunk.is::<Dict>() || chunk.is::<Constant>())
+        {
+            let chunks = chunks
+                .into_iter()
+                .map(|chunk| to_arrow_dictionary(chunk, codes_type, values_field, options, ctx))
+                .collect::<VortexResult<Vec<_>>>()?;
+            let chunks = chunks
+                .iter()
+                .map(|chunk| chunk.as_ref())
+                .collect::<Vec<_>>();
+            // Concatenating dictionaries merges their values without re-encoding every row. It
+            // fails only when the merged values overflow the codes type, which the row-wise path
+            // handles.
+            if let Ok(array) = arrow_select::concat::concat(&chunks) {
+                return Ok(array);
+            }
         }
     }
 
@@ -362,6 +373,34 @@ mod tests {
             &StringArray::from(vec!["a", "b", "c"]) as &dyn arrow_array::Array
         );
         assert_eq!(actual.keys(), &UInt8Array::from(vec![1, 0, 2, 2]));
+        Ok(())
+    }
+
+    #[test]
+    fn chunked_plain_strings_share_one_dictionary() -> VortexResult<()> {
+        let chunked = ChunkedArray::try_new(
+            vec![
+                VarBinViewArray::from_iter_str(["a", "b", "a", "b"]).into_array(),
+                VarBinViewArray::from_iter_str(["b", "a", "b", "a"]).into_array(),
+            ],
+            DType::Utf8(NonNullable),
+        )?;
+
+        let actual = execute(
+            chunked.into_array(),
+            &dict_type(DataType::UInt8, DataType::Utf8),
+        )?;
+
+        // Encoding each chunk on its own would repeat `a` and `b` in the values.
+        let actual = actual.as_dictionary::<UInt8Type>();
+        assert_eq!(
+            actual.values().as_ref(),
+            &StringArray::from(vec!["a", "b"]) as &dyn arrow_array::Array
+        );
+        assert_eq!(
+            actual.keys(),
+            &UInt8Array::from(vec![0, 1, 0, 1, 1, 0, 1, 0])
+        );
         Ok(())
     }
 
