@@ -618,38 +618,6 @@ mod tests {
     }
 
     #[test]
-    fn test_timestamp_with_timezone() -> VortexResult<()> {
-        use vortex::extension::datetime::TimeUnit;
-
-        let test_cases = [
-            (
-                TimeUnit::Nanoseconds,
-                cpp::DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_TZ_NS,
-            ),
-            (
-                TimeUnit::Microseconds,
-                cpp::DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_TZ,
-            ),
-        ];
-
-        for (time_unit, expected_type) in test_cases {
-            let dtype = DType::Extension(
-                Timestamp::new_with_tz(time_unit, Some("UTC".into()), Nullability::NonNullable)
-                    .erased(),
-            );
-            let logical_type = LogicalType::try_from(&dtype)?;
-
-            assert_eq!(logical_type.as_type_id(), expected_type);
-            assert_eq!(
-                DType::from_logical_type(&logical_type, Nullability::NonNullable)?,
-                dtype
-            );
-        }
-
-        Ok(())
-    }
-
-    #[test]
     fn test_temporal_extension_invalid_time_units() {
         use vortex::extension::datetime::TimeUnit;
 

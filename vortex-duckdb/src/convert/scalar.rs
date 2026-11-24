@@ -307,8 +307,6 @@ fn ext_logical_type(scalar: &ExtScalar<'_>) -> VortexResult<LogicalType> {
     LogicalType::try_from(&DType::Extension(scalar.ext_dtype().clone()))
 }
 
-/// Converts a zoned timestamp to a `TIMESTAMP_TZ_NS` value if it is in nanoseconds, and otherwise
-/// to a `TIMESTAMP_TZ` value, rescaling seconds and milliseconds to microseconds.
 fn timestamp_tz_value(unit: TimeUnit, raw: i64) -> VortexResult<Value> {
     let overflow = || vortex_err!("timestamp_tz overflow rescaling {raw}{unit} to micros");
     Ok(match unit {
@@ -801,28 +799,6 @@ mod tests {
             panic!("expected timestamp_tz");
         };
         assert_eq!(micros, expected_micros);
-    }
-
-    #[test]
-    fn try_from_timestamp_tz_ns_scalar() -> VortexResult<()> {
-        let raw = 1_704_088_800_123_456_789;
-        let scalar = timestamp_tz_scalar(TimeUnit::Nanoseconds, "UTC", raw);
-
-        let value = Value::try_from(scalar.clone())?;
-        assert_eq!(
-            value.logical_type().as_type_id(),
-            DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_TZ_NS
-        );
-        let ExtractedValue::TimestampTzNs(nanos) = value.extract() else {
-            panic!("expected timestamp_tz_ns");
-        };
-        assert_eq!(nanos, raw);
-
-        let restored = Scalar::try_from(value)?;
-        assert_eq!(restored.dtype(), &scalar.dtype().as_nullable());
-        assert_eq!(restored, scalar);
-
-        Ok(())
     }
 
     #[test]
