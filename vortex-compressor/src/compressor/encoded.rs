@@ -49,7 +49,7 @@ impl CascadingCompressor {
     ) -> VortexResult<ArrayRef> {
         vortex_ensure!(
             !encoded.is_uses_compress(),
-            "scheme {scheme} implements only Scheme::compress, so it has no encoding to compress"
+            "scheme {scheme} does not implement Scheme::encode, so it has no encoding to compress"
         );
         let (compress, keep, validity, ctor) = encoded.into_parts();
 
