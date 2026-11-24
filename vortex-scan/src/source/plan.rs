@@ -147,7 +147,7 @@ impl PlanChild {
 ///
 /// Scans are unordered: a request for an ordered scan is an error. Making a scan does the reads it
 /// needs to know its units of work: it prepares the child and cuts it into parts, which for a
-/// dynamic filter reads zone maps. [`split`](DataSourceScan::split) and
+/// filter reads zone maps to drop the parts they rule out. [`split`](DataSourceScan::split) and
 /// [`open`](DataSourceScan::open) read nothing. [`split`](DataSourceScan::split) returns a scan
 /// whole. [`open`](DataSourceScan::open) runs it on V2's planners and
 /// [`Run`](crate::planning::driver::Run) driver; see `plan_stream.rs`. A scan's one partition reads
