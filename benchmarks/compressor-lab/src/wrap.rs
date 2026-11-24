@@ -23,6 +23,7 @@ use vortex_compressor::scheme::CompressionEstimate;
 use vortex_compressor::scheme::CompressorContext;
 use vortex_compressor::scheme::DeferredEstimate;
 use vortex_compressor::scheme::DescendantExclusion;
+use vortex_compressor::scheme::Encoded;
 use vortex_compressor::scheme::EstimateVerdict;
 use vortex_compressor::scheme::Scheme;
 use vortex_compressor::stats::ArrayAndStats;
@@ -267,6 +268,15 @@ impl Scheme for Wrapped {
                 }
             }
         }
+    }
+
+    fn encode(
+        &self,
+        data: &ArrayAndStats,
+        compress_ctx: &CompressorContext,
+        exec_ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Encoded> {
+        self.inner.encode(data, compress_ctx, exec_ctx)
     }
 
     fn compress(
