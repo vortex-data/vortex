@@ -56,23 +56,6 @@ use vortex_array::dtype::PType;
 use vortex_array::dtype::PType::I32;
 use vortex_array::dtype::StructFields;
 use vortex_array::dtype::i256;
-use vortex_array::expr::BoundExpression;
-use vortex_array::expr::Expression;
-use vortex_array::expr::and;
-use vortex_array::expr::cast;
-use vortex_array::expr::col;
-use vortex_array::expr::eq;
-use vortex_array::expr::get_item;
-use vortex_array::expr::gt;
-use vortex_array::expr::gt_eq;
-use vortex_array::expr::lit;
-use vortex_array::expr::lt;
-use vortex_array::expr::lt_eq;
-use vortex_array::expr::or;
-use vortex_array::expr::root;
-use vortex_array::expr::select;
-use vortex_array::expr::stats::Precision;
-use vortex_array::expr::stats::Stat;
 use vortex_array::extension::datetime::TimeUnit;
 use vortex_array::extension::datetime::Timestamp;
 use vortex_array::extension::datetime::TimestampOptions;
@@ -81,9 +64,10 @@ use vortex_array::flatbuffers::WriteFlatBufferExt;
 use vortex_array::match_each_decimal_value_type;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar::ScalarValue;
-use vortex_array::scalar_fn::ScalarFnVTableExt;
 use vortex_array::scalar_fn::builtin::pack::Pack;
 use vortex_array::scalar_fn::builtin::pack::PackOptions;
+use vortex_array::stats::Precision;
+use vortex_array::stats::Stat;
 use vortex_array::stream::ArrayStreamAdapter;
 use vortex_array::stream::ArrayStreamExt;
 use vortex_array::validity::Validity;
@@ -96,16 +80,30 @@ use vortex_buffer::ByteBufferMut;
 use vortex_buffer::buffer;
 use vortex_decimal_byte_parts::DecimalByteParts;
 use vortex_decimal_byte_parts::DecimalBytePartsArraySlotsExt;
-use vortex_edition::ComponentKind;
 use vortex_edition::EDITION_DECLARATIONS;
 use vortex_edition::EditionSession;
 use vortex_edition::EditionSessionExt;
 use vortex_edition::declarations::core::CORE_2026_08_3;
 use vortex_edition::declarations::preview::PREVIEW_2026_08_0;
-use vortex_edition::declarations::unstable::UNSTABLE;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_expr::BoundExpression;
+use vortex_expr::Expression;
+use vortex_expr::ScalarFnExprExt;
+use vortex_expr::and;
+use vortex_expr::cast;
+use vortex_expr::col;
+use vortex_expr::eq;
+use vortex_expr::get_item;
+use vortex_expr::gt;
+use vortex_expr::gt_eq;
+use vortex_expr::lit;
+use vortex_expr::lt;
+use vortex_expr::lt_eq;
+use vortex_expr::or;
+use vortex_expr::root;
 use vortex_functions::expr::lower;
+use vortex_functions::expr::select;
 use vortex_io::VortexWrite;
 use vortex_io::runtime::tokio::TokioRuntime;
 use vortex_io::session::RuntimeSession;
@@ -126,7 +124,6 @@ use vortex_layout::scan::split_by::SplitBy;
 use vortex_layout::session::LayoutSession;
 use vortex_scan::strict_sorted_buffer::StrictSortedBuffer;
 use vortex_session::VortexSession;
-use vortex_session::registry::Id;
 use vortex_zigzag::ZigZag;
 
 use crate::MAX_METADATA_SEGMENTS;
@@ -144,6 +141,7 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
         .with::<RuntimeSession>();
 
     crate::register_default_encodings(&session);
+    vortex_functions::initialize(&session);
     crate::enable_all_registered_array_encodings(&session);
 
     session
@@ -273,6 +271,36 @@ async fn test_read_simple() {
     assert_arrays_eq!(result, st, &mut SESSION.create_execution_ctx());
 }
 
+#[tokio::test]
+#[cfg_attr(miri, ignore)]
+async fn test_scan_row_range_past_the_end() -> VortexResult<()> {
+    // Several chunks, so that the file uses the chunked layout.
+    const CHUNK: u32 = 100_000;
+    let chunked = ChunkedArray::from_iter(
+        (0..3).map(|i| PrimitiveArray::from_iter(i * CHUNK..(i + 1) * CHUNK).into_array()),
+    )
+    .into_array();
+    let rows: u64 = (3 * CHUNK).into();
+
+    let mut buf = ByteBufferMut::empty();
+    SESSION
+        .write_options()
+        .write(&mut buf, chunked.to_array_stream())
+        .await?;
+    let scan = SESSION.open_options().open_buffer(buf)?.scan()?.prepare()?;
+
+    for range in [rows - 5..rows + 100, rows + 5..rows + 9, 0..rows + 1] {
+        assert!(scan.execute_array_stream(Some(range)).is_err());
+    }
+
+    let tail = scan
+        .execute_array_stream(Some(rows - 5..rows))?
+        .read_all()
+        .await?;
+    assert_eq!(tail.len(), 5);
+    Ok(())
+}
+
 #[rstest]
 #[case::non_nullable(Validity::NonNullable)]
 #[case::partially_valid(Validity::from_iter([true, false, true, true, false]))]
@@ -397,10 +425,7 @@ async fn decimal_writer_uses_default_or_session_restrictions(
     }
     .build();
 
-    for (disable_editions, unstable) in [(false, false), (true, false), (false, true)] {
-        if unstable {
-            session.enable_edition(UNSTABLE)?;
-        }
+    for disable_editions in [false, true] {
         let mut options = session.write_options();
         if custom_strategy {
             options = options.with_strategy(Arc::clone(&strategy));
@@ -426,11 +451,7 @@ async fn decimal_writer_uses_default_or_session_restrictions(
                 .as_opt::<DecimalByteParts>()
                 .is_some_and(|parts| !parts.lower_parts().is_empty())
         });
-        let v2_permitted = disable_editions
-            || session
-                .enabled_component_ids(ComponentKind::Array)
-                .contains(&Id::from("vortex.decimal_byte_parts.v2"));
-        assert_eq!(uses_v2, v2_permitted && !custom_strategy);
+        assert_eq!(uses_v2, disable_editions && !custom_strategy);
         assert_arrays_eq!(array, actual, &mut session.create_execution_ctx());
     }
     Ok(())
@@ -1658,6 +1679,66 @@ async fn file_excluding_dtype() -> VortexResult<()> {
         .open_buffer(buffer)?;
     assert_eq!(vxf.dtype(), &dtype);
     assert_eq!(vxf.row_count(), 9);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn open_with_unknown_field_dtype_tag_drops_file_statistics() -> VortexResult<()> {
+    use vortex_array::dtype::flatbuffers as dtype_fb;
+    use vortex_array::flatbuffers::FlatBuffer;
+
+    let array = StructArray::from_fields(&[("a", buffer![1i32, 2, 3].into_array())])?.into_array();
+
+    let mut writer = vec![];
+    SESSION
+        .write_options()
+        .exclude_dtype()
+        .write(&mut writer, array.to_array_stream())
+        .await?;
+    let buffer: Bytes = writer.into();
+
+    let vxf = SESSION
+        .open_options()
+        .with_dtype(array.dtype().clone())
+        .open_buffer(buffer.clone())?;
+    assert!(vxf.file_stats().is_some());
+
+    let mut fbb = FlatBufferBuilder::new();
+    let name_a = fbb.create_string("a");
+    let names = fbb.create_vector(&[name_a]);
+    let unknown_type = dtype_fb::Null::create(&mut fbb, &dtype_fb::NullArgs {});
+    let unknown = dtype_fb::DType::create(
+        &mut fbb,
+        &dtype_fb::DTypeArgs {
+            type_type: dtype_fb::Type(200),
+            type_: Some(unknown_type.as_union_value()),
+        },
+    );
+    let dtypes = fbb.create_vector(&[unknown]);
+    let struct_table = dtype_fb::Struct_::create(
+        &mut fbb,
+        &dtype_fb::Struct_Args {
+            names: Some(names),
+            dtypes: Some(dtypes),
+            nullable: false,
+        },
+    );
+    let root = dtype_fb::DType::create(
+        &mut fbb,
+        &dtype_fb::DTypeArgs {
+            type_type: dtype_fb::Type::Struct_,
+            type_: Some(struct_table.as_union_value()),
+        },
+    );
+    fbb.finish_minimal(root);
+    let dtype = DType::from_flatbuffer(FlatBuffer::copy_from(fbb.finished_data()), &SESSION)?;
+
+    let vxf = SESSION
+        .open_options()
+        .with_dtype(dtype)
+        .open_buffer(buffer)?;
+    assert!(vxf.file_stats().is_none());
 
     Ok(())
 }

@@ -17,27 +17,26 @@ use vortex_array::dtype::Nullability;
 use vortex_array::dtype::RESERVED_VALIDITY_FIELD_NAME;
 use vortex_array::dtype::StructFields;
 use vortex_array::expr::BoundExpression;
-use vortex_array::expr::bound::get_item;
-use vortex_array::expr::bound::is_not_null;
-use vortex_array::expr::bound::mask;
-use vortex_array::expr::bound::not;
-use vortex_array::expr::bound::pack;
-use vortex_array::expr::traversal::NodeExt;
-use vortex_array::expr::traversal::Transformed;
-use vortex_array::expr::traversal::TraversalOrder;
-use vortex_array::scalar_fn::builtin::binary::Binary;
+use vortex_array::scalar_fn::builtin::boolean::Boolean;
 use vortex_array::scalar_fn::builtin::get_item::GetItem;
 use vortex_array::scalar_fn::builtin::is_not_null::IsNotNull;
-use vortex_array::scalar_fn::builtin::is_null::IsNull;
 use vortex_array::scalar_fn::builtin::mask::Mask as MaskFn;
-use vortex_array::scalar_fn::builtin::operators::Operator;
-use vortex_array::scalar_fn::builtin::select::Select;
+use vortex_array::scalar_fn::builtin::operators::BooleanOperator;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use vortex_expr::analysis::AnnotationFn;
-use vortex_expr::make_bound_free_field_annotator;
+use vortex_expr::bound::get_item;
+use vortex_expr::bound::is_not_null;
+use vortex_expr::bound::mask;
+use vortex_expr::bound::not;
+use vortex_expr::bound::pack;
 use vortex_expr::transform::partition_bound;
+use vortex_expr::traversal::NodeExt;
+use vortex_expr::traversal::Transformed;
+use vortex_expr::traversal::TraversalOrder;
+use vortex_functions::is_null::IsNull;
+use vortex_functions::select::Select;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
 use vortex_utils::aliases::hash_map::HashMap;
@@ -49,6 +48,7 @@ use crate::LayoutReaderRef;
 use crate::LazyReaderChildren;
 use crate::RowSplits;
 use crate::SplitRange;
+use crate::analysis::make_bound_free_field_annotator;
 use crate::expr_cache::WeakExprCache;
 use crate::layouts::partitioned::PartitionedEval;
 use crate::layouts::struct_::StructLayout;
@@ -499,17 +499,19 @@ impl LayoutReader for StructReader {
         }
 
         // Repeated boundary sets cannot change which positions every child shares. Keep their
-        // inherited soft marks even when their positions match the previous child.
+        // inherited soft and pinned marks even when their positions match the previous child.
         let mut children = 0;
         let mut previous_len = 0;
         let mut all = Vec::new();
         let mut soft = Vec::new();
+        let mut pinned = Vec::new();
         let mut add = |child: RowSplits| {
-            let (boundaries, child_soft) = child.into_sorted_deduped_with_soft();
+            let (boundaries, child_soft, child_pinned) = child.into_sorted_deduped_with_marks();
             if boundaries.is_empty() {
                 return;
             }
             soft.extend(child_soft);
+            pinned.extend(child_pinned);
             if children > 0 && all[all.len() - previous_len..] == boundaries[..] {
                 return;
             }
@@ -542,8 +544,10 @@ impl LayoutReader for StructReader {
         }
         soft.sort_unstable();
         soft.dedup();
+
         splits.extend_ascending(all);
         splits.mark_soft(soft);
+        splits.mark_pinned(pinned);
 
         // Append the struct's end even when its children contributed no boundaries, keeping the
         // collected positions in one ascending run.
@@ -574,8 +578,8 @@ impl LayoutReader for StructReader {
                 // Only split after single-field delegation so field readers see whole predicates.
                 // AND/OR compose conservative "may match" masks, even for nullable predicates;
                 // other multi-field operators cannot generally combine these masks (e.g. NOT).
-                let Some(operator @ (Operator::And | Operator::Or)) =
-                    expr.as_opt::<Binary>().copied()
+                let Some(operator @ (BooleanOperator::And | BooleanOperator::Or)) =
+                    expr.as_opt::<Boolean>().copied()
                 else {
                     return Ok(MaskFuture::ready(mask));
                 };
@@ -583,7 +587,7 @@ impl LayoutReader for StructReader {
                 let rhs = self.pruning_evaluation(row_range, &expr.children()[1], mask.clone())?;
                 Ok(MaskFuture::new(mask.len(), async move {
                     let (lhs, rhs) = try_join!(lhs, rhs)?;
-                    let combined = if operator == Operator::And {
+                    let combined = if operator == BooleanOperator::And {
                         &lhs & &rhs
                     } else {
                         &lhs | &rhs
@@ -686,6 +690,7 @@ mod tests {
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::ChunkedArray;
+    use vortex_array::arrays::ListArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::StructArray;
     use vortex_array::arrays::struct_::StructArrayExt;
@@ -699,28 +704,28 @@ mod tests {
     use vortex_array::dtype::PType;
     use vortex_array::dtype::RESERVED_VALIDITY_FIELD_NAME;
     use vortex_array::dtype::StructFields;
-    use vortex_array::expr::Expression;
-    use vortex_array::expr::and;
-    use vortex_array::expr::col;
-    use vortex_array::expr::eq;
-    use vortex_array::expr::get_item;
-    use vortex_array::expr::gt;
-    use vortex_array::expr::is_not_null;
-    use vortex_array::expr::is_null;
-    use vortex_array::expr::lit;
-    use vortex_array::expr::lt;
-    use vortex_array::expr::mask;
-    use vortex_array::expr::not;
-    use vortex_array::expr::or;
-    use vortex_array::expr::pack;
-    use vortex_array::expr::root;
-    use vortex_array::expr::select;
-    use vortex_array::expr::select_exclude;
     use vortex_array::scalar::Scalar;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
     use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
+    use vortex_expr::Expression;
+    use vortex_expr::and;
+    use vortex_expr::col;
+    use vortex_expr::eq;
+    use vortex_expr::get_item;
+    use vortex_expr::gt;
+    use vortex_expr::is_not_null;
+    use vortex_expr::lit;
+    use vortex_expr::lt;
+    use vortex_expr::mask;
+    use vortex_expr::not;
+    use vortex_expr::or;
+    use vortex_expr::pack;
+    use vortex_expr::root;
+    use vortex_functions::expr::is_null;
+    use vortex_functions::expr::select;
+    use vortex_functions::expr::select_exclude;
     use vortex_io::runtime::single::block_on;
     use vortex_io::session::RuntimeSessionExt;
     use vortex_mask::Mask;
@@ -738,6 +743,7 @@ mod tests {
     use crate::layouts::chunked::writer::ChunkedLayoutStrategy;
     use crate::layouts::flat::FlatLayout;
     use crate::layouts::flat::writer::FlatLayoutStrategy;
+    use crate::layouts::list::writer::ListLayoutStrategy;
     use crate::layouts::repartition::RepartitionStrategy;
     use crate::layouts::repartition::RepartitionWriterOptions;
     use crate::layouts::struct_::StructLayout;
@@ -901,6 +907,82 @@ mod tests {
                 .await
         })?;
         Ok((segments, layout))
+    }
+
+    /// A struct of 6,400 rows: field `a` is chunked every 150 rows, and field `l` is a list layout
+    /// with four elements per row, chunked every four elements. The list reader maps them to its
+    /// grid of 64 cells, one every 100 rows.
+    fn struct_with_list_layout() -> VortexResult<(Arc<dyn SegmentSource>, LayoutRef)> {
+        let rows = 6_400u32;
+        let mut ctx = SESSION.create_execution_ctx();
+        let list = ListArray::try_new(
+            PrimitiveArray::from_iter(0..rows * 4).into_array(),
+            PrimitiveArray::from_iter((0..=rows).map(|row| row * 4)).into_array(),
+            Validity::NonNullable,
+            &mut ctx,
+        )?
+        .into_array();
+        let array = StructArray::try_from_iter([
+            ("a", PrimitiveArray::from_iter(0..rows).into_array()),
+            ("l", list),
+        ])?
+        .into_array();
+
+        let segments = Arc::new(TestSegments::default());
+        let (ptr, eof) = SequenceId::root().split();
+        let strategy = TableStrategy::new(
+            Arc::new(FlatLayoutStrategy::default()),
+            Arc::new(FlatLayoutStrategy::default()),
+        )
+        .with_field_writer(FieldPath::from_name("a"), chunked_every(150))
+        .with_field_writer(
+            FieldPath::from_name("l"),
+            Arc::new(ListLayoutStrategy::default().with_elements(chunked_every(4))),
+        );
+
+        let segments2 = Arc::<TestSegments>::clone(&segments);
+        let layout = block_on(|handle| async move {
+            let session = new_session().with_handle(handle);
+            strategy
+                .write_stream(
+                    ArrayContext::empty().into(),
+                    segments2,
+                    array.to_array_stream().sequenced(ptr),
+                    eof,
+                    &session,
+                )
+                .await
+        })?;
+        Ok((segments, layout))
+    }
+
+    #[test]
+    fn list_grid_boundaries_survive_sub_splitting() -> VortexResult<()> {
+        let (segments, layout) = struct_with_list_layout()?;
+        let grid = (0..=64).map(|cell| cell * 100).collect::<Vec<u64>>();
+
+        let a_chunk_ends = (1..43).map(|chunk| chunk * 150).collect::<Vec<u64>>();
+        let mut expected = grid.clone();
+        expected.extend(&a_chunk_ends);
+        expected.sort_unstable();
+        expected.dedup();
+
+        // Only the list has the grid boundaries, but they are pinned, not soft. The chunk ends of
+        // `a` that are not on the grid are soft.
+        let (boundaries, soft) = boundaries_and_soft(Arc::clone(&segments), &layout)?;
+        assert_eq!(boundaries, expected);
+
+        let off_grid = a_chunk_ends
+            .into_iter()
+            .filter(|row| row % 100 != 0)
+            .collect::<Vec<u64>>();
+        assert_eq!(soft, off_grid);
+
+        // The scan merges the soft slivers away and keeps the grid.
+        let reader = layout.new_reader("".into(), segments, &SESSION, &Default::default())?;
+        let splits = SplitBy::default().splits(reader.as_ref(), &(0..6_400), &[FieldMask::All])?;
+        assert_eq!(splits, grid);
+        Ok(())
     }
 
     /// Registers `layout`'s boundaries over its rows, as a scan does.

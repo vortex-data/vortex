@@ -13,7 +13,7 @@ use crate::arrays::listview::ListViewArraySlotsExt;
 /// Check if a list view array is constant by comparing each list's elements.
 ///
 /// A list view array is constant if all lists have the same size and the same elements.
-/// Uses `binary(Operator::Eq)` for element-wise value comparison with null-safe equality.
+/// Uses `compare(CompareOperator::Eq)` for element-wise value comparison with null-safe equality.
 pub(super) fn check_listview_constant(
     l: &ListViewArray,
     ctx: &mut ExecutionCtx,

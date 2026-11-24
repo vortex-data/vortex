@@ -2,9 +2,11 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::future::Future;
+use std::pin::pin;
 use std::sync::Arc;
 
 use async_channel::TryRecvError;
+use futures::FutureExt;
 use futures::SinkExt;
 use futures::Stream;
 use futures::StreamExt;
@@ -136,7 +138,7 @@ impl BlockingRuntime for CurrentThreadRuntime {
     where
         Fut: Future<Output = R>,
     {
-        block_on(self.executor.run(fut))
+        drive(&self.executor, fut)
     }
 
     fn block_on_stream<'a, S, R>(&self, stream: S) -> Self::BlockingIterator<'a, R>
@@ -151,6 +153,15 @@ impl BlockingRuntime for CurrentThreadRuntime {
     }
 }
 
+/// Drives `fut` to completion on the calling thread.
+fn drive<Fut: Future>(executor: &SmolExecutor, fut: Fut) -> Fut::Output {
+    let mut fut = pin!(fut);
+    if let Some(output) = fut.as_mut().now_or_never() {
+        return output;
+    }
+    block_on(executor.run(fut))
+}
+
 /// An iterator that wraps up a stream to drive it using the current thread execution.
 pub struct CurrentThreadIterator<'a, T> {
     executor: Arc<SmolExecutor>,
@@ -161,7 +172,7 @@ impl<T> Iterator for CurrentThreadIterator<'_, T> {
     type Item = T;
 
     fn next(&mut self) -> Option<Self::Item> {
-        block_on(self.executor.run(self.stream.next()))
+        drive(&self.executor, self.stream.next())
     }
 }
 
@@ -258,6 +269,16 @@ mod tests {
     use parking_lot::Mutex;
 
     use super::*;
+
+    #[test]
+    fn block_on_runs_tasks_for_a_future_that_is_not_ready() {
+        let runtime = CurrentThreadRuntime::new();
+        assert_eq!(runtime.block_on(async { 7 }), 7);
+        // The spawned task has not run when the future is first polled, so it is ready only once
+        // block_on enters the executor, which runs the task.
+        let task = runtime.handle().spawn(async { 11 });
+        assert_eq!(runtime.block_on(task), 11);
+    }
 
     #[test]
     fn test_worker_thread() {

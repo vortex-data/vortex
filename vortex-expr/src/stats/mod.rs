@@ -17,6 +17,8 @@ pub use expr::sum;
 pub use session::*;
 
 pub mod bind;
+pub mod derive;
 pub mod expr;
 pub mod rewrite;
 pub mod session;
+pub mod stat_fn;

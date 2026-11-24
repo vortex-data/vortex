@@ -11,7 +11,7 @@ Guidance for Claude, Codex and other coding agents working in the Vortex reposit
 ## Overview
 
 Vortex is a Rust monorepo for columnar array processing, compression encodings, and file IO.
-The workspace also contains Java bindings in `java/`, Python bindings in `vortex-python/`,
+The workspace also contains Java bindings in `lang/java/`, Python bindings in `vortex-python/`,
 documentation in `docs/`, and benchmark tooling in `vortex-bench/` and `benchmarks/`.
 
 ## Repository Layout
@@ -22,6 +22,8 @@ documentation in `docs/`, and benchmark tooling in `vortex-bench/` and `benchmar
 - `vortex-array` contains the core `Array` trait and the base encodings, including most
   Apache Arrow-style encodings.
 - `encodings/*` contains more specialized compressed encodings.
+- `vortex-expr` contains expression trees, their optimizer, and the analyses and rewrites built on
+  them. `vortex-functions` contains the scalar functions that `vortex-array` itself is not built on.
 - `vortex-file` implements file IO. It uses `LayoutReader` from `vortex-layout`.
 - `vortex-io` holds the core async and blocking IO traits, plus the generic `object_store`
   adapters that implement them.
@@ -108,8 +110,9 @@ uvx ty check vortex-python vortex-python-cuda vortex-ffi/cmake/tests scripts/tes
 ```
 
 Use `uvx` for both Ruff and ty, matching CI. CI pins ty as `TY_VERSION` in
-`.github/workflows/ci.yml` and `.github/workflows/cuda.yaml`. To match CI, run
-`uvx ty@<TY_VERSION> check ...`, and update both workflows when you change the version. The
+`.github/workflows/ci.yml`, `.github/workflows/cuda.yaml` and `.github/workflows/release-checks.yml`.
+To match CI, run `uvx ty@<TY_VERSION> check ...`, and update all three workflows when you change
+the version. The
 command above covers both binding packages and the CMake and script tests. For a narrower check, pass the affected directory, such as
 `uvx ty check vortex-python` or `uvx ty check vortex-ffi/cmake/tests`. Checking the whole binding
 package covers callers affected by stub or annotation changes.

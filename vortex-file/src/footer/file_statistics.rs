@@ -34,6 +34,7 @@ use vortex_error::vortex_err;
 use vortex_layout::layouts::file_stats::AggregateStat;
 use vortex_layout::layouts::file_stats::AggregateStats;
 use vortex_layout::layouts::file_stats::postorder_stats_layout;
+use vortex_layout::layouts::file_stats::try_postorder_stats_layout;
 use vortex_session::VortexSession;
 use vortex_utils::aliases::hash_map::HashMap;
 
@@ -217,7 +218,7 @@ impl FileStatistics {
                         .collect()
                 })
                 .try_collect()?;
-            let layout = postorder_stats_layout(file_dtype);
+            let layout = try_postorder_stats_layout(file_dtype)?;
             vortex_ensure_eq!(entry_sets.len(), layout.len());
 
             let mut partials =
@@ -261,15 +262,15 @@ impl FileStatistics {
         if let DType::Struct(struct_fields, _) = file_dtype {
             vortex_ensure_eq!(array_stats.len(), struct_fields.nfields());
 
+            let dtypes: Arc<[DType]> = struct_fields.try_fields()?.collect();
             let aggregates: Arc<[AggregateStats]> = array_stats
                 .into_iter()
-                .zip(struct_fields.fields())
+                .zip(dtypes.iter())
                 .map(|(array_stat, field_dtype)| {
-                    aggregates_from_array_stats(&array_stat, &field_dtype, session)
+                    aggregates_from_array_stats(&array_stat, field_dtype, session)
                 })
                 .try_collect()?;
 
-            let dtypes = struct_fields.fields().collect();
             let paths = struct_fields
                 .names()
                 .iter()
@@ -612,10 +613,10 @@ mod tests {
     use vortex_array::dtype::FieldPath;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
-    use vortex_array::expr::stats::Precision;
-    use vortex_array::expr::stats::Stat;
     use vortex_array::flatbuffers::WriteFlatBufferExt;
     use vortex_array::scalar::ScalarValue;
+    use vortex_array::stats::Precision;
+    use vortex_array::stats::Stat;
 
     use super::*;
 

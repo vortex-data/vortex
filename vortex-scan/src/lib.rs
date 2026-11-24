@@ -22,6 +22,7 @@
 //! * We should add a way for the client to negotiate capabilities with the data source, for
 //!   example which encodings it knows about.
 
+pub mod analysis;
 pub mod arrays;
 pub mod execution;
 pub mod plan;
@@ -45,16 +46,16 @@ use selection::Selection;
 use vortex_array::aggregate_fn::AggregateFnRef;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldPath;
-use vortex_array::expr::Expression;
-use vortex_array::expr::root;
-use vortex_array::expr::stats::Precision;
 use vortex_array::scalar::Scalar;
+use vortex_array::stats::Precision;
 use vortex_array::stats::StatsSet;
 use vortex_array::stream::ArrayStream;
 use vortex_array::stream::ArrayStreamAdapter;
 use vortex_array::stream::SendableArrayStream;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_expr::Expression;
+use vortex_expr::root;
 use vortex_session::VortexSession;
 
 /// A sendable stream of partitions.
@@ -161,7 +162,7 @@ pub struct ScanRequest {
     /// Filter expression, `None` implies no filter.
     pub filter: Option<Expression>,
     /// The per-partition row range to read. Row range will be applied
-    /// over every partition you scan.
+    /// over every partition you scan. A range that starts after it ends selects no rows.
     pub row_range: Option<Range<u64>>,
     /// The per-partition row selection to read. Row selection will be applied
     /// over every partition you scan.

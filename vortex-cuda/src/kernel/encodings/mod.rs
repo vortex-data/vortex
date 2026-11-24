@@ -6,6 +6,7 @@
 //! Executors decode children through the CUDA execution context and return canonical arrays.
 
 mod alp;
+mod alp_rd;
 mod bitpacked;
 mod date_time_parts;
 mod decimal_byte_parts;
@@ -21,6 +22,7 @@ mod zstd;
 mod zstd_buffers;
 
 pub(crate) use alp::ALPExecutor;
+pub(crate) use alp_rd::ALPRDExecutor;
 pub(crate) use bitpacked::BitPackedExecutor;
 pub(crate) use bitpacked::bitpacked_slice_view;
 pub(crate) use date_time_parts::DateTimePartsExecutor;

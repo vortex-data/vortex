@@ -9,9 +9,9 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::dict::TakeExecute;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::Nullability;
-use vortex_array::expr::stats::Stat;
-use vortex_array::expr::stats::StatsProvider;
 use vortex_array::scalar::Scalar;
+use vortex_array::stats::Stat;
+use vortex_array::stats::StatsProvider;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 

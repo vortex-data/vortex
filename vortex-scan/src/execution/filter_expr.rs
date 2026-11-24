@@ -11,8 +11,8 @@ use parking_lot::Mutex;
 use parking_lot::RwLock;
 use sketches_ddsketch::DDSketch;
 use vortex_array::expr::BoundExpression;
-use vortex_array::scalar_fn::builtin::binary::Binary;
-use vortex_array::scalar_fn::builtin::operators::Operator;
+use vortex_array::scalar_fn::builtin::boolean::Boolean;
+use vortex_array::scalar_fn::builtin::operators::BooleanOperator;
 use vortex_error::VortexExpect;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
@@ -54,8 +54,8 @@ fn bound_conjuncts(expr: &BoundExpression) -> Vec<BoundExpression> {
     while let Some(expr) = pending.pop() {
         if expr
             .as_scalar()
-            .and_then(|scalar_fn| scalar_fn.as_opt::<Binary>())
-            .is_some_and(|operator| *operator == Operator::And)
+            .and_then(|scalar_fn| scalar_fn.as_opt::<Boolean>())
+            .is_some_and(|operator| *operator == BooleanOperator::And)
         {
             pending.extend(expr.children().iter().rev());
         } else {
@@ -237,11 +237,11 @@ impl FilterExpr {
 mod tests {
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
-    use vortex_array::expr::and;
-    use vortex_array::expr::lit;
-    use vortex_array::expr::not;
-    use vortex_array::expr::root;
     use vortex_error::VortexResult;
+    use vortex_expr::and;
+    use vortex_expr::lit;
+    use vortex_expr::not;
+    use vortex_expr::root;
 
     use super::FilterExpr;
     use super::UNSELECTIVE_DYNAMIC_SPLITS;

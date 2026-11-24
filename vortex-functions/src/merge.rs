@@ -267,13 +267,14 @@ mod tests {
     use vortex_array::dtype::PType::I64;
     use vortex_array::dtype::PType::U32;
     use vortex_array::dtype::PType::U64;
-    use vortex_array::expr::Expression;
-    use vortex_array::expr::get_item;
-    use vortex_array::expr::root;
     use vortex_array::scalar_fn::builtin::pack::Pack;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
     use vortex_error::vortex_bail;
+    use vortex_expr::ArrayExprExt;
+    use vortex_expr::Expression;
+    use vortex_expr::get_item;
+    use vortex_expr::root;
     use vortex_session::VortexSession;
 
     use crate::expr::merge;
