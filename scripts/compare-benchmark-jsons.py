@@ -1252,7 +1252,7 @@ def format_target_summary_table(
 
     headers = ["target"]
     for run in ("hot", "cold") if show_cold else ("hot",):
-        headers += [run, f"{run} 🟢", f"{run} 🔴"]
+        headers += [run, f"{run} ↑", f"{run} ↓"]
     if show_attribution:
         headers.append("vs parquet")
 
@@ -1297,7 +1297,7 @@ def format_report_help() -> str:
             "",
             "- **Target table**: One row per target, in the same order as the query table "
             "columns. `hot` and `cold` are the geomean "
-            "of PR ÷ develop over the queries, marked like the query cells, and the 🟢 and 🔴 "
+            "of PR ÷ develop over the queries, marked like the query cells, and the ↑ and ↓ "
             "columns count the queries that cleared this suite's threshold faster or slower.",
             "- **vs parquet**: The change after the drift of the Parquet control on the same "
             "engine is removed. It is marked 🟢 or 🔴 only when it is above the noise floor, and it shows "

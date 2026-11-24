@@ -19,7 +19,7 @@ RANDOM_ACCESS_SPLIT_SCRIPT = REPO_ROOT / "scripts" / "random-access-split.py"
 FETCH_BASELINE_SCRIPT = REPO_ROOT / "scripts" / "fetch-benchmark-baseline.py"
 
 # The summary table header of a suite that records cold runs and has Parquet controls.
-SUMMARY_HEADERS_WITH_COLD = ["target", "hot", "hot 🟢", "hot 🔴", "cold", "cold 🟢", "cold 🔴", "vs parquet"]
+SUMMARY_HEADERS_WITH_COLD = ["target", "hot", "hot ↑", "hot ↓", "cold", "cold ↑", "cold ↓", "vs parquet"]
 
 
 def load_module(name: str, path: Path) -> ModuleType:
@@ -985,7 +985,7 @@ def test_summary_reports_hot_alone_when_no_row_recorded_its_runs(tmp_path: Path)
 
     report = render_report(tmp_path, base_rows, pr_rows, "Random Access")
 
-    assert markdown_row(report, "target") == ["target", "hot", "hot 🟢", "hot 🔴", "vs parquet"]
+    assert markdown_row(report, "target") == ["target", "hot", "hot ↑", "hot ↓", "vs parquet"]
     assert markdown_row(report, "random-access:vortex")[1:4] == ["🟢 **0.50**", "1", "0"]
     parquet = markdown_row(report, "random-access:parquet")
     assert (parquet[1], parquet[4]) == ("1.00", "control")
