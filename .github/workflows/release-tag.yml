@@ -26,6 +26,7 @@ on:
     types: [opened, reopened, synchronize, ready_for_review]
     paths:
       - .github/workflows/release-tag.yml
+      - .github/workflows/release-checks.yml
       - .github/release-drafter.yml
 
 concurrency:
@@ -66,11 +67,21 @@ jobs:
           }
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
 
-  # Release checks go here as jobs that need `prepare`, check out
-  # `needs.prepare.outputs.sha`, and are listed in the `needs` of `tag`.
+  # The checks that run before a release instead of on every pull request. Add a check to
+  # release-checks.yml, or add another job here that checks out `needs.prepare.outputs.sha`
+  # and list it in the `needs` of `tag`.
+  checks:
+    needs: [prepare]
+    uses: ./.github/workflows/release-checks.yml
+    with:
+      ref: ${{ needs.prepare.outputs.sha }}
+    secrets: inherit
+    permissions:
+      actions: read
+      contents: read
 
   tag:
-    needs: [prepare]
+    needs: [prepare, checks]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
