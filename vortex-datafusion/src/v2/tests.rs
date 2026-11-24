@@ -30,15 +30,20 @@ use datafusion_common::tree_node::TreeNode;
 use datafusion_common::tree_node::TreeNodeRecursion;
 use datafusion_datasource::source::DataSource;
 use datafusion_datasource::source::DataSourceExec;
+use datafusion_expr::Expr;
 use datafusion_expr::Operator;
 use datafusion_expr::ScalarUDF;
+use datafusion_expr::col;
+use datafusion_functions::core::expr_ext::FieldAccessor;
 use datafusion_functions::core::get_field;
 use datafusion_functions::core::getfield::GetFieldFunc;
+use datafusion_functions::string::expr_fn::upper;
 use datafusion_functions::string::upper::UpperFunc;
 use datafusion_physical_expr::PhysicalExpr;
 use datafusion_physical_expr::PhysicalExprRef;
 use datafusion_physical_expr::ScalarFunctionExpr;
 use datafusion_physical_expr::expressions::DynamicFilterPhysicalExpr;
+use datafusion_physical_expr::planner::logical2physical;
 use datafusion_physical_expr::projection::ProjectionExpr;
 use datafusion_physical_expr::projection::ProjectionExprs;
 use datafusion_physical_plan::ExecutionPlan;
@@ -284,6 +289,113 @@ async fn test_partial_projection_reads_struct_leaf(
     for batch in batches {
         assert_eq!(batch.schema().field(2).metadata(), label_field.metadata());
     }
+
+    Ok(())
+}
+
+/// Swap a projection into a scan of `s` and `t`, two non-nullable structs that share the field name
+/// `a`, and return the plan display and the projected batches.
+async fn swap_struct_projection(
+    projection: &[(Expr, &str)],
+) -> anyhow::Result<(String, Vec<RecordBatch>)> {
+    let strings = |values: [&str; 2]| Arc::new(StringArray::from(values.to_vec())) as ArrayRef;
+    let s = StructArray::try_new(
+        vec![
+            Field::new("a", DataType::Utf8, false),
+            Field::new("b", DataType::Utf8, false),
+        ]
+        .into(),
+        vec![strings(["sa1", "sa2"]), strings(["sb1", "sb2"])],
+        None,
+    )?;
+    let t = StructArray::try_new(
+        vec![
+            Field::new("a", DataType::Utf8, false),
+            Field::new("x", DataType::Utf8, false),
+        ]
+        .into(),
+        vec![strings(["ta1", "ta2"]), strings(["tx1", "tx2"])],
+        None,
+    )?;
+    let schema = Arc::new(Schema::new(vec![
+        Field::new("s", s.data_type().clone(), false),
+        Field::new("t", t.data_type().clone(), false),
+    ]));
+    let batch = RecordBatch::try_new(Arc::clone(&schema), vec![Arc::new(s), Arc::new(t)])?;
+    let source = vortex_source_from_batch(batch).await?;
+
+    let projection = ProjectionExprs::from(
+        projection
+            .iter()
+            .map(|(expr, alias)| ProjectionExpr::new(logical2physical(expr, &schema), *alias))
+            .collect::<Vec<_>>(),
+    );
+    let projected = source
+        .try_swapping_with_projection(&projection)?
+        .ok_or_else(|| anyhow!("projection was not swapped"))?;
+    let plan = Arc::new(DataSourceExec::new(projected)) as Arc<dyn ExecutionPlan>;
+    let display = displayable(plan.as_ref()).one_line().to_string();
+    let batches = datafusion_physical_plan::collect(plan, SessionContext::new().task_ctx()).await?;
+
+    Ok((display, batches))
+}
+
+/// The scan reads `s` whole for the `s` output, so reading `s.a` again would read it twice.
+#[tokio::test]
+async fn test_partial_projection_keeps_leaf_of_scanned_struct() -> anyhow::Result<()> {
+    let (display, batches) = swap_struct_projection(&[
+        (col("s"), "s"),
+        (upper(col("s").field("a")), "upper_s_a"),
+        (upper(col("t").field("x")), "upper_t_x"),
+    ])
+    .await?;
+
+    assert!(
+        display.contains("projection=pack(s: $.s, x: $.t.x)"),
+        "{display}"
+    );
+    assert_batches_eq!(
+        [
+            "+------------------+-----------+-----------+",
+            "| s                | upper_s_a | upper_t_x |",
+            "+------------------+-----------+-----------+",
+            "| {a: sa1, b: sb1} | SA1       | TX1       |",
+            "| {a: sa2, b: sb2} | SA2       | TX2       |",
+            "+------------------+-----------+-----------+",
+        ],
+        &batches
+    );
+
+    Ok(())
+}
+
+/// `s.a` claims the scan column name `a` first, so `t.a` stays in DataFusion and the scan reads `t`
+/// whole. The `t.x` read, which the rewrite substituted before it reached `t.a`, must then stay in
+/// DataFusion as well.
+#[tokio::test]
+async fn test_partial_projection_keeps_leaves_after_name_collision() -> anyhow::Result<()> {
+    let (display, batches) = swap_struct_projection(&[
+        (upper(col("t").field("x")), "upper_t_x"),
+        (upper(col("s").field("a")), "upper_s_a"),
+        (upper(col("t").field("a")), "upper_t_a"),
+    ])
+    .await?;
+
+    assert!(
+        display.contains("projection=pack(t: $.t, a: $.s.a)"),
+        "{display}"
+    );
+    assert_batches_eq!(
+        [
+            "+-----------+-----------+-----------+",
+            "| upper_t_x | upper_s_a | upper_t_a |",
+            "+-----------+-----------+-----------+",
+            "| TX1       | SA1       | TA1       |",
+            "| TX2       | SA2       | TA2       |",
+            "+-----------+-----------+-----------+",
+        ],
+        &batches
+    );
 
     Ok(())
 }
