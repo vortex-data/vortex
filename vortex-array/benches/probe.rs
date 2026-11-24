@@ -20,20 +20,28 @@ use vortex_array::arrays::FixedSizeListArray;
 use vortex_array::arrays::InterleaveArray;
 use vortex_array::arrays::ListArray;
 use vortex_array::arrays::ListViewArray;
+use vortex_array::arrays::MapArray;
 use vortex_array::arrays::Patched;
 use vortex_array::arrays::PiecewiseSequenceArray;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::ScalarFnArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::VarBinArray;
+use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::patched::PatchedArraySlotsExt;
 use vortex_array::arrays::patched::PatchedSlots;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldNames;
+use vortex_array::dtype::MapDType;
 use vortex_array::dtype::Nullability;
+use vortex_array::dtype::PType;
 use vortex_array::optimizer::ArrayOptimizer;
 use vortex_array::optimizer::kernels::KernelSession;
 use vortex_array::patches::Patches;
+use vortex_array::scalar::NumericOperator;
+use vortex_array::scalar_fn::TypedScalarFnInstance;
 use vortex_array::scalar_fn::builtin::boolean::Boolean;
+use vortex_array::scalar_fn::builtin::numeric::Numeric;
 use vortex_array::scalar_fn::builtin::operators::BooleanOperator;
 use vortex_array::test_harness::mark_optimized;
 use vortex_array::validity::Validity;
@@ -87,6 +95,73 @@ fn nullable_struct() -> ArrayRef {
     )
     .vortex_expect("struct fixture")
     .into_array()
+}
+
+fn nullable_map() -> ArrayRef {
+    let entries_len = LEN * 3;
+    let keys = PrimitiveArray::from_iter(
+        (0..entries_len)
+            // Each group of three entries has keys 0, 1, 0.
+            .map(|i| i32::try_from(i % 3 % 2).vortex_expect("key fits i32")),
+    )
+    .into_array();
+    let values = VarBinViewArray::from_iter(
+        [Some("short"), None, Some("a longer map value")]
+            .into_iter()
+            .cycle()
+            .take(entries_len),
+        DType::Utf8(Nullability::Nullable),
+    )
+    .into_array();
+    let entries = StructArray::try_new(
+        FieldNames::from(["key", "value"]),
+        vec![keys, values],
+        entries_len,
+        Validity::NonNullable,
+    )
+    .vortex_expect("map entries fixture")
+    .into_array();
+    let offsets = (0..LEN)
+        .map(|i| u32::try_from(i * 3).vortex_expect("map offset fits u32"))
+        .collect::<Buffer<u32>>()
+        .into_array();
+    let sizes = (0..LEN)
+        .map(|i| u32::try_from(i % 4).vortex_expect("map size fits u32"))
+        .collect::<Buffer<u32>>()
+        .into_array();
+    let listview = ListViewArray::new(
+        entries,
+        offsets,
+        sizes,
+        Validity::from_iter((0..LEN).map(|i| i % 11 != 0)),
+        &mut SESSION.create_execution_ctx(),
+    );
+    let dtype = MapDType::try_new(
+        DType::Primitive(PType::I32, Nullability::NonNullable),
+        DType::Utf8(Nullability::Nullable),
+        false,
+    )
+    .vortex_expect("map dtype fixture");
+    MapArray::try_new(dtype, listview)
+        .vortex_expect("map fixture")
+        .into_array()
+}
+
+fn scalar_fn(nested: bool) -> ArrayRef {
+    let add = TypedScalarFnInstance::new(Numeric, NumericOperator::Add).erased();
+    let lhs = nullable_primitive(LEN);
+    let rhs = ConstantArray::new(3i64, LEN).into_array();
+    let added = ScalarFnArray::try_new(add, vec![lhs, rhs])
+        .vortex_expect("scalar function add fixture")
+        .into_array();
+    if !nested {
+        return added;
+    }
+
+    let mul = TypedScalarFnInstance::new(Numeric, NumericOperator::Mul).erased();
+    ScalarFnArray::try_new(mul, vec![added, nullable_primitive(LEN)])
+        .vortex_expect("nested scalar function fixture")
+        .into_array()
 }
 
 fn patched() -> ArrayRef {
@@ -240,7 +315,8 @@ fn kleene_and_validity() -> ArrayRef {
 /// 1 ms in the CodSpeed simulation.
 fn accesses(name: &str) -> usize {
     match name {
-        "piecewise_variable" => 32,
+        "map" | "scalar_fn_binary" | "piecewise_variable" => 32,
+        "scalar_fn_nested" => 16,
         "list" | "listview" | "fixed_size_list" => 64,
         "scalar_fn_validity" => 128,
         _ => ACCESSES,
@@ -262,6 +338,9 @@ const ARRAYS: &[&str] = &[
     "dict",
     "struct",
     "bool",
+    "map",
+    "scalar_fn_binary",
+    "scalar_fn_nested",
     "patched",
     "piecewise_variable",
     "piecewise_constant",
@@ -273,11 +352,15 @@ const ARRAYS: &[&str] = &[
     "scalar_fn_validity",
 ];
 
+const SCALAR_FN_ARRAYS: &[&str] = &["scalar_fn_binary", "scalar_fn_nested"];
 const PIECEWISE_ARRAYS: &[&str] = &["piecewise_variable", "piecewise_constant"];
 
 fn array(name: &str) -> ArrayRef {
     match name {
         "primitive" => nullable_primitive(LEN),
+        "map" => nullable_map(),
+        "scalar_fn_binary" => scalar_fn(false),
+        "scalar_fn_nested" => scalar_fn(true),
         "patched" => patched(),
         "piecewise_variable" => piecewise(true),
         "piecewise_constant" => piecewise(false),
@@ -423,6 +506,40 @@ fn piecewise_same_piece_repeated(bencher: Bencher, name: &str) {
                 divan::black_box(
                     probe
                         .execute_scalar(index, ctx)
+                        .vortex_expect("in-bounds read"),
+                );
+            }
+        });
+}
+
+#[divan::bench(args = SCALAR_FN_ARRAYS)]
+fn scalar_fn_same_row_once(bencher: Bencher, name: &str) {
+    let array = array(name);
+    mark_optimized(&array, &SESSION).vortex_expect("optimize the benchmark input");
+    bencher
+        .with_inputs(|| SESSION.create_execution_ctx())
+        .bench_refs(|ctx| {
+            for _ in 0..accesses(name) {
+                divan::black_box(
+                    array
+                        .execute_scalar(LEN / 2, ctx)
+                        .vortex_expect("in-bounds read"),
+                );
+            }
+        });
+}
+
+#[divan::bench(args = SCALAR_FN_ARRAYS)]
+fn scalar_fn_same_row_repeated(bencher: Bencher, name: &str) {
+    let array = array(name);
+    mark_optimized(&array, &SESSION).vortex_expect("optimize the benchmark input");
+    bencher
+        .with_inputs(|| (SESSION.create_execution_ctx(), array.repeated_probe()))
+        .bench_refs(|(ctx, probe)| {
+            for _ in 0..accesses(name) {
+                divan::black_box(
+                    probe
+                        .execute_scalar(LEN / 2, ctx)
                         .vortex_expect("in-bounds read"),
                 );
             }

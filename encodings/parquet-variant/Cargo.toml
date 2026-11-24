@@ -33,7 +33,9 @@ vortex-mask = { workspace = true }
 vortex-session = { workspace = true }
 
 [dev-dependencies]
+divan = { workspace = true }
 hegeltest = { workspace = true }
+mimalloc = { workspace = true }
 vortex-edition = { workspace = true }
 rstest = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
@@ -44,3 +46,8 @@ vortex-file = { workspace = true, features = ["tokio"] }
 vortex-io = { workspace = true, features = ["tokio"] }
 vortex-layout = { workspace = true }
 vortex-uuid = { workspace = true }
+
+[[bench]]
+name = "parquet_variant_probe"
+path = "benches/probe.rs"
+harness = false
