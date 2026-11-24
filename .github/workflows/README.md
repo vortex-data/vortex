@@ -25,13 +25,18 @@ Actions page with **Run workflow**, on the `develop` branch.
 Run [Release Tag][tag-src] ([runs][tag-runs]) with `commit` set to the commit SHA. For a
 pre-release, also set `prerelease-identifier`, such as `rc`.
 
-The workflow checks that the commit is on `develop`. It then runs Release Drafter, which drafts
-the notes for the pull requests merged between the last published release and the commit, and
-resolves the version. It tags the commit with that version. The run summary names the tag and links
-the draft.
+The workflow checks that the commit is on `develop`, then runs the [Release Checks][checks-src] at
+the commit. These are the checks that pull requests do not run: packaging dry runs for Python
+and crates.io, compatibility with the last release's files, musl, Windows, the CPU feature tiers,
+the minimum supported Rust version, minimal dependency versions, sanitizers and Miri. If any check
+fails, the workflow stops before it drafts or tags anything; fix the failure on `develop` and run
+it again for a new commit, or re-run the failed jobs if the failure was not in the code.
 
-Release checks that should run only before a release go in this workflow, as jobs between
-`prepare` and `tag`.
+When every check passes, the workflow runs Release Drafter, which drafts the notes for the pull
+requests merged between the last published release and the commit, and resolves the version. It
+tags the commit with that version. The run summary names the tag and links the draft.
+
+To run a check before a release only, add it to `release-checks.yml`.
 
 ## 2. Attach the binaries
 
@@ -66,6 +71,7 @@ If an environment requires approval, approve its job on the run page.
 
 [drafter-config]: ../release-drafter.yml
 [tag-src]: release-tag.yml
+[checks-src]: release-checks.yml
 [tag-runs]: https://github.com/vortex-data/vortex/actions/workflows/release-tag.yml
 [binaries-src]: release-binaries.yml
 [binaries-runs]: https://github.com/vortex-data/vortex/actions/workflows/release-binaries.yml
