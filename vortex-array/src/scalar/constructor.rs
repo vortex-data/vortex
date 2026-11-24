@@ -137,6 +137,25 @@ impl Scalar {
         }
     }
 
+    /// Creates a new fixed-size binary scalar whose byte width is the length of `buffer`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the length of `buffer` does not fit in a `u32`.
+    pub fn fixed_size_binary(buffer: impl Into<ByteBuffer>, nullability: Nullability) -> Self {
+        let buffer = buffer.into();
+        let size = u32::try_from(buffer.len())
+            .unwrap_or_else(|_| vortex_panic!("fixed-size binary width must fit in a u32"));
+
+        // SAFETY: A `Binary` value of `size` bytes is valid for a `FixedSizeBinary(size)` dtype.
+        unsafe {
+            Self::new_unchecked(
+                DType::FixedSizeBinary(size, nullability),
+                Some(ScalarValue::Binary(buffer)),
+            )
+        }
+    }
+
     /// Creates a new list scalar with the given element type and children.
     ///
     /// # Panics

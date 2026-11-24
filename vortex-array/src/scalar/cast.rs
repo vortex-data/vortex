@@ -10,7 +10,6 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
-use vortex_error::vortex_panic;
 
 use crate::dtype::DType;
 use crate::dtype::Nullability;
@@ -65,7 +64,6 @@ impl Scalar {
         }
 
         match &self.dtype() {
-            DType::FixedSizeBinary(..) => vortex_panic!("FixedSizeBinary is not supported yet"),
             DType::Null => unreachable!("Handled by the if case above"),
             DType::Bool(_) => {
                 let DType::Primitive(ptype, nullability) = target_dtype else {
@@ -84,9 +82,7 @@ impl Scalar {
             DType::Utf8(_) => vortex_bail!(
                 "Cannot cast utf8 to {target_dtype}: UTF-8 scalars can only be cast to UTF-8 types with different nullability"
             ),
-            DType::Binary(_) => vortex_bail!(
-                "Cannot cast binary to {target_dtype}: binary scalars can only be cast to binary types with different nullability"
-            ),
+            DType::Binary(_) | DType::FixedSizeBinary(..) => cast_binary(self, target_dtype),
             DType::List(..) | DType::FixedSizeList(..) => self.as_list().cast(target_dtype),
             DType::Map(..) => self.as_map().cast(target_dtype),
             DType::Struct(..) => self.as_struct().cast(target_dtype),
@@ -107,6 +103,20 @@ impl Scalar {
         Self::try_new(dtype.as_nullable(), value)
             .vortex_expect("Casting to nullable should always succeed")
     }
+}
+
+/// Casts a non-null binary or fixed-size binary scalar to another binary dtype.
+///
+/// Any fixed-size binary value is also a binary value. A binary value becomes a fixed-size binary
+/// value only if its length equals the target byte width.
+fn cast_binary(scalar: &Scalar, target_dtype: &DType) -> VortexResult<Scalar> {
+    vortex_ensure!(
+        matches!(target_dtype, DType::Binary(_) | DType::FixedSizeBinary(..)),
+        "Cannot cast {} to {target_dtype}: binary scalars can only be cast to binary or fixed-size binary types",
+        scalar.dtype()
+    );
+
+    Scalar::try_new(target_dtype.clone(), scalar.value().cloned())
 }
 
 /// Casts `value` to `ptype` like the bool array cast: true is one, false is zero.

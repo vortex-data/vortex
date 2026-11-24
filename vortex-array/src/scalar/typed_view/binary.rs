@@ -16,7 +16,7 @@ use crate::scalar::ScalarValue;
 
 /// A scalar value representing binary data.
 ///
-/// This type provides a view into a binary scalar value, which can be either
+/// This type provides a view into a binary or fixed-size binary scalar value, which can be either
 /// a valid byte buffer or null.
 #[derive(Debug, Clone, Copy, Hash)]
 pub struct BinaryScalar<'a> {
@@ -64,9 +64,9 @@ impl<'a> BinaryScalar<'a> {
     ///
     /// # Errors
     ///
-    /// Returns an error if the data type is not a binary type.
+    /// Returns an error if the data type is not a binary or fixed-size binary type.
     pub fn try_new(dtype: &'a DType, value: Option<&'a ScalarValue>) -> VortexResult<Self> {
-        if !matches!(dtype, DType::Binary(..)) {
+        if !matches!(dtype, DType::Binary(..) | DType::FixedSizeBinary(..)) {
             vortex_bail!("Can only construct binary scalar from binary dtype, found {dtype}")
         }
 

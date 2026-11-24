@@ -5,6 +5,7 @@
 
 mod casting;
 mod consistency;
+mod fixed_size_binary;
 mod nested;
 mod nullability;
 mod primitives;

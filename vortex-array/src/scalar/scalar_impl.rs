@@ -237,7 +237,6 @@ impl Scalar {
         let value = self.value()?;
 
         let is_zero = match self.dtype() {
-            DType::FixedSizeBinary(..) => vortex_panic!("FixedSizeBinary is not supported yet"),
             DType::Null => {
                 vortex_panic!("non-null value somehow had `DType::Null`")
             }
@@ -246,6 +245,8 @@ impl Scalar {
             DType::Decimal(..) => value.as_decimal().is_zero(),
             DType::Utf8(_) => value.as_utf8().is_empty(),
             DType::Binary(_) => value.as_binary().is_empty(),
+            // A fixed-size binary value is zero only if every byte is zero.
+            DType::FixedSizeBinary(..) => value.as_binary().iter().all(|&byte| byte == 0),
             DType::List(..) => value.as_list().is_empty(),
             DType::Map(..) => self.as_map().is_empty(),
             // A fixed-size list is zero only if it has the expected number of elements and every
@@ -313,7 +314,6 @@ impl Scalar {
         use crate::dtype::i256;
 
         match self.dtype() {
-            DType::FixedSizeBinary(..) => vortex_panic!("FixedSizeBinary is not supported yet"),
             DType::Null => 0,
             DType::Bool(_) => 1,
             DType::Primitive(ptype, _) => ptype.byte_width(),
@@ -330,6 +330,7 @@ impl Scalar {
             DType::Binary(_) => self
                 .value()
                 .map_or_else(|| 0, |value| value.as_binary().len()),
+            DType::FixedSizeBinary(size, _) => *size as usize,
             DType::List(..) | DType::FixedSizeList(..) => self
                 .as_list()
                 .elements()
