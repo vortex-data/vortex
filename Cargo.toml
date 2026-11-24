@@ -475,6 +475,22 @@ debug = false
 debug-assertions = true
 incremental = false
 
+# Speeds up unzipping DuckDB in vortex-duckdb's build script.
+[profile.ci.package.zip]
+opt-level = 3
+
+[profile.ci.package.flate2]
+opt-level = 3
+
+[profile.ci.package.zlib-rs]
+opt-level = 3
+
+[profile.ci.package.miniz_oxide]
+opt-level = 3
+
+[profile.ci.package.crc32fast]
+opt-level = 3
+
 # This improved build times significantly for default common cases that we use locally
 [profile.dev.package.vortex-fastlanes]
 debug = false
