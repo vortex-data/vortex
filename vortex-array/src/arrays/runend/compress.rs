@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use itertools::Itertools;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::BitBufferMut;
 use vortex_buffer::Buffer;
@@ -29,8 +28,8 @@ use crate::arrays::VarBinViewArray;
 use crate::arrays::bool::BoolArrayExt;
 use crate::arrays::decimal::DecimalArrayExt;
 use crate::arrays::primitive::PrimitiveArrayExt;
-use crate::arrays::runend::iter::slice_relative_ends;
 use crate::buffer::BufferHandle;
+use crate::dtype::IntegerPType;
 use crate::dtype::NativePType;
 use crate::dtype::Nullability;
 use crate::expr::stats::Precision;
@@ -287,15 +286,16 @@ pub fn runend_decode_primitive(
     }
     Ok(match_each_native_ptype!(values.ptype(), |P| {
         match_each_unsigned_integer_ptype!(ends.ptype(), |E| {
-            runend_decode_typed_primitive(
-                slice_relative_ends(ends.as_slice::<E>(), offset, length),
+            let (decoded, validity) = runend_decode_ends(
+                ends.as_slice::<E>(),
+                offset,
                 values.as_slice::<P>(),
                 validity_mask,
                 values.dtype().nullability(),
                 length,
                 ctx.allocator(),
-            )
-            .into_array()
+            );
+            PrimitiveArray::new(decoded, validity).into_array()
         })
     }))
 }
@@ -314,7 +314,7 @@ fn runend_decode_slice<T: Copy + Default>(
     match values_validity {
         Mask::AllTrue(_) => {
             let mut decoded = RunWriter::new(length, allocator);
-            for (end, &value) in run_ends.zip_eq(values) {
+            for (end, &value) in run_ends.zip(values) {
                 decoded.write_run(value, end);
             }
             (decoded.finish(), values_nullability.into())
@@ -327,7 +327,7 @@ fn runend_decode_slice<T: Copy + Default>(
             let mut decoded_validity = BitBufferMut::full(true, length);
             let mut null_start = None;
             for (end, (&value, is_valid)) in
-                run_ends.zip_eq(values.iter().zip(mask.bit_buffer().iter()))
+                run_ends.zip(values.iter().zip(mask.bit_buffer().iter()))
             {
                 let start = decoded.len();
                 decoded.write_run(if is_valid { value } else { T::default() }, end);
@@ -350,6 +350,41 @@ fn runend_decode_slice<T: Copy + Default>(
             (decoded, Validity::from(decoded_validity.freeze()))
         }
     }
+}
+
+/// Decode run ends read straight from a slice into a flat `Buffer<T>` and `Validity`.
+///
+/// This is [`runend_decode_slice`] without the per-run checks of [`slice_relative_ends`]: each
+/// end is shifted by `offset` and the [`RunWriter`] clamps it into bounds, both without branches,
+/// so the loop costs only the stores.
+///
+/// [`slice_relative_ends`]: crate::arrays::runend::slice_relative_ends
+fn runend_decode_ends<T: Copy + Default, E: IntegerPType>(
+    ends: &[E],
+    offset: usize,
+    values: &[T],
+    values_validity: Mask,
+    values_nullability: Nullability,
+    length: usize,
+    allocator: &BufferAllocatorRef,
+) -> (Buffer<T>, Validity) {
+    assert_eq!(
+        ends.len(),
+        values.len(),
+        "run ends and values must have the same length"
+    );
+    let run_ends = ends.iter().map(move |&end| {
+        let end: usize = end.as_();
+        end.saturating_sub(offset)
+    });
+    runend_decode_slice(
+        run_ends,
+        values,
+        values_validity,
+        values_nullability,
+        length,
+        allocator,
+    )
 }
 
 /// Minimum bytes in a [`RunWriter`] block.
@@ -389,17 +424,18 @@ impl<T: Copy> RunWriter<T> {
     }
 
     /// Fill `self.len()..end` with `value`.
+    ///
+    /// `end` is clamped to `self.len()..=length`, so an end past the slice writes up to its end
+    /// and an end before the previous one writes nothing. The clamp is two branch-free
+    /// comparisons, which is cheaper per run than checking the ends.
     #[inline]
     fn write_run(&mut self, value: T, end: usize) {
-        assert!(
+        debug_assert!(
             end >= self.len,
             "Runend ends must be monotonic, got {end} after {}",
             self.len
         );
-        assert!(
-            end <= self.length,
-            "Runend end must be less than overall length"
-        );
+        let end = end.min(self.length).max(self.len);
         // SAFETY: `self.len <= end <= length`, and the buffer holds `length + BLOCK` elements, so
         // both the block and the remainder of the run are in bounds.
         unsafe {
@@ -464,8 +500,9 @@ pub fn runend_decode_decimal(
 
     Ok(match_each_decimal_value_type!(values.values_type(), |D| {
         let (decoded, validity) = match_each_unsigned_integer_ptype!(ends.ptype(), |E| {
-            runend_decode_slice(
-                slice_relative_ends(ends.as_slice::<E>(), offset, length),
+            runend_decode_ends(
+                ends.as_slice::<E>(),
+                offset,
                 values.buffer::<D>().as_slice(),
                 validity_mask,
                 values.dtype().nullability(),
@@ -499,8 +536,9 @@ pub fn runend_decode_varbinview(
     let views = values.views();
 
     let (decoded_views, validity) = match_each_unsigned_integer_ptype!(ends.ptype(), |E| {
-        runend_decode_slice(
-            slice_relative_ends(ends.as_slice::<E>(), offset, length),
+        runend_decode_ends(
+            ends.as_slice::<E>(),
+            offset,
             views,
             validity_mask,
             values.dtype().nullability(),
