@@ -17,6 +17,9 @@
 //! - `head-v1` / `head-v2`: the head's `FileScanState`. Each file's `ScanStream`, opened from
 //!   `LayoutReaderDataSource` or `VortexFile::plan_data_source`, behind a mutex; a join clones
 //!   it, bounded by its claims; one `block_on(stream.next())` per batch.
+//! - `head-v1-j` / `head-v2-j`: variant J of the head. Under the global lock a join only reads the
+//!   file's claims and join count, both atomics; the thread clones the stream after releasing
+//!   the lock, from the file's stream mutex, which only joiners take.
 //!
 //! Each configuration runs with and without the fast path (`--fast-modes off,on`), which polls
 //! each future once before `block_on` as #11896 does, and at each forced pend rate
@@ -120,6 +123,8 @@ enum Path {
     DevV2,
     HeadV1,
     HeadV2,
+    HeadV1Gated,
+    HeadV2Gated,
 }
 
 impl Path {
@@ -129,6 +134,8 @@ impl Path {
             "dev-v2" => Self::DevV2,
             "head-v1" => Self::HeadV1,
             "head-v2" => Self::HeadV2,
+            "head-v1-j" => Self::HeadV1Gated,
+            "head-v2-j" => Self::HeadV2Gated,
             other => panic!("unknown path {other}"),
         }
     }
@@ -139,6 +146,8 @@ impl Path {
             Self::DevV2 => "dev-v2",
             Self::HeadV1 => "head-v1",
             Self::HeadV2 => "head-v2",
+            Self::HeadV1Gated => "head-v1-j",
+            Self::HeadV2Gated => "head-v2-j",
         }
     }
 }
@@ -165,7 +174,14 @@ struct Args {
 
 fn parse_args() -> Args {
     let mut args = Args {
-        paths: vec![Path::DevV1, Path::HeadV1, Path::DevV2, Path::HeadV2],
+        paths: vec![
+            Path::DevV1,
+            Path::HeadV1,
+            Path::HeadV1Gated,
+            Path::DevV2,
+            Path::HeadV2,
+            Path::HeadV2Gated,
+        ],
         threads: vec![1, 8, 18, 48, 96],
         files: 64,
         parts: 32,
@@ -207,7 +223,7 @@ fn parse_args() -> Args {
             "--reps" => args.reps = value().parse().unwrap(),
             "--help" | "-h" => {
                 eprintln!(
-                    "flags: --paths dev-v1,head-v1,dev-v2,head-v2 --threads 1,8,18,48,96 \
+                    "flags: --paths dev-v1,head-v1,head-v1-j,dev-v2,head-v2,head-v2-j --threads 1,8,18,48,96 \
                      --files 64 --parts 32 --rows 256 --mode tiny|empty --fast-modes off,on --pend-rates 0,0.5 \
                      --reps 3"
                 );
@@ -266,8 +282,12 @@ struct Stats {
     wasted_joins: u64,
     batches: u64,
     empty_batches: u64,
-    /// Time holding the global lock to join, including the join itself.
+    /// Time to join: waiting for the global lock, then holding it to join.
     join_ns: u64,
+    /// The part of `join_ns` spent waiting for the global lock.
+    lock_wait_ns: u64,
+    /// Time cloning a gated join's stream after releasing the global lock.
+    clone_ns: u64,
     /// Time in the first poll after a join, until it returned a batch or ended.
     first_poll_ns: u64,
     /// Time in every later poll.
@@ -284,6 +304,8 @@ impl Stats {
         self.batches += other.batches;
         self.empty_batches += other.empty_batches;
         self.join_ns += other.join_ns;
+        self.lock_wait_ns += other.lock_wait_ns;
+        self.clone_ns += other.clone_ns;
         self.first_poll_ns += other.first_poll_ns;
         self.poll_ns += other.poll_ns;
         self.block_ons += other.block_ons;
@@ -490,9 +512,29 @@ struct HeadFile {
     finished: AtomicBool,
     joined: AtomicUsize,
     joins_chunks: bool,
+    /// Whether joins go through [`Self::gate`] under the global lock, cloning the stream only
+    /// after the lock is released (variant J).
+    gated: bool,
+    claims: Option<Arc<dyn Fn() -> Claims + Send + Sync>>,
 }
 
 impl HeadFile {
+    /// Variant J's join under the global lock: atomics only, with the same bound as
+    /// [`Self::next_split`], and no stream mutex or clone.
+    fn gate(&self) -> bool {
+        if self.finished.load(Ordering::Acquire) {
+            return false;
+        }
+        if let Some(claims) = &self.claims {
+            let Claims { claimed, total } = claims();
+            if claimed >= total || self.joined.load(Ordering::Relaxed) >= total {
+                return false;
+            }
+        }
+        self.joined.fetch_add(1, Ordering::Relaxed);
+        true
+    }
+
     fn next_split(&self) -> Option<ScanStream> {
         if self.finished.load(Ordering::Acquire) {
             return None;
@@ -511,6 +553,7 @@ impl HeadFile {
 fn head_init(
     file: &File,
     v2: bool,
+    gated: bool,
     projection: &Expression,
     filter: Option<&Expression>,
     drive: Drive,
@@ -533,10 +576,12 @@ fn head_init(
         drive.block_on(source.scan(request), &mut ignored)?.open()?
     };
     Ok(HeadFile {
+        claims: stream.claims_reader(),
         stream: Mutex::new(stream),
         finished: AtomicBool::new(false),
         joined: AtomicUsize::new(0),
         joins_chunks: v2,
+        gated,
     })
 }
 
@@ -554,8 +599,10 @@ fn scan_thread(files: &Files, cursor: &Mutex<usize>, drive: Drive) -> VortexResu
     let mut run = Run::new();
     loop {
         let joined_at = Instant::now();
+        let locked_at;
         let joined = {
             let mut current = cursor.lock();
+            locked_at = Instant::now();
             loop {
                 let idx = *current;
                 let joined = match files {
@@ -571,6 +618,7 @@ fn scan_thread(files: &Files, cursor: &Mutex<usize>, drive: Drive) -> VortexResu
                     },
                     Files::Head(files) => match files.get(idx) {
                         None => break None,
+                        Some(file) if file.gated => file.gate().then_some(Joined::HeadGated(idx)),
                         Some(file) => file.next_split().map(|stream| Joined::Head(idx, stream)),
                     },
                 };
@@ -581,8 +629,21 @@ fn scan_thread(files: &Files, cursor: &Mutex<usize>, drive: Drive) -> VortexResu
             }
         };
         stats.join_ns += joined_at.elapsed().as_nanos() as u64;
+        stats.lock_wait_ns += (locked_at - joined_at).as_nanos() as u64;
         let Some(joined) = joined else {
             return Ok(stats);
+        };
+        let joined = match joined {
+            Joined::HeadGated(idx) => {
+                let Files::Head(files) = files else {
+                    unreachable!()
+                };
+                let started = Instant::now();
+                let stream = files[idx].stream.lock().clone();
+                stats.clone_ns += started.elapsed().as_nanos() as u64;
+                Joined::Head(idx, stream)
+            }
+            joined => joined,
         };
         stats.joins += 1;
         let batches_before = stats.batches;
@@ -636,6 +697,7 @@ fn scan_thread(files: &Files, cursor: &Mutex<usize>, drive: Drive) -> VortexResu
                 }
                 drop(stream);
             }
+            Joined::HeadGated(_) => unreachable!("cloned above"),
         }
         if stats.batches == batches_before {
             stats.wasted_joins += 1;
@@ -659,6 +721,8 @@ enum Joined {
     DevV1(SplitTask),
     DevV2(usize),
     Head(usize, ScanStream),
+    /// A gated join, whose stream the thread clones after releasing the global lock.
+    HeadGated(usize),
 }
 
 struct Measured {
@@ -697,13 +761,14 @@ fn run_once(
                 .map(|f| dev_v2_init(f, &projection, filter.as_ref(), drive))
                 .collect::<VortexResult<_>>()?,
         ),
-        Path::HeadV1 | Path::HeadV2 => Files::Head(
+        Path::HeadV1 | Path::HeadV2 | Path::HeadV1Gated | Path::HeadV2Gated => Files::Head(
             files
                 .iter()
                 .map(|f| {
                     head_init(
                         f,
-                        path == Path::HeadV2,
+                        matches!(path, Path::HeadV2 | Path::HeadV2Gated),
+                        matches!(path, Path::HeadV1Gated | Path::HeadV2Gated),
                         &projection_expr,
                         filter_expr.as_ref(),
                         drive,
@@ -758,7 +823,7 @@ fn main() -> VortexResult<()> {
          part_root and Run, not develop's code; dev-v1, head-v1 and head-v2 call the real scans."
     );
     println!(
-        "{:<8} {:>4} {:>4} {:>3} {:>9} {:>9} {:>6} {:>7} {:>8} {:>7} {:>10} {:>12} {:>10} {:>6}",
+        "{:<9} {:>4} {:>4} {:>3} {:>9} {:>9} {:>6} {:>7} {:>8} {:>7} {:>10} {:>10} {:>9} {:>12} {:>10} {:>6}",
         "path",
         "fast",
         "rate",
@@ -770,6 +835,8 @@ fn main() -> VortexResult<()> {
         "batches",
         "empty",
         "ns/join",
+        "lock_wait",
+        "clone",
         "ns/1st_poll",
         "ns/batch",
         "pend%"
@@ -787,7 +854,7 @@ fn main() -> VortexResult<()> {
                     let s = run.stats;
                     let per = |ns: u64, n: u64| if n == 0 { 0.0 } else { ns as f64 / n as f64 };
                     println!(
-                        "{:<8} {:>4} {:>4.2} {:>3} {:>9.2} {:>9.1} {:>6} {:>7} {:>8} {:>7} {:>10.0} {:>12.0} {:>10.0} {:>6.1}",
+                        "{:<9} {:>4} {:>4.2} {:>3} {:>9.2} {:>9.1} {:>6} {:>7} {:>8} {:>7} {:>10.0} {:>10.0} {:>9.0} {:>12.0} {:>10.0} {:>6.1}",
                         path.name(),
                         if fast { "on" } else { "off" },
                         pend_rate,
@@ -799,6 +866,8 @@ fn main() -> VortexResult<()> {
                         s.batches,
                         s.empty_batches,
                         per(s.join_ns, s.joins),
+                        per(s.lock_wait_ns, s.joins),
+                        per(s.clone_ns, s.joins),
                         per(s.first_poll_ns, s.joins),
                         per(s.first_poll_ns + s.poll_ns, s.batches),
                         100.0 * per(s.pended, s.block_ons),
