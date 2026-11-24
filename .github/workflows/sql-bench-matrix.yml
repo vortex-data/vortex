@@ -24,13 +24,13 @@ on:
         required: false
         type: string
         default: c8gd.metal-24xl
-      region:
+      nvme_regions:
         required: false
         type: string
-        default: us-east-1
+        default: ""
         description: >-
-          AWS region of the RunsOn stack that runs every job. The S3 benchmarks read a us-east-1
-          bucket, so their timings are comparable only there
+          JSON list of the AWS regions to spread the NVMe benchmarks over; empty uses the
+          BENCH_NVME_REGIONS repository variable, or us-east-1 without it
       max_parallel:
         required: false
         type: number
@@ -61,10 +61,27 @@ jobs:
         env:
           MATRIX_PRESET: ${{ inputs.matrix_preset }}
           BENCHMARKS: ${{ inputs.benchmarks }}
+          NVME_REGIONS: ${{ inputs.nvme_regions || vars.BENCH_NVME_REGIONS || '["us-east-1"]' }}
         run: |
           set -Eeuo pipefail
 
           matrix="$(uv run --project benchmarks/bench-orchestrator vx-bench matrix "$MATRIX_PRESET" --only "$BENCHMARKS")"
+          if ! jq -e 'type == "array" and length > 0 and all(type == "string")' <<<"$NVME_REGIONS" >/dev/null; then
+            echo "::error::NVMe regions must be a JSON list of region names, got: $NVME_REGIONS"
+            exit 1
+          fi
+          # Each entry launches its own metal host, and one region's spot pool for that instance
+          # type is only a few hosts deep, so the NVMe entries spread over several regions. The S3
+          # entries stay in us-east-1, next to their bucket. The hash key puts every entry of one
+          # benchmark and scale in one region, so that their results compare on equal hardware
+          # and a PR run uses the region of its develop baseline. The seed 226 spreads the develop
+          # matrix evenly over two or three regions.
+          matrix="$(jq -c --argjson regions "$NVME_REGIONS" 'map(. + {region: (
+            if .remote_key != null then "us-east-1"
+            else $regions[
+              ("\(.subcommand)-\(.scale_factor // "")" | reduce explode[] as $c (226; (. * 31 + $c) % 1000003))
+              % ($regions | length)]
+            end)})' <<<"$matrix")"
           echo "benchmark_matrix=$matrix" >> "$GITHUB_OUTPUT"
           # A case runs as one entry per scan when it covers every scan; its PR comment collects
           # the entries of its `group` into one table. A run of some queries comments separately.
@@ -77,7 +94,7 @@ jobs:
       FLAT_LAYOUT_INLINE_ARRAY_NODE: "1"
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/region={2}/runner=arm64-bench/tag=build{1}', github.run_id, (inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false) && '/extras=s3-cache' || '', inputs.region)
+          && format('runs-on={0}/region=us-east-1/runner=arm64-bench/tag=build{1}', github.run_id, (inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false) && '/extras=s3-cache' || '')
           || 'ubuntu-latest' }}
     steps:
       - parallel:
@@ -144,7 +161,7 @@ jobs:
     timeout-minutes: 30
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/region={1}/runner=arm64-medium/image=ubuntu26-full-arm64-pre-v2/extras=s3-cache/tag=upload-debuginfo', github.run_id, inputs.region)
+          && format('runs-on={0}/region=us-east-1/runner=arm64-medium/image=ubuntu26-full-arm64-pre-v2/extras=s3-cache/tag=upload-debuginfo', github.run_id)
           || 'ubuntu-latest' }}
     steps:
       - parallel:
@@ -184,8 +201,7 @@ jobs:
       COLUMNS: 120
     strategy:
       fail-fast: false
-      # Each entry launches its own host, and a spot pool for one metal instance type is only a
-      # few hosts deep. Requests beyond the pool fall back to on-demand, at about 3.4 times the
+      # Requests beyond the depth of a spot pool fall back to on-demand, at about 3.4 times the
       # spot price.
       max-parallel: ${{ inputs.max_parallel }}
       matrix:
@@ -193,7 +209,7 @@ jobs:
 
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/region={4}/runner=bench-dedicated/family={1}/image=ubuntu26-full-arm64-pre-v2/tag={2}{3}', github.run_id, inputs.machine_type, matrix.id, (inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false) && '/extras=s3-cache' || '', inputs.region)
+          && format('runs-on={0}/region={4}/runner=bench-dedicated/family={1}/image=ubuntu26-full-arm64-pre-v2/tag={2}{3}', github.run_id, inputs.machine_type, matrix.id, (inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false) && '/extras=s3-cache' || '', matrix.region)
           || 'ubuntu-latest' }}
     steps:
       - parallel:
@@ -452,7 +468,7 @@ jobs:
     timeout-minutes: 10
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/region={2}/runner=amd64-ci-small/image=ubuntu26-full-x64-pre-v2/tag=merge-file-trees{1}', github.run_id, (inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false) && '/extras=s3-cache' || '', inputs.region)
+          && format('runs-on={0}/region=us-east-1/runner=amd64-ci-small/image=ubuntu26-full-x64-pre-v2/tag=merge-file-trees{1}', github.run_id, (inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false) && '/extras=s3-cache' || '')
           || 'ubuntu-latest' }}
     steps:
       # `extras=s3-cache` points the artifact API at the RunsOn proxy, which only this action wires
@@ -482,7 +498,7 @@ jobs:
         include: ${{ fromJSON(needs.resolve-matrix.outputs.comment_groups) }}
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/region={3}/runner=amd64-ci-small/image=ubuntu26-full-x64-pre-v2/tag=comment-{1}{2}', github.run_id, matrix.group, github.event.pull_request.head.repo.fork == false && '/extras=s3-cache' || '', inputs.region)
+          && format('runs-on={0}/region=us-east-1/runner=amd64-ci-small/image=ubuntu26-full-x64-pre-v2/tag=comment-{1}{2}', github.run_id, matrix.group, github.event.pull_request.head.repo.fork == false && '/extras=s3-cache' || '')
           || 'ubuntu-latest' }}
     steps:
       # `extras=s3-cache` points the artifact API at the RunsOn proxy, which only this action wires up.

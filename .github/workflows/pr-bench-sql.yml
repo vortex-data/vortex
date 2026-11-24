@@ -8,7 +8,7 @@ concurrency:
   group: >-
     ${{ github.workflow }}-${{ inputs.matrix_preset || 'pr' }}-${{
       inputs.benchmarks || 'all'
-    }}-${{ inputs.region || 'us-east-1' }}-${{ github.head_ref || (github.event_name == 'workflow_dispatch' && github.ref_name) || github.run_id }}
+    }}-${{ github.head_ref || (github.event_name == 'workflow_dispatch' && github.ref_name) || github.run_id }}
   cancel-in-progress: true
 
 on:
@@ -42,17 +42,13 @@ on:
         required: false
         type: string
         default: ""
-      region:
+      nvme_regions:
         description: >-
-          AWS region to run in. The S3 benchmarks read a us-east-1 bucket, so their timings are
-          comparable only there
+          JSON list of the AWS regions to spread the NVMe benchmarks over, such as
+          ["eu-west-2"]. Empty uses the BENCH_NVME_REGIONS repository variable
         required: false
-        type: choice
-        default: "us-east-1"
-        options:
-          - "us-east-1"
-          - "eu-west-2"
-          - "ap-northeast-1"
+        type: string
+        default: ""
       max_parallel:
         description: "Most bench jobs to run at once; each one launches its own host"
         required: false
@@ -100,5 +96,5 @@ jobs:
       matrix_preset: ${{ inputs.matrix_preset }}
       benchmarks: ${{ inputs.benchmarks }}
       pr_number: ${{ needs.find-pr.outputs.number }}
-      region: ${{ inputs.region || 'us-east-1' }}
+      nvme_regions: ${{ inputs.nvme_regions }}
       max_parallel: ${{ fromJSON(inputs.max_parallel || '256') }}
