@@ -247,12 +247,12 @@ impl Scheme for FoRScheme {
         // residuals; in that case keep the primitive residual child rather than failing.
         // NOTE: we could delegate in the future if we had another downstream codec that performs
         //  as well.
-        let biased_data =
-            ArrayAndStats::new(biased.into_array(), compress_ctx.merged_stats_options());
-        let compressed = if biased_data.integer_stats(exec_ctx).erased().min_is_negative() {
-            biased_data.array().clone()
+        let compressed = if let Some(packed) =
+            try_bitpack_residuals(compressor, biased.clone(), &compress_ctx, exec_ctx)?
+        {
+            packed
         } else {
-            BitPackingScheme.compress(compressor, &biased_data, compress_ctx.clone(), exec_ctx)?
+            biased.into_array()
         };
 
         // TODO(connor): This should really be `new_unchecked`.
@@ -352,6 +352,31 @@ fn beats_v2_margin(candidate: u64, baseline: u64, sample_len: usize) -> bool {
     rel_savings >= MIN_V2_RELATIVE_SAVINGS && bits_saved >= MIN_V2_BITS_SAVED
 }
 
+/// Returns true when signed `residuals` contain any negative non-null value.
+/// Unsigned residuals cannot be negative and skip the check without computing stats.
+fn has_negative_residuals(residuals: &PrimitiveArray, exec_ctx: &mut ExecutionCtx) -> bool {
+    if !residuals.ptype().is_signed_int() {
+        return false;
+    }
+    vortex_array::match_each_signed_integer_ptype!(residuals.ptype(), |T| {
+        has_negative_typed::<T>(residuals, exec_ctx)
+    })
+}
+
+fn has_negative_typed<T>(residuals: &PrimitiveArray, exec_ctx: &mut ExecutionCtx) -> bool
+where
+    T: vortex_array::dtype::NativePType
+        + PartialOrd
+        + Default
+        + for<'a> TryFrom<&'a vortex_array::scalar::Scalar, Error = vortex_error::VortexError>,
+{
+    residuals
+        .as_ref()
+        .statistics()
+        .compute_min::<T>(exec_ctx)
+        .is_some_and(|min| min < T::default())
+}
+
 /// Bit-packs `residuals` when they satisfy BitPacking's non-negative precondition; returns `None`
 /// when signed wrapping subtraction produced negative residuals.
 fn try_bitpack_residuals(
@@ -360,10 +385,10 @@ fn try_bitpack_residuals(
     compress_ctx: &CompressorContext,
     exec_ctx: &mut ExecutionCtx,
 ) -> VortexResult<Option<ArrayRef>> {
-    let data = ArrayAndStats::new(residuals.into_array(), compress_ctx.merged_stats_options());
-    if data.integer_stats(exec_ctx).erased().min_is_negative() {
+    if has_negative_residuals(&residuals, exec_ctx) {
         return Ok(None);
     }
+    let data = ArrayAndStats::new(residuals.into_array(), Default::default());
     BitPackingScheme
         .compress(compressor, &data, compress_ctx.clone(), exec_ctx)
         .map(Some)
