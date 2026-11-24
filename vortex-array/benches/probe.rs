@@ -23,6 +23,7 @@ use vortex_array::arrays::StructArray;
 use vortex_array::arrays::patched::PatchedArraySlotsExt;
 use vortex_array::arrays::patched::PatchedSlots;
 use vortex_array::dtype::FieldNames;
+use vortex_array::optimizer::ArrayOptimizer;
 use vortex_array::optimizer::kernels::KernelSession;
 use vortex_array::patches::Patches;
 use vortex_array::test_harness::mark_optimized;
@@ -101,9 +102,13 @@ fn patched_with_chunked_indices() -> ArrayRef {
     let indices = patched.patch_indices();
     let middle = indices.len() / 2;
     let chunks = [
-        indices.slice(0..middle).vortex_expect("first index chunk"),
+        indices
+            .slice(0..middle)
+            .and_then(|chunk| chunk.optimize_ctx(&*SESSION))
+            .vortex_expect("first index chunk"),
         indices
             .slice(middle..indices.len())
+            .and_then(|chunk| chunk.optimize_ctx(&*SESSION))
             .vortex_expect("second index chunk"),
     ];
     let chunked = ChunkedArray::try_new(chunks, indices.dtype().clone())
@@ -221,6 +226,7 @@ fn repeated(bencher: Bencher, name: &str) {
 #[divan::bench]
 fn patched_same_lane_once(bencher: Bencher) {
     let array = patched();
+    mark_optimized(&array, &SESSION).vortex_expect("optimize the benchmark input");
     let indices = same_lane_indices();
     bencher
         .with_inputs(|| SESSION.create_execution_ctx())
@@ -238,6 +244,7 @@ fn patched_same_lane_once(bencher: Bencher) {
 #[divan::bench]
 fn patched_same_lane_repeated(bencher: Bencher) {
     let array = patched();
+    mark_optimized(&array, &SESSION).vortex_expect("optimize the benchmark input");
     let indices = same_lane_indices();
     bencher
         .with_inputs(|| (SESSION.create_execution_ctx(), array.repeated_probe()))
@@ -255,6 +262,7 @@ fn patched_same_lane_repeated(bencher: Bencher) {
 #[divan::bench]
 fn patched_chunked_indices_same_lane_repeated(bencher: Bencher) {
     let array = patched_with_chunked_indices();
+    mark_optimized(&array, &SESSION).vortex_expect("optimize the benchmark input");
     let indices = same_lane_indices();
     bencher
         .with_inputs(|| (SESSION.create_execution_ctx(), array.repeated_probe()))
@@ -272,6 +280,7 @@ fn patched_chunked_indices_same_lane_repeated(bencher: Bencher) {
 #[divan::bench(args = PIECEWISE_ARRAYS)]
 fn piecewise_same_piece_once(bencher: Bencher, name: &str) {
     let array = array(name);
+    mark_optimized(&array, &SESSION).vortex_expect("optimize the benchmark input");
     let indices = same_piece_indices(name == "piecewise_variable");
     bencher
         .with_inputs(|| SESSION.create_execution_ctx())
@@ -289,6 +298,7 @@ fn piecewise_same_piece_once(bencher: Bencher, name: &str) {
 #[divan::bench(args = PIECEWISE_ARRAYS)]
 fn piecewise_same_piece_repeated(bencher: Bencher, name: &str) {
     let array = array(name);
+    mark_optimized(&array, &SESSION).vortex_expect("optimize the benchmark input");
     let indices = same_piece_indices(name == "piecewise_variable");
     bencher
         .with_inputs(|| (SESSION.create_execution_ctx(), array.repeated_probe()))
