@@ -16,6 +16,7 @@ all-features = true
 
 [dependencies]
 itertools = { workspace = true }
+parking_lot = { workspace = true }
 pco = { workspace = true, optional = true }
 rand = { workspace = true }
 vortex-alp = { workspace = true }
