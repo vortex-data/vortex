@@ -21,7 +21,7 @@ use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::scalar::Scalar;
 use crate::scalar_fn::builtin::fill_null::FillNullKernel;
-use crate::scalar_fn::builtin::operators::Operator;
+use crate::scalar_fn::builtin::operators::CompareOperator;
 
 impl FillNullKernel for Dict {
     fn fill_null(
@@ -34,9 +34,9 @@ impl FillNullKernel for Dict {
         let found_fill_values = array
             .values()
             .clone()
-            .binary(
+            .compare(
                 ConstantArray::new(fill_value.clone(), array.values().len()).into_array(),
-                Operator::Eq,
+                CompareOperator::Eq,
             )?
             .execute::<BoolArray>(ctx)?;
 

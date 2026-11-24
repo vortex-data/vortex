@@ -106,12 +106,12 @@ mod tests {
         field.try_with_extension_type(ArrowUuid)?;
         if version.is_some() {
             field.metadata_mut().insert(
-                "vortex:extension:metadata".into(),
+                "vortex:extension:metadata",
                 BASE64_STANDARD.encode(&metadata),
             );
             field
                 .metadata_mut()
-                .insert("vortex:extension:metadata:encoding".into(), "base64".into());
+                .insert("vortex:extension:metadata:encoding", "base64");
         }
         let storage = FixedSizeListArray::try_new(
             PrimitiveArray::from_iter(bytes).into_array(),

@@ -172,9 +172,9 @@ mod tests {
     use crate::expr::is_null;
     use crate::expr::root;
     use crate::optimizer::rules::ArrayParentReduceRule;
+    use crate::scalar::NumericOperator;
     use crate::scalar_fn::TypedScalarFnInstance;
-    use crate::scalar_fn::builtin::binary::Binary;
-    use crate::scalar_fn::builtin::operators::Operator;
+    use crate::scalar_fn::builtin::numeric::Numeric;
     use crate::validity::Validity;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
@@ -197,7 +197,7 @@ mod tests {
             })
             .collect::<Vec<_>>();
         let array = ScalarFnArray::try_new(
-            TypedScalarFnInstance::new(Binary, Operator::Add).erased(),
+            TypedScalarFnInstance::new(Numeric, NumericOperator::Add).erased(),
             children,
         )?;
         let mask = Mask::from_iter((0..100).map(|index| index % 20 == 0));

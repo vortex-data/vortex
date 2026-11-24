@@ -11,7 +11,7 @@ use crate::optimizer::ArrayOptimizer;
 
 /// Check if a fixed-size list array is constant by comparing each list's elements.
 ///
-/// Uses `binary(Operator::Eq)` for element-wise value comparison with null-safe equality.
+/// Uses `compare(CompareOperator::Eq)` for element-wise value comparison with null-safe equality.
 pub(super) fn check_fixed_size_list_constant(
     f: &FixedSizeListArray,
     ctx: &mut ExecutionCtx,
