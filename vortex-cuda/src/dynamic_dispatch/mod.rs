@@ -1101,9 +1101,9 @@ mod tests {
     #[crate::test]
     async fn test_widen_dict_for_codes_preserve_code_width() -> VortexResult<()> {
         let mut cpu_ctx = SESSION.create_execution_ctx();
-        let codes = PrimitiveArray::new(Buffer::from([1i16, 2]), NonNullable);
+        let codes = PrimitiveArray::from_iter([1i16, 2]);
         let codes_for = FoR::try_new(codes.into_array(), Scalar::from(-1i16))?;
-        let values = PrimitiveArray::new(Buffer::from([11i16, 22]), NonNullable);
+        let values = PrimitiveArray::from_iter([11i16, 22]);
         let dict = DictArray::try_new(codes_for.into_array(), values.into_array())?;
         let array = WidenArray::try_new(
             dict.into_array(),
@@ -1111,9 +1111,9 @@ mod tests {
         )?
         .into_array();
 
-        let unsigned_codes = PrimitiveArray::new(Buffer::from([u16::MAX, 0]), NonNullable);
+        let unsigned_codes = PrimitiveArray::from_iter([u16::MAX, 0]);
         let unsigned_codes_for = FoR::try_new(unsigned_codes.into_array(), Scalar::from(1u16))?;
-        let unsigned_values = PrimitiveArray::new(Buffer::from([11u16, 22]), NonNullable);
+        let unsigned_values = PrimitiveArray::from_iter([11u16, 22]);
         let unsigned_dict =
             DictArray::try_new(unsigned_codes_for.into_array(), unsigned_values.into_array())?;
         let unsigned_array = WidenArray::try_new(
@@ -1125,11 +1125,11 @@ mod tests {
         let cases = [
             (
                 array,
-                PrimitiveArray::new(Buffer::from([11i64, 22]), NonNullable).into_array(),
+                PrimitiveArray::from_iter([11i64, 22]).into_array(),
             ),
             (
                 unsigned_array,
-                PrimitiveArray::new(Buffer::from([11u64, 22]), NonNullable).into_array(),
+                PrimitiveArray::from_iter([11u64, 22]).into_array(),
             ),
         ];
         for (array, expected) in cases {
