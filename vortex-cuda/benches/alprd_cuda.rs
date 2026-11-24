@@ -66,9 +66,7 @@ fn base_value<T: ALPFloat>(row: usize) -> T {
 /// Create an ALP-RD-encoded array of `len` floats with the requested patch frequency.
 ///
 /// The dictionary is sampled from outlier-free values, so each outlier, a value far outside the
-/// base range, has a left part outside the dictionary and becomes a patch. With `bitpacked`
-/// false, the children are left uncompressed like in the ALP benchmark, so only the ALP-RD kernel
-/// is timed. Otherwise they stay bit-packed as the encoder writes them.
+/// base range, has a left part outside the dictionary and becomes a patch.
 fn make_alp_rd_array<T>(len: usize, patch_frequency: f64, bitpacked: bool) -> ALPRDArray
 where
     T: ALPFloat + ALPRDFloat + NativePType,
@@ -110,7 +108,6 @@ where
     encoded
 }
 
-/// Rebuilds `encoded` with its left and right parts decoded to primitive arrays.
 fn with_canonical_children(encoded: ALPRDArray) -> ALPRDArray {
     let mut ctx = SESSION.create_execution_ctx();
     let left_parts = encoded
@@ -134,10 +131,6 @@ fn with_canonical_children(encoded: ALPRDArray) -> ALPRDArray {
     .vortex_expect("failed to rebuild ALP-RD with uncompressed children")
 }
 
-/// Benchmarks ALP-RD decoding of `T`, with bit-packed children when `bitpacked` is true.
-///
-/// Uncompressed children run the standalone kernel alone. Bit-packed children use the default
-/// dispatch, which also times unpacking them.
 fn benchmark_alp_rd_decode_typed<T>(c: &mut Criterion, type_name: &str, bitpacked: bool)
 where
     T: ALPFloat + ALPRDFloat + NativePType + DeviceRepr,
