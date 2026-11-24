@@ -22,6 +22,7 @@ use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::builtins::ArrayBuiltins;
+use vortex_array::dtype::DType;
 use vortex_array::optimizer::ArrayOptimizer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -38,6 +39,7 @@ use super::adaptor::ScanAdaptor;
 use crate::execution::operators::join;
 use crate::execution::pipeline::Scan;
 use crate::execution::pipeline::Split;
+use crate::plan::Eval;
 use crate::plan::ListLengths;
 use crate::plan::ListPack;
 use crate::plan::PlanByPtr;
@@ -240,12 +242,28 @@ pub(crate) fn list_structures<'a>(
     Ok(found)
 }
 
+/// Whether a value of `dtype` holds a list at any depth.
+fn holds_list(dtype: &DType) -> bool {
+    match dtype {
+        DType::List(..) | DType::FixedSizeList(..) => true,
+        DType::Struct(fields, _) => fields.fields().any(|field| holds_list(&field)),
+        DType::Extension(extension) => holds_list(extension.storage_dtype()),
+        _ => false,
+    }
+}
+
 fn collect_list_structures(
     plan: &PlanRef,
     seen: &mut FxHashSet<PlanByPtr>,
     found: &mut Vec<ListStructure>,
 ) -> VortexResult<()> {
     if plan.is_data_source() || !seen.insert(PlanByPtr(plan.clone())) {
+        return Ok(());
+    }
+    // Walking a plan builds its children, the chunks of every column among them. Only an
+    // expression produces a dtype without lists from a child with them, so nothing else whose
+    // dtype holds no list is walked.
+    if !plan.is::<Eval>() && !plan.is::<ListLengths>() && !holds_list(plan.dtype()) {
         return Ok(());
     }
     if let Some(list) = plan.as_opt::<ListPack>() {
