@@ -78,8 +78,9 @@ uv sync --all-packages
 ### Rust toolchain and MSRV
 
 Workspace declares a Minimum Supported Rust Version through `rust-version`
-in the root `Cargo.toml`, which the `Rust (MSRV)` CI job verifies by building
-the publishable crates with exactly that toolchain:
+in the root `Cargo.toml`, which the `Rust (MSRV)` release check verifies before each release by
+building the publishable crates with exactly that toolchain. Pull requests do not run it, so run
+it locally when you change dependencies or use a newer language feature:
 
 ```bash
 cargo hack --rust-version --no-dev-deps --ignore-private check --all-features

@@ -31,8 +31,6 @@
     "dict_compress": 31,
     "dict_mask": 16,
     "dict_unreferenced_mask": 10,
-    "expr_large_struct_pack": 4,
-    "expr_optimize": 1,
     "filter_bool": 51,
     "filter_fixed_width": 30,
     "filter_fsl": 4,
@@ -108,6 +106,10 @@
   "vortex-elias-fano": {
     "unary": 20
   },
+  "vortex-expr": {
+    "expr_large_struct_pack": 4,
+    "expr_optimize": 1
+  },
   "vortex-fastlanes": {
     "bitpack_blocked": 0,
     "bitpack_blocked_decompress": 0,
@@ -115,7 +117,7 @@
     "bitpack_compare_sweep": 56,
     "bitpacking_filter": 0,
     "bitpacking_list_contains": 5,
-    "bitpacking_take": 41,
+    "bitpacking_take": 45,
     "canonicalize_bench": 14,
     "cast_bitpacked": 6,
     "chunked_fsl_take": 2,

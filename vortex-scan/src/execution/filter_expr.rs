@@ -12,15 +12,16 @@ use parking_lot::RwLock;
 use sketches_ddsketch::DDSketch;
 use vortex_array::dtype::Field;
 use vortex_array::expr::BoundExpression;
-use vortex_array::expr::bound::and_collect as bound_and_collect;
 use vortex_array::scalar_fn::builtin::boolean::Boolean;
 use vortex_array::scalar_fn::builtin::operators::BooleanOperator;
 use vortex_error::VortexExpect;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
-use vortex_expr::analysis::referenced_field_paths;
+use vortex_expr::bound::and_collect as bound_and_collect;
 use vortex_functions::dynamic::DynamicExprUpdates;
 use vortex_utils::aliases::hash_set::HashSet;
+
+use crate::analysis::referenced_field_paths;
 
 /// The selectivity histogram quantile to use for reordering conjuncts. Where 0 == no rows match.
 const DEFAULT_SELECTIVITY_QUANTILE: f64 = 0.1;
@@ -333,18 +334,18 @@ mod tests {
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
     use vortex_array::dtype::StructFields;
-    use vortex_array::expr::Expression;
-    use vortex_array::expr::and;
-    use vortex_array::expr::and_collect;
-    use vortex_array::expr::col;
-    use vortex_array::expr::eq;
-    use vortex_array::expr::gt;
-    use vortex_array::expr::lit;
-    use vortex_array::expr::lt;
-    use vortex_array::expr::not;
-    use vortex_array::expr::root;
     use vortex_array::scalar_fn::builtin::operators::CompareOperator;
     use vortex_error::VortexResult;
+    use vortex_expr::Expression;
+    use vortex_expr::and;
+    use vortex_expr::and_collect;
+    use vortex_expr::col;
+    use vortex_expr::eq;
+    use vortex_expr::gt;
+    use vortex_expr::lit;
+    use vortex_expr::lt;
+    use vortex_expr::not;
+    use vortex_expr::root;
     use vortex_functions::expr::dynamic;
 
     use super::FilterExpr;

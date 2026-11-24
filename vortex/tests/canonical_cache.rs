@@ -26,6 +26,7 @@ use vortex::array::test_harness::CanonicalCacheStats;
 use vortex::array::test_harness::canonical_cache_stats;
 use vortex::compressor::BtrBlocksCompressorBuilder;
 use vortex::error::VortexResult;
+use vortex::expr::ArrayExprExt;
 use vortex::expr::Expression;
 use vortex::expr::gt;
 use vortex::expr::like;

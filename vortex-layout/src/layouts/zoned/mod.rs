@@ -37,7 +37,7 @@ use vortex_array::SerializeMetadata;
 use vortex_array::aggregate_fn::AggregateFnRef;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::TryFromBytes;
-use vortex_array::expr::stats::Stat;
+use vortex_array::stats::Stat;
 use vortex_array::stats::as_stat_bitset_bytes;
 use vortex_array::stats::stats_from_bitset_bytes;
 use vortex_error::VortexExpect;
