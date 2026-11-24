@@ -284,7 +284,10 @@ fn fill_null_canonical(
                 arr.dtype()
             )
         }
-        CanonicalView::Null(_) | CanonicalView::Union(_) | CanonicalView::Variant(_) => {
+        CanonicalView::Null(_)
+        | CanonicalView::FixedSizeBinary(_)
+        | CanonicalView::Union(_)
+        | CanonicalView::Variant(_) => {
             vortex_bail!("fill_null is not supported for {} arrays", arr.dtype())
         }
     }

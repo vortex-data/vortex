@@ -15,6 +15,7 @@ use vortex_array::arrays::MapArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::bool::BoolSlots;
 use vortex_array::arrays::decimal::DecimalSlots;
+use vortex_array::arrays::fixed_size_binary::FixedSizeBinarySlots;
 use vortex_array::arrays::list::ListArrayExt;
 use vortex_array::arrays::list::ListArraySlotsExt;
 use vortex_array::arrays::listview::ListViewArraySlotsExt;
@@ -119,6 +120,9 @@ impl CascadingCompressor {
             Canonical::Primitive(array) => (PrimitiveSlots::VALIDITY_CHILD, array.as_ref()),
             Canonical::Decimal(array) => (DecimalSlots::VALIDITY_CHILD, array.as_ref()),
             Canonical::VarBinView(array) => (VarBinViewSlots::VALIDITY_CHILD, array.as_ref()),
+            Canonical::FixedSizeBinary(array) => {
+                (FixedSizeBinarySlots::VALIDITY_CHILD, array.as_ref())
+            }
             _ => return Ok(canonical),
         };
         let Some(validity) = &array.slots()[slot] else {

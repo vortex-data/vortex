@@ -62,6 +62,7 @@ use crate::dtype::half::f16;
 use crate::extension::datetime::TimeUnit;
 use crate::extension::datetime::Timestamp;
 use crate::scalar::Scalar;
+use crate::scalar::ScalarValue;
 use crate::validity::Validity;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
@@ -188,6 +189,7 @@ fn builder_reuses_its_allocator_after_finish() {
 #[case::f64(DType::Primitive(PType::F64, Nullability::NonNullable))]
 #[case::utf8(DType::Utf8(Nullability::NonNullable))]
 #[case::binary(DType::Binary(Nullability::NonNullable))]
+#[case::fixed_size_binary(DType::FixedSizeBinary(4, Nullability::NonNullable))]
 #[case::decimal128(DType::Decimal(DecimalDType::new(10, 2), Nullability::NonNullable))]
 #[case::struct_simple(DType::Struct(
     StructFields::from_iter([
@@ -275,7 +277,9 @@ fn test_append_zeros_matches_default_value(#[case] dtype: DType) {
 #[case::utf8(DType::Utf8(Nullability::NonNullable), 1)]
 #[case::utf8_multiple(DType::Utf8(Nullability::NonNullable), 3)]
 #[case::binary(DType::Binary(Nullability::NonNullable), 1)]
+#[case::fixed_size_binary(DType::FixedSizeBinary(4, Nullability::NonNullable), 1)]
 #[case::binary_multiple(DType::Binary(Nullability::NonNullable), 3)]
+#[case::fixed_size_binary_multiple(DType::FixedSizeBinary(4, Nullability::NonNullable), 3)]
 #[case::decimal(DType::Decimal(DecimalDType::new(10, 2), Nullability::NonNullable), 1)]
 #[case::decimal_multiple(DType::Decimal(DecimalDType::new(10, 2), Nullability::NonNullable), 3)]
 #[case::list(
@@ -790,7 +794,13 @@ fn create_test_scalars_for_dtype(dtype: &DType, count: usize) -> Vec<Scalar> {
 
     for i in 0..count {
         let scalar = match dtype {
-            DType::FixedSizeBinary(..) => vortex_panic!("FixedSizeBinary is not supported yet"),
+            DType::FixedSizeBinary(byte_width, _) => Scalar::try_new(
+                dtype.clone(),
+                Some(ScalarValue::Binary(
+                    (0..*byte_width).map(|j| (i as u32 + j) as u8).collect(),
+                )),
+            )
+            .vortex_expect("test scalar has the dtype's byte width"),
             DType::Null => Scalar::null(dtype.clone()),
             DType::Bool(n) => Scalar::bool(i % 2 == 0, *n),
             DType::Primitive(ptype, n) => match ptype {
@@ -896,6 +906,7 @@ fn assert_scalars_equal(actual: &Scalar, expected: &Scalar, dtype: &DType, index
 #[case::f64(DType::Primitive(PType::F64, Nullability::Nullable))]
 #[case::utf8(DType::Utf8(Nullability::Nullable))]
 #[case::binary(DType::Binary(Nullability::Nullable))]
+#[case::fixed_size_binary(DType::FixedSizeBinary(4, Nullability::Nullable))]
 fn test_append_scalar_mixed_nulls(#[case] dtype: DType) {
     let mut builder = builder_with_capacity_in(&dtype, 6, BufferAllocatorRef::static_ref());
 

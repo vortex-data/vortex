@@ -10,8 +10,10 @@ use vortex_buffer::BufferAllocatorRef;
 use vortex_buffer::BufferMut;
 use vortex_buffer::BufferString;
 use vortex_buffer::ByteBuffer;
+use vortex_buffer::ByteBufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 
 use crate::ArrayRef;
@@ -24,6 +26,7 @@ use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
 use crate::arrays::DecimalArray;
 use crate::arrays::ExtensionArray;
+use crate::arrays::FixedSizeBinaryArray;
 use crate::arrays::FixedSizeListArray;
 use crate::arrays::ListViewArray;
 use crate::arrays::MapArray;
@@ -35,6 +38,7 @@ use crate::arrays::UnionArray;
 use crate::arrays::VarBinViewArray;
 use crate::arrays::VariantArray;
 use crate::arrays::varbinview::BinaryView;
+use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
 use crate::builders::VarBinViewBuilder;
 use crate::builders::builder_with_capacity_in;
@@ -66,7 +70,6 @@ pub(crate) fn constant_canonicalize(
     };
 
     Ok(match array.dtype() {
-        DType::FixedSizeBinary(..) => vortex_panic!("FixedSizeBinary is not supported yet"),
         DType::Null => Canonical::Null(NullArray::new(array.len())),
         DType::Bool(..) => Canonical::Bool(BoolArray::new(
             if scalar.as_bool().value().unwrap_or_default() {
@@ -125,6 +128,15 @@ pub(crate) fn constant_canonicalize(
                 array.len(),
                 ctx.allocator(),
             ))
+        }
+        DType::FixedSizeBinary(byte_width, _) => {
+            Canonical::FixedSizeBinary(constant_canonical_fixed_size_binary(
+                scalar.as_binary().value(),
+                *byte_width,
+                array.len(),
+                validity,
+                ctx.allocator(),
+            )?)
         }
         DType::List(..) => Canonical::List(constant_canonical_list_array(
             scalar,
@@ -498,6 +510,35 @@ fn tile_fixed_size_list_elements(
                 .into_array()
         }
     }
+}
+
+/// Repeats `value` for `len` rows, or fills the rows with zero bytes when the constant is null.
+fn constant_canonical_fixed_size_binary(
+    value: Option<&ByteBuffer>,
+    byte_width: u32,
+    len: usize,
+    validity: Validity,
+    allocator: &BufferAllocatorRef,
+) -> VortexResult<FixedSizeBinaryArray> {
+    let width = byte_width as usize;
+    let total = len
+        .checked_mul(width)
+        .ok_or_else(|| vortex_err!("constant fixed-size binary length overflows usize"))?;
+    let mut values = ByteBufferMut::with_capacity_in(total, allocator.clone());
+    match value {
+        Some(value) => {
+            for _ in 0..len {
+                values.extend_from_slice(value.as_slice());
+            }
+        }
+        None => values.push_n(0, total),
+    }
+    FixedSizeBinaryArray::try_new_handle(
+        BufferHandle::new_host(values.freeze()),
+        byte_width,
+        len,
+        validity,
+    )
 }
 
 #[cfg(test)]

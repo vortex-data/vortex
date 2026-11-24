@@ -11,13 +11,14 @@ use arbitrary::Result;
 use arbitrary::Unstructured;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::Buffer;
+use vortex_buffer::ByteBuffer;
 use vortex_error::VortexExpect;
-use vortex_error::vortex_panic;
 
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::arrays::BoolArray;
 use crate::arrays::ChunkedArray;
+use crate::arrays::FixedSizeBinaryArray;
 use crate::arrays::NullArray;
 use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
@@ -25,6 +26,7 @@ use crate::arrays::StructArray;
 use crate::arrays::VarBinArray;
 use crate::arrays::VarBinViewArray;
 use crate::arrays::primitive::PrimitiveArrayExt;
+use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
 use crate::builders::DecimalBuilder;
 use crate::builders::FixedSizeListBuilder;
@@ -115,7 +117,9 @@ fn random_array_chunk(
     chunk_len: Option<usize>,
 ) -> Result<ArrayRef> {
     match dtype {
-        DType::FixedSizeBinary(..) => vortex_panic!("FixedSizeBinary is not supported yet"),
+        DType::FixedSizeBinary(byte_width, n) => {
+            random_fixed_size_binary(u, *byte_width, *n, chunk_len)
+        }
         DType::Null => Ok(NullArray::new(
             chunk_len
                 .map(Ok)
@@ -403,6 +407,25 @@ fn random_primitive<'a, T: Arbitrary<'a> + NativePType>(
     let v = arbitrary_vec_of_len::<T>(u, len)?;
     let validity = random_validity(u, nullability, v.len())?;
     Ok(PrimitiveArray::new(Buffer::copy_from(v), validity).into_array())
+}
+
+fn random_fixed_size_binary(
+    u: &mut Unstructured,
+    byte_width: u32,
+    nullability: Nullability,
+    len: Option<usize>,
+) -> Result<ArrayRef> {
+    let len = len.map(Ok).unwrap_or_else(|| u.int_in_range(0..=100))?;
+    let values = u.bytes(len * byte_width as usize)?.to_vec();
+    let validity = random_validity(u, nullability, len)?;
+    Ok(FixedSizeBinaryArray::try_new_handle(
+        BufferHandle::new_host(ByteBuffer::from(values)),
+        byte_width,
+        len,
+        validity,
+    )
+    .vortex_expect("random fixed-size binary values match their length")
+    .into_array())
 }
 
 fn random_bool(

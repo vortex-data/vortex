@@ -30,6 +30,7 @@ use crate::arrays::Constant;
 use crate::arrays::Decimal;
 use crate::arrays::Dict;
 use crate::arrays::Extension;
+use crate::arrays::FixedSizeBinary;
 use crate::arrays::FixedSizeList;
 use crate::arrays::List;
 use crate::arrays::ListView;
@@ -98,6 +99,7 @@ impl Default for ArraySession {
         this.register(Primitive);
         this.register(Decimal);
         this.register(VarBinView);
+        this.register(FixedSizeBinary);
         this.register(ListView);
         this.register(Map);
         this.register(FixedSizeList);
