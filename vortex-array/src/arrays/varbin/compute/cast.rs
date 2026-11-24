@@ -110,8 +110,8 @@ mod tests {
     use crate::compute::conformance::cast::test_cast_conformance;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
-    use crate::expr::stats::Precision;
-    use crate::expr::stats::Stat;
+    use crate::stats::Precision;
+    use crate::stats::Stat;
     use crate::validity::Validity;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);

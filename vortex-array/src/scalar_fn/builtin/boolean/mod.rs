@@ -21,9 +21,6 @@ use crate::arrays::Constant;
 use crate::arrays::ScalarFnArray;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
-use crate::expr::BoundExpression;
-use crate::expr::bound;
-use crate::expr::display::ExprDisplay;
 use crate::matcher::Matcher;
 use crate::proto::expr as pb;
 use crate::require_input;
@@ -38,8 +35,9 @@ use crate::scalar_fn::ScalarFnVTable;
 use crate::scalar_fn::ScalarFnVTableExt;
 use crate::scalar_fn::builtin::binary::binary_child_name;
 use crate::scalar_fn::builtin::binary::fmt_infix;
-use crate::scalar_fn::builtin::literal::Literal;
+use crate::scalar_fn::builtin::cast::Cast;
 use crate::scalar_fn::builtin::operators::BooleanOperator;
+use crate::scalar_fn::display::ExprDisplay;
 
 mod kernel;
 pub use kernel::BooleanExecuteAdaptor;
@@ -148,19 +146,15 @@ impl ScalarFnVTable for Boolean {
         kernel::execute_boolean(lhs, rhs, *operator, ctx)
     }
 
-    fn simplify(
+    fn simplify<T: ReduceNode>(
         &self,
         operator: &BooleanOperator,
-        expr: &BoundExpression,
-    ) -> VortexResult<Option<BoundExpression>> {
-        let lhs = expr.child(0);
-        let rhs = expr.child(1);
+        node: &T,
+    ) -> VortexResult<Option<T>> {
+        let lhs = node.child(0);
+        let rhs = node.child(1);
 
-        let bool_literal = |expr: &BoundExpression| {
-            expr.as_opt::<Literal>()?
-                .as_bool_opt()
-                .map(|value| value.value())
-        };
+        let bool_constant = |node: &T| node.as_constant()?.as_bool_opt().map(|value| value.value());
 
         // AND/OR use Kleene three-valued logic. `None` below is a boolean null.
         //
@@ -175,34 +169,37 @@ impl ScalarFnVTable for Boolean {
         // - null  OR null => null
         //
         // Other null cases either fall out of the identity/annihilator rules
-        // above (`null AND true`, `null OR false`) or cannot be simplified under
-        // Kleene semantics (`null AND x`, `null OR x` for non-literal `x`).
-        // Simplification must keep the result nullability binding inferred: the annihilator
-        // literal and the identity child can both be less nullable than `lhs OP rhs`.
-        let result_nullable = lhs.dtype().is_nullable() || rhs.dtype().is_nullable();
+        // above (`null AND true`, `null OR false`) or cannot be reduced under
+        // Kleene semantics (`null AND x`, `null OR x` for non-constant `x`).
+        // Reduction must keep the result nullability binding inferred: the annihilator
+        // constant and the identity child can both be less nullable than `lhs OP rhs`.
+        let result_nullable = lhs.node_dtype()?.is_nullable() || rhs.node_dtype()?.is_nullable();
         let nullability = Nullability::from(result_nullable);
-        let bool_lit = |value: bool| bound::lit(Scalar::bool(value, nullability));
-        let widen = |child: &BoundExpression| {
-            if child.dtype().is_nullable() == result_nullable {
-                child.clone()
+        let bool_constant_node = |value: bool| node.new_constant(Scalar::bool(value, nullability));
+        let widen = |child: T| -> VortexResult<T> {
+            if child.node_dtype()?.is_nullable() == result_nullable {
+                Ok(child)
             } else {
-                bound::cast(child.clone(), DType::Bool(nullability))
+                child.new_node(
+                    Cast.bind(DType::Bool(nullability)),
+                    std::slice::from_ref(&child),
+                )
             }
         };
 
         Ok(match operator {
-            BooleanOperator::And => match (bool_literal(lhs), bool_literal(rhs)) {
-                (Some(Some(false)), _) | (_, Some(Some(false))) => Some(bool_lit(false)),
-                (Some(Some(true)), _) => Some(widen(rhs)),
-                (_, Some(Some(true))) => Some(widen(lhs)),
-                (Some(None), Some(None)) => Some(widen(lhs)),
+            BooleanOperator::And => match (bool_constant(&lhs), bool_constant(&rhs)) {
+                (Some(Some(false)), _) | (_, Some(Some(false))) => Some(bool_constant_node(false)),
+                (Some(Some(true)), _) => Some(widen(rhs)?),
+                (_, Some(Some(true))) => Some(widen(lhs)?),
+                (Some(None), Some(None)) => Some(widen(lhs)?),
                 _ => None,
             },
-            BooleanOperator::Or => match (bool_literal(lhs), bool_literal(rhs)) {
-                (Some(Some(true)), _) | (_, Some(Some(true))) => Some(bool_lit(true)),
-                (Some(Some(false)), _) => Some(widen(rhs)),
-                (_, Some(Some(false))) => Some(widen(lhs)),
-                (Some(None), Some(None)) => Some(widen(lhs)),
+            BooleanOperator::Or => match (bool_constant(&lhs), bool_constant(&rhs)) {
+                (Some(Some(true)), _) | (_, Some(Some(true))) => Some(bool_constant_node(true)),
+                (Some(Some(false)), _) => Some(widen(rhs)?),
+                (_, Some(Some(false))) => Some(widen(lhs)?),
+                (Some(None), Some(None)) => Some(widen(lhs)?),
                 _ => None,
             },
         })
@@ -283,6 +280,3 @@ impl ScalarFnVTable for Boolean {
         true
     }
 }
-
-#[cfg(test)]
-mod tests;

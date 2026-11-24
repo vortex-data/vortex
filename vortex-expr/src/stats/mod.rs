@@ -21,3 +21,4 @@ pub mod derive;
 pub mod expr;
 pub mod rewrite;
 pub mod session;
+pub mod stat_fn;

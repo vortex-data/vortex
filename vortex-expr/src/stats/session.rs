@@ -87,6 +87,11 @@ impl StatsSession {
     ) -> Option<StatDerivationRef> {
         self.stat_derivations.read().get(&scalar_fn_id).cloned()
     }
+
+    /// Returns true if any rewrite rule is registered for `scalar_fn_id`.
+    pub fn has_rewrite_for(&self, scalar_fn_id: ScalarFnId) -> bool {
+        self.rewrite_rules.read().contains_key(&scalar_fn_id)
+    }
 }
 
 impl SessionVar for StatsSession {
