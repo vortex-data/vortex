@@ -48,8 +48,9 @@ jobs:
               - ".github/workflows/codspeed.yml"
 
   # CodSpeed rejects an upload with too many benchmarks, so the simulation benchmarks run in
-  # shards of at most 800. The planner balances recorded target runtimes across the available
-  # slots, keeping allocation modes separate. It reads only manifests and committed estimates.
+  # shards of at most 800. The planner uses as few shards as fit, because each one repeats the
+  # build, and balances recorded target runtimes across them, keeping allocation modes separate.
+  # It reads only manifests and committed estimates.
   plan-codspeed:
     name: "Plan Codspeed shards"
     if: github.event.pull_request.draft != true
@@ -70,7 +71,7 @@ jobs:
         # Fixed slots, so that each one can be a required check. The plan fills as many as it
         # needs; an unused slot runs no steps and succeeds. Keep in sync with MAX_SHARDS in
         # scripts/codspeed_shards.py.
-        shard: [1, 2, 3]
+        shard: [1, 2, 3, 4, 5]
     name: "Benchmark with Codspeed (Shard ${{ matrix.shard }})"
     timeout-minutes: 60
     env:

@@ -70,36 +70,37 @@ def test_runtime_balancing_splits_a_package_even_below_the_count_cap():
     durations = {
         ("vortex-buffer", name): seconds for name, seconds in zip("abcd", [100.0, 90.0, 10.0, 1.0], strict=True)
     }
-    plan = shards.plan(counts, cap=100, durations=durations, max_shards=2)
+    plan = shards.plan(counts, cap=2, durations=durations)
     assert [_targets(s) for s in plan] == [{"a", "d"}, {"b", "c"}]
     assert [s["seconds"] for s in plan] == [101, 100]
 
 
-def test_spare_slots_go_to_the_slower_allocation_pool():
+def test_plan_uses_the_fewest_shards_that_fit_the_cap():
     counts = {("vortex-buffer", name): 1 for name in "abcd"}
     counts[("vortex-array", "take_x")] = 1
     durations = {target: 40.0 for target in counts}
-    durations[("vortex-array", "take_x")] = 10.0
     plan = shards.plan(counts, durations=durations)
-    assert len(plan) == shards.MAX_SHARDS
-    assert sum(not s["exclude-allocations"] for s in plan) == shards.MAX_SHARDS - 1
-    assert [_targets(s) for s in plan if s["exclude-allocations"]] == [{"take_x"}]
+    assert [(_targets(s), s["exclude-allocations"]) for s in plan] == [
+        ({"a", "b", "c", "d"}, False),
+        ({"take_x"}, True),
+    ]
 
 
 def test_small_packages_stay_together_when_they_fit_the_runtime_budget():
     counts = {("vortex-buffer", name): 1 for name in "ab"}
     counts.update({("vortex-fastlanes", name): 1 for name in "cd"})
     durations = {target: 10.0 if target[0] == "vortex-buffer" else 20.0 for target in counts}
-    plan = shards.plan(counts, durations=durations, max_shards=2)
+    plan = shards.plan(counts, cap=3, durations=durations)
     by_target = {name: s["shard"] for s in plan for name in _targets(s)}
     assert by_target["a"] == by_target["b"]
     assert by_target["c"] != by_target["d"]
 
 
-def test_runtime_balancing_respects_the_count_cap():
+def test_plan_adds_a_shard_when_targets_do_not_pack_into_the_minimum():
+    # 180 benchmarks need two shards of 100 by count, but no two 60-benchmark targets fit together.
     counts = {("vortex-buffer", name): 60 for name in "abc"}
     durations = {target: 1.0 for target in counts}
-    plan = shards.plan(counts, cap=100, durations=durations, max_shards=3)
+    plan = shards.plan(counts, cap=100, durations=durations)
     assert len(plan) == 3
     assert all(s["benchmarks"] == 60 for s in plan)
 

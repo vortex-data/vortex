@@ -5,9 +5,10 @@
 """Plan the CodSpeed simulation shards.
 
 CodSpeed rejects an upload with too many benchmarks and recommends fewer than 1,000 per upload, so
-the simulation benchmarks are split into shards of at most `CAP` benchmarks each. Use the available
-slots to balance recorded target runtimes, including setup inside each benchmark binary. The plan
-reads manifests, benchmark counts, and durations, so it needs no Rust toolchain.
+the simulation benchmarks are split into shards of at most `CAP` benchmarks each. The plan uses as
+few shards as fit under the cap, because every shard repeats the build, and balances recorded target
+runtimes, including setup inside each benchmark binary, across them. The plan reads manifests,
+benchmark counts, and durations, so it needs no Rust toolchain.
 
     python3 scripts/codspeed_shards.py plan >> "$GITHUB_OUTPUT"
     python3 scripts/codspeed_shards.py counts job-log.txt [...] > scripts/codspeed_bench_counts.json
@@ -38,8 +39,9 @@ DURATIONS_PATH = REPO_ROOT / "scripts" / "codspeed_bench_durations.json"
 CAP = 800
 
 # Shard slots in the `bench-codspeed` matrix of `.github/workflows/codspeed.yml`. The slots are fixed
-# so that each one can be a required check; slots the plan does not use succeed without running.
-MAX_SHARDS = 3
+# so that each one can be a required check; slots the plan does not use succeed without running. The
+# plan fills only as many as the benchmark counts need, leaving the rest for growth.
+MAX_SHARDS = 5
 
 # Benchmarks measured for a target missing from the counts file, until the file is regenerated.
 DEFAULT_COUNT = 100
@@ -139,13 +141,35 @@ def load_durations(path: Path = DURATIONS_PATH) -> dict[Target, float]:
     return {(package, name): seconds for package, benches in raw.items() for name, seconds in benches.items()}
 
 
+def _pack(
+    targets: list[Target], slots: int, counts: dict[Target, int], seconds: dict[Target, float], cap: int
+) -> list[list[Target]] | None:
+    """Spread `targets` over `slots` bins by runtime, or return `None` if they do not fit the cap."""
+    budget = sum(seconds[t] for t in targets) / slots
+    items = []
+    for _, group in itertools.groupby(targets, key=lambda t: t[0]):
+        package = list(group)
+        if sum(seconds[t] for t in package) <= budget and sum(counts[t] for t in package) <= cap:
+            items.append(package)
+        else:
+            items.extend([target] for target in package)
+    bins: list[list[Target]] = [[] for _ in range(slots)]
+    for item in sorted(items, key=lambda ts: (-sum(seconds[t] for t in ts), -sum(counts[t] for t in ts), ts)):
+        count = sum(counts[t] for t in item)
+        candidates = [b for b in bins if sum(counts[t] for t in b) + count <= cap]
+        if not candidates:
+            return None
+        min(candidates, key=lambda b: sum(seconds[t] for t in b)).extend(item)
+    return bins
+
+
 def plan(
     counts: dict[Target, int],
     cap: int = CAP,
     durations: dict[Target, float] | None = None,
     max_shards: int = MAX_SHARDS,
 ) -> list[Shard]:
-    """Balance target runtimes across available slots, with at most `cap` benchmarks per shard.
+    """Pack targets into the fewest shards of at most `cap` benchmarks, balancing their runtimes.
 
     Allocation modes stay separate. Keep small packages together to limit repeated builds, but
     split a package above the per-shard runtime budget or count cap at target boundaries. Keep
@@ -161,34 +185,17 @@ def plan(
     for target in sorted(counts):
         pools[excludes_allocations(target)].append(target)
 
-    slots = {exclude: max(1, math.ceil(sum(counts[t] for t in targets) / cap)) for exclude, targets in pools.items()}
-    if sum(slots.values()) > max_shards:
+    packed = {}
+    for exclude, targets in sorted(pools.items()):
+        slots = max(1, math.ceil(sum(counts[t] for t in targets) / cap))
+        while (bins := _pack(targets, slots, counts, seconds, cap)) is None:
+            slots += 1
+        packed[exclude] = bins
+    if sum(len(bins) for bins in packed.values()) > max_shards:
         raise SystemExit(f"benchmark counts require more than {max_shards} shard slots")
-    while sum(slots.values()) < max_shards:
-        candidates = [exclude for exclude in sorted(pools) if slots[exclude] < len(pools[exclude])]
-        if not candidates:
-            break
-        exclude = max(candidates, key=lambda mode: sum(seconds[t] for t in pools[mode]) / slots[mode])
-        slots[exclude] += 1
 
     shards: list[Shard] = []
-    for exclude in sorted(pools):
-        budget = sum(seconds[t] for t in pools[exclude]) / slots[exclude]
-        items = []
-        for _, group in itertools.groupby(pools[exclude], key=lambda t: t[0]):
-            targets = list(group)
-            if sum(seconds[t] for t in targets) <= budget and sum(counts[t] for t in targets) <= cap:
-                items.append(targets)
-            else:
-                items.extend([target] for target in targets)
-        bins: list[list[Target]] = [[] for _ in range(slots[exclude])]
-        for item in sorted(items, key=lambda ts: (-sum(seconds[t] for t in ts), -sum(counts[t] for t in ts), ts)):
-            count = sum(counts[t] for t in item)
-            candidates = [b for b in bins if sum(counts[t] for t in b) + count <= cap]
-            if not candidates:
-                raise SystemExit(f"cannot pack benchmarks into {max_shards} shard slots under the {cap}-benchmark cap")
-            lightest = min(candidates, key=lambda b: sum(seconds[t] for t in b))
-            lightest.extend(item)
+    for exclude, bins in packed.items():
         for targets in bins:
             if not targets:
                 continue
