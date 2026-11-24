@@ -7,11 +7,13 @@
 use std::fmt::Debug;
 
 use vortex_array::ArrayRef;
+use vortex_array::ExecutionCtx;
 
 use crate::scheme::ChildDecision;
 use crate::scheme::ChildRequest;
 use crate::scheme::CompressorContext;
 use crate::scheme::SchemeId;
+use crate::stats::ArrayAndStats;
 
 /// How the compressor chooses the scheme for one array, as a [`CompressionPolicy`] directs.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -32,6 +34,11 @@ pub enum SchemeSelection {
     /// Schemes that are not eligible, fail, or do not make the array smaller are skipped. If none
     /// is left, the array stays canonical.
     Best(Vec<SchemeId>),
+    /// Estimate only these schemes and compress with the winner.
+    ///
+    /// Schemes that are not eligible are ignored. If none of them is eligible, the compressor
+    /// estimates as for [`Estimate`](Self::Estimate).
+    EstimateAmong(Vec<SchemeId>),
 }
 
 /// An array the compressor is about to choose a scheme for, as seen by a [`CompressionPolicy`].
@@ -82,6 +89,21 @@ pub trait CompressionPolicy: Debug + Send + Sync {
     /// Chooses how the compressor selects the scheme for an array.
     fn select_scheme(&self, _request: &SiteRequest<'_>) -> SchemeSelection {
         SchemeSelection::Estimate
+    }
+
+    /// Chooses how the compressor selects the scheme for an array, with access to the statistics
+    /// the eligible schemes requested.
+    ///
+    /// Statistics read through `data` are cached and shared with the schemes, so a policy that
+    /// reads them adds no extra pass over the array. Defaults to
+    /// [`select_scheme`](Self::select_scheme).
+    fn select_scheme_with_stats(
+        &self,
+        request: &SiteRequest<'_>,
+        _data: &ArrayAndStats,
+        _exec_ctx: &mut ExecutionCtx,
+    ) -> SchemeSelection {
+        self.select_scheme(request)
     }
 
     /// Ranks a candidate output of [`SchemeSelection::Best`]; the lowest wins.
