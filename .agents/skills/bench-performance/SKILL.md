@@ -49,7 +49,7 @@ Do not wait for a deep code read before showing benchmark comparisons or first s
 
    ```bash
    FEATURE_TOGGLE=1 UV_CACHE_DIR=/private/tmp/vortex-uv-cache \
-     uv run --project bench-orchestrator vx-bench run <benchmark> \
+     uv run --project benchmarks/bench-orchestrator vx-bench run <benchmark> \
      -e <engine> \
      -f <baseline-format>,<candidate-format> \
      -q <query> \
