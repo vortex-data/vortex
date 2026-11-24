@@ -202,6 +202,9 @@ impl Scheme for FloatWidenScheme {
                 let sample_mask = sample_primitive
                     .validity()?
                     .execute_mask(sample_primitive.len(), exec_ctx)?;
+                if matches!(sample_mask, Mask::AllFalse(_)) {
+                    return Ok(EstimateVerdict::Skip);
+                }
                 let compressed = compress_with_target(
                     compressor,
                     &sample_primitive,
@@ -549,6 +552,27 @@ mod tests {
         assert!(
             !compressed.is::<Widen>(),
             "expected RLE or Dict to beat Widen on two-run column, got {} ({} bytes)",
+            compressed.encoding_id(),
+            compressed.nbytes(),
+        );
+        assert_arrays_eq!(compressed, input, &mut ctx);
+
+        Ok(())
+    }
+
+    #[test]
+    fn all_null_sample_does_not_crowd_out_better_scheme() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let values = std::iter::repeat_n(None::<f32>, 3_072)
+            .chain(std::iter::repeat_n(Some(1.0_f32), 511))
+            .chain(std::iter::repeat_n(Some(2.0_f32), 512));
+        let input = PrimitiveArray::from_option_iter(values);
+
+        let compressed =
+            unrestricted_compressor().compress(&input.clone().into_array(), &mut ctx)?;
+        assert!(
+            !compressed.is::<Widen>(),
+            "expected Sparse/RLE/Dict to beat Widen when sampled chunks are all null, got {} ({} bytes)",
             compressed.encoding_id(),
             compressed.nbytes(),
         );
