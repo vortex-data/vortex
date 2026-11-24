@@ -115,7 +115,7 @@ fn expand_run_answers(
             array.len(),
         )
     };
-    let answers = rle_decompress(&answers, ctx)?;
+    let answers = rle_decompress(answers, ctx)?;
     let bits = BitBufferMut::from(answers.as_slice::<u8>()).freeze();
 
     Ok(BoolArray::new(bits, validity).into_array())

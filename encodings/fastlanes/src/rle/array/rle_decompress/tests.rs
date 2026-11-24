@@ -55,7 +55,7 @@ fn test_decode_rejects_out_of_bounds_index() -> VortexResult<()> {
         0,
         FL_CHUNK_SIZE,
     )?;
-    assert!(rle_decompress(&rle, &mut ctx).is_err());
+    assert!(rle_decompress(rle, &mut ctx).is_err());
     Ok(())
 }
 
@@ -72,7 +72,7 @@ fn test_decode_rejects_index_into_next_chunk() -> VortexResult<()> {
     let indices = PrimitiveArray::from_iter(indices).into_array();
 
     let rle = RLE::try_new(values, indices, values_idx_offsets, 0, 2 * FL_CHUNK_SIZE)?;
-    assert!(rle_decompress(&rle, &mut ctx).is_err());
+    assert!(rle_decompress(rle, &mut ctx).is_err());
     Ok(())
 }
 
@@ -84,7 +84,7 @@ fn test_decode_rejects_non_monotonic_offsets() -> VortexResult<()> {
     let indices = PrimitiveArray::from_iter([0u16, 1].repeat(FL_CHUNK_SIZE)).into_array();
 
     let rle = RLE::try_new(values, indices, values_idx_offsets, 0, 2 * FL_CHUNK_SIZE)?;
-    assert!(rle_decompress(&rle, &mut ctx).is_err());
+    assert!(rle_decompress(rle, &mut ctx).is_err());
     Ok(())
 }
 
@@ -97,7 +97,7 @@ fn test_decode_rejects_offsets_beyond_values() -> VortexResult<()> {
     let indices = PrimitiveArray::from_iter([0u16, 1].repeat(FL_CHUNK_SIZE)).into_array();
 
     let rle = RLE::try_new(values, indices, values_idx_offsets, 0, 2 * FL_CHUNK_SIZE)?;
-    assert!(rle_decompress(&rle, &mut ctx).is_err());
+    assert!(rle_decompress(rle, &mut ctx).is_err());
     Ok(())
 }
 
@@ -110,7 +110,7 @@ fn test_decode_rejects_empty_chunk() -> VortexResult<()> {
     let indices = PrimitiveArray::from_iter([0u16, 1].repeat(FL_CHUNK_SIZE)).into_array();
 
     let rle = RLE::try_new(values, indices, values_idx_offsets, 0, 2 * FL_CHUNK_SIZE)?;
-    assert!(rle_decompress(&rle, &mut ctx).is_err());
+    assert!(rle_decompress(rle, &mut ctx).is_err());
     Ok(())
 }
 
@@ -133,7 +133,7 @@ fn test_decode_rejects_out_of_bounds_index_at_valid_position() -> VortexResult<(
     .into_array();
 
     let rle = RLE::try_new(values, indices, values_idx_offsets, 0, FL_CHUNK_SIZE)?;
-    assert!(rle_decompress(&rle, &mut ctx).is_err());
+    assert!(rle_decompress(rle, &mut ctx).is_err());
     Ok(())
 }
 
@@ -157,7 +157,7 @@ fn test_decode_tolerates_garbage_index_at_null_position() -> VortexResult<()> {
     .into_array();
 
     let rle = RLE::try_new(values, indices, values_idx_offsets, 0, FL_CHUNK_SIZE)?;
-    let decoded = rle_decompress(&rle, &mut ctx)?;
+    let decoded = rle_decompress(rle, &mut ctx)?;
     let expected = PrimitiveArray::from_option_iter(
         (0..FL_CHUNK_SIZE).map(|i| (i != 100).then_some(if i % 2 == 0 { 10u32 } else { 20 })),
     );
@@ -174,7 +174,7 @@ fn test_decode_in_bounds_indices_roundtrip() -> VortexResult<()> {
         .into_array();
 
     let rle = RLE::try_new(values, indices, values_idx_offsets, 0, FL_CHUNK_SIZE)?;
-    let decoded = rle_decompress(&rle, &mut ctx)?;
+    let decoded = rle_decompress(rle, &mut ctx)?;
     let expected =
         PrimitiveArray::from_iter([10u32, 20].iter().cycle().take(FL_CHUNK_SIZE).copied());
     assert_arrays_eq!(decoded, expected, &mut ctx);
@@ -348,7 +348,7 @@ fn decode_delta_values_idx_offsets() -> VortexResult<()> {
         rle.len(),
     )?;
 
-    let decoded = rle_decompress(&rle, &mut ctx)?;
+    let decoded = rle_decompress(rle, &mut ctx)?;
     assert_arrays_eq!(decoded, input, &mut ctx);
     Ok(())
 }
