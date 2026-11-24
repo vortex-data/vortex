@@ -19,7 +19,9 @@ use anyhow::bail;
 use clap::Parser;
 use clap::Subcommand;
 use compressor_lab::candidates;
+use compressor_lab::fetch::RawData;
 use compressor_lab::identity::CodeIdentity;
+use compressor_lab::load::DataLocation;
 use compressor_lab::machine::MachineInfo;
 use compressor_lab::plan::PlannedRun;
 use compressor_lab::plan::TaskKind;
@@ -70,6 +72,10 @@ enum Command {
         /// Where the plan's relative Parquet paths are resolved from (the spec's directory).
         #[arg(long, default_value = ".")]
         data_root: PathBuf,
+        /// Where `reference` sources' files are cached (default `$VX_LAB_CACHE`, else
+        /// `~/.cache/vx-lab`). `copy` sources are kept in the store under `raw/`.
+        #[arg(long)]
+        cache_dir: Option<PathBuf>,
         /// Run with a dirty checkout or a binary that does not match the plan's commit.
         #[arg(long)]
         allow_dirty: bool,
@@ -141,6 +147,14 @@ enum PlanCommand {
         /// Replace a different plan already in `out`.
         #[arg(long)]
         replace: bool,
+        /// Where `reference` sources' files are cached (default `$VX_LAB_CACHE`, else
+        /// `~/.cache/vx-lab`).
+        #[arg(long)]
+        cache_dir: Option<PathBuf>,
+        /// A store to keep `copy` sources' files in while planning. Without one they wait in the
+        /// cache until the first run moves them into its store.
+        #[arg(long)]
+        store: Option<PathBuf>,
     },
     /// Show a plan's stages and, with a store, their progress.
     Show {
@@ -181,6 +195,8 @@ fn main() -> anyhow::Result<()> {
             out,
             allow_dirty,
             replace,
+            cache_dir,
+            store,
         }) => {
             let identity = CodeIdentity::of_this_build(allow_dirty)?;
             let parsed = PlanSpec::from_toml_file(&spec)?;
@@ -190,7 +206,13 @@ fn main() -> anyhow::Result<()> {
                 .iter()
                 .map(|s| s.scheme_name().to_string())
                 .collect();
-            let run = build_plan(&parsed, &spec_dir, &identity, &registered)?;
+            let run = build_plan(
+                &parsed,
+                &spec_dir,
+                &identity,
+                &registered,
+                &RawData::new(cache_dir, store),
+            )?;
             let outcome = run.write(&out, replace)?;
             let verb = match outcome {
                 WriteOutcome::Created => "created",
@@ -314,6 +336,7 @@ fn main() -> anyhow::Result<()> {
             shard,
             verify,
             data_root,
+            cache_dir,
             allow_dirty,
         } => {
             let run = PlannedRun::read(&plan)?;
@@ -329,13 +352,14 @@ fn main() -> anyhow::Result<()> {
                     run.plan.identity.git_commit
                 );
             }
+            let raw = RawData::new(cache_dir, Some(store.clone()));
             let store = Store::open(store)?;
             let runner = Runner::new(&run, &store)?;
             runner.run(&RunOptions {
                 stages,
                 shard,
                 verify,
-                data_root,
+                data: DataLocation { data_root, raw },
                 decode_reps: run.plan.spec.measure.reps,
                 compress_reps: run.plan.spec.measure.compress_reps,
             })?;

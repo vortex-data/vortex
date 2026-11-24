@@ -76,6 +76,7 @@ fn plan(spec: &str, commit: &str) -> anyhow::Result<PlannedRun> {
         Path::new("."),
         &identity(commit),
         &registered(),
+        &crate::fetch::RawData::new(Some(std::env::temp_dir().join("vx-lab-test-cache")), None),
     )
 }
 
@@ -153,7 +154,13 @@ fn options(stages: &[&str], verify: bool) -> RunOptions {
         stages: stages.iter().map(|s| s.to_string()).collect(),
         shard: None,
         verify,
-        data_root: ".".into(),
+        data: crate::load::DataLocation {
+            data_root: ".".into(),
+            raw: crate::fetch::RawData::new(
+                Some(std::env::temp_dir().join("vx-lab-test-cache")),
+                None,
+            ),
+        },
         decode_reps: 2,
         compress_reps: 1,
     }
@@ -204,4 +211,235 @@ fn test_run_resume_verify_time_materialize() -> anyhow::Result<()> {
     assert_eq!(rows.lines().count(), 1 + 5 * 6);
     assert!(rows.lines().any(|l| l.contains(",default,1,")));
     Ok(())
+}
+
+mod sources {
+    use std::fs::File;
+    use std::path::Path;
+    use std::sync::Arc;
+
+    use arrow_array::Int64Array;
+    use arrow_array::RecordBatch;
+    use arrow_array::StringArray;
+    use parquet::arrow::ArrowWriter;
+
+    use super::identity;
+    use super::registered;
+    use crate::fetch::RawData;
+    use crate::load::DataLocation;
+    use crate::plan::PlannedRun;
+    use crate::plan::TaskKind;
+    use crate::plan::build_plan;
+    use crate::runner::RunOptions;
+    use crate::runner::Runner;
+    use crate::source::ChunkInput;
+    use crate::spec::PlanSpec;
+    use crate::spec::Storage;
+    use crate::store::Store;
+
+    /// Writes a Parquet file of 10,000 rows with an int and a string column.
+    fn write_parquet(path: &Path) -> anyhow::Result<()> {
+        let ints = Int64Array::from_iter_values((0..10_000).map(|i| i / 7));
+        let strings = StringArray::from_iter_values((0..10_000).map(|i| format!("s{}", i % 13)));
+        let batch = RecordBatch::try_from_iter([
+            ("id", Arc::new(ints) as _),
+            ("label", Arc::new(strings) as _),
+        ])?;
+        let mut writer = ArrowWriter::try_new(File::create(path)?, batch.schema(), None)?;
+        writer.write(&batch)?;
+        writer.close()?;
+        Ok(())
+    }
+
+    fn spec(sources: &str) -> String {
+        format!(
+            "name = \"sources\"\nchunk_rows = 4096\ndtypes = [\"int\"]\n\
+             [schemes]\ninclude = [\"vortex.int.for\"]\n{sources}"
+        )
+    }
+
+    fn plan_with(spec_text: &str, dir: &Path, raw: &RawData) -> anyhow::Result<PlannedRun> {
+        build_plan(
+            &PlanSpec::from_toml_str(spec_text)?,
+            dir,
+            &identity("abc"),
+            &registered(),
+            raw,
+        )
+    }
+
+    fn chunk_keys(run: &PlannedRun) -> Vec<String> {
+        run.tasks
+            .iter()
+            .filter(|t| t.kind == TaskKind::Chunk)
+            .map(|t| t.key.to_string())
+            .collect()
+    }
+
+    fn run_chunks(run: &PlannedRun, store: &Store, raw: RawData) -> anyhow::Result<u64> {
+        let report = Runner::new(run, store)?.run(&RunOptions {
+            stages: vec!["chunk".to_string()],
+            shard: None,
+            verify: false,
+            data: DataLocation {
+                data_root: ".".into(),
+                raw,
+            },
+            decode_reps: 1,
+            compress_reps: 1,
+        })?;
+        Ok(report.values().map(|r| r.ran).sum())
+    }
+
+    #[test]
+    fn test_remote_reference_matches_local_keys_and_refetches() -> anyhow::Result<()> {
+        let dir = tempfile::tempdir()?;
+        let upstream = dir.path().join("upstream");
+        std::fs::create_dir_all(&upstream)?;
+        write_parquet(&upstream.join("a.parquet"))?;
+        let cache = dir.path().join("cache");
+        let raw = RawData::new(Some(cache.clone()), None);
+
+        let local = plan_with(
+            &spec("[[sources]]\nkind = \"parquet\"\nname = \"t\"\npath = \"upstream/*.parquet\"\n"),
+            dir.path(),
+            &raw,
+        )?;
+        let remote_spec = spec(&format!(
+            "[[sources]]\nkind = \"remote\"\nname = \"t\"\nstorage = \"reference\"\n\
+             urls = [\"file://{}/*.parquet\"]\n",
+            upstream.display()
+        ));
+        let remote = plan_with(&remote_spec, dir.path(), &raw)?;
+        // Same bytes, same source name: the same chunks, wherever the file lives.
+        assert_eq!(chunk_keys(&local), chunk_keys(&remote));
+        assert_eq!(chunk_keys(&remote).len(), 3);
+        // The string column is skipped because the plan only asks for ints.
+        assert_eq!(remote.plan.skipped.len(), 1);
+
+        // Deleting the cache only costs a re-fetch, verified against the recorded hash.
+        std::fs::remove_dir_all(&cache)?;
+        let store = Store::open(dir.path().join("store"))?;
+        assert_eq!(run_chunks(&remote, &store, raw)?, 3);
+        assert!(cache.exists());
+        assert!(!dir.path().join("store/raw").exists());
+        Ok(())
+    }
+
+    #[test]
+    fn test_remote_copy_keeps_files_in_store() -> anyhow::Result<()> {
+        let dir = tempfile::tempdir()?;
+        let upstream = dir.path().join("a.parquet");
+        write_parquet(&upstream)?;
+        let store_root = dir.path().join("store");
+        let raw = RawData::new(Some(dir.path().join("cache")), Some(store_root.clone()));
+        let run = plan_with(
+            &spec(&format!(
+                "[[sources]]\nkind = \"remote\"\nname = \"t\"\nstorage = \"copy\"\n\
+                 urls = [\"file://{}\"]\n",
+                upstream.display()
+            )),
+            dir.path(),
+            &raw,
+        )?;
+        let ChunkInput::Remote {
+            file_fingerprint,
+            storage,
+            ..
+        } = run
+            .tasks
+            .iter()
+            .find_map(|t| match &t.input {
+                crate::plan::TaskInput::Chunk(input) => Some(input.clone()),
+                _ => None,
+            })
+            .ok_or_else(|| anyhow::anyhow!("no chunk task"))?
+        else {
+            anyhow::bail!("expected a remote chunk");
+        };
+        assert_eq!(storage, Storage::Copy);
+        let kept = store_root
+            .join("raw")
+            .join(&file_fingerprint[..2])
+            .join(&file_fingerprint);
+        assert!(kept.exists());
+
+        // Upstream can disappear: the store has everything the run needs.
+        std::fs::remove_file(&upstream)?;
+        std::fs::remove_dir_all(dir.path().join("cache")).ok();
+        let store = Store::open(&store_root)?;
+        assert_eq!(run_chunks(&run, &store, raw)?, 3);
+        Ok(())
+    }
+
+    #[test]
+    fn test_remote_pin_mismatch_is_an_error() -> anyhow::Result<()> {
+        let dir = tempfile::tempdir()?;
+        let upstream = dir.path().join("a.parquet");
+        write_parquet(&upstream)?;
+        let url = format!("file://{}", upstream.display());
+        let text = spec(&format!(
+            "[[sources]]\nkind = \"remote\"\nname = \"t\"\nstorage = \"reference\"\n\
+             urls = [\"{url}\"]\n[sources.sha256]\n\"{url}\" = \"{}\"\n",
+            "0".repeat(64)
+        ));
+        let raw = RawData::new(Some(dir.path().join("cache")), None);
+        let error = plan_with(&text, dir.path(), &raw).unwrap_err();
+        assert!(
+            format!("{error:#}").contains("but the spec pins"),
+            "{error:#}"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_remote_spec_validation() {
+        let bad = [
+            (
+                "storage = \"generate\"\nurls = [\"https://x/a.parquet\"]",
+                "reference",
+            ),
+            ("storage = \"reference\"\nurls = []", "at least one url"),
+            (
+                "storage = \"reference\"\nurls = [\"https://x/*.parquet\"]",
+                "globs",
+            ),
+            (
+                "storage = \"reference\"\nurls = [\"ftp://x/a.parquet\"]",
+                "unsupported scheme",
+            ),
+        ];
+        for (body, message) in bad {
+            let text = spec(&format!(
+                "[[sources]]\nkind = \"remote\"\nname = \"t\"\n{body}\n"
+            ));
+            let error = PlanSpec::from_toml_str(&text).unwrap_err();
+            assert!(format!("{error:#}").contains(message), "{error:#}");
+        }
+    }
+
+    #[test]
+    fn test_max_chunks_is_a_stable_growing_sample() -> anyhow::Result<()> {
+        let dir = tempfile::tempdir()?;
+        let raw = RawData::new(Some(dir.path().join("cache")), None);
+        let tpch = |max: u64| {
+            spec(&format!(
+                "[[sources]]\nkind = \"tpch\"\nname = \"tpch\"\nscale_factor = 0.01\n\
+                 tables = [\"orders\"]\ngroup = \"tpc\"\nmax_chunks = {max}\n"
+            ))
+        };
+        let all = chunk_keys(&plan_with(&tpch(1000), dir.path(), &raw)?);
+        let five = chunk_keys(&plan_with(&tpch(5), dir.path(), &raw)?);
+        let ten = chunk_keys(&plan_with(&tpch(10), dir.path(), &raw)?);
+        assert!(all.len() > 10);
+        assert_eq!(five.len(), 5);
+        assert_eq!(ten.len(), 10);
+        assert!(five.iter().all(|k| ten.contains(k)));
+        assert_eq!(five, chunk_keys(&plan_with(&tpch(5), dir.path(), &raw)?));
+
+        let parsed = PlanSpec::from_toml_str(&tpch(5))?;
+        assert_eq!(parsed.sources[0].group(), "tpc");
+        assert_eq!(parsed.sources[0].storage(), Storage::Generate);
+        Ok(())
+    }
 }

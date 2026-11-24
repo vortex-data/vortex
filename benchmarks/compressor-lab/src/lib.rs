@@ -22,6 +22,7 @@ pub mod blob;
 pub mod candidates;
 pub mod eval;
 pub mod features;
+pub mod fetch;
 pub mod identity;
 pub mod key;
 pub mod load;

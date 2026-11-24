@@ -15,6 +15,7 @@ use anyhow::bail;
 use serde::Deserialize;
 use serde::Serialize;
 
+use crate::fetch::RawData;
 use crate::identity::CodeIdentity;
 use crate::key::TaskKey;
 use crate::key::stable_digest;
@@ -351,6 +352,24 @@ impl<'a> From<&'a ChunkInput> for ChunkIdentity<'a> {
                 row_start: *row_start,
                 row_end: *row_end,
             },
+            // A fetched file is identified by its contents, like a local one, so mirrors and
+            // local copies of the same bytes share keys.
+            ChunkInput::Remote {
+                source,
+                file_fingerprint,
+                column,
+                arrow_type,
+                row_start,
+                row_end,
+                ..
+            } => Self::Parquet {
+                source,
+                file_fingerprint,
+                column,
+                arrow_type,
+                row_start: *row_start,
+                row_end: *row_end,
+            },
             ChunkInput::Tpch {
                 source,
                 table,
@@ -385,6 +404,28 @@ impl<'a> From<&'a ChunkInput> for ChunkIdentity<'a> {
             },
         }
     }
+}
+
+/// Keeps at most `max` chunks, chosen by the hash of each chunk's data identity, in their original
+/// order. The choice does not depend on the code identity, so it is stable across commits, and
+/// raising `max` only adds chunks.
+fn cap_chunks(chunks: Vec<ChunkInput>, max: Option<u64>) -> anyhow::Result<Vec<ChunkInput>> {
+    let Some(max) = max.and_then(|m| usize::try_from(m).ok()) else {
+        return Ok(chunks);
+    };
+    if chunks.len() <= max {
+        return Ok(chunks);
+    }
+    let mut ranked = chunks
+        .iter()
+        .enumerate()
+        .map(|(i, chunk)| Ok((stable_digest("sample", &ChunkIdentity::from(chunk))?, i)))
+        .collect::<anyhow::Result<Vec<_>>>()?;
+    ranked.sort();
+    let mut keep: Vec<usize> = ranked.into_iter().take(max).map(|(_, i)| i).collect();
+    keep.sort_unstable();
+    let mut chunks: Vec<Option<ChunkInput>> = chunks.into_iter().map(Some).collect();
+    Ok(keep.into_iter().filter_map(|i| chunks[i].take()).collect())
 }
 
 #[derive(Serialize)]
@@ -429,6 +470,7 @@ pub fn build_plan(
     spec_dir: &Path,
     identity: &CodeIdentity,
     registered_schemes: &[String],
+    raw: &RawData,
 ) -> anyhow::Result<PlannedRun> {
     let schemes = select_schemes(registered_schemes, &spec.schemes)?;
     let candidates: Vec<String> = ["production".to_string(), "sizemodel".to_string()]
@@ -451,11 +493,13 @@ pub fn build_plan(
             spec.chunk_rows,
             spec.max_chunks_per_column,
             &spec.dtypes,
+            raw,
         )?;
         sources.push(resolution.source);
         skipped.extend(resolution.skipped);
+        let chunks = cap_chunks(resolution.chunks, source_spec.max_chunks())?;
 
-        for chunk in resolution.chunks {
+        for chunk in chunks {
             let chunk_key = TaskKey::derive(
                 TaskKind::Chunk.as_str(),
                 &ChunkKeyMaterial {
