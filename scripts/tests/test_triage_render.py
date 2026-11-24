@@ -5,12 +5,14 @@
 
 import importlib
 import json
+from dataclasses import replace
 from datetime import timedelta
 from typing import Any
 
 support = importlib.import_module("triage_support")
 render, rules, state = support.render, support.rules, support.state
 item, event, ago, NOW = support.item, support.event, support.ago, support.NOW
+TEAMMATE = support.TEAMMATE
 Category, Owes, Tier = rules.Category, rules.Owes, rules.Tier
 
 
@@ -53,9 +55,12 @@ def test_overview_groups_sections_in_order_with_colors():
     assert summary.startswith("On call gatesn · 🔴 2 High · 🟡 1 Normal · ⚪ 1 Low · 🔵 1 waiting · Claude checked 2")
     assert [a["color"] for a in message.attachments] == [s.color for s in render.SECTIONS]
     high = texts_of(message)[1]
-    # The highest score comes first. A row shows the number, not the title, and a worded thread link.
-    assert high.index("|#3>") < high.index("|#2>")
-    assert "A title" not in high and "|thread>" in high
+    # The highest score comes first.
+    assert high.index("|#3 ") < high.index("|#2 ")
+    assert high.splitlines()[0] == (
+        "📝 <https://github.com/o/r/issues/3|#3 A title> · alamb · unassigned · 2d"
+        " · <https://example.slack.com/archives/C1/p3|thread>"
+    )
 
 
 def test_overview_hides_snoozed_items_and_counts_them():
@@ -65,8 +70,8 @@ def test_overview_hides_snoozed_items_and_counts_them():
     rows.append(row(4, snooze_until=(NOW - timedelta(hours=1)).timestamp()))
     message = render.overview(rows, NOW.date(), NOW, "", "")
     body = "\n".join(texts_of(message))
-    assert "|#1>" in body and "|#4>" in body
-    assert "|#2>" not in body and "|#3>" not in body
+    assert "|#1 " in body and "|#4 " in body
+    assert "|#2 " not in body and "|#3 " not in body
     assert (
         "🔴 2 High · 🟡 0 Normal · ⚪ 0 Low · 🔵 0 waiting · 😴 2 snoozed" in message.blocks[1]["elements"][0]["text"]
     )
@@ -83,13 +88,27 @@ def test_overview_fits_slack_limits_and_cuts_low_first():
     assert all(len(text) <= 3000 for text in texts_of(message))
     body = "\n".join(texts_of(message))
     # Every High row survives, and Low is cut before anything else.
-    assert all(f"|#{n}>" in body for n in range(1, 41))
+    assert all(f"|#{n} " in body for n in range(1, 41))
     assert "_+" in body
     # Every list block asks Slack to show its whole text, without a "see more" link.
     assert all(b.get("expand") for a in message.attachments for b in a["blocks"][1:])
     low = next(a for a in message.attachments if a["color"] == render.LOW.color)
     assert "more_" in json.dumps(low)
     assert "⚪ 2000 Low" in message.blocks[1]["elements"][0]["text"]
+
+
+def test_overview_row_cuts_the_title_and_names_the_commenter():
+    long = row(1, title="y" * 100)
+    text = render.overview([long], NOW.date(), NOW, "", "").attachments[0]["blocks"][1]["text"]["text"]
+    assert "|#1 " + "y" * 20 + "...>" in text
+    # On a team item, the contributor is the outside person who commented last.
+    team_item = item(2, author=TEAMMATE, events=[event(ago(days=3)), event(ago(days=2), "bob")])
+    comment = row(2)
+    comment = replace(
+        comment, item=team_item, assessment=replace(comment.assessment, category=Category.EXTERNAL_COMMENT)
+    )
+    text = render.overview([comment], NOW.date(), NOW, "", "").attachments[0]["blocks"][1]["text"]["text"]
+    assert "> · bob · unassigned · 2d · <" in text
 
 
 def test_titles_and_reasons_are_escaped():

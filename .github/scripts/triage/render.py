@@ -22,6 +22,9 @@ from .state import ItemState, Status
 MAX_BLOCKS = 48
 MAX_SECTION_CHARS = 2900
 TITLE_LIMIT = 60
+# The overview keeps only the start of a title, so that a row fits in the narrow column of an
+# attachment. The card shows the longer title.
+OVERVIEW_TITLE_CHARS = 20
 
 
 @dataclass(frozen=True)
@@ -66,15 +69,15 @@ def escape(text: str) -> str:
     return cleaned.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
-def _title(item: Item) -> str:
+def _title(item: Item, limit: int) -> str:
     title = " ".join(item.title.split())
-    if len(title) > TITLE_LIMIT:
-        title = title[: TITLE_LIMIT - 3].rstrip() + "..."
+    if len(title) > limit:
+        title = title[: limit - 3].rstrip() + "..."
     return escape(title)
 
 
-def _link(item: Item) -> str:
-    return f"<{item.url}|#{item.number} {_title(item)}>"
+def _link(item: Item, limit: int = TITLE_LIMIT) -> str:
+    return f"<{item.url}|#{item.number} {_title(item, limit)}>"
 
 
 @dataclass(frozen=True)
@@ -105,6 +108,16 @@ def kind_emoji(item: Item, assessment: Assessment) -> str:
 
 def _owner(item: Item) -> str:
     return ", ".join(item.assignees) if item.assignees else "unassigned"
+
+
+def _contributor(item: Item, assessment: Assessment) -> str:
+    """Name the outside person who made the item need Vortex."""
+    if assessment.category is Category.FUZZER:
+        # A bot opens fuzzer issues, so nobody outside the team is involved.
+        return ""
+    if assessment.category is Category.EXTERNAL_COMMENT:
+        return next((e.actor for e in reversed(item.events) if not e.team), "")
+    return item.author
 
 
 def date_token(moment: datetime) -> str:
@@ -140,11 +153,10 @@ def _overview_line(row: Row, now: datetime) -> str:
         if row.section is WAITING
         else _wait(row, now).removeprefix("waiting ")
     )
-    # A row shows the number but not the title, which is on the item's card, and no owner when
-    # nobody is assigned. Short rows fit on one line in the narrow column of an attachment.
     return _parts(
-        f"{kind_emoji(row.item, row.assessment)} <{row.item.url}|#{row.item.number}>",
-        ", ".join(row.item.assignees),
+        f"{kind_emoji(row.item, row.assessment)} {_link(row.item, OVERVIEW_TITLE_CHARS + 3)}",
+        _contributor(row.item, row.assessment),
+        _owner(row.item),
         detail,
         _thread(row),
     )
@@ -389,7 +401,9 @@ def instructions() -> Message:
             "😴 snoozed until the time shown on the item's card",
             f"{_DONE} merged, closed, or answered by a teammate",
             f"{_UNTRACKED} no longer tracked",
-            "An item's number opens it on GitHub, and its thread link opens its thread here.",
+            "A row lists the item, the outside contributor, the assignees, how long Vortex has "
+            "owed a reply, and a link to the item's thread here. The item's number and title "
+            "open it on GitHub.",
             "",
             "*Owners*",
             "To take an item, assign yourself on GitHub. "
