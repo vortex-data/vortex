@@ -15,13 +15,14 @@ use vortex_array::arrays::Dict;
 use vortex_error::VortexResult;
 
 use super::bytes_candidate::bytes_dictionary_estimate;
-use super::bytes_candidate::compress_bytes_dictionary;
+use super::bytes_candidate::encode_bytes_dictionary;
 use crate::CascadingCompressor;
 use crate::builtins::IntDictScheme;
 use crate::scheme::ChildSelection;
 use crate::scheme::CompressionEstimate;
 use crate::scheme::CompressorContext;
 use crate::scheme::DescendantExclusion;
+use crate::scheme::Encoded;
 use crate::scheme::Scheme;
 use crate::scheme::SchemeExt;
 use crate::stats::ArrayAndStats;
@@ -70,13 +71,24 @@ impl Scheme for BinaryDictScheme {
         bytes_dictionary_estimate(&BinaryDictScheme)
     }
 
+    /// Children: values=0, codes=1. The codes carry the validity.
+    fn encode(
+        &self,
+        data: &ArrayAndStats,
+        _compress_ctx: &CompressorContext,
+        exec_ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Encoded> {
+        encode_bytes_dictionary(self, data, exec_ctx)
+    }
+
+    #[expect(clippy::unimplemented, reason = "replaced by `encode`")]
     fn compress(
         &self,
-        compressor: &CascadingCompressor,
-        data: &ArrayAndStats,
-        compress_ctx: CompressorContext,
-        exec_ctx: &mut ExecutionCtx,
+        _compressor: &CascadingCompressor,
+        _data: &ArrayAndStats,
+        _compress_ctx: CompressorContext,
+        _exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        compress_bytes_dictionary(&BinaryDictScheme, compressor, data, compress_ctx, exec_ctx)
+        unimplemented!("{} compresses through Scheme::encode", self.scheme_name())
     }
 }

@@ -21,8 +21,6 @@ use vortex_array::arrays::DecimalArray;
 use vortex_array::arrays::Dict;
 use vortex_array::arrays::DictArray;
 use vortex_array::arrays::decimal::DecimalArrayExt;
-use vortex_array::arrays::dict::DictArrayExt;
-use vortex_array::arrays::dict::DictArraySlotsExt;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::NativeDecimalType;
 use vortex_array::match_each_decimal_value_type;
@@ -32,12 +30,14 @@ use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_utils::aliases::hash_map::HashMap;
 
+use super::dictionary_encoded;
 use crate::CascadingCompressor;
 use crate::builtins::IntDictScheme;
 use crate::scheme::ChildSelection;
 use crate::scheme::CompressionEstimate;
 use crate::scheme::CompressorContext;
 use crate::scheme::DescendantExclusion;
+use crate::scheme::Encoded;
 use crate::scheme::EstimateVerdict;
 use crate::scheme::Scheme;
 use crate::scheme::SchemeExt;
@@ -141,32 +141,27 @@ impl Scheme for DecimalDictScheme {
         ))
     }
 
+    /// Children: values=0, codes=1. The codes carry the validity.
+    fn encode(
+        &self,
+        data: &ArrayAndStats,
+        _compress_ctx: &CompressorContext,
+        exec_ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Encoded> {
+        // The encoder already narrows the codes.
+        let dict = dictionary_encode(data.array_as_decimal(), exec_ctx)?;
+        Ok(dictionary_encoded(self, &dict))
+    }
+
+    #[expect(clippy::unimplemented, reason = "replaced by `encode`")]
     fn compress(
         &self,
-        compressor: &CascadingCompressor,
-        data: &ArrayAndStats,
-        compress_ctx: CompressorContext,
-        exec_ctx: &mut ExecutionCtx,
+        _compressor: &CascadingCompressor,
+        _data: &ArrayAndStats,
+        _compress_ctx: CompressorContext,
+        _exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        let dict = dictionary_encode(data.array_as_decimal(), exec_ctx)?;
-        let has_all_values_referenced = dict.has_all_values_referenced();
-
-        // Values = child 0.
-        let compressed_values =
-            compressor.compress_child(dict.values(), &compress_ctx, self.id(), 0, exec_ctx)?;
-
-        // Codes = child 1. The encoder already narrowed them.
-        let compressed_codes =
-            compressor.compress_child(dict.codes(), &compress_ctx, self.id(), 1, exec_ctx)?;
-
-        // SAFETY: compressing codes or values does not alter the invariants.
-        unsafe {
-            Ok(
-                DictArray::new_unchecked(compressed_codes, compressed_values)
-                    .set_all_values_referenced(has_all_values_referenced)
-                    .into_array(),
-            )
-        }
+        unimplemented!("{} compresses through Scheme::encode", self.scheme_name())
     }
 }
 
