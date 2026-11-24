@@ -8,6 +8,8 @@
 //! chunk), plus `dataset.json` recording exactly what went in. Timings are pooled over every run
 //! on one machine; other machines are never mixed in.
 
+use std::collections::BTreeMap;
+use std::collections::BTreeSet;
 use std::fs;
 use std::fs::File;
 use std::io::BufWriter;
@@ -17,14 +19,22 @@ use std::path::Path;
 use anyhow::Context;
 use serde::Serialize;
 
+use crate::chunks::CHUNKS_VERSION;
+use crate::plan::CANDIDATES_VERSION;
+use crate::plan::FEATURES_VERSION;
 use crate::plan::PlannedRun;
 use crate::plan::TaskInput;
 use crate::plan::TaskKind;
-use crate::runner::CandidatesFact;
-use crate::runner::ChunkFact;
-use crate::runner::FeaturesFact;
-use crate::runner::TimeObservation;
 use crate::store::Store;
+use crate::table::ChunkRow;
+use crate::table::EncodingRow;
+use crate::table::FeatureRow;
+use crate::table::SearchRow;
+use crate::table::SiteFactRow;
+use crate::table::TimingRow;
+
+/// A map from a key to the samples pooled for it.
+type Samples = BTreeMap<(String, String), Vec<u64>>;
 
 /// What a materialized dataset contains.
 #[derive(Debug, Serialize)]
@@ -46,7 +56,7 @@ pub struct DatasetManifest {
     /// The largest number of timing runs pooled for one chunk.
     pub max_runs: u64,
     /// Each source's cross-validation group. Sources in one group are held out together.
-    pub groups: std::collections::BTreeMap<String, String>,
+    pub groups: BTreeMap<String, String>,
 }
 
 fn median(values: &mut [u64]) -> Option<u64> {
@@ -81,7 +91,7 @@ pub fn materialize(
     let machine = match machine {
         Some(m) => Some(m.to_string()),
         None => {
-            let machines = store.machines("time");
+            let machines = store.timing_machines()?;
             if machines.len() > 1 {
                 anyhow::bail!(
                     "timings exist for several machines ({}); pass --machine to pick one, since \
@@ -92,6 +102,61 @@ pub fn materialize(
             machines.into_iter().next()
         }
     };
+
+    let chunks: BTreeMap<String, ChunkRow> = store
+        .read_table::<ChunkRow>(CHUNKS_VERSION)?
+        .into_iter()
+        .map(|r| (r.task_key.clone(), r))
+        .collect();
+    let mut features: BTreeMap<String, BTreeMap<String, Option<f64>>> = BTreeMap::new();
+    for row in store.read_table::<FeatureRow>(FEATURES_VERSION)? {
+        if row.site == "root" && row.window.is_none() {
+            features
+                .entry(row.task_key)
+                .or_default()
+                .insert(row.feature, row.value);
+        }
+    }
+    let mut encodings: BTreeMap<String, Vec<EncodingRow>> = BTreeMap::new();
+    for row in store.read_table::<EncodingRow>(CANDIDATES_VERSION)? {
+        encodings.entry(row.task_key.clone()).or_default().push(row);
+    }
+    let mut site_rows: BTreeMap<String, Vec<SiteFactRow>> = BTreeMap::new();
+    for row in store.read_table::<SiteFactRow>(CANDIDATES_VERSION)? {
+        site_rows.entry(row.task_key.clone()).or_default().push(row);
+    }
+    let search_rows: BTreeMap<String, SearchRow> = store
+        .read_table::<SearchRow>(CANDIDATES_VERSION)?
+        .into_iter()
+        .map(|r| (r.task_key.clone(), r))
+        .collect();
+
+    // Plan replays by (candidates task, encoding); the sampling compressor by (candidates task,
+    // candidate); decode by (chunk, encoding). Samples whose replay did not reproduce the
+    // recorded encoding are left out.
+    let mut compress = Samples::new();
+    let mut adaptive = Samples::new();
+    let mut decode = Samples::new();
+    let mut runs: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+    if let Some(m) = &machine {
+        for row in store.read_rows::<TimingRow>(&crate::store::timings_dir(m))? {
+            if !row.replay_matched {
+                continue;
+            }
+            runs.entry(row.task_key.clone())
+                .or_default()
+                .insert(row.run_id.clone());
+            let (map, key) = match (row.op.as_str(), row.candidate) {
+                ("compress", _) => (&mut compress, (row.task_key, row.encoded_hash)),
+                ("adaptive_compress", Some(candidate)) => {
+                    (&mut adaptive, (row.task_key, candidate))
+                }
+                ("decode", _) => (&mut decode, (row.chunk_key, row.encoded_hash)),
+                _ => continue,
+            };
+            map.entry(key).or_default().push(row.ns);
+        }
+    }
 
     let mut rows = BufWriter::new(File::create(out.join(format!("rows-{tag}.csv")))?);
     writeln!(
@@ -115,7 +180,7 @@ pub fn materialize(
         plan_id: plan.plan.plan_id.clone(),
         git_commit: plan.plan.identity.git_commit.clone(),
         vx_version: plan.plan.identity.vx_version.clone(),
-        machine_id: machine.clone(),
+        machine_id: machine,
         chunks: 0,
         incomplete: 0,
         timed_chunks: 0,
@@ -130,7 +195,7 @@ pub fn materialize(
     };
 
     // Each candidates task names its chunk; the matching features task shares the chunk key.
-    let features_by_chunk: std::collections::BTreeMap<_, _> = plan
+    let features_by_chunk: BTreeMap<_, _> = plan
         .tasks
         .iter()
         .filter_map(|t| match &t.input {
@@ -143,41 +208,43 @@ pub fn materialize(
         let TaskInput::Candidates { chunk, .. } = &task.input else {
             continue;
         };
-        let Some(features_key) = features_by_chunk.get(chunk) else {
-            continue;
-        };
-        if !(store.is_done(chunk) && store.is_done(features_key) && store.is_done(&task.key)) {
+        let feature_values = features_by_chunk
+            .get(chunk)
+            .and_then(|k| features.get(k.as_str()));
+        let (Some(chunk_row), Some(feature_values), Some(candidates)) = (
+            chunks.get(chunk.as_str()),
+            feature_values,
+            encodings.get(task.key.as_str()),
+        ) else {
             manifest.incomplete += 1;
             continue;
-        }
-        let chunk_fact: ChunkFact = store.fact(TaskKind::Chunk, chunk)?;
-        let features: FeaturesFact = store.fact(TaskKind::Features, features_key)?;
-        let candidates: CandidatesFact = store.fact(TaskKind::Candidates, &task.key)?;
-        let observations: Vec<TimeObservation> = match &machine {
-            Some(m) => store.observations("time", m, &task.key)?,
-            None => Vec::new(),
         };
+        let run_count = runs.get(task.key.as_str()).map_or(0, |r| r.len() as u64);
         manifest.chunks += 1;
-        if !observations.is_empty() {
+        if run_count > 0 {
             manifest.timed_chunks += 1;
         }
-        manifest.max_runs = manifest.max_runs.max(observations.len() as u64);
+        manifest.max_runs = manifest.max_runs.max(run_count);
 
-        let source = csv(chunk_fact.input.source());
-        let column = csv(chunk_fact.input.column());
+        let source = csv(&chunk_row.source);
+        let column = csv(&chunk_row.column);
         let id = chunk.as_str();
         writeln!(
             feats,
             "{source},{column},{id},{}",
-            features
-                .values
+            crate::features::NAMES
                 .iter()
-                .map(|v| v.map(|v| v.to_string()).unwrap_or_default())
+                .map(|n| feature_values
+                    .get(*n)
+                    .copied()
+                    .flatten()
+                    .map(|v| v.to_string())
+                    .unwrap_or_default())
                 .collect::<Vec<_>>()
                 .join(",")
         )?;
 
-        for row in &candidates.sites {
+        for row in site_rows.get(task.key.as_str()).into_iter().flatten() {
             writeln!(
                 sites,
                 "{tag},{source},{column},{id},{},{},{},{},{},{},{}",
@@ -190,7 +257,7 @@ pub fn materialize(
                 row.best_decode_ns
             )?;
         }
-        if let Some(search) = &candidates.search {
+        if let Some(search) = search_rows.get(task.key.as_str()) {
             writeln!(
                 searches,
                 "{tag},{source},{column},{id},{},{},{},{},{}",
@@ -202,37 +269,30 @@ pub fn materialize(
             )?;
         }
 
-        let canonical = chunk_fact.blob.bytes;
-        let len = chunk_fact.blob.len;
-        let ptype = &chunk_fact.blob.ptype;
-        for result in &candidates.results {
+        let canonical = chunk_row.canonical_bytes;
+        let len = chunk_row.len;
+        let ptype = &chunk_row.ptype;
+        let show = |v: Option<u64>| v.map(|v| v.to_string()).unwrap_or_default();
+        let pooled = |map: &Samples, a: &str, b: &str| {
+            map.get(&(a.to_string(), b.to_string()))
+                .cloned()
+                .unwrap_or_default()
+        };
+        for result in candidates {
             let prefix = format!(
                 "{tag},{source},{column},{id},{ptype},{len},{}",
-                variant(&result.name)
+                variant(&result.candidate)
             );
-            match &result.blob {
-                Some(blob) => {
-                    let mut compress: Vec<u64> = observations
-                        .iter()
-                        .flat_map(|o| o.timings.iter().filter(|t| t.name == result.name))
-                        .flat_map(|t| t.compress_ns.iter().copied())
-                        .collect();
-                    let mut decode: Vec<u64> = observations
-                        .iter()
-                        .flat_map(|o| o.timings.iter().filter(|t| t.name == result.name))
-                        .flat_map(|t| t.decode_ns.iter().copied())
-                        .collect();
-                    let mut adaptive: Vec<u64> = observations
-                        .iter()
-                        .flat_map(|o| o.timings.iter().filter(|t| t.name == result.name))
-                        .flat_map(|t| t.adaptive_compress_ns.iter().copied())
-                        .collect();
+            match (result.ok, &result.encoded_hash) {
+                (true, Some(hash)) => {
+                    let mut compress = pooled(&compress, task.key.as_str(), hash);
+                    let mut decode = pooled(&decode, id, hash);
+                    let mut adaptive = pooled(&adaptive, task.key.as_str(), &result.candidate);
                     let decode_min = decode.iter().copied().min();
-                    let show = |v: Option<u64>| v.map(|v| v.to_string()).unwrap_or_default();
                     writeln!(
                         rows,
                         "{prefix},1,{canonical},{},{},{},{},{},{},{},,{},{},{},{}",
-                        blob.bytes,
+                        show(result.bytes),
                         show(result.nbytes),
                         csv(result.root.as_deref().unwrap_or_default()),
                         csv(result.tree.as_deref().unwrap_or_default()),
@@ -245,7 +305,7 @@ pub fn materialize(
                         show(result.predicted_decode_ns),
                     )?;
                 }
-                None => writeln!(
+                _ => writeln!(
                     rows,
                     "{prefix},0,{canonical},,,,,,,,{},,,,",
                     csv(result.error.as_deref().unwrap_or_default())
@@ -260,6 +320,7 @@ pub fn materialize(
     fs::write(
         out.join("dataset.json"),
         serde_json::to_vec_pretty(&manifest)?,
-    )?;
+    )
+    .context("writing dataset.json")?;
     Ok(manifest)
 }

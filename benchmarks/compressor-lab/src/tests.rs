@@ -15,10 +15,11 @@ use crate::plan::WriteOutcome;
 use crate::plan::build_plan;
 use crate::runner::RunOptions;
 use crate::runner::Runner;
-use crate::runner::TimeObservation;
 use crate::shard::Shard;
 use crate::spec::PlanSpec;
 use crate::store::Store;
+use crate::store::timings_dir;
+use crate::table::TimingRow;
 
 const SPEC: &str = r#"
 name = "test"
@@ -193,14 +194,21 @@ fn test_run_resume_verify_time_materialize() -> anyhow::Result<()> {
     assert_eq!(verified.values().map(|r| r.mismatched).sum::<u64>(), 0);
     assert_eq!(verified.values().map(|r| r.ran).sum::<u64>(), 15);
 
-    // Two timing runs append two observations per candidates task, all deterministic.
+    // Two timing runs append timings from two runs per candidates task, every plan replaying to
+    // the encoding the candidates stage recorded.
     runner.run(&options(&["time"], false))?;
     runner.run(&options(&["time"], false))?;
     let machine = crate::machine::MachineInfo::current()?.machine_id;
+    let timings: Vec<TimingRow> = store.read_rows(&timings_dir(&machine))?;
+    assert!(timings.iter().all(|t| t.replay_matched));
     for task in run.tasks.iter().filter(|t| t.kind == TaskKind::Candidates) {
-        let obs: Vec<TimeObservation> = store.observations("time", &machine, &task.key)?;
-        assert_eq!(obs.len(), 2);
-        assert!(obs.iter().flat_map(|o| &o.timings).all(|t| t.deterministic));
+        let key = task.key.to_string();
+        let runs: BTreeSet<&str> = timings
+            .iter()
+            .filter(|t| t.task_key == key && t.op == "decode")
+            .map(|t| t.run_id.as_str())
+            .collect();
+        assert_eq!(runs.len(), 2);
     }
 
     let manifest =
@@ -212,6 +220,18 @@ fn test_run_resume_verify_time_materialize() -> anyhow::Result<()> {
     // A header plus one row per chunk and candidate.
     assert_eq!(rows.lines().count(), 1 + 5 * 6);
     assert!(rows.lines().any(|l| l.contains(",default,1,")));
+
+    // Compaction leaves one segment per directory and changes no result.
+    let report = crate::gc::compact(&store, false)?;
+    assert!(report.segments_merged > report.segments_written);
+    assert_eq!(crate::gc::compact(&store, true)?.segments_merged, 0);
+    let again = runner.run(&options(&["chunk", "features", "candidates"], false))?;
+    assert_eq!(again.values().map(|r| r.ran).sum::<u64>(), 0);
+    crate::materialize::materialize(&run, &store, &dir.path().join("compacted"), None, "stock")?;
+    assert_eq!(
+        rows,
+        fs::read_to_string(dir.path().join("compacted").join("rows-stock.csv"))?
+    );
     Ok(())
 }
 
@@ -283,8 +303,12 @@ fn test_queue_workers_share_a_plan() -> anyhow::Result<()> {
         assert_eq!(counts.failed, 0);
     }
     assert!(status.live_workers.is_empty());
+    let mut done = BTreeSet::new();
+    for kind in [TaskKind::Chunk, TaskKind::Features, TaskKind::Candidates] {
+        done.extend(store.ledger(kind)?.into_keys());
+    }
     for task in &run.tasks {
-        assert!(store.is_done(&task.key));
+        assert!(done.contains(&task.key));
     }
     Ok(())
 }

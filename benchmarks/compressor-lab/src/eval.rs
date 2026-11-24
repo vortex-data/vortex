@@ -24,23 +24,24 @@ use vortex::session::VortexSession;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
-use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_btrblocks::BtrBlocksCompressor;
 
 use crate::blob;
+use crate::chunks::ChunkLoader;
 use crate::model;
 use crate::model::Model;
 use crate::plan::PlannedRun;
 use crate::plan::TaskInput;
 use crate::plan::TaskKind;
-use crate::runner::ChunkFact;
 use crate::shard::Shard;
 use crate::store::Store;
 
 /// How to evaluate.
 #[derive(Debug, Clone)]
 pub struct EvalOptions {
+    /// Where the plan's raw data is found.
+    pub data: crate::load::DataLocation,
     /// Directory of models exported by `train.py --export`.
     pub models: PathBuf,
     /// Target bandwidths, as (label, bytes per second).
@@ -123,6 +124,7 @@ pub fn evaluate(
         "source,column,chunk,variant,model,proposed,tried,kept,canonical_bytes,bytes,compress_ns,decode_ns"
     )?;
 
+    let loader = ChunkLoader::new(store, &options.data)?;
     let mut evaluated = 0;
     for task in plan.tasks.iter().filter(|t| t.kind == TaskKind::Candidates) {
         if options.shard.is_some_and(|s| !s.contains(task.shard_key())) {
@@ -131,14 +133,11 @@ pub fn evaluate(
         let TaskInput::Candidates { chunk, .. } = &task.input else {
             continue;
         };
-        if !store.is_done(chunk) {
+        if loader.row(chunk).is_none() {
             continue;
         }
-        let fact: ChunkFact = store.fact(TaskKind::Chunk, chunk)?;
-        let array = blob::deserialize(&fact.blob, store.blob(&fact.blob.hash)?, &session)?
-            .execute::<Canonical>(&mut ctx)?
-            .into_array();
-        let source = fact.input.source().to_string();
+        let (fact, array) = loader.load(chunk, &mut ctx)?;
+        let source = fact.source.clone();
         if !models.contains_key(&source) {
             let own = options.models.join(format!("{source}.json"));
             let (which, path) = if own.exists() {
@@ -149,8 +148,8 @@ pub fn evaluate(
             models.insert(source.clone(), (which.to_string(), Model::load(&path)?));
         }
         let (which, model) = &models[&source];
-        let prefix = format!("{},{},{}", source, fact.input.column(), chunk);
-        let canonical = fact.blob.bytes;
+        let prefix = format!("{},{},{}", source, fact.column, chunk);
+        let canonical = fact.canonical_bytes;
 
         let mut compress = Vec::new();
         let mut encoded = None;
