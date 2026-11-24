@@ -43,7 +43,7 @@ use futures::StreamExt;
 use futures::TryStreamExt;
 use futures::stream::BoxStream;
 use selection::Selection;
-use stream::ScanStream;
+use stream::ScanExec;
 use vortex_array::aggregate_fn::AggregateFnRef;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldPath;
@@ -183,7 +183,7 @@ pub struct ScanRequest {
     /// trim the concatenated result.
     pub limit: Option<u64>,
     /// The most splits that each worker decodes at once, where a worker is a partition or a
-    /// clone of an opened scan's stream.
+    /// stream of an opened scan.
     ///
     /// It bounds each worker on its own, not the whole scan: a scan read by several workers
     /// decodes up to this many splits in each. `None` keeps the source's default. Each
@@ -219,8 +219,8 @@ pub type DataSourceScanRef = Box<dyn DataSourceScan>;
 /// A host that needs a fixed number of partitions, such as DataFusion with its output partition
 /// count, [splits](Self::split) the scan into fixed pieces that each own their rows. A host that
 /// runs its own threads, such as DuckDB, or that wants its partitions to share work, never
-/// splits: it [opens](Self::open) the scan once and has each of its threads or partitions poll a
-/// clone of the returned [`ScanStream`]. The host states the properties it needs, such as row
+/// splits: it [opens](Self::open) the scan once and has each of its threads or partitions read a
+/// [stream](ScanExec::stream) of the returned [`ScanExec`]. The host states the properties it needs, such as row
 /// order or a limit, on the [`ScanRequest`], and the source decides what the pieces are and how
 /// they run.
 ///
@@ -244,15 +244,15 @@ pub trait DataSourceScan: 'static + Send {
     ///
     /// Splitting reads metadata only. The result is never empty, and a scan with no cut points
     /// returns itself as the one piece. A host that wants its threads to share the scan's work
-    /// instead [opens](Self::open) the scan and polls clones of its stream.
+    /// instead [opens](Self::open) the scan and reads a stream of it on each thread.
     fn split(self: Box<Self>, n: NonZeroUsize) -> VortexResult<Vec<DataSourceScanRef>>;
 
-    /// Opens the scan into a [`ScanStream`] of its rows, which host threads share by each
-    /// polling a clone.
+    /// Opens the scan into a [`ScanExec`], whose work host threads share by each reading a
+    /// [stream](ScanExec::stream) of it.
     ///
     /// A source that has no queue of work of its own may return
-    /// [`ScanStream::from_partitions`] over itself.
-    fn open(self: Box<Self>) -> VortexResult<ScanStream>;
+    /// [`ScanExec::from_partitions`] over itself.
+    fn open(self: Box<Self>) -> VortexResult<ScanExec>;
 }
 
 impl dyn DataSourceScan {

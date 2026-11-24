@@ -58,7 +58,7 @@ use vortex_scan::PartitionRef;
 use vortex_scan::PartitionStream;
 use vortex_scan::ScanRequest;
 use vortex_scan::selection::Selection;
-use vortex_scan::stream::ScanStream;
+use vortex_scan::stream::ScanExec;
 use vortex_session::VortexSession;
 use vortex_utils::parallelism::get_available_parallelism;
 
@@ -414,8 +414,8 @@ impl DataSourceScan for MultiLayoutScan {
         Ok(vec![self])
     }
 
-    fn open(self: Box<Self>) -> VortexResult<ScanStream> {
-        Ok(ScanStream::from_partitions(self))
+    fn open(self: Box<Self>) -> VortexResult<ScanExec> {
+        Ok(ScanExec::from_partitions(self))
     }
 
     fn partition_count(&self) -> Precision<usize> {
