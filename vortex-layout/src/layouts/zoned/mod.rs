@@ -609,10 +609,10 @@ mod tests {
     use vortex_aggregates::bounded_max::BoundedMaxOptions;
     use vortex_aggregates::max::Max;
     use vortex_aggregates::min::Min;
+    use vortex_aggregates::sum::Sum;
     use vortex_array::aggregate_fn::AggregateFnRef;
     use vortex_array::aggregate_fn::AggregateFnVTableExt;
     use vortex_array::aggregate_fn::NumericalAggregateOpts;
-    use vortex_aggregates::sum::Sum;
     use vortex_array::aggregate_fn::session::AggregateFnSession;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
@@ -691,7 +691,9 @@ mod tests {
         let metadata = ZonedMetadata::deserialize(bytes)?;
         assert_eq!(metadata.zone_len, 8);
 
-        let aggregate_fns = try_aggregate_fns_from_specs(&metadata.aggregate_specs, &SESSION)?
+        let session = VortexSession::empty().with::<AggregateFnSession>();
+        vortex_aggregates::initialize(&session);
+        let aggregate_fns = try_aggregate_fns_from_specs(&metadata.aggregate_specs, &session)?
             .expect("known aggregates resolve");
         assert_eq!(
             aggregate_fns.as_ref(),

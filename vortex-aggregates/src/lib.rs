@@ -25,11 +25,11 @@ use vortex_array::arrays::Primitive;
 use vortex_array::arrays::RunEnd;
 use vortex_array::arrays::Widen;
 use vortex_array::dtype::extension::ExtVTable;
-use vortex_array::stats::Stat;
 use vortex_array::extension::datetime::Date;
 use vortex_array::extension::datetime::Duration;
 use vortex_array::extension::datetime::Time;
 use vortex_array::extension::datetime::Timestamp;
+use vortex_array::stats::Stat;
 use vortex_session::VortexSession;
 
 pub mod all_nan;

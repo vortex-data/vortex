@@ -19,7 +19,6 @@ use crate::aggregate_fn::kernels::DynAggregateKernel;
 use crate::aggregate_fn::kernels::DynGroupedAggregateKernel;
 use crate::array::ArrayId;
 use crate::array::VTable;
-use crate::arrays::Bool;
 use crate::arrays::Chunked;
 use crate::arrays::chunked::compute::aggregate::ChunkedArrayAggregate;
 use crate::dtype::DType;

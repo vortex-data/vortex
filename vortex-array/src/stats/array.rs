@@ -17,11 +17,11 @@ use super::StatsSetIntoIter;
 use super::TypedStatsSetRef;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
+use crate::scalar::Scalar;
+use crate::scalar::ScalarValue;
 use crate::stats::Precision;
 use crate::stats::Stat;
 use crate::stats::StatsProvider;
-use crate::scalar::Scalar;
-use crate::scalar::ScalarValue;
 
 /// A shared [`StatsSet`] stored in an array. Can be shared by copies of the array and can also be mutated in place.
 /// Stats are created lazily on read or write.

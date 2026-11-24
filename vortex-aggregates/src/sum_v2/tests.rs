@@ -32,11 +32,11 @@ use vortex_array::dtype::FieldNames;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::Nullability::Nullable;
 use vortex_array::dtype::PType;
-use vortex_array::stats::Precision;
-use vortex_array::stats::Stat;
 use vortex_array::proto::expr as pb;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar::ScalarValue;
+use vortex_array::stats::Precision;
+use vortex_array::stats::Stat;
 use vortex_array::validity::Validity;
 use vortex_buffer::buffer;
 use vortex_error::VortexResult;
@@ -437,7 +437,7 @@ fn reference_sums(
         .ok_or_else(|| vortex_error::vortex_err!("no sum dtype"))?;
     let valid = validity.execute_mask(groups.len(), ctx)?;
     let mut builder =
-        crate::builders::builder_with_capacity_in(&dtype, groups.len(), ctx.allocator());
+        vortex_array::builders::builder_with_capacity_in(&dtype, groups.len(), ctx.allocator());
     for (group, &(offset, size)) in groups.iter().enumerate() {
         let sum = if valid.value(group) {
             let slice = elements.slice(offset as usize..(offset + size) as usize)?;

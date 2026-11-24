@@ -190,10 +190,10 @@ mod tests {
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::Nullability::Nullable;
     use vortex_array::dtype::PType;
-    use vortex_array::stats::Precision;
-    use vortex_array::stats::Stat;
     use vortex_array::scalar::Scalar;
     use vortex_array::scalar::ScalarValue;
+    use vortex_array::stats::Precision;
+    use vortex_array::stats::Stat;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;

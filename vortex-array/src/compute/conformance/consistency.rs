@@ -40,9 +40,9 @@ use crate::compute::conformance::conformance_stat;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
-use crate::stats::Stat;
 use crate::scalar_fn::builtin::operators::BooleanOperator;
 use crate::scalar_fn::builtin::operators::CompareOperator;
+use crate::stats::Stat;
 
 /// Tests that filter and take operations produce consistent results.
 ///

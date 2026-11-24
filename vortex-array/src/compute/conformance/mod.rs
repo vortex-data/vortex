@@ -5,8 +5,8 @@ use vortex_error::VortexExpect;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
-use crate::stats::Stat;
 use crate::scalar::Scalar;
+use crate::stats::Stat;
 
 pub mod binary_numeric;
 pub mod cast;

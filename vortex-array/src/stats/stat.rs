@@ -9,23 +9,22 @@ use enum_iterator::Sequence;
 use enum_iterator::all;
 use num_enum::IntoPrimitive;
 use num_enum::TryFromPrimitive;
-
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 
 use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::AggregateFnRef;
 use crate::aggregate_fn::NumericalAggregateOpts;
+use crate::aggregate_fn::session::AggregateFnSessionExt;
+use crate::aggregate_fn::stat_aggregates;
+use crate::aggregate_fn::stat_aggregates::IsSortedOptions;
 use crate::dtype::DType;
 use crate::dtype::Nullability::NonNullable;
+use crate::dtype::PType;
 use crate::stats::LowerBound;
 use crate::stats::Precision;
 use crate::stats::StatType;
 use crate::stats::UpperBound;
-use crate::aggregate_fn::session::AggregateFnSessionExt;
-use crate::aggregate_fn::stat_aggregates;
-use crate::aggregate_fn::stat_aggregates::IsSortedOptions;
-use crate::dtype::PType;
 
 #[derive(
     Debug,

@@ -17,8 +17,8 @@ use vortex_array::aggregate_fn::kernels::DynAggregateKernel;
 use vortex_array::arrays::Widen;
 use vortex_array::arrays::widen::WidenArraySlotsExt;
 use vortex_array::dtype::DType;
-use vortex_array::stats::Stat;
 use vortex_array::scalar::Scalar;
+use vortex_array::stats::Stat;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 

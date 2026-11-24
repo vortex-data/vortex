@@ -2,6 +2,8 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::ExecutionCtx;
+use vortex_array::IntoArray;
+use vortex_array::RecursiveCanonical;
 use vortex_array::arrays::ListViewArray;
 use vortex_array::arrays::listview::ListViewArrayExt;
 use vortex_array::arrays::listview::ListViewArraySlotsExt;
@@ -9,8 +11,6 @@ use vortex_error::VortexResult;
 
 use super::arrays_value_equal;
 use super::is_constant;
-use vortex_array::IntoArray;
-use vortex_array::RecursiveCanonical;
 
 /// Check if a list view array is constant by comparing each list's elements.
 ///

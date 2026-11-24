@@ -25,12 +25,12 @@ use vortex_array::dtype::DecimalDType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::Nullability::NonNullable;
 use vortex_array::dtype::Nullability::Nullable;
-use vortex_array::stats::Precision;
-use vortex_array::stats::Stat;
-use vortex_array::stats::StatsProvider;
 use vortex_array::match_each_decimal_value_type;
 use vortex_array::scalar::DecimalValue;
 use vortex_array::scalar::Scalar;
+use vortex_array::stats::Precision;
+use vortex_array::stats::Stat;
+use vortex_array::stats::StatsProvider;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 

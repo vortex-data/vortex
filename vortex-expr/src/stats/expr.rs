@@ -15,9 +15,6 @@ use vortex_array::aggregate_fn::AggregateFnRef;
 use vortex_array::aggregate_fn::AggregateFnVTableExt;
 use vortex_array::aggregate_fn::EmptyOptions;
 use vortex_array::aggregate_fn::NumericalAggregateOpts;
-use vortex_array::expr::BoundExpression;
-use vortex_array::expr::Expression;
-use vortex_array::scalar_fn::ScalarFnVTableExt;
 use vortex_error::VortexExpect;
 
 use crate::BoundExpression;

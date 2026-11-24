@@ -106,9 +106,9 @@ mod tests {
     use vortex_array::dtype::Nullability::Nullable;
     use vortex_array::dtype::PType;
     use vortex_array::dtype::i256;
-    use vortex_array::stats::Stat;
     use vortex_array::scalar::DecimalValue;
     use vortex_array::scalar::Scalar;
+    use vortex_array::stats::Stat;
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 

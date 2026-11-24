@@ -8,10 +8,12 @@ use vortex_array::aggregate_fn::AggregateFnRef;
 use vortex_array::aggregate_fn::GroupRanges;
 use vortex_array::aggregate_fn::GroupedArray;
 use vortex_array::aggregate_fn::kernels::DynGroupedAggregateKernel;
+use vortex_array::arrays::Bool;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
+use vortex_array::arrays::bool::BoolArrayExt;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::Nullability;
 use vortex_array::match_each_native_ptype;
@@ -28,8 +30,6 @@ use super::sum_v2_partial_fields;
 use crate::sum::sum_float_all;
 use crate::sum::sum_signed_all;
 use crate::sum::sum_unsigned_all;
-use vortex_array::arrays::Bool;
-use vortex_array::arrays::bool::BoolArrayExt;
 
 /// Encoding-specific grouped [`SumV2`] kernel for primitive element arrays.
 #[derive(Debug)]

@@ -83,25 +83,24 @@ mod tests {
     use std::sync::LazyLock;
 
     use rstest::rstest;
+    use vortex_array::IntoArray;
+    use vortex_array::VortexSessionExecute;
+    use vortex_array::aggregate_fn::Accumulator;
+    use vortex_array::aggregate_fn::DynAccumulator;
+    use vortex_array::aggregate_fn::EmptyOptions;
+    use vortex_array::arrays::DictArray;
+    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::dtype::Nullability;
+    use vortex_array::scalar::Scalar;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
-    use crate::IntoArray;
-    use crate::VortexSessionExecute;
-    use crate::aggregate_fn::Accumulator;
-    use crate::aggregate_fn::DynAccumulator;
-    use crate::aggregate_fn::EmptyOptions;
-    use crate::aggregate_fn::fns::is_constant::IsConstant;
-    use crate::arrays::DictArray;
-    use crate::arrays::PrimitiveArray;
-    use crate::dtype::Nullability;
-    use crate::scalar::Scalar;
-    use crate::session::ArraySessionExt;
+    use crate::is_constant::IsConstant;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
         let session = VortexSession::empty();
-        session.arrays();
+        crate::initialize(&session);
         session
     });
 

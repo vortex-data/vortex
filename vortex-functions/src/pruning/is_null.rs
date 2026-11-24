@@ -117,7 +117,8 @@ mod tests {
     }
 
     fn stat(expr: Expression, stat: Stat) -> Expression {
-        let aggregate_fn = stat.aggregate_fn().expect("stat should have aggregate fn");
+        let aggregate_fn =
+            vortex_aggregates::stat_aggregate_fn(stat).expect("stat should have aggregate fn");
         vortex_expr::stats::stat(expr, aggregate_fn)
     }
 

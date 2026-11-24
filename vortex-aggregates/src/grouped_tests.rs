@@ -7,10 +7,10 @@ use std::sync::LazyLock;
 
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
+use vortex_array::aggregate_fn::DynGroupedAccumulator;
 use vortex_array::aggregate_fn::EmptyOptions;
 use vortex_array::aggregate_fn::GroupedAccumulator;
 use vortex_array::aggregate_fn::NumericalAggregateOpts;
-use vortex_array::aggregate_fn::fns::null_count::NullCount;
 use vortex_array::arrays::ListViewArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::assert_arrays_eq;
@@ -25,6 +25,7 @@ use vortex_session::VortexSession;
 use crate::combined::PairOptions;
 use crate::count::Count;
 use crate::mean::Mean;
+use crate::null_count::NullCount;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
@@ -32,8 +33,8 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 fn test_accumulate_list_with_null_group_non_nullable_partials() -> VortexResult<()> {
     let mut ctx = SESSION.create_execution_ctx();
     // Groups: [[1.0, null, 3.0], null, [4.0]]
-    let elements = PrimitiveArray::from_option_iter([Some(1.0f64), None, Some(3.0), Some(4.0)])
-        .into_array();
+    let elements =
+        PrimitiveArray::from_option_iter([Some(1.0f64), None, Some(3.0), Some(4.0)]).into_array();
     let groups = ListViewArray::try_new(
         elements,
         buffer![0u32, 3, 3].into_array(),
@@ -44,11 +45,8 @@ fn test_accumulate_list_with_null_group_non_nullable_partials() -> VortexResult<
     .into_array();
     let elem_dtype = DType::Primitive(PType::F64, Nullable);
 
-    let mut count_acc = GroupedAccumulator::try_new(
-        Count,
-        NumericalAggregateOpts::default(),
-        elem_dtype.clone(),
-    )?;
+    let mut count_acc =
+        GroupedAccumulator::try_new(Count, NumericalAggregateOpts::default(), elem_dtype.clone())?;
     count_acc.accumulate_list(&groups, &mut ctx)?;
     assert_arrays_eq!(
         count_acc.finish()?,

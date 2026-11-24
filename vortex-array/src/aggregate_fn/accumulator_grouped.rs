@@ -434,7 +434,6 @@ fn fixed_size_list_group_ranges(groups: &FixedSizeListArray) -> GroupRanges {
 mod tests {
     use std::sync::LazyLock;
 
-    use vortex_buffer::buffer;
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
     use vortex_session::registry::CachedId;
@@ -451,14 +450,11 @@ mod tests {
     use crate::aggregate_fn::EmptyOptions;
     use crate::aggregate_fn::GroupedAccumulator;
     use crate::arrays::Chunked;
-    use crate::arrays::ListViewArray;
     use crate::arrays::PrimitiveArray;
     use crate::assert_arrays_eq;
     use crate::dtype::DType;
     use crate::dtype::Nullability::NonNullable;
-    use crate::dtype::Nullability::Nullable;
     use crate::dtype::PType;
-    use crate::validity::Validity;
     use crate::scalar::Scalar;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);

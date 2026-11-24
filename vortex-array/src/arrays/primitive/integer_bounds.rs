@@ -23,11 +23,11 @@ use crate::aggregate_fn::session::AggregateFnSessionExt;
 use crate::aggregate_fn::stat_aggregates;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::primitive::PrimitiveArrayExt;
-use crate::expr::stats::Precision;
-use crate::expr::stats::Stat;
-use crate::expr::stats::StatsProvider;
 use crate::match_each_integer_ptype;
 use crate::scalar::Scalar;
+use crate::stats::Precision;
+use crate::stats::Stat;
+use crate::stats::StatsProvider;
 
 /// The minimum and maximum of the valid values of an integer array.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -259,9 +259,9 @@ mod tests {
     use crate::IntoArray;
     use crate::VortexSessionExecute;
     use crate::arrays::PrimitiveArray;
-    use crate::expr::stats::Precision;
-    use crate::expr::stats::Stat;
-    use crate::expr::stats::StatsProviderExt;
+    use crate::stats::Precision;
+    use crate::stats::Stat;
+    use crate::stats::StatsProviderExt;
 
     /// A session registering no aggregate functions, so statistics fall back to scanning.
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
