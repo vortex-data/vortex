@@ -308,9 +308,8 @@ BENCHMARKS = (
         name="Statistical and Population Genetics on S3",
         storage=Storage.S3,
         scale_factor=100,
-        # data-gen writes `scale_factor` thousand variants under `statpopgen/<n_rows>`.
-        local_dir="vortex-bench/data/statpopgen/100000",
-        remote_key="statpopgen/100000",
+        local_dir="vortex-bench/data/statpopgen",
+        remote_key="statpopgen",
         runs={
             "pr-compact": COMPACT,
             "pr-full": STANDARD,

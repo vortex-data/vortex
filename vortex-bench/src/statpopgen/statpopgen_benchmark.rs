@@ -45,8 +45,8 @@ impl StatPopGenBenchmark {
     ///
     /// # Arguments
     /// * `scale_factor` - Scale factor. The dataset will contain this many thousands of rows.
-    /// * `remote_data_dir` - Remote directory holding a copy of the local
-    ///   `statpopgen/{n_rows}/` directory, or `None` to read the local data.
+    /// * `remote_data_dir` - Remote directory holding a copy of the local `statpopgen/`
+    ///   directory, or `None` to read the local data.
     ///
     /// # Returns
     /// A configured benchmark instance with pre-calculated expected row counts for query validation.
@@ -59,8 +59,8 @@ impl StatPopGenBenchmark {
             )
         })?;
 
-        let data_url =
-            resolve_data_url(remote_data_dir.as_deref(), &format!("statpopgen/{n_rows}"))?;
+        let data_url = resolve_data_url(remote_data_dir.as_deref(), "statpopgen")?
+            .join(&format!("{n_rows}/"))?;
 
         Ok(Self {
             data_url,
