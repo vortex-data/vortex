@@ -73,6 +73,7 @@ impl Default for CompressionSession {
                 &float::FloatDictScheme,
                 &float::NullDominatedSparseScheme,
                 &float::FloatRLEScheme,
+                &float::FloatWidenScheme,
                 #[cfg(feature = "pco")]
                 &float::PcoScheme,
                 ////////////////////////////////////////////////////////////////////////////////////

@@ -7,6 +7,7 @@ mod alp;
 mod alprd;
 mod rle;
 mod sparse;
+mod widen;
 
 #[cfg(feature = "pco")]
 mod pco;
@@ -20,3 +21,4 @@ pub use sparse::NullDominatedSparseScheme;
 // Re-export builtin schemes from vortex-compressor.
 pub use vortex_compressor::builtins::FloatDictScheme;
 pub use vortex_compressor::stats::FloatStats;
+pub use widen::FloatWidenScheme;

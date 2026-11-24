@@ -6,6 +6,7 @@
 use std::sync::Arc;
 
 use vortex_array::ArrayId;
+use vortex_array::arrays::widen::widen_v2_id;
 use vortex_decimal_byte_parts::decimal_byte_parts_v2_id;
 use vortex_fastlanes::bitpacked_v2_id;
 use vortex_fastlanes::for_v2_id;
@@ -80,6 +81,7 @@ impl CompressionMode {
                     integer::SparseScheme.id(),
                     integer::IntRLEScheme.id(),
                     float::FloatRLEScheme.id(),
+                    float::FloatWidenScheme.id(),
                     float::NullDominatedSparseScheme.id(),
                     string::NullDominatedSparseScheme.id(),
                     fixed_size_list::FixedSizeListSparseScheme.id(),
@@ -103,9 +105,15 @@ impl CompressionMode {
     fn excluded_encodings(self) -> Vec<ArrayId> {
         match self {
             Self::All | Self::Default | Self::Compact => Vec::new(),
-            // Multi-part DecimalByteParts arrays, FoR arrays with per-chunk references and
-            // BitPacked arrays with per-block bit widths have no CUDA decode kernel.
-            Self::Cuda => vec![decimal_byte_parts_v2_id(), for_v2_id(), bitpacked_v2_id()],
+            // Multi-part DecimalByteParts arrays, FoR arrays with per-chunk references,
+            // BitPacked arrays with per-block bit widths, and float Widen arrays have no CUDA
+            // decode kernel.
+            Self::Cuda => vec![
+                decimal_byte_parts_v2_id(),
+                for_v2_id(),
+                bitpacked_v2_id(),
+                widen_v2_id(),
+            ],
         }
     }
 }
@@ -277,6 +285,7 @@ mod tests {
     use vortex_array::arrays::Constant;
     use vortex_array::arrays::Patched;
     use vortex_array::arrays::VarBin;
+    use vortex_array::arrays::Widen;
     use vortex_decimal_byte_parts::DecimalByteParts;
     use vortex_decimal_byte_parts::decimal_byte_parts_v1_id;
     use vortex_fastlanes::bitpacked_v1_id;
@@ -348,6 +357,16 @@ mod tests {
         vec![vortex_alp::ALPRD.id(), bitpacked_v1_id(), Constant.id()],
         true
     )]
+    #[case::float_widen_without_v2(
+        &float::FloatWidenScheme,
+        vec![Widen.id()],
+        false
+    )]
+    #[case::float_widen_with_v2(
+        &float::FloatWidenScheme,
+        vec![widen_v2_id()],
+        true
+    )]
     fn test_allowed_schemes(
         #[case] scheme: &'static dyn Scheme,
         #[case] allowed: Vec<ArrayId>,
@@ -381,5 +400,19 @@ mod tests {
         let has = |id: SchemeId| cuda.allowed_schemes().iter().any(|s| s.id() == id);
         assert!(has(string::StringDictScheme.id()));
         assert!(!has(binary::BinaryDictScheme.id()));
+    }
+
+    #[test]
+    fn float_widen_is_excluded_by_cuda() {
+        let builder = BtrBlocksCompressorBuilder::from_session(&SESSION).unrestricted();
+        let has_float_widen = |builder: BtrBlocksCompressorBuilder| {
+            builder
+                .allowed_schemes()
+                .iter()
+                .any(|s| s.id() == float::FloatWidenScheme.id())
+        };
+        assert!(has_float_widen(builder.clone()));
+        assert!(has_float_widen(builder.clone().with_compact()));
+        assert!(!has_float_widen(builder.only_cuda_compatible()));
     }
 }
