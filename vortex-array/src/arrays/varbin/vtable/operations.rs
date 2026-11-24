@@ -56,11 +56,9 @@ fn offset_at(
     if let Some(primitive) = state.array().offsets().as_opt::<Primitive>()
         && primitive.buffer_handle().is_on_host()
     {
-        return match_each_integer_ptype!(primitive.ptype(), |T| {
-            Ok(primitive.as_slice::<T>()[index]
-                .to_usize()
-                .vortex_expect("Failed to convert offset to usize"))
-        });
+        return Ok(match_each_integer_ptype!(primitive.ptype(), |T| {
+            host_offset_at(primitive.as_slice::<T>(), index)
+        }));
     }
 
     let offset = state
@@ -70,4 +68,10 @@ fn offset_at(
     Ok((&offset)
         .try_into()
         .vortex_expect("Failed to convert offset to usize"))
+}
+
+fn host_offset_at<T: ToPrimitive>(offsets: &[T], index: usize) -> usize {
+    offsets[index]
+        .to_usize()
+        .vortex_expect("Failed to convert offset to usize")
 }
