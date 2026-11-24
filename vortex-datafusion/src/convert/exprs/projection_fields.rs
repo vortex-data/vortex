@@ -1,11 +1,21 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Prunes struct fields from the raw inputs of a DataFusion projection.
+//! Prunes unused struct fields from the raw fallback of a DataFusion projection.
 //!
-//! DataFusion still evaluates the projection. The scan substitutes columns only for field reads
-//! whose Arrow field and values are the same as in the raw projection. A field read stays in
-//! DataFusion when the scan still reads its raw column whole, so the scan never reads a field twice.
+//! When a projection has an expression that Vortex cannot evaluate,
+//! [`ExpressionConverter::split_projection`] returns a _raw fallback_. The scan reads each input
+//! column that the projection references whole, and DataFusion evaluates the complete projection.
+//! These scan inputs are the _raw columns_. A raw struct column brings every sibling field, even
+//! when the projection reads only one leaf of it.
+//!
+//! This module refines a raw fallback for converters that opt in through
+//! [`ExpressionConverter::allows_projection_field_pushdown`]. It replaces a DataFusion field read
+//! of a plain leaf with a scan column that reads only that leaf, so the scan can omit the struct
+//! column. DataFusion still evaluates the rest of the projection, so a substitution happens only
+//! when the scan column has the same Arrow field and values as the field read. A field read stays
+//! in DataFusion when the scan still reads its raw column whole, so the scan never reads a field
+//! twice.
 
 use std::iter;
 use std::sync::Arc;
@@ -40,11 +50,12 @@ use vortex_utils::aliases::hash_map::HashMap;
 use super::ExpressionConverter;
 use super::ProcessedProjection;
 
-/// Refines a raw fallback when it can omit at least one whole struct column.
+/// Refines a raw fallback when the scan can omit at least one whole struct column, and otherwise
+/// returns `projection` unchanged.
 ///
-/// The Arrow reference schema can promise stricter nullability than the data, so
-/// eligibility also uses the actual dtype returned by `scan_dtype`. The callback runs
-/// only after finding a candidate projection.
+/// The Arrow reference schema can promise stricter nullability than the data, so eligibility also
+/// uses the actual dtype that `scan_dtype` returns. The callback runs only for a candidate
+/// projection.
 pub(crate) fn push_down_projection_fields(
     projection: ProcessedProjection,
     converter: &dyn ExpressionConverter,
@@ -77,26 +88,30 @@ fn try_push_down_fields(
     let raw_schema = &projection.scan_reference_schema;
     let substitute_field_reads = |retained_columns: &[usize]| {
         let mut scan_columns = ScanColumns::from_raw(raw_schema.fields(), raw_columns);
-        let mut substitute = |expr: PhysicalExprRef| {
+        let mut substitute_field_read = |expr: PhysicalExprRef| {
             if get_field_function(&expr).is_none() {
                 return Ok(Transformed::no(expr));
             }
 
             let field_read = convert_field_read(&expr, raw_schema, &scan_fields, converter, arrow)
-                .filter(|read| retained_columns.binary_search(&read.raw_column).is_err());
-            match field_read.and_then(|read| scan_columns.substitute(read)) {
+                .filter(|field_read| {
+                    retained_columns
+                        .binary_search(&field_read.raw_column)
+                        .is_err()
+                });
+            match field_read.and_then(|field_read| scan_columns.substitute(field_read)) {
                 Some(column) => Ok(Transformed::yes(column)),
                 None => Ok(Transformed::new(expr, false, TreeNodeRecursion::Jump)),
             }
         };
 
-        // Assign the raw column indices first so rebuilding a CASE can distinguish its original
-        // columns from the substituted field reads.
         let rewritten = leftover
             .clone()
             .try_map_exprs(|expr| {
+                // Assign the raw column indices first so rebuilding a CASE can distinguish its
+                // original columns from the substituted field reads.
                 reassign_expr_columns(expr, raw_schema)?
-                    .transform_down(&mut substitute)
+                    .transform_down(&mut substitute_field_read)
                     .map(|transformed| transformed.data)
             })
             .ok()?;
@@ -108,9 +123,15 @@ fn try_push_down_fields(
     // projection reads that column directly, reads a field of it that cannot be substituted, or
     // reads a field whose name a different read already claimed. The scan would then read and
     // export the field twice, so the second pass keeps every field read of a retained column in
-    // DataFusion. Each remaining field read claimed its name without a conflict in the first
-    // pass, and the second pass claims only some of those names, so each one succeeds again and
-    // the second pass retains no further raw columns.
+    // DataFusion.
+    //
+    // Each field read that the second pass substitutes claimed its name without a conflict in the
+    // first pass, and the second pass claims only some of those names. So each one succeeds again,
+    // and the second pass retains no further raw columns. This argument relies on
+    // `ScanColumns::substitute` never reassigning a claimed name. A column that the first pass
+    // retained only because of a name conflict stays retained, even when the second pass removes
+    // the conflicting read. Recovering it would take passes until nothing changes, which this rare
+    // case does not justify.
     let (rewritten, scan_columns) = substitute_field_reads(&[])?;
     let retained_columns = scan_columns.retained_raw_columns(&rewritten);
     let (rewritten, scan_columns) = if scan_columns.substitutes_field_of(&retained_columns) {
@@ -122,7 +143,10 @@ fn try_push_down_fields(
     scan_columns.finish(rewritten, raw_schema)
 }
 
-/// A raw fallback packs unchanged input columns, with a virtual row index if requested.
+/// Returns the scan reads of a raw fallback that can be refined, or `None` otherwise.
+///
+/// A raw fallback packs each raw column under its own name, plus an optional virtual row index.
+/// It can be refined only when it has a struct column and unique names.
 fn raw_projection_columns(projection: &ProcessedProjection) -> Option<&[Expression]> {
     let fields = projection.scan_reference_schema.fields();
     let columns = projection.scan_projection.children();
@@ -148,6 +172,8 @@ fn raw_projection_columns(projection: &ProcessedProjection) -> Option<&[Expressi
     Some(columns)
 }
 
+/// Returns whether `projection` has unique aliases, only rewritable expressions, and at least one
+/// field read.
 fn can_rewrite_projection(projection: &ProjectionExprs) -> bool {
     if !projection.iter().map(|output| &output.alias).all_unique() {
         return false;
@@ -182,10 +208,13 @@ struct ScanColumn {
 
 /// Tracks the scan column at each index in the rewritten projection.
 struct ScanColumns {
+    /// The raw columns, followed by the substituted fields.
     columns: Vec<ScanColumn>,
+    /// The index in `columns` of each scan column name. Callers remap the rewritten projection to
+    /// the scan output by name, so each name **must** be unique.
     indices: HashMap<String, usize>,
-    /// Substituted fields are appended after this prefix of original columns.
-    raw_field_count: usize,
+    /// The number of raw columns at the start of `columns`.
+    raw_column_count: usize,
 }
 
 impl ScanColumns {
@@ -209,16 +238,18 @@ impl ScanColumns {
         Self {
             columns,
             indices,
-            raw_field_count: fields.len(),
+            raw_column_count: fields.len(),
         }
     }
 
+    /// Returns a DataFusion column that reads `column` from the scan, or `None` when a raw column
+    /// or a different read already has its name.
     fn substitute(&mut self, column: ScanColumn) -> Option<PhysicalExprRef> {
         let name = column.field.name().clone();
         let index = if let Some(&index) = self.indices.get(&name) {
             // UDFs receive the argument's full Arrow field. Renaming it to resolve a collision
             // could change the UDF's result, so only reuse a previously substituted read.
-            if index < self.raw_field_count || self.columns[index].read != column.read {
+            if index < self.raw_column_count || self.columns[index].read != column.read {
                 return None;
             }
             index
@@ -235,25 +266,27 @@ impl ScanColumns {
     /// Returns the sorted raw columns that the rewritten projection still references.
     fn retained_raw_columns(&self, projection: &ProjectionExprs) -> Vec<usize> {
         let mut used = projection.column_indices();
-        used.truncate(used.partition_point(|&index| index < self.raw_field_count));
+        used.truncate(used.partition_point(|&index| index < self.raw_column_count));
         used
     }
 
     /// Returns whether a substituted field comes from one of the sorted `raw_columns`.
     fn substitutes_field_of(&self, raw_columns: &[usize]) -> bool {
-        self.columns[self.raw_field_count..]
+        self.columns[self.raw_column_count..]
             .iter()
             .any(|column| raw_columns.binary_search(&column.raw_column).is_ok())
     }
 
+    /// Builds the refined fallback, or returns `None` when the rewrite omits no raw column or
+    /// substitutes no field.
     fn finish(
         self,
         leftover_projection: ProjectionExprs,
         raw_schema: &Schema,
     ) -> Option<ProcessedProjection> {
         let used = leftover_projection.column_indices();
-        let retained_raw = used.partition_point(|&index| index < self.raw_field_count);
-        if retained_raw == self.raw_field_count || retained_raw == used.len() {
+        let retained_raw = used.partition_point(|&index| index < self.raw_column_count);
+        if retained_raw == self.raw_column_count || retained_raw == used.len() {
             return None;
         }
 
@@ -273,7 +306,9 @@ impl ScanColumns {
     }
 }
 
-/// Allow only expressions whose children describe their input bindings. A lambda or a physical
+/// Returns whether the rewrite can remap the inputs of `expr` without changing its result.
+///
+/// Only expressions whose children describe their input bindings qualify. A lambda or a physical
 /// expression with its own bindings needs the original fallback layout.
 fn can_rewrite(expr: &PhysicalExprRef) -> bool {
     if let Some(function) = expr.downcast_ref::<ScalarFunctionExpr>() {
@@ -300,6 +335,8 @@ fn get_field_function(expr: &PhysicalExprRef) -> Option<&ScalarFunctionExpr> {
     ScalarFunctionExpr::try_downcast_func::<GetFieldFunc>(expr.as_ref())
 }
 
+/// Returns the scan column for `expr` when it reads a plain struct field that the scan can return
+/// with the same Arrow field and values.
 fn convert_field_read(
     expr: &PhysicalExprRef,
     schema: &Schema,
@@ -308,6 +345,7 @@ fn convert_field_read(
     arrow: &ArrowSession,
 ) -> Option<ScanColumn> {
     let (column, dtype) = struct_field_path(expr, schema, scan_fields)?;
+
     // Importing an Arrow field can erase dictionary and run-end encoding. Check the Arrow
     // type directly, since a UDF can observe that encoding even when the values are equivalent.
     let arrow_type = column.field.data_type();
@@ -330,8 +368,12 @@ fn convert_field_read(
     (converted == column.read).then_some(column)
 }
 
-/// Resolve both flattened and nested get_field calls, propagating parent struct nullability
-/// through both schemas to match DataFusion's get_field and Vortex's get_item.
+/// Returns the scan column and scan dtype that a chain of field reads from a raw column resolves
+/// to.
+///
+/// The chain can use flattened and nested [`get_field`][GetFieldFunc] calls. A nullable parent
+/// struct makes the child nullable in both schemas, which matches how DataFusion's
+/// [`get_field`][GetFieldFunc] and Vortex's [`get_item`] propagate parent nulls.
 fn struct_field_path(
     expr: &PhysicalExprRef,
     schema: &Schema,
@@ -358,6 +400,7 @@ fn struct_field_path(
         if column.field.extension_type_name().is_some() {
             return None;
         }
+
         let (DataType::Struct(fields), DType::Struct(children, nullability)) =
             (column.field.data_type(), &dtype)
         else {
@@ -369,6 +412,8 @@ fn struct_field_path(
             .try_as_str()
             .flatten()
             .filter(|name| !name.is_empty())?;
+
+        // Arrow allows duplicate field names, so reject a name that matches more than one child.
         let mut matching = fields.iter().filter(|field| field.name() == name);
         let child = matching.next()?;
         if matching.next().is_some() {
@@ -391,5 +436,7 @@ fn struct_field_path(
         column.read = get_item(name, column.read);
     }
 
+    // UDFs receive the argument's full Arrow field, so the scan column must have exactly the field
+    // that DataFusion's `get_field` returns.
     (expr.return_field(schema).ok()? == column.field).then_some((column, dtype))
 }

@@ -186,12 +186,13 @@ pub trait ExpressionConverter: Send + Sync {
         })
     }
 
-    /// Allow scans to refine the raw fallback returned by [`Self::split_projection`].
+    /// Returns whether scans can refine the raw fallback of [`Self::split_projection`].
     ///
-    /// Opting in allows the scan to read a plain field directly when [`Self::try_convert`] produces
-    /// the equivalent Vortex field read and the original Arrow field can be preserved. The
-    /// default keeps the scan inputs chosen by custom converters, so a converter that wraps
-    /// [`DefaultExpressionConverter`] **must** forward this method to keep the pushdown.
+    /// When this returns `true`, a scan can read a plain struct field instead of its whole struct
+    /// column, if [`Self::try_convert`] produces the equivalent Vortex field read and the original
+    /// Arrow field can be preserved. The default returns `false` to keep the scan inputs that a
+    /// custom converter chooses, so a converter that wraps [`DefaultExpressionConverter`] **must**
+    /// forward this method to keep the pushdown.
     fn allows_projection_field_pushdown(&self) -> bool {
         false
     }

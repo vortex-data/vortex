@@ -435,13 +435,13 @@ impl FileOpener for VortexOpener {
                 indices.dedup();
                 raw_projection(&indices, &this_file_schema, projection)?
             } else if projection_pushdown {
-                let projection = expr_converter.split_projection(
+                let processed = expr_converter.split_projection(
                     projection,
                     &this_file_schema,
                     output_schema.as_ref(),
                 )?;
                 push_down_projection_fields(
-                    projection,
+                    processed,
                     expr_converter.as_ref(),
                     |expr| expr.return_dtype(vxf.dtype()),
                     &session.arrow(),

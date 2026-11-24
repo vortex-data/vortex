@@ -116,6 +116,11 @@ async fn data_source_from_batch(
     Ok(file.data_source()?)
 }
 
+/// Projects `id`, a CASE over `s.inner.label` that Vortex cannot evaluate, the same leaf through
+/// nested `get_field` calls, and the row index.
+///
+/// The CASE forces the raw fallback. Its flattened field read and the nested `original` read must
+/// both become the same scan column.
 fn nested_label_projection(schema: &Schema) -> anyhow::Result<ProjectionExprs> {
     let function = |udf: ScalarUDF, args| -> anyhow::Result<PhysicalExprRef> {
         Ok(Arc::new(ScalarFunctionExpr::try_new(
@@ -173,18 +178,19 @@ fn nested_label_projection(schema: &Schema) -> anyhow::Result<ProjectionExprs> {
 }
 
 #[rstest]
-#[case::non_nullable(false, false, false, true)]
-#[case::nullable_outer(true, true, false, true)]
-#[case::nullable_outer_non_nullable_leaf(true, true, false, false)]
-#[case::nullable_outer_in_storage(true, false, false, true)]
-#[case::nullable_inner(false, false, true, true)]
-#[case::non_nullable_leaf_in_nullable_storage(true, false, false, false)]
+#[case::non_nullable(false, false, false, true, true)]
+#[case::nullable_outer(true, true, false, true, true)]
+#[case::nullable_outer_non_nullable_leaf(true, true, false, false, true)]
+#[case::nullable_outer_in_storage(true, false, false, true, true)]
+#[case::nullable_inner(false, false, true, true, true)]
+#[case::non_nullable_leaf_in_nullable_storage(true, false, false, false, false)]
 #[tokio::test]
 async fn test_partial_projection_reads_struct_leaf(
     #[case] stored_outer_nullable: bool,
     #[case] declared_outer_nullable: bool,
     #[case] inner_nullable: bool,
     #[case] label_nullable: bool,
+    #[case] reads_leaf: bool,
 ) -> anyhow::Result<()> {
     let label_field = Field::new("label", DataType::Utf8, label_nullable)
         .with_metadata([("source".to_owned(), "test".to_owned())]);
@@ -254,12 +260,10 @@ async fn test_partial_projection_reads_struct_leaf(
         .ok_or_else(|| anyhow!("projection was not swapped"))?;
     let plan = Arc::new(DataSourceExec::new(projected)) as Arc<dyn ExecutionPlan>;
     let display = displayable(plan.as_ref()).one_line().to_string();
-    let declared_leaf_nullable = declared_outer_nullable || inner_nullable || label_nullable;
-    let stored_leaf_nullable = stored_outer_nullable || inner_nullable || label_nullable;
-    let expected_scan = if declared_leaf_nullable != stored_leaf_nullable {
-        "projection=pack(id: $.id, s: $.s, __vortex_row_index: #row_idx)"
-    } else {
+    let expected_scan = if reads_leaf {
         "projection=pack(id: $.id, __vortex_row_index: #row_idx, label: $.s.inner.label)"
+    } else {
+        "projection=pack(id: $.id, s: $.s, __vortex_row_index: #row_idx)"
     };
     assert!(display.contains(expected_scan), "{display}");
 
