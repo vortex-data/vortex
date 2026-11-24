@@ -70,7 +70,6 @@
 use std::any::Any;
 use std::fmt;
 use std::fmt::Formatter;
-use std::num::NonZeroUsize;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
