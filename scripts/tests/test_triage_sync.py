@@ -57,9 +57,9 @@ def test_first_run_posts_roots_and_a_quiet_rerun_reads_nothing():
     fake = FakeSlack()
     assert run(fake, [HIGH, WAITING, LOW]) == []
     assert [len(fake.top(t)) for t in (state.HELP_EVENT, state.OVERVIEW_EVENT)] == [1, 1]
-    # High and Normal items get a root, whoever owes the next move. Low items do not.
-    assert sorted(m["metadata"]["event_payload"]["number"] for m in fake.top(state.ITEM_EVENT)) == ["1", "2"]
-    assert "🔴" in card_text(fake, 1) and "🔵" in card_text(fake, 2)
+    # Every item gets a root, whatever its tier and whoever owes the next move.
+    assert sorted(m["metadata"]["event_payload"]["number"] for m in fake.top(state.ITEM_EVENT)) == ["1", "2", "3"]
+    assert "🔴" in card_text(fake, 1) and "🔵" in card_text(fake, 2) and "⚪" in card_text(fake, 3)
 
     # The second run reads the overview's thread once, because the first run posted the list of
     # waiting items there.

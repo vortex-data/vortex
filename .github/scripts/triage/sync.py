@@ -273,17 +273,17 @@ class Run:
         if root is None:
             # The row goes in first, so that a failed post leaves the item in the overview.
             row = rows[item.number] = render.Row(item, assessment, None, None)
-            if assessment.tier is not Tier.LOW:
-                state = ItemState(
-                    item.number, seen_external_at=assessment.last_external_at or "", verdict=verdict
-                )
-                # `_save` edits the mentions in later in this run.
-                message = render.card(replace(row, state=state), self.now, self.quiet)
-                state = replace(state, card=_hash(message))
-                ts = self.slack.post(message, metadata(ITEM_EVENT, state.payload()))
-                root = Root(Thread(ts, ""), state, state)
-                self.channel.roots[item.number] = root
-                rows[item.number] = render.Row(item, assessment, state, self._link(ts))
+            # Every item gets a root, so that people can snooze or reprioritize it in its thread.
+            state = ItemState(
+                item.number, seen_external_at=assessment.last_external_at or "", verdict=verdict
+            )
+            # `_save` edits the mentions in later in this run.
+            message = render.card(replace(row, state=state), self.now, self.quiet)
+            state = replace(state, card=_hash(message))
+            ts = self.slack.post(message, metadata(ITEM_EVENT, state.payload()))
+            root = Root(Thread(ts, ""), state, state)
+            self.channel.roots[item.number] = root
+            rows[item.number] = render.Row(item, assessment, state, self._link(ts))
             return
 
         state = replace(root.state, status=Status.OPEN, verdict=verdict)

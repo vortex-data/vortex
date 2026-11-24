@@ -18,11 +18,9 @@ BUG_LABEL = "bug"
 APPROVED = "APPROVED"
 CHANGES_REQUESTED = "CHANGES_REQUESTED"
 
-# Tier thresholds, in calendar days since the latest contributor activity.
+# Tier thresholds, in calendar days since the latest contributor activity. Bug issues and PRs do
+# not age out of their tier, because a teammate snoozes one that matters less.
 NEW_DAYS = 5
-HIGH_PR_DAYS = 14
-HIGH_BUG_DAYS = 30
-NORMAL_PR_DAYS = 60
 NORMAL_ISSUE_DAYS = 30
 NORMAL_COMMENT_DAYS = 14
 
@@ -38,6 +36,8 @@ VERDICT_MAX_WORKING_DAYS = 5
 
 class Category(StrEnum):
     FUZZER = "fuzzer"
+    # An issue with the bug label that a teammate or a bot opened.
+    INTERNAL_BUG = "internal_bug"
     EXTERNAL_PR = "external_pr"
     EXTERNAL_ISSUE = "external_issue"
     EXTERNAL_COMMENT = "external_comment"
@@ -107,6 +107,8 @@ def categorize(item: Item) -> Category | None:
     """Return the item's category, or None when the bot does not track it."""
     if item.kind == "issue" and FUZZER_LABEL in item.labels:
         return Category.FUZZER
+    if item.kind == "issue" and BUG_LABEL in item.labels and (item.author_team or item.author_bot):
+        return Category.INTERNAL_BUG
     if item.author_bot:
         return None
     if not item.author_team:
@@ -128,6 +130,9 @@ def _relevant(item: Item) -> list[Event]:
 def _owes(item: Item, category: Category, now: datetime) -> tuple[Owes, str, datetime | None]:
     if category is Category.FUZZER:
         return Owes.VORTEX, "open fuzzer issue", parse_time(item.created_at)
+    if category is Category.INTERNAL_BUG:
+        # Nobody outside the team takes the next step on a bug that the team or a bot filed.
+        return Owes.VORTEX, "open bug", parse_time(item.created_at)
     events = _relevant(item)
     # Events are compared by position, not by time, because two events can share a timestamp.
     if item.kind == "pr":
@@ -171,6 +176,8 @@ def _tier(
 ) -> tuple[Tier, str]:
     if category is Category.FUZZER:
         return Tier.HIGH, "fuzzer issue"
+    if category is Category.INTERNAL_BUG:
+        return Tier.NORMAL, "bug filed by the team"
     age = (now - last_external).days if last_external else 10**6
     when = ago(last_external, now) + " ago" if last_external else "never"
     quiet = ago(last_external, now) if last_external else "ever"
@@ -179,20 +186,14 @@ def _tier(
     if category is Category.EXTERNAL_PR:
         if item.draft:
             # A draft is not ready for review, so it never reaches High.
-            if age < NORMAL_PR_DAYS:
-                return Tier.NORMAL, f"draft PR, contributor active {when}"
-            return Tier.LOW, f"draft PR, quiet for {quiet}"
+            return Tier.NORMAL, f"draft PR, contributor active {when}"
         if is_new:
             return Tier.HIGH, "new PR, no team reply yet"
-        if age < HIGH_PR_DAYS:
-            return Tier.HIGH, f"ready PR, contributor active {when}"
-        if age < NORMAL_PR_DAYS:
-            return Tier.NORMAL, f"PR, contributor active {when}"
-        return Tier.LOW, f"PR quiet for {quiet}"
+        return Tier.HIGH, f"ready PR, contributor active {when}"
     if category is Category.EXTERNAL_ISSUE:
         if is_new:
             return Tier.HIGH, "new issue, no team reply yet"
-        if BUG_LABEL in item.labels and age < HIGH_BUG_DAYS:
+        if BUG_LABEL in item.labels:
             return Tier.HIGH, f"bug, active {when}"
         if age < NORMAL_ISSUE_DAYS:
             return Tier.NORMAL, f"issue active {when}"
@@ -200,6 +201,10 @@ def _tier(
     if age < NORMAL_COMMENT_DAYS:
         return Tier.NORMAL, f"external comment {when}"
     return Tier.LOW, f"external comment {when}"
+
+
+# Categories where nobody outside the team can owe the next move.
+ALWAYS_VORTEX = (Category.FUZZER, Category.INTERNAL_BUG)
 
 
 def verdict_applies(verdict: Verdict | None, last_activity_at: str, now: datetime) -> bool:
@@ -221,10 +226,8 @@ def assess(item: Item, now: datetime, verdict: Verdict | None = None) -> Assessm
     last_activity_at = item.events[-1].at if item.events else item.created_at
 
     owes, owes_reason, owed_since = _owes(item, category, now)
-    # A fuzzer issue always waits on Vortex, so no verdict applies to it.
-    from_claude = category is not Category.FUZZER and verdict_applies(
-        verdict, last_activity_at, now
-    )
+    # A fuzzer issue or a team's bug always waits on Vortex, so no verdict applies to it.
+    from_claude = category not in ALWAYS_VORTEX and verdict_applies(verdict, last_activity_at, now)
     if from_claude and verdict is not None:
         owes, owes_reason = verdict.owes, verdict.reason
         if owes is Owes.CONTRIBUTOR:

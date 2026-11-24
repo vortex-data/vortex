@@ -160,6 +160,14 @@ def test_overview_entry_cuts_the_title_to_fit_one_line_and_names_the_commenter()
     )
     text = render.overview([comment], NOW.date(), NOW, PLAIN, "").attachments[0]["blocks"][1]["text"]["text"]
     assert "> · bob\n\u2003\u2003unassigned · waiting 2d · <" in text
+    # A bug that the team filed names nobody, because nobody outside the team is involved.
+    bug = row(3)
+    bug = replace(
+        bug,
+        item=item(3, author=TEAMMATE, labels=["bug"]),
+        assessment=replace(bug.assessment, category=Category.INTERNAL_BUG),
+    )
+    assert first_line(bug) == "🐞 #3 A title"
 
 
 def test_titles_and_reasons_are_escaped():

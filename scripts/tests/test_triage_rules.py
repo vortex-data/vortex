@@ -29,6 +29,11 @@ def assess(target, verdict=None) -> Any:
         # The fuzzer label wins, even on an issue that a bot opened.
         (item(author="fuzz-bot", author_bot=True, labels=["fuzzer"]), Category.FUZZER),
         (item(author="renovate", author_bot=True), None),
+        # A bug that a teammate or a bot opened is tracked, but another team or bot issue is not.
+        (item(author=TEAMMATE, labels=["bug"]), Category.INTERNAL_BUG),
+        (item(author="devin-ai-integration", author_bot=True, labels=["bug"]), Category.INTERNAL_BUG),
+        (item(kind="pr", author=TEAMMATE, labels=["bug"]), None),
+        (item(labels=["bug"]), Category.EXTERNAL_ISSUE),
         (item(), Category.EXTERNAL_ISSUE),
         (item(kind="pr"), Category.EXTERNAL_PR),
         (item(author=TEAMMATE), None),
@@ -115,7 +120,8 @@ def test_wait_on_a_former_draft_starts_when_it_was_marked_ready():
     ("target", "tier", "reason"),
     [
         (item(kind="pr", created=ago(days=2)), Tier.HIGH, "new PR, no team reply yet"),
-        # A draft is not ready for review, so it never reaches High, even when it is new.
+        # A draft is not ready for review, so it never reaches High, even when it is new. It also
+        # never drops to Low, however old it is.
         (
             item(kind="pr", draft=True, created=ago(days=2), events=[event(ago(days=1))]),
             Tier.NORMAL,
@@ -123,26 +129,25 @@ def test_wait_on_a_former_draft_starts_when_it_was_marked_ready():
         ),
         (
             item(kind="pr", draft=True, created=ago(days=200), events=[event(ago(days=90))]),
-            Tier.LOW,
-            "draft PR, quiet for 3mo",
+            Tier.NORMAL,
+            "draft PR, contributor active 3mo ago",
         ),
+        # A ready PR stays High, however long it has been quiet.
         (
             item(kind="pr", created=ago(days=20), events=[event(ago(days=10), TEAMMATE), event(ago(days=3))]),
             Tier.HIGH,
             "ready PR, contributor active 3d ago",
         ),
-        (
-            item(kind="pr", created=ago(days=60), events=[event(ago(days=40), TEAMMATE), event(ago(days=25))]),
-            Tier.NORMAL,
-            "PR, contributor active 3w ago",
-        ),
-        (item(kind="pr", created=ago(days=90)), Tier.LOW, "PR quiet for 3mo"),
+        (item(kind="pr", created=ago(days=90)), Tier.HIGH, "ready PR, contributor active 3mo ago"),
         (item(created=ago(days=1)), Tier.HIGH, "new issue, no team reply yet"),
+        # So does an external bug issue.
         (
             item(labels=["bug"], created=ago(days=40), events=[event(ago(days=30), TEAMMATE), event(ago(days=20))]),
             Tier.HIGH,
             "bug, active 2w ago",
         ),
+        (item(labels=["bug"], created=ago(days=200)), Tier.HIGH, "bug, active 6mo ago"),
+        (item(author=TEAMMATE, labels=["bug"], created=ago(days=200)), Tier.NORMAL, "bug filed by the team"),
         (
             item(created=ago(days=40), events=[event(ago(days=30), TEAMMATE), event(ago(days=20))]),
             Tier.NORMAL,
@@ -156,6 +161,15 @@ def test_wait_on_a_former_draft_starts_when_it_was_marked_ready():
 def test_tiers(target, tier, reason):
     result = assess(target)
     assert (result.tier, result.tier_reason) == (tier, reason)
+
+
+def test_bugs_that_the_team_filed_always_wait_on_vortex():
+    target = item(author=TEAMMATE, labels=["bug"], created=ago(days=10), events=[event(ago(days=2), TEAMMATE)])
+    result = assess(target)
+    assert (result.owes, result.owes_reason, result.owed_since) == (Owes.VORTEX, "open bug", NOW - timedelta(days=10))
+    # Claude does not judge them, so a verdict does not apply.
+    verdict = rules.Verdict(Owes.CONTRIBUTOR, "asked to wait", ago(days=2), NOW)
+    assert assess(target, verdict).owes is Owes.VORTEX
 
 
 def test_valid_verdict_replaces_the_rule():

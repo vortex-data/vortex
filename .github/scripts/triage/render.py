@@ -16,7 +16,7 @@ from typing import Any
 
 from .commands import MAX_DAYS, MAX_HOURS
 from .github import COMMENT, OPENED, PUSH, READY, REVIEW, Event, Item
-from .rules import BUG_LABEL, Assessment, Category, Owes, Tier, ago
+from .rules import ALWAYS_VORTEX, BUG_LABEL, Assessment, Category, Owes, Tier, ago
 from .slack import Message
 from .state import ItemState, Status
 
@@ -104,7 +104,7 @@ class Kind:
 
 _PR = Kind("🔀", "external PR")
 _ISSUE = Kind("📝", "external issue")
-_BUG = Kind("🐞", f"external issue with the `{BUG_LABEL}` label")
+_BUG = Kind("🐞", f"issue with the `{BUG_LABEL}` label, from outside or inside the team")
 _FUZZER = Kind("🧪", "fuzzer issue")
 _COMMENT = Kind("💬", "external comment on a team issue or PR")
 KINDS = (_PR, _ISSUE, _BUG, _FUZZER, _COMMENT)
@@ -155,8 +155,8 @@ class People:
 
 def _contributor(item: Item, assessment: Assessment) -> str:
     """Name the outside person who made the item need Vortex."""
-    if assessment.category is Category.FUZZER:
-        # A bot opens fuzzer issues, so nobody outside the team is involved.
+    if assessment.category in ALWAYS_VORTEX:
+        # A bot or a teammate opened the issue, so nobody outside the team is involved.
         return ""
     if assessment.category is Category.EXTERNAL_COMMENT:
         return next((e.actor for e in reversed(item.events) if not e.team), "")
@@ -487,8 +487,9 @@ def instructions() -> Message:
         [
             "*How Vortex triage works*",
             "Every 5 minutes on weekdays, from 08:00 London to 19:00 New York, the bot reads "
-            "GitHub for open external issues, external PRs, external comments on team items, and "
-            "fuzzer issues. Each weekday it posts an overview and keeps it up to date.",
+            "GitHub for open external issues, external PRs, external comments on team items, "
+            "fuzzer issues, and bug issues that the team or a bot opened. Each weekday it posts an "
+            "overview and keeps it up to date, and each item gets its own thread here.",
             "",
             "*Sections*",
             f"{HIGH.marker} {HIGH.title}: reminded every working day",

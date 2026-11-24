@@ -12,7 +12,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from .github import Item
-from .rules import Assessment, Category, Owes, Tier, Verdict, assess
+from .rules import ALWAYS_VORTEX, Assessment, Owes, Tier, Verdict, assess
 from .sync import Channel
 
 MAX_CANDIDATES = 30
@@ -52,7 +52,7 @@ def candidates(items: list[Item], channel: Channel, now: datetime) -> list[tuple
         if (
             assessment is None
             or assessment.tier is Tier.LOW
-            or assessment.category is Category.FUZZER
+            or assessment.category in ALWAYS_VORTEX
         ):
             continue
         if not assessment.from_claude:
