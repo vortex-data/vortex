@@ -660,6 +660,35 @@ pub(crate) fn record_execute_slot(slot_idx: usize, parent: &ArrayRef, child: &Ar
     });
 }
 
+/// Record that a block program ran `ops` ops over `len` rows, into a builder or not.
+pub(crate) fn record_block_drive(ops: usize, len: usize, into_builder: bool) {
+    record(TraceEvent::BlockDrive {
+        ops,
+        len,
+        into_builder,
+    });
+}
+
+/// Record how a block program ran one op, for its first block only: every later block runs the
+/// same way.
+pub(crate) fn record_block_op(
+    op_idx: usize,
+    shape: &'static str,
+    from: &'static str,
+    to: &'static str,
+    input: crate::dtype::PType,
+    output: crate::dtype::PType,
+) {
+    record(TraceEvent::BlockOp {
+        op_idx,
+        shape,
+        from,
+        to,
+        input,
+        output,
+    });
+}
+
 pub(crate) fn record_builder_start(array: &ArrayRef) {
     record(TraceEvent::BuilderEvent {
         action: "start",
@@ -910,6 +939,19 @@ enum TraceEvent {
         subject: &'static str,
         array: ArraySummary,
     },
+    BlockDrive {
+        ops: usize,
+        len: usize,
+        into_builder: bool,
+    },
+    BlockOp {
+        op_idx: usize,
+        shape: &'static str,
+        from: &'static str,
+        to: &'static str,
+        input: crate::dtype::PType,
+        output: crate::dtype::PType,
+    },
     ExecuteDone {
         array: ArraySummary,
     },
@@ -989,7 +1031,9 @@ impl TraceEvent {
             | TraceEvent::ExecuteEncoding { .. }
             | TraceEvent::SlotTransition { .. }
             | TraceEvent::BuilderEvent { .. }
+            | TraceEvent::BlockDrive { .. }
             | TraceEvent::ExecuteDone { .. } => 2,
+            TraceEvent::BlockOp { .. } => 3,
             TraceEvent::ExecuteUntilIteration { .. }
             | TraceEvent::ExecuteUntilReturn { .. }
             | TraceEvent::SingleStepApplied { .. } => 1,
@@ -1153,6 +1197,28 @@ impl TraceEvent {
             } => {
                 write!(f, "builder {action} {subject}={array}")
             }
+            TraceEvent::BlockDrive {
+                ops,
+                len,
+                into_builder,
+            } => {
+                write!(f, "drive ops={ops} len={len}")?;
+                if *into_builder {
+                    write!(f, " into=builder")?;
+                }
+                Ok(())
+            }
+            TraceEvent::BlockOp {
+                op_idx,
+                shape,
+                from,
+                to,
+                input,
+                output,
+            } => write!(
+                f,
+                "block_op {op_idx} {shape} {input}->{output} {from} -> {to}"
+            ),
             TraceEvent::SingleStepStart { array } => {
                 write!(f, "execute_step input={array}")
             }
