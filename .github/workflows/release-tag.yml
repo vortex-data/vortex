@@ -1,7 +1,8 @@
 name: Release Tag
 
-# Step 1 of a release: tag a commit on `develop` with the version of the draft release.
-# Step 2 is the Release Binaries workflow, which takes the tag that this workflow creates.
+# Step 1 of a release: draft the release notes for a commit on `develop` and tag the commit with
+# the version that Release Drafter resolves. Step 2 is the Release Binaries workflow, which takes
+# the tag that this workflow creates.
 
 on:
   workflow_dispatch:
@@ -10,8 +11,8 @@ on:
         description: "Commit on develop to release (full or abbreviated SHA)"
         required: true
         type: string
-      tag:
-        description: "Tag of the draft release to use; leave empty to use the only draft release"
+      prerelease-identifier:
+        description: "Pre-release identifier (e.g., rc, beta, alpha); leave empty for a full release"
         required: false
         type: string
         default: ""
@@ -27,57 +28,27 @@ jobs:
   prepare:
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    permissions:
-      # Listing draft releases requires write access.
-      contents: write
     outputs:
       sha: ${{ steps.prepare.outputs.sha }}
-      tag: ${{ steps.prepare.outputs.tag }}
     steps:
-      - name: Resolve commit and draft release
+      - name: Resolve commit on develop
         id: prepare
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
           COMMIT: ${{ inputs.commit }}
-          TAG: ${{ inputs.tag }}
         run: |
           [[ "$COMMIT" =~ ^[0-9a-fA-F]{7,40}$ ]] || {
             echo "Commit must be a hexadecimal SHA, got '$COMMIT'" >&2
             exit 1
           }
           sha=$(gh api "repos/$GH_REPO/commits/$COMMIT" --jq .sha)
-
           status=$(gh api "repos/$GH_REPO/compare/$sha...develop" --jq .status)
           [[ "$status" == "ahead" || "$status" == "identical" ]] || {
             echo "Commit $sha is not on develop (compare status: $status)" >&2
             exit 1
           }
-
-          drafts=$(gh release list --limit 100 --json tagName,isDraft \
-            --jq '[.[] | select(.isDraft) | .tagName]')
-          if [[ -z "$TAG" ]]; then
-            count=$(jq length <<< "$drafts")
-            [[ "$count" -eq 1 ]] || {
-              echo "Expected exactly one draft release, found $count: $drafts. Set the tag input." >&2
-              exit 1
-            }
-            TAG=$(jq -r '.[0]' <<< "$drafts")
-          else
-            jq -e --arg tag "$TAG" 'index($tag) != null' <<< "$drafts" > /dev/null || {
-              echo "No draft release has tag $TAG. Draft releases: $drafts" >&2
-              exit 1
-            }
-          fi
-          git check-ref-format "refs/tags/$TAG"
-
-          if gh api "repos/$GH_REPO/git/ref/tags/$TAG" > /dev/null 2>&1; then
-            echo "Tag $TAG already exists" >&2
-            exit 1
-          fi
-
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
-          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
 
   # Release checks go here as jobs that need `prepare`, check out
   # `needs.prepare.outputs.sha`, and are listed in the `needs` of `tag`.
@@ -89,18 +60,45 @@ jobs:
     permissions:
       contents: write
     steps:
+      # Creates the draft release, or updates the existing draft, with the notes and version for
+      # the changes between the last published release and the commit.
+      - name: Draft release
+        id: draft
+        uses: release-drafter/release-drafter@d1a19e60e81a7e650d00a7de9277f87e439117ea  # v7.11.0
+        with:
+          commitish: ${{ needs.prepare.outputs.sha }}
+          prerelease: ${{ inputs.prerelease-identifier != '' }}
+          prerelease-identifier: ${{ inputs.prerelease-identifier }}
+
       - name: Create tag
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
           RELEASE_SHA: ${{ needs.prepare.outputs.sha }}
-          RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
+          RELEASE_TAG: ${{ steps.draft.outputs.tag_name }}
+          RELEASE_URL: ${{ steps.draft.outputs.html_url }}
         run: |
-          # Creating the ref fails if the tag appeared while the checks ran.
-          gh api "repos/$GH_REPO/git/refs" \
-            -f ref="refs/tags/$RELEASE_TAG" \
-            -f sha="$RELEASE_SHA" > /dev/null
+          [[ -n "$RELEASE_TAG" ]] || {
+            echo "Release Drafter did not resolve a tag" >&2
+            exit 1
+          }
+          git check-ref-format "refs/tags/$RELEASE_TAG"
+          if ref=$(gh api "repos/$GH_REPO/git/ref/tags/$RELEASE_TAG" 2>/dev/null); then
+            existing=$(jq -r .object.sha <<< "$ref")
+            if [[ $(jq -r .object.type <<< "$ref") == "tag" ]]; then
+              existing=$(gh api "repos/$GH_REPO/git/tags/$existing" --jq .object.sha)
+            fi
+            [[ "$existing" == "$RELEASE_SHA" ]] || {
+              echo "Tag $RELEASE_TAG already exists at $existing, not $RELEASE_SHA" >&2
+              exit 1
+            }
+            echo "Tag $RELEASE_TAG already exists at $RELEASE_SHA"
+          else
+            gh api "repos/$GH_REPO/git/refs" \
+              -f ref="refs/tags/$RELEASE_TAG" \
+              -f sha="$RELEASE_SHA" > /dev/null
+          fi
           {
-            echo "Created tag \`$RELEASE_TAG\` at \`$RELEASE_SHA\`."
+            echo "Tagged \`$RELEASE_SHA\` as \`$RELEASE_TAG\` and drafted the release: $RELEASE_URL"
             echo "Next, run the Release Binaries workflow with tag \`$RELEASE_TAG\`."
           } >> "$GITHUB_STEP_SUMMARY"
