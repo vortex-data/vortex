@@ -7,6 +7,8 @@
 //! narrowing `f64`/`f32` through `f16`) halves or quarters raw storage and lets child float
 //! schemes such as `ALP` and `ALPRD` operate at the narrower width without losing a single bit.
 
+use std::sync::OnceLock;
+
 use vortex_array::ArrayId;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
@@ -41,8 +43,12 @@ use crate::schemes::float::FloatRLEScheme;
 #[derive(Debug, Clone, Copy)]
 struct NarrowestFloatTarget(Option<PType>);
 
+/// Cached full-array compressed output from estimation when the array is too short to sample,
+/// reused directly by [`FloatWidenScheme::compress`] to avoid compressing the array twice.
+struct CachedFullWiden(OnceLock<ArrayRef>);
+
 const SAMPLE_CHUNK_LEN: usize = 1024;
-const SAMPLE_CHUNK_COUNT: u32 = 10;
+const SAMPLE_CHUNK_COUNT: u32 = 2;
 
 fn compress_with_target(
     compressor: &CascadingCompressor,
@@ -182,11 +188,11 @@ impl Scheme for FloatWidenScheme {
         // `f32`-only outlier.
         CompressionEstimate::Deferred(DeferredEstimate::Callback(Box::new(
             move |compressor, data, _best_so_far, compress_ctx, exec_ctx| {
-                let (sample, sample_ctx) =
+                let (sample, sample_ctx, is_full_array) =
                     match sample_aligned_chunks(data.array(), SAMPLE_CHUNK_LEN, SAMPLE_CHUNK_COUNT)
                     {
-                        Some(sample) => (sample, compress_ctx.with_sampling()),
-                        None => (data.array().clone(), compress_ctx),
+                        Some(sample) => (sample, compress_ctx.with_sampling(), false),
+                        None => (data.array().clone(), compress_ctx, true),
                     };
                 let sample_before = uncompressed_size_in_bytes(&sample, exec_ctx)?;
                 if sample_before == 0 {
@@ -196,15 +202,22 @@ impl Scheme for FloatWidenScheme {
                 let sample_mask = sample_primitive
                     .validity()?
                     .execute_mask(sample_primitive.len(), exec_ctx)?;
-                let sample_after = compress_with_target(
+                let compressed = compress_with_target(
                     compressor,
                     &sample_primitive,
                     &sample_mask,
                     narrowest,
                     sample_ctx,
                     exec_ctx,
-                )?
-                .nbytes();
+                )?;
+                let sample_after = compressed.nbytes();
+                if is_full_array {
+                    drop(
+                        data.get_or_insert_with(|| CachedFullWiden(OnceLock::new()))
+                            .0
+                            .set(compressed),
+                    );
+                }
                 if sample_after == 0 {
                     return Ok(EstimateVerdict::Skip);
                 }
@@ -222,6 +235,14 @@ impl Scheme for FloatWidenScheme {
         compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
+        if let Some(cached) = data
+            .get_or_insert_with(|| CachedFullWiden(OnceLock::new()))
+            .0
+            .get()
+        {
+            return Ok(cached.clone());
+        }
+
         let primitive = data.array_as_primitive().into_owned();
         let mask = primitive
             .validity()?
