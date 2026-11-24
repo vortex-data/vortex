@@ -10,15 +10,18 @@
 //!
 //! - `dev-v1`: develop's V1. Each file's split futures, from `ScanBuilder::prepare().execute()`,
 //!   in a list a join pops from; one `block_on` per split.
-//! - `dev-v2`: develop's V2 (`scan_v2.rs`). Each file's parts in a queue cut up front; a join is
+//! - `dev-v2`: a reconstruction of develop's V2 (`scan_v2.rs`, deleted on the head) on the head's
+//!   `part_root` and `Run`. Each file's parts in a queue cut up front; a join is
 //!   allowed while the queue is not exhausted; each thread keeps one `Run` across files and
 //!   enters `block_on` only when its run waits for reads.
 //! - `head-v1` / `head-v2`: the head's `FileScanState`. Each file's `ScanStream`, opened from
 //!   `LayoutReaderDataSource` or `VortexFile::plan_data_source`, behind a mutex; a join clones
 //!   it, bounded by its claims; one `block_on(stream.next())` per batch.
 //!
-//! `--fast` polls each future once before `block_on`, as #11896 does, and `--force-pend` makes
-//! every first poll pend so that the fast path cannot skip the executor.
+//! Each configuration runs with and without the fast path (`--fast-modes off,on`), which polls
+//! each future once before `block_on` as #11896 does, and at each forced pend rate
+//! (`--pend-rates 0,0.5`): that fraction of `block_on` futures pend on their first poll, so the
+//! fast path cannot skip the executor for them.
 //!
 //! ```text
 //! cargo run --release -p vortex-file --example join_poll -- --threads 1,8,18,48,96
@@ -155,8 +158,8 @@ struct Args {
     parts: usize,
     rows: usize,
     mode: Mode,
-    fast: bool,
-    force_pend: bool,
+    fast_modes: Vec<bool>,
+    pend_rates: Vec<f64>,
     reps: usize,
 }
 
@@ -168,8 +171,8 @@ fn parse_args() -> Args {
         parts: 32,
         rows: 256,
         mode: Mode::Tiny,
-        fast: false,
-        force_pend: false,
+        fast_modes: vec![false, true],
+        pend_rates: vec![0.0, 0.5],
         reps: 3,
     };
     let mut it = std::env::args().skip(1);
@@ -188,13 +191,24 @@ fn parse_args() -> Args {
                     other => panic!("unknown mode {other}"),
                 }
             }
-            "--fast" => args.fast = true,
-            "--force-pend" => args.force_pend = true,
+            "--fast-modes" => {
+                args.fast_modes = value()
+                    .split(',')
+                    .map(|m| match m {
+                        "off" => false,
+                        "on" => true,
+                        other => panic!("unknown fast mode {other}"),
+                    })
+                    .collect()
+            }
+            "--pend-rates" => {
+                args.pend_rates = value().split(',').map(|r| r.parse().unwrap()).collect()
+            }
             "--reps" => args.reps = value().parse().unwrap(),
             "--help" | "-h" => {
                 eprintln!(
                     "flags: --paths dev-v1,head-v1,dev-v2,head-v2 --threads 1,8,18,48,96 \
-                     --files 64 --parts 32 --rows 256 --mode tiny|empty --fast --force-pend \
+                     --files 64 --parts 32 --rows 256 --mode tiny|empty --fast-modes off,on --pend-rates 0,0.5 \
                      --reps 3"
                 );
                 std::process::exit(0);
@@ -301,7 +315,8 @@ fn yield_once() -> impl Future<Output = ()> {
 #[derive(Clone, Copy)]
 struct Drive {
     fast: bool,
-    force_pend: bool,
+    /// The fraction of `block_on` futures made to pend on their first poll.
+    pend_rate: f64,
 }
 
 impl Drive {
@@ -309,7 +324,8 @@ impl Drive {
     /// first poll pends. With `fast`, polls it once first and enters the executor only if it pends.
     fn block_on<F: Future>(self, fut: F, stats: &mut Stats) -> F::Output {
         stats.block_ons += 1;
-        let force = self.force_pend;
+        let n = stats.block_ons as f64;
+        let force = (n * self.pend_rate).floor() > ((n - 1.0) * self.pend_rate).floor();
         let mut fut = pin!(async move {
             if force {
                 yield_once().await;
@@ -647,11 +663,13 @@ struct Measured {
     stats: Stats,
 }
 
-fn run_once(path: Path, threads: usize, files: &[File], args: &Args) -> VortexResult<Measured> {
-    let drive = Drive {
-        fast: args.fast,
-        force_pend: args.force_pend,
-    };
+fn run_once(
+    path: Path,
+    threads: usize,
+    files: &[File],
+    args: &Args,
+    drive: Drive,
+) -> VortexResult<Measured> {
     let dtype = files[0].file.dtype().clone();
     let projection_expr = root();
     let filter_expr = (args.mode == Mode::Empty).then(|| eq(col("v"), lit(1i64)));
@@ -728,12 +746,18 @@ fn main() -> VortexResult<()> {
         })
         .collect::<VortexResult<Vec<_>>>()?;
     println!(
-        "# files={} parts/file={} rows/part={} mode={:?} fast={} force_pend={} reps={} (median wall)",
-        args.files, args.parts, args.rows, args.mode, args.fast, args.force_pend, args.reps
+        "# files={} parts/file={} rows/part={} mode={:?} reps={} (median wall)",
+        args.files, args.parts, args.rows, args.mode, args.reps
     );
     println!(
-        "{:<8} {:>3} {:>9} {:>9} {:>6} {:>7} {:>8} {:>7} {:>10} {:>12} {:>10} {:>6}",
+        "# dev-v2 is a reconstruction of develop's scan_v2::FileScan driving pattern on the head's \
+         part_root and Run, not develop's code; dev-v1, head-v1 and head-v2 call the real scans."
+    );
+    println!(
+        "{:<8} {:>4} {:>4} {:>3} {:>9} {:>9} {:>6} {:>7} {:>8} {:>7} {:>10} {:>12} {:>10} {:>6}",
         "path",
+        "fast",
+        "rate",
         "N",
         "wall_ms",
         "setup_us",
@@ -747,29 +771,36 @@ fn main() -> VortexResult<()> {
         "pend%"
     );
     for &path in &args.paths {
-        for &threads in &args.threads {
-            let mut runs = (0..args.reps)
-                .map(|_| run_once(path, threads, &files, &args))
-                .collect::<VortexResult<Vec<_>>>()?;
-            runs.sort_by_key(|run| run.wall);
-            let run = &runs[runs.len() / 2];
-            let s = run.stats;
-            let per = |ns: u64, n: u64| if n == 0 { 0.0 } else { ns as f64 / n as f64 };
-            println!(
-                "{:<8} {:>3} {:>9.2} {:>9.1} {:>6} {:>7} {:>8} {:>7} {:>10.0} {:>12.0} {:>10.0} {:>6.1}",
-                path.name(),
-                threads,
-                run.wall.as_secs_f64() * 1e3,
-                run.setup.as_secs_f64() * 1e6 / args.files as f64,
-                s.joins,
-                s.wasted_joins,
-                s.batches,
-                s.empty_batches,
-                per(s.join_ns, s.joins),
-                per(s.first_poll_ns, s.joins),
-                per(s.first_poll_ns + s.poll_ns, s.batches),
-                100.0 * per(s.pended, s.block_ons),
-            );
+        for &fast in &args.fast_modes {
+            for &pend_rate in &args.pend_rates {
+                let drive = Drive { fast, pend_rate };
+                for &threads in &args.threads {
+                    let mut runs = (0..args.reps)
+                        .map(|_| run_once(path, threads, &files, &args, drive))
+                        .collect::<VortexResult<Vec<_>>>()?;
+                    runs.sort_by_key(|run| run.wall);
+                    let run = &runs[runs.len() / 2];
+                    let s = run.stats;
+                    let per = |ns: u64, n: u64| if n == 0 { 0.0 } else { ns as f64 / n as f64 };
+                    println!(
+                        "{:<8} {:>4} {:>4.2} {:>3} {:>9.2} {:>9.1} {:>6} {:>7} {:>8} {:>7} {:>10.0} {:>12.0} {:>10.0} {:>6.1}",
+                        path.name(),
+                        if fast { "on" } else { "off" },
+                        pend_rate,
+                        threads,
+                        run.wall.as_secs_f64() * 1e3,
+                        run.setup.as_secs_f64() * 1e6 / args.files as f64,
+                        s.joins,
+                        s.wasted_joins,
+                        s.batches,
+                        s.empty_batches,
+                        per(s.join_ns, s.joins),
+                        per(s.first_poll_ns, s.joins),
+                        per(s.first_poll_ns + s.poll_ns, s.batches),
+                        100.0 * per(s.pended, s.block_ons),
+                    );
+                }
+            }
         }
     }
     Ok(())
