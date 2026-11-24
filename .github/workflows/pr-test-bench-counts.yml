@@ -1,0 +1,69 @@
+# Comments on each PR with the number of tests and benchmarks it adds and removes, and warns when it
+# adds more than a PR usually should. The thresholds are the env values below.
+#
+# `pull_request_target` runs in the base repository with a token that can comment, including on
+# fork PRs. It checks out the base branch, so the counting script is the base branch's version. The
+# PR head commits are fetched only to diff them: their code is never checked out or run.
+
+name: PR Test and Benchmark Counts
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+on:
+  pull_request_target:
+    types: [opened, reopened, synchronize, ready_for_review]
+
+permissions: { }
+
+env:
+  TESTS_WARN: 50
+  BENCHES_WARN: 10
+  CODSPEED_WARN: 100
+
+jobs:
+  count:
+    name: Count tests and benchmarks
+    if: github.event.pull_request.draft != true
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: write  # for commenting on PRs
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Fetch the PR head commits
+        shell: bash
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: git fetch --no-tags origin "refs/pull/${PR_NUMBER}/head"
+      - name: Count
+        id: count
+        shell: bash
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -Eeu -o pipefail
+          python3 scripts/pr_test_bench_counts.py --base "$BASE_SHA" --head "$HEAD_SHA" \
+            --tests-warn "$TESTS_WARN" --benches-warn "$BENCHES_WARN" \
+            --codspeed-warn "$CODSPEED_WARN" > comment.md
+          cat comment.md >> "$GITHUB_STEP_SUMMARY"
+      - name: Warn about many new tests or benchmarks
+        if: steps.count.outputs.over-threshold == 'true'
+        shell: bash
+        run: echo "::warning title=Many new tests or benchmarks::$(sed -n 's/^> \(This PR .*\)/\1/p' comment.md)"
+      # A PR without test or benchmark changes gets no comment, but an earlier comment is updated
+      # so that it does not show stale counts.
+      - name: Comment PR
+        uses: thollander/actions-comment-pull-request@24bffb9b452ba05a4f3f77933840a6a841d1b32b  # v3
+        with:
+          file-path: comment.md
+          pr-number: ${{ github.event.pull_request.number }}
+          comment-tag: pr-test-bench-counts
+          create-if-not-exists: ${{ steps.count.outputs.has-changes }}
