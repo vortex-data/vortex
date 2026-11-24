@@ -3,7 +3,8 @@
 # SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 # End-to-end test of vx-lab on TPC-H with a local store:
-#   plan -> parallel fact shards -> (re-run is a no-op) -> verify -> time -> materialize -> analysis.
+#   plan -> parallel fact shards -> (re-run is a no-op) -> verify -> work queue into a second store
+#   (must give the same facts) -> time -> materialize -> vx-analyze report.
 # Each step is recorded in <work>/report.tsv (step, status, seconds, log) and the script keeps
 # going after a failure so one run shows everything that breaks.
 #
@@ -65,7 +66,41 @@ shards() {
 }
 step facts-shards shards
 step facts-rerun-noop "$LAB" run --plan "$WORK/plan" --store "$WORK/store" --data-root "$DATA_ROOT" "${STAGE_ARGS[@]}" "${DIRTY[@]}"
-step facts-verify "$LAB" run --plan "$WORK/plan" --store "$WORK/store" --data-root "$DATA_ROOT" "${STAGE_ARGS[@]}" --verify "${DIRTY[@]}"
+# Chunk and features must reproduce exactly. Exhaustive candidates depend on in-shard decode
+# timings, so their mismatches are reported but not failed on.
+verify() {
+    "$LAB" run --plan "$WORK/plan" --store "$WORK/store" --data-root "$DATA_ROOT" "${STAGE_ARGS[@]}" --verify "${DIRTY[@]}" 2>&1 |
+        grep -v '^nondeterminism: candidates' | tee "$LOGS/verify-summary.log"
+    ! grep -E '^(chunk|features):.* mismatched [1-9]' "$LOGS/verify-summary.log"
+}
+step facts-verify verify
+
+# The launcher path: push the plan to a second store, drain it with local workers, and check that
+# every fact matches the sharded run.
+queue() {
+    "$LAB" plan push --plan "$WORK/plan" --store "$WORK/store-queue" --shards "$SHARDS" &&
+    "$LAB" work --store "$WORK/store-queue" --plan "$WORK/plan" --workers 2 --data-root "$DATA_ROOT" "${DIRTY[@]}" &&
+    "$LAB" status --store "$WORK/store-queue" --plan "$WORK/plan"
+}
+same_facts() {
+    local a b
+    a=$(cd "$WORK/store/ledger" && cat */*.json | python3 -c 'import sys,json;d=json.JSONDecoder();s=sys.stdin.read();i=0;o=[]
+while i<len(s):
+    r,i=d.raw_decode(s,i)
+    if r["kind"]!="candidates": o.append(r["key"]+" "+r["output_hash"])
+print("\n".join(sorted(o)))')
+    b=$(cd "$WORK/store-queue/ledger" && cat */*.json | python3 -c 'import sys,json;d=json.JSONDecoder();s=sys.stdin.read();i=0;o=[]
+while i<len(s):
+    r,i=d.raw_decode(s,i)
+    if r["kind"]!="candidates": o.append(r["key"]+" "+r["output_hash"])
+print("\n".join(sorted(o)))')
+    echo "sharded: $(wc -l <<< "$a") chunk/features facts, queue: $(wc -l <<< "$b")"
+    diff <(echo "$a") <(echo "$b") | head -20
+    [[ "$a" == "$b" ]]
+}
+step queue-work queue
+# Exhaustive candidates depend on in-shard decode timings, so only chunk and features must match.
+step queue-same-facts same_facts
 
 for ((r = 1; r <= ${TIME_RUNS:-1}; r++)); do
     step "time-$r" "$LAB" run --plan "$WORK/plan" --store "$WORK/store" --stages time "${DIRTY[@]}"
@@ -74,6 +109,11 @@ done
 step plan-show "$LAB" plan show --plan "$WORK/plan" --store "$WORK/store"
 step materialize "$LAB" materialize --plan "$WORK/plan" --store "$WORK/store" --out "$WORK/dataset"
 
+# Every candidate row should either succeed or say why it does not apply; panics are bugs.
+step no-panics bash -c "! grep -i ',panic' '$WORK/dataset/rows-'*.csv | head -5 | grep ."
+if [[ -f "$HERE/analysis/pyproject.toml" ]]; then
+    step analysis-report uv run --project "$HERE/analysis" vx-analyze report "$WORK/dataset" --out "$WORK/report.html"
+fi
 if [[ -n ${ANALYSIS:-} ]]; then
     step analysis $ANALYSIS "$WORK/dataset" "$WORK"
 elif [[ -f "$ROOT/benchmarks/compressor-feasibility/train.py" ]]; then
