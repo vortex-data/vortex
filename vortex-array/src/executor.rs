@@ -1142,7 +1142,6 @@ impl VortexSessionExecute for VortexSession {
 #[cfg(test)]
 mod tests {
     use static_assertions::assert_impl_all;
-    use vortex_session::SessionExt;
     use vortex_session::VortexSession;
 
     use super::*;
