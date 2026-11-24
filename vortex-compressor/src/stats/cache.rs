@@ -275,6 +275,11 @@ impl ArrayAndStats {
             })
             .or_else(|| {
                 self.cache
+                    .get::<DecimalStats>()
+                    .map(|stats| stats.null_count())
+            })
+            .or_else(|| {
+                self.cache
                     .get::<StringStats>()
                     .map(|stats| stats.null_count())
             })
