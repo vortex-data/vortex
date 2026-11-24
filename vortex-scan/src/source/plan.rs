@@ -36,7 +36,7 @@ use crate::PartitionStream;
 use crate::ScanRequest;
 use crate::prepare::ScanBuilder;
 use crate::selection::Selection;
-use crate::stream::ScanStream;
+use crate::stream::ScanExec;
 
 /// Whether a child's own statistics, such as a file footer's, prove a filter, bound to the
 /// child's dtype, false for every row of the child.
@@ -378,7 +378,7 @@ impl DataSourceScan for PlanScan {
         Ok(vec![self])
     }
 
-    fn open(self: Box<Self>) -> VortexResult<ScanStream> {
+    fn open(self: Box<Self>) -> VortexResult<ScanExec> {
         plan_stream::open(self.state, self.units, self.planned)
     }
 
@@ -391,7 +391,7 @@ impl DataSourceScan for PlanScan {
     }
 }
 
-/// A scan of a [`PlanDataSource`] as its one partition, which reads the scan's opened stream.
+/// A scan of a [`PlanDataSource`] as its one partition, which reads one stream of the opened scan.
 struct PlanPartition(Box<PlanScan>);
 
 impl Partition for PlanPartition {
@@ -412,6 +412,6 @@ impl Partition for PlanPartition {
     }
 
     fn execute(self: Box<Self>) -> VortexResult<SendableArrayStream> {
-        Ok(Box::pin(self.0.open()?))
+        Ok(Box::pin(self.0.open()?.stream()))
     }
 }

@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! The stream of an opened [`PlanDataSource`](super::PlanDataSource) scan: V2's planners and
-//! [`Run`] driver behind [`ScanStream`].
+//! An opened [`PlanDataSource`](super::PlanDataSource) scan: V2's planners and [`Run`] driver
+//! behind [`ScanExec`] and its [`ScanStream`](crate::stream::ScanStream)s.
 //!
 //! When an unordered scan is made, it prepares each child once and runs its [`part_root`], which
 //! cuts the child into parts: the rows between the child's splits for the fields the scan reads,
@@ -10,23 +10,24 @@
 //! filter, such as the bound a top-N pushes down, the root first prunes the child as a whole
 //! against the bound as it stands, which reads zone maps. Those are the reads the scan needs to
 //! know its units of work, so they run in the async [`scan`](crate::DataSource::scan), which the
-//! host awaits. Opening the scan reads nothing: it only queues the parts, so no clone waits on
-//! another for its work. Each part prunes again against the bound as it stands when a clone takes
-//! it.
+//! host awaits. Opening the scan reads nothing: it only queues the parts, so no stream waits on
+//! another for its work. Each part prunes again against the bound as it stands when a stream
+//! takes it.
 //!
-//! Every clone of the stream takes parts from the one queue. Each clone owns a [`Run`], driven on
-//! the task that polls the clone, and runs one part on it at a time: the part's chunks run side by
-//! side, so one chunk's reads overlap another's compute, batches are returned as they are
-//! produced, and reads are awaited with [`Run::poll_completion`]. Nothing is spawned, so a host
-//! that polls a clone with `block_on` runs the scan's compute on its own thread.
+//! Every stream of the scan takes parts from the one queue, and the scan is exhausted once the
+//! last part is taken. Each stream owns a [`Run`], driven on the task that polls the stream, and
+//! runs one part on it at a time: the part's chunks run side by side, so one chunk's reads overlap
+//! another's compute, batches are returned as they are produced, and reads are awaited with
+//! [`Run::poll_completion`]. Nothing is spawned, so a host that polls a stream with `block_on`
+//! runs the scan's compute on its own thread.
 //!
-//! An ordered scan returns its rows in order through the first clone to be polled, running one
-//! child after another on [`ScanDriver`], which keeps a scan's chunks in order. Later clones
-//! return nothing. A host that reads an ordered scan in parallel
-//! [splits](crate::DataSourceScan::split) it first.
+//! An ordered scan returns its rows in order through its first stream, running one child after
+//! another on [`ScanDriver`], which keeps a scan's chunks in order. The scan is exhausted once
+//! that stream exists, and later streams return nothing. A host that reads an ordered scan in
+//! parallel [splits](crate::DataSourceScan::split) it first.
 //!
-//! A limit is one [`RowLimit`] for the whole stream: clones stop taking parts once it is spent,
-//! and each clone's output is trimmed to it.
+//! A limit is one [`RowLimit`] for the whole scan: streams stop taking parts once it is spent,
+//! which also exhausts the scan, and each stream's output is trimmed to it.
 
 use std::collections::VecDeque;
 use std::future;
@@ -60,7 +61,8 @@ use crate::planning::planner::WorkScope;
 use crate::prepare::PreparedScan;
 use crate::prepare::part_root;
 use crate::stream::Claims;
-use crate::stream::ScanStream;
+use crate::stream::ExhaustedFlag;
+use crate::stream::ScanExec;
 
 /// The parts of an unordered scan, cut when the scan is made.
 pub(super) struct Planned {
@@ -82,17 +84,21 @@ pub(super) async fn plan(state: &ScanState, units: &[Unit]) -> VortexResult<Plan
     Ok(Planned { work })
 }
 
-/// Opens the stream of a scan of `units`. An unordered scan reads the parts it `planned`.
+/// Opens a scan of `units`. An unordered scan reads the parts it `planned`.
 pub(super) fn open(
     state: Arc<ScanState>,
     units: Vec<Unit>,
     planned: Option<Planned>,
-) -> VortexResult<ScanStream> {
+) -> VortexResult<ScanExec> {
     let dtype = state.dtype.clone();
     let limit = state.limit.map(RowLimit::new);
+    let exhausted = ExhaustedFlag::new();
     if state.ordered {
         let arrays = Arc::new(Mutex::new(Some(in_order(state, units))));
-        return Ok(ScanStream::new(dtype, move || {
+        let flag = exhausted.clone();
+        return Ok(ScanExec::new(dtype, exhausted, move || {
+            // The first stream returns every row, so later ones would find nothing.
+            flag.set();
             let arrays = arrays
                 .lock()
                 .take()
@@ -102,13 +108,17 @@ pub(super) fn open(
     }
 
     let planned = planned.vortex_expect("an unordered scan cuts its parts when it is made");
+    if planned.work.is_empty() {
+        exhausted.set();
+    }
     let queue = Arc::new(Queue {
         total: planned.work.len(),
         work: Mutex::new(planned.work.into()),
         taken: AtomicUsize::new(0),
+        exhausted: exhausted.clone(),
     });
-    let claims = Arc::clone(&queue);
-    Ok(ScanStream::new(dtype, move || {
+    let progress = Arc::clone(&queue);
+    Ok(ScanExec::new(dtype, exhausted, move || {
         let worker = Worker {
             queue: Arc::clone(&queue),
             limit: limit.clone(),
@@ -126,10 +136,10 @@ pub(super) fn open(
         .boxed();
         limited(arrays, limit.clone())
     })
-    .with_claims(move || claims.claims()))
+    .with_progress(move || progress.claims()))
 }
 
-/// One child's prepared scan, shared by the parts of it that clones run.
+/// One child's prepared scan, shared by the parts of it that streams run.
 struct PreparedChild {
     rows: Range<u64>,
     io: Arc<dyn IoService>,
@@ -206,25 +216,33 @@ enum Work {
     Batch(ArrayRef),
 }
 
-/// The queue of an unordered scan, which every clone of its stream takes from.
+/// The queue of an unordered scan, which every stream of it takes from.
 struct Queue {
-    /// The work no clone has taken yet, in unit and row order.
+    /// The work no stream has taken yet, in unit and row order.
     work: Mutex<VecDeque<Work>>,
     /// The work the queue started with.
     total: usize,
-    /// The work clones have taken.
+    /// The work streams have taken.
     taken: AtomicUsize,
+    /// Set once the last work is taken, or the scan's limit is spent.
+    exhausted: ExhaustedFlag,
 }
 
 impl Queue {
-    /// Takes the next work, or `None` once every one has been taken.
+    /// Takes the next work, or `None` once every one has been taken, and marks the scan exhausted
+    /// when it takes the last.
     fn take(&self) -> Option<Work> {
-        let work = self.work.lock().pop_front()?;
+        let mut work = self.work.lock();
+        let next = work.pop_front()?;
+        if work.is_empty() {
+            self.exhausted.set();
+        }
+        drop(work);
         self.taken.fetch_add(1, Ordering::Relaxed);
-        Some(work)
+        Some(next)
     }
 
-    /// How much of the queue's work clones have taken, out of how much in all.
+    /// How much of the queue's work streams have taken, out of how much in all.
     fn claims(&self) -> Claims {
         Claims {
             claimed: self.taken.load(Ordering::Relaxed).min(self.total),
@@ -233,8 +251,8 @@ impl Queue {
     }
 }
 
-/// One clone's worker: a run of its own, fed one part at a time from the scan's queue, and driven
-/// on the task that polls the clone.
+/// One stream's worker: a run of its own, fed one part at a time from the scan's queue, and driven
+/// on the task that polls the stream.
 struct Worker {
     queue: Arc<Queue>,
     limit: Option<RowLimit>,
@@ -249,6 +267,7 @@ impl Worker {
         loop {
             if self.run.live_roots() == 0 {
                 if self.limit.as_ref().is_some_and(RowLimit::is_exhausted) {
+                    self.queue.exhausted.set();
                     return Ok(None);
                 }
                 match self.queue.take() {
