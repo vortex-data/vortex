@@ -13,6 +13,7 @@ use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::BoolArray;
+use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::DictArray;
 use vortex_array::arrays::FixedSizeListArray;
@@ -20,17 +21,23 @@ use vortex_array::arrays::InterleaveArray;
 use vortex_array::arrays::ListArray;
 use vortex_array::arrays::ListViewArray;
 use vortex_array::arrays::MapArray;
+use vortex_array::arrays::Patched;
+use vortex_array::arrays::PiecewiseSequenceArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::ScalarFnArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::VarBinArray;
 use vortex_array::arrays::VarBinViewArray;
+use vortex_array::arrays::patched::PatchedArraySlotsExt;
+use vortex_array::arrays::patched::PatchedSlots;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldNames;
 use vortex_array::dtype::MapDType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
+use vortex_array::optimizer::ArrayOptimizer;
 use vortex_array::optimizer::kernels::KernelSession;
+use vortex_array::patches::Patches;
 use vortex_array::scalar::NumericOperator;
 use vortex_array::scalar_fn::TypedScalarFnInstance;
 use vortex_array::scalar_fn::builtin::boolean::Boolean;
@@ -52,6 +59,7 @@ fn main() {
 
 const LEN: usize = 65_536;
 const VALUES: usize = 1_024;
+const PIECES: usize = LEN / 8;
 // Sized to keep the CodSpeed simulation short per benchmark.
 const ACCESSES: usize = 256;
 
@@ -156,6 +164,81 @@ fn scalar_fn(nested: bool) -> ArrayRef {
         .into_array()
 }
 
+fn patched() -> ArrayRef {
+    let mut ctx = SESSION.create_execution_ctx();
+    let inner = PrimitiveArray::from_iter(
+        (0..LEN).map(|i| u32::try_from(i).vortex_expect("fixture index fits u32")),
+    )
+    .into_array();
+    let len = u32::try_from(LEN).vortex_expect("fixture length fits u32");
+    let patch_indices = PrimitiveArray::from_iter((0..len).step_by(8)).into_array();
+    let patch_values = PrimitiveArray::from_iter((0..LEN / 8).map(|_| u32::MAX)).into_array();
+    let patches = Patches::new(LEN, 0, patch_indices, patch_values, None, &mut ctx)
+        .vortex_expect("patched fixture patches");
+    Patched::from_array_and_patches(inner, &patches, &mut ctx)
+        .vortex_expect("patched fixture")
+        .into_array()
+}
+
+fn patched_with_chunked_indices() -> ArrayRef {
+    let array = patched();
+    let patched = array.as_opt::<Patched>().vortex_expect("Patched fixture");
+    let indices = patched.patch_indices();
+    let middle = indices.len() / 2;
+    let chunks = [
+        indices
+            .slice(0..middle)
+            .and_then(|chunk| chunk.optimize_ctx(&*SESSION))
+            .vortex_expect("first index chunk"),
+        indices
+            .slice(middle..indices.len())
+            .and_then(|chunk| chunk.optimize_ctx(&*SESSION))
+            .vortex_expect("second index chunk"),
+    ];
+    let chunked = ChunkedArray::try_new(chunks, indices.dtype().clone())
+        .vortex_expect("chunked patch indices")
+        .into_array();
+    let slots = PatchedSlots {
+        inner: patched.inner().clone(),
+        lane_offsets: patched.lane_offsets().clone(),
+        patch_indices: chunked,
+        patch_values: patched.patch_values().clone(),
+    };
+    // SAFETY: The chunked child has the same dtype and values as the original index child.
+    unsafe { array.with_slots(slots.into_slots()) }.vortex_expect("patched with chunked indices")
+}
+
+fn piecewise(variable_lengths: bool) -> ArrayRef {
+    let starts = PrimitiveArray::from_iter(
+        (0..PIECES).map(|i| u64::try_from(i * 16).vortex_expect("piece start fits u64")),
+    )
+    .into_array();
+    let lengths = if variable_lengths {
+        PrimitiveArray::from_iter((0..PIECES).map(|i| if i % 2 == 0 { 4u16 } else { 12u16 }))
+            .into_array()
+    } else {
+        ConstantArray::new(8u16, PIECES).into_array()
+    };
+    let multipliers = ConstantArray::new(1u8, PIECES).into_array();
+    PiecewiseSequenceArray::try_new(starts, lengths, multipliers, LEN)
+        .vortex_expect("piecewise fixture")
+        .into_array()
+}
+
+fn same_piece_indices(variable_lengths: bool) -> Vec<usize> {
+    let length = if variable_lengths { 4 } else { 8 };
+    let count = if variable_lengths {
+        accesses("piecewise_variable")
+    } else {
+        ACCESSES
+    };
+    (0..count).map(|i| LEN / 2 + i % length).collect()
+}
+
+fn same_lane_indices() -> Vec<usize> {
+    (0..ACCESSES).map(|i| (i % 32) * 32).collect()
+}
+
 fn nullable_list() -> ArrayRef {
     let offsets = (0..=LEN)
         .map(|i| u32::try_from(i * 3).vortex_expect("list offsets fit u32"))
@@ -232,7 +315,7 @@ fn kleene_and_validity() -> ArrayRef {
 /// 1 ms in the CodSpeed simulation.
 fn accesses(name: &str) -> usize {
     match name {
-        "map" | "scalar_fn_binary" => 32,
+        "map" | "scalar_fn_binary" | "piecewise_variable" => 32,
         "scalar_fn_nested" => 16,
         "list" | "listview" | "fixed_size_list" => 64,
         "scalar_fn_validity" => 128,
@@ -258,6 +341,9 @@ const ARRAYS: &[&str] = &[
     "map",
     "scalar_fn_binary",
     "scalar_fn_nested",
+    "patched",
+    "piecewise_variable",
+    "piecewise_constant",
     "varbin",
     "list",
     "listview",
@@ -267,6 +353,7 @@ const ARRAYS: &[&str] = &[
 ];
 
 const SCALAR_FN_ARRAYS: &[&str] = &["scalar_fn_binary", "scalar_fn_nested"];
+const PIECEWISE_ARRAYS: &[&str] = &["piecewise_variable", "piecewise_constant"];
 
 fn array(name: &str) -> ArrayRef {
     match name {
@@ -274,6 +361,9 @@ fn array(name: &str) -> ArrayRef {
         "map" => nullable_map(),
         "scalar_fn_binary" => scalar_fn(false),
         "scalar_fn_nested" => scalar_fn(true),
+        "patched" => patched(),
+        "piecewise_variable" => piecewise(true),
+        "piecewise_constant" => piecewise(false),
         "list" => nullable_list(),
         "listview" => nullable_listview(),
         "fixed_size_list" => nullable_fixed_size_list(),
@@ -319,6 +409,96 @@ fn repeated(bencher: Bencher, name: &str) {
     let array = array(name);
     mark_optimized(&array, &SESSION).vortex_expect("optimize the benchmark input");
     let indices = indices(accesses(name));
+    bencher
+        .with_inputs(|| (SESSION.create_execution_ctx(), array.repeated_probe()))
+        .bench_refs(|(ctx, probe)| {
+            for &index in &indices {
+                divan::black_box(
+                    probe
+                        .execute_scalar(index, ctx)
+                        .vortex_expect("in-bounds read"),
+                );
+            }
+        });
+}
+
+#[divan::bench]
+fn patched_same_lane_once(bencher: Bencher) {
+    let array = patched();
+    mark_optimized(&array, &SESSION).vortex_expect("optimize the benchmark input");
+    let indices = same_lane_indices();
+    bencher
+        .with_inputs(|| SESSION.create_execution_ctx())
+        .bench_refs(|ctx| {
+            for &index in &indices {
+                divan::black_box(
+                    array
+                        .execute_scalar(index, ctx)
+                        .vortex_expect("in-bounds read"),
+                );
+            }
+        });
+}
+
+#[divan::bench]
+fn patched_same_lane_repeated(bencher: Bencher) {
+    let array = patched();
+    mark_optimized(&array, &SESSION).vortex_expect("optimize the benchmark input");
+    let indices = same_lane_indices();
+    bencher
+        .with_inputs(|| (SESSION.create_execution_ctx(), array.repeated_probe()))
+        .bench_refs(|(ctx, probe)| {
+            for &index in &indices {
+                divan::black_box(
+                    probe
+                        .execute_scalar(index, ctx)
+                        .vortex_expect("in-bounds read"),
+                );
+            }
+        });
+}
+
+#[divan::bench]
+fn patched_chunked_indices_same_lane_repeated(bencher: Bencher) {
+    let array = patched_with_chunked_indices();
+    mark_optimized(&array, &SESSION).vortex_expect("optimize the benchmark input");
+    let indices = same_lane_indices();
+    bencher
+        .with_inputs(|| (SESSION.create_execution_ctx(), array.repeated_probe()))
+        .bench_refs(|(ctx, probe)| {
+            for &index in &indices {
+                divan::black_box(
+                    probe
+                        .execute_scalar(index, ctx)
+                        .vortex_expect("in-bounds read"),
+                );
+            }
+        });
+}
+
+#[divan::bench(args = PIECEWISE_ARRAYS)]
+fn piecewise_same_piece_once(bencher: Bencher, name: &str) {
+    let array = array(name);
+    mark_optimized(&array, &SESSION).vortex_expect("optimize the benchmark input");
+    let indices = same_piece_indices(name == "piecewise_variable");
+    bencher
+        .with_inputs(|| SESSION.create_execution_ctx())
+        .bench_refs(|ctx| {
+            for &index in &indices {
+                divan::black_box(
+                    array
+                        .execute_scalar(index, ctx)
+                        .vortex_expect("in-bounds read"),
+                );
+            }
+        });
+}
+
+#[divan::bench(args = PIECEWISE_ARRAYS)]
+fn piecewise_same_piece_repeated(bencher: Bencher, name: &str) {
+    let array = array(name);
+    mark_optimized(&array, &SESSION).vortex_expect("optimize the benchmark input");
+    let indices = same_piece_indices(name == "piecewise_variable");
     bencher
         .with_inputs(|| (SESSION.create_execution_ctx(), array.repeated_probe()))
         .bench_refs(|(ctx, probe)| {
