@@ -1503,3 +1503,84 @@ async fn test_ree_predicate_memtable_oracle(
     assert_eq!(batch_values(&actual), batch_values(&expected));
     Ok(())
 }
+
+/// Writes five files under `/morsel/`, each with four splits of 2,500 rows, and registers them
+/// as `stream`, read file by file, as `morsel`, read split by split, and as `morsel_v2`, a V2
+/// scan through the morsel API.
+///
+/// File `f` holds `a = f * 10_000 + i`, so `a` is sorted within and across files, and
+/// `b = i % 7`.
+async fn register_morsel_tables(ctx: &TestSessionContext) -> anyhow::Result<()> {
+    let strategy: Arc<dyn LayoutStrategy> = Arc::new(TableStrategy::new(
+        Arc::new(FlatLayoutStrategy::default()),
+        Arc::new(ChunkedLayoutStrategy::new(FlatLayoutStrategy::default())),
+    ));
+    for file in [3, 0, 4, 1, 2] {
+        let chunks = (0..4).map(|chunk| {
+            let rows = chunk * 2_500..(chunk + 1) * 2_500;
+            StructArray::try_new(
+                ["a", "b"].into(),
+                vec![
+                    Buffer::from_iter(rows.clone().map(|i| file * 10_000 + i)).into_array(),
+                    Buffer::from_iter(rows.map(|i| i % 7)).into_array(),
+                ],
+                2_500,
+                Validity::NonNullable,
+            )
+            .map(IntoArray::into_array)
+        });
+        let table = ChunkedArray::from_iter(chunks.collect::<Result<Vec<_>, _>>()?);
+        let path = format!("morsel/{file}.vortex").into();
+        let mut writer = ObjectStoreWrite::new(Arc::clone(&ctx.store), &path).await?;
+        VortexSession::default()
+            .write_options()
+            .with_strategy(Arc::clone(&strategy))
+            .write(&mut writer, table.into_array().to_array_stream())
+            .await?;
+        writer.shutdown().await?;
+    }
+    for (table, morsel_scan, scan_v2) in [
+        ("stream", false, false),
+        ("morsel", true, false),
+        ("morsel_v2", true, true),
+    ] {
+        ctx.session
+            .sql(&format!(
+                "CREATE EXTERNAL TABLE {table} (a INT NOT NULL, b INT NOT NULL) STORED AS vortex \
+                 LOCATION '/morsel/' \
+                 OPTIONS(morsel_scan '{morsel_scan}', scan_v2 '{scan_v2}')"
+            ))
+            .await?;
+    }
+    Ok(())
+}
+
+/// Reading files split by split returns the same rows as reading them file by file, through
+/// filters, limits, TopK dynamic filters and scans that must keep the files' order.
+#[rstest]
+#[case::aggregate("SELECT count(*), sum(a) AS total FROM {t} WHERE b < 3")]
+#[case::selective_filter("SELECT a FROM {t} WHERE a % 1000 = 7 ORDER BY a")]
+#[case::limit("SELECT count(*) FROM (SELECT a FROM {t} LIMIT 7)")]
+#[case::filtered_limit("SELECT count(*) FROM (SELECT a FROM {t} WHERE b = 0 LIMIT 4000)")]
+#[case::topk("SELECT a, b FROM {t} ORDER BY a DESC LIMIT 5")]
+#[case::ordered("SELECT a FROM {t} ORDER BY a LIMIT 5 OFFSET 12500")]
+#[case::empty("SELECT a FROM {t} WHERE a < 0")]
+#[tokio::test]
+async fn morsel_scan_matches_stream_scan(#[case] query: &str) -> anyhow::Result<()> {
+    let ctx = TestSessionContext::default();
+    register_morsel_tables(&ctx).await?;
+
+    let query_table = async |table: &str| -> anyhow::Result<String> {
+        let batches = ctx
+            .session
+            .sql(&query.replace("{t}", table))
+            .await?
+            .collect()
+            .await?;
+        Ok(pretty_format_batches(&batches)?.to_string())
+    };
+    let stream = query_table("stream").await?;
+    assert_eq!(query_table("morsel").await?, stream);
+    assert_eq!(query_table("morsel_v2").await?, stream);
+    Ok(())
+}

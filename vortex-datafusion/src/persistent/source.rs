@@ -14,6 +14,7 @@ use datafusion_datasource::file::FileSource;
 use datafusion_datasource::file_groups::FileGroupPartitioner;
 use datafusion_datasource::file_scan_config::FileScanConfig;
 use datafusion_datasource::file_stream::FileOpener;
+use datafusion_datasource::morsel::Morselizer;
 use datafusion_execution::cache::cache_manager::FileMetadataCache;
 use datafusion_physical_expr::DynamicFilterTracking;
 use datafusion_physical_expr::EquivalenceProperties;
@@ -46,6 +47,7 @@ use vortex::session::VortexSession;
 use vortex_utils::aliases::dash_map::DashMap;
 use vortex_utils::parallelism::get_available_parallelism;
 
+use super::morsel::VortexMorselizer;
 use super::opener::NaturalSplits;
 use super::opener::VortexOpener;
 use crate::VortexTableOptions;
@@ -350,6 +352,13 @@ impl VortexSource {
         self
     }
 
+    /// Sets whether DataFusion drives each file split by split, see
+    /// [`VortexTableOptions::morsel_scan`].
+    pub fn with_morsel_scan(mut self, enabled: bool) -> Self {
+        self.options.morsel_scan = enabled;
+        self
+    }
+
     /// Returns the effective table options for this source.
     pub fn options(&self) -> &VortexTableOptions {
         &self.options
@@ -426,6 +435,19 @@ impl FileSource for VortexSource {
             base_config,
             partition,
         )?))
+    }
+
+    fn create_morselizer(
+        &self,
+        object_store: Arc<dyn ObjectStore>,
+        base_config: &FileScanConfig,
+        partition: usize,
+    ) -> DFResult<Box<dyn Morselizer>> {
+        let opener = self.create_vortex_opener(object_store, base_config, partition)?;
+        Ok(Box::new(VortexMorselizer::new(
+            Arc::new(opener),
+            self.options.morsel_scan,
+        )))
     }
 
     fn with_batch_size(&self, _batch_size: usize) -> Arc<dyn FileSource> {
