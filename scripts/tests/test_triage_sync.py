@@ -65,6 +65,9 @@ def test_snooze_is_confirmed_once_and_shown_on_the_card():
     assert float(saved["snooze_until"]) == (NOW + timedelta(hours=2, minutes=10)).timestamp()
     assert saved["snoozed_by"] == "UALICE"
     assert "😴 until" in card_text(fake, 1)
+    # The run that confirms the snooze also takes the item out of the overview.
+    overview = json.dumps(fake.messages[overview_ts(fake)], ensure_ascii=False)
+    assert "issues/1|" not in overview and "😴 1 snoozed" in overview
 
     run(fake, [HIGH], NOW + 2 * HOUR)
     assert len(fake.bot_replies(root)) == 1

@@ -113,6 +113,10 @@ def date_token(moment: datetime) -> str:
     return f"<!date^{int(moment.timestamp())}^{{date_short_pretty}} at {{time}}|{fallback}>"
 
 
+def _snoozed(row: Row, now: datetime) -> bool:
+    return row.state is not None and row.state.snoozed(now)
+
+
 def _wait(row: Row, now: datetime) -> str:
     state = row.state
     if state is not None and state.snoozed(now):
@@ -178,18 +182,28 @@ def _mrkdwn(text: str) -> dict[str, Any]:
     return {"type": "section", "text": {"type": "mrkdwn", "text": text}}
 
 
+def _list(text: str) -> dict[str, Any]:
+    # Without `expand`, Slack may hide the end of a long section behind a "see more" link, and a
+    # list that spans several sections gets one link in each.
+    return {**_mrkdwn(text), "expand": True}
+
+
 def _context(text: str) -> dict[str, Any]:
     return {"type": "context", "elements": [{"type": "mrkdwn", "text": text}]}
 
 
 def overview(rows: Sequence[Row], day: date, now: datetime, oncall: str, claude: str) -> Message:
-    """Build the daily overview, which lists every tracked item in every section."""
-    grouped = ordered(rows)
+    """Build the daily overview, which lists every tracked item that is not snoozed."""
+    # A snoozed item leaves the overview until its snooze ends, as a closed item does, so that the
+    # overview lists only what needs attention. The summary still counts snoozed items.
+    snoozed = sum(_snoozed(row, now) for row in rows)
+    grouped = ordered([row for row in rows if not _snoozed(row, now)])
     counts = {section: len(members) for section, members in grouped.items()}
     label = day.strftime("%a %d %b").replace(" 0", " ")
     summary = _parts(
         f"On call {oncall}" if oncall else "No on-call set",
         *(f"{s.marker} {counts[s]} {s.title if s is not WAITING else 'waiting'}" for s in SECTIONS),
+        f"😴 {snoozed} snoozed" if snoozed else "",
         claude,
         f"updated {date_token(now)}",
     )
@@ -215,7 +229,7 @@ def overview(rows: Sequence[Row], day: date, now: datetime, oncall: str, claude:
             if cut[section]:
                 shown.append(f"_+{cut[section]} more_")
             body = [_mrkdwn(f"*{section.marker} {section.title} · {counts[section]}*")]
-            body += [_mrkdwn(chunk) for chunk in _chunks(shown)]
+            body += [_list(chunk) for chunk in _chunks(shown)]
             blocks += len(body)
             attachments.append({"color": section.color, "blocks": body})
         return attachments, blocks
@@ -348,7 +362,7 @@ def reminder(user: str | None, rows: Sequence[Row], first: bool, now: datetime) 
     while 2 + len(_chunks(shown)) > MAX_BLOCKS:
         cut += 1
         shown = [*lines[: len(lines) - cut], f"_+{cut} more_"]
-    blocks = [_mrkdwn(header), *(_mrkdwn(chunk) for chunk in _chunks(shown)), _context(footer)]
+    blocks = [_mrkdwn(header), *(_list(chunk) for chunk in _chunks(shown)), _context(footer)]
     return Message(text=header.removeprefix("⏰ "), blocks=tuple(blocks))
 
 
@@ -370,7 +384,7 @@ def instructions() -> Message:
             "*Key*",
             *(f"{kind.emoji} {kind.meaning}" for kind in KINDS),
             "🧵 the item's thread in this channel",
-            "😴 snoozed until the time shown",
+            "😴 snoozed until the time shown on the item's card",
             f"{_DONE} merged, closed, or answered by a teammate",
             f"{_UNTRACKED} no longer tracked",
             "An item's number and title link to GitHub.",
@@ -380,8 +394,9 @@ def instructions() -> Message:
             "Reminders go to the assignees, or to on-call when nobody is assigned.",
             "",
             "*Commands*, as a reply in an item's 🧵 thread:",
-            f"`!snooze 5h` pauses reminders for 5 working hours (at most {MAX_HOURS}).",
-            f"`!snooze 2d` pauses reminders for 2 working days (at most {MAX_DAYS}).",
+            "`!snooze 5h` hides the item from the overview and pauses its reminders for 5 working "
+            f"hours (at most {MAX_HOURS}).",
+            f"`!snooze 2d` does the same for 2 working days (at most {MAX_DAYS}).",
             "`!unsnooze` ends a snooze.",
             "New contributor activity ends a snooze early. The bot answers within about an hour.",
             "",
