@@ -7,7 +7,8 @@ abstract: >-
   and provides a pluggable system of cascading compression encodings that
   operate directly on compressed data with zero-copy Apache Arrow
   compatibility. These components compose into a default file format, and
-  Vortex integrates with engines including DataFusion, DuckDB, and Spark.
+  Vortex integrates with engines including ClickHouse, DataFusion, DuckDB, and
+  Spark.
 type: software
 version: 0.72.0
 date-released: 2026-05-20

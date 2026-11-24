@@ -1,8 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::iter;
 use std::sync::Arc;
 use std::sync::LazyLock;
+use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::Ordering;
 
 use parking_lot::Mutex;
 use rstest::rstest;
@@ -16,6 +19,7 @@ use vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::uncompressed_si
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::Constant;
+use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::Dict;
 use vortex_array::arrays::DictArray;
 use vortex_array::arrays::ExtensionArray;
@@ -27,6 +31,8 @@ use vortex_array::arrays::Slice;
 use vortex_array::arrays::SliceArray;
 use vortex_array::arrays::VarBinView;
 use vortex_array::arrays::VarBinViewArray;
+use vortex_array::arrays::dict::DictArraySlotsExt;
+use vortex_array::arrays::primitive::PrimitiveSlots;
 use vortex_array::arrays::varbinview::BinaryView;
 use vortex_array::assert_arrays_eq;
 use vortex_array::builders::MapBuilder;
@@ -46,6 +52,7 @@ use vortex_buffer::ByteBuffer;
 use vortex_buffer::buffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_err;
 use vortex_session::VortexSession;
 
 use super::CascadingCompressor;
@@ -57,9 +64,15 @@ use super::structural;
 use crate::builtins::FloatDictScheme;
 use crate::builtins::IntDictScheme;
 use crate::builtins::StringDictScheme;
+use crate::scheme::Child;
+use crate::scheme::ChildDecision;
+use crate::scheme::ChildKind;
+use crate::scheme::ChildPolicy;
+use crate::scheme::ChildRequest;
 use crate::scheme::CompressionEstimate;
 use crate::scheme::CompressorContext;
 use crate::scheme::DeferredEstimate;
+use crate::scheme::Encoded;
 use crate::scheme::EstimateScore;
 use crate::scheme::EstimateVerdict;
 use crate::scheme::Scheme;
@@ -1094,7 +1107,7 @@ impl Scheme for FixedTableScheme {
     ) -> VortexResult<ArrayRef> {
         let nbytes = Self::TABLE_NBYTES + data.array().len();
         Ok(PrimitiveArray::new(
-            Buffer::from_iter(std::iter::repeat_n(0u8, nbytes)),
+            Buffer::from_iter(iter::repeat_n(0u8, nbytes)),
             Validity::NonNullable,
         )
         .into_array())
@@ -1363,5 +1376,517 @@ fn extension_with_lazy_storage_is_not_passed_through() -> VortexResult<()> {
         compressed.display_tree()
     );
     assert_arrays_eq!(&compressed, &array, &mut exec_ctx);
+    Ok(())
+}
+
+/// Dictionary-encodes `[1, 2, 1, 2, ...]`, registering its values as `Encoded::keep` when
+/// `keep_values`, or not registering them at all.
+#[derive(Debug)]
+struct TestDictScheme {
+    name: &'static str,
+    keep_values: bool,
+}
+
+static KEEPING_DICT: TestDictScheme = TestDictScheme {
+    name: "test.keeping_dict",
+    keep_values: true,
+};
+
+/// Only the debug-only check of registered children uses it.
+#[cfg(debug_assertions)]
+static LEAKY_DICT: TestDictScheme = TestDictScheme {
+    name: "test.leaky_dict",
+    keep_values: false,
+};
+
+impl Scheme for TestDictScheme {
+    fn scheme_name(&self) -> &'static str {
+        self.name
+    }
+
+    fn matches(&self, canonical: &Canonical) -> bool {
+        matches_integer_primitive(canonical)
+    }
+
+    fn produced_encodings(&self) -> Vec<ArrayId> {
+        Vec::new()
+    }
+
+    fn expected_compression_ratio(
+        &self,
+        _data: &ArrayAndStats,
+        _compress_ctx: CompressorContext,
+        _exec_ctx: &mut ExecutionCtx,
+    ) -> CompressionEstimate {
+        CompressionEstimate::Verdict(EstimateVerdict::AlwaysUse)
+    }
+
+    fn encode(
+        &self,
+        data: &ArrayAndStats,
+        _compress_ctx: &CompressorContext,
+        _exec_ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Encoded> {
+        let codes = PrimitiveArray::new(
+            [0u8, 1]
+                .into_iter()
+                .cycle()
+                .take(data.array_len())
+                .collect::<Buffer<u8>>(),
+            Validity::NonNullable,
+        )
+        .into_array();
+        let values = PrimitiveArray::new(buffer![1i32, 2], Validity::NonNullable).into_array();
+        let keep = if self.keep_values {
+            vec![Child::new(self, 1, values)]
+        } else {
+            Vec::new()
+        };
+        let keep_values = self.keep_values;
+        Ok(Encoded::new(
+            vec![Child::new(self, 0, codes)],
+            keep,
+            move |children, _| {
+                let [codes] = children.compressed()?;
+                let values = if keep_values {
+                    let [values] = children.kept()?;
+                    values
+                } else {
+                    PrimitiveArray::new(buffer![1i32, 2], Validity::NonNullable).into_array()
+                };
+                Ok(DictArray::try_new(codes, values)?.into_array())
+            },
+        ))
+    }
+
+    #[expect(clippy::unimplemented, reason = "replaced by `encode`")]
+    fn compress(
+        &self,
+        _compressor: &CascadingCompressor,
+        _data: &ArrayAndStats,
+        _compress_ctx: CompressorContext,
+        _exec_ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        unimplemented!("{} compresses through Scheme::encode", self.scheme_name())
+    }
+}
+
+/// Records every child the compressor asks about, and answers with `decision`, or with what the
+/// scheme requested when `None`.
+#[derive(Debug, Default)]
+struct RecordingPolicy {
+    decision: Option<ChildDecision>,
+    requests: Mutex<Vec<(ChildKind, ChildDecision)>>,
+}
+
+impl ChildPolicy for RecordingPolicy {
+    fn decide(&self, request: &ChildRequest<'_>) -> ChildDecision {
+        self.requests.lock().push((request.kind, request.requested));
+        self.decision.unwrap_or(request.requested)
+    }
+}
+
+fn alternating_ints() -> ArrayRef {
+    PrimitiveArray::new(
+        (0..4096).map(|i| 1 + i % 2).collect::<Buffer<i32>>(),
+        Validity::NonNullable,
+    )
+    .into_array()
+}
+
+#[cfg(debug_assertions)]
+#[test]
+fn unregistered_child_is_rejected() {
+    let compressor = CascadingCompressor::new(vec![&LEAKY_DICT]);
+    let err = compressor
+        .compress(&alternating_ints(), &mut SESSION.create_execution_ctx())
+        .expect_err("the values child was never registered");
+    assert!(
+        err.to_string()
+            .contains("test.leaky_dict left slot 1 (values) of vortex.dict uncompressed"),
+        "{err}"
+    );
+}
+
+#[test]
+fn policy_sees_each_registered_child() -> VortexResult<()> {
+    let policy = Arc::new(RecordingPolicy::default());
+    let compressor =
+        CascadingCompressor::new(vec![&KEEPING_DICT])
+            .with_child_policy(Arc::<RecordingPolicy>::clone(&policy));
+    let input = alternating_ints();
+    let mut ctx = SESSION.create_execution_ctx();
+    let compressed = compressor.compress(&input, &mut ctx)?;
+    assert_arrays_eq!(&compressed, &input, &mut ctx);
+
+    let cascade = |index| ChildKind::Cascade {
+        scheme: KEEPING_DICT.id(),
+        index,
+    };
+    assert_eq!(
+        *policy.requests.lock(),
+        [
+            (cascade(0), ChildDecision::Compress),
+            (cascade(1), ChildDecision::Keep),
+        ]
+    );
+    Ok(())
+}
+
+#[test]
+fn policy_can_compress_a_kept_child() -> VortexResult<()> {
+    let policy = Arc::new(RecordingPolicy {
+        decision: Some(ChildDecision::Compress),
+        ..RecordingPolicy::default()
+    });
+    // With the kept values compressed, the policy is asked about the values' own children too,
+    // and the result still round-trips.
+    let compressor = CascadingCompressor::new(vec![&KEEPING_DICT]).with_child_policy(policy);
+    let input = alternating_ints();
+    let mut ctx = SESSION.create_execution_ctx();
+    let compressed = compressor.compress(&input, &mut ctx)?;
+    assert_arrays_eq!(&compressed, &input, &mut ctx);
+    Ok(())
+}
+
+/// Implements only the original [`Scheme::compress`], compressing its own children with
+/// [`CascadingCompressor::compress_child`].
+#[derive(Debug)]
+struct CompressOnlyDictScheme;
+
+impl Scheme for CompressOnlyDictScheme {
+    fn scheme_name(&self) -> &'static str {
+        "test.compress_only_dict"
+    }
+
+    fn matches(&self, canonical: &Canonical) -> bool {
+        matches_integer_primitive(canonical)
+    }
+
+    fn produced_encodings(&self) -> Vec<ArrayId> {
+        Vec::new()
+    }
+
+    fn num_children(&self) -> usize {
+        2
+    }
+
+    fn expected_compression_ratio(
+        &self,
+        _data: &ArrayAndStats,
+        _compress_ctx: CompressorContext,
+        _exec_ctx: &mut ExecutionCtx,
+    ) -> CompressionEstimate {
+        CompressionEstimate::Verdict(EstimateVerdict::AlwaysUse)
+    }
+
+    fn compress(
+        &self,
+        compressor: &CascadingCompressor,
+        data: &ArrayAndStats,
+        compress_ctx: CompressorContext,
+        exec_ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        let dict = dict_encode(data.array(), exec_ctx)?;
+        let values =
+            compressor.compress_child(dict.values(), &compress_ctx, self.id(), 0, exec_ctx)?;
+        let codes =
+            compressor.compress_child(dict.codes(), &compress_ctx, self.id(), 1, exec_ctx)?;
+        Ok(DictArray::try_new(codes, values)?.into_array())
+    }
+}
+
+/// Leaves [`Scheme::compress`] unimplemented without implementing [`Scheme::encode`].
+#[derive(Debug)]
+struct NoEncodingScheme;
+
+impl Scheme for NoEncodingScheme {
+    fn scheme_name(&self) -> &'static str {
+        "test.no_encoding"
+    }
+
+    fn matches(&self, canonical: &Canonical) -> bool {
+        matches_integer_primitive(canonical)
+    }
+
+    fn produced_encodings(&self) -> Vec<ArrayId> {
+        Vec::new()
+    }
+
+    fn expected_compression_ratio(
+        &self,
+        _data: &ArrayAndStats,
+        _compress_ctx: CompressorContext,
+        _exec_ctx: &mut ExecutionCtx,
+    ) -> CompressionEstimate {
+        CompressionEstimate::Verdict(EstimateVerdict::AlwaysUse)
+    }
+
+    #[expect(clippy::unimplemented, reason = "replaced by `encode`")]
+    fn compress(
+        &self,
+        _compressor: &CascadingCompressor,
+        _data: &ArrayAndStats,
+        _compress_ctx: CompressorContext,
+        _exec_ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        unimplemented!("{} compresses through Scheme::encode", self.scheme_name())
+    }
+}
+
+#[test]
+fn compress_only_scheme_still_works() -> VortexResult<()> {
+    let compressor = CascadingCompressor::new(vec![&CompressOnlyDictScheme]);
+    let input = PrimitiveArray::from_option_iter((0..4096).map(|i| (i % 7 != 0).then_some(i % 3)))
+        .into_array();
+    let mut ctx = SESSION.create_execution_ctx();
+    let compressed = compressor.compress(&input, &mut ctx)?;
+    assert!(compressed.is::<Dict>(), "{}", compressed.encoding_id());
+    assert_arrays_eq!(&compressed, &input, &mut ctx);
+    Ok(())
+}
+
+#[test]
+#[should_panic(expected = "test.no_encoding compresses through Scheme::encode")]
+fn scheme_without_encoding_panics() {
+    let compressor = CascadingCompressor::new(vec![&NoEncodingScheme]);
+    drop(compressor.compress(&alternating_ints(), &mut SESSION.create_execution_ctx()));
+}
+
+/// Registers its input as a kept child, then builds its output without it.
+#[derive(Debug)]
+struct UnusedChildScheme;
+
+impl Scheme for UnusedChildScheme {
+    fn scheme_name(&self) -> &'static str {
+        "test.unused_child"
+    }
+
+    fn matches(&self, canonical: &Canonical) -> bool {
+        matches_integer_primitive(canonical)
+    }
+
+    fn produced_encodings(&self) -> Vec<ArrayId> {
+        Vec::new()
+    }
+
+    fn expected_compression_ratio(
+        &self,
+        _data: &ArrayAndStats,
+        _compress_ctx: CompressorContext,
+        _exec_ctx: &mut ExecutionCtx,
+    ) -> CompressionEstimate {
+        CompressionEstimate::Verdict(EstimateVerdict::AlwaysUse)
+    }
+
+    fn encode(
+        &self,
+        data: &ArrayAndStats,
+        _compress_ctx: &CompressorContext,
+        _exec_ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Encoded> {
+        let len = data.array_len();
+        Ok(Encoded::new(
+            Vec::new(),
+            vec![Child::new(self, 0, data.array().clone())],
+            move |_, _| Ok(ConstantArray::new(1i32, len).into_array()),
+        ))
+    }
+
+    #[expect(clippy::unimplemented, reason = "replaced by `encode`")]
+    fn compress(
+        &self,
+        _compressor: &CascadingCompressor,
+        _data: &ArrayAndStats,
+        _compress_ctx: CompressorContext,
+        _exec_ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        unimplemented!("{} compresses through Scheme::encode", self.scheme_name())
+    }
+}
+
+#[test]
+fn unused_child_is_rejected() {
+    let compressor = CascadingCompressor::new(vec![&UnusedChildScheme]);
+    let err = compressor
+        .compress(&alternating_ints(), &mut SESSION.create_execution_ctx())
+        .expect_err("the kept child was never used");
+    assert!(
+        err.to_string().contains(
+            "the constructor of scheme test.unused_child left 0 compressed and 1 kept children \
+             unused"
+        ),
+        "{err}"
+    );
+}
+
+/// Counts how often the compressor offers it a boolean array, and never matches.
+#[derive(Debug)]
+struct CountingBoolScheme;
+
+static BOOL_ARRAYS_OFFERED: AtomicUsize = AtomicUsize::new(0);
+
+impl Scheme for CountingBoolScheme {
+    fn scheme_name(&self) -> &'static str {
+        "test.counting_bool"
+    }
+
+    fn matches(&self, canonical: &Canonical) -> bool {
+        if matches!(canonical, Canonical::Bool(_)) {
+            BOOL_ARRAYS_OFFERED.fetch_add(1, Ordering::Relaxed);
+        }
+        false
+    }
+
+    fn produced_encodings(&self) -> Vec<ArrayId> {
+        Vec::new()
+    }
+
+    fn expected_compression_ratio(
+        &self,
+        _data: &ArrayAndStats,
+        _compress_ctx: CompressorContext,
+        _exec_ctx: &mut ExecutionCtx,
+    ) -> CompressionEstimate {
+        CompressionEstimate::Verdict(EstimateVerdict::Skip)
+    }
+
+    #[expect(clippy::unimplemented, reason = "never matches")]
+    fn compress(
+        &self,
+        _compressor: &CascadingCompressor,
+        _data: &ArrayAndStats,
+        _compress_ctx: CompressorContext,
+        _exec_ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        unimplemented!("{} never matches", self.scheme_name())
+    }
+}
+
+/// Generates integer statistics while estimating, then declines.
+#[derive(Debug)]
+struct StatsThenSkipScheme;
+
+impl Scheme for StatsThenSkipScheme {
+    fn scheme_name(&self) -> &'static str {
+        "test.stats_then_skip"
+    }
+
+    fn matches(&self, canonical: &Canonical) -> bool {
+        matches_integer_primitive(canonical)
+    }
+
+    fn produced_encodings(&self) -> Vec<ArrayId> {
+        Vec::new()
+    }
+
+    fn expected_compression_ratio(
+        &self,
+        data: &ArrayAndStats,
+        _compress_ctx: CompressorContext,
+        exec_ctx: &mut ExecutionCtx,
+    ) -> CompressionEstimate {
+        data.integer_stats(exec_ctx);
+        CompressionEstimate::Verdict(EstimateVerdict::Skip)
+    }
+
+    #[expect(clippy::unimplemented, reason = "always skips")]
+    fn compress(
+        &self,
+        _compressor: &CascadingCompressor,
+        _data: &ArrayAndStats,
+        _compress_ctx: CompressorContext,
+        _exec_ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        unimplemented!("{} always skips", self.scheme_name())
+    }
+}
+
+/// Statistics generated while choosing a scheme show the leaf has no nulls, so its all-`true`
+/// bitmap becomes a constant without going through the compressor again.
+#[test]
+fn all_valid_bitmap_reuses_statistics() -> VortexResult<()> {
+    let compressor = CascadingCompressor::new(vec![&StatsThenSkipScheme, &CountingBoolScheme]);
+    let input = PrimitiveArray::new(
+        (0..4096).collect::<Buffer<i32>>(),
+        Validity::Array(BoolArray::from_iter(iter::repeat_n(true, 4096)).into_array()),
+    )
+    .into_array();
+    let mut ctx = SESSION.create_execution_ctx();
+    let compressed = compressor.compress(&input, &mut ctx)?;
+    assert_arrays_eq!(&compressed, &input, &mut ctx);
+
+    let bitmap = compressed.slots()[PrimitiveSlots::VALIDITY_CHILD]
+        .as_ref()
+        .ok_or_else(|| vortex_err!("expected the validity bitmap to stay a slot"))?;
+    assert!(bitmap.is::<Constant>(), "{}", bitmap.encoding_id());
+    assert_eq!(BOOL_ARRAYS_OFFERED.load(Ordering::Relaxed), 0);
+    Ok(())
+}
+
+/// Hands its whole input to the compressor as its only child, and returns that child as it is.
+#[derive(Debug)]
+struct PassThroughScheme;
+
+impl Scheme for PassThroughScheme {
+    fn scheme_name(&self) -> &'static str {
+        "test.pass_through"
+    }
+
+    fn matches(&self, canonical: &Canonical) -> bool {
+        matches_integer_primitive(canonical)
+    }
+
+    fn produced_encodings(&self) -> Vec<ArrayId> {
+        Vec::new()
+    }
+
+    fn expected_compression_ratio(
+        &self,
+        _data: &ArrayAndStats,
+        _compress_ctx: CompressorContext,
+        _exec_ctx: &mut ExecutionCtx,
+    ) -> CompressionEstimate {
+        CompressionEstimate::Verdict(EstimateVerdict::AlwaysUse)
+    }
+
+    fn encode(
+        &self,
+        data: &ArrayAndStats,
+        _compress_ctx: &CompressorContext,
+        _exec_ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Encoded> {
+        Ok(Encoded::new(
+            vec![Child::new(self, 0, data.array().clone())],
+            Vec::new(),
+            |children, _| {
+                let [child] = children.compressed()?;
+                Ok(child)
+            },
+        ))
+    }
+
+    #[expect(clippy::unimplemented, reason = "replaced by `encode`")]
+    fn compress(
+        &self,
+        _compressor: &CascadingCompressor,
+        _data: &ArrayAndStats,
+        _compress_ctx: CompressorContext,
+        _exec_ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        unimplemented!("{} compresses through Scheme::encode", self.scheme_name())
+    }
+}
+
+/// A constructor may return a compressed child as its whole output: what the compressor left
+/// canonical inside that child, here the dictionary's kept values, is not the scheme's to register.
+#[test]
+fn returning_a_compressed_child_passes_the_check() -> VortexResult<()> {
+    let compressor = CascadingCompressor::new(vec![&PassThroughScheme, &KEEPING_DICT]);
+    let input = alternating_ints();
+    let mut ctx = SESSION.create_execution_ctx();
+    let compressed = compressor.compress(&input, &mut ctx)?;
+    assert!(compressed.is::<Dict>(), "{}", compressed.encoding_id());
+    assert_arrays_eq!(&compressed, &input, &mut ctx);
     Ok(())
 }

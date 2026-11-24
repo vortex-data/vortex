@@ -50,6 +50,7 @@ use vortex::dtype::PType;
 use vortex::dtype::StructFields;
 use vortex::expr::Expression;
 use vortex::expr::Lambda;
+use vortex::expr::ScalarFnExprExt;
 use vortex::expr::binary;
 use vortex::expr::byte_length;
 use vortex::expr::cast;
@@ -76,13 +77,13 @@ use vortex::functions::like::LikeOptions;
 use vortex::layout::layouts::row_idx;
 use vortex::scalar::NumericOperator;
 use vortex::scalar::Scalar;
-use vortex::scalar_fn::ScalarFnVTableExt;
 use vortex::scalar_fn::builtin::get_item::GetItem;
 use vortex::scalar_fn::builtin::operators::BinaryOperator;
 use vortex::scalar_fn::builtin::operators::BooleanOperator;
 use vortex::scalar_fn::builtin::operators::CompareOperator;
 use vortex::session::VortexSession;
 use vortex_arrow::ArrowSessionExt;
+use vortex_arrow::ExecuteArrowExt;
 
 use crate::row_index::RowIndex;
 
@@ -271,8 +272,8 @@ type Conversion<T> = Result<T, Unconverted>;
 /// Nested struct field access also uses Vortex semantics: a null parent produces a null child,
 /// whereas DataFusion extracts the child without applying parent validity. These differences
 /// are accepted for both filters and projections.
-/// Field access through an extension can run natively when Arrow exposes its Vortex storage and no
-/// plugin exports the selected field.
+/// Field access through an extension can run natively when Arrow exposes its Vortex storage and
+/// the selected field exports without plugins.
 /// Searched `CASE WHEN` expressions preserve short-circuit evaluation: conditions and
 /// branch values only execute on the rows that reach them, including fallible branches.
 /// Other expressions require compatible SQL semantics or remain in DataFusion.
@@ -587,6 +588,10 @@ impl DefaultExpressionConverter {
     ///
     /// A literal that the plugins reject stays in DataFusion, including when a plugin accepts the
     /// field but rejects the value.
+    ///
+    /// Check that literals with extension metadata or a nested importer export back to the same
+    /// Arrow value. An importer can map several Arrow values to one Vortex value, such as every
+    /// non-zero `arrow.bool8` to true. DataFusion still distinguishes the original values.
     fn import_literal(&self, literal: &df_expr::Literal, field: &Field) -> Conversion<Scalar> {
         let array = literal.value().to_array()?;
         if array.len() != 1 {
@@ -599,16 +604,31 @@ impl DefaultExpressionConverter {
 
         self.arrow_dtype(field)?;
 
-        self.session
+        let mut ctx = self.session.create_execution_ctx();
+        let imported = self
+            .session
             .arrow()
-            .from_arrow_array(array, field)
-            .map_err(|_| Unconverted::Unsupported)?
-            .execute_scalar(0, &mut self.session.create_execution_ctx())
-            .map_err(|error| {
-                Unconverted::Failed(DataFusionError::External(Box::new(
-                    error.with_context(format!("Failed to convert literal {literal}")),
-                )))
-            })
+            .from_arrow_array(Arc::clone(&array), field)
+            .map_err(|_| Unconverted::Unsupported)?;
+
+        if field.extension_type_name().is_some()
+            || !self.session.arrow().imports_without_plugins(field)
+        {
+            let exported = imported
+                .clone()
+                .execute_arrow(Some(field), &mut ctx)
+                .map_err(|_| Unconverted::Unsupported)?;
+
+            if exported.to_data() != array.to_data() {
+                return Err(Unconverted::Unsupported);
+            }
+        }
+
+        imported.execute_scalar(0, &mut ctx).map_err(|error| {
+            Unconverted::Failed(DataFusionError::External(Box::new(
+                error.with_context(format!("Failed to convert literal {literal}")),
+            )))
+        })
     }
 
     /// Converts a string argument of a string function.
@@ -825,6 +845,11 @@ impl DefaultExpressionConverter {
     /// sides read the same values only when Vortex exports the parent as exactly its storage, which
     /// [`exports_extension_storage`] checks.
     ///
+    /// A plugin can choose how to export the selected field. Keep that read in DataFusion when
+    /// traversing extension storage. Two exporters can preserve order within their own outputs
+    /// and still encode equal values differently. Raw exporters of plain values can also change
+    /// their order.
+    ///
     /// [`exports_extension_storage`]: vortex_arrow::ArrowSession::exports_extension_storage
     fn convert_get_field(
         &self,
@@ -881,12 +906,6 @@ impl DefaultExpressionConverter {
             read = get_item(name, read);
         }
 
-        // A plugin exporter decides which Arrow data DataFusion sees for the selected field, so
-        // Vortex and DataFusion agree on that field only if the export keeps values. Columns and
-        // plain struct fields already assume this, and the check skips them so that their pushdown
-        // stays the same.
-        // TODO(connor): Drop this check once the Arrow plugin contract requires exports to keep
-        // values.
         if reads_extension_storage && !self.session.arrow().exports_without_plugins(field) {
             return Err(Unconverted::Unsupported);
         }

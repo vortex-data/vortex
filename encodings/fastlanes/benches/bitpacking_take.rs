@@ -462,6 +462,73 @@ fn patched_take_10k_adversarial(bencher: Bencher) {
         })
 }
 
+const HEAVY_PATCHED_LEN: usize = 64 * CHUNK_SIZE;
+const HEAVY_PATCHED_BIT_WIDTH: u8 = 6;
+const HEAVY_PATCHED_STRIDE: usize = 97;
+
+fn heavy_patched_fixture(selectivity_pct: usize, sorted: bool) -> (ArrayRef, ArrayRef) {
+    let mut ctx = SESSION.create_execution_ctx();
+    let values = PrimitiveArray::from_iter((0..HEAVY_PATCHED_LEN).map(|index| {
+        if index.is_multiple_of(HEAVY_PATCHED_STRIDE) {
+            (500 + (index % 1_000)) as i16
+        } else {
+            (index % (1 << HEAVY_PATCHED_BIT_WIDTH)) as i16
+        }
+    }))
+    .into_array();
+    let packed = BitPackedData::encode(&values, HEAVY_PATCHED_BIT_WIDTH, &mut ctx).unwrap();
+    assert_eq!(
+        packed.patches().unwrap().num_patches(),
+        HEAVY_PATCHED_LEN.div_ceil(HEAVY_PATCHED_STRIDE)
+    );
+    let packed = packed.into_array();
+
+    let mut rng = StdRng::seed_from_u64(0);
+    let count = HEAVY_PATCHED_LEN * selectivity_pct / 100;
+    let range = Uniform::new(0, HEAVY_PATCHED_LEN as u32).unwrap();
+    let mut raw_indices: Vec<u32> = (&mut rng).sample_iter(range).take(count).collect();
+    if sorted {
+        raw_indices.sort_unstable();
+    }
+    let indices = PrimitiveArray::from_iter(raw_indices).into_array();
+    mark_optimized(&packed, &SESSION).unwrap();
+    mark_optimized(&indices, &SESSION).unwrap();
+
+    (packed, indices)
+}
+
+#[divan::bench(args = [1, 10])]
+fn patched_take_heavy_sorted(bencher: Bencher, selectivity_pct: usize) {
+    let (packed, indices) = heavy_patched_fixture(selectivity_pct, true);
+
+    bencher
+        .counter(ItemsCount::new(indices.len()))
+        .with_inputs(|| (indices.clone(), SESSION.create_execution_ctx()))
+        .bench_refs(|(indices, ctx)| {
+            packed
+                .take(indices.clone())
+                .unwrap()
+                .execute::<RecursiveCanonical>(ctx)
+                .unwrap()
+        });
+}
+
+#[divan::bench(args = [1, 10])]
+fn patched_take_heavy_random(bencher: Bencher, selectivity_pct: usize) {
+    let (packed, indices) = heavy_patched_fixture(selectivity_pct, false);
+
+    bencher
+        .counter(ItemsCount::new(indices.len()))
+        .with_inputs(|| (indices.clone(), SESSION.create_execution_ctx()))
+        .bench_refs(|(indices, ctx)| {
+            packed
+                .take(indices.clone())
+                .unwrap()
+                .execute::<RecursiveCanonical>(ctx)
+                .unwrap()
+        });
+}
+
 // These are the element runs emitted by a sparse FSL gather.
 fn embedding_runs_fixture(dimension: usize, ptype: PType, bit_width: u8) -> (ArrayRef, ArrayRef) {
     const ROWS: usize = 512;
