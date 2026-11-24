@@ -12,7 +12,9 @@ use arrow_array::types::*;
 use arrow_schema::DataType;
 use arrow_schema::Field;
 use vortex_array::ArrayRef;
+use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
+use vortex_array::IntoArray;
 use vortex_array::arrays::Chunked;
 use vortex_array::arrays::Constant;
 use vortex_array::arrays::ConstantArray;
@@ -95,6 +97,12 @@ pub(super) fn to_arrow_dictionary(
 
     // Otherwise, we should try and build a dictionary.
     // Arrow hides this functionality inside the cast module!
+    // Chunks are first joined into one canonical array, which exports faster than chunk by chunk.
+    let array = if array.is::<Chunked>() {
+        array.execute::<Canonical>(ctx)?.into_array()
+    } else {
+        array
+    };
     let array = array.execute_arrow_with_options(Some(values_field), options, ctx)?;
     arrow_cast::cast(
         &array,
