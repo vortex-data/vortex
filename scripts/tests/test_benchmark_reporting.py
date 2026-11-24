@@ -359,7 +359,7 @@ def test_comparison_report_retains_sql_analysis(tmp_path: Path) -> None:
     assert "How to read Verdict and Engines" in report
     # SQL queries share one table, with a row per query and a column per target.
     assert markdown_row(report, "query") == ["query", "datafusion:vortex", "datafusion:parquet"]
-    assert markdown_row(report, "tpch_q01") == ["tpch_q01", "**80.0 → 70.0 ns (0.88)** 🟢", "100 → 105 ns (1.05)"]
+    assert markdown_row(report, "tpch_q01") == ["tpch_q01", "🟢 **70.0 ns (0.88)**", "105 ns (1.05)"]
     assert "<summary>datafusion / " not in report
     assert "unknown" not in report
 
@@ -408,11 +408,11 @@ def test_only_changes_past_the_suite_threshold_are_marked(tmp_path: Path) -> Non
 
     report = render_report(tmp_path, base_rows, pr_rows, "TPC-H")
 
-    assert markdown_row(report, "tpch_q01")[1] == "100 → 109 ns (1.09)"
-    assert markdown_row(report, "tpch_q02")[1] == "**100 → 111 ns (1.11)** 🔴"
-    assert markdown_row(report, "tpch_q03")[1] == "**100 → 89.0 ns (0.89)** 🟢"
+    assert markdown_row(report, "tpch_q01")[1] == "109 ns (1.09)"
+    assert markdown_row(report, "tpch_q02")[1] == "🔴 **111 ns (1.11)**"
+    assert markdown_row(report, "tpch_q03")[1] == "🟢 **89.0 ns (0.89)**"
     # The geomean row leads the table: geomean time and geomean ratio.
-    assert markdown_row(report, "**geomean**")[1] == "100 → 102 ns (1.02)"
+    assert markdown_row(report, "**geomean**")[1] == "102 ns (1.02)"
 
 
 def test_report_splits_cold_and_hot_runs(tmp_path: Path) -> None:
@@ -441,8 +441,8 @@ def test_report_splits_cold_and_hot_runs(tmp_path: Path) -> None:
 
     # Hot runs come first; cold runs follow in their own folded table.
     hot, cold = markdown_rows(report, "tpch_q01")
-    assert hot == ["tpch_q01", "**100 → 50.0 ns (0.50)** 🟢", "100 → 100 ns (1.00)"]
-    assert cold == ["tpch_q01", "**1.00 → 2.00 µs (2.00)** 🔴", "1.00 → 1.00 µs (1.00)"]
+    assert hot == ["tpch_q01", "🟢 **50.0 ns (0.50)**", "100 ns (1.00)"]
+    assert cold == ["tpch_q01", "🔴 **2.00 µs (2.00)**", "1.00 µs (1.00)"]
     # Both tables fold by default, under a summary of what moved.
     assert "<summary>Hot runs: geomean 0.707x 🟢 · 1 query × 2 targets (1↑ 0↓)</summary>" in report
     assert "<summary>Cold runs (first iteration): geomean 1.414x 🔴 · 1 query × 2 targets (0↑ 1↓)</summary>" in report
@@ -479,8 +479,8 @@ def test_verdict_ignores_a_cold_start_only_regression(tmp_path: Path) -> None:
     assert "**Attributed Vortex impact**: +0.0%" in report
     assert "**Vortex (geomean)**: hot 1.000x ➖ · cold 4.000x ❌" in report
     hot, cold = markdown_rows(report, "tpch_q01")
-    assert hot[1] == "100 → 100 ns (1.00)"
-    assert cold[1] == "**100 → 400 ns (4.00)** 🔴"
+    assert hot[1] == "100 ns (1.00)"
+    assert cold[1] == "🔴 **400 ns (4.00)**"
 
 
 def file_size_record(commit: str, size: int) -> dict[str, object]:
@@ -824,7 +824,7 @@ def test_report_compares_ingest_records(tmp_path: Path) -> None:
     assert "**Engines**: DataFusion " in report
     assert "random-access " in report
     assert "ignored when records exist" not in report
-    assert markdown_row(report, "tpch_q01")[1:] == ["**80.0 → 70.0 ns (0.88)** 🟢", "100 → 105 ns (1.05)"]
+    assert markdown_row(report, "tpch_q01")[1:] == ["🟢 **70.0 ns (0.88)**", "105 ns (1.05)"]
     assert markdown_row(report, "random-access/taxi/uniform/parquet-cached")[1] == "105 / 100 / +5.0%"
     assert markdown_row(report, "random-access/taxi/uniform/lance-cached")[1] == "300 / — / no baseline"
     assert "<summary>random-access / lance / ns " in report
@@ -846,7 +846,7 @@ def test_report_compares_file_size_records_from_the_database(tmp_path: Path) -> 
 
     report = render_report(tmp_path, base_records, pr_results, "TPC-H", pr_records)
 
-    assert markdown_row(report, "tpch_q01")[1] == "80.0 → 80.0 ns (1.00)"
+    assert markdown_row(report, "tpch_q01")[1] == "80.0 ns (1.00)"
     assert "<summary>File Size Changes (2 files changed, -16.7% overall, 1↑ 1↓)</summary>" in report
     assert "| part-1.vortex | 10 | vortex-file-compressed | 50 B | 0 B | -50 B | -100.0% |" in report
 
@@ -861,7 +861,7 @@ def test_report_handles_a_baseline_of_only_file_sizes(tmp_path: Path) -> None:
 
     report = render_report(tmp_path, base_records, pr_results, "TPC-H", pr_records)
 
-    assert markdown_row(report, "tpch_q01")[1] == "— → 80.0 ns"
+    assert markdown_row(report, "tpch_q01")[1] == "80.0 ns (—)"
     assert "<summary>File Size Changes (1 files changed, +25.0% overall, 1↑ 0↓)</summary>" in report
 
 
@@ -1054,9 +1054,9 @@ def test_query_table_names_each_vortex_columns_integration_and_scan(tmp_path: Pa
         "datafusion:parquet",
         "duckdb:vortex [file, v2]",
     ]
-    assert markdown_row(report, "tpch_q01")[3] == "**1.50 → 1.20 ms (0.80)** 🟢"
+    assert markdown_row(report, "tpch_q01")[3] == "🟢 **1.20 ms (0.80)**"
     # The bare default identity still matches develop's records.
-    assert markdown_row(report, "tpch_q01")[1] == "80.0 → 80.0 ns (1.00)"
+    assert markdown_row(report, "tpch_q01")[1] == "80.0 ns (1.00)"
     assert "`datasource` through DataFusion's `VortexTable`" in report
 
 
@@ -1071,10 +1071,13 @@ def test_format_duration_picks_a_readable_unit() -> None:
     assert compare.format_duration(float("nan")) == "—"
 
 
-def test_query_cell_names_both_units_when_they_differ() -> None:
+def test_query_cell_ends_with_the_ratio() -> None:
     compare = load_compare_module()
 
-    assert compare.format_query_cell(980_000, 1_020_000, 1.04, 0.9, 1.1) == "980 µs → 1.02 ms (1.04)"
+    assert compare.format_query_cell(980_000, 1_020_000, 1.04, 0.9, 1.1) == "1.02 ms (1.04)"
+    assert compare.format_query_cell(1_000_000, 800_000, 0.8, 0.9, 1.1) == "🟢 **800 µs (0.80)**"
+    assert compare.format_query_cell(float("nan"), 800_000, float("nan"), 0.9, 1.1) == "800 µs (—)"
+    assert compare.format_query_cell(1_000_000, float("nan"), float("nan"), 0.9, 1.1) == "—"
 
 
 def test_query_table_says_what_it_compares(tmp_path: Path) -> None:
@@ -1084,7 +1087,7 @@ def test_query_table_says_what_it_compares(tmp_path: Path) -> None:
 
     report = render_report(tmp_path, base, pr_results, "TPC-H", pr)
 
-    assert "Each cell is develop `base-sha` → this PR `pr-sha` (hot runs)" in report
+    assert "Each cell is the hot-run time of this PR `pr-sha`, with PR ÷ develop `base-sha`" in report
     assert "`datasource` through" not in report
 
 

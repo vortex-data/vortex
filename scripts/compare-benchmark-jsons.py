@@ -763,26 +763,23 @@ def format_query_cell(
     improvement_threshold: float,
     regression_threshold: float,
 ) -> str:
-    """Render one query cell as `develop → PR (PR/develop)`, bold and marked past the threshold.
+    """Render one query cell as `PR time (PR ÷ develop)`, as in `118 ms (0.90)`.
 
-    The unit is written once when both times share it, as in `131 → 118 ms (0.90)`.
+    The ratio is always the last item, so right-aligned columns put every ratio at the same edge
+    and the reader can scan down a column. A change past the threshold is bold, and its marker
+    goes in front so that it does not move the ratio. A cell with no develop time shows `(—)`.
     """
 
     if pd.isna(pr_value):
         return "—"
+
     pr_text = format_duration(pr_value)
-    if pd.isna(base_value):
-        return f"— → {pr_text}"
-    base_text = format_duration(base_value)
-    base_number, base_unit = base_text.rsplit(" ", 1)
-    if pr_text.endswith(f" {base_unit}"):
-        base_text = base_number
-    cell = f"{base_text} → {pr_text}"
-    if pd.isna(ratio) or float(ratio) <= 0:
-        return cell
-    cell += f" ({float(ratio):.2f})"
+    if pd.isna(base_value) or pd.isna(ratio) or float(ratio) <= 0:
+        return f"{pr_text} (—)"
+
+    cell = f"{pr_text} ({float(ratio):.2f})"
     marker = format_change_marker(float(ratio), improvement_threshold, regression_threshold)
-    return f"**{cell}** {marker}" if marker else cell
+    return f"{marker} **{cell}**" if marker else cell
 
 
 def is_sql_query(query: object) -> bool:
@@ -840,7 +837,7 @@ def format_query_table_caption(df: pd.DataFrame, base_label: str, pr_label: str,
     """Say what the query table compares, and what the scan axes on its Vortex columns mean."""
 
     lines = [
-        f"Each cell is develop `{base_label}` → this PR `{pr_label}` (hot runs), with PR ÷ develop in "
+        f"Each cell is the hot-run time of this PR `{pr_label}`, with PR ÷ develop `{base_label}` in "
         f"parentheses: below 1.00 is faster. Changes past ±{threshold_pct}% are bold. The geomean row "
         "compares each target's geomean over its queries."
     ]
@@ -1258,7 +1255,7 @@ def format_report_help() -> str:
             "each run the warm path saves. Rows whose results predate per-run reporting "
             "show only one value, taken from the value the runner reported.",
             "- **Query tables**: One row per query and one column per target. Each cell "
-            "reads `develop → PR (PR ÷ develop)`, so `(0.80)` is 20% faster than develop. A "
+            "reads `PR time (PR ÷ develop)`, so `(0.80)` is 20% faster than develop. A "
             "change that clears this suite's threshold is bold and marked 🔴 slower or 🟢 "
             "faster; anything smaller is noise here and is left plain. The `geomean` row "
             "compares each target's geomean over its queries with develop's. Hot runs are "
