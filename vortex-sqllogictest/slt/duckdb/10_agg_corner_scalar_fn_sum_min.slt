@@ -1,0 +1,53 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+include ../setup.slt.no
+
+# aggregate over a scalar fn pushed into the scan
+
+statement ok
+CREATE TABLE t5(s VARCHAR);
+
+statement ok
+INSERT INTO t5 VALUES ('aa'), ('b');
+
+statement ok
+COPY t5 TO '${WORK_DIR}/c5.vortex';
+
+query I
+SELECT sum(strlen(s)) FROM t5;
+----
+3
+
+# sum over strlen is not pushed as an aggregate, but strlen
+# is pushed
+query TT
+EXPLAIN SELECT sum(strlen(s)) FROM '${WORK_DIR}/c5.vortex';
+----
+<REGEX>:.*Ungrouped Aggregate.*
+
+query TT
+EXPLAIN (FORMAT json) SELECT sum(strlen(s)) FROM '${WORK_DIR}/c5.vortex';
+----
+<REGEX>:SELECT projections
+
+query I
+SELECT sum(strlen(s)) FROM '${WORK_DIR}/c5.vortex';
+----
+3
+
+query I
+SELECT min(strlen(s)) FROM t5;
+----
+1
+
+# min over strlen is pushed down
+query TT
+EXPLAIN SELECT min(strlen(s)) FROM '${WORK_DIR}/c5.vortex';
+----
+<!REGEX>:.*Ungrouped Aggregate.*
+
+query I
+SELECT min(strlen(s)) FROM '${WORK_DIR}/c5.vortex';
+----
+1

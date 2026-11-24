@@ -10,16 +10,16 @@ use crate::array::ArrayView;
 use crate::arrays::Bool;
 use crate::arrays::Constant;
 use crate::arrays::bool::BoolArrayExt;
-use crate::scalar_fn::fns::binary::BooleanKernel;
-use crate::scalar_fn::fns::binary::kleene_boolean_buffer_scalar;
-use crate::scalar_fn::fns::binary::kleene_boolean_buffers;
-use crate::scalar_fn::fns::operators::Operator;
+use crate::scalar_fn::builtin::boolean::BooleanKernel;
+use crate::scalar_fn::builtin::boolean::kleene_boolean_buffer_scalar;
+use crate::scalar_fn::builtin::boolean::kleene_boolean_buffers;
+use crate::scalar_fn::builtin::operators::BooleanOperator;
 
 impl BooleanKernel for Bool {
     fn boolean(
         lhs: ArrayView<'_, Self>,
         rhs: &ArrayRef,
-        operator: Operator,
+        operator: BooleanOperator,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         let nullability = lhs.dtype().nullability() | rhs.dtype().nullability();

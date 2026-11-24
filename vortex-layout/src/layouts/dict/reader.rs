@@ -24,16 +24,15 @@ use vortex_array::expr::ExactBoundExpr;
 use vortex_array::expr::bound::pack as bound_pack;
 use vortex_array::expr::root;
 use vortex_array::optimizer::ArrayOptimizer;
-use vortex_array::scalar_fn::is_negative_cost;
 use vortex_error::VortexError;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_expr::direct_bound_annotations;
 use vortex_expr::label_bound_tree;
 use vortex_expr::transform::partition_bound_annotations;
+use vortex_functions::is_negative_cost;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
-use vortex_utils::aliases::dash_map::DashMap;
 
 use super::DictLayout;
 use crate::LayoutReader;
@@ -41,6 +40,7 @@ use crate::LayoutReaderRef;
 use crate::RowSplits;
 use crate::SplitRange;
 use crate::arrays::shared::Shared;
+use crate::expr_cache::WeakExprCache;
 use crate::layouts::SharedArrayFuture;
 use crate::segments::SegmentSource;
 
@@ -54,7 +54,7 @@ pub struct DictReader {
     /// Cached dict values array
     values_array: OnceLock<SharedArrayFuture>,
     /// Cache of expression evaluation results on the values array by expression
-    values_evals: DashMap<ExactBoundExpr, SharedArrayFuture>,
+    values_evals: WeakExprCache<SharedArrayFuture>,
 
     values: LayoutReaderRef,
     codes: LayoutReaderRef,
@@ -94,7 +94,7 @@ impl DictReader {
             session,
             values_len,
             values_array: Default::default(),
-            values_evals: DashMap::with_hasher_and_shard_amount(Default::default(), 8),
+            values_evals: WeakExprCache::with_shard_amount(8),
             values,
             codes,
         })
@@ -146,31 +146,22 @@ impl DictReader {
         })
     }
 
-    fn values_eval(&self, expr: BoundExpression) -> SharedArrayFuture {
+    fn values_eval(&self, expr: &BoundExpression) -> SharedArrayFuture {
         // This is unsound since we cannot be sure that all the values are referenced in the query
         // after applying the filter, so if the expression is fallible this might fail when it
         // shouldn't.
         // TODO(joe): fixme
 
-        let key = ExactBoundExpr(expr.clone());
-
-        // Check cache first with read-only lock
-        if let Some(fut) = self.values_evals.get(&key) {
-            return fut.clone();
-        }
-
-        self.values_evals
-            .entry(key)
-            .or_insert_with(|| {
-                self.values_array_uncanonical()
-                    .map(move |array| {
-                        let array = array?.apply_bound(&expr)?;
-                        Ok(Shared::new(array).into_array())
-                    })
-                    .boxed()
-                    .shared()
-            })
-            .clone()
+        self.values_evals.get_or_insert_with(expr, || {
+            let expr = expr.detach_identity();
+            self.values_array_uncanonical()
+                .map(move |array| {
+                    let array = array?.apply_bound(&expr)?;
+                    Ok(Shared::new(array).into_array())
+                })
+                .boxed()
+                .shared()
+        })
     }
 }
 
@@ -260,7 +251,7 @@ impl LayoutReader for DictReader {
         mask: MaskFuture,
     ) -> VortexResult<MaskFuture> {
         // TODO(joe): fix up expr partitioning with fallibility and strictness annotations
-        let values_eval = self.values_eval(expr.clone());
+        let values_eval = self.values_eval(expr);
 
         // We register interest on the entire codes row_range for now, there
         // is no straightforward shift into the codes domain we can do to the expression
@@ -332,9 +323,11 @@ impl LayoutReader for DictReader {
         Ok(async move {
             let (values, codes) = try_join!(values_eval.map_err(VortexError::from), codes_eval)?;
 
-            // SAFETY: Layout was validated at write time.
+            // SAFETY:
             //  * The codes dtype is guaranteed to be an integer type from the layout
             //  * The codes child reader ensures the correct dtype.
+            //  * The codes come from the file and are not checked here. Each operation that
+            //    uses a code as an index into the values does its own bounds check.
             //  * The layout stores `all_values_referenced` and if this is malicious then it must
             //    only affect correctness not memory safety.
             let array = unsafe {
@@ -378,18 +371,18 @@ mod tests {
     use vortex_array::expr::BoundExpression;
     use vortex_array::expr::Expression;
     use vortex_array::expr::bound::pack as bound_pack;
-    use vortex_array::expr::byte_length;
     use vortex_array::expr::cast;
     use vortex_array::expr::eq;
     use vortex_array::expr::get_item;
     use vortex_array::expr::is_not_null;
-    use vortex_array::expr::like;
     use vortex_array::expr::lit;
     use vortex_array::expr::pack;
     use vortex_array::expr::root;
     use vortex_array::validity::Validity;
     use vortex_btrblocks::BtrBlocksCompressorBuilder;
     use vortex_error::VortexResult;
+    use vortex_functions::expr::byte_length;
+    use vortex_functions::expr::like;
     use vortex_io::runtime::Handle;
     use vortex_io::runtime::single::block_on;
     use vortex_io::session::RuntimeSession;

@@ -33,13 +33,11 @@ use crate::optimizer::kernels::ArrayKernelsExt;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ArrayReduceRule;
 use crate::optimizer::rules::ReduceRuleSet;
-use crate::scalar_fn::fns::cast::Cast;
-use crate::scalar_fn::fns::cast::CastReduceAdaptor;
-use crate::scalar_fn::fns::like::Like;
-use crate::scalar_fn::fns::like::LikeReduceAdaptor;
-use crate::scalar_fn::fns::mask::Mask as MaskFn;
-use crate::scalar_fn::fns::mask::MaskReduceAdaptor;
-use crate::scalar_fn::fns::pack::Pack;
+use crate::scalar_fn::builtin::cast::Cast;
+use crate::scalar_fn::builtin::cast::CastReduceAdaptor;
+use crate::scalar_fn::builtin::mask::Mask as MaskFn;
+use crate::scalar_fn::builtin::mask::MaskReduceAdaptor;
+use crate::scalar_fn::builtin::pack::Pack;
 use crate::validity::Validity;
 
 pub(crate) const RULES: ReduceRuleSet<Dict> = ReduceRuleSet::new(&[&DictConstantCodesRule]);
@@ -71,7 +69,6 @@ pub(crate) fn register_parent_rules(session: &VortexSession) {
     kernels.register_reduce_parent_rule(Filter, Dict, const { &FilterReduceAdaptor(Dict) });
     kernels.register_reduce_parent_rule(Cast, Dict, const { &CastReduceAdaptor(Dict) });
     kernels.register_reduce_parent_rule(MaskFn, Dict, const { &MaskReduceAdaptor(Dict) });
-    kernels.register_reduce_parent_rule(Like, Dict, const { &LikeReduceAdaptor(Dict) });
     kernels.register_reduce_parent_rule(
         Chunked,
         Dict,
@@ -331,6 +328,7 @@ mod tests {
     use crate::arrays::Dict;
     use crate::arrays::DictArray;
     use crate::arrays::PrimitiveArray;
+    use crate::arrays::ScalarFnArray;
     use crate::arrays::chunked::ChunkedArrayExt;
     use crate::arrays::dict::DictArrayExt;
     use crate::arrays::dict::DictArraySlotsExt;
@@ -338,10 +336,14 @@ mod tests {
     use crate::dtype::Nullability;
     use crate::executor::VortexSessionExecute;
     use crate::optimizer::ArrayOptimizer;
+    use crate::scalar::NumericOperator;
     use crate::scalar::Scalar;
-    use crate::scalar_fn::fns::binary::Binary;
-    use crate::scalar_fn::fns::not::Not;
-    use crate::scalar_fn::fns::operators::Operator;
+    use crate::scalar_fn::builtin::boolean::Boolean;
+    use crate::scalar_fn::builtin::compare::Compare;
+    use crate::scalar_fn::builtin::not::Not;
+    use crate::scalar_fn::builtin::numeric::Numeric;
+    use crate::scalar_fn::builtin::operators::BooleanOperator;
+    use crate::scalar_fn::builtin::operators::CompareOperator;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
@@ -426,7 +428,7 @@ mod tests {
         let dict = DictArray::try_new(codes, values)?.into_array();
         let const_false =
             ConstantArray::new(Scalar::bool(false, Nullability::NonNullable), 3).into_array();
-        let expr = Binary::try_new(dict, const_false, Operator::And)?.into_array();
+        let expr = Boolean::try_new(dict, const_false, BooleanOperator::And)?.into_array();
 
         let mut ctx = SESSION.create_execution_ctx();
         // Kleene AND: null AND false == false
@@ -443,7 +445,7 @@ mod tests {
         let dict = DictArray::try_new(codes, values)?.into_array();
         let const_true =
             ConstantArray::new(Scalar::bool(true, Nullability::NonNullable), 3).into_array();
-        let expr = Binary::try_new(dict, const_true, Operator::Or)?.into_array();
+        let expr = Boolean::try_new(dict, const_true, BooleanOperator::Or)?.into_array();
 
         let mut ctx = SESSION.create_execution_ctx();
         // Kleene OR: null OR true == true
@@ -473,7 +475,7 @@ mod tests {
         .into_array()
         .slice(1..4)?
         .optimize_ctx(&SESSION)?;
-        let expr = Binary::try_new(dividend, divisor, Operator::Div)?.into_array();
+        let expr = Numeric::try_new(dividend, divisor, NumericOperator::Div)?.into_array();
 
         let quotient = expr
             .optimize_ctx(&SESSION)?
@@ -484,11 +486,19 @@ mod tests {
     }
 
     #[rstest]
-    #[case::infallible(false, Operator::Eq, BoolArray::from_iter([false, true, false, true]).into_array())]
-    #[case::all_values_referenced(true, Operator::Div, buffer![4i32, 1, 4, 1].into_array())]
+    #[case::infallible(
+        false,
+        |lhs, rhs| Compare::try_new(lhs, rhs, CompareOperator::Eq),
+        BoolArray::from_iter([false, true, false, true]).into_array()
+    )]
+    #[case::all_values_referenced(
+        true,
+        |lhs, rhs| Numeric::try_new(lhs, rhs, NumericOperator::Div),
+        buffer![4i32, 1, 4, 1].into_array()
+    )]
     fn codes_pull_up_preserves_safe_rewrites(
         #[case] all_values_referenced: bool,
-        #[case] operator: Operator,
+        #[case] binary: fn(ArrayRef, ArrayRef) -> VortexResult<ScalarFnArray>,
         #[case] expected: ArrayRef,
     ) -> VortexResult<()> {
         let codes = buffer![0u8, 1, 0, 1].into_array();
@@ -500,9 +510,7 @@ mod tests {
         .into_array();
         let rhs = DictArray::try_new(codes, buffer![2i32, 9].into_array())?.into_array();
 
-        let optimized = Binary::try_new(lhs, rhs, operator)?
-            .into_array()
-            .optimize_ctx(&SESSION)?;
+        let optimized = binary(lhs, rhs)?.into_array().optimize_ctx(&SESSION)?;
         assert!(optimized.is::<Dict>());
         let mut ctx = SESSION.create_execution_ctx();
         let result = optimized.execute::<Canonical>(&mut ctx)?;
@@ -516,7 +524,7 @@ mod tests {
         let dividend =
             DictArray::try_new(codes.clone(), buffer![7i32, 8].into_array())?.into_array();
         let divisor = DictArray::try_new(codes, buffer![0i32, 2].into_array())?.into_array();
-        let expr = Binary::try_new(dividend, divisor, Operator::Div)?.into_array();
+        let expr = Numeric::try_new(dividend, divisor, NumericOperator::Div)?.into_array();
 
         let error = expr
             .optimize_ctx(&SESSION)?

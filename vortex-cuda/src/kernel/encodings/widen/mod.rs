@@ -57,7 +57,7 @@ impl CudaExecute for WidenExecutor {
             (DType::Primitive(output_ptype, _), Canonical::Primitive(child)) => {
                 let len = child.len();
                 let parts = child.into_data_parts();
-                let values = ctx.ensure_on_device(parts.buffer).await?;
+                let values = ctx.ensure_on_device(parts.buffer)?;
                 let output = match_each_integer_ptype!(parts.ptype, |S| {
                     match_each_integer_ptype!(*output_ptype, |D| {
                         widen_integers::<S, D>(values, len, ctx)?

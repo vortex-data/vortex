@@ -8,8 +8,8 @@ use crate::IntoArray;
 use crate::array::ArrayView;
 use crate::arrays::Masked;
 use crate::arrays::masked::MaskedArraySlotsExt;
-use crate::scalar_fn::fns::mask::Mask as MaskExpr;
-use crate::scalar_fn::fns::mask::MaskReduce;
+use crate::scalar_fn::builtin::mask::Mask as MaskExpr;
+use crate::scalar_fn::builtin::mask::MaskReduce;
 use crate::validity::Validity;
 
 impl MaskReduce for Masked {

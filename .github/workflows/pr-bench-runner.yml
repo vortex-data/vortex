@@ -214,6 +214,7 @@ jobs:
                   hashFiles(
                     'vortex-bench/src/datasets/**',
                     'vortex-bench/src/random_access/**',
+                    'vortex-bench/src/utils/parquet.rs',
                     'scripts/litdata-random-access.py',
                     'benchmarks/random-access-bench/src/litdata.rs') }}
 
@@ -224,6 +225,7 @@ jobs:
         env:
           RUST_BACKTRACE: full
           FLAT_LAYOUT_INLINE_ARRAY_NODE: "1"
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
           bench="${{ inputs.benchmark_id }}"
           python3 "scripts/${bench%-bench}-split.py" --prepare-data \
@@ -284,7 +286,9 @@ jobs:
         run: |
           python3 scripts/string-split.py
 
+      # A fork PR's job has no OIDC token, so pr-bench-report.yml reads its baseline.
       - name: Fetch baseline from the benchmarks database
+        if: github.event.pull_request.head.repo.fork != true
         uses: ./.github/actions/fetch-bench-baseline
         with:
           role-arn: ${{ vars.GH_BENCH_READ_ROLE_ARN }}
@@ -300,6 +304,15 @@ jobs:
           uv run --no-project scripts/compare-benchmark-jsons.py base.ingest.jsonl results.json \
             "${{ inputs.benchmark_name }}" --pr-records results.ingest.jsonl > comment.md
           cat comment.md >> "$GITHUB_STEP_SUMMARY"
+
+      # A fork PR's job has no OIDC token, so pr-bench-report.yml reads its baseline and comments.
+      - name: Upload report for pr-bench-report.yml
+        if: (success() || failure()) && github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork == true
+        uses: ./.github/actions/upload-fork-bench-report
+        with:
+          benchmark-name: ${{ inputs.benchmark_name }}
+          comment-tag: bench-pr-comment-${{ inputs.benchmark_id }}${{ inputs.variant_id }}
+          failed: ${{ job.status == 'failure' }}
 
       - name: Comment PR
         if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork == false

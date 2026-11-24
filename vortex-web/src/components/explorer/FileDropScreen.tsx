@@ -18,8 +18,15 @@ export function FileDropScreen({ onFileLoaded, loading, error }: FileDropScreenP
   const [fetchingUrl, setFetchingUrl] = useState(false);
   const [urlError, setUrlError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const urlFetchControllerRef = useRef<AbortController | null>(null);
   const urlId = useId();
   const errorId = useId();
+
+  const cancelUrlFetch = useCallback(() => {
+    urlFetchControllerRef.current?.abort();
+    urlFetchControllerRef.current = null;
+    setFetchingUrl(false);
+  }, []);
 
   const handleDragOver = useCallback((e: DragEvent<HTMLDivElement>) => {
     e.preventDefault();
@@ -36,18 +43,24 @@ export function FileDropScreen({ onFileLoaded, loading, error }: FileDropScreenP
       e.preventDefault();
       setIsDragging(false);
       const file = e.dataTransfer.files[0];
-      if (file) onFileLoaded(file);
+      if (file) {
+        cancelUrlFetch();
+        onFileLoaded(file);
+      }
     },
-    [onFileLoaded],
+    [cancelUrlFetch, onFileLoaded],
   );
 
   const handleChosen = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
       const file = e.target.files?.[0];
-      if (file) onFileLoaded(file);
+      if (file) {
+        cancelUrlFetch();
+        onFileLoaded(file);
+      }
       e.target.value = '';
     },
-    [onFileLoaded],
+    [cancelUrlFetch, onFileLoaded],
   );
 
   const handleUrlSubmit = useCallback(
@@ -56,13 +69,18 @@ export function FileDropScreen({ onFileLoaded, loading, error }: FileDropScreenP
       const trimmed = url.trim();
       if (!trimmed) return;
 
+      urlFetchControllerRef.current?.abort();
+      const controller = new AbortController();
+      urlFetchControllerRef.current = controller;
+
       setFetchingUrl(true);
       setUrlError(null);
       try {
         let resp: Response;
         try {
-          resp = await fetch(trimmed);
+          resp = await fetch(trimmed, { signal: controller.signal });
         } catch (err) {
+          if (controller.signal.aborted) return;
           // A network fault and a CORS refusal look the same from here.
           console.error('Explorer: the fetch failed', err);
           setUrlError(
@@ -70,6 +88,7 @@ export function FileDropScreen({ onFileLoaded, loading, error }: FileDropScreenP
           );
           return;
         }
+        if (controller.signal.aborted) return;
         if (!resp.ok) {
           setUrlError(
             `The file at this address did not load (HTTP ${resp.status}). Check the address.`,
@@ -77,13 +96,18 @@ export function FileDropScreen({ onFileLoaded, loading, error }: FileDropScreenP
           return;
         }
         const blob = await resp.blob();
+        if (controller.signal.aborted) return;
         const name = new URL(trimmed).pathname.split('/').pop() || 'remote.vortex';
         onFileLoaded(new File([blob], name, { type: blob.type }));
       } catch (err) {
+        if (controller.signal.aborted) return;
         console.error('Explorer: the URL did not open', err);
         setUrlError('This address is not valid. Check it and try again.');
       } finally {
-        setFetchingUrl(false);
+        if (urlFetchControllerRef.current === controller) {
+          urlFetchControllerRef.current = null;
+          setFetchingUrl(false);
+        }
       }
     },
     [url, onFileLoaded],

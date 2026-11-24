@@ -13,6 +13,7 @@ use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VTable;
+use vortex_array::arrays::Constant;
 use vortex_array::arrays::Patched;
 use vortex_array::arrays::patched::use_experimental_patches;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
@@ -43,7 +44,8 @@ impl Scheme for ALPScheme {
     }
 
     fn produced_encodings(&self) -> Vec<ArrayId> {
-        let mut encodings = vec![ALP.id()];
+        // `compress_patches` stores constant patch values as a Constant array.
+        let mut encodings = vec![ALP.id(), Constant.id()];
         if use_experimental_patches() {
             encodings.push(Patched.id());
         }

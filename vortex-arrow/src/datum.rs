@@ -27,7 +27,7 @@ use crate::ExecuteArrowExt;
 /// extension array to Arrow compute, apply [`ext_storage`] to the array first.
 ///
 /// [`ArrowSession::default_arrow_export_field`]: crate::ArrowSession::default_arrow_export_field
-/// [`ext_storage`]: vortex_array::expr::ext_storage
+/// [`ext_storage`]: vortex_functions::expr::ext_storage
 #[derive(Debug)]
 pub struct Datum {
     array: ArrowArrayRef,

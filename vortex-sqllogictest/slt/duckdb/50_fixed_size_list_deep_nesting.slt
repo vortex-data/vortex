@@ -1,0 +1,33 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+include ../setup.slt.no
+
+statement ok
+CREATE VIEW leaves AS SELECT
+    ['zero', 'one', 'two', 'three', 'four']::VARCHAR[5] AS a,
+    ['five', 'six', 'seven', 'eight', 'nine']::VARCHAR[5] AS b;
+
+query I
+COPY (
+    SELECT [
+        [[[a, b, a], [b, a, b], [a, b]],
+         [[a, b, a, b], [a, b, a], [b, a, b]]],
+        [[[a, b], [a, b, a, b], [a, b, a]]]
+    ]::VARCHAR[5][][3][][2] AS ultra_deep
+    FROM leaves
+) TO '${WORK_DIR}/ultra-deep.vortex';
+----
+1
+
+query B
+SELECT ultra_deep = (
+    SELECT [
+        [[[a, b, a], [b, a, b], [a, b]],
+         [[a, b, a, b], [a, b, a], [b, a, b]]],
+        [[[a, b], [a, b, a, b], [a, b, a]]]
+    ]::VARCHAR[5][][3][][2]
+    FROM leaves
+) FROM '${WORK_DIR}/ultra-deep.vortex';
+----
+true

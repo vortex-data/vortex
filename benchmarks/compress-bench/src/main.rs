@@ -3,6 +3,7 @@
 
 use std::any::Any;
 use std::panic::AssertUnwindSafe;
+use std::path::Path;
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -16,7 +17,9 @@ use compress_bench::gpu::GpuOptions;
 use compress_bench::gpu::compressor as gpu_compressor;
 use compress_bench::parquet::ParquetCompressor;
 use compress_bench::parquet::arrow_uncompressed_size;
+use compress_bench::parquet::snappy_parquet_size;
 use compress_bench::vortex::VortexCompressor;
+use compress_bench::vortex::vortex_compact_size;
 use futures::FutureExt;
 use indicatif::ProgressBar;
 use itertools::Itertools;
@@ -57,6 +60,10 @@ use vortex_bench::public_bi::PBIDataset::HashTags;
 use vortex_bench::setup_logging_and_tracing_with_format;
 use vortex_bench::statpopgen::StatPopGenBenchmark;
 use vortex_bench::v3;
+
+/// The size record name of Parquet with Snappy, beside `parquet`, which is zstd level 3. Every
+/// other writer setting is the same.
+const PARQUET_SNAPPY_FORMAT: &str = "parquet-snappy";
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
@@ -454,6 +461,51 @@ async fn run_compress(
 
     Ok(())
 }
+/// Size records of the size-only formats, one untimed write each: Snappy Parquet beside `parquet`,
+/// and compact Vortex beside `vortex`.
+async fn size_only_records(
+    parquet_path: &Path,
+    formats: &[Format],
+    mode: BenchMode,
+    bench_name: &str,
+    (v3_dataset, v3_variant): (&str, Option<&str>),
+    uncompressed_size: u64,
+) -> anyhow::Result<Vec<v3::V3Record>> {
+    let mut records = Vec::new();
+    if formats.contains(&Format::Parquet) {
+        let input = get_compressor(Format::Parquet, mode)?
+            .load(parquet_path)
+            .await
+            .with_context(|| format!("loading {bench_name} for Snappy Parquet"))?;
+        let snappy_size = snappy_parquet_size(&input)
+            .await
+            .with_context(|| format!("writing {bench_name} as Snappy Parquet"))?;
+        records.push(v3::named_compression_size_record(
+            v3_dataset,
+            v3_variant,
+            PARQUET_SNAPPY_FORMAT,
+            snappy_size,
+            uncompressed_size,
+        ));
+    }
+    if formats.contains(&Format::OnDiskVortex) {
+        let input = get_compressor(Format::OnDiskVortex, mode)?
+            .load(parquet_path)
+            .await
+            .with_context(|| format!("loading {bench_name} for compact Vortex"))?;
+        let compact_size = vortex_compact_size(&input)
+            .await
+            .with_context(|| format!("compressing {bench_name} as compact Vortex"))?;
+        records.push(v3::compression_size_record(
+            v3_dataset,
+            v3_variant,
+            Format::VortexCompact,
+            compact_size,
+            uncompressed_size,
+        ));
+    }
+    Ok(records)
+}
 
 async fn run_benchmark_for_dataset(
     progress: &ProgressBar,
@@ -574,6 +626,23 @@ async fn run_benchmark_for_dataset(
             measurements_map.insert((*format, *op), time);
             progress.inc(1);
         }
+    }
+
+    // After every timed run of the dataset, so these writes cannot warm caches for a timed one.
+    if ops.contains(&CompressOp::Compress) && !mode.is_gpu() {
+        let uncompressed_size =
+            uncompressed_size.context("compression size requires Arrow memory size")?;
+        v3_records.extend(
+            size_only_records(
+                &parquet_path,
+                formats,
+                mode,
+                bench_name,
+                (v3_dataset, v3_variant),
+                uncompressed_size,
+            )
+            .await?,
+        );
     }
 
     // Calculate cross-format ratios after all measurements.

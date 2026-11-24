@@ -11,9 +11,8 @@ use vortex_array::dtype::NativePType;
 use vortex_array::dtype::Nullability;
 use vortex_array::scalar::PValue;
 use vortex_array::scalar::Scalar;
-use vortex_array::scalar_fn::fns::binary::CompareKernel;
-use vortex_array::scalar_fn::fns::operators::CompareOperator;
-use vortex_array::scalar_fn::fns::operators::Operator;
+use vortex_array::scalar_fn::builtin::compare::CompareKernel;
+use vortex_array::scalar_fn::builtin::operators::CompareOperator;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
@@ -75,7 +74,7 @@ where
     let is_finite = !NativePType::is_infinite(value) && !NativePType::is_nan(value);
 
     let encoded = match F::encode_single(value, exponents) {
-        Some(encoded) => compare_encoded(alp, encoded, Operator::from(operator), nullability)?,
+        Some(encoded) => compare_encoded(alp, encoded, operator, nullability)?,
         None => match operator {
             CompareOperator::Eq => constant_predicate(alp, false, nullability)?,
             CompareOperator::NotEq => constant_predicate(alp, true, nullability)?,
@@ -84,7 +83,7 @@ where
                     compare_encoded(
                         alp,
                         encode_strictly_above(value, exponents),
-                        Operator::Gte,
+                        CompareOperator::Gte,
                         nullability,
                     )?
                 } else {
@@ -96,7 +95,7 @@ where
                     compare_encoded(
                         alp,
                         encode_strictly_below(value, exponents),
-                        Operator::Lte,
+                        CompareOperator::Lte,
                         nullability,
                     )?
                 } else {
@@ -116,10 +115,10 @@ where
 fn compare_encoded<I: NativePType + Into<PValue>>(
     alp: ArrayView<'_, ALP>,
     encoded: I,
-    operator: Operator,
+    operator: CompareOperator,
     nullability: Nullability,
 ) -> VortexResult<ArrayRef> {
-    alp.encoded().binary(
+    alp.encoded().compare(
         ConstantArray::new(Scalar::primitive(encoded, nullability), alp.len()).into_array(),
         operator,
     )
@@ -144,9 +143,8 @@ mod tests {
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
     use vortex_array::scalar::Scalar;
-    use vortex_array::scalar_fn::fns::binary::CompareKernel;
-    use vortex_array::scalar_fn::fns::operators::CompareOperator;
-    use vortex_array::scalar_fn::fns::operators::Operator;
+    use vortex_array::scalar_fn::builtin::compare::CompareKernel;
+    use vortex_array::scalar_fn::builtin::operators::CompareOperator;
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
@@ -192,10 +190,7 @@ mod tests {
             let actual =
                 <ALP as CompareKernel>::compare(encoded.as_view(), &rhs, operator, &mut ctx)?
                     .unwrap_or_else(|| panic!("ALP compare kernel must engage for {operator:?}"));
-            let expected = values
-                .clone()
-                .into_array()
-                .binary(rhs.clone(), Operator::from(operator))?;
+            let expected = values.clone().into_array().compare(rhs.clone(), operator)?;
             assert_arrays_eq!(actual, expected, &mut ctx);
         }
         Ok(())
@@ -375,12 +370,8 @@ mod tests {
         let expected_values = array.into_array().slice(1_000..2_500)?;
         let rhs = ConstantArray::new(PI * 1_164.0, sliced.len()).into_array();
         for operator in ALL_OPERATORS {
-            let actual = sliced
-                .clone()
-                .binary(rhs.clone(), Operator::from(operator))?;
-            let expected = expected_values
-                .clone()
-                .binary(rhs.clone(), Operator::from(operator))?;
+            let actual = sliced.clone().compare(rhs.clone(), operator)?;
+            let expected = expected_values.clone().compare(rhs.clone(), operator)?;
             assert_arrays_eq!(actual, expected, &mut ctx);
         }
         Ok(())
@@ -443,7 +434,7 @@ mod tests {
 
         let r = encoded
             .into_array()
-            .binary(other.into_array(), Operator::Eq)
+            .compare(other.into_array(), CompareOperator::Eq)
             .unwrap();
         // Comparing to null yields null results
         let expected = BoolArray::from_iter([None::<bool>; 10]);

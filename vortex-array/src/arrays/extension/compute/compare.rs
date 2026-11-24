@@ -11,9 +11,8 @@ use crate::arrays::ConstantArray;
 use crate::arrays::Extension;
 use crate::arrays::extension::ExtensionArrayExt;
 use crate::builtins::ArrayBuiltins;
-use crate::scalar_fn::fns::binary::CompareKernel;
-use crate::scalar_fn::fns::operators::CompareOperator;
-use crate::scalar_fn::fns::operators::Operator;
+use crate::scalar_fn::builtin::compare::CompareKernel;
+use crate::scalar_fn::builtin::operators::CompareOperator;
 
 impl CompareKernel for Extension {
     fn compare(
@@ -34,9 +33,9 @@ impl CompareKernel for Extension {
             return lhs
                 .storage_array()
                 .clone()
-                .binary(
+                .compare(
                     ConstantArray::new(storage_scalar, lhs.len()).into_array(),
-                    Operator::from(operator),
+                    operator,
                 )
                 .map(Some);
         }
@@ -46,7 +45,7 @@ impl CompareKernel for Extension {
             return lhs
                 .storage_array()
                 .clone()
-                .binary(rhs_ext.storage_array().clone(), Operator::from(operator))
+                .compare(rhs_ext.storage_array().clone(), operator)
                 .map(Some);
         }
 
