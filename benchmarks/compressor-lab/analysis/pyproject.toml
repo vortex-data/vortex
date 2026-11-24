@@ -1,0 +1,34 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+[project]
+name = "vx-analyze"
+version = "0.1.0"
+description = "Reports over vx-lab datasets: headroom, regret, feature value and cost presets"
+requires-python = ">=3.11"
+dependencies = [
+    "jinja2>=3.1",
+    "numpy>=1.26",
+    "plotly>=5.20",
+    "polars>=1.0",
+    "scikit-learn>=1.4",
+]
+
+[project.scripts]
+vx-analyze = "vx_analyze.cli:main"
+
+[dependency-groups]
+dev = ["pytest>=8"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/vx_analyze"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 110
