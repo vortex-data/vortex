@@ -741,3 +741,68 @@ fn test_plan_rejects_unknown_schemes() {
     assert!(Plan::parse("test.nope", &schemes).is_err());
     assert!(Plan::parse("_ _", &schemes).is_err());
 }
+
+/// Wide values with runs of 2: the default skips RunEnd below an average run of 4, while the
+/// size-only model sees that one end per two 31-bit values halves the size.
+fn wide_runs_of_two() -> ArrayRef {
+    let mut rng = StdRng::seed_from_u64(11);
+    let values: Buffer<i64> = (0..32_768)
+        .flat_map(|_| {
+            let v = rng.random_range(0..1i64 << 31);
+            [v, v]
+        })
+        .collect();
+    PrimitiveArray::new(values, Validity::NonNullable).into_array()
+}
+
+#[test]
+fn run_model_size_only_picks_runend_for_wide_short_runs() -> VortexResult<()> {
+
+    use crate::schemes::integer::RunModel;
+
+    let input = wide_runs_of_two();
+    let default = BtrBlocksCompressorBuilder::from_session(&SESSION)
+        .unrestricted()
+        .build();
+    let default = assert_roundtrip(&default, &input)?;
+    assert!(!default.is::<RunEnd>(), "{}", default.display_tree());
+
+    let modeled = BtrBlocksCompressorBuilder::from_session(&SESSION)
+        .unrestricted()
+        .with_run_model(RunModel::size_only())
+        .build();
+    let compressed = assert_roundtrip(&modeled, &input)?;
+    assert!(compressed.is::<RunEnd>(), "{}", compressed.display_tree());
+    assert!(compressed.nbytes() < default.nbytes() * 2 / 3);
+    Ok(())
+}
+
+#[test]
+fn run_model_decode_cost_avoids_runend_at_memory_bandwidth() -> VortexResult<()> {
+
+    use crate::schemes::integer::RunModel;
+
+    let input = wide_runs_of_two();
+    let modeled = BtrBlocksCompressorBuilder::from_session(&SESSION)
+        .unrestricted()
+        .with_run_model(RunModel::for_bandwidth(20e9))
+        .build();
+    let compressed = assert_roundtrip(&modeled, &input)?;
+    assert!(!compressed.is::<RunEnd>(), "{}", compressed.display_tree());
+    assert!(
+        compressed.nbytes() < input.nbytes() * 3 / 4,
+        "{}",
+        compressed.display_tree()
+    );
+    Ok(())
+}
+
+#[test]
+fn run_model_reuses_schemes_for_equal_models() {
+    use crate::schemes::integer::RunModel;
+    use crate::schemes::integer::modeled_schemes;
+
+    let a = modeled_schemes(RunModel::for_bandwidth(2e9));
+    let b = modeled_schemes(RunModel::for_bandwidth(2e9));
+    assert!(a.iter().zip(&b).all(|(x, y)| std::ptr::addr_eq(*x, *y)));
+}
