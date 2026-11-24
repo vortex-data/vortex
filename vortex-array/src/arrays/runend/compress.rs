@@ -469,13 +469,19 @@ pub fn runend_decode_typed_primitive<T: NativePType>(
     length: usize,
     allocator: &BufferAllocatorRef,
 ) -> PrimitiveArray {
+    let mut run_count = 0;
     let (decoded, validity) = runend_decode_slice(
-        run_ends,
+        run_ends.inspect(|_| run_count += 1),
         values,
         values_validity,
         values_nullability,
         length,
         allocator,
+    );
+    assert_eq!(
+        run_count,
+        values.len(),
+        "run ends and values must have the same length"
     );
     PrimitiveArray::new(decoded, validity)
 }
