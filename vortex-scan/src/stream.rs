@@ -116,6 +116,7 @@ impl ScanStream {
 
 impl Clone for ScanStream {
     fn clone(&self) -> Self {
+        vortex_io::diag::STREAM_CLONES.inc();
         Self {
             dtype: self.dtype.clone(),
             new_worker: Arc::clone(&self.new_worker),

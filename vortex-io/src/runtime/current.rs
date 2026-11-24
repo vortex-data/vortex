@@ -124,6 +124,13 @@ impl CurrentThreadRuntime {
     }
 }
 
+/// Blocks on `fut` while running the executor's tasks, counting the entry and the runner.
+fn enter<Fut: Future>(executor: &SmolExecutor, fut: Fut) -> Fut::Output {
+    crate::diag::BLOCK_ON.inc();
+    crate::diag::RUNNERS.inc();
+    block_on(executor.run(fut))
+}
+
 impl BlockingRuntime for CurrentThreadRuntime {
     type BlockingIterator<'a, R: 'a> = CurrentThreadIterator<'a, R>;
 
@@ -136,7 +143,7 @@ impl BlockingRuntime for CurrentThreadRuntime {
     where
         Fut: Future<Output = R>,
     {
-        block_on(self.executor.run(fut))
+        enter(&self.executor, fut)
     }
 
     fn block_on_stream<'a, S, R>(&self, stream: S) -> Self::BlockingIterator<'a, R>
@@ -161,7 +168,7 @@ impl<T> Iterator for CurrentThreadIterator<'_, T> {
     type Item = T;
 
     fn next(&mut self) -> Option<Self::Item> {
-        block_on(self.executor.run(self.stream.next()))
+        enter(&self.executor, self.stream.next())
     }
 }
 
@@ -197,7 +204,7 @@ impl<T> Iterator for ThreadSafeIterator<T> {
             Err(TryRecvError::Closed) => return self.get_task_error(),
         }
 
-        match block_on(self.executor.run(self.results.recv())) {
+        match enter(&self.executor, self.results.recv()) {
             Ok(item) => Some(item),
             Err(_) => self.get_task_error(),
         }
@@ -209,7 +216,7 @@ impl<T> ThreadSafeIterator<T> {
     fn get_task_error(&self) -> Option<T> {
         let task = self.driver.lock().take();
         if let Some(task) = task {
-            block_on(self.executor.run(task));
+            enter(&self.executor, task);
         }
         None
     }
@@ -230,12 +237,12 @@ impl<T> Iterator for PrefetchIterator<T> {
         let item = match self.results.try_recv() {
             Ok(item) => Some(item),
             Err(mpsc::TryRecvError::Closed) => None,
-            Err(mpsc::TryRecvError::Empty) => block_on(self.executor.run(self.results.next())),
+            Err(mpsc::TryRecvError::Empty) => enter(&self.executor, self.results.next()),
         };
         if item.is_none()
             && let Some(driver) = self.driver.take()
         {
-            block_on(self.executor.run(driver));
+            enter(&self.executor, driver);
         }
         item
     }

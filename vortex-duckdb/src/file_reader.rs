@@ -172,6 +172,7 @@ impl FileScanState {
             return None;
         }
         self.joined.fetch_add(1, Ordering::Relaxed);
+        vortex::io::diag::JOINS.inc();
         Some(Split(stream.clone()))
     }
 }
@@ -345,7 +346,9 @@ fn next_split_item(local: &mut LocalState) -> VortexResult<SplitItem> {
             }
         }
     };
+    vortex::io::diag::BATCHES.inc();
     Ok(if array.is_empty() {
+        vortex::io::diag::EMPTY_BATCHES.inc();
         SplitItem::Empty
     } else {
         SplitItem::Array(array)

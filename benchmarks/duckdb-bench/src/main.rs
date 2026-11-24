@@ -3,13 +3,18 @@
 
 mod validation;
 
+use std::alloc::GlobalAlloc;
+use std::alloc::Layout;
 use std::path::PathBuf;
+use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::Ordering;
 
 use clap::Parser;
 use clap::value_parser;
 use duckdb_bench::DuckClient;
 use mimalloc::MiMalloc;
 use tokio::runtime::Runtime;
+use vortex::io::diag;
 use vortex::metrics::tracing::set_global_labels;
 use vortex_bench::BenchmarkArg;
 use vortex_bench::CompactionStrategy;
@@ -109,11 +114,45 @@ struct Args {
 }
 
 #[global_allocator]
-static GLOBAL: MiMalloc = MiMalloc;
+static GLOBAL: CountingAlloc = CountingAlloc(MiMalloc);
+
+/// MiMalloc, counting each allocation while `vortex::io::diag` counting is on. Diagnostic only.
+struct CountingAlloc(MiMalloc);
+
+// SAFETY: every call forwards to MiMalloc unchanged; counting reads no allocation state.
+unsafe impl GlobalAlloc for CountingAlloc {
+    unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+        diag::ALLOCS.inc();
+        diag::ALLOC_BYTES.add(layout.size() as u64);
+        // SAFETY: forwarded with the caller's guarantees.
+        unsafe { self.0.alloc(layout) }
+    }
+
+    unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
+        diag::ALLOCS.inc();
+        diag::ALLOC_BYTES.add(layout.size() as u64);
+        // SAFETY: forwarded with the caller's guarantees.
+        unsafe { self.0.alloc_zeroed(layout) }
+    }
+
+    unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
+        diag::ALLOCS.inc();
+        diag::ALLOC_BYTES.add(new_size as u64);
+        // SAFETY: forwarded with the caller's guarantees.
+        unsafe { self.0.realloc(ptr, layout, new_size) }
+    }
+
+    unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
+        // SAFETY: forwarded with the caller's guarantees.
+        unsafe { self.0.dealloc(ptr, layout) }
+    }
+}
 
 fn main() -> anyhow::Result<()> {
     vortex_bench::configure_allocator();
     let args = Args::parse();
+    let counting = std::env::var("VX_COUNT").is_ok_and(|v| v == "1");
+    let executions = AtomicUsize::new(0);
     let opts = Opts::from(args.options);
 
     vortex_duckdb::set_scan_v2(!args.scan_v1);
@@ -236,7 +275,21 @@ fn main() -> anyhow::Result<()> {
             if !args.reuse {
                 ctx.reopen()?;
             }
-            ctx.execute_query_result(query)
+            if !counting {
+                return ctx.execute_query_result(query);
+            }
+            diag::reset();
+            diag::enable();
+            let result = ctx.execute_query_result(query);
+            let label = format!(
+                "query={query_idx} format={format} scan={} threads={} execution={}",
+                if args.scan_v1 { "v1" } else { "v2" },
+                args.threads
+                    .map_or("default".to_string(), |t| t.to_string()),
+                executions.fetch_add(1, Ordering::Relaxed),
+            );
+            eprintln!("{}", diag::report(&label));
+            result
         },
     )?;
 

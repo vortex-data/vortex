@@ -16,6 +16,7 @@ pub use read_at::*;
 pub use write::*;
 
 pub mod compat;
+pub mod diag;
 pub mod filesystem;
 mod io_buf;
 mod limit;
