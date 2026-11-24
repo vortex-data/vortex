@@ -73,6 +73,96 @@ struct RunRows {
     replay_ns: Vec<u64>,
 }
 
+/// The per-run CSVs: feature costs, measures and production timings.
+struct RunFiles {
+    costs: BufWriter<File>,
+    measures: BufWriter<File>,
+    production: BufWriter<File>,
+}
+
+/// Reads one machine's measures and feature costs into `per_run`.
+fn read_runs(
+    store: &Store,
+    m: &str,
+    per_run: &mut BTreeMap<String, BTreeMap<String, RunRows>>,
+) -> anyhow::Result<()> {
+    for row in store.read_rows::<MeasureRow>(&machine_dir::<MeasureRow>(m))? {
+        per_run
+            .entry(row.task_key.clone())
+            .or_default()
+            .entry(row.run_id.clone())
+            .or_default()
+            .measures
+            .push(row);
+    }
+    for row in store.read_rows::<FeatureCostRow>(&machine_dir::<FeatureCostRow>(m))? {
+        per_run
+            .entry(row.task_key.clone())
+            .or_default()
+            .entry(row.run_id.clone())
+            .or_default()
+            .costs
+            .push(row);
+    }
+    Ok(())
+}
+
+/// Writes one timing run's measures, feature costs and production timings of one chunk.
+fn write_run(
+    files: &mut RunFiles,
+    tag: &str,
+    chunk: &str,
+    run_id: &str,
+    run: &mut RunRows,
+) -> anyhow::Result<()> {
+    for c in &run.costs {
+        writeln!(
+            files.costs,
+            "{chunk},{},{run_id},{},{},{}",
+            c.site_hash,
+            csv(&c.group),
+            c.tier,
+            c.ns
+        )?;
+    }
+    let show = |v: Option<f64>| v.map(|v| format!("{v:.1}")).unwrap_or_default();
+    let opt = |v: Option<u64>| v.map(|v| v.to_string()).unwrap_or_default();
+    for m in &run.measures {
+        let mut sorted = m.samples_ns.clone();
+        sorted.sort_by(f64::total_cmp);
+        writeln!(
+            files.measures,
+            "{tag},{chunk},{},{run_id},{},{},{},{},{},{},{},{},{},{},{}",
+            variant(&m.candidate),
+            m.op,
+            u8::from(m.correct),
+            m.batch,
+            sorted.len(),
+            u8::from(m.converged),
+            show(sorted.get(sorted.len() / 2).copied()),
+            show(sorted.first().copied()),
+            if sorted.len() >= 3 {
+                format!("{:.4}", crate::measure::median_ci(&sorted))
+            } else {
+                String::new()
+            },
+            opt(m.peak_bytes),
+            opt(m.allocations),
+            csv(m.error.as_deref().unwrap_or_default()),
+        )?;
+    }
+    if run.production {
+        writeln!(
+            files.production,
+            "{tag},{chunk},{run_id},{},{},{}",
+            opt(run.reference_ns),
+            opt(median(&mut run.compress_ns)),
+            opt(median(&mut run.replay_ns)),
+        )?;
+    }
+    Ok(())
+}
+
 fn median(values: &mut [u64]) -> Option<u64> {
     if values.is_empty() {
         return None;
@@ -168,24 +258,7 @@ pub fn materialize(
     // timings recorded.
     let mut per_run: BTreeMap<String, BTreeMap<String, RunRows>> = BTreeMap::new();
     if let Some(m) = &machine {
-        for row in store.read_rows::<MeasureRow>(&machine_dir::<MeasureRow>(m))? {
-            per_run
-                .entry(row.task_key.clone())
-                .or_default()
-                .entry(row.run_id.clone())
-                .or_default()
-                .measures
-                .push(row);
-        }
-        for row in store.read_rows::<FeatureCostRow>(&machine_dir::<FeatureCostRow>(m))? {
-            per_run
-                .entry(row.task_key.clone())
-                .or_default()
-                .entry(row.run_id.clone())
-                .or_default()
-                .costs
-                .push(row);
-        }
+        read_runs(store, m, &mut per_run)?;
         for row in store.read_rows::<TimingRow>(&crate::store::timings_dir(m))? {
             if matches!(
                 row.op.as_str(),
@@ -246,16 +319,21 @@ pub fn materialize(
         site_feats,
         "source,column,chunk,site_hash,path,applied,family,tier,name,value"
     )?;
-    let mut costs = BufWriter::new(File::create(out.join(format!("feature-costs-{tag}.csv")))?);
-    writeln!(costs, "source,column,chunk,site_hash,run_id,group,tier,ns")?;
-    let mut measures = BufWriter::new(File::create(out.join(format!("measures-{tag}.csv")))?);
+    let mut run_files = RunFiles {
+        costs: BufWriter::new(File::create(out.join(format!("feature-costs-{tag}.csv")))?),
+        measures: BufWriter::new(File::create(out.join(format!("measures-{tag}.csv")))?),
+        production: BufWriter::new(File::create(out.join(format!("production-{tag}.csv")))?),
+    };
     writeln!(
-        measures,
+        run_files.costs,
+        "source,column,chunk,site_hash,run_id,group,tier,ns"
+    )?;
+    writeln!(
+        run_files.measures,
         "tag,source,column,chunk,variant,run_id,op,correct,batch,samples,converged,median_ns,min_ns,ci,peak_bytes,allocations,error"
     )?;
-    let mut production = BufWriter::new(File::create(out.join(format!("production-{tag}.csv")))?);
     writeln!(
-        production,
+        run_files.production,
         "tag,source,column,chunk,run_id,reference_ns,compress_ns_median,replay_ns_median"
     )?;
 
@@ -370,52 +448,13 @@ pub fn materialize(
             )?;
         }
         for (run_id, run) in per_run.get_mut(task.key.as_str()).into_iter().flatten() {
-            for c in &run.costs {
-                writeln!(
-                    costs,
-                    "{source},{column},{id},{},{run_id},{},{},{}",
-                    c.site_hash,
-                    csv(&c.group),
-                    c.tier,
-                    c.ns
-                )?;
-            }
-            for m in &run.measures {
-                let mut sorted = m.samples_ns.clone();
-                sorted.sort_by(f64::total_cmp);
-                let show = |v: Option<f64>| v.map(|v| format!("{v:.1}")).unwrap_or_default();
-                let opt = |v: Option<u64>| v.map(|v| v.to_string()).unwrap_or_default();
-                writeln!(
-                    measures,
-                    "{tag},{source},{column},{id},{},{run_id},{},{},{},{},{},{},{},{},{},{},{}",
-                    variant(&m.candidate),
-                    m.op,
-                    u8::from(m.correct),
-                    m.batch,
-                    sorted.len(),
-                    u8::from(m.converged),
-                    show(sorted.get(sorted.len() / 2).copied()),
-                    show(sorted.first().copied()),
-                    if sorted.len() >= 3 {
-                        format!("{:.4}", crate::measure::median_ci(&sorted))
-                    } else {
-                        String::new()
-                    },
-                    opt(m.peak_bytes),
-                    opt(m.allocations),
-                    csv(m.error.as_deref().unwrap_or_default()),
-                )?;
-            }
-            if run.production {
-                let show = |v: Option<u64>| v.map(|v| v.to_string()).unwrap_or_default();
-                writeln!(
-                    production,
-                    "{tag},{source},{column},{id},{run_id},{},{},{}",
-                    show(run.reference_ns),
-                    show(median(&mut run.compress_ns)),
-                    show(median(&mut run.replay_ns)),
-                )?;
-            }
+            write_run(
+                &mut run_files,
+                tag,
+                &format!("{source},{column},{id}"),
+                run_id,
+                run,
+            )?;
         }
 
         let canonical = chunk_row.canonical_bytes;
@@ -467,9 +506,9 @@ pub fn materialize(
     sites.flush()?;
     searches.flush()?;
     site_feats.flush()?;
-    costs.flush()?;
-    measures.flush()?;
-    production.flush()?;
+    run_files.costs.flush()?;
+    run_files.measures.flush()?;
+    run_files.production.flush()?;
     fs::write(
         out.join("dataset.json"),
         serde_json::to_vec_pretty(&manifest)?,

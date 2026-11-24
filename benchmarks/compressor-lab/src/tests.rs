@@ -225,6 +225,18 @@ fn test_run_resume_verify_time_materialize() -> anyhow::Result<()> {
     // A header plus one row per chunk and candidate.
     assert_eq!(rows.lines().count(), 1 + 5 * 6);
     assert!(rows.lines().any(|l| l.contains(",default,1,")));
+    let lines = |name: &str| -> anyhow::Result<usize> {
+        Ok(fs::read_to_string(dir.path().join("dataset").join(name))?
+            .lines()
+            .count()
+            - 1)
+    };
+    // One production row per chunk and timing run; site features, measures (the canonical
+    // array's included) and feature costs for every chunk.
+    assert_eq!(lines("production-stock.csv")?, 5 * 2);
+    assert!(lines("site-features-stock.csv")? >= 5);
+    assert!(lines("measures-stock.csv")? > 5 * 2);
+    assert!(lines("feature-costs-stock.csv")? >= 5 * 2);
 
     // Compaction leaves one segment per directory and changes no result.
     let report = crate::gc::compact(&store, false)?;
