@@ -28,6 +28,58 @@ def test_chunked_array_with_nulls_round_trip() -> None:
     assert arr.to_arrow_array() == a
 
 
+def test_chunked_array_from_chunks_takes_across_chunks() -> None:
+    a = vortex.array(pa.chunked_array([[0, 1, 2], [3, 4]]))
+    b = vortex.array(pa.array([5, 6, 7]))
+
+    chunked = vortex.ChunkedArray.from_chunks([a, b])
+
+    # The chunks of a chunked input become chunks of the result.
+    assert len(chunked.chunks()) == 3
+    assert len(chunked) == 8
+
+    taken = chunked.take(vortex.array(pa.array([7, 0, 3, 3, 5], type=pa.uint64())))
+    assert taken.to_arrow_array().equals(pa.array([7, 0, 3, 3, 5]))
+
+
+def test_chunked_array_from_chunks_empty() -> None:
+    dtype = vortex.array(pa.array([1])).dtype
+
+    empty = vortex.ChunkedArray.from_chunks([], dtype=dtype)
+    assert len(empty) == 0
+    assert empty.dtype == dtype
+
+    with pytest.raises(ValueError):
+        vortex.ChunkedArray.from_chunks([])
+
+
+def test_chunked_array_from_chunks_rejects_mixed_dtypes() -> None:
+    with pytest.raises(RuntimeError, match="expected type"):
+        vortex.ChunkedArray.from_chunks([vortex.array(pa.array([1])), vortex.array(pa.array(["a"]))])
+
+
+def test_chunked_array_from_chunks_mixed_nullability() -> None:
+    non_nullable = vortex.array(pa.array([1, 2]))
+    nullable = vortex.array(pa.array([3, None]))
+
+    # A nullable chunk makes the result nullable, in any position.
+    for chunks in ([non_nullable, nullable], [nullable, non_nullable]):
+        chunked = vortex.ChunkedArray.from_chunks(chunks)
+        assert chunked.dtype == nullable.dtype
+
+    chunked = vortex.ChunkedArray.from_chunks([non_nullable, nullable])
+    taken = chunked.take(vortex.array(pa.array([3, 0, 2], type=pa.uint64())))
+    assert taken.to_arrow_array().equals(pa.array([None, 1, 3]))
+
+    # A non-nullable chunk goes into a nullable dtype.
+    chunked = vortex.ChunkedArray.from_chunks([non_nullable], dtype=nullable.dtype)
+    assert chunked.dtype == nullable.dtype
+
+    # A nullable chunk does not go into a non-nullable dtype.
+    with pytest.raises(RuntimeError, match="expected type"):
+        vortex.ChunkedArray.from_chunks([nullable], dtype=non_nullable.dtype)
+
+
 def test_decimal_array() -> None:
     a = pa.array([decimal.Decimal("1.23"), None], type=pa.decimal128(10, 2))
     arr = vortex.array(a)
