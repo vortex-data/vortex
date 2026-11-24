@@ -14,7 +14,6 @@ use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_compressor::scheme::CompressionEstimate;
 use vortex_compressor::scheme::DeferredEstimate;
-use vortex_compressor::scheme::SchemeId;
 use vortex_error::VortexResult;
 use vortex_onpair::Config;
 use vortex_onpair::DEFAULT_CONFIG;
@@ -27,9 +26,10 @@ use vortex_onpair::onpair_compress;
 
 use crate::ArrayAndStats;
 use crate::CascadingCompressor;
+use crate::Child;
 use crate::CompressorContext;
+use crate::Encoded;
 use crate::Scheme;
-use crate::SchemeExt;
 
 /// The fraction of a sample's bytes that the trainer scans when estimating a compression ratio.
 ///
@@ -53,7 +53,7 @@ const SAMPLE_TRAINING_FRACTION: Threshold = match Threshold::new(0.5) {
 /// offsets / uncompressed-lengths flowing through the cascading compressor
 /// like any other primitive children.
 ///
-/// Every dictionary budget shares one [`SchemeId`], so a scheme built with
+/// Every dictionary budget shares one [`SchemeId`](crate::SchemeId), so a scheme built with
 /// [`OnPairScheme::new`] replaces the default one rather than competing with it.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct OnPairScheme {
@@ -103,7 +103,7 @@ impl Scheme for OnPairScheme {
     /// `dict_offsets` (u32 → typically `FoR`/`BitPacked`), `codes` (u16 →
     /// usually `FastLanes::BitPacked` after scheme selection),
     /// `codes_offsets` (u32 → `FoR`), `uncompressed_lengths` (i32 → narrow
-    /// + `FoR`). Validity stays untouched.
+    /// + `FoR`).
     fn num_children(&self) -> usize {
         4
     }
@@ -127,87 +127,73 @@ impl Scheme for OnPairScheme {
         CompressionEstimate::Deferred(DeferredEstimate::Sample)
     }
 
-    fn compress(
+    /// Children: dict offsets=0, codes=1, codes offsets=2, uncompressed lengths=3, each narrowed.
+    /// OnPair stores the input's validity, which is registered.
+    fn encode(
         &self,
-        compressor: &CascadingCompressor,
         data: &ArrayAndStats,
-        compress_ctx: CompressorContext,
+        compress_ctx: &CompressorContext,
         exec_ctx: &mut ExecutionCtx,
-    ) -> VortexResult<ArrayRef> {
-        let utf8 = compressor
-            .with_compressed_validity(data.array(), exec_ctx)?
-            .execute::<VarBinViewArray>(exec_ctx)?;
+    ) -> VortexResult<Encoded> {
+        let utf8 = data.array().clone().execute::<VarBinViewArray>(exec_ctx)?;
         let mut config = self.config();
         if compress_ctx.is_sample() {
             config.threshold = SAMPLE_TRAINING_FRACTION;
         }
         let encoded = onpair_compress(utf8.as_array(), config, exec_ctx)?;
         let Some(onpair_array) = encoded.as_opt::<OnPair>() else {
-            return Ok(encoded);
+            return Ok(Encoded::leaf(encoded));
         };
 
-        let dict_offsets = compress_primitive_child(
-            compressor,
+        let children = [
             onpair_array.dict_offsets(),
-            &compress_ctx,
-            self.id(),
-            0,
-            exec_ctx,
-        )?;
-        let codes = compress_primitive_child(
-            compressor,
             onpair_array.codes(),
-            &compress_ctx,
-            self.id(),
-            1,
-            exec_ctx,
-        )?;
-        let codes_offsets = compress_primitive_child(
-            compressor,
             onpair_array.codes_offsets(),
-            &compress_ctx,
-            self.id(),
-            2,
-            exec_ctx,
-        )?;
-        let uncompressed_lengths = compress_primitive_child(
-            compressor,
             onpair_array.uncompressed_lengths(),
-            &compress_ctx,
-            self.id(),
-            3,
-            exec_ctx,
-        )?;
+        ]
+        .into_iter()
+        .enumerate()
+        .map(|(index, child)| Ok(Child::new(self, index, narrow(child, exec_ctx)?)))
+        .collect::<VortexResult<Vec<_>>>()?;
 
-        Ok(OnPair::try_new_with_data(
-            onpair_array.dtype().clone(),
-            onpair_array.data().clone(),
-            dict_offsets,
-            codes,
-            codes_offsets,
-            uncompressed_lengths,
-            onpair_array.array_validity(),
-        )?
-        .into_array())
+        let dtype = onpair_array.dtype().clone();
+        let onpair_data = onpair_array.data().clone();
+        Ok(Encoded::new(children, Vec::new(), move |children, _| {
+            let [dict_offsets, codes, codes_offsets, uncompressed_lengths] =
+                children.compressed()?;
+            Ok(OnPair::try_new_with_data(
+                dtype,
+                onpair_data,
+                dict_offsets,
+                codes,
+                codes_offsets,
+                uncompressed_lengths,
+                children.validity()?,
+            )?
+            .into_array())
+        })
+        .with_validity(onpair_array.array_validity()))
+    }
+
+    #[expect(clippy::unimplemented, reason = "replaced by `encode`")]
+    fn compress(
+        &self,
+        _compressor: &CascadingCompressor,
+        _data: &ArrayAndStats,
+        _compress_ctx: CompressorContext,
+        _exec_ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        unimplemented!("{} compresses through Scheme::encode", self.scheme_name())
     }
 }
 
-/// Narrow a primitive child to its tightest int type, then forward it to
-/// the cascading compressor.
-fn compress_primitive_child(
-    compressor: &CascadingCompressor,
-    child: &ArrayRef,
-    compress_ctx: &CompressorContext,
-    scheme_id: SchemeId,
-    child_idx: usize,
-    exec_ctx: &mut ExecutionCtx,
-) -> VortexResult<ArrayRef> {
-    let narrowed = child
+/// Narrows a primitive child to its tightest int type.
+fn narrow(child: &ArrayRef, exec_ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
+    Ok(child
         .clone()
         .execute::<PrimitiveArray>(exec_ctx)?
         .narrow(exec_ctx)?
-        .into_array();
-    compressor.compress_child(&narrowed, compress_ctx, scheme_id, child_idx, exec_ctx)
+        .into_array())
 }
 
 // TODO(joe): re-apply Delta to the monotone `dict_offsets` / `codes_offsets` children once the
