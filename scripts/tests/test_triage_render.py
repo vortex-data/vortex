@@ -186,25 +186,25 @@ def test_activity_summarizes_events_in_one_line():
     assert text.endswith("· snooze ended")
 
 
-def test_reminder_mentions_the_owner_once_and_lists_items():
-    rows = [row(1, Tier.HIGH), row(2, Tier.NORMAL)]
-    first = render.reminder("UALICE", rows, True, NOW, PLAIN)
-    assert first.text == "<@UALICE>, 2 items wait on you today"
-    # A reminder lists the same two-line entries as the overview, with each item's section marker.
-    assert first.blocks[1]["text"]["text"].startswith(
-        "🔴 📝 <https://github.com/o/r/issues/1|#1 A title> · alamb\n\u2003\u2003unassigned · waiting 2d"
-    )
-    later = render.reminder(None, rows[:1], False, NOW, PLAIN)
-    assert later.text == "On-call (not set), 1 more item is due"
-    assert "!snooze 2d" in json.dumps(first.blocks)
+def test_summary_mentions_each_person_once_and_links_their_item_threads():
+    message = render.reminder_summary({"UALICE": [row(1), row(2)], None: [row(3)]})
+    assert message.text == "Due today: <@UALICE> 2 items, On-call (not set) 1 item"
+    assert (
+        "<@UALICE> · 2 items: <https://example.slack.com/archives/C1/p1|#1>, "
+        "<https://example.slack.com/archives/C1/p2|#2>"
+    ) in json.dumps(message.blocks, ensure_ascii=False)
+    # One person's line cannot be split across sections, so a long list is cut short.
+    many = render.reminder_summary({"UALICE": [row(n) for n in range(1, 1001)]})
+    assert all(len(b["text"]["text"]) <= 3000 for b in many.blocks if b["type"] == "section")
+    assert "+975 more" in json.dumps(many.blocks)
 
 
-def test_long_reminder_is_cut_with_a_count_and_keeps_its_footer():
-    rows = [row(n, title="x" * 200) for n in range(1, 1001)]
-    message = render.reminder("UALICE", rows, True, NOW, PLAIN)
-    assert len(message.blocks) <= render.MAX_BLOCKS
-    assert "_+" in message.blocks[-2]["text"]["text"]
-    assert "!snooze 2d" in json.dumps(message.blocks[-1])
+def test_item_reminder_mentions_its_owners_and_marks_on_call():
+    text = render.item_reminder(row(1), ["UALICE", "UBOB"], False, NOW).text
+    assert text.startswith("⏰ <@UALICE>, <@UBOB>, this item waits on you · 🔴 High · waiting 2d")
+    on_call = render.item_reminder(row(1), ["UONCALL"], True, NOW).text
+    assert on_call.startswith("⏰ <@UONCALL> (on call), this item waits on you")
+    assert render.item_reminder(row(1), [None], True, NOW).text.startswith("⏰ On-call (not set), this")
 
 
 def test_scan_table_shows_titles_as_literal_text():

@@ -224,7 +224,11 @@ def test_claude_verdict_is_cached_in_the_root():
     assert "🔵" in card_text(fake, 1)
 
 
-def test_reminders_group_items_per_person_and_follow_up_once():
+def item_reminders(fake, number) -> list[str]:
+    return [text for text in fake.bot_replies(fake.root(number)["ts"]) if text.startswith("⏰")]
+
+
+def test_reminders_go_to_each_item_thread_after_one_summary():
     alice_new = item(1, created=ago(days=1), assignees=["alice"])
     # bob has no Slack ID, so alice alone owns this item.
     shared = item(2, created=ago(days=2), assignees=["alice", "bob"])
@@ -232,20 +236,20 @@ def test_reminders_group_items_per_person_and_follow_up_once():
     items = [alice_new, shared, unassigned]
     fake = FakeSlack()
     run(fake, items, pings=True)
-    reminders = fake.bot_replies(overview_ts(fake))
-    assert sorted(r.split("\n")[0] for r in reminders) == [
-        "<@UALICE>, 2 items wait on you today",
-        "<@UONCALL>, 1 item waits on you today",
-    ]
+    assert fake.bot_replies(overview_ts(fake)) == ["Due today: <@UALICE> 2 items, <@UONCALL> 1 item"]
+    assert item_reminders(fake, 1)[0].startswith("⏰ <@UALICE>, this item waits on you")
+    assert item_reminders(fake, 2)[0].startswith("⏰ <@UALICE>, this item waits on you")
+    assert item_reminders(fake, 3)[0].startswith("⏰ <@UONCALL> (on call), this item waits on you")
 
     run(fake, items, NOW + HOUR, pings=True)
-    assert len(fake.bot_replies(overview_ts(fake))) == 2
+    assert len(fake.bot_replies(overview_ts(fake))) == 1
+    assert [len(item_reminders(fake, n)) for n in (1, 2, 3)] == [1, 1, 1]
 
+    # An item that becomes due later in the day gets only its own reminder.
     later = item(4, created=ago(minutes=30), assignees=["alice"])
     run(fake, [*items, later], NOW + 2 * HOUR, pings=True)
-    reminders = fake.bot_replies(overview_ts(fake))
-    assert reminders[-1] == "<@UALICE>, 1 more item is due"
-    assert len(reminders) == 3
+    assert len(fake.bot_replies(overview_ts(fake))) == 1
+    assert item_reminders(fake, 4)[0].startswith("⏰ <@UALICE>, this item waits on you")
 
 
 def test_every_assignee_with_a_slack_id_is_reminded():
@@ -253,8 +257,8 @@ def test_every_assignee_with_a_slack_id_is_reminded():
     fake = FakeSlack()
     # carol has no Slack ID, so only alice and bob get the item. Logins match in any case.
     run(fake, [shared], pings=True, users={"alice": "UALICE", "bob": "UBOB"})
-    reminders = fake.bot_replies(overview_ts(fake))
-    assert sorted(reminders) == ["<@UALICE>, 1 item waits on you today", "<@UBOB>, 1 item waits on you today"]
+    assert fake.bot_replies(overview_ts(fake)) == ["Due today: <@UBOB> 1 item, <@UALICE> 1 item"]
+    assert item_reminders(fake, 1)[0].startswith("⏰ <@UBOB>, <@UALICE>, this item waits on you")
     assert "<@UBOB>, <@UALICE>, carol" in json.dumps(fake.messages[overview_ts(fake)], ensure_ascii=False)
 
 
@@ -263,23 +267,28 @@ def test_posts_mention_only_their_recipients_and_edits_add_everyone_else():
     users = {"alice": "UALICE", "bob": "UBOB"}
     fake = FakeSlack()
     run(fake, items, pings=True, users=users)
-    # Slack notifies the people that a post mentions, but not the people that an edit adds, so a
-    # post may mention only the recipient of a reminder.
+    # Slack notifies the people that a post mentions, but not the people that an edit adds. Only
+    # reminders mention people in the post: the summary mentions everyone with due items, and an
+    # item's reminder mentions its owners.
+    expected = {
+        overview_ts(fake): {"UALICE", "UBOB", "UONCALL"},
+        fake.root(1)["ts"]: {"UALICE", "UBOB"},
+        fake.root(2)["ts"]: {"UONCALL"},
+    }
     for posted in fake.posted:
-        key = str(posted["metadata"]["event_payload"].get("key", ""))
-        recipient = {key.split(":")[2]} if key.startswith("remind:") else set()
-        assert set(re.findall(r"<@(\w+)>", json.dumps(posted))) <= recipient
+        mentioned = set(re.findall(r"<@(\w+)>", json.dumps(posted)))
+        reminder = str(posted["metadata"]["event_payload"].get("key", "")).startswith("remind:")
+        assert mentioned == (expected[posted["thread_ts"]] if reminder else set())
     assert "<@UALICE>, <@UBOB> · waiting" in json.dumps(fake.root(1), ensure_ascii=False)
     assert "owner <@UONCALL> (on call)" in json.dumps(fake.root(2), ensure_ascii=False)
     overview = json.dumps(fake.messages[overview_ts(fake)], ensure_ascii=False)
     assert "On call <@UONCALL>" in overview and "<@UALICE>, <@UBOB> · waiting" in overview
-    replies = [m for m in fake.messages.values() if m.get("thread_ts") == overview_ts(fake)]
-    alice = next(r for r in replies if r["text"].startswith("<@UALICE>"))
-    assert "<@UALICE>, <@UBOB> · waiting" in json.dumps(alice, ensure_ascii=False)
 
-    # A second run with nothing new edits only the overview, so no card flips between the two forms.
-    fake.calls.clear()
+    # The second run reads the reminders in the item threads, which moves each card's read marker.
+    # After that, a run with nothing new edits only the overview, so no card flips between forms.
     run(fake, items, NOW + timedelta(minutes=5), pings=True, users=users)
+    fake.calls.clear()
+    run(fake, items, NOW + timedelta(minutes=10), pings=True, users=users)
     assert fake.calls.count("update") == 1
 
 
@@ -304,7 +313,8 @@ def test_next_day_replaces_the_overview_and_respects_cadence_and_snoozes():
     assert second != first
     assert "replaced by" in json.dumps(fake.messages[first]["blocks"])
     # The High item is due every working day. The snoozed one and the Normal one are not.
-    assert fake.bot_replies(second) == ["<@UALICE>, 1 item waits on you today"]
+    assert fake.bot_replies(second) == ["Due today: <@UALICE> 1 item"]
+    assert [len(item_reminders(fake, n)) for n in (1, 2, 3)] == [2, 1, 1]
 
 
 def test_old_overview_is_marked_replaced_after_a_failed_edit():
@@ -315,7 +325,7 @@ def test_old_overview_is_marked_replaced_after_a_failed_edit():
     fake.faults = [("update", "before")]
     assert run(fake, [HIGH], tomorrow, pings=True) == ["old overview: update: fault"]
     # The failed edit does not stop the reminders, and the next run edits the old overview again.
-    assert fake.bot_replies(overview_ts(fake)) == ["<@UONCALL>, 1 item waits on you today"]
+    assert fake.bot_replies(overview_ts(fake)) == ["Due today: <@UONCALL> 1 item"]
     assert "replaced by" not in json.dumps(fake.messages[first]["blocks"])
     assert run(fake, [HIGH], tomorrow + HOUR) == []
     assert "replaced by" in json.dumps(fake.messages[first]["blocks"])
@@ -330,7 +340,22 @@ def test_failed_thread_read_keeps_the_item_in_the_overview_and_reminders():
     summary = fake.messages[overview_ts(fake)]["blocks"][1]["elements"][0]["text"]
     # On-call has no GitHub login in the users map, so the overview names their Slack ID.
     assert summary.startswith("On call <@UONCALL> · 🔴 1 High")
-    assert fake.bot_replies(overview_ts(fake)) == ["<@UONCALL>, 1 item waits on you today"]
+    # The summary lists the item, but its own reminder waits until the next run can read its thread.
+    assert fake.bot_replies(overview_ts(fake)) == ["Due today: <@UONCALL> 1 item"]
+    assert item_reminders(fake, 1) == []
+    assert run(fake, [HIGH], NOW + 2 * HOUR, pings=True) == []
+    assert len(item_reminders(fake, 1)) == 1
+
+
+def test_failed_summary_holds_back_the_item_reminders_until_the_next_run():
+    fake = FakeSlack()
+    run(fake, [HIGH])
+    fake.faults = [("post", "before")]
+    assert run(fake, [HIGH], NOW + HOUR, pings=True) == ["overview: post: fault"]
+    assert item_reminders(fake, 1) == []
+    assert run(fake, [HIGH], NOW + 2 * HOUR, pings=True) == []
+    assert fake.bot_replies(overview_ts(fake)) == ["Due today: <@UONCALL> 1 item"]
+    assert len(item_reminders(fake, 1)) == 1
 
 
 def test_no_reminders_without_pings():

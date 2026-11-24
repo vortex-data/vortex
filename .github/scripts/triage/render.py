@@ -2,8 +2,8 @@
 
 Messages name the people in the Slack mapping with Slack mentions, and everyone else by GitHub
 login. Slack does not notify the people that an edit mentions, so the bot posts each message with
-plain names (`People.mention` off) and then edits the mentions in. Only the recipient of a reminder
-and the sender of a command are mentioned in a post, so they are the only people notified.
+plain names (`People.mention` off) and then edits the mentions in. Only reminders and command
+replies mention people in the post itself, so they are the only messages that notify anyone.
 """
 
 from __future__ import annotations
@@ -34,6 +34,9 @@ _MIN_TITLE_CHARS = 20
 # normal spaces wide. A blank line keeps the entries apart.
 _INDENT = "\u2003\u2003"
 _ENTRY_GAP = "\n\n"
+# The most item links that the daily summary lists for one person. A link to a Slack thread is about
+# 80 characters, so this keeps one person's line well below the section limit.
+_SUMMARY_LINKS = 25
 
 
 @dataclass(frozen=True)
@@ -185,9 +188,8 @@ def _thread(row: Row) -> str:
     return f"<{row.thread_url}|thread>" if row.thread_url else ""
 
 
-def _first_line(row: Row, people: People, marker: bool) -> str:
-    emoji = [row.section.marker] if marker else []
-    emoji.append(kind_emoji(row.item, row.assessment))
+def _first_line(row: Row, people: People) -> str:
+    emoji = [kind_emoji(row.item, row.assessment)]
     login = _contributor(row.item, row.assessment)
     # An emoji is about as wide as two letters, and a space follows each one. The width counts the
     # login even when a mention shows the person's Slack name, because the bot does not know that
@@ -198,11 +200,11 @@ def _first_line(row: Row, people: People, marker: bool) -> str:
     return f"{' '.join(emoji)} {_link(row.item, title_chars)}{tail}"
 
 
-def _entry(row: Row, now: datetime, people: People, *, marker: bool = False) -> str:
+def _entry(row: Row, now: datetime, people: People) -> str:
     """Show an item on two lines: the item and its contributor, then the team's side of it."""
     detail = escape(row.assessment.owes_reason) if row.section is WAITING else _wait(row, now)
     second = _parts(people.owners(row.item), detail, _thread(row))
-    return f"{_first_line(row, people, marker)}\n{_INDENT}{second}"
+    return f"{_first_line(row, people)}\n{_INDENT}{second}"
 
 
 def ordered(rows: Sequence[Row]) -> dict[Section, list[Row]]:
@@ -401,28 +403,46 @@ def wrong_thread() -> Message:
     )
 
 
-def reminder(
-    user: str | None, rows: Sequence[Row], first: bool, now: datetime, people: People
-) -> Message:
-    """Build one person's reminder, which lists their due items with links."""
-    who = f"<@{user}>" if user else "On-call (not set)"
-    count = _count(len(rows), "item waits", "items wait")
-    header = (
-        f"⏰ {who}, {count} on you today"
-        if first
-        else f"⏰ {who}, {_count(len(rows), 'more item is', 'more items are')} due"
-    )
-    lines = [_entry(row, now, people, marker=True) for row in rows]
+def _mention(user: str | None) -> str:
+    return f"<@{user}>" if user else "On-call (not set)"
+
+
+def reminder_summary(due: Mapping[str | None, Sequence[Row]]) -> Message:
+    """Build the day's one reminder in the overview's thread, which points everyone to their items.
+
+    It mentions each person with due items once and links each of their items to its Slack thread,
+    where the item's own reminder waits.
+    """
+    lines = []
+    for user, rows in due.items():
+        links = [f"<{row.thread_url or row.item.url}|#{row.item.number}>" for row in rows]
+        # One person's line is one section, which cannot be split, so a long list is cut short.
+        if len(links) > _SUMMARY_LINKS:
+            links = [*links[:_SUMMARY_LINKS], f"+{len(links) - _SUMMARY_LINKS} more"]
+        lines.append(f"{_mention(user)} · {_count(len(rows), 'item', 'items')}: {', '.join(links)}")
+    header = "⏰ *Due today.* Each item's reminder is in its own thread."
     footer = "Reply `!snooze 2d` in an item's thread to pause its reminders."
-    # The header and the footer take two blocks. Rows that do not fit are cut from the end, which
-    # holds the least urgent items.
-    shown, cut = lines, 0
-    while 2 + len(_chunks(shown, _ENTRY_GAP)) > MAX_BLOCKS:
-        cut += 1
-        shown = [*lines[: len(lines) - cut], f"_+{cut} more_"]
-    chunks = _chunks(shown, _ENTRY_GAP)
-    blocks = [_mrkdwn(header), *(_list(chunk) for chunk in chunks), _context(footer)]
-    return Message(text=header.removeprefix("⏰ "), blocks=tuple(blocks))
+    # One line per person keeps the message far below the block limit for any team size.
+    blocks = [_mrkdwn(header), *(_list(chunk) for chunk in _chunks(lines)), _context(footer)]
+    text = "Due today: " + ", ".join(
+        f"{_mention(user)} {_count(len(rows), 'item', 'items')}" for user, rows in due.items()
+    )
+    return Message(text=text, blocks=tuple(blocks))
+
+
+def item_reminder(row: Row, owners: Sequence[str | None], on_call: bool, now: datetime) -> Message:
+    """Build the reminder in an item's own thread, which mentions the people who own the item."""
+    who = ", ".join(_mention(user) for user in owners)
+    if on_call and all(owners):
+        who += " (on call)"
+    detail = _parts(
+        f"{row.section.marker} {row.section.title}",
+        _wait(row, now),
+        escape(row.assessment.tier_reason),
+    )
+    text = f"⏰ {who}, this item waits on you · {detail}"
+    footer = "Reply `!snooze 2d` here to pause its reminders for 2 working days."
+    return Message(text=text, blocks=(_mrkdwn(text), _context(footer)))
 
 
 def instructions() -> Message:
@@ -452,7 +472,9 @@ def instructions() -> Message:
             "",
             "*Owners*",
             "To take an item, assign yourself on GitHub. "
-            "Reminders go to the assignees, or to on-call when nobody is assigned. Messages show "
+            "Each working day, one reminder in the overview's thread mentions everyone with due "
+            "items, and each due item gets a reminder in its own thread. Reminders go to the "
+            "assignees, or to on-call when nobody is assigned. Messages show "
             "teammates as Slack mentions, except in the overview's waiting section, but only "
             "reminders and command replies notify anyone.",
             "",

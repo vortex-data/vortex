@@ -121,7 +121,8 @@ class OverviewState:
     # The London date, in ISO format, of the working day that this overview covers.
     day: str
     read_until: str = ""
-    # The people who got a reminder on this day, comma separated, so a later reminder says "more".
+    # The people that this day's summary reminder mentioned, comma separated. It stays empty until
+    # the summary is posted, which happens once a day.
     reminded: str = ""
     # True once a newer overview replaced this one.
     replaced: bool = False

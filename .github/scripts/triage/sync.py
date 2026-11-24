@@ -431,26 +431,38 @@ class Run:
     def _remind(
         self, thread: Thread, state: OverviewState, rows: list[render.Row]
     ) -> OverviewState:
-        """Send each person one reminder with their due items, in the overview's thread."""
-        due: dict[str | None, list[render.Row]] = {}
-        for row in rows:
-            if self._due(row):
+        """Remind the owners of each due item in the item's own thread.
+
+        The first reminders of the day come after one summary in the overview's thread, which
+        mentions everyone with due items. An item that becomes due later in the day gets only its
+        own reminder.
+        """
+        grouped = render.ordered([row for row in rows if self._due(row)])
+        due = [row for section in render.SECTIONS for row in grouped[section]]
+        if not due:
+            return state
+        if not state.reminded:
+            people: dict[str | None, list[render.Row]] = {}
+            for row in due:
                 for person in self._owners(row.item):
-                    due.setdefault(person, []).append(row)
-        reminded = set(filter(None, state.reminded.split(",")))
-        for person, members in due.items():
-            grouped = render.ordered(members)
-            flat = [row for section in render.SECTIONS for row in grouped[section]]
-            numbers = ",".join(
-                str(row.item.number) for row in sorted(flat, key=lambda r: r.item.number)
-            )
-            name = person or "oncall"
-            key = f"remind:{state.day}:{name}:{hashlib.sha256(numbers.encode()).hexdigest()[:12]}"
-            self._reply(
-                thread, key, partial(render.reminder, person, flat, name not in reminded, self.now)
-            )
-            reminded.add(name)
-            for row in flat:
-                root = self.channel.roots[row.item.number]
-                root.state = replace(root.state, reminded_at=self.now.timestamp())
-        return replace(state, reminded=",".join(sorted(reminded)))
+                    people.setdefault(person, []).append(row)
+            # A failed summary stops here, before any item is marked reminded, so the next run
+            # posts the summary and the item reminders together.
+            summary = render.reminder_summary(people)
+            self._reply(thread, f"remind:{state.day}", lambda _people: summary)
+            state = replace(state, reminded=",".join(sorted(p or "oncall" for p in people)))
+        for row in due:
+            self._attempt(f"#{row.item.number}", lambda: self._remind_item(row, state.day))
+        return state
+
+    def _remind_item(self, row: render.Row, day: str) -> None:
+        root = self.channel.roots[row.item.number]
+        if not root.thread.read and _newer(root.thread.latest_reply, root.state.read_until):
+            # This run could not read the thread's new replies, which may hold today's reminder
+            # from a run that stopped before it saved. The next run reads them and reminds.
+            return
+        owners = self._owners(row.item)
+        on_call = not any(a.lower() in self.config.users for a in row.item.assignees)
+        reminder = render.item_reminder(row, owners, on_call, self.now)
+        self._reply(root.thread, f"remind:{day}", lambda _people: reminder)
+        root.state = replace(root.state, reminded_at=self.now.timestamp())

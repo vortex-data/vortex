@@ -141,7 +141,7 @@ class FakeSlack:
     def post(self, message: Any, metadata: dict[str, Any], thread_ts: str | None = None) -> str:
         self.calls.append("post")
         when = self._fault("post")
-        self.posted.append({**message.params(), "metadata": metadata})
+        self.posted.append({**message.params(), "metadata": metadata, "thread_ts": thread_ts})
         ts = self._store(
             {
                 "ts": self._ts(),
