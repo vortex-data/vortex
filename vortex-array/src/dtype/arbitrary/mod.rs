@@ -36,7 +36,7 @@ impl<'a> Arbitrary<'a> for FieldName {
 }
 
 fn random_dtype(u: &mut Unstructured<'_>, depth: u8) -> Result<DType> {
-    const BASE_TYPE_COUNT: i32 = 5;
+    const BASE_TYPE_COUNT: i32 = 6;
     const CONTAINER_TYPE_COUNT: i32 = 4;
     let max_dtype_kind = if depth == 0 {
         BASE_TYPE_COUNT
@@ -50,17 +50,19 @@ fn random_dtype(u: &mut Unstructured<'_>, depth: u8) -> Result<DType> {
         3 => DType::Decimal(u.arbitrary()?, u.arbitrary()?),
         4 => DType::Utf8(u.arbitrary()?),
         5 => DType::Binary(u.arbitrary()?),
+        // We limit the byte width to 16 to keep generated arrays small.
+        6 => DType::FixedSizeBinary(u.int_in_range(0..=16)?, u.arbitrary()?),
 
         // container types
-        6 => DType::Struct(random_struct_dtype(u, depth - 1)?, u.arbitrary()?),
-        7 => DType::List(Arc::new(random_dtype(u, depth - 1)?), u.arbitrary()?),
-        8 => DType::FixedSizeList(
+        7 => DType::Struct(random_struct_dtype(u, depth - 1)?, u.arbitrary()?),
+        8 => DType::List(Arc::new(random_dtype(u, depth - 1)?), u.arbitrary()?),
+        9 => DType::FixedSizeList(
             Arc::new(random_dtype(u, depth - 1)?),
             // We limit the list size to 3 rather (following random struct fields).
             u.choose_index(3)?.try_into().vortex_expect("impossible"),
             u.arbitrary()?,
         ),
-        9 => random_map_dtype(u, depth - 1)?,
+        10 => random_map_dtype(u, depth - 1)?,
         // Null,
         // Extension(ExtDType, Nullability),
         _ => unreachable!("Number out of range"),

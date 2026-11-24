@@ -31,6 +31,7 @@ use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::DecimalArray;
+use vortex_array::arrays::FixedSizeBinaryArray;
 use vortex_array::arrays::FixedSizeListArray;
 use vortex_array::arrays::ListView;
 use vortex_array::arrays::ListViewArray;
@@ -39,6 +40,7 @@ use vortex_array::arrays::NullArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::VarBinViewArray;
+use vortex_array::arrays::fixed_size_binary::FixedSizeBinaryArrayExt;
 use vortex_array::arrays::fixed_size_list::FixedSizeListArrayExt;
 use vortex_array::arrays::fixed_size_list::FixedSizeListArraySlotsExt;
 use vortex_array::arrays::listview::ListViewArraySlotsExt;
@@ -230,6 +232,12 @@ pub(crate) fn row_width_for_dtype(dtype: &DType) -> VortexResult<RowWidth> {
             decimal.canonical_values_type().byte_width(),
         )))),
         DType::Utf8(_) | DType::Binary(_) => Ok(RowWidth::Variable),
+        DType::FixedSizeBinary(byte_width, _) => {
+            let total = byte_width.checked_add(1).ok_or_else(|| {
+                vortex_error::vortex_err!("FixedSizeBinary row width overflows u32")
+            })?;
+            Ok(RowWidth::Fixed(total))
+        }
         DType::List(elem, _) => {
             row_width_for_dtype(elem)?;
             Ok(RowWidth::Variable)
@@ -297,6 +305,9 @@ pub(crate) fn field_size(
         Canonical::Primitive(arr) => add_size_primitive(arr, sizes),
         Canonical::Decimal(arr) => add_size_decimal(arr, sizes),
         Canonical::VarBinView(arr) => add_size_varbinview(arr, sizes, ctx)?,
+        Canonical::FixedSizeBinary(arr) => {
+            add_size_const(sizes, encoded_size_for_fixed(arr.byte_width()))
+        }
         Canonical::Struct(arr) => add_size_struct(arr, field, sizes, ctx)?,
         Canonical::FixedSizeList(arr) => add_size_fsl(arr, field, sizes, ctx)?,
         Canonical::List(arr) => add_size_list(arr, field, sizes, ctx)?,
@@ -408,6 +419,9 @@ pub(crate) fn field_encode(
         Canonical::Primitive(arr) => encode_primitive(arr, field, offsets, cursors, out, ctx)?,
         Canonical::Decimal(arr) => encode_decimal(arr, field, offsets, cursors, out, ctx)?,
         Canonical::VarBinView(arr) => encode_varbinview(arr, field, offsets, cursors, out, ctx)?,
+        Canonical::FixedSizeBinary(arr) => {
+            encode_fixed_size_binary(arr, field, offsets, cursors, out, ctx)?
+        }
         Canonical::Struct(arr) => encode_struct(arr, field, offsets, cursors, out, ctx)?,
         Canonical::FixedSizeList(arr) => encode_fsl(arr, field, offsets, cursors, out, ctx)?,
         Canonical::List(arr) => encode_list(arr, field, offsets, cursors, out, ctx)?,
@@ -790,6 +804,60 @@ fn encode_decimal(
     });
 
     Ok(())
+}
+
+/// Encodes each value as a sentinel byte followed by its bytes, which already order
+/// lexicographically. Descending fields invert the bytes; null rows hold zero bytes.
+fn encode_fixed_size_binary(
+    arr: &FixedSizeBinaryArray,
+    field: RowSortField,
+    row_offsets: &[u32],
+    col_offset: &mut [u32],
+    out: &mut [u8],
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<()> {
+    let validity = resolve_validity(arr.as_ref().validity()?, arr.len(), ctx)?;
+    let width = arr.byte_width() as usize;
+    let values = arr.values();
+    let stride = encoded_size_for_fixed(arr.byte_width());
+    let non_null = field.non_null_sentinel();
+    let null = field.null_sentinel();
+
+    for i in 0..arr.len() {
+        let pos = (row_offsets[i] + col_offset[i]) as usize;
+        let valid = match &validity {
+            ValidityKind::AllValid => true,
+            ValidityKind::Mask(mask) => mask.value(i),
+        };
+        let (sentinel, target) = out[pos..pos + 1 + width]
+            .split_first_mut()
+            .vortex_expect("an encoded row holds at least its sentinel");
+        if valid {
+            *sentinel = non_null;
+            encode_bytes(
+                &values[i * width..(i + 1) * width],
+                target,
+                field.descending,
+            );
+        } else {
+            *sentinel = null;
+            target.fill(0);
+        }
+        col_offset[i] += stride;
+    }
+
+    Ok(())
+}
+
+/// Copies `value` into `target`, inverting every byte when `descending`.
+fn encode_bytes(value: &[u8], target: &mut [u8], descending: bool) {
+    if descending {
+        for (out, byte) in target.iter_mut().zip(value) {
+            *out = !byte;
+        }
+    } else {
+        target.copy_from_slice(value);
+    }
 }
 
 fn encode_fixed_width<T: RowEncode>(

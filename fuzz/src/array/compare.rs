@@ -6,9 +6,11 @@ use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::DecimalArray;
+use vortex_array::arrays::FixedSizeBinaryArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::bool::BoolArrayExt;
+use vortex_array::arrays::fixed_size_binary::FixedSizeBinaryArrayExt;
 use vortex_array::arrays::primitive::NativeValue;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
@@ -174,10 +176,31 @@ pub fn compare_canonical_array(
                 result_nullability,
             )
         }
-        DType::FixedSizeBinary(..)
-        | DType::List(..)
-        | DType::FixedSizeList(..)
-        | DType::Struct(..) => {
+        DType::FixedSizeBinary(..) => {
+            let fsb = array
+                .clone()
+                .execute::<FixedSizeBinaryArray>(ctx)
+                .vortex_expect("to fixed-size binary");
+            let mask = fsb
+                .validity()
+                .vortex_expect("validity")
+                .execute_mask(fsb.len(), ctx)
+                .vortex_expect("fixed-size binary mask");
+            let values: Vec<Option<&[u8]>> = (0..fsb.len())
+                .map(|i| mask.value(i).then(|| fsb.value(i)))
+                .collect();
+            let binary_value = value.as_binary();
+            compare_to(
+                values.into_iter(),
+                binary_value
+                    .value()
+                    .vortex_expect("nulls handled before")
+                    .as_slice(),
+                operator,
+                result_nullability,
+            )
+        }
+        DType::List(..) | DType::FixedSizeList(..) | DType::Struct(..) => {
             let scalar_vals: Vec<Scalar> = (0..array.len())
                 .map(|i| array.execute_scalar(i, ctx).vortex_expect("scalar_at"))
                 .collect();

@@ -25,6 +25,7 @@ use vortex_array::arrays::arbitrary::ArbitraryArray;
 use vortex_array::arrays::arbitrary::ArbitraryArrayConfig;
 use vortex_array::arrays::arbitrary::ArbitraryWith;
 use vortex_array::arrays::bool::BoolArrayExt;
+use vortex_array::arrays::fixed_size_binary::FixedSizeBinaryArrayExt;
 use vortex_array::arrays::fixed_size_list::FixedSizeListArrayExt;
 use vortex_array::arrays::fixed_size_list::FixedSizeListArraySlotsExt;
 use vortex_array::arrays::listview::ListViewArrayExt;
@@ -199,9 +200,12 @@ pub fn run_row_encode(input: FuzzRowEncode) -> VortexResult<bool> {
 /// Dtypes the row encoder supports; everything else must be rejected with an error.
 fn dtype_row_encodable(dtype: &DType) -> bool {
     match dtype {
-        DType::Null | DType::Bool(_) | DType::Primitive(..) | DType::Utf8(_) | DType::Binary(_) => {
-            true
-        }
+        DType::Null
+        | DType::Bool(_)
+        | DType::Primitive(..)
+        | DType::Utf8(_)
+        | DType::Binary(_)
+        | DType::FixedSizeBinary(..) => true,
         DType::Decimal(..) => true,
         DType::Struct(fields, _) => fields.fields().all(|f| dtype_row_encodable(&f)),
         DType::List(elem, _) | DType::FixedSizeList(elem, ..) => dtype_row_encodable(elem),
@@ -392,6 +396,18 @@ fn row_keys(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Vec<RowKey
                 .map(|i| {
                     if mask.value(i) {
                         RowKey::Bytes(a.bytes_at(i).to_vec())
+                    } else {
+                        RowKey::Null
+                    }
+                })
+                .collect())
+        }
+        Canonical::FixedSizeBinary(a) => {
+            let mask = a.as_ref().validity()?.execute_mask(len, ctx)?;
+            Ok((0..len)
+                .map(|i| {
+                    if mask.value(i) {
+                        RowKey::Bytes(a.value(i).to_vec())
                     } else {
                         RowKey::Null
                     }

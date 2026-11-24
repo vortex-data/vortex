@@ -13,6 +13,7 @@ use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::DecimalArray;
 use vortex_array::arrays::ExtensionArray;
+use vortex_array::arrays::FixedSizeBinaryArray;
 use vortex_array::arrays::ListViewArray;
 use vortex_array::arrays::MapArray;
 use vortex_array::arrays::Primitive;
@@ -872,5 +873,37 @@ fn decimal256_keys_preserve_order_and_physical_width_independence() -> VortexRes
             );
         }
     }
+    Ok(())
+}
+
+/// Fixed-size binary keys order like their bytes, with nulls at the requested end, and every key
+/// has the same width.
+#[rstest]
+fn fixed_size_binary_sort_order(
+    #[values(false, true)] descending: bool,
+    #[values(false, true)] nulls_first: bool,
+) -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let values: [Option<&[u8; 3]>; 5] = [
+        Some(b"\x01\x00\xff"),
+        Some(b"\x00\xff\xff"),
+        None,
+        Some(b"\x01\x00\x00"),
+        Some(b"\xff\x00\x00"),
+    ];
+    let array = FixedSizeBinaryArray::from_option_iter(values, 3).into_array();
+    let field = RowSortField::new(descending, nulls_first);
+    let rows = collect_row_bytes(&convert_columns(&[array], &[field], &mut ctx)?);
+    assert!(rows.iter().all(|row| row.len() == 4));
+
+    assert_row_order(&rows, values.len(), |i, j| match (values[i], values[j]) {
+        (None, None) => Ordering::Equal,
+        (None, Some(_)) if nulls_first => Ordering::Less,
+        (None, Some(_)) => Ordering::Greater,
+        (Some(_), None) if nulls_first => Ordering::Greater,
+        (Some(_), None) => Ordering::Less,
+        (Some(left), Some(right)) if descending => right.cmp(left),
+        (Some(left), Some(right)) => left.cmp(right),
+    });
     Ok(())
 }
