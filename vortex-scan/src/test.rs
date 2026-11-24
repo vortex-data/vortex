@@ -106,7 +106,7 @@ impl DataSourceScan for TestArrayScan {
     }
 
     fn open(self: Box<Self>) -> VortexResult<ScanExec> {
-        Ok(ScanExec::from_partitions(self))
+        Ok(ScanExec::from_partitions(self, NonZeroUsize::MIN))
     }
 
     fn partition_count(&self) -> Precision<usize> {

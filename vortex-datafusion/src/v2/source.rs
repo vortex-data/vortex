@@ -70,6 +70,7 @@
 use std::any::Any;
 use std::fmt;
 use std::fmt::Formatter;
+use std::num::NonZeroUsize;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
@@ -1228,7 +1229,7 @@ mod tests {
         }
 
         fn open(self: Box<Self>) -> VortexResult<ScanExec> {
-            Ok(ScanExec::from_partitions(self))
+            Ok(ScanExec::from_partitions(self, NonZeroUsize::MIN))
         }
 
         fn partition_count(&self) -> Precision<usize> {
