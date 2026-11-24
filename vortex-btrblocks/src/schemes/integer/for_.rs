@@ -244,15 +244,18 @@ impl Scheme for FoRScheme {
 
         // Immediately bitpack when residuals satisfy BitPacking's non-negative precondition.
         // Signed wrapping subtraction on a block wider than `T::MAX` can produce negative
-        // residuals; in that case keep the primitive residual child rather than failing.
-        // NOTE: we could delegate in the future if we had another downstream codec that performs
-        //  as well.
-        let compressed = if let Some(packed) =
-            try_bitpack_residuals(compressor, biased.clone(), &compress_ctx, exec_ctx)?
-        {
-            packed
-        } else {
-            biased.into_array()
+        // residuals; in that case fall back to selecting another encoding (excluding FoR)
+        // rather than materializing an uncompressed FoR array larger than the input.
+        let Some(compressed) =
+            try_bitpack_residuals(compressor, biased, &compress_ctx, exec_ctx)?
+        else {
+            return compressor.compress_child(
+                data.array(),
+                &compress_ctx,
+                self.id(),
+                0,
+                exec_ctx,
+            );
         };
 
         // TODO(connor): This should really be `new_unchecked`.

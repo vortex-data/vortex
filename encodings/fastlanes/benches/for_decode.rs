@@ -103,8 +103,8 @@ fn run<T: NativePType + TryFrom<usize>>(bencher: Bencher, bytes: usize) {
         .bench_refs(|(array, ctx)| (*array).clone().execute::<PrimitiveArray>(ctx).unwrap());
 }
 
-/// Each iteration decodes a uniquely owned FoR array over a uniquely owned buffer, so the
-/// references are added in place instead of into a copy.
+/// Each iteration decodes a uniquely owned blocked FoR array (narrowed to unsigned residuals when
+/// chunk spans fit, otherwise same-width in place).
 #[vortex_bench_support::cpu_features]
 #[divan::bench(types = [i64], args = INPUT_BYTES)]
 fn decode_chunked<T: NativePType + TryFrom<usize>>(bencher: Bencher, bytes: usize) {

@@ -275,7 +275,9 @@ fn v2_handles_wide_span_inside_block() -> VortexResult<()> {
         }
     }))
     .into_array();
-    let _ids = compress_roundtrip(for_only(), &array)?;
+    let ids = compress_roundtrip(for_only(), &array)?;
+    assert!(!ids.contains(&for_v2_id()));
+    assert!(!ids.contains(&for_v1_id()));
     Ok(())
 }
 
