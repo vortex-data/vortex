@@ -99,16 +99,16 @@ impl<T: NativePType> ChunkParam<T> {
 pub fn decompress(array: &AffineArray, ctx: &mut ExecutionCtx) -> VortexResult<PrimitiveArray> {
     if let Some(dict) = array.encoded().as_opt::<Dict>()
         && dict.values().len() <= MAX_FUSED_DICT_VALUES
+        && dict.codes().all_valid(ctx)?
+        && dict.values().all_valid(ctx)?
     {
         let codes = dict.codes().clone().execute::<PrimitiveArray>(ctx)?;
         let values = dict.values().clone().execute::<PrimitiveArray>(ctx)?;
-        if codes.all_valid(ctx)? && values.all_valid(ctx)? {
-            return match_each_integer_ptype!(array.ptype(), |T| {
-                match_each_integer_ptype!(codes.ptype(), |C| {
-                    decompress_dict::<T, C>(array, &codes, &values, ctx)
-                })
-            });
-        }
+        return match_each_integer_ptype!(array.ptype(), |T| {
+            match_each_integer_ptype!(codes.ptype(), |C| {
+                decompress_dict::<T, C>(array, &codes, &values, ctx)
+            })
+        });
     }
     if array.encoded().is::<Dict>() {
         // Not fusable: decode the dictionary, then the residuals as usual.
