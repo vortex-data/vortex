@@ -462,7 +462,7 @@ fn patched_take_10k_adversarial(bencher: Bencher) {
         })
 }
 
-const HEAVY_PATCHED_LEN: usize = 256 * CHUNK_SIZE;
+const HEAVY_PATCHED_LEN: usize = 64 * CHUNK_SIZE;
 const HEAVY_PATCHED_BIT_WIDTH: u8 = 6;
 const HEAVY_PATCHED_STRIDE: usize = 97;
 
