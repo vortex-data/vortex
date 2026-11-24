@@ -89,7 +89,8 @@ pub(crate) enum KeptPatches {
 impl KeptPatches {
     /// Returns the arrays of `patches` as kept children of `scheme`, numbered from `index`.
     ///
-    /// `array` is the input that `patches` patch.
+    /// The patches go in a [`Patched`] array around the encoding when `use_experimental_patches`
+    /// is set, and inside the encoding otherwise. `array` is the input that `patches` patch.
     ///
     /// # Errors
     ///
@@ -115,6 +116,25 @@ impl KeptPatches {
             return Ok((Self::Patched(patched.into_array()), keep));
         }
 
+        Self::interior(scheme, index, Some(patches), keep, ctx)
+    }
+
+    /// Registers the arrays of `patches`, stored inside the encoding however
+    /// `use_experimental_patches` is set, as kept children of `scheme`, numbered from `index`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the patches cannot be narrowed.
+    pub(crate) fn interior(
+        scheme: &dyn Scheme,
+        index: usize,
+        patches: Option<Patches>,
+        keep: &mut Vec<Child>,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Self> {
+        let Some(patches) = patches else {
+            return Ok(Self::None);
+        };
         let PatchesParts {
             array_len,
             offset,

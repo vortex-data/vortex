@@ -6,6 +6,7 @@
 //! These tests cover scheme composition and configuration. Individual encoding kernels and the
 //! generic selection algorithm are tested in their owning crates.
 
+use std::f64::consts::PI;
 use std::iter;
 use std::sync::Arc;
 
@@ -14,6 +15,9 @@ use rand::RngExt;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 use rstest::rstest;
+use vortex_alp::ALP;
+use vortex_alp::ALPArrayExt;
+use vortex_alp::ALPArraySlotsExt;
 #[cfg(feature = "zstd")]
 use vortex_array::ArrayId;
 #[cfg(feature = "zstd")]
@@ -27,6 +31,7 @@ use vortex_array::arrays::DecimalArray;
 use vortex_array::arrays::FixedSizeListArray;
 use vortex_array::arrays::ListArray;
 use vortex_array::arrays::ListViewArray;
+use vortex_array::arrays::Patched;
 use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::RunEnd;
@@ -34,6 +39,7 @@ use vortex_array::arrays::StructArray;
 use vortex_array::arrays::TemporalArray;
 use vortex_array::arrays::VarBin;
 use vortex_array::arrays::VarBinViewArray;
+use vortex_array::arrays::patched::use_experimental_patches;
 use vortex_array::assert_arrays_eq;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::DecimalDType;
@@ -54,6 +60,7 @@ use vortex_edition::EditionSessionExt;
 #[cfg(feature = "zstd")]
 use vortex_edition::declarations::core::CORE_2026_08_3;
 use vortex_error::VortexResult;
+use vortex_error::vortex_err;
 use vortex_fastlanes::BitPacked;
 use vortex_fastlanes::Delta;
 use vortex_onpair::OnPair;
@@ -69,6 +76,10 @@ use crate::SESSION;
 use crate::Scheme;
 use crate::schemes::binary::VarBinScheme;
 use crate::schemes::boolean::BoolRunEndScheme;
+use crate::schemes::float::ALPRDScheme;
+use crate::schemes::float::ALPScheme;
+#[cfg(feature = "pco")]
+use crate::schemes::float::PcoScheme as FloatPcoScheme;
 use crate::schemes::integer::BitPackingScheme;
 #[cfg(feature = "pco")]
 use crate::schemes::integer::PcoScheme as IntPcoScheme;
@@ -456,6 +467,69 @@ fn test_bitpacking_skips_small_savings(
         !expect_packed,
         "{}",
         compressed.encoding_id()
+    );
+    Ok(())
+}
+
+/// A float scheme that stores its input's validity registers it, so it is compressed.
+#[rstest]
+#[case::alprd(&ALPRDScheme)]
+#[cfg_attr(feature = "pco", case::pco(&FloatPcoScheme))]
+fn test_float_scheme_compresses_its_validity(
+    #[case] scheme: &'static dyn Scheme,
+) -> VortexResult<()> {
+    let input = PrimitiveArray::from_option_iter(
+        (0..100_000).map(|i| (!(1000..2000).contains(&i)).then(|| f64::from(i).sqrt())),
+    )
+    .into_array();
+    let compressor = BtrBlocksCompressorBuilder::empty()
+        .with_new_scheme(scheme)
+        .with_new_scheme(&BoolRunEndScheme)
+        .build();
+    let compressed = assert_roundtrip(&compressor, &input)?;
+
+    assert!(!compressed.is_canonical(), "{}", compressed.encoding_id());
+    assert!(compressed.validity()?.to_array(input.len()).nbytes() < 100);
+    Ok(())
+}
+
+/// ALP stores the values it cannot encode as patches, which it keeps as they are.
+#[test]
+fn test_alp_keeps_its_patches() -> VortexResult<()> {
+    let input = PrimitiveArray::from_iter((0..100_000).map(|i| {
+        if i % 1000 == 0 {
+            PI
+        } else {
+            f64::from(i % 1000) / 10.0
+        }
+    }))
+    .into_array();
+    let compressor = BtrBlocksCompressorBuilder::empty()
+        .with_new_scheme(&ALPScheme)
+        .with_new_scheme(&BITPACKING_V1)
+        .build();
+    let compressed = assert_roundtrip(&compressor, &input)?;
+
+    let alp = if use_experimental_patches() {
+        assert!(compressed.is::<Patched>(), "{}", compressed.encoding_id());
+        compressed.slots()[0]
+            .clone()
+            .ok_or_else(|| vortex_err!("Patched holds its inner array"))?
+    } else {
+        compressed
+    };
+    let alp = alp
+        .as_opt::<ALP>()
+        .ok_or_else(|| vortex_err!("expected ALP, got {}", alp.encoding_id()))?;
+    assert!(
+        alp.encoded().is::<BitPacked>(),
+        "{}",
+        alp.encoded().encoding_id()
+    );
+    assert_eq!(
+        alp.patches().is_some(),
+        !use_experimental_patches(),
+        "the patches are inside ALP unless a Patched array wraps it"
     );
     Ok(())
 }
