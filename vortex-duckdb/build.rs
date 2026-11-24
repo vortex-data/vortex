@@ -32,8 +32,7 @@ const BUILD_ARTIFACTS: [&str; 3] = ["libduckdb.dylib", "libduckdb.so", "libduckd
 const BUILD_MARKER: &str = ".vx-build-complete";
 const DUCKDB_CACHE_DIR: &str = "vortex-duckdb-cache";
 const EXTRACT_MARKER: &str = ".vx-extract-complete";
-/// Marks a source tree that holds only [`is_prebuilt_source_entry`] paths, which is enough to
-/// build against a prebuilt DuckDB but not to build DuckDB itself.
+/// Marks a source tree extracted by [`extract_prebuilt_source`].
 const PARTIAL_EXTRACT_MARKER: &str = ".vx-extract-partial-complete";
 
 const SOURCE_FILES: [&str; 9] = [
@@ -361,12 +360,8 @@ fn extract(archive: &Path, dest: &Path) {
     zip::ZipArchive::new(file).unwrap().extract(dest).unwrap();
 }
 
-/// Whether a DuckDB source archive entry is needed to build against a prebuilt DuckDB, given
-/// its path below the archive's top-level directory.
-///
-/// That build reads the headers in `src/include` and `third_party/*/include`, and duckdb-bench
-/// reads the TPC-H queries through the `duckdb` symlink. The rest of the tree, mostly tests, is
-/// only needed to build DuckDB from source.
+/// Whether a source path is needed to build against a prebuilt DuckDB: the headers, and the
+/// TPC-H queries duckdb-bench reads.
 fn is_prebuilt_source_entry(path: &Path) -> bool {
     let mut components = path.components().map(|c| c.as_os_str());
     match components.next().and_then(|c| c.to_str()) {
@@ -377,8 +372,7 @@ fn is_prebuilt_source_entry(path: &Path) -> bool {
     }
 }
 
-/// Extracts the archive entries that [`is_prebuilt_source_entry`] keeps, which skips most of
-/// the DuckDB source tree.
+/// Extracts only the entries [`is_prebuilt_source_entry`] keeps.
 fn extract_prebuilt_source(archive: &Path, dest: &Path) {
     println!(
         "cargo:info=Extracting the headers in {} to {}",
@@ -392,7 +386,7 @@ fn extract_prebuilt_source(archive: &Path, dest: &Path) {
         let Some(path) = entry.enclosed_name() else {
             continue;
         };
-        // Match below the archive's top-level `duckdb-<version>` directory.
+        // Skip the top-level `duckdb-<version>` directory.
         let mut components = path.components();
         components.next();
         if !is_prebuilt_source_entry(components.as_path()) {
@@ -771,8 +765,7 @@ fn main() {
     };
 
     let inner_dir = source_dir.join(version.archive_inner_dir_name());
-    // Building DuckDB itself needs the whole source tree. A release links a prebuilt DuckDB,
-    // which only needs the headers. A commit may or may not be prebuilt, so it gets the whole tree.
+    // Only building DuckDB from source needs the whole tree.
     let needs_full_source = debug_duckdb || matches!(version, DuckDBVersion::Commit(_));
     let extract_marker = source_dir.join(EXTRACT_MARKER);
     let partial_extract_marker = source_dir.join(PARTIAL_EXTRACT_MARKER);
