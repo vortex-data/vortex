@@ -20,6 +20,8 @@ use std::fs;
 use std::io::Write as _;
 use std::path::Path;
 use std::path::PathBuf;
+use std::sync::atomic::AtomicU64;
+use std::sync::atomic::Ordering;
 
 use anyhow::Context;
 use serde::Serialize;
@@ -196,6 +198,73 @@ impl Store {
         ids
     }
 
+    /// Reads the file at `path`, relative to the store root, if it exists.
+    ///
+    /// This and the other `raw` methods are the only operations the work queue needs, so an
+    /// object store backend only has to provide get, put, put-if-absent and list.
+    pub fn get_raw(&self, path: &str) -> anyhow::Result<Option<Vec<u8>>> {
+        match fs::read(self.root.join(path)) {
+            Ok(bytes) => Ok(Some(bytes)),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(e) => Err(e).with_context(|| format!("reading {path} in the store")),
+        }
+    }
+
+    /// Writes the file at `path`, replacing it if it exists.
+    pub fn put_raw(&self, path: &str, bytes: &[u8]) -> anyhow::Result<()> {
+        write_atomically(&self.root.join(path), bytes)
+    }
+
+    /// Writes the file at `path` only if it does not exist yet. Returns whether this call wrote
+    /// it. Of several concurrent callers, exactly one succeeds (on S3: a put with
+    /// `If-None-Match: *`).
+    pub fn put_raw_if_absent(&self, path: &str, bytes: &[u8]) -> anyhow::Result<bool> {
+        let full = self.root.join(path);
+        if let Some(parent) = full.parent() {
+            fs::create_dir_all(parent).with_context(|| format!("creating {}", parent.display()))?;
+        }
+        // Write the content to a temporary file, then hard-link it into place: the link fails if
+        // the target exists, and readers never see a partly written file.
+        static NEXT: AtomicU64 = AtomicU64::new(0);
+        let n = NEXT.fetch_add(1, Ordering::Relaxed);
+        let mut temp = full.as_os_str().to_owned();
+        temp.push(format!(".new{}-{n}", std::process::id()));
+        let temp = PathBuf::from(temp);
+        write_atomically(&temp, bytes)?;
+        let linked = fs::hard_link(&temp, &full);
+        fs::remove_file(&temp).ok();
+        match linked {
+            Ok(()) => Ok(true),
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => Ok(false),
+            Err(e) => Err(e).with_context(|| format!("creating {}", full.display())),
+        }
+    }
+
+    /// The names of the files directly under the directory `path`, sorted. Temporary files are
+    /// left out.
+    pub fn list_raw(&self, path: &str) -> anyhow::Result<Vec<String>> {
+        let entries = match fs::read_dir(self.root.join(path)) {
+            Ok(entries) => entries,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+            Err(e) => return Err(e).with_context(|| format!("listing {path} in the store")),
+        };
+        let mut names = Vec::new();
+        for entry in entries {
+            let entry = entry?;
+            if !entry.file_type()?.is_file() {
+                continue;
+            }
+            if let Some(name) = entry.file_name().to_str()
+                && !name.contains(".tmp")
+                && !name.contains(".new")
+            {
+                names.push(name.to_string());
+            }
+        }
+        names.sort();
+        Ok(names)
+    }
+
     /// Records what a machine id describes.
     pub fn put_machine(&self, info: &crate::machine::MachineInfo) -> anyhow::Result<()> {
         let path = self
@@ -224,8 +293,11 @@ pub(crate) fn write_atomically(path: &Path, bytes: &[u8]) -> anyhow::Result<()> 
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).with_context(|| format!("creating {}", parent.display()))?;
     }
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+    // Unique per process and call, so threads writing the same path never share a temp file.
+    let n = NEXT.fetch_add(1, Ordering::Relaxed);
     let mut temp = path.as_os_str().to_owned();
-    temp.push(format!(".tmp{}", std::process::id()));
+    temp.push(format!(".tmp{}-{n}", std::process::id()));
     let temp = PathBuf::from(temp);
     let mut file =
         fs::File::create(&temp).with_context(|| format!("creating {}", temp.display()))?;

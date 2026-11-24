@@ -29,6 +29,7 @@ pub mod machine;
 pub mod materialize;
 pub mod model;
 pub mod plan;
+pub mod queue;
 pub mod runner;
 pub mod shard;
 pub mod source;

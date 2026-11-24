@@ -11,6 +11,7 @@
 //! accumulate across runs and stay separate per machine.
 
 use std::collections::BTreeMap;
+use std::collections::BTreeSet;
 use std::hint::black_box;
 use std::panic::AssertUnwindSafe;
 use std::path::PathBuf;
@@ -130,6 +131,12 @@ pub struct RunOptions {
     pub decode_reps: u32,
     /// Compression timing repetitions.
     pub compress_reps: u32,
+    /// Record a fact task that errors or panics in the stage report and go on, instead of
+    /// stopping the run.
+    pub keep_going: bool,
+    /// Fact tasks not to run, e.g. ones that already failed too often. Tasks depending on them
+    /// count as blocked.
+    pub skip: BTreeSet<TaskKey>,
 }
 
 /// Counts of what a stage did.
@@ -143,6 +150,10 @@ pub struct StageReport {
     pub blocked: u64,
     /// Done tasks whose re-run produced different output.
     pub mismatched: u64,
+    /// Tasks that failed, with their error, when running with `keep_going`.
+    pub failed: Vec<(TaskKey, String)>,
+    /// Tasks left out because they were in `skip`.
+    pub skipped_failed: u64,
 }
 
 /// Runs plans against a store.
@@ -192,8 +203,12 @@ impl<'a> Runner<'a> {
                 }
             };
             eprintln!(
-                "{stage}: ran {}, already done {}, blocked {}, mismatched {}",
-                report.ran, report.skipped, report.blocked, report.mismatched
+                "{stage}: ran {}, already done {}, blocked {}, mismatched {}, failed {}",
+                report.ran,
+                report.skipped,
+                report.blocked,
+                report.mismatched,
+                report.failed.len()
             );
             reports.insert(stage.clone(), report);
         }
@@ -213,25 +228,27 @@ impl<'a> Runner<'a> {
                 report.blocked += 1;
                 continue;
             }
+            if options.skip.contains(&task.key) {
+                report.skipped_failed += 1;
+                continue;
+            }
             let start = Instant::now();
-            let hash = match &task.input {
-                TaskInput::Chunk(input) => {
-                    let fact = self.chunk(input, &options.data_root, &mut ctx)?;
-                    self.store
-                        .put_fact(kind, &task.key, &fact, start.elapsed().as_millis())?
+            let outcome = if options.keep_going {
+                std::panic::catch_unwind(AssertUnwindSafe(|| {
+                    self.run_fact(kind, task, options, &mut ctx, start)
+                }))
+                .unwrap_or_else(|panic| Err(anyhow::anyhow!("panic: {}", panic_message(&panic))))
+            } else {
+                self.run_fact(kind, task, options, &mut ctx, start)
+            };
+            let hash = match outcome {
+                Ok(hash) => hash,
+                Err(error) if options.keep_going => {
+                    eprintln!("failed: {} {}: {error:#}", kind.as_str(), task.key);
+                    report.failed.push((task.key.clone(), format!("{error:#}")));
+                    continue;
                 }
-                TaskInput::Features { chunk, version } => {
-                    let fact = self.features(chunk, *version, &mut ctx)?;
-                    self.store
-                        .put_fact(kind, &task.key, &fact, start.elapsed().as_millis())?
-                }
-                TaskInput::Candidates {
-                    chunk, candidates, ..
-                } => {
-                    let fact = self.candidates(chunk, candidates, &mut ctx)?;
-                    self.store
-                        .put_fact(kind, &task.key, &fact, start.elapsed().as_millis())?
-                }
+                Err(error) => return Err(error),
             };
             report.ran += 1;
             if let Some(previous) = previous
@@ -246,6 +263,35 @@ impl<'a> Runner<'a> {
             }
         }
         Ok(report)
+    }
+
+    fn run_fact(
+        &self,
+        kind: TaskKind,
+        task: &Task,
+        options: &RunOptions,
+        ctx: &mut ExecutionCtx,
+        start: Instant,
+    ) -> anyhow::Result<String> {
+        match &task.input {
+            TaskInput::Chunk(input) => {
+                let fact = self.chunk(input, &options.data_root, ctx)?;
+                self.store
+                    .put_fact(kind, &task.key, &fact, start.elapsed().as_millis())
+            }
+            TaskInput::Features { chunk, version } => {
+                let fact = self.features(chunk, *version, ctx)?;
+                self.store
+                    .put_fact(kind, &task.key, &fact, start.elapsed().as_millis())
+            }
+            TaskInput::Candidates {
+                chunk, candidates, ..
+            } => {
+                let fact = self.candidates(chunk, candidates, ctx)?;
+                self.store
+                    .put_fact(kind, &task.key, &fact, start.elapsed().as_millis())
+            }
+        }
     }
 
     fn load_chunk(
@@ -407,6 +453,14 @@ impl<'a> Runner<'a> {
         }
         Ok(report)
     }
+}
+
+fn panic_message(panic: &Box<dyn std::any::Any + Send>) -> String {
+    panic
+        .downcast_ref::<&str>()
+        .map(|s| (*s).to_string())
+        .or_else(|| panic.downcast_ref::<String>().cloned())
+        .unwrap_or_else(|| "unknown".to_string())
 }
 
 fn failed(name: &str, error: String) -> CandidateResult {

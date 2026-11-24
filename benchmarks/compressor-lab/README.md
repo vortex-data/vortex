@@ -112,6 +112,34 @@ No source is worse by more than 0.9% under these policies.
 | A dtype (floats, strings) | `features.rs` and `candidates.rs` for that dtype; the plan's `dtypes` already filters | New chunks only |
 | A search strategy (exhaustive DP) | `spec::SearchStrategy`, `runner` (the strategy is part of the candidates key) | `candidates` only |
 
+## Running many workers: `plan push`, `work`, `status`
+
+`vx-lab run --shard i/n` needs someone to hand out shards and notice dead ones. The work queue
+does that through the store, so workers on any number of machines can share a plan:
+
+```bash
+vx-lab plan create --spec lab.toml --out plan/
+vx-lab plan push --plan plan/ --store store/ --shards 256   # default: one shard per 8 chunks
+vx-lab work --store store/ --plan plan/ --workers 16       # on each machine; exits when done
+vx-lab status --store store/ --plan plan/ [--json]         # shards, stages, workers, ETA
+vx-lab run --plan plan/ --store store/ --stages time       # afterwards, on a quiet machine
+```
+
+- **Leases.** A worker claims a shard by writing the next lease generation with a
+  put-if-absent, and renews it every third of `--lease-secs` (default 600). A shard whose
+  worker died is claimed again once its lease expires. Tasks are idempotent and skipped once
+  done, so a reclaimed shard only redoes what is missing.
+- **Failures.** A task that errors or panics is recorded under `failures/` and retried up to
+  `--max-attempts` (default 3), then given up on; the shard still finishes, and `status` lists
+  the task.
+- **Exit.** A worker exits once nothing is claimable; `--wait` keeps it polling for shards
+  held by workers that may die.
+- **EC2.** `ec2/launch.sh` starts tagged spot workers whose user-data (`ec2/bootstrap.sh`)
+  checks out the plan's commit, fetches or builds `vx-lab`, runs `work` on every core and
+  powers off, so instances terminate themselves. `--stage time --on-demand --count 1` starts a
+  timing machine. `ec2/stop.sh --plan-id <id> [--terminate]` lists or stops a plan's
+  instances. Workers on several machines need the S3 store backend.
+
 ## Running it long term
 
 - **Commits.** Every key includes the commit, so facts from different code never mix. A new
