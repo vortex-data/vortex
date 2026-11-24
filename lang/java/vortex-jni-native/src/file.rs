@@ -28,7 +28,6 @@ use vortex::file::multi::parse_uri_or_path;
 use vortex::io::VortexReadAt;
 use vortex::io::runtime::BlockingRuntime;
 use vortex::io::session::RuntimeSessionExt;
-use vortex::layout::scan::options::LayoutScanOptions;
 use vortex::session::VortexSession;
 use vortex::utils::aliases::hash_map::HashMap;
 
@@ -258,7 +257,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeFiles_readMetadataFromReadable(
 /// Read the statistics of each top-level column of an opened Vortex file through its data
 /// source, so stored aggregate partials come before the legacy statistics.
 fn read_column_statistics(file: &VortexFile) -> VortexResult<Vec<ColumnStatistics>> {
-    let source = file.layout_reader_data_source(LayoutScanOptions::default())?;
+    let source = file.data_source()?;
     RUNTIME.block_on(source_column_statistics(source.as_ref(), file.footer()))
 }
 

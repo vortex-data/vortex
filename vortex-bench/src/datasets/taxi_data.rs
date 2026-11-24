@@ -13,7 +13,6 @@ use vortex::array::IntoArray;
 use vortex::array::stream::ArrayStreamExt;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::file::WriteOptionsSessionExt;
-use vortex::layout::scan::options::LayoutScanOptions;
 use vortex::scan::ScanRequest;
 
 use crate::CompactionStrategy;
@@ -106,7 +105,7 @@ pub async fn fetch_taxi_data() -> Result<ArrayRef> {
         .open_options()
         .open_path(vortex_data)
         .await?
-        .layout_reader_data_source(LayoutScanOptions::default())?
+        .data_source()?
         .scan(ScanRequest {
             ordered: true,
             ..Default::default()
