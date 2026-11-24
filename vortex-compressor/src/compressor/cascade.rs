@@ -551,6 +551,11 @@ impl CascadingCompressor {
             else {
                 continue;
             };
+            policy.observe_candidate(&SiteOutcome {
+                scheme: Some(scheme.id()),
+                array: &compressed,
+                ctx: compress_ctx,
+            });
             let rank = policy.rank(&compressed, compress_ctx);
             if best
                 .as_ref()
