@@ -34,11 +34,11 @@ use vortex_error::VortexResult;
 use crate::ArrowSessionExt;
 use crate::ExecuteArrowExt;
 
-/// Checks extension import, explicit export, and batch selections against an Arrow reference.
+/// Checks extension import, explicit export, round trips, and batch selections.
 ///
-/// The caller supplies both representations from source values. The expected field must not come
-/// from the Vortex exporter. The Vortex array must have an extension dtype. Arrow data equality
-/// ignores values masked by nulls.
+/// The caller builds both representations and the expected field independently from source
+/// values. The Vortex array must have an extension dtype. Arrow data equality ignores values
+/// masked by nulls.
 #[track_caller]
 pub fn check_arrow(
     array: ArrayRef,
@@ -98,13 +98,19 @@ fn check_arrow_values(
     let session = ctx.session().clone();
     let arrow = session.arrow();
     assert_eq!(expected.data_type(), field.data_type());
-    expected.to_data().validate_full()?;
+    let expected_data = expected.to_data();
+    expected_data.validate_full()?;
     assert_eq!(arrow.from_arrow_field(field)?, *array.dtype());
     let imported = arrow.from_arrow_array(Arc::clone(&expected), field)?;
     assert_arrays_eq!(imported, array, ctx);
-    let exported = array.execute_arrow(Some(field), ctx)?;
-    exported.to_data().validate_full()?;
-    assert_eq!(exported.to_data(), expected.to_data());
+
+    let exported = array.clone().execute_arrow(Some(field), ctx)?;
+    let data = exported.to_data();
+    data.validate_full()?;
+    assert_eq!(data, expected_data, "explicit export values");
+
+    let round_tripped = arrow.from_arrow_array(exported, field)?;
+    assert_arrays_eq!(round_tripped, array, ctx);
 
     Ok(())
 }
@@ -333,34 +339,38 @@ fn reference_take(array: &dyn Array, indices: &[u32]) -> VortexResult<arrow_arra
 }
 
 /// Checks canonical field and schema inference against an independent expected field.
+#[cfg(feature = "_test-harness-hegel")]
 #[track_caller]
-pub fn check_canonical_field(
-    array: &ArrayRef,
+pub(super) fn check_canonical_field(
+    dtype: &DType,
     field: &Field,
-    ctx: &mut ExecutionCtx,
+    ctx: &ExecutionCtx,
 ) -> VortexResult<()> {
-    let session = ctx.session().clone();
-    let arrow = session.arrow();
-    assert_eq!(arrow.to_arrow_field(field.name(), array.dtype())?, *field);
-    let dtype = DType::struct_(
-        [(field.name().as_str(), array.dtype().clone())],
+    let arrow = ctx.session().arrow();
+    let inferred = arrow.to_arrow_field(field.name(), dtype)?;
+    assert_eq!(inferred, *field);
+    assert_eq!(arrow.from_arrow_field(&inferred)?, *dtype);
+
+    let struct_dtype = DType::struct_(
+        [(field.name().as_str(), dtype.clone())],
         Nullability::NonNullable,
     );
     let schema = arrow_schema::Schema::new(vec![field.clone()]);
-    assert_eq!(arrow.to_arrow_schema(&dtype)?, schema);
-    assert_eq!(arrow.from_arrow_schema(&schema)?, dtype);
+    let inferred_schema = arrow.to_arrow_schema(&struct_dtype)?;
+    assert_eq!(inferred_schema, schema);
+    assert_eq!(arrow.from_arrow_schema(&inferred_schema)?, struct_dtype);
 
     Ok(())
 }
 
-/// Checks dtype and values while retaining field metadata for a default export.
+/// Checks dtype and values and returns the export for comparison against an Arrow reference.
 #[track_caller]
-fn check_field_round_trip(
-    array: ArrayRef,
+pub(super) fn check_field_round_trip(
+    array: &ArrayRef,
     field: &Field,
     target: Option<&Field>,
     ctx: &mut ExecutionCtx,
-) -> VortexResult<()> {
+) -> VortexResult<arrow_array::ArrayRef> {
     let session = ctx.session().clone();
     let arrow = session.arrow();
     assert_eq!(arrow.from_arrow_field(field)?, *array.dtype());
@@ -372,11 +382,10 @@ fn check_field_round_trip(
     }
 
     let actual_field = field.clone().with_data_type(exported.data_type().clone());
-    let imported = arrow.from_arrow_array(exported, &actual_field)?;
-    assert_eq!(imported.dtype(), array.dtype());
+    let imported = arrow.from_arrow_array(Arc::clone(&exported), &actual_field)?;
     assert_arrays_eq!(imported, array, ctx);
 
-    Ok(())
+    Ok(exported)
 }
 
 /// Checks an array at the top level and in every required container.
@@ -387,13 +396,25 @@ fn check_field_round_trip(
 /// run-end fields.
 #[track_caller]
 pub fn check_containers(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<()> {
+    let values_field = ctx
+        .session()
+        .arrow()
+        .to_arrow_field("value", array.dtype())?;
+    check_field_round_trip(&array, &values_field, Some(&values_field), ctx)?;
+    check_field_round_trip(&array, &values_field, None, ctx)?;
+
+    check_nested_round_trips(array, &values_field, ctx)
+}
+
+/// Checks container placements using the leaf's canonical field for dictionary and run values.
+#[track_caller]
+pub(super) fn check_nested_round_trips(
+    array: ArrayRef,
+    values_field: &Field,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<()> {
     let session = ctx.session().clone();
     let arrow = session.arrow();
-    let values_field = arrow.to_arrow_field("value", array.dtype())?;
-    check_field_round_trip(array.clone(), &values_field, Some(&values_field), ctx)?;
-
-    check_field_round_trip(array.clone(), &values_field, None, ctx)?;
-
     let len = array.len();
 
     for nullable in [false, true] {
@@ -451,8 +472,8 @@ pub fn check_containers(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult
 
         for array in [structure, list, fixed, map] {
             let field = arrow.to_arrow_field("container", array.dtype())?;
-            check_field_round_trip(array.clone(), &field, Some(&field), ctx)?;
-            check_field_round_trip(array, &field, None, ctx)?;
+            check_field_round_trip(&array, &field, Some(&field), ctx)?;
+            check_field_round_trip(&array, &field, None, ctx)?;
         }
     }
 
@@ -465,7 +486,7 @@ pub fn check_containers(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult
         Box::new(DataType::Int32),
         Box::new(values_field.data_type().clone()),
     ));
-    check_field_round_trip(dictionary, &field, Some(&field), ctx)?;
+    check_field_round_trip(&dictionary, &field, Some(&field), ctx)?;
 
     let run_end = RunEnd::try_new(
         PrimitiveArray::from_iter((1..=u32::try_from(len)?).map(|i| i * (i + 1) / 2)).into_array(),
@@ -477,10 +498,12 @@ pub fn check_containers(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult
         "runs",
         DataType::RunEndEncoded(
             Arc::new(Field::new("run_ends", DataType::Int32, false)),
-            Arc::new(values_field),
+            Arc::new(values_field.clone()),
         ),
         run_end.dtype().is_nullable(),
     );
 
-    check_field_round_trip(run_end, &field, Some(&field), ctx)
+    check_field_round_trip(&run_end, &field, Some(&field), ctx)?;
+
+    Ok(())
 }

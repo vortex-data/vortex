@@ -25,9 +25,7 @@ mod tests {
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
     use vortex_array::validity::Validity;
-    use vortex_arrow::ExecuteArrowExt;
     use vortex_arrow::test_harness::check_arrow;
-    use vortex_arrow::test_harness::check_canonical_field;
     use vortex_arrow::test_harness::check_containers;
     use vortex_arrow::test_harness::check_generated;
     use vortex_arrow::test_harness::draw_storage_case;
@@ -78,13 +76,7 @@ mod tests {
         field
             .metadata_mut()
             .insert("ARROW:extension:name", "vortex.tensor.vector");
-        check_arrow(vector.clone(), &field, Arc::clone(&storage.arrow), &mut ctx)?;
-        let default = vector.clone().execute_arrow(None, &mut ctx)?;
-        assert_eq!(default.to_data(), storage.arrow.to_data());
-        check_canonical_field(&vector, &field, &mut ctx)?;
-        check_generated(tc, vector, &mut ctx)?;
-
-        Ok(())
+        check_generated(tc, vector, &field, storage.arrow, &mut ctx)
     }
 
     #[track_caller]
@@ -193,9 +185,7 @@ mod tests {
                 .into_array();
 
         assert_eq!(tensor.dtype().as_extension().serialize_metadata()?, wire);
-        check_arrow(tensor.clone(), &field, expected, &mut ctx)?;
-        check_canonical_field(&tensor, &field, &mut ctx)?;
-        check_generated(tc, tensor, &mut ctx)
+        check_generated(tc, tensor, &field, expected, &mut ctx)
     }
 
     #[track_caller]
