@@ -213,7 +213,7 @@ impl ListReader {
 
         Ok(async move {
             let (offsets, elements, validity) = try_join!(offsets_fut, elements_fut, validity_fut)?;
-            let lists = lists_over(
+            let lists = build_list(
                 elements,
                 offsets,
                 create_validity(validity, nullability),
@@ -279,7 +279,7 @@ impl ListReader {
                     let validity = validity
                         .map(|validity| validity.filter(selection.clone()))
                         .transpose()?;
-                    lists_over(
+                    build_list(
                         elements,
                         selected.offsets,
                         create_validity(validity, nullability),
@@ -295,7 +295,7 @@ impl ListReader {
                         )?),
                     )?;
                     let (elements, validity) = try_join!(elements_fut, validity_fut)?;
-                    let lists = lists_over(
+                    let lists = build_list(
                         elements,
                         rebase_offsets(offsets, elements_range.start)?,
                         create_validity(validity, nullability),
@@ -453,22 +453,26 @@ fn select_lists(
     }))
 }
 
-/// The lists over `elements`, sharing `offsets` and `validity`.
-fn lists_over(
+/// Build the lists over `elements` from `offsets` and `validity`.
+///
+/// The last offset must equal the number of elements, which is only checked in debug builds.
+fn build_list(
     elements: ArrayRef,
     offsets: ArrayRef,
     validity: Validity,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
-    let end = offsets
-        .execute_scalar(offsets.len() - 1, ctx)?
-        .as_primitive()
-        .as_::<u64>()
-        .vortex_expect("offset value fits in u64");
-    vortex_ensure_eq!(elements.len(), usize::try_from(end)?);
+    if cfg!(debug_assertions) {
+        let end = offsets
+            .execute_scalar(offsets.len() - 1, ctx)?
+            .as_primitive()
+            .as_::<u64>()
+            .vortex_expect("offset value fits in u64");
+        assert_eq!(elements.len(), usize::try_from(end)?);
+    }
     // SAFETY: the offsets are the file's, or `select_lists`'s prefix sums over them, so they are
-    // monotonic; the last one was just checked against the elements read; and the validity covers
-    // the same lists.
+    // monotonic; the last one equals the number of elements read; and the validity covers the
+    // same lists.
     Ok(unsafe { ListArray::new_unchecked(elements, offsets, validity) }.into_array())
 }
 
