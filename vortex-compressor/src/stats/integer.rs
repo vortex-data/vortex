@@ -332,9 +332,6 @@ impl IntegerStats {
     }
 
     /// Returns the average run length, truncated to an integer.
-    ///
-    /// Comparing this with an integer threshold gives the same answer as comparing the exact
-    /// average. For anything finer, use [`run_count`](Self::run_count).
     pub fn average_run_length(&self) -> u32 {
         self.average_run_length
     }
