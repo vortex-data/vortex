@@ -168,6 +168,10 @@ Python check:
 This synchronizes the workspace, rebuilds the extension, runs Python formatting, linting, type
 checks and tests, and validates the documentation.
 
+### Releases
+
+Maintainers cut releases with the [release runbook](.github/workflows/README.md).
+
 ### Documentation
 
 Use `docs/Makefile` as the canonical interface for Sphinx. From the repository root, run the full
