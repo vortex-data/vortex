@@ -16,10 +16,12 @@ use crate::arrays::widen::WidenArraySlotsExt;
 use crate::arrays::widen::compute::constant_fits_values;
 use crate::arrays::widen::compute::constant_in_values_dtype;
 use crate::arrays::widen::compute::ptype_holding_both_values;
+use crate::arrays::widen::encode::f32_fits_in_f16;
+use crate::arrays::widen::encode::f64_fits_in_f16;
+use crate::arrays::widen::encode::f64_fits_in_f32;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::DecimalDType;
-use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::dtype::half::f16;
 use crate::scalar::PValue;
@@ -48,7 +50,7 @@ impl CompareKernel for Widen {
         };
         let values = lhs.values();
         if values.dtype().is_float() {
-            return compare_float_constant(lhs, constant, operator, ctx);
+            return compare_float_constant(lhs, constant, operator);
         }
         let Some(fits) = constant_fits_values(constant, values.dtype()) else {
             return Ok(None);
@@ -102,29 +104,14 @@ fn compare_narrow_values(
     lhs_values.compare(rhs_values, operator).map(Some)
 }
 
-/// Position of a non-NaN wider floating-point constant relative to the representable values of a
-/// narrower floating-point type under IEEE-754 total order.
-enum FloatConstantBound {
-    /// The constant is represented bit-for-bit by `scalar` in the child type.
-    Exact(Scalar),
-    /// The constant is finite, non-zero, and strictly between `lo` and its successor in total
-    /// order.
-    Between { lo: Scalar },
-}
-
 /// Compares a floating-point `Widen` against a non-null floating-point constant.
 ///
-/// Vortex compares floats under IEEE-754 total order (`total_cmp`) and bitwise equality. Narrow
-/// float types already contain `±inf` and `±NaN`, so a finite wider constant that does not fit
-/// bit-exactly is never outside the child's total-order span; instead it falls strictly between
-/// two adjacent narrow values `lo < constant < hi`, so ordering comparisons rewrite to
-/// `values <= lo` or `values > lo` while `Eq`/`NotEq` fold to a constant preserving validity.
-/// NaN constants decline so canonical comparison handles arbitrary NaN signs and payloads.
+/// Pushes the comparison down to the narrow child when the non-NaN constant is represented
+/// bit-for-bit in the child type. In-between constants and NaNs decline to canonical execution.
 fn compare_float_constant(
     lhs: ArrayView<'_, Widen>,
     constant: &Scalar,
     operator: CompareOperator,
-    ctx: &mut ExecutionCtx,
 ) -> VortexResult<Option<ArrayRef>> {
     let values = lhs.values();
     let DType::Primitive(values_ptype, _) = values.dtype() else {
@@ -138,121 +125,26 @@ fn compare_float_constant(
     }
 
     let nullability = constant.dtype().nullability();
-    let bound = match (pvalue, *values_ptype) {
-        (PValue::F64(c), PType::F32) => classify_f64_for_f32(c, nullability),
-        (PValue::F64(c), PType::F16) => classify_f64_for_f16(c, nullability),
-        (PValue::F32(c), PType::F16) => classify_f32_for_f16(c, nullability),
+    let narrow_scalar = match (pvalue, *values_ptype) {
+        (PValue::F64(c), PType::F32) if f64_fits_in_f32(c) =>
+        {
+            #[expect(
+                clippy::cast_possible_truncation,
+                reason = "f64_fits_in_f32 verified bit-exact representation"
+            )]
+            Scalar::primitive(c as f32, nullability)
+        }
+        (PValue::F64(c), PType::F16) if f64_fits_in_f16(c) => {
+            Scalar::primitive(f16::from_f64(c), nullability)
+        }
+        (PValue::F32(c), PType::F16) if f32_fits_in_f16(c) => {
+            Scalar::primitive(f16::from_f32(c), nullability)
+        }
         _ => return Ok(None),
     };
 
-    match bound {
-        FloatConstantBound::Exact(narrow_scalar) => {
-            let constant = ConstantArray::new(narrow_scalar, lhs.len()).into_array();
-            values.binary(constant, Operator::from(operator)).map(Some)
-        }
-        FloatConstantBound::Between { lo } => match operator {
-            CompareOperator::Eq => {
-                constant_bool_with_validity(lhs, nullability, false, ctx).map(Some)
-            }
-            CompareOperator::NotEq => {
-                constant_bool_with_validity(lhs, nullability, true, ctx).map(Some)
-            }
-            CompareOperator::Lt | CompareOperator::Lte => {
-                let constant = ConstantArray::new(lo, lhs.len()).into_array();
-                values.binary(constant, Operator::Lte).map(Some)
-            }
-            CompareOperator::Gt | CompareOperator::Gte => {
-                let constant = ConstantArray::new(lo, lhs.len()).into_array();
-                values.binary(constant, Operator::Gt).map(Some)
-            }
-        },
-    }
-}
-
-fn classify_f64_for_f32(c: f64, nullability: Nullability) -> FloatConstantBound {
-    debug_assert!(!c.is_nan());
-    #[expect(
-        clippy::cast_possible_truncation,
-        reason = "IEEE-754 rounding to nearest f32 is checked bit-for-bit against the original f64"
-    )]
-    let rounded = c as f32;
-    let widened = f64::from(rounded);
-    if widened.to_bits() == c.to_bits() {
-        return FloatConstantBound::Exact(Scalar::primitive(rounded, nullability));
-    }
-    let lo = if widened.total_cmp(&c).is_lt() {
-        rounded
-    } else {
-        prev_f32_total_order(rounded)
-    };
-    debug_assert!(f64::from(lo).total_cmp(&c).is_lt());
-    FloatConstantBound::Between {
-        lo: Scalar::primitive(lo, nullability),
-    }
-}
-
-fn classify_f64_for_f16(c: f64, nullability: Nullability) -> FloatConstantBound {
-    debug_assert!(!c.is_nan());
-    let rounded = f16::from_f64(c);
-    let widened = rounded.to_f64();
-    if widened.to_bits() == c.to_bits() {
-        return FloatConstantBound::Exact(Scalar::primitive(rounded, nullability));
-    }
-    let lo = if widened.total_cmp(&c).is_lt() {
-        rounded
-    } else {
-        prev_f16_total_order(rounded)
-    };
-    debug_assert!(lo.to_f64().total_cmp(&c).is_lt());
-    FloatConstantBound::Between {
-        lo: Scalar::primitive(lo, nullability),
-    }
-}
-
-fn classify_f32_for_f16(c: f32, nullability: Nullability) -> FloatConstantBound {
-    debug_assert!(!c.is_nan());
-    let rounded = f16::from_f32(c);
-    let widened = rounded.to_f32();
-    if widened.to_bits() == c.to_bits() {
-        return FloatConstantBound::Exact(Scalar::primitive(rounded, nullability));
-    }
-    let lo = if widened.total_cmp(&c).is_lt() {
-        rounded
-    } else {
-        prev_f16_total_order(rounded)
-    };
-    debug_assert!(lo.to_f32().total_cmp(&c).is_lt());
-    FloatConstantBound::Between {
-        lo: Scalar::primitive(lo, nullability),
-    }
-}
-
-/// Immediate predecessor of a non-NaN `f32` strictly greater than `-inf` under IEEE-754 total
-/// order (`-inf < ... < -min_sub < -0.0 < +0.0 < +min_sub < ... < +inf`).
-fn prev_f32_total_order(v: f32) -> f32 {
-    debug_assert!(!v.is_nan() && v.to_bits() != f32::NEG_INFINITY.to_bits());
-    let bits = v.to_bits();
-    if bits == 0 {
-        f32::from_bits(1u32 << 31)
-    } else if (bits & (1u32 << 31)) == 0 {
-        f32::from_bits(bits - 1)
-    } else {
-        f32::from_bits(bits + 1)
-    }
-}
-
-/// Immediate predecessor of a non-NaN `f16` strictly greater than `-inf` under IEEE-754 total
-/// order (`-inf < ... < -min_sub < -0.0 < +0.0 < +min_sub < ... < +inf`).
-fn prev_f16_total_order(v: f16) -> f16 {
-    debug_assert!(!v.is_nan() && v.to_bits() != f16::NEG_INFINITY.to_bits());
-    let bits = v.to_bits();
-    if bits == 0 {
-        f16::from_bits(1u16 << 15)
-    } else if (bits & (1u16 << 15)) == 0 {
-        f16::from_bits(bits - 1)
-    } else {
-        f16::from_bits(bits + 1)
-    }
+    let constant = ConstantArray::new(narrow_scalar, lhs.len()).into_array();
+    values.compare(constant, operator).map(Some)
 }
 
 /// Answers a compare of `lhs` with a valid `constant` outside the range of its values.
@@ -280,19 +172,10 @@ fn compare_out_of_range(
         CompareOperator::Gt | CompareOperator::Gte => below,
     };
 
-    constant_bool_with_validity(lhs, constant.dtype().nullability(), answer, ctx)
-}
-
-fn constant_bool_with_validity(
-    lhs: ArrayView<'_, Widen>,
-    constant_nullability: Nullability,
-    answer: bool,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<ArrayRef> {
     let validity = lhs
         .values()
         .validity()?
-        .union_nullability(constant_nullability);
+        .union_nullability(constant.dtype().nullability());
     if validity.definitely_no_nulls() {
         let answer = Scalar::bool(answer, validity.nullability());
         return Ok(ConstantArray::new(answer, lhs.len()).into_array());

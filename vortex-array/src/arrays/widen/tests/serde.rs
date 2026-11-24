@@ -481,6 +481,18 @@ fn test_float_widen_v2_requires_permission() -> VortexResult<()> {
     &[8, PType::I32 as u8],
     "does not match the parent",
 )]
+#[case::v2_rejects_integer_tag(
+    widen_v2_id(),
+    PType::I64.into(),
+    &[8, PType::I32 as u8],
+    "requires wire ID vortex.widen",
+)]
+#[case::v2_rejects_decimal_tag(
+    widen_v2_id(),
+    DType::Decimal(DecimalDType::new(18, 2), Nullability::NonNullable),
+    &[16, 9],
+    "requires wire ID vortex.widen",
+)]
 fn test_float_widen_wire_rejects_invalid_metadata(
     #[case] wire_id: ArrayId,
     #[case] dtype: DType,

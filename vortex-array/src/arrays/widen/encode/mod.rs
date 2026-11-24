@@ -12,15 +12,11 @@ mod decimal;
 pub(crate) use decimal::smallest_decimal_dtype;
 
 mod float;
-pub use float::f32_fits_in_f16;
-pub use float::f32_slice_fits_in_f16;
-pub use float::f64_fits_in_f16;
-pub use float::f64_fits_in_f32;
-pub use float::f64_slice_fits_in_f16;
-pub use float::f64_slice_fits_in_f32;
-pub use float::float_array_fits_in_ptype;
-pub(super) use float::float_value_fits_in_ptype;
+pub(super) use float::f32_fits_in_f16;
+pub(super) use float::f64_fits_in_f16;
+pub(super) use float::f64_fits_in_f32;
 pub use float::narrow_float_values;
+pub use float::narrowest_float_ptype;
 pub(super) use float::smallest_float_ptype_for_value;
 
 mod integer;

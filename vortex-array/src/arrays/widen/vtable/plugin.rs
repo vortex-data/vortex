@@ -166,6 +166,12 @@ impl ArrayPlugin for WidenPlugin {
         let nullability = parts.dtype.nullability();
         let child_dtype = match (child_type, parts.dtype) {
             (ChildType::Integer(ptype), DType::Primitive(parent, _)) if parent.is_int() => {
+                vortex_ensure!(
+                    is_v1,
+                    "integer Widen child requires wire ID {}, got {}",
+                    self.id(),
+                    parts.serialized_id
+                );
                 DType::Primitive(PType::try_from(ptype)?, nullability)
             }
             (ChildType::Float(ptype), DType::Primitive(parent, _)) if parent.is_float() => {
@@ -178,6 +184,12 @@ impl ArrayPlugin for WidenPlugin {
                 DType::Primitive(PType::try_from(ptype)?, nullability)
             }
             (ChildType::DecimalPrecision(precision), DType::Decimal(parent, _)) => {
+                vortex_ensure!(
+                    is_v1,
+                    "decimal Widen child requires wire ID {}, got {}",
+                    self.id(),
+                    parts.serialized_id
+                );
                 let precision = u8::try_from(precision).map_err(|_| {
                     vortex_err!("Widen child precision {precision} is out of range")
                 })?;

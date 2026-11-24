@@ -51,10 +51,15 @@ impl CudaExecute for WidenExecutor {
                 array.encoding_id()
             )
         })?;
+        if array.dtype().is_float() {
+            vortex_bail!("CUDA Widen does not support floating-point arrays");
+        }
         let child = array.values().clone().execute_cuda(ctx).await?;
 
         match (array.dtype(), child) {
-            (DType::Primitive(output_ptype, _), Canonical::Primitive(child)) => {
+            (DType::Primitive(output_ptype, _), Canonical::Primitive(child))
+                if output_ptype.is_int() && child.ptype().is_int() =>
+            {
                 let len = child.len();
                 let parts = child.into_data_parts();
                 let values = ctx.ensure_on_device(parts.buffer)?;

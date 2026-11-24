@@ -34,7 +34,6 @@ use crate::aggregate_fn::fns::sum_v2::SumV2;
 use crate::aggregate_fn::kernels::DynAggregateKernel;
 use crate::arrays::BoolArray;
 use crate::arrays::ChunkedArray;
-use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
 use crate::arrays::Dict;
 use crate::arrays::DictArray;
@@ -46,7 +45,6 @@ use crate::arrays::dict::DictArraySlotsExt;
 use crate::arrays::widen::WidenArraySlotsExt;
 use crate::arrays::widen::WidenSlots;
 use crate::arrays::widen::compute::aggregate::WidenArrayAggregate;
-use crate::arrays::widen::compute::constant_fits_values;
 use crate::arrays::widen::compute::ptype_holding_both_values;
 use crate::arrays::widen::compute::ptype_holding_values_and_scalar;
 use crate::assert_arrays_eq;
@@ -57,24 +55,24 @@ use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::dtype::half::f16;
 use crate::optimizer::ArrayOptimizer;
+use crate::scalar::NumericOperator;
 use crate::scalar::Scalar;
-use crate::scalar_fn::builtin::operators::Operator;
+use crate::scalar_fn::builtin::operators::CompareOperator;
 use crate::validity::Validity;
 
-const ALL_COMPARE_OPERATORS: [Operator; 6] = [
-    Operator::Eq,
-    Operator::NotEq,
-    Operator::Lt,
-    Operator::Lte,
-    Operator::Gt,
-    Operator::Gte,
+const ALL_COMPARE_OPERATORS: [CompareOperator; 6] = [
+    CompareOperator::Eq,
+    CompareOperator::NotEq,
+    CompareOperator::Lt,
+    CompareOperator::Lte,
+    CompareOperator::Gt,
+    CompareOperator::Gte,
 ];
 
-/// Edge-case `f32` values covering negative NaN, infinities, finite bounds, subnormals, signed
-/// zeros, and positive NaN, sorted in IEEE-754 total order.
+/// Edge-case `f32` values covering infinities, finite bounds, subnormals, signed zeros, and
+/// canonical quiet NaN, sorted in IEEE-754 total order.
 fn f32_edge_values() -> Vec<f32> {
     vec![
-        -f32::NAN,
         f32::NEG_INFINITY,
         -f32::MAX,
         -100.0,
@@ -94,7 +92,6 @@ fn f32_edge_values() -> Vec<f32> {
 /// Edge-case `f16` values sorted in IEEE-754 total order.
 fn f16_edge_values() -> Vec<f16> {
     vec![
-        -f16::NAN,
         f16::NEG_INFINITY,
         f16::MIN,
         f16::from_f32(-1.5),
@@ -275,6 +272,7 @@ fn test_encode_float_f64_bit_exact_round_trip() -> VortexResult<()> {
 #[case::underflow_f32(vec![1.0_f64, 1e-100_f64])]
 #[case::f64_max(vec![f64::MAX])]
 #[case::non_f32_qnan_payload(vec![1.0_f64, f64::from_bits(0x7ff8_0000_0000_0001)])]
+#[case::f64_neg_nan(vec![1.0_f64, -f64::NAN])]
 #[case::f64_snan_low(vec![1.0_f64, f64::from_bits(0x7ff0_0000_0000_0001)])]
 #[case::f64_snan_aligned(vec![1.0_f64, f64::from_bits(0x7ff0_0000_2000_0000)])]
 fn test_encode_float_f64_rejects_lossy_and_snan(#[case] values: Vec<f64>) -> VortexResult<()> {
@@ -296,6 +294,7 @@ fn test_encode_float_f64_rejects_lossy_and_snan(#[case] values: Vec<f64>) -> Vor
 )]
 #[case::f32_inexact(PrimitiveArray::from_iter([0.1_f32, 1.0_f32]), PType::F32)]
 #[case::f32_non_f16_qnan(PrimitiveArray::from_iter([1.0_f32, f32::from_bits(0x7fc0_0001)]), PType::F32)]
+#[case::f32_neg_nan(PrimitiveArray::from_iter([1.0_f32, -f32::NAN]), PType::F32)]
 #[case::f32_snan(PrimitiveArray::from_iter([1.0_f32, f32::from_bits(0x7f80_2000)]), PType::F32)]
 #[case::f16_unchanged(PrimitiveArray::from_iter([f16::ONE, f16::NEG_ZERO]), PType::F16)]
 #[case::empty_f64(PrimitiveArray::empty::<f64>(Nullability::NonNullable), PType::F16)]
@@ -501,13 +500,6 @@ fn test_compare_f16_widen_constants_and_constant_folding() -> VortexResult<()> {
             assert_compare_matches_canonical(&f16_to_f32, &rhs, op, &mut ctx)?;
         }
     }
-
-    // Non-nullable Eq/NotEq against an in-between float constant folds to a ConstantArray.
-    let in_between = ConstantArray::new(0.1_f64, f16_to_f64.len()).into_array();
-    let eq_result = f16_to_f64
-        .binary(in_between, Operator::Eq)?
-        .execute::<ArrayRef>(&mut ctx)?;
-    assert!(eq_result.is::<Constant>());
 
     Ok(())
 }
@@ -730,53 +722,6 @@ fn test_float_filter_mask_slice_take() -> VortexResult<()> {
 }
 
 #[test]
-fn test_float_constant_fits_values() {
-    let f32_dtype = DType::from(PType::F32);
-    assert_eq!(
-        constant_fits_values(
-            &Scalar::primitive(1.5_f64, Nullability::NonNullable),
-            &f32_dtype
-        ),
-        Some(true)
-    );
-    assert_eq!(
-        constant_fits_values(
-            &Scalar::primitive(-0.0_f64, Nullability::NonNullable),
-            &f32_dtype
-        ),
-        Some(true)
-    );
-    assert_eq!(
-        constant_fits_values(
-            &Scalar::primitive(f64::INFINITY, Nullability::NonNullable),
-            &f32_dtype
-        ),
-        Some(true)
-    );
-    assert_eq!(
-        constant_fits_values(
-            &Scalar::primitive(0.1_f64, Nullability::NonNullable),
-            &f32_dtype
-        ),
-        Some(false)
-    );
-    assert_eq!(
-        constant_fits_values(
-            &Scalar::primitive(f64::NAN, Nullability::NonNullable),
-            &f32_dtype
-        ),
-        None
-    );
-    assert_eq!(
-        constant_fits_values(
-            &Scalar::null(DType::Primitive(PType::F64, Nullability::Nullable)),
-            &f32_dtype,
-        ),
-        None
-    );
-}
-
-#[test]
 fn test_float_numeric_declines_and_preserves_f64_precision() -> VortexResult<()> {
     let mut ctx = SESSION.create_execution_ctx();
     // 16_777_216.0 + 1.0 loses precision in f32 (rounds to 16_777_216.0), and 1e20 * 1e20 overflows
@@ -784,19 +729,24 @@ fn test_float_numeric_declines_and_preserves_f64_precision() -> VortexResult<()>
     let lhs = widen(buffer![16_777_216.0_f32, 1e20_f32], PType::F64).into_array();
     let rhs = widen(buffer![1.0_f32, 1e20_f32], PType::F64).into_array();
 
-    for op in [Operator::Add, Operator::Sub, Operator::Mul, Operator::Div] {
-        let actual = lhs.binary(rhs.clone(), op)?;
-        let expected = canonical(&lhs, &mut ctx)?.binary(canonical(&rhs, &mut ctx)?, op)?;
+    for op in [
+        NumericOperator::Add,
+        NumericOperator::Sub,
+        NumericOperator::Mul,
+        NumericOperator::Div,
+    ] {
+        let actual = lhs.numeric(rhs.clone(), op)?;
+        let expected = canonical(&lhs, &mut ctx)?.numeric(canonical(&rhs, &mut ctx)?, op)?;
         assert_arrays_eq!(actual, expected, &mut ctx);
     }
 
     // Double-check the exact f64 result values didn't suffer f32 rounding/overflow.
     let sum = lhs
-        .binary(rhs.clone(), Operator::Add)?
+        .numeric(rhs.clone(), NumericOperator::Add)?
         .execute::<PrimitiveArray>(&mut ctx)?;
     assert_eq!(sum.as_slice::<f64>()[0], 16_777_217.0_f64);
     let prod = lhs
-        .binary(rhs, Operator::Mul)?
+        .numeric(rhs, NumericOperator::Mul)?
         .execute::<PrimitiveArray>(&mut ctx)?;
     assert!(prod.as_slice::<f64>()[1].is_finite());
 

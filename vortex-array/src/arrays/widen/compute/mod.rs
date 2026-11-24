@@ -39,7 +39,6 @@ use crate::arrays::ConstantArray;
 use crate::arrays::Widen;
 use crate::arrays::WidenArray;
 use crate::arrays::widen::WidenArraySlotsExt;
-use crate::arrays::widen::encode::float_value_fits_in_ptype;
 use crate::arrays::widen::encode::smallest_float_ptype_for_value;
 use crate::arrays::widen::encode::smallest_integer_ptype;
 use crate::builtins::ArrayBuiltins;
@@ -134,16 +133,6 @@ pub fn constant_fits_values(constant: &Scalar, values: &DType) -> Option<bool> {
                 PValue::min_value(*values_ptype) <= value
                     && value <= PValue::max_value(*values_ptype),
             )
-        }
-        (DType::Primitive(values_ptype, _), DType::Primitive(constant_ptype, _))
-            if values_ptype.is_float() && constant_ptype.is_float() =>
-        {
-            let value = constant.as_primitive().pvalue()?;
-            if value.is_nan() {
-                return None;
-            }
-
-            float_value_fits_in_ptype(value, *values_ptype)
         }
         _ => None,
     }
