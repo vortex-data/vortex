@@ -67,6 +67,9 @@ impl ExecuteParentKernel<Widen> for WidenNumericKernel {
         let DType::Primitive(logical_ptype, _) = array.dtype() else {
             return Ok(None);
         };
+        if !logical_ptype.is_int() {
+            return Ok(None);
+        }
 
         let binary = parent
             .as_opt::<ScalarFn>()

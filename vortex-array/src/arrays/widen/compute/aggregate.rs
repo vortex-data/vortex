@@ -53,6 +53,10 @@ impl DynAggregateKernel for WidenArrayAggregate {
             return aggregate_decimal(aggregate_fn, values, logical_dtype, ctx);
         }
 
+        if logical_dtype.is_float() {
+            return aggregate_float(aggregate_fn, values, logical_dtype, ctx);
+        }
+
         if !logical_dtype.is_int() {
             return Ok(None);
         }
@@ -65,6 +69,30 @@ impl DynAggregateKernel for WidenArrayAggregate {
 
         Ok(Some(partial))
     }
+}
+
+/// Selects floating-point aggregates whose child values produce the canonical partial.
+///
+/// Order and bitwise equality carry over from a non-signaling narrow float child, while sums
+/// depend on the logical precision's rounding and overflow behavior and must run canonically.
+fn aggregate_float(
+    aggregate_fn: &AggregateFnRef,
+    values: &ArrayRef,
+    logical_dtype: &DType,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Option<Scalar>> {
+    if !(aggregate_fn.is::<MinMax>()
+        || aggregate_fn.is::<Min>()
+        || aggregate_fn.is::<Max>()
+        || aggregate_fn.is::<IsConstant>()
+        || aggregate_fn.is::<IsSorted>())
+    {
+        return Ok(None);
+    }
+
+    let partial = aggregate_values(aggregate_fn, values, logical_dtype, ctx)?;
+
+    Ok(Some(partial))
 }
 
 /// Selects decimal aggregates whose child values produce the canonical partial.

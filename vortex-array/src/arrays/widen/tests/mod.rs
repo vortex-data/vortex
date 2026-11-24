@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Tests of the `Widen` encoding over integer and decimal values.
+//! Tests of the `Widen` encoding over integer, floating-point, and decimal values.
 //!
 //! The named integer fixtures cover signed and unsigned values, each kind of validity and a single
-//! row, and the `compute` tests run their operations over them. The `decimal` modules build their
-//! own decimal fixtures, and compare each result with the result on the canonical array.
+//! row, and the `compute` tests run their operations over them. The `decimal` and `float` modules
+//! build their own fixtures and compare each result with the result on the canonical array.
 
 mod aggregates;
 mod compute;
@@ -16,6 +16,7 @@ mod decimal_compare;
 mod decimal_fallback;
 mod decimal_stored;
 mod encoding;
+mod float;
 mod integer_stored;
 mod numeric;
 mod serde;

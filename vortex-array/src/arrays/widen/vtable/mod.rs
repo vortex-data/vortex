@@ -10,6 +10,7 @@ mod operations;
 
 mod plugin;
 pub use plugin::WidenPlugin;
+pub use plugin::widen_v2_id;
 
 mod validity;
 
@@ -49,7 +50,7 @@ use crate::require_child;
 #[derive(Clone, Debug)]
 pub struct Widen;
 
-/// A [`Widen`]-encoded integer or decimal array.
+/// A [`Widen`]-encoded integer, floating-point, or decimal array.
 pub type WidenArray = Array<Widen>;
 
 impl VTable for Widen {
@@ -117,13 +118,15 @@ impl VTable for Widen {
                 Ok(ExecutionResult::done(widened.into_array()))
             }
             DType::Primitive(..) => {
-                // Integer casts let the child's kernel decode and widen its values in one pass.
+                // Primitive casts let the child's kernel decode and widen its values in one pass.
                 let widened = array.values().cast(array.dtype().clone())?;
 
                 Ok(ExecutionResult::done(widened))
             }
             dtype => {
-                vortex_panic!("Widen validation requires an integer or decimal dtype, got {dtype}")
+                vortex_panic!(
+                    "Widen validation requires an integer, float, or decimal dtype, got {dtype}"
+                )
             }
         }
     }

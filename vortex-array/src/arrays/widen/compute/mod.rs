@@ -39,6 +39,8 @@ use crate::arrays::ConstantArray;
 use crate::arrays::Widen;
 use crate::arrays::WidenArray;
 use crate::arrays::widen::WidenArraySlotsExt;
+use crate::arrays::widen::encode::float_value_fits_in_ptype;
+use crate::arrays::widen::encode::smallest_float_ptype_for_value;
 use crate::arrays::widen::encode::smallest_integer_ptype;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
@@ -60,10 +62,11 @@ pub fn wrap_values(values: ArrayRef, dtype: DType) -> VortexResult<ArrayRef> {
 }
 
 /// Returns the type that the values of `array` widen to so that they also hold `scalar`: the type
-/// of the values, or the smallest wider type of the logical signedness that holds `scalar`.
+/// of the values, or the smallest wider primitive type of the logical kind that holds `scalar`
+/// losslessly.
 ///
 /// A null `scalar` keeps the type of the values. Returns `None` when `scalar` does not have the
-/// logical dtype, or when the values or the logical dtype is not an integer (a decimal `Widen`).
+/// logical dtype, or when the values or the logical dtype is not primitive (a decimal `Widen`).
 pub fn ptype_holding_values_and_scalar(
     array: ArrayView<'_, Widen>,
     scalar: &Scalar,
@@ -80,12 +83,18 @@ pub fn ptype_holding_values_and_scalar(
         return Some(*values_ptype);
     }
 
-    let value = scalar
+    let pvalue = scalar
         .as_primitive()
         .pvalue()
-        .and_then(PValue::as_i128)
-        .vortex_expect("the non-null scalar has the Widen's integer dtype");
-    let scalar_ptype = smallest_integer_ptype(value..=value, logical_ptype.is_signed_int())?;
+        .vortex_expect("non-null primitive scalar has a value");
+    let scalar_ptype = if logical_ptype.is_float() {
+        smallest_float_ptype_for_value(pvalue)?
+    } else {
+        let value = pvalue
+            .as_i128()
+            .vortex_expect("the non-null scalar has the Widen's integer dtype");
+        smallest_integer_ptype(value..=value, logical_ptype.is_signed_int())?
+    };
 
     if scalar_ptype.byte_width() > values_ptype.byte_width() {
         Some(scalar_ptype)
@@ -94,15 +103,16 @@ pub fn ptype_holding_values_and_scalar(
     }
 }
 
-/// Casts the integer array `array` to `ptype`, keeping its nullability.
+/// Casts the primitive array `array` to `ptype`, keeping its nullability.
 pub fn cast_keeping_nullability(array: &ArrayRef, ptype: PType) -> VortexResult<ArrayRef> {
     array.cast(DType::Primitive(ptype, array.dtype().nullability()))
 }
 
-/// Returns whether the dtype range of `values` holds `constant`.
+/// Returns whether the dtype of `values` holds `constant` losslessly.
 ///
-/// Integers must have the same signedness, and decimals must have the same scale. Returns `None`
-/// for null constants, unsupported dtypes, or incompatible constants.
+/// Integers must have the same signedness, floats must round-trip bit-for-bit without being NaN,
+/// and decimals must have the same scale. Returns `None` for null or NaN constants, unsupported
+/// dtypes, or incompatible constants.
 pub fn constant_fits_values(constant: &Scalar, values: &DType) -> Option<bool> {
     match (values, constant.dtype()) {
         (DType::Decimal(values_dtype, _), DType::Decimal(constant_dtype, _))
@@ -125,15 +135,25 @@ pub fn constant_fits_values(constant: &Scalar, values: &DType) -> Option<bool> {
                     && value <= PValue::max_value(*values_ptype),
             )
         }
+        (DType::Primitive(values_ptype, _), DType::Primitive(constant_ptype, _))
+            if values_ptype.is_float() && constant_ptype.is_float() =>
+        {
+            let value = constant.as_primitive().pvalue()?;
+            if value.is_nan() {
+                return None;
+            }
+
+            float_value_fits_in_ptype(value, *values_ptype)
+        }
         _ => None,
     }
 }
 
 /// Returns the wider of the value types of two [`Widen`] arrays, or `None` when a value type is
-/// not primitive.
+/// not a compatible primitive type.
 ///
-/// The logical dtypes **must** have the same signedness. The value types then have that signedness
-/// too, so the wider one holds every value of the narrower one.
+/// Both arrays must share the same primitive kind (both signed integers, both unsigned integers,
+/// or both floats), so the wider value type holds every value of the narrower one.
 pub fn ptype_holding_both_values(
     lhs: ArrayView<'_, Widen>,
     rhs: ArrayView<'_, Widen>,
@@ -144,10 +164,18 @@ pub fn ptype_holding_both_values(
         return None;
     };
 
-    if lhs_ptype.is_signed_int() {
+    if lhs_ptype.is_float() && rhs_ptype.is_float() {
+        if lhs_ptype.byte_width() >= rhs_ptype.byte_width() {
+            Some(*lhs_ptype)
+        } else {
+            Some(*rhs_ptype)
+        }
+    } else if lhs_ptype.is_signed_int() && rhs_ptype.is_signed_int() {
         Some(lhs_ptype.max_signed_ptype(*rhs_ptype))
-    } else {
+    } else if lhs_ptype.is_unsigned_int() && rhs_ptype.is_unsigned_int() {
         Some(lhs_ptype.max_unsigned_ptype(*rhs_ptype))
+    } else {
+        None
     }
 }
 

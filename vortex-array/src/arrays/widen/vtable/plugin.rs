@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Wire layout of a `vortex.widen` node.
+//! Wire layouts of `vortex.widen` and `vortex.widen.v2` nodes.
 //!
 //! A node has one child and no buffers of its own. The enclosing format supplies the logical dtype
 //! and length of the [`Widen`]. The child has the same length and nullability. A decimal child
@@ -12,17 +12,19 @@
 //! same values, such as a statistic or an index. A child, buffer or metadata field that changes the
 //! decoded values needs a new ID.
 //!
-//! A protobuf `oneof` supplies the rest of the child dtype. Tag 1 holds the integer [`PType`].
-//! Tag 2 holds the decimal precision as a `uint32`. The child dtype must meet the requirements
-//! of [`WidenArray::try_new`].
+//! A protobuf `oneof` supplies the rest of the child dtype. Tag 1 holds the integer [`PType`],
+//! tag 2 holds the decimal precision as a `uint32`, and tag 3 holds the floating-point [`PType`].
+//! `vortex.widen` is frozen for integer and decimal children (tags 1 and 2); floating-point
+//! children (tag 3) require `vortex.widen.v2`. The child dtype must meet the requirements of
+//! [`WidenArray::try_new`].
 
 use prost::Message as _;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
-use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 use vortex_session::VortexSession;
+use vortex_session::registry::CachedId;
 
 use crate::ArrayDeserialization;
 use crate::ArrayId;
@@ -41,9 +43,18 @@ use crate::dtype::DecimalDType;
 use crate::dtype::PType;
 use crate::session::ArraySessionExt;
 
+/// The wire ID for [`Widen`] arrays carrying floating-point children (`vortex.widen.v2`).
+///
+/// `vortex.widen` is frozen for integer and decimal children; floating-point children serialize
+/// under this ID so older readers never encounter a floating-point metadata tag.
+pub fn widen_v2_id() -> ArrayId {
+    static ID: CachedId = CachedId::new("vortex.widen.v2");
+    *ID
+}
+
 #[derive(Clone, prost::Message)]
 struct WidenMetadata {
-    #[prost(oneof = "ChildType", tags = "1, 2")]
+    #[prost(oneof = "ChildType", tags = "1, 2, 3")]
     child_type: Option<ChildType>,
 }
 
@@ -53,13 +64,16 @@ enum ChildType {
     Integer(i32),
     #[prost(uint32, tag = "2")]
     DecimalPrecision(u32),
+    #[prost(enumeration = "PType", tag = "3")]
+    Float(i32),
 }
 
 /// Reads and writes serialized [`Widen`] arrays.
 ///
 /// Writing reuses the child without executing its values or validity. When the child is a
-/// [`Decimal`] array, this plugin writes `vortex.decimal` so older readers can read it. The decimal
-/// reader handles those nodes.
+/// [`Decimal`] array, this plugin writes `vortex.decimal` so older readers can read it. Integer
+/// children and encoded decimals use `vortex.widen`, and floating-point children use
+/// `vortex.widen.v2`.
 #[derive(Clone, Debug)]
 pub struct WidenPlugin;
 
@@ -68,10 +82,14 @@ impl ArrayPlugin for WidenPlugin {
         ArrayVTable::id(&Widen)
     }
 
+    fn read_ids(&self) -> Vec<ArrayId> {
+        vec![self.id(), widen_v2_id()]
+    }
+
     fn write_ids(&self) -> Vec<ArrayId> {
         // Older editions allow `vortex.decimal`, which can store the child's narrow buffer
         // under the parent's decimal dtype.
-        vec![ArrayVTable::id(&Decimal), self.id()]
+        vec![ArrayVTable::id(&Decimal), self.id(), widen_v2_id()]
     }
 
     fn serialize(
@@ -92,12 +110,20 @@ impl ArrayPlugin for WidenPlugin {
             return session.array_serialize(values);
         }
 
-        let child_type = match values.dtype() {
-            DType::Primitive(ptype, _) if ptype.is_int() => ChildType::Integer(*ptype as i32),
-            DType::Decimal(dtype, _) => ChildType::DecimalPrecision(u32::from(dtype.precision())),
+        let (wire_id, child_type) = match values.dtype() {
+            DType::Primitive(ptype, _) if ptype.is_int() => {
+                (self.id(), ChildType::Integer(*ptype as i32))
+            }
+            DType::Primitive(ptype, _) if ptype.is_float() => {
+                (widen_v2_id(), ChildType::Float(*ptype as i32))
+            }
+            DType::Decimal(dtype, _) => (
+                self.id(),
+                ChildType::DecimalPrecision(u32::from(dtype.precision())),
+            ),
             dtype => {
                 vortex_bail!(
-                    "Widen serialization requires an integer or decimal child, got {dtype}"
+                    "Widen serialization requires an integer, float, or decimal child, got {dtype}"
                 )
             }
         };
@@ -106,7 +132,7 @@ impl ArrayPlugin for WidenPlugin {
         };
 
         Ok(Some(ArraySerialization::new(
-            self.id(),
+            wire_id,
             metadata.encode_to_vec(),
             vec![],
             vec![values.clone()],
@@ -118,7 +144,15 @@ impl ArrayPlugin for WidenPlugin {
         parts: ArrayDeserialization<'_>,
         _session: &VortexSession,
     ) -> VortexResult<ArrayRef> {
-        vortex_ensure_eq!(parts.serialized_id, self.id(), "expected the Widen wire ID");
+        let is_v1 = parts.serialized_id == self.id();
+        let is_v2 = parts.serialized_id == widen_v2_id();
+        vortex_ensure!(
+            is_v1 || is_v2,
+            "expected a Widen wire ID ({} or {}), got {}",
+            self.id(),
+            widen_v2_id(),
+            parts.serialized_id
+        );
         // NB: Node buffers and children after the first child are optional extensions, so they
         // are ignored. See the module documentation.
         vortex_ensure!(
@@ -132,6 +166,15 @@ impl ArrayPlugin for WidenPlugin {
         let nullability = parts.dtype.nullability();
         let child_dtype = match (child_type, parts.dtype) {
             (ChildType::Integer(ptype), DType::Primitive(parent, _)) if parent.is_int() => {
+                DType::Primitive(PType::try_from(ptype)?, nullability)
+            }
+            (ChildType::Float(ptype), DType::Primitive(parent, _)) if parent.is_float() => {
+                vortex_ensure!(
+                    is_v2,
+                    "float Widen child requires wire ID {}, got {}",
+                    widen_v2_id(),
+                    parts.serialized_id
+                );
                 DType::Primitive(PType::try_from(ptype)?, nullability)
             }
             (ChildType::DecimalPrecision(precision), DType::Decimal(parent, _)) => {
