@@ -157,8 +157,17 @@ impl<'a> IntoArrowField<'a> for Nullability {
 
 /// Plugin layer for exporting a Vortex array to an Arrow extension type.
 ///
-/// Prefer [`crate::ArrowExtVTable`] for automatic Vortex metadata transport. Both interfaces must
-/// satisfy the dtype round-trip contract checked by [`ArrowSession`].
+/// A successful export **must** preserve the logical value of each row, including nulls. The
+/// physical layout can change. For example, a UUID stored as a fixed-size list of 16 bytes can
+/// export as Arrow `FixedSizeBinary(16)` with the same bytes.
+///
+/// Importing an inferred field with [`ArrowSession::from_arrow_field`] **must** recover the
+/// complete Vortex dtype passed to [`ArrowSession::to_arrow_field`], including extension IDs,
+/// metadata, storage, and nullability at every nesting level. Exporting and importing an array
+/// with that field **must** recover the original dtype and values. Several Arrow representations
+/// can import as the same Vortex dtype.
+///
+/// Prefer [`crate::ArrowExtVTable`] for automatic Vortex metadata transport.
 ///
 /// This is purely an implementation trait, its methods should not be called directly. Instead,
 /// use [`ExecuteArrowExt`] to export an array, and the methods on [`ArrowSession`] to convert a
@@ -190,6 +199,24 @@ pub trait ArrowExportVTable: 'static + Send + Sync + Debug {
     /// those exports, through [`ExecuteArrowExt::execute_arrow_with_options`]. The [`ArrowSession`]
     /// of `ctx` is the session of the export, so a plugin that needs one must use it.
     ///
+    /// # Exported values
+    ///
+    /// Every export **must** preserve the nulls of `array`.
+    ///
+    /// If `array` has an extension dtype and the output type supports the Arrow comparison kernels,
+    /// the export **must** preserve equality and order. Two non-null exported values compare the
+    /// same way in Arrow as their storage values compare in Vortex. Nested Arrow types only have
+    /// the null requirement.
+    ///
+    /// The comparison rule holds across batches in one Arrow representation. To push a comparison
+    /// down to Vortex storage, an engine also needs to know that both operands use compatible
+    /// representations. Two exporters can each preserve order and still encode equal storage
+    /// values differently. A round trip alone does not even ensure that one exporter preserves
+    /// order. An exporter can reverse the bytes of each value and undo that change on import.
+    ///
+    /// A plugin that breaks these rules gives incorrect query results instead of an error. It does
+    /// not cause memory unsafety. `test_harness::check_arrow` checks both rules for one array.
+    ///
     /// [`ExecuteArrowExt::execute_arrow_with_options`]: crate::ExecuteArrowExt::execute_arrow_with_options
     fn execute_arrow(
         &self,
@@ -202,8 +229,12 @@ pub trait ArrowExportVTable: 'static + Send + Sync + Debug {
 
 /// Plugin layer for importing an Arrow extension-typed array into a Vortex array.
 ///
-/// Prefer [`crate::ArrowExtVTable`] for automatic Vortex metadata transport. Both interfaces must
-/// return arrays with the dtype inferred from their fields, as checked by [`ArrowSession`].
+/// A successful import **must** preserve each logical Arrow value as described by the field,
+/// applying the [import nullability rules](ArrowSession::from_arrow_array) at each level.
+/// The returned array must have the dtype inferred from the field, as checked by [`ArrowSession`].
+/// See [`ArrowExportVTable`] for the Vortex-to-Arrow round-trip contract.
+///
+/// Prefer [`crate::ArrowExtVTable`] for automatic Vortex metadata transport.
 ///
 /// Plugins are dispatched by `arrow_ext_id`. The session peels Arrow dictionaries before it
 /// dispatches. The session uses the dictionary field's metadata to import the values because
@@ -273,13 +304,13 @@ type ArrowImporterRegistry = ArcSwapMap<Id, Arc<[ArrowImportVTableRef]>>;
 
 /// Session-scoped registry of Arrow extension plugins.
 ///
-/// All plugins **must** preserve the complete dtype across [`Self::to_arrow_field`] and
-/// [`Self::from_arrow_field`]. This includes extension IDs, metadata, storage, and nullability at
-/// every nesting level. Exporting an array to that field and importing it with the same field must
-/// preserve its dtype and logical values. The owning dtype and Arrow plugins must be registered in
-/// the importing session.
+/// The session checks inferred fields and the dtypes of successful plugin imports. See
+/// [`ArrowExportVTable`] and [`ArrowImportVTable`] for the conversion contracts. The importing
+/// session must register the owning dtype and any Arrow plugins used for the conversion.
 ///
-/// The session checks inferred fields and successful plugin imports, including raw plugins.
+/// An Arrow reader observes exported values before any Vortex importer runs.
+/// [`ArrowExportVTable::execute_arrow`] defines the null and comparison rules for those values.
+///
 /// Explicit export targets may request a different dtype. Unknown Vortex IDs import as storage.
 ///
 /// A plugin converts one Vortex extension type to and from an Arrow extension type. The crate that
@@ -441,13 +472,10 @@ impl ArrowSession {
                     ),
                     dtype.is_nullable(),
                 )
-                .with_metadata(
-                    [(
-                        EXTENSION_TYPE_NAME_KEY.to_string(),
-                        "arrow.parquet.variant".to_string(),
-                    )]
-                    .into(),
-                ))
+                .with_metadata([(
+                    EXTENSION_TYPE_NAME_KEY.to_string(),
+                    "arrow.parquet.variant".to_string(),
+                )]))
             }
             _ => Ok(Field::new(
                 name,
@@ -567,8 +595,8 @@ impl ArrowSession {
     /// produce any data for the same field, so a name with an exporter gives `false`.
     ///
     /// The answer covers only the top level of `field`. Each storage child exports to its own
-    /// field, which can name another exporter, and [`Self::exports_without_plugins`] checks every
-    /// depth.
+    /// field, which can name another exporter. [`Self::exports_without_plugins`] checks for
+    /// exporters at every depth.
     #[expect(clippy::disallowed_methods, reason = "interning a dynamic id")]
     pub fn exports_extension_storage(&self, ext_dtype: &ExtDTypeRef, field: &Field) -> bool {
         // A dictionary or run-end encoded field holds the storage values behind an encoding, so
@@ -608,21 +636,20 @@ impl ArrowSession {
             .is_ok_and(|dtype| &dtype == ext_dtype.storage_dtype())
     }
 
-    /// Returns whether an export to `field` calls no registered exporter at any depth.
+    /// Returns whether exporting to `field` uses only the built-in conversions at every depth.
     ///
-    /// Such an export uses only the conversions of this crate, so a caller planning reads without
-    /// the array knows which Arrow data it produces. A field that names an extension type without
-    /// an exporter still qualifies, because it exports through its Vortex ID or as plain storage.
-    #[expect(clippy::disallowed_methods, reason = "interning a dynamic id")]
+    /// A registered exporter can choose the Arrow representation even if the field also supports
+    /// a built-in conversion. The answer is conservative because the plugin can defer at runtime.
     pub fn exports_without_plugins(&self, field: &Field) -> bool {
-        let names_exporter = field
-            .extension_type_name()
-            .is_some_and(|name| !self.exporters(&Id::new(name)).is_empty());
+        !field_uses_plugin(field, &|id| !self.exporters(id).is_empty())
+    }
 
-        !names_exporter
-            && nested_fields(field.data_type())
-                .into_iter()
-                .all(|child| self.exports_without_plugins(child))
+    /// Returns whether importing from `field` uses only the built-in conversions at every depth.
+    ///
+    /// A registered importer can transform values before Vortex sees them, even if the outer field
+    /// has no extension name.
+    pub fn imports_without_plugins(&self, field: &Field) -> bool {
+        !field_uses_plugin(field, &|id| !self.importers(id).is_empty())
     }
 
     /// Fails unless `field`, which names the Vortex ID of `ext_dtype`, describes `ext_dtype`.
@@ -1206,23 +1233,32 @@ pub(crate) fn ensure_ext_metadata(
     Ok(())
 }
 
-/// Returns the fields nested directly in `data_type`.
-///
-/// A dictionary has no field for its values, so it returns the fields nested in the value type.
-fn nested_fields(data_type: &DataType) -> Vec<&Field> {
+#[expect(clippy::disallowed_methods, reason = "interning a dynamic id")]
+fn field_uses_plugin(field: &Field, is_registered: &impl Fn(&Id) -> bool) -> bool {
+    field
+        .extension_type_name()
+        .is_some_and(|name| is_registered(&Id::new(name)))
+        || child_uses_plugin(field.data_type(), is_registered)
+}
+
+fn child_uses_plugin(data_type: &DataType, is_registered: &impl Fn(&Id) -> bool) -> bool {
     match data_type {
-        DataType::Struct(fields) => fields.iter().map(Arc::as_ref).collect(),
-        DataType::Union(fields, _) => fields.iter().map(|(_, field)| field.as_ref()).collect(),
+        DataType::Struct(fields) => fields
+            .iter()
+            .any(|field| field_uses_plugin(field, is_registered)),
+        DataType::Union(fields, _) => fields
+            .iter()
+            .any(|(_, field)| field_uses_plugin(field, is_registered)),
         DataType::List(field)
         | DataType::LargeList(field)
         | DataType::ListView(field)
         | DataType::LargeListView(field)
         | DataType::FixedSizeList(field, _)
         | DataType::Map(field, _)
-        | DataType::RunEndEncoded(_, field) => vec![field.as_ref()],
-        DataType::Dictionary(_, values) => nested_fields(values),
-        // Other Arrow types have no nested fields.
-        _ => Vec::new(),
+        | DataType::RunEndEncoded(_, field) => field_uses_plugin(field, is_registered),
+        // A dictionary carries its value field's metadata on the outer field, checked above.
+        DataType::Dictionary(_, values) => child_uses_plugin(values, is_registered),
+        _ => false,
     }
 }
 
@@ -1265,6 +1301,7 @@ mod tests {
     use arrow_schema::Field;
     use arrow_schema::FieldRef;
     use arrow_schema::Fields;
+    use arrow_schema::Metadata;
     use rstest::rstest;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute as _;
@@ -1374,13 +1411,10 @@ mod tests {
             ]
             .into(),
         );
-        let field = Field::new("v", storage, true).with_metadata(
-            [(
-                "ARROW:extension:name".to_string(),
-                "arrow.parquet.variant".to_string(),
-            )]
-            .into(),
-        );
+        let field = Field::new("v", storage, true).with_metadata([(
+            "ARROW:extension:name".to_string(),
+            "arrow.parquet.variant".to_string(),
+        )]);
         assert_eq!(
             session.from_arrow_field(&field)?,
             DType::Variant(Nullability::Nullable)
@@ -1450,7 +1484,7 @@ mod tests {
         let metadata = extension_name
             .map(|id| (EXTENSION_TYPE_NAME_KEY.to_string(), id.to_string()))
             .into_iter()
-            .collect();
+            .collect::<Metadata>();
         let field = Field::new("s", dict.data_type().clone(), false).with_metadata(metadata);
 
         let dtype = session.from_arrow_field(&field)?;
@@ -1509,15 +1543,10 @@ mod tests {
     }
 
     fn truncated_field(name: &str, data_type: DataType) -> FieldRef {
-        Arc::new(
-            Field::new(name, data_type, false).with_metadata(
-                [(
-                    EXTENSION_TYPE_NAME_KEY.to_string(),
-                    "test.truncate".to_string(),
-                )]
-                .into(),
-            ),
-        )
+        Arc::new(Field::new(name, data_type, false).with_metadata([(
+            EXTENSION_TYPE_NAME_KEY.to_string(),
+            "test.truncate".to_string(),
+        )]))
     }
 
     fn list_with_truncated_child() -> ArrowArrayRef {
@@ -1946,8 +1975,10 @@ mod tests {
     fn leaf(extension_name: Option<&str>) -> FieldRef {
         let mut leaf = Field::new("leaf", DataType::Int32, true);
         if let Some(name) = extension_name {
-            leaf = leaf
-                .with_metadata([(EXTENSION_TYPE_NAME_KEY.to_string(), name.to_string())].into());
+            leaf = leaf.with_metadata(Metadata::from_iter([(
+                EXTENSION_TYPE_NAME_KEY.to_string(),
+                name.to_string(),
+            )]));
         }
 
         Arc::new(leaf)

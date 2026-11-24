@@ -19,6 +19,7 @@ use datafusion_common::Result as DFResult;
 use datafusion_common::ScalarValue;
 use datafusion_common::exec_datafusion_err;
 use datafusion_common::format::DEFAULT_FORMAT_OPTIONS;
+use datafusion_common::metadata::FieldMetadata;
 use datafusion_common::tree_node::Transformed as DFTransformed;
 use datafusion_common::tree_node::TreeNode;
 use datafusion_expr::Operator as DFOperator;
@@ -82,6 +83,7 @@ use vortex::scalar_fn::builtin::operators::BooleanOperator;
 use vortex::scalar_fn::builtin::operators::CompareOperator;
 use vortex::session::VortexSession;
 use vortex_arrow::ArrowSessionExt;
+use vortex_arrow::ExecuteArrowExt;
 
 use crate::row_index::RowIndex;
 
@@ -270,8 +272,8 @@ type Conversion<T> = Result<T, Unconverted>;
 /// Nested struct field access also uses Vortex semantics: a null parent produces a null child,
 /// whereas DataFusion extracts the child without applying parent validity. These differences
 /// are accepted for both filters and projections.
-/// Field access through an extension can run natively when Arrow exposes its Vortex storage and no
-/// plugin exports the selected field.
+/// Field access through an extension can run natively when Arrow exposes its Vortex storage and
+/// the selected field exports without plugins.
 /// Searched `CASE WHEN` expressions preserve short-circuit evaluation: conditions and
 /// branch values only execute on the rows that reach them, including fallible branches.
 /// Other expressions require compatible SQL semantics or remain in DataFusion.
@@ -575,7 +577,7 @@ impl DefaultExpressionConverter {
         for key in [EXTENSION_TYPE_NAME_KEY, EXTENSION_TYPE_METADATA_KEY] {
             field.metadata_mut().remove(key);
             if let Some(value) = operand_field.metadata().get(key) {
-                field.metadata_mut().insert(key.into(), value.clone());
+                field.metadata_mut().insert(key, value.clone());
             }
         }
 
@@ -586,6 +588,10 @@ impl DefaultExpressionConverter {
     ///
     /// A literal that the plugins reject stays in DataFusion, including when a plugin accepts the
     /// field but rejects the value.
+    ///
+    /// Check that literals with extension metadata or a nested importer export back to the same
+    /// Arrow value. An importer can map several Arrow values to one Vortex value, such as every
+    /// non-zero `arrow.bool8` to true. DataFusion still distinguishes the original values.
     fn import_literal(&self, literal: &df_expr::Literal, field: &Field) -> Conversion<Scalar> {
         let array = literal.value().to_array()?;
         if array.len() != 1 {
@@ -598,16 +604,31 @@ impl DefaultExpressionConverter {
 
         self.arrow_dtype(field)?;
 
-        self.session
+        let mut ctx = self.session.create_execution_ctx();
+        let imported = self
+            .session
             .arrow()
-            .from_arrow_array(array, field)
-            .map_err(|_| Unconverted::Unsupported)?
-            .execute_scalar(0, &mut self.session.create_execution_ctx())
-            .map_err(|error| {
-                Unconverted::Failed(DataFusionError::External(Box::new(
-                    error.with_context(format!("Failed to convert literal {literal}")),
-                )))
-            })
+            .from_arrow_array(Arc::clone(&array), field)
+            .map_err(|_| Unconverted::Unsupported)?;
+
+        if field.extension_type_name().is_some()
+            || !self.session.arrow().imports_without_plugins(field)
+        {
+            let exported = imported
+                .clone()
+                .execute_arrow(Some(field), &mut ctx)
+                .map_err(|_| Unconverted::Unsupported)?;
+
+            if exported.to_data() != array.to_data() {
+                return Err(Unconverted::Unsupported);
+            }
+        }
+
+        imported.execute_scalar(0, &mut ctx).map_err(|error| {
+            Unconverted::Failed(DataFusionError::External(Box::new(
+                error.with_context(format!("Failed to convert literal {literal}")),
+            )))
+        })
     }
 
     /// Converts a string argument of a string function.
@@ -661,17 +682,33 @@ impl DefaultExpressionConverter {
 
         // The list of a hash join filter holds every build-side key, which repeat. Each element
         // converts through Arrow, so equal values with equal metadata are converted once.
-        let elements = in_list
+        let literals = in_list
             .list()
             .iter()
-            .unique_by(|element| element.downcast_ref::<df_expr::Literal>().cloned())
             .map(|element| {
-                let literal = element
+                element
                     .downcast_ref::<df_expr::Literal>()
-                    .ok_or(Unconverted::Unsupported)?;
-
-                self.import_literal_for_operand(literal, &value_field, schema)
+                    .cloned()
+                    .ok_or(Unconverted::Unsupported)
             })
+            .collect::<Conversion<Vec<_>>>()?;
+        let signed_zero_partners = literals
+            .iter()
+            .filter_map(|literal| {
+                let partner = signed_zero_partner(literal.value())?;
+                Some(literal.return_field(schema).map(|field| {
+                    df_expr::Literal::new_with_metadata(
+                        partner,
+                        Some(FieldMetadata::new_from_field(&field)),
+                    )
+                }))
+            })
+            .collect::<DFResult<Vec<_>>>()?;
+        let elements = literals
+            .into_iter()
+            .chain(signed_zero_partners)
+            .unique()
+            .map(|literal| self.import_literal_for_operand(&literal, &value_field, schema))
             .collect::<Conversion<Vec<_>>>()?;
 
         // An element of another type than the value declines the pushdown: no implicit casts.
@@ -808,6 +845,11 @@ impl DefaultExpressionConverter {
     /// sides read the same values only when Vortex exports the parent as exactly its storage, which
     /// [`exports_extension_storage`] checks.
     ///
+    /// A plugin can choose how to export the selected field. Keep that read in DataFusion when
+    /// traversing extension storage. Two exporters can preserve order within their own outputs
+    /// and still encode equal values differently. Raw exporters of plain values can also change
+    /// their order.
+    ///
     /// [`exports_extension_storage`]: vortex_arrow::ArrowSession::exports_extension_storage
     fn convert_get_field(
         &self,
@@ -864,12 +906,6 @@ impl DefaultExpressionConverter {
             read = get_item(name, read);
         }
 
-        // A plugin exporter decides which Arrow data DataFusion sees for the selected field, so
-        // Vortex and DataFusion agree on that field only if the export keeps values. Columns and
-        // plain struct fields already assume this, and the check skips them so that their pushdown
-        // stays the same.
-        // TODO(connor): Drop this check once the Arrow plugin contract requires exports to keep
-        // values.
         if reads_extension_storage && !self.session.arrow().exports_without_plugins(field) {
             return Err(Unconverted::Unsupported);
         }
@@ -979,6 +1015,26 @@ impl ExpressionConverter for DefaultExpressionConverter {
             Err(Unconverted::Unsupported) => Ok(None),
             Err(Unconverted::Failed(error)) => Err(error),
         }
+    }
+}
+
+/// The other signed zero, for a float zero.
+///
+/// DataFusion's `IN` treats `0.0` and `-0.0` as equal but otherwise compares floats by their bits,
+/// so a NaN matches only the same NaN. Vortex's set lookup compares bits, so a converted list holds
+/// both zeros whenever DataFusion's list holds either.
+fn signed_zero_partner(value: &ScalarValue) -> Option<ScalarValue> {
+    match value {
+        ScalarValue::Float16(Some(zero)) if zero.to_f32() == 0.0 => {
+            Some(ScalarValue::Float16(Some(-*zero)))
+        }
+        ScalarValue::Float32(Some(zero)) if *zero == 0.0 => {
+            Some(ScalarValue::Float32(Some(-*zero)))
+        }
+        ScalarValue::Float64(Some(zero)) if *zero == 0.0 => {
+            Some(ScalarValue::Float64(Some(-*zero)))
+        }
+        _ => None,
     }
 }
 
