@@ -166,7 +166,8 @@ impl StatsSession {
 
     /// Returns true if any rewrite rule is registered for `scalar_fn_id`.
     pub fn has_rewrite_for(&self, scalar_fn_id: ScalarFnId) -> bool {
-        self.rewrite_rules.read().contains_key(&scalar_fn_id)
+        self.rewrite_rules
+            .read(|rules| rules.contains_key(&scalar_fn_id))
     }
 }
 

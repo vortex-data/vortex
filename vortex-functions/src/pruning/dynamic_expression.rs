@@ -297,6 +297,7 @@ mod tests {
     #[test]
     fn session_does_not_keep_dynamic_predicates() -> VortexResult<()> {
         let session = VortexSession::empty().with::<StatsSession>();
+        crate::initialize(&session);
         let threshold = Arc::new(Threshold::default());
         let dtype = DType::struct_(
             [("a", DType::Primitive(PType::U64, Nullability::NonNullable))],

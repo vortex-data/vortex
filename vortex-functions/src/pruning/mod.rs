@@ -459,6 +459,7 @@ mod tests {
     use vortex_expr::lambda::row_count::RowCount;
     use vortex_expr::lit;
     use vortex_expr::lt;
+    use vortex_expr::lt_eq;
     use vortex_expr::or;
     use vortex_expr::stats::expr::StatFn;
     use vortex_expr::stats::expr::StatOptions;
