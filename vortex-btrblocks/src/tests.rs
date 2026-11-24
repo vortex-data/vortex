@@ -39,6 +39,7 @@ use vortex_array::arrays::StructArray;
 use vortex_array::arrays::TemporalArray;
 use vortex_array::arrays::VarBin;
 use vortex_array::arrays::VarBinViewArray;
+use vortex_array::arrays::patched::PatchedArraySlotsExt;
 use vortex_array::arrays::patched::use_experimental_patches;
 use vortex_array::assert_arrays_eq;
 use vortex_array::dtype::DType;
@@ -511,10 +512,11 @@ fn test_alp_keeps_its_patches() -> VortexResult<()> {
     let compressed = assert_roundtrip(&compressor, &input)?;
 
     let alp = if use_experimental_patches() {
-        assert!(compressed.is::<Patched>(), "{}", compressed.encoding_id());
-        compressed.slots()[0]
+        compressed
+            .as_opt::<Patched>()
+            .ok_or_else(|| vortex_err!("expected Patched, got {}", compressed.encoding_id()))?
+            .inner()
             .clone()
-            .ok_or_else(|| vortex_err!("Patched holds its inner array"))?
     } else {
         compressed
     };

@@ -119,8 +119,11 @@ impl KeptPatches {
         Self::interior(scheme, index, Some(patches), ctx)
     }
 
-    /// Returns the arrays of `patches`, stored inside the encoding however
-    /// `use_experimental_patches` is set, as kept children of `scheme`, numbered from `index`.
+    /// Returns the arrays of `patches` as kept children of `scheme`, numbered from `index`, to be
+    /// stored inside the encoding whether or not `use_experimental_patches` is set.
+    ///
+    /// This is for patches of one of the encoding's children, such as ALP-RD's left parts, which a
+    /// [`Patched`] array around the encoding cannot hold.
     ///
     /// # Errors
     ///

@@ -22,12 +22,10 @@ use vortex_compressor::scheme::CompressionEstimate;
 use vortex_compressor::scheme::DeferredEstimate;
 use vortex_compressor::scheme::EstimateVerdict;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
-use vortex_error::vortex_err;
+use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 use vortex_fastlanes::BitPacked;
-use vortex_fastlanes::BitPackedDataParts;
-use vortex_fastlanes::BitWidths;
+use vortex_fastlanes::BitPackedSlots;
 use vortex_fastlanes::bitpacked_v1_id;
 
 use crate::ArrayAndStats;
@@ -93,12 +91,17 @@ impl Scheme for ALPRDScheme {
             left_parts_dictionary,
             right_parts,
         } = ALPRDArrayOwnedExt::into_data_parts(alp_rd);
-        let (left_parts, validity) = take_validity(left_parts)?;
+        vortex_ensure!(
+            left_parts.is::<BitPacked>(),
+            "ALP-RD left parts are {}, not bit-packed",
+            left_parts.encoding_id()
+        );
+        let validity = left_parts.validity()?;
 
         // The patches are of the left parts, not of the input, so they stay inside ALP-RD.
         let (patches, keep) = KeptPatches::interior(self, 0, left_parts_patches, exec_ctx)?;
         Ok(Encoded::new(Vec::new(), keep, move |children, _| {
-            let left_parts = left_parts.with_validity(children.validity()?)?;
+            let left_parts = with_compressed_validity(left_parts, children.validity()?)?;
             patches.build(children, |patches| {
                 Ok(vortex_alp::ALPRD::try_new(
                     dtype,
@@ -126,45 +129,14 @@ impl Scheme for ALPRDScheme {
     }
 }
 
-/// ALP-RD's bit-packed left parts with their validity taken out, to be registered.
-struct LeftParts {
-    /// The parts of the bit-packed array but its validity.
-    parts: BitPackedDataParts,
-    /// The type of the packed values.
-    ptype: PType,
-}
-
-impl LeftParts {
-    /// Rebuilds the bit-packed left parts with `validity`.
-    fn with_validity(self, validity: Validity) -> VortexResult<ArrayRef> {
-        let BitPackedDataParts {
-            offset,
-            bit_widths,
-            len,
-            packed,
-            patches,
-            ..
-        } = self.parts;
-        let BitWidths::Global(bit_width) = bit_widths else {
-            vortex_bail!("ALP-RD packs its left parts at one bit width");
-        };
-        Ok(BitPacked::try_new(
-            packed, self.ptype, validity, patches, bit_width, len, offset,
-        )?
-        .into_array())
+/// Puts `validity`, the compressed form of the validity of the bit-packed `left_parts`, in place of
+/// their own.
+fn with_compressed_validity(left_parts: ArrayRef, validity: Validity) -> VortexResult<ArrayRef> {
+    if left_parts.slots()[BitPackedSlots::VALIDITY_CHILD].is_none() {
+        // An all-valid or non-nullable validity has no bitmap, so compression leaves it as it is.
+        return Ok(left_parts);
     }
-}
-
-/// Splits the validity off ALP-RD's bit-packed left parts.
-fn take_validity(left_parts: ArrayRef) -> VortexResult<(LeftParts, Validity)> {
-    let packed = left_parts.try_downcast::<BitPacked>().map_err(|array| {
-        vortex_err!(
-            "ALP-RD left parts are {}, not bit-packed",
-            array.encoding_id()
-        )
-    })?;
-    let ptype = packed.dtype().as_ptype();
-    let mut parts = BitPacked::into_parts(packed);
-    let validity = std::mem::replace(&mut parts.validity, Validity::NonNullable);
-    Ok((LeftParts { parts, ptype }, validity))
+    let bitmap = validity.to_array(left_parts.len());
+    // SAFETY: the bitmap is a compressed form of the one it replaces, which holds the same values.
+    unsafe { left_parts.with_slot(BitPackedSlots::VALIDITY_CHILD, bitmap) }
 }
