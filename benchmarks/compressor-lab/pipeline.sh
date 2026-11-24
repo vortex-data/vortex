@@ -35,5 +35,7 @@ wait
 "$LAB" plan show --plan "$WORK/plan" --store "$WORK/store"
 "$LAB" materialize --plan "$WORK/plan" --store "$WORK/store" --out "$WORK/dataset"
 
+uv run --project "$HERE/analysis" vx-analyze report "$WORK/dataset" --out "$WORK/report.html"
+
 uv run --no-project --with pandas --with scikit-learn python -W ignore \
     "$ROOT/benchmarks/compressor-feasibility/train.py" "$WORK/dataset" --export "$WORK/models"
