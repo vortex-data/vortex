@@ -9,10 +9,10 @@
 use std::path::Path;
 use std::process::Command;
 
+use anyhow::Context;
 use clap::Parser;
 use clap::value_parser;
 use mimalloc::MiMalloc;
-use tracing::info;
 use vortex::error::VortexExpect;
 use vortex_bench::Benchmark;
 use vortex_bench::BenchmarkArg;
@@ -125,12 +125,6 @@ fn generate_duckdb(base_path: &Path, benchmark: &dyn Benchmark) -> anyhow::Resul
 
     let db_path = duckdb_dir.join("duckdb.db");
 
-    // Skip if database already exists
-    if db_path.exists() {
-        info!("DuckDB database already exists at {}", db_path.display());
-        return Ok(());
-    }
-
     let parquet_dir = base_path.join(Format::Parquet.name());
     let sql = generate_duckdb_registration_sql(
         benchmark,
@@ -146,7 +140,8 @@ fn generate_duckdb(base_path: &Path, benchmark: &dyn Benchmark) -> anyhow::Resul
             .arg(&db_path)
             .arg("-c")
             .arg(&stmt)
-            .output()?;
+            .output()
+            .context("failed to run the `duckdb` CLI; install it and put it on PATH")?;
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);

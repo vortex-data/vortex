@@ -7,7 +7,6 @@ use crate::Edition;
 use crate::EditionDeclaration;
 use crate::EditionFamily;
 use crate::EditionId;
-use crate::EditionMember;
 
 /// The shared family for experimental components, including third-party plugins.
 pub static FAMILY: EditionFamily = EditionFamily {
@@ -24,15 +23,12 @@ guarantee.",
 /// records when it was added.
 pub const UNSTABLE: EditionId = EditionId::new("unstable", 2026, 10, 0);
 
-/// Built-in serialized components awaiting stabilization in [`UNSTABLE`].
+/// The edition declaration that lets plugins add experimental formats to [`UNSTABLE`].
 pub static DECLARATION: EditionDeclaration = EditionDeclaration {
     edition: Edition {
         id: UNSTABLE,
         immutable: false,
         min_library_version: None,
     },
-    added: &[
-        EditionMember::array(&"vortex.decimal_byte_parts.v2"),
-        EditionMember::array(&"vortex.widen"),
-    ],
+    added: &[],
 };

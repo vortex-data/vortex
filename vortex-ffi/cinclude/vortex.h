@@ -540,6 +540,7 @@ typedef struct {
     /**
      * Used only when "include" is not VX_SELECTION_INCLUDE_ALL.
      * If set, must point to an array of len "idx_len" row_indices.
+     * May be NULL when idx_len is 0.
      */
     const uint64_t *idx;
     /**
@@ -1114,13 +1115,13 @@ vx_expression *vx_expression_select(const vx_view *names, size_t len, const vx_e
 
 /**
  * Create an AND expression for multiple child expressions.
- * If len == 0, returns NULL
+ * Returns NULL if `len == 0` or `expressions` is NULL.
  */
 vx_expression *vx_expression_and(const vx_expression *const *expressions, size_t len);
 
 /**
  * Create an OR disjunction expression for multiple child expressions.
- * If len == 0, returns NULL
+ * Returns NULL if `len == 0` or `expressions` is NULL.
  */
 vx_expression *vx_expression_or(const vx_expression *const *expressions, size_t len);
 

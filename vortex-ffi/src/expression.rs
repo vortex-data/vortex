@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::ptr;
-use std::ptr::NonNull;
 use std::slice;
 use std::sync::Arc;
 
@@ -137,17 +136,16 @@ pub unsafe extern "C" fn vx_expression_select(
 }
 
 /// Create an AND expression for multiple child expressions.
-/// If len == 0, returns NULL
+/// Returns NULL if `len == 0` or `expressions` is NULL.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn vx_expression_and(
     expressions: *const *const vx_expression,
     len: usize,
 ) -> *mut vx_expression {
-    let slice = if expressions.is_null() {
-        unsafe { slice::from_raw_parts(NonNull::dangling().as_ptr(), len) }
-    } else {
-        unsafe { slice::from_raw_parts(expressions, len) }
-    };
+    if len == 0 || expressions.is_null() {
+        return ptr::null_mut();
+    }
+    let slice = unsafe { slice::from_raw_parts(expressions, len) };
     match and_collect(slice.iter().map(|x| vx_expression::as_ref(*x).clone())) {
         Some(expr) => vx_expression::new(expr),
         None => ptr::null_mut(),
@@ -155,17 +153,16 @@ pub unsafe extern "C" fn vx_expression_and(
 }
 
 /// Create an OR disjunction expression for multiple child expressions.
-/// If len == 0, returns NULL
+/// Returns NULL if `len == 0` or `expressions` is NULL.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn vx_expression_or(
     expressions: *const *const vx_expression,
     len: usize,
 ) -> *mut vx_expression {
-    let slice = if expressions.is_null() {
-        unsafe { slice::from_raw_parts(NonNull::dangling().as_ptr(), len) }
-    } else {
-        unsafe { slice::from_raw_parts(expressions, len) }
-    };
+    if len == 0 || expressions.is_null() {
+        return ptr::null_mut();
+    }
+    let slice = unsafe { slice::from_raw_parts(expressions, len) };
     match or_collect(slice.iter().map(|x| vx_expression::as_ref(*x).clone())) {
         Some(expr) => vx_expression::new(expr),
         None => ptr::null_mut(),
@@ -597,6 +594,14 @@ mod tests {
             vx_array_free(array);
 
             vx_expression_free(root);
+        }
+    }
+
+    #[test]
+    fn test_and_or_null_pointer_with_nonzero_len() {
+        unsafe {
+            assert!(vx_expression_and(ptr::null(), 2).is_null());
+            assert!(vx_expression_or(ptr::null(), 2).is_null());
         }
     }
 }

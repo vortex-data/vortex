@@ -1,6 +1,7 @@
 {
   "vortex": {
     "common_encoding_tree_throughput": 8,
+    "filter_chunked": 22,
     "pipeline": 0,
     "single_encoding_throughput": 28,
     "take_union": 4,
@@ -74,7 +75,7 @@
     "widen_decimal": 9
   },
   "vortex-arrow": {
-    "to_arrow": 131
+    "to_arrow": 135
   },
   "vortex-buffer": {
     "allocation": 35,
@@ -172,6 +173,7 @@
   },
   "vortex-sparse": {
     "sparse_canonical": 6,
+    "sparse_dict_codes": 4,
     "sparse_pushdown": 5
   },
   "vortex-spatial": {
