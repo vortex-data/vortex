@@ -1084,24 +1084,32 @@ physical_ptype!(u64, u64);
 
 #[cfg(test)]
 mod tests {
-    use rstest::rstest;
+    use std::panic::catch_unwind;
 
     use super::*;
 
-    #[rstest]
-    #[case::invalid_lhs(PType::F32, PType::U8)]
-    #[case::invalid_rhs(PType::U8, PType::I64)]
-    #[should_panic(expected = "max_unsigned_ptype requires two unsigned integer types")]
-    fn max_unsigned_ptype_rejects_invalid_types(#[case] lhs: PType, #[case] rhs: PType) {
-        lhs.max_unsigned_ptype(rhs);
+    #[test]
+    fn max_unsigned_ptype_rejects_invalid_types() {
+        for (lhs, rhs) in [(PType::F32, PType::U8), (PType::U8, PType::I64)] {
+            let panic = catch_unwind(|| lhs.max_unsigned_ptype(rhs))
+                .expect_err("both arguments must be unsigned integers");
+            assert_eq!(
+                panic.downcast_ref::<&str>().copied(),
+                Some("max_unsigned_ptype requires two unsigned integer types")
+            );
+        }
     }
 
-    #[rstest]
-    #[case::invalid_lhs(PType::U64, PType::I8)]
-    #[case::invalid_rhs(PType::I8, PType::F32)]
-    #[should_panic(expected = "max_signed_ptype requires two signed integer types")]
-    fn max_signed_ptype_rejects_invalid_types(#[case] lhs: PType, #[case] rhs: PType) {
-        lhs.max_signed_ptype(rhs);
+    #[test]
+    fn max_signed_ptype_rejects_invalid_types() {
+        for (lhs, rhs) in [(PType::U64, PType::I8), (PType::I8, PType::F32)] {
+            let panic = catch_unwind(|| lhs.max_signed_ptype(rhs))
+                .expect_err("both arguments must be signed integers");
+            assert_eq!(
+                panic.downcast_ref::<&str>().copied(),
+                Some("max_signed_ptype requires two signed integer types")
+            );
+        }
     }
 
     #[test]
