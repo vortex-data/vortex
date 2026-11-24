@@ -35,8 +35,10 @@ use vortex_error::vortex_err;
 
 use super::CascadingCompressor;
 use super::constant;
+use crate::scheme::CompressionEstimate;
 use crate::scheme::CompressionPolicy;
 use crate::scheme::CompressorContext;
+use crate::scheme::EstimateVerdict;
 use crate::scheme::Scheme;
 use crate::scheme::SchemeExt;
 use crate::scheme::SchemeId;
@@ -544,6 +546,14 @@ impl CascadingCompressor {
         let mut best: Option<(f64, SchemeId, ArrayRef)> = None;
         for &scheme in eligible_schemes {
             if !ids.is_empty() && !ids.contains(&scheme.id()) {
+                continue;
+            }
+            // An immediate `Skip` encodes a precondition of the scheme (such as Sparse needing a
+            // dominant value), so trying it anyway can fail or panic.
+            if matches!(
+                scheme.expected_compression_ratio(&data, compress_ctx.clone(), exec_ctx),
+                CompressionEstimate::Verdict(EstimateVerdict::Skip)
+            ) {
                 continue;
             }
             let Some(compressed) =
