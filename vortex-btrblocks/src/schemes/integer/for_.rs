@@ -246,16 +246,9 @@ impl Scheme for FoRScheme {
         // Signed wrapping subtraction on a block wider than `T::MAX` can produce negative
         // residuals; in that case fall back to selecting another encoding (excluding FoR)
         // rather than materializing an uncompressed FoR array larger than the input.
-        let Some(compressed) =
-            try_bitpack_residuals(compressor, biased, &compress_ctx, exec_ctx)?
+        let Some(compressed) = try_bitpack_residuals(compressor, biased, &compress_ctx, exec_ctx)?
         else {
-            return compressor.compress_child(
-                data.array(),
-                &compress_ctx,
-                self.id(),
-                0,
-                exec_ctx,
-            );
+            return compressor.compress_child(data.array(), &compress_ctx, self.id(), 0, exec_ctx);
         };
 
         // TODO(connor): This should really be `new_unchecked`.
