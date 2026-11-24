@@ -84,8 +84,11 @@ LogicalOperatorPtr TryReplaceAggregate(ClientContext &context,
     if (!aggregate_pushdown(context, {*get, input})) {
         return op;
     }
+    // Vortex now evaluates the table filters
+    get->table_filters.ClearFilters();
 
     // GET now returns one column per aggregate. Expand existing columns
+    const vector<ColumnIndex> scan_column_ids = get->GetColumnIds();
     auto &column_ids = get->GetMutableColumnIds();
     get->types.resize(aggregates_len);
     get->returned_types.resize(aggregates_len);
@@ -98,7 +101,7 @@ LogicalOperatorPtr TryReplaceAggregate(ClientContext &context,
         if (column_index == COUNT_STAR_PROJ_IDX) {
             names[i] = "count_star()";
         } else {
-            const idx_t storage_index = get->GetColumnIds()[column_index].GetPrimaryIndex();
+            const idx_t storage_index = scan_column_ids[column_index].GetPrimaryIndex();
             names[i] = get->names[storage_index];
         }
         get->types[i] = expr.GetReturnType();

@@ -108,8 +108,8 @@ the additional v2 wire format.[^decimal-availability]
 
 The rows compare the implementations before and after multi-child support was added. The vertical
 arrow marks that implementation change, while the horizontal arrows show writing and reading.
-Although v2 also accepts a single child, the serializer chooses v1 for that shape. Each child is
-itself a serialized array with its own wire ID.
+V1 stores one child, and v2 requires at least one lower part alongside the most significant
+part. Each child is itself a serialized array with its own wire ID.
 ```
 
 For a single-child array, the serializer reuses the child and writes v1 metadata without
@@ -276,5 +276,5 @@ writer that enforces editions writes multi-child decimal arrays only when a sele
 permits it.
 
 [^decimal-availability]:
-    No frozen edition currently permits the multi-child format. The
-    [compression section](#compression) describes what the default compressor produces today.
+    Enable `preview2026.11.0` to write the multi-child format. See the
+    [compression section](#compression) for how the default compressor selects a format.

@@ -23,18 +23,15 @@ use vortex_array::arrays::varbinview::BinaryView;
 use vortex_array::arrays::varbinview::VarBinViewArrayExt;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
-use vortex_array::expr::BoundExpression;
-use vortex_array::expr::bound::not;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar_fn::Arity;
 use vortex_array::scalar_fn::ChildName;
 use vortex_array::scalar_fn::ExecutionArgs;
 use vortex_array::scalar_fn::ScalarFnId;
 use vortex_array::scalar_fn::ScalarFnVTable;
-use vortex_array::scalar_fn::ScalarFnVTableExt;
-use vortex_array::scalar_fn::fns::binary::Binary;
-use vortex_array::scalar_fn::fns::literal::Literal;
-use vortex_array::scalar_fn::fns::operators::Operator;
+use vortex_array::scalar_fn::builtin::compare::Compare;
+use vortex_array::scalar_fn::builtin::literal::Literal;
+use vortex_array::scalar_fn::builtin::operators::CompareOperator;
 use vortex_buffer::BitBufferMut;
 use vortex_buffer::Buffer;
 use vortex_error::VortexExpect;
@@ -42,6 +39,9 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
+use vortex_expr::BoundExpression;
+use vortex_expr::ScalarFnExprExt;
+use vortex_expr::bound::not;
 use vortex_expr::stats::expr::bound::stat as bound_stat;
 use vortex_expr::stats::rewrite::StatsRewriteRule;
 use vortex_session::VortexSession;
@@ -236,7 +236,7 @@ struct BloomEqRewrite {
 
 impl StatsRewriteRule for BloomEqRewrite {
     fn scalar_fn_id(&self) -> ScalarFnId {
-        Binary.id()
+        Compare.id()
     }
 
     /// Returns a falsifier for equality expression between the root column
@@ -249,7 +249,7 @@ impl StatsRewriteRule for BloomEqRewrite {
         expr: &BoundExpression,
         _session: &VortexSession,
     ) -> VortexResult<Option<BoundExpression>> {
-        if *expr.as_::<Binary>() != Operator::Eq {
+        if *expr.as_::<Compare>() != CompareOperator::Eq {
             return Ok(None);
         }
 
@@ -296,9 +296,6 @@ mod tests {
     use vortex_array::dtype::DecimalDType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
-    use vortex_array::expr::bound::eq;
-    use vortex_array::expr::bound::lit;
-    use vortex_array::expr::bound::root;
     use vortex_array::scalar::DecimalValue;
     use vortex_array::scalar::Scalar;
     use vortex_array::scalar_fn::ScalarFnVTable;
@@ -307,6 +304,9 @@ mod tests {
     use vortex_array::scalar_fn::session::ScalarFnSessionExt;
     use vortex_array::validity::Validity;
     use vortex_error::VortexResult;
+    use vortex_expr::bound::eq;
+    use vortex_expr::bound::lit;
+    use vortex_expr::bound::root;
     use vortex_expr::stats::StatsSessionExt;
     use vortex_expr::stats::rewrite::BoundExpressionPruneExt;
     use vortex_expr::stats::rewrite::StatsRewriteRule;

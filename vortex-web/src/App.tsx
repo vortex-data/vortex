@@ -15,12 +15,15 @@ import { VortexWorker } from './workers/VortexWorker';
 
 function App() {
   const [fileState, setFileState] = useState<VortexFileState | null>(null);
+  const [fileGen, setFileGen] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [view, setView] = useState<MainView>('details');
   const dragCounter = useRef(0);
   const workerRef = useRef<VortexWorker | null>(null);
+  const openGenRef = useRef(0);
+  const activeGenRef = useRef(0);
 
   useEffect(() => {
     workerRef.current = new VortexWorker();
@@ -28,10 +31,14 @@ function App() {
   }, []);
 
   const openFile = useCallback(async (file: File) => {
+    const gen = ++openGenRef.current;
     setError(null);
     setLoading(true);
     try {
       const result = await workerRef.current!.openFile(file);
+      if (openGenRef.current !== gen) return;
+      activeGenRef.current = gen;
+      setFileGen(gen);
       setFileState({
         fileName: file.name,
         fileSize: file.size,
@@ -43,10 +50,15 @@ function App() {
         fileStructure: result.fileStructure,
       });
     } catch (e) {
+      if (openGenRef.current !== gen) return;
+      activeGenRef.current = 0;
+      workerRef.current?.closeFile();
       setError(e instanceof Error ? e.message : String(e));
       setFileState(null);
     } finally {
-      setLoading(false);
+      if (openGenRef.current === gen) {
+        setLoading(false);
+      }
     }
   }, []);
 
@@ -79,14 +91,15 @@ function App() {
 
   const expandArrayTree = useCallback(
     async (nodeId: string) => {
+      const gen = activeGenRef.current;
       // Fetch the encoding tree (may be async).
       const arrayTree = await workerRef.current!.fetchEncodingTree(nodeId);
-      if (!arrayTree) return;
+      if (!arrayTree || activeGenRef.current !== gen) return;
 
       setFileState((prev) => {
-        if (!prev) return prev;
+        if (!prev || activeGenRef.current !== gen) return prev;
         const node = findNodeById(prev.layoutTree, nodeId);
-        if (!node || node.encoding !== 'vortex.flat') return prev;
+        if (node?.encoding !== 'vortex.flat') return prev;
         if (node.children.some((c) => c.isArrayNode)) return prev;
 
         const arrayChildren = arrayTreeToLayoutChildren(arrayTree, node);
@@ -135,7 +148,14 @@ function App() {
     ],
   );
 
-  const closeFile = useCallback(() => setFileState(null), []);
+  const closeFile = useCallback(() => {
+    openGenRef.current++;
+    activeGenRef.current = 0;
+    setFileState(null);
+    setError(null);
+    setLoading(false);
+    workerRef.current?.closeFile();
+  }, []);
 
   const handleDragEnter = useCallback((e: DragEvent<HTMLDivElement>) => {
     e.preventDefault();
@@ -169,21 +189,26 @@ function App() {
   }
 
   return (
-    <VortexFileProvider value={fileContextValue!}>
-      <SelectionProvider tree={fileContextValue!.layoutTree}>
+    <VortexFileProvider value={fileContextValue}>
+      <SelectionProvider key={fileGen} tree={fileContextValue.layoutTree}>
+        {/* The whole window takes a dropped file, so a new file can replace the open one. */}
+        {/* biome-ignore lint/a11y/noStaticElementInteractions: drag and drop has no keyboard form; Close and the open screen's button do. */}
         <div
-          className="flex flex-col h-screen bg-vortex-white dark:bg-vortex-black relative"
+          className="x-app"
           onDragEnter={handleDragEnter}
           onDragOver={handleDragOver}
           onDragLeave={handleDragLeave}
           onDrop={handleDrop}
         >
+          <a className="vx-skip-link" href="#main">
+            Skip to content
+          </a>
           <FileHeader onClose={closeFile} view={view} onViewChange={setView} />
           <MainArea view={view} />
           <StatusBar />
           {isDragging && (
-            <div className="absolute inset-0 z-50 flex items-center justify-center bg-vortex-black/50 dark:bg-black/50 backdrop-blur-sm pointer-events-none">
-              <p className="font-mono text-sm text-white/80">Drop to open file</p>
+            <div className="x-drop-veil">
+              <p className="vx-mono">Drop to open the file</p>
             </div>
           )}
         </div>

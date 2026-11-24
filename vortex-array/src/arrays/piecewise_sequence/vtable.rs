@@ -2,11 +2,9 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
-use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
 use crate::ArrayParts;
@@ -23,10 +21,11 @@ use crate::array::ProbeState;
 use crate::array::VTable;
 use crate::array::ValidityVTable;
 use crate::array::with_empty_buffers;
+use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
+use crate::arrays::piecewise_sequence::array::PiecewiseSequenceArraySlotsExt;
 use crate::arrays::piecewise_sequence::array::PiecewiseSequenceSlots;
 use crate::arrays::piecewise_sequence::check_index_arrays;
-use crate::arrays::piecewise_sequence::execute_index_arrays;
 use crate::arrays::piecewise_sequence::materialize_ranges;
 use crate::arrays::piecewise_sequence::probe;
 use crate::arrays::piecewise_sequence::probe::PiecewiseProbeState;
@@ -35,8 +34,8 @@ use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::dtype::PType;
 use crate::match_each_unsigned_integer_ptype;
+use crate::require_child;
 use crate::scalar::Scalar;
-use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 
 /// A [`PiecewiseSequence`]-encoded Vortex index array.
@@ -106,32 +105,31 @@ impl VTable for PiecewiseSequence {
         PiecewiseSequenceSlots::NAMES[idx].to_string()
     }
 
-    fn serialize(
-        _array: ArrayView<'_, Self>,
-        _session: &VortexSession,
-    ) -> VortexResult<Option<Vec<u8>>> {
-        Ok(None)
-    }
+    fn execute(array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+        let array = require_child!(
+            array,
+            array.starts(),
+            PiecewiseSequenceSlots::STARTS => Primitive
+        );
+        let array = require_child!(
+            array,
+            array.lengths(),
+            PiecewiseSequenceSlots::LENGTHS => Primitive
+        );
+        let array = require_child!(
+            array,
+            array.multipliers(),
+            PiecewiseSequenceSlots::MULTIPLIERS => Primitive
+        );
 
-    fn deserialize(
-        &self,
-        _dtype: &DType,
-        _len: usize,
-        _metadata: &[u8],
-        _buffers: &[BufferHandle],
-        _children: &dyn ArrayChildren,
-        _session: &VortexSession,
-    ) -> VortexResult<ArrayParts<Self>> {
-        vortex_bail!("PiecewiseSequenceArray is not serializable")
-    }
-
-    fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
-        let (starts, lengths, multipliers) = execute_index_arrays(array.as_view(), ctx)?;
+        let starts = array.starts().as_::<Primitive>();
+        let lengths = array.lengths().as_::<Primitive>();
+        let multipliers = array.multipliers().as_::<Primitive>();
 
         let values = match_each_unsigned_integer_ptype!(starts.ptype(), |S| {
             match_each_unsigned_integer_ptype!(lengths.ptype(), |L| {
                 match_each_unsigned_integer_ptype!(multipliers.ptype(), |M| {
-                    materialize_ranges::<S, L, M>(&starts, &lengths, &multipliers, array.len())?
+                    materialize_ranges::<S, L, M>(starts, lengths, multipliers, array.len())?
                 })
             })
         });

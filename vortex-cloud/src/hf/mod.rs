@@ -304,28 +304,32 @@ pub fn make_hf_store(config: HfConfig) -> Result<Arc<dyn ObjectStore>, HfStoreEr
 /// Build an [`ObjectStore`] for an `hf://` URL, with the in-repository path of the addressed file.
 ///
 /// Configuration not carried by the URL is read from the process environment. The path is reported
-/// the way [`object_store::parse_url_opts`] reports it — the key the returned store will see — so
-/// that the caller can derive how deep into the URL the store is mounted.
+/// the way [`object_store::parse_url_opts`] reports it: the decoded in-repository key the returned
+/// store will see. Do not derive the mount depth from it, because a key with percent-encoded `/`
+/// decodes to more segments than the URL has.
 pub fn make_hf_store_from_url(url: &Url) -> Result<(Arc<dyn ObjectStore>, Path), HfStoreError> {
-    make_hf_store_from_url_with_env(url, |key| std::env::var(key).ok())
+    let (store, path, _) = make_hf_store_from_url_with_env(url, |key| std::env::var(key).ok())?;
+    Ok((store, path))
 }
 
-/// [`make_hf_store_from_url`], reading environment configuration through `env_lookup`.
+/// [`make_hf_store_from_url`], reading environment configuration through `env_lookup` and also
+/// returning how many raw URL path segments were consumed by the repository prefix.
 ///
 /// Tests pass a closure over a fixed map so they do not race against the process environment.
 pub(crate) fn make_hf_store_from_url_with_env<F>(
     url: &Url,
     env_lookup: F,
-) -> Result<(Arc<dyn ObjectStore>, Path), HfStoreError>
+) -> Result<(Arc<dyn ObjectStore>, Path, usize), HfStoreError>
 where
     F: Fn(&str) -> Option<String>,
 {
-    let (config, path) = url_to_config(url, env_lookup)?;
-    Ok((make_hf_store(config)?, path))
+    let (config, path, prefix_segments) = url_to_config(url, env_lookup)?;
+    Ok((make_hf_store(config)?, path, prefix_segments))
 }
 
-/// Translate an `hf://` URL into an [`HfConfig`] plus the in-repository path it addresses.
-fn url_to_config<F>(url: &Url, env_lookup: F) -> Result<(HfConfig, Path), HfStoreError>
+/// Translate an `hf://` URL into an [`HfConfig`], the decoded in-repository path, and the number
+/// of raw URL path segments consumed by the repository/revision prefix.
+fn url_to_config<F>(url: &Url, env_lookup: F) -> Result<(HfConfig, Path, usize), HfStoreError>
 where
     F: Fn(&str) -> Option<String>,
 {
@@ -356,6 +360,7 @@ where
     if owner.is_empty() || name.is_empty() {
         return Err(invalid());
     }
+    let prefix_segments = segments.len() - rest.len();
 
     // A revision is appended to the repository name with `@`, and arrives percent-encoded when it
     // contains `/`. Hold it decoded; `resolve_prefix` re-encodes it on the way back out.
@@ -384,7 +389,7 @@ where
     // joining them raw.
     let path = Path::from_url_path(rest.join("/")).map_err(|_| invalid())?;
 
-    Ok((config, path))
+    Ok((config, path, prefix_segments))
 }
 
 /// Whether plain-HTTP endpoints are permitted, from the `ALLOW_HTTP` variable the `object_store`

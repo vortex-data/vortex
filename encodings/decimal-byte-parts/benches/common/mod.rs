@@ -50,6 +50,7 @@ pub(super) mod arrays {
     use rand::RngExt;
     use rand::SeedableRng;
     use rand::rngs::StdRng;
+    use vortex_array::ExecutionCtx;
     use vortex_array::arrays::DecimalArray;
     use vortex_array::dtype::DecimalDType;
     use vortex_array::dtype::DecimalType;
@@ -71,20 +72,32 @@ pub(super) mod arrays {
         values_type: DecimalType,
         len: usize,
         validity: Validity,
+        ctx: &mut ExecutionCtx,
     ) -> DecimalArray {
         match values_type {
             DecimalType::I64 => {
                 let mut rng = StdRng::seed_from_u64(42);
                 let max = 10i64.pow(18) - 1;
                 let values: Buffer<i64> = (0..len).map(|_| rng.random_range(-max..=max)).collect();
-                DecimalArray::new(values, DecimalDType::new(18, 2), validity)
+                DecimalArray::new(values, DecimalDType::new(18, 2), validity, ctx)
             }
             DecimalType::I128 => {
-                DecimalArray::new(i128_values(len), DecimalDType::new(38, 2), validity)
+                DecimalArray::new(i128_values(len), DecimalDType::new(38, 2), validity, ctx)
             }
             DecimalType::I256 => {
-                DecimalArray::new(i256_values(len), DecimalDType::new(76, 2), validity)
+                DecimalArray::new(i256_values(len), DecimalDType::new(76, 2), validity, ctx)
             }
+            _ => vortex_panic!("unsupported benchmark storage type: {values_type}"),
+        }
+    }
+
+    /// The number of lower parts that holds every value of `values_type`, so the split and
+    /// assembly benchmarks keep the shape of each storage width.
+    pub(crate) fn full_width_lower_part_count(values_type: DecimalType) -> usize {
+        match values_type {
+            DecimalType::I64 => 0,
+            DecimalType::I128 => 1,
+            DecimalType::I256 => 3,
             _ => vortex_panic!("unsupported benchmark storage type: {values_type}"),
         }
     }

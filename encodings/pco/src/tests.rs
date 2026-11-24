@@ -16,7 +16,6 @@ use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::serde::SerializeOptions;
 use vortex_array::serde::SerializedArray;
-use vortex_array::session::ArraySessionExt;
 use vortex_array::validity::Validity;
 use vortex_arrow::ArrowSessionExt;
 use vortex_buffer::Buffer;
@@ -32,9 +31,11 @@ use crate::PcoData;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     let session = VortexSession::empty();
-    session.arrays().register(Pco);
+    crate::initialize(&session);
     session
 });
+
+use vortex_arrow::ExecuteArrowExt;
 
 use crate::Pco;
 #[test]
@@ -208,16 +209,11 @@ fn test_serde() -> VortexResult<()> {
         &SESSION,
     )?;
     let data_type = SESSION.arrow().to_arrow_field("", data.dtype())?;
-    let pco_arrow = SESSION
-        .arrow()
-        .execute_arrow(pco, Some(&data_type), &mut ctx)?;
-    let decoded_arrow = SESSION
-        .arrow()
-        .execute_arrow(decoded, Some(&data_type), &mut ctx)?;
-    let expected_arrow =
-        SESSION
-            .arrow()
-            .execute_arrow(data.into_array(), Some(&data_type), &mut ctx)?;
+    let pco_arrow = pco.execute_arrow(Some(&data_type), &mut ctx)?;
+    let decoded_arrow = decoded.execute_arrow(Some(&data_type), &mut ctx)?;
+    let expected_arrow = data
+        .into_array()
+        .execute_arrow(Some(&data_type), &mut ctx)?;
     assert_eq!(pco_arrow.as_ref(), expected_arrow.as_ref());
     assert_eq!(decoded_arrow.as_ref(), expected_arrow.as_ref());
     Ok(())

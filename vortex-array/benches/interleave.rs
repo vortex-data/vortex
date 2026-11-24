@@ -32,6 +32,7 @@ use vortex_array::arrays::InterleaveArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::memory::MemorySession;
 use vortex_array::optimizer::kernels::KernelSession;
+use vortex_array::test_harness::mark_optimized;
 use vortex_buffer::Buffer;
 use vortex_session::VortexSession;
 
@@ -190,16 +191,16 @@ fn vortex(bencher: Bencher, combo: Combo) {
     let (values, array_indices, row_indices) = vortex_inputs(combo);
     bencher
         .with_inputs(|| {
-            (
-                InterleaveArray::try_new(
-                    values.clone(),
-                    array_indices.clone().into_array(),
-                    row_indices.clone().into_array(),
-                )
-                .unwrap()
-                .into_array(),
-                SESSION.create_execution_ctx(),
+            let array = InterleaveArray::try_new(
+                values.clone(),
+                array_indices.clone().into_array(),
+                row_indices.clone().into_array(),
             )
+            .unwrap()
+            .into_array();
+            mark_optimized(&array, &SESSION).unwrap();
+
+            (array, SESSION.create_execution_ctx())
         })
         .bench_refs(|(array, ctx)| array.clone().execute::<Canonical>(ctx));
 }
@@ -208,16 +209,16 @@ fn bench_primitive(bencher: Bencher, combo: Combo, mixed_constants: bool) {
     let (values, array_indices, row_indices) = primitive_inputs(combo, mixed_constants);
     bencher
         .with_inputs(|| {
-            (
-                InterleaveArray::try_new(
-                    values.clone(),
-                    array_indices.clone().into_array(),
-                    row_indices.clone().into_array(),
-                )
-                .unwrap()
-                .into_array(),
-                SESSION.create_execution_ctx(),
+            let array = InterleaveArray::try_new(
+                values.clone(),
+                array_indices.clone().into_array(),
+                row_indices.clone().into_array(),
             )
+            .unwrap()
+            .into_array();
+            mark_optimized(&array, &SESSION).unwrap();
+
+            (array, SESSION.create_execution_ctx())
         })
         .bench_refs(|(array, ctx)| array.clone().execute::<Canonical>(ctx));
 }

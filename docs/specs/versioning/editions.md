@@ -6,6 +6,10 @@ earlier editions in the same family. See [Using editions](using-editions.md) for
 
 ## Frozen `core` editions
 
+A format must be in a frozen `core` edition before the default compressor emits it without extra
+configuration; see [Compression](design.md#compression) for how the compressor filters schemes
+against enabled editions.
+
 The origin of every edition below is `vortex`. Each minimum refers to the shared version of the
 Vortex Rust crates, including the `vortex` crate.
 
@@ -75,7 +79,12 @@ members through ordinary edition inclusions.
 
 ### `preview2026.08.0`
 
-This edition currently adds no components.
+- `array`: `fastlanes.delta`
+- `aggregate`: `vortex.uncompressed_size_in_bytes`
+
+### `preview2026.11.0`
+
+- `array`: `vortex.decimal_byte_parts.v2`, `vortex.widen`
 
 ### `tensor2026.04.0`
 
@@ -153,6 +162,10 @@ A frozen edition's membership, origin, and minimum version stay fixed. Deprecati
 writers from choosing it, but readers must retain support because existing files can contain it.
 
 ## Maintaining edition records
+
+Each change to an edition, such as adding, moving, or removing a member or freezing an edition, goes
+in its own pull request labeled `changelog/edition`, so it appears under its own heading in the
+release notes.
 
 Default declarations live in `vortex-edition/src/declarations/`. Optional modules keep declarations
 with their implementation code. The exported TOML records are under `vortex/editions/`, grouped by

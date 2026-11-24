@@ -1,0 +1,48 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+[versions]
+arrow = "19.0.0"
+errorprone = "2.36.0"
+guava = "33.7.2-jre"
+immutables = "2.12.2"
+jmh = "1.37"
+junit-jupiter = "6.1.0"
+logback = "1.5.34"
+netty = "4.2.15.Final"
+nopen = "1.0.1"
+roaringbitmap = "1.6.14"
+slf4j = "2.0.18"
+scala212 = "2.12.18"
+scala213Spark35 = "2.13.8"
+scala213Spark40 = "2.13.16"
+scala213Spark41 = "2.13.17"
+spark35 = "3.5.9"
+spark40 = "4.0.4"
+spark41 = "4.1.2"
+spark42 = "4.2.0"
+spark43 = "4.3.0"
+s3mock = "5.0.0"
+testcontainers-jupiter = "1.21.4"
+
+[libraries]
+arrow-c-data = { module = "org.apache.arrow:arrow-c-data", version.ref = "arrow" }
+arrow-memory-core = { module = "org.apache.arrow:arrow-memory-core", version.ref = "arrow" }
+arrow-memory-netty = { module = "org.apache.arrow:arrow-memory-netty", version.ref = "arrow" }
+errorprone-annotations = { module = "com.google.errorprone:error_prone_annotations", version.ref = "errorprone" }
+errorprone-core = { module = "com.google.errorprone:error_prone_core", version.ref = "errorprone" }
+guava = { module = "com.google.guava:guava", version.ref = "guava" }
+immutables-value = { module = "org.immutables:value", version.ref = "immutables" }
+jmh-core = { module = "org.openjdk.jmh:jmh-core", version.ref = "jmh" }
+jmh-generator-annprocess = { module = "org.openjdk.jmh:jmh-generator-annprocess", version.ref = "jmh" }
+junit-jupiter = { module = "org.junit.jupiter:junit-jupiter", version.ref = "junit-jupiter" }
+junit-jupiter-params = { module = "org.junit.jupiter:junit-jupiter-params", version.ref = "junit-jupiter" }
+logback-classic = { module = "ch.qos.logback:logback-classic", version.ref = "logback" }
+netty-bom = { module = "io.netty:netty-bom", version.ref = "netty" }
+nopen-annotations = { module = "com.jakewharton.nopen:nopen-annotations", version.ref = "nopen" }
+nopen-checker = { module = "com.jakewharton.nopen:nopen-checker", version.ref = "nopen" }
+roaringbitmap = { module = "org.roaringbitmap:RoaringBitmap", version.ref = "roaringbitmap" }
+slf4j-api = { module = "org.slf4j:slf4j-api", version.ref = "slf4j" }
+slf4j-simple = { module = "org.slf4j:slf4j-simple", version.ref = "slf4j" }
+s3mock-testcontainers = { module = "com.adobe.testing:s3mock-testcontainers", version.ref = "s3mock" }
+testcontainers-juputer = { module = "org.testcontainers:junit-jupiter", version.ref = "testcontainers-jupiter" }

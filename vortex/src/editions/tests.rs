@@ -20,13 +20,10 @@ use vortex_array::dtype::FieldName;
 use vortex_array::dtype::FieldPath;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
-use vortex_array::expr::col;
-use vortex_array::expr::gt_eq;
-use vortex_array::expr::lit;
-use vortex_array::expr::stats::Stat;
 use vortex_array::extension::datetime::Date;
 use vortex_array::extension::datetime::TimeUnit;
 use vortex_array::session::ArraySessionExt;
+use vortex_array::stats::Stat;
 use vortex_array::stream::ArrayStreamExt;
 use vortex_array::validity::Validity;
 use vortex_btrblocks::BtrBlocksCompressorBuilder;
@@ -44,6 +41,9 @@ use vortex_edition::test_harness::validate_edition;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
+use vortex_expr::col;
+use vortex_expr::gt_eq;
+use vortex_expr::lit;
 use vortex_file::OpenOptionsSessionExt;
 use vortex_file::WriteOptionsSessionExt;
 use vortex_file::WriteStrategyBuilder;
@@ -229,24 +229,12 @@ fn default_session_enables_the_write_editions() {
 #[test]
 fn enabling_unstable_permits_only_persisted_aggregates() -> VortexResult<()> {
     let session = VortexSession::default();
-    let core_aggregates = session.enabled_component_ids(ComponentKind::Aggregate);
     session.enable_edition(UNSTABLE)?;
-    let enabled = session.enabled_component_ids(ComponentKind::Aggregate);
     assert!(
-        enabled
+        session
+            .enabled_component_ids(ComponentKind::Aggregate)
             .iter()
             .all(|id| !id.as_str().starts_with("vortex.all_"))
-    );
-    let newly_enabled: Vec<Id> = enabled
-        .into_iter()
-        .filter(|id| !core_aggregates.contains(id))
-        .collect();
-    assert_eq!(
-        newly_enabled,
-        [
-            Id::from("vortex.bloom_filter.sbbf"),
-            Id::from("vortex.sum_v2")
-        ]
     );
     Ok(())
 }

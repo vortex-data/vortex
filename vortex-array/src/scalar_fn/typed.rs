@@ -26,8 +26,7 @@ use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::ScalarFnArray;
 use crate::dtype::DType;
-use crate::expr::BoundExpression;
-use crate::expr::display::ExprDisplay;
+use crate::dtype::FieldName;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ArrayReduceNode;
 use crate::scalar_fn::ChildName;
@@ -39,6 +38,7 @@ use crate::scalar_fn::ScalarFnExecutionStep;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnRef;
 use crate::scalar_fn::ScalarFnVTable;
+use crate::scalar_fn::display::ExprDisplay;
 
 /// A typed scalar function instance, parameterized by a concrete [`ScalarFnVTable`].
 ///
@@ -130,10 +130,14 @@ pub(super) trait DynScalarFn: 'static + Send + Sync + super::sealed::Sealed {
     fn child_name(&self, child_idx: usize) -> ChildName;
     fn is_strict(&self) -> bool;
     fn is_infallible(&self) -> bool;
+    fn forwarded_field(&self, field: &FieldName) -> Option<usize>;
 
     // Expression methods — take expressions for tree traversal
     fn fmt_sql(&self, expression: &dyn ExprDisplay, f: &mut Formatter<'_>) -> fmt::Result;
-    fn simplify(&self, expression: &BoundExpression) -> VortexResult<Option<BoundExpression>>;
+    fn simplify_expression<'a>(
+        &self,
+        node: &ExpressionReduceNode<'a>,
+    ) -> VortexResult<Option<ExpressionReduceNode<'a>>>;
     fn validity_expression<'a>(
         &self,
         node: &ExpressionReduceNode<'a>,
@@ -251,12 +255,19 @@ impl<V: ScalarFnVTable> DynScalarFn for TypedScalarFnInstance<V> {
         V::is_infallible(&self.vtable, &self.options)
     }
 
+    fn forwarded_field(&self, field: &FieldName) -> Option<usize> {
+        V::forwarded_field(&self.vtable, &self.options, field)
+    }
+
     fn fmt_sql(&self, expression: &dyn ExprDisplay, f: &mut Formatter<'_>) -> fmt::Result {
         V::fmt_sql(&self.vtable, &self.options, expression, f)
     }
 
-    fn simplify(&self, expression: &BoundExpression) -> VortexResult<Option<BoundExpression>> {
-        V::simplify(&self.vtable, &self.options, expression)
+    fn simplify_expression<'a>(
+        &self,
+        node: &ExpressionReduceNode<'a>,
+    ) -> VortexResult<Option<ExpressionReduceNode<'a>>> {
+        V::simplify(&self.vtable, &self.options, node)
     }
 
     fn validity_expression<'a>(

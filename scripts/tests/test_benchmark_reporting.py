@@ -10,12 +10,16 @@ from pathlib import Path
 from types import ModuleType
 
 import pandas as pd
+import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 COMPARE_SCRIPT = REPO_ROOT / "scripts" / "compare-benchmark-jsons.py"
 CAPTURE_SCRIPT = REPO_ROOT / "scripts" / "capture-file-sizes.py"
 RANDOM_ACCESS_SPLIT_SCRIPT = REPO_ROOT / "scripts" / "random-access-split.py"
 FETCH_BASELINE_SCRIPT = REPO_ROOT / "scripts" / "fetch-benchmark-baseline.py"
+
+# The summary table header of a suite that records cold runs and has Parquet controls.
+SUMMARY_HEADERS_WITH_COLD = ["target", "hot", "cold", "vs parquet"]
 
 
 def load_module(name: str, path: Path) -> ModuleType:
@@ -195,9 +199,17 @@ def render_report(
     return result.stdout
 
 
+def markdown_rows(report: str, name: str) -> list[list[str]]:
+    """Return every Markdown table row whose first cell is `name`, in report order."""
+    return [
+        [cell.strip() for cell in line.strip("|").split("|")]
+        for line in report.splitlines()
+        if line.startswith(f"| {name} ")
+    ]
+
+
 def markdown_row(report: str, name: str) -> list[str]:
-    line = next(line for line in report.splitlines() if line.startswith(f"| {name} "))
-    return [cell.strip() for cell in line.strip("|").split("|")]
+    return markdown_rows(report, name)[0]
 
 
 def test_within_engine_analysis_uses_each_engines_own_parquet_control() -> None:
@@ -260,7 +272,7 @@ def test_random_access_report_keeps_competitor_details_without_attribution(tmp_p
 
     report = render_report(tmp_path, base_rows, pr_rows, "Random Access")
 
-    assert "**Attributed Vortex impact**: -10.0%" in report
+    assert "-10.0%" in markdown_row(report, "random-access:vortex")[3]
     assert "<summary>random-access / lance / ns " in report
     assert "<summary>random-access / litdata / ns " in report
 
@@ -283,7 +295,7 @@ def test_comparison_report_groups_by_target_and_unit(tmp_path: Path) -> None:
     report = render_report(tmp_path, base_rows, pr_rows, "Mixed metrics")
 
     assert "unknown / unknown" not in report
-    assert "How to read Verdict and Engines" not in report
+    assert "How to read the summary" not in report
     # These measurements report a single number, so there is no cold run to split out.
     assert "cold" not in report
     assert "hot" not in report
@@ -344,13 +356,17 @@ def test_comparison_report_retains_sql_analysis(tmp_path: Path) -> None:
 
     report = render_report(tmp_path, base_rows, pr_rows, "TPC-H")
 
-    assert "**Verdict**:" in report
-    assert "**Vortex (geomean)**: hot " in report
-    assert "**Parquet (geomean)**: hot " in report
-    assert "How to read Verdict and Engines" in report
-    assert "<summary>datafusion / vortex-file-compressed / ns " in report
-    assert "<summary>datafusion / parquet / ns " in report
-    assert "unknown / unknown" not in report
+    assert "**Verdict**" not in report
+    # The summary has one row per target, in the order of the query table columns.
+    assert markdown_row(report, "datafusion:vortex")[:2] == ["datafusion:vortex", "🟢 **0.88** (1↑)"]
+    assert markdown_row(report, "datafusion:parquet")[:2] == ["datafusion:parquet", "1.05"]
+    assert "control" in markdown_row(report, "datafusion:parquet")
+    assert "How to read the summary" in report
+    # SQL queries share one table, with a row per query and a column per target.
+    assert markdown_row(report, "query") == ["query", "datafusion:vortex", "datafusion:parquet"]
+    assert markdown_row(report, "tpch_q01") == ["tpch_q01", "🟢 **70.0 ns (0.88)**", "105 ns (1.05)"]
+    assert "<summary>datafusion / " not in report
+    assert "unknown" not in report
 
 
 def test_large_hot_medians_render_without_scientific_notation() -> None:
@@ -397,9 +413,11 @@ def test_only_changes_past_the_suite_threshold_are_marked(tmp_path: Path) -> Non
 
     report = render_report(tmp_path, base_rows, pr_rows, "TPC-H")
 
-    assert markdown_row(report, "tpch_q01/datafusion:vortex-file-compressed")[1] == "109 / 100 / +9.0%"
-    assert markdown_row(report, "tpch_q02/datafusion:vortex-file-compressed")[1] == "111 / 100 / +11.0% 🔴"
-    assert markdown_row(report, "tpch_q03/datafusion:vortex-file-compressed")[1] == "89 / 100 / -11.0% 🟢"
+    assert markdown_row(report, "tpch_q01")[1] == "109 ns (1.09)"
+    assert markdown_row(report, "tpch_q02")[1] == "🔴 **111 ns (1.11)**"
+    assert markdown_row(report, "tpch_q03")[1] == "🟢 **89.0 ns (0.89)**"
+    # The geomean row leads the table: geomean time and geomean ratio.
+    assert markdown_row(report, "**geomean**")[1] == "102 ns (1.02)"
 
 
 def test_report_splits_cold_and_hot_runs(tmp_path: Path) -> None:
@@ -426,16 +444,20 @@ def test_report_splits_cold_and_hot_runs(tmp_path: Path) -> None:
 
     report = render_report(tmp_path, base_rows, pr_rows, "TPC-H")
 
-    # The marks sit on the numbers that moved, not on the benchmark name.
-    assert markdown_row(report, "tpch_q01/datafusion:vortex-file-compressed") == [
-        "tpch_q01/datafusion:vortex-file-compressed",
-        "50 / 100 / -50.0% 🟢",
-        "2000 / 1000 / +100.0% 🔴",
-        "0.03 / 0.10 / -75.0%",
-    ]
-    assert "**Attributed Vortex impact**: -50.0%" in report
-    assert "**Vortex (geomean)**: hot 0.500x ✅ · cold 2.000x ❌" in report
-    assert "**Parquet (geomean)**: hot 1.000x ➖ · cold 1.000x ➖" in report
+    # Hot runs come first; cold runs follow in their own folded table.
+    hot, cold = markdown_rows(report, "tpch_q01")
+    assert hot == ["tpch_q01", "🟢 **50.0 ns (0.50)**", "100 ns (1.00)"]
+    assert cold == ["tpch_q01", "🔴 **2.00 µs (2.00)**", "1.00 µs (1.00)"]
+    # Both tables fold by default, under a summary of what moved.
+    assert "<summary>Hot runs</summary>" in report
+    assert "<summary>Cold runs (first iteration)</summary>" in report
+    # The top table carries each target's geomean and change counts.
+    assert markdown_row(report, "target") == SUMMARY_HEADERS_WITH_COLD
+    vortex = markdown_row(report, "datafusion:vortex")
+    assert vortex[1:3] == ["🟢 **0.50** (1↑)", "🔴 **2.00** (1↓)"]
+    assert "-50.0%" in vortex[3]
+    parquet = markdown_row(report, "datafusion:parquet")
+    assert parquet[1:] == ["1.00", "1.00", "control"]
     assert "**Commits**: PR `pr-sha` vs base " in report
 
 
@@ -463,14 +485,12 @@ def test_verdict_ignores_a_cold_start_only_regression(tmp_path: Path) -> None:
 
     report = render_report(tmp_path, base_rows, pr_rows, "TPC-H")
 
-    assert "**Attributed Vortex impact**: +0.0%" in report
-    assert "**Vortex (geomean)**: hot 1.000x ➖ · cold 4.000x ❌" in report
-    assert markdown_row(report, "tpch_q01/datafusion:vortex-file-compressed") == [
-        "tpch_q01/datafusion:vortex-file-compressed",
-        "100 / 100 / +0.0%",
-        "400 / 100 / +300.0% 🔴",
-        "0.25 / 1.00 / -75.0%",
-    ]
+    vortex = markdown_row(report, "datafusion:vortex")
+    assert vortex[1:3] == ["1.00", "🔴 **4.00** (1↓)"]
+    assert "+0.0%" in vortex[3]
+    hot, cold = markdown_rows(report, "tpch_q01")
+    assert hot[1] == "100 ns (1.00)"
+    assert cold[1] == "🔴 **400 ns (4.00)**"
 
 
 def file_size_record(commit: str, size: int) -> dict[str, object]:
@@ -582,11 +602,82 @@ def test_file_size_report_omits_formats_the_pr_run_skipped() -> None:
     assert "-100.0%" not in report
 
 
+def file_size_ingest_record(commit: str, size: int, file: str) -> dict[str, object]:
+    return {
+        "kind": "file_size",
+        "commit_sha": commit,
+        "benchmark": "tpch",
+        "scale_factor": "10",
+        "format": "vortex-file-compressed",
+        "file": file,
+        "value_bytes": size,
+    }
+
+
 def test_capture_file_sizes_emits_shared_benchmark_rows(tmp_path: Path) -> None:
     data_dir = tmp_path / "data"
     format_dir = data_dir / "tpch" / "10" / "vortex-file-compressed"
     format_dir.mkdir(parents=True)
     (format_dir / "part-0.vortex").write_bytes(b"x" * 42)
+    output_path = tmp_path / "sizes.jsonl"
+    ingest_path = tmp_path / "sizes.ingest.jsonl"
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(CAPTURE_SCRIPT),
+            str(data_dir),
+            "--benchmark",
+            "tpch",
+            "--dataset-dir",
+            "tpch",
+            "--commit",
+            "deadbeef",
+            "-o",
+            str(output_path),
+            "--ingest-jsonl",
+            str(ingest_path),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    ingest_records = [json.loads(line) for line in ingest_path.read_text(encoding="utf-8").splitlines()]
+    assert ingest_records == [file_size_ingest_record("deadbeef", 42, "part-0.vortex")]
+    records = [json.loads(line) for line in output_path.read_text(encoding="utf-8").splitlines()]
+    assert records == [
+        {
+            "metric": "file_size",
+            "unit": "bytes",
+            "value": 42,
+            "commit_id": "deadbeef",
+            "file_size": {
+                "benchmark": "tpch",
+                "scale_factor": "10",
+                "format": "vortex-file-compressed",
+                "file": "part-0.vortex",
+            },
+        }
+    ]
+
+
+def test_capture_file_sizes_records_every_format_but_duckdb_catalogs(tmp_path: Path) -> None:
+    data_dir = tmp_path / "data"
+    scale_dir = data_dir / "tpch" / "1.0"
+    for format_name, file_name, size in [
+        ("vortex-file-compressed", "lineitem.vortex", 40),
+        ("vortex-file-compressed", "duckdb.db", 7),
+        ("parquet", "lineitem.parquet", 60),
+        ("parquet", "duckdb.db.wal", 3),
+        ("duckdb", "duckdb.db", 90),
+        ("lance", "lineitem.lance/data/0.lance", 70),
+        ("not-a-format", "notes.txt", 1),
+    ]:
+        path = scale_dir / format_name / file_name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"x" * size)
     output_path = tmp_path / "sizes.jsonl"
 
     result = subprocess.run(
@@ -610,20 +701,34 @@ def test_capture_file_sizes_emits_shared_benchmark_rows(tmp_path: Path) -> None:
 
     assert result.returncode == 0, result.stderr
     records = [json.loads(line) for line in output_path.read_text(encoding="utf-8").splitlines()]
-    assert records == [
-        {
-            "metric": "file_size",
-            "unit": "bytes",
-            "value": 42,
-            "commit_id": "deadbeef",
-            "file_size": {
-                "benchmark": "tpch",
-                "scale_factor": "10",
-                "format": "vortex-file-compressed",
-                "file": "part-0.vortex",
-            },
-        }
+    assert [(r["file_size"]["format"], r["file_size"]["file"], r["value"]) for r in records] == [
+        ("duckdb", "duckdb.db", 90),
+        ("lance", "lineitem.lance/data/0.lance", 70),
+        ("parquet", "lineitem.parquet", 60),
+        ("vortex-file-compressed", "lineitem.vortex", 40),
     ]
+
+
+def test_file_size_report_compares_only_vortex_formats() -> None:
+    compare = load_module("compare_benchmark_jsons", COMPARE_SCRIPT)
+
+    report = compare.format_file_size_report(
+        pd.DataFrame(
+            [
+                file_size_record_for("base-sha", 100, "tpch", "10", "vortex-file-compressed", "a"),
+                file_size_record_for("base-sha", 100, "tpch", "10", "parquet", "a"),
+            ]
+        ),
+        pd.DataFrame(
+            [
+                file_size_record_for("pr-sha", 125, "tpch", "10", "vortex-file-compressed", "a"),
+                file_size_record_for("pr-sha", 50, "tpch", "10", "parquet", "a"),
+            ]
+        ),
+    )
+
+    assert "<summary>File Size Changes (1 files changed, +25.0% overall, 1↑ 0↓)</summary>" in report
+    assert "parquet" not in report
 
 
 def test_baseline_fetch_refuses_a_shallow_checkout(tmp_path: Path) -> None:
@@ -657,6 +762,27 @@ def test_baseline_fetch_refuses_a_shallow_checkout(tmp_path: Path) -> None:
     assert "fetch-depth: 0" in result.stderr
 
 
+def test_baseline_fetch_walks_the_given_head(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The fork PR report checks out the default branch, so the PR head is not `HEAD`.
+
+    The baseline must come from the history of the PR head that `--head` names, which
+    includes commits that the checked-out branch does not reach.
+    """
+
+    fetch = load_module("fetch_benchmark_baseline", FETCH_BASELINE_SCRIPT)
+    repo = git_repo_with_one_commit(tmp_path / "repo")
+    identity = ["-c", "user.name=Vortex Test", "-c", "user.email=test@example.com"]
+    subprocess.run(["git", *identity, "commit", "--quiet", "--allow-empty", "-m", "pr"], cwd=repo, check=True)
+    pr_head = subprocess.run(
+        ["git", "rev-parse", "HEAD"], cwd=repo, check=True, capture_output=True, text=True
+    ).stdout.strip()
+    subprocess.run(["git", "checkout", "--quiet", "--detach", "HEAD~1"], cwd=repo, check=True)
+    monkeypatch.chdir(repo)
+
+    assert pr_head not in fetch.reachable_commits("HEAD")
+    assert pr_head in fetch.reachable_commits(pr_head)
+
+
 def test_baseline_fetch_groups_distinct_pr_identities_by_kind() -> None:
     fetch = load_module("fetch_benchmark_baseline", FETCH_BASELINE_SCRIPT)
     records = [
@@ -664,11 +790,15 @@ def test_baseline_fetch_groups_distinct_pr_identities_by_kind() -> None:
         query_record("pr", 1, "datafusion", "parquet", 100),
         random_access_record("pr", "parquet", "cached", 100),
         {"kind": "vector_search_run", "dataset": "cohere"},
+        file_size_ingest_record("pr", 100, "part-0.vortex"),
+        file_size_ingest_record("pr", 100, "part-1.vortex"),
     ]
 
     assert fetch.identities_by_kind(records) == {
         "query_measurement": [("tpch", None, "1", 1, "nvme", "datafusion", "parquet")],
         "random_access_time": [("taxi/uniform", "parquet", "cached")],
+        # One lookup per scope, so the baseline also returns files the PR no longer writes.
+        "file_size": [("tpch", "10", "vortex-file-compressed")],
     }
 
 
@@ -700,15 +830,60 @@ def test_report_compares_ingest_records(tmp_path: Path) -> None:
     report = render_report(tmp_path, base_records, pr_results, "TPC-H", pr_records)
 
     assert "vs base `base-sha`" in report
-    assert "**Verdict**:" in report
-    assert "**Engines**: DataFusion " in report
+    assert markdown_row(report, "target") == SUMMARY_HEADERS_WITH_COLD
+    assert markdown_row(report, "datafusion:parquet")[3] == "control"
     assert "random-access " in report
     assert "ignored when records exist" not in report
-    assert markdown_row(report, "tpch_q01/datafusion:vortex-file-compressed")[1] == "70 / 80 / -12.5% 🟢"
+    assert markdown_row(report, "tpch_q01")[1:] == ["🟢 **70.0 ns (0.88)**", "105 ns (1.05)"]
     assert markdown_row(report, "random-access/taxi/uniform/parquet-cached")[1] == "105 / 100 / +5.0%"
     assert markdown_row(report, "random-access/taxi/uniform/lance-cached")[1] == "300 / — / no baseline"
     assert "<summary>random-access / lance / ns " in report
-    assert "File Size" not in report
+    assert "File Size Changes" not in report
+    assert "_No baseline file sizes found for base commit._" in report
+
+
+def test_report_compares_file_size_records_from_the_database(tmp_path: Path) -> None:
+    base_records = [
+        query_record("base-sha", 1, "datafusion", "vortex-file-compressed", 80),
+        file_size_ingest_record("base-sha", 100, "part-0.vortex"),
+        file_size_ingest_record("base-sha", 50, "part-1.vortex"),
+    ]
+    pr_records = [
+        query_record("pr-sha", 1, "datafusion", "vortex-file-compressed", 80),
+        file_size_ingest_record("pr-sha", 125, "part-0.vortex"),
+    ]
+    pr_results = [stored_timing_row("pr-sha", "ignored when records exist", 1) | {"doc": "benchmarks/tpch.md"}]
+
+    report = render_report(tmp_path, base_records, pr_results, "TPC-H", pr_records)
+
+    assert markdown_row(report, "tpch_q01")[1] == "80.0 ns (1.00)"
+    assert "<summary>File Size Changes (2 files changed, -16.7% overall, 1↑ 1↓)</summary>" in report
+    assert "| part-1.vortex | 10 | vortex-file-compressed | 50 B | 0 B | -50 B | -100.0% |" in report
+
+
+def test_report_handles_a_baseline_of_only_file_sizes(tmp_path: Path) -> None:
+    base_records = [file_size_ingest_record("base-sha", 100, "part-0.vortex")]
+    pr_records = [
+        query_record("pr-sha", 1, "datafusion", "vortex-file-compressed", 80),
+        file_size_ingest_record("pr-sha", 125, "part-0.vortex"),
+    ]
+    pr_results = [stored_timing_row("pr-sha", "ignored when records exist", 1) | {"doc": "benchmarks/tpch.md"}]
+
+    report = render_report(tmp_path, base_records, pr_results, "TPC-H", pr_records)
+
+    assert markdown_row(report, "tpch_q01")[1] == "80.0 ns (—)"
+    assert "<summary>File Size Changes (1 files changed, +25.0% overall, 1↑ 0↓)</summary>" in report
+
+
+def test_baseline_commit_is_chosen_without_file_sizes() -> None:
+    fetch = load_module("fetch_benchmark_baseline", FETCH_BASELINE_SCRIPT)
+    query = ("tpch", None, "1", 1, "nvme", "datafusion", "parquet")
+    scope = ("tpch", "10", "vortex-file-compressed")
+
+    assert fetch.commit_selection_identities({"query_measurement": [query], "file_size": [scope]}) == {
+        "query_measurement": [query]
+    }
+    assert fetch.commit_selection_identities({"file_size": [scope]}) == {"file_size": [scope]}
 
 
 def test_report_says_when_the_baseline_could_not_be_read(tmp_path: Path) -> None:
@@ -773,6 +948,29 @@ def test_report_converts_compression_records() -> None:
     assert compare.ingest_record_row({"kind": "vector_search_run"}) is None
 
 
+def test_summary_hides_attribution_when_the_control_is_too_noisy(tmp_path: Path) -> None:
+    # The Parquet control moves +50% on one query and -30% on the other, so the
+    # remainder after subtracting it is not a result.
+    targets = [
+        ("tpch_q01", "parquet", "parquet", 100, 150),
+        ("tpch_q02", "parquet", "parquet", 100, 70),
+        ("tpch_q01", "vortex-file-compressed", "vortex", 100, 100),
+        ("tpch_q02", "vortex-file-compressed", "vortex", 100, 100),
+    ]
+    base_rows = [
+        stored_timing_row("base-sha", f"{query}/datafusion:{name}", base, file_format=target)
+        for query, name, target, base, _pr in targets
+    ]
+    pr_rows = [
+        stored_timing_row("pr-sha", f"{query}/datafusion:{name}", pr, file_format=target)
+        for query, name, target, _base, pr in targets
+    ]
+
+    report = render_report(tmp_path, base_rows, pr_rows, "TPC-H")
+
+    assert markdown_row(report, "datafusion:vortex")[3] == "—"
+
+
 def test_summary_reports_hot_alone_when_no_row_recorded_its_runs(tmp_path: Path) -> None:
     # Random Access, String Encoding and Compression report one value per row, so
     # there is no cold geomean to sit beside the hot one.
@@ -787,10 +985,46 @@ def test_summary_reports_hot_alone_when_no_row_recorded_its_runs(tmp_path: Path)
 
     report = render_report(tmp_path, base_rows, pr_rows, "Random Access")
 
-    summary = report.splitlines()[2]
-    assert "**Vortex (geomean)**: hot 0.500x ✅" in summary
-    assert "**Parquet (geomean)**: hot 1.000x ➖" in summary
-    assert "cold" not in summary
+    assert markdown_row(report, "target") == ["target", "hot", "vs parquet"]
+    assert markdown_row(report, "random-access:vortex")[1] == "🟢 **0.50** (1↑)"
+    assert markdown_row(report, "random-access:parquet")[1:] == ["1.00", "control"]
+
+
+def test_capture_file_sizes_names_parquet_by_its_directory(tmp_path: Path) -> None:
+    data_dir = tmp_path / "data"
+    files = {
+        # ClickBench's own files are Snappy, and they are its `parquet`.
+        ("clickbench_partitioned", "parquet", "hits_0.parquet"): 40,
+        ("clickbench_partitioned", "arrow-ipc", "hits_0.arrow"): 80,
+    }
+    for parts, size in files.items():
+        path = data_dir.joinpath(*parts)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"x" * size)
+    output_path = tmp_path / "sizes.jsonl"
+
+    subprocess.run(
+        [
+            sys.executable,
+            str(CAPTURE_SCRIPT),
+            str(data_dir),
+            "--benchmark",
+            "clickbench",
+            "--dataset-dir",
+            "clickbench_partitioned",
+            "--commit",
+            "deadbeef",
+            "-o",
+            str(output_path),
+        ],
+        check=True,
+    )
+
+    records = [json.loads(line) for line in output_path.read_text(encoding="utf-8").splitlines()]
+    assert sorted((r["file_size"]["format"], r["value"]) for r in records) == [
+        ("arrow-ipc", 80),
+        ("parquet", 40),
+    ]
 
 
 def test_capture_file_sizes_reads_only_the_named_directory(tmp_path: Path) -> None:
@@ -820,3 +1054,81 @@ def test_capture_file_sizes_reads_only_the_named_directory(tmp_path: Path) -> No
 
     records = [json.loads(line) for line in output_path.read_text(encoding="utf-8").splitlines()]
     assert [record["value"] for record in records] == [42]
+
+
+def test_query_table_names_each_vortex_columns_integration_and_scan(tmp_path: Path) -> None:
+    # (engine, recorded format, integration, scan engine, develop ns, PR ns). The file integration on
+    # the default scan keeps the bare format, so develop's records carry no axes for it.
+    targets = [
+        ("duckdb", "vortex-file-compressed", "file", "v2", 90, 90),
+        ("datafusion", "parquet", None, None, 100, 100),
+        ("datafusion", "vortex-file-compressed [datasource, v1]", "datasource", "v1", 1_500_000, 1_200_000),
+        ("datafusion", "vortex-file-compressed [file, v1]", "file", "v1", 70, 70),
+        ("datafusion", "vortex-file-compressed", "file", "v2", 80, 80),
+    ]
+    base = [query_record("base-sha", 1, engine, fmt, base) for engine, fmt, _i, _s, base, _pr in targets]
+    pr = [
+        {
+            **query_record("pr-sha", 1, engine, fmt, pr),
+            **({"integration": integration, "scan_engine": scan} if integration else {}),
+        }
+        for engine, fmt, integration, scan, _base, pr in targets
+    ]
+    pr_results = [stored_timing_row("pr-sha", "ignored when records exist", 1)]
+
+    report = render_report(tmp_path, base, pr_results, "TPC-H", pr)
+
+    assert markdown_row(report, "query") == [
+        "query",
+        "datafusion:vortex [file, v2]",
+        "datafusion:vortex [file, v1]",
+        "datafusion:vortex [datasource, v1]",
+        "duckdb:vortex [file, v2]",
+        "datafusion:parquet",
+    ]
+    assert markdown_row(report, "tpch_q01")[3] == "🟢 **1.20 ms (0.80)**"
+    # The bare default identity still matches develop's records.
+    assert markdown_row(report, "tpch_q01")[1] == "80.0 ns (1.00)"
+    assert "`datasource` through DataFusion's `VortexTable`" in report
+
+
+def test_format_duration_picks_a_readable_unit() -> None:
+    compare = load_compare_module()
+
+    assert compare.format_duration(950) == "950 ns"
+    assert compare.format_duration(12_345) == "12.3 µs"
+    assert compare.format_duration(1_234_567) == "1.23 ms"
+    assert compare.format_duration(152_400_000) == "152 ms"
+    assert compare.format_duration(2_500_000_000) == "2.50 s"
+    assert compare.format_duration(float("nan")) == "—"
+
+
+def test_query_cell_ends_with_the_ratio() -> None:
+    compare = load_compare_module()
+
+    assert compare.format_query_cell(980_000, 1_020_000, 1.04, 0.9, 1.1) == "1.02 ms (1.04)"
+    assert compare.format_query_cell(1_000_000, 800_000, 0.8, 0.9, 1.1) == "🟢 **800 µs (0.80)**"
+    assert compare.format_query_cell(float("nan"), 800_000, float("nan"), 0.9, 1.1) == "800 µs (—)"
+    assert compare.format_query_cell(1_000_000, float("nan"), float("nan"), 0.9, 1.1) == "—"
+
+
+def test_query_table_says_what_it_compares(tmp_path: Path) -> None:
+    base = [query_record("base-sha", 1, "datafusion", "vortex-file-compressed", 80)]
+    pr = [query_record("pr-sha", 1, "datafusion", "vortex-file-compressed", 80)]
+    pr_results = [stored_timing_row("pr-sha", "ignored when records exist", 1)]
+
+    report = render_report(tmp_path, base, pr_results, "TPC-H", pr)
+
+    assert "Each cell is the hot-run time of this PR `pr-sha`, with PR ÷ develop `base-sha`" in report
+    assert "`datasource` through" not in report
+
+
+def test_float_query_numbers_still_count_as_sql_queries() -> None:
+    compare = load_compare_module()
+
+    assert compare.is_sql_query(3)
+    assert compare.is_sql_query(3.0)
+    assert not compare.is_sql_query(3.5)
+    assert not compare.is_sql_query("random-access/taxi/cached")
+    assert not compare.is_sql_query(None)
+    assert not compare.is_sql_query(True)

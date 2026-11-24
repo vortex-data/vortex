@@ -4,7 +4,6 @@
 use std::hash::Hash;
 use std::hash::Hasher;
 
-use prost::Message;
 use vortex_array::Array;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
@@ -20,45 +19,60 @@ use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
-use vortex_array::dtype::PType;
 use vortex_array::require_child;
-use vortex_array::serde::ArrayChildren;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::validity_to_child;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
-use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
 use crate::DeltaData;
 use crate::FL_CHUNK_SIZE;
-use crate::delta::array::DeltaArrayExt;
 use crate::delta::array::DeltaArraySlotsExt;
 use crate::delta::array::DeltaSlots;
 use crate::delta::array::DeltaSlotsView;
+use crate::delta::array::delta_decompress::PackedDeltas;
 use crate::delta::array::delta_decompress::delta_decompress;
 use crate::delta::array::lane_count;
 use crate::delta_compress;
 
 mod operations;
+mod plugin;
 mod rules;
+
+pub(crate) fn initialize(session: &VortexSession) {
+    rules::register_parent_rules(session);
+}
 mod slice;
 mod validity;
 
 /// A [`Delta`]-encoded Vortex array.
 pub type DeltaArray = Array<Delta>;
 
+/// Serialized metadata for `fastlanes.delta`.
+///
+/// The children are `[bases, deltas]`, followed by the validity child when `has_validity` is set.
+/// A nullable array without a validity child is all valid.
+///
+/// Readers require at least that many children and ignore any that follow. A later writer may
+/// append a child under this ID only if decoding without it still yields the same values, such as
+/// a statistic or an index. A child or metadata field that changes the decoded values needs a new
+/// encoding ID.
 #[derive(Clone, prost::Message)]
-#[repr(C)]
 pub struct DeltaMetadata {
+    /// The physical length of `deltas`: `(offset + len).next_multiple_of(1024)`.
     #[prost(uint64, tag = "1")]
-    deltas_len: u64,
+    pub(super) deltas_len: u64,
+    /// The offset of the first logical value in the first chunk, less than 1024.
     #[prost(uint32, tag = "2")]
-    offset: u32, // must be <1024
+    pub(super) offset: u32,
+    /// Whether the children include a validity child after `bases` and `deltas`.
+    #[prost(bool, tag = "3")]
+    pub(super) has_validity: bool,
 }
 
 impl ArrayHash for DeltaData {
@@ -122,89 +136,20 @@ impl VTable for Delta {
         vortex_array::vtable::with_empty_buffers(self, array, buffers)
     }
 
-    fn reduce_parent(
-        array: ArrayView<'_, Self>,
-        parent: &ArrayRef,
-        child_idx: usize,
-    ) -> VortexResult<Option<ArrayRef>> {
-        rules::RULES.evaluate(array, parent, child_idx)
-    }
-
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         DeltaSlots::NAMES[idx].to_string()
     }
 
-    fn serialize(
-        array: ArrayView<'_, Self>,
-        _session: &VortexSession,
-    ) -> VortexResult<Option<Vec<u8>>> {
-        Ok(Some(
-            DeltaMetadata {
-                deltas_len: array.deltas().len() as u64,
-                offset: array.offset() as u32,
-            }
-            .encode_to_vec(),
-        ))
-    }
-
-    fn deserialize(
-        &self,
-        dtype: &DType,
-        len: usize,
-        metadata: &[u8],
-        buffers: &[BufferHandle],
-        children: &dyn ArrayChildren,
-        _session: &VortexSession,
-    ) -> VortexResult<ArrayParts<Self>> {
-        vortex_ensure!(
-            buffers.is_empty(),
-            "DeltaArray expects 0 buffers, got {}",
-            buffers.len()
-        );
-        vortex_ensure!(
-            children.len() == 2 || children.len() == 3,
-            "DeltaArray expects 2 or 3 children, got {}",
-            children.len()
-        );
-        let metadata = DeltaMetadata::decode(metadata)?;
-        let ptype = PType::try_from(dtype)?;
-        let lanes = lane_count(ptype);
-
-        let deltas_len = usize::try_from(metadata.deltas_len)
-            .map_err(|_| vortex_err!("deltas_len {} overflowed usize", metadata.deltas_len))?;
-        vortex_ensure!(
-            deltas_len.is_multiple_of(FL_CHUNK_SIZE),
-            "deltas length must be a multiple of {FL_CHUNK_SIZE}"
-        );
-        let bases_len = deltas_len / FL_CHUNK_SIZE * lanes;
-
-        let bases = children.get(0, &dtype.as_nonnullable(), bases_len)?;
-        let deltas = children.get(1, &dtype.as_nonnullable(), deltas_len)?;
-        let validity_child = if children.len() == 3 {
-            Some(children.get(2, &Validity::DTYPE, len)?)
-        } else {
-            None
-        };
-
-        let data = DeltaData::try_new(metadata.offset as usize)?;
-        let slots = DeltaSlots {
-            bases,
-            deltas,
-            validity_child,
-        }
-        .into_slots();
-        Ok(ArrayParts::new(
-            self.clone(),
-            dtype.clone(),
-            len,
-            data,
-            slots,
-        ))
-    }
-
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         let array = require_child!(array, array.bases(), DeltaSlots::BASES => Primitive);
-        let array = require_child!(array, array.deltas(), DeltaSlots::DELTAS => Primitive);
+        // Bit-packed deltas that start on a packed block are unpacked and prefix-summed in one
+        // pass, so they need not be decoded first.
+        let fused = PackedDeltas::try_new(array.deltas()).is_some();
+        let array = if fused {
+            array
+        } else {
+            require_child!(array, array.deltas(), DeltaSlots::DELTAS => Primitive)
+        };
         Ok(ExecutionResult::done(
             delta_decompress(&array, ctx)?.into_array(),
         ))
@@ -303,7 +248,7 @@ fn validate_parts(
     let lanes = lane_count(bases.dtype().as_ptype());
 
     vortex_ensure!(
-        deltas.len().is_multiple_of(1024),
+        deltas.len().is_multiple_of(FL_CHUNK_SIZE),
         "deltas length ({}) must be a multiple of 1024",
         deltas.len(),
     );
@@ -330,6 +275,7 @@ mod tests {
             &DeltaMetadata {
                 offset: u32::MAX,
                 deltas_len: u64::MAX,
+                has_validity: true,
             }
             .encode_to_vec(),
         );

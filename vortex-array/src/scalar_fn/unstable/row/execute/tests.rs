@@ -32,8 +32,10 @@ use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::VortexSessionExecute;
 use crate::arrays::Bool;
+use crate::arrays::BoolArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::FixedSizeList;
+use crate::arrays::FixedSizeListArray;
 use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::VarBinView;
@@ -47,6 +49,7 @@ use crate::scalar_fn::VecExecutionArgs;
 use crate::scalar_fn::unstable::row::FailureEvidence;
 use crate::scalar_fn::unstable::row::FixedSizeListSink;
 use crate::scalar_fn::unstable::row::InitializedElement;
+use crate::scalar_fn::unstable::row::InitializedRow;
 use crate::scalar_fn::unstable::row::OutputBuffer;
 use crate::scalar_fn::unstable::row::OutputElement;
 use crate::scalar_fn::unstable::row::OutputSink;
@@ -190,12 +193,18 @@ fn packed_boolean_payload_uses_allocator(
         .with_allocator(allocator);
 
     let output = match (multiversioned, traversal) {
-        (false, Traversal::Infallible) => {
-            execute_owned_infallible_bool::<(i64,), false>(&args, &mut ctx, |(value,)| value > 2)?
-        }
-        (true, Traversal::Infallible) => {
-            execute_owned_infallible_bool::<(i64,), true>(&args, &mut ctx, |(value,)| value > 2)?
-        }
+        (false, Traversal::Infallible) => execute_owned_infallible_bool::<(i64,), false>(
+            &args,
+            &mut ctx,
+            Validity::NonNullable,
+            |(value,)| value > 2,
+        )?,
+        (true, Traversal::Infallible) => execute_owned_infallible_bool::<(i64,), true>(
+            &args,
+            &mut ctx,
+            Validity::NonNullable,
+            |(value,)| value > 2,
+        )?,
         (false, Traversal::Fallible) => execute_owned_bool::<(i64,), (), bool, false>(
             &args,
             &mut ctx,
@@ -347,8 +356,12 @@ fn empty_outputs_and_zero_width_rows_do_not_allocate_payloads() -> VortexResult<
 
     let primitive =
         execute_owned_infallible::<(i64,), i64, ()>(&args, &mut ctx, |_| (), |_, (value,)| value)?;
-    let boolean =
-        execute_owned_infallible_bool::<(i64,), false>(&args, &mut ctx, |(value,)| value > 0)?;
+    let boolean = execute_owned_infallible_bool::<(i64,), false>(
+        &args,
+        &mut ctx,
+        Validity::NonNullable,
+        |(value,)| value > 0,
+    )?;
     let scalar = execute_sink::<(i64,), (), UninitElementSink<i64>, _>(
         &args,
         &(),
@@ -415,6 +428,40 @@ fn boolean_sinks_allocate_packed_payloads_with_context_allocator() -> VortexResu
             .as_slice(),
     );
     assert_eq!(tracker.live_allocations(), 2);
+    Ok(())
+}
+
+#[test]
+fn fallible_fixed_size_list_callback() -> VortexResult<()> {
+    let absolute_pairs = |values: [i64; 2], ctx: &mut ExecutionCtx| {
+        let args = VecExecutionArgs::new(vec![PrimitiveArray::from_iter(values).into_array()], 2);
+        execute_sink::<(i64,), (), FixedSizeListSink<i64>, _>(
+            &args,
+            &2,
+            ctx,
+            |_| (),
+            |_, (value,), row| {
+                let value = value
+                    .checked_abs()
+                    .ok_or_else(|| vortex_err!("absolute value overflow"))?;
+                // SAFETY: fills the supplied row and immediately returns its token.
+                Ok(unsafe { InitializedRow::fill(row, |_| value) })
+            },
+        )
+    };
+    let mut ctx = VortexSession::empty().create_execution_ctx();
+
+    let actual = absolute_pairs([-2, 3], &mut ctx)?;
+    let expected = FixedSizeListArray::new(
+        PrimitiveArray::from_iter([2_i64, 2, 3, 3]).into_array(),
+        2,
+        Validity::NonNullable,
+        2,
+    );
+    assert_arrays_eq!(actual, expected, &mut ctx);
+
+    let error = absolute_pairs([-2, i64::MIN], &mut ctx).expect_err("i64::MIN overflows abs");
+    assert!(error.to_string().contains("absolute value overflow"));
     Ok(())
 }
 
@@ -494,4 +541,58 @@ fn zero_sized_output_uses_its_own_storage(#[case] traversal: Traversal) -> Vorte
     tracker.assert_owns(output.as_::<Primitive>().as_slice::<i64>());
 
     Ok(())
+}
+
+#[rstest]
+#[case::inline(false)]
+#[case::multiversioned(true)]
+fn packed_boolean_attaches_validity(#[case] multiversioned: bool) -> VortexResult<()> {
+    let values = PrimitiveArray::from_iter([1_i64, 2, 3, 4]).into_array();
+    let args = VecExecutionArgs::new(vec![values], 4);
+    let validity = Validity::from_iter([true, false, true, true]);
+    let mut ctx = VortexSession::empty().create_execution_ctx();
+
+    let output = if multiversioned {
+        execute_owned_infallible_bool::<(i64,), true>(
+            &args,
+            &mut ctx,
+            validity.clone(),
+            |(value,)| value > 2,
+        )?
+    } else {
+        execute_owned_infallible_bool::<(i64,), false>(
+            &args,
+            &mut ctx,
+            validity.clone(),
+            |(value,)| value > 2,
+        )?
+    };
+    let expected =
+        BoolArray::new([false, false, true, true].into_iter().collect(), validity).into_array();
+
+    assert!(output.is::<Bool>());
+    assert_arrays_eq!(&output, &expected, &mut ctx);
+
+    Ok(())
+}
+
+#[test]
+fn packed_boolean_rejects_wrong_validity_length() {
+    let values = PrimitiveArray::from_iter([1_i64, 2]).into_array();
+    let args = VecExecutionArgs::new(vec![values], 2);
+    let validity = Validity::from_iter([true, false, true]);
+    let mut ctx = VortexSession::empty().create_execution_ctx();
+
+    let error =
+        execute_owned_infallible_bool::<(i64,), false>(&args, &mut ctx, validity, |(value,)| {
+            value > 0
+        })
+        .expect_err("a validity longer than the batch must fail");
+
+    assert!(
+        error
+            .to_string()
+            .contains("BoolArray validity length does not match array length"),
+        "{error}",
+    );
 }

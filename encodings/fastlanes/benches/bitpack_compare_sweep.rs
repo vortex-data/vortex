@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Sweeps the public `BitPackedArray` compare-against-constant path (`array.binary(rhs, op)`) over
+//! Sweeps the public `BitPackedArray` compare-against-constant path (`array.compare(rhs, op)`) over
 //! every integer type and every valid bit width, so a kernel change shows up as a CodSpeed diff.
 //!
 //! The array holds in-range values (no patches, no out-of-range fast path), so each iteration runs
@@ -29,8 +29,9 @@ use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::NativePType;
 use vortex_array::optimizer::kernels::KernelSession;
 use vortex_array::scalar::Scalar;
-use vortex_array::scalar_fn::fns::operators::Operator;
+use vortex_array::scalar_fn::builtin::operators::CompareOperator;
 use vortex_array::session::ArraySession;
+use vortex_array::test_harness::mark_optimized;
 use vortex_array::validity::Validity;
 use vortex_buffer::Alignment;
 use vortex_buffer::BufferMut;
@@ -60,8 +61,24 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
 /// Number of elements per benchmarked array
 const LEN: usize = if cfg!(codspeed) { 8 * 1024 } else { 64 * 1024 };
 
+const CODSPEED_WIDTHS: &[usize] = &[1, 3, 5, 7, 9, 15, 17, 31, 33, 63];
+
+/// The bit widths to benchmark for a type of `native_bits` bits. Bit-packing requires the target
+/// width to be strictly narrower than the type, so valid widths are `1..native_bits`.
+fn widths(native_bits: usize) -> Vec<usize> {
+    if cfg!(codspeed) {
+        CODSPEED_WIDTHS
+            .iter()
+            .copied()
+            .filter(|&width| width < native_bits)
+            .collect()
+    } else {
+        (1..native_bits).collect()
+    }
+}
+
 /// Operator under test. `Lt` exercises the full unpack + per-element comparison path.
-const OP: Operator = Operator::Lt;
+const OP: CompareOperator = CompareOperator::Lt;
 
 /// Integer types we can build packed arrays for in the benchmark.
 trait BenchInt: NativePType + Copy + Into<Scalar> {
@@ -125,23 +142,25 @@ fn setup<T: BenchInt>(width: usize) -> (ArrayRef, ArrayRef, ExecutionCtx) {
     )
     .into_array();
     let rhs = ConstantArray::new(T::from_counter(cap / 2), LEN).into_array();
+    mark_optimized(&array, &SESSION).unwrap();
+    mark_optimized(&rhs, &SESSION).unwrap();
+
     (array, rhs, ctx)
 }
 
-/// Generate a compare benchmark over every valid bit width for one type. Valid widths are
-/// `1..native_bits` - bit-packing requires the target width to be strictly narrower than the type.
+/// Generate a compare benchmark over the bit widths from [`widths`] for one type.
 macro_rules! bench_type {
     ($modname:ident, $T:ty, $native_bits:expr) => {
         mod $modname {
             use super::*;
 
-            #[divan::bench(args = 1..$native_bits)]
+            #[divan::bench(args = widths($native_bits))]
             fn compare(bencher: Bencher, width: usize) {
                 let (array, rhs, mut ctx) = setup::<$T>(width);
                 bencher.counter(ItemsCount::new(LEN)).bench_local(|| {
                     array
                         .clone()
-                        .binary(rhs.clone(), OP)
+                        .compare(rhs.clone(), OP)
                         .unwrap()
                         .execute::<BoolArray>(&mut ctx)
                         .unwrap()

@@ -30,8 +30,9 @@ use vortex_array::assert_arrays_eq;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::PType;
+use vortex_array::optimizer::ArrayOptimizer;
 use vortex_array::scalar::Scalar;
-use vortex_array::scalar_fn::fns::operators::Operator;
+use vortex_array::scalar_fn::builtin::operators::CompareOperator;
 use vortex_buffer::buffer;
 use vortex_error::VortexResult;
 use vortex_fastlanes::BitPacked;
@@ -58,7 +59,9 @@ fn test_operations() -> VortexResult<()> {
     let mut ctx = SESSION.create_execution_ctx();
     let array = widen_bitpacked(PrimitiveArray::from_iter([0u8, 1, 3, 7]), 3)?;
 
-    let selected = array.filter(Mask::from_iter([true, false, true, true]))?;
+    let selected = array
+        .filter(Mask::from_iter([true, false, true, true]))?
+        .optimize_ctx(&SESSION)?;
     assert!(selected.is::<Widen>());
     assert_eq!(selected.as_::<Widen>().values().dtype(), &PType::U8.into());
     assert_arrays_eq!(selected, buffer![0u64, 3, 7].into_array(), &mut ctx);
@@ -69,9 +72,9 @@ fn test_operations() -> VortexResult<()> {
         &mut ctx
     );
     assert_arrays_eq!(
-        array.binary(
+        array.compare(
             ConstantArray::new(Scalar::from(3u64), 4).into_array(),
-            Operator::Lt
+            CompareOperator::Lt
         )?,
         BoolArray::from_iter([true, true, false, false]),
         &mut ctx

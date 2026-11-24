@@ -8,3 +8,7 @@ mod vtable;
 
 pub use array::ScalarFnArrayExt;
 pub use vtable::*;
+
+pub(crate) fn initialize(session: &vortex_session::VortexSession) {
+    rules::register_parent_rules(session);
+}

@@ -335,7 +335,7 @@ mod tests {
             .into_array()
             .slice(3..4096)
             .unwrap()
-            .optimize()
+            .optimize_ctx(&SESSION)
             .unwrap();
 
         assert!(array.is::<Patched>());

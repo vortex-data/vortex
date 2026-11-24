@@ -1,0 +1,395 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+//! Compiled SQL LIKE patterns evaluated over UTF-8 byte slices.
+//!
+//! A [`LikePattern`] is compiled once per pattern and then evaluated per value. Patterns that
+//! reduce to plain equality, prefix, suffix, or substring searches use direct byte comparisons
+//! (with `memchr`'s SIMD substring search for the contains case); everything else falls back to
+//! a regex translated from the LIKE pattern.
+//!
+//! The pattern grammar and its regex translation mirror the `arrow-string` LIKE kernels so that
+//! results are identical to the previous Arrow-backed implementation: `%` matches any sequence
+//! of characters (including across newlines), `_` matches exactly one character, and `\` escapes
+//! the next character.
+
+use memchr::memchr3;
+use memchr::memmem::Finder;
+use regex::bytes::Regex;
+use regex::bytes::RegexBuilder;
+use vortex_error::VortexResult;
+use vortex_error::vortex_err;
+
+/// A LIKE pattern compiled for repeated evaluation against UTF-8 haystacks.
+pub(crate) enum LikePattern {
+    /// The pattern has no wildcards: plain byte equality.
+    Eq(Vec<u8>),
+    /// `prefix%`: byte prefix comparison.
+    StartsWith(Vec<u8>),
+    /// `%suffix`: byte suffix comparison.
+    EndsWith(Vec<u8>),
+    /// `%needle%`: SIMD substring search, along with the needle length.
+    ///
+    /// The searcher is boxed to keep this variant close in size to the others.
+    Contains(Box<Finder<'static>>, usize),
+    /// Equality ignoring ASCII case (ILIKE over ASCII-only data).
+    IEqAscii(Vec<u8>),
+    /// Prefix comparison ignoring ASCII case (ILIKE over ASCII-only data).
+    IStartsWithAscii(Vec<u8>),
+    /// Suffix comparison ignoring ASCII case (ILIKE over ASCII-only data).
+    IEndsWithAscii(Vec<u8>),
+    /// Everything else: the LIKE pattern translated to an anchored regex.
+    Regex(Regex),
+}
+
+impl LikePattern {
+    /// Compile `pattern`, with `case_insensitive` selecting ILIKE semantics.
+    ///
+    /// `ascii_haystack` enables the ASCII-only case-insensitive fast paths and must only be
+    /// `true` when every haystack this pattern will be evaluated against is pure ASCII:
+    /// full case folding can match ASCII pattern characters against non-ASCII haystack
+    /// characters (e.g. `k` folds to U+212A KELVIN SIGN), which the ASCII fast paths would
+    /// miss.
+    pub(crate) fn compile(
+        pattern: &str,
+        case_insensitive: bool,
+        ascii_haystack: bool,
+    ) -> VortexResult<Self> {
+        // A leading `%` cannot be escaped, but a trailing one is escaped by an unpaired `\`
+        // before it, so prefixes and infixes must not end with one.
+        let prefix = || pattern.strip_suffix('%').and_then(unescape_affix);
+        let suffix = || pattern.strip_prefix('%').and_then(unescape);
+        let infix = || {
+            pattern
+                .strip_prefix('%')
+                .and_then(|pattern| pattern.strip_suffix('%'))
+                .and_then(unescape_affix)
+        };
+
+        if case_insensitive {
+            if ascii_haystack && pattern.is_ascii() {
+                if let Some(literal) = unescape(pattern) {
+                    return Ok(Self::IEqAscii(literal));
+                } else if let Some(prefix) = prefix() {
+                    return Ok(Self::IStartsWithAscii(prefix));
+                } else if let Some(suffix) = suffix() {
+                    return Ok(Self::IEndsWithAscii(suffix));
+                }
+            }
+            return Ok(Self::Regex(regex_like(pattern, true)?));
+        }
+
+        Ok(if let Some(literal) = unescape(pattern) {
+            Self::Eq(literal)
+        } else if let Some(prefix) = prefix() {
+            Self::StartsWith(prefix)
+        } else if let Some(suffix) = suffix() {
+            Self::EndsWith(suffix)
+        } else if let Some(infix) = infix() {
+            let len = infix.len();
+            Self::Contains(Box::new(Finder::new(&infix).into_owned()), len)
+        } else {
+            Self::Regex(regex_like(pattern, false)?)
+        })
+    }
+
+    /// Evaluate this pattern against `haystack`, which must be valid UTF-8.
+    #[inline]
+    pub(crate) fn matches(&self, haystack: &[u8]) -> bool {
+        match self {
+            Self::Eq(needle) => needle == haystack,
+            Self::StartsWith(needle) => {
+                needle.len() <= haystack.len() && &haystack[..needle.len()] == needle.as_slice()
+            }
+            Self::EndsWith(needle) => {
+                needle.len() <= haystack.len()
+                    && &haystack[haystack.len() - needle.len()..] == needle.as_slice()
+            }
+            Self::Contains(finder, needle_len) => {
+                haystack.len() >= *needle_len && finder.find(haystack).is_some()
+            }
+            Self::IEqAscii(needle) => haystack.eq_ignore_ascii_case(needle),
+            Self::IStartsWithAscii(needle) => {
+                needle.len() <= haystack.len()
+                    && haystack[..needle.len()].eq_ignore_ascii_case(needle)
+            }
+            Self::IEndsWithAscii(needle) => {
+                needle.len() <= haystack.len()
+                    && haystack[haystack.len() - needle.len()..].eq_ignore_ascii_case(needle)
+            }
+            Self::Regex(regex) => regex.is_match(haystack),
+        }
+    }
+}
+
+/// Returns the bytes `pattern` matches if it has no unescaped wildcards.
+fn unescape(pattern: &str) -> Option<Vec<u8>> {
+    unescape_with_trailing(pattern).map(|(literal, _)| literal)
+}
+
+/// Like [`unescape`], for a pattern that a `%` follows, which an unpaired trailing `\` would
+/// escape.
+fn unescape_affix(pattern: &str) -> Option<Vec<u8>> {
+    unescape_with_trailing(pattern)
+        .and_then(|(literal, trailing_backslash)| (!trailing_backslash).then_some(literal))
+}
+
+/// Resolves the escapes of a wildcard-free `pattern`, and reports whether it ends with an
+/// unpaired `\`, which matches a literal backslash.
+fn unescape_with_trailing(pattern: &str) -> Option<(Vec<u8>, bool)> {
+    let mut remaining = pattern.as_bytes();
+    let mut literal: Option<Vec<u8>> = None;
+    while let Some(idx) = memchr3(b'%', b'_', b'\\', remaining) {
+        if remaining[idx] != b'\\' {
+            return None;
+        }
+
+        // Only escapes require rewriting; reject an earlier wildcard without allocating.
+        let literal = literal.get_or_insert_with(|| Vec::with_capacity(pattern.len()));
+        literal.extend_from_slice(&remaining[..idx]);
+        remaining = &remaining[idx + 1..];
+        let Some((&escaped, rest)) = remaining.split_first() else {
+            literal.push(b'\\');
+            return Some((std::mem::take(literal), true));
+        };
+        // Any UTF-8 continuation bytes are copied with the next literal span.
+        literal.push(escaped);
+        remaining = rest;
+    }
+
+    let mut literal = literal.unwrap_or_else(|| Vec::with_capacity(remaining.len()));
+    literal.extend_from_slice(remaining);
+    Some((literal, false))
+}
+
+/// Transforms a LIKE `pattern` into an equivalent anchored regex.
+///
+/// This is a port of the `arrow-string` translation so that pattern semantics are unchanged:
+///
+/// 1. `%` => `.*` (a leading/trailing `%` truncates the anchor instead, e.g. `%foo%` => `foo`
+///    rather than `^.*foo.*$`);
+/// 2. `_` => `.`;
+/// 3. regex meta characters are escaped so they match literally;
+/// 4. `\x` matches `x` literally (a trailing `\` matches a literal backslash).
+///
+/// The regex runs over the haystack bytes directly (`regex::bytes`) in Unicode mode, which
+/// matches identically to a `&str` regex on valid UTF-8 input.
+fn regex_like(pattern: &str, case_insensitive: bool) -> VortexResult<Regex> {
+    let mut result = String::with_capacity(pattern.len() * 2);
+    let mut chars_iter = pattern.chars().peekable();
+    match chars_iter.peek() {
+        // If the pattern starts with `%`, avoid starting the regex with a slow but
+        // meaningless `^.*`.
+        Some('%') => {
+            chars_iter.next();
+        }
+        _ => result.push('^'),
+    };
+
+    while let Some(c) = chars_iter.next() {
+        match c {
+            '\\' => {
+                match chars_iter.peek() {
+                    Some(&next) => {
+                        if regex_syntax::is_meta_character(next) {
+                            result.push('\\');
+                        }
+                        result.push(next);
+                        // Skip the next char as it is already appended.
+                        chars_iter.next();
+                    }
+                    None => {
+                        // A trailing backslash matches a literal backslash.
+                        result.push('\\');
+                        result.push('\\');
+                    }
+                }
+            }
+            '%' => result.push_str(".*"),
+            '_' => result.push('.'),
+            c => {
+                if regex_syntax::is_meta_character(c) {
+                    result.push('\\');
+                }
+                result.push(c);
+            }
+        }
+    }
+    // Instead of ending the regex with `.*$` and making it needlessly slow, just end it.
+    if result.ends_with(".*") {
+        result.pop();
+        result.pop();
+    } else {
+        result.push('$');
+    }
+    RegexBuilder::new(&result)
+        .case_insensitive(case_insensitive)
+        .dot_matches_new_line(true)
+        .build()
+        .map_err(|e| vortex_err!("Unable to build regex from LIKE pattern: {e}"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn like(pattern: &str) -> LikePattern {
+        LikePattern::compile(pattern, false, false).unwrap()
+    }
+
+    #[test]
+    fn compile_fast_paths() {
+        assert!(matches!(like("foo"), LikePattern::Eq(_)));
+        assert!(matches!(like("foo%"), LikePattern::StartsWith(_)));
+        assert!(matches!(like("%foo"), LikePattern::EndsWith(_)));
+        assert!(matches!(like("%foo%"), LikePattern::Contains(..)));
+        assert!(matches!(like("%"), LikePattern::StartsWith(_)));
+        assert!(matches!(like("%%"), LikePattern::Contains(..)));
+        assert!(matches!(like("f%o"), LikePattern::Regex(_)));
+        assert!(matches!(like("f_o"), LikePattern::Regex(_)));
+        for (pattern, matches, misses) in [
+            ("foo", "foo", Some("foobar")),
+            ("foo%", "foobar", Some("xfoo")),
+            ("%foo", "xfoo", Some("foobar")),
+            ("%foo%", "xfooy", Some("bar")),
+            ("%", "", None),
+            ("%%", "anything", None),
+            ("f%o", "frodo", Some("frodo!")),
+            ("f_o", "foo", Some("fooo")),
+            (r"foo\%", "foo%", Some("foobar")),
+        ] {
+            let compiled = like(pattern);
+            assert!(compiled.matches(matches.as_bytes()), "{pattern}");
+            if let Some(misses) = misses {
+                assert!(!compiled.matches(misses.as_bytes()), "{pattern}");
+            }
+        }
+    }
+
+    #[test]
+    fn compile_escaped_fast_paths() {
+        // Escaped wildcards are literal bytes, including an escaped final `%`.
+        assert!(matches!(like(r"foo\%"), LikePattern::Eq(_)));
+        assert!(matches!(like(r"a\_b%"), LikePattern::StartsWith(_)));
+        assert!(matches!(like(r"%a\%b"), LikePattern::EndsWith(_)));
+        assert!(matches!(like(r"%foo\%"), LikePattern::EndsWith(_)));
+        assert!(matches!(like(r"%a\_b%"), LikePattern::Contains(..)));
+    }
+
+    #[test]
+    fn fast_paths_agree_with_regex() {
+        let patterns = [
+            r"foo\%",
+            r"a\_b%",
+            r"%a\%b",
+            r"%foo\%",
+            r"%a\_b%",
+            r"\\%",
+            r"%\\",
+            r"\\",
+            r"\%%",
+            r"%\%",
+            r"\a%",
+            r"%x\",
+            r"\é%",
+            "trailing\\",
+        ];
+        let haystacks = [
+            "",
+            "foo%",
+            "foox",
+            "a_b",
+            "a_bc",
+            "axbc",
+            "xa%b",
+            "xaxb",
+            "xfoo%",
+            "xa_by",
+            "\\",
+            "\\abc",
+            "abc\\",
+            "%",
+            "%x",
+            "ax",
+            "x\\",
+            "éa",
+            "trailing\\",
+        ];
+        for pattern in patterns {
+            let compiled = like(pattern);
+            let regex = regex_like(pattern, false).unwrap();
+            for haystack in haystacks {
+                assert_eq!(
+                    compiled.matches(haystack.as_bytes()),
+                    regex.is_match(haystack.as_bytes()),
+                    "{pattern} on {haystack}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn regex_translation() {
+        let cases = [
+            (r"%foobar%", "xfoobary", "foo"),
+            (r"foo%bar", "foo\nbar", "xfoobar"),
+            (r"foo_bar", "foo£bar", "fooxxbar"),
+            (r"\%\_", "%_", "xx"),
+            (r"\a", "a", "aa"),
+            (r"\\%", r"\abc", "abc"),
+            (r"\\a", r"\a", "a"),
+            (r".", ".", "x"),
+            (r"$", "$", "x"),
+            (r"\\", r"\", ""),
+        ];
+        for (pattern, matches, misses) in cases {
+            let regex = regex_like(pattern, false).unwrap();
+            assert!(regex.is_match(matches.as_bytes()), "{pattern}");
+            assert!(!regex.is_match(misses.as_bytes()), "{pattern}");
+        }
+    }
+
+    #[test]
+    fn matches_wildcards() {
+        assert!(like("h_llo w%d").matches(b"hello world"));
+        assert!(like("h_llo w%d").matches("h\u{00a3}llo wd".as_bytes()));
+        assert!(!like("h_llo w%d").matches(b"hxxllo world"));
+        // `%` crosses newlines.
+        assert!(like("hello%world").matches(b"hello\nworld"));
+        // `_` matches exactly one character, of any width.
+        assert!(like("_").matches("\u{00a3}".as_bytes()));
+        assert!(!like("_").matches("\u{00a3}x".as_bytes()));
+    }
+
+    #[test]
+    fn matches_escapes() {
+        assert!(like(r"100\%").matches(b"100%"));
+        assert!(!like(r"100\%").matches(b"100x"));
+        assert!(like(r"a\_b").matches(b"a_b"));
+        assert!(!like(r"a\_b").matches(b"axb"));
+        // A trailing backslash matches a literal backslash.
+        assert!(like("trailing\\").matches(b"trailing\\"));
+    }
+
+    #[test]
+    fn matches_case_insensitive() {
+        let ilike = |pattern: &str| LikePattern::compile(pattern, true, false).unwrap();
+        assert!(ilike("hello%").matches(b"HELLO WORLD"));
+        assert!(ilike("%WORLD").matches(b"hello world"));
+        // Full case folding: the ASCII pattern `k` matches U+212A KELVIN SIGN.
+        assert!(ilike("k").matches("\u{212a}".as_bytes()));
+        // Greek sigma case folds across all three forms.
+        assert!(ilike("\u{03c3}").matches("\u{03a3}".as_bytes()));
+        assert!(ilike("\u{03c3}").matches("\u{03c2}".as_bytes()));
+
+        // The ASCII fast paths agree with the regex on ASCII haystacks.
+        let ascii = |pattern: &str| LikePattern::compile(pattern, true, true).unwrap();
+        assert!(matches!(ascii("abc"), LikePattern::IEqAscii(_)));
+        assert!(matches!(ascii("abc%"), LikePattern::IStartsWithAscii(_)));
+        assert!(matches!(ascii("%abc"), LikePattern::IEndsWithAscii(_)));
+        assert!(ascii("abc").matches(b"AbC"));
+        assert!(ascii("abc%").matches(b"ABCDEF"));
+        assert!(ascii("%def").matches(b"ABCDEF"));
+        assert!(!ascii("abc").matches(b"AbCd"));
+    }
+}

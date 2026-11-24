@@ -4,14 +4,14 @@
 use async_trait::async_trait;
 use futures::StreamExt;
 use vortex_array::dtype::DType;
-use vortex_array::expr::stats::Precision;
-use vortex_array::expr::stats::Stat;
-use vortex_array::expr::stats::StatsProvider;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar::ScalarTruncation;
 use vortex_array::scalar::lower_bound;
 use vortex_array::scalar::upper_bound;
 use vortex_array::serde::SerializeOptions;
+use vortex_array::stats::Precision;
+use vortex_array::stats::Stat;
+use vortex_array::stats::StatsProvider;
 use vortex_array::stats::StatsSetRef;
 use vortex_buffer::BufferString;
 use vortex_buffer::ByteBuffer;
@@ -176,27 +176,34 @@ mod tests {
 
     use vortex_array::ArrayContext;
     use vortex_array::ArrayRef;
+    use vortex_array::ArrayVTable;
     use vortex_array::IntoArray;
     use vortex_array::MaskFuture;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::BoolArray;
+    use vortex_array::arrays::DecimalArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::StructArray;
+    use vortex_array::arrays::Widen;
+    use vortex_array::arrays::WidenArray;
     use vortex_array::arrays::struct_::StructArrayExt;
+    use vortex_array::assert_arrays_eq;
     use vortex_array::builders::ArrayBuilder;
     use vortex_array::builders::VarBinViewBuilder;
     use vortex_array::dtype::DType;
+    use vortex_array::dtype::DecimalDType;
     use vortex_array::dtype::FieldName;
     use vortex_array::dtype::FieldNames;
     use vortex_array::dtype::Nullability;
-    use vortex_array::expr::root;
-    use vortex_array::expr::stats::Precision;
-    use vortex_array::expr::stats::Stat;
-    use vortex_array::expr::stats::StatsProviderExt;
+    use vortex_array::stats::Precision;
+    use vortex_array::stats::Stat;
+    use vortex_array::stats::StatsProviderExt;
     use vortex_array::validity::Validity;
     use vortex_buffer::BitBufferMut;
     use vortex_buffer::buffer;
     use vortex_error::VortexExpect;
+    use vortex_error::VortexResult;
+    use vortex_expr::root;
     use vortex_io::runtime::single::block_on;
     use vortex_io::session::RuntimeSessionExt;
     use vortex_mask::AllOr;
@@ -402,6 +409,50 @@ mod tests {
                 .execute::<PrimitiveArray>(&mut ctx_exec)
                 .unwrap();
             assert_eq!(field_b.as_slice::<u64>(), &[3, 4]);
+        })
+    }
+
+    #[test]
+    fn flat_writes_decimal_widen() -> VortexResult<()> {
+        let values = DecimalArray::new(
+            buffer![-125i32, 50, 900],
+            DecimalDType::new(9, 2),
+            Validity::from_iter([true, false, true]),
+            &mut SESSION.create_execution_ctx(),
+        );
+        let dtype = DType::Decimal(DecimalDType::new(38, 2), Nullability::Nullable);
+        let array = WidenArray::try_new(values.into_array(), dtype)?.into_array();
+
+        block_on(|handle| async {
+            let mut ctx_exec = SESSION.create_execution_ctx();
+            let session = new_session().with_handle(handle);
+            let ctx = ArrayContext::empty();
+            let segments = Arc::new(TestSegments::default());
+            let (ptr, eof) = SequenceId::root().split();
+            let layout = FlatLayoutStrategy::default()
+                .write_stream(
+                    ctx.clone().into(),
+                    Arc::<TestSegments>::clone(&segments),
+                    array.clone().to_array_stream().sequenced(ptr),
+                    eof,
+                    &session,
+                )
+                .await?;
+
+            let reader = layout.new_reader("".into(), segments, &SESSION, &Default::default())?;
+            let expr = root().bind(reader.dtype())?;
+            let result = reader
+                .projection_evaluation(
+                    &(0..layout.row_count()),
+                    &expr,
+                    MaskFuture::new_true(usize::try_from(layout.row_count())?),
+                )?
+                .await?;
+
+            assert!(!ctx.to_ids().contains(&ArrayVTable::id(&Widen)));
+            assert_arrays_eq!(result, array, &mut ctx_exec);
+
+            Ok(())
         })
     }
 }

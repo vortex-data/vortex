@@ -29,25 +29,18 @@ pub(super) fn check_bool_sorted(
             })
         }
         Mask::Values(mask_values) => {
-            if strict {
-                let validity_buffer = mask_values.bit_buffer();
-                let values = array.bit_buffer_view();
-                Ok(validity_buffer
-                    .iter()
-                    .zip(values.iter())
-                    .map(|(is_valid, value)| is_valid.then_some(value))
-                    .is_strict_sorted())
+            // Nulls sort first, so map each element to `Option` where `None < Some(_)`.
+            let values = array.bit_buffer_view();
+            let iter = mask_values
+                .bit_buffer()
+                .iter()
+                .zip(values.iter())
+                .map(|(is_valid, value)| is_valid.then_some(value));
+            Ok(if strict {
+                iter.is_strict_sorted()
             } else {
-                let set_indices = mask_values.bit_buffer().set_indices();
-                let values = array.bit_buffer_view();
-                let values_iter = set_indices.map(|idx|
-                    // Safety:
-                    // All idxs are in-bounds for the array.
-                    unsafe {
-                        values.value_unchecked(idx)
-                    });
-                Ok(values_iter.is_sorted())
-            }
+                iter.is_sorted()
+            })
         }
     }
 }

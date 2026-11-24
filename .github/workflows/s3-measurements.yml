@@ -38,14 +38,16 @@ jobs:
         --sizes 4096,65536,262144,1048576,8388608 --concurrency 1,4,16,64
         --requests 64 --rounds 3 --warmup-seconds 20 --timeout-seconds 60
     steps:
-      - uses: runs-on/action@v2
-        with:
-          sccache: s3
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
-      - uses: ./.github/actions/setup-prebuild
-        with:
-          enable-sccache: "true"
-      - uses: ./.github/actions/system-info
+      - parallel:
+          - uses: runs-on/action@v2
+            with:
+              sccache: s3
+          - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+      - parallel:
+          - uses: ./.github/actions/setup-prebuild
+            with:
+              enable-sccache: "true"
+          - uses: ./.github/actions/system-info
       - name: Build collector
         run: cargo build --locked -p vortex-bench --bin s3-measure --release
       - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd  # v6

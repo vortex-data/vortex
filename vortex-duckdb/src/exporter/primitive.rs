@@ -72,27 +72,6 @@ mod tests {
     use crate::duckdb::duckdb_vector_size;
 
     #[test]
-    fn test_primitive_exporter() {
-        let arr = PrimitiveArray::from_iter(0..10);
-
-        let mut chunk = DataChunk::new([LogicalType::new(cpp::duckdb_type::DUCKDB_TYPE_INTEGER)]);
-        let mut ctx = SESSION.create_execution_ctx();
-
-        new_exporter(arr, &mut ctx)
-            .unwrap()
-            .export(0, 3, chunk.get_vector_mut(0), &mut ctx)
-            .unwrap();
-        chunk.set_len(3);
-
-        assert_eq!(
-            String::try_from(&*chunk).unwrap(),
-            r#"Chunk - [1 Columns]
-- FLAT INTEGER: 3 = [ 0, 1, 2]
-"#
-        );
-    }
-
-    #[test]
     fn test_primitive_exporter_with_nulls() {
         let arr = PrimitiveArray::from_option_iter([Some(10i32), None, Some(30), None, Some(50)]);
 

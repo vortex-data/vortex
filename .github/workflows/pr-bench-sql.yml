@@ -1,13 +1,14 @@
 # Runs SQL benchmarks once for a pull request.
-# Called from pr-bench-dispatch.yml when SQL benchmark labels are added.
+# Called from pr-bench-dispatch.yml when SQL benchmark labels are added, or run by hand on a PR's
+# branch to benchmark some benchmarks or queries, such as `polarsignals tpch-nvme:q1-4`.
 
 name: PR SQL Benchmarks
 
 concurrency:
   group: >-
     ${{ github.workflow }}-${{ inputs.matrix_preset || 'pr' }}-${{
-      github.head_ref || github.run_id
-    }}
+      inputs.benchmarks || 'all'
+    }}-${{ github.head_ref || (github.event_name == 'workflow_dispatch' && github.ref_name) || github.run_id }}
   cancel-in-progress: true
 
 on:
@@ -17,18 +18,30 @@ on:
         required: false
         type: string
         default: "pr"
+      benchmarks:
+        required: false
+        type: string
+        default: ""
   workflow_dispatch:
     inputs:
       matrix_preset:
-        description: "SQL benchmark matrix to run"
+        description: "SQL benchmark matrix to pick the benchmarks from, at its coverage"
         required: false
         type: choice
-        default: "pr"
+        default: "pr-all"
         options:
           - "pr"
+          - "pr-scan"
           - "pr-compact"
           - "pr-all"
           - "pr-full"
+      benchmarks:
+        description: >-
+          Benchmarks to run, separated by spaces, each optionally with queries:
+          polarsignals, tpch-nvme:q1,2 or tpch-nvme:q1-4. Empty runs the whole preset
+        required: false
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -36,9 +49,38 @@ permissions:
   id-token: write  # enables AWS-GitHub OIDC
 
 jobs:
+  # A manual run has no pull_request event, so it comments on the open PR from the branch it runs on.
+  find-pr:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      number: ${{ steps.find.outputs.number }}
+    steps:
+      - id: find
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_PR: ${{ github.event.pull_request.number }}
+          BRANCH: ${{ github.ref_name }}
+        run: |
+          set -Eeuo pipefail
+          if [[ -n "$EVENT_PR" ]]; then
+            number="$EVENT_PR"
+          else
+            number="$(gh api "repos/${GITHUB_REPOSITORY}/pulls" -X GET -f state=open \
+              -f head="${GITHUB_REPOSITORY_OWNER}:${BRANCH}" --jq '.[0].number // ""')"
+            if [[ -z "$number" ]]; then
+              echo "::notice::No open PR for ${BRANCH}; results are in the job summaries only."
+            fi
+          fi
+          echo "number=${number}" >> "$GITHUB_OUTPUT"
+
   sql:
+    needs: find-pr
     uses: ./.github/workflows/sql-bench-matrix.yml
     secrets: inherit
     with:
       mode: "pr"
       matrix_preset: ${{ inputs.matrix_preset }}
+      benchmarks: ${{ inputs.benchmarks }}
+      pr_number: ${{ needs.find-pr.outputs.number }}

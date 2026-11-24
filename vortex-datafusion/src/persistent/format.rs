@@ -230,7 +230,8 @@ extensions_options! {
         /// Enabled by default.
         pub predicate_pushdown: bool, default = true
         /// The intra-partition scan concurrency, controlling the number of row splits to process
-        /// concurrently per-thread within each file.
+        /// concurrently per-thread within each file. The V2 scan instead bounds the chunks in
+        /// flight within each file in total.
         ///
         /// This does not affect the overall parallelism
         /// across partitions, which is controlled by DataFusion's execution configuration.

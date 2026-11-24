@@ -24,16 +24,17 @@ export function EncodingPane({ node }: EncodingPaneProps) {
   const tree = node.arrayEncodingTree ?? fetchedTree;
 
   useEffect(() => {
-    // If already inlined, nothing to fetch.
-    if (node.arrayEncodingTree) return;
+    setError(null);
+    setFetchedTree(null);
 
-    // Need at least one segment to fetch from.
-    if (node.segmentIds.length === 0) return;
+    // If already inlined or there are no segments to fetch from, nothing to load.
+    if (node.arrayEncodingTree || node.segmentIds.length === 0) {
+      setLoading(false);
+      return;
+    }
 
     let cancelled = false;
     setLoading(true);
-    setError(null);
-    setFetchedTree(null);
 
     fetchEncodingTree(node.id)
       .then((result) => {
@@ -52,28 +53,25 @@ export function EncodingPane({ node }: EncodingPaneProps) {
   }, [node.id, node.arrayEncodingTree, node.segmentIds, fetchEncodingTree]);
 
   if (loading) {
-    return <div className="text-xs text-vortex-grey-dark">Loading encoding tree…</div>;
+    return <p className="vx-label x-pad">Reading the encoding tree…</p>;
   }
 
   if (error) {
-    return <div className="text-xs text-red-500">Error: {error}</div>;
-  }
-
-  if (!tree) {
     return (
-      <div className="text-xs text-vortex-grey-dark">
-        No array encoding tree available for this node.
+      <div className="x-pad" role="alert">
+        <p className="vx-small x-error">The encoding tree did not load. Select the node again.</p>
+        <p className="vx-label-sm">
+          Reason · <span className="vx-ref">{error}</span>
+        </p>
       </div>
     );
   }
 
-  return (
-    <div className="text-xs">
-      <pre className="font-mono text-[10px] text-vortex-grey-dark bg-vortex-grey-lightest dark:bg-white/[0.03] rounded p-2 overflow-auto">
-        {renderArrayTree(tree, 0)}
-      </pre>
-    </div>
-  );
+  if (!tree) {
+    return <p className="vx-label x-pad">This node has no array encoding tree.</p>;
+  }
+
+  return <pre className="x-encoding">{renderArrayTree(tree, 0)}</pre>;
 }
 
 function renderArrayTree(node: ArrayEncodingNode, indent: number): string {

@@ -36,7 +36,6 @@ const ordersState = mockState('orders.vortex', orders, 12_400_000, 100_000);
 const meta: Meta<typeof BlockTreemap> = {
   component: BlockTreemap,
   parameters: { layout: 'fullscreen' },
-  globals: { theme: 'dark' },
   decorators: [
     (Story) => (
       <div style={{ width: '100%', height: '600px' }}>

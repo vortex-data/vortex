@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use itertools::Itertools;
-use itertools::MinMaxResult;
+use std::ops::RangeInclusive;
+
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_compute::lane_kernels::IndexedSourceExt;
@@ -10,23 +10,23 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure_eq;
+use vortex_error::vortex_panic;
 use vortex_mask::AllOr;
 use vortex_mask::Mask;
 
 pub use crate::aggregate_fn::fns::min_max::valid_range;
 use crate::arrays::DecimalArray;
 use crate::arrays::decimal::DecimalArrayExt;
+use crate::arrays::decimal::DecimalData;
 use crate::buffer::BufferHandle;
 use crate::dtype::BigCast;
 use crate::dtype::DecimalDType;
-use crate::dtype::DecimalType;
 use crate::dtype::NativeDecimalType;
-use crate::dtype::i256;
 use crate::match_each_decimal_value_type;
 
 /// Return the array's unscaled values widened to `W`, which must be at least as wide as the
 /// array's storage type.
-pub(crate) fn widened_buffer<W: NativeDecimalType>(array: &DecimalArray) -> Buffer<W> {
+pub(crate) fn widened_buffer<W: NativeDecimalType>(array: &DecimalData) -> Buffer<W> {
     if array.values_type() == W::DECIMAL_TYPE {
         return array.buffer::<W>();
     }
@@ -224,98 +224,67 @@ pub fn check_precision<T: NativeDecimalType>(
 ) -> VortexResult<()> {
     vortex_ensure_eq!(validity.len(), values.len());
 
-    // The bound tables stop at `T::MAX_PRECISION`. Every value of `T` has at most
-    // `T::MAX_PRECISION + 1` digits, so a larger precision holds every value of `T`.
-    let precision = decimal_dtype.precision();
-    if precision > T::MAX_PRECISION {
+    // The bound tables stop at T::MAX_PRECISION. A larger precision holds every value of T.
+    if decimal_dtype.precision() > T::MAX_PRECISION || matches!(validity, Mask::AllFalse(_)) {
         return Ok(());
     }
-    let min = T::MIN_BY_PRECISION[usize::from(precision)];
-    let max = T::MAX_BY_PRECISION[usize::from(precision)];
-    let is_outside = |value: T| (value < min) | (value > max);
-
-    let valid_bits = match validity.bit_buffer() {
-        AllOr::All => None,
-        AllOr::None => return Ok(()),
-        AllOr::Some(valid_bits) => Some(valid_bits),
-    };
-
-    // The fold is branchless so that it vectorizes. It also reads the null slots, so a hit only
-    // means that the rescan below must look for a valid row outside the precision.
-    let any_outside = values
-        .iter()
-        .fold(false, |acc, &value| acc | is_outside(value));
-    if !any_outside {
-        return Ok(());
-    }
-
-    let first_outside = match valid_bits {
-        None => values.iter().position(|&value| is_outside(value)),
-        Some(valid_bits) => valid_bits
-            .set_indices()
-            .find(|&row| is_outside(values[row])),
-    };
-    if let Some(row) = first_outside {
+    let bounds = precision_bounds::<T>(decimal_dtype);
+    // A branchless fold lets the host scan vectorize. A hit might belong to a null row, so
+    // only the second pass needs the validity bits.
+    let any_outside = values.iter().fold(false, |outside, value| {
+        outside | (value < bounds.start()) | (value > bounds.end())
+    });
+    if any_outside && let Some(row) = first_outside_precision(values, validity, decimal_dtype) {
         vortex_bail!(
             "decimal value at row {row} must be within the precision of {decimal_dtype}, got {}",
             values[row]
         );
     }
-
     Ok(())
 }
 
-macro_rules! try_downcast {
-    ($array:expr, from: $src:ty, to: $($dst:ty),*) => {{
-        // Collect the min/max of the values
-        let minmax = $array.buffer::<$src>().iter().copied().minmax();
-        match minmax {
-            MinMaxResult::NoElements => return $array,
-            MinMaxResult::OneElement(_) => return $array,
-            MinMaxResult::MinMax(min, max) => {
-                $(
-                    if <$dst as BigCast>::from(min).is_some() && <$dst as BigCast>::from(max).is_some() {
-                        return DecimalArray::new::<$dst>(
-                            $array
-                                .buffer::<$src>()
-                                .into_iter()
-                                .map(|v| <$dst as BigCast>::from(v).vortex_expect("decimal conversion failure"))
-                                .collect(),
-                            $array.decimal_dtype(),
-                            $array
-                                .validity()
-                                .vortex_expect("decimal validity should be derivable"),
-                        );
-                    }
-                )*
-
-                return $array;
-            }
-        }
-    }};
+/// Finds the first valid row outside the declared precision. With a sparse validity mask, this
+/// reads only the selected rows, as needed by the zero-copy signed integer cast.
+///
+/// `validity` must describe exactly the rows in `values`.
+pub(crate) fn first_outside_precision<T: NativeDecimalType>(
+    values: &[T],
+    validity: &Mask,
+    decimal_dtype: DecimalDType,
+) -> Option<usize> {
+    debug_assert_eq!(validity.len(), values.len());
+    if decimal_dtype.precision() > T::MAX_PRECISION {
+        return None;
+    }
+    let bounds = precision_bounds::<T>(decimal_dtype);
+    match validity.bit_buffer() {
+        AllOr::All => values.iter().position(|value| !bounds.contains(value)),
+        AllOr::None => None,
+        AllOr::Some(bits) => bits
+            .set_indices()
+            .find(|&row| !bounds.contains(&values[row])),
+    }
 }
 
-/// Attempt to narrow the decimal array to any smaller supported type.
-pub fn narrowed_decimal(decimal_array: DecimalArray) -> DecimalArray {
-    match decimal_array.values_type() {
-        // Cannot narrow any more
-        DecimalType::I8 => decimal_array,
-        DecimalType::I16 => {
-            try_downcast!(decimal_array, from: i16, to: i8)
-        }
-        DecimalType::I32 => {
-            try_downcast!(decimal_array, from: i32, to: i8, i16)
-        }
-        DecimalType::I64 => {
-            try_downcast!(decimal_array, from: i64, to: i8, i16, i32)
-        }
-        DecimalType::I128 => {
-            try_downcast!(decimal_array, from: i128, to: i8, i16, i32, i64)
-        }
-        DecimalType::I256 => {
-            try_downcast!(decimal_array, from: i256, to: i8, i16, i32, i64, i128)
-        }
-    }
+/// Returns the unscaled range for a decimal whose precision is supported by `T`.
+pub(crate) fn precision_bounds<T: NativeDecimalType>(
+    decimal_dtype: DecimalDType,
+) -> RangeInclusive<T> {
+    let precision = usize::from(decimal_dtype.precision());
+    T::MIN_BY_PRECISION[precision]..=T::MAX_BY_PRECISION[precision]
+}
+
+/// Converts a value to its canonical width and checks the precision bounds chosen by the caller.
+pub(crate) fn cast_value_in_precision<F: NativeDecimalType, T: NativeDecimalType>(
+    value: F,
+    decimal_dtype: DecimalDType,
+    bounds: &RangeInclusive<T>,
+) -> T {
+    <T as BigCast>::from(value)
+        .filter(|v| bounds.contains(v))
+        .unwrap_or_else(|| {
+            vortex_panic!("decimal value {value} exceeds the precision of {decimal_dtype}")
+        })
 }
 
 #[cfg(test)]
@@ -339,7 +308,6 @@ mod tests {
     use crate::dtype::ToI256;
     use crate::dtype::i256;
     use crate::match_each_decimal_value_type;
-    use crate::validity::Validity;
 
     /// Runs [`copy_to_canonical_width`], checks that the copy has the canonical width of `target`,
     /// and reads the copy back as `i256`.
@@ -454,15 +422,7 @@ mod tests {
     /// Each pair selects a different widening or narrowing conversion.
     #[rstest]
     fn converted_buffer_every_storage_pair(
-        #[values(
-            DecimalType::I8,
-            DecimalType::I16,
-            DecimalType::I32,
-            DecimalType::I64,
-            DecimalType::I128,
-            DecimalType::I256
-        )]
-        storage: DecimalType,
+        #[values(2, 4, 9, 18, 38, 76)] precision: u8,
         #[values(
             DecimalType::I8,
             DecimalType::I16,
@@ -474,13 +434,7 @@ mod tests {
         target: DecimalType,
     ) -> VortexResult<()> {
         let values = [1i8, -2, 3];
-        let dtype = DecimalDType::new(2, 0);
-        let array = match_each_decimal_value_type!(storage, |S| {
-            let values = values.map(|value| {
-                <S as BigCast>::from(value).vortex_expect("small values fit every decimal type")
-            });
-            DecimalArray::new(Buffer::copy_from(values), dtype, Validity::NonNullable)
-        });
+        let array = DecimalArray::from_iter(values, DecimalDType::new(precision, 0));
 
         match_each_decimal_value_type!(target, |W| {
             let converted = converted_buffer::<W>(&array, &Mask::new_true(values.len()))?;

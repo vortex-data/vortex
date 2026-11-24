@@ -27,7 +27,6 @@ use vortex_array::patches::PatchesData;
 use vortex_array::require_opt_child;
 use vortex_array::require_patches;
 use vortex_array::require_validity;
-use vortex_array::serde::ArrayChildren;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::child_to_validity;
@@ -40,6 +39,7 @@ use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
 use crate::BitPackedArrayExt;
+use crate::BitPackedArraySlotsExt;
 use crate::BitPackedData;
 use crate::BitPackedDataParts;
 use crate::BitWidths;
@@ -54,7 +54,6 @@ use crate::bitpacking::array::BitPackedSlots;
 use crate::bitpacking::array::BitPackedSlotsView;
 use crate::bitpacking::array::PATCH_SLOTS;
 use crate::bitpacking::array::validate_block_offsets;
-use crate::bitpacking::vtable::rules::RULES;
 mod kernels;
 mod operations;
 mod rules;
@@ -65,6 +64,7 @@ pub type BitPackedArray = Array<BitPacked>;
 
 pub(crate) fn initialize(session: &VortexSession) {
     kernels::initialize(session);
+    rules::register_parent_rules(session);
 }
 
 impl ArrayHash for BitPackedData {
@@ -166,25 +166,6 @@ impl VTable for BitPacked {
         ))
     }
 
-    fn serialize(
-        _array: ArrayView<'_, Self>,
-        _session: &VortexSession,
-    ) -> VortexResult<Option<Vec<u8>>> {
-        Ok(None)
-    }
-
-    fn deserialize(
-        &self,
-        _dtype: &DType,
-        _len: usize,
-        _metadata: &[u8],
-        _buffers: &[BufferHandle],
-        _children: &dyn ArrayChildren,
-        _session: &VortexSession,
-    ) -> VortexResult<ArrayParts<Self>> {
-        vortex_bail!("BitPacked deserialization requires BitPackedPlugin")
-    }
-
     fn append_to_builder(
         array: ArrayView<'_, Self>,
         builder: &mut dyn ArrayBuilder,
@@ -219,7 +200,7 @@ impl VTable for BitPacked {
         require_validity!(array, BitPackedSlots::VALIDITY_CHILD);
         require_opt_child!(
             array,
-            array.slots()[BitPackedSlots::BLOCK_OFFSETS].as_ref(),
+            array.block_offsets(),
             BitPackedSlots::BLOCK_OFFSETS => Primitive
         );
 
@@ -228,14 +209,6 @@ impl VTable for BitPacked {
             BitWidthsView::Blocked(offsets) => unpack_array_blocked(array.as_view(), offsets, ctx)?,
         };
         Ok(ExecutionResult::done(decoded.into_array()))
-    }
-
-    fn reduce_parent(
-        array: ArrayView<'_, Self>,
-        parent: &ArrayRef,
-        child_idx: usize,
-    ) -> VortexResult<Option<ArrayRef>> {
-        RULES.evaluate(array, parent, child_idx)
     }
 }
 

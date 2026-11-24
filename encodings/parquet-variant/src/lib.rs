@@ -26,6 +26,9 @@
 
 mod array;
 mod arrow;
+#[cfg(test)]
+mod arrow_properties;
+mod builder;
 mod compute;
 #[cfg(test)]
 mod json_to_variant_tests;

@@ -26,6 +26,7 @@ vortex-error = { workspace = true }
 
 [dev-dependencies]
 divan = { workspace = true }
+hegeltest = { workspace = true }
 mimalloc = { workspace = true }
 rand = { workspace = true }
 rstest = { workspace = true }
