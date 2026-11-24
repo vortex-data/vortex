@@ -156,6 +156,11 @@ fn options(stages: &[&str], verify: bool) -> RunOptions {
         data_root: ".".into(),
         decode_reps: 2,
         compress_reps: 1,
+        timing: crate::measure::TimingConfig {
+            max_samples: 3,
+            min_samples: 3,
+            ..Default::default()
+        },
     }
 }
 

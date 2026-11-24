@@ -99,6 +99,24 @@ pub fn materialize(
     let mut feats = BufWriter::new(File::create(out.join(format!("features-{tag}.csv")))?);
     writeln!(feats, "source,column,chunk,{}", crate::features::header())?;
 
+    let mut sites = BufWriter::new(File::create(out.join(format!("site-features-{tag}.csv")))?);
+    writeln!(
+        sites,
+        "source,column,chunk,site_hash,path,applied,family,tier,name,value"
+    )?;
+    let mut costs = BufWriter::new(File::create(out.join(format!("feature-costs-{tag}.csv")))?);
+    writeln!(costs, "source,column,chunk,site_hash,run_id,group,tier,ns")?;
+    let mut measures = BufWriter::new(File::create(out.join(format!("measures-{tag}.csv")))?);
+    writeln!(
+        measures,
+        "tag,source,column,chunk,variant,run_id,op,correct,batch,samples,converged,median_ns,min_ns,ci,peak_bytes,allocations,error"
+    )?;
+    let mut production = BufWriter::new(File::create(out.join(format!("production-{tag}.csv")))?);
+    writeln!(
+        production,
+        "tag,source,column,chunk,run_id,reference_ns,compress_ns_median,replay_ns_median"
+    )?;
+
     let mut manifest = DatasetManifest {
         plan_id: plan.plan.plan_id.clone(),
         git_commit: plan.plan.identity.git_commit.clone(),
@@ -158,6 +176,79 @@ pub fn materialize(
                 .join(",")
         )?;
 
+        for row in &features.sites {
+            let path = csv(&row.site.path.join(" > "));
+            let applied = csv(row.applied.as_deref().unwrap_or_default());
+            for f in &row.features.features {
+                writeln!(
+                    sites,
+                    "{source},{column},{id},{},{path},{applied},{},{},{},{}",
+                    row.hash,
+                    row.features.family,
+                    f.tier,
+                    csv(&f.name),
+                    f.value.map(|v| v.to_string()).unwrap_or_default()
+                )?;
+            }
+        }
+        for o in &observations {
+            for site in &o.feature_costs {
+                for c in &site.costs {
+                    writeln!(
+                        costs,
+                        "{source},{column},{id},{},{},{},{},{}",
+                        site.hash,
+                        o.run_id,
+                        csv(&c.group),
+                        c.tier,
+                        c.ns
+                    )?;
+                }
+            }
+            for m in &o.measures {
+                for op in &m.ops {
+                    let mut sorted = op.samples_ns.clone();
+                    sorted.sort_by(f64::total_cmp);
+                    let show = |v: Option<f64>| v.map(|v| format!("{v:.1}")).unwrap_or_default();
+                    writeln!(
+                        measures,
+                        "{tag},{source},{column},{id},{},{},{},{},{},{},{},{},{},{},{},{},{}",
+                        variant(&m.name),
+                        o.run_id,
+                        op.op,
+                        u8::from(op.correct),
+                        op.batch,
+                        sorted.len(),
+                        u8::from(op.converged),
+                        show(sorted.get(sorted.len() / 2).copied()),
+                        show(sorted.first().copied()),
+                        if sorted.len() >= 3 {
+                            format!("{:.4}", crate::measure::median_ci(&sorted))
+                        } else {
+                            String::new()
+                        },
+                        op.memory
+                            .map(|m| m.peak_bytes.to_string())
+                            .unwrap_or_default(),
+                        op.memory
+                            .map(|m| m.allocations.to_string())
+                            .unwrap_or_default(),
+                        csv(op.error.as_deref().unwrap_or_default()),
+                    )?;
+                }
+            }
+            let show = |v: Option<u64>| v.map(|v| v.to_string()).unwrap_or_default();
+            let mut p = o.production.clone().unwrap_or_default();
+            writeln!(
+                production,
+                "{tag},{source},{column},{id},{},{},{},{}",
+                o.run_id,
+                show(o.reference_ns),
+                show(median(&mut p.compress_ns)),
+                show(median(&mut p.replay_ns)),
+            )?;
+        }
+
         let canonical = chunk_fact.blob.bytes;
         let len = chunk_fact.blob.len;
         let ptype = &chunk_fact.blob.ptype;
@@ -202,6 +293,10 @@ pub fn materialize(
     }
     rows.flush()?;
     feats.flush()?;
+    sites.flush()?;
+    costs.flush()?;
+    measures.flush()?;
+    production.flush()?;
     fs::write(
         out.join("dataset.json"),
         serde_json::to_vec_pretty(&manifest)?,

@@ -37,11 +37,18 @@ use crate::blob::BlobRef;
 use crate::features;
 use crate::key::TaskKey;
 use crate::machine::MachineInfo;
+use crate::machine::TimingEnv;
+use crate::measure;
+use crate::measure::CandidateMeasures;
+use crate::measure::TimingConfig;
+use crate::measure::Workload;
 use crate::plan::PlannedRun;
 use crate::plan::Task;
 use crate::plan::TaskInput;
 use crate::plan::TaskKind;
 use crate::shard::Shard;
+use crate::site_features;
+use crate::site_features::SiteRow;
 use crate::source::ChunkInput;
 use crate::store::Store;
 
@@ -63,6 +70,9 @@ pub struct FeaturesFact {
     pub names: Vec<String>,
     /// Feature values; `None` where undefined (e.g. all-null chunks).
     pub values: Vec<Option<f64>>,
+    /// Tiered features of every distinct site the production compressor visited, root first.
+    #[serde(default)]
+    pub sites: Vec<SiteRow>,
 }
 
 /// One candidate's result on one chunk.
@@ -102,6 +112,16 @@ pub struct CandidateTiming {
     pub deterministic: bool,
 }
 
+/// The production compressor timed on one chunk: with its own selection, and replaying the plan
+/// it chose. The difference is what selection (sampling and estimation) costs.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ProductionTiming {
+    /// Full production compression times, ns.
+    pub compress_ns: Vec<u64>,
+    /// Times to replay production's own plan without estimating, ns.
+    pub replay_ns: Vec<u64>,
+}
+
 /// A time observation: one run of one candidates task on one machine.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TimeObservation {
@@ -113,6 +133,31 @@ pub struct TimeObservation {
     pub git_commit: String,
     /// Per-candidate timings.
     pub timings: Vec<CandidateTiming>,
+    /// Decode, pushdown, memory and correctness measures per candidate, the canonical array
+    /// included as `canonical`.
+    #[serde(default)]
+    pub measures: Vec<CandidateMeasures>,
+    /// The reference kernel's time on this run, ns (see [`measure::reference_ns`]).
+    #[serde(default)]
+    pub reference_ns: Option<u64>,
+    /// Production compression with and without selection.
+    #[serde(default)]
+    pub production: Option<ProductionTiming>,
+    /// The timing conditions of this run.
+    #[serde(default)]
+    pub env: Option<TimingEnv>,
+    /// What computing each site's feature groups cost on this run, by site hash.
+    #[serde(default)]
+    pub feature_costs: Vec<SiteCosts>,
+}
+
+/// The feature-group costs of one site, measured in the `time` stage.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SiteCosts {
+    /// The site's content hash, as in [`SiteRow::hash`].
+    pub hash: String,
+    /// Cost per group.
+    pub costs: Vec<site_features::GroupCost>,
 }
 
 /// What to run.
@@ -130,6 +175,8 @@ pub struct RunOptions {
     pub decode_reps: u32,
     /// Compression timing repetitions.
     pub compress_reps: u32,
+    /// How the `time` stage measures decode and pushdown operations.
+    pub timing: TimingConfig,
 }
 
 /// Counts of what a stage did.
@@ -289,12 +336,28 @@ impl<'a> Runner<'a> {
             );
         }
         let (_, array) = self.load_chunk(chunk, ctx)?;
-        let primitive = array.execute::<PrimitiveArray>(ctx)?;
-        let base = features::from_primitive(&primitive, ctx)?;
+        let (names, values) = if site_features::family(array.dtype()) == "int" {
+            let primitive = array.clone().execute::<PrimitiveArray>(ctx)?;
+            let base = features::from_primitive(&primitive, ctx)?;
+            (
+                features::NAMES.iter().map(|n| n.to_string()).collect(),
+                base.iter().map(|v| v.is_finite().then_some(*v)).collect(),
+            )
+        } else {
+            (Vec::new(), Vec::new())
+        };
         Ok(FeaturesFact {
             version,
-            names: features::NAMES.iter().map(|n| n.to_string()).collect(),
-            values: base.iter().map(|v| v.is_finite().then_some(*v)).collect(),
+            names,
+            values,
+            // Costs are timings, so they are measured in the `time` stage; facts stay deterministic.
+            sites: site_features::production_sites(&array, &self.session, ctx)?
+                .into_iter()
+                .map(|mut row| {
+                    row.features.costs.clear();
+                    row
+                })
+                .collect(),
         })
     }
 
@@ -337,6 +400,10 @@ impl<'a> Runner<'a> {
     fn run_time(&self, options: &RunOptions) -> anyhow::Result<StageReport> {
         let machine = MachineInfo::current()?;
         self.store.put_machine(&machine)?;
+        let env = TimingEnv::current();
+        if !env.warnings().is_empty() {
+            eprintln!("timing conditions: {}", env.warnings().join("; "));
+        }
         let run_id = format!(
             "{}-{}",
             SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis(),
@@ -355,6 +422,7 @@ impl<'a> Runner<'a> {
             let (_, array) = self.load_chunk(chunk, &mut ctx)?;
             let fact: CandidatesFact = self.store.fact(TaskKind::Candidates, &task.key)?;
             let mut timings = Vec::new();
+            let mut encoded_candidates: Vec<(String, ArrayRef)> = Vec::new();
             for result in &fact.results {
                 let Some(stored) = &result.blob else {
                     continue;
@@ -384,6 +452,7 @@ impl<'a> Runner<'a> {
                         result.name, task.key
                     );
                 }
+                encoded_candidates.push((result.name.clone(), encoded));
                 timings.push(CandidateTiming {
                     name: result.name.clone(),
                     compress_ns,
@@ -391,6 +460,22 @@ impl<'a> Runner<'a> {
                     deterministic,
                 });
             }
+            let workload = Workload::standard(&array, options.timing.seed, &mut ctx)?;
+            let measures = measure::measure(
+                &array,
+                &encoded_candidates,
+                &workload,
+                &options.timing,
+                &mut ctx,
+            )?;
+            let production = self.time_production(&array, options.compress_reps, &mut ctx)?;
+            let feature_costs = site_features::production_sites(&array, &self.session, &mut ctx)?
+                .into_iter()
+                .map(|row| SiteCosts {
+                    hash: row.hash,
+                    costs: row.features.costs,
+                })
+                .collect();
             self.store.put_observation(
                 "time",
                 &machine.machine_id,
@@ -401,11 +486,43 @@ impl<'a> Runner<'a> {
                     machine_id: machine.machine_id.clone(),
                     git_commit: self.plan.plan.identity.git_commit.clone(),
                     timings,
+                    measures,
+                    reference_ns: Some(measure::reference_ns(array.nbytes() as usize)),
+                    production: Some(production),
+                    env: Some(env.clone()),
+                    feature_costs,
                 },
             )?;
             report.ran += 1;
         }
         Ok(report)
+    }
+}
+
+impl Runner<'_> {
+    /// Times production compression, interleaved with replaying the plan it chose.
+    fn time_production(
+        &self,
+        array: &ArrayRef,
+        reps: u32,
+        ctx: &mut ExecutionCtx,
+    ) -> anyhow::Result<ProductionTiming> {
+        let production = BtrBlocksCompressor::from_session(&self.session);
+        let (_, plan) = production.0.compress_recording_plan(array, ctx)?;
+        let mut timing = ProductionTiming::default();
+        for _ in 0..reps.max(1) {
+            let start = Instant::now();
+            black_box(production.compress(array, ctx)?);
+            timing
+                .compress_ns
+                .push(u64::try_from(start.elapsed().as_nanos())?);
+            let start = Instant::now();
+            black_box(production.0.compress_with_plan(array, &plan, ctx)?);
+            timing
+                .replay_ns
+                .push(u64::try_from(start.elapsed().as_nanos())?);
+        }
+        Ok(timing)
     }
 }
 

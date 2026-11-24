@@ -18,6 +18,7 @@
 // casts is far below the narrower type's range.
 #![allow(clippy::cast_possible_truncation)]
 
+pub mod alloc;
 pub mod blob;
 pub mod candidates;
 pub mod eval;
@@ -27,10 +28,13 @@ pub mod key;
 pub mod load;
 pub mod machine;
 pub mod materialize;
+pub mod measure;
 pub mod model;
 pub mod plan;
+pub mod probe;
 pub mod runner;
 pub mod shard;
+pub mod site_features;
 pub mod source;
 pub mod spec;
 pub mod store;

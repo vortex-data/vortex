@@ -39,7 +39,7 @@ pub const PLAN_FILE: &str = "plan.json";
 pub const TASKS_FILE: &str = "tasks.jsonl";
 
 /// Bumped whenever feature computation changes, so only feature tasks re-run.
-pub const FEATURES_VERSION: u32 = 1;
+pub const FEATURES_VERSION: u32 = 2;
 
 /// Bumped whenever how candidates are built or recorded changes.
 pub const CANDIDATES_VERSION: u32 = 1;

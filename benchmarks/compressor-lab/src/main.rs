@@ -33,6 +33,9 @@ use compressor_lab::store::Store;
 use vortex::VortexSessionDefault;
 use vortex::session::VortexSession;
 
+#[global_allocator]
+static GLOBAL: compressor_lab::alloc::Counting = compressor_lab::alloc::Counting;
+
 #[derive(Parser, Debug)]
 #[command(
     name = "vx-lab",
@@ -73,6 +76,8 @@ enum Command {
         /// Run with a dirty checkout or a binary that does not match the plan's commit.
         #[arg(long)]
         allow_dirty: bool,
+        #[command(flatten)]
+        timing: TimingArgs,
     },
     /// Build training tables from a plan's facts and one machine's timings.
     Materialize {
@@ -123,8 +128,54 @@ enum Command {
         #[arg(long)]
         shard: Option<Shard>,
     },
-    /// Print this machine's identity.
+    /// Print this machine's identity and timing conditions.
     Machine,
+    /// Site features and quality measures for every column of a TPC-H table, any dtype, without
+    /// a plan. Writes one JSON line per column.
+    Probe {
+        /// The TPC-H table, e.g. `lineitem`.
+        #[arg(long, default_value = "lineitem")]
+        table: String,
+        #[arg(long, default_value_t = 1.0)]
+        scale_factor: f64,
+        /// Rows probed from the start of each column.
+        #[arg(long, default_value_t = 65536)]
+        rows: usize,
+        /// Where the JSON lines go.
+        #[arg(long)]
+        out: PathBuf,
+        #[command(flatten)]
+        timing: TimingArgs,
+    },
+}
+
+/// How decode and pushdown operations are timed.
+#[derive(clap::Args, Debug, Clone)]
+struct TimingArgs {
+    /// Samples per candidate and operation at most.
+    #[arg(long, default_value_t = 31)]
+    max_samples: usize,
+    /// Stop once the 95% interval of the median is within this fraction of it.
+    #[arg(long, default_value_t = 0.05)]
+    target_ci: f64,
+    /// The shortest sample, µs; shorter operations are batched.
+    #[arg(long, default_value_t = 50)]
+    min_sample_us: u64,
+    /// Time budget per operation across candidates, ms.
+    #[arg(long, default_value_t = 200)]
+    op_budget_ms: u64,
+}
+
+impl TimingArgs {
+    fn config(&self) -> compressor_lab::measure::TimingConfig {
+        compressor_lab::measure::TimingConfig {
+            max_samples: self.max_samples,
+            target_ci: self.target_ci,
+            min_sample_ns: self.min_sample_us * 1_000,
+            budget_ns: self.op_budget_ms * 1_000_000,
+            ..Default::default()
+        }
+    }
 }
 
 #[derive(Subcommand, Debug)]
@@ -315,6 +366,7 @@ fn main() -> anyhow::Result<()> {
             verify,
             data_root,
             allow_dirty,
+            timing,
         } => {
             let run = PlannedRun::read(&plan)?;
             let identity = CodeIdentity::of_this_build(allow_dirty)?;
@@ -338,6 +390,7 @@ fn main() -> anyhow::Result<()> {
                 data_root,
                 decode_reps: run.plan.spec.measure.reps,
                 compress_reps: run.plan.spec.measure.compress_reps,
+                timing: timing.config(),
             })?;
         }
         Command::Materialize {
@@ -411,10 +464,36 @@ fn main() -> anyhow::Result<()> {
             )?;
             println!("evaluated {n} chunks into {}", out.display());
         }
-        Command::Machine => println!(
-            "{}",
-            serde_json::to_string_pretty(&MachineInfo::current()?)?
-        ),
+        Command::Machine => {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&MachineInfo::current()?)?
+            );
+            let env = compressor_lab::machine::TimingEnv::current();
+            println!("{}", serde_json::to_string_pretty(&env)?);
+            for warning in env.warnings() {
+                eprintln!("warning: {warning}");
+            }
+        }
+        Command::Probe {
+            table,
+            scale_factor,
+            rows,
+            out,
+            timing,
+        } => {
+            // Probing catches no panics, so report them.
+            drop(std::panic::take_hook());
+            let mut file = std::io::BufWriter::new(std::fs::File::create(&out)?);
+            compressor_lab::probe::probe_tpch(
+                &table,
+                scale_factor,
+                rows,
+                &timing.config(),
+                &mut file,
+            )?;
+            println!("wrote {}", out.display());
+        }
     }
     Ok(())
 }
