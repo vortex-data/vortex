@@ -5,6 +5,7 @@
 
 import importlib
 import json
+import re
 from dataclasses import replace
 from datetime import timedelta
 from typing import Any
@@ -98,10 +99,21 @@ def test_overview_fits_slack_limits_and_cuts_low_first():
     assert "⚪ 2000 Low" in message.blocks[1]["elements"][0]["text"]
 
 
-def test_overview_entry_shows_the_full_title_and_names_the_commenter():
-    long = row(1, title="y" * 100)
-    text = render.overview([long], NOW.date(), NOW, "", "").attachments[0]["blocks"][1]["text"]["text"]
-    assert "|#1 " + "y" * 100 + ">" in text
+def first_line(target) -> str:
+    """Return the first line of an overview entry as Slack shows it, without link targets."""
+    text = render.overview([target], NOW.date(), NOW, "", "").attachments[0]["blocks"][1]["text"]["text"]
+    return re.sub(r"<[^|>]*\|([^>]*)>", r"\1", text.split("\n")[0])
+
+
+def test_overview_entry_cuts_the_title_to_fit_one_line_and_names_the_commenter():
+    # The title is cut so that the line fills the budget exactly, and the emoji counts as two letters.
+    line = first_line(row(1, title="y" * 100))
+    assert line.endswith("... · alamb")
+    assert len(line) + 1 == render.LINE_CHARS
+    assert first_line(row(1)) == "📝 #1 A title · alamb"
+    # A long login does not squeeze the title below its minimum.
+    long_login = replace(row(1), item=item(1, title="y" * 100, author="z" * 39))
+    assert "y" * 17 + "... · " in first_line(long_login)
     # On a team item, the contributor is the outside person who commented last.
     team_item = item(2, author=TEAMMATE, events=[event(ago(days=3)), event(ago(days=2), "bob")])
     comment = row(2)

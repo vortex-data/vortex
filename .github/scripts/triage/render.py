@@ -22,6 +22,12 @@ from .state import ItemState, Status
 MAX_BLOCKS = 48
 MAX_SECTION_CHARS = 2900
 TITLE_LIMIT = 60
+# Slack wraps text at the width of the reader's window, and its font gives letters different widths,
+# so no character count fits every screen. In live tests, overview rows of about 75 characters fit
+# on one line in a desktop window, and rows of about 95 wrapped. An item's first line keeps to this
+# budget, and its title is cut to fit, but a title always keeps at least _MIN_TITLE_CHARS.
+LINE_CHARS = 70
+_MIN_TITLE_CHARS = 20
 # A list shows each item on two lines, and the second line starts with two em spaces, about four
 # normal spaces wide. A blank line keeps the entries apart.
 _INDENT = "\u2003\u2003"
@@ -70,14 +76,14 @@ def escape(text: str) -> str:
     return cleaned.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
-def _title(item: Item, limit: int | None) -> str:
+def _title(item: Item, limit: int) -> str:
     title = " ".join(item.title.split())
-    if limit is not None and len(title) > limit:
+    if len(title) > limit:
         title = title[: limit - 3].rstrip() + "..."
     return escape(title)
 
 
-def _link(item: Item, limit: int | None = TITLE_LIMIT) -> str:
+def _link(item: Item, limit: int = TITLE_LIMIT) -> str:
     return f"<{item.url}|#{item.number} {_title(item, limit)}>"
 
 
@@ -148,14 +154,22 @@ def _thread(row: Row) -> str:
     return f"<{row.thread_url}|thread>" if row.thread_url else ""
 
 
+def _first_line(row: Row, marker: bool) -> str:
+    emoji = [row.section.marker] if marker else []
+    emoji.append(kind_emoji(row.item, row.assessment))
+    contributor = _contributor(row.item, row.assessment)
+    tail = f" · {contributor}" if contributor else ""
+    # An emoji is about as wide as two letters, and a space follows each one.
+    used = 3 * len(emoji) + len(f"#{row.item.number} ") + len(tail)
+    title_chars = max(LINE_CHARS - used, _MIN_TITLE_CHARS)
+    return f"{' '.join(emoji)} {_link(row.item, title_chars)}{tail}"
+
+
 def _entry(row: Row, now: datetime, *, marker: bool = False) -> str:
     """Show an item on two lines: the item and its contributor, then the team's side of it."""
-    prefix = f"{row.section.marker} " if marker else ""
-    item = f"{prefix}{kind_emoji(row.item, row.assessment)} {_link(row.item, None)}"
     detail = escape(row.assessment.owes_reason) if row.section is WAITING else _wait(row, now)
-    first = _parts(item, _contributor(row.item, row.assessment))
     second = _parts(_owner(row.item), detail, _thread(row))
-    return f"{first}\n{_INDENT}{second}"
+    return f"{_first_line(row, marker)}\n{_INDENT}{second}"
 
 
 def ordered(rows: Sequence[Row]) -> dict[Section, list[Row]]:
