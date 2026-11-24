@@ -77,7 +77,7 @@ mod tests {
         let mut field = Field::new("value", storage.arrow.data_type().clone(), nullable);
         field
             .metadata_mut()
-            .insert("ARROW:extension:name".into(), "vortex.tensor.vector".into());
+            .insert("ARROW:extension:name", "vortex.tensor.vector");
         check_arrow(vector.clone(), &field, Arc::clone(&storage.arrow), &mut ctx)?;
         let default = vector.clone().execute_arrow(None, &mut ctx)?;
         assert_eq!(default.to_data(), storage.arrow.to_data());
@@ -182,10 +182,10 @@ mod tests {
         let mut field = Field::new("value", storage.arrow.data_type().clone(), nullable);
         field.metadata_mut().extend([
             (
-                "ARROW:extension:name".into(),
-                "arrow.fixed_shape_tensor".into(),
+                "ARROW:extension:name".to_owned(),
+                "arrow.fixed_shape_tensor".to_owned(),
             ),
-            ("ARROW:extension:metadata".into(), arrow_metadata),
+            ("ARROW:extension:metadata".to_owned(), arrow_metadata),
         ]);
         let expected = storage.arrow;
         let tensor =
@@ -228,7 +228,7 @@ mod tests {
         let mut field = Field::new("value", DataType::FixedSizeList(child, 0), true);
         field
             .metadata_mut()
-            .insert("ARROW:extension:name".into(), "vortex.tensor.vector".into());
+            .insert("ARROW:extension:name", "vortex.tensor.vector");
         check_arrow(array.clone(), &field, expected, &mut ctx)?;
         check_containers(array, &mut ctx)
     }

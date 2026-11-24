@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::sync::Arc;
+use std::sync::atomic::Ordering;
 
 use arrow_schema::SchemaRef;
 use async_trait::async_trait;
@@ -30,6 +31,7 @@ use object_store::ObjectStore;
 use object_store::path::Path;
 use tokio_stream::wrappers::ReceiverStream;
 use vortex::array::stream::ArrayStreamAdapter;
+use vortex::file::CountingVortexWrite;
 use vortex::file::WriteOptionsSessionExt;
 use vortex::file::WriteSummary;
 use vortex::io::VortexWrite;
@@ -135,7 +137,7 @@ impl FileSink for VortexSink {
 
         // TODO(adamg):
         // 1. We can probably be better at signaling how much memory we're consuming (potentially when reading too), see ParquetSink::spawn_writer_tasks_and_join.
-        while let Some((path, rx)) = file_stream_rx.recv().await {
+        while let Some((file, rx)) = file_stream_rx.recv().await {
             let session = self.session.clone();
             let object_store = Arc::clone(&object_store);
 
@@ -145,7 +147,24 @@ impl FileSink for VortexSink {
             let import_schema = Arc::clone(&writer_schema);
             let dtype = dtype.clone();
             file_write_tasks.spawn(async move {
+                let object_writer = ObjectStoreWrite::new(object_store, &file.path)
+                    .await
+                    .map_err(|e| exec_datafusion_err!("Failed to create ObjectStoreWrite: {e}"))?;
+                let mut object_writer = CountingVortexWrite::new(object_writer);
+                let bytes_written = object_writer.counter();
+
+                let write_options = session.write_options();
+                let buffered_bytes = write_options.buffered_bytes_tracker();
+
+                let file_size = Arc::clone(&file.size);
                 let stream = ReceiverStream::new(rx).map(move |rb| {
+                    // DataFusion's demux reads this before sending each batch, rolling over to a
+                    // new file once it reaches `soft_max_bytes_per_output_file`. Bytes held by the
+                    // layout strategies count too, since they are written only when flushed.
+                    file_size.store(
+                        bytes_written.load(Ordering::Relaxed) + buffered_bytes.buffered_bytes(),
+                        Ordering::Relaxed,
+                    );
                     arrow_session
                         .arrow()
                         .from_arrow_record_batch(rb, &import_schema)
@@ -153,12 +172,7 @@ impl FileSink for VortexSink {
 
                 let stream_adapter = ArrayStreamAdapter::new(dtype, stream);
 
-                let mut object_writer = ObjectStoreWrite::new(object_store, &path)
-                    .await
-                    .map_err(|e| exec_datafusion_err!("Failed to create ObjectStoreWrite: {e}"))?;
-
-                let summary = session
-                    .write_options()
+                let summary = write_options
                     .write(&mut object_writer, stream_adapter)
                     .await
                     .map_err(|e| exec_datafusion_err!("Failed to write Vortex file: {e}"))?;
@@ -168,7 +182,9 @@ impl FileSink for VortexSink {
                     .await
                     .map_err(|e| exec_datafusion_err!("Failed to shutdown Vortex writer: {e}"))?;
 
-                Ok((path, summary))
+                file.size.store(summary.size(), Ordering::Relaxed);
+
+                Ok((file.path, summary))
             });
         }
 
@@ -460,6 +476,79 @@ mod tests {
             file_metas.len(),
             expected_files,
             "Expected {expected_files} files for {entries} values"
+        );
+
+        Ok(())
+    }
+
+    /// DataFusion starts a new output file once a writer reports reaching
+    /// `soft_max_bytes_per_output_file`, which needs the sink to report bytes as it writes.
+    #[tokio::test]
+    async fn test_write_rolls_files_by_bytes() -> anyhow::Result<()> {
+        const BATCHES: i64 = 32;
+        const ROWS_PER_BATCH: i64 = 8192;
+
+        let ctx = TestSessionContext::default();
+        for setting in [
+            "SET datafusion.execution.minimum_parallel_output_files = 1",
+            "SET datafusion.execution.soft_max_bytes_per_output_file = 65536",
+        ] {
+            ctx.session.sql(setting).await?.collect().await?;
+        }
+
+        let schema = Arc::new(Schema::new(vec![Field::new("a", DataType::Int64, false)]));
+        let batches = (0..BATCHES)
+            .map(|batch| {
+                let values = (batch * ROWS_PER_BATCH..(batch + 1) * ROWS_PER_BATCH)
+                    .map(|i| i.wrapping_mul(2_654_435_761) % 1_000_000_007);
+                RecordBatch::try_new(
+                    Arc::clone(&schema),
+                    vec![Arc::new(Int64Array::from_iter_values(values))],
+                )
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let data = ctx.session.read_batches(batches)?;
+
+        let logical_plan = LogicalPlanBuilder::copy_to(
+            data.logical_plan().clone(),
+            "/table/".to_string(),
+            format_as_file_type(Arc::new(VortexFormatFactory::new())),
+            Default::default(),
+            vec![],
+        )?
+        .build()?;
+        ctx.session
+            .execute_logical_plan(logical_plan)
+            .await?
+            .collect()
+            .await?;
+
+        let count = ctx
+            .session
+            .sql("SELECT COUNT(*) FROM '/table/'")
+            .await?
+            .collect()
+            .await?;
+        assert_batches_sorted_eq!(
+            [
+                "+----------+",
+                "| count(*) |",
+                "+----------+",
+                "| 262144   |",
+                "+----------+",
+            ],
+            &count
+        );
+
+        let files = ctx
+            .store
+            .list(Some(&"/table".into()))
+            .try_collect::<Vec<_>>()
+            .await?;
+        assert!(
+            files.len() > 1,
+            "expected the byte target to split the output, got {} file(s)",
+            files.len()
         );
 
         Ok(())

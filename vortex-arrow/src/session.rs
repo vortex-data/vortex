@@ -441,13 +441,10 @@ impl ArrowSession {
                     ),
                     dtype.is_nullable(),
                 )
-                .with_metadata(
-                    [(
-                        EXTENSION_TYPE_NAME_KEY.to_string(),
-                        "arrow.parquet.variant".to_string(),
-                    )]
-                    .into(),
-                ))
+                .with_metadata([(
+                    EXTENSION_TYPE_NAME_KEY.to_string(),
+                    "arrow.parquet.variant".to_string(),
+                )]))
             }
             _ => Ok(Field::new(
                 name,
@@ -1265,6 +1262,7 @@ mod tests {
     use arrow_schema::Field;
     use arrow_schema::FieldRef;
     use arrow_schema::Fields;
+    use arrow_schema::Metadata;
     use rstest::rstest;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute as _;
@@ -1374,13 +1372,10 @@ mod tests {
             ]
             .into(),
         );
-        let field = Field::new("v", storage, true).with_metadata(
-            [(
-                "ARROW:extension:name".to_string(),
-                "arrow.parquet.variant".to_string(),
-            )]
-            .into(),
-        );
+        let field = Field::new("v", storage, true).with_metadata([(
+            "ARROW:extension:name".to_string(),
+            "arrow.parquet.variant".to_string(),
+        )]);
         assert_eq!(
             session.from_arrow_field(&field)?,
             DType::Variant(Nullability::Nullable)
@@ -1450,7 +1445,7 @@ mod tests {
         let metadata = extension_name
             .map(|id| (EXTENSION_TYPE_NAME_KEY.to_string(), id.to_string()))
             .into_iter()
-            .collect();
+            .collect::<Metadata>();
         let field = Field::new("s", dict.data_type().clone(), false).with_metadata(metadata);
 
         let dtype = session.from_arrow_field(&field)?;
@@ -1509,15 +1504,10 @@ mod tests {
     }
 
     fn truncated_field(name: &str, data_type: DataType) -> FieldRef {
-        Arc::new(
-            Field::new(name, data_type, false).with_metadata(
-                [(
-                    EXTENSION_TYPE_NAME_KEY.to_string(),
-                    "test.truncate".to_string(),
-                )]
-                .into(),
-            ),
-        )
+        Arc::new(Field::new(name, data_type, false).with_metadata([(
+            EXTENSION_TYPE_NAME_KEY.to_string(),
+            "test.truncate".to_string(),
+        )]))
     }
 
     fn list_with_truncated_child() -> ArrowArrayRef {
@@ -1946,8 +1936,10 @@ mod tests {
     fn leaf(extension_name: Option<&str>) -> FieldRef {
         let mut leaf = Field::new("leaf", DataType::Int32, true);
         if let Some(name) = extension_name {
-            leaf = leaf
-                .with_metadata([(EXTENSION_TYPE_NAME_KEY.to_string(), name.to_string())].into());
+            leaf = leaf.with_metadata(Metadata::from_iter([(
+                EXTENSION_TYPE_NAME_KEY.to_string(),
+                name.to_string(),
+            )]));
         }
 
         Arc::new(leaf)
