@@ -261,4 +261,27 @@ impl ArrayAndStats {
     pub(crate) fn get<T: Send + Sync + 'static>(&self) -> Option<Arc<T>> {
         self.cache.get::<T>()
     }
+
+    /// Returns the array's null count if statistics generated so far already hold it, without
+    /// generating any.
+    pub(crate) fn cached_null_count(&self) -> Option<u32> {
+        self.cache
+            .get::<IntegerStats>()
+            .map(|stats| stats.null_count())
+            .or_else(|| {
+                self.cache
+                    .get::<FloatStats>()
+                    .map(|stats| stats.null_count())
+            })
+            .or_else(|| {
+                self.cache
+                    .get::<StringStats>()
+                    .map(|stats| stats.null_count())
+            })
+            .or_else(|| {
+                self.cache
+                    .get::<BoolStats>()
+                    .map(|stats| stats.null_count())
+            })
+    }
 }
