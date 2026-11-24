@@ -1,0 +1,21 @@
+# Integer scheme selection on TPC-H SF1, generated in-process, with the exhaustive oracle.
+name = "tpch-sf1-exhaustive"
+chunk_rows = 65536
+dtypes = ["int"]
+max_chunks_per_column = 16
+
+[schemes]
+exclude = ["vortex.int.pco"]
+
+[search]
+strategy = "exhaustive"
+
+[measure]
+reps = 7
+compress_reps = 3
+
+[[sources]]
+kind = "tpch"
+name = "tpch-sf1"
+scale_factor = 1.0
+tables = ["lineitem", "orders", "partsupp", "customer"]

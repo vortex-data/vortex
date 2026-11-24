@@ -28,6 +28,7 @@ pub mod load;
 pub mod machine;
 pub mod materialize;
 pub mod model;
+pub mod oracle;
 pub mod plan;
 pub mod runner;
 pub mod shard;

@@ -37,6 +37,9 @@ use crate::blob::BlobRef;
 use crate::features;
 use crate::key::TaskKey;
 use crate::machine::MachineInfo;
+use crate::oracle::OracleParams;
+use crate::oracle::SearchStats;
+use crate::oracle::SiteRow;
 use crate::plan::PlannedRun;
 use crate::plan::Task;
 use crate::plan::TaskInput;
@@ -80,13 +83,29 @@ pub struct CandidateResult {
     pub root: Option<String>,
     /// The encoding tree.
     pub tree: Option<String>,
+    /// The plan the encoding replays, as text (see [`vortex_compressor::plan::Plan`]).
+    #[serde(default)]
+    pub plan: Option<String>,
+    /// For oracle front plans: the search's predicted buffer bytes.
+    #[serde(default)]
+    pub predicted_nbytes: Option<u64>,
+    /// For oracle front plans: the search's predicted decode time, ns, from the shard machine.
+    #[serde(default)]
+    pub predicted_decode_ns: Option<u64>,
 }
 
 /// A candidates task's output.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CandidatesFact {
-    /// One result per candidate, in plan order.
+    /// One result per candidate, in plan order; the oracle adds one per front plan.
     pub results: Vec<CandidateResult>,
+    /// The oracle's search effort, if the plan runs it.
+    #[serde(default)]
+    pub search: Option<SearchStats>,
+    /// The oracle's per-site table: one row per (site, scheme) tried. Decode times come from the
+    /// shard machine and are only for pruning and rough analysis.
+    #[serde(default)]
+    pub sites: Vec<SiteRow>,
 }
 
 /// One candidate's timings in one run.
@@ -100,6 +119,10 @@ pub struct CandidateTiming {
     pub decode_ns: Vec<u64>,
     /// Whether re-compressing reproduced the stored encoding byte for byte.
     pub deterministic: bool,
+    /// For `production` and `sizemodel`: compression times of the adaptive compressor, which
+    /// samples and estimates, ns. `compress_ns` replays the plan, with no selection cost.
+    #[serde(default)]
+    pub adaptive_compress_ns: Vec<u64>,
 }
 
 /// A time observation: one run of one candidates task on one machine.
@@ -162,7 +185,15 @@ impl<'a> Runner<'a> {
         {
             bail!("session already set");
         }
-        let candidates = crate::candidates::build(&session, &plan.plan.candidates)?;
+        let adaptive: Vec<String> = plan
+            .plan
+            .candidates
+            .iter()
+            .filter(|n| matches!(n.as_str(), "production" | "sizemodel"))
+            .cloned()
+            .chain(std::iter::once("production".to_string()))
+            .collect();
+        let candidates = crate::candidates::build(&session, &adaptive)?;
         Ok(Self {
             plan,
             store,
@@ -226,9 +257,18 @@ impl<'a> Runner<'a> {
                         .put_fact(kind, &task.key, &fact, start.elapsed().as_millis())?
                 }
                 TaskInput::Candidates {
-                    chunk, candidates, ..
+                    chunk,
+                    candidates,
+                    search,
+                    ..
                 } => {
-                    let fact = self.candidates(chunk, candidates, &mut ctx)?;
+                    let params = OracleParams {
+                        k: search.k as usize,
+                        epsilon: search.epsilon,
+                        max_compressions: search.max_compressions,
+                        decode_reps: search.decode_reps,
+                    };
+                    let fact = self.candidates(chunk, candidates, params, &mut ctx)?;
                     self.store
                         .put_fact(kind, &task.key, &fact, start.elapsed().as_millis())?
                 }
@@ -302,36 +342,73 @@ impl<'a> Runner<'a> {
         &self,
         chunk: &TaskKey,
         names: &[String],
+        params: OracleParams,
         ctx: &mut ExecutionCtx,
     ) -> anyhow::Result<CandidatesFact> {
         let (_, array) = self.load_chunk(chunk, ctx)?;
+        let production = &self.candidates["production"];
         let mut results = Vec::with_capacity(names.len());
+        let mut search = None;
+        let mut sites = Vec::new();
         for name in names {
-            let compressor = self
-                .candidates
-                .get(name)
-                .with_context(|| format!("candidate `{name}` was not built"))?;
-            let outcome =
-                std::panic::catch_unwind(AssertUnwindSafe(|| compressor.compress(&array, ctx)));
-            let result = match outcome {
-                Ok(Ok(encoded)) => {
-                    let (blob, bytes) = blob::serialize(&encoded, &self.session)?;
-                    self.store.put_blob(&blob.hash, &bytes)?;
-                    CandidateResult {
-                        name: name.clone(),
-                        error: None,
-                        nbytes: Some(encoded.nbytes()),
-                        root: Some(encoded.encoding_id().to_string()),
-                        tree: Some(tree(&encoded)),
-                        blob: Some(blob),
+            let outcome = std::panic::catch_unwind(AssertUnwindSafe(|| {
+                crate::candidates::produce(
+                    name,
+                    &array,
+                    &self.candidates,
+                    &self.session,
+                    params,
+                    ctx,
+                )
+            }));
+            let produced = match outcome {
+                Ok(Ok((produced, output))) => {
+                    if let Some(output) = output {
+                        search = Some(output.stats);
+                        sites = output.sites;
                     }
+                    produced
                 }
-                Ok(Err(error)) => failed(name, error.to_string()),
-                Err(_) => failed(name, "panic".to_string()),
+                Ok(Err(error)) => {
+                    results.push(failed(name, error.to_string()));
+                    continue;
+                }
+                Err(_) => {
+                    results.push(failed(name, "panic".to_string()));
+                    continue;
+                }
             };
-            results.push(result);
+            for produced in produced {
+                let replayed = std::panic::catch_unwind(AssertUnwindSafe(|| {
+                    production.compress_with_plan(&array, &produced.plan, ctx)
+                }));
+                let result = match replayed {
+                    Ok(Ok(encoded)) => {
+                        let (blob, bytes) = blob::serialize(&encoded, &self.session)?;
+                        self.store.put_blob(&blob.hash, &bytes)?;
+                        CandidateResult {
+                            name: produced.name,
+                            error: None,
+                            nbytes: Some(encoded.nbytes()),
+                            root: Some(encoded.encoding_id().to_string()),
+                            tree: Some(tree(&encoded)),
+                            blob: Some(blob),
+                            plan: Some(produced.plan.to_string()),
+                            predicted_nbytes: produced.predicted.map(|p| p.0),
+                            predicted_decode_ns: produced.predicted.map(|p| p.1),
+                        }
+                    }
+                    Ok(Err(error)) => failed(&produced.name, error.to_string()),
+                    Err(_) => failed(&produced.name, "panic".to_string()),
+                };
+                results.push(result);
+            }
         }
-        Ok(CandidatesFact { results })
+        Ok(CandidatesFact {
+            results,
+            search,
+            sites,
+        })
     }
 
     fn run_time(&self, options: &RunOptions) -> anyhow::Result<StageReport> {
@@ -355,28 +432,52 @@ impl<'a> Runner<'a> {
             let (_, array) = self.load_chunk(chunk, &mut ctx)?;
             let fact: CandidatesFact = self.store.fact(TaskKind::Candidates, &task.key)?;
             let mut timings = Vec::new();
+            let mut measured: BTreeMap<String, (Vec<u64>, Vec<u64>, bool)> = BTreeMap::new();
             for result in &fact.results {
                 let Some(stored) = &result.blob else {
                     continue;
                 };
-                let compressor = &self.candidates[&result.name];
-                let mut compress_ns = Vec::with_capacity(options.compress_reps as usize);
-                let mut deterministic = true;
-                for _ in 0..options.compress_reps {
-                    let start = Instant::now();
-                    let encoded = compressor.compress(&array, &mut ctx)?;
-                    compress_ns.push(u64::try_from(start.elapsed().as_nanos())?);
-                    deterministic &=
-                        blob::serialize(&encoded, &self.session)?.0.hash == stored.hash;
-                }
-                let encoded =
-                    blob::deserialize(stored, self.store.blob(&stored.hash)?, &self.session)?;
-                black_box(encoded.clone().execute::<Canonical>(&mut ctx)?);
-                let mut decode_ns = Vec::with_capacity(options.decode_reps as usize);
-                for _ in 0..options.decode_reps {
-                    let start = Instant::now();
+                // Identical encodings (the same plan reached by several candidates) are timed once
+                // and share their samples, so the order candidates run in can't favor one name.
+                let (compress_ns, decode_ns, deterministic) = if let Some(done) =
+                    measured.get(&stored.hash)
+                {
+                    done.clone()
+                } else {
+                    let plan_text = result.plan.as_deref().with_context(|| {
+                        format!("{} has no plan; re-run candidates", result.name)
+                    })?;
+                    let plan = crate::candidates::parse_plan(plan_text, &self.session)?;
+                    let production = &self.candidates["production"];
+                    let mut compress_ns = Vec::with_capacity(options.compress_reps as usize);
+                    let mut deterministic = true;
+                    for _ in 0..options.compress_reps {
+                        let start = Instant::now();
+                        let encoded = production.compress_with_plan(&array, &plan, &mut ctx)?;
+                        compress_ns.push(u64::try_from(start.elapsed().as_nanos())?);
+                        deterministic &=
+                            blob::serialize(&encoded, &self.session)?.0.hash == stored.hash;
+                    }
+                    let encoded =
+                        blob::deserialize(stored, self.store.blob(&stored.hash)?, &self.session)?;
                     black_box(encoded.clone().execute::<Canonical>(&mut ctx)?);
-                    decode_ns.push(u64::try_from(start.elapsed().as_nanos())?);
+                    let mut decode_ns = Vec::with_capacity(options.decode_reps as usize);
+                    for _ in 0..options.decode_reps {
+                        let start = Instant::now();
+                        black_box(encoded.clone().execute::<Canonical>(&mut ctx)?);
+                        decode_ns.push(u64::try_from(start.elapsed().as_nanos())?);
+                    }
+                    let done = (compress_ns, decode_ns, deterministic);
+                    measured.insert(stored.hash.clone(), done.clone());
+                    done
+                };
+                let mut adaptive_compress_ns = Vec::new();
+                if let Some(adaptive) = self.candidates.get(&result.name) {
+                    for _ in 0..options.compress_reps {
+                        let start = Instant::now();
+                        black_box(adaptive.compress(&array, &mut ctx)?);
+                        adaptive_compress_ns.push(u64::try_from(start.elapsed().as_nanos())?);
+                    }
                 }
                 if !deterministic {
                     eprintln!(
@@ -389,6 +490,7 @@ impl<'a> Runner<'a> {
                     compress_ns,
                     decode_ns,
                     deterministic,
+                    adaptive_compress_ns,
                 });
             }
             self.store.put_observation(
@@ -417,6 +519,9 @@ fn failed(name: &str, error: String) -> CandidateResult {
         nbytes: None,
         root: None,
         tree: None,
+        plan: None,
+        predicted_nbytes: None,
+        predicted_decode_ns: None,
     }
 }
 

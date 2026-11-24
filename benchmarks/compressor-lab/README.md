@@ -51,6 +51,49 @@ store/
 `vx-lab plan show --store` reports progress per stage and timing runs per machine.
 `vx-lab plan tasks --kind candidates --shard 3/16 --pending --store` lists work to hand out.
 
+## Candidates are plans
+
+Every candidate produces a `vortex_compressor::plan::Plan`, and its stored encoding is the
+production compressor following that plan (`compress_with_plan`). The plan is stored as text with
+each result, for example `vortex.int.runend(vortex.int.bitpacking, _)`, so any encoding can be
+rebuilt from its plan alone. The time stage replays the plan, checks the result matches the stored
+blob byte for byte, and times identical encodings once even when several candidates reach them.
+For `production` and `sizemodel` it also times the adaptive compressor (`adaptive_compress_ns`),
+which pays for sampling and estimates; `compress_ns` is the replay, with no selection cost.
+
+| Candidate | Plan |
+|---|---|
+| `production` | What today's compressor applies (`compress_recording_plan`) |
+| `sizemodel` | The same, with RunEnd and Sparse estimated by a size model |
+| `forced/<scheme>` | `<scheme>` at the root, production below it |
+| `exhaustive/<i>` | The oracle's Pareto front, smallest first (`search.strategy = "exhaustive"`) |
+
+### The exhaustive oracle
+
+`src/oracle.rs` is a compression policy that asks the compressor to try every eligible scheme at
+every site and observes every candidate. From one compression of a chunk it builds, bottom-up, a
+Pareto front of whole plans on (bytes, decode time): a candidate's own cost is its total minus the
+children the compressor kept below it, and its front is the product of its children's fronts.
+Bytes add up exactly, so the front's smallest plan is the true minimum within the cascade rules;
+decode times are approximate and from the shard machine, so they only prune. The time stage
+measures each front plan whole.
+
+```toml
+[search]
+strategy = "exhaustive"
+k = 8                     # plans kept per front
+epsilon = 0.1             # relative decode margin when thinning
+max_compressions = 20000  # per chunk; then the rest falls back to estimates
+decode_reps = 3           # in-search decode timings per candidate
+```
+
+Sites whose array, depth and eligible schemes match an earlier site reuse its result. On TPC-H SF1
+integers (157 chunks of 64Ki rows) a search runs about 130 compressions over 100 sites in about
+70 ms per chunk, so the budget is never hit. Each candidates fact also holds the search counters
+and a per-site table, one row per (site, scheme) tried; `materialize` writes them to
+`search-<tag>.csv` and `sites-<tag>.csv`. Because the front depends on decode timings,
+`--verify` reports exhaustive candidates tasks as nondeterministic whenever the front changes.
+
 ## Evaluating policies: `vx-lab eval`
 
 `vx-lab eval` compresses every chunk of a plan with production and with each policy, measuring
@@ -110,7 +153,7 @@ No source is worse by more than 0.9% under these policies.
 | A change to how candidates are built | Bump `CANDIDATES_VERSION` | `candidates` and `time` |
 | A measurement (pushdown compare, filter, take) | `runner::run_time`, `TimeObservation`, `materialize` columns | `time` only |
 | A dtype (floats, strings) | `features.rs` and `candidates.rs` for that dtype; the plan's `dtypes` already filters | New chunks only |
-| A search strategy (exhaustive DP) | `spec::SearchStrategy`, `runner` (the strategy is part of the candidates key) | `candidates` only |
+| A search strategy | `spec::SearchStrategy`, `candidates::produce`, a policy like `oracle.rs` (the strategy is part of the candidates key) | `candidates` and `time` |
 
 ## Running it long term
 

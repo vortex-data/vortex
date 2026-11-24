@@ -36,6 +36,7 @@ vortex-btrblocks = { workspace = true, features = ["pco"] }
 vortex-compressor = { workspace = true }
 vortex-error = { workspace = true }
 vortex-session = { workspace = true }
+vortex-utils = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }
