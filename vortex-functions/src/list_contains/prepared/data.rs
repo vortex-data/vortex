@@ -30,6 +30,8 @@ use vortex_error::vortex_panic;
 
 use crate::list_contains::ListContainsOptions;
 use crate::list_contains::haystack::ArrayHaystack;
+use crate::list_contains::normalize::FloatNormalization;
+use crate::list_contains::normalize::Side;
 
 /// The options of a [`PreparedSet`]: the list that every row holds, and its set.
 ///
@@ -49,8 +51,9 @@ struct SharedSet {
     has_null_element: bool,
     /// Whether the list holds no element at all, counting null elements.
     is_empty: bool,
-    /// The elements, and the haystack of the non-null ones, built on the first lookup.
-    set: OnceLock<SharedVortexResult<ElementSet>>,
+    /// The elements, and the haystack of the non-null ones, built on the first lookup. There is
+    /// one set per [`FloatNormalization`], numbered by [`FloatNormalization::index`].
+    sets: [OnceLock<SharedVortexResult<ElementSet>>; FloatNormalization::COUNT],
 }
 
 /// The elements of the list, and their haystack.
@@ -61,13 +64,18 @@ struct ElementSet {
 }
 
 impl ElementSet {
-    fn try_new(list: &Scalar, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
+    fn try_new(
+        list: &Scalar,
+        normalization: FloatNormalization,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Self> {
         // The canonical form of a constant list holds its elements once, whatever its length.
         let elements = ConstantArray::new(list.clone(), 1)
             .into_array()
             .execute::<ListViewArray>(ctx)?
             .elements()
             .clone();
+        let elements = normalization.apply(&elements, Side::Element, ctx)?;
         let haystack = ArrayHaystack::try_new(&elements, ctx)?;
 
         Ok(Self { elements, haystack })
@@ -110,7 +118,7 @@ impl PreparedSetData {
             literal,
             has_null_element,
             is_empty,
-            set: OnceLock::new(),
+            sets: Default::default(),
         })))
     }
 
@@ -136,16 +144,36 @@ impl PreparedSetData {
     ///
     /// Fails when the elements cannot be executed into the haystack.
     pub fn elements(&self, ctx: &mut ExecutionCtx) -> VortexResult<&ArrayRef> {
-        Ok(&self.element_set(ctx)?.elements)
+        Ok(&self
+            .element_set(FloatNormalization::default(), ctx)?
+            .elements)
     }
 
-    /// The elements and their haystack, built on the first call and shared after it.
-    fn element_set<'a>(&'a self, ctx: &mut ExecutionCtx) -> VortexResult<&'a ElementSet> {
-        self.0
-            .set
-            .get_or_init(|| ElementSet::try_new(self.list(), ctx).map_err(Arc::new))
+    /// The elements and their haystack for `normalization`, built on the first call and shared
+    /// after it.
+    fn element_set<'a>(
+        &'a self,
+        normalization: FloatNormalization,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<&'a ElementSet> {
+        self.0.sets[normalization.index()]
+            .get_or_init(|| ElementSet::try_new(self.list(), normalization, ctx).map_err(Arc::new))
             .as_ref()
             .map_err(|err| Arc::clone(err).into())
+    }
+
+    /// Looks up `needles` in the set, with the float equality of `options`.
+    fn lookup(
+        &self,
+        needles: &ArrayRef,
+        options: &ListContainsOptions,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<(BitBuffer, Validity)> {
+        let normalization = FloatNormalization::new(options.compare_mode, self.element_dtype());
+        let needles = normalization.apply(needles, Side::Needle, ctx)?;
+        self.element_set(normalization, ctx)?
+            .haystack
+            .contains(&needles, ctx)
     }
 
     /// The dtype of the list that every row holds.
@@ -186,7 +214,7 @@ impl PreparedSetData {
         }
 
         self.check_needle_dtype(needles.dtype())?;
-        let (bits, needle_validity) = self.element_set(ctx)?.haystack.contains(needles, ctx)?;
+        let (bits, needle_validity) = self.lookup(needles, options, ctx)?;
         self.result_from_bits(bits, needle_validity, needles.dtype(), options)
     }
 
@@ -206,7 +234,7 @@ impl PreparedSetData {
     ) -> VortexResult<Scalar> {
         self.check_needle_dtype(needle.dtype())?;
         let needles = ConstantArray::new(needle.clone(), 1).into_array();
-        let (bits, needle_validity) = self.element_set(ctx)?.haystack.contains(&needles, ctx)?;
+        let (bits, needle_validity) = self.lookup(&needles, options, ctx)?;
         self.result_from_bits(bits, needle_validity, needle.dtype(), options)?
             .execute_scalar(0, ctx)
     }

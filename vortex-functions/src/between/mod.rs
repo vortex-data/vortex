@@ -41,6 +41,7 @@ use vortex_array::scalar_fn::ScalarFnId;
 use vortex_array::scalar_fn::ScalarFnVTable;
 use vortex_array::scalar_fn::ScalarFnVTableExt;
 use vortex_array::scalar_fn::builtin::operators::BooleanOperator;
+use vortex_array::scalar_fn::builtin::operators::CompareMode;
 use vortex_array::scalar_fn::builtin::operators::CompareOperator;
 use vortex_array::scalar_fn::display::ExprDisplay;
 use vortex_array::scalar_fn::session::ScalarFnSessionExt;
@@ -167,6 +168,16 @@ pub(super) fn short_circuit(
     // Every kernel requires non-null constant bounds, so a single null bound leaves nothing to
     // dispatch to. The two compares keep the surviving bound, which can still falsify rows.
     if lower_is_null || upper_is_null {
+        return as_two_compares(arr, lower, upper, options).map(Some);
+    }
+
+    // Every kernel compares floats in total order, where `-0.0 < +0.0`. `Between` makes the zeros
+    // equal, as the two compares do, so the kernels apply only when no bound can be a zero.
+    let mode = CompareMode::default();
+    let agrees = |bound: &ArrayRef| {
+        mode.agrees_with_total_order(CompareOperator::Gte, arr.dtype(), bound.as_constant())
+    };
+    if !agrees(lower) || !agrees(upper) {
         return as_two_compares(arr, lower, upper, options).map(Some);
     }
 
@@ -553,6 +564,36 @@ mod tests {
             },
         );
         assert_eq!(expr2.to_string(), "(0i32 < $ <= 100i32)");
+    }
+
+    /// `Between` makes the zeros equal, as the two compares that it stands for do. The rows are
+    /// `-0.0`, `0.0`, `1.0` and `-1.0`.
+    #[rstest]
+    #[case::closed_at_zero(0.0, 0.0, StrictComparison::NonStrict, StrictComparison::NonStrict, vec![0, 1])]
+    #[case::closed_at_negative_zero(-0.0, -0.0, StrictComparison::NonStrict, StrictComparison::NonStrict, vec![0, 1])]
+    #[case::above_zero(0.0, 1.0, StrictComparison::Strict, StrictComparison::NonStrict, vec![2])]
+    #[case::below_negative_zero(-1.0, -0.0, StrictComparison::NonStrict, StrictComparison::Strict, vec![3])]
+    #[case::no_zero_bound(-1.0, 1.0, StrictComparison::Strict, StrictComparison::Strict, vec![0, 1])]
+    fn float_zeros_are_equal(
+        #[case] lower: f64,
+        #[case] upper: f64,
+        #[case] lower_strict: StrictComparison,
+        #[case] upper_strict: StrictComparison,
+        #[case] expected: Vec<u64>,
+    ) -> VortexResult<()> {
+        let ctx = &mut SESSION.create_execution_ctx();
+        let array = PrimitiveArray::from_iter([-0.0f64, 0.0, 1.0, -1.0]).into_array();
+        let options = BetweenOptions {
+            lower_strict,
+            upper_strict,
+        };
+
+        let matches = array
+            .apply(&between(root(), lit(lower), lit(upper), options))?
+            .execute::<BoolArray>(ctx)?;
+
+        assert_eq!(to_int_indices(matches, ctx)?, expected);
+        Ok(())
     }
 
     #[rstest]

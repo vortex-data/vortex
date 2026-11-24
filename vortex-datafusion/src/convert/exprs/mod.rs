@@ -82,8 +82,10 @@ use vortex::layout::layouts::row_idx;
 use vortex::scalar::NumericOperator;
 use vortex::scalar::Scalar;
 use vortex::scalar_fn::builtin::get_item::GetItem;
+use vortex::scalar_fn::builtin::literal::Literal;
 use vortex::scalar_fn::builtin::operators::BinaryOperator;
 use vortex::scalar_fn::builtin::operators::BooleanOperator;
+use vortex::scalar_fn::builtin::operators::CompareMode;
 use vortex::scalar_fn::builtin::operators::CompareOperator;
 use vortex::session::VortexSession;
 use vortex_arrow::ArrowSessionExt;
@@ -423,6 +425,8 @@ impl DefaultExpressionConverter {
             let boolean_operator = matches!(operator, BinaryOperator::Boolean(_));
             let left_type = binary_expr.left().data_type(schema)?;
             let right_type = binary_expr.right().data_type(schema)?;
+            let bitwise_floats = compares_float_bits(&left_type, &right_type)?;
+
             if boolean_operator {
                 if left_type != DataType::Boolean || right_type != DataType::Boolean {
                     return Err(exec_datafusion_err!(
@@ -457,6 +461,17 @@ impl DefaultExpressionConverter {
             {
                 return Err(Unconverted::Unsupported);
             }
+            if bitwise_floats && let BinaryOperator::Compare(operator) = operator {
+                let dtype = converted_dtype(&left, input_dtype)?;
+                let constant = right
+                    .as_opt::<Literal>()
+                    .or_else(|| left.as_opt::<Literal>());
+
+                if !CompareMode::default().agrees_with_total_order(operator, &dtype, constant) {
+                    return Err(Unconverted::Unsupported);
+                }
+            }
+
             return Ok(binary(operator, left, right));
         }
 
@@ -749,6 +764,11 @@ impl DefaultExpressionConverter {
             .map(|literal| self.import_literal_for_operand(&literal, &value_field, schema))
             .collect::<Conversion<Vec<_>>>()?;
 
+        // DataFusion looks up the bits of a float, so `-0.0` is not in a list that holds `+0.0`.
+        // In Vortex the zeros are equal, as they are in a DataFusion comparison. So a pushed
+        // list that holds one float zero also matches the other zero. This difference is
+        // intended, and the integration guide in `docs/` states it.
+        //
         // An element of another type than the value declines the pushdown: no implicit casts.
         let membership =
             in_list_of(value, value_dtype, elements).map_err(|_| Unconverted::Unsupported)?;
@@ -1280,6 +1300,33 @@ fn try_operator_from_df(value: &DFOperator) -> Option<BinaryOperator> {
         | DFOperator::QuestionAnd
         | DFOperator::QuestionPipe
         | DFOperator::Colon => None,
+    }
+}
+
+/// Returns whether DataFusion compares the bits of the floats in operands of these types.
+///
+/// DataFusion replaces `-0.0` with `+0.0` in float arrays and scalars, then compares in total
+/// order. This is the default Vortex comparison. DataFusion does not replace the zeros in the
+/// values of a dictionary or of a run-end encoded array, so it compares the bits of two such
+/// operands. The default Vortex comparison gives the same result only for a constant that is not
+/// a zero. A comparison of one such operand with a plain float has no Vortex mode, and stays in
+/// DataFusion.
+fn compares_float_bits(left: &DataType, right: &DataType) -> Conversion<bool> {
+    fn is_encoded_float(data_type: &DataType, encoded: bool) -> bool {
+        match data_type {
+            DataType::Dictionary(_, values) => is_encoded_float(values, true),
+            DataType::RunEndEncoded(_, values) => is_encoded_float(values.data_type(), true),
+            other => encoded && other.is_floating(),
+        }
+    }
+
+    match (
+        is_encoded_float(left, false),
+        is_encoded_float(right, false),
+    ) {
+        (false, false) => Ok(false),
+        (true, true) => Ok(true),
+        (true, false) | (false, true) => Err(Unconverted::Unsupported),
     }
 }
 

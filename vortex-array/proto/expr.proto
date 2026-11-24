@@ -75,6 +75,26 @@ message ShreddingSpecField {
 // Options for `vortex.compare`
 message CompareOpts {
   CompareOp op = 1;
+  // How a comparison orders float values.
+  FloatOrder float_order = 2;
+  // How a comparison orders a null against a value.
+  NullOrder null_order = 3;
+
+  enum FloatOrder {
+    // `-0.0 = +0.0`, and NaN values order by sign and payload.
+    ZerosEqual = 0;
+    // The total order over the bit patterns: `-0.0 < +0.0`.
+    TotalOrder = 1;
+    // `-0.0 = +0.0`, and all NaN values are equal and greatest.
+    Canonical = 2;
+    // `-0.0 = +0.0`, and NaN is unordered.
+    Ieee754 = 3;
+  }
+
+  enum NullOrder {
+    First = 0;
+    Last = 1;
+  }
 
   enum CompareOp {
     Eq = 0;
@@ -141,6 +161,8 @@ message LikeOpts {
 
 message ListContainsOpts {
   bool sql_null_semantics = 1;
+  // How the needle and the elements compare float values.
+  CompareOpts.FloatOrder float_order = 2;
 }
 
 message CastOpts {

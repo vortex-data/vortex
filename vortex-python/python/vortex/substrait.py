@@ -513,17 +513,17 @@ def extension_function(
         case "https://github.com/substrait-io/substrait/blob/main/extensions/functions_comparison.yaml":
             match substrait_object.name:
                 case "equal":
-                    return operator.__eq__
+                    return _comparison("eq")
                 case "not_equal":
-                    return operator.__ne__
+                    return _comparison("not_eq")
                 case "lt":
-                    return operator.__lt__
+                    return _comparison("lt")
                 case "lte":
-                    return operator.__le__
+                    return _comparison("lt_eq")
                 case "gt":
-                    return operator.__gt__
+                    return _comparison("gt")
                 case "gte":
-                    return operator.__ge__
+                    return _comparison("gt_eq")
                 case "is_null":
                     return _expr.is_null
                 case "is_not_null":
@@ -544,6 +544,21 @@ def extension_function(
                     raise NotImplementedError(f"Arithmetic function {name} not supported")
         case uri:
             raise NotImplementedError(f"Extension URI {uri} not supported")
+
+
+def _comparison(
+    op: Literal["eq", "not_eq", "gt", "gt_eq", "lt", "lt_eq"],
+) -> Callable[[_expr.Expr, _expr.Expr], _expr.Expr]:
+    """A comparison that orders floats as PyArrow does, which produces these Substrait expressions.
+
+    PyArrow compares floats with IEEE 754 semantics: ``-0.0`` equals ``+0.0``, and each comparison
+    with a NaN is false, except ``!=``, which is true.
+    """
+
+    def compare(left: _expr.Expr, right: _expr.Expr) -> _expr.Expr:
+        return _expr.compare(op, left, right, float_order="ieee754")
+
+    return compare
 
 
 def expression(
@@ -603,6 +618,9 @@ def singular_or_list(
     type_variations: TypeVariations,
 ) -> _expr.Expr:
     """``value IN (options...)``, with the semantics of the PyArrow ``is_in`` that produces it.
+
+    PyArrow's ``is_in`` looks up the bits of a float, so ``-0.0`` is not in a set that holds
+    ``+0.0``. In Vortex the zeros are equal, so the membership also keeps the other zero.
 
     PyArrow's ``is_in`` never gives null. A null value is an element only of a set that holds a
     null and does not skip nulls, and Substrait does not carry whether nulls are skipped. So a set

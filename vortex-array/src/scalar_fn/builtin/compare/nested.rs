@@ -7,8 +7,13 @@
 //! comparators, one per nested level. The ordering semantics match [`Scalar`] comparison:
 //! structs compare field-by-field in declaration order, lists compare element-by-element and
 //! then by length, maps compare as the list of their `{key, value}` entries, and a null value
-//! (at any nesting depth) orders before every non-null value. Only top-level nulls make the
+//! (at any nesting depth) orders before every non-null value by default. Only top-level nulls make the
 //! comparison result null.
+//!
+//! A [`CompareMode`] changes how the floats at each level compare, and whether a nested null
+//! orders before or after all values. In a [`FloatOrder::Ieee754`]
+//! mode, two floats can be unordered. The first pair of elements that is not equal decides the
+//! order of the rows, so an unordered pair makes the rows unordered: only `!=` is then true.
 //!
 //! [`Scalar`]: crate::scalar::Scalar
 
@@ -17,6 +22,7 @@ use std::cmp::Ordering;
 use num_traits::AsPrimitive;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::BufferAllocatorRef;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_mask::Mask;
@@ -44,20 +50,82 @@ use crate::dtype::NativeDecimalType;
 use crate::dtype::NativePType;
 use crate::dtype::Nullability;
 use crate::match_each_decimal_value_type;
+use crate::match_each_float_ptype;
 use crate::match_each_integer_ptype;
 use crate::match_each_native_ptype;
 use crate::scalar_fn::builtin::compare::compare_validity;
+use crate::scalar_fn::builtin::compare::primitive::CANONICAL;
+use crate::scalar_fn::builtin::compare::primitive::IEEE754;
+use crate::scalar_fn::builtin::compare::primitive::ZEROS_EQUAL;
+use crate::scalar_fn::builtin::compare::primitive::ZerosEqualOrder;
+use crate::scalar_fn::builtin::operators::CompareMode;
 use crate::scalar_fn::builtin::operators::CompareOperator;
+use crate::scalar_fn::builtin::operators::FloatOrder;
+use crate::scalar_fn::builtin::operators::NullOrder;
 
-/// A row comparator: compares row `i` of the left operand against row `j` of the right operand.
+/// Compares row `i` of the left operand against row `j` of the right operand.
+type Comparator<O> = Box<dyn Fn(usize, usize) -> O>;
+
+/// A row comparator in total order.
 /// Compares row `i` of the left array with row `j` of the right array.
-pub type RowComparator = Box<dyn Fn(usize, usize) -> Ordering>;
+pub type RowComparator = Comparator<Ordering>;
+
+/// The order of two rows: [`Ordering`] for a total order, or `Option<Ordering>` for a partial
+/// order, where `None` means that the rows are unordered.
+trait RowOrder: Copy + 'static {
+    const EQUAL: Self;
+
+    fn total(ordering: Ordering) -> Self;
+
+    fn partial(ordering: Option<Ordering>) -> Self;
+
+    fn is_equal(self) -> bool;
+}
+
+impl RowOrder for Ordering {
+    const EQUAL: Self = Ordering::Equal;
+
+    #[inline]
+    fn total(ordering: Ordering) -> Self {
+        ordering
+    }
+
+    #[inline]
+    fn partial(ordering: Option<Ordering>) -> Self {
+        ordering.vortex_expect("a total compare mode orders all values")
+    }
+
+    #[inline]
+    fn is_equal(self) -> bool {
+        self.is_eq()
+    }
+}
+
+impl RowOrder for Option<Ordering> {
+    const EQUAL: Self = Some(Ordering::Equal);
+
+    #[inline]
+    fn total(ordering: Ordering) -> Self {
+        Some(ordering)
+    }
+
+    #[inline]
+    fn partial(ordering: Option<Ordering>) -> Self {
+        ordering
+    }
+
+    #[inline]
+    fn is_equal(self) -> bool {
+        self == Some(Ordering::Equal)
+    }
+}
 
 /// Compare two nested arrays row by row.
 pub(super) fn compare_nested(
     lhs: &ArrayRef,
     rhs: &ArrayRef,
     op: CompareOperator,
+    mode: CompareMode,
     nullability: Nullability,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
@@ -74,38 +142,93 @@ pub(super) fn compare_nested(
         .into_array();
 
     let validity = compare_validity(lhs.validity()?, rhs.validity()?, nullability)?;
-    let comparator = build_comparator(&lhs, &rhs, ctx)?;
-    // Dispatch the operator outside the row loop so the predicate inlines into each loop; the
-    // comparator call itself stays virtual.
-    let bits = match op {
-        CompareOperator::Eq => {
-            collect_ordering_bits(len, &comparator, Ordering::is_eq, ctx.allocator())
-        }
-        CompareOperator::NotEq => {
-            collect_ordering_bits(len, &comparator, Ordering::is_ne, ctx.allocator())
-        }
-        CompareOperator::Gt => {
-            collect_ordering_bits(len, &comparator, Ordering::is_gt, ctx.allocator())
-        }
-        CompareOperator::Gte => {
-            collect_ordering_bits(len, &comparator, Ordering::is_ge, ctx.allocator())
-        }
-        CompareOperator::Lt => {
-            collect_ordering_bits(len, &comparator, Ordering::is_lt, ctx.allocator())
-        }
-        CompareOperator::Lte => {
-            collect_ordering_bits(len, &comparator, Ordering::is_le, ctx.allocator())
-        }
+
+    let bits = if mode.float_order() == FloatOrder::Ieee754 {
+        let comparator = build_mode_comparator::<Option<Ordering>>(&lhs, &rhs, mode, ctx)?;
+        partial_ordering_bits(len, &comparator, op, ctx.allocator())
+    } else {
+        let comparator = build_mode_comparator::<Ordering>(&lhs, &rhs, mode, ctx)?;
+        total_ordering_bits(len, &comparator, op, ctx.allocator())
     };
 
     Ok(BoolArray::try_new(bits, validity)?.into_array())
 }
 
-/// Bit-pack `predicate(comparator(i, i))` over `len` rows.
-fn collect_ordering_bits(
+/// Bit-pack `op` over `len` rows that a total order compares.
+///
+/// Dispatch the operator outside the row loop so the predicate inlines into each loop; the
+/// comparator call itself stays virtual.
+fn total_ordering_bits(
     len: usize,
     comparator: &RowComparator,
-    predicate: impl Fn(Ordering) -> bool,
+    op: CompareOperator,
+    allocator: &BufferAllocatorRef,
+) -> BitBuffer {
+    match op {
+        CompareOperator::Eq => collect_ordering_bits(len, comparator, Ordering::is_eq, allocator),
+        CompareOperator::NotEq => {
+            collect_ordering_bits(len, comparator, Ordering::is_ne, allocator)
+        }
+        CompareOperator::Gt => collect_ordering_bits(len, comparator, Ordering::is_gt, allocator),
+        CompareOperator::Gte => collect_ordering_bits(len, comparator, Ordering::is_ge, allocator),
+        CompareOperator::Lt => collect_ordering_bits(len, comparator, Ordering::is_lt, allocator),
+        CompareOperator::Lte => collect_ordering_bits(len, comparator, Ordering::is_le, allocator),
+    }
+}
+
+/// Bit-pack `op` over `len` rows that a partial order compares. Unordered rows satisfy only
+/// [`CompareOperator::NotEq`].
+fn partial_ordering_bits(
+    len: usize,
+    comparator: &Comparator<Option<Ordering>>,
+    op: CompareOperator,
+    allocator: &BufferAllocatorRef,
+) -> BitBuffer {
+    match op {
+        CompareOperator::Eq => collect_ordering_bits(
+            len,
+            comparator,
+            |o| o.is_some_and(Ordering::is_eq),
+            allocator,
+        ),
+        CompareOperator::NotEq => collect_ordering_bits(
+            len,
+            comparator,
+            |o| o.is_none_or(Ordering::is_ne),
+            allocator,
+        ),
+        CompareOperator::Gt => collect_ordering_bits(
+            len,
+            comparator,
+            |o| o.is_some_and(Ordering::is_gt),
+            allocator,
+        ),
+        CompareOperator::Gte => collect_ordering_bits(
+            len,
+            comparator,
+            |o| o.is_some_and(Ordering::is_ge),
+            allocator,
+        ),
+        CompareOperator::Lt => collect_ordering_bits(
+            len,
+            comparator,
+            |o| o.is_some_and(Ordering::is_lt),
+            allocator,
+        ),
+        CompareOperator::Lte => collect_ordering_bits(
+            len,
+            comparator,
+            |o| o.is_some_and(Ordering::is_le),
+            allocator,
+        ),
+    }
+}
+
+/// Bit-pack `predicate(comparator(i, i))` over `len` rows.
+fn collect_ordering_bits<O>(
+    len: usize,
+    comparator: &Comparator<O>,
+    predicate: impl Fn(O) -> bool,
     allocator: &BufferAllocatorRef,
 ) -> BitBuffer {
     BitBuffer::collect_bool_in(len, |i| predicate(comparator(i, i)), allocator.clone())
@@ -123,30 +246,48 @@ pub fn build_comparator(
     rhs: &ArrayRef,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<RowComparator> {
+    build_mode_comparator(lhs, rhs, CompareMode::TOTAL_ORDER, ctx)
+}
+
+/// Build a row comparator that compares floats in `mode`. `O` must be `Option<Ordering>` when
+/// `mode` can leave two floats unordered.
+fn build_mode_comparator<O: RowOrder>(
+    lhs: &ArrayRef,
+    rhs: &ArrayRef,
+    mode: CompareMode,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Comparator<O>> {
     let lhs_mask = validity_mask(lhs, ctx)?;
     let rhs_mask = validity_mask(rhs, ctx)?;
-    let values = build_values_comparator(lhs, rhs, ctx)?;
+    let values = build_values_comparator::<O>(lhs, rhs, mode, ctx)?;
 
     if lhs_mask.all_true() && rhs_mask.all_true() {
         return Ok(values);
     }
 
+    // The order of a value against a null.
+    let value_to_null = match mode.null_order() {
+        NullOrder::First => Ordering::Greater,
+        NullOrder::Last => Ordering::Less,
+    };
+
     Ok(Box::new(move |i, j| {
         match (lhs_mask.value(i), rhs_mask.value(j)) {
             (true, true) => values(i, j),
-            (true, false) => Ordering::Greater,
-            (false, true) => Ordering::Less,
-            (false, false) => Ordering::Equal,
+            (true, false) => O::total(value_to_null),
+            (false, true) => O::total(value_to_null.reverse()),
+            (false, false) => O::EQUAL,
         }
     }))
 }
 
 /// Build a comparator over the non-null values of two recursively canonical arrays.
-fn build_values_comparator(
+fn build_values_comparator<O: RowOrder>(
     lhs: &ArrayRef,
     rhs: &ArrayRef,
+    mode: CompareMode,
     ctx: &mut ExecutionCtx,
-) -> VortexResult<RowComparator> {
+) -> VortexResult<Comparator<O>> {
     if !lhs.dtype().eq_ignore_nullability(rhs.dtype()) {
         vortex_bail!(
             "Cannot compare different DTypes {} and {}",
@@ -157,27 +298,34 @@ fn build_values_comparator(
 
     Ok(match lhs.dtype() {
         // Null values compare through the validity wrapper; the value comparator is trivial.
-        DType::Null => Box::new(|_, _| Ordering::Equal),
+        DType::Null => Box::new(|_, _| O::EQUAL),
         DType::Bool(_) => {
             let lhs = lhs.clone().execute::<BoolArray>(ctx)?.into_bit_buffer();
             let rhs = rhs.clone().execute::<BoolArray>(ctx)?.into_bit_buffer();
-            Box::new(move |i, j| lhs.value(i).cmp(&rhs.value(j)))
+            Box::new(move |i, j| O::total(lhs.value(i).cmp(&rhs.value(j))))
+        }
+        DType::Primitive(ptype, _)
+            if ptype.is_float() && mode.float_order() != FloatOrder::TotalOrder =>
+        {
+            match_each_float_ptype!(*ptype, |T| {
+                float_comparator::<T, O>(lhs, rhs, mode.float_order(), ctx)?
+            })
         }
         DType::Primitive(ptype, _) => {
-            match_each_native_ptype!(*ptype, |T| { primitive_comparator::<T>(lhs, rhs, ctx)? })
+            match_each_native_ptype!(*ptype, |T| { primitive_comparator::<T, O>(lhs, rhs, ctx)? })
         }
         DType::Decimal(dtype, _) => {
             let lhs = lhs.clone().execute::<DecimalArray>(ctx)?;
             let rhs = rhs.clone().execute::<DecimalArray>(ctx)?;
 
             match_each_decimal_value_type!(dtype.canonical_values_type(), |T| {
-                decimal_comparator::<T>(&lhs, &rhs)
+                decimal_comparator::<T, O>(&lhs, &rhs)
             })
         }
         DType::Utf8(_) | DType::Binary(_) => {
             let lhs = lhs.clone().execute::<VarBinViewArray>(ctx)?;
             let rhs = rhs.clone().execute::<VarBinViewArray>(ctx)?;
-            Box::new(move |i, j| view_bytes(&lhs, i).cmp(view_bytes(&rhs, j)))
+            Box::new(move |i, j| O::total(view_bytes(&lhs, i).cmp(view_bytes(&rhs, j))))
         }
         DType::Struct(..) => {
             let lhs = lhs.clone().execute::<StructArray>(ctx)?;
@@ -185,20 +333,22 @@ fn build_values_comparator(
             let fields = lhs
                 .iter_unmasked_fields()
                 .zip(rhs.iter_unmasked_fields())
-                .map(|(lhs_field, rhs_field)| build_comparator(lhs_field, rhs_field, ctx))
+                .map(|(lhs_field, rhs_field)| {
+                    build_mode_comparator::<O>(lhs_field, rhs_field, mode, ctx)
+                })
                 .collect::<VortexResult<Vec<_>>>()?;
             Box::new(move |i, j| {
                 fields
                     .iter()
                     .map(|cmp| cmp(i, j))
-                    .find(|ordering| ordering.is_ne())
-                    .unwrap_or(Ordering::Equal)
+                    .find(|ordering| !ordering.is_equal())
+                    .unwrap_or(O::EQUAL)
             })
         }
         DType::List(..) => {
             let lhs = lhs.clone().execute::<ListViewArray>(ctx)?;
             let rhs = rhs.clone().execute::<ListViewArray>(ctx)?;
-            let elements = build_comparator(lhs.elements(), rhs.elements(), ctx)?;
+            let elements = build_mode_comparator::<O>(lhs.elements(), rhs.elements(), mode, ctx)?;
             // Materialize offsets and sizes once instead of paying `offset_at`/`size_at`'s
             // per-call encoding dispatch inside the row loop.
             let lhs_offsets = usize_values(lhs.offsets(), ctx)?;
@@ -210,31 +360,31 @@ fn build_values_comparator(
                 let rhs_len = rhs_sizes[j];
                 (0..lhs_len.min(rhs_len))
                     .map(|el| elements(lhs_offsets[i] + el, rhs_offsets[j] + el))
-                    .find(|ordering| ordering.is_ne())
-                    .unwrap_or_else(|| lhs_len.cmp(&rhs_len))
+                    .find(|ordering| !ordering.is_equal())
+                    .unwrap_or_else(|| O::total(lhs_len.cmp(&rhs_len)))
             })
         }
         DType::FixedSizeList(_, size, _) => {
             let size = *size as usize;
             let lhs = lhs.clone().execute::<FixedSizeListArray>(ctx)?;
             let rhs = rhs.clone().execute::<FixedSizeListArray>(ctx)?;
-            let elements = build_comparator(lhs.elements(), rhs.elements(), ctx)?;
+            let elements = build_mode_comparator::<O>(lhs.elements(), rhs.elements(), mode, ctx)?;
             Box::new(move |i, j| {
                 (0..size)
                     .map(|el| elements(i * size + el, j * size + el))
-                    .find(|ordering| ordering.is_ne())
-                    .unwrap_or(Ordering::Equal)
+                    .find(|ordering| !ordering.is_equal())
+                    .unwrap_or(O::EQUAL)
             })
         }
         DType::Extension(_) => {
             let lhs = lhs.clone().execute::<ExtensionArray>(ctx)?;
             let rhs = rhs.clone().execute::<ExtensionArray>(ctx)?;
-            build_comparator(lhs.storage_array(), rhs.storage_array(), ctx)?
+            build_mode_comparator::<O>(lhs.storage_array(), rhs.storage_array(), mode, ctx)?
         }
         DType::Map(..) => {
             let lhs = lhs.clone().execute::<MapArray>(ctx)?;
             let rhs = rhs.clone().execute::<MapArray>(ctx)?;
-            build_values_comparator(lhs.entries(), rhs.entries(), ctx)?
+            build_values_comparator::<O>(lhs.entries(), rhs.entries(), mode, ctx)?
         }
         DType::Union(..) | DType::Variant(_) => {
             vortex_bail!("compare is not supported for dtype {}", lhs.dtype())
@@ -242,11 +392,11 @@ fn build_values_comparator(
     })
 }
 
-fn primitive_comparator<T: NativePType>(
+fn primitive_comparator<T: NativePType, O: RowOrder>(
     lhs: &ArrayRef,
     rhs: &ArrayRef,
     ctx: &mut ExecutionCtx,
-) -> VortexResult<RowComparator> {
+) -> VortexResult<Comparator<O>> {
     let lhs = lhs
         .clone()
         .execute::<PrimitiveArray>(ctx)?
@@ -255,16 +405,46 @@ fn primitive_comparator<T: NativePType>(
         .clone()
         .execute::<PrimitiveArray>(ctx)?
         .into_buffer::<T>();
-    Ok(Box::new(move |i, j| lhs[i].total_compare(rhs[j])))
+    Ok(Box::new(move |i, j| O::total(lhs[i].total_compare(rhs[j]))))
 }
 
-fn decimal_comparator<T: NativeDecimalType>(
+/// A comparator over floats in an `order` where `-0.0 = +0.0`.
+fn float_comparator<T: NativePType, O: RowOrder>(
+    lhs: &ArrayRef,
+    rhs: &ArrayRef,
+    order: FloatOrder,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Comparator<O>> {
+    let lhs = lhs
+        .clone()
+        .execute::<PrimitiveArray>(ctx)?
+        .into_buffer::<T>();
+    let rhs = rhs
+        .clone()
+        .execute::<PrimitiveArray>(ctx)?
+        .into_buffer::<T>();
+
+    Ok(match order {
+        FloatOrder::TotalOrder => Box::new(move |i, j| O::total(lhs[i].total_compare(rhs[j]))),
+        FloatOrder::ZerosEqual => Box::new(move |i, j| {
+            O::partial(ZerosEqualOrder::<ZEROS_EQUAL>::compare(lhs[i], rhs[j]))
+        }),
+        FloatOrder::Canonical => {
+            Box::new(move |i, j| O::partial(ZerosEqualOrder::<CANONICAL>::compare(lhs[i], rhs[j])))
+        }
+        FloatOrder::Ieee754 => {
+            Box::new(move |i, j| O::partial(ZerosEqualOrder::<IEEE754>::compare(lhs[i], rhs[j])))
+        }
+    })
+}
+
+fn decimal_comparator<T: NativeDecimalType, O: RowOrder>(
     lhs: &DecimalArray,
     rhs: &DecimalArray,
-) -> RowComparator {
+) -> Comparator<O> {
     let lhs = lhs.buffer::<T>();
     let rhs = rhs.buffer::<T>();
-    Box::new(move |i, j| lhs[i].cmp(&rhs[j]))
+    Box::new(move |i, j| O::total(lhs[i].cmp(&rhs[j])))
 }
 
 /// Materialize an integer array as `usize` values for `O(1)` row access.

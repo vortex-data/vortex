@@ -51,6 +51,7 @@ use vortex::expr::ScalarFnExprExt;
 use vortex::expr::and_collect;
 use vortex::expr::between;
 use vortex::expr::binary;
+use vortex::expr::compare_with_mode;
 use vortex::expr::get_item;
 use vortex::expr::is_not_null;
 use vortex::expr::is_null;
@@ -82,7 +83,9 @@ use vortex::scalar_fn::EmptyOptions;
 use vortex::scalar_fn::builtin::literal::Literal;
 use vortex::scalar_fn::builtin::operators::BinaryOperator;
 use vortex::scalar_fn::builtin::operators::BooleanOperator;
+use vortex::scalar_fn::builtin::operators::CompareMode;
 use vortex::scalar_fn::builtin::operators::CompareOperator;
+use vortex::scalar_fn::builtin::operators::FloatOrder;
 use vortex::session::VortexSession;
 use vortex_spatial::extension::native_geometry_scalar_from_wkb;
 use vortex_spatial::scalar_fn::area::SpatialArea;
@@ -124,6 +127,20 @@ fn parse_op(op: jbyte) -> Result<BinaryOperator, JNIError> {
         11 => BinaryOperator::Numeric(NumericOperator::Div),
         other => throw_runtime!("unknown binary operator code: {other}"),
     })
+}
+
+/// Parse a [`CompareMode`] from its wire-encoded byte tags.
+///
+/// See `dev.vortex.api.Expression.FloatOrder` on the Java side for the source of truth.
+fn parse_compare_mode(float_order: jbyte) -> Result<CompareMode, JNIError> {
+    let float_order = match float_order {
+        0 => FloatOrder::ZerosEqual,
+        1 => FloatOrder::Canonical,
+        2 => FloatOrder::Ieee754,
+        other => throw_runtime!("unknown float order code: {other}"),
+    };
+
+    Ok(CompareMode::new(float_order))
 }
 
 /// Parse a Vortex [`TimeUnit`] from the wire-encoded byte tag.
@@ -310,6 +327,26 @@ pub extern "system" fn Java_dev_vortex_jni_NativeExpression_binary(
     })
 }
 
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_vortex_jni_NativeExpression_compare(
+    mut env: EnvUnowned,
+    _class: JClass,
+    op: jbyte,
+    float_order: jbyte,
+    lhs: jlong,
+    rhs: jlong,
+) -> jlong {
+    try_or_throw(&mut env, |_| {
+        let BinaryOperator::Compare(operator) = parse_op(op)? else {
+            throw_runtime!("operator code {op} is not a comparison operator");
+        };
+        let mode = parse_compare_mode(float_order)?;
+        let lhs = unsafe { expr_ref(lhs) }.clone();
+        let rhs = unsafe { expr_ref(rhs) }.clone();
+        Ok(into_raw(compare_with_mode(operator, mode, lhs, rhs)))
+    })
+}
+
 /// Build a spatial function expression over `operands`.
 ///
 /// `function` selects the function; see `dev.vortex.api.Expression.SpatialFunction` on the Java
@@ -446,21 +483,31 @@ fn strict_from_bool(value: jboolean) -> StrictComparison {
 /// `sql_null_semantics` selects how a null list element behaves: off, it never matches and a
 /// non-matching needle is `false`; on, it is SQL's unknown value and a non-matching needle is
 /// `null`, so `NOT IN` never admits it.
+///
+/// `float_order` selects how the needle and the elements compare floats, as for `compare`.
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_dev_vortex_jni_NativeExpression_listContains(
-    _env: EnvUnowned,
+    mut env: EnvUnowned,
     _class: JClass,
     list: jlong,
     needle: jlong,
     sql_null_semantics: jboolean,
+    float_order: jbyte,
 ) -> jlong {
-    let list = unsafe { expr_ref(list) }.clone();
-    let needle = unsafe { expr_ref(needle) }.clone();
-    into_raw(list_contains_opts(
-        list,
-        needle,
-        ListContainsOptions { sql_null_semantics },
-    ))
+    try_or_throw(&mut env, |_| {
+        let compare_mode = parse_compare_mode(float_order)?;
+        let list = unsafe { expr_ref(list) }.clone();
+        let needle = unsafe { expr_ref(needle) }.clone();
+
+        Ok(into_raw(list_contains_opts(
+            list,
+            needle,
+            ListContainsOptions {
+                sql_null_semantics,
+                compare_mode,
+            },
+        )))
+    })
 }
 
 #[unsafe(no_mangle)]

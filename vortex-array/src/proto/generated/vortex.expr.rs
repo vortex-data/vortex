@@ -93,9 +93,97 @@ pub struct ShreddingSpecField {
 pub struct CompareOpts {
     #[prost(enumeration = "compare_opts::CompareOp", tag = "1")]
     pub op: i32,
+    /// How a comparison orders float values.
+    #[prost(enumeration = "compare_opts::FloatOrder", tag = "2")]
+    pub float_order: i32,
+    /// How a comparison orders a null against a value.
+    #[prost(enumeration = "compare_opts::NullOrder", tag = "3")]
+    pub null_order: i32,
 }
 /// Nested message and enum types in `CompareOpts`.
 pub mod compare_opts {
+    #[derive(
+        Clone,
+        Copy,
+        Debug,
+        PartialEq,
+        Eq,
+        Hash,
+        PartialOrd,
+        Ord,
+        ::prost::Enumeration
+    )]
+    #[repr(i32)]
+    pub enum FloatOrder {
+        /// `-0.0 = +0.0`, and NaN values order by sign and payload.
+        ZerosEqual = 0,
+        /// The total order over the bit patterns: `-0.0 < +0.0`.
+        TotalOrder = 1,
+        /// `-0.0 = +0.0`, and all NaN values are equal and greatest.
+        Canonical = 2,
+        /// `-0.0 = +0.0`, and NaN is unordered.
+        Ieee754 = 3,
+    }
+    impl FloatOrder {
+        /// String value of the enum field names used in the ProtoBuf definition.
+        ///
+        /// The values are not transformed in any way and thus are considered stable
+        /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+        pub fn as_str_name(&self) -> &'static str {
+            match self {
+                Self::ZerosEqual => "ZerosEqual",
+                Self::TotalOrder => "TotalOrder",
+                Self::Canonical => "Canonical",
+                Self::Ieee754 => "Ieee754",
+            }
+        }
+        /// Creates an enum from field names used in the ProtoBuf definition.
+        pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+            match value {
+                "ZerosEqual" => Some(Self::ZerosEqual),
+                "TotalOrder" => Some(Self::TotalOrder),
+                "Canonical" => Some(Self::Canonical),
+                "Ieee754" => Some(Self::Ieee754),
+                _ => None,
+            }
+        }
+    }
+    #[derive(
+        Clone,
+        Copy,
+        Debug,
+        PartialEq,
+        Eq,
+        Hash,
+        PartialOrd,
+        Ord,
+        ::prost::Enumeration
+    )]
+    #[repr(i32)]
+    pub enum NullOrder {
+        First = 0,
+        Last = 1,
+    }
+    impl NullOrder {
+        /// String value of the enum field names used in the ProtoBuf definition.
+        ///
+        /// The values are not transformed in any way and thus are considered stable
+        /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+        pub fn as_str_name(&self) -> &'static str {
+            match self {
+                Self::First => "First",
+                Self::Last => "Last",
+            }
+        }
+        /// Creates an enum from field names used in the ProtoBuf definition.
+        pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+            match value {
+                "First" => Some(Self::First),
+                "Last" => Some(Self::Last),
+                _ => None,
+            }
+        }
+    }
     #[derive(
         Clone,
         Copy,
@@ -335,6 +423,9 @@ pub struct LikeOpts {
 pub struct ListContainsOpts {
     #[prost(bool, tag = "1")]
     pub sql_null_semantics: bool,
+    /// How the needle and the elements compare float values.
+    #[prost(enumeration = "compare_opts::FloatOrder", tag = "2")]
+    pub float_order: i32,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct CastOpts {

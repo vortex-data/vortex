@@ -31,7 +31,9 @@ use vortex::scalar::NumericOperator;
 use vortex::scalar_fn::builtin::numeric::Numeric;
 use vortex::scalar_fn::builtin::operators::BinaryOperator;
 use vortex::scalar_fn::builtin::operators::BooleanOperator;
+use vortex::scalar_fn::builtin::operators::CompareMode;
 use vortex::scalar_fn::builtin::operators::CompareOperator;
+use vortex::scalar_fn::builtin::operators::FloatOrder;
 
 use crate::dtype::PyDType;
 use crate::error::PyVortexResult;
@@ -68,6 +70,7 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(sub, &m)?)?;
     m.add_function(wrap_pyfunction!(mul, &m)?)?;
     m.add_function(wrap_pyfunction!(div, &m)?)?;
+    m.add_function(wrap_pyfunction!(compare, &m)?)?;
     m.add_function(wrap_pyfunction!(between, &m)?)?;
 
     // Nullability
@@ -782,6 +785,75 @@ fn div_expr(left: Expression, right: Expression) -> Expression {
     Numeric.new_expr(NumericOperator::Div, [left, right])
 }
 
+/// Compares the arguments, and orders floats with the given semantics.
+///
+/// By default, ``-0.0`` is equal to ``+0.0`` and NaNs are ordered by their bits. Use another order to
+/// match the query engine that gave the predicate. Arguments that do not contain floats ignore the
+/// order.
+///
+/// Parameters
+/// ----------
+/// operator : :class:`str`
+///     One of ``"eq"``, ``"not_eq"``, ``"gt"``, ``"gt_eq"``, ``"lt"`` or ``"lt_eq"``.
+/// left : :class:`Any`
+/// right : :class:`Any`
+/// float_order : :class:`str`
+///     ``"zeros_equal"`` makes ``-0.0`` equal to ``+0.0`` and orders NaNs by their bits.
+///     ``"canonical"`` makes the zeros equal, and makes all NaNs equal and greater than all other
+///     values. ``"ieee754"`` makes the zeros equal, and makes each comparison with a NaN false,
+///     except ``"not_eq"``, which is true.
+///
+/// Returns
+/// -------
+/// :class:`vortex.Expr`
+#[pyfunction]
+#[pyo3(signature = (operator, left, right, *, float_order = "zeros_equal"))]
+pub fn compare(
+    operator: &str,
+    left: PyIntoExpr,
+    right: PyIntoExpr,
+    float_order: &str,
+) -> PyResult<PyExpr> {
+    let operator = match operator {
+        "eq" => CompareOperator::Eq,
+        "not_eq" => CompareOperator::NotEq,
+        "gt" => CompareOperator::Gt,
+        "gt_eq" => CompareOperator::Gte,
+        "lt" => CompareOperator::Lt,
+        "lt_eq" => CompareOperator::Lte,
+        other => {
+            return Err(PyValueError::new_err(format!(
+                "Unknown comparison operator: {other}"
+            )));
+        }
+    };
+
+    Ok(PyExpr {
+        inner: expr::compare_with_mode(
+            operator,
+            compare_mode(float_order)?,
+            left.into_inner(),
+            right.into_inner(),
+        ),
+    })
+}
+
+/// Parses the float semantics of a comparison.
+fn compare_mode(float_order: &str) -> PyResult<CompareMode> {
+    let float_order = match float_order {
+        "zeros_equal" => FloatOrder::ZerosEqual,
+        "canonical" => FloatOrder::Canonical,
+        "ieee754" => FloatOrder::Ieee754,
+        other => {
+            return Err(PyValueError::new_err(format!(
+                "Unknown float_order: {other}"
+            )));
+        }
+    };
+
+    Ok(CompareMode::new(float_order))
+}
+
 /// True where `child` lies between `lower` and `upper`.
 ///
 /// Parameters
@@ -1110,20 +1182,36 @@ pub fn merge(exprs: &Bound<'_, PyAny>, duplicate_handling: &str) -> PyResult<PyE
 /// sql_null_semantics : :class:`bool`
 ///     If ``True``, a non-match against a list containing null produces null, and a null value
 ///     produces null even against an empty list. Defaults to ``False``.
+/// float_order : :class:`str`
+///     How the value and the elements compare floats, as for :func:`.compare`.
 ///
 /// Returns
 /// -------
 /// :class:`vortex.Expr`
 #[pyfunction]
-#[pyo3(signature = (child, value, *, sql_null_semantics = false))]
-pub fn list_contains(child: PyIntoExpr, value: PyIntoExpr, sql_null_semantics: bool) -> PyExpr {
-    PyExpr {
+#[pyo3(signature = (
+    child,
+    value,
+    *,
+    sql_null_semantics = false,
+    float_order = "zeros_equal"
+))]
+pub fn list_contains(
+    child: PyIntoExpr,
+    value: PyIntoExpr,
+    sql_null_semantics: bool,
+    float_order: &str,
+) -> PyResult<PyExpr> {
+    Ok(PyExpr {
         inner: expr::list_contains_opts(
             child.into_inner(),
             value.into_inner(),
-            ListContainsOptions { sql_null_semantics },
+            ListContainsOptions {
+                sql_null_semantics,
+                compare_mode: compare_mode(float_order)?,
+            },
         ),
-    }
+    })
 }
 
 /// SQL ``value IN (list)`` with SQL null semantics.

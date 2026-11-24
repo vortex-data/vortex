@@ -20,7 +20,9 @@ use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::scalar::Scalar;
+use crate::scalar_fn::builtin::compare::Compare;
 use crate::scalar_fn::builtin::fill_null::FillNullKernel;
+use crate::scalar_fn::builtin::operators::CompareMode;
 use crate::scalar_fn::builtin::operators::CompareOperator;
 
 impl FillNullKernel for Dict {
@@ -31,14 +33,15 @@ impl FillNullKernel for Dict {
     ) -> VortexResult<Option<ArrayRef>> {
         // If the fill value already exists in the dictionary, we can simply rewrite the null codes
         // to point to the value.
-        let found_fill_values = array
-            .values()
-            .clone()
-            .compare(
-                ConstantArray::new(fill_value.clone(), array.values().len()).into_array(),
-                CompareOperator::Eq,
-            )?
-            .execute::<BoolArray>(ctx)?;
+        // The fill value must keep its bits, so `-0.0` does not reuse a `+0.0` dictionary value.
+        let found_fill_values = Compare::try_new_with_mode(
+            array.values().clone(),
+            ConstantArray::new(fill_value.clone(), array.values().len()).into_array(),
+            CompareOperator::Eq,
+            CompareMode::TOTAL_ORDER,
+        )?
+        .into_array()
+        .execute::<BoolArray>(ctx)?;
 
         // We found the fill value already in the values at this given index.
         let Some(existing_fill_value_index) =

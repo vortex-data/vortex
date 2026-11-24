@@ -20,6 +20,7 @@ use vortex_array::scalar_fn::builtin::is_not_null::IsNotNull;
 use vortex_array::scalar_fn::builtin::literal::Literal;
 use vortex_array::scalar_fn::builtin::operators::BooleanOperator;
 use vortex_array::scalar_fn::builtin::operators::CompareOperator;
+use vortex_array::scalar_fn::builtin::operators::NullOrder;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
@@ -27,12 +28,9 @@ use vortex_session::VortexSession;
 use crate::bound::and;
 use crate::bound::and_collect;
 use crate::bound::cast;
+use crate::bound::compare_with_mode;
 use crate::bound::eq;
-use crate::bound::gt;
-use crate::bound::gt_eq;
 use crate::bound::lit;
-use crate::bound::lt;
-use crate::bound::lt_eq;
 use crate::bound::or_collect;
 use crate::stats::derive::StatDerivation;
 use crate::stats::derive::stat_expr;
@@ -254,18 +252,26 @@ fn compare_falsify<P: NonNanProof>(
     expr: &BoundExpression,
     session: &VortexSession,
 ) -> VortexResult<Option<BoundExpression>> {
-    let operator = expr.as_::<Compare>();
+    let options = expr.as_::<Compare>();
     let lhs = expr.child(0);
     let rhs = expr.child(1);
 
-    Ok(match operator {
+    // The statistics are bounds in total order. Each other float order is a coarser order that
+    // total order refines, so these bounds stay valid when the stat comparisons use the mode of
+    // the predicate. Nested nulls that order last do not refine it, so they get no rewrite.
+    if options.compare_mode().null_order() != NullOrder::First {
+        return Ok(None);
+    }
+    let cmp = |operator, a, b| compare_with_mode(operator, options.compare_mode(), a, b);
+
+    Ok(match options.operator() {
         CompareOperator::Eq => {
             let left = min(lhs, session)
                 .zip(max(rhs, session))
-                .map(|(a, b)| gt(a, b));
+                .map(|(a, b)| cmp(CompareOperator::Gt, a, b));
             let right = min(rhs, session)
                 .zip(max(lhs, session))
-                .map(|(a, b)| gt(a, b));
+                .map(|(a, b)| cmp(CompareOperator::Gt, a, b));
             or_collect(left.into_iter().chain(right))
                 .map(|value_predicate| {
                     with_non_nan_guards::<P>([lhs, rhs], value_predicate, session)
@@ -279,7 +285,10 @@ fn compare_falsify<P: NonNanProof>(
             .map(|((min_lhs, max_rhs), (max_lhs, min_rhs))| {
                 with_non_nan_guards::<P>(
                     [lhs, rhs],
-                    and(eq(min_lhs, max_rhs), eq(max_lhs, min_rhs)),
+                    and(
+                        cmp(CompareOperator::Eq, min_lhs, max_rhs),
+                        cmp(CompareOperator::Eq, max_lhs, min_rhs),
+                    ),
                     session,
                 )
             })
@@ -287,22 +296,30 @@ fn compare_falsify<P: NonNanProof>(
             .flatten(),
         CompareOperator::Gt => max(lhs, session)
             .zip(min(rhs, session))
-            .map(|(a, b)| with_non_nan_guards::<P>([lhs, rhs], lt_eq(a, b), session))
+            .map(|(a, b)| {
+                with_non_nan_guards::<P>([lhs, rhs], cmp(CompareOperator::Lte, a, b), session)
+            })
             .transpose()?
             .flatten(),
         CompareOperator::Gte => max(lhs, session)
             .zip(min(rhs, session))
-            .map(|(a, b)| with_non_nan_guards::<P>([lhs, rhs], lt(a, b), session))
+            .map(|(a, b)| {
+                with_non_nan_guards::<P>([lhs, rhs], cmp(CompareOperator::Lt, a, b), session)
+            })
             .transpose()?
             .flatten(),
         CompareOperator::Lt => min(lhs, session)
             .zip(max(rhs, session))
-            .map(|(a, b)| with_non_nan_guards::<P>([lhs, rhs], gt_eq(a, b), session))
+            .map(|(a, b)| {
+                with_non_nan_guards::<P>([lhs, rhs], cmp(CompareOperator::Gte, a, b), session)
+            })
             .transpose()?
             .flatten(),
         CompareOperator::Lte => min(lhs, session)
             .zip(max(rhs, session))
-            .map(|(a, b)| with_non_nan_guards::<P>([lhs, rhs], gt(a, b), session))
+            .map(|(a, b)| {
+                with_non_nan_guards::<P>([lhs, rhs], cmp(CompareOperator::Gt, a, b), session)
+            })
             .transpose()?
             .flatten(),
     })
@@ -348,23 +365,29 @@ fn compare_satisfy(
     expr: &BoundExpression,
     session: &VortexSession,
 ) -> VortexResult<Option<BoundExpression>> {
-    let operator = expr.as_::<Compare>();
+    let options = expr.as_::<Compare>();
     let lhs = expr.child(0);
     let rhs = expr.child(1);
 
-    let value_predicate = match operator {
+    // As in `compare_falsify`, the total-order bounds stay valid in the mode of the predicate.
+    if options.compare_mode().null_order() != NullOrder::First {
+        return Ok(None);
+    }
+    let cmp = |operator, a, b| compare_with_mode(operator, options.compare_mode(), a, b);
+
+    let value_predicate = match options.operator() {
         CompareOperator::Gt => min(lhs, session)
             .zip(max(rhs, session))
-            .map(|(a, b)| gt(a, b)),
+            .map(|(a, b)| cmp(CompareOperator::Gt, a, b)),
         CompareOperator::Gte => min(lhs, session)
             .zip(max(rhs, session))
-            .map(|(a, b)| gt_eq(a, b)),
+            .map(|(a, b)| cmp(CompareOperator::Gte, a, b)),
         CompareOperator::Lt => max(lhs, session)
             .zip(min(rhs, session))
-            .map(|(a, b)| lt(a, b)),
+            .map(|(a, b)| cmp(CompareOperator::Lt, a, b)),
         CompareOperator::Lte => max(lhs, session)
             .zip(min(rhs, session))
-            .map(|(a, b)| lt_eq(a, b)),
+            .map(|(a, b)| cmp(CompareOperator::Lte, a, b)),
         CompareOperator::Eq | CompareOperator::NotEq => None,
     };
     let Some(value_predicate) = value_predicate else {
@@ -483,6 +506,9 @@ mod tests {
     use vortex_array::scalar_fn::ScalarFnVTable;
     use vortex_array::scalar_fn::builtin::boolean::Boolean;
     use vortex_array::scalar_fn::builtin::compare::Compare;
+    use vortex_array::scalar_fn::builtin::operators::CompareMode;
+    use vortex_array::scalar_fn::builtin::operators::CompareOperator;
+    use vortex_array::scalar_fn::builtin::operators::FloatOrder;
     use vortex_array::stats::Stat;
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
@@ -493,6 +519,7 @@ mod tests {
     use crate::and;
     use crate::cast;
     use crate::col;
+    use crate::compare_with_mode;
     use crate::eq;
     use crate::gt;
     use crate::gt_eq;
@@ -788,6 +815,28 @@ mod tests {
             Some(or(
                 eq(stat(col("a"), Stat::NullCount), lit(0u64)),
                 all_non_null(&col("a")),
+            ))
+        );
+        Ok(())
+    }
+
+    /// Statistics are total-order bounds, so `max = -0.0` must not falsify `f > -0.0` when signed
+    /// zeros are equal. The stat comparison uses the mode of the predicate.
+    #[test]
+    fn comparison_falsifier_keeps_compare_mode() -> VortexResult<()> {
+        let mode = CompareMode::new(FloatOrder::Canonical);
+        let expr = compare_with_mode(CompareOperator::Gt, mode, col("f"), lit(-0.0f32));
+
+        assert_rewrite_eq!(
+            falsify(&expr)?,
+            Some(nan_guarded(
+                col("f"),
+                compare_with_mode(
+                    CompareOperator::Lte,
+                    mode,
+                    stat(col("f"), Stat::Max),
+                    lit(-0.0f32),
+                ),
             ))
         );
         Ok(())

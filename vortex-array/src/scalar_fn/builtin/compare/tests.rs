@@ -18,11 +18,13 @@ use crate::VortexSessionExecute;
 use crate::arrays::BoolArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::DecimalArray;
+use crate::arrays::DictArray;
 use crate::arrays::ExtensionArray;
 use crate::arrays::FixedSizeListArray;
 use crate::arrays::ListArray;
 use crate::arrays::ListViewArray;
 use crate::arrays::PrimitiveArray;
+use crate::arrays::ScalarFnArray;
 use crate::arrays::StructArray;
 use crate::arrays::VarBinArray;
 use crate::arrays::VarBinViewArray;
@@ -45,8 +47,15 @@ use crate::memory::MemorySessionExt;
 use crate::memory::test_allocator::counting_allocator;
 use crate::scalar::DecimalValue;
 use crate::scalar::Scalar;
+use crate::scalar_fn::ScalarFnVTable;
+use crate::scalar_fn::ScalarFnVTableExt;
+use crate::scalar_fn::builtin::compare::Compare;
+use crate::scalar_fn::builtin::compare::CompareOptions;
 use crate::scalar_fn::builtin::compare::scalar_cmp;
+use crate::scalar_fn::builtin::operators::CompareMode;
 use crate::scalar_fn::builtin::operators::CompareOperator;
+use crate::scalar_fn::builtin::operators::FloatOrder;
+use crate::scalar_fn::builtin::operators::NullOrder;
 use crate::test_harness::ExpectedOutcome;
 use crate::test_harness::assert_execution_paths;
 use crate::validity::Validity;
@@ -450,10 +459,10 @@ fn int_constant_lhs_and_rhs(#[case] op: CompareOperator, #[case] expected: [bool
     assert_arrays_eq!(swapped, BoolArray::from_iter(expected_swapped), &mut ctx);
 }
 
-/// Floats compare with Vortex's total ordering: NaN is the largest value, equality is bitwise,
-/// and -0.0 < +0.0. This matches `Scalar` comparison semantics.
+/// By default, `-0.0 = +0.0`, and all other floats compare with Vortex's total ordering: NaN is
+/// the largest value, and two NaNs are equal when their bits are equal.
 #[rstest]
-fn float_total_order(#[values(4, 129)] len: usize) {
+fn float_default_order(#[values(4, 129)] len: usize) {
     let mut ctx = SESSION.create_execution_ctx();
     let lhs = PrimitiveArray::from_iter(
         [f64::NAN, f64::NAN, -0.0, 1.0]
@@ -473,11 +482,32 @@ fn float_total_order(#[values(4, 129)] len: usize) {
     let result = execute_compare_test(lhs.clone(), rhs.clone(), CompareOperator::Eq);
     assert_arrays_eq!(
         result,
+        BoolArray::from_iter([true, false, true, false].into_iter().cycle().take(len)),
+        &mut ctx
+    );
+
+    let result = execute_compare_test(lhs.clone(), rhs.clone(), CompareOperator::Lt);
+    assert_arrays_eq!(
+        result,
+        BoolArray::from_iter([false, false, false, true].into_iter().cycle().take(len)),
+        &mut ctx
+    );
+
+    // The total order keeps the zeros distinct, as `Scalar` comparison does.
+    let result = compare_with(
+        lhs.clone(),
+        rhs.clone(),
+        CompareOperator::Eq,
+        CompareMode::TOTAL_ORDER,
+    )
+    .unwrap();
+    assert_arrays_eq!(
+        result,
         BoolArray::from_iter([true, false, false, false].into_iter().cycle().take(len)),
         &mut ctx
     );
 
-    let result = execute_compare_test(lhs, rhs, CompareOperator::Lt);
+    let result = compare_with(lhs, rhs, CompareOperator::Lt, CompareMode::TOTAL_ORDER).unwrap();
     assert_arrays_eq!(
         result,
         BoolArray::from_iter([false, false, true, true].into_iter().cycle().take(len)),
@@ -772,7 +802,16 @@ fn test_extension_comparison_checks_dtypes_before_fast_paths(
     )
     .into_array();
 
-    assert!(super::execute_compare(&lhs, &rhs, CompareOperator::Eq, &mut ctx).is_err());
+    assert!(
+        super::execute_compare(
+            &lhs,
+            &rhs,
+            CompareOperator::Eq,
+            CompareMode::TOTAL_ORDER,
+            &mut ctx
+        )
+        .is_err()
+    );
 
     Ok(())
 }
@@ -1141,4 +1180,351 @@ fn primitive_comparisons_across_bitmap_words(
         assert_arrays_eq!(actual, expected, &mut ctx);
     }
     Ok(())
+}
+
+/// Floats that each compare mode orders differently: both NaN signs, both zeros, and both
+/// infinities.
+const MODE_VALUES: [f64; 8] = [
+    -f64::NAN,
+    f64::NEG_INFINITY,
+    -1.0,
+    -0.0,
+    0.0,
+    1.0,
+    f64::INFINITY,
+    f64::NAN,
+];
+
+const DATAFUSION: CompareMode = CompareMode::new(FloatOrder::ZerosEqual);
+const SPARK: CompareMode = CompareMode::new(FloatOrder::Canonical);
+const PYARROW: CompareMode = CompareMode::new(FloatOrder::Ieee754);
+const DUCKDB: CompareMode = SPARK.with_null_order(NullOrder::Last);
+
+fn compare_with(
+    lhs: ArrayRef,
+    rhs: ArrayRef,
+    op: CompareOperator,
+    mode: CompareMode,
+) -> VortexResult<ArrayRef> {
+    Ok(
+        ScalarFnArray::try_new(Compare.bind(CompareOptions::new(op, mode)), [lhs, rhs])?
+            .into_array(),
+    )
+}
+
+#[rstest]
+#[case::total_eq_zero(CompareMode::TOTAL_ORDER, CompareOperator::Eq, 0.0, [false, false, false, false, true, false, false, false])]
+#[case::total_lt_zero(CompareMode::TOTAL_ORDER, CompareOperator::Lt, 0.0, [true, true, true, true, false, false, false, false])]
+#[case::datafusion_eq_zero(DATAFUSION, CompareOperator::Eq, 0.0, [false, false, false, true, true, false, false, false])]
+#[case::datafusion_eq_neg_zero(DATAFUSION, CompareOperator::Eq, -0.0, [false, false, false, true, true, false, false, false])]
+#[case::datafusion_lt_zero(DATAFUSION, CompareOperator::Lt, 0.0, [true, true, true, false, false, false, false, false])]
+#[case::datafusion_gte_neg_zero(DATAFUSION, CompareOperator::Gte, -0.0, [false, false, false, true, true, true, true, true])]
+#[case::datafusion_eq_nan(DATAFUSION, CompareOperator::Eq, f64::NAN, [false, false, false, false, false, false, false, true])]
+#[case::spark_eq_nan(SPARK, CompareOperator::Eq, f64::NAN, [true, false, false, false, false, false, false, true])]
+#[case::spark_eq_neg_nan(SPARK, CompareOperator::Eq, -f64::NAN, [true, false, false, false, false, false, false, true])]
+#[case::spark_lt_one(SPARK, CompareOperator::Lt, 1.0, [false, true, true, true, true, false, false, false])]
+#[case::spark_gt_inf(SPARK, CompareOperator::Gt, f64::INFINITY, [true, false, false, false, false, false, false, true])]
+#[case::spark_lte_zero(SPARK, CompareOperator::Lte, 0.0, [false, true, true, true, true, false, false, false])]
+#[case::pyarrow_eq_nan(PYARROW, CompareOperator::Eq, f64::NAN, [false; 8])]
+#[case::pyarrow_not_eq_nan(PYARROW, CompareOperator::NotEq, f64::NAN, [true; 8])]
+#[case::pyarrow_gte_neg_zero(PYARROW, CompareOperator::Gte, -0.0, [false, false, false, true, true, true, true, false])]
+#[case::pyarrow_not_eq_one(PYARROW, CompareOperator::NotEq, 1.0, [true, true, true, true, true, false, true, true])]
+fn float_compare_modes(
+    #[case] mode: CompareMode,
+    #[case] op: CompareOperator,
+    #[case] constant: f64,
+    #[case] expected: [bool; 8],
+) -> VortexResult<()> {
+    let ctx = &mut SESSION.create_execution_ctx();
+    let values = PrimitiveArray::from_iter(MODE_VALUES).into_array();
+    let expected = BoolArray::from_iter(expected);
+    let len = MODE_VALUES.len();
+
+    let with_constant = compare_with(
+        values.clone(),
+        ConstantArray::new(constant, len).into_array(),
+        op,
+        mode,
+    )?;
+    assert_arrays_eq!(with_constant, expected, ctx);
+
+    let with_array = compare_with(
+        values.clone(),
+        PrimitiveArray::from_iter([constant; 8]).into_array(),
+        op,
+        mode,
+    )?;
+    assert_arrays_eq!(with_array, expected, ctx);
+
+    let constant_on_left = compare_with(
+        ConstantArray::new(constant, len).into_array(),
+        values,
+        op.swap(),
+        mode,
+    )?;
+    assert_arrays_eq!(constant_on_left, expected, ctx);
+
+    Ok(())
+}
+
+#[rstest]
+#[case::f16(PrimitiveArray::from_iter([half::f16::NEG_ZERO, half::f16::ZERO, half::f16::NAN]).into_array(), Scalar::from(half::f16::ZERO))]
+#[case::f32(PrimitiveArray::from_iter([-0.0f32, 0.0, f32::NAN]).into_array(), Scalar::from(0.0f32))]
+fn signed_zeros_equal_for_each_float_width(
+    #[case] values: ArrayRef,
+    #[case] zero: Scalar,
+) -> VortexResult<()> {
+    let ctx = &mut SESSION.create_execution_ctx();
+    let zero = ConstantArray::new(zero, values.len()).into_array();
+
+    let result = compare_with(values, zero, CompareOperator::Eq, DATAFUSION)?;
+
+    assert_arrays_eq!(result, BoolArray::from_iter([true, true, false]), ctx);
+    Ok(())
+}
+
+#[test]
+fn compare_mode_ignores_integers() -> VortexResult<()> {
+    let ctx = &mut SESSION.create_execution_ctx();
+    let values = PrimitiveArray::from_iter([-1i32, 0, 1]).into_array();
+    let zero = ConstantArray::new(0i32, 3).into_array();
+
+    let result = compare_with(values, zero, CompareOperator::Lte, PYARROW)?;
+
+    assert_arrays_eq!(result, BoolArray::from_iter([true, true, false]), ctx);
+    Ok(())
+}
+
+/// A total-order encoding kernel must not answer a comparison that its mode orders differently.
+#[test]
+fn compare_mode_declines_encoding_kernel_for_zero() -> VortexResult<()> {
+    let ctx = &mut SESSION.create_execution_ctx();
+    let values = DictArray::try_new(
+        buffer![0u8, 1, 0, 1].into_array(),
+        PrimitiveArray::from_iter([-0.0f64, 0.0]).into_array(),
+    )?
+    .into_array();
+    let zero = ConstantArray::new(0.0f64, 4).into_array();
+
+    let result = compare_with(values, zero, CompareOperator::Eq, DATAFUSION)?;
+
+    assert_arrays_eq!(result, BoolArray::from_iter([true; 4]), ctx);
+    Ok(())
+}
+
+/// Structs compare field by field, and each float field compares in the mode. The rows are
+/// `(-0.0, 1) ? (0.0, 1)`, `(NaN, 1) ? (NaN, 2)`, `(-NaN, 1) ? (NaN, 1)`, `(NaN, 1) ? (inf, 1)`
+/// and `(1.0, 1) ? (1.0, 2)`. An unordered float field makes the rows unordered.
+#[rstest]
+#[case::total_eq(CompareMode::TOTAL_ORDER, CompareOperator::Eq, [false, false, false, false, false])]
+#[case::total_lt(CompareMode::TOTAL_ORDER, CompareOperator::Lt, [true, true, true, false, true])]
+#[case::datafusion_eq(DATAFUSION, CompareOperator::Eq, [true, false, false, false, false])]
+#[case::spark_eq(SPARK, CompareOperator::Eq, [true, false, true, false, false])]
+#[case::spark_lt(SPARK, CompareOperator::Lt, [false, true, false, false, true])]
+#[case::spark_gt(SPARK, CompareOperator::Gt, [false, false, false, true, false])]
+#[case::pyarrow_eq(PYARROW, CompareOperator::Eq, [true, false, false, false, false])]
+#[case::pyarrow_not_eq(PYARROW, CompareOperator::NotEq, [false, true, true, true, true])]
+#[case::pyarrow_lt(PYARROW, CompareOperator::Lt, [false, false, false, false, true])]
+#[case::pyarrow_gte(PYARROW, CompareOperator::Gte, [true, false, false, false, false])]
+fn compare_mode_struct_floats(
+    #[case] mode: CompareMode,
+    #[case] op: CompareOperator,
+    #[case] expected: [bool; 5],
+) -> VortexResult<()> {
+    let ctx = &mut SESSION.create_execution_ctx();
+    let lhs = StructArray::from_fields(&[
+        (
+            "a",
+            PrimitiveArray::from_iter([-0.0f64, f64::NAN, -f64::NAN, f64::NAN, 1.0]).into_array(),
+        ),
+        (
+            "b",
+            PrimitiveArray::from_iter([1i32, 1, 1, 1, 1]).into_array(),
+        ),
+    ])?
+    .into_array();
+    let rhs = StructArray::from_fields(&[
+        (
+            "a",
+            PrimitiveArray::from_iter([0.0f64, f64::NAN, f64::NAN, f64::INFINITY, 1.0])
+                .into_array(),
+        ),
+        (
+            "b",
+            PrimitiveArray::from_iter([1i32, 2, 1, 1, 2]).into_array(),
+        ),
+    ])?
+    .into_array();
+
+    let result = compare_with(lhs, rhs, op, mode)?;
+
+    assert_arrays_eq!(result, BoolArray::from_iter(expected), ctx);
+    Ok(())
+}
+
+/// Lists compare element by element in the mode. The rows are `[-0.0, NaN] ? [0.0, NaN]` and
+/// `[NaN] ? [NaN, 1.0]`.
+#[rstest]
+#[case::total_eq(CompareMode::TOTAL_ORDER, CompareOperator::Eq, [false, false])]
+#[case::spark_eq(SPARK, CompareOperator::Eq, [true, false])]
+#[case::spark_lt(SPARK, CompareOperator::Lt, [false, true])]
+#[case::pyarrow_eq(PYARROW, CompareOperator::Eq, [false, false])]
+#[case::pyarrow_lt(PYARROW, CompareOperator::Lt, [false, false])]
+#[case::pyarrow_not_eq(PYARROW, CompareOperator::NotEq, [true, true])]
+fn compare_mode_list_floats(
+    #[case] mode: CompareMode,
+    #[case] op: CompareOperator,
+    #[case] expected: [bool; 2],
+) -> VortexResult<()> {
+    let ctx = &mut SESSION.create_execution_ctx();
+    let lhs = ListArray::try_new(
+        PrimitiveArray::from_iter([-0.0f64, f64::NAN, f64::NAN]).into_array(),
+        PrimitiveArray::from_iter([0i32, 2, 3]).into_array(),
+        Validity::NonNullable,
+        ctx,
+    )?
+    .into_array();
+    let rhs = ListArray::try_new(
+        PrimitiveArray::from_iter([0.0f64, f64::NAN, f64::NAN, 1.0]).into_array(),
+        PrimitiveArray::from_iter([0i32, 2, 4]).into_array(),
+        Validity::NonNullable,
+        ctx,
+    )?
+    .into_array();
+
+    let result = compare_with(lhs, rhs, op, mode)?;
+
+    assert_arrays_eq!(result, BoolArray::from_iter(expected), ctx);
+    Ok(())
+}
+
+#[rstest]
+#[case::total_order(CompareMode::TOTAL_ORDER, CompareOperator::Lt, 0.0, true)]
+#[case::zeros_equal_nonzero(DATAFUSION, CompareOperator::Lt, 1.0, true)]
+#[case::zeros_equal_zero(DATAFUSION, CompareOperator::Eq, 0.0, false)]
+#[case::zeros_equal_nan(DATAFUSION, CompareOperator::Gt, f64::NAN, true)]
+#[case::canonical_eq(SPARK, CompareOperator::Eq, 1.0, true)]
+#[case::canonical_order(SPARK, CompareOperator::Lt, 1.0, false)]
+#[case::canonical_nan(SPARK, CompareOperator::Eq, f64::NAN, false)]
+#[case::ieee_not_eq(PYARROW, CompareOperator::NotEq, 1.0, true)]
+#[case::ieee_order(PYARROW, CompareOperator::Gte, 1.0, false)]
+fn compare_mode_agrees_with_total_order(
+    #[case] mode: CompareMode,
+    #[case] op: CompareOperator,
+    #[case] constant: f64,
+    #[case] expected: bool,
+) {
+    let dtype = DType::Primitive(PType::F64, Nullability::NonNullable);
+
+    assert_eq!(
+        mode.agrees_with_total_order(op, &dtype, Some(&Scalar::from(constant))),
+        expected
+    );
+    assert!(mode.agrees_with_total_order(
+        op,
+        &DType::Primitive(PType::I64, Nullability::NonNullable),
+        None
+    ));
+}
+
+#[rstest]
+#[case::default(CompareOptions::from(CompareOperator::Eq))]
+#[case::total_order(CompareOptions::new(CompareOperator::Eq, CompareMode::TOTAL_ORDER))]
+#[case::datafusion(CompareOptions::new(CompareOperator::Lt, DATAFUSION))]
+#[case::pyarrow(CompareOptions::new(CompareOperator::NotEq, PYARROW))]
+#[case::duckdb(CompareOptions::new(CompareOperator::Gt, DUCKDB))]
+fn compare_options_round_trip(#[case] options: CompareOptions) -> VortexResult<()> {
+    let bytes = Compare
+        .serialize(&options)?
+        .vortex_expect("compare options serialize");
+
+    assert_eq!(Compare.deserialize(&bytes, &SESSION)?, options);
+    Ok(())
+}
+
+fn int_list_scalar() -> Scalar {
+    Scalar::list(
+        Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable)),
+        vec![1i32.into()],
+        Nullability::NonNullable,
+    )
+}
+
+/// Nested nulls order first or last as the mode requires, at each level. Nested nulls are equal
+/// to each other. The rows are `{a: null} ? {a: 1}`, `{a: 1} ? {a: null}` and
+/// `{a: null} ? {a: null}`.
+#[rstest]
+#[case::first_lt(CompareMode::TOTAL_ORDER, CompareOperator::Lt, [true, false, false])]
+#[case::first_gt(CompareMode::TOTAL_ORDER, CompareOperator::Gt, [false, true, false])]
+#[case::last_lt(DUCKDB, CompareOperator::Lt, [false, true, false])]
+#[case::last_gt(DUCKDB, CompareOperator::Gt, [true, false, false])]
+#[case::last_eq(DUCKDB, CompareOperator::Eq, [false, false, true])]
+fn compare_mode_struct_null_order(
+    #[case] mode: CompareMode,
+    #[case] op: CompareOperator,
+    #[case] expected: [bool; 3],
+) -> VortexResult<()> {
+    let ctx = &mut SESSION.create_execution_ctx();
+    let lhs = StructArray::from_fields(&[(
+        "a",
+        PrimitiveArray::from_option_iter([None, Some(1i32), None]).into_array(),
+    )])?
+    .into_array();
+    let rhs = StructArray::from_fields(&[(
+        "a",
+        PrimitiveArray::from_option_iter([Some(1i32), None, None]).into_array(),
+    )])?
+    .into_array();
+
+    let result = compare_with(lhs, rhs, op, mode)?;
+
+    assert_arrays_eq!(result, BoolArray::from_iter(expected), ctx);
+    Ok(())
+}
+
+/// A list element that is null orders after all values when nested nulls are last. The rows are
+/// `[1, null] ? [1, 2]` and `[null] ? [5, 6]`.
+#[rstest]
+#[case::first_lt(CompareMode::TOTAL_ORDER, CompareOperator::Lt, [true, true])]
+#[case::last_lt(DUCKDB, CompareOperator::Lt, [false, false])]
+#[case::last_gt(DUCKDB, CompareOperator::Gt, [true, true])]
+fn compare_mode_list_null_order(
+    #[case] mode: CompareMode,
+    #[case] op: CompareOperator,
+    #[case] expected: [bool; 2],
+) -> VortexResult<()> {
+    let ctx = &mut SESSION.create_execution_ctx();
+    let lhs = ListArray::try_new(
+        PrimitiveArray::from_option_iter([Some(1i32), None, None]).into_array(),
+        PrimitiveArray::from_iter([0i32, 2, 3]).into_array(),
+        Validity::NonNullable,
+        ctx,
+    )?
+    .into_array();
+    let rhs = ListArray::try_new(
+        PrimitiveArray::from_iter([1i32, 2, 5, 6]).into_array(),
+        PrimitiveArray::from_iter([0i32, 2, 4]).into_array(),
+        Validity::NonNullable,
+        ctx,
+    )?
+    .into_array();
+
+    let result = compare_with(lhs, rhs, op, mode)?;
+
+    assert_arrays_eq!(result, BoolArray::from_iter(expected), ctx);
+    Ok(())
+}
+
+/// Nested nulls that order last disagree with the total order only for nested values.
+#[test]
+fn null_order_agree_with_total_order_only_when_flat() {
+    let mode = CompareMode::TOTAL_ORDER.with_null_order(NullOrder::Last);
+    let list = int_list_scalar();
+
+    assert!(!mode.agrees_with_total_order(CompareOperator::Lt, list.dtype(), Some(&list)));
+    assert!(mode.agrees_with_total_order(
+        CompareOperator::Lt,
+        &DType::Primitive(PType::I32, Nullability::NonNullable),
+        None
+    ));
 }

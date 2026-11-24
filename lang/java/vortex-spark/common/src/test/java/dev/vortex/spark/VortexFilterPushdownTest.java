@@ -97,6 +97,48 @@ public final class VortexFilterPushdownTest {
         }
     }
 
+    /**
+     * Spark makes -0.0 equal to 0.0, and makes all NaN values equal and greater than all other values. A pushed float
+     * filter must return the rows that Spark returns for the source data.
+     */
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void floatFiltersMatchSparkSemantics(boolean v1) {
+        SparkSession session = spark.newSession();
+        SparkSession.setActiveSession(session);
+        session.conf().set("spark.sql.sources.useV1SourceList", v1 ? "vortex" : "");
+        Dataset<Row> source = session.sql("SELECT id, CAST(value AS DOUBLE) AS value, CAST(value AS FLOAT) AS f"
+                + " FROM VALUES (0, '-0.0'), (1, '0.0'), (2, 'NaN'), (3, '1.0'), (4, '-1.0'), (5, 'Infinity'),"
+                + " (6, '-Infinity'), (7, NULL) AS t(id, value)");
+        Path output = tempDir.resolve("float_semantics_" + v1);
+        source.coalesce(1).write().format("vortex").save(output.toString());
+        Dataset<Row> data = session.read().format("vortex").load(output.toString());
+
+        for (String predicate : List.of(
+                "value = 0.0D",
+                "value = -0.0D",
+                "value <> 0.0D",
+                "value < 0.0D",
+                "value <= -0.0D",
+                "value > 0.0D",
+                "value >= 0.0D",
+                "value = double('NaN')",
+                "value > double('Infinity')",
+                "value < double('NaN')",
+                "value <=> 0.0D",
+                "NOT (value <=> -0.0D)",
+                "value IN (0.0D, double('NaN'))",
+                "value IN (-0.0D, NULL)",
+                "NOT (value IN (0.0D, 1.0D))",
+                "f = CAST(-0.0 AS FLOAT)",
+                "f >= CAST('NaN' AS FLOAT)")) {
+            assertEquals(
+                    source.where(predicate).orderBy("id").collectAsList(),
+                    data.where(predicate).orderBy("id").collectAsList(),
+                    predicate);
+        }
+    }
+
     @Test
     @DisplayName("Equality, comparison, IS NULL, IN, AND/OR/NOT all return correct rows after pushdown")
     public void testFilterPushdownCorrectness() throws IOException {

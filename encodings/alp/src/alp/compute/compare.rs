@@ -108,7 +108,9 @@ mod tests {
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
     use vortex_array::scalar::Scalar;
+    use vortex_array::scalar_fn::builtin::compare::Compare;
     use vortex_array::scalar_fn::builtin::compare::CompareKernel;
+    use vortex_array::scalar_fn::builtin::operators::CompareMode;
     use vortex_array::scalar_fn::builtin::operators::CompareOperator;
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
@@ -146,6 +148,8 @@ mod tests {
     ];
 
     /// Asserts the kernel engages for `encoded` and matches the comparison over `values`.
+    ///
+    /// The kernel compares in total order, so the comparison over `values` uses that order too.
     fn assert_matches_primitive(
         encoded: &ALPArray,
         values: &PrimitiveArray,
@@ -157,7 +161,35 @@ mod tests {
             let actual =
                 <ALP as CompareKernel>::compare(encoded.as_view(), &rhs, operator, &mut ctx)?
                     .unwrap_or_else(|| panic!("ALP compare kernel must engage for {operator:?}"));
-            let expected = values.clone().into_array().compare(rhs.clone(), operator)?;
+            let expected = Compare::try_new_with_mode(
+                values.clone().into_array(),
+                rhs.clone(),
+                operator,
+                CompareMode::TOTAL_ORDER,
+            )?
+            .into_array();
+            assert_arrays_eq!(actual, expected, &mut ctx);
+        }
+        Ok(())
+    }
+
+    /// The default comparison makes the zeros equal. It must give the same result for an ALP
+    /// array as for its values, whether the kernel engages or not.
+    #[rstest]
+    #[case::positive_zero(0.0f32)]
+    #[case::negative_zero(-0.0f32)]
+    fn default_compare_with_zero_matches_primitive(#[case] constant: f32) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let array = PrimitiveArray::from_iter([0.0f32, -0.0, 1.5, -1.5, 1.234, f32::NAN, -2.5]);
+        let encoded = alp_encode(array.as_view(), None, &mut ctx)?;
+        let rhs = ConstantArray::new(constant, array.len()).into_array();
+
+        for operator in ALL_OPERATORS {
+            let actual = encoded
+                .clone()
+                .into_array()
+                .compare(rhs.clone(), operator)?;
+            let expected = array.clone().into_array().compare(rhs.clone(), operator)?;
             assert_arrays_eq!(actual, expected, &mut ctx);
         }
         Ok(())

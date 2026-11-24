@@ -5,6 +5,7 @@ mod chunked;
 mod dict;
 mod haystack;
 mod kernel;
+mod normalize;
 mod prepared;
 mod runend;
 
@@ -54,6 +55,7 @@ use vortex_array::scalar_fn::ScalarFnVTable;
 use vortex_array::scalar_fn::ScalarFnVTableExt;
 use vortex_array::scalar_fn::builtin::compare::Compare;
 use vortex_array::scalar_fn::builtin::literal::Literal;
+use vortex_array::scalar_fn::builtin::operators::CompareMode;
 use vortex_array::scalar_fn::builtin::operators::CompareOperator;
 use vortex_array::scalar_fn::is_not_null_node;
 use vortex_array::scalar_fn::session::ScalarFnSessionExt;
@@ -67,6 +69,8 @@ use vortex_error::vortex_err;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
+
+use crate::list_contains::normalize::FloatNormalization;
 
 /// Registers [`ListContains`], [`PreparedSet`] and the element rules of [`ListContains`] for
 /// chunked, dictionary and run-end needles.
@@ -111,12 +115,23 @@ pub struct ListContainsOptions {
     /// there is nothing to compare it to: off, that is `false`; on, a null needle is `null` against
     /// any list, which makes [`ListContains`] strict.
     pub sql_null_semantics: bool,
+    /// How the needle and the elements compare floats, at the top level and in nested values.
+    ///
+    /// Membership uses only equality, so [`CompareMode::null_order`] has no effect. In the
+    /// default mode, `-0.0 = +0.0`. [`CompareMode::TOTAL_ORDER`] compares the bits of floats.
+    pub compare_mode: CompareMode,
 }
 
 impl Display for ListContainsOptions {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         if self.sql_null_semantics {
             write!(f, "sql_null_semantics")?;
+        }
+        if !self.compare_mode.is_default() {
+            if self.sql_null_semantics {
+                write!(f, ", ")?;
+            }
+            write!(f, "{}", self.compare_mode)?;
         }
         Ok(())
     }
@@ -235,6 +250,10 @@ impl ScalarFnVTable for ListContains {
         Ok(Some(
             pb::ListContainsOpts {
                 sql_null_semantics: instance.sql_null_semantics,
+                float_order: pb::compare_opts::FloatOrder::from(
+                    instance.compare_mode.float_order(),
+                )
+                .into(),
             }
             .encode_to_vec(),
         ))
@@ -246,8 +265,12 @@ impl ScalarFnVTable for ListContains {
         _session: &VortexSession,
     ) -> VortexResult<Self::Options> {
         let opts = pb::ListContainsOpts::decode(metadata)?;
+
+        let float_order = pb::compare_opts::FloatOrder::try_from(opts.float_order)?;
+
         Ok(ListContainsOptions {
             sql_null_semantics: opts.sql_null_semantics,
+            compare_mode: CompareMode::new(float_order.into()),
         })
     }
 
@@ -298,8 +321,11 @@ impl ScalarFnVTable for ListContains {
         let value_array = args.get(1)?;
 
         // Borrow the list: a constant list scalar owns every element, so cloning it is not free.
+        // Scalar equality compares the bits of floats, so a compare mode that normalizes them
+        // takes the lookup below.
         if let Some(value_scalar) = value_array.as_constant()
             && let Some(list) = constant_list(&list_array)
+            && FloatNormalization::new(options.compare_mode, value_scalar.dtype()).is_identity()
         {
             let result = compute_contains_scalar(list, value_scalar, options)?;
             return Ok(ConstantArray::new(result, args.row_count()).into_array());
@@ -318,6 +344,7 @@ impl ScalarFnVTable for ListContains {
 
         if let Some(needle) = needle.as_constant()
             && let Some(list) = constant_list_node(&list)
+            && FloatNormalization::new(options.compare_mode, needle.dtype()).is_identity()
         {
             let result = compute_contains_scalar(list, needle, options)?;
             return Ok(Some(node.new_constant(result)));
@@ -540,8 +567,13 @@ fn list_contains_scalar(
     }
 
     let rhs = ConstantArray::new(value.clone(), elems.len());
-    let matching_elements =
-        Compare::try_new(elems.clone(), rhs.into_array(), CompareOperator::Eq)?.into_array();
+    let matching_elements = Compare::try_new_with_mode(
+        elems.clone(),
+        rhs.into_array(),
+        CompareOperator::Eq,
+        options.compare_mode,
+    )?
+    .into_array();
 
     let mut matches = match matching_elements.execute::<Columnar>(ctx)? {
         Columnar::Constant(constant) => {
@@ -644,7 +676,9 @@ fn lists_contain_needles(
         BitBuffer::collect_bool_in(len, |row| gathered.lens[row] != 0, ctx.allocator().clone());
 
     // `any_null` is only read under SQL null semantics.
-    let comparisons = Compare::try_new(elements, needles, CompareOperator::Eq)?.into_array();
+    let comparisons =
+        Compare::try_new_with_mode(elements, needles, CompareOperator::Eq, options.compare_mode)?
+            .into_array();
     let (any_true, any_null) = match comparisons.execute::<Columnar>(ctx)? {
         // One answer for every comparison decides each row from whether it compared anything.
         Columnar::Constant(constant) => match constant.scalar().as_bool().value() {
@@ -935,13 +969,17 @@ mod tests {
     use vortex_array::optimizer::ArrayOptimizer;
     use vortex_array::scalar::PValue;
     use vortex_array::scalar::Scalar;
+    use vortex_array::scalar_fn::ScalarFnVTable;
     use vortex_array::scalar_fn::builtin::literal::Literal;
+    use vortex_array::scalar_fn::builtin::operators::CompareMode;
+    use vortex_array::scalar_fn::builtin::operators::FloatOrder;
     use vortex_array::validity::Validity;
     use vortex_buffer::BitBuffer;
     use vortex_buffer::Buffer;
     use vortex_buffer::buffer;
     use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
+    use vortex_error::vortex_err;
     use vortex_expr::ArrayExprExt;
     use vortex_expr::Expression;
     use vortex_expr::bound;
@@ -953,6 +991,7 @@ mod tests {
 
     use super::process_matches;
     use crate::expr::in_list;
+    use crate::expr::in_list_with_mode;
     use crate::expr::list_contains;
     use crate::expr::list_contains_opts;
     use crate::list_contains::ListContains;
@@ -1436,6 +1475,7 @@ mod tests {
 
     const SQL: ListContainsOptions = ListContainsOptions {
         sql_null_semantics: true,
+        compare_mode: CompareMode::TOTAL_ORDER,
     };
 
     #[rstest]
@@ -1562,10 +1602,122 @@ mod tests {
         Ok(())
     }
 
+    const ZEROS_EQUAL: CompareMode = CompareMode::new(FloatOrder::ZerosEqual);
+    const CANONICAL: CompareMode = CompareMode::new(FloatOrder::Canonical);
+    const IEEE754: CompareMode = CompareMode::new(FloatOrder::Ieee754);
+
+    #[rstest]
+    #[case::total_order(CompareMode::TOTAL_ORDER, [false, true, true, false, false])]
+    #[case::zeros_equal(ZEROS_EQUAL, [true, true, true, false, false])]
+    #[case::canonical(CANONICAL, [true, true, true, true, false])]
+    #[case::ieee754(IEEE754, [true, true, false, false, false])]
+    fn float_membership_in_compare_mode(
+        #[case] mode: CompareMode,
+        #[case] expected: [bool; 5],
+    ) -> VortexResult<()> {
+        let needles = PrimitiveArray::from_option_iter([
+            Some(-0.0f64),
+            Some(0.0),
+            Some(f64::NAN),
+            Some(-f64::NAN),
+            Some(1.0),
+            None,
+        ])
+        .into_array();
+        let expected = expected.map(Some).into_iter().chain([None]);
+
+        let set = f64_set(vec![0.0, f64::NAN]);
+        assert_result(
+            needles
+                .clone()
+                .apply(&in_list_with_mode(root(), lit(set.clone()), mode)),
+            expected.clone(),
+        )?;
+
+        let len = needles.len();
+        let lists = ConstantArray::new(set, len)
+            .into_array()
+            .execute::<ListViewArray>(&mut SESSION.create_execution_ctx())?
+            .into_array();
+        let options = ListContainsOptions {
+            sql_null_semantics: true,
+            compare_mode: mode,
+        };
+        assert_result(
+            ListContains::try_new_opts(lists, needles, options).map(IntoArray::into_array),
+            expected,
+        )
+    }
+
+    /// A constant needle and a constant list do not fold to the bitwise answer of scalar
+    /// equality when the mode normalizes floats.
     #[test]
-    fn constant_set_of_floats_is_bitwise() -> VortexResult<()> {
-        // Membership has to agree with the compare kernel: `-0.0` and `0.0` are different
-        // members, and NaN is a member of a set that holds NaN.
+    fn constant_float_needle_in_compare_mode() -> VortexResult<()> {
+        let needle = ConstantArray::new(-0.0f64, 2).into_array();
+        let set = f64_set(vec![0.0]);
+
+        let result = needle.apply(&in_list_with_mode(root(), lit(set), CANONICAL))?;
+
+        let mut ctx = SESSION.create_execution_ctx();
+        assert_arrays_eq!(result, BoolArray::from_iter([true, true]), &mut ctx);
+        Ok(())
+    }
+
+    /// A constant float needle against a non-constant overlapping ListView takes the scalar
+    /// fast path instead of gathering every overlapping view element.
+    #[rstest]
+    #[case::total_order(CompareMode::TOTAL_ORDER, false)]
+    #[case::zeros_equal(ZEROS_EQUAL, true)]
+    #[case::canonical(CANONICAL, true)]
+    #[case::ieee754(IEEE754, true)]
+    fn constant_float_needle_overlapping_list_view(
+        #[case] mode: CompareMode,
+        #[case] expected: bool,
+    ) -> VortexResult<()> {
+        let n = 1024u32;
+        let mut elements_vec = vec![1.0f64; n as usize];
+        elements_vec[0] = 0.0;
+        let elements = PrimitiveArray::from_iter(elements_vec).into_array();
+        let offsets = PrimitiveArray::from_iter(vec![0u32; n as usize]).into_array();
+        let sizes = PrimitiveArray::from_iter(vec![n; n as usize]).into_array();
+        let mut ctx = SESSION.create_execution_ctx();
+        let lists =
+            ListViewArray::try_new(elements, offsets, sizes, Validity::NonNullable, &mut ctx)?
+                .into_array();
+        let needle = ConstantArray::new(-0.0f64, n as usize).into_array();
+        let options = ListContainsOptions {
+            sql_null_semantics: true,
+            compare_mode: mode,
+        };
+
+        let result = ListContains::try_new_opts(lists, needle, options)?.into_array();
+        assert_arrays_eq!(
+            result,
+            BoolArray::from_iter(vec![expected; n as usize]),
+            &mut ctx
+        );
+        Ok(())
+    }
+
+    /// The compare mode of a membership check survives serialization.
+    #[test]
+    fn list_contains_options_round_trip() -> VortexResult<()> {
+        let options = ListContainsOptions {
+            sql_null_semantics: true,
+            compare_mode: IEEE754,
+        };
+        let bytes = ListContains
+            .serialize(&options)?
+            .ok_or_else(|| vortex_err!("list contains options serialize"))?;
+
+        assert_eq!(ListContains.deserialize(&bytes, &SESSION)?, options);
+        Ok(())
+    }
+
+    #[test]
+    fn constant_set_of_floats_agrees_with_compare() -> VortexResult<()> {
+        // Membership has to agree with the default comparison: `-0.0` and `0.0` are the same
+        // member, and NaN is a member of a set that holds NaN.
         let needles = PrimitiveArray::from_option_iter([
             Some(1.0f64),
             Some(f64::NAN),
@@ -1581,7 +1733,7 @@ mod tests {
             [
                 Some(true),
                 Some(true),
-                Some(false),
+                Some(true),
                 Some(true),
                 Some(false),
                 None,
@@ -2200,7 +2352,10 @@ mod tests {
         );
         let list = ConstantArray::new(list_scalar, 0).into_array();
         let needle = PrimitiveArray::empty::<i32>(input_nullability).into_array();
-        let options = ListContainsOptions { sql_null_semantics };
+        let options = ListContainsOptions {
+            sql_null_semantics,
+            ..Default::default()
+        };
         let result = super::compute_list_contains(&list, &needle, &options, &mut ctx)?;
         assert_eq!(result.len(), 0);
         assert_eq!(result.dtype(), &DType::Bool(expected_nullability));
