@@ -329,25 +329,35 @@ fn max_lane_index_is_exact(#[case] base: u8, #[case] bits: u8, #[case] expected:
     assert_eq!(max_lane_index(&bases, None), usize::from(base));
 }
 
-/// The compressor may store `values_idx_offsets` in any integer encoding, such as FastLanes
-/// Delta.
+/// The compressor may store `values` and `values_idx_offsets` in any encoding, such as FastLanes
+/// Delta, which execution turns into primitive arrays before decoding.
 #[test]
-fn decode_delta_values_idx_offsets() -> VortexResult<()> {
+fn test_decode_delta_encoded_offsets_and_values() -> VortexResult<()> {
     let mut ctx = SESSION.create_execution_ctx();
-    let input = runs(10 * FL_CHUNK_SIZE, 64, false, false);
-    let rle = RLE::encode(input.as_view(), &mut ctx)?;
+    let len = 4 * FL_CHUNK_SIZE + 300;
+    let expected = PrimitiveArray::from_iter((0..len).map(|i| (i / 5) as i64));
+    let rle = RLE::encode(expected.as_view(), &mut ctx)?;
+
+    let values = rle.values().clone().execute::<PrimitiveArray>(&mut ctx)?;
+    let delta_values = Delta::try_from_primitive_array(&values, &mut ctx)?.into_array();
+
     let offsets = rle
         .values_idx_offsets()
         .clone()
         .execute::<PrimitiveArray>(&mut ctx)?;
-    let rle = RLE::try_new(
-        rle.values().clone(),
+    let delta_offsets = Delta::try_from_primitive_array(&offsets, &mut ctx)?.into_array();
+
+    let encoded = RLE::try_new(
+        delta_values,
         rle.indices().clone(),
-        Delta::try_from_primitive_array(&offsets, &mut ctx)?.into_array(),
+        delta_offsets,
         rle.offset(),
         rle.len(),
     )?;
 
-    assert_arrays_eq!(rle.into_array(), input, &mut ctx);
+    assert_arrays_eq!(encoded, expected, &mut ctx);
+
+    let sliced = encoded.into_array().slice(500..2500)?;
+    assert_arrays_eq!(sliced, expected.slice(500..2500)?, &mut ctx);
     Ok(())
 }
