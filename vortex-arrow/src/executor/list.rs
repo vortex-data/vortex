@@ -218,6 +218,7 @@ fn list_view_zctl<O: OffsetSizeTrait + NativePType>(
 
 #[cfg(test)]
 mod tests {
+    use std::ops::Range;
     use std::sync::Arc;
     use std::sync::LazyLock;
 
@@ -228,6 +229,7 @@ mod tests {
     use arrow_buffer::OffsetBuffer;
     use arrow_schema::DataType;
     use arrow_schema::Field;
+    use rstest::rstest;
     use vortex_array::Canonical;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
@@ -456,22 +458,47 @@ mod tests {
         Ok(())
     }
 
-    /// A slice of a few lists of a long list exports the elements those lists hold, not every
-    /// element of the list it was cut from.
-    #[test]
-    fn sliced_list_exports_only_its_elements() -> VortexResult<()> {
+    /// A few lists cut from a long list export the elements those lists hold, not every element
+    /// of the list they were cut from. Lists [0..50), [50], [51] and [52..100) are cut to `rows`.
+    #[rstest]
+    #[case::prefix(0..2, &[0, 50, 51], 0..51)]
+    #[case::middle(1..3, &[0, 1, 2], 50..52)]
+    #[case::suffix(3..4, &[0, 48], 52..100)]
+    fn sliced_list_exports_only_its_elements(
+        #[values(false, true)] list_view: bool,
+        #[case] rows: Range<usize>,
+        #[case] expected_offsets: &[i32],
+        #[case] expected_values: Range<i32>,
+    ) -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
-        // Lists [0..50), [50], [51] and [52..100), sliced to the middle two.
         let elements =
-            PrimitiveArray::new((0..100).collect::<Buffer<i32>>(), Validity::NonNullable);
-        let offsets = PrimitiveArray::new(buffer![0i32, 50, 51, 52, 100], Validity::NonNullable);
-        let list = ListArray::try_new(
-            elements.into_array(),
-            offsets.into_array(),
-            Validity::NonNullable,
-            &mut ctx,
-        )?;
-        let sliced = SliceArray::new(list.into_array(), 1..3).into_array();
+            PrimitiveArray::new((0..100).collect::<Buffer<i32>>(), Validity::NonNullable)
+                .into_array();
+        let sliced = if list_view {
+            // A zero-copy-to-list ListView of the rows, over all of the elements.
+            let offsets: Buffer<i32> = [0, 50, 51, 52][rows.clone()].iter().copied().collect();
+            let sizes: Buffer<i32> = [50, 1, 1, 48][rows].iter().copied().collect();
+            unsafe {
+                ListViewArray::new_unchecked(
+                    elements,
+                    PrimitiveArray::new(offsets, Validity::NonNullable).into_array(),
+                    PrimitiveArray::new(sizes, Validity::NonNullable).into_array(),
+                    Validity::NonNullable,
+                )
+                .with_zero_copy_to_list(true)
+            }
+            .into_array()
+        } else {
+            let offsets =
+                PrimitiveArray::new(buffer![0i32, 50, 51, 52, 100], Validity::NonNullable);
+            let list = ListArray::try_new(
+                elements,
+                offsets.into_array(),
+                Validity::NonNullable,
+                &mut ctx,
+            )?;
+            SliceArray::new(list.into_array(), rows).into_array()
+        };
 
         let field = Field::new("item", DataType::Int32, false);
         let arrow_dt = DataType::List(field.into());
@@ -480,13 +507,13 @@ mod tests {
             .as_any()
             .downcast_ref::<GenericListArray<i32>>()
             .unwrap();
-        assert_eq!(arrow_list.value_offsets(), &[0, 1, 2]);
+        assert_eq!(arrow_list.value_offsets(), expected_offsets);
         let values = arrow_list
             .values()
             .as_any()
             .downcast_ref::<Int32Array>()
             .unwrap();
-        assert_eq!(values.values(), &[50, 51]);
+        assert_eq!(values.values(), &expected_values.collect::<Vec<_>>());
         Ok(())
     }
 
