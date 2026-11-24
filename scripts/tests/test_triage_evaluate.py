@@ -68,7 +68,7 @@ def test_load_verdicts_keeps_only_valid_entries_for_items_that_were_sent():
     assert evaluate.load_verdicts("[]", seen, NOW) == {}
 
 
-def test_judge_reports_its_status():
+def test_judge_reports_its_status(capsys):
     target = item(1, created=ago(days=1))
 
     def answer(payload) -> str:
@@ -78,12 +78,21 @@ def test_judge_reports_its_status():
     def broken(_payload):
         raise evaluate.ClaudeError("HTTP 401 authentication_error")
 
+    def crashed(_payload):
+        raise RuntimeError("secret title")
+
     assert evaluate.judge([target], EMPTY, NOW, None) == ({}, "Claude off")
     assert evaluate.judge([], EMPTY, NOW, answer) == ({}, "")
     verdicts, status = evaluate.judge([target], EMPTY, NOW, answer)
     assert (list(verdicts), status) == ([1], "Claude checked 1")
     assert evaluate.judge([target], EMPTY, NOW, broken) == ({}, evaluate.FAILED)
     assert evaluate.judge([target], EMPTY, NOW, lambda _p: "{}") == ({}, evaluate.FAILED)
+    # Any other error also falls back to the rules, and the public log gets only its type.
+    assert evaluate.judge([target], EMPTY, NOW, crashed) == ({}, evaluate.FAILED)
+    log = capsys.readouterr().out
+    assert "Claude failed: HTTP 401 authentication_error" in log
+    assert "Claude failed: RuntimeError" in log
+    assert "secret" not in log
 
 
 def test_new_verdict_is_cached_until_new_activity():

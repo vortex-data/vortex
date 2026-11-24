@@ -2,7 +2,8 @@
 
 The call runs in the same process as the Slack writes, so the candidates and verdicts stay in
 memory and never reach the public Actions log, as a job output read through `env` would. Claude
-gets no tools, so a contributor who writes instructions into an issue can at most change a verdict.
+gets no tools, so a contributor who writes instructions into an issue can at most sway the verdicts
+of that run.
 
 The job authenticates with workload identity federation: it exchanges a GitHub Actions OIDC token
 for a short-lived Anthropic token, so no API key is stored. This module needs the `anthropic`

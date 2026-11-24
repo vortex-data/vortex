@@ -152,8 +152,11 @@ def judge(
         return {}, ""
     try:
         raw = ask(payload(chosen, now))
-    except ClaudeError as error:
-        print(f"Claude failed: {error}")
+    except Exception as error:
+        # Claude is optional, so any failure falls back to the rules instead of stopping the run.
+        # Only a `ClaudeError` message is safe to print, because another message can hold item text.
+        reason = str(error) if isinstance(error, ClaudeError) else type(error).__name__
+        print(f"Claude failed: {reason}")
         return {}, FAILED
     verdicts = load_verdicts(raw, activity(chosen), now)
     print(f"Claude judged {len(verdicts)} of {len(chosen)} items.")
