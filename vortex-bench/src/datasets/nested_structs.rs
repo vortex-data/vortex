@@ -48,6 +48,10 @@ impl BenchDataset for NestedStructsData {
         ROW_COUNT as u64
     }
 
+    fn relative_path(&self, format: Format) -> String {
+        data_path(DATASET, format)
+    }
+
     async fn path(&self, format: Format) -> Result<PathBuf> {
         match format {
             Format::ArrowIpc => {

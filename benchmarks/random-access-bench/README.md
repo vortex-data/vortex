@@ -91,8 +91,8 @@ LITDATA_PYTHON=.venv-litdata/bin/python \
 ## Running against S3
 
 The same benchmark can read its data from an object store instead of local disk. The remote
-directory must mirror the layout of the local data directory (`vortex-bench/data/`), so the
-files are materialized locally first and then uploaded verbatim:
+directory uses the same relative paths as the local data directory (`vortex-bench/data/`).
+To create your own snapshot, prepare the files locally and upload them before running the benchmark.
 
 ```bash
 cargo run -p random-access-bench --profile release_debug --features lance -- \

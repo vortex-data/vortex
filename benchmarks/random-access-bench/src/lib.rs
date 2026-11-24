@@ -310,8 +310,7 @@ async fn dataset_path(dataset: &dyn BenchDataset, format: Format) -> Result<Path
 
 /// Materialize every local data file needed for `datasets` and `formats`.
 ///
-/// Remote runs read data that must already exist in the remote directory, so this is run first
-/// (locally) and the resulting files uploaded verbatim.
+/// Use this to create local benchmark data or to build a snapshot for uploading to S3.
 pub async fn prepare_data(datasets: &[Box<dyn BenchDataset>], formats: &[Format]) -> Result<()> {
     for dataset in datasets {
         for format in formats {
@@ -337,44 +336,51 @@ async fn open_accessor(
         format.ext(),
         source_suffix(remote.is_some())
     );
-    match format {
-        Format::ArrowIpc => {
-            if remote.is_some() {
-                anyhow::bail!("Arrow IPC random access is only supported from local disk");
-            }
+    match (format, remote) {
+        (Format::OnDiskVortex | Format::VortexCompact, Some(remote)) => {
+            let path = dataset.relative_path(format);
+            Ok(Box::new(
+                VortexRandomAccessor::open_object_store(remote, &path, name, format).await?,
+            ))
+        }
+        (Format::Parquet, Some(remote)) => {
+            let path = dataset.relative_path(format);
+            Ok(Box::new(
+                ParquetRandomAccessor::open_object_store(remote, &path, name).await?,
+            ))
+        }
+        #[cfg(feature = "lance")]
+        (Format::Lance, Some(remote)) => {
+            let uri = remote.uri(&dataset.relative_path(format))?;
+            Ok(Box::new(
+                lance_bench::random_access::LanceRandomAccessor::open_uri(&uri, name).await?,
+            ))
+        }
+        (Format::ArrowIpc, Some(_)) => {
+            anyhow::bail!("Arrow IPC random access is only supported from local disk");
+        }
+        (Format::ArrowIpc, None) => {
             let path = dataset.path(format).await?;
             Ok(Box::new(ArrowIpcRandomAccessor::open(path, name)?))
         }
-        Format::OnDiskVortex | Format::VortexCompact => {
+        (Format::OnDiskVortex | Format::VortexCompact, None) => {
             let path = dataset_path(dataset, format).await?;
-            Ok(match remote {
-                Some(remote) => Box::new(
-                    VortexRandomAccessor::open_object_store(remote, &path, name, format).await?,
-                ),
-                None => Box::new(VortexRandomAccessor::open(path, name, format).await?),
-            })
+            Ok(Box::new(
+                VortexRandomAccessor::open(path, name, format).await?,
+            ))
         }
-        Format::Parquet => {
+        (Format::Parquet, None) => {
             let path = dataset_path(dataset, format).await?;
-            Ok(match remote {
-                Some(remote) => {
-                    Box::new(ParquetRandomAccessor::open_object_store(remote, &path, name).await?)
-                }
-                None => Box::new(ParquetRandomAccessor::open(path, name).await?),
-            })
+            Ok(Box::new(ParquetRandomAccessor::open(path, name).await?))
         }
         #[cfg(feature = "lance")]
-        Format::Lance => {
-            use lance_bench::random_access;
+        (Format::Lance, None) => {
             let path = dataset_path(dataset, format).await?;
-            Ok(match remote {
-                Some(remote) => Box::new(
-                    random_access::LanceRandomAccessor::open_uri(&remote.uri(&path)?, name).await?,
-                ),
-                None => Box::new(random_access::LanceRandomAccessor::open(path, name).await?),
-            })
+            Ok(Box::new(
+                lance_bench::random_access::LanceRandomAccessor::open(path, name).await?,
+            ))
         }
-        other => anyhow::bail!("open_accessor not implemented for {other}"),
+        (other, _) => anyhow::bail!("open_accessor not implemented for {other}"),
     }
 }
 

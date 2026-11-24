@@ -131,6 +131,16 @@ jobs:
               # which reaches only the tip of a shallow clone.
               fetch-depth: 0
 
+      # The workflow can run a PR head whose benchmark still needs local files to open S3.
+      - name: Check whether the S3 benchmark can skip local data
+        id: remote-data
+        if: inputs.remote_data_dir != ''
+        shell: bash
+        run: |
+          if git grep -q -F 'fn relative_path(&self, format: Format) -> String;' -- vortex-bench/src/random_access/mod.rs; then
+            echo "skip-local=true" >> "$GITHUB_OUTPUT"
+          fi
+
       # Every install and download below is independent of the others.
       - parallel:
           - name: Install DuckDB
@@ -170,7 +180,7 @@ jobs:
           # and the LitData conversion. Keep the litdata version in sync with the Install LitData step.
           - name: Compute benchmark data cache key
             id: data-cache-key
-            if: inputs.benchmark_id == 'random-access-bench'
+            if: inputs.benchmark_id == 'random-access-bench' && steps.remote-data.outputs.skip-local != 'true'
             shell: bash
             run: |
               set -Eeu -o pipefail
@@ -201,7 +211,7 @@ jobs:
               echo "LITDATA_PYTHON=$PWD/.venv-litdata/bin/python" >> "$GITHUB_ENV"
           - name: Restore benchmark data
             id: data-cache
-            if: inputs.benchmark_id == 'random-access-bench'
+            if: inputs.benchmark_id == 'random-access-bench' && steps.remote-data.outputs.skip-local != 'true'
             uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
             with:
               path: |
@@ -233,6 +243,7 @@ jobs:
       # Download and convert all benchmark data up front, so the benchmark step below only
       # contains timed runs. The data is written with the same settings the benchmark uses.
       - name: Generate ${{ inputs.benchmark_name }} data
+        if: steps.remote-data.outputs.skip-local != 'true'
         shell: bash
         env:
           RUST_BACKTRACE: full
@@ -246,7 +257,9 @@ jobs:
       # Save the data cache before setup-benchmark.sh pins processes to the housekeeping CPUs.
       - parallel:
           - name: Save benchmark data
-            if: inputs.benchmark_id == 'random-access-bench' && steps.data-cache.outputs.cache-hit != 'true'
+            if: >-
+              inputs.benchmark_id == 'random-access-bench' && steps.remote-data.outputs.skip-local != 'true'
+              && steps.data-cache.outputs.cache-hit != 'true'
             uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
             with:
               path: |

@@ -169,7 +169,7 @@ jobs:
           # and the LitData conversion. Keep the litdata version in sync with the Install LitData step.
           - name: Compute benchmark data cache key
             id: data-cache-key
-            if: matrix.benchmark.id == 'random-access-bench'
+            if: matrix.benchmark.id == 'random-access-bench' && matrix.benchmark.remote_data_dir == null
             shell: bash
             run: |
               set -Eeu -o pipefail
@@ -200,7 +200,7 @@ jobs:
               echo "LITDATA_PYTHON=$PWD/.venv-litdata/bin/python" >> "$GITHUB_ENV"
           - name: Restore benchmark data
             id: data-cache
-            if: matrix.benchmark.id == 'random-access-bench'
+            if: matrix.benchmark.id == 'random-access-bench' && matrix.benchmark.remote_data_dir == null
             uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
             with:
               path: |
@@ -208,7 +208,7 @@ jobs:
                 vortex-bench/data/random_access/*/*.parquet
                 vortex-bench/data/random_access/*/*.litdata
               key: >-
-                random-access-data-v1-${{ matrix.benchmark.remote_data_dir && 's3' || 'local' }}-litdata0.2.76-${{ steps.data-cache-key.outputs.crates }}-${{
+                random-access-data-v1-local-litdata0.2.76-${{ steps.data-cache-key.outputs.crates }}-${{
                   hashFiles(
                     'vortex-bench/src/datasets/**',
                     'vortex-bench/src/random_access/**',
@@ -232,6 +232,7 @@ jobs:
       # Download and convert all benchmark data up front, so the benchmark step below only
       # contains timed runs. The data is written with the same settings the benchmark uses.
       - name: Generate ${{ matrix.benchmark.name }} data
+        if: matrix.benchmark.remote_data_dir == null
         shell: bash
         env:
           RUST_BACKTRACE: full
@@ -239,13 +240,14 @@ jobs:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
           bench="${{ matrix.benchmark.id }}"
-          python3 "scripts/${bench%-bench}-split.py" --prepare-data \
-            ${{ matrix.benchmark.remote_data_dir && format('--remote-data-dir {0}', matrix.benchmark.remote_data_dir) || '' }}
+          python3 "scripts/${bench%-bench}-split.py" --prepare-data
 
       # Save the data cache before setup-benchmark.sh pins processes to the housekeeping CPUs.
       - parallel:
           - name: Save benchmark data
-            if: matrix.benchmark.id == 'random-access-bench' && steps.data-cache.outputs.cache-hit != 'true'
+            if: >-
+              matrix.benchmark.id == 'random-access-bench' && matrix.benchmark.remote_data_dir == null
+              && steps.data-cache.outputs.cache-hit != 'true'
             uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
             with:
               path: |
