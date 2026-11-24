@@ -328,3 +328,27 @@ fn max_lane_index_is_exact(#[case] base: u8, #[case] bits: u8, #[case] expected:
     assert_eq!(max_lane_index(&bases, Some(&deltas)), expected);
     assert_eq!(max_lane_index(&bases, None), usize::from(base));
 }
+
+/// Regression test for <https://github.com/vortex-data/vortex/issues/11888>: the compressor may
+/// store `values_idx_offsets` in any integer encoding, such as FastLanes Delta.
+#[test]
+fn decode_delta_values_idx_offsets() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let input = runs(10 * FL_CHUNK_SIZE, 64, false, false);
+    let rle = RLE::encode(input.as_view(), &mut ctx)?;
+    let offsets = rle
+        .values_idx_offsets()
+        .clone()
+        .execute::<PrimitiveArray>(&mut ctx)?;
+    let rle = RLE::try_new(
+        rle.values().clone(),
+        rle.indices().clone(),
+        Delta::try_from_primitive_array(&offsets, &mut ctx)?.into_array(),
+        rle.offset(),
+        rle.len(),
+    )?;
+
+    let decoded = rle_decompress(&rle, &mut ctx)?;
+    assert_arrays_eq!(decoded, input, &mut ctx);
+    Ok(())
+}

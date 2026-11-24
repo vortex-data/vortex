@@ -163,7 +163,9 @@ mod tests {
     use vortex_functions::between::StrictComparison;
     use vortex_functions::builtins::ArrayFunctions;
 
+    use crate::Delta;
     use crate::RLE;
+    use crate::RLEArraySlotsExt;
     use crate::RLEData;
 
     const ALL_OPERATORS: [CompareOperator; 6] = [
@@ -302,6 +304,39 @@ mod tests {
             assert_arrays_eq!(actual, expected, &mut ctx);
         }
 
+        Ok(())
+    }
+
+    /// Regression test for <https://github.com/vortex-data/vortex/issues/11888>: the expanded
+    /// answers reuse `values_idx_offsets`, which the compressor may store as FastLanes Delta.
+    #[test]
+    fn compare_with_delta_values_idx_offsets() -> VortexResult<()> {
+        let mut ctx = crate::test::SESSION.create_execution_ctx();
+        let input = input(false);
+        let rle = RLEData::encode(input.as_view(), &mut ctx)?;
+        let offsets = rle
+            .values_idx_offsets()
+            .clone()
+            .execute::<PrimitiveArray>(&mut ctx)?;
+        let array = RLE::try_new(
+            rle.values().clone(),
+            rle.indices().clone(),
+            Delta::try_from_primitive_array(&offsets, &mut ctx)?.into_array(),
+            rle.offset(),
+            rle.len(),
+        )?
+        .into_array();
+
+        let rhs = ConstantArray::new(7i32, array.len()).into_array();
+        let actual = <RLE as CompareKernel>::compare(
+            array.as_::<RLE>(),
+            &rhs,
+            CompareOperator::Eq,
+            &mut ctx,
+        )?
+        .unwrap_or_else(|| panic!("RLE compare must engage"));
+        let expected = input.into_array().binary(rhs, Operator::Eq)?;
+        assert_arrays_eq!(actual, expected, &mut ctx);
         Ok(())
     }
 }
