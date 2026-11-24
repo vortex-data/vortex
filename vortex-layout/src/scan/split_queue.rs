@@ -18,6 +18,7 @@ use parking_lot::Mutex;
 use vortex_array::ArrayRef;
 use vortex_error::VortexResult;
 use vortex_io::runtime::Handle;
+use vortex_scan::stream::Claims;
 
 use crate::scan::repeated_scan::ScanTasks;
 
@@ -68,12 +69,12 @@ impl SplitQueue {
         Some(split)
     }
 
-    /// The fraction of the splits that the stream's clones have claimed.
-    pub(crate) fn progress(&self) -> f64 {
-        if self.total == 0 {
-            return 1.0;
+    /// How many of the splits the stream's clones have claimed, out of how many in all.
+    pub(crate) fn claims(&self) -> Claims {
+        Claims {
+            claimed: self.claimed.load(Ordering::Relaxed).min(self.total),
+            total: self.total,
         }
-        (self.claimed.load(Ordering::Relaxed) as f64 / self.total as f64).min(1.0)
     }
 
     /// A new worker over the shared queue, which one clone of the scan's stream polls.
