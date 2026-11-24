@@ -156,6 +156,8 @@ fn options(stages: &[&str], verify: bool) -> RunOptions {
         data_root: ".".into(),
         decode_reps: 2,
         compress_reps: 1,
+        keep_going: false,
+        skip: Default::default(),
     }
 }
 
@@ -203,5 +205,79 @@ fn test_run_resume_verify_time_materialize() -> anyhow::Result<()> {
     // A header plus one row per chunk and candidate.
     assert_eq!(rows.lines().count(), 1 + 5 * 6);
     assert!(rows.lines().any(|l| l.contains(",default,1,")));
+    Ok(())
+}
+
+#[test]
+fn test_queue_workers_share_a_plan() -> anyhow::Result<()> {
+    use crate::queue::Queue;
+    use crate::queue::QueueConfig;
+    use crate::queue::WorkOptions;
+
+    let dir = tempfile::tempdir()?;
+    let store = Store::open(dir.path().join("store"))?;
+    let run = plan(SPEC, "abc")?;
+    let config = QueueConfig {
+        plan_id: run.plan.plan_id.clone(),
+        shards: 4,
+        lease_secs: 60,
+        max_attempts: 2,
+    };
+    let queue = Queue::push(&store, &run, config.clone())?;
+    // Pushing again is a no-op; pushing with another shard count is refused.
+    Queue::push(&store, &run, config.clone())?;
+    assert!(
+        Queue::push(
+            &store,
+            &run,
+            QueueConfig {
+                shards: 8,
+                ..config
+            }
+        )
+        .is_err()
+    );
+
+    // A held lease blocks other workers; a released or expired one does not.
+    assert_eq!(queue.try_claim(3, "a")?, Some(0));
+    assert_eq!(queue.try_claim(3, "b")?, None);
+    queue.release(3, 0, "a", 0)?;
+    assert_eq!(queue.try_claim(3, "b")?, Some(1));
+    // `a` has lost shard 3 to `b`, so it can no longer renew generation 0.
+    assert!(!queue.renew(3, 0, "a", 0)?);
+    queue.release(3, 1, "b", 0)?;
+
+    let pulled = queue.plan()?;
+    assert_eq!(pulled.plan.plan_id, run.plan.plan_id);
+    let runner = Runner::new(&pulled, &store)?;
+    let options = |worker: &str, max_shards| WorkOptions {
+        worker: worker.to_string(),
+        data_root: ".".into(),
+        wait: false,
+        poll_secs: 1,
+        max_shards,
+    };
+    let first = crate::queue::work(&queue, &pulled, &runner, &options("w1", Some(1)))?;
+    assert_eq!(first.shards_done, 1);
+    assert!(!first.plan_done);
+    let status = crate::queue::status(&queue)?;
+    assert_eq!(status.shards.done, 1);
+    assert_eq!(status.state, "stalled");
+
+    let rest = crate::queue::work(&queue, &pulled, &runner, &options("w2", None))?;
+    assert_eq!(rest.shards_done, 3);
+    assert!(rest.plan_done);
+
+    let status = crate::queue::status(&queue)?;
+    assert_eq!(status.state, "done");
+    assert_eq!(status.shards.done, 4);
+    for counts in status.stages.values() {
+        assert_eq!(counts.done, counts.total);
+        assert_eq!(counts.failed, 0);
+    }
+    assert!(status.live_workers.is_empty());
+    for task in &run.tasks {
+        assert!(store.is_done(&task.key));
+    }
     Ok(())
 }

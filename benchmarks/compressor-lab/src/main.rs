@@ -11,8 +11,14 @@
 //! vx-lab run --plan plan/ --store store/ --stages time    # on a quiet machine; appends a run
 //! vx-lab materialize --plan plan/ --store store/ --out dataset/
 //! vx-lab machine                                         # this machine's identity
+//!
+//! # Many workers sharing one plan through the store's work queue:
+//! vx-lab plan push --plan plan/ --store store/ --shards 256
+//! vx-lab work   --store store/ --plan-id <id> --workers 16   # on each machine; exits when done
+//! vx-lab status --store store/ --plan-id <id> [--json]
 //! ```
 
+use std::path::Path;
 use std::path::PathBuf;
 
 use anyhow::bail;
@@ -25,6 +31,9 @@ use compressor_lab::plan::PlannedRun;
 use compressor_lab::plan::TaskKind;
 use compressor_lab::plan::WriteOutcome;
 use compressor_lab::plan::build_plan;
+use compressor_lab::queue::Queue;
+use compressor_lab::queue::QueueConfig;
+use compressor_lab::queue::WorkOptions;
 use compressor_lab::runner::RunOptions;
 use compressor_lab::runner::Runner;
 use compressor_lab::shard::Shard;
@@ -123,6 +132,46 @@ enum Command {
         #[arg(long)]
         shard: Option<Shard>,
     },
+    /// Claim and run shards of a pushed plan until none is left. Run it on as many machines as
+    /// you like.
+    Work {
+        #[arg(long)]
+        store: PathBuf,
+        /// The pushed plan's id.
+        #[arg(long, conflicts_with = "plan", required_unless_present = "plan")]
+        plan_id: Option<String>,
+        /// A local plan directory, to take the plan id from. The plan must have been pushed.
+        #[arg(long)]
+        plan: Option<PathBuf>,
+        /// Worker processes to start on this machine.
+        #[arg(long, default_value_t = 1)]
+        workers: usize,
+        /// Keep polling for shards held by workers that may die, instead of exiting once
+        /// nothing is claimable.
+        #[arg(long)]
+        wait: bool,
+        #[arg(long, default_value_t = 30)]
+        poll_secs: u64,
+        /// Stop after this many shards per worker, e.g. to time a sample.
+        #[arg(long)]
+        max_shards: Option<u64>,
+        #[arg(long, default_value = ".")]
+        data_root: PathBuf,
+        #[arg(long)]
+        allow_dirty: bool,
+    },
+    /// Show a pushed plan's progress: shards, tasks per stage, workers, failures and time left.
+    Status {
+        #[arg(long)]
+        store: PathBuf,
+        #[arg(long, conflicts_with = "plan", required_unless_present = "plan")]
+        plan_id: Option<String>,
+        #[arg(long)]
+        plan: Option<PathBuf>,
+        /// Print JSON, for scripts and agents.
+        #[arg(long)]
+        json: bool,
+    },
     /// Print this machine's identity.
     Machine,
 }
@@ -149,6 +198,24 @@ enum PlanCommand {
         #[arg(long)]
         store: Option<PathBuf>,
     },
+    /// Copy a plan into a store's work queue and fix how it is sharded, so workers anywhere can
+    /// run it with `vx-lab work`. Pushing the same plan again is a no-op.
+    Push {
+        #[arg(long)]
+        plan: PathBuf,
+        #[arg(long)]
+        store: PathBuf,
+        /// Shards to cut the plan into; aim for several per worker. Defaults to one per eight
+        /// chunks, at most 4,096.
+        #[arg(long)]
+        shards: Option<u64>,
+        /// Seconds a worker's lease on a shard lasts without a heartbeat.
+        #[arg(long, default_value_t = 600)]
+        lease_secs: u64,
+        /// Tries before a failing task is given up on.
+        #[arg(long, default_value_t = 3)]
+        max_attempts: u32,
+    },
     /// List task keys, e.g. to hand shards to machines.
     Tasks {
         #[arg(long)]
@@ -163,6 +230,104 @@ enum PlanCommand {
         #[arg(long)]
         store: Option<PathBuf>,
     },
+}
+
+fn check_identity(run: &PlannedRun, allow_dirty: bool) -> anyhow::Result<()> {
+    let identity = CodeIdentity::of_this_build(allow_dirty)?;
+    if identity != run.plan.identity && !allow_dirty {
+        bail!(
+            "this binary is {} (commit {}{}), the plan was made with {} (commit {}); \
+             facts are keyed by commit, so build the plan's commit or re-plan",
+            identity.vx_version,
+            identity.git_commit,
+            if identity.dirty { ", dirty" } else { "" },
+            run.plan.identity.vx_version,
+            run.plan.identity.git_commit
+        );
+    }
+    Ok(())
+}
+
+fn resolve_plan_id(plan_id: Option<String>, plan: Option<&Path>) -> anyhow::Result<String> {
+    match (plan_id, plan) {
+        (Some(id), _) => Ok(id),
+        (None, Some(dir)) => Ok(PlannedRun::read(dir)?.plan.plan_id),
+        (None, None) => bail!("pass --plan-id or --plan"),
+    }
+}
+
+/// Re-runs this command as `count` single-worker processes and waits for all of them.
+fn spawn_workers(count: usize) -> anyhow::Result<()> {
+    let exe = std::env::current_exe()?;
+    let mut args: Vec<String> = Vec::new();
+    let mut rest = std::env::args().skip(1);
+    while let Some(arg) = rest.next() {
+        if arg == "--workers" {
+            rest.next();
+        } else if !arg.starts_with("--workers=") {
+            args.push(arg);
+        }
+    }
+    let mut children = (0..count)
+        .map(|_| {
+            std::process::Command::new(&exe)
+                .args(&args)
+                .args(["--workers", "1"])
+                .spawn()
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let mut failed = 0;
+    for child in &mut children {
+        if !child.wait()?.success() {
+            failed += 1;
+        }
+    }
+    if failed > 0 {
+        bail!("{failed} of {count} workers failed");
+    }
+    Ok(())
+}
+
+fn print_status(status: &compressor_lab::queue::Status) {
+    let s = &status.shards;
+    println!("plan {}: {}", status.plan_id, status.state);
+    println!(
+        "shards: {} done, {} running, {} stale, {} pending, of {}",
+        s.done, s.running, s.stale, s.pending, s.total
+    );
+    println!(
+        "\n{:12} {:>9} {:>9} {:>7}",
+        "stage", "done", "total", "failed"
+    );
+    for (name, c) in &status.stages {
+        println!("{name:12} {:>9} {:>9} {:>7}", c.done, c.total, c.failed);
+    }
+    println!("\nlive workers: {}", status.live_workers.len());
+    for w in &status.live_workers {
+        println!(
+            "  {}  {}  shard {}  {} shards done",
+            w.worker,
+            w.state,
+            w.shard.map_or_else(|| "-".to_string(), |i| i.to_string()),
+            w.shards_done
+        );
+    }
+    if !status.silent_workers.is_empty() {
+        println!("silent workers: {}", status.silent_workers.join(", "));
+    }
+    if let Some(mean) = status.mean_shard_secs {
+        print!("mean shard {mean:.1}s");
+        match status.eta_secs {
+            Some(eta) => println!(", about {:.0} minutes left", eta / 60.0),
+            None => println!(),
+        }
+    }
+    if !status.failed_tasks.is_empty() {
+        println!("\n{} tasks given up on:", status.failed_tasks.len());
+        for f in status.failed_tasks.iter().take(10) {
+            println!("  {} {}: {}", f.kind, f.key, f.error);
+        }
+    }
 }
 
 /// A unit enum's serialized name, e.g. `sequential_per_machine`.
@@ -317,18 +482,7 @@ fn main() -> anyhow::Result<()> {
             allow_dirty,
         } => {
             let run = PlannedRun::read(&plan)?;
-            let identity = CodeIdentity::of_this_build(allow_dirty)?;
-            if identity != run.plan.identity && !allow_dirty {
-                bail!(
-                    "this binary is {} (commit {}{}), the plan was made with {} (commit {}); \
-                     facts are keyed by commit, so build the plan's commit or re-plan",
-                    identity.vx_version,
-                    identity.git_commit,
-                    if identity.dirty { ", dirty" } else { "" },
-                    run.plan.identity.vx_version,
-                    run.plan.identity.git_commit
-                );
-            }
+            check_identity(&run, allow_dirty)?;
             let store = Store::open(store)?;
             let runner = Runner::new(&run, &store)?;
             runner.run(&RunOptions {
@@ -338,6 +492,8 @@ fn main() -> anyhow::Result<()> {
                 data_root,
                 decode_reps: run.plan.spec.measure.reps,
                 compress_reps: run.plan.spec.measure.compress_reps,
+                keep_going: false,
+                skip: Default::default(),
             })?;
         }
         Command::Materialize {
@@ -410,6 +566,89 @@ fn main() -> anyhow::Result<()> {
                 &out,
             )?;
             println!("evaluated {n} chunks into {}", out.display());
+        }
+        Command::Plan(PlanCommand::Push {
+            plan,
+            store,
+            shards,
+            lease_secs,
+            max_attempts,
+        }) => {
+            let run = PlannedRun::read(&plan)?;
+            let store = Store::open(store)?;
+            let chunks = run
+                .tasks
+                .iter()
+                .filter(|t| t.kind == TaskKind::Chunk)
+                .count() as u64;
+            let shards = shards.unwrap_or_else(|| chunks.div_ceil(8).clamp(1, 4096));
+            let queue = Queue::push(
+                &store,
+                &run,
+                QueueConfig {
+                    plan_id: run.plan.plan_id.clone(),
+                    shards,
+                    lease_secs,
+                    max_attempts,
+                },
+            )?;
+            println!(
+                "pushed plan {} to {}: {} shards over {chunks} chunks",
+                queue.config().plan_id,
+                store.root().display(),
+                queue.config().shards
+            );
+        }
+        Command::Work {
+            store,
+            plan_id,
+            plan,
+            workers,
+            wait,
+            poll_secs,
+            max_shards,
+            data_root,
+            allow_dirty,
+        } => {
+            let plan_id = resolve_plan_id(plan_id, plan.as_deref())?;
+            if workers > 1 {
+                return spawn_workers(workers);
+            }
+            let store = Store::open(store)?;
+            let queue = Queue::open(&store, &plan_id)?;
+            let run = queue.plan()?;
+            check_identity(&run, allow_dirty)?;
+            let runner = Runner::new(&run, &store)?;
+            let worker = compressor_lab::queue::worker_id();
+            eprintln!("worker {worker} on plan {plan_id}");
+            let summary = compressor_lab::queue::work(
+                &queue,
+                &run,
+                &runner,
+                &WorkOptions {
+                    worker,
+                    data_root,
+                    wait,
+                    poll_secs,
+                    max_shards,
+                },
+            )?;
+            println!("{}", serde_json::to_string(&summary)?);
+        }
+        Command::Status {
+            store,
+            plan_id,
+            plan,
+            json,
+        } => {
+            let plan_id = resolve_plan_id(plan_id, plan.as_deref())?;
+            let store = Store::open(store)?;
+            let status = compressor_lab::queue::status(&Queue::open(&store, &plan_id)?)?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&status)?);
+            } else {
+                print_status(&status);
+            }
         }
         Command::Machine => println!(
             "{}",
