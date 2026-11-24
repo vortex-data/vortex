@@ -92,9 +92,9 @@ fn all_valid_slices_match<T>(slice: &[T], mask: &Mask, check: impl Fn(&[T]) -> b
         Mask::AllTrue(_) => check(slice),
         Mask::AllFalse(_) => true,
         Mask::Values(values) => values
-            .slices()
-            .iter()
-            .all(|&(start, end)| check(&slice[start..end])),
+            .bit_buffer()
+            .set_slices()
+            .all(|(start, end)| check(&slice[start..end])),
     }
 }
 
@@ -182,7 +182,7 @@ fn narrow_slice_with_mask<W: Copy, N: Copy>(
         Mask::AllFalse(_) => Buffer::<N>::zeroed(len),
         Mask::Values(values) => {
             let mut out = BufferMut::<N>::zeroed(len);
-            for &(start, end) in values.slices() {
+            for (start, end) in values.bit_buffer().set_slices() {
                 for (dst, &src) in out[start..end].iter_mut().zip(&slice[start..end]) {
                     *dst = narrow(src);
                 }
