@@ -53,6 +53,11 @@ type OptionalArrayFuture = BoxFuture<'static, VortexResult<Option<ArrayRef>>>;
 /// and above which we evaluate the expression over all rows and intersect afterward.
 const EXPR_EVAL_THRESHOLD: f64 = 0.2;
 
+/// The density of selected elements, within the span a bounded read covers, below which the
+/// elements read is masked to them. At and above it, the span is read whole and the lists over
+/// it are filtered, which is cheaper than filtering every element chunk when few can be skipped.
+const MASKED_ELEMENTS_THRESHOLD: f64 = 0.2;
+
 /// Minimum size of the outer-row split grid, so lists in small files still fan out.
 const MIN_LIST_SPLIT_COUNT: u64 = 64;
 
@@ -223,8 +228,9 @@ impl ListReader {
     ///
     /// Crops leading and trailing unselected lists, reads their offsets, and translates the first
     /// and last offset into the element-row range to fetch. When the selection has holes, the
-    /// elements read is masked to the elements the selected lists reference, so it skips the
-    /// rest, and the lists are rebuilt over only those.
+    /// elements they select decide the read. If those are sparse, the elements read is masked to
+    /// them, so it skips the rest, and the lists are rebuilt over only those. Otherwise the range
+    /// is read whole and the lists over it are filtered.
     fn project_all_bounded(
         &self,
         row_range: &Range<u64>,
@@ -248,38 +254,60 @@ impl ListReader {
         let validity_fut = fetch_validity(
             self.validity.as_ref(),
             &selected_row_range,
-            MaskFuture::ready(selection.clone()),
+            MaskFuture::new_true(selection.len()),
         )?;
 
         Ok(async move {
             let offsets = offsets_fut.await?;
             let mut ctx = reader.session.create_execution_ctx();
 
-            let (elements_fut, offsets) = if selection.all_true() {
-                let elements_range = elements_range_from_offsets(&offsets, &reader.session)?;
-                let elements_fut = reader.fetch_elements(
-                    &elements_range,
-                    MaskFuture::new_true(usize::try_from(
-                        elements_range.end - elements_range.start,
-                    )?),
-                )?;
-                (elements_fut, rebase_offsets(offsets, elements_range.start)?)
+            // The lists to rebuild over a masked elements read, when the selection has holes and
+            // is sparse enough for that to pay off.
+            let masked = if selection.all_true() {
+                None
             } else {
-                let selected = select_lists(&offsets, &selection, &mut ctx)?;
-                let elements_fut = reader.fetch_elements(
-                    &selected.elements_range,
-                    MaskFuture::ready(selected.elements),
-                )?;
-                (elements_fut, selected.offsets)
+                select_lists(&offsets, &selection, &mut ctx)?
             };
-            let (elements, validity) = try_join!(elements_fut, validity_fut)?;
 
-            let lists = lists_over(
-                elements,
-                offsets,
-                create_validity(validity, nullability),
-                &mut ctx,
-            )?;
+            let lists = match masked {
+                Some(selected) => {
+                    let elements_fut = reader.fetch_elements(
+                        &selected.elements_range,
+                        MaskFuture::ready(selected.elements),
+                    )?;
+                    let (elements, validity) = try_join!(elements_fut, validity_fut)?;
+                    let validity = validity
+                        .map(|validity| validity.filter(selection.clone()))
+                        .transpose()?;
+                    lists_over(
+                        elements,
+                        selected.offsets,
+                        create_validity(validity, nullability),
+                        &mut ctx,
+                    )?
+                }
+                None => {
+                    let elements_range = elements_range_from_offsets(&offsets, &reader.session)?;
+                    let elements_fut = reader.fetch_elements(
+                        &elements_range,
+                        MaskFuture::new_true(usize::try_from(
+                            elements_range.end - elements_range.start,
+                        )?),
+                    )?;
+                    let (elements, validity) = try_join!(elements_fut, validity_fut)?;
+                    let lists = lists_over(
+                        elements,
+                        rebase_offsets(offsets, elements_range.start)?,
+                        create_validity(validity, nullability),
+                        &mut ctx,
+                    )?;
+                    if selection.all_true() {
+                        lists
+                    } else {
+                        lists.filter(selection)?
+                    }
+                }
+            };
             lists.apply_bound(&expr)
         }
         .boxed())
@@ -366,12 +394,13 @@ struct SelectedLists {
 /// Keep the `selection` lists of a cropped read, given their offsets (one more than the lists).
 ///
 /// The elements read are those of the kept lists, and the kept lists' offsets are prefix sums of
-/// their lengths.
+/// their lengths. Returns `None` when the kept lists reference at least
+/// [`MASKED_ELEMENTS_THRESHOLD`] of the elements the offsets span.
 fn select_lists(
     offsets: &ArrayRef,
     selection: &Mask,
     ctx: &mut ExecutionCtx,
-) -> VortexResult<SelectedLists> {
+) -> VortexResult<Option<SelectedLists>> {
     let offsets = offsets
         .cast(DType::Primitive(PType::U64, Nullability::NonNullable))?
         .execute::<PrimitiveArray>(ctx)?;
@@ -383,6 +412,14 @@ fn select_lists(
     let len = usize::try_from(offsets[lists] - first)?;
     let all = [(0, lists)];
     let runs = selection.slices().unwrap_or_else(|| &all, || &[]);
+
+    let selected: u64 = runs
+        .iter()
+        .map(|&(start, end)| offsets[end] - offsets[start])
+        .sum();
+    if selected as f64 >= MASKED_ELEMENTS_THRESHOLD * len as f64 {
+        return Ok(None);
+    }
 
     let mut kept_offsets = BufferMut::with_capacity(selection.true_count() + 1);
     let mut ranges: Vec<(usize, usize)> = Vec::with_capacity(runs.len());
@@ -409,11 +446,11 @@ fn select_lists(
     }
     kept_offsets.push(kept);
 
-    Ok(SelectedLists {
+    Ok(Some(SelectedLists {
         elements_range: first..offsets[lists],
         elements: Mask::from_slices(len, ranges),
         offsets: kept_offsets.freeze().into_array(),
-    })
+    }))
 }
 
 /// The lists over `elements`, sharing `offsets` and `validity`.
@@ -1500,7 +1537,14 @@ mod tests {
     /// Masked element reads skip element chunks no selected list references.
     #[tokio::test]
     async fn sparse_mask_skips_element_chunks_between_selected_lists() -> VortexResult<()> {
-        let list = create_wider_list_array(false);
+        // Twelve lists of two elements, so each list fills one element chunk.
+        let list = ListArray::try_new(
+            PrimitiveArray::from_iter(0i32..24).into_array(),
+            PrimitiveArray::from_iter((0u32..=12).map(|list| list * 2)).into_array(),
+            Validity::NonNullable,
+            &mut SESSION.create_execution_ctx(),
+        )?
+        .into_array();
         let (segments, layout, session) =
             write_layout(&chunked_elements_list_strategy(), list.clone()).await?;
         let source = Arc::new(RecordingSegmentSource::new(segments));
@@ -1511,11 +1555,12 @@ mod tests {
             &LayoutReaderContext::new(),
         )?;
 
-        // Lists 0 and 4 hold elements [0, 2) and [8, 10); the chunks between hold only lists 1-3.
-        let mask = Mask::from_iter([true, false, false, false, true]);
+        // The first and last list hold 4 of the 24 elements, which is sparse enough to mask the
+        // elements read.
+        let mask = Mask::from_iter((0..12).map(|list| list == 0 || list == 11));
         let expr = root().bind(reader.dtype())?;
         let result = reader
-            .projection_evaluation(&(0..5), &expr, MaskFuture::ready(mask.clone()))?
+            .projection_evaluation(&(0..12), &expr, MaskFuture::ready(mask.clone()))?
             .await?;
         let mut ctx = session.create_execution_ctx();
         assert_arrays_eq!(result, list.filter(mask)?, &mut ctx);
