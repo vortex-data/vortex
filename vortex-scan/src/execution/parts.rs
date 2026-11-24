@@ -23,10 +23,10 @@ use crate::planning::planner::WorkScope;
 use crate::selection::Selection;
 
 /// The root planner of a scan cut into parts on `splits`, such as a file's layout split
-/// boundaries: it spawns one planner per part, in row order. With a dynamic filter, its pruning
-/// plans first over the scan's rows, continuing into the parts of the rows they keep; otherwise,
-/// the parts directly.
-pub fn part_root(scan: &Arc<PreparedScan>, splits: &[u64], dynamic: bool) -> Box<dyn Planner> {
+/// boundaries: it spawns one planner per part, in row order. With `prune_first` and a filter, its
+/// pruning plans first over the scan's rows, continuing into the parts of the rows they keep;
+/// otherwise, the parts directly.
+pub fn part_root(scan: &Arc<PreparedScan>, splits: &[u64], prune_first: bool) -> Box<dyn Planner> {
     let rows = scan.rows().clone();
     let parts = {
         let scan = Arc::clone(scan);
@@ -36,7 +36,7 @@ pub fn part_root(scan: &Arc<PreparedScan>, splits: &[u64], dynamic: bool) -> Box
             Box::new(PartPlanner::new(scan, parts, first_row, kept))
         }
     };
-    if dynamic && scan.filter().is_some() {
+    if prune_first && scan.filter().is_some() {
         Box::new(PrunePlanner::new(Arc::clone(scan), rows, Box::new(parts)))
     } else {
         parts(None)
@@ -49,10 +49,10 @@ pub fn part_root(scan: &Arc<PreparedScan>, splits: &[u64], dynamic: bool) -> Box
 ///
 /// With a filter, each part prunes over its own rows before its chunks, on the thread that takes
 /// it, like the per-split pruning of a V1 scan, so the pruning of a file's parts runs in parallel.
-/// A dynamic filter, such as the bound a top-N pushes down, also prunes the scan as a whole before
-/// any part is taken, so a file whose zones it rules out takes no thread. It has tightened by the
-/// time a later part is taken, so pruning that part again skips more, from the zone maps the
-/// scan-wide pruning read.
+/// A root that prunes first prunes the scan as a whole before any part is taken, so a part whose
+/// zones rule it out takes no thread. A dynamic filter, such as the bound a top-N pushes down, has
+/// tightened by the time a later part is taken, so pruning that part again skips more, from the
+/// zone maps the scan-wide pruning read.
 struct PartPlanner {
     scan: Arc<PreparedScan>,
     selection: Selection,
