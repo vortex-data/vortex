@@ -96,7 +96,17 @@ pub fn materialize(
     let mut rows = BufWriter::new(File::create(out.join(format!("rows-{tag}.csv")))?);
     writeln!(
         rows,
-        "tag,source,column,chunk,ptype,len,variant,ok,canonical_bytes,bytes,nbytes,root,tree,compress_ns,decode_ns_median,decode_ns_min,error"
+        "tag,source,column,chunk,ptype,len,variant,ok,canonical_bytes,bytes,nbytes,root,tree,compress_ns,decode_ns_median,decode_ns_min,error,plan,adaptive_compress_ns,predicted_nbytes,predicted_decode_ns"
+    )?;
+    let mut sites = BufWriter::new(File::create(out.join(format!("sites-{tag}.csv")))?);
+    writeln!(
+        sites,
+        "tag,source,column,chunk,path,scheme,won,nbytes,decode_ns,best_nbytes,best_decode_ns"
+    )?;
+    let mut searches = BufWriter::new(File::create(out.join(format!("search-{tag}.csv")))?);
+    writeln!(
+        searches,
+        "tag,source,column,chunk,sites,compressions,memo_hits,capped_sites,search_ms"
     )?;
     let mut feats = BufWriter::new(File::create(out.join(format!("features-{tag}.csv")))?);
     writeln!(feats, "source,column,chunk,{}", crate::features::header())?;
@@ -167,6 +177,31 @@ pub fn materialize(
                 .join(",")
         )?;
 
+        for row in &candidates.sites {
+            writeln!(
+                sites,
+                "{tag},{source},{column},{id},{},{},{},{},{},{},{}",
+                csv(&row.path),
+                csv(&row.scheme),
+                u8::from(row.won),
+                row.nbytes,
+                row.decode_ns,
+                row.best_nbytes,
+                row.best_decode_ns
+            )?;
+        }
+        if let Some(search) = &candidates.search {
+            writeln!(
+                searches,
+                "{tag},{source},{column},{id},{},{},{},{},{}",
+                search.sites,
+                search.compressions,
+                search.memo_hits,
+                search.capped_sites,
+                search.search_ms
+            )?;
+        }
+
         let canonical = chunk_fact.blob.bytes;
         let len = chunk_fact.blob.len;
         let ptype = &chunk_fact.blob.ptype;
@@ -187,11 +222,16 @@ pub fn materialize(
                         .flat_map(|o| o.timings.iter().filter(|t| t.name == result.name))
                         .flat_map(|t| t.decode_ns.iter().copied())
                         .collect();
+                    let mut adaptive: Vec<u64> = observations
+                        .iter()
+                        .flat_map(|o| o.timings.iter().filter(|t| t.name == result.name))
+                        .flat_map(|t| t.adaptive_compress_ns.iter().copied())
+                        .collect();
                     let decode_min = decode.iter().copied().min();
                     let show = |v: Option<u64>| v.map(|v| v.to_string()).unwrap_or_default();
                     writeln!(
                         rows,
-                        "{prefix},1,{canonical},{},{},{},{},{},{},{},",
+                        "{prefix},1,{canonical},{},{},{},{},{},{},{},,{},{},{},{}",
                         blob.bytes,
                         show(result.nbytes),
                         csv(result.root.as_deref().unwrap_or_default()),
@@ -199,11 +239,15 @@ pub fn materialize(
                         show(median(&mut compress)),
                         show(median(&mut decode)),
                         show(decode_min),
+                        csv(result.plan.as_deref().unwrap_or_default()),
+                        show(median(&mut adaptive)),
+                        show(result.predicted_nbytes),
+                        show(result.predicted_decode_ns),
                     )?;
                 }
                 None => writeln!(
                     rows,
-                    "{prefix},0,{canonical},,,,,,,,{}",
+                    "{prefix},0,{canonical},,,,,,,,{},,,,",
                     csv(result.error.as_deref().unwrap_or_default())
                 )?,
             }
@@ -211,6 +255,8 @@ pub fn materialize(
     }
     rows.flush()?;
     feats.flush()?;
+    sites.flush()?;
+    searches.flush()?;
     fs::write(
         out.join("dataset.json"),
         serde_json::to_vec_pretty(&manifest)?,

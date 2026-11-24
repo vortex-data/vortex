@@ -2183,6 +2183,7 @@ dependencies = [
  "vortex-compressor",
  "vortex-error",
  "vortex-session",
+ "vortex-utils",
 ]
 
 [[package]]

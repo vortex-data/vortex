@@ -81,8 +81,15 @@ impl PlanSpec {
             "measure.compress_reps must be at least 1"
         );
         ensure!(
-            self.search.strategy == SearchStrategy::ForcedRoot,
-            "only search.strategy = \"forced_root\" is implemented"
+            matches!(
+                self.search.strategy,
+                SearchStrategy::ForcedRoot | SearchStrategy::Exhaustive
+            ),
+            "search.strategy must be \"forced_root\" or \"exhaustive\""
+        );
+        ensure!(
+            self.search.max_compressions >= 1,
+            "search.max_compressions must be at least 1"
         );
         ensure!(!self.sources.is_empty(), "a plan needs at least one source");
 
@@ -202,9 +209,16 @@ pub struct SearchParams {
     /// How many alternatives to keep per child node.
     #[serde(default = "default_k")]
     pub k: u32,
-    /// The ε-dominance margin used to prune alternatives.
+    /// The ε-dominance margin used to prune alternatives, relative, on decode time.
     #[serde(default = "default_epsilon")]
     pub epsilon: f64,
+    /// Candidates the exhaustive search compresses per chunk before the remaining sites fall
+    /// back to the compressor's estimates.
+    #[serde(default = "default_max_compressions")]
+    pub max_compressions: u64,
+    /// Decode repetitions per candidate inside the exhaustive search; the fastest is kept.
+    #[serde(default = "default_search_decode_reps")]
+    pub decode_reps: u32,
 }
 
 impl Default for SearchParams {
@@ -213,23 +227,34 @@ impl Default for SearchParams {
             strategy: SearchStrategy::default(),
             k: default_k(),
             epsilon: default_epsilon(),
+            max_compressions: default_max_compressions(),
+            decode_reps: default_search_decode_reps(),
         }
     }
 }
 
 fn default_k() -> u32 {
-    4
+    8
 }
 
 fn default_epsilon() -> f64 {
-    0.02
+    0.1
+}
+
+fn default_max_compressions() -> u64 {
+    20_000
+}
+
+fn default_search_decode_reps() -> u32 {
+    3
 }
 
 /// The search strategies the lab can run.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SearchStrategy {
-    /// Try every eligible scheme at every node. Not implemented yet.
+    /// The forced-root candidates, plus the exhaustive whole-cascade oracle: every eligible
+    /// scheme at every site, kept as a Pareto front of plans on bytes and decode time.
     Exhaustive,
     /// Force each root scheme and let today's compressor choose the children, plus the production
     /// compressor and the size-model variant as whole candidates.

@@ -28,6 +28,7 @@ use crate::spec::ParamValue;
 use crate::spec::PlanSpec;
 use crate::spec::SchemeSelection;
 use crate::spec::SearchParams;
+use crate::spec::SearchStrategy;
 use crate::spec::SyntheticPType;
 
 /// The version of the plan file format.
@@ -43,7 +44,7 @@ pub const TASKS_FILE: &str = "tasks.jsonl";
 pub const FEATURES_VERSION: u32 = 1;
 
 /// Bumped whenever how candidates are built or recorded changes.
-pub const CANDIDATES_VERSION: u32 = 1;
+pub const CANDIDATES_VERSION: u32 = 2;
 
 /// The kinds of task a plan lists up front. Later stages expand from these tasks' outputs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
@@ -479,6 +480,10 @@ pub fn build_plan(
             schemes
                 .iter()
                 .map(|s| format!("forced/{}", s.rsplit('.').next().unwrap_or(s))),
+        )
+        .chain(
+            (spec.search.strategy == SearchStrategy::Exhaustive)
+                .then(|| crate::candidates::EXHAUSTIVE.to_string()),
         )
         .collect();
 
