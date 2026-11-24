@@ -344,13 +344,14 @@ def test_state_round_trips_through_metadata():
 
 def test_purge_deletes_only_the_bots_messages():
     fake = FakeSlack()
+    joined = fake.say(None, "joined", NOW - HOUR, user=support.BOT_USER)
+    fake.messages[joined]["subtype"] = "channel_join"
     run(fake, [HIGH])
     root = fake.root(1)["ts"]
     fake.say(root, "!snooze 1d", NOW + timedelta(minutes=1))
     run(fake, [HIGH], NOW + HOUR)
     fake.say(None, "hello channel", NOW + 2 * HOUR)
-    deleted, kept = support.cli.purge(fake)
-    assert kept == 2
+    # A message that Slack refuses to delete is counted, and the purge goes on.
+    assert support.cli.purge(fake) == (4, 2, 1)
     remaining = list(fake.messages.values())
-    assert sorted(m["text"] for m in remaining) == ["!snooze 1d", "hello channel"]
-    assert deleted == 4
+    assert sorted(m["text"] for m in remaining) == ["!snooze 1d", "hello channel", "joined"]

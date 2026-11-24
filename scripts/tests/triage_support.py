@@ -164,6 +164,10 @@ class FakeSlack:
 
     def delete(self, ts: str) -> None:
         self.calls.append("delete")
+        # The first live purge got `cant_delete_message` for one message with the bot's user ID, so
+        # the fake refuses a system message the same way.
+        if self.messages[ts].get("subtype") == "channel_join":
+            raise slack.SlackError("chat.delete: cant_delete_message", code="cant_delete_message")
         self.messages.pop(ts)
 
     def say(self, thread_ts: str | None, text: str, at: datetime, user: str = "UALICE") -> str:

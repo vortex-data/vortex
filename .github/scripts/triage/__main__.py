@@ -27,7 +27,7 @@ from . import evaluate, render
 from .github import Item, closed_state, scan
 from .hours import london_date
 from .rules import Assessment, assess
-from .slack import Message, Slack
+from .slack import Message, Slack, SlackError
 from .sync import Config, Run, load
 
 
@@ -77,36 +77,45 @@ def _slack(channel: str) -> Slack:
     return Slack(token, channel)
 
 
-def purge(slack: Slack) -> tuple[int, int]:
+def purge(slack: Slack) -> tuple[int, int, int]:
     """Delete every message that this bot posted in the channel, including thread replies.
 
-    Returns how many messages were deleted and how many were kept because people wrote them.
+    Returns how many messages were deleted, how many were kept because people wrote them, and how
+    many Slack refused to delete.
     """
     identity = slack.identity()
+    counts = Counter[str]()
 
     def ours(message: dict[str, object]) -> bool:
         return message.get("user") == identity.user_id or bool(
             identity.bot_id and message.get("bot_id") == identity.bot_id
         )
 
-    deleted = kept = 0
+    def remove(message: dict[str, object]) -> None:
+        if not ours(message):
+            counts["kept"] += 1
+            return
+        try:
+            slack.delete(str(message["ts"]))
+        except SlackError as error:
+            # Slack refuses to delete some messages that carry the bot's user ID, and one of them
+            # must not stop the purge.
+            if error.code != "cant_delete_message":
+                raise
+            counts["refused"] += 1
+        else:
+            counts["deleted"] += 1
+
     # Collect first, because deleting while paging would move the cursor.
     for message in list(slack.history()):
         if int(str(message.get("reply_count") or 0)):
             for reply in list(slack.replies(str(message["ts"]))):
-                if reply["ts"] == message["ts"]:
-                    continue
-                if ours(reply):
-                    slack.delete(str(reply["ts"]))
-                    deleted += 1
-                else:
-                    kept += 1
-        if ours(message):
-            slack.delete(str(message["ts"]))
-            deleted += 1
-        elif message.get("subtype") != "tombstone":
-            kept += 1
-    return deleted, kept
+                if reply["ts"] != message["ts"]:
+                    remove(reply)
+        # A deleted root that still has replies stays as a tombstone, which nobody wrote.
+        if message.get("subtype") != "tombstone":
+            remove(message)
+    return counts["deleted"], counts["kept"], counts["refused"]
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -137,8 +146,11 @@ def main(argv: list[str] | None = None) -> int:
     now = datetime.now(UTC)
 
     if args.command == "purge":
-        deleted, kept = purge(_slack(args.channel))
-        print(f"Deleted {deleted} bot messages. Kept {kept} messages that people wrote.")
+        deleted, kept, refused = purge(_slack(args.channel))
+        print(
+            f"Deleted {deleted} bot messages. Kept {kept} messages that people wrote. "
+            f"Slack refused to delete {refused}."
+        )
         return 0
 
     items = scan(args.repo)
