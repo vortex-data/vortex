@@ -85,6 +85,7 @@ mod tests {
         Ok(())
     }
 
+    // Slicing trims the runs to the window, so the sliced array is strictly sorted.
     #[test]
     fn strict_sorted_after_slice() -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
