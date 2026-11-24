@@ -114,9 +114,6 @@ jobs:
           # This is mostly a dummy version, we don't actually publish anything but it cannot exist in crates.io
           cargo set-version --workspace 0.100000.0
       - name: Test Release
-        # Without --no-verify, cargo builds every packaged crate from its extracted .crate file,
-        # resolving workspace dependencies against the other packaged crates. This catches files
-        # missing from a package, which Publish cannot, because it publishes with --no-verify.
         run: |
           cargo publish --dry-run --allow-dirty --workspace
 
