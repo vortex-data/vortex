@@ -30,7 +30,6 @@ use vortex::io::object_store::ObjectStoreFileSystem;
 use vortex::io::runtime::BlockingRuntime as _;
 use vortex::io::std_file::StdFileSystem;
 use vortex::layout::scan::options::LayoutScanOptions;
-use vortex::scan::DataSource as _;
 use vortex::scan::DataSourceRef;
 use vortex::scan::ScanRequest;
 use vortex::scan::stream::Claims;
