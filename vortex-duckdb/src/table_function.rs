@@ -202,10 +202,11 @@ pub struct AggregateState {
 }
 assert_impl_all!(GlobalState: Send, Sync);
 
-/// The scan work that one thread does on a file: a clone of the file's opened scan stream, which
-/// the thread polls inline. It takes the file's work as it has room for it until none is left,
-/// and yields only the work it took.
-pub struct Split(pub ScanStream);
+/// The scan work that one thread does on a file: a stream of the file's opened scan, which the
+/// thread polls inline. It takes the file's work as it has room for it until none is left, and
+/// yields only the work it took. `None` until the thread's first scan call creates it, outside
+/// DuckDB's lock.
+pub struct Split(pub Option<ScanStream>);
 
 /// field position, accumulator
 pub type Partials = Vec<(usize, Box<dyn DynAccumulator>)>;
