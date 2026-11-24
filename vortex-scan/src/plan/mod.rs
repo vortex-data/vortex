@@ -33,6 +33,7 @@ pub use builtins::EvalPlan;
 pub use builtins::Filter;
 pub use builtins::FilterData;
 pub use builtins::FilterPlan;
+pub use builtins::ListIndex;
 pub use builtins::ListIndexBuilder;
 pub use builtins::ListLengths;
 pub use builtins::ListLengthsData;

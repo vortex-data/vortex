@@ -114,7 +114,6 @@ impl Planner for PrunePlanner {
                 self.pruning.as_slice().iter(),
                 self.rows.clone(),
                 &self.mask,
-                &self.scan.values,
             )?;
             let mut batch = Vec::new();
             let mut seen = FxHashSet::default();

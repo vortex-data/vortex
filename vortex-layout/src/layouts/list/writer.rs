@@ -79,25 +79,25 @@ pub struct ListLayoutStrategy {
     index: ListIndexOptions,
 }
 
-/// When and how finely [`ListLayoutStrategy`] indexes a list column's offsets.
+/// How finely [`ListLayoutStrategy`] indexes a list column's offsets.
 ///
-/// A scan reads the offsets of a list column whole before its chunks, so that each chunk knows
-/// the elements it reads without waiting for its offsets. That is cheap while the lists are few.
-/// A column of more than `min_lists` lists is written with an index: a coarse copy of the offsets
-/// a scan reads in their place, sampled at list boundaries `window` elements apart.
+/// A scan has to know which elements a chunk's lists hold before it reads anything, and the
+/// offsets that say so are data. So the writer keeps a coarse copy of them in the list layout's
+/// metadata: the offsets sampled at list boundaries, `window` elements apart. See
+/// [`ListIndexBuilder`].
 #[derive(Clone, Copy, Debug)]
 pub struct ListIndexOptions {
-    /// The most lists a column holds without an index.
-    pub min_lists: u64,
-    /// The elements between index entries: a scan reads under this many elements too many on
-    /// either side of a run of selected lists.
+    /// The elements between index entries, where the column is small enough: a scan reads under
+    /// this many elements too many on either side of a run of selected lists.
     pub window: u64,
+    /// The most entries the index of one column holds. The window doubles until the column fits.
+    pub max_entries: usize,
 }
 
 impl Default for ListIndexOptions {
-    /// Indexes columns of more lists than a scan reads the offsets of whole, a window of 8,192
-    /// elements apart. `VORTEX_LIST_INDEX_MIN_LISTS` and `VORTEX_LIST_INDEX_WINDOW` override
-    /// either, for experiments.
+    /// Starts at a window of 2,048 elements and holds at most 8,192 entries a column.
+    /// `VORTEX_LIST_INDEX_WINDOW` and `VORTEX_LIST_INDEX_MAX_ENTRIES` override either, for
+    /// experiments.
     fn default() -> Self {
         static OPTIONS: LazyLock<ListIndexOptions> = LazyLock::new(|| {
             let var = |name: &str, default: u64| {
@@ -107,8 +107,9 @@ impl Default for ListIndexOptions {
                     .unwrap_or(default)
             };
             ListIndexOptions {
-                min_lists: var("VORTEX_LIST_INDEX_MIN_LISTS", 1 << 22),
-                window: var("VORTEX_LIST_INDEX_WINDOW", 8192),
+                window: var("VORTEX_LIST_INDEX_WINDOW", 2048),
+                max_entries: usize::try_from(var("VORTEX_LIST_INDEX_MAX_ENTRIES", 8192))
+                    .unwrap_or(usize::MAX),
             }
         });
         *OPTIONS
@@ -149,7 +150,7 @@ impl ListLayoutStrategy {
         self
     }
 
-    /// Set when and how finely the offsets are indexed.
+    /// Set how finely the offsets are indexed.
     pub fn with_index_options(mut self, index: ListIndexOptions) -> Self {
         self.index = index;
         self
@@ -224,7 +225,7 @@ impl LayoutStrategy for ListLayoutStrategy {
             elements_tx,
             offsets_tx,
             validity_tx,
-            ListIndexBuilder::new(self.index.window),
+            ListIndexBuilder::new(self.index.window, self.index.max_entries),
         );
 
         // Spawn a writer per child sub-stream, concurrently.
@@ -259,8 +260,6 @@ impl LayoutStrategy for ListLayoutStrategy {
 
         // A child writer that fails drops its stream, which fails the transpose too. Report the
         // child writer's error, which is the cause, ahead of the transpose's.
-        // The index is written after the children it summarizes, once every offset is known.
-        let mut index_pointer = eof.split_off();
         let (fanout, layouts) = join(fanout_fut, try_join_all(layout_futures)).await;
         let layouts = layouts?;
         let index = fanout?;
@@ -270,28 +269,12 @@ impl LayoutStrategy for ListLayoutStrategy {
         let validity_layout =
             is_nullable.then(|| layouts.next().vortex_expect("validity layout present"));
 
-        let index_layout = if index.list_count() > self.index.min_lists {
-            let entries = index.finish().into_array();
-            let chunk: ChildChunk = Ok((index_pointer.advance(), entries));
-            let stream = SequentialStreamAdapter::new(
-                DType::Primitive(PType::U64, Nullability::NonNullable),
-                futures::stream::iter([chunk]).boxed(),
-            )
-            .sendable();
-            let layout = FlatLayoutStrategy::default()
-                .write_stream(ctx, segment_sink, stream, index_pointer, session)
-                .await?;
-            Some(layout)
-        } else {
-            None
-        };
-
         Ok(ListLayout::new_with_index(
             dtype,
             elements_layout,
             offsets_layout,
             validity_layout,
-            index_layout,
+            index.finish(),
         )
         .into_layout())
     }

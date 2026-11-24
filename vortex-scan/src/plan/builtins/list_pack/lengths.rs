@@ -10,7 +10,6 @@ use vortex_array::ArrayRef;
 use vortex_array::EmptyMetadata;
 use vortex_array::IntoArray;
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
@@ -18,16 +17,14 @@ use vortex_array::validity::Validity;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 use vortex_mask::AllOr;
 use vortex_mask::Mask;
 use vortex_session::registry::CachedId;
 
-use super::execute::Offsets;
-use super::execute::offsets_ahead;
-use super::execute::wide_offsets_dtype;
+use super::execute::OFFSETS_INLET;
+use super::execute::stored_offsets;
 use crate::execution::operator::Cx;
 use crate::execution::operator::Input;
 use crate::execution::operator::Operator;
@@ -53,8 +50,7 @@ const VALIDITY: usize = 1;
 /// lists are nullable. A null list has a null length.
 ///
 /// An expression that reads a list only through `list_length` is rewritten over this plan, so it
-/// reads no element. With the offsets read ahead of a scan's chunks, it reads nothing but the
-/// validity.
+/// reads no element.
 #[derive(Clone, Debug)]
 pub struct ListLengths;
 
@@ -141,23 +137,15 @@ impl PlanVTable for ListLengths {
         let mask = mask.slice(first..last + 1);
         let rows = rows.start + u64::try_from(first)?..rows.start + u64::try_from(last + 1)?;
         let offsets_plan = plan.offsets()?;
-        let mut chains = Vec::new();
-        let offsets = match compiler.values().get(&offsets_plan) {
-            Some(offsets) => {
-                Offsets::Ahead(offsets_ahead(&offsets, rows.clone(), compiler.session())?)
-            }
-            None => {
-                let chain = compiler
-                    .compile(
-                        &offsets_plan,
-                        rows.start..rows.end + 1,
-                        &Mask::new_true(mask.len() + 1),
-                    )?
-                    .ok_or_else(|| vortex_err!("List offsets compiled to no rows"))?;
-                chains.push(chain);
-                Offsets::Inlet(0)
-            }
-        };
+        let offsets = compiler
+            .compile(
+                &offsets_plan,
+                rows.start..rows.end + 1,
+                &Mask::new_true(mask.len() + 1),
+            )?
+            .ok_or_else(|| vortex_err!("List offsets compiled to no rows"))?;
+        // The offsets are the source's first inlet, `OFFSETS_INLET`.
+        let mut chains = vec![offsets];
         let validity = match plan.validity()? {
             Some(validity) => {
                 let chain = compiler
@@ -170,7 +158,6 @@ impl PlanVTable for ListLengths {
         };
         let source = ListLengthsSource {
             offsets_dtype: offsets_plan.dtype().clone(),
-            offsets,
             validity,
             inlets: chains.len(),
             mask,
@@ -210,7 +197,6 @@ fn validate_slots(dtype: &DType, row_count: u64, slots: &PlanSlots) -> VortexRes
 /// Emits the lengths of the lists a mask selects, once every inlet has closed.
 struct ListLengthsSource {
     offsets_dtype: DType,
-    offsets: Offsets,
     validity: Option<usize>,
     inlets: usize,
     /// The lists whose lengths to produce, over the rows the offsets cover.
@@ -220,18 +206,8 @@ struct ListLengthsSource {
 
 impl ListLengthsSource {
     fn lengths(&mut self, cx: &mut Cx<'_>) -> VortexResult<ArrayRef> {
-        let lengths = match &self.offsets {
-            Offsets::Ahead(stored) => selected_lengths(stored, &self.mask),
-            Offsets::Inlet(inlet) => {
-                let stored = join_inlet(cx, *inlet, &self.offsets_dtype)?
-                    .cast(wide_offsets_dtype())?
-                    .execute::<PrimitiveArray>(cx.exec())?;
-                let stored = stored.as_slice::<u64>();
-                vortex_ensure_eq!(stored.len(), self.mask.len() + 1);
-                vortex_ensure!(stored.is_sorted(), "List offsets decrease");
-                selected_lengths(stored, &self.mask)
-            }
-        };
+        let stored = stored_offsets(cx, OFFSETS_INLET, &self.offsets_dtype, self.mask.len())?;
+        let lengths = selected_lengths(&stored, &self.mask);
         let validity = match self.validity {
             Some(inlet) => Validity::Array(join_inlet(
                 cx,

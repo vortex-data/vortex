@@ -8,6 +8,7 @@ use std::sync::Arc;
 
 use vortex_array::dtype::DType;
 use vortex_array::expr::BoundExpression;
+use rustc_hash::FxHashSet;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_expr::analysis::referenced_field_paths;
@@ -16,18 +17,16 @@ use vortex_session::VortexSession;
 pub use crate::execution::ChunkPlanner;
 use crate::execution::FILTERED_ROWS_PER_CHUNK;
 pub use crate::execution::FilterPlans;
-pub use crate::execution::ListOffsetsNext;
-pub use crate::execution::ListOffsetsPlanner;
 use crate::execution::MAX_ROWS_PER_CHUNK;
 pub use crate::execution::PreparedScan;
 pub use crate::execution::PruneNext;
 pub use crate::execution::PrunePlanner;
 use crate::execution::ROW_BLOCK_SIZE;
-use crate::execution::list_offsets::default_offsets_ahead_max;
-use crate::execution::list_offsets::list_structures;
 use crate::execution::list_rows_per_chunk;
 use crate::execution::pipeline::Scan;
-use crate::execution::pipeline::ValueCache;
+use crate::plan::Eval;
+use crate::plan::ListPack;
+use crate::plan::PlanByPtr;
 use crate::plan::PlanRef;
 pub use crate::execution::SegmentLocation;
 pub use crate::execution::cache::ScanCache;
@@ -53,7 +52,6 @@ pub struct ScanBuilder {
     selection: Selection,
     row_offset: u64,
     skip_unselective_dynamic: bool,
-    list_offsets_ahead_max: Option<u64>,
 }
 
 impl ScanBuilder {
@@ -69,15 +67,7 @@ impl ScanBuilder {
             selection: Selection::default(),
             row_offset: 0,
             skip_unselective_dynamic: false,
-            list_offsets_ahead_max: None,
         }
-    }
-
-    /// Sets the most offsets of one list column the scan reads whole ahead of its chunks. A
-    /// column of more lists is bounded by its index, when it was written with one.
-    pub fn with_list_offsets_ahead_max(mut self, max: u64) -> Self {
-        self.list_offsets_ahead_max = Some(max);
-        self
     }
 
     /// The output dtype after projection.
@@ -202,7 +192,6 @@ impl ScanBuilder {
                 filter.as_deref(),
                 row_count,
                 &file.locations,
-                &values,
             )
         })?;
         let chunk_rows = if let Some(rows) = list_chunk_rows {
@@ -231,9 +220,6 @@ impl ScanBuilder {
             row_offset: self.row_offset,
             values,
             chunk_rows,
-            list_offsets_ahead_max: self
-                .list_offsets_ahead_max
-                .unwrap_or_else(default_offsets_ahead_max),
         })
     }
 }
@@ -246,28 +232,25 @@ fn list_chunk_rows(
     filter: Option<&FilterPlans>,
     row_count: u64,
     locations: &[SegmentLocation],
-    values: &ValueCache,
 ) -> VortexResult<Option<usize>> {
     let plans = || {
         std::iter::once(projection).chain(filter.into_iter().flat_map(|f| f.predicates().iter()))
     };
-    let lists = list_structures(plans())?;
+    let mut lists = Vec::new();
+    let mut seen = FxHashSet::default();
+    for plan in plans() {
+        list_elements(plan, &mut seen, &mut lists)?;
+    }
     if row_count == 0 || lists.is_empty() {
         return Ok(None);
     }
-    let elements = lists.iter().map(|list| list.elements).sum();
+    let elements = lists.iter().sum();
     let bytes = || -> VortexResult<u64> {
         let rows = 0..row_count;
         let mask = Mask::new_true(usize::try_from(row_count)?);
         let mut segments = Vec::new();
         for plan in plans() {
-            segments.extend(Scan::segments_with(
-                session,
-                plan,
-                rows.clone(),
-                &mask,
-                values,
-            )?);
+            segments.extend(Scan::segments(session, plan, rows.clone(), &mask)?);
         }
         segments.sort_unstable();
         segments.dedup();
@@ -285,6 +268,47 @@ fn list_chunk_rows(
         "v2 list scan chunk size"
     );
     Ok(Some(chunk_rows))
+}
+
+/// Collects the elements the lists of every [`ListPack`] under `plan` hold in all, each list
+/// once, outer lists first.
+fn list_elements(
+    plan: &PlanRef,
+    seen: &mut FxHashSet<PlanByPtr>,
+    found: &mut Vec<u64>,
+) -> VortexResult<()> {
+    if plan.is_data_source() || !seen.insert(PlanByPtr(plan.clone())) {
+        return Ok(());
+    }
+    // Walking a plan builds its children, the chunks of every column among them. Only an
+    // expression produces a dtype without lists from a child with them, so nothing else whose
+    // dtype holds no list is walked.
+    if !plan.is::<Eval>() && !holds_list(plan.dtype()) {
+        return Ok(());
+    }
+    if let Some(list) = plan.as_opt::<ListPack>() {
+        // Several assemblies may share one list's offsets: they read its elements once.
+        let elements = list.elements()?;
+        if seen.insert(PlanByPtr(list.offsets()?)) {
+            found.push(elements.row_count());
+        }
+        // Lists nest through the elements; offsets and validity hold none.
+        return list_elements(&elements, seen, found);
+    }
+    for child in plan.children() {
+        list_elements(child?, seen, found)?;
+    }
+    Ok(())
+}
+
+/// Whether a value of `dtype` holds a list at any depth.
+fn holds_list(dtype: &DType) -> bool {
+    match dtype {
+        DType::List(..) | DType::FixedSizeList(..) => true,
+        DType::Struct(fields, _) => fields.fields().any(|field| holds_list(&field)),
+        DType::Extension(extension) => holds_list(extension.storage_dtype()),
+        _ => false,
+    }
 }
 
 pub(crate) fn filtered_rows_per_chunk(

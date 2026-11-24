@@ -25,7 +25,6 @@ pub(crate) mod zone_map;
 mod adaptor;
 mod chunk;
 mod filter;
-pub(crate) mod list_offsets;
 mod projection;
 mod prune;
 mod selection;
@@ -51,8 +50,6 @@ pub(crate) use self::chunk::rows_per_chunk;
 pub(crate) use self::chunk::scan_chunks;
 use self::filter::FilterPlanner;
 pub use self::filter::FilterPlans;
-pub use self::list_offsets::ListOffsetsNext;
-pub use self::list_offsets::ListOffsetsPlanner;
 use self::projection::ProjectionPlanner;
 pub use self::prune::PruneNext;
 pub use self::prune::PrunePlanner;
@@ -104,8 +101,6 @@ pub struct PreparedScan {
     pub(crate) values: ValueCache,
     /// The rows of one chunk, the unit of work a chunk planner emits.
     pub(crate) chunk_rows: usize,
-    /// The most offsets of one list column read whole ahead of the chunks.
-    pub(crate) list_offsets_ahead_max: u64,
 }
 
 impl PreparedScan {

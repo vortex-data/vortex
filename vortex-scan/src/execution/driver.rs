@@ -37,7 +37,6 @@ use crate::planning::planner::Planner;
 use crate::planning::planner::WorkScope;
 use crate::prepare::ChunkPlanner;
 use crate::prepare::PreparedScan;
-use crate::prepare::ListOffsetsPlanner;
 use crate::prepare::PrunePlanner;
 use crate::prepare::ScanBuilder;
 
@@ -218,23 +217,10 @@ fn compose(scan: &Arc<PreparedScan>) -> Box<dyn Planner> {
             Box::new(ChunkPlanner::new(scan, rows, selection, kept))
         }
     };
-    // The offsets of the lists the scan reads are read once pruning has run, so a scan whose
-    // rows are all pruned reads none.
-    let ahead = {
-        let scan = Arc::clone(scan);
-        let rows = rows.clone();
-        move |kept: Option<Mask>| -> Box<dyn Planner> {
-            Box::new(ListOffsetsPlanner::new(
-                scan,
-                rows,
-                Box::new(move || chunks(kept)),
-            ))
-        }
-    };
     if scan.filter().is_some() {
-        Box::new(PrunePlanner::new(Arc::clone(scan), rows, Box::new(ahead)))
+        Box::new(PrunePlanner::new(Arc::clone(scan), rows, Box::new(chunks)))
     } else {
-        ahead(None)
+        chunks(None)
     }
 }
 

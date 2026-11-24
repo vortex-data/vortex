@@ -10,23 +10,19 @@ use std::sync::Arc;
 use vortex_array::EmptyMetadata;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
-use vortex_array::dtype::PType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_mask::Mask;
 use vortex_session::registry::CachedId;
 
-use self::execute::ListIndex;
+pub use self::execute::ListIndex;
+pub use self::execute::ListIndexBuilder;
 use self::execute::ListSource;
-use self::execute::Offsets;
 use self::execute::element_selection;
-use self::execute::element_spans;
-use self::execute::offsets_ahead;
 use crate::execution::operators::UNBOUNDED;
 use crate::execution::pipeline::Chain;
 use crate::execution::pipeline::Compiler;
-use crate::plan::LazyPlanRef;
 use crate::plan::Plan;
 use crate::plan::PlanId;
 use crate::plan::PlanParts;
@@ -41,22 +37,21 @@ pub(crate) mod pushdown;
 const ELEMENTS: usize = 0;
 const OFFSETS: usize = 1;
 const VALIDITY: usize = 2;
-const INDEX: usize = 3;
 
-/// Assembles a list from slots `[elements, offsets, validity, index]`, with validity present
-/// exactly when the list is nullable.
+/// Assembles a list from slots `[elements, offsets, validity]`, with validity present exactly
+/// when the list is nullable.
 ///
-/// The optional index is a coarse copy of the offsets, for lists whose offsets are too many to
-/// read whole ahead of a scan's chunks. It holds `k` list rows followed by the `k` element rows
-/// those lists start at, both increasing: consecutive entries bound a window of whole lists.
-/// With it, compiling bounds the element rows of a selection of lists to within a window without
-/// reading the offsets.
+/// The plan may carry a [`ListIndex`] of its offsets: a coarse copy of them, kept wherever the
+/// list is described rather than with its data, so it is there before anything is read. With it,
+/// compiling bounds the element rows of a selection of lists to within a window.
 #[derive(Clone, Debug)]
 pub struct ListPack;
 
 /// Operator-specific list assembly data.
-#[derive(Clone, Debug)]
-pub struct ListPackData;
+#[derive(Clone, Debug, Default)]
+pub struct ListPackData {
+    index: Option<ListIndex>,
+}
 
 /// A plan that assembles a list from its children.
 pub type ListPackPlan = Plan<ListPack>;
@@ -66,17 +61,23 @@ impl ListPackPlan {
     ///
     /// # Safety
     ///
-    /// `slots` must be `[elements, offsets, validity, index]`. `dtype` must be a list whose element
+    /// `slots` must be `[elements, offsets, validity]`. `dtype` must be a list whose element
     /// dtype matches the elements child. The offsets child must be a non-nullable integer with
     /// `row_count + 1` rows. A non-nullable boolean validity child with `row_count` rows must be
-    /// present exactly when `dtype` is nullable.
-    pub unsafe fn from_slots_unchecked(dtype: DType, row_count: u64, slots: PlanSlots) -> Self {
+    /// present exactly when `dtype` is nullable. `index`, when given, must be an index of the
+    /// offsets the offsets child produces.
+    pub unsafe fn from_slots_unchecked(
+        dtype: DType,
+        row_count: u64,
+        slots: PlanSlots,
+        index: Option<ListIndex>,
+    ) -> Self {
         PlanParts {
             vtable: ListPack,
             dtype,
             row_count,
             slots,
-            data: ListPackData,
+            data: ListPackData { index },
         }
         .into_typed()
     }
@@ -93,28 +94,34 @@ impl ListPackPlan {
         validity: Option<PlanRef>,
     ) -> VortexResult<Self> {
         let dtype = DType::List(Arc::new(elements.dtype().clone()), nullability);
-        let slots = [Some(elements), Some(offsets), validity, None]
+        let slots = [Some(elements), Some(offsets), validity]
             .into_iter()
             .collect();
         validate_slots(&dtype, row_count, &slots)?;
 
         // SAFETY: All slot shape invariants were validated above.
-        Ok(unsafe { Self::from_slots_unchecked(dtype, row_count, slots) })
+        Ok(unsafe { Self::from_slots_unchecked(dtype, row_count, slots, None) })
     }
 
-    /// This assembly with `index` as its index of the offsets.
-    pub fn with_index(&self, index: PlanRef) -> VortexResult<Self> {
-        let mut slots = self.slots().to_vec();
-        slots[INDEX] = Some(LazyPlanRef::ready(index));
-        let slots = PlanSlots::from(slots);
-        validate_slots(self.dtype(), self.row_count(), &slots)?;
-        // SAFETY: All slot shape invariants were validated above.
-        Ok(unsafe { Self::from_slots_unchecked(self.dtype().clone(), self.row_count(), slots) })
+    /// This assembly with `index` as the index of its offsets.
+    ///
+    /// The index must be of the offsets the offsets child produces: an entry that does not match
+    /// them makes a scan fail, when the elements it bounds turn out not to hold a list.
+    pub fn with_index(&self, index: ListIndex) -> Self {
+        // SAFETY: the slots are this plan's, which hold its invariants.
+        unsafe {
+            Self::from_slots_unchecked(
+                self.dtype().clone(),
+                self.row_count(),
+                self.slots().clone(),
+                Some(index),
+            )
+        }
     }
 
-    /// Returns the plan producing the index of the offsets, if the list has one.
-    pub fn index(&self) -> VortexResult<Option<PlanRef>> {
-        self.slot(INDEX)
+    /// Returns the index of the offsets, if the plan carries one.
+    pub fn index(&self) -> Option<&ListIndex> {
+        self.data().index.as_ref()
     }
 
     /// Returns the plan producing list elements.
@@ -142,9 +149,9 @@ impl PlanVTable for ListPack {
         *ID
     }
 
-    fn metadata(_plan: &Plan<Self>) -> Option<Self::Metadata> {
-        // Nullability is recoverable from the plan dtype.
-        Some(EmptyMetadata)
+    fn metadata(plan: &Plan<Self>) -> Option<Self::Metadata> {
+        // Nullability is recoverable from the plan dtype. An index is not serialized yet.
+        plan.index().is_none().then_some(EmptyMetadata)
     }
 
     fn with_slots(
@@ -160,21 +167,21 @@ impl PlanVTable for ListPack {
             ELEMENTS => Cow::Borrowed("elements"),
             OFFSETS => Cow::Borrowed("offsets"),
             VALIDITY => Cow::Borrowed("validity"),
-            INDEX => Cow::Borrowed("index"),
             _ => Cow::Owned(format!("slot[{slot}]")),
         }
     }
 
-    /// Reads the validity of the selected lists and their elements, and assembles them.
+    /// Reads the offsets and validity of the selected lists and a bound on their elements, all at
+    /// once, and assembles the lists.
     ///
-    /// The element rows a selection of lists holds are data: they depend on the offsets. A scan
-    /// reads a list column's offsets whole ahead of its chunks and keeps them with the compiler's
-    /// whole values, so compiling finds them there and bounds the elements exactly, without
-    /// reading anything. Offsets too many to read ahead have an index, read ahead in their place:
-    /// compiling bounds the elements with it to within a window, the list's source reads the
-    /// selected lists' offsets beside them, and keeps the elements those offsets name. With
-    /// neither read ahead, the source reads every element of the column: correct, but only a
-    /// scan that reads ahead reads lists well.
+    /// The element rows a selection of lists holds are data: they depend on the offsets. The
+    /// plan's index of the offsets bounds them to within a window without reading anything, so
+    /// every read of a chunk is known when it is compiled, at any depth of nesting. The list's
+    /// source reads the selected lists' offsets beside those elements, and keeps the elements
+    /// the offsets name.
+    ///
+    /// A list without an index is one window, or was written before lists had one: its source
+    /// reads every element of the column.
     fn compile(
         plan: &Plan<Self>,
         rows: Range<u64>,
@@ -188,60 +195,35 @@ impl PlanVTable for ListPack {
         let rows = rows.start + u64::try_from(first)?..rows.start + u64::try_from(last + 1)?;
         let offsets_plan = plan.offsets()?;
         let elements_plan = plan.elements()?;
-        let mut chains = Vec::new();
-        // The element rows the elements inlet holds, when the offsets do not say exactly.
-        let mut read = Vec::new();
 
-        let ahead = compiler.values().get(&offsets_plan);
-        let (offsets, element_rows) = match ahead {
-            Some(offsets) => {
-                let stored = offsets_ahead(&offsets, rows.clone(), compiler.session())?;
-                let selection = element_selection(&element_spans(&stored, &mask))?;
-                (Offsets::Ahead(stored), selection)
-            }
-            None => {
-                let chain = compiler
-                    .compile(
-                        &offsets_plan,
-                        rows.start..rows.end + 1,
-                        &Mask::new_true(mask.len() + 1),
-                    )?
-                    .ok_or_else(|| vortex_err!("List offsets compiled to no rows"))?;
-                chains.push(chain);
-                let elements = elements_plan.row_count();
-                let index = match plan.index()? {
-                    Some(index) => compiler.values().get(&index),
-                    None => None,
-                };
-                read = match index {
-                    Some(index) => ListIndex::try_new(&index)?.windows(&rows, &mask, elements),
-                    None => {
-                        tracing::debug!(
-                            rows = ?rows,
-                            "list offsets were not read ahead: reading every element of the column"
-                        );
-                        if elements > 0 {
-                            vec![(0, elements)]
-                        } else {
-                            Vec::new()
-                        }
-                    }
-                };
-                (Offsets::Inlet(0), element_selection(&read)?)
-            }
-        };
+        let offsets = compiler
+            .compile(
+                &offsets_plan,
+                rows.start..rows.end + 1,
+                &Mask::new_true(mask.len() + 1),
+            )?
+            .ok_or_else(|| vortex_err!("List offsets compiled to no rows"))?;
+        // The offsets are the source's first inlet, `OFFSETS_INLET`.
+        let mut chains = vec![offsets];
 
         let validity = match plan.validity()? {
             Some(validity) => {
                 let chain = compiler
-                    .compile(&validity, rows, &mask)?
+                    .compile(&validity, rows.clone(), &mask)?
                     .ok_or_else(|| vortex_err!("List validity compiled to no rows"))?;
                 chains.push(chain);
                 Some(chains.len() - 1)
             }
             None => None,
         };
-        let elements = match element_rows {
+
+        let element_count = elements_plan.row_count();
+        let read = match plan.index() {
+            Some(index) => index.windows(&rows, &mask, element_count),
+            None if element_count > 0 => vec![(0, element_count)],
+            None => Vec::new(),
+        };
+        let elements = match element_selection(&read)? {
             Some((element_rows, element_mask)) => compiler
                 .compile(&elements_plan, element_rows, &element_mask)?
                 .map(|chain| {
@@ -254,7 +236,6 @@ impl PlanVTable for ListPack {
         let source = ListSource::new(
             elements_plan.dtype().clone(),
             offsets_plan.dtype().clone(),
-            offsets,
             read,
             validity,
             elements,
@@ -270,18 +251,7 @@ fn validate_slots(dtype: &DType, row_count: u64, slots: &PlanSlots) -> VortexRes
         .as_list_element_opt()
         .ok_or_else(|| vortex_err!("ListPack output dtype must be a list, got {dtype}"))?;
     let nullability = dtype.nullability();
-    slots.check_len("ListPack", INDEX + 1)?;
-    if let Some(index) = slots.get(INDEX)? {
-        if index.dtype() != &DType::Primitive(PType::U64, Nullability::NonNullable)
-            || !index.row_count().is_multiple_of(2)
-        {
-            vortex_bail!(
-                "ListPack index child must hold pairs of non-nullable u64, got {} rows of {}",
-                index.row_count(),
-                index.dtype()
-            );
-        }
-    }
+    slots.check_len("ListPack", VALIDITY + 1)?;
 
     let elements = slots.required(ELEMENTS)?;
     if elements.dtype() != elements_dtype.as_ref() {

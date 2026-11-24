@@ -66,7 +66,6 @@ use vortex_session::VortexSession;
 use vortex_utils::aliases::hash_map::HashMap;
 
 use super::ChunkPlanner;
-use super::ListOffsetsPlanner;
 use super::PreparedScan;
 use super::PrunePlanner;
 use super::ROW_BLOCK_SIZE;
@@ -236,21 +235,10 @@ fn compose(scan: &Arc<PreparedScan>, rows: Range<u64>) -> Box<dyn Planner> {
             Box::new(ChunkPlanner::new(scan, rows, selection, kept))
         }
     };
-    let ahead = {
-        let scan = Arc::clone(scan);
-        let rows = rows.clone();
-        move |kept: Option<Mask>| -> Box<dyn Planner> {
-            Box::new(ListOffsetsPlanner::new(
-                scan,
-                rows,
-                Box::new(move || chunks(kept)),
-            ))
-        }
-    };
     if scan.filter().is_some() {
-        Box::new(PrunePlanner::new(Arc::clone(scan), rows, Box::new(ahead)))
+        Box::new(PrunePlanner::new(Arc::clone(scan), rows, Box::new(chunks)))
     } else {
-        ahead(None)
+        chunks(None)
     }
 }
 
@@ -635,26 +623,27 @@ async fn list_layouts_return_the_selected_rows(
 ) -> VortexResult<()> {
     let session = new_session().with_tokio();
     let leaves = block_len.map_or_else(chunked_flat, small_zoned_leaves);
-    // With `indexed`, every list is written with an index of its offsets, and the scan reads no
-    // offsets ahead of its chunks: it bounds each chunk's elements with the index instead.
+    // With `indexed`, every list is written with an index of its offsets, a window of 16
+    // elements apart. Without, every list is one window and has none, as a list written before
+    // lists had an index: a chunk then reads every element of the column.
     let strategy =
         TableStrategy::new(chunked_flat(), leaves).with_list_layout_factory(move |list| {
             Arc::new(list.with_index_options(ListIndexOptions {
-                min_lists: if indexed { 0 } else { u64::MAX },
-                window: 16,
+                window: if indexed { 16 } else { u64::MAX },
+                max_entries: usize::MAX,
             }))
         });
     let chunks = (0..CHUNKS)
         .map(|chunk| list_chunk(chunk * CHUNK_ROWS))
         .collect::<VortexResult<Vec<_>>>()?;
     let (segments, layout) = write_chunks(&session, &strategy, chunks).await?;
-    let has_index = layout
+    let has_index: Vec<bool> = layout
         .depth_first_traversal()
         .filter_map(|layout| layout.ok())
-        .filter_map(|layout| layout.as_opt::<List>().map(|list| list.index()))
-        .collect::<VortexResult<Vec<_>>>()?;
+        .filter_map(|layout| layout.as_opt::<List>().map(|list| list.index().is_some()))
+        .collect();
     assert!(!has_index.is_empty());
-    assert!(has_index.iter().all(|index| index.is_some() == indexed));
+    assert!(has_index.iter().all(|&has_index| has_index == indexed));
     let input = ChunkedArray::try_new(
         (0..CHUNKS)
             .map(|chunk| list_chunk(chunk * CHUNK_ROWS))
@@ -665,9 +654,6 @@ async fn list_layouts_return_the_selected_rows(
 
     let mut builder = builder(&session, &segments, &layout)?
         .with_some_filter(filter.clone().map(|f| f.bind(layout.dtype())).transpose()?);
-    if indexed {
-        builder = builder.with_list_offsets_ahead_max(0);
-    }
     if let Some(column) = column {
         builder = builder.with_projection(get_item(column, root()).bind(layout.dtype())?);
     }

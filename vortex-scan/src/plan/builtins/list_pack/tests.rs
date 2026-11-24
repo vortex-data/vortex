@@ -29,13 +29,11 @@ use vortex_mask::Mask;
 
 use super::ListPackPlan;
 use super::execute::ListIndexBuilder;
-use crate::execution::list_offsets::list_structures;
 use crate::execution::operators::join;
 use crate::execution::pipeline::ReadRequest;
 use crate::execution::pipeline::Scan;
 use crate::execution::pipeline::Split;
 use crate::execution::pipeline::Turn;
-use crate::execution::pipeline::ValueCache;
 use crate::plan::PlanRef;
 use crate::test::SESSION;
 use crate::test::Store;
@@ -157,6 +155,7 @@ fn offsets_array(offsets: &[u64], ptype: PType) -> VortexResult<ArrayRef> {
 /// segments of [`ELEMENT_CHUNK`] first, then its offsets in two chunks, then its validity.
 fn lists(
     store: &Store,
+    indexed: bool,
     lengths: &[u64],
     valid: Option<Vec<bool>>,
     ptype: PType,
@@ -196,17 +195,19 @@ fn lists(
         &mut SESSION.create_execution_ctx(),
     )?
     .into_array();
-    let mut index = ListIndexBuilder::new(INDEX_WINDOW);
-    index.push(&offsets);
-    let index_plan = store.flat(&index.finish().into_array())?;
     let plan = ListPackPlan::try_new(
         nullability,
         lengths.len() as u64,
         elements_plan,
         offsets_plan,
         validity_plan,
-    )?
-    .with_index(index_plan)?
+    )?;
+    let mut index = ListIndexBuilder::new(INDEX_WINDOW, usize::MAX);
+    index.push(&offsets);
+    let plan = match index.finish() {
+        Some(index) if indexed => plan.with_index(index),
+        _ => plan,
+    }
     .into_plan();
     Ok(Lists {
         plan,
@@ -241,63 +242,16 @@ impl Run {
     }
 }
 
-/// What is read of a list's offsets before the scan of it runs.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum ReadAhead {
-    /// The offsets, whole.
-    Offsets,
-    /// The index of the offsets, for lists that have one.
-    Index,
-    Nothing,
-}
-
-/// Reads ahead for every list under `plan`, as a scan does ahead of its chunks.
-fn read_ahead(store: &Store, plan: &PlanRef, ahead: ReadAhead) -> VortexResult<ValueCache> {
-    let values = ValueCache::default();
-    let max = match ahead {
-        ReadAhead::Offsets => u64::MAX,
-        ReadAhead::Index => 0,
-        ReadAhead::Nothing => return Ok(values),
-    };
-    for list in list_structures(std::iter::once(plan))? {
-        let Some(ahead) = list.ahead(max) else {
-            continue;
-        };
-        let rows = usize::try_from(ahead.plan().row_count())?;
-        let read = run_with(
-            store,
-            ahead.plan(),
-            Mask::new_true(rows),
-            false,
-            ValueCache::default(),
-        )?;
-        values.insert(ahead.plan(), ahead.widen(&SESSION, read.arrays)?);
-    }
-    Ok(values)
-}
-
 /// Runs `plan` over all its rows under `mask`, completing reads only while the scan waits,
-/// oldest first or newest first, after reading `ahead` of its lists' offsets.
+/// oldest first or newest first.
 fn run(
     store: &Store,
     plan: &PlanRef,
     mask: Mask,
     lifo: bool,
-    ahead: ReadAhead,
-) -> VortexResult<Run> {
-    run_with(store, plan, mask, lifo, read_ahead(store, plan, ahead)?)
-}
-
-fn run_with(
-    store: &Store,
-    plan: &PlanRef,
-    mask: Mask,
-    lifo: bool,
-    values: ValueCache,
 ) -> VortexResult<Run> {
     let rows = 0..plan.row_count();
-    let mut scan = Scan::try_new(SESSION.clone(), plan.clone(), vec![Split { rows, mask }])?
-        .with_value_cache(values);
+    let mut scan = Scan::try_new(SESSION.clone(), plan.clone(), vec![Split { rows, mask }])?;
     let mut inflight: Vec<ReadRequest> = Vec::new();
     let mut round = Vec::new();
     let mut rounds = Vec::new();
@@ -336,8 +290,8 @@ fn assert_selected(expected: &ArrayRef, mask: &Mask, arrays: Vec<ArrayRef>) -> V
     Ok(())
 }
 
-/// The selected lists come out whole and in order. With their offsets read ahead, only the
-/// element segments that hold selected lists are read, in one round with the validity.
+/// The selected lists come out whole and in order, read in one round. With an index, only the
+/// element segments within a window of the selected lists are read.
 #[rstest]
 fn lists_read_only_the_elements_they_select(
     #[values(
@@ -351,11 +305,12 @@ fn lists_read_only_the_elements_they_select(
     sel: Sel,
     #[values(Nulls::NonNullable, Nulls::Some, Nulls::All)] nulls: Nulls,
     #[values(Lengths::Varied, Lengths::EmptyInTheMiddle, Lengths::AllEmpty)] lengths: Lengths,
-    #[values(ReadAhead::Offsets, ReadAhead::Index, ReadAhead::Nothing)] ahead: ReadAhead,
+    #[values(true, false)] indexed: bool,
 ) -> VortexResult<()> {
     let store = Store::default();
     let lists = lists(
         &store,
+        indexed,
         &lengths.get(LISTS),
         nulls.valid(LISTS),
         PType::U32,
@@ -363,35 +318,30 @@ fn lists_read_only_the_elements_they_select(
         |total| integers(&store, total),
     )?;
     let mask = sel.mask(LISTS);
-    let run = run(&store, &lists.plan, mask.clone(), false, ahead)?;
+    let run = run(&store, &lists.plan, mask.clone(), false)?;
     let elements_read: Vec<u32> = run
         .segments()
         .into_iter()
         .filter(|&segment| lists.is_element_segment(segment))
         .collect();
     let exact = lists.element_segments_for(&mask);
-    match ahead {
-        ReadAhead::Offsets => assert_eq!(elements_read, exact),
-        ReadAhead::Index => {
-            // A window of elements too many on either side of each run of selected lists, and a
-            // window may reach into two segments.
-            let runs = match mask.slices() {
-                AllOr::All => 1,
-                AllOr::None => 0,
-                AllOr::Some(slices) => slices.len(),
-            };
-            let slack = 2 * runs * (INDEX_WINDOW as usize).div_ceil(ELEMENT_CHUNK).max(1) * 2;
-            assert!(exact.iter().all(|segment| elements_read.contains(segment)));
-            assert!(
-                elements_read.len() <= exact.len() + slack,
-                "{elements_read:?} for {exact:?}"
-            );
-        }
-        ReadAhead::Nothing => {}
+    assert!(exact.iter().all(|segment| elements_read.contains(segment)));
+    if indexed {
+        // A window of elements too many on either side of each run of selected lists, and a
+        // window may reach into two segments.
+        let runs = match mask.slices() {
+            AllOr::All => 1,
+            AllOr::None => 0,
+            AllOr::Some(slices) => slices.len(),
+        };
+        let slack = 2 * runs * (INDEX_WINDOW as usize).div_ceil(ELEMENT_CHUNK).max(1) * 2;
+        assert!(
+            elements_read.len() <= exact.len() + slack,
+            "{elements_read:?} for {exact:?}"
+        );
     }
-    if ahead != ReadAhead::Nothing {
-        assert!(run.rounds.len() <= 1, "{:?}", run.rounds);
-    }
+    // Offsets, validity and elements are asked for together, whatever the index says.
+    assert!(run.rounds.len() <= 1, "{:?}", run.rounds);
     assert_selected(&lists.array, &mask, run.arrays)
 }
 
@@ -402,11 +352,12 @@ fn offsets_keep_their_stored_type(
     #[values(0, 3)] base: u64,
     #[values(Sel::All, Sel::EveryOther)] sel: Sel,
     #[values(false, true)] lifo: bool,
-    #[values(ReadAhead::Offsets, ReadAhead::Index, ReadAhead::Nothing)] ahead: ReadAhead,
+    #[values(true, false)] indexed: bool,
 ) -> VortexResult<()> {
     let store = Store::default();
     let lists = lists(
         &store,
+        indexed,
         &Lengths::Varied.get(LISTS),
         Nulls::Some.valid(LISTS),
         ptype,
@@ -414,7 +365,7 @@ fn offsets_keep_their_stored_type(
         |total| integers(&store, total),
     )?;
     let mask = sel.mask(LISTS);
-    let run = run(&store, &lists.plan, mask.clone(), lifo, ahead)?;
+    let run = run(&store, &lists.plan, mask.clone(), lifo)?;
     for array in &run.arrays {
         let list = array
             .as_opt::<List>()
@@ -424,13 +375,13 @@ fn offsets_keep_their_stored_type(
     assert_selected(&lists.array, &mask, run.arrays)
 }
 
-/// With both levels' offsets read ahead, a list of lists reads the inner lists' validity and
-/// only the elements of the selected lists, in one round.
+/// A list of lists reads both levels' offsets, the inner lists' validity and a bound on the
+/// elements of the selected lists, in one round.
 #[rstest]
 fn nested_lists_read_in_one_round(
     #[values(Sel::All, Sel::EveryOther, Sel::LastOnly)] sel: Sel,
     #[values(false, true)] lifo: bool,
-    #[values(ReadAhead::Offsets, ReadAhead::Index, ReadAhead::Nothing)] ahead: ReadAhead,
+    #[values(true, false)] indexed: bool,
 ) -> VortexResult<()> {
     let store = Store::default();
     let outer_lengths = Lengths::EmptyInTheMiddle.get(LISTS);
@@ -438,22 +389,21 @@ fn nested_lists_read_in_one_round(
     let inner_lengths = Lengths::Varied.get(inner_count as usize);
     let inner = lists(
         &store,
+        indexed,
         &inner_lengths,
         Nulls::Some.valid(inner_count as usize),
         PType::I32,
         0,
         |total| integers(&store, total),
     )?;
-    let outer = lists(&store, &outer_lengths, None, PType::U16, 0, |_| {
+    let outer = lists(&store, indexed, &outer_lengths, None, PType::U16, 0, |_| {
         Ok((inner.array.clone(), inner.plan.clone()))
     })?;
     let mask = sel.mask(LISTS);
-    let run = run(&store, &outer.plan, mask.clone(), lifo, ahead)?;
-    if ahead == ReadAhead::Index {
-        assert_eq!(run.rounds.len(), 1, "{:?}", run.rounds);
-    }
-    if ahead == ReadAhead::Offsets {
-        assert_eq!(run.rounds.len(), 1, "{:?}", run.rounds);
+    let run = run(&store, &outer.plan, mask.clone(), lifo)?;
+    // Both levels' offsets, the inner validity and the elements are asked for together.
+    assert_eq!(run.rounds.len(), 1, "{:?}", run.rounds);
+    if indexed {
         // The inner lists the selected outer lists hold, and the element segments they span.
         let inner_selected = Mask::from_iter((0..inner_count as usize).map(|inner_list| {
             mask.iter().enumerate().any(|(list, selected)| {
@@ -466,7 +416,8 @@ fn nested_lists_read_in_one_round(
             .into_iter()
             .filter(|&segment| inner.is_element_segment(segment))
             .collect();
-        assert_eq!(elements_read, inner.element_segments_for(&inner_selected));
+        let exact = inner.element_segments_for(&inner_selected);
+        assert!(exact.iter().all(|segment| elements_read.contains(segment)));
     }
     assert_selected(&outer.array, &mask, run.arrays)
 }
@@ -476,11 +427,12 @@ fn nested_lists_read_in_one_round(
 fn a_list_in_a_struct_stays_aligned(
     #[values(Sel::All, Sel::Contiguous, Sel::EveryOther, Sel::LastOnly)] sel: Sel,
     #[values(false, true)] lifo: bool,
-    #[values(ReadAhead::Offsets, ReadAhead::Index, ReadAhead::Nothing)] ahead: ReadAhead,
+    #[values(true, false)] indexed: bool,
 ) -> VortexResult<()> {
     let store = Store::default();
     let lists = lists(
         &store,
+        indexed,
         &Lengths::EmptyInTheMiddle.get(LISTS),
         Nulls::Some.valid(LISTS),
         PType::U32,
@@ -497,22 +449,20 @@ fn a_list_in_a_struct_stays_aligned(
         vec![lists.plan, store.chunked(&numbers, &[2, 7, 3])?],
     );
     let mask = sel.mask(LISTS);
-    let run = run(&store, &plan, mask.clone(), lifo, ahead)?;
+    let run = run(&store, &plan, mask.clone(), lifo)?;
     assert_selected(&expected, &mask, run.arrays)
 }
 
 /// Offsets that decrease between selected lists fail the scan, even across lists the mask
 /// leaves out.
-#[rstest]
-fn decreasing_offsets_fail_the_scan(
-    #[values(ReadAhead::Offsets, ReadAhead::Nothing)] ahead: ReadAhead,
-) -> VortexResult<()> {
+#[test]
+fn decreasing_offsets_fail_the_scan() -> VortexResult<()> {
     let store = Store::default();
     let (_, elements) = integers(&store, 8)?;
     let offsets = store.flat(&offsets_array(&[0, 4, 1, 5], PType::U32)?)?;
     let plan =
         ListPackPlan::try_new(Nullability::NonNullable, 3, elements, offsets, None)?.into_plan();
-    let Err(error) = run(&store, &plan, Mask::from_indices(3, [0, 2]), false, ahead) else {
+    let Err(error) = run(&store, &plan, Mask::from_indices(3, [0, 2]), false) else {
         return Err(vortex_err!("decreasing offsets must fail the scan"));
     };
     assert!(
@@ -520,4 +470,82 @@ fn decreasing_offsets_fail_the_scan(
         "{error}"
     );
     Ok(())
+}
+
+/// The offsets of `count` lists of `lengths`, starting at element row 3.
+fn offsets_of(lengths: Lengths, count: usize) -> Vec<u64> {
+    let mut offsets = vec![3];
+    for length in lengths.get(count) {
+        offsets.push(offsets[offsets.len() - 1] + length);
+    }
+    offsets
+}
+
+/// However it is capped and however its offsets arrive, an index holds no more entries than its
+/// cap, and bounds every run of lists by element rows that hold all of their elements.
+#[rstest]
+fn an_index_bounds_every_run_of_lists(
+    #[values(Lengths::Varied, Lengths::EmptyInTheMiddle, Lengths::AllEmpty)] lengths: Lengths,
+    #[values(1, 4, 64)] window: u64,
+    #[values(0, 1, 3, usize::MAX)] max_entries: usize,
+    #[values(1, 7, 100)] pushed: usize,
+) {
+    const COUNT: usize = 40;
+    let offsets = offsets_of(lengths, COUNT);
+    let elements = offsets[COUNT];
+    let mut builder = ListIndexBuilder::new(window, max_entries);
+    for chunk in offsets.chunks(pushed) {
+        builder.push(chunk);
+    }
+    assert_eq!(builder.list_count(), COUNT as u64);
+    let index = builder.finish();
+    assert!(index.as_ref().map_or(0, |index| index.lists().len()) <= max_entries);
+
+    let Some(index) = index else {
+        return;
+    };
+    for start in 0..COUNT {
+        for end in start + 1..=COUNT {
+            let (first, last) = (offsets[start], offsets[end]);
+            let rows = start as u64..end as u64;
+            let read = index.windows(&rows, &Mask::new_true(end - start), elements);
+            if first < last {
+                assert_eq!(read.len(), 1, "{read:?} for lists {rows:?}");
+                assert!(
+                    read[0].0 <= first && last <= read[0].1,
+                    "{read:?} does not hold {first}..{last} of lists {rows:?}"
+                );
+            }
+        }
+    }
+}
+
+/// Uncapped, every window of an index is whole lists of at most the window's elements, or one
+/// list of more.
+#[rstest]
+fn an_index_window_is_small_or_one_list(
+    #[values(Lengths::Varied, Lengths::EmptyInTheMiddle)] lengths: Lengths,
+    #[values(1, 2, 4, 64)] window: u64,
+) {
+    const COUNT: usize = 40;
+    let offsets = offsets_of(lengths, COUNT);
+    let mut builder = ListIndexBuilder::new(window, usize::MAX);
+    builder.push(&offsets);
+    let starts: Vec<usize> = std::iter::once(0)
+        .chain(
+            builder
+                .finish()
+                .iter()
+                .flat_map(|index| index.lists().iter().map(|&list| list as usize)),
+        )
+        .chain([COUNT])
+        .collect();
+    for bounds in starts.windows(2) {
+        let (start, end) = (bounds[0], bounds[1]);
+        assert!(
+            offsets[end] - offsets[start] <= window || end - start == 1,
+            "lists {start}..{end} hold {} elements",
+            offsets[end] - offsets[start]
+        );
+    }
 }
