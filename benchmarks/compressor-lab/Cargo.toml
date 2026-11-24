@@ -45,6 +45,11 @@ name = "vx-lab"
 path = "src/main.rs"
 test = false
 
+[[bin]]
+name = "vx-selector"
+path = "src/bin/vx-selector.rs"
+test = false
+
 [lib]
 
 [lints]

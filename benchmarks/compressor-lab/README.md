@@ -242,3 +242,25 @@ compression that the compressor does today.
 2. Can we choose without sampling-based estimates?
 3. Do the hand-set caps cost anything?
 4. Does combining decode speed with compression ratio change the choices?
+
+## Learned selector (`vx-selector`, `train_selector.py`)
+
+Trains the integer selector in `vortex_compressor::selector` and generates its Rust model.
+
+```bash
+cargo build --release -p compressor-lab --bin vx-selector
+# Per-site candidate costs, features, and the replay ceiling, on TPC-H generated in-process.
+target/release/vx-selector --out sel/sf1 --scale-factor 1 gather
+# Leave-one-table-out report; export a model trained without lineitem.
+python benchmarks/compressor-lab/train_selector.py --data sel/sf1 --bandwidth 1e8 \
+    --holdout tpch.lineitem --export vortex-compressor/src/selector/generated/int_v1.rs
+# Rebuild, then compare production with the learned policy on the held-out table.
+cargo build --release -p compressor-lab --bin vx-selector
+target/release/vx-selector --out sel/eval --tables lineitem eval
+```
+
+`gather` writes `chunks.csv` (production bytes, decode and compression time, and the time to
+replay production's own plan, which skips every estimate), `sites.csv` (one row per integer
+compression site with its features) and `candidates.csv` (the whole chunk with each eligible
+scheme, and canonical, forced at one site and production elsewhere). Features come from the
+same `int_features` the selector runs, so training and serving cannot disagree.

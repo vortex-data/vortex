@@ -741,3 +741,117 @@ fn test_plan_rejects_unknown_schemes() {
     assert!(Plan::parse("test.nope", &schemes).is_err());
     assert!(Plan::parse("_ _", &schemes).is_err());
 }
+
+mod learned_selector {
+    use std::sync::Arc;
+
+    use vortex_array::arrays::RunEnd;
+    use vortex_error::VortexResult;
+    use vortex_fastlanes::BitPacked;
+
+    use super::BITPACKING_V1;
+    use super::RunEndScheme;
+    use super::assert_roundtrip;
+    use super::runs;
+    use crate::BtrBlocksCompressor;
+    use crate::BtrBlocksCompressorBuilder;
+    use crate::CompressionPolicy;
+    use crate::SESSION;
+    use crate::SchemeExt;
+    use crate::selector::INT_FEATURE_NAMES;
+    use crate::selector::Leaf;
+    use crate::selector::LearnedPolicy;
+    use crate::selector::N_INT_FEATURES;
+    use crate::selector::Node;
+    use crate::selector::RecordFeatures;
+    use crate::selector::TreeModel;
+    use vortex_array::VortexSessionExecute;
+
+    const SCHEMES: &[&str] = &["vortex.int.bitpacking", "vortex.int.runend"];
+
+    static WIDE: [f64; N_INT_FEATURES] = [f64::INFINITY; N_INT_FEATURES];
+    static NARROW: [f64; N_INT_FEATURES] = [1.0; N_INT_FEATURES];
+    static LOW: [f64; N_INT_FEATURES] = [f64::NEG_INFINITY; N_INT_FEATURES];
+    static SURE: [Leaf; 1] = [Leaf {
+        ranked: &[0, 1],
+        confidence: 1.0,
+    }];
+    static NOT_SURE: [Leaf; 1] = [Leaf {
+        ranked: &[0, 1],
+        confidence: 0.0,
+    }];
+
+    /// A one-leaf model that ranks BitPacking first.
+    const fn model(leaves: &'static [Leaf], feature_max: &'static [f64]) -> TreeModel {
+        TreeModel {
+            name: "test",
+            training_hash: "",
+            schemes: SCHEMES,
+            feature_names: &INT_FEATURE_NAMES,
+            feature_min: &LOW,
+            feature_max,
+            nodes: &[Node::Leaf(0)],
+            leaves,
+        }
+    }
+
+    static CONFIDENT: TreeModel = model(&SURE, &WIDE);
+    static UNSURE: TreeModel = model(&NOT_SURE, &WIDE);
+    static OUT_OF_RANGE: TreeModel = model(&SURE, &NARROW);
+
+    fn compressor(policy: Arc<dyn CompressionPolicy>) -> BtrBlocksCompressor {
+        BtrBlocksCompressorBuilder::empty()
+            .with_new_scheme(&RunEndScheme)
+            .with_new_scheme(&BITPACKING_V1)
+            .with_policy(policy)
+            .build()
+    }
+
+    #[test]
+    fn test_scheme_names_match_the_model() {
+        assert_eq!(BITPACKING_V1.id().to_string(), SCHEMES[0]);
+        assert_eq!(RunEndScheme.id().to_string(), SCHEMES[1]);
+    }
+
+    #[test]
+    fn test_confident_pick_skips_estimation() -> VortexResult<()> {
+        let policy = Arc::new(LearnedPolicy::new(&CONFIDENT));
+        let compressed = assert_roundtrip(&compressor(policy), &runs())?;
+        assert!(compressed.is::<BitPacked>(), "{}", compressed.encoding_id());
+        Ok(())
+    }
+
+    #[test]
+    fn test_unsure_pick_estimates_over_the_top_k() -> VortexResult<()> {
+        let policy = Arc::new(LearnedPolicy::new(&UNSURE).with_fallback_k(1));
+        let compressed = assert_roundtrip(&compressor(policy), &runs())?;
+        assert!(compressed.is::<BitPacked>(), "{}", compressed.encoding_id());
+
+        let policy = Arc::new(LearnedPolicy::new(&UNSURE).with_fallback_k(0));
+        let compressed = assert_roundtrip(&compressor(policy), &runs())?;
+        assert!(compressed.is::<RunEnd>(), "{}", compressed.encoding_id());
+        Ok(())
+    }
+
+    #[test]
+    fn test_out_of_range_features_fall_back() -> VortexResult<()> {
+        let policy = Arc::new(LearnedPolicy::new(&OUT_OF_RANGE).with_fallback_k(1));
+        let compressed = assert_roundtrip(&compressor(policy), &runs())?;
+        assert!(compressed.is::<RunEnd>(), "{}", compressed.encoding_id());
+        Ok(())
+    }
+
+    #[test]
+    fn test_record_features_sees_every_integer_site() -> VortexResult<()> {
+        let recorder = Arc::new(RecordFeatures::new());
+        let compressor = compressor(Arc::<RecordFeatures>::clone(&recorder) as _);
+        let mut ctx = SESSION.create_execution_ctx();
+        compressor.compress(&runs(), &mut ctx)?;
+        let sites = recorder.take();
+        let root = sites.iter().find(|s| s.path.is_empty()).expect("root site");
+        assert_eq!(root.applied, Some(RunEndScheme.id()));
+        assert_eq!(root.features[0], 100_000f64.log2());
+        assert!(sites.iter().any(|s| s.path.starts_with("vortex.int.runend#")));
+        Ok(())
+    }
+}
