@@ -21,7 +21,6 @@ use vortex::expr::is_null;
 use vortex::expr::lit;
 use vortex::expr::or_collect;
 use vortex::scalar::Scalar;
-use vortex::scalar_fn::ScalarFnVTableExt;
 use vortex::scalar_fn::builtin::compare::Compare;
 use vortex::scalar_fn::builtin::operators::CompareOperator;
 use vortex::scan::selection::Selection;

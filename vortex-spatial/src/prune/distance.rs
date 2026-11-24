@@ -132,7 +132,8 @@ mod tests {
     use vortex_array::dtype::PType;
     use vortex_array::scalar::Scalar;
     use vortex_array::scalar_fn::EmptyOptions;
-    use vortex_array::scalar_fn::ScalarFnVTableExt;
+    use vortex_array::scalar_fn::builtin::compare::Compare;
+    use vortex_array::scalar_fn::builtin::operators::CompareOperator;
     use vortex_error::VortexResult;
     use vortex_expr::BoundExpression;
     use vortex_expr::ScalarFnExprExt;

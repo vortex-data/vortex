@@ -305,12 +305,12 @@ mod tests {
     use rstest::rstest;
     use vortex_array::IntoArray;
     use vortex_array::dtype::Nullability;
-    use vortex_array::expr::Expression;
-    use vortex_array::expr::pack;
     use vortex_array::stats::Precision;
     use vortex_buffer::ByteBuffer;
     use vortex_buffer::ByteBufferMut;
     use vortex_buffer::buffer;
+    use vortex_expr::Expression;
+    use vortex_expr::pack;
     use vortex_io::VortexReadAt;
     use vortex_io::filesystem::FileSystem;
     use vortex_io::session::RuntimeSession;

@@ -8,7 +8,6 @@ use std::sync::Arc;
 use vortex::dtype::FieldName;
 use vortex::error::VortexExpect;
 use vortex::expr::Expression;
-use vortex::expr::ScalarFnExprExt;
 use vortex::expr::and_collect;
 use vortex::expr::binary;
 use vortex::expr::get_item;

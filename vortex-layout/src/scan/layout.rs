@@ -624,8 +624,11 @@ mod tests {
     use futures::StreamExt;
     use futures::TryStreamExt;
     use rstest::rstest;
+    use vortex_array::dtype::Nullability;
+    use vortex_array::stats::Precision;
     use vortex_buffer::Buffer;
     use vortex_error::VortexResult;
+    use vortex_error::vortex_err;
     use vortex_expr::Expression;
     use vortex_expr::eq;
     use vortex_expr::lit;

@@ -52,7 +52,6 @@ use vortex::functions::like::LikeOptions;
 use vortex::layout::layouts::row_idx::row_idx;
 use vortex::scalar::Scalar;
 use vortex::scalar_fn::EmptyOptions as ScalarEmptyOptions;
-use vortex::scalar_fn::ScalarFnVTableExt;
 use vortex::scalar_fn::builtin::compare::Compare;
 use vortex::scalar_fn::builtin::literal::Literal;
 use vortex::scalar_fn::builtin::operators::CompareOperator;
