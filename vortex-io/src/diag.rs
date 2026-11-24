@@ -4,7 +4,7 @@
 //! Diagnostic work counters, exact rather than timed. Not for merging.
 //!
 //! Every counter is off until [`enable`] is called, so a disabled counter costs one relaxed load.
-//! An enabled counter adds to one of [`SHARDS`] cache-line-padded atomics, picked by thread, so
+//! An enabled counter adds to one of a fixed number of cache-line-padded atomics, picked by thread, so
 //! that counting from many threads does not serialize them on one cache line.
 
 use std::cell::Cell;

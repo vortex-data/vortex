@@ -31,6 +31,7 @@ use vortex::file::multi::parse_uri_or_path;
 use vortex::file::v2::FileStatsLayoutReader;
 use vortex::functions::dynamic::DynamicExprUpdates;
 use vortex::io::compat::Compat;
+use vortex::io::diag;
 use vortex::io::filesystem::FileSystemRef;
 use vortex::io::object_store::ObjectStoreFileSystem;
 use vortex::io::runtime::BlockingRuntime as _;
@@ -172,7 +173,7 @@ impl FileScanState {
             return None;
         }
         self.joined.fetch_add(1, Ordering::Relaxed);
-        vortex::io::diag::JOINS.inc();
+        diag::JOINS.inc();
         Some(Split(stream.clone()))
     }
 }
@@ -346,9 +347,9 @@ fn next_split_item(local: &mut LocalState) -> VortexResult<SplitItem> {
             }
         }
     };
-    vortex::io::diag::BATCHES.inc();
+    diag::BATCHES.inc();
     Ok(if array.is_empty() {
-        vortex::io::diag::EMPTY_BATCHES.inc();
+        diag::EMPTY_BATCHES.inc();
         SplitItem::Empty
     } else {
         SplitItem::Array(array)
