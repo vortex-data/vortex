@@ -165,7 +165,7 @@ jobs:
   python-cuda-test:
     name: "Python CUDA (test)"
     if: github.event.pull_request.draft != true && github.repository == 'vortex-data/vortex'
-    runs-on: runs-on=${{ github.run_id }}/region=${{ vars.CI_REGION || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T1') && 'ap-northeast-1') || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T2') && 'eu-central-1') || 'us-east-1' }}/runner=gpu/extras=s3-cache/tag=python-cuda-test
+    runs-on: runs-on=${{ github.run_id }}/region=${{ vars.CI_REGION || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T1') && 'ap-northeast-1') || 'us-east-1' }}/runner=gpu/extras=s3-cache/tag=python-cuda-test
     timeout-minutes: 30
     env:
       RUST_LOG: "info,maturin=off,uv=debug"

@@ -19,3 +19,5 @@ The hour comes from `github.event.pull_request.updated_at` or `github.event.head
 (`contains(ts, 'T1')` matches hours 10-19), and runs with neither go to `us-east-1`. The
 `CI_REGION` repository variable pins every CI job to one region. Copy the `region=` expression from
 an existing CI job when adding one. Benchmark workflows always use `region=us-east-1`.
+GPU (`runner=gpu`) jobs skip the 20-23 UTC branch and run in `us-east-1` then, because
+`eu-central-1` often has no g5/g6 capacity; copy the `region=` expression from a job in `cuda.yaml`.
