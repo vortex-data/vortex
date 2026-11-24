@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! The [`VTable`] of [`EliasFano`] arrays.
+
 use std::hash::Hash;
 use std::hash::Hasher;
 
-use num_traits::AsPrimitive;
 use vortex_array::Array;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
@@ -17,17 +18,12 @@ use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
 use vortex_array::arrays::Primitive;
-use vortex_array::arrays::PrimitiveArray;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability::NonNullable;
 use vortex_array::dtype::PType;
-use vortex_array::match_each_unsigned_integer_ptype;
 use vortex_array::require_child;
-use vortex_array::validity::Validity;
 use vortex_array::vtable::VTable;
-use vortex_buffer::BitBuffer;
-use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
@@ -39,6 +35,7 @@ use super::array::EliasFanoArraySlotsExt;
 use super::array::EliasFanoData;
 use super::array::EliasFanoSlots;
 use super::array::EliasFanoSlotsView;
+use super::decode::elias_fano_decode;
 use crate::Unary;
 
 mod operations;
@@ -115,7 +112,7 @@ impl VTable for EliasFano {
 
         vortex_ensure!(
             usize::from(data.lower_bits) < ptype.bit_width(),
-            "EliasFanoArray lower_bits {} must be below the bit width of {ptype}",
+            "EliasFanoArray lower_bits must be below the bit width of {ptype}, got {}",
             data.lower_bits
         );
 
@@ -126,10 +123,12 @@ impl VTable for EliasFano {
         vortex_ensure_eq!(slots.lower.dtype(), dtype);
         vortex_ensure_eq!(slots.lower.len(), len);
 
+        // A `u128`, because a `u64` with no low bits allows `2^64` buckets.
+        let max_buckets = 1u128 << (ptype.bit_width() - usize::from(data.lower_bits));
+        let num_buckets = slots.upper.len();
         vortex_ensure!(
-            u128::try_from(slots.upper.len())?
-                <= 1u128 << (ptype.bit_width() - usize::from(data.lower_bits)),
-            "EliasFanoArray has more buckets than {ptype} can hold above its low bits"
+            u128::try_from(num_buckets)? <= max_buckets,
+            "EliasFanoArray can have at most {max_buckets} buckets, got {num_buckets}"
         );
 
         Ok(())
@@ -174,73 +173,6 @@ impl VTable for EliasFano {
     }
 }
 
-/// Decode every value. `lower` must be primitive, and `upper` must be [`Unary`], whose bits are
-/// read directly, or primitive, whose counts are read bucket by bucket.
-fn elias_fano_decode(array: &EliasFanoArray) -> VortexResult<PrimitiveArray> {
-    if let Some(upper) = array.upper().as_opt::<Unary>() {
-        return decode_bits(array, &upper.to_bit_buffer());
-    }
-
-    let counts = array.upper().as_::<Primitive>();
-    let counts = counts.as_slice::<u64>();
-
-    // `validate` cannot see the children's values, so a malformed file is caught here.
-    let total: u128 = counts.iter().map(|&count| u128::from(count)).sum();
-    vortex_ensure_eq!(total, u128::try_from(array.len())?);
-
-    let lower = array.lower().as_::<Primitive>();
-    match_each_unsigned_integer_ptype!(array.dtype().as_ptype(), |T| {
-        let mut lows = lower.as_slice::<T>().iter();
-        let mut values = BufferMut::<T>::with_capacity(array.len());
-        let mut stray = 0;
-
-        for (bucket, &count) in counts.iter().enumerate() {
-            let high = AsPrimitive::<T>::as_(bucket) << array.lower_bits;
-            for &low in lows.by_ref().take(count.as_()) {
-                stray |= low;
-                values.push(high | low);
-            }
-        }
-
-        vortex_ensure_eq!(
-            stray >> array.lower_bits,
-            0,
-            "EliasFanoArray low bits must fit in lower_bits"
-        );
-
-        Ok(PrimitiveArray::new(values, Validity::NonNullable))
-    })
-}
-
-/// Decode every value from the bits of a [`Unary`] upper. The value at `index` is the `index`-th
-/// set bit, and the unset bits before it, one closing each earlier bucket, give its bucket.
-fn decode_bits(array: &EliasFanoArray, bits: &BitBuffer) -> VortexResult<PrimitiveArray> {
-    // Each set bit is one value, so a malformed file with too many or too few is caught here.
-    vortex_ensure_eq!(bits.true_count(), array.len());
-
-    let lower = array.lower().as_::<Primitive>();
-    match_each_unsigned_integer_ptype!(array.dtype().as_ptype(), |T| {
-        let lows = lower.as_slice::<T>();
-        let mut values = BufferMut::<T>::with_capacity(array.len());
-        let mut stray = 0;
-
-        bits.for_each_set_index(|bit| {
-            let index = values.len();
-            let low = lows[index];
-            stray |= low;
-            values.push((AsPrimitive::<T>::as_(bit - index) << array.lower_bits) | low);
-        });
-
-        vortex_ensure_eq!(
-            stray >> array.lower_bits,
-            0,
-            "EliasFanoArray low bits must fit in lower_bits"
-        );
-
-        Ok(PrimitiveArray::new(values, Validity::NonNullable))
-    })
-}
-
 /// Elias-Fano encoding for sorted, non-nullable unsigned integers.
 ///
 /// Each value is split into its high bits, `value >> lower_bits`, which pick its bucket, and its
@@ -259,6 +191,10 @@ pub struct EliasFano;
 
 impl EliasFano {
     /// Assemble an array from its bucket counts, `upper`, and its low bits, `lower`.
+    ///
+    /// This checks the dtypes and lengths of the children, but not their values. If the counts do
+    /// not sum to the length of `lower`, or a low value does not fit in `lower_bits` bits, the
+    /// array builds, but executing it returns an error.
     ///
     /// Prefer [`elias_fano_encode`](crate::elias_fano_encode) unless you already hold the
     /// children.

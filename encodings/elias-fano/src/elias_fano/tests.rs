@@ -1,13 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::sync::LazyLock;
-
-use num_traits::AsPrimitive;
 use prost::Message;
 use rstest::rstest;
 use vortex_array::Array;
-use vortex_array::ArrayContext;
 use vortex_array::ArrayDeserialization;
 use vortex_array::ArrayParts;
 use vortex_array::ArrayPlugin;
@@ -23,18 +19,12 @@ use vortex_array::compute::conformance::consistency::test_array_consistency;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability::NonNullable;
 use vortex_array::dtype::PType;
-use vortex_array::match_each_unsigned_integer_ptype;
-use vortex_array::serde::SerializeOptions;
-use vortex_array::serde::SerializedArray;
 use vortex_array::test_harness::check_metadata;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::VTable;
-use vortex_buffer::ByteBufferMut;
 use vortex_buffer::buffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
-use vortex_session::VortexSession;
-use vortex_session::registry::ReadContext;
 
 use super::EliasFano;
 use super::EliasFanoArray;
@@ -43,45 +33,20 @@ use super::array::EliasFanoArraySlotsExt;
 use super::array::EliasFanoSlots;
 use super::elias_fano_encode;
 use super::vtable::EliasFanoMetadata;
+use crate::SESSION;
 use crate::Unary;
+use crate::test_support::primitive;
+use crate::test_support::serde_roundtrip;
 use crate::unary_encode;
 
-static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-    let session = VortexSession::empty();
-    crate::initialize(&session);
-    session
-});
-
-/// `values` as a primitive array of `ptype`, which must hold every one of them.
-fn primitive(ptype: PType, values: &[u64]) -> PrimitiveArray {
-    match_each_unsigned_integer_ptype!(ptype, |T| {
-        PrimitiveArray::from_iter(values.iter().map(|&value| AsPrimitive::<T>::as_(value)))
-    })
-}
-
-fn encode_as(ptype: PType, values: &[u64]) -> VortexResult<Option<EliasFanoArray>> {
-    elias_fano_encode(primitive(ptype, values).as_ref().as_::<Primitive>())
-}
-
-fn serde_roundtrip(array: &ArrayRef) -> VortexResult<ArrayRef> {
-    let array_ctx = ArrayContext::empty();
-    let mut concat = ByteBufferMut::empty();
-    for buffer in array.serialize(&array_ctx, &SESSION, &SerializeOptions::default())? {
-        concat.extend_from_slice(buffer.as_ref());
-    }
-
-    SerializedArray::try_from(concat.freeze())?.decode(
-        array.dtype(),
-        array.len(),
-        &ReadContext::new(array_ctx.to_ids()),
-        &SESSION,
-    )
+fn encode(values: &PrimitiveArray) -> VortexResult<EliasFanoArray> {
+    elias_fano_encode(values.as_ref().as_::<Primitive>())?
+        .ok_or_else(|| vortex_err!("{} values did not encode", values.len()))
 }
 
 #[test]
 fn test_layout_example() -> VortexResult<()> {
-    let array = encode_as(PType::U64, &[3, 4, 9])?
-        .ok_or_else(|| vortex_err!("the example did not encode"))?;
+    let array = encode(&PrimitiveArray::from_iter([3u64, 4, 9]))?;
     let mut ctx = SESSION.create_execution_ctx();
 
     assert_eq!(array.lower_bits, 1);
@@ -109,9 +74,7 @@ fn test_layout_example() -> VortexResult<()> {
 #[case::squares(PType::U64, (0..1000).map(|i| i * i).collect())]
 fn test_roundtrip(#[case] ptype: PType, #[case] values: Vec<u64>) -> VortexResult<()> {
     let expected = primitive(ptype, &values);
-    let encoded = encode_as(ptype, &values)?
-        .ok_or_else(|| vortex_err!("{} values did not encode", values.len()))?
-        .into_array();
+    let encoded = encode(&expected)?.into_array();
     let mut ctx = SESSION.create_execution_ctx();
     assert_arrays_eq!(encoded, expected, &mut ctx);
 
@@ -135,8 +98,7 @@ fn test_roundtrip(#[case] ptype: PType, #[case] values: Vec<u64>) -> VortexResul
 #[case::squares(PType::U64, (0..1000).map(|i| i * i).collect())]
 fn test_unary_upper(#[case] ptype: PType, #[case] values: Vec<u64>) -> VortexResult<()> {
     let expected = primitive(ptype, &values);
-    let ef = encode_as(ptype, &values)?
-        .ok_or_else(|| vortex_err!("{} values did not encode", values.len()))?;
+    let ef = encode(&expected)?;
     let mut ctx = SESSION.create_execution_ctx();
     let counts = ef.upper().clone().execute::<PrimitiveArray>(&mut ctx)?;
     let upper = unary_encode(counts.as_ref().as_::<Primitive>(), &mut ctx)?

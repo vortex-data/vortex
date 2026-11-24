@@ -75,6 +75,11 @@ where
 /// a `Unary` `upper` costs one bit per value plus one per bucket. Once `max` reaches `len`, this
 /// leaves between `len + 1` and `2 × len` buckets. One more low bit would cost `len` bits to save
 /// at most `len` bucket bits, and one fewer would save `len` bits but add at least `len` buckets.
+///
+/// The split is the one in section 4 of [Quasi-Succinct Indices]. A `Unary` `upper` takes one bit
+/// more than the paper's upper bits: the unset bit that closes the last bucket.
+///
+/// [Quasi-Succinct Indices]: https://arxiv.org/abs/1206.4300v1
 pub fn elias_fano_lower_bits(max: u64, len: usize) -> u32 {
     (max / len.max(1) as u64).checked_ilog2().unwrap_or(0)
 }
