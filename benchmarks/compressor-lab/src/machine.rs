@@ -31,6 +31,68 @@ pub struct MachineInfo {
     pub os: String,
     /// The kernel release, when available.
     pub kernel: String,
+    /// Total memory in bytes, from `/proc/meminfo` when available.
+    #[serde(default)]
+    pub memory_bytes: u64,
+    /// CPU features the hardware reports, e.g. `avx2`, `avx512f`, `neon`.
+    #[serde(default)]
+    pub cpu_features: Vec<String>,
+}
+
+/// CPU features this binary was compiled to use. Two builds with different target features time
+/// differently on the same hardware, so they are part of [`build_id`].
+fn compiled_features() -> Vec<&'static str> {
+    let mut features = Vec::new();
+    macro_rules! check {
+        ($($name:literal),*) => {$(
+            if cfg!(target_feature = $name) {
+                features.push($name);
+            }
+        )*};
+    }
+    check!(
+        "sse4.2", "avx", "avx2", "bmi2", "fma", "avx512f", "avx512bw", "avx512vl", "neon", "sve"
+    );
+    features
+}
+
+/// The identity of this build: commit, compiler profile and the target features compiled in.
+///
+/// Timings are comparable only within one (machine, build) pair.
+pub fn build_id() -> anyhow::Result<String> {
+    let mut id = stable_digest(
+        "build",
+        &(
+            crate::identity::BUILD_GIT_COMMIT,
+            crate::identity::BUILD_VX_VERSION,
+            consts::ARCH,
+            if cfg!(debug_assertions) {
+                "debug"
+            } else {
+                "release"
+            },
+            compiled_features(),
+        ),
+    )?;
+    id.truncate(16);
+    Ok(id)
+}
+
+fn hardware_features(cpuinfo: &str) -> Vec<String> {
+    const INTERESTING: [&str; 10] = [
+        "sse4_2", "avx", "avx2", "bmi2", "fma", "avx512f", "avx512bw", "avx512vl", "asimd", "sve",
+    ];
+    let flags: Vec<&str> = cpuinfo
+        .lines()
+        .find(|l| l.starts_with("flags") || l.starts_with("Features"))
+        .and_then(|l| l.split_once(':'))
+        .map(|(_, v)| v.split_whitespace().collect())
+        .unwrap_or_default();
+    INTERESTING
+        .iter()
+        .filter(|f| flags.contains(f))
+        .map(|f| f.to_string())
+        .collect()
 }
 
 impl MachineInfo {
@@ -58,6 +120,17 @@ impl MachineInfo {
             kernel: fs::read_to_string("/proc/sys/kernel/osrelease")
                 .map(|k| k.trim().to_string())
                 .unwrap_or_default(),
+            memory_bytes: fs::read_to_string("/proc/meminfo")
+                .ok()
+                .and_then(|m| {
+                    m.lines()
+                        .find(|l| l.starts_with("MemTotal:"))
+                        .and_then(|l| l.split_whitespace().nth(1))
+                        .and_then(|kb| kb.parse::<u64>().ok())
+                })
+                .map(|kb| kb * 1024)
+                .unwrap_or_default(),
+            cpu_features: hardware_features(&cpuinfo),
         })
     }
 }

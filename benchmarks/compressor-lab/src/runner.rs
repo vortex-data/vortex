@@ -3,12 +3,16 @@
 
 //! Executing a plan's tasks against a store.
 //!
-//! Fact tasks (`chunk`, `features`, `candidates`) are skipped when their done marker exists, so a
-//! run can be interrupted and resumed, split across shards, and spread over machines. With
-//! `verify`, done tasks are re-run and their output compared, which detects nondeterminism.
+//! Fact tasks (`chunk`, `features`, `candidates`) are skipped when the ledger lists them, so a
+//! run can be interrupted and resumed, split across shards, and spread over machines that all
+//! write to one store. With `verify`, done tasks are re-run and their output compared, which
+//! detects nondeterminism.
 //!
-//! The `time` stage writes observations: each run appends new samples for its machine, so timings
-//! accumulate across runs and stay separate per machine.
+//! The candidates stage keeps no encoded bytes: it records each candidate's plan and the hash of
+//! the bytes the plan produces. The `time` stage, on any machine, replays each plan (the
+//! compression it times), checks the hash, then times decoding the replayed encoding. Samples go
+//! to that machine's own partition, tagged with its build, so any number of machines can time one
+//! store.
 
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
@@ -18,10 +22,7 @@ use std::time::Instant;
 use std::time::SystemTime;
 use std::time::UNIX_EPOCH;
 
-use anyhow::Context;
 use anyhow::bail;
-use serde::Deserialize;
-use serde::Serialize;
 use vortex::VortexSessionDefault;
 use vortex::session::VortexSession;
 use vortex_array::ArrayRef;
@@ -33,155 +34,41 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_btrblocks::BtrBlocksCompressor;
 
 use crate::blob;
-use crate::blob::BlobRef;
+use crate::chunks::CHUNKS_VERSION;
+use crate::chunks::ChunkLoader;
 use crate::features;
 use crate::key::TaskKey;
 use crate::machine::MachineInfo;
 use crate::machine::TimingEnv;
 use crate::measure;
-use crate::measure::CandidateMeasures;
 use crate::measure::TimingConfig;
 use crate::measure::Workload;
 use crate::oracle::OracleParams;
-use crate::oracle::SearchStats;
-use crate::oracle::SiteRow;
+use crate::plan::CANDIDATES_VERSION;
+use crate::plan::FEATURES_VERSION;
 use crate::plan::PlannedRun;
 use crate::plan::Task;
 use crate::plan::TaskInput;
 use crate::plan::TaskKind;
+use crate::segment::Batch;
+use crate::segment::MachineWriter;
+use crate::segment::Rows;
+use crate::segment::SegmentWriter;
+use crate::segment::TimingWriter;
 use crate::shard::Shard;
 use crate::site_features;
-use crate::site_features::SiteFeatureRow;
-use crate::source::ChunkInput;
+use crate::spec::Storage;
 use crate::store::Store;
-
-/// A chunk task's output.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ChunkFact {
-    /// Where the rows came from.
-    pub input: ChunkInput,
-    /// The canonical chunk.
-    pub blob: BlobRef,
-}
-
-/// A features task's output.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct FeaturesFact {
-    /// The feature version.
-    pub version: u32,
-    /// Feature names, in order.
-    pub names: Vec<String>,
-    /// Feature values; `None` where undefined (e.g. all-null chunks).
-    pub values: Vec<Option<f64>>,
-    /// Tiered features of every distinct site the production compressor visited, root first.
-    #[serde(default)]
-    pub sites: Vec<SiteFeatureRow>,
-}
-
-/// One candidate's result on one chunk.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct CandidateResult {
-    /// The candidate name.
-    pub name: String,
-    /// The error, if the candidate failed (e.g. a forced scheme that cannot encode the chunk).
-    pub error: Option<String>,
-    /// The encoding.
-    pub blob: Option<BlobRef>,
-    /// In-memory buffer bytes of the encoding.
-    pub nbytes: Option<u64>,
-    /// The root encoding id.
-    pub root: Option<String>,
-    /// The encoding tree.
-    pub tree: Option<String>,
-    /// The plan the encoding replays, as text (see [`vortex_compressor::plan::Plan`]).
-    #[serde(default)]
-    pub plan: Option<String>,
-    /// For oracle front plans: the search's predicted buffer bytes.
-    #[serde(default)]
-    pub predicted_nbytes: Option<u64>,
-    /// For oracle front plans: the search's predicted decode time, ns, from the shard machine.
-    #[serde(default)]
-    pub predicted_decode_ns: Option<u64>,
-}
-
-/// A candidates task's output.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct CandidatesFact {
-    /// One result per candidate, in plan order; the oracle adds one per front plan.
-    pub results: Vec<CandidateResult>,
-    /// The oracle's search effort, if the plan runs it.
-    #[serde(default)]
-    pub search: Option<SearchStats>,
-    /// The oracle's per-site table: one row per (site, scheme) tried. Decode times come from the
-    /// shard machine and are only for pruning and rough analysis.
-    #[serde(default)]
-    pub sites: Vec<SiteRow>,
-}
-
-/// One candidate's timings in one run.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CandidateTiming {
-    /// The candidate name.
-    pub name: String,
-    /// Compression times, ns.
-    pub compress_ns: Vec<u64>,
-    /// Decode-to-canonical times, ns.
-    pub decode_ns: Vec<u64>,
-    /// Whether re-compressing reproduced the stored encoding byte for byte.
-    pub deterministic: bool,
-    /// For `production` and `sizemodel`: compression times of the adaptive compressor, which
-    /// samples and estimates, ns. `compress_ns` replays the plan, with no selection cost.
-    #[serde(default)]
-    pub adaptive_compress_ns: Vec<u64>,
-}
-
-/// The production compressor timed on one chunk: with its own selection, and replaying the plan
-/// it chose. The difference is what selection (sampling and estimation) costs.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct ProductionTiming {
-    /// Full production compression times, ns.
-    pub compress_ns: Vec<u64>,
-    /// Times to replay production's own plan without estimating, ns.
-    pub replay_ns: Vec<u64>,
-}
-
-/// A time observation: one run of one candidates task on one machine.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TimeObservation {
-    /// The run id.
-    pub run_id: String,
-    /// The machine.
-    pub machine_id: String,
-    /// The code the timings were taken with.
-    pub git_commit: String,
-    /// Per-candidate timings.
-    pub timings: Vec<CandidateTiming>,
-    /// Decode, pushdown, memory and correctness measures per candidate, the canonical array
-    /// included as `canonical`.
-    #[serde(default)]
-    pub measures: Vec<CandidateMeasures>,
-    /// The reference kernel's time on this run, ns (see [`measure::reference_ns`]).
-    #[serde(default)]
-    pub reference_ns: Option<u64>,
-    /// Production compression with and without selection.
-    #[serde(default)]
-    pub production: Option<ProductionTiming>,
-    /// The timing conditions of this run.
-    #[serde(default)]
-    pub env: Option<TimingEnv>,
-    /// What computing each site's feature groups cost on this run, by site hash.
-    #[serde(default)]
-    pub feature_costs: Vec<SiteCosts>,
-}
-
-/// The feature-group costs of one site, measured in the `time` stage.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SiteCosts {
-    /// The site's content hash, as in [`SiteFeatureRow::hash`].
-    pub hash: String,
-    /// Cost per group.
-    pub costs: Vec<site_features::GroupCost>,
-}
+use crate::table::ChunkRow;
+use crate::table::EncodingRow;
+use crate::table::FeatureCostRow;
+use crate::table::FeatureRow;
+use crate::table::LedgerRow;
+use crate::table::MeasureRow;
+use crate::table::SearchRow;
+use crate::table::SiteFactRow;
+use crate::table::TimingRow;
+use crate::table::TimingRunRow;
 
 /// What to run.
 #[derive(Debug, Clone)]
@@ -231,10 +118,69 @@ pub struct Runner<'a> {
     store: &'a Store,
     session: VortexSession,
     candidates: BTreeMap<String, BtrBlocksCompressor>,
+    storage: BTreeMap<String, Storage>,
+    worker_id: String,
+}
+
+/// The rows a candidates task writes: encodings, plus the oracle's sites and search effort.
+#[derive(Debug, Default, serde::Serialize)]
+pub struct CandidateRows {
+    /// One row per candidate, and per oracle front plan.
+    pub encodings: Vec<EncodingRow>,
+    /// The oracle's per-site table.
+    pub sites: Vec<SiteFactRow>,
+    /// The oracle's search effort.
+    pub search: Vec<SearchRow>,
+}
+
+impl Batch for CandidateRows {
+    fn append(&mut self, other: Self) {
+        self.encodings.extend(other.encodings);
+        self.sites.extend(other.sites);
+        self.search.extend(other.search);
+    }
+
+    fn write(&self, store: &Store, segment: &str) -> anyhow::Result<()> {
+        use crate::table::Table as _;
+        store.put_segment(
+            &EncodingRow::dir(CANDIDATES_VERSION),
+            segment,
+            &self.encodings,
+        )?;
+        if !self.sites.is_empty() {
+            store.put_segment(&SiteFactRow::dir(CANDIDATES_VERSION), segment, &self.sites)?;
+        }
+        if !self.search.is_empty() {
+            store.put_segment(&SearchRow::dir(CANDIDATES_VERSION), segment, &self.search)?;
+        }
+        Ok(())
+    }
+
+    fn clear(&mut self) {
+        self.encodings.clear();
+        self.sites.clear();
+        self.search.clear();
+    }
+
+    fn len(&self) -> usize {
+        self.encodings.len() + self.sites.len() + self.search.len()
+    }
+}
+
+/// The cost tier of each base feature: 0 free context, 1 compressor stats, 2 distinct counts,
+/// 3 an extra pass.
+fn tier(name: &str) -> u8 {
+    match name {
+        "ptype_bits" | "signed" | "len" => 0,
+        "null_frac" | "bits_bp" | "bits_for" | "bits_zz" | "for_gain" | "avg_run" => 1,
+        "distinct" | "distinct_frac" | "top1_frac" | "top10_cover" => 2,
+        _ => 3,
+    }
 }
 
 impl<'a> Runner<'a> {
-    /// Prepares a runner. The plan's candidates are built once.
+    /// Prepares a runner. The plan's candidates are built once, and the plan is recorded in the
+    /// store so GC knows it is live.
     pub fn new(plan: &'a PlannedRun, store: &'a Store) -> anyhow::Result<Self> {
         let session = VortexSession::default();
         if crate::wrap::SESSION.get().is_none()
@@ -251,11 +197,25 @@ impl<'a> Runner<'a> {
             .chain(std::iter::once("production".to_string()))
             .collect();
         let candidates = crate::candidates::build(&session, &adaptive)?;
+        let storage = plan
+            .plan
+            .spec
+            .sources
+            .iter()
+            .map(|s| (s.name().to_string(), s.storage()))
+            .collect();
+        store.put_create(
+            &format!("plans/{}/plan.json", plan.plan.plan_id),
+            serde_json::to_vec_pretty(&plan.plan)?,
+        )?;
+        crate::gc::record_tasks(store, &plan.plan.plan_id, &plan.tasks)?;
         Ok(Self {
             plan,
             store,
             session,
             candidates,
+            storage,
+            worker_id: crate::segment::new_worker_id(),
         })
     }
 
@@ -271,9 +231,9 @@ impl<'a> Runner<'a> {
         let mut reports = BTreeMap::new();
         for stage in &options.stages {
             let report = match stage.as_str() {
-                "chunk" => self.run_facts(TaskKind::Chunk, options)?,
-                "features" => self.run_facts(TaskKind::Features, options)?,
-                "candidates" => self.run_facts(TaskKind::Candidates, options)?,
+                "chunk" => self.run_chunks(options)?,
+                "features" => self.run_features(options)?,
+                "candidates" => self.run_candidates(options)?,
                 "time" => self.run_time(options)?,
                 other => {
                     bail!("unknown stage `{other}`; stages are chunk, features, candidates, time")
@@ -292,16 +252,31 @@ impl<'a> Runner<'a> {
         Ok(reports)
     }
 
-    fn run_facts(&self, kind: TaskKind, options: &RunOptions) -> anyhow::Result<StageReport> {
+    fn git_commit(&self) -> &str {
+        &self.plan.plan.identity.git_commit
+    }
+
+    /// Runs one fact stage: `make` turns a task into rows, which a [`SegmentWriter`] flushes as
+    /// segments followed by their ledger segment.
+    fn run_facts<B: Batch>(
+        &self,
+        kind: TaskKind,
+        options: &RunOptions,
+        ready: impl Fn(&Task) -> bool,
+        mut make: impl FnMut(&Task, &mut ExecutionCtx) -> anyhow::Result<B>,
+    ) -> anyhow::Result<StageReport> {
+        let done = self.store.ledger(kind)?;
+        let mut writer: SegmentWriter<'_, B> =
+            SegmentWriter::new(self.store, &self.worker_id, kind, self.git_commit());
         let mut report = StageReport::default();
         let mut ctx = self.session.create_execution_ctx();
         for task in self.tasks(kind, options.shard) {
-            let previous = self.store.ledger(&task.key)?;
+            let previous: Option<&LedgerRow> = done.get(&task.key);
             if previous.is_some() && !options.verify {
                 report.skipped += 1;
                 continue;
             }
-            if !task.deps.iter().all(|d| self.store.is_done(d)) {
+            if !ready(task) {
                 report.blocked += 1;
                 continue;
             }
@@ -311,15 +286,14 @@ impl<'a> Runner<'a> {
             }
             let start = Instant::now();
             let outcome = if options.keep_going {
-                std::panic::catch_unwind(AssertUnwindSafe(|| {
-                    self.run_fact(kind, task, options, &mut ctx, start)
-                }))
-                .unwrap_or_else(|panic| Err(anyhow::anyhow!("panic: {}", panic_message(&panic))))
+                std::panic::catch_unwind(AssertUnwindSafe(|| make(task, &mut ctx))).unwrap_or_else(
+                    |panic| Err(anyhow::anyhow!("panic: {}", panic_message(&panic))),
+                )
             } else {
-                self.run_fact(kind, task, options, &mut ctx, start)
+                make(task, &mut ctx)
             };
-            let hash = match outcome {
-                Ok(hash) => hash,
+            let rows = match outcome {
+                Ok(rows) => rows,
                 Err(error) if options.keep_going => {
                     eprintln!("failed: {} {}: {error:#}", kind.as_str(), task.key);
                     report.failed.push((task.key.clone(), format!("{error:#}")));
@@ -327,6 +301,7 @@ impl<'a> Runner<'a> {
                 }
                 Err(error) => return Err(error),
             };
+            let hash = writer.add(&task.key, rows, start.elapsed().as_millis())?;
             report.ran += 1;
             if let Some(previous) = previous
                 && previous.output_hash != hash
@@ -339,125 +314,164 @@ impl<'a> Runner<'a> {
                 );
             }
         }
+        writer.flush()?;
         Ok(report)
     }
 
-    fn run_fact(
-        &self,
-        kind: TaskKind,
-        task: &Task,
-        options: &RunOptions,
-        ctx: &mut ExecutionCtx,
-        start: Instant,
-    ) -> anyhow::Result<String> {
-        match &task.input {
-            TaskInput::Chunk(input) => {
-                let fact = self.chunk(input, &options.data, ctx)?;
-                self.store
-                    .put_fact(kind, &task.key, &fact, start.elapsed().as_millis())
-            }
-            TaskInput::Features { chunk, version } => {
-                let fact = self.features(chunk, *version, ctx)?;
-                self.store
-                    .put_fact(kind, &task.key, &fact, start.elapsed().as_millis())
-            }
-            TaskInput::Candidates {
-                chunk,
-                candidates,
-                search,
-                ..
-            } => {
+    fn run_chunks(&self, options: &RunOptions) -> anyhow::Result<StageReport> {
+        self.run_facts::<Rows<ChunkRow>>(
+            TaskKind::Chunk,
+            options,
+            |_| true,
+            |task, ctx| {
+                let TaskInput::Chunk(input) = &task.input else {
+                    bail!("chunk task {} has a {:?} input", task.key, task.input);
+                };
+                let storage = self
+                    .storage
+                    .get(input.source())
+                    .copied()
+                    .unwrap_or(Storage::Local);
+                let row = crate::chunks::make(
+                    &task.key,
+                    input,
+                    storage,
+                    &options.data,
+                    &self.session,
+                    ctx,
+                )?;
+                Ok(Rows::new(CHUNKS_VERSION, vec![row]))
+            },
+        )
+    }
+
+    fn run_features(&self, options: &RunOptions) -> anyhow::Result<StageReport> {
+        let loader = ChunkLoader::new(self.store, &options.data)?;
+        self.run_facts::<Rows<FeatureRow>>(
+            TaskKind::Features,
+            options,
+            |task| task.deps.iter().all(|d| loader.row(d).is_some()),
+            |task, ctx| {
+                let TaskInput::Features { chunk, version } = &task.input else {
+                    bail!("features task {} has a {:?} input", task.key, task.input);
+                };
+                if *version != FEATURES_VERSION {
+                    bail!(
+                        "this binary computes features version {FEATURES_VERSION}, the plan asks \
+                         for {version}"
+                    );
+                }
+                let (_, array) = loader.load(chunk, ctx)?;
+                let mut rows = Vec::new();
+                if site_features::family(array.dtype()) == "int" {
+                    let primitive = array.clone().execute::<PrimitiveArray>(ctx)?;
+                    let values = features::from_primitive(&primitive, ctx)?;
+                    rows.extend(features::NAMES.iter().zip(values).map(|(name, value)| {
+                        FeatureRow {
+                            task_key: task.key.to_string(),
+                            chunk_key: chunk.to_string(),
+                            site: "root".to_string(),
+                            site_depth: 0,
+                            feature: (*name).to_string(),
+                            tier: Some(tier(name)),
+                            window: None,
+                            value: value.is_finite().then_some(value),
+                            site_hash: None,
+                            applied: None,
+                            family: None,
+                            site_context: None,
+                        }
+                    }));
+                }
+                // Feature costs are timings, so the `time` stage measures them; facts stay
+                // deterministic.
+                for site in site_features::production_sites(&array, &self.session, ctx)? {
+                    let context = serde_json::to_string(&site.site)?;
+                    let path = site.site.path.join(" > ");
+                    let depth = u8::try_from(site.site.path.len().saturating_sub(1))?;
+                    for feature in site.features.features {
+                        rows.push(FeatureRow {
+                            task_key: task.key.to_string(),
+                            chunk_key: chunk.to_string(),
+                            site: path.clone(),
+                            site_depth: depth,
+                            feature: feature.name,
+                            tier: Some(feature.tier),
+                            window: None,
+                            value: feature.value,
+                            site_hash: Some(site.hash.clone()),
+                            applied: site.applied.clone(),
+                            family: Some(site.features.family.clone()),
+                            site_context: Some(context.clone()),
+                        });
+                    }
+                }
+                Ok(Rows::new(FEATURES_VERSION, rows))
+            },
+        )
+    }
+
+    fn run_candidates(&self, options: &RunOptions) -> anyhow::Result<StageReport> {
+        let loader = ChunkLoader::new(self.store, &options.data)?;
+        self.run_facts::<CandidateRows>(
+            TaskKind::Candidates,
+            options,
+            |task| task.deps.iter().all(|d| loader.row(d).is_some()),
+            |task, ctx| {
+                let TaskInput::Candidates {
+                    chunk,
+                    candidates,
+                    search,
+                    ..
+                } = &task.input
+                else {
+                    bail!("candidates task {} has a {:?} input", task.key, task.input);
+                };
                 let params = OracleParams {
                     k: search.k as usize,
                     epsilon: search.epsilon,
                     max_compressions: search.max_compressions,
                     decode_reps: search.decode_reps,
                 };
-                let fact = self.candidates(chunk, candidates, params, ctx)?;
-                self.store
-                    .put_fact(kind, &task.key, &fact, start.elapsed().as_millis())
-            }
-        }
-    }
-
-    fn load_chunk(
-        &self,
-        chunk: &TaskKey,
-        ctx: &mut ExecutionCtx,
-    ) -> anyhow::Result<(ChunkFact, ArrayRef)> {
-        let fact: ChunkFact = self.store.fact(TaskKind::Chunk, chunk)?;
-        let array =
-            blob::deserialize(&fact.blob, self.store.blob(&fact.blob.hash)?, &self.session)?;
-        let array = array.execute::<Canonical>(ctx)?.into_array();
-        Ok((fact, array))
-    }
-
-    fn chunk(
-        &self,
-        input: &ChunkInput,
-        data: &crate::load::DataLocation,
-        ctx: &mut ExecutionCtx,
-    ) -> anyhow::Result<ChunkFact> {
-        let arrow = crate::load::arrow(input, data)?;
-        let array = crate::load::to_vortex(&arrow, ctx)?;
-        let (blob, bytes) = blob::serialize(&array, &self.session)?;
-        self.store.put_blob(&blob.hash, &bytes)?;
-        Ok(ChunkFact {
-            input: input.clone(),
-            blob,
-        })
-    }
-
-    fn features(
-        &self,
-        chunk: &TaskKey,
-        version: u32,
-        ctx: &mut ExecutionCtx,
-    ) -> anyhow::Result<FeaturesFact> {
-        if version != crate::plan::FEATURES_VERSION {
-            bail!(
-                "this binary computes features version {}, the plan asks for {version}",
-                crate::plan::FEATURES_VERSION
-            );
-        }
-        let (_, array) = self.load_chunk(chunk, ctx)?;
-        let (names, values) = if site_features::family(array.dtype()) == "int" {
-            let primitive = array.clone().execute::<PrimitiveArray>(ctx)?;
-            let base = features::from_primitive(&primitive, ctx)?;
-            (
-                features::NAMES.iter().map(|n| n.to_string()).collect(),
-                base.iter().map(|v| v.is_finite().then_some(*v)).collect(),
-            )
-        } else {
-            (Vec::new(), Vec::new())
-        };
-        Ok(FeaturesFact {
-            version,
-            names,
-            values,
-            // Costs are timings, so they are measured in the `time` stage; facts stay deterministic.
-            sites: site_features::production_sites(&array, &self.session, ctx)?
-                .into_iter()
-                .map(|mut row| {
-                    row.features.costs.clear();
-                    row
-                })
-                .collect(),
-        })
+                self.candidates(&task.key, chunk, candidates, params, &loader, ctx)
+            },
+        )
     }
 
     fn candidates(
         &self,
+        task: &TaskKey,
         chunk: &TaskKey,
         names: &[String],
         params: OracleParams,
+        loader: &ChunkLoader,
         ctx: &mut ExecutionCtx,
-    ) -> anyhow::Result<CandidatesFact> {
-        let (_, array) = self.load_chunk(chunk, ctx)?;
+    ) -> anyhow::Result<CandidateRows> {
+        let (row, array) = loader.load(chunk, ctx)?;
         let production = &self.candidates["production"];
-        let mut results = Vec::with_capacity(names.len());
-        let mut search = None;
-        let mut sites = Vec::new();
+        let mut out = CandidateRows::default();
+        let base = |name: &str| EncodingRow {
+            task_key: task.to_string(),
+            chunk_key: chunk.to_string(),
+            candidate: name.to_string(),
+            ok: false,
+            error: None,
+            plan: None,
+            plan_hash: None,
+            encoded_hash: None,
+            encoded_ids: Vec::new(),
+            bytes: None,
+            nbytes: None,
+            root: None,
+            tree: None,
+            verified: false,
+            predicted_nbytes: None,
+            predicted_decode_ns: None,
+        };
+        let failed = |name: &str, error: &str| EncodingRow {
+            error: Some(error.lines().next().unwrap_or_default().to_string()),
+            ..base(name)
+        };
         for name in names {
             let outcome = std::panic::catch_unwind(AssertUnwindSafe(|| {
                 crate::candidates::produce(
@@ -472,17 +486,39 @@ impl<'a> Runner<'a> {
             let produced = match outcome {
                 Ok(Ok((produced, output))) => {
                     if let Some(output) = output {
-                        search = Some(output.stats);
-                        sites = output.sites;
+                        out.search.push(SearchRow {
+                            task_key: task.to_string(),
+                            chunk_key: chunk.to_string(),
+                            sites: output.stats.sites,
+                            compressions: output.stats.compressions,
+                            memo_hits: output.stats.memo_hits,
+                            capped_sites: output.stats.capped_sites,
+                            search_ms: output.stats.search_ms,
+                        });
+                        out.sites = output
+                            .sites
+                            .into_iter()
+                            .map(|s| SiteFactRow {
+                                task_key: task.to_string(),
+                                chunk_key: chunk.to_string(),
+                                path: s.path,
+                                scheme: s.scheme,
+                                won: s.won,
+                                nbytes: s.nbytes,
+                                decode_ns: s.decode_ns,
+                                best_nbytes: s.best_nbytes,
+                                best_decode_ns: s.best_decode_ns,
+                            })
+                            .collect();
                     }
                     produced
                 }
                 Ok(Err(error)) => {
-                    results.push(failed(name, error.to_string()));
+                    out.encodings.push(failed(name, &error.to_string()));
                     continue;
                 }
                 Err(_) => {
-                    results.push(failed(name, "panic".to_string()));
+                    out.encodings.push(failed(name, "panic"));
                     continue;
                 }
             };
@@ -492,35 +528,45 @@ impl<'a> Runner<'a> {
                 }));
                 let result = match replayed {
                     Ok(Ok(encoded)) => {
-                        let (blob, bytes) = blob::serialize(&encoded, &self.session)?;
-                        self.store.put_blob(&blob.hash, &bytes)?;
-                        CandidateResult {
-                            name: produced.name,
-                            error: None,
+                        let (blob, _) = blob::serialize(&encoded, &self.session)?;
+                        let decoded = encoded.clone().execute::<Canonical>(ctx)?.into_array();
+                        let verified =
+                            crate::chunks::logical_hash(&decoded, ctx)? == row.canonical_hash;
+                        if !verified {
+                            eprintln!(
+                                "{} on chunk {chunk} does not decode to the chunk",
+                                produced.name
+                            );
+                        }
+                        let plan = produced.plan.to_string();
+                        EncodingRow {
+                            ok: true,
+                            plan_hash: Some(crate::key::bytes_digest(plan.as_bytes())),
+                            plan: Some(plan),
+                            encoded_hash: Some(blob.hash),
+                            encoded_ids: blob.ids,
+                            bytes: Some(blob.bytes),
                             nbytes: Some(encoded.nbytes()),
                             root: Some(encoded.encoding_id().to_string()),
                             tree: Some(tree(&encoded)),
-                            blob: Some(blob),
-                            plan: Some(produced.plan.to_string()),
+                            verified,
                             predicted_nbytes: produced.predicted.map(|p| p.0),
                             predicted_decode_ns: produced.predicted.map(|p| p.1),
+                            ..base(&produced.name)
                         }
                     }
-                    Ok(Err(error)) => failed(&produced.name, error.to_string()),
-                    Err(_) => failed(&produced.name, "panic".to_string()),
+                    Ok(Err(error)) => failed(&produced.name, &error.to_string()),
+                    Err(_) => failed(&produced.name, "panic"),
                 };
-                results.push(result);
+                out.encodings.push(result);
             }
         }
-        Ok(CandidatesFact {
-            results,
-            search,
-            sites,
-        })
+        Ok(out)
     }
 
     fn run_time(&self, options: &RunOptions) -> anyhow::Result<StageReport> {
         let machine = MachineInfo::current()?;
+        let build_id = crate::machine::build_id()?;
         self.store.put_machine(&machine)?;
         let env = TimingEnv::current();
         if !env.warnings().is_empty() {
@@ -531,141 +577,194 @@ impl<'a> Runner<'a> {
             SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis(),
             std::process::id()
         );
+        let mut runs =
+            MachineWriter::<TimingRunRow>::new(self.store, &self.worker_id, &machine.machine_id);
+        runs.extend([TimingRunRow {
+            machine_id: machine.machine_id.clone(),
+            build_id: build_id.clone(),
+            run_id: run_id.clone(),
+            git_commit: self.git_commit().to_string(),
+            governor: env.governor.clone(),
+            turbo: env.turbo,
+            cpus_allowed: env.cpus_allowed.clone(),
+            release: env.release,
+            target_features: env.target_features.clone(),
+            warnings: env.warnings(),
+        }])?;
+        runs.flush()?;
+        let mut measures_out =
+            MachineWriter::<MeasureRow>::new(self.store, &self.worker_id, &machine.machine_id);
+        let mut costs_out =
+            MachineWriter::<FeatureCostRow>::new(self.store, &self.worker_id, &machine.machine_id);
+        let done = self.store.ledger(TaskKind::Candidates)?;
+        let mut encodings: BTreeMap<String, Vec<EncodingRow>> = BTreeMap::new();
+        for row in self.store.read_table::<EncodingRow>(CANDIDATES_VERSION)? {
+            encodings.entry(row.task_key.clone()).or_default().push(row);
+        }
+        let loader = ChunkLoader::new(self.store, &options.data)?;
+        let mut writer = TimingWriter::new(self.store, &self.worker_id, &machine.machine_id);
+        let production = &self.candidates["production"];
         let mut report = StageReport::default();
         let mut ctx = self.session.create_execution_ctx();
         for task in self.tasks(TaskKind::Candidates, options.shard) {
-            if !self.store.is_done(&task.key) {
+            let (Some(_), Some(rows)) = (done.get(&task.key), encodings.get(task.key.as_str()))
+            else {
                 report.blocked += 1;
                 continue;
-            }
+            };
             let TaskInput::Candidates { chunk, .. } = &task.input else {
                 continue;
             };
-            let (_, array) = self.load_chunk(chunk, &mut ctx)?;
-            let fact: CandidatesFact = self.store.fact(TaskKind::Candidates, &task.key)?;
-            let mut timings = Vec::new();
-            let mut measured: BTreeMap<String, (Vec<u64>, Vec<u64>, bool)> = BTreeMap::new();
-            // The replayed encoding of each distinct plan output, by hash, for the measures.
-            let mut replayed: BTreeMap<String, ArrayRef> = BTreeMap::new();
-            let mut measured_names: Vec<(String, String)> = Vec::new();
-            for result in &fact.results {
-                let Some(stored) = &result.blob else {
+            let (_, array) = loader.load(chunk, &mut ctx)?;
+            let sample = |candidate: Option<&str>, hash: &str, matched: bool, op: &str| {
+                let base = TimingRow {
+                    machine_id: machine.machine_id.clone(),
+                    build_id: build_id.clone(),
+                    run_id: run_id.clone(),
+                    git_commit: self.git_commit().to_string(),
+                    task_key: task.key.to_string(),
+                    chunk_key: chunk.to_string(),
+                    candidate: candidate.map(str::to_string),
+                    encoded_hash: hash.to_string(),
+                    replay_matched: matched,
+                    op: op.to_string(),
+                    rep: 0,
+                    ns: 0,
+                };
+                move |rep: u32, ns: u64| TimingRow {
+                    rep,
+                    ns,
+                    ..base.clone()
+                }
+            };
+            let mut samples = Vec::new();
+            // Identical encodings (the same plan reached by several candidates) are rebuilt and
+            // timed once, keyed by their hash, so candidate order can't favor one name.
+            let mut rebuilt: BTreeMap<String, (ArrayRef, bool)> = BTreeMap::new();
+            for row in rows.iter().filter(|r| r.ok) {
+                let (Some(hash), Some(plan_text)) = (&row.encoded_hash, &row.plan) else {
                     continue;
                 };
-                // Identical encodings (the same plan reached by several candidates) are timed once
-                // and share their samples, so the order candidates run in can't favor one name.
-                let (compress_ns, decode_ns, deterministic) = if let Some(done) =
-                    measured.get(&stored.hash)
-                {
-                    done.clone()
-                } else {
-                    let plan_text = result.plan.as_deref().with_context(|| {
-                        format!("{} has no plan; re-run candidates", result.name)
-                    })?;
+                if !rebuilt.contains_key(hash) {
                     let plan = crate::candidates::parse_plan(plan_text, &self.session)?;
-                    let production = &self.candidates["production"];
-                    let mut compress_ns = Vec::with_capacity(options.compress_reps as usize);
-                    let mut deterministic = true;
-                    for _ in 0..options.compress_reps {
+                    let mut times = Vec::with_capacity(options.compress_reps as usize);
+                    let mut matched = true;
+                    let mut last = None;
+                    for _ in 0..options.compress_reps.max(1) {
                         let start = Instant::now();
                         let encoded = production.compress_with_plan(&array, &plan, &mut ctx)?;
-                        compress_ns.push(u64::try_from(start.elapsed().as_nanos())?);
-                        let same = blob::serialize(&encoded, &self.session)?.0.hash == stored.hash;
-                        deterministic &= same;
-                        if same {
-                            replayed.insert(stored.hash.clone(), encoded);
-                        }
+                        times.push(u64::try_from(start.elapsed().as_nanos())?);
+                        matched &= blob::serialize(&encoded, &self.session)?.0.hash == *hash;
+                        last = Some(encoded);
                     }
-                    let encoded =
-                        blob::deserialize(stored, self.store.blob(&stored.hash)?, &self.session)?;
-                    black_box(encoded.clone().execute::<Canonical>(&mut ctx)?);
-                    let mut decode_ns = Vec::with_capacity(options.decode_reps as usize);
-                    for _ in 0..options.decode_reps {
-                        let start = Instant::now();
-                        black_box(encoded.clone().execute::<Canonical>(&mut ctx)?);
-                        decode_ns.push(u64::try_from(start.elapsed().as_nanos())?);
+                    if !matched {
+                        eprintln!(
+                            "nondeterminism: {} replayed differently on chunk {chunk}",
+                            row.candidate
+                        );
                     }
-                    let done = (compress_ns, decode_ns, deterministic);
-                    measured.insert(stored.hash.clone(), done.clone());
-                    done
-                };
-                let mut adaptive_compress_ns = Vec::new();
-                if let Some(adaptive) = self.candidates.get(&result.name) {
-                    for _ in 0..options.compress_reps {
+                    let make = sample(None, hash, matched, "compress");
+                    samples.extend(times.into_iter().zip(0u32..).map(|(ns, rep)| make(rep, ns)));
+                    if let Some(encoded) = last {
+                        rebuilt.insert(hash.clone(), (encoded, matched));
+                    }
+                }
+                if let Some(adaptive) = self.candidates.get(&row.candidate) {
+                    let matched = rebuilt.get(hash).is_some_and(|r| r.1);
+                    let make = sample(Some(&row.candidate), hash, matched, "adaptive_compress");
+                    for rep in 0..options.compress_reps {
                         let start = Instant::now();
                         black_box(adaptive.compress(&array, &mut ctx)?);
-                        adaptive_compress_ns.push(u64::try_from(start.elapsed().as_nanos())?);
+                        samples.push(make(rep, u64::try_from(start.elapsed().as_nanos())?));
                     }
                 }
-                if !deterministic {
-                    eprintln!(
-                        "nondeterminism: {} re-compressed differently on {}",
-                        result.name, task.key
-                    );
-                }
-                measured_names.push((result.name.clone(), stored.hash.clone()));
-                timings.push(CandidateTiming {
-                    name: result.name.clone(),
-                    compress_ns,
-                    decode_ns,
-                    deterministic,
-                    adaptive_compress_ns,
-                });
             }
-            // Each distinct encoding is measured once, from its verified plan replay, and its
-            // measures are shared by every candidate that produced it.
-            let encoded_candidates: Vec<(String, ArrayRef)> = replayed
+            for (hash, (encoded, matched)) in &rebuilt {
+                black_box(encoded.clone().execute::<Canonical>(&mut ctx)?);
+                let make = sample(None, hash, *matched, "decode");
+                for rep in 0..options.decode_reps {
+                    let start = Instant::now();
+                    black_box(encoded.clone().execute::<Canonical>(&mut ctx)?);
+                    samples.push(make(rep, u64::try_from(start.elapsed().as_nanos())?));
+                }
+            }
+
+            // Production with its own selection, interleaved with replaying the plan it chose:
+            // the difference is what selection costs.
+            let (_, production_plan) = production.compress_recording_plan(&array, &mut ctx)?;
+            let full = sample(Some("production"), "", true, "production_compress");
+            let replay = sample(Some("production"), "", true, "production_replay");
+            for rep in 0..options.compress_reps.max(1) {
+                let start = Instant::now();
+                black_box(production.compress(&array, &mut ctx)?);
+                samples.push(full(rep, u64::try_from(start.elapsed().as_nanos())?));
+                let start = Instant::now();
+                black_box(production.compress_with_plan(&array, &production_plan, &mut ctx)?);
+                samples.push(replay(rep, u64::try_from(start.elapsed().as_nanos())?));
+            }
+            let reference = measure::reference_ns(usize::try_from(array.nbytes())?);
+            samples.push(sample(None, "", true, "reference")(0, reference));
+            writer.extend(samples)?;
+
+            // Each distinct encoding is measured once, from its verified replay, and its measures
+            // are shared by every candidate that produced it.
+            let verified: Vec<(String, ArrayRef)> = rebuilt
                 .iter()
-                .map(|(hash, array)| (hash.clone(), array.clone()))
+                .filter(|(_, (_, matched))| *matched)
+                .map(|(hash, (encoded, _))| (hash.clone(), encoded.clone()))
                 .collect();
             let workload = Workload::standard(&array, options.timing.seed, &mut ctx)?;
-            let by_hash = measure::measure(
-                &array,
-                &encoded_candidates,
-                &workload,
-                &options.timing,
-                &mut ctx,
-            )?;
-            let mut measures: Vec<CandidateMeasures> = by_hash
-                .iter()
-                .filter(|m| m.name == measure::CANONICAL)
-                .cloned()
-                .collect();
-            for (name, hash) in &measured_names {
-                if let Some(m) = by_hash.iter().find(|m| &m.name == hash) {
-                    measures.push(CandidateMeasures {
-                        name: name.clone(),
-                        ops: m.ops.clone(),
-                    });
-                }
-            }
-            let production = self.time_production(&array, options.compress_reps, &mut ctx)?;
-            let feature_costs = site_features::production_sites(&array, &self.session, &mut ctx)?
-                .into_iter()
-                .map(|row| SiteCosts {
-                    hash: row.hash,
-                    costs: row.features.costs,
-                })
-                .collect();
-            self.store.put_observation(
-                "time",
-                &machine.machine_id,
-                &task.key,
-                &run_id,
-                &TimeObservation {
-                    run_id: run_id.clone(),
+            let by_hash =
+                measure::measure(&array, &verified, &workload, &options.timing, &mut ctx)?;
+            let mut names: Vec<(String, Option<String>)> =
+                vec![(measure::CANONICAL.to_string(), None)];
+            names.extend(
+                rows.iter()
+                    .filter(|r| r.ok)
+                    .filter_map(|r| Some((r.candidate.clone(), Some(r.encoded_hash.clone()?)))),
+            );
+            for (candidate, hash) in names {
+                let key = hash.as_deref().unwrap_or(measure::CANONICAL);
+                let Some(m) = by_hash.iter().find(|m| m.name == key) else {
+                    continue;
+                };
+                measures_out.extend(m.ops.iter().map(|op| MeasureRow {
                     machine_id: machine.machine_id.clone(),
-                    git_commit: self.plan.plan.identity.git_commit.clone(),
-                    timings,
-                    measures,
-                    reference_ns: Some(measure::reference_ns(array.nbytes() as usize)),
-                    production: Some(production),
-                    env: Some(env.clone()),
-                    feature_costs,
-                },
-            )?;
+                    build_id: build_id.clone(),
+                    run_id: run_id.clone(),
+                    git_commit: self.git_commit().to_string(),
+                    task_key: task.key.to_string(),
+                    chunk_key: chunk.to_string(),
+                    candidate: candidate.clone(),
+                    encoded_hash: hash.clone(),
+                    op: op.op.clone(),
+                    correct: op.correct,
+                    error: op.error.clone(),
+                    batch: op.batch,
+                    samples_ns: op.samples_ns.clone(),
+                    converged: op.converged,
+                    peak_bytes: op.memory.map(|m| m.peak_bytes),
+                    allocations: op.memory.map(|m| m.allocations),
+                }))?;
+            }
+            for site in site_features::production_sites(&array, &self.session, &mut ctx)? {
+                costs_out.extend(site.features.costs.into_iter().map(|c| FeatureCostRow {
+                    machine_id: machine.machine_id.clone(),
+                    build_id: build_id.clone(),
+                    run_id: run_id.clone(),
+                    task_key: task.key.to_string(),
+                    chunk_key: chunk.to_string(),
+                    site_hash: site.hash.clone(),
+                    group: c.group,
+                    tier: c.tier,
+                    ns: c.ns,
+                }))?;
+            }
             report.ran += 1;
         }
+        writer.flush()?;
+        measures_out.flush()?;
+        costs_out.flush()?;
         Ok(report)
     }
 }
@@ -676,47 +775,6 @@ fn panic_message(panic: &Box<dyn std::any::Any + Send>) -> String {
         .map(|s| (*s).to_string())
         .or_else(|| panic.downcast_ref::<String>().cloned())
         .unwrap_or_else(|| "unknown".to_string())
-}
-
-impl Runner<'_> {
-    /// Times production compression, interleaved with replaying the plan it chose.
-    fn time_production(
-        &self,
-        array: &ArrayRef,
-        reps: u32,
-        ctx: &mut ExecutionCtx,
-    ) -> anyhow::Result<ProductionTiming> {
-        let production = BtrBlocksCompressor::from_session(&self.session);
-        let (_, plan) = production.0.compress_recording_plan(array, ctx)?;
-        let mut timing = ProductionTiming::default();
-        for _ in 0..reps.max(1) {
-            let start = Instant::now();
-            black_box(production.compress(array, ctx)?);
-            timing
-                .compress_ns
-                .push(u64::try_from(start.elapsed().as_nanos())?);
-            let start = Instant::now();
-            black_box(production.0.compress_with_plan(array, &plan, ctx)?);
-            timing
-                .replay_ns
-                .push(u64::try_from(start.elapsed().as_nanos())?);
-        }
-        Ok(timing)
-    }
-}
-
-fn failed(name: &str, error: String) -> CandidateResult {
-    CandidateResult {
-        name: name.to_string(),
-        error: Some(error.lines().next().unwrap_or_default().to_string()),
-        blob: None,
-        nbytes: None,
-        root: None,
-        tree: None,
-        plan: None,
-        predicted_nbytes: None,
-        predicted_decode_ns: None,
-    }
 }
 
 fn tree(array: &ArrayRef) -> String {

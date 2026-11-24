@@ -35,6 +35,11 @@ impl TaskKey {
         Ok(Self(digest))
     }
 
+    /// A key read back from storage.
+    pub fn from_hex(hex: &str) -> Self {
+        Self(hex.to_string())
+    }
+
     /// The key as a hex string.
     pub fn as_str(&self) -> &str {
         &self.0

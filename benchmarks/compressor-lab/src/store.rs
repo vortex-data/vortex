@@ -1,294 +1,389 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! The on-disk store: facts, observations, blobs and the ledger.
+//! The shared store: raw source files, Parquet fact segments, the ledger and timings, on local disk or any
+//! object store.
 //!
 //! ```text
 //! <store>/
-//!   ledger/<kk>/<task key>.json            done marker for a fact task (written last)
-//!   facts/<kind>/<kk>/<task key>.json      a fact task's output; rewriting it is an upsert
-//!   blobs/<hh>/<sha256>                    content-addressed array bytes, written once
-//!   obs/<kind>/machine=<id>/<task key>/<run id>.json
-//!                                          observations: every run appends a new file
-//!   machines/<id>.json                     what each machine id was
+//!   plans/<plan_id>/plan.json                 the plan header of every plan that ran here
+//!   plans/<plan_id>/RETIRED                   optional: GC no longer keeps this plan's data
+//!   raw/<hh>/<sha256>                         files of `copy` sources, content-addressed
+//!   facts/<table>/v=<version>/<segment>.parquet
+//!   ledger/kind=<kind>/<segment>.parquet      one row per finished task, written after its facts
+//!   timings/machine=<id>/<segment>.parquet    timing samples, append-only
+//!   measures/machine=<id>/<segment>.parquet   decode and pushdown measures per candidate
+//!   feature_costs/machine=<id>/<segment>.parquet  what each site feature group cost
+//!   timing_runs/machine=<id>/<segment>.parquet    the conditions of each timing run
+//!   machines/<machine_id>.json                what each machine id is
+//!   workers/<worker_id>.json                  heartbeats
 //! ```
 //!
-//! Every path is derived from a task key or a content hash, so parallel writers never collide and
-//! re-running a task rewrites exactly the files it wrote before.
+//! Every key is content-addressed or contains a segment id unique to its writer, so any number of
+//! processes and machines write at once with no coordination. Tasks are deterministic, so a task
+//! written twice is harmless: readers keep one row per key.
 
+use std::collections::BTreeMap;
+use std::collections::BTreeSet;
 use std::fs;
 use std::io::Write as _;
 use std::path::Path;
 use std::path::PathBuf;
+use std::sync::Arc;
+use std::sync::OnceLock;
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
+use std::time::SystemTime;
+use std::time::UNIX_EPOCH;
 
 use anyhow::Context;
+use arrow_array::RecordBatch;
+use futures::TryStreamExt;
+use object_store::ObjectMeta;
+use object_store::ObjectStore;
+use object_store::ObjectStoreExt;
+use object_store::PutMode;
+use object_store::PutOptions;
+use object_store::PutPayload;
+use object_store::local::LocalFileSystem;
+use object_store::path::Path as ObjectPath;
+use object_store::registry::ObjectStoreRegistry;
+use parquet::arrow::ArrowWriter;
+use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
+use parquet::basic::Compression;
+use parquet::basic::ZstdLevel;
+use parquet::file::properties::WriterProperties;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 
 use crate::key::TaskKey;
 use crate::plan::TaskKind;
+use crate::table::LedgerRow;
+use crate::table::Table;
 
-/// A store rooted at a directory.
+static RUNTIME: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
+
+/// The runtime the store's IO runs on, started on first use.
+fn runtime() -> anyhow::Result<&'static tokio::runtime::Runtime> {
+    if let Some(runtime) = RUNTIME.get() {
+        return Ok(runtime);
+    }
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(4)
+        .enable_all()
+        .build()
+        .context("starting the IO runtime")?;
+    Ok(RUNTIME.get_or_init(|| runtime))
+}
+
+/// A store at a URL (`s3://bucket/prefix`, `gs://…`, `file:///…`) or a local directory.
 #[derive(Debug, Clone)]
 pub struct Store {
-    root: PathBuf,
+    url: String,
+    inner: Arc<dyn ObjectStore>,
+    prefix: ObjectPath,
+    local: bool,
 }
 
-/// What a done marker records.
-#[derive(Debug, Clone, Serialize, serde::Deserialize)]
-pub struct LedgerEntry {
-    /// The task key.
-    pub key: TaskKey,
-    /// The task kind.
-    pub kind: TaskKind,
-    /// The hash of the fact's JSON, used to detect nondeterminism on re-runs.
-    pub output_hash: String,
-    /// Wall-clock milliseconds the task took.
-    pub millis: u128,
+/// A store object's key and size.
+#[derive(Debug, Clone)]
+pub struct Listed {
+    /// The key, relative to the store root.
+    pub key: String,
+    /// The size in bytes.
+    pub size: u64,
+    /// When it was last written, in milliseconds since the epoch.
+    pub modified_ms: i64,
 }
 
-fn fan_out(name: &str) -> &str {
-    name.get(..2).unwrap_or("00")
+/// Milliseconds since the epoch.
+pub fn now_ms() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| i64::try_from(d.as_millis()).unwrap_or(i64::MAX))
+        .unwrap_or_default()
 }
 
 impl Store {
-    /// Opens (and creates) a store.
-    pub fn open(root: impl AsRef<Path>) -> anyhow::Result<Self> {
-        let root = root.as_ref().to_path_buf();
-        fs::create_dir_all(&root).with_context(|| format!("creating store {}", root.display()))?;
-        Ok(Self { root })
-    }
-
-    /// The store's root directory.
-    pub fn root(&self) -> &Path {
-        &self.root
-    }
-
-    fn ledger_path(&self, key: &TaskKey) -> PathBuf {
-        self.root
-            .join("ledger")
-            .join(fan_out(key.as_str()))
-            .join(format!("{key}.json"))
-    }
-
-    fn fact_path(&self, kind: TaskKind, key: &TaskKey) -> PathBuf {
-        self.root
-            .join("facts")
-            .join(kind.as_str())
-            .join(fan_out(key.as_str()))
-            .join(format!("{key}.json"))
-    }
-
-    fn blob_path(&self, hash: &str) -> PathBuf {
-        self.root.join("blobs").join(fan_out(hash)).join(hash)
-    }
-
-    /// Whether a fact task is done.
-    pub fn is_done(&self, key: &TaskKey) -> bool {
-        self.ledger_path(key).exists()
-    }
-
-    /// The done marker of a fact task, if any.
-    pub fn ledger(&self, key: &TaskKey) -> anyhow::Result<Option<LedgerEntry>> {
-        read_json_opt(&self.ledger_path(key))
-    }
-
-    /// Writes a fact, then its done marker. Returns the fact's hash.
-    pub fn put_fact<T: Serialize>(
-        &self,
-        kind: TaskKind,
-        key: &TaskKey,
-        fact: &T,
-        millis: u128,
-    ) -> anyhow::Result<String> {
-        let bytes = serde_json::to_vec(fact)?;
-        let output_hash = crate::key::bytes_digest(&bytes);
-        write_atomically(&self.fact_path(kind, key), &bytes)?;
-        let entry = LedgerEntry {
-            key: key.clone(),
-            kind,
-            output_hash: output_hash.clone(),
-            millis,
-        };
-        write_atomically(&self.ledger_path(key), &serde_json::to_vec(&entry)?)?;
-        Ok(output_hash)
-    }
-
-    /// Reads a fact.
-    pub fn fact<T: DeserializeOwned>(&self, kind: TaskKind, key: &TaskKey) -> anyhow::Result<T> {
-        let path = self.fact_path(kind, key);
-        serde_json::from_slice(
-            &fs::read(&path).with_context(|| format!("reading {}", path.display()))?,
-        )
-        .with_context(|| format!("parsing {}", path.display()))
-    }
-
-    /// Stores blob bytes under their hash. Existing blobs are left alone.
-    pub fn put_blob(&self, hash: &str, bytes: &[u8]) -> anyhow::Result<()> {
-        let path = self.blob_path(hash);
-        if !path.exists() {
-            write_atomically(&path, bytes)?;
+    /// Opens a store. A string with `://` is resolved as a URL through `vortex-cloud`, reading
+    /// credentials from the environment; anything else is a local directory, created if missing.
+    pub fn open(location: impl AsRef<Path>) -> anyhow::Result<Self> {
+        let location = location.as_ref();
+        let text = location.to_string_lossy().to_string();
+        if text.contains("://") && !text.starts_with("file://") {
+            let url =
+                url::Url::parse(&text).with_context(|| format!("parsing store URL {text}"))?;
+            let (inner, prefix) = vortex_cloud::Registry::new()
+                .resolve(&url)
+                .with_context(|| format!("opening store {text}"))?;
+            return Ok(Self {
+                url: text,
+                inner,
+                prefix,
+                local: false,
+            });
         }
+        let dir = Path::new(text.strip_prefix("file://").unwrap_or(&text));
+        fs::create_dir_all(dir).with_context(|| format!("creating store {}", dir.display()))?;
+        let dir = dir.canonicalize()?;
+        Ok(Self {
+            url: dir.display().to_string(),
+            inner: Arc::new(LocalFileSystem::new_with_prefix(&dir)?),
+            prefix: ObjectPath::default(),
+            local: true,
+        })
+    }
+
+    /// Where the store is.
+    pub fn url(&self) -> &str {
+        &self.url
+    }
+
+    /// Whether the store is on local disk.
+    pub fn is_local(&self) -> bool {
+        self.local
+    }
+
+    fn path(&self, key: &str) -> ObjectPath {
+        let mut path = self.prefix.clone();
+        for part in key.split('/').filter(|p| !p.is_empty()) {
+            path = path.join(part);
+        }
+        path
+    }
+
+    fn relative(&self, path: &ObjectPath) -> String {
+        let full = path.as_ref();
+        let prefix = self.prefix.as_ref();
+        full.strip_prefix(prefix)
+            .unwrap_or(full)
+            .trim_start_matches('/')
+            .to_string()
+    }
+
+    /// Writes `bytes` at `key` unless something is already there. Returns whether it wrote.
+    pub fn put_create(&self, key: &str, bytes: Vec<u8>) -> anyhow::Result<bool> {
+        let path = self.path(key);
+        let options = PutOptions {
+            mode: PutMode::Create,
+            ..Default::default()
+        };
+        match runtime()?.block_on(self.inner.put_opts(&path, PutPayload::from(bytes), options)) {
+            Ok(_) => Ok(true),
+            Err(object_store::Error::AlreadyExists { .. }) => Ok(false),
+            Err(e) => Err(e).with_context(|| format!("writing {key}")),
+        }
+    }
+
+    /// Writes `bytes` at `key`, replacing anything there.
+    pub fn put(&self, key: &str, bytes: Vec<u8>) -> anyhow::Result<()> {
+        runtime()?
+            .block_on(self.inner.put(&self.path(key), PutPayload::from(bytes)))
+            .with_context(|| format!("writing {key}"))?;
         Ok(())
     }
 
-    /// Reads blob bytes.
-    pub fn blob(&self, hash: &str) -> anyhow::Result<Vec<u8>> {
-        let path = self.blob_path(hash);
-        fs::read(&path).with_context(|| format!("reading blob {}", path.display()))
+    /// Reads `key`, or `None` if it does not exist.
+    pub fn get(&self, key: &str) -> anyhow::Result<Option<Vec<u8>>> {
+        let path = self.path(key);
+        runtime()?.block_on(async {
+            match self.inner.get(&path).await {
+                Ok(result) => Ok(Some(result.bytes().await?.to_vec())) as anyhow::Result<_>,
+                Err(object_store::Error::NotFound { .. }) => Ok(None),
+                Err(e) => Err(anyhow::Error::from(e).context(format!("reading {key}"))),
+            }
+        })
     }
 
-    /// Appends an observation for a task, as one new file per run.
-    pub fn put_observation<T: Serialize>(
-        &self,
-        kind: &str,
-        machine_id: &str,
-        key: &TaskKey,
-        run_id: &str,
-        observation: &T,
-    ) -> anyhow::Result<()> {
-        let path = self
-            .root
-            .join("obs")
-            .join(kind)
-            .join(format!("machine={machine_id}"))
-            .join(key.as_str())
-            .join(format!("{run_id}.json"));
-        write_atomically(&path, &serde_json::to_vec(observation)?)
-    }
-
-    /// Every observation for a task on a machine, one per run.
-    pub fn observations<T: DeserializeOwned>(
-        &self,
-        kind: &str,
-        machine_id: &str,
-        key: &TaskKey,
-    ) -> anyhow::Result<Vec<T>> {
-        let dir = self
-            .root
-            .join("obs")
-            .join(kind)
-            .join(format!("machine={machine_id}"))
-            .join(key.as_str());
-        let Ok(entries) = fs::read_dir(&dir) else {
-            return Ok(Vec::new());
-        };
-        let mut paths: Vec<PathBuf> = entries.filter_map(|e| e.ok().map(|e| e.path())).collect();
-        paths.sort();
-        paths.iter().map(|p| read_json(p)).collect()
-    }
-
-    /// The machine ids that have observations of `kind`.
-    pub fn machines(&self, kind: &str) -> Vec<String> {
-        let Ok(entries) = fs::read_dir(self.root.join("obs").join(kind)) else {
-            return Vec::new();
-        };
-        let mut ids: Vec<String> = entries
-            .filter_map(|e| e.ok())
-            .filter_map(|e| {
-                e.file_name()
-                    .to_str()
-                    .and_then(|n| n.strip_prefix("machine="))
-                    .map(str::to_string)
+    /// Every object under `prefix`, sorted by key.
+    pub fn list(&self, prefix: &str) -> anyhow::Result<Vec<Listed>> {
+        let path = self.path(prefix);
+        let metas: Vec<ObjectMeta> = runtime()?.block_on(async {
+            match self.inner.list(Some(&path)).try_collect().await {
+                Ok(metas) => Ok(metas),
+                Err(object_store::Error::NotFound { .. }) => Ok(Vec::new()),
+                Err(e) => Err(anyhow::Error::from(e).context(format!("listing {prefix}"))),
+            }
+        })?;
+        let mut listed: Vec<Listed> = metas
+            .iter()
+            .map(|m| Listed {
+                key: self.relative(&m.location),
+                size: m.size,
+                modified_ms: m.last_modified.timestamp_millis(),
             })
+            .filter(|l| !l.key.contains(".tmp"))
             .collect();
-        ids.sort();
-        ids
+        listed.sort_by(|a, b| a.key.cmp(&b.key));
+        Ok(listed)
     }
 
-    /// Reads the file at `path`, relative to the store root, if it exists.
+    /// Deletes `key`. Deleting a missing key is not an error.
+    pub fn delete(&self, key: &str) -> anyhow::Result<()> {
+        match runtime()?.block_on(self.inner.delete(&self.path(key))) {
+            Ok(()) | Err(object_store::Error::NotFound { .. }) => Ok(()),
+            Err(e) => Err(e).with_context(|| format!("deleting {key}")),
+        }
+    }
+
+    /// Reads the object at `path`, relative to the store root, if it exists.
     ///
-    /// This and the other `raw` methods are the only operations the work queue needs, so an
-    /// object store backend only has to provide get, put, put-if-absent and list.
+    /// The `raw` methods are what the work queue needs: get, put, put-if-absent and list.
     pub fn get_raw(&self, path: &str) -> anyhow::Result<Option<Vec<u8>>> {
-        match fs::read(self.root.join(path)) {
-            Ok(bytes) => Ok(Some(bytes)),
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
-            Err(e) => Err(e).with_context(|| format!("reading {path} in the store")),
-        }
+        self.get(path)
     }
 
-    /// Writes the file at `path`, replacing it if it exists.
+    /// Writes the object at `path`, replacing it if it exists.
     pub fn put_raw(&self, path: &str, bytes: &[u8]) -> anyhow::Result<()> {
-        write_atomically(&self.root.join(path), bytes)
+        self.put(path, bytes.to_vec())
     }
 
-    /// Writes the file at `path` only if it does not exist yet. Returns whether this call wrote
-    /// it. Of several concurrent callers, exactly one succeeds (on S3: a put with
-    /// `If-None-Match: *`).
+    /// Writes the object at `path` only if it does not exist yet. Returns whether this call wrote
+    /// it. Of several concurrent callers exactly one succeeds: `If-None-Match: *` on object
+    /// stores, an exclusive create on local disk.
     pub fn put_raw_if_absent(&self, path: &str, bytes: &[u8]) -> anyhow::Result<bool> {
-        let full = self.root.join(path);
-        if let Some(parent) = full.parent() {
-            fs::create_dir_all(parent).with_context(|| format!("creating {}", parent.display()))?;
-        }
-        // Write the content to a temporary file, then hard-link it into place: the link fails if
-        // the target exists, and readers never see a partly written file.
-        static NEXT: AtomicU64 = AtomicU64::new(0);
-        let n = NEXT.fetch_add(1, Ordering::Relaxed);
-        let mut temp = full.as_os_str().to_owned();
-        temp.push(format!(".new{}-{n}", std::process::id()));
-        let temp = PathBuf::from(temp);
-        write_atomically(&temp, bytes)?;
-        let linked = fs::hard_link(&temp, &full);
-        fs::remove_file(&temp).ok();
-        match linked {
-            Ok(()) => Ok(true),
-            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => Ok(false),
-            Err(e) => Err(e).with_context(|| format!("creating {}", full.display())),
-        }
+        self.put_create(path, bytes.to_vec())
     }
 
-    /// The names of the files directly under the directory `path`, sorted. Temporary files are
-    /// left out.
+    /// The names of the objects directly under `path`, sorted. Temporary files are left out.
     pub fn list_raw(&self, path: &str) -> anyhow::Result<Vec<String>> {
-        let entries = match fs::read_dir(self.root.join(path)) {
-            Ok(entries) => entries,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
-            Err(e) => return Err(e).with_context(|| format!("listing {path} in the store")),
-        };
-        let mut names = Vec::new();
-        for entry in entries {
-            let entry = entry?;
-            if !entry.file_type()?.is_file() {
-                continue;
+        let dir = self.path(path);
+        let listed = runtime()?.block_on(async {
+            match self.inner.list_with_delimiter(Some(&dir)).await {
+                Ok(listed) => Ok(listed.objects),
+                Err(object_store::Error::NotFound { .. }) => Ok(Vec::new()),
+                Err(e) => Err(anyhow::Error::from(e).context(format!("listing {path}"))),
             }
-            if let Some(name) = entry.file_name().to_str()
-                && !name.contains(".tmp")
-                && !name.contains(".new")
-            {
-                names.push(name.to_string());
-            }
-        }
+        })?;
+        let mut names: Vec<String> = listed
+            .iter()
+            .filter_map(|m| m.location.filename().map(str::to_string))
+            .filter(|n| !n.contains(".tmp") && !n.contains(".new"))
+            .collect();
         names.sort();
         Ok(names)
     }
 
+    /// The store's directory, if it is on local disk.
+    pub fn local_root(&self) -> Option<&Path> {
+        self.local.then(|| Path::new(&self.url))
+    }
+
+    /// Writes a JSON document, replacing anything there.
+    pub fn put_json<T: Serialize>(&self, key: &str, value: &T) -> anyhow::Result<()> {
+        self.put(key, serde_json::to_vec_pretty(value)?)
+    }
+
+    /// Reads a JSON document, if present.
+    pub fn get_json<T: DeserializeOwned>(&self, key: &str) -> anyhow::Result<Option<T>> {
+        self.get(key)?
+            .map(|bytes| serde_json::from_slice(&bytes).with_context(|| format!("parsing {key}")))
+            .transpose()
+    }
+
+    /// Writes a parquet segment of rows. Returns its key.
+    pub fn put_segment<T: Table>(
+        &self,
+        dir: &str,
+        segment: &str,
+        rows: &[T],
+    ) -> anyhow::Result<String> {
+        let key = format!("{dir}/{segment}.parquet");
+        let batch = crate::table::to_batch(rows, segment)?;
+        self.put(&key, parquet_bytes(&batch)?)?;
+        Ok(key)
+    }
+
+    /// Reads every row of every segment under `dir`, in segment order.
+    pub fn read_rows<T: Table>(&self, dir: &str) -> anyhow::Result<Vec<T>> {
+        let mut rows = Vec::new();
+        for listed in self.list(dir)? {
+            if !listed.key.ends_with(".parquet") {
+                continue;
+            }
+            rows.extend(self.read_segment::<T>(&listed.key)?);
+        }
+        Ok(rows)
+    }
+
+    /// Reads the rows of one segment.
+    pub fn read_segment<T: Table>(&self, key: &str) -> anyhow::Result<Vec<T>> {
+        let bytes = self.get(key)?.with_context(|| format!("{key} vanished"))?;
+        let reader =
+            ParquetRecordBatchReaderBuilder::try_new(bytes::Bytes::from(bytes))?.build()?;
+        let mut rows = Vec::new();
+        for batch in reader {
+            rows.extend(crate::table::from_batch::<T>(&batch?)?);
+        }
+        Ok(rows)
+    }
+
+    /// Reads a fact table, one row per [`Table::dedupe_key`], the first written winning.
+    pub fn read_table<T: Table>(&self, version: u32) -> anyhow::Result<Vec<T>> {
+        let mut seen = BTreeSet::new();
+        let mut rows = self.read_rows::<T>(&T::dir(version))?;
+        rows.retain(|row| seen.insert(row.dedupe_key()));
+        Ok(rows)
+    }
+
+    /// The finished tasks of a kind, by key.
+    pub fn ledger(&self, kind: TaskKind) -> anyhow::Result<BTreeMap<TaskKey, LedgerRow>> {
+        let mut done = BTreeMap::new();
+        for row in self.read_rows::<LedgerRow>(&ledger_dir(kind))? {
+            done.entry(TaskKey::from_hex(&row.task_key)).or_insert(row);
+        }
+        Ok(done)
+    }
+
     /// Records what a machine id describes.
     pub fn put_machine(&self, info: &crate::machine::MachineInfo) -> anyhow::Result<()> {
-        let path = self
-            .root
-            .join("machines")
-            .join(format!("{}.json", info.machine_id));
-        write_atomically(&path, &serde_json::to_vec_pretty(info)?)
+        self.put_json(&format!("machines/{}.json", info.machine_id), info)
+    }
+
+    /// The machine ids that have timings.
+    pub fn timing_machines(&self) -> anyhow::Result<Vec<String>> {
+        let mut ids: BTreeSet<String> = BTreeSet::new();
+        for listed in self.list("timings")? {
+            if let Some(id) = listed
+                .key
+                .split('/')
+                .find_map(|part| part.strip_prefix("machine="))
+            {
+                ids.insert(id.to_string());
+            }
+        }
+        Ok(ids.into_iter().collect())
     }
 }
 
-fn read_json<T: DeserializeOwned>(path: &Path) -> anyhow::Result<T> {
-    serde_json::from_slice(&fs::read(path).with_context(|| format!("reading {}", path.display()))?)
-        .with_context(|| format!("parsing {}", path.display()))
+/// The ledger directory of a task kind.
+pub fn ledger_dir(kind: TaskKind) -> String {
+    format!("ledger/kind={}", kind.as_str())
 }
 
-fn read_json_opt<T: DeserializeOwned>(path: &Path) -> anyhow::Result<Option<T>> {
-    if path.exists() {
-        read_json(path).map(Some)
-    } else {
-        Ok(None)
-    }
+/// The timings directory of a machine.
+pub fn timings_dir(machine_id: &str) -> String {
+    machine_dir::<crate::table::TimingRow>(machine_id)
 }
 
-/// Writes to a temporary file and renames it into place, so readers never see partial files.
+/// The directory of one machine's partition of a per-machine table.
+pub fn machine_dir<T: Table>(machine_id: &str) -> String {
+    format!("{}/machine={machine_id}", T::NAME)
+}
+
+/// Encodes a batch as zstd-compressed Parquet.
+pub fn parquet_bytes(batch: &RecordBatch) -> anyhow::Result<Vec<u8>> {
+    let props = WriterProperties::builder()
+        .set_compression(Compression::ZSTD(ZstdLevel::try_new(3)?))
+        .build();
+    let mut out = Vec::new();
+    let mut writer = ArrowWriter::try_new(&mut out, batch.schema(), Some(props))?;
+    writer.write(batch)?;
+    writer.close()?;
+    Ok(out)
+}
+
+/// Writes a local file through a temporary file and a rename, so readers never see it half written.
 pub(crate) fn write_atomically(path: &Path, bytes: &[u8]) -> anyhow::Result<()> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).with_context(|| format!("creating {}", parent.display()))?;

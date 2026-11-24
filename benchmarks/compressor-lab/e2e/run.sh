@@ -84,26 +84,18 @@ queue() {
 }
 same_facts() {
     local a b
-    a=$(cd "$WORK/store/ledger" && cat */*.json | python3 -c 'import sys,json;d=json.JSONDecoder();s=sys.stdin.read();i=0;o=[]
-while i<len(s):
-    r,i=d.raw_decode(s,i)
-    if r["kind"]!="candidates": o.append(r["key"]+" "+r["output_hash"])
-print("\n".join(sorted(o)))')
-    b=$(cd "$WORK/store-queue/ledger" && cat */*.json | python3 -c 'import sys,json;d=json.JSONDecoder();s=sys.stdin.read();i=0;o=[]
-while i<len(s):
-    r,i=d.raw_decode(s,i)
-    if r["kind"]!="candidates": o.append(r["key"]+" "+r["output_hash"])
-print("\n".join(sorted(o)))')
+    a=$("$LAB" store ledger --store "$WORK/store" --kinds chunk,features) || return 1
+    b=$("$LAB" store ledger --store "$WORK/store-queue" --kinds chunk,features) || return 1
     echo "sharded: $(wc -l <<< "$a") chunk/features facts, queue: $(wc -l <<< "$b")"
     diff <(echo "$a") <(echo "$b") | head -20
-    [[ "$a" == "$b" ]]
+    [[ -n "$a" && "$a" == "$b" ]]
 }
 step queue-work queue
 # Exhaustive candidates depend on in-shard decode timings, so only chunk and features must match.
 step queue-same-facts same_facts
 
 for ((r = 1; r <= ${TIME_RUNS:-1}; r++)); do
-    step "time-$r" "$LAB" run --plan "$WORK/plan" --store "$WORK/store" --stages time "${DIRTY[@]}"
+    step "time-$r" "$LAB" run --plan "$WORK/plan" --store "$WORK/store" --data-root "$DATA_ROOT" --stages time "${DIRTY[@]}"
 done
 
 step plan-show "$LAB" plan show --plan "$WORK/plan" --store "$WORK/store"
@@ -121,6 +113,10 @@ elif [[ -f "$ROOT/benchmarks/compressor-feasibility/train.py" ]]; then
         "$ROOT/benchmarks/compressor-feasibility/train.py" "$WORK/dataset" --export "$WORK/models"
 fi
 
+# Compaction must not change any result; GC (dry run) must find nothing live to delete.
+step store-compact "$LAB" store compact --store "$WORK/store"
+step store-compact-same bash -c "'$LAB' materialize --plan '$WORK/plan' --store '$WORK/store' --out '$WORK/dataset-compacted' >/dev/null && diff -r -x dataset.json '$WORK/dataset' '$WORK/dataset-compacted'"
+step store-gc-dry-run "$LAB" store gc --store "$WORK/store" --force
 step store-size du -sh "$WORK/store" "$WORK/store"/*
 echo; cat "$REPORT"
 ! grep -q FAIL "$REPORT"

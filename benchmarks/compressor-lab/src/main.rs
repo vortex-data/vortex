@@ -18,6 +18,8 @@
 //! vx-lab status --store store/ --plan-id <id> [--json]
 //! ```
 
+use std::collections::BTreeMap;
+use std::collections::BTreeSet;
 use std::path::Path;
 use std::path::PathBuf;
 
@@ -27,6 +29,7 @@ use clap::Subcommand;
 use compressor_lab::candidates;
 use compressor_lab::fetch::RawData;
 use compressor_lab::identity::CodeIdentity;
+use compressor_lab::key::TaskKey;
 use compressor_lab::load::DataLocation;
 use compressor_lab::machine::MachineInfo;
 use compressor_lab::plan::PlannedRun;
@@ -41,6 +44,8 @@ use compressor_lab::runner::Runner;
 use compressor_lab::shard::Shard;
 use compressor_lab::spec::PlanSpec;
 use compressor_lab::store::Store;
+use compressor_lab::store::timings_dir;
+use compressor_lab::table::TimingRow;
 use vortex::VortexSessionDefault;
 use vortex::session::VortexSession;
 
@@ -142,6 +147,11 @@ enum Command {
         trial_sets: Vec<String>,
         #[arg(long)]
         shard: Option<Shard>,
+        #[arg(long, default_value = ".")]
+        data_root: PathBuf,
+        /// Where `reference` sources' files are cached; see `run`.
+        #[arg(long)]
+        cache_dir: Option<PathBuf>,
     },
     /// Claim and run shards of a pushed plan until none is left. Run it on as many machines as
     /// you like.
@@ -205,6 +215,46 @@ enum Command {
         out: PathBuf,
         #[command(flatten)]
         timing: TimingArgs,
+    },
+    /// Maintain a store.
+    #[command(subcommand)]
+    Store(StoreCommand),
+}
+
+#[derive(Subcommand, Debug)]
+enum StoreCommand {
+    /// Merge each table's segments into one. Safe while workers run.
+    Compact {
+        #[arg(long)]
+        store: PathBuf,
+        /// Report what would be merged without writing.
+        #[arg(long)]
+        dry_run: bool,
+    },
+    /// Delete raw files no live plan reads, and orphan segments. A dry run unless `--delete`.
+    Gc {
+        #[arg(long)]
+        store: PathBuf,
+        #[arg(long)]
+        delete: bool,
+        /// Run even though a worker heartbeat is recent.
+        #[arg(long)]
+        force: bool,
+    },
+    /// Print the ledger as `kind<TAB>task_key<TAB>output_hash`, sorted, e.g. to compare stores.
+    Ledger {
+        #[arg(long)]
+        store: PathBuf,
+        /// The stages to print; all of them by default.
+        #[arg(long, value_delimiter = ',')]
+        kinds: Vec<String>,
+    },
+    /// Mark a plan retired, so GC no longer keeps the raw files only it reads.
+    Retire {
+        #[arg(long)]
+        store: PathBuf,
+        #[arg(long)]
+        plan_id: String,
     },
 }
 
@@ -400,6 +450,15 @@ fn print_status(status: &compressor_lab::queue::Status) {
 }
 
 /// A unit enum's serialized name, e.g. `sequential_per_machine`.
+/// Every task the store's ledger records as done.
+fn done_keys(store: &Store) -> anyhow::Result<BTreeSet<TaskKey>> {
+    let mut done = BTreeSet::new();
+    for kind in [TaskKind::Chunk, TaskKind::Features, TaskKind::Candidates] {
+        done.extend(store.ledger(kind)?.into_keys());
+    }
+    Ok(done)
+}
+
 fn serde_name(value: &impl serde::Serialize) -> String {
     serde_json::to_value(value)
         .ok()
@@ -431,7 +490,10 @@ fn main() -> anyhow::Result<()> {
                 &spec_dir,
                 &identity,
                 &registered,
-                &RawData::new(cache_dir, store),
+                &RawData::new(
+                    cache_dir,
+                    store.filter(|s| !s.to_string_lossy().contains("://")),
+                ),
             )?;
             let outcome = run.write(&out, replace)?;
             let verb = match outcome {
@@ -453,6 +515,7 @@ fn main() -> anyhow::Result<()> {
         Command::Plan(PlanCommand::Show { plan, store }) => {
             let run = PlannedRun::read(&plan)?;
             let store = store.map(Store::open).transpose()?;
+            let done_set = store.as_ref().map(done_keys).transpose()?;
             println!(
                 "plan {}  ({})  vx {} commit {}{}",
                 run.plan.plan_id,
@@ -476,19 +539,19 @@ fn main() -> anyhow::Result<()> {
                     .iter()
                     .filter(|t| t.kind.as_str() == stage.name)
                     .collect();
-                let done = store
+                let done = done_set
                     .as_ref()
-                    .map(|s| tasks.iter().filter(|t| s.is_done(&t.key)).count());
+                    .map(|d| tasks.iter().filter(|t| d.contains(&t.key)).count());
                 let (total, done, pending) = if tasks.is_empty() {
                     ("-".to_string(), "-".to_string(), "-".to_string())
                 } else {
                     let done = done.map_or_else(|| "?".to_string(), |d| d.to_string());
-                    let pending = store
+                    let pending = done_set
                         .as_ref()
-                        .map(|s| {
+                        .map(|d| {
                             tasks
                                 .iter()
-                                .filter(|t| !s.is_done(&t.key))
+                                .filter(|t| !d.contains(&t.key))
                                 .count()
                                 .to_string()
                         })
@@ -507,22 +570,22 @@ fn main() -> anyhow::Result<()> {
                 );
             }
             if let Some(store) = &store {
-                for machine in store.machines("time") {
-                    let timed = run
+                for machine in store.timing_machines()? {
+                    let mut runs: BTreeMap<String, usize> = BTreeMap::new();
+                    for row in store.read_rows::<TimingRow>(&timings_dir(&machine))? {
+                        *runs.entry(row.task_key).or_default() += 1;
+                    }
+                    let candidates: Vec<_> = run
                         .tasks
                         .iter()
                         .filter(|t| t.kind == TaskKind::Candidates)
-                        .map(|t| {
-                            store
-                                .observations::<serde_json::Value>("time", &machine, &t.key)
-                                .map(|o| o.len())
-                        })
-                        .collect::<anyhow::Result<Vec<_>>>()?;
+                        .map(|t| runs.get(&t.key.to_string()).copied().unwrap_or(0))
+                        .collect();
                     println!(
-                        "time on machine {machine}: {} of {} candidate tasks timed, {} runs total",
-                        timed.iter().filter(|n| **n > 0).count(),
-                        timed.len(),
-                        timed.iter().sum::<usize>()
+                        "time on machine {machine}: {} of {} candidate tasks timed, {} timings total",
+                        candidates.iter().filter(|n| **n > 0).count(),
+                        candidates.len(),
+                        candidates.iter().sum::<usize>()
                     );
                 }
             }
@@ -539,10 +602,11 @@ fn main() -> anyhow::Result<()> {
             if pending && store.is_none() {
                 bail!("--pending needs --store");
             }
+            let done_set = store.as_ref().map(done_keys).transpose()?;
             for task in &run.tasks {
                 if kind.as_deref().is_some_and(|k| k != task.kind.as_str())
                     || shard.is_some_and(|s| !s.contains(task.shard_key()))
-                    || (pending && store.as_ref().is_some_and(|s| s.is_done(&task.key)))
+                    || (pending && done_set.as_ref().is_some_and(|d| d.contains(&task.key)))
                 {
                     continue;
                 }
@@ -562,8 +626,8 @@ fn main() -> anyhow::Result<()> {
         } => {
             let run = PlannedRun::read(&plan)?;
             check_identity(&run, allow_dirty)?;
-            let raw = RawData::new(cache_dir, Some(store.clone()));
             let store = Store::open(store)?;
+            let raw = RawData::new(cache_dir, store.local_root().map(PathBuf::from));
             let runner = Runner::new(&run, &store)?;
             runner.run(&RunOptions {
                 stages,
@@ -607,6 +671,8 @@ fn main() -> anyhow::Result<()> {
             top_k,
             trial_sets,
             shard,
+            data_root,
+            cache_dir,
         } => {
             let top_k = top_k
                 .iter()
@@ -643,6 +709,10 @@ fn main() -> anyhow::Result<()> {
                     compress_reps: run.plan.spec.measure.compress_reps,
                     decode_reps: run.plan.spec.measure.reps,
                     shard,
+                    data: DataLocation {
+                        data_root,
+                        raw: RawData::new(cache_dir, store.local_root().map(PathBuf::from)),
+                    },
                 },
                 &out,
             )?;
@@ -676,7 +746,7 @@ fn main() -> anyhow::Result<()> {
             println!(
                 "pushed plan {} to {}: {} shards over {chunks} chunks",
                 queue.config().plan_id,
-                store.root().display(),
+                store.url(),
                 queue.config().shards
             );
         }
@@ -696,8 +766,8 @@ fn main() -> anyhow::Result<()> {
             if workers > 1 {
                 return spawn_workers(workers);
             }
-            let raw = RawData::new(cache_dir, Some(store.clone()));
             let store = Store::open(store)?;
+            let raw = RawData::new(cache_dir, store.local_root().map(PathBuf::from));
             let queue = Queue::open(&store, &plan_id)?;
             let run = queue.plan()?;
             check_identity(&run, allow_dirty)?;
@@ -738,6 +808,7 @@ fn main() -> anyhow::Result<()> {
                 "{}",
                 serde_json::to_string_pretty(&MachineInfo::current()?)?
             );
+            println!("build_id: {}", compressor_lab::machine::build_id()?);
             let env = compressor_lab::machine::TimingEnv::current();
             println!("{}", serde_json::to_string_pretty(&env)?);
             for warning in env.warnings() {
@@ -762,6 +833,37 @@ fn main() -> anyhow::Result<()> {
                 &mut file,
             )?;
             println!("wrote {}", out.display());
+        }
+        Command::Store(StoreCommand::Compact { store, dry_run }) => {
+            let report = compressor_lab::gc::compact(&Store::open(store)?, dry_run)?;
+            println!("{}", serde_json::to_string_pretty(&report)?);
+        }
+        Command::Store(StoreCommand::Gc {
+            store,
+            delete,
+            force,
+        }) => {
+            let report = compressor_lab::gc::collect(&Store::open(store)?, !delete, force)?;
+            println!("{}", serde_json::to_string_pretty(&report)?);
+        }
+        Command::Store(StoreCommand::Ledger { store, kinds }) => {
+            let store = Store::open(store)?;
+            for kind in [TaskKind::Chunk, TaskKind::Features, TaskKind::Candidates] {
+                if !kinds.is_empty() && !kinds.iter().any(|k| k == kind.as_str()) {
+                    continue;
+                }
+                for (key, row) in store.ledger(kind)? {
+                    println!("{}\t{key}\t{}", kind.as_str(), row.output_hash);
+                }
+            }
+        }
+        Command::Store(StoreCommand::Retire { store, plan_id }) => {
+            let store = Store::open(store)?;
+            if store.get(&format!("plans/{plan_id}/plan.json"))?.is_none() {
+                bail!("no plan {plan_id} in {}", store.url());
+            }
+            store.put(&format!("plans/{plan_id}/RETIRED"), Vec::new())?;
+            println!("retired plan {plan_id}");
         }
     }
     Ok(())
