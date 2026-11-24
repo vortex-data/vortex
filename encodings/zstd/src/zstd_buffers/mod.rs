@@ -20,6 +20,8 @@ use vortex_array::ArrayView;
 use vortex_array::EqMode;
 use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
+use vortex_array::ProbeState;
+use vortex_array::RepeatedArrayProbe;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::scalar::Scalar;
@@ -539,20 +541,49 @@ impl VTable for ZstdBuffers {
     }
 }
 
+/// Every read decompresses all of the buffers and rebuilds the wrapped array, so a repeated probe
+/// keeps one probe over the rebuilt array.
+#[derive(Default)]
+pub struct ZstdBuffersProbeState {
+    inner: Option<RepeatedArrayProbe>,
+}
+
 impl OperationsVTable<ZstdBuffers> for ZstdBuffers {
-    type ProbeState = ();
+    type ProbeState = ZstdBuffersProbeState;
+
+    fn probe_scalar(
+        state: &mut ProbeState<'_, ZstdBuffers>,
+        index: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Scalar> {
+        let array = state.array();
+        if !state.is_valid(index, ctx)? {
+            return Ok(Scalar::null(array.dtype().clone()));
+        }
+
+        // A one-off read is really slow. Execute the array into canonical form first, or read it
+        // through a repeated probe.
+        let Some(retained) = state.retained() else {
+            let inner =
+                ZstdBuffers::decompress_and_build_inner(&array.into_owned(), ctx.session())?;
+            return inner.execute_scalar(index, ctx);
+        };
+
+        let inner = match &mut retained.inner {
+            Some(inner) => inner,
+            slot @ None => slot.insert(RepeatedArrayProbe::new(
+                ZstdBuffers::decompress_and_build_inner(&array.into_owned(), ctx.session())?,
+            )),
+        };
+        inner.execute_scalar(index, ctx)
+    }
 
     fn scalar_at(
         array: ArrayView<'_, ZstdBuffers>,
         index: usize,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
-        // TODO(os): maybe we should not support scalar_at, it is really slow, and adding a cache
-        // layer here is weird. Valid use of zstd buffers array would be by executing it first into
-        // canonical
-        let inner_array =
-            ZstdBuffers::decompress_and_build_inner(&array.into_owned(), ctx.session())?;
-        inner_array.execute_scalar(index, ctx)
+        Self::probe_scalar(&mut ProbeState::once(array), index, ctx)
     }
 }
 
@@ -580,6 +611,7 @@ mod tests {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::VarBinViewArray;
     use vortex_array::assert_arrays_eq;
+    use vortex_array::compute::conformance::consistency::test_array_consistency;
     use vortex_array::serde::SerializeOptions;
     use vortex_array::serde::SerializedArray;
     use vortex_array::session::ArraySessionExt;
@@ -649,6 +681,21 @@ mod tests {
         let mut ctx = SESSION.create_execution_ctx();
 
         assert_arrays_eq!(compressed, input, &mut ctx);
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::primitive(make_primitive_array())]
+    #[case::varbinview(make_varbinview_array())]
+    #[case::nullable_primitive(make_nullable_primitive_array())]
+    #[case::nullable_varbinview(make_nullable_varbinview_array())]
+    #[case::inlined_varbinview(make_inlined_varbinview_array())]
+    fn test_consistency(#[case] input: ArrayRef) -> VortexResult<()> {
+        let compressed = ZstdBuffers::compress(&input, 3, &SESSION)?.into_array();
+        let mut ctx = SESSION.create_execution_ctx();
+
+        test_array_consistency(&compressed, &mut ctx);
+        test_array_consistency(&compressed.slice(1..compressed.len())?, &mut ctx);
         Ok(())
     }
 
