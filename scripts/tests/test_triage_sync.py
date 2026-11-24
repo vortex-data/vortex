@@ -176,6 +176,23 @@ def test_end_of_a_snooze_reminds_the_owners_once_whoever_owes_the_next_move():
     assert [len(item_reminders(fake, n)) for n in (1, 2)] == [3, 1]
 
 
+def test_end_of_a_snooze_reminds_even_after_the_days_reminder():
+    target = item(1, kind="pr", created=ago(days=1), assignees=["alice"])
+    fake = FakeSlack()
+    run(fake, [target], pings=True)
+    root = fake.root(1)["ts"]
+    assert len(item_reminders(fake, 1)) == 1
+    fake.say(root, "!snooze 1h", NOW + timedelta(minutes=5))
+    run(fake, [target], NOW + timedelta(minutes=10), pings=True)
+    # A reply just before the snooze ends makes the next run read the thread, which holds the
+    # day's reminder.
+    fake.say(root, "looking at it after lunch", NOW + timedelta(minutes=60))
+    run(fake, [target], NOW + timedelta(minutes=70), pings=True)
+    reminders = item_reminders(fake, 1)
+    assert len(reminders) == 2
+    assert "the snooze on this item ended" in reminders[1]
+
+
 def test_commands_in_the_overview_thread_point_to_the_item_thread():
     fake = FakeSlack()
     run(fake, [HIGH])

@@ -65,8 +65,10 @@ items are low. Keep the rules' choice unless the item's content clearly calls fo
 example:
 - Raise an item that reports wrong results, data loss, a crash, or a security problem, or a pull \
 request that fixes one.
-- Lower an item that is a duplicate, already fixed, superseded by another pull request, abandoned \
-for months, or a question that already has its answer.
+- Lower an item that is a duplicate, already fixed, superseded by another pull request, or a \
+question that already has its answer.
+Age alone is never a reason to lower a bug report or a pull request, because the maintainers \
+snooze the ones that can wait.
 
 Return one verdict for every item. `reason` is one plain sentence of at most 120 characters that \
 says what happened, for example "gatesn asked for a benchmark 3d ago, no reply yet". \

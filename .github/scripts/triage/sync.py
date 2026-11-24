@@ -559,5 +559,7 @@ class Run:
         on_call = not any(a.lower() in self.config.users for a in row.item.assignees)
         ended = self._snooze_ended(root.state)
         reminder = render.item_reminder(row, owners, on_call, ended, self.now)
-        self._reply(root.thread, f"remind:{day}", lambda _people: reminder)
+        # The end of a snooze has its own key, because the item may already have today's reminder.
+        key = f"snooze-end:{root.state.snooze_until:.0f}" if ended else f"remind:{day}"
+        self._reply(root.thread, key, lambda _people: reminder)
         root.state = replace(root.state, reminded_at=self.now.timestamp())
