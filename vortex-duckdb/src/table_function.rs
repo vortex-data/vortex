@@ -207,9 +207,10 @@ assert_impl_all!(GlobalState: Send, Sync);
 
 /// The scan work that one thread does on a file.
 pub enum Split {
-    /// A clone of the file's V1 scan stream, which the thread polls inline. It claims the file's
-    /// splits as it has room for them until none is left, and yields only the splits it claimed.
-    V1(ScanStream),
+    /// A stream of the file's V1 scan, which the thread polls inline. It claims the file's splits
+    /// as it has room for them until none is left, and yields only the splits it claimed. `None`
+    /// until the thread's first scan call creates it, outside DuckDB's lock.
+    V1(Option<ScanStream>),
     /// Chunks of the file's V2 scan, taken by the thread until the scan has none left.
     V2,
 }
