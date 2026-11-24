@@ -207,6 +207,12 @@ impl Modeled {
         compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> CompressionEstimate {
+        // The model sizes the children as they compress, which they cannot at the last level.
+        if compress_ctx.finished_cascading() {
+            return self
+                .inner
+                .expected_compression_ratio(data, compress_ctx, exec_ctx);
+        }
         let Some(i) = Inputs::from(data, exec_ctx) else {
             return CompressionEstimate::Verdict(EstimateVerdict::Skip);
         };
@@ -262,6 +268,11 @@ impl Modeled {
         compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> CompressionEstimate {
+        if compress_ctx.finished_cascading() {
+            return self
+                .inner
+                .expected_compression_ratio(data, compress_ctx, exec_ctx);
+        }
         let Some(i) = Inputs::from(data, exec_ctx) else {
             return CompressionEstimate::Verdict(EstimateVerdict::Skip);
         };

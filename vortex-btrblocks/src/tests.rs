@@ -55,6 +55,7 @@ use vortex_edition::declarations::core::CORE_2026_08_3;
 use vortex_error::VortexResult;
 use vortex_fastlanes::BitPacked;
 use vortex_fastlanes::Delta;
+use vortex_fastlanes::RLE;
 use vortex_onpair::OnPair;
 use vortex_session::VortexSession;
 use vortex_sparse::Sparse;
@@ -609,6 +610,55 @@ fn run_model_decode_cost_avoids_runend_at_memory_bandwidth() -> VortexResult<()>
         "{}",
         compressed.display_tree()
     );
+    Ok(())
+}
+
+fn wide_runs_of_three() -> ArrayRef {
+    let mut rng = StdRng::seed_from_u64(13);
+    let values: Buffer<i64> = (0..21_846)
+        .flat_map(|_| iter::repeat_n(rng.random_range(0..1i64 << 31), 3))
+        .collect();
+    PrimitiveArray::new(values, Validity::NonNullable).into_array()
+}
+
+#[test]
+fn run_model_decode_cost_picks_rle_for_wide_short_runs() -> VortexResult<()> {
+    let input = wide_runs_of_three();
+    let default = BtrBlocksCompressorBuilder::from_session(&SESSION)
+        .unrestricted()
+        .build();
+    let default = assert_roundtrip(&default, &input)?;
+    assert!(!default.is::<RLE>(), "{}", default.display_tree());
+
+    let modeled = BtrBlocksCompressorBuilder::from_session(&SESSION)
+        .unrestricted()
+        .with_run_model(RunModel::for_bandwidth(2e9))
+        .build();
+    let compressed = assert_roundtrip(&modeled, &input)?;
+    assert!(compressed.is::<RLE>(), "{}", compressed.display_tree());
+    Ok(())
+}
+
+#[test]
+fn run_model_size_only_picks_sparse_for_dominant_value() -> VortexResult<()> {
+    let mut rng = StdRng::seed_from_u64(17);
+    let values: Buffer<i64> = (0..65_536)
+        .map(|_| {
+            if rng.random_bool(0.7) {
+                7
+            } else {
+                rng.random_range(0..1i64 << 31)
+            }
+        })
+        .collect();
+    let input = PrimitiveArray::new(values, Validity::NonNullable).into_array();
+
+    let modeled = BtrBlocksCompressorBuilder::from_session(&SESSION)
+        .unrestricted()
+        .with_run_model(RunModel::size_only())
+        .build();
+    let compressed = assert_roundtrip(&modeled, &input)?;
+    assert!(compressed.is::<Sparse>(), "{}", compressed.display_tree());
     Ok(())
 }
 
