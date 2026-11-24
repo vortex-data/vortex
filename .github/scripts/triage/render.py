@@ -77,14 +77,30 @@ def _link(item: Item) -> str:
     return f"<{item.url}|#{item.number} {_title(item)}>"
 
 
+@dataclass(frozen=True)
+class Kind:
+    """The emoji in front of an item, and what it means in the instructions' key."""
+
+    emoji: str
+    meaning: str
+
+
+_PR = Kind("🔀", "external PR")
+_ISSUE = Kind("📝", "external issue")
+_BUG = Kind("🐞", f"external issue with the `{BUG_LABEL}` label")
+_FUZZER = Kind("🧪", "fuzzer issue")
+_COMMENT = Kind("💬", "external comment on a team issue or PR")
+KINDS = (_PR, _ISSUE, _BUG, _FUZZER, _COMMENT)
+
+
 def kind_emoji(item: Item, assessment: Assessment) -> str:
     if assessment.category is Category.FUZZER:
-        return "🧪"
+        return _FUZZER.emoji
     if assessment.category is Category.EXTERNAL_COMMENT:
-        return "💬"
+        return _COMMENT.emoji
     if item.kind == "pr":
-        return "🔀"
-    return "🐞" if BUG_LABEL in item.labels else "📝"
+        return _PR.emoji
+    return (_BUG if BUG_LABEL in item.labels else _ISSUE).emoji
 
 
 def _owner(item: Item) -> str:
@@ -244,12 +260,13 @@ def card(row: Row, now: datetime) -> Message:
     )
 
 
+_DONE, _UNTRACKED = "✅", "➖"
 _ENDED = {
-    Status.MERGED: ("✅", "Merged"),
-    Status.CLOSED: ("✅", "Closed"),
-    Status.DELETED: ("✅", "Deleted or transferred"),
-    Status.ANSWERED: ("✅", "Answered by a teammate"),
-    Status.UNTRACKED: ("➖", "No longer tracked"),
+    Status.MERGED: (_DONE, "Merged"),
+    Status.CLOSED: (_DONE, "Closed"),
+    Status.DELETED: (_DONE, "Deleted or transferred"),
+    Status.ANSWERED: (_DONE, "Answered by a teammate"),
+    Status.UNTRACKED: (_UNTRACKED, "No longer tracked"),
 }
 
 
@@ -345,10 +362,18 @@ def instructions() -> Message:
             "Each weekday it posts an overview and edits it every hour.",
             "",
             "*Sections*",
-            "🔴 High: reminded every working day",
-            "🟡 Normal: reminded every 5 working days",
-            "⚪ Low: listed, never reminded",
-            "🔵 Waiting on contributor: the contributor owes the next move",
+            f"{HIGH.marker} {HIGH.title}: reminded every working day",
+            f"{NORMAL.marker} {NORMAL.title}: reminded every 5 working days",
+            f"{LOW.marker} {LOW.title}: listed, never reminded",
+            f"{WAITING.marker} {WAITING.title}: the contributor owes the next move",
+            "",
+            "*Key*",
+            *(f"{kind.emoji} {kind.meaning}" for kind in KINDS),
+            "🧵 the item's thread in this channel",
+            "😴 snoozed until the time shown",
+            f"{_DONE} merged, closed, or answered by a teammate",
+            f"{_UNTRACKED} no longer tracked",
+            "An item's number and title link to GitHub.",
             "",
             "*Owners*",
             "To take an item, assign yourself on GitHub. "

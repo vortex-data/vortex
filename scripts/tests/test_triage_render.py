@@ -136,6 +136,7 @@ def test_scan_table_shows_titles_as_literal_text():
     assert table.splitlines()[-1].endswith("| ``` [click](https://example.com) `a``b` \\| <img> ``` |")
 
 
-def test_instructions_state_the_limits():
+def test_instructions_state_the_limits_and_explain_every_kind():
     text = render.instructions().blocks[0]["text"]["text"]
     assert "at most 168" in text and "at most 60" in text
+    assert all(f"{kind.emoji} {kind.meaning}" in text for kind in render.KINDS)
