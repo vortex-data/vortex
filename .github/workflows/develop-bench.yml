@@ -102,6 +102,9 @@ jobs:
           || 'ubuntu-latest' }}
     strategy:
       fail-fast: false
+      # With the four SQL hosts below, a run holds at most six metal hosts at once. See
+      # `max-parallel` in sql-bench-matrix.yml.
+      max-parallel: 2
       matrix:
         benchmark:
           - id: random-access-bench
@@ -339,6 +342,7 @@ jobs:
     with:
       mode: "develop"
       matrix_preset: "develop"
+      max_parallel: 4
 
   # Tell the benchmarks website that new results exist, once per run, after every benchmark job
   # of the run has ingested its results. `always()` runs it even when a benchmark job failed, so
