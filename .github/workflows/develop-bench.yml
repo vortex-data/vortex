@@ -114,8 +114,7 @@ jobs:
             name: Random Access (S3)
             build_args: "--features lance"
             v4_ingest: true
-            remote_data_dir: >-
-              s3://vortex-ci-benchmark-datasets/develop/random-access/
+            remote_data_dir: s3://vortex-public-benchmark-fixtures/random-access/v1/
           - id: compress-bench
             name: Compression
             build_args: "--features lance"
@@ -154,6 +153,7 @@ jobs:
               extra_args: "--debuginfo-strip=false"
               parca_agent_version: "0.49.0"
           - name: Setup AWS CLI
+            if: matrix.benchmark.remote_data_dir == null
             uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd  # v6
             with:
               role-to-assume: arn:aws:iam::245040174862:role/GitHubBenchmarkRole
@@ -242,8 +242,7 @@ jobs:
           python3 "scripts/${bench%-bench}-split.py" --prepare-data \
             ${{ matrix.benchmark.remote_data_dir && format('--remote-data-dir {0}', matrix.benchmark.remote_data_dir) || '' }}
 
-      # setup-benchmark.sh pins every running process to the housekeeping CPUs, so it waits for
-      # the cache save and upload rather than throttling them.
+      # Save the data cache before setup-benchmark.sh pins processes to the housekeeping CPUs.
       - parallel:
           - name: Save benchmark data
             if: matrix.benchmark.id == 'random-access-bench' && steps.data-cache.outputs.cache-hit != 'true'
@@ -260,16 +259,6 @@ jobs:
             with:
               path: vortex-bench/data/string-bench/*.parquet
               key: ${{ steps.string-data-cache.outputs.cache-primary-key }}
-          - name: Upload benchmark data to S3
-            if: matrix.benchmark.remote_data_dir != null
-            shell: bash
-            env:
-              AWS_REGION: "us-east-1"
-            run: |
-              set -Eeu -o pipefail -x
-
-              aws s3 rm --recursive "${{ matrix.benchmark.remote_data_dir }}"
-              aws s3 cp --recursive vortex-bench/data "${{ matrix.benchmark.remote_data_dir }}"
 
       - name: Setup benchmark environment
         run: sudo bash scripts/setup-benchmark.sh
@@ -281,6 +270,7 @@ jobs:
           RUST_BACKTRACE: full
           FLAT_LAYOUT_INLINE_ARRAY_NODE: "1"
           AWS_REGION: "us-east-1"
+          AWS_SKIP_SIGNATURE: ${{ matrix.benchmark.remote_data_dir != null }}
         run: |
           python3 scripts/random-access-split.py --emit-ingest-records \
             ${{ matrix.benchmark.remote_data_dir && format('--remote-data-dir {0}', matrix.benchmark.remote_data_dir) || '' }}

@@ -20,8 +20,5 @@ jobs:
       benchmark_name: Random Access (S3)
       with_lance: true
       variant_id: "-s3"
-      # Fork runs cannot upload to the CI bucket, so they read a fixed set of public files.
-      remote_data_dir: >-
-        ${{ github.event.pull_request.head.repo.fork == true
-            && 's3://vortex-public-benchmark-fixtures/random-access/v1/'
-            || format('s3://vortex-ci-benchmark-datasets/{0}/{1}/random-access/', github.ref_name, github.run_id) }}
+      # Match the fixtures used by the develop baseline in develop-bench.yml.
+      remote_data_dir: s3://vortex-public-benchmark-fixtures/random-access/v1/
