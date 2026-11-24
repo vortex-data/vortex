@@ -70,8 +70,6 @@ use crate::validate_frame_content_size;
 mod plugin;
 mod probe;
 
-pub use probe::ZstdProbeState;
-
 // Zstd doesn't support training dictionaries on very few samples.
 const MIN_SAMPLES_FOR_DICTIONARY: usize = 8;
 type ViewLen = u32;
