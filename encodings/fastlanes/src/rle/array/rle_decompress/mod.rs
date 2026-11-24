@@ -10,7 +10,6 @@ use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::Constant;
-use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::Slice;
 use vortex_array::arrays::SliceArray;
@@ -28,7 +27,6 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
-use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 
 use crate::BitPacked;
@@ -52,7 +50,8 @@ pub(crate) const U8_LANES: usize = 128;
 
 /// Decompresses an RLE array back into a primitive array.
 ///
-/// The `values` and `values_idx_offsets` children must already be primitive arrays.
+/// The `values` and `values_idx_offsets` children are executed to primitive arrays if they are
+/// still encoded, for example when the compressor stores the offsets as FastLanes Delta.
 pub(crate) fn rle_decompress(
     array: RLEArray,
     ctx: &mut ExecutionCtx,
@@ -73,14 +72,8 @@ pub(crate) fn rle_decompress(
         },
     };
 
-    let values = values.try_downcast::<Primitive>().map_err(|_| {
-        vortex_err!("RLE values must be executed to Primitive before decompression")
-    })?;
-    let values_idx_offsets = values_idx_offsets
-        .try_downcast::<Primitive>()
-        .map_err(|_| {
-            vortex_err!("RLE values_idx_offsets must be executed to Primitive before decompression")
-        })?;
+    let values = values.execute::<PrimitiveArray>(ctx)?;
+    let values_idx_offsets = values_idx_offsets.execute::<PrimitiveArray>(ctx)?;
     // The per-chunk value-index offsets are tiny (one entry per 1024-element chunk), so widen them
     // to `u64` once here instead of monomorphizing the whole decode loop over the offset width.
     let values_idx_offsets: Vec<u64> =

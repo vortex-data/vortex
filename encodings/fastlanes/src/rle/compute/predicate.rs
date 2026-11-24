@@ -104,19 +104,13 @@ fn expand_run_answers(
 
     let answer_bytes = run_answers.iter().map(u8::from).collect::<Buffer<u8>>();
 
-    // `rle_decompress` reads the chunk offsets directly, but the compressor may have encoded them.
-    let values_idx_offsets = array
-        .values_idx_offsets()
-        .clone()
-        .execute::<PrimitiveArray>(ctx)?
-        .into_array();
     // SAFETY: the indices, chunk offsets, offset and length come from a valid RLE array, and the
     // answer bytes hold one entry per run value of that array.
     let answers = unsafe {
         RLE::new_unchecked(
             PrimitiveArray::new(answer_bytes, Validity::NonNullable).into_array(),
             array.indices().clone(),
-            values_idx_offsets,
+            array.values_idx_offsets().clone(),
             array.offset(),
             array.len(),
         )
