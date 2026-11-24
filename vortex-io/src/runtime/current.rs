@@ -2,9 +2,11 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::future::Future;
+use std::pin::pin;
 use std::sync::Arc;
 
 use async_channel::TryRecvError;
+use futures::FutureExt;
 use futures::SinkExt;
 use futures::Stream;
 use futures::StreamExt;
@@ -125,6 +127,18 @@ impl CurrentThreadRuntime {
 }
 
 /// Blocks on `fut` while running the executor's tasks, counting the entry and the runner.
+/// Drives `fut` to completion on the calling thread, entering the executor only if the future is
+/// not ready on its first poll. This is #11896's fast path, counted.
+fn drive<Fut: Future>(executor: &SmolExecutor, fut: Fut) -> Fut::Output {
+    crate::diag::BLOCK_ON.inc();
+    let mut fut = pin!(fut);
+    if let Some(output) = fut.as_mut().now_or_never() {
+        return output;
+    }
+    crate::diag::RUNNERS.inc();
+    block_on(executor.run(fut))
+}
+
 fn enter<Fut: Future>(executor: &SmolExecutor, fut: Fut) -> Fut::Output {
     crate::diag::BLOCK_ON.inc();
     crate::diag::RUNNERS.inc();
@@ -143,7 +157,7 @@ impl BlockingRuntime for CurrentThreadRuntime {
     where
         Fut: Future<Output = R>,
     {
-        enter(&self.executor, fut)
+        drive(&self.executor, fut)
     }
 
     fn block_on_stream<'a, S, R>(&self, stream: S) -> Self::BlockingIterator<'a, R>
@@ -168,7 +182,7 @@ impl<T> Iterator for CurrentThreadIterator<'_, T> {
     type Item = T;
 
     fn next(&mut self) -> Option<Self::Item> {
-        enter(&self.executor, self.stream.next())
+        drive(&self.executor, self.stream.next())
     }
 }
 
