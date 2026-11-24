@@ -153,8 +153,7 @@ __device__ inline void scalar_op(T *values, const struct ScalarOp &op, char *__r
         // Fused lanes may be wider than this FoR type; wrap before a downstream Dict gather.
 #pragma unroll
         for (uint32_t i = 0; i < N; ++i) {
-            const uint64_t decoded =
-                static_cast<uint64_t>(values[i]) + op.params.frame_of_ref.reference;
+            const uint64_t decoded = static_cast<uint64_t>(values[i]) + op.params.frame_of_ref.reference;
             values[i] = static_cast<T>(wrap_to_ptype(decoded, op.output_ptype));
         }
         break;
