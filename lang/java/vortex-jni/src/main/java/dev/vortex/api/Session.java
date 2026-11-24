@@ -3,7 +3,6 @@
 
 package dev.vortex.api;
 
-import com.google.common.base.Preconditions;
 import dev.vortex.VortexCleaner;
 import dev.vortex.jni.NativeSession;
 
@@ -20,7 +19,9 @@ public final class Session {
     private final long pointer;
 
     private Session(long pointer) {
-        Preconditions.checkArgument(pointer != 0, "invalid session pointer");
+        if (pointer == 0) {
+            throw new IllegalArgumentException("invalid session pointer");
+        }
         this.pointer = pointer;
         VortexCleaner.register(this, () -> NativeSession.free(pointer));
     }

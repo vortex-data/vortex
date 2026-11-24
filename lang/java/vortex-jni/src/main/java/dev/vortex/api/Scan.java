@@ -3,7 +3,6 @@
 
 package dev.vortex.api;
 
-import com.google.common.base.Preconditions;
 import dev.vortex.VortexCleaner;
 import dev.vortex.jni.NativePartition;
 import dev.vortex.jni.NativeScan;
@@ -36,7 +35,9 @@ public final class Scan implements Iterator<Partition>, AutoCloseable {
     private boolean closed;
 
     private Scan(Session session, long pointer) {
-        Preconditions.checkArgument(pointer != 0, "invalid scan pointer");
+        if (pointer == 0) {
+            throw new IllegalArgumentException("invalid scan pointer");
+        }
         this.session = session;
         this.pointer = pointer;
         AtomicLong pending = nextPartitionPointer;
@@ -60,7 +61,9 @@ public final class Scan implements Iterator<Partition>, AutoCloseable {
      * Arrow schema produced by this scan. Must be called before the first call to {@link #hasNext()}/{@link #next()}.
      */
     public synchronized Schema arrowSchema(BufferAllocator allocator) {
-        Preconditions.checkState(!closed, "scan is closed");
+        if (closed) {
+            throw new IllegalStateException("scan is closed");
+        }
         try (ArrowSchema schema = ArrowSchema.allocateNew(allocator)) {
             NativeScan.arrowSchema(session.nativePointer(), pointer, schema.memoryAddress());
             return Data.importSchema(allocator, schema, null);
@@ -74,7 +77,9 @@ public final class Scan implements Iterator<Partition>, AutoCloseable {
      */
     @Override
     public synchronized boolean hasNext() {
-        Preconditions.checkState(!closed, "scan is closed");
+        if (closed) {
+            throw new IllegalStateException("scan is closed");
+        }
         if (!primed) {
             nextPartitionPointer.set(NativeScan.nextPartition(pointer));
             primed = true;
