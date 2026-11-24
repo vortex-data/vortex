@@ -18,6 +18,7 @@ use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
 use crate::scalar_fn::row::GeometryRow;
+use crate::scalar_fn::row::ensure_eq_crs;
 
 /// Planar (Euclidean) `ST_Distance` (no geodesic correction) between two native geometry
 /// operands, each a column or a constant literal.
@@ -61,9 +62,10 @@ impl RowFn for SpatialDistance {
     fn dispatch<V: RowVisitor>(
         &self,
         _options: &Self::Options,
-        _args: &[DType],
+        args: &[DType],
         visitor: V,
     ) -> VortexResult<V::VisitResult> {
+        ensure_eq_crs(args)?;
         // Distance is a value, not a verdict: no bounding-rect test can decide it.
         visitor.visit::<(GeometryRow, GeometryRow), f64>(|(a, b)| Euclidean.distance(a, b))
     }

@@ -36,6 +36,7 @@ use crate::extension::linestring_array_from_point_pairs;
 use crate::scalar_fn::execute::Execution;
 use crate::scalar_fn::execute::Operand;
 use crate::scalar_fn::execute::dispatch_binary;
+use crate::scalar_fn::row::ensure_eq_crs;
 
 /// Validate the two point operands accepted by `ST_MakeLine`.
 fn validate_make_line_operands(dtypes: &[DType]) -> VortexResult<()> {
@@ -55,33 +56,14 @@ fn validate_make_line_operands(dtypes: &[DType]) -> VortexResult<()> {
     Ok(())
 }
 
-/// Resolve DuckDB's `ST_MakeLine` CRS propagation for two geometry operands.
-fn make_line_metadata(
-    left: &SpatialMetadata,
-    right: &SpatialMetadata,
-) -> VortexResult<SpatialMetadata> {
-    match (&left.crs, &right.crs) {
-        (Some(left_crs), Some(right_crs)) => {
-            vortex_ensure_eq!(
-                left_crs,
-                right_crs,
-                "spatial: make_line operands have different coordinate reference systems"
-            );
-            Ok(left.clone())
-        }
-        (Some(_), None) => Ok(left.clone()),
-        (None, Some(_)) => Ok(right.clone()),
-        (None, None) => Ok(SpatialMetadata::default()),
-    }
-}
-
 /// The native `LineString` dtype emitted by `ST_MakeLine`.
 fn make_line_dtype(dtypes: &[DType]) -> VortexResult<ExtDType<LineString>> {
     validate_make_line_operands(dtypes)?;
     let left = dtypes[0].as_extension().metadata::<Point>();
     let right = dtypes[1].as_extension().metadata::<Point>();
     let dimension = left.native_dimension().promote(right.native_dimension());
-    let metadata = make_line_metadata(left, right)?;
+    ensure_eq_crs(dtypes)?;
+    let metadata = SpatialMetadata::new(left.get_crs().map(str::to_owned));
     let nullability = Nullability::from(dtypes.iter().any(DType::is_nullable));
     ExtDType::try_new(metadata.with_dimension(dimension), nullability)
 }
@@ -471,17 +453,11 @@ mod tests {
     }
 
     #[rstest]
-    #[case::matching(Some("EPSG:4326"), Some("EPSG:4326"), Some("EPSG:4326"))]
-    #[case::left_only(Some("EPSG:4326"), None, Some("EPSG:4326"))]
-    #[case::right_only(None, Some("EPSG:3857"), Some("EPSG:3857"))]
-    #[case::unreferenced(None, None, None)]
-    fn propagates_compatible_crs(
-        #[case] left_crs: Option<&str>,
-        #[case] right_crs: Option<&str>,
-        #[case] expected: Option<&str>,
-    ) -> VortexResult<()> {
-        let left = dimensional_point(Dimension::Xy, [0.0; 4], left_crs)?;
-        let right = dimensional_point(Dimension::Xy, [1.0; 4], right_crs)?;
+    #[case::matching(Some("EPSG:4326"))]
+    #[case::unreferenced(None)]
+    fn propagates_common_crs(#[case] crs: Option<&str>) -> VortexResult<()> {
+        let left = dimensional_point(Dimension::Xy, [0.0; 4], crs)?;
+        let right = dimensional_point(Dimension::Xy, [1.0; 4], crs)?;
 
         let dtype = SpatialMakeLine.return_dtype(
             &EmptyOptions,
@@ -489,15 +465,21 @@ mod tests {
         )?;
         assert_eq!(
             dtype.as_extension().metadata::<LineString>().crs.as_deref(),
-            expected
+            crs
         );
         Ok(())
     }
 
-    #[test]
-    fn rejects_mismatched_crs() -> VortexResult<()> {
-        let left = dimensional_point(Dimension::Xy, [0.0; 4], Some("EPSG:4326"))?;
-        let right = dimensional_point(Dimension::Xy, [1.0; 4], Some("EPSG:3857"))?;
+    #[rstest]
+    #[case::different(Some("EPSG:4326"), Some("EPSG:3857"))]
+    #[case::left_only(Some("EPSG:4326"), None)]
+    #[case::right_only(None, Some("EPSG:3857"))]
+    fn rejects_mismatched_crs(
+        #[case] left_crs: Option<&str>,
+        #[case] right_crs: Option<&str>,
+    ) -> VortexResult<()> {
+        let left = dimensional_point(Dimension::Xy, [0.0; 4], left_crs)?;
+        let right = dimensional_point(Dimension::Xy, [1.0; 4], right_crs)?;
         assert!(
             SpatialMakeLine
                 .return_dtype(
