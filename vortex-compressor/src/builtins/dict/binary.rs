@@ -51,8 +51,9 @@ impl Scheme for BinaryDictScheme {
     /// Binary dict codes (child 1) are compact unsigned integers that should not be dict-encoded
     /// again.
     ///
-    /// Additional exclusions for codes (IntSequenceScheme, FoRScheme, ZigZagScheme, SparseScheme,
-    /// RunEndScheme, RLE, etc.) are expressed as pull rules on those schemes in `vortex-btrblocks`.
+    /// Pull rules in `vortex-btrblocks` also keep `SequenceScheme`, `FoRScheme`, `ZigZagScheme` and
+    /// `DeltaScheme` off the codes (child 1), and `RunEndScheme` and the RLE schemes off the values
+    /// (child 0).
     fn descendant_exclusions(&self) -> Vec<DescendantExclusion> {
         vec![DescendantExclusion {
             excluded: IntDictScheme.id(),

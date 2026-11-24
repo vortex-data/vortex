@@ -2,8 +2,12 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::sync::Arc;
+use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::Ordering;
 use std::thread;
+use std::time::Duration;
 
+use futures::StreamExt;
 use futures::TryStreamExt;
 use parking_lot::Mutex;
 use rstest::rstest;
@@ -22,8 +26,10 @@ use vortex_error::vortex_bail;
 use vortex_io::session::RuntimeSessionExt;
 use vortex_session::VortexSession;
 
+use super::ChunkBudget;
 use super::ScanDriver;
 use crate::execution::cache::ScanCache;
+use crate::execution::chunk::MAX_ROWS_PER_CHUNK;
 use crate::execution::pipeline::synthetic::RowSource;
 use crate::plan::LazyPlanRef;
 use crate::prepare::ScanBuilder;
@@ -104,5 +110,133 @@ async fn prepared_batches_are_mapped_off_the_polling_thread(
     assert!(!batches.is_empty());
     assert_eq!(mapped_on.len(), batches.len());
     assert!(mapped_on.iter().all(|thread| *thread != polling));
+    Ok(())
+}
+
+/// The concurrency bounds the chunks in flight in total, not per worker thread.
+#[rstest]
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn concurrency_bounds_chunks_in_flight_in_total(
+    #[values(1, 2)] concurrency: usize,
+) -> VortexResult<()> {
+    let active = Arc::new(AtomicUsize::new(0));
+    let peak = Arc::new(AtomicUsize::new(0));
+    let map_fn = {
+        let (active, peak) = (Arc::clone(&active), Arc::clone(&peak));
+        move |batch: ArrayRef| {
+            let now = active.fetch_add(1, Ordering::SeqCst) + 1;
+            peak.fetch_max(now, Ordering::SeqCst);
+            thread::sleep(Duration::from_millis(20));
+            active.fetch_sub(1, Ordering::SeqCst);
+            Ok(batch)
+        }
+    };
+
+    let chunks = 4;
+    let plan = RowSource::plan(
+        (chunks * MAX_ROWS_PER_CHUNK) as u64,
+        Vec::new(),
+        None,
+        false,
+    );
+    let builder = ScanBuilder::new(
+        VortexSession::empty().with_tokio(),
+        ScanInput {
+            dtype: plan.dtype().clone(),
+            root: LazyPlanRef::ready(plan),
+            locations: Arc::new([]),
+            segments: Arc::new(NoSegments),
+            cache: None,
+        },
+    );
+    let driver = ScanDriver::new(builder.session().handle(), concurrency, true);
+    let batches: Vec<ArrayRef> = driver
+        .run_prepared(builder.prepare()?, map_fn)
+        .try_collect()
+        .await?;
+
+    assert_eq!(batches.len(), chunks);
+    assert!(peak.load(Ordering::SeqCst) <= concurrency);
+    Ok(())
+}
+
+fn chunked_builder(chunks: usize) -> ScanBuilder {
+    let plan = RowSource::plan(
+        (chunks * MAX_ROWS_PER_CHUNK) as u64,
+        Vec::new(),
+        None,
+        false,
+    );
+    ScanBuilder::new(
+        VortexSession::empty().with_tokio(),
+        ScanInput {
+            dtype: plan.dtype().clone(),
+            root: LazyPlanRef::ready(plan),
+            locations: Arc::new([]),
+            segments: Arc::new(NoSegments),
+            cache: None,
+        },
+    )
+}
+
+/// Drivers sharing a budget run at most its chunks plus one of their own each, all together.
+#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+async fn shared_budget_bounds_chunks_in_flight_across_drivers() -> VortexResult<()> {
+    let active = Arc::new(AtomicUsize::new(0));
+    let peak = Arc::new(AtomicUsize::new(0));
+    let map_fn = {
+        let (active, peak) = (Arc::clone(&active), Arc::clone(&peak));
+        move |batch: ArrayRef| {
+            let now = active.fetch_add(1, Ordering::SeqCst) + 1;
+            peak.fetch_max(now, Ordering::SeqCst);
+            thread::sleep(Duration::from_millis(20));
+            active.fetch_sub(1, Ordering::SeqCst);
+            Ok(batch)
+        }
+    };
+
+    let (budget, drivers, chunks) = (ChunkBudget::new(1), 2, 4);
+    let scans = (0..drivers).map(|_| {
+        let builder = chunked_builder(chunks);
+        let driver = ScanDriver::with_budget(builder.session().handle(), budget.clone(), true);
+        let map_fn = map_fn.clone();
+        async move {
+            driver
+                .run_prepared(builder.prepare()?, map_fn)
+                .try_collect::<Vec<_>>()
+                .await
+        }
+    });
+    let batches = futures::future::try_join_all(scans).await?;
+
+    assert!(batches.iter().all(|batches| batches.len() == chunks));
+    assert!(peak.load(Ordering::SeqCst) <= 1 + drivers);
+    Ok(())
+}
+
+/// A scan whose output nobody reads keeps its share of the budget, but the others still finish
+/// on slots of their own.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn shared_budget_lets_scans_finish_while_another_stalls() -> VortexResult<()> {
+    let budget = ChunkBudget::new(1);
+    let stalled_builder = chunked_builder(8);
+    let mut stalled =
+        ScanDriver::with_budget(stalled_builder.session().handle(), budget.clone(), false)
+            .run_prepared(stalled_builder.prepare()?, Ok);
+    stalled.next().await.transpose()?;
+
+    let builder = chunked_builder(4);
+    let driver = ScanDriver::with_budget(builder.session().handle(), budget, false);
+    let batches = tokio::time::timeout(
+        Duration::from_secs(10),
+        driver
+            .run_prepared(builder.prepare()?, Ok)
+            .try_collect::<Vec<_>>(),
+    )
+    .await
+    .map_err(|_| vortex_error::vortex_err!("the scan waited on the stalled one"))??;
+
+    assert_eq!(batches.len(), 4);
+    drop(stalled);
     Ok(())
 }

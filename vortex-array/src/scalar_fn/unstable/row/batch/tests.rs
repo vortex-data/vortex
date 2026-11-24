@@ -51,13 +51,13 @@ use crate::extension::datetime::TimeUnit;
 use crate::extension::datetime::Timestamp;
 use crate::memory::test_allocator::tracking_allocator;
 use crate::optimizer::ArrayOptimizer;
+use crate::scalar::NumericOperator;
 use crate::scalar::Scalar;
 use crate::scalar_fn::EmptyOptions;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTableExt;
 use crate::scalar_fn::VecExecutionArgs;
-use crate::scalar_fn::fns::binary::Binary;
-use crate::scalar_fn::fns::operators::Operator;
+use crate::scalar_fn::builtin::numeric::Numeric;
 use crate::scalar_fn::unstable::row::FixedSizeListSink;
 use crate::scalar_fn::unstable::row::InitializedRow;
 use crate::scalar_fn::unstable::row::InputElement;
@@ -1776,10 +1776,10 @@ fn test_null_literal_skips_earlier_decode() -> VortexResult<()> {
 
 #[test]
 fn test_null_literal_skips_lazy_input_execution() -> VortexResult<()> {
-    let lhs = Binary::try_new(
+    let lhs = Numeric::try_new(
         PrimitiveArray::from_iter([1_i64, 2]).into_array(),
         ConstantArray::new(0_i64, 2).into_array(),
-        Operator::Div,
+        NumericOperator::Div,
     )?
     .into_array();
     let rhs = ConstantArray::new(

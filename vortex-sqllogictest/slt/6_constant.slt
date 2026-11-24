@@ -1,0 +1,14 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+include ./setup.slt.no
+
+query I
+COPY (SELECT 42 AS constant FROM generate_series(1, 100) t(i)) TO '${WORK_DIR}/constant.vortex';
+----
+100
+
+query I
+SELECT constant FROM '${WORK_DIR}/constant.vortex' LIMIT 1;
+----
+42

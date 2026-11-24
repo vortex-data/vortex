@@ -88,7 +88,161 @@ pub struct ShreddingSpecField {
     #[prost(message, optional, tag = "2")]
     pub dtype: ::core::option::Option<super::dtype::DType>,
 }
-/// Options for `vortex.binary`
+/// Options for `vortex.compare`
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct CompareOpts {
+    #[prost(enumeration = "compare_opts::CompareOp", tag = "1")]
+    pub op: i32,
+}
+/// Nested message and enum types in `CompareOpts`.
+pub mod compare_opts {
+    #[derive(
+        Clone,
+        Copy,
+        Debug,
+        PartialEq,
+        Eq,
+        Hash,
+        PartialOrd,
+        Ord,
+        ::prost::Enumeration
+    )]
+    #[repr(i32)]
+    pub enum CompareOp {
+        Eq = 0,
+        NotEq = 1,
+        Gt = 2,
+        Gte = 3,
+        Lt = 4,
+        Lte = 5,
+    }
+    impl CompareOp {
+        /// String value of the enum field names used in the ProtoBuf definition.
+        ///
+        /// The values are not transformed in any way and thus are considered stable
+        /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+        pub fn as_str_name(&self) -> &'static str {
+            match self {
+                Self::Eq => "Eq",
+                Self::NotEq => "NotEq",
+                Self::Gt => "Gt",
+                Self::Gte => "Gte",
+                Self::Lt => "Lt",
+                Self::Lte => "Lte",
+            }
+        }
+        /// Creates an enum from field names used in the ProtoBuf definition.
+        pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+            match value {
+                "Eq" => Some(Self::Eq),
+                "NotEq" => Some(Self::NotEq),
+                "Gt" => Some(Self::Gt),
+                "Gte" => Some(Self::Gte),
+                "Lt" => Some(Self::Lt),
+                "Lte" => Some(Self::Lte),
+                _ => None,
+            }
+        }
+    }
+}
+/// Options for `vortex.boolean`
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct BooleanOpts {
+    #[prost(enumeration = "boolean_opts::BooleanOp", tag = "1")]
+    pub op: i32,
+}
+/// Nested message and enum types in `BooleanOpts`.
+pub mod boolean_opts {
+    #[derive(
+        Clone,
+        Copy,
+        Debug,
+        PartialEq,
+        Eq,
+        Hash,
+        PartialOrd,
+        Ord,
+        ::prost::Enumeration
+    )]
+    #[repr(i32)]
+    pub enum BooleanOp {
+        And = 0,
+        Or = 1,
+    }
+    impl BooleanOp {
+        /// String value of the enum field names used in the ProtoBuf definition.
+        ///
+        /// The values are not transformed in any way and thus are considered stable
+        /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+        pub fn as_str_name(&self) -> &'static str {
+            match self {
+                Self::And => "And",
+                Self::Or => "Or",
+            }
+        }
+        /// Creates an enum from field names used in the ProtoBuf definition.
+        pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+            match value {
+                "And" => Some(Self::And),
+                "Or" => Some(Self::Or),
+                _ => None,
+            }
+        }
+    }
+}
+/// Options for `vortex.numeric`
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct NumericOpts {
+    #[prost(enumeration = "numeric_opts::NumericOp", tag = "1")]
+    pub op: i32,
+}
+/// Nested message and enum types in `NumericOpts`.
+pub mod numeric_opts {
+    #[derive(
+        Clone,
+        Copy,
+        Debug,
+        PartialEq,
+        Eq,
+        Hash,
+        PartialOrd,
+        Ord,
+        ::prost::Enumeration
+    )]
+    #[repr(i32)]
+    pub enum NumericOp {
+        Add = 0,
+        Sub = 1,
+        Mul = 2,
+        Div = 3,
+    }
+    impl NumericOp {
+        /// String value of the enum field names used in the ProtoBuf definition.
+        ///
+        /// The values are not transformed in any way and thus are considered stable
+        /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+        pub fn as_str_name(&self) -> &'static str {
+            match self {
+                Self::Add => "Add",
+                Self::Sub => "Sub",
+                Self::Mul => "Mul",
+                Self::Div => "Div",
+            }
+        }
+        /// Creates an enum from field names used in the ProtoBuf definition.
+        pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+            match value {
+                "Add" => Some(Self::Add),
+                "Sub" => Some(Self::Sub),
+                "Mul" => Some(Self::Mul),
+                "Div" => Some(Self::Div),
+                _ => None,
+            }
+        }
+    }
+}
+/// Options for the legacy `vortex.binary` function. Vortex no longer writes it. A reader converts
+/// it to `vortex.compare`, `vortex.boolean`, or `vortex.numeric`.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct BinaryOpts {
     #[prost(enumeration = "binary_opts::BinaryOp", tag = "1")]

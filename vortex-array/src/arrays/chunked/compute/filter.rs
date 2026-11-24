@@ -1,11 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
-use vortex_mask::MaskIter;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
@@ -13,15 +11,8 @@ use crate::IntoArray;
 use crate::array::ArrayView;
 use crate::arrays::Chunked;
 use crate::arrays::ChunkedArray;
-use crate::arrays::PrimitiveArray;
 use crate::arrays::chunked::ChunkedArrayExt;
 use crate::arrays::filter::FilterKernel;
-use crate::search_sorted::SearchSorted;
-use crate::search_sorted::SearchSortedSide;
-use crate::validity::Validity;
-
-// This is modeled after the constant with the equivalent name in arrow-rs.
-pub(crate) const FILTER_SLICES_SELECTIVITY_THRESHOLD: f64 = 0.8;
 
 impl FilterKernel for Chunked {
     fn filter(
@@ -29,172 +20,54 @@ impl FilterKernel for Chunked {
         mask: &Mask,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        let mask_values = mask
+        let mut chunks = Vec::with_capacity(array.nchunks().min(mask.true_count()));
+        let mut indices = mask
             .values()
-            .vortex_expect("AllTrue and AllFalse are handled by filter fn");
-
-        // Based on filter selectivity, we take the values between a range of slices, or
-        // we take individual indices.
-        let chunks = match mask_values.threshold_iter(FILTER_SLICES_SELECTIVITY_THRESHOLD) {
-            MaskIter::Indices(indices) => filter_indices(array, indices.iter().copied()),
-            MaskIter::Slices(slices) => filter_slices(array, slices.iter().copied()),
-        }?;
-
-        // SAFETY: Filter operation preserves the dtype of each chunk.
-        // All filtered chunks maintain the same dtype as the original array.
-        unsafe {
-            Ok(Some(
-                ChunkedArray::new_unchecked(chunks, array.dtype().clone()).into_array(),
-            ))
-        }
-    }
-}
-
-/// The filter to apply to each chunk.
-///
-/// When we rewrite a set of slices in a filter predicate into chunk addresses, we want to account
-/// for the fact that some chunks will be wholly skipped.
-#[derive(Clone)]
-pub(crate) enum ChunkFilter {
-    All,
-    None,
-    Slices(Vec<(usize, usize)>),
-}
-
-/// Filter the chunks using slice ranges.
-fn filter_slices(
-    array: ArrayView<'_, Chunked>,
-    slices: impl Iterator<Item = (usize, usize)>,
-) -> VortexResult<Vec<ArrayRef>> {
-    let mut result = Vec::with_capacity(array.nchunks());
-
-    let chunk_filters = chunk_filters(array, slices)?;
-
-    // Now, apply the chunk filter to every slice.
-    for (chunk, chunk_filter) in array.iter_chunks().zip(chunk_filters) {
-        match chunk_filter {
-            // All => preserve the entire chunk unfiltered.
-            ChunkFilter::All => result.push(chunk.clone()),
-            // None => whole chunk is filtered out, skip
-            ChunkFilter::None => {}
-            // Slices => turn the slices into a boolean buffer.
-            ChunkFilter::Slices(slices) => {
-                result.push(chunk.filter(Mask::from_slices(chunk.len(), slices))?);
-            }
-        }
-    }
-
-    Ok(result)
-}
-
-pub(crate) fn chunk_filters(
-    array: ArrayView<'_, Chunked>,
-    slices: impl Iterator<Item = (usize, usize)>,
-) -> VortexResult<Vec<ChunkFilter>> {
-    let chunk_offsets = array.chunk_offset_values();
-
-    let mut chunk_filters = vec![ChunkFilter::None; array.nchunks()];
-
-    for (slice_start, slice_end) in slices {
-        let (start_chunk, start_idx) = find_chunk_idx(slice_start, chunk_offsets)?;
-        // NOTE: we adjust slice end back by one, in case it ends on a chunk boundary, we do not
-        // want to index into the unused chunk.
-        let (end_chunk, end_idx) = find_chunk_idx(slice_end - 1, chunk_offsets)?;
-        // Adjust back to an exclusive range
-        let end_idx = end_idx + 1;
-
-        if start_chunk == end_chunk {
-            // start == end means that the slice lies within a single chunk.
-            match &mut chunk_filters[start_chunk] {
-                f @ (ChunkFilter::All | ChunkFilter::None) => {
-                    *f = ChunkFilter::Slices(vec![(start_idx, end_idx)]);
-                }
-                ChunkFilter::Slices(slices) => {
-                    slices.push((start_idx, end_idx));
-                }
-            }
-        } else {
-            // start != end means that the range is split over at least two chunks:
-            // start chunk: append a slice from (start_idx, start_chunk_end), i.e. whole chunk.
-            // end chunk: append a slice from (0, end_idx).
-            // chunks between start and end: append ChunkFilter::All.
-            let start_chunk_len = chunk_offsets[start_chunk + 1] - chunk_offsets[start_chunk];
-            let start_slice = (start_idx, start_chunk_len);
-            match &mut chunk_filters[start_chunk] {
-                f @ (ChunkFilter::All | ChunkFilter::None) => {
-                    *f = ChunkFilter::Slices(vec![start_slice])
-                }
-                ChunkFilter::Slices(slices) => slices.push(start_slice),
-            }
-
-            let end_slice = (0, end_idx);
-            match &mut chunk_filters[end_chunk] {
-                f @ (ChunkFilter::All | ChunkFilter::None) => {
-                    *f = ChunkFilter::Slices(vec![end_slice]);
-                }
-                ChunkFilter::Slices(slices) => slices.push(end_slice),
-            }
-
-            for chunk in &mut chunk_filters[start_chunk + 1..end_chunk] {
-                *chunk = ChunkFilter::All;
-            }
-        }
-    }
-
-    Ok(chunk_filters)
-}
-
-/// Filter the chunks using indices.
-fn filter_indices(
-    array: ArrayView<'_, Chunked>,
-    indices: impl Iterator<Item = usize>,
-) -> VortexResult<Vec<ArrayRef>> {
-    let mut result = Vec::with_capacity(array.nchunks());
-    let mut current_chunk_id = 0;
-    let mut chunk_indices = BufferMut::with_capacity(array.nchunks());
-
-    let chunk_offsets = array.chunk_offset_values();
-
-    for set_index in indices {
-        let (chunk_id, index) = find_chunk_idx(set_index, chunk_offsets)?;
-        if chunk_id != current_chunk_id {
-            // Push the chunk we've accumulated.
-            if !chunk_indices.is_empty() {
-                let chunk = array.chunk(current_chunk_id);
-                let indices =
-                    PrimitiveArray::new(chunk_indices.clone().freeze(), Validity::NonNullable);
-                result.push(chunk.take(indices.into_array())?);
-            }
-
-            // Advance the chunk forward, reset the chunk indices buffer.
-            current_chunk_id = chunk_id;
-            chunk_indices.clear();
+            .vortex_expect("FilterKernel receives a partially selective mask")
+            .bit_buffer()
+            .set_indices();
+        let offsets = array.chunk_offset_values();
+        let ends = &offsets[1..];
+        let mut next_chunk = 0;
+        while let Some(row) = indices.next() {
+            let chunk_id = find_next_chunk(ends, next_chunk, row);
+            let end = ends[chunk_id];
+            let selected = mask.slice(offsets[chunk_id]..end);
+            let chunk = array.chunk(chunk_id);
+            chunks.push(if selected.all_true() {
+                chunk.clone()
+            } else {
+                chunk.filter(selected)?
+            });
+            indices.seek_to(end);
+            next_chunk = chunk_id + 1;
         }
 
-        chunk_indices.push(index as u64);
+        // SAFETY: Filtering preserves each chunk's dtype.
+        Ok(Some(unsafe {
+            ChunkedArray::new_unchecked(chunks, array.dtype().clone()).into_array()
+        }))
     }
-
-    if !chunk_indices.is_empty() {
-        let chunk = array.chunk(current_chunk_id);
-        let indices = PrimitiveArray::new(chunk_indices.clone().freeze(), Validity::NonNullable);
-        let filtered_chunk = chunk.take(indices.into_array())?;
-        result.push(filtered_chunk);
-    }
-
-    Ok(result)
 }
 
-/// Mirrors the find_chunk_idx method on ChunkedArray, but avoids all of the overhead
-/// from scalars, dtypes, and metadata cloning.
-pub(crate) fn find_chunk_idx(idx: usize, chunk_ends: &[usize]) -> VortexResult<(usize, usize)> {
-    let chunk_id = chunk_ends
-        .search_sorted(&idx, SearchSortedSide::Right)?
-        .to_ends_index(chunk_ends.len())
-        .saturating_sub(1);
-    let chunk_begin = chunk_ends[chunk_id];
-    let chunk_offset = idx - chunk_begin;
-
-    Ok((chunk_id, chunk_offset))
+/// Finds the chunk containing `row` using sorted ends.
+/// `start` must not pass that chunk, and `row` must precede the final end.
+fn find_next_chunk(ends: &[usize], mut start: usize, row: usize) -> usize {
+    let stop = (start + 8).min(ends.len());
+    while start < stop {
+        if ends[start] > row {
+            return start;
+        }
+        start += 1;
+    }
+    let mut lower = start;
+    let mut step = 1;
+    while start + step < ends.len() && ends[start + step] <= row {
+        lower = start + step + 1;
+        step *= 2;
+    }
+    let upper = (start + step + 1).min(ends.len());
+    lower + ends[lower..upper].partition_point(|&end| end <= row)
 }
 
 #[cfg(test)]

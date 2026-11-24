@@ -4,7 +4,6 @@
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_panic;
-use vortex_session::VortexSession;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
@@ -21,7 +20,6 @@ use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
 use crate::builders::StructBuilder;
 use crate::dtype::DType;
-mod kernel;
 mod operations;
 mod plugin;
 mod validity;
@@ -32,10 +30,6 @@ use crate::array::ArrayId;
 
 /// A [`Struct`]-encoded Vortex array.
 pub type StructArray = Array<Struct>;
-
-pub(crate) fn initialize(session: &VortexSession) {
-    kernel::initialize(session);
-}
 
 impl VTable for Struct {
     type TypedArrayData = EmptyArrayData;

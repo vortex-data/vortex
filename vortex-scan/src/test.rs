@@ -3,6 +3,7 @@
 
 //! Source-independent fixtures shared by plan and engine tests.
 
+use std::any::Any;
 use std::ops::Range;
 use std::sync::Arc;
 use std::sync::LazyLock;
@@ -10,19 +11,27 @@ use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 
 use futures::FutureExt;
+use futures::StreamExt;
+use futures::TryStreamExt;
 use futures::future::ready;
+use futures::stream;
 use parking_lot::Mutex;
 use vortex_array::ArrayContext;
 use vortex_array::ArrayRef;
 use vortex_array::EmptyMetadata;
+use vortex_array::IntoArray;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
+use vortex_array::expr::stats::Precision;
 use vortex_array::optimizer::ArrayOptimizer;
 use vortex_array::serde::SerializeOptions;
 use vortex_array::serde::SerializedArray;
+use vortex_array::stream::ArrayStream;
+use vortex_array::stream::SendableArrayStream;
 use vortex_buffer::Alignment;
 use vortex_buffer::ByteBufferMut;
+use vortex_buffer::buffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use vortex_mask::Mask;
@@ -30,6 +39,11 @@ use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 use vortex_session::registry::ReadContext;
 
+use crate::DataSourceScan;
+use crate::DataSourceScanRef;
+use crate::Partition;
+use crate::PartitionRef;
+use crate::PartitionStream;
 use crate::execution::SegmentLocation;
 use crate::execution::operator::Cx;
 use crate::execution::operator::Input;
@@ -57,6 +71,71 @@ use crate::source::SegmentId;
 use crate::source::SegmentSource;
 
 pub static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
+#[tokio::test]
+async fn into_array_stream_preserves_dtype_and_partition_order() -> VortexResult<()> {
+    let first = buffer![1_u32].into_array();
+    let second = buffer![2_u32, 3].into_array();
+    let dtype = first.dtype().clone();
+    let scan: DataSourceScanRef = Box::new(TestArrayScan {
+        dtype: dtype.clone(),
+        arrays: vec![first, second],
+    });
+
+    let stream = scan.into_array_stream();
+    assert_eq!(stream.dtype(), &dtype);
+    let lengths: Vec<_> = stream.map_ok(|array| array.len()).try_collect().await?;
+    assert_eq!(lengths, [1, 2]);
+    Ok(())
+}
+
+struct TestArrayScan {
+    dtype: DType,
+    arrays: Vec<ArrayRef>,
+}
+
+impl DataSourceScan for TestArrayScan {
+    fn dtype(&self) -> &DType {
+        &self.dtype
+    }
+
+    fn partition_count(&self) -> Precision<usize> {
+        Precision::Exact(self.arrays.len())
+    }
+
+    fn partitions(self: Box<Self>) -> PartitionStream {
+        stream::iter(
+            self.arrays.into_iter().enumerate().map(|(index, array)| {
+                Ok(Box::new(TestArrayPartition(index, array)) as PartitionRef)
+            }),
+        )
+        .boxed()
+    }
+}
+
+struct TestArrayPartition(usize, ArrayRef);
+
+impl Partition for TestArrayPartition {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn index(&self) -> usize {
+        self.0
+    }
+
+    fn row_count(&self) -> Precision<u64> {
+        Precision::Exact(self.1.len() as u64)
+    }
+
+    fn byte_size(&self) -> Precision<u64> {
+        Precision::Absent
+    }
+
+    fn execute(self: Box<Self>) -> VortexResult<SendableArrayStream> {
+        Ok(Box::pin(self.1.to_array_stream()))
+    }
+}
 
 #[derive(Clone, Debug)]
 pub struct TestSource;
