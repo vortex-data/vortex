@@ -21,6 +21,8 @@ use vortex_array::MaskFuture;
 use vortex_array::VortexSessionExecute;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldMask;
+use vortex_array::scalar_fn::builtin::boolean::Boolean;
+use vortex_array::scalar_fn::builtin::operators::BooleanOperator;
 use vortex_buffer::BitBufferMut;
 use vortex_error::SharedVortexResult;
 use vortex_error::VortexError;
@@ -140,6 +142,30 @@ impl IndexedReader {
     }
 
     fn plan_claims(&self, expr: &BoundExpression) -> VortexResult<Option<Claims>> {
+        if let Some(claims) = self.plan_direct_claims(expr)? {
+            return Ok(Some(claims));
+        }
+
+        // A scan evaluates the conjuncts that read one column together, as one `AND`, which no
+        // index claims as a whole. Every conjunct an index claims still prunes the rows the
+        // conjunction rejects. None of these claims answers the conjunction exactly, so the data
+        // child evaluates it over the rows they leave.
+        let Some(members) = and_members(expr) else {
+            return Ok(None);
+        };
+        let mut pruning = Vec::new();
+        for member in members {
+            if let Some(claims) = self.plan_claims(member)? {
+                pruning.extend(claims.pruning);
+            }
+        }
+        Ok((!pruning.is_empty()).then_some(Claims {
+            exact: None,
+            pruning,
+        }))
+    }
+
+    fn plan_direct_claims(&self, expr: &BoundExpression) -> VortexResult<Option<Claims>> {
         let mut exact = None;
         let mut pruning = Vec::new();
 
@@ -169,6 +195,14 @@ impl IndexedReader {
         }
         Ok(Some(Claims { exact, pruning }))
     }
+}
+
+/// The operands of `expr` when it is a boolean `AND`.
+fn and_members(expr: &BoundExpression) -> Option<&[BoundExpression]> {
+    expr.as_scalar()
+        .and_then(|scalar_fn| scalar_fn.as_opt::<Boolean>())
+        .is_some_and(|operator| *operator == BooleanOperator::And)
+        .then(|| expr.children())
 }
 
 /// Open every index this session can probe, once per reader rather than per expression.
