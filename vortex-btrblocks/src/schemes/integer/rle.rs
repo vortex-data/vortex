@@ -4,7 +4,6 @@
 //! Run-length integer encoding and shared RLE compression helpers.
 
 use vortex_array::ArrayId;
-use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
@@ -23,7 +22,6 @@ use vortex_fastlanes::RLEArraySlotsExt;
 
 use super::RUN_LENGTH_THRESHOLD;
 use crate::ArrayAndStats;
-use crate::CascadingCompressor;
 use crate::Child;
 use crate::CompressorContext;
 use crate::Encoded;
@@ -132,16 +130,5 @@ impl Scheme for IntRLEScheme {
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<Encoded> {
         rle_encode(self, data, exec_ctx)
-    }
-
-    #[expect(clippy::unimplemented, reason = "replaced by `encode`")]
-    fn compress(
-        &self,
-        _compressor: &CascadingCompressor,
-        _data: &ArrayAndStats,
-        _compress_ctx: CompressorContext,
-        _exec_ctx: &mut ExecutionCtx,
-    ) -> VortexResult<ArrayRef> {
-        unimplemented!("{} compresses through Scheme::encode", self.scheme_name())
     }
 }

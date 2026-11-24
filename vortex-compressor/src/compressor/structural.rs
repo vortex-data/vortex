@@ -85,6 +85,9 @@ impl CascadingCompressor {
     /// # Errors
     ///
     /// Returns an error if compression of the validity array fails.
+    #[deprecated(
+        note = "implement `Scheme::encode` and register the validity with `Encoded::with_validity`"
+    )]
     pub fn compress_validity(
         &self,
         validity: Validity,
@@ -106,6 +109,9 @@ impl CascadingCompressor {
     /// # Errors
     ///
     /// Returns an error if compression of the validity array fails.
+    #[deprecated(
+        note = "implement `Scheme::encode` and register the validity with `Encoded::with_validity`"
+    )]
     pub fn with_compressed_validity(
         &self,
         array: &ArrayRef,

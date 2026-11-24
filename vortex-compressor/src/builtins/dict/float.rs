@@ -9,7 +9,6 @@
 use std::hash::Hash;
 
 use vortex_array::ArrayId;
-use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
@@ -23,7 +22,6 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use super::dictionary_encoded;
-use crate::CascadingCompressor;
 use crate::builtins::IntDictScheme;
 use crate::scheme::ChildSelection;
 use crate::scheme::CompressionEstimate;
@@ -124,17 +122,6 @@ impl Scheme for FloatDictScheme {
         let stats = data.float_stats(exec_ctx);
         let dict = dictionary_encode(data.array_as_primitive(), &stats)?;
         Ok(dictionary_encoded(self, &dict))
-    }
-
-    #[expect(clippy::unimplemented, reason = "replaced by `encode`")]
-    fn compress(
-        &self,
-        _compressor: &CascadingCompressor,
-        _data: &ArrayAndStats,
-        _compress_ctx: CompressorContext,
-        _exec_ctx: &mut ExecutionCtx,
-    ) -> VortexResult<ArrayRef> {
-        unimplemented!("{} compresses through Scheme::encode", self.scheme_name())
     }
 }
 

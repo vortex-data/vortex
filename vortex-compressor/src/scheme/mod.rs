@@ -37,6 +37,7 @@ use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 
 use crate::CascadingCompressor;
 use crate::stats::ArrayAndStats;
@@ -232,9 +233,9 @@ pub trait Scheme: AsDynScheme + Debug + Send + Sync {
     /// leave it uncompressed, and register the encoding's own validity with
     /// [`Encoded::with_validity`].
     ///
-    /// The default falls back to [`compress`](Self::compress): the compressor calls the
-    /// scheme's `compress` instead, as it always has. A scheme migrates by implementing this and
-    /// leaving its `compress` `unimplemented!`.
+    /// Every scheme should implement this. The default falls back to the deprecated
+    /// [`compress`](Self::compress), which the compressor then calls instead, so that schemes
+    /// written before `encode` keep working until they migrate.
     ///
     /// # Errors
     ///
@@ -248,22 +249,29 @@ pub trait Scheme: AsDynScheme + Debug + Send + Sync {
         Ok(Encoded::uses_compress())
     }
 
-    /// Compress the array using this scheme.
+    /// Compress the array using this scheme, compressing its children itself.
     ///
-    /// The compressor calls this for a scheme that does not implement [`encode`](Self::encode),
-    /// which replaces it. A scheme migrated to `encode` implements this with `unimplemented!`
-    /// until it is removed.
+    /// The compressor calls this only for a scheme that does not implement
+    /// [`encode`](Self::encode). The default returns an error.
     ///
     /// # Errors
     ///
     /// Returns an error if compression fails.
+    #[deprecated(
+        note = "implement `Scheme::encode` instead, which leaves the children to the compressor"
+    )]
     fn compress(
         &self,
-        compressor: &CascadingCompressor,
-        data: &ArrayAndStats,
-        compress_ctx: CompressorContext,
-        exec_ctx: &mut ExecutionCtx,
-    ) -> VortexResult<ArrayRef>;
+        _compressor: &CascadingCompressor,
+        _data: &ArrayAndStats,
+        _compress_ctx: CompressorContext,
+        _exec_ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        vortex_bail!(
+            "scheme {} implements neither Scheme::encode nor Scheme::compress",
+            self.scheme_name()
+        )
+    }
 }
 
 impl PartialEq for dyn Scheme {

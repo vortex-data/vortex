@@ -129,16 +129,6 @@ impl Scheme for DirectRatioScheme {
     ) -> CompressionEstimate {
         CompressionEstimate::Verdict(EstimateVerdict::Ratio(2.0))
     }
-
-    fn compress(
-        &self,
-        _compressor: &CascadingCompressor,
-        _data: &ArrayAndStats,
-        _compress_ctx: CompressorContext,
-        _exec_ctx: &mut ExecutionCtx,
-    ) -> VortexResult<ArrayRef> {
-        unreachable!("test helper should never be selected for compression")
-    }
 }
 
 #[derive(Debug)]
@@ -164,16 +154,6 @@ impl Scheme for ImmediateAlwaysUseScheme {
         _exec_ctx: &mut ExecutionCtx,
     ) -> CompressionEstimate {
         CompressionEstimate::Verdict(EstimateVerdict::AlwaysUse)
-    }
-
-    fn compress(
-        &self,
-        _compressor: &CascadingCompressor,
-        _data: &ArrayAndStats,
-        _compress_ctx: CompressorContext,
-        _exec_ctx: &mut ExecutionCtx,
-    ) -> VortexResult<ArrayRef> {
-        unreachable!("test helper should never be selected for compression")
     }
 }
 
@@ -203,16 +183,6 @@ impl Scheme for CallbackAlwaysUseScheme {
             |_compressor, _data, _ctx, _exec_ctx, _best_so_far| Ok(EstimateVerdict::AlwaysUse),
         )))
     }
-
-    fn compress(
-        &self,
-        _compressor: &CascadingCompressor,
-        _data: &ArrayAndStats,
-        _compress_ctx: CompressorContext,
-        _exec_ctx: &mut ExecutionCtx,
-    ) -> VortexResult<ArrayRef> {
-        unreachable!("test helper should never be selected for compression")
-    }
 }
 
 #[derive(Debug)]
@@ -240,16 +210,6 @@ impl Scheme for CallbackSkipScheme {
         CompressionEstimate::Deferred(DeferredEstimate::Callback(Box::new(
             |_compressor, _data, _ctx, _exec_ctx, _best_so_far| Ok(EstimateVerdict::Skip),
         )))
-    }
-
-    fn compress(
-        &self,
-        _compressor: &CascadingCompressor,
-        _data: &ArrayAndStats,
-        _compress_ctx: CompressorContext,
-        _exec_ctx: &mut ExecutionCtx,
-    ) -> VortexResult<ArrayRef> {
-        unreachable!("test helper should never be selected for compression")
     }
 }
 
@@ -279,16 +239,6 @@ impl Scheme for CallbackRatioScheme {
             |_compressor, _data, _ctx, _exec_ctx, _best_so_far| Ok(EstimateVerdict::Ratio(3.0)),
         )))
     }
-
-    fn compress(
-        &self,
-        _compressor: &CascadingCompressor,
-        _data: &ArrayAndStats,
-        _compress_ctx: CompressorContext,
-        _exec_ctx: &mut ExecutionCtx,
-    ) -> VortexResult<ArrayRef> {
-        unreachable!("test helper should never be selected for compression")
-    }
 }
 
 #[derive(Debug)]
@@ -314,16 +264,6 @@ impl Scheme for HugeRatioScheme {
         _exec_ctx: &mut ExecutionCtx,
     ) -> CompressionEstimate {
         CompressionEstimate::Verdict(EstimateVerdict::Ratio(100.0))
-    }
-
-    fn compress(
-        &self,
-        _compressor: &CascadingCompressor,
-        _data: &ArrayAndStats,
-        _compress_ctx: CompressorContext,
-        _exec_ctx: &mut ExecutionCtx,
-    ) -> VortexResult<ArrayRef> {
-        unreachable!("test helper should never be selected for compression")
     }
 }
 
@@ -352,14 +292,15 @@ impl Scheme for ZeroBytesSamplingScheme {
         CompressionEstimate::Deferred(DeferredEstimate::Sample)
     }
 
-    fn compress(
+    fn encode(
         &self,
-        _compressor: &CascadingCompressor,
         data: &ArrayAndStats,
-        _compress_ctx: CompressorContext,
+        _compress_ctx: &CompressorContext,
         _exec_ctx: &mut ExecutionCtx,
-    ) -> VortexResult<ArrayRef> {
-        Ok(NullArray::new(data.array().len()).into_array())
+    ) -> VortexResult<Encoded> {
+        Ok(Encoded::leaf(
+            NullArray::new(data.array().len()).into_array(),
+        ))
     }
 }
 
@@ -389,14 +330,15 @@ impl Scheme for FiniteSamplingScheme {
         CompressionEstimate::Deferred(DeferredEstimate::Sample)
     }
 
-    fn compress(
+    fn encode(
         &self,
-        _compressor: &CascadingCompressor,
         _data: &ArrayAndStats,
-        _compress_ctx: CompressorContext,
+        _compress_ctx: &CompressorContext,
         _exec_ctx: &mut ExecutionCtx,
-    ) -> VortexResult<ArrayRef> {
-        Ok(PrimitiveArray::new(buffer![0u8], Validity::NonNullable).into_array())
+    ) -> VortexResult<Encoded> {
+        Ok(Encoded::leaf(
+            PrimitiveArray::new(buffer![0u8], Validity::NonNullable).into_array(),
+        ))
     }
 }
 
@@ -426,14 +368,15 @@ impl Scheme for SampledAlwaysUseScheme {
         CompressionEstimate::Verdict(EstimateVerdict::AlwaysUse)
     }
 
-    fn compress(
+    fn encode(
         &self,
-        _compressor: &CascadingCompressor,
         _data: &ArrayAndStats,
-        _compress_ctx: CompressorContext,
+        _compress_ctx: &CompressorContext,
         _exec_ctx: &mut ExecutionCtx,
-    ) -> VortexResult<ArrayRef> {
-        Ok(PrimitiveArray::new(buffer![0u8], Validity::NonNullable).into_array())
+    ) -> VortexResult<Encoded> {
+        Ok(Encoded::leaf(
+            PrimitiveArray::new(buffer![0u8], Validity::NonNullable).into_array(),
+        ))
     }
 }
 
@@ -463,14 +406,15 @@ impl Scheme for ZeroBytesAlwaysUseScheme {
         CompressionEstimate::Verdict(EstimateVerdict::AlwaysUse)
     }
 
-    fn compress(
+    fn encode(
         &self,
-        _compressor: &CascadingCompressor,
         data: &ArrayAndStats,
-        _compress_ctx: CompressorContext,
+        _compress_ctx: &CompressorContext,
         _exec_ctx: &mut ExecutionCtx,
-    ) -> VortexResult<ArrayRef> {
-        Ok(NullArray::new(data.array().len()).into_array())
+    ) -> VortexResult<Encoded> {
+        Ok(Encoded::leaf(
+            NullArray::new(data.array().len()).into_array(),
+        ))
     }
 }
 
@@ -500,14 +444,13 @@ impl Scheme for OverpromisingScheme {
         CompressionEstimate::Verdict(EstimateVerdict::Ratio(100.0))
     }
 
-    fn compress(
+    fn encode(
         &self,
-        _compressor: &CascadingCompressor,
         data: &ArrayAndStats,
-        _compress_ctx: CompressorContext,
+        _compress_ctx: &CompressorContext,
         _exec_ctx: &mut ExecutionCtx,
-    ) -> VortexResult<ArrayRef> {
-        Ok(data.array().clone())
+    ) -> VortexResult<Encoded> {
+        Ok(Encoded::leaf(data.array().clone()))
     }
 }
 
@@ -544,16 +487,6 @@ impl Scheme for TrialStoringScheme {
                 Ok(EstimateVerdict::Skip)
             },
         )))
-    }
-
-    fn compress(
-        &self,
-        _compressor: &CascadingCompressor,
-        _data: &ArrayAndStats,
-        _compress_ctx: CompressorContext,
-        _exec_ctx: &mut ExecutionCtx,
-    ) -> VortexResult<ArrayRef> {
-        unreachable!("test helper should never be selected for compression")
     }
 }
 
@@ -790,16 +723,6 @@ impl Scheme for ThresholdObservingScheme {
             },
         )))
     }
-
-    fn compress(
-        &self,
-        _compressor: &CascadingCompressor,
-        _data: &ArrayAndStats,
-        _compress_ctx: CompressorContext,
-        _exec_ctx: &mut ExecutionCtx,
-    ) -> VortexResult<ArrayRef> {
-        unreachable!("test helper should never be selected for compression")
-    }
 }
 
 #[derive(Debug)]
@@ -827,16 +750,6 @@ impl Scheme for CallbackMatchingRatioScheme {
         CompressionEstimate::Deferred(DeferredEstimate::Callback(Box::new(
             |_compressor, _data, _ctx, _exec_ctx, _best_so_far| Ok(EstimateVerdict::Ratio(2.0)),
         )))
-    }
-
-    fn compress(
-        &self,
-        _compressor: &CascadingCompressor,
-        _data: &ArrayAndStats,
-        _compress_ctx: CompressorContext,
-        _exec_ctx: &mut ExecutionCtx,
-    ) -> VortexResult<ArrayRef> {
-        unreachable!("test helper should never be selected for compression")
     }
 }
 
@@ -1107,19 +1020,20 @@ impl Scheme for FixedTableScheme {
         CompressionEstimate::Deferred(DeferredEstimate::Sample)
     }
 
-    fn compress(
+    fn encode(
         &self,
-        _compressor: &CascadingCompressor,
         data: &ArrayAndStats,
-        _compress_ctx: CompressorContext,
+        _compress_ctx: &CompressorContext,
         _exec_ctx: &mut ExecutionCtx,
-    ) -> VortexResult<ArrayRef> {
+    ) -> VortexResult<Encoded> {
         let nbytes = Self::TABLE_NBYTES + data.array().len();
-        Ok(PrimitiveArray::new(
-            Buffer::from_iter(iter::repeat_n(0u8, nbytes)),
-            Validity::NonNullable,
-        )
-        .into_array())
+        Ok(Encoded::leaf(
+            PrimitiveArray::new(
+                Buffer::from_iter(iter::repeat_n(0u8, nbytes)),
+                Validity::NonNullable,
+            )
+            .into_array(),
+        ))
     }
 }
 
@@ -1467,17 +1381,6 @@ impl Scheme for TestDictScheme {
             },
         ))
     }
-
-    #[expect(clippy::unimplemented, reason = "replaced by `encode`")]
-    fn compress(
-        &self,
-        _compressor: &CascadingCompressor,
-        _data: &ArrayAndStats,
-        _compress_ctx: CompressorContext,
-        _exec_ctx: &mut ExecutionCtx,
-    ) -> VortexResult<ArrayRef> {
-        unimplemented!("{} compresses through Scheme::encode", self.scheme_name())
-    }
 }
 
 /// Records every child the compressor asks about, and answers with `decision`, or with what the
@@ -1558,7 +1461,7 @@ fn policy_can_compress_a_kept_child() -> VortexResult<()> {
     Ok(())
 }
 
-/// Implements only the original [`Scheme::compress`], compressing its own children with
+/// Implements only the deprecated [`Scheme::compress`], compressing its own children with
 /// [`CascadingCompressor::compress_child`].
 #[derive(Debug)]
 struct CompressOnlyDictScheme;
@@ -1605,7 +1508,7 @@ impl Scheme for CompressOnlyDictScheme {
     }
 }
 
-/// Leaves [`Scheme::compress`] unimplemented without implementing [`Scheme::encode`].
+/// Implements neither [`Scheme::encode`] nor the deprecated [`Scheme::compress`].
 #[derive(Debug)]
 struct NoEncodingScheme;
 
@@ -1630,17 +1533,6 @@ impl Scheme for NoEncodingScheme {
     ) -> CompressionEstimate {
         CompressionEstimate::Verdict(EstimateVerdict::AlwaysUse)
     }
-
-    #[expect(clippy::unimplemented, reason = "replaced by `encode`")]
-    fn compress(
-        &self,
-        _compressor: &CascadingCompressor,
-        _data: &ArrayAndStats,
-        _compress_ctx: CompressorContext,
-        _exec_ctx: &mut ExecutionCtx,
-    ) -> VortexResult<ArrayRef> {
-        unimplemented!("{} compresses through Scheme::encode", self.scheme_name())
-    }
 }
 
 #[test]
@@ -1656,10 +1548,17 @@ fn compress_only_scheme_still_works() -> VortexResult<()> {
 }
 
 #[test]
-#[should_panic(expected = "test.no_encoding compresses through Scheme::encode")]
-fn scheme_without_encoding_panics() {
+fn scheme_without_encoding_is_rejected() {
     let compressor = CascadingCompressor::new(vec![&NoEncodingScheme]);
-    drop(compressor.compress(&alternating_ints(), &mut SESSION.create_execution_ctx()));
+    let err = compressor
+        .compress(&alternating_ints(), &mut SESSION.create_execution_ctx())
+        .expect_err("the scheme cannot encode anything");
+    assert!(
+        err.to_string().contains(
+            "scheme test.no_encoding implements neither Scheme::encode nor Scheme::compress"
+        ),
+        "{err}"
+    );
 }
 
 /// Registers its input as a kept child, then builds its output without it.
@@ -1700,17 +1599,6 @@ impl Scheme for UnusedChildScheme {
             vec![Child::new(self, 0, data.array().clone())],
             move |_, _| Ok(ConstantArray::new(1i32, len).into_array()),
         ))
-    }
-
-    #[expect(clippy::unimplemented, reason = "replaced by `encode`")]
-    fn compress(
-        &self,
-        _compressor: &CascadingCompressor,
-        _data: &ArrayAndStats,
-        _compress_ctx: CompressorContext,
-        _exec_ctx: &mut ExecutionCtx,
-    ) -> VortexResult<ArrayRef> {
-        unimplemented!("{} compresses through Scheme::encode", self.scheme_name())
     }
 }
 
@@ -1759,17 +1647,6 @@ impl Scheme for CountingBoolScheme {
     ) -> CompressionEstimate {
         CompressionEstimate::Verdict(EstimateVerdict::Skip)
     }
-
-    #[expect(clippy::unimplemented, reason = "never matches")]
-    fn compress(
-        &self,
-        _compressor: &CascadingCompressor,
-        _data: &ArrayAndStats,
-        _compress_ctx: CompressorContext,
-        _exec_ctx: &mut ExecutionCtx,
-    ) -> VortexResult<ArrayRef> {
-        unimplemented!("{} never matches", self.scheme_name())
-    }
 }
 
 /// Generates integer statistics while estimating, then declines.
@@ -1797,17 +1674,6 @@ impl Scheme for StatsThenSkipScheme {
     ) -> CompressionEstimate {
         data.integer_stats(exec_ctx);
         CompressionEstimate::Verdict(EstimateVerdict::Skip)
-    }
-
-    #[expect(clippy::unimplemented, reason = "always skips")]
-    fn compress(
-        &self,
-        _compressor: &CascadingCompressor,
-        _data: &ArrayAndStats,
-        _compress_ctx: CompressorContext,
-        _exec_ctx: &mut ExecutionCtx,
-    ) -> VortexResult<ArrayRef> {
-        unimplemented!("{} always skips", self.scheme_name())
     }
 }
 
@@ -1874,17 +1740,6 @@ impl Scheme for PassThroughScheme {
             },
         ))
     }
-
-    #[expect(clippy::unimplemented, reason = "replaced by `encode`")]
-    fn compress(
-        &self,
-        _compressor: &CascadingCompressor,
-        _data: &ArrayAndStats,
-        _compress_ctx: CompressorContext,
-        _exec_ctx: &mut ExecutionCtx,
-    ) -> VortexResult<ArrayRef> {
-        unimplemented!("{} compresses through Scheme::encode", self.scheme_name())
-    }
 }
 
 /// A constructor may return a compressed child as its whole output: what the compressor left
@@ -1934,17 +1789,6 @@ impl Scheme for WholeLeafScheme {
         _exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<Encoded> {
         Encoded::of_leaf(data.array().clone(), |leaf, _| Ok(leaf))
-    }
-
-    #[expect(clippy::unimplemented, reason = "replaced by `encode`")]
-    fn compress(
-        &self,
-        _compressor: &CascadingCompressor,
-        _data: &ArrayAndStats,
-        _compress_ctx: CompressorContext,
-        _exec_ctx: &mut ExecutionCtx,
-    ) -> VortexResult<ArrayRef> {
-        unimplemented!("{} compresses through Scheme::encode", self.scheme_name())
     }
 }
 
@@ -2131,17 +1975,6 @@ impl Scheme for WrappingDictScheme {
                 Ok(DictArray::try_new(codes, values)?.into_array())
             },
         ))
-    }
-
-    #[expect(clippy::unimplemented, reason = "replaced by `encode`")]
-    fn compress(
-        &self,
-        _compressor: &CascadingCompressor,
-        _data: &ArrayAndStats,
-        _compress_ctx: CompressorContext,
-        _exec_ctx: &mut ExecutionCtx,
-    ) -> VortexResult<ArrayRef> {
-        unimplemented!("{} compresses through Scheme::encode", self.scheme_name())
     }
 }
 

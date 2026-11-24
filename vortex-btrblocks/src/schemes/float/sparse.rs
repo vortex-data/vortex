@@ -4,7 +4,6 @@
 //! Sparse encoding for null-dominated float arrays.
 
 use vortex_array::ArrayId;
-use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
@@ -20,7 +19,6 @@ use vortex_sparse::Sparse;
 use vortex_sparse::SparseExt as _;
 
 use crate::ArrayAndStats;
-use crate::CascadingCompressor;
 use crate::Child;
 use crate::CompressorContext;
 use crate::Encoded;
@@ -116,16 +114,5 @@ impl Scheme for NullDominatedSparseScheme {
                 Sparse::try_new(indices, values, len, fill, exec_ctx).map(|a| a.into_array())
             },
         ))
-    }
-
-    #[expect(clippy::unimplemented, reason = "replaced by `encode`")]
-    fn compress(
-        &self,
-        _compressor: &CascadingCompressor,
-        _data: &ArrayAndStats,
-        _compress_ctx: CompressorContext,
-        _exec_ctx: &mut ExecutionCtx,
-    ) -> VortexResult<ArrayRef> {
-        unimplemented!("{} compresses through Scheme::encode", self.scheme_name())
     }
 }

@@ -517,6 +517,7 @@ impl CascadingCompressor {
         let encoded = scheme.encode(data, compress_ctx, exec_ctx)?;
         if encoded.is_uses_compress() {
             // The scheme compresses its children, and any validity it stores, itself.
+            #[expect(deprecated, reason = "the fallback for schemes not yet on `encode`")]
             return scheme.compress(self, data, compress_ctx.clone(), exec_ctx);
         }
         self.compress_encoded(scheme.id(), encoded, compress_ctx, exec_ctx)
