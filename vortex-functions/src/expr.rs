@@ -361,7 +361,7 @@ pub fn bound_replace_time_zone(
 
 /// Constructors for expressions whose children have already been bound and type-checked.
 ///
-/// These mirror the constructors in [`vortex_array::expr`] and panic when the supplied children do not
+/// These mirror the constructors in [`vortex_expr`] and panic when the supplied children do not
 /// form a well-typed expression.
 /// Creates a dynamic comparison expression from its complete options.
 pub fn dynamic_with_options(options: DynamicComparisonExpr, lhs: Expression) -> Expression {

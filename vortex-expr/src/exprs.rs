@@ -195,7 +195,7 @@ pub fn bound_numeric(
 /// Creates the expression `lhs <operator> rhs` with the function that owns the operator.
 ///
 /// ```rust
-/// # use vortex_array::expr::{binary, col, lit};
+/// # use vortex_expr::{binary, col, lit};
 /// # use vortex_array::scalar::NumericOperator;
 /// # use vortex_array::scalar_fn::builtin::operators::CompareOperator;
 /// let sum = binary(NumericOperator::Add, col("x"), lit(1_i32));
