@@ -82,7 +82,8 @@ class Thread:
 
     ts: str
     latest_reply: str
-    keys: set[str] = field(default_factory=set)
+    # The keys of the bot's replies that this run read or posted, with each reply's timestamp.
+    keys: dict[str, str] = field(default_factory=dict)
     read: bool = False
 
 
@@ -183,7 +184,7 @@ class Run:
             if ts == thread.ts:
                 continue
             if (payload := read_metadata(reply, REPLY_EVENT)) is not None:
-                thread.keys.add(str(payload.get("key", "")))
+                thread.keys[str(payload.get("key", ""))] = ts
             elif _newer(ts, read_until) and self._human(reply):
                 requests.append(reply)
             if _newer(ts, newest):
@@ -208,7 +209,7 @@ class Run:
         quiet = build(self.quiet)
         ts = self.slack.post(quiet, data, thread.ts)
         # The key goes in before the edit, so a failed edit leaves plain names and no second post.
-        thread.keys.add(key)
+        thread.keys[key] = ts
         loud = build(self.people)
         if loud != quiet:
             self.slack.update(ts, loud, data)
@@ -388,6 +389,8 @@ class Run:
                 key = f"command:{request['ts']}"
                 self._reply(current.thread, key, lambda _people: render.wrong_thread())
         state = replace(state, read_until=read_until)
+        # The list goes first in a new overview's thread, above the day's reminder summary.
+        state = self._waiting(current.thread, state, rows)
         if self.config.pings and in_window(self.now) and state.day == today.isoformat():
             state = self._remind(current.thread, state, rows)
 
@@ -406,6 +409,24 @@ class Run:
             metadata(OVERVIEW_EVENT, state.payload()),
         )
         old.state = state
+
+    def _waiting(
+        self, thread: Thread, state: OverviewState, rows: list[render.Row]
+    ) -> OverviewState:
+        """Post or edit the reply in the overview's thread that lists what waits on contributors."""
+        key = f"waiting:{state.day}"
+        data = metadata(REPLY_EVENT, {"key": key})
+        message = render.waiting(rows, self.now, self.people)
+        # A run that posted the reply but stopped before it saved the overview finds the reply by
+        # its key, so it never posts a second list.
+        ts = state.waiting or thread.keys.get(key, "")
+        card = _hash(message)
+        if not ts:
+            ts = self.slack.post(message, data, thread.ts)
+            thread.keys[key] = ts
+        elif card != state.waiting_card:
+            self.slack.update(ts, message, data)
+        return replace(state, waiting=ts, waiting_card=card)
 
     def _owners(self, item: Item) -> list[str | None]:
         users = [

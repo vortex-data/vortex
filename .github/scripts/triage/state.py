@@ -124,6 +124,11 @@ class OverviewState:
     # The people that this day's summary reminder mentioned, comma separated. It stays empty until
     # the summary is posted, which happens once a day.
     reminded: str = ""
+    # The Slack timestamp of the reply in this overview's thread that lists the items that wait on
+    # the contributor, or empty before it is posted.
+    waiting: str = ""
+    # A hash of that reply's content, so the bot edits it only when it changes.
+    waiting_card: str = ""
     # True once a newer overview replaced this one.
     replaced: bool = False
 

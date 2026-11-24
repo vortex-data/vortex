@@ -57,8 +57,11 @@ def test_overview_groups_sections_in_order_with_colors():
     message = render.overview(rows, NOW.date(), NOW, MENTIONS.plain(), "Claude checked 2")
     assert message.blocks[0]["text"]["text"] == "📋 Vortex triage · Tue 24 Nov"
     summary = message.blocks[1]["elements"][0]["text"]
-    assert summary.startswith("On call gatesn · 🔴 2 High · 🟡 1 Normal · ⚪ 1 Low · 🔵 1 waiting · Claude checked 2")
-    assert [a["color"] for a in message.attachments] == [s.color for s in render.SECTIONS]
+    assert summary.startswith(
+        "On call gatesn · 🔴 2 High · 🟡 1 Normal · ⚪ 1 Low · 🔵 1 waiting, in the thread · Claude checked 2"
+    )
+    # Items that wait on the contributor are only counted, because a reply in the thread lists them.
+    assert [a["color"] for a in message.attachments] == [s.color for s in (render.HIGH, render.NORMAL, render.LOW)]
     high = texts_of(message)[1]
     # The highest score comes first.
     assert high.index("|#3 ") < high.index("|#2 ")
@@ -69,12 +72,14 @@ def test_overview_groups_sections_in_order_with_colors():
     )
 
 
-def test_overview_mentions_nobody_for_items_that_wait_on_the_contributor():
+def test_waiting_list_names_owners_without_mentions():
     rows = [row(1), row(2, owes=Owes.CONTRIBUTOR)]
     rows = [replace(r, item=item(r.item.number, assignees=["alice"])) for r in rows]
-    texts = texts_of(render.overview(rows, NOW.date(), NOW, MENTIONS, ""))
-    assert "  <@UALICE> · waiting" in next(t for t in texts if "|#1 " in t)
-    assert "  alice · why" in next(t for t in texts if "|#2 " in t)
+    overview = "\n".join(texts_of(render.overview(rows, NOW.date(), NOW, MENTIONS, "")))
+    assert "  <@UALICE> · waiting" in overview and "|#2 " not in overview
+    listed = "\n".join(texts_of(render.waiting(rows, NOW, MENTIONS)))
+    assert "  alice · why" in listed and "|#1 " not in listed
+    assert render.waiting(rows[:1], NOW, MENTIONS).text == "Nothing waits on a contributor"
 
 
 def test_people_mention_mapped_logins_and_give_unassigned_items_to_on_call():
@@ -97,7 +102,8 @@ def test_overview_hides_snoozed_items_and_counts_them():
     assert "|#1 " in body and "|#4 " in body
     assert "|#2 " not in body and "|#3 " not in body
     assert (
-        "🔴 2 High · 🟡 0 Normal · ⚪ 0 Low · 🔵 0 waiting · 😴 2 snoozed" in message.blocks[1]["elements"][0]["text"]
+        "🔴 2 High · 🟡 0 Normal · ⚪ 0 Low · 🔵 0 waiting, in the thread · 😴 2 snoozed"
+        in message.blocks[1]["elements"][0]["text"]
     )
 
 
@@ -121,6 +127,14 @@ def test_overview_fits_slack_limits_and_cuts_low_first(people):
     low = next(a for a in message.attachments if a["color"] == render.LOW.color)
     assert "more_" in json.dumps(low)
     assert "⚪ 2000 Low" in message.blocks[1]["elements"][0]["text"]
+
+
+def test_long_waiting_list_fits_slack_limits():
+    rows = [row(n, owes=Owes.CONTRIBUTOR, title="x" * 200) for n in range(1, 2001)]
+    message = render.waiting(rows, NOW, MENTIONS)
+    assert blocks_of(message) <= 50
+    assert all(len(text) <= 3000 for text in texts_of(message))
+    assert "more_" in json.dumps(message.attachments)
 
 
 def first_line(target) -> str:

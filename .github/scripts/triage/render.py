@@ -53,8 +53,10 @@ LOW = Section("low", "⚪", "Low", "#A0A0A0")
 WAITING = Section("waiting", "🔵", "Waiting on contributor", "#36C5F0")
 SECTIONS = (HIGH, NORMAL, LOW, WAITING)
 _BY_TIER = {Tier.HIGH: HIGH, Tier.NORMAL: NORMAL, Tier.LOW: LOW}
+# The overview lists these sections. Items that wait on the contributor go in a reply in its thread.
+_OVERVIEW_SECTIONS = (HIGH, NORMAL, LOW)
 # When the overview does not fit, rows are cut from these sections first. High is never cut.
-_CUT_ORDER = (LOW, WAITING, NORMAL)
+_CUT_ORDER = (LOW, NORMAL)
 
 
 @dataclass(frozen=True)
@@ -252,17 +254,60 @@ def _context(text: str) -> dict[str, Any]:
     return {"type": "context", "elements": [{"type": "mrkdwn", "text": text}]}
 
 
-def overview(rows: Sequence[Row], day: date, now: datetime, people: People, claude: str) -> Message:
-    """Build the daily overview, which lists every tracked item that is not snoozed."""
+def _attachments(
+    sections: Sequence[Section],
+    lines: dict[Section, list[str]],
+    head: int,
+    cut_order: Sequence[Section],
+) -> list[dict[str, Any]]:
+    """Lay out one colored attachment per section, within Slack's block limit.
+
+    `head` is the number of blocks outside the attachments. When the sections do not fit, rows are
+    cut from the end of each section in `cut_order`, which holds the least urgent items.
+    """
+    cut = {section: 0 for section in sections}
+
+    def build() -> tuple[list[dict[str, Any]], int]:
+        attachments, blocks = [], head
+        for section in sections:
+            if not lines[section]:
+                continue
+            shown = lines[section][: len(lines[section]) - cut[section]]
+            if cut[section]:
+                shown.append(f"_+{cut[section]} more_")
+            body = [_mrkdwn(f"*{section.marker} {section.title} · {len(lines[section])}*")]
+            body += [_list(chunk) for chunk in _chunks(shown, _ENTRY_GAP)]
+            blocks += len(body)
+            attachments.append({"color": section.color, "blocks": body})
+        return attachments, blocks
+
+    attachments, blocks = build()
+    for section in cut_order:
+        while blocks > MAX_BLOCKS and cut[section] < len(lines[section]):
+            cut[section] += 1
+            attachments, blocks = build()
+    return attachments
+
+
+def _shown(rows: Sequence[Row], now: datetime) -> dict[Section, list[Row]]:
     # A snoozed item leaves the overview until its snooze ends, as a closed item does, so that the
     # overview lists only what needs attention. The summary still counts snoozed items.
+    return ordered([row for row in rows if not _snoozed(row, now)])
+
+
+def overview(rows: Sequence[Row], day: date, now: datetime, people: People, claude: str) -> Message:
+    """Build the daily overview, which lists every tracked item that is not snoozed.
+
+    Items that wait on the contributor are only counted here. `waiting` lists them.
+    """
     snoozed = sum(_snoozed(row, now) for row in rows)
-    grouped = ordered([row for row in rows if not _snoozed(row, now)])
+    grouped = _shown(rows, now)
     counts = {section: len(members) for section, members in grouped.items()}
     label = day.strftime("%a %d %b").replace(" 0", " ")
     summary = _parts(
         f"On call {people.oncall_name()}" if people.oncall else "No on-call set",
-        *(f"{s.marker} {counts[s]} {s.title if s is not WAITING else 'waiting'}" for s in SECTIONS),
+        *(f"{s.marker} {counts[s]} {s.title}" for s in _OVERVIEW_SECTIONS),
+        f"{WAITING.marker} {counts[WAITING]} waiting, in the thread",
         f"😴 {snoozed} snoozed" if snoozed else "",
         claude,
         f"updated {date_token(now)}",
@@ -274,39 +319,30 @@ def overview(rows: Sequence[Row], day: date, now: datetime, people: People, clau
         },
         _context(summary),
     ]
-    # An item that waits on the contributor needs nothing from its owners yet, so its owners are
-    # named without mentions.
-    lines = {
-        section: [
-            _entry(row, now, people.plain() if section is WAITING else people) for row in members
-        ]
-        for section, members in grouped.items()
-    }
-    cut = {section: 0 for section in SECTIONS}
-
-    def build() -> tuple[list[dict[str, Any]], int]:
-        attachments, blocks = [], len(head)
-        for section in SECTIONS:
-            if not counts[section]:
-                continue
-            shown = lines[section][: len(lines[section]) - cut[section]]
-            if cut[section]:
-                shown.append(f"_+{cut[section]} more_")
-            body = [_mrkdwn(f"*{section.marker} {section.title} · {counts[section]}*")]
-            body += [_list(chunk) for chunk in _chunks(shown, _ENTRY_GAP)]
-            blocks += len(body)
-            attachments.append({"color": section.color, "blocks": body})
-        return attachments, blocks
-
-    attachments, blocks = build()
-    for section in _CUT_ORDER:
-        while blocks > MAX_BLOCKS and cut[section] < len(lines[section]):
-            cut[section] += 1
-            attachments, blocks = build()
+    lines = {s: [_entry(row, now, people) for row in grouped[s]] for s in _OVERVIEW_SECTIONS}
+    attachments = _attachments(_OVERVIEW_SECTIONS, lines, len(head), _CUT_ORDER)
     text = f"Vortex triage for {label}: " + ", ".join(
         f"{counts[s]} {s.title if s is not WAITING else 'waiting on contributor'}" for s in SECTIONS
     )
     return Message(text=text, blocks=tuple(head), attachments=tuple(attachments))
+
+
+def waiting(rows: Sequence[Row], now: datetime, people: People) -> Message:
+    """Build the reply in the overview's thread that lists the items that wait on the contributor.
+
+    These items need nothing from their owners yet, so the list names the owners without mentions.
+    """
+    members = _shown(rows, now)[WAITING]
+    if not members:
+        return Message(
+            text="Nothing waits on a contributor",
+            blocks=(_mrkdwn(f"{WAITING.marker} Nothing waits on a contributor."),),
+        )
+    plain = people.plain()
+    lines = {WAITING: [_entry(row, now, plain) for row in members]}
+    attachments = _attachments((WAITING,), lines, 0, (WAITING,))
+    text = f"{_count(len(members), 'item waits', 'items wait')} on the contributor"
+    return Message(text=text, attachments=tuple(attachments))
 
 
 def replaced_overview(day: date, link: str) -> Message:
@@ -458,7 +494,8 @@ def instructions() -> Message:
             f"{HIGH.marker} {HIGH.title}: reminded every working day",
             f"{NORMAL.marker} {NORMAL.title}: reminded every 5 working days",
             f"{LOW.marker} {LOW.title}: listed, never reminded",
-            f"{WAITING.marker} {WAITING.title}: the contributor owes the next move",
+            f"{WAITING.marker} {WAITING.title}: the contributor owes the next move, listed in "
+            "a reply in the overview's thread",
             "",
             "*Key*",
             *(f"{kind.emoji} {kind.meaning}" for kind in KINDS),

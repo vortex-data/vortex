@@ -38,6 +38,21 @@ def overview_ts(fake) -> Any:
     return fake.top(state.OVERVIEW_EVENT)[0]["ts"]
 
 
+def overview_replies(fake) -> list[str]:
+    """Return the bot's replies in the overview's thread, without the list of waiting items."""
+    return [
+        m["text"]
+        for m in fake.thread(overview_ts(fake))
+        if m.get("user") == support.BOT_USER and not m["metadata"]["event_payload"]["key"].startswith("waiting:")
+    ]
+
+
+def waiting_list(fake) -> str:
+    replies = fake.thread(overview_ts(fake))
+    (reply,) = [m for m in replies if m["metadata"]["event_payload"]["key"].startswith("waiting:")]
+    return json.dumps(reply, ensure_ascii=False)
+
+
 def test_first_run_posts_roots_and_a_quiet_rerun_reads_nothing():
     fake = FakeSlack()
     assert run(fake, [HIGH, WAITING, LOW]) == []
@@ -46,10 +61,27 @@ def test_first_run_posts_roots_and_a_quiet_rerun_reads_nothing():
     assert sorted(m["metadata"]["event_payload"]["number"] for m in fake.top(state.ITEM_EVENT)) == ["1", "2"]
     assert "🔴" in card_text(fake, 1) and "🔵" in card_text(fake, 2)
 
+    # The second run reads the overview's thread once, because the first run posted the list of
+    # waiting items there.
+    run(fake, [HIGH, WAITING, LOW], NOW + timedelta(minutes=5))
     fake.calls.clear()
-    assert run(fake, [HIGH, WAITING, LOW], NOW + timedelta(minutes=5)) == []
+    assert run(fake, [HIGH, WAITING, LOW], NOW + timedelta(minutes=10)) == []
     # Only the overview's "updated" time changes, and no thread is read.
     assert fake.calls == ["history", "update"]
+
+
+def test_items_that_wait_on_the_contributor_are_listed_in_the_overview_thread():
+    fake = FakeSlack()
+    run(fake, [HIGH, WAITING])
+    overview = json.dumps(fake.messages[overview_ts(fake)], ensure_ascii=False)
+    assert "|#1 " in overview and "|#2 " not in overview
+    assert "🔵 1 waiting, in the thread" in overview
+    assert "|#2 " in waiting_list(fake) and "|#1 " not in waiting_list(fake)
+    # The next day's overview gets its own list.
+    first = overview_ts(fake)
+    run(fake, [HIGH, WAITING], NOW + timedelta(days=1))
+    assert overview_ts(fake) != first
+    assert "|#2 " in waiting_list(fake)
 
 
 def test_snooze_is_confirmed_once_and_shown_on_the_card():
@@ -95,7 +127,7 @@ def test_commands_in_the_overview_thread_point_to_the_item_thread():
     fake.say(overview_ts(fake), "!snooze 2d", NOW + timedelta(minutes=1))
     fake.say(overview_ts(fake), "nice overview", NOW + timedelta(minutes=2))
     run(fake, [HIGH], NOW + HOUR)
-    assert fake.bot_replies(overview_ts(fake)) == [render.wrong_thread().text]
+    assert overview_replies(fake) == [render.wrong_thread().text]
 
 
 def test_reply_is_not_repeated_after_the_save_fails():
@@ -236,19 +268,19 @@ def test_reminders_go_to_each_item_thread_after_one_summary():
     items = [alice_new, shared, unassigned]
     fake = FakeSlack()
     run(fake, items, pings=True)
-    assert fake.bot_replies(overview_ts(fake)) == ["Due today: <@UALICE> 2 items, <@UONCALL> 1 item"]
+    assert overview_replies(fake) == ["Due today: <@UALICE> 2 items, <@UONCALL> 1 item"]
     assert item_reminders(fake, 1)[0].startswith("⏰ <@UALICE>, this item waits on you")
     assert item_reminders(fake, 2)[0].startswith("⏰ <@UALICE>, this item waits on you")
     assert item_reminders(fake, 3)[0].startswith("⏰ <@UONCALL> (on call), this item waits on you")
 
     run(fake, items, NOW + HOUR, pings=True)
-    assert len(fake.bot_replies(overview_ts(fake))) == 1
+    assert len(overview_replies(fake)) == 1
     assert [len(item_reminders(fake, n)) for n in (1, 2, 3)] == [1, 1, 1]
 
     # An item that becomes due later in the day gets only its own reminder.
     later = item(4, created=ago(minutes=30), assignees=["alice"])
     run(fake, [*items, later], NOW + 2 * HOUR, pings=True)
-    assert len(fake.bot_replies(overview_ts(fake))) == 1
+    assert len(overview_replies(fake)) == 1
     assert item_reminders(fake, 4)[0].startswith("⏰ <@UALICE>, this item waits on you")
 
 
@@ -257,7 +289,7 @@ def test_every_assignee_with_a_slack_id_is_reminded():
     fake = FakeSlack()
     # carol has no Slack ID, so only alice and bob get the item. Logins match in any case.
     run(fake, [shared], pings=True, users={"alice": "UALICE", "bob": "UBOB"})
-    assert fake.bot_replies(overview_ts(fake)) == ["Due today: <@UBOB> 1 item, <@UALICE> 1 item"]
+    assert overview_replies(fake) == ["Due today: <@UBOB> 1 item, <@UALICE> 1 item"]
     assert item_reminders(fake, 1)[0].startswith("⏰ <@UBOB>, <@UALICE>, this item waits on you")
     assert "<@UBOB>, <@UALICE>, carol" in json.dumps(fake.messages[overview_ts(fake)], ensure_ascii=False)
 
@@ -313,7 +345,7 @@ def test_next_day_replaces_the_overview_and_respects_cadence_and_snoozes():
     assert second != first
     assert "replaced by" in json.dumps(fake.messages[first]["blocks"])
     # The High item is due every working day. The snoozed one and the Normal one are not.
-    assert fake.bot_replies(second) == ["Due today: <@UALICE> 1 item"]
+    assert overview_replies(fake) == ["Due today: <@UALICE> 1 item"]
     assert [len(item_reminders(fake, n)) for n in (1, 2, 3)] == [2, 1, 1]
 
 
@@ -325,7 +357,7 @@ def test_old_overview_is_marked_replaced_after_a_failed_edit():
     fake.faults = [("update", "before")]
     assert run(fake, [HIGH], tomorrow, pings=True) == ["old overview: update: fault"]
     # The failed edit does not stop the reminders, and the next run edits the old overview again.
-    assert fake.bot_replies(overview_ts(fake)) == ["Due today: <@UONCALL> 1 item"]
+    assert overview_replies(fake) == ["Due today: <@UONCALL> 1 item"]
     assert "replaced by" not in json.dumps(fake.messages[first]["blocks"])
     assert run(fake, [HIGH], tomorrow + HOUR) == []
     assert "replaced by" in json.dumps(fake.messages[first]["blocks"])
@@ -341,7 +373,7 @@ def test_failed_thread_read_keeps_the_item_in_the_overview_and_reminders():
     # On-call has no GitHub login in the users map, so the overview names their Slack ID.
     assert summary.startswith("On call <@UONCALL> · 🔴 1 High")
     # The summary lists the item, but its own reminder waits until the next run can read its thread.
-    assert fake.bot_replies(overview_ts(fake)) == ["Due today: <@UONCALL> 1 item"]
+    assert overview_replies(fake) == ["Due today: <@UONCALL> 1 item"]
     assert item_reminders(fake, 1) == []
     assert run(fake, [HIGH], NOW + 2 * HOUR, pings=True) == []
     assert len(item_reminders(fake, 1)) == 1
@@ -354,14 +386,14 @@ def test_failed_summary_holds_back_the_item_reminders_until_the_next_run():
     assert run(fake, [HIGH], NOW + HOUR, pings=True) == ["overview: post: fault"]
     assert item_reminders(fake, 1) == []
     assert run(fake, [HIGH], NOW + 2 * HOUR, pings=True) == []
-    assert fake.bot_replies(overview_ts(fake)) == ["Due today: <@UONCALL> 1 item"]
+    assert overview_replies(fake) == ["Due today: <@UONCALL> 1 item"]
     assert len(item_reminders(fake, 1)) == 1
 
 
 def test_no_reminders_without_pings():
     fake = FakeSlack()
     run(fake, [HIGH], pings=False)
-    assert fake.bot_replies(overview_ts(fake)) == []
+    assert overview_replies(fake) == []
 
 
 def test_one_broken_item_does_not_stop_the_others(monkeypatch):
@@ -413,7 +445,9 @@ def test_state_round_trips_through_metadata():
     )
     assert all(isinstance(v, str) for v in original.payload().values())
     assert state.ItemState.from_payload(original.payload()) == original
-    overview = state.OverviewState("2026-11-24", "1.0", "UALICE,oncall", True)
+    overview = state.OverviewState(
+        "2026-11-24", read_until="1.0", reminded="UALICE,oncall", waiting="2.0", waiting_card="ab", replaced=True
+    )
     assert state.OverviewState.from_payload(overview.payload()) == overview
 
 
@@ -440,6 +474,6 @@ def test_purge_deletes_only_the_bots_messages():
     run(fake, [HIGH], NOW + HOUR)
     fake.say(None, "hello channel", NOW + 2 * HOUR)
     # A message that Slack refuses to delete is counted, and the purge goes on.
-    assert support.cli.purge(fake) == (4, 2, 1)
+    assert support.cli.purge(fake) == (5, 2, 1)
     remaining = list(fake.messages.values())
     assert sorted(m["text"] for m in remaining) == ["!snooze 1d", "hello channel", "joined"]
