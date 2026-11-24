@@ -248,14 +248,14 @@ impl ListReader {
         let validity_fut = fetch_validity(
             self.validity.as_ref(),
             &selected_row_range,
-            MaskFuture::ready(selection.clone()),
+            MaskFuture::new_true(selection.len()),
         )?;
 
         Ok(async move {
             let offsets = offsets_fut.await?;
             let mut ctx = reader.session.create_execution_ctx();
 
-            let (elements_fut, offsets) = if selection.all_true() {
+            let (elements, offsets, validity) = if selection.all_true() {
                 let elements_range = elements_range_from_offsets(&offsets, &reader.session)?;
                 let elements_fut = reader.fetch_elements(
                     &elements_range,
@@ -263,16 +263,26 @@ impl ListReader {
                         elements_range.end - elements_range.start,
                     )?),
                 )?;
-                (elements_fut, rebase_offsets(offsets, elements_range.start)?)
+                let (elements, validity) = try_join!(elements_fut, validity_fut)?;
+                (
+                    elements,
+                    rebase_offsets(offsets, elements_range.start)?,
+                    validity,
+                )
             } else {
+                let validity = validity_fut
+                    .await?
+                    .map(|validity| validity.filter(selection.clone()))
+                    .transpose()?;
                 let selected = select_lists(&offsets, &selection, &mut ctx)?;
-                let elements_fut = reader.fetch_elements(
-                    &selected.elements_range,
-                    MaskFuture::ready(selected.elements),
-                )?;
-                (elements_fut, selected.offsets)
+                let elements = reader
+                    .fetch_elements(
+                        &selected.elements_range,
+                        MaskFuture::ready(selected.elements),
+                    )?
+                    .await?;
+                (elements, selected.offsets, validity)
             };
-            let (elements, validity) = try_join!(elements_fut, validity_fut)?;
 
             let lists = lists_over(
                 elements,
