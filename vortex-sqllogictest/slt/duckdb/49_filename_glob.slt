@@ -1,0 +1,25 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+include ../setup.slt.no
+
+statement ok
+CREATE TABLE partitioned AS SELECT range % 3 AS i, range AS j FROM range(4);
+
+statement ok
+COPY partitioned TO '${WORK_DIR}/filename' (FORMAT vortex, PARTITION_BY (i));
+
+query TI
+SELECT filename, j FROM '${WORK_DIR}/filename/**/*.vortex'
+ORDER BY j;
+----
+${WORK_DIR}/filename/i=0/data_0.vortex 0
+${WORK_DIR}/filename/i=1/data_0.vortex 1
+${WORK_DIR}/filename/i=2/data_0.vortex 2
+${WORK_DIR}/filename/i=0/data_0.vortex 3
+
+query I
+SELECT j FROM '${WORK_DIR}/filename/**/*.vortex'
+WHERE filename LIKE '%i=1%';
+----
+1

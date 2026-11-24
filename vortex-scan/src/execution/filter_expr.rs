@@ -11,12 +11,12 @@ use parking_lot::Mutex;
 use parking_lot::RwLock;
 use sketches_ddsketch::DDSketch;
 use vortex_array::expr::BoundExpression;
-use vortex_array::scalar_fn::fns::binary::Binary;
-use vortex_array::scalar_fn::fns::dynamic::DynamicExprUpdates;
-use vortex_array::scalar_fn::fns::operators::Operator;
+use vortex_array::scalar_fn::builtin::boolean::Boolean;
+use vortex_array::scalar_fn::builtin::operators::BooleanOperator;
 use vortex_error::VortexExpect;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
+use vortex_functions::dynamic::DynamicExprUpdates;
 
 /// The selectivity histogram quantile to use for reordering conjuncts. Where 0 == no rows match.
 const DEFAULT_SELECTIVITY_QUANTILE: f64 = 0.1;
@@ -54,8 +54,8 @@ fn bound_conjuncts(expr: &BoundExpression) -> Vec<BoundExpression> {
     while let Some(expr) = pending.pop() {
         if expr
             .as_scalar()
-            .and_then(|scalar_fn| scalar_fn.as_opt::<Binary>())
-            .is_some_and(|operator| *operator == Operator::And)
+            .and_then(|scalar_fn| scalar_fn.as_opt::<Boolean>())
+            .is_some_and(|operator| *operator == BooleanOperator::And)
         {
             pending.extend(expr.children().iter().rev());
         } else {

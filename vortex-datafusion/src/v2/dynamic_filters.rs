@@ -18,7 +18,7 @@ use vortex::dtype::Nullability;
 use vortex::error::VortexResult;
 use vortex::expr::BoundExpression;
 use vortex::expr::Expression;
-use vortex::expr::binary;
+use vortex::expr::boolean;
 use vortex::expr::dynamic_expression;
 use vortex::expr::get_item;
 use vortex::expr::lit;
@@ -26,9 +26,9 @@ use vortex::expr::pack;
 use vortex::expr::root;
 use vortex::expr::transform::find_between;
 use vortex::expr::transform::replace;
-use vortex::scalar_fn::fns::dynamic_expression::DynamicExpressionSource;
-use vortex::scalar_fn::fns::dynamic_expression::input_field_name;
-use vortex::scalar_fn::fns::operators::Operator;
+use vortex::functions::dynamic_expression::DynamicExpressionSource;
+use vortex::functions::dynamic_expression::input_field_name;
+use vortex::scalar_fn::builtin::operators::BooleanOperator;
 
 use crate::convert::ExpressionConverter;
 use crate::convert::exprs::is_infallible;
@@ -48,12 +48,12 @@ pub(crate) fn convert_dynamic_filter(
     // AND/OR preserve a conservative true fallback for unsupported children; NOT does not.
     if let Some(expr) = expression.downcast_ref::<BinaryExpr>() {
         let operator = match expr.op() {
-            DFOperator::And => Some(Operator::And),
-            DFOperator::Or => Some(Operator::Or),
+            DFOperator::And => Some(BooleanOperator::And),
+            DFOperator::Or => Some(BooleanOperator::Or),
             _ => None,
         };
         if let Some(operator) = operator {
-            return binary(
+            return boolean(
                 operator,
                 convert_dynamic_filter(
                     Arc::clone(expr.left()),
@@ -148,7 +148,7 @@ impl DataFusionDynamicFilter {
                     .flatten()
                     .filter(is_infallible)
             })
-            .reduce(|left, right| binary(Operator::And, left, right))
+            .reduce(|left, right| boolean(BooleanOperator::And, left, right))
     }
 }
 
@@ -172,8 +172,8 @@ mod tests {
     use vortex::error::VortexResult;
     use vortex::expr::Expression;
     use vortex::expr::root;
-    use vortex::scalar_fn::fns::between::Between;
-    use vortex::scalar_fn::fns::dynamic_expression::DynamicExpressionSource;
+    use vortex::functions::between::Between;
+    use vortex::functions::dynamic_expression::DynamicExpressionSource;
 
     use super::DataFusionDynamicFilter;
     use crate::convert::exprs::DefaultExpressionConverter;

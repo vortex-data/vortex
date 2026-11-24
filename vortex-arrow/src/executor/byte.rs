@@ -190,7 +190,7 @@ mod tests {
     use vortex_array::arrays::dict::DictArray;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
-    use vortex_array::scalar_fn::fns::mask::Mask as MaskFn;
+    use vortex_array::scalar_fn::builtin::mask::Mask as MaskFn;
     use vortex_array::test_harness::trace::TraceOptions;
     use vortex_array::test_harness::trace::TraceResolution;
     use vortex_array::test_harness::trace::trace_op_with;

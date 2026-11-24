@@ -15,19 +15,23 @@ use vortex::dtype::FieldNames;
 use vortex::dtype::Nullability;
 use vortex::expr;
 use vortex::expr::Expression;
+use vortex::expr::binary;
 use vortex::expr::lit;
 use vortex::expr::proto::ExprSerializeProtoExt;
+use vortex::functions::between::BetweenOptions;
+use vortex::functions::between::StrictComparison;
+use vortex::functions::list_contains::ListContainsOptions;
+use vortex::functions::merge::DuplicateHandling;
+use vortex::functions::replace_time_zone::ReplaceTimeZoneOptions;
+use vortex::functions::variant_get::VariantPath;
+use vortex::functions::variant_get::VariantPathElement;
 use vortex::proto::expr as pb;
+use vortex::scalar::NumericOperator;
 use vortex::scalar_fn::ScalarFnVTableExt;
-use vortex::scalar_fn::fns::between::BetweenOptions;
-use vortex::scalar_fn::fns::between::StrictComparison;
-use vortex::scalar_fn::fns::binary::Binary;
-use vortex::scalar_fn::fns::list_contains::ListContainsOptions;
-use vortex::scalar_fn::fns::merge::DuplicateHandling;
-use vortex::scalar_fn::fns::operators::Operator;
-use vortex::scalar_fn::fns::replace_time_zone::ReplaceTimeZoneOptions;
-use vortex::scalar_fn::fns::variant_get::VariantPath;
-use vortex::scalar_fn::fns::variant_get::VariantPathElement;
+use vortex::scalar_fn::builtin::numeric::Numeric;
+use vortex::scalar_fn::builtin::operators::BinaryOperator;
+use vortex::scalar_fn::builtin::operators::BooleanOperator;
+use vortex::scalar_fn::builtin::operators::CompareOperator;
 
 use crate::dtype::PyDType;
 use crate::error::PyVortexResult;
@@ -175,14 +179,14 @@ fn coerce_expression(value: &Bound<'_, PyAny>) -> PyResult<Expression> {
 
 fn py_binary_operator<'py>(
     left: PyRef<'py, PyExpr>,
-    operator: Operator,
+    operator: impl Into<BinaryOperator>,
     right: &Bound<'py, PyAny>,
 ) -> PyResult<Bound<'py, PyExpr>> {
     let right = coerce_expression(right)?;
     Bound::new(
         left.py(),
         PyExpr {
-            inner: Binary.new_expr(operator, [left.inner.clone(), right]),
+            inner: binary(operator, left.inner.clone(), right),
         },
     )
 }
@@ -190,14 +194,14 @@ fn py_binary_operator<'py>(
 /// The reflected form of [`py_binary_operator`], used for `<literal> <op> <expr>`.
 fn py_reflected_operator<'py>(
     right: PyRef<'py, PyExpr>,
-    operator: Operator,
+    operator: impl Into<BinaryOperator>,
     left: &Bound<'py, PyAny>,
 ) -> PyResult<Bound<'py, PyExpr>> {
     let left = coerce_expression(left)?;
     Bound::new(
         right.py(),
         PyExpr {
-            inner: Binary.new_expr(operator, [left, right.inner.clone()]),
+            inner: binary(operator, left, right.inner.clone()),
         },
     )
 }
@@ -270,70 +274,70 @@ impl PyExpr {
         self_: PyRef<'py, Self>,
         right: &Bound<'py, PyAny>,
     ) -> PyResult<Bound<'py, PyExpr>> {
-        py_binary_operator(self_, Operator::Eq, right)
+        py_binary_operator(self_, CompareOperator::Eq, right)
     }
 
     fn __ne__<'py>(
         self_: PyRef<'py, Self>,
         right: &Bound<'py, PyAny>,
     ) -> PyResult<Bound<'py, PyExpr>> {
-        py_binary_operator(self_, Operator::NotEq, right)
+        py_binary_operator(self_, CompareOperator::NotEq, right)
     }
 
     fn __gt__<'py>(
         self_: PyRef<'py, Self>,
         right: &Bound<'py, PyAny>,
     ) -> PyResult<Bound<'py, PyExpr>> {
-        py_binary_operator(self_, Operator::Gt, right)
+        py_binary_operator(self_, CompareOperator::Gt, right)
     }
 
     fn __ge__<'py>(
         self_: PyRef<'py, Self>,
         right: &Bound<'py, PyAny>,
     ) -> PyResult<Bound<'py, PyExpr>> {
-        py_binary_operator(self_, Operator::Gte, right)
+        py_binary_operator(self_, CompareOperator::Gte, right)
     }
 
     fn __lt__<'py>(
         self_: PyRef<'py, Self>,
         right: &Bound<'py, PyAny>,
     ) -> PyResult<Bound<'py, PyExpr>> {
-        py_binary_operator(self_, Operator::Lt, right)
+        py_binary_operator(self_, CompareOperator::Lt, right)
     }
 
     fn __le__<'py>(
         self_: PyRef<'py, Self>,
         right: &Bound<'py, PyAny>,
     ) -> PyResult<Bound<'py, PyExpr>> {
-        py_binary_operator(self_, Operator::Lte, right)
+        py_binary_operator(self_, CompareOperator::Lte, right)
     }
 
     fn __and__<'py>(
         self_: PyRef<'py, Self>,
         right: &Bound<'py, PyAny>,
     ) -> PyResult<Bound<'py, PyExpr>> {
-        py_binary_operator(self_, Operator::And, right)
+        py_binary_operator(self_, BooleanOperator::And, right)
     }
 
     fn __rand__<'py>(
         self_: PyRef<'py, Self>,
         left: &Bound<'py, PyAny>,
     ) -> PyResult<Bound<'py, PyExpr>> {
-        py_reflected_operator(self_, Operator::And, left)
+        py_reflected_operator(self_, BooleanOperator::And, left)
     }
 
     fn __or__<'py>(
         self_: PyRef<'py, Self>,
         right: &Bound<'py, PyAny>,
     ) -> PyResult<Bound<'py, PyExpr>> {
-        py_binary_operator(self_, Operator::Or, right)
+        py_binary_operator(self_, BooleanOperator::Or, right)
     }
 
     fn __ror__<'py>(
         self_: PyRef<'py, Self>,
         left: &Bound<'py, PyAny>,
     ) -> PyResult<Bound<'py, PyExpr>> {
-        py_reflected_operator(self_, Operator::Or, left)
+        py_reflected_operator(self_, BooleanOperator::Or, left)
     }
 
     fn __invert__(self_: PyRef<'_, Self>) -> PyExpr {
@@ -346,56 +350,56 @@ impl PyExpr {
         self_: PyRef<'py, Self>,
         right: &Bound<'py, PyAny>,
     ) -> PyResult<Bound<'py, PyExpr>> {
-        py_binary_operator(self_, Operator::Add, right)
+        py_binary_operator(self_, NumericOperator::Add, right)
     }
 
     fn __radd__<'py>(
         self_: PyRef<'py, Self>,
         left: &Bound<'py, PyAny>,
     ) -> PyResult<Bound<'py, PyExpr>> {
-        py_reflected_operator(self_, Operator::Add, left)
+        py_reflected_operator(self_, NumericOperator::Add, left)
     }
 
     fn __sub__<'py>(
         self_: PyRef<'py, Self>,
         right: &Bound<'py, PyAny>,
     ) -> PyResult<Bound<'py, PyExpr>> {
-        py_binary_operator(self_, Operator::Sub, right)
+        py_binary_operator(self_, NumericOperator::Sub, right)
     }
 
     fn __rsub__<'py>(
         self_: PyRef<'py, Self>,
         left: &Bound<'py, PyAny>,
     ) -> PyResult<Bound<'py, PyExpr>> {
-        py_reflected_operator(self_, Operator::Sub, left)
+        py_reflected_operator(self_, NumericOperator::Sub, left)
     }
 
     fn __mul__<'py>(
         self_: PyRef<'py, Self>,
         right: &Bound<'py, PyAny>,
     ) -> PyResult<Bound<'py, PyExpr>> {
-        py_binary_operator(self_, Operator::Mul, right)
+        py_binary_operator(self_, NumericOperator::Mul, right)
     }
 
     fn __rmul__<'py>(
         self_: PyRef<'py, Self>,
         left: &Bound<'py, PyAny>,
     ) -> PyResult<Bound<'py, PyExpr>> {
-        py_reflected_operator(self_, Operator::Mul, left)
+        py_reflected_operator(self_, NumericOperator::Mul, left)
     }
 
     fn __truediv__<'py>(
         self_: PyRef<'py, Self>,
         right: &Bound<'py, PyAny>,
     ) -> PyResult<Bound<'py, PyExpr>> {
-        py_binary_operator(self_, Operator::Div, right)
+        py_binary_operator(self_, NumericOperator::Div, right)
     }
 
     fn __rtruediv__<'py>(
         self_: PyRef<'py, Self>,
         left: &Bound<'py, PyAny>,
     ) -> PyResult<Bound<'py, PyExpr>> {
-        py_reflected_operator(self_, Operator::Div, left)
+        py_reflected_operator(self_, NumericOperator::Div, left)
     }
 
     // Special methods docstrings cannot be defined in Rust. Write a docstring in the corresponding
@@ -767,15 +771,15 @@ binary_fn!(mul, mul_expr, "The product of the arguments.");
 binary_fn!(div, div_expr, "`left` divided by `right`.");
 
 fn sub_expr(left: Expression, right: Expression) -> Expression {
-    Binary.new_expr(Operator::Sub, [left, right])
+    Numeric.new_expr(NumericOperator::Sub, [left, right])
 }
 
 fn mul_expr(left: Expression, right: Expression) -> Expression {
-    Binary.new_expr(Operator::Mul, [left, right])
+    Numeric.new_expr(NumericOperator::Mul, [left, right])
 }
 
 fn div_expr(left: Expression, right: Expression) -> Expression {
-    Binary.new_expr(Operator::Div, [left, right])
+    Numeric.new_expr(NumericOperator::Div, [left, right])
 }
 
 /// True where `child` lies between `lower` and `upper`.

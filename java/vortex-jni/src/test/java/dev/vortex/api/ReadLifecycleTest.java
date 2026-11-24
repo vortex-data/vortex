@@ -17,6 +17,7 @@ import java.lang.ref.WeakReference;
 import java.nio.ByteBuffer;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -211,6 +212,84 @@ final class ReadLifecycleTest {
             assertEquals(12, values.get(2));
             assertFalse(reader.loadNextBatch());
         }
+    }
+
+    private record ExportedArrowReader(ArrowReader reader, WeakReference<Session> sessionRef) {}
+
+    private ExportedArrowReader exportArrowReaderFromStandaloneSession() {
+        Session standalone = Session.create();
+        WeakReference<Session> sessionRef = new WeakReference<>(standalone);
+        try (DataSource source = DataSource.open(standalone, uri);
+                Scan scan = source.scan(ScanOptions.of())) {
+            return new ExportedArrowReader(scan.next().scanArrow(allocator), sessionRef);
+        }
+    }
+
+    @Test
+    void arrowReaderSurvivesCollectedSession() throws Exception {
+        ExportedArrowReader exported = exportArrowReaderFromStandaloneSession();
+        try (ArrowReader reader = exported.reader()) {
+            for (int attempt = 0; attempt < 100 && !exported.sessionRef().refersTo(null); attempt++) {
+                System.gc();
+                Thread.sleep(10);
+            }
+            assertTrue(exported.sessionRef().refersTo(null), "standalone session should be collectible after export");
+            assertValues(reader);
+        }
+    }
+
+    @Test
+    void scanOptionsDistinguishZeroAndOpenEndedBounds() throws IOException {
+        try (DataSource source = DataSource.open(session, uri)) {
+            assertEquals(List.of(10, 11, 12), collectValues(source, ScanOptions.of()));
+            assertEquals(
+                    List.of(),
+                    collectValues(source, ScanOptions.builder().limit(0).build()));
+            assertEquals(
+                    List.of(10),
+                    collectValues(source, ScanOptions.builder().limit(1).build()));
+            assertEquals(
+                    List.of(),
+                    collectValues(source, ScanOptions.builder().rowRangeEnd(0).build()));
+            assertEquals(
+                    List.of(10, 11),
+                    collectValues(source, ScanOptions.builder().rowRangeEnd(2).build()));
+            assertEquals(
+                    List.of(10, 11, 12),
+                    collectValues(source, ScanOptions.builder().rowRangeBegin(0).build()));
+            assertEquals(
+                    List.of(11, 12),
+                    collectValues(source, ScanOptions.builder().rowRangeBegin(1).build()));
+            assertEquals(
+                    List.of(11, 12),
+                    collectValues(
+                            source,
+                            ScanOptions.builder()
+                                    .rowRangeBegin(1)
+                                    .rowRangeEnd(3)
+                                    .build()));
+            assertEquals(
+                    List.of(),
+                    collectValues(source, ScanOptions.builder().rowRangeBegin(5).build()));
+        }
+    }
+
+    private List<Integer> collectValues(DataSource source, ScanOptions options) throws IOException {
+        List<Integer> out = new ArrayList<>();
+        try (Scan scan = source.scan(options)) {
+            while (scan.hasNext()) {
+                try (ArrowReader reader = scan.next().scanArrow(allocator)) {
+                    while (reader.loadNextBatch()) {
+                        IntVector values =
+                                (IntVector) reader.getVectorSchemaRoot().getVector(0);
+                        for (int i = 0; i < values.getValueCount(); i++) {
+                            out.add(values.get(i));
+                        }
+                    }
+                }
+            }
+        }
+        return out;
     }
 
     private static void assertValues(ArrowReader reader) throws IOException {

@@ -33,7 +33,6 @@ use vortex_error::VortexResult;
 
 use crate::ArrowSessionExt;
 use crate::ExecuteArrowExt;
-use crate::test_harness::DefaultExport;
 
 /// Checks extension import, explicit export, and batch selections against an Arrow reference.
 ///
@@ -382,29 +381,18 @@ fn check_field_round_trip(
 
 /// Checks an array at the top level and in every required container.
 ///
-/// `default_export` specifies whether the top-level dtype supports field inference. Containers
-/// with validity are checked with both parent nullabilities, including a masked second row when
-/// one exists. Empty arrays retain all placements, including dictionary and run-end fields.
+/// The top-level array is also exported without a target field, so the exporter must infer the
+/// field. Containers with validity are checked with both parent nullabilities, including a masked
+/// second row when one exists. Empty arrays retain all placements, including dictionary and
+/// run-end fields.
 #[track_caller]
-pub fn check_containers(
-    array: ArrayRef,
-    default_export: DefaultExport,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<()> {
+pub fn check_containers(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<()> {
     let session = ctx.session().clone();
     let arrow = session.arrow();
     let values_field = arrow.to_arrow_field("value", array.dtype())?;
     check_field_round_trip(array.clone(), &values_field, Some(&values_field), ctx)?;
 
-    match default_export {
-        DefaultExport::Supported => {
-            check_field_round_trip(array.clone(), &values_field, None, ctx)?;
-        }
-        DefaultExport::Unsupported => {
-            assert!(arrow.default_arrow_export_field(array.dtype()).is_err());
-            assert!(array.clone().execute_arrow(None, ctx).is_err());
-        }
-    }
+    check_field_round_trip(array.clone(), &values_field, None, ctx)?;
 
     let len = array.len();
 

@@ -50,7 +50,7 @@ use crate::expr::stats::Stat;
 use crate::expr::stats::StatsProviderExt;
 use crate::scalar::Scalar;
 use crate::scalar::ScalarValue;
-use crate::scalar_fn::fns::operators::Operator;
+use crate::scalar_fn::builtin::operators::BooleanOperator;
 use crate::validity::Validity;
 
 const SUM_FIELD: &str = "sum";
@@ -320,7 +320,7 @@ impl AggregateFnVTable for SumV2 {
         let sum = partials.get_item(SUM_FIELD)?;
         let is_invalid = partials
             .get_item(IS_OVERFLOW_FIELD)?
-            .binary(partials.get_item(IS_EMPTY_FIELD)?, Operator::Or)?
+            .boolean(partials.get_item(IS_EMPTY_FIELD)?, BooleanOperator::Or)?
             .fill_null(true)?;
         sum.mask(is_invalid.not()?)
     }
@@ -347,13 +347,13 @@ fn finalize_struct(partials: ArrayView<'_, Struct>) -> VortexResult<ArrayRef> {
     let is_empty = partials.unmasked_field_by_name(IS_EMPTY_FIELD)?.clone();
 
     let is_invalid = is_overflow
-        .binary(is_empty, Operator::Or)?
+        .boolean(is_empty, BooleanOperator::Or)?
         .fill_null(true)?;
     let mut is_valid = is_invalid.not()?;
     match partials.struct_validity() {
         Validity::NonNullable | Validity::AllValid => {}
         validity => {
-            is_valid = is_valid.binary(validity.to_array(partials.len()), Operator::And)?;
+            is_valid = is_valid.boolean(validity.to_array(partials.len()), BooleanOperator::And)?;
         }
     }
 

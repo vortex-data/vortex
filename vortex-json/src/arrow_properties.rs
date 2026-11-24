@@ -30,7 +30,6 @@ mod tests {
     use vortex_array::memory::BufferAllocatorRef;
     use vortex_array::scalar::Scalar;
     use vortex_arrow::ExecuteArrowExt;
-    use vortex_arrow::test_harness::DefaultExport;
     use vortex_arrow::test_harness::check_arrow;
     use vortex_arrow::test_harness::check_canonical_field;
     use vortex_arrow::test_harness::check_generated;
@@ -149,7 +148,7 @@ mod tests {
         ));
         assert_eq!(default.to_data(), expected.to_data());
 
-        check_generated(tc, array, DefaultExport::Supported, &mut ctx)
+        check_generated(tc, array, &mut ctx)
     }
 
     #[track_caller]

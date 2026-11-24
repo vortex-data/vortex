@@ -80,7 +80,7 @@ where
         buffer, validity, ..
     } = primitive.into_data_parts();
 
-    let device_input = ctx.ensure_on_device(buffer).await?;
+    let device_input = ctx.ensure_on_device(buffer)?;
     let input_view = device_input.cuda_view::<A::ALPInt>()?;
 
     // Allocate output rounded up to a full chunk: the fused kernel writes a

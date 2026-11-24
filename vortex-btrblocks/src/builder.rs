@@ -64,19 +64,18 @@ impl CompressionMode {
                 excluded.push(binary::ZstdBuffersScheme.id());
             }
             Self::Cuda => {
-                // Keep FSST, which has a CUDA decoder and direct Arrow offset-based export, and
-                // string dictionaries, which the CUDA dictionary gather decodes into views over
-                // the decoded values. Other string fragmentation schemes and binary dictionaries
-                // still require unsupported decode paths. Delta has a CUDA decode kernel, but
-                // stays excluded until GPU delta decode is benchmarked against the schemes it
-                // would displace.
+                // Keep ALP-RD, which has a CUDA decoder; FSST, which has a CUDA decoder and direct
+                // Arrow offset-based export; and string dictionaries, which the CUDA dictionary
+                // gather decodes into views over the decoded values. Other string fragmentation
+                // schemes and binary dictionaries still require unsupported decode paths. Delta has
+                // a CUDA decode kernel, but stays excluded until GPU delta decode is benchmarked
+                // against the schemes it would displace.
                 excluded.extend([
                     boolean::BoolRunEndScheme.id(),
                     boolean::BoolSparseScheme.id(),
                     integer::DeltaScheme::default().id(),
                     integer::SparseScheme.id(),
                     integer::IntRLEScheme.id(),
-                    float::ALPRDScheme.id(),
                     float::FloatRLEScheme.id(),
                     float::NullDominatedSparseScheme.id(),
                     string::NullDominatedSparseScheme.id(),
@@ -258,6 +257,7 @@ mod tests {
     use rstest::rstest;
     use vortex_array::ArrayId;
     use vortex_array::VTable;
+    use vortex_array::arrays::Constant;
     use vortex_array::arrays::Patched;
     use vortex_array::arrays::VarBin;
     use vortex_decimal_byte_parts::DecimalByteParts;
@@ -280,25 +280,55 @@ mod tests {
     #[case::fsst_with_codes(&string::FSSTScheme, vec![FSST.id(), VarBin.id()], true)]
     #[case::decimal_v1_id(&DECIMAL_V1, vec![decimal_byte_parts_v1_id()], true)]
     #[case::decimal_both_ids(&DECIMAL_V2, vec![decimal_byte_parts_v1_id(), DecimalByteParts.id()], true)]
-    #[case::bitpacking_v1_id(
+    #[case::bitpacking_without_constant(
         &integer::BITPACKING_V1,
         vec![bitpacked_v1_id(), Patched.id()],
+        false
+    )]
+    #[case::bitpacking_v1_id(
+        &integer::BITPACKING_V1,
+        vec![bitpacked_v1_id(), Constant.id(), Patched.id()],
         true
     )]
     #[case::bitpacking_both_ids(
         &integer::BITPACKING_V1,
-        vec![bitpacked_v1_id(), bitpacked_v2_id(), Patched.id()],
+        vec![bitpacked_v1_id(), bitpacked_v2_id(), Constant.id(), Patched.id()],
         true
     )]
     #[case::bitpacking_v2_only(
         &integer::BITPACKING_V1,
-        vec![bitpacked_v2_id(), Patched.id()],
+        vec![bitpacked_v2_id(), Constant.id(), Patched.id()],
         false
     )]
     #[case::for_without_bitpacked(&integer::FOR_V1, vec![for_v1_id()], false)]
     #[case::for_with_bitpacked(
         &integer::FOR_V1,
-        vec![for_v1_id(), bitpacked_v1_id(), Patched.id()],
+        vec![for_v1_id(), bitpacked_v1_id(), Constant.id(), Patched.id()],
+        true
+    )]
+    #[case::alp_without_constant(
+        &float::ALPScheme,
+        vec![vortex_alp::ALP.id()],
+        false
+    )]
+    #[case::alp_with_constant(
+        &float::ALPScheme,
+        vec![vortex_alp::ALP.id(), Constant.id()],
+        true
+    )]
+    #[case::alprd_without_bitpacked(
+        &float::ALPRDScheme,
+        vec![vortex_alp::ALPRD.id(), Constant.id()],
+        false
+    )]
+    #[case::alprd_without_constant(
+        &float::ALPRDScheme,
+        vec![vortex_alp::ALPRD.id(), bitpacked_v1_id()],
+        false
+    )]
+    #[case::alprd_with_dependencies(
+        &float::ALPRDScheme,
+        vec![vortex_alp::ALPRD.id(), bitpacked_v1_id(), Constant.id()],
         true
     )]
     fn test_allowed_schemes(

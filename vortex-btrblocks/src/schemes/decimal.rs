@@ -11,6 +11,8 @@ use vortex_array::IntoArray;
 use vortex_array::arrays::DecimalArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::WidenArray;
+use vortex_array::dtype::DecimalType;
+pub use vortex_compressor::builtins::DecimalDictScheme;
 use vortex_compressor::scheme::CompressionEstimate;
 use vortex_compressor::scheme::EstimateVerdict;
 use vortex_decimal_byte_parts::DecimalByteParts;
@@ -117,11 +119,25 @@ impl Scheme for DecimalScheme {
 
     fn expected_compression_ratio(
         &self,
-        _data: &ArrayAndStats,
+        data: &ArrayAndStats,
         _compress_ctx: CompressorContext,
-        _exec_ctx: &mut ExecutionCtx,
+        exec_ctx: &mut ExecutionCtx,
     ) -> CompressionEstimate {
+        // v1 leaves the array canonical when a valid value needs lower parts. The sample can miss
+        // such a value, so check the full array. Then a scheme that can encode the array, such as
+        // `DecimalDictScheme`, does not lose to a sample estimate that v1 cannot keep.
+        //
+        // An error here causes no skip, because `compress` gets the same error and returns it.
+        if self.mode == DecimalSchemeMode::V1
+            && data.array_as_decimal().values_type() > DecimalType::I64
+            && matches!(needs_lower_parts(data, exec_ctx), Ok(true))
+        {
+            return CompressionEstimate::Verdict(EstimateVerdict::Skip);
+        }
+
         // Decimal compression is almost always beneficial (MSP narrowing + primitive compression).
+        // As the default for decimals, it still competes with `DecimalDictScheme` when the
+        // dictionary has an estimate.
         CompressionEstimate::Verdict(EstimateVerdict::AlwaysUse)
     }
 
@@ -188,17 +204,75 @@ impl Scheme for DecimalScheme {
     }
 }
 
+/// Returns `true` if a valid value of the full array is wider than `i64`.
+fn needs_lower_parts(data: &ArrayAndStats, exec_ctx: &mut ExecutionCtx) -> VortexResult<bool> {
+    let decimal = data.array().clone().execute::<DecimalArray>(exec_ctx)?;
+    let mask = decimal.validity()?.execute_mask(decimal.len(), exec_ctx)?;
+
+    Ok(lower_part_count(&decimal, &mask)? > 0)
+}
+
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
     use vortex_array::ArrayId;
+    use vortex_array::IntoArray;
+    use vortex_array::VortexSessionExecute;
+    use vortex_array::arrays::DecimalArray;
+    use vortex_array::arrays::Dict;
+    use vortex_array::assert_arrays_eq;
+    use vortex_array::dtype::DecimalDType;
+    use vortex_array::validity::Validity;
+    use vortex_buffer::Buffer;
+    use vortex_compressor::CascadingCompressor;
     use vortex_decimal_byte_parts::decimal_byte_parts_v1_id;
     use vortex_decimal_byte_parts::decimal_byte_parts_v2_id;
+    use vortex_error::VortexResult;
 
     use super::DECIMAL_V1;
     use super::DECIMAL_V2;
+    use super::DecimalDictScheme;
+    use crate::SESSION;
     use crate::Scheme;
     use crate::SchemeExt;
+    use crate::schemes::integer::BITPACKING_V1;
+
+    /// A value wider than 64 bits that the sample does not hold must not let v1 byte parts win.
+    ///
+    /// The sample holds only 0 and 1, which byte parts pack at one bit per value. On the full
+    /// array, v1 byte parts cannot encode the wide value and returns the array unchanged. The
+    /// dictionary holds the wide value, so it must compress the array.
+    #[test]
+    fn v1_unsampled_wide_value_uses_dict() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+
+        // The deterministic sample does not include the last row.
+        let len = 8192;
+        let values = (0..len)
+            .map(|i| {
+                if i == len - 1 {
+                    1i128 << 100
+                } else {
+                    (i % 2) as i128
+                }
+            })
+            .collect::<Buffer<i128>>();
+        let array = DecimalArray::new(
+            values,
+            DecimalDType::new(38, 0),
+            Validity::NonNullable,
+            &mut ctx,
+        )
+        .into_array();
+
+        let compressor =
+            CascadingCompressor::new(vec![&DecimalDictScheme, &DECIMAL_V1, &BITPACKING_V1]);
+        let compressed = compressor.compress(&array, &mut ctx)?;
+
+        assert!(compressed.is::<Dict>(), "{}", compressed.display_tree());
+        assert_arrays_eq!(compressed, array, &mut ctx);
+        Ok(())
+    }
 
     /// Both variants refine to v2 exactly when the v2 ID is allowed.
     #[rstest]

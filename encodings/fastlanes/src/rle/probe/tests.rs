@@ -12,8 +12,9 @@ use vortex_array::assert_arrays_eq;
 use vortex_array::builders::builder_with_capacity_in;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::Nullability;
+use vortex_array::scalar::NumericOperator;
 use vortex_array::scalar::Scalar;
-use vortex_array::scalar_fn::fns::operators::Operator;
+use vortex_array::scalar_fn::builtin::operators::CompareOperator;
 use vortex_array::validity::Validity;
 use vortex_error::VortexResult;
 
@@ -77,8 +78,8 @@ fn lazy_validity_does_not_evaluate_unrequested_rows(
     let denominators =
         PrimitiveArray::from_iter((0..1024).map(|i| u32::from(i != 1023))).into_array();
     let validity = numerators
-        .binary(denominators, Operator::Div)?
-        .binary(numerators, Operator::Eq)?;
+        .numeric(denominators, NumericOperator::Div)?
+        .compare(numerators, CompareOperator::Eq)?;
     let array = RLE::try_new(
         PrimitiveArray::from_iter([42u32]).into_array(),
         PrimitiveArray::new(vec![0u16; 1024], Validity::Array(validity)).into_array(),
