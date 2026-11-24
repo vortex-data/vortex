@@ -23,6 +23,7 @@ use vortex_btrblocks::schemes::integer::BitPackingScheme;
 use vortex_btrblocks::schemes::integer::FoRScheme;
 use vortex_btrblocks::schemes::integer::IntDictScheme;
 use vortex_btrblocks::schemes::integer::RunEndScheme;
+use vortex_btrblocks::schemes::integer::SequenceScheme;
 use vortex_buffer::ByteBufferMut;
 use vortex_edition::EDITION_DECLARATIONS;
 use vortex_edition::EDITION_FAMILIES;
@@ -42,6 +43,7 @@ static FOR_V1: FoRScheme = FoRScheme::v1();
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     let session = VortexSession::empty().with::<CompressionSession>();
     vortex_fastlanes::initialize(&session);
+    vortex_sequence::initialize(&session);
     session
 });
 
@@ -238,5 +240,54 @@ fn cuda_preset_keeps_single_reference() -> VortexResult<()> {
     let ids = compress_roundtrip(for_only().only_cuda_compatible(), &drifting())?;
     assert!(ids.contains(&for_v1_id()));
     assert!(!ids.contains(&for_v2_id()));
+    Ok(())
+}
+
+#[test]
+fn v2_handles_wide_global_span_with_narrow_blocks() -> VortexResult<()> {
+    let array = PrimitiveArray::from_iter((0..2048i64).map(|i| {
+        if i < 1024 {
+            -6_000_000_000_000_000_000 + (i % 100)
+        } else {
+            6_000_000_000_000_000_000 + (i % 100)
+        }
+    }))
+    .into_array();
+    let ids = compress_roundtrip(for_only(), &array)?;
+    assert!(ids.contains(&for_v2_id()));
+    Ok(())
+}
+
+#[test]
+fn v2_handles_wide_span_inside_block() -> VortexResult<()> {
+    // First 8 chunks have narrow local span so sample picks v2; chunk 9 spans > i64::MAX so
+    // full-array signed wrapping subtraction produces negative residuals.
+    let array = PrimitiveArray::from_iter((0..10_240i64).map(|i| {
+        let chunk = i / 1024;
+        if chunk == 9 {
+            if i % 2 == 0 {
+                -6_000_000_000_000_000_000
+            } else {
+                6_000_000_000_000_000_000
+            }
+        } else {
+            chunk * 1_000_000 + (i % 50)
+        }
+    }))
+    .into_array();
+    let _ids = compress_roundtrip(for_only(), &array)?;
+    Ok(())
+}
+
+#[test]
+fn v2_selects_zero_buffer_sequence_references() -> VortexResult<()> {
+    let array = PrimitiveArray::from_iter((0..2049i64).map(|i| {
+        let block = i / 1024;
+        1_000_000_000 + block * 1_000_000
+    }))
+    .into_array();
+    let builder = for_only().with_new_scheme(&SequenceScheme);
+    let ids = compress_roundtrip(builder, &array)?;
+    assert!(ids.contains(&for_v2_id()));
     Ok(())
 }

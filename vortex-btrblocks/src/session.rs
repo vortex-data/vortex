@@ -61,8 +61,8 @@ impl Default for CompressionSession {
             // Integer schemes.
             ////////////////////////////////////////////////////////////////////////////////////
             // NOTE: FoR must precede BitPacking to avoid unnecessary patches.
-            // `refine` downgrades FOR_V2 to FOR_V1 unless `fastlanes.for.v2` is allowed.
-            &integer::FOR_V2,
+            // `refine` switches FOR_V1 to FOR_V2 where `fastlanes.for.v2` is allowed.
+            &integer::FOR_V1,
             // NOTE: ZigZag should precede BitPacking because we don't want negative numbers.
             &integer::ZigZagScheme,
             &integer::BitPackingScheme,

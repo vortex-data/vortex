@@ -240,3 +240,39 @@ fn v2_rejects_malformed_parts() -> VortexResult<()> {
     );
     Ok(())
 }
+
+#[test]
+fn v2_unnarrowed_and_legacy_metadata_roundtrip() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    // Spread > u16::MAX in a u32 array keeps same-width residuals (`encoded_bytes == 0`).
+    let raw = PrimitiveArray::from_iter((0..2048u32).map(|i| {
+        if i % 1024 == 0 {
+            (i / 1024) * 500_000
+        } else {
+            (i / 1024) * 500_000 + 100_000 + (i % 1024)
+        }
+    }));
+    let array = FoR::encode_chunked(raw.clone(), &mut ctx)?;
+    assert_eq!(array.encoded().dtype().as_ptype(), PType::U32);
+
+    let serialization = SESSION
+        .array_serialize(array.as_array())?
+        .ok_or_else(|| vortex_err!("FoR must serialize"))?;
+    let meta = v2::FoRV2Metadata::decode(serialization.metadata.as_slice())?;
+    assert_eq!(meta.encoded_bytes, 0);
+
+    let read = roundtrip(array.as_array())?;
+    assert_arrays_eq!(read, raw, &mut ctx);
+
+    // Pre-narrowing metadata had only tag 1 (`offset`), which decodes with `encoded_bytes == 0`.
+    let legacy = deserialize_v2_parts(
+        array.dtype(),
+        &v2::FoRV2Metadata {
+            offset: 0,
+            encoded_bytes: 0,
+        },
+        &[array.encoded().clone(), blocked(&array)?],
+    )?;
+    assert_arrays_eq!(legacy, raw, &mut ctx);
+    Ok(())
+}

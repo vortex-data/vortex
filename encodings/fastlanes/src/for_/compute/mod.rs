@@ -183,7 +183,7 @@ impl<'a, T: PhysicalPType> FoRPackedSameWidth<'a, T> {
 unsafe impl<T> ChunkDecoder<T::Physical> for FoRPackedSameWidth<'_, T>
 where
     T: PhysicalPType + AsPrimitive<T::Physical>,
-    T::Physical: BitPacking + FastLanesFoR + WrappingAdd,
+    T::Physical: BitPacking + FastLanesFoR + WrappingAdd + Zero,
 {
     #[inline]
     fn decode_chunk(
@@ -196,15 +196,19 @@ where
             dst.fill(MaybeUninit::new(ref_p));
             return;
         }
-        // SAFETY: `chunk` holds `FL_CHUNK_SIZE` packed values at `bit_width` and
-        // `unchecked_unfor_pack` initializes every element of `dst`.
+        let mut scratch = [T::Physical::zero(); FILTER_CHUNK_LEN];
+        // SAFETY: `chunk` holds `FL_CHUNK_SIZE` packed values at `bit_width` and `scratch` holds
+        // one chunk.
         unsafe {
             FastLanesFoR::unchecked_unfor_pack(
                 self.bit_width,
                 self.chunk(chunk_idx),
                 ref_p,
-                dst.assume_init_mut(),
+                &mut scratch,
             );
+        }
+        for (out, &val) in dst.iter_mut().zip(&scratch) {
+            out.write(val);
         }
     }
 

@@ -242,14 +242,18 @@ impl Scheme for FoRScheme {
             .clone()
             .execute::<PrimitiveArray>(exec_ctx)?;
 
-        // Immediately bitpack. If any other scheme was preferable, it would be chosen instead
-        // of bitpacking.
+        // Immediately bitpack when residuals satisfy BitPacking's non-negative precondition.
+        // Signed wrapping subtraction on a block wider than `T::MAX` can produce negative
+        // residuals; in that case keep the primitive residual child rather than failing.
         // NOTE: we could delegate in the future if we had another downstream codec that performs
         //  as well.
         let biased_data =
             ArrayAndStats::new(biased.into_array(), compress_ctx.merged_stats_options());
-        let compressed =
-            BitPackingScheme.compress(compressor, &biased_data, compress_ctx.clone(), exec_ctx)?;
+        let compressed = if biased_data.integer_stats(exec_ctx).erased().min_is_negative() {
+            biased_data.array().clone()
+        } else {
+            BitPackingScheme.compress(compressor, &biased_data, compress_ctx.clone(), exec_ctx)?
+        };
 
         // TODO(connor): This should really be `new_unchecked`.
         let for_compressed = match for_array.references() {
@@ -348,6 +352,23 @@ fn beats_v2_margin(candidate: u64, baseline: u64, sample_len: usize) -> bool {
     rel_savings >= MIN_V2_RELATIVE_SAVINGS && bits_saved >= MIN_V2_BITS_SAVED
 }
 
+/// Bit-packs `residuals` when they satisfy BitPacking's non-negative precondition; returns `None`
+/// when signed wrapping subtraction produced negative residuals.
+fn try_bitpack_residuals(
+    compressor: &CascadingCompressor,
+    residuals: PrimitiveArray,
+    compress_ctx: &CompressorContext,
+    exec_ctx: &mut ExecutionCtx,
+) -> VortexResult<Option<ArrayRef>> {
+    let data = ArrayAndStats::new(residuals.into_array(), compress_ctx.merged_stats_options());
+    if data.integer_stats(exec_ctx).erased().min_is_negative() {
+        return Ok(None);
+    }
+    BitPackingScheme
+        .compress(compressor, &data, compress_ctx.clone(), exec_ctx)
+        .map(Some)
+}
+
 /// Evaluates blocked `FoR.v2` against `min(BitPacked.v1, FoR.v1)` on up to 8 aligned
 /// 1,024-element blocks, returning the adjusted compression ratio when `FoR.v2` clears all
 /// guardrails.
@@ -377,19 +398,16 @@ fn evaluate_v2_on_sample(
         .encoded()
         .clone()
         .execute::<PrimitiveArray>(exec_ctx)?;
-    let biased_v2_data =
-        ArrayAndStats::new(biased_v2.into_array(), compress_ctx.merged_stats_options());
-    let packed_v2 =
-        BitPackingScheme.compress(compressor, &biased_v2_data, compress_ctx.clone(), exec_ctx)?;
+    let Some(packed_v2) = try_bitpack_residuals(compressor, biased_v2, compress_ctx, exec_ctx)?
+    else {
+        return Ok(None);
+    };
     let v2_patches = extract_patch_count(&packed_v2);
     let compressed_refs =
         compressor.compress_child(references, compress_ctx, scheme.id(), 0, exec_ctx)?;
     let for_v2_compressed = FoR::try_new_chunked(packed_v2, compressed_refs, for_v2.offset())?;
 
     let v2_raw = for_v2_compressed.nbytes();
-    if v2_raw == 0 {
-        return Ok(None);
-    }
     let v2_penalized = v2_raw.saturating_add(patch_density_cost_bytes(sample_len, v2_patches));
 
     // Compute exact baseline `min(BitPacked.v1, FoR.v1)` on the same aligned sample.
@@ -420,23 +438,22 @@ fn evaluate_v2_on_sample(
             .encoded()
             .clone()
             .execute::<PrimitiveArray>(exec_ctx)?;
-        let biased_v1_data =
-            ArrayAndStats::new(biased_v1.into_array(), compress_ctx.merged_stats_options());
-        let packed_v1 = BitPackingScheme.compress(
-            compressor,
-            &biased_v1_data,
-            compress_ctx.clone(),
-            exec_ctx,
-        )?;
-        let v1_patches = extract_patch_count(&packed_v1);
-        let for_v1_compressed = match for_v1.references() {
-            FoRReferences::Global(reference) => FoR::try_new(packed_v1, reference.clone())?,
-            FoRReferences::Blocked(_) => unreachable!("FoR::encode produces a global reference"),
-        };
-        let v1_raw = for_v1_compressed.nbytes();
-        let v1_penalized = v1_raw.saturating_add(patch_density_cost_bytes(sample_len, v1_patches));
-        baseline_raw = baseline_raw.min(v1_raw);
-        baseline_penalized = baseline_penalized.min(v1_penalized);
+        if let Some(packed_v1) =
+            try_bitpack_residuals(compressor, biased_v1, compress_ctx, exec_ctx)?
+        {
+            let v1_patches = extract_patch_count(&packed_v1);
+            let for_v1_compressed = match for_v1.references() {
+                FoRReferences::Global(reference) => FoR::try_new(packed_v1, reference.clone())?,
+                FoRReferences::Blocked(_) => {
+                    unreachable!("FoR::encode produces a global reference")
+                }
+            };
+            let v1_raw = for_v1_compressed.nbytes();
+            let v1_penalized =
+                v1_raw.saturating_add(patch_density_cost_bytes(sample_len, v1_patches));
+            baseline_raw = baseline_raw.min(v1_raw);
+            baseline_penalized = baseline_penalized.min(v1_penalized);
+        }
     }
 
     if !beats_v2_margin(v2_raw, baseline_raw, sample_len)
@@ -445,7 +462,7 @@ fn evaluate_v2_on_sample(
         return Ok(None);
     }
 
-    let ratio = before_nbytes as f64 / v2_penalized as f64;
+    let ratio = before_nbytes as f64 / v2_penalized.max(1) as f64;
     if ratio < MIN_V2_COMPRESSION_RATIO {
         return Ok(None);
     }
