@@ -62,7 +62,9 @@ mod tests {
     use vortex_array::arrays::ExtensionArray;
     use vortex_array::arrays::FixedSizeListArray;
     use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::arrays::extension::ExtensionArrayExt;
     use vortex_array::builtins::ArrayBuiltins;
+    use vortex_array::compute::conformance::extension::test_ext_vtable_conformance;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
@@ -120,6 +122,22 @@ mod tests {
             storage.dtype().nullability(),
         )?;
         Ok(ExtensionArray::new(ext_dtype.erased(), storage).into_array())
+    }
+
+    #[test]
+    fn uuid_claim_conformance() -> VortexResult<()> {
+        let mut ctx = uuid_session().create_execution_ctx();
+        let column = uuid_column(&[Some(0xff), None, Some(0x01), Some(0xff)])?
+            .execute::<ExtensionArray>(&mut ctx)?;
+        let dtype = column.ext_dtype().clone().downcast::<Uuid>();
+
+        test_ext_vtable_conformance(
+            &dtype,
+            column.storage_array(),
+            Some(&|lhs, rhs| lhs.as_bytes().cmp(rhs.as_bytes())),
+            &mut ctx,
+        );
+        Ok(())
     }
 
     #[rstest]
