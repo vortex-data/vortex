@@ -19,7 +19,6 @@ use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldName;
 use vortex_array::dtype::Nullability;
-use vortex_array::expr::display::ExprDisplay;
 use vortex_array::proto::expr as pb;
 use vortex_array::proto::expr::variant_path_element;
 use vortex_array::scalar::Scalar;
@@ -30,6 +29,7 @@ use vortex_array::scalar_fn::ScalarFnId;
 use vortex_array::scalar_fn::ScalarFnVTable;
 use vortex_array::scalar_fn::ScalarFnVTableExt;
 use vortex_array::scalar_fn::builtin::mask::Mask;
+use vortex_array::scalar_fn::display::ExprDisplay;
 use vortex_array::scalar_fn::session::ScalarFnSessionExt;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
@@ -444,9 +444,6 @@ mod tests {
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
     use vortex_array::dtype::StructFields;
-    use vortex_array::expr::Expression;
-    use vortex_array::expr::proto::ExprSerializeProtoExt;
-    use vortex_array::expr::root;
     use vortex_array::optimizer::ArrayOptimizer;
     use vortex_array::scalar::Scalar;
     use vortex_array::scalar::ScalarValue;
@@ -455,6 +452,10 @@ mod tests {
     use vortex_error::vortex_bail;
     use vortex_error::vortex_ensure;
     use vortex_error::vortex_err;
+    use vortex_expr::ArrayExprExt;
+    use vortex_expr::Expression;
+    use vortex_expr::proto::ExprSerializeProtoExt;
+    use vortex_expr::root;
     use vortex_session::VortexSession;
 
     use crate::expr::variant_get;

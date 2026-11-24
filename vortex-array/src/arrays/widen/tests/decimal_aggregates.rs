@@ -41,12 +41,12 @@ use crate::dtype::DecimalDType;
 use crate::dtype::Nullability;
 use crate::dtype::Nullability::NonNullable;
 use crate::dtype::Nullability::Nullable;
-use crate::expr::stats::Precision;
-use crate::expr::stats::Stat;
-use crate::expr::stats::StatsProvider;
 use crate::match_each_decimal_value_type;
 use crate::scalar::DecimalValue;
 use crate::scalar::Scalar;
+use crate::stats::Precision;
+use crate::stats::Stat;
+use crate::stats::StatsProvider;
 
 /// Decimal aggregates paired with whether the [`Widen`] kernel must return a partial.
 fn aggregates() -> Vec<(AggregateFnRef, bool)> {

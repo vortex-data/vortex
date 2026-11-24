@@ -23,18 +23,18 @@ use vortex_array::arrays::listview::ListViewArraySlotsExt;
 use vortex_array::arrays::listview::ListViewRebuildMode;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldName;
-use vortex_array::expr::BoundLambda;
-use vortex_array::expr::Lambda;
-use vortex_array::expr::display::ExprDisplay;
 use vortex_array::scalar_fn::Arity;
 use vortex_array::scalar_fn::ChildName;
 use vortex_array::scalar_fn::ExecutionArgs;
 use vortex_array::scalar_fn::ScalarFnId;
 use vortex_array::scalar_fn::ScalarFnVTable;
+use vortex_array::scalar_fn::display::ExprDisplay;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
+use vortex_expr::BoundLambda;
+use vortex_expr::Lambda;
 use vortex_session::registry::CachedId;
 
 /// Apply a lambda to every element of each list, keeping each list's length and validity.
@@ -48,7 +48,7 @@ pub struct ListTransform;
 /// The lambda of a [`ListTransform`], as written or bound to the element's dtype.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum ListTransformOptions {
-    /// The lambda as written, in an [`Expression`](vortex_array::expr::Expression).
+    /// The lambda as written, in an [`Expression`](vortex_expr::Expression).
     Lambda(Lambda),
     /// The lambda bound to the element's dtype, in a
     /// [`BoundExpression`](vortex_array::expr::BoundExpression) or an array.

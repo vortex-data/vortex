@@ -106,6 +106,9 @@ pub trait ArrowExtVTable: ExtVTable {
     /// The adapter checks the source extension type before calling this method. Return
     /// [`ArrowExport::Unsupported`] when the target is unsupported. Child exports **must** receive
     /// the same `options` through [`crate::ExecuteArrowExt::execute_arrow_with_options`].
+    ///
+    /// The export **must** follow the
+    /// [null and comparison rules](crate::ArrowExportVTable::execute_arrow).
     fn execute_arrow(
         &self,
         array: ArrayRef,

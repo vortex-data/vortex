@@ -42,7 +42,7 @@ use crate::arrays::Widen;
 use crate::arrays::WidenArray;
 use crate::arrays::decimal::DecimalDataParts;
 use crate::dtype::DecimalType;
-use crate::expr::stats::Precision;
+use crate::stats::Precision;
 
 /// The metadata of a `vortex.decimal` node.
 #[derive(prost::Message)]

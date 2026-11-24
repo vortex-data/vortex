@@ -4,9 +4,9 @@
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 
-use vortex_array::expr::BoundExpression;
-use vortex_array::expr::ExactKey;
-use vortex_array::expr::WeakBoundExprKey;
+use vortex_expr::BoundExpression;
+use vortex_expr::ExactKey;
+use vortex_expr::WeakBoundExprKey;
 use vortex_utils::aliases::dash_map::DashMap;
 
 /// Concurrent cache keyed by [`BoundExpression`] identity whose entries do not keep expressions
@@ -118,10 +118,10 @@ mod tests {
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
-    use vortex_array::expr::gt;
-    use vortex_array::expr::lit;
-    use vortex_array::expr::root;
     use vortex_error::VortexResult;
+    use vortex_expr::gt;
+    use vortex_expr::lit;
+    use vortex_expr::root;
 
     use super::WeakExprCache;
 

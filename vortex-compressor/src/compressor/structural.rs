@@ -41,7 +41,7 @@ impl CascadingCompressor {
     /// Compresses a validity bitmap with the enabled boolean schemes, returning `None` when the
     /// result's buffers are no smaller than the bitmap's. The comparison is of buffer bytes, so it
     /// does not count the metadata a compressed bitmap adds when serialized.
-    fn compress_bitmap(
+    pub(super) fn compress_bitmap(
         &self,
         bitmap: &ArrayRef,
         exec_ctx: &mut ExecutionCtx,
@@ -53,7 +53,12 @@ impl CascadingCompressor {
     /// Compresses an array-backed validity with the enabled boolean schemes, keeping the bitmap
     /// when it does not get smaller.
     ///
-    /// A scheme that stores a validity it builds itself calls this before storing it.
+    /// A scheme that implements only [`Scheme::compress`] and stores a validity it builds itself
+    /// calls this before storing it. The compressor's [`ChildPolicy`] is asked about it with a
+    /// root context.
+    ///
+    /// [`Scheme::compress`]: crate::scheme::Scheme::compress
+    /// [`ChildPolicy`]: crate::scheme::ChildPolicy
     ///
     /// # Errors
     ///
@@ -63,19 +68,18 @@ impl CascadingCompressor {
         validity: Validity,
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<Validity> {
-        match validity {
-            Validity::Array(bitmap) => Ok(Validity::Array(
-                self.compress_bitmap(&bitmap, exec_ctx)?.unwrap_or(bitmap),
-            )),
-            validity => Ok(validity),
-        }
+        self.resolve_validity(validity, &CompressorContext::new(), exec_ctx)
     }
 
     /// Returns `array` with its validity compressed, if it is a bool, primitive, decimal or
     /// string leaf with a validity bitmap; any other array is returned as it is.
     ///
-    /// A scheme that stores its input's validity calls this on its input before encoding it, so
-    /// that the encoding stores the compressed bitmap.
+    /// A scheme that implements only [`Scheme::compress`] and stores its input's validity calls
+    /// this on its input before encoding it, so that the encoding stores the compressed bitmap.
+    /// The compressor's [`ChildPolicy`] is asked about it with a root context.
+    ///
+    /// [`Scheme::compress`]: crate::scheme::Scheme::compress
+    /// [`ChildPolicy`]: crate::scheme::ChildPolicy
     ///
     /// # Errors
     ///
@@ -90,19 +94,24 @@ impl CascadingCompressor {
         }
         let canonical = array.clone().execute::<Canonical>(exec_ctx)?;
         Ok(self
-            .compress_leaf_validity(canonical, exec_ctx)?
+            .compress_leaf_validity(canonical, None, &CompressorContext::new(), exec_ctx)?
             .into_array())
     }
 
-    /// Compresses the validity bitmap of a bool, primitive, decimal or string leaf in place,
-    /// leaving the leaf unchanged when the bitmap does not get smaller.
+    /// Compresses the validity bitmap of a bool, primitive, decimal or string leaf in place.
+    ///
+    /// The compressor calls this for leaves that no scheme encoded, since no scheme registered
+    /// their validity. The leaf is unchanged when the bitmap does not get smaller. A known
+    /// `null_count` of zero skips compressing the bitmap, which is then all `true`.
     ///
     /// # Errors
     ///
     /// Returns an error if compression of the validity array fails.
-    fn compress_leaf_validity(
+    pub(super) fn compress_leaf_validity(
         &self,
         canonical: Canonical,
+        null_count: Option<u32>,
+        compress_ctx: &CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<Canonical> {
         let (slot, array): (usize, &ArrayRef) = match &canonical {
@@ -115,9 +124,14 @@ impl CascadingCompressor {
         let Some(validity) = &array.slots()[slot] else {
             return Ok(canonical);
         };
-        let Some(compressed) = self.compress_bitmap(validity, exec_ctx)? else {
-            return Ok(canonical);
+        let compressed = match null_count {
+            // The leaf's statistics already show every row is valid: the bitmap is a constant.
+            Some(0) => self.resolve_all_valid_bitmap(validity.clone(), compress_ctx),
+            _ => self.resolve_bitmap(validity.clone(), compress_ctx, exec_ctx)?,
         };
+        if ArrayRef::ptr_eq(&compressed, validity) {
+            return Ok(canonical);
+        }
         let mut slots: ArraySlots = array.slots().iter().cloned().collect();
         slots[slot] = Some(compressed);
         // SAFETY: the validity slot is replaced with an equivalent non-nullable boolean array
@@ -137,8 +151,9 @@ impl CascadingCompressor {
         let compressed_elems = self.compress(list_array.elements(), exec_ctx)?;
 
         // Record the root scheme with the offsets child index so root exclusion rules apply.
-        let offset_ctx =
-            compress_ctx.descend_with_scheme(ROOT_SCHEME_ID, root_list_children::OFFSETS);
+        let offset_ctx = compress_ctx
+            .clone()
+            .descend_with_scheme(ROOT_SCHEME_ID, root_list_children::OFFSETS);
         let list_offsets_primitive = list_array
             .offsets()
             .clone()
@@ -153,7 +168,7 @@ impl CascadingCompressor {
         Ok(ListArray::try_new(
             compressed_elems,
             compressed_offsets,
-            self.compress_validity(list_array.validity()?, exec_ctx)?,
+            self.resolve_validity(list_array.validity()?, &compress_ctx, exec_ctx)?,
             exec_ctx,
         )?
         .into_array())
@@ -183,7 +198,9 @@ impl CascadingCompressor {
             exec_ctx,
         )?;
 
-        let sizes_ctx = compress_ctx.descend_with_scheme(ROOT_SCHEME_ID, root_list_children::SIZES);
+        let sizes_ctx = compress_ctx
+            .clone()
+            .descend_with_scheme(ROOT_SCHEME_ID, root_list_children::SIZES);
         let list_view_sizes_primitive = list_view
             .sizes()
             .clone()
@@ -199,7 +216,7 @@ impl CascadingCompressor {
             compressed_elems,
             compressed_offsets,
             compressed_sizes,
-            self.compress_validity(list_view.validity()?, exec_ctx)?,
+            self.resolve_validity(list_view.validity()?, &compress_ctx, exec_ctx)?,
             exec_ctx,
         )?
         .into_array())

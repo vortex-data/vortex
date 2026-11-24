@@ -31,13 +31,13 @@ use crate::arrays::PrimitiveArray;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::IntegerPType;
-use crate::expr::stats::Precision;
-use crate::expr::stats::Stat;
 use crate::match_each_integer_ptype;
 use crate::match_each_native_ptype;
 use crate::optimizer::ArrayOptimizer;
 use crate::scalar::NumericOperator;
 use crate::scalar::ScalarValue;
+use crate::stats::Precision;
+use crate::stats::Stat;
 use crate::validity::Validity;
 
 #[array_slots(List)]
