@@ -57,9 +57,10 @@ def test_overview_groups_sections_in_order_with_colors():
     high = texts_of(message)[1]
     # The highest score comes first.
     assert high.index("|#3 ") < high.index("|#2 ")
-    assert high.splitlines()[0] == (
-        "📝 <https://github.com/o/r/issues/3|#3 A title> · alamb · unassigned · 2d"
-        " · <https://example.slack.com/archives/C1/p3|thread>"
+    # Each item takes two lines, and a blank line separates the items.
+    assert high.split("\n\n")[0] == (
+        "📝 <https://github.com/o/r/issues/3|#3 A title> · alamb\n"
+        "\u2003\u2003unassigned · waiting 2d · <https://example.slack.com/archives/C1/p3|thread>"
     )
 
 
@@ -97,10 +98,10 @@ def test_overview_fits_slack_limits_and_cuts_low_first():
     assert "⚪ 2000 Low" in message.blocks[1]["elements"][0]["text"]
 
 
-def test_overview_row_cuts_the_title_and_names_the_commenter():
+def test_overview_entry_shows_the_full_title_and_names_the_commenter():
     long = row(1, title="y" * 100)
     text = render.overview([long], NOW.date(), NOW, "", "").attachments[0]["blocks"][1]["text"]["text"]
-    assert "|#1 " + "y" * 20 + "...>" in text
+    assert "|#1 " + "y" * 100 + ">" in text
     # On a team item, the contributor is the outside person who commented last.
     team_item = item(2, author=TEAMMATE, events=[event(ago(days=3)), event(ago(days=2), "bob")])
     comment = row(2)
@@ -108,7 +109,7 @@ def test_overview_row_cuts_the_title_and_names_the_commenter():
         comment, item=team_item, assessment=replace(comment.assessment, category=Category.EXTERNAL_COMMENT)
     )
     text = render.overview([comment], NOW.date(), NOW, "", "").attachments[0]["blocks"][1]["text"]["text"]
-    assert "> · bob · unassigned · 2d · <" in text
+    assert "> · bob\n\u2003\u2003unassigned · waiting 2d · <" in text
 
 
 def test_titles_and_reasons_are_escaped():
@@ -153,6 +154,10 @@ def test_reminder_mentions_the_owner_once_and_lists_items():
     rows = [row(1, Tier.HIGH), row(2, Tier.NORMAL)]
     first = render.reminder("UALICE", rows, True, NOW)
     assert first.text == "<@UALICE>, 2 items wait on you today"
+    # A reminder lists the same two-line entries as the overview, with each item's section marker.
+    assert first.blocks[1]["text"]["text"].startswith(
+        "🔴 📝 <https://github.com/o/r/issues/1|#1 A title> · alamb\n\u2003\u2003unassigned · waiting 2d"
+    )
     later = render.reminder(None, rows[:1], False, NOW)
     assert later.text == "On-call (not set), 1 more item is due"
     assert "!snooze 2d" in json.dumps(first.blocks)

@@ -22,9 +22,10 @@ from .state import ItemState, Status
 MAX_BLOCKS = 48
 MAX_SECTION_CHARS = 2900
 TITLE_LIMIT = 60
-# The overview keeps only the start of a title, so that a row fits in the narrow column of an
-# attachment. The card shows the longer title.
-OVERVIEW_TITLE_CHARS = 20
+# A list shows each item on two lines, and the second line starts with two em spaces, about four
+# normal spaces wide. A blank line keeps the entries apart.
+_INDENT = "\u2003\u2003"
+_ENTRY_GAP = "\n\n"
 
 
 @dataclass(frozen=True)
@@ -69,14 +70,14 @@ def escape(text: str) -> str:
     return cleaned.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
-def _title(item: Item, limit: int) -> str:
+def _title(item: Item, limit: int | None) -> str:
     title = " ".join(item.title.split())
-    if len(title) > limit:
+    if limit is not None and len(title) > limit:
         title = title[: limit - 3].rstrip() + "..."
     return escape(title)
 
 
-def _link(item: Item, limit: int = TITLE_LIMIT) -> str:
+def _link(item: Item, limit: int | None = TITLE_LIMIT) -> str:
     return f"<{item.url}|#{item.number} {_title(item, limit)}>"
 
 
@@ -147,19 +148,14 @@ def _thread(row: Row) -> str:
     return f"<{row.thread_url}|thread>" if row.thread_url else ""
 
 
-def _overview_line(row: Row, now: datetime) -> str:
-    detail = (
-        escape(row.assessment.owes_reason)
-        if row.section is WAITING
-        else _wait(row, now).removeprefix("waiting ")
-    )
-    return _parts(
-        f"{kind_emoji(row.item, row.assessment)} {_link(row.item, OVERVIEW_TITLE_CHARS + 3)}",
-        _contributor(row.item, row.assessment),
-        _owner(row.item),
-        detail,
-        _thread(row),
-    )
+def _entry(row: Row, now: datetime, *, marker: bool = False) -> str:
+    """Show an item on two lines: the item and its contributor, then the team's side of it."""
+    prefix = f"{row.section.marker} " if marker else ""
+    item = f"{prefix}{kind_emoji(row.item, row.assessment)} {_link(row.item, None)}"
+    detail = escape(row.assessment.owes_reason) if row.section is WAITING else _wait(row, now)
+    first = _parts(item, _contributor(row.item, row.assessment))
+    second = _parts(_owner(row.item), detail, _thread(row))
+    return f"{first}\n{_INDENT}{second}"
 
 
 def ordered(rows: Sequence[Row]) -> dict[Section, list[Row]]:
@@ -176,20 +172,20 @@ def ordered(rows: Sequence[Row]) -> dict[Section, list[Row]]:
     return grouped
 
 
-def _chunks(lines: list[str]) -> list[str]:
-    """Join lines into section texts that each fit Slack's character limit."""
+def _chunks(parts: list[str], separator: str = "\n") -> list[str]:
+    """Join parts into section texts that each fit Slack's character limit."""
     chunks: list[str] = []
     current: list[str] = []
     size = 0
-    for line in lines:
-        if current and size + len(line) + 1 > MAX_SECTION_CHARS:
-            chunks.append("\n".join(current))
+    for part in parts:
+        if current and size + len(part) + len(separator) > MAX_SECTION_CHARS:
+            chunks.append(separator.join(current))
             current = []
             size = 0
-        current.append(line)
-        size += len(line) + 1
+        current.append(part)
+        size += len(part) + len(separator)
     if current:
-        chunks.append("\n".join(current))
+        chunks.append(separator.join(current))
     return chunks
 
 
@@ -229,10 +225,7 @@ def overview(rows: Sequence[Row], day: date, now: datetime, oncall: str, claude:
         },
         _context(summary),
     ]
-    lines = {
-        section: [_overview_line(row, now) for row in members]
-        for section, members in grouped.items()
-    }
+    lines = {section: [_entry(row, now) for row in members] for section, members in grouped.items()}
     cut = {section: 0 for section in SECTIONS}
 
     def build() -> tuple[list[dict[str, Any]], int]:
@@ -244,7 +237,7 @@ def overview(rows: Sequence[Row], day: date, now: datetime, oncall: str, claude:
             if cut[section]:
                 shown.append(f"_+{cut[section]} more_")
             body = [_mrkdwn(f"*{section.marker} {section.title} · {counts[section]}*")]
-            body += [_list(chunk) for chunk in _chunks(shown)]
+            body += [_list(chunk) for chunk in _chunks(shown, _ENTRY_GAP)]
             blocks += len(body)
             attachments.append({"color": section.color, "blocks": body})
         return attachments, blocks
@@ -362,22 +355,16 @@ def reminder(user: str | None, rows: Sequence[Row], first: bool, now: datetime) 
         if first
         else f"⏰ {who}, {_count(len(rows), 'more item is', 'more items are')} due"
     )
-    lines = [
-        _parts(
-            f"{row.section.marker} {kind_emoji(row.item, row.assessment)} {_link(row.item)}",
-            _wait(row, now).removeprefix("waiting "),
-            _thread(row),
-        )
-        for row in rows
-    ]
+    lines = [_entry(row, now, marker=True) for row in rows]
     footer = "Reply `!snooze 2d` in an item's thread to pause its reminders."
     # The header and the footer take two blocks. Rows that do not fit are cut from the end, which
     # holds the least urgent items.
     shown, cut = lines, 0
-    while 2 + len(_chunks(shown)) > MAX_BLOCKS:
+    while 2 + len(_chunks(shown, _ENTRY_GAP)) > MAX_BLOCKS:
         cut += 1
         shown = [*lines[: len(lines) - cut], f"_+{cut} more_"]
-    blocks = [_mrkdwn(header), *(_list(chunk) for chunk in _chunks(shown)), _context(footer)]
+    chunks = _chunks(shown, _ENTRY_GAP)
+    blocks = [_mrkdwn(header), *(_list(chunk) for chunk in chunks), _context(footer)]
     return Message(text=header.removeprefix("⏰ "), blocks=tuple(blocks))
 
 
@@ -401,9 +388,9 @@ def instructions() -> Message:
             "😴 snoozed until the time shown on the item's card",
             f"{_DONE} merged, closed, or answered by a teammate",
             f"{_UNTRACKED} no longer tracked",
-            "A row lists the item, the outside contributor, the assignees, how long Vortex has "
-            "owed a reply, and a link to the item's thread here. The item's number and title "
-            "open it on GitHub.",
+            "Each item takes two lines. The first shows the item and the outside contributor, and "
+            "the item's number and title open it on GitHub. The second shows the assignees, how "
+            "long Vortex has owed a reply, and a link to the item's thread here.",
             "",
             "*Owners*",
             "To take an item, assign yourself on GitHub. "
