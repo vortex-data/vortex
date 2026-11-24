@@ -16,10 +16,25 @@ on:
         required: false
         type: string
         default: ""
+      dry-run:
+        description: "Resolve the commit, version and release notes without drafting or tagging"
+        required: false
+        type: boolean
+        default: false
+  # Pull requests that change the release process run it as a dry run at their base commit.
+  pull_request:
+    types: [opened, reopened, synchronize, ready_for_review]
+    paths:
+      - .github/workflows/release-tag.yml
+      - .github/release-drafter.yml
 
 concurrency:
-  group: release-tag
-  cancel-in-progress: false
+  # Dry runs on pull requests must not queue behind or ahead of real releases.
+  group: release-tag-${{ github.event_name == 'pull_request' && github.ref || 'release' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  DRY_RUN: ${{ github.event_name == 'pull_request' || inputs.dry-run }}
 
 permissions:
   contents: read
@@ -36,7 +51,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
-          COMMIT: ${{ inputs.commit }}
+          COMMIT: ${{ inputs.commit || github.event.pull_request.base.sha }}
         run: |
           [[ "$COMMIT" =~ ^[0-9a-fA-F]{7,40}$ ]] || {
             echo "Commit must be a hexadecimal SHA, got '$COMMIT'" >&2
@@ -67,8 +82,9 @@ jobs:
         uses: release-drafter/release-drafter@d1a19e60e81a7e650d00a7de9277f87e439117ea  # v7.11.0
         with:
           commitish: ${{ needs.prepare.outputs.sha }}
-          prerelease: ${{ inputs.prerelease-identifier != '' }}
+          prerelease: ${{ inputs.prerelease-identifier && 'true' || 'false' }}
           prerelease-identifier: ${{ inputs.prerelease-identifier }}
+          dry-run: ${{ env.DRY_RUN }}
 
       - name: Create tag
         env:
@@ -93,6 +109,10 @@ jobs:
               exit 1
             }
             echo "Tag $RELEASE_TAG already exists at $RELEASE_SHA"
+          elif [[ "$DRY_RUN" == "true" ]]; then
+            echo "Dry run: would tag \`$RELEASE_SHA\` as \`$RELEASE_TAG\` and draft its release." \
+              >> "$GITHUB_STEP_SUMMARY"
+            exit 0
           else
             gh api "repos/$GH_REPO/git/refs" \
               -f ref="refs/tags/$RELEASE_TAG" \

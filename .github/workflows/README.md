@@ -9,6 +9,8 @@ A release takes two workflow runs, then a manual publication:
    commit with this version. For a pre-release, also supply `prerelease-identifier`, such as `rc`.
    The workflow fails if the commit is not on `develop` or if the tag already exists at another
    commit. If the run fails after it drafts the release, run it again: it updates the same draft.
+   Set `dry-run` to see the version and notes without drafting or tagging. Pull requests that
+   change the workflow or `.github/release-drafter.yml` run it as a dry run at their base commit.
 2. Run the [Release Binaries][binaries-src] workflow from its [Actions page][binaries-runs] and
    supply the `tag` input. The workflow gets the commit from the tag. It fails if the tag does not
    exist or if no draft release has this tag. All five platform builds use the same commit: macOS
