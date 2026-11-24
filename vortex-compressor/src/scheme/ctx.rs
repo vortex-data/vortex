@@ -101,7 +101,11 @@ impl CompressorContext {
     }
 
     /// Returns a context marked as sample compression.
-    pub(crate) fn with_sampling(mut self) -> Self {
+    ///
+    /// Schemes that estimate ratios via [`DeferredEstimate::Callback`](crate::scheme::DeferredEstimate::Callback)
+    /// on a sampled subset must mark the context before compressing sample children so the
+    /// compressor does not treat a uniform sample as a constant column.
+    pub fn with_sampling(mut self) -> Self {
         self.is_sample = true;
         self
     }

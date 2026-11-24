@@ -182,9 +182,12 @@ impl Scheme for FloatWidenScheme {
         // `f32`-only outlier.
         CompressionEstimate::Deferred(DeferredEstimate::Callback(Box::new(
             move |compressor, data, _best_so_far, compress_ctx, exec_ctx| {
-                let sample =
-                    sample_aligned_chunks(data.array(), SAMPLE_CHUNK_LEN, SAMPLE_CHUNK_COUNT)
-                        .unwrap_or_else(|| data.array().clone());
+                let (sample, sample_ctx) =
+                    match sample_aligned_chunks(data.array(), SAMPLE_CHUNK_LEN, SAMPLE_CHUNK_COUNT)
+                    {
+                        Some(sample) => (sample, compress_ctx.with_sampling()),
+                        None => (data.array().clone(), compress_ctx),
+                    };
                 let sample_before = uncompressed_size_in_bytes(&sample, exec_ctx)?;
                 if sample_before == 0 {
                     return Ok(EstimateVerdict::Skip);
@@ -198,7 +201,7 @@ impl Scheme for FloatWidenScheme {
                     &sample_primitive,
                     &sample_mask,
                     narrowest,
-                    compress_ctx,
+                    sample_ctx,
                     exec_ctx,
                 )?
                 .nbytes();
@@ -509,6 +512,26 @@ mod tests {
             PType::F32
         );
         assert_bit_exact_f64(&compressed, &input, &mut ctx)?;
+
+        Ok(())
+    }
+
+    #[test]
+    fn uniform_sampled_prefix_does_not_crowd_out_better_scheme() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let mut values = vec![1.0_f32; 11_264];
+        values.extend(std::iter::repeat_n(2.0_f32, 1_023));
+        let input = PrimitiveArray::from_iter(values);
+
+        let compressed =
+            unrestricted_compressor().compress(&input.clone().into_array(), &mut ctx)?;
+        assert!(
+            !compressed.is::<Widen>(),
+            "expected RLE or Dict to beat Widen on two-run column, got {} ({} bytes)",
+            compressed.encoding_id(),
+            compressed.nbytes(),
+        );
+        assert_arrays_eq!(compressed, input, &mut ctx);
 
         Ok(())
     }
