@@ -26,6 +26,7 @@ vortex-array = { workspace = true }
 vortex-buffer = { workspace = true }
 vortex-error = { workspace = true }
 vortex-fastlanes = { workspace = true }
+vortex-functions = { workspace = true }
 vortex-mask = { workspace = true }
 vortex-session = { workspace = true }
 
@@ -46,4 +47,8 @@ harness = false
 
 [[bench]]
 name = "alp_slice_take"
+harness = false
+
+[[bench]]
+name = "alp_fsl_take"
 harness = false

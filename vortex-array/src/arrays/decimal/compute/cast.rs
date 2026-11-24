@@ -37,8 +37,8 @@ use crate::match_each_decimal_value_type;
 use crate::scalar::DecimalToFloatCast;
 use crate::scalar::DecimalValue;
 use crate::scalar::Scalar;
-use crate::scalar_fn::fns::cast::CastKernel;
-use crate::scalar_fn::fns::cast::CastReduce;
+use crate::scalar_fn::builtin::cast::CastKernel;
+use crate::scalar_fn::builtin::cast::CastReduce;
 use crate::validity::Validity;
 
 impl CastReduce for Decimal {

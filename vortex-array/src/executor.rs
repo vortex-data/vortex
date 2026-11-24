@@ -519,6 +519,12 @@ impl ExecutionCtx {
         &self.kernels.reduce_parent
     }
 
+    /// Try to rewrite `array` using a registered execute-parent kernel on one of its children.
+    pub fn try_execute_parent(&mut self, array: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
+        let kernels = Arc::clone(&self.kernels.execute_parent);
+        try_execute_parent(array, kernels.as_ref(), self)
+    }
+
     /// Get the allocator for this execution context.
     pub fn allocator(&self) -> &BufferAllocatorRef {
         self.allocator.get_or_init(|| self.session.allocator())
@@ -1100,9 +1106,10 @@ macro_rules! require_patches {
     };
 }
 
-/// Require that the validity slot is a [`Bool`](crate::arrays::Bool) array. If validity is not
-/// array-backed (e.g. `NonNullable` or `AllValid`), this is a no-op. If it is array-backed but
-/// not `Bool`, early-returns an [`ExecutionResult`] requesting execution of the validity slot.
+/// Require that the validity slot is columnar ([`Bool`](crate::arrays::Bool) or
+/// [`Constant`](crate::arrays::Constant)). If validity is not array-backed (e.g. `NonNullable` or
+/// `AllValid`), or is already a constant bool array (e.g. `AllInvalid`), this is a no-op.
+/// Otherwise, early-returns an [`ExecutionResult`] requesting execution of the validity slot.
 ///
 /// Like [`require_opt_child!`], `$parent` is moved (not cloned) into the early-return path.
 ///
@@ -1115,7 +1122,7 @@ macro_rules! require_validity {
         $crate::require_opt_child!(
             $parent,
             $parent.slots()[$idx].as_ref(),
-            $idx => $crate::arrays::Bool
+            $idx => $crate::AnyColumnar
         );
     };
 }

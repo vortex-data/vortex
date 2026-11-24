@@ -10,6 +10,7 @@ use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::Constant;
+use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::Slice;
 use vortex_array::arrays::SliceArray;
@@ -27,6 +28,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 
 use crate::BitPacked;
@@ -48,13 +50,17 @@ use crate::unpack_iter::for_each_packed_chunk;
 pub(crate) const U8_LANES: usize = 128;
 
 /// Decompresses an RLE array back into a primitive array.
+///
+/// The `values` and `values_idx_offsets` children must already be primitive arrays.
 pub fn rle_decompress(array: &RLEArray, ctx: &mut ExecutionCtx) -> VortexResult<PrimitiveArray> {
     // The per-chunk value-index offsets are tiny (one entry per 1024-element chunk), so cast them
     // to `u64` once here instead of monomorphizing the whole decode loop over the offset width.
     let values_idx_offsets = array
         .values_idx_offsets()
-        .clone()
-        .execute::<PrimitiveArray>(ctx)?;
+        .as_opt::<Primitive>()
+        .ok_or_else(|| {
+            vortex_err!("RLE values_idx_offsets must be executed to Primitive before decompression")
+        })?;
     let values_idx_offsets: Vec<u64> =
         match_each_unsigned_integer_ptype!(values_idx_offsets.ptype(), |O| {
             widen_offsets(values_idx_offsets.as_slice::<O>())
@@ -97,7 +103,9 @@ where
     V: NativePType + RLE,
     I: NativePType + PhysicalPType<Physical = I> + BitPacking + Ord + Into<usize>,
 {
-    let values = array.values().clone().execute::<PrimitiveArray>(ctx)?;
+    let values = array.values().as_opt::<Primitive>().ok_or_else(|| {
+        vortex_err!("RLE values must be executed to Primitive before decompression")
+    })?;
     let values = values.as_slice::<V>();
 
     // The offsets come from (possibly untrusted) storage. Validate them once here so

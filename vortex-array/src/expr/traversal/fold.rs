@@ -81,9 +81,12 @@ mod tests {
     use crate::expr::gt;
     use crate::expr::lit;
     use crate::expr::traversal::NodeExt;
-    use crate::scalar_fn::fns::binary::Binary;
-    use crate::scalar_fn::fns::literal::Literal;
-    use crate::scalar_fn::fns::operators::Operator;
+    use crate::scalar::NumericOperator;
+    use crate::scalar_fn::builtin::boolean::Boolean;
+    use crate::scalar_fn::builtin::compare::Compare;
+    use crate::scalar_fn::builtin::literal::Literal;
+    use crate::scalar_fn::builtin::numeric::Numeric;
+    use crate::scalar_fn::builtin::operators::CompareOperator;
 
     struct AddFold;
     impl NodeFolderContext for AddFold {
@@ -107,8 +110,8 @@ mod tests {
                 }
             }
 
-            if let Some(operator) = node.as_opt::<Binary>()
-                && *operator == Operator::Gt
+            if let Some(operator) = node.as_opt::<Compare>()
+                && *operator == CompareOperator::Gt
             {
                 return Ok(FoldDownContext::Skip(0));
             }
@@ -128,12 +131,14 @@ mod tests {
                     .typed_value::<i32>()
                     .vortex_expect("i32");
                 Ok(FoldUp::Continue(v))
-            } else if let Some(operator) = node.as_opt::<Binary>() {
-                if *operator == Operator::Add {
+            } else if let Some(operator) = node.as_opt::<Numeric>() {
+                if *operator == NumericOperator::Add {
                     Ok(FoldUp::Continue(children[0] + children[1]))
                 } else {
                     vortex_bail!("not a valid operator")
                 }
+            } else if node.is::<Compare>() || node.is::<Boolean>() {
+                vortex_bail!("not a valid operator")
             } else {
                 vortex_bail!("not a valid type")
             }

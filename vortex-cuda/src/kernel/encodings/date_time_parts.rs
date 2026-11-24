@@ -164,9 +164,9 @@ where
     } = subseconds.into_data_parts();
 
     // Move buffers to device if not already there
-    let days_device = ctx.ensure_on_device(days_buffer).await?;
-    let seconds_device = ctx.ensure_on_device(seconds_buffer).await?;
-    let subseconds_device = ctx.ensure_on_device(subseconds_buffer).await?;
+    let days_device = ctx.ensure_on_device(days_buffer)?;
+    let seconds_device = ctx.ensure_on_device(seconds_buffer)?;
+    let subseconds_device = ctx.ensure_on_device(subseconds_buffer)?;
 
     // Allocate output buffer
     let mut output_slice = ctx.device_alloc::<i64>(output_len)?;

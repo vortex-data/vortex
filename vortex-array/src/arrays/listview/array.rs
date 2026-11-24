@@ -38,7 +38,7 @@ use crate::expr::stats::Stat;
 use crate::match_each_integer_ptype;
 use crate::match_each_unsigned_integer_ptype;
 use crate::optimizer::ArrayOptimizer;
-use crate::scalar_fn::fns::operators::Operator;
+use crate::scalar::NumericOperator;
 use crate::validity::Validity;
 
 #[array_slots(ListView)]
@@ -546,7 +546,7 @@ pub trait ListViewArrayExt: TypedArrayRef<ListView> {
         let offsets = self.offsets().cast(wide_dtype.clone())?;
         let sizes = self.sizes().cast(wide_dtype)?;
         let end = min_max(
-            &offsets.binary(sizes, Operator::Add)?,
+            &offsets.numeric(sizes, NumericOperator::Add)?,
             ctx,
             NumericalAggregateOpts::default(),
         )?

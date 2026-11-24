@@ -22,6 +22,7 @@ use vortex::file::WriteOptionsSessionExt;
 use vortex::io::session::RuntimeSessionExt;
 use vortex::layout::scan::v2::ScanBuilder;
 use vortex::scan::execution::driver::ScanDriver;
+use vortex::utils::parallelism::get_available_parallelism;
 use vortex_bench::CompactionStrategy;
 use vortex_bench::Format;
 use vortex_bench::SESSION;
@@ -115,7 +116,12 @@ async fn vortex_decompress_read(data: Bytes) -> Result<()> {
             .optimize_recursive()?;
         scan = scan.with_projection(projection);
     }
-    let stream = ScanDriver::new(SESSION.handle(), 4, true).run_record_batches(scan, None);
+    let stream = ScanDriver::new(
+        SESSION.handle(),
+        4 * get_available_parallelism().unwrap_or(1),
+        true,
+    )
+    .run_record_batches(scan, None);
     pin_mut!(stream);
 
     while let Some(batch) = stream.next().await {

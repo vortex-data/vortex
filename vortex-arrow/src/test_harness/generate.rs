@@ -45,7 +45,6 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 
-use super::DefaultExport;
 use super::check_containers;
 
 /// A storage array and its independent Arrow reference, built from the same source draws.
@@ -145,15 +144,9 @@ pub(super) fn draw_validity(tc: &TestCase, nullability: Nullability, len: usize)
 /// reconstruction from serialized metadata and stored storage.
 ///
 /// Extra struct, list, and fixed-size-list parents preserve the leaf's row count and independently
-/// draw their nullability and validity. `default_export` applies to the leaf. The generated parents
-/// support field inference, including when the leaf requires an explicit target.
+/// draw their nullability and validity.
 #[track_caller]
-pub fn check_generated(
-    tc: &TestCase,
-    leaf: ArrayRef,
-    default_export: DefaultExport,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<()> {
+pub fn check_generated(tc: &TestCase, leaf: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<()> {
     if let DType::Extension(dtype) = leaf.dtype() {
         let metadata = dtype.serialize_metadata()?;
         let dtypes = ctx.session().dtypes();
@@ -177,7 +170,7 @@ pub fn check_generated(
         }
     }
 
-    check_containers(leaf.clone(), default_export, ctx)?;
+    check_containers(leaf.clone(), ctx)?;
 
     let depth = tc.draw(gs::integers::<usize>().max_value(3));
     let mut array = leaf;
@@ -200,7 +193,7 @@ pub fn check_generated(
     }
 
     if depth > 0 {
-        check_containers(array, DefaultExport::Supported, ctx)?;
+        check_containers(array, ctx)?;
     }
 
     Ok(())

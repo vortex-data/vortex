@@ -32,8 +32,8 @@ use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::patches::Patches;
 use crate::scalar::Scalar;
-use crate::scalar_fn::fns::binary::Binary;
-use crate::scalar_fn::fns::operators::Operator;
+use crate::scalar_fn::builtin::boolean::Boolean;
+use crate::scalar_fn::builtin::operators::BooleanOperator;
 
 /// Validity information for an array.
 #[derive(Clone)]
@@ -309,7 +309,7 @@ impl Validity {
             | (Validity::AllValid, Validity::AllValid) => Validity::AllValid,
             // Here we actually have to do some work
             (Validity::Array(lhs), Validity::Array(rhs)) => {
-                Validity::Array(Binary::try_new(lhs, rhs, Operator::And)?.into_array())
+                Validity::Array(Boolean::try_new(lhs, rhs, BooleanOperator::And)?.into_array())
             }
         })
     }
@@ -381,6 +381,11 @@ impl Validity {
     /// Returns `None` when the array contains invalid values (so the cast cannot be performed),
     /// either because it is [`Validity::AllInvalid`] or because the validity array's minimum is
     /// `false`.
+    ///
+    /// The result depends on the statistics of the validity array, which can come from untrusted
+    /// input. An encoding must not depend on this result for memory safety. An encoding that does
+    /// not validate the values at null rows, such as `VarBin`, must read the validity values
+    /// itself before it makes those rows valid.
     #[inline]
     pub fn into_non_nullable(self, len: usize, ctx: &mut ExecutionCtx) -> Option<Validity> {
         match self {
@@ -430,8 +435,8 @@ impl Validity {
     /// Returns `Err` when nullability cannot be cast (for example, casting to non-nullable while
     /// invalid values are present).
     ///
-    /// [`CastKernel`]: crate::scalar_fn::fns::cast::CastKernel
-    /// [`CastReduce`]: crate::scalar_fn::fns::cast::CastReduce
+    /// [`CastKernel`]: crate::scalar_fn::builtin::cast::CastKernel
+    /// [`CastReduce`]: crate::scalar_fn::builtin::cast::CastReduce
     #[inline]
     pub fn cast_nullability(
         self,
@@ -469,7 +474,7 @@ impl Validity {
     /// };
     /// ```
     ///
-    /// [`CastReduce`]: crate::scalar_fn::fns::cast::CastReduce
+    /// [`CastReduce`]: crate::scalar_fn::builtin::cast::CastReduce
     #[inline]
     pub fn trivially_cast_nullability(
         self,

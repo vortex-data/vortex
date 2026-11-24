@@ -24,7 +24,7 @@ pub(super) async fn filter_varbinview(
 
     let filtered_validity = validity.filter(&mask)?;
 
-    let d_views = ctx.ensure_on_device(views).await?;
+    let d_views = ctx.ensure_on_device(views)?;
 
     let filtered_views = filter_sized::<i128>(d_views, mask, ctx).await?;
 

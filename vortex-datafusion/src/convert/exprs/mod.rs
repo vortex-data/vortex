@@ -19,6 +19,7 @@ use datafusion_common::Result as DFResult;
 use datafusion_common::ScalarValue;
 use datafusion_common::exec_datafusion_err;
 use datafusion_common::format::DEFAULT_FORMAT_OPTIONS;
+use datafusion_common::metadata::FieldMetadata;
 use datafusion_common::tree_node::Transformed as DFTransformed;
 use datafusion_common::tree_node::TreeNode;
 use datafusion_expr::Operator as DFOperator;
@@ -49,8 +50,10 @@ use vortex::dtype::PType;
 use vortex::dtype::StructFields;
 use vortex::expr::Expression;
 use vortex::expr::Lambda;
+use vortex::expr::binary;
 use vortex::expr::byte_length;
 use vortex::expr::cast;
+use vortex::expr::ext_storage;
 use vortex::expr::get_item;
 use vortex::expr::in_list_of;
 use vortex::expr::is_not_null;
@@ -68,14 +71,16 @@ use vortex::expr::strpos;
 use vortex::expr::traversal::NodeExt;
 use vortex::expr::traversal::Transformed;
 use vortex::expr::var;
+use vortex::functions::like::Like;
+use vortex::functions::like::LikeOptions;
 use vortex::layout::layouts::row_idx;
+use vortex::scalar::NumericOperator;
 use vortex::scalar::Scalar;
 use vortex::scalar_fn::ScalarFnVTableExt;
-use vortex::scalar_fn::fns::binary::Binary;
-use vortex::scalar_fn::fns::get_item::GetItem;
-use vortex::scalar_fn::fns::like::Like;
-use vortex::scalar_fn::fns::like::LikeOptions;
-use vortex::scalar_fn::fns::operators::Operator;
+use vortex::scalar_fn::builtin::get_item::GetItem;
+use vortex::scalar_fn::builtin::operators::BinaryOperator;
+use vortex::scalar_fn::builtin::operators::BooleanOperator;
+use vortex::scalar_fn::builtin::operators::CompareOperator;
 use vortex::session::VortexSession;
 use vortex_arrow::ArrowSessionExt;
 
@@ -266,6 +271,8 @@ type Conversion<T> = Result<T, Unconverted>;
 /// Nested struct field access also uses Vortex semantics: a null parent produces a null child,
 /// whereas DataFusion extracts the child without applying parent validity. These differences
 /// are accepted for both filters and projections.
+/// Field access through an extension can run natively when Arrow exposes its Vortex storage and no
+/// plugin exports the selected field.
 /// Searched `CASE WHEN` expressions preserve short-circuit evaluation: conditions and
 /// branch values only execute on the rows that reach them, including fallible branches.
 /// Other expressions require compatible SQL semantics or remain in DataFusion.
@@ -377,7 +384,7 @@ impl DefaultExpressionConverter {
         if let Some(binary_expr) = expr.downcast_ref::<df_expr::BinaryExpr>() {
             let operator =
                 try_operator_from_df(binary_expr.op()).ok_or(Unconverted::Unsupported)?;
-            let boolean_operator = matches!(operator, Operator::And | Operator::Or);
+            let boolean_operator = matches!(operator, BinaryOperator::Boolean(_));
             let left_type = binary_expr.left().data_type(schema)?;
             let right_type = binary_expr.right().data_type(schema)?;
             if boolean_operator {
@@ -414,7 +421,7 @@ impl DefaultExpressionConverter {
             {
                 return Err(Unconverted::Unsupported);
             }
-            return Ok(Binary.new_expr(operator, [left, right]));
+            return Ok(binary(operator, left, right));
         }
 
         if let Some(col_expr) = expr.downcast_ref::<df_expr::Column>() {
@@ -532,11 +539,11 @@ impl DefaultExpressionConverter {
         &self,
         expr: &Arc<dyn PhysicalExpr>,
         other: &Arc<dyn PhysicalExpr>,
-        operator: Operator,
+        operator: BinaryOperator,
         schema: &Schema,
         input_dtype: &DType,
     ) -> Conversion<Expression> {
-        if operator.is_comparison()
+        if matches!(operator, BinaryOperator::Compare(_))
             && let Some(literal) = expr.downcast_ref::<df_expr::Literal>()
         {
             let field = other.return_field(schema)?;
@@ -569,7 +576,7 @@ impl DefaultExpressionConverter {
         for key in [EXTENSION_TYPE_NAME_KEY, EXTENSION_TYPE_METADATA_KEY] {
             field.metadata_mut().remove(key);
             if let Some(value) = operand_field.metadata().get(key) {
-                field.metadata_mut().insert(key.into(), value.clone());
+                field.metadata_mut().insert(key, value.clone());
             }
         }
 
@@ -655,17 +662,33 @@ impl DefaultExpressionConverter {
 
         // The list of a hash join filter holds every build-side key, which repeat. Each element
         // converts through Arrow, so equal values with equal metadata are converted once.
-        let elements = in_list
+        let literals = in_list
             .list()
             .iter()
-            .unique_by(|element| element.downcast_ref::<df_expr::Literal>().cloned())
             .map(|element| {
-                let literal = element
+                element
                     .downcast_ref::<df_expr::Literal>()
-                    .ok_or(Unconverted::Unsupported)?;
-
-                self.import_literal_for_operand(literal, &value_field, schema)
+                    .cloned()
+                    .ok_or(Unconverted::Unsupported)
             })
+            .collect::<Conversion<Vec<_>>>()?;
+        let signed_zero_partners = literals
+            .iter()
+            .filter_map(|literal| {
+                let partner = signed_zero_partner(literal.value())?;
+                Some(literal.return_field(schema).map(|field| {
+                    df_expr::Literal::new_with_metadata(
+                        partner,
+                        Some(FieldMetadata::new_from_field(&field)),
+                    )
+                }))
+            })
+            .collect::<DFResult<Vec<_>>>()?;
+        let elements = literals
+            .into_iter()
+            .chain(signed_zero_partners)
+            .unique()
+            .map(|literal| self.import_literal_for_operand(&literal, &value_field, schema))
             .collect::<Conversion<Vec<_>>>()?;
 
         // An element of another type than the value declines the pushdown: no implicit casts.
@@ -746,40 +769,7 @@ impl DefaultExpressionConverter {
         }
 
         if ScalarFunctionExpr::try_downcast_func::<GetFieldFunc>(scalar_fn).is_some() {
-            // DataFusion's GetFieldFunc flattens nested field access into a single call
-            // with multiple field name arguments, e.g. `outer.inner.leaf` becomes
-            // get_field(Column("outer"), "inner", "leaf").
-            let [source, paths @ ..] = scalar_fn.args() else {
-                return Err(
-                    exec_datafusion_err!("get_field requires a source and field path").into(),
-                );
-            };
-            if paths.is_empty() {
-                return Err(exec_datafusion_err!("get_field requires a field path").into());
-            }
-            let mut source_type = source.data_type(schema)?;
-            let mut names = Vec::with_capacity(paths.len());
-            for path in paths {
-                let name = path
-                    .downcast_ref::<df_expr::Literal>()
-                    .and_then(|literal| literal.value().try_as_str().flatten())
-                    .ok_or_else(|| {
-                        exec_datafusion_err!("get_field path must be a non-null string literal")
-                    })?;
-                let DataType::Struct(fields) = &source_type else {
-                    return Err(Unconverted::Unsupported);
-                };
-                let (_, field) = fields.find(name).ok_or_else(|| {
-                    exec_datafusion_err!("get_field references missing field {name}")
-                })?;
-                source_type = field.data_type().clone();
-                names.push(name);
-            }
-            let mut result = self.convert_expr(source, schema, input_dtype)?;
-            for name in names {
-                result = get_item(name, result);
-            }
-            return Ok(result);
+            return self.convert_get_field(scalar_fn, schema, input_dtype);
         }
 
         if ScalarFunctionExpr::try_downcast_func::<ArraySum>(scalar_fn).is_some() {
@@ -821,6 +811,87 @@ impl DefaultExpressionConverter {
             scalar_fn.nullable(),
         ))?;
         Ok(cast(length(input), return_dtype))
+    }
+
+    /// Converts `get_field` to a chain of `get_item` reads.
+    ///
+    /// DataFusion can flatten nested access into one call, so `outer.inner.leaf` can arrive as
+    /// `get_field(outer, "inner", "leaf")`.
+    ///
+    /// Vortex extension types are opaque, so `get_item` cannot read into an extension value until
+    /// `ext_storage` exposes its storage. The converter can add that `ext_storage` without breaking
+    /// the opacity, because DataFusion already reads the storage: an Arrow extension type is only
+    /// metadata on its storage field, and `get_field` reads that field like any other struct. Both
+    /// sides read the same values only when Vortex exports the parent as exactly its storage, which
+    /// [`exports_extension_storage`] checks.
+    ///
+    /// [`exports_extension_storage`]: vortex_arrow::ArrowSession::exports_extension_storage
+    fn convert_get_field(
+        &self,
+        scalar_fn: &ScalarFunctionExpr,
+        schema: &Schema,
+        input_dtype: &DType,
+    ) -> Conversion<Expression> {
+        let [source, paths @ ..] = scalar_fn.args() else {
+            return Err(exec_datafusion_err!("get_field requires a source and field path").into());
+        };
+
+        if paths.is_empty() {
+            return Err(exec_datafusion_err!("get_field requires a field path").into());
+        }
+
+        // Keep the Arrow field of each step, because its metadata decides how Vortex exports it.
+        let source_field = source.return_field(schema)?;
+        let mut field = source_field.as_ref();
+        let mut steps = Vec::with_capacity(paths.len());
+        for path in paths {
+            let name = path
+                .downcast_ref::<df_expr::Literal>()
+                .and_then(|literal| literal.value().try_as_str().flatten())
+                .ok_or_else(|| {
+                    exec_datafusion_err!("get_field path must be a non-null string literal")
+                })?;
+            let DataType::Struct(fields) = field.data_type() else {
+                return Err(Unconverted::Unsupported);
+            };
+            let (_, child_field) = fields
+                .find(name)
+                .ok_or_else(|| exec_datafusion_err!("get_field references missing field {name}"))?;
+            steps.push((field, name));
+            field = child_field.as_ref();
+        }
+
+        let mut read = self.convert_expr(source, schema, input_dtype)?;
+        let mut reads_extension_storage = false;
+        for (parent_field, name) in steps {
+            // Check the Vortex dtype instead of the Arrow extension name, because the session
+            // imports an unknown extension name as a plain struct that `get_item` reads directly.
+            if let DType::Extension(ext_dtype) = converted_dtype(&read, input_dtype)? {
+                if !self
+                    .session
+                    .arrow()
+                    .exports_extension_storage(&ext_dtype, parent_field)
+                {
+                    return Err(Unconverted::Unsupported);
+                }
+
+                read = ext_storage(read);
+                reads_extension_storage = true;
+            }
+            read = get_item(name, read);
+        }
+
+        // A plugin exporter decides which Arrow data DataFusion sees for the selected field, so
+        // Vortex and DataFusion agree on that field only if the export keeps values. Columns and
+        // plain struct fields already assume this, and the check skips them so that their pushdown
+        // stays the same.
+        // TODO(connor): Drop this check once the Arrow plugin contract requires exports to keep
+        // values.
+        if reads_extension_storage && !self.session.arrow().exports_without_plugins(field) {
+            return Err(Unconverted::Unsupported);
+        }
+
+        Ok(read)
     }
 
     /// Converts `array_sum` to `list_sum`.
@@ -928,6 +999,26 @@ impl ExpressionConverter for DefaultExpressionConverter {
     }
 }
 
+/// The other signed zero, for a float zero.
+///
+/// DataFusion's `IN` treats `0.0` and `-0.0` as equal but otherwise compares floats by their bits,
+/// so a NaN matches only the same NaN. Vortex's set lookup compares bits, so a converted list holds
+/// both zeros whenever DataFusion's list holds either.
+fn signed_zero_partner(value: &ScalarValue) -> Option<ScalarValue> {
+    match value {
+        ScalarValue::Float16(Some(zero)) if zero.to_f32() == 0.0 => {
+            Some(ScalarValue::Float16(Some(-*zero)))
+        }
+        ScalarValue::Float32(Some(zero)) if *zero == 0.0 => {
+            Some(ScalarValue::Float32(Some(-*zero)))
+        }
+        ScalarValue::Float64(Some(zero)) if *zero == 0.0 => {
+            Some(ScalarValue::Float64(Some(-*zero)))
+        }
+        _ => None,
+    }
+}
+
 /// Whether evaluating `expr` cannot fail, so Vortex may evaluate it on rows DataFusion skips.
 pub(crate) fn is_infallible(expr: &Expression) -> bool {
     expr.as_scalar()
@@ -1032,20 +1123,20 @@ fn classify_cast_types(source: &DataType, target: &DataType) -> Conversion<CastP
     })
 }
 
-fn try_operator_from_df(value: &DFOperator) -> Option<Operator> {
+fn try_operator_from_df(value: &DFOperator) -> Option<BinaryOperator> {
     match value {
-        DFOperator::Eq => Some(Operator::Eq),
-        DFOperator::NotEq => Some(Operator::NotEq),
-        DFOperator::Lt => Some(Operator::Lt),
-        DFOperator::LtEq => Some(Operator::Lte),
-        DFOperator::Gt => Some(Operator::Gt),
-        DFOperator::GtEq => Some(Operator::Gte),
-        DFOperator::And => Some(Operator::And),
-        DFOperator::Or => Some(Operator::Or),
-        DFOperator::Plus => Some(Operator::Add),
-        DFOperator::Minus => Some(Operator::Sub),
-        DFOperator::Multiply => Some(Operator::Mul),
-        DFOperator::Divide => Some(Operator::Div),
+        DFOperator::Eq => Some(BinaryOperator::Compare(CompareOperator::Eq)),
+        DFOperator::NotEq => Some(BinaryOperator::Compare(CompareOperator::NotEq)),
+        DFOperator::Lt => Some(BinaryOperator::Compare(CompareOperator::Lt)),
+        DFOperator::LtEq => Some(BinaryOperator::Compare(CompareOperator::Lte)),
+        DFOperator::Gt => Some(BinaryOperator::Compare(CompareOperator::Gt)),
+        DFOperator::GtEq => Some(BinaryOperator::Compare(CompareOperator::Gte)),
+        DFOperator::And => Some(BinaryOperator::Boolean(BooleanOperator::And)),
+        DFOperator::Or => Some(BinaryOperator::Boolean(BooleanOperator::Or)),
+        DFOperator::Plus => Some(BinaryOperator::Numeric(NumericOperator::Add)),
+        DFOperator::Minus => Some(BinaryOperator::Numeric(NumericOperator::Sub)),
+        DFOperator::Multiply => Some(BinaryOperator::Numeric(NumericOperator::Mul)),
+        DFOperator::Divide => Some(BinaryOperator::Numeric(NumericOperator::Div)),
         DFOperator::IsDistinctFrom
         | DFOperator::IsNotDistinctFrom
         | DFOperator::RegexMatch

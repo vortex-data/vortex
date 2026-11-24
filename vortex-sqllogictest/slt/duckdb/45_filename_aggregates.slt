@@ -1,0 +1,24 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+include ../setup.slt.no
+
+statement ok
+CREATE TABLE partitioned AS SELECT range % 3 AS i, range AS j FROM range(4);
+
+statement ok
+COPY partitioned TO '${WORK_DIR}/filename' (FORMAT vortex, PARTITION_BY (i));
+
+query I
+SELECT count(*) FROM read_vortex('${WORK_DIR}/filename/**/*.vortex', filename=true);
+----
+4
+
+query TI
+SELECT filename, count(*) FROM read_vortex('${WORK_DIR}/filename/**/*.vortex', filename=true)
+GROUP BY filename
+ORDER BY filename;
+----
+${WORK_DIR}/filename/i=0/data_0.vortex 2
+${WORK_DIR}/filename/i=1/data_0.vortex 1
+${WORK_DIR}/filename/i=2/data_0.vortex 1

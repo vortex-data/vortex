@@ -26,6 +26,7 @@ use arrow_array::types::UInt32Type;
 use arrow_schema::DataType;
 use arrow_schema::Field;
 use arrow_schema::IntervalUnit;
+use arrow_schema::Metadata;
 use arrow_schema::Schema;
 use arrow_schema::TimeUnit as ArrowTimeUnit;
 use arrow_schema::extension::EXTENSION_TYPE_METADATA_KEY;
@@ -54,31 +55,42 @@ use datafusion_physical_expr::projection::ProjectionExpr;
 use datafusion_physical_plan::expressions as df_expr;
 use insta::assert_snapshot;
 use rstest::rstest;
+use vortex::array::ArrayRef;
 use vortex::array::Canonical;
+use vortex::array::ExecutionCtx;
 use vortex::array::IntoArray;
 use vortex::array::arrays::ConstantArray;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::builtins::ArrayBuiltins;
 use vortex::dtype::PType;
+use vortex::dtype::extension::ExtDTypeRef;
+use vortex::dtype::session::DTypeSessionExt;
 use vortex::encodings::uuid::Uuid;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::expr::between;
 use vortex::expr::proto::ExprSerializeProtoExt;
+use vortex::functions::between::BetweenOptions;
+use vortex::functions::between::StrictComparison;
+use vortex::functions::list_contains::ListContains;
 use vortex::scalar::Scalar;
-use vortex::scalar_fn::fns::between::BetweenOptions;
-use vortex::scalar_fn::fns::between::StrictComparison;
-use vortex::scalar_fn::fns::cast::Cast;
-use vortex::scalar_fn::fns::list_contains::ListContains;
-use vortex::scalar_fn::fns::literal::Literal;
+use vortex::scalar_fn::builtin::cast::Cast;
+use vortex::scalar_fn::builtin::compare::Compare;
+use vortex::scalar_fn::builtin::literal::Literal;
+use vortex::scalar_fn::builtin::numeric::Numeric;
 use vortex::session::registry::CachedId;
 use vortex::session::registry::Id;
 use vortex_array::assert_arrays_eq;
+use vortex_arrow::ArrowExport;
+use vortex_arrow::ArrowExportOptions;
+use vortex_arrow::ArrowExportVTable;
 use vortex_arrow::ArrowImport;
 use vortex_arrow::ArrowImportVTable;
 use vortex_arrow::ArrowSession;
 
 use super::*;
+use crate::common_tests::ANY_STORAGE_ID;
+use crate::common_tests::AnyStorage;
 use crate::common_tests::TestSessionContext;
 use crate::convert::TryToDataFusion;
 
@@ -664,21 +676,21 @@ fn test_in_list_malformed_literal() -> DFResult<()> {
 }
 
 #[rstest]
-#[case::eq(DFOperator::Eq, Operator::Eq)]
-#[case::not_eq(DFOperator::NotEq, Operator::NotEq)]
-#[case::lt(DFOperator::Lt, Operator::Lt)]
-#[case::lte(DFOperator::LtEq, Operator::Lte)]
-#[case::gt(DFOperator::Gt, Operator::Gt)]
-#[case::gte(DFOperator::GtEq, Operator::Gte)]
-#[case::and(DFOperator::And, Operator::And)]
-#[case::or(DFOperator::Or, Operator::Or)]
-#[case::plus(DFOperator::Plus, Operator::Add)]
-#[case::plus(DFOperator::Minus, Operator::Sub)]
-#[case::plus(DFOperator::Multiply, Operator::Mul)]
-#[case::plus(DFOperator::Divide, Operator::Div)]
+#[case::eq(DFOperator::Eq, BinaryOperator::Compare(CompareOperator::Eq))]
+#[case::not_eq(DFOperator::NotEq, BinaryOperator::Compare(CompareOperator::NotEq))]
+#[case::lt(DFOperator::Lt, BinaryOperator::Compare(CompareOperator::Lt))]
+#[case::lte(DFOperator::LtEq, BinaryOperator::Compare(CompareOperator::Lte))]
+#[case::gt(DFOperator::Gt, BinaryOperator::Compare(CompareOperator::Gt))]
+#[case::gte(DFOperator::GtEq, BinaryOperator::Compare(CompareOperator::Gte))]
+#[case::and(DFOperator::And, BinaryOperator::Boolean(BooleanOperator::And))]
+#[case::or(DFOperator::Or, BinaryOperator::Boolean(BooleanOperator::Or))]
+#[case::plus(DFOperator::Plus, BinaryOperator::Numeric(NumericOperator::Add))]
+#[case::plus(DFOperator::Minus, BinaryOperator::Numeric(NumericOperator::Sub))]
+#[case::plus(DFOperator::Multiply, BinaryOperator::Numeric(NumericOperator::Mul))]
+#[case::plus(DFOperator::Divide, BinaryOperator::Numeric(NumericOperator::Div))]
 fn test_operator_conversion_supported(
     #[case] df_op: DFOperator,
-    #[case] expected_vortex_op: Operator,
+    #[case] expected_vortex_op: BinaryOperator,
 ) {
     assert_eq!(try_operator_from_df(&df_op), Some(expected_vortex_op));
 }
@@ -907,13 +919,10 @@ fn test_literal_rejected_by_importer_is_unsupported() -> anyhow::Result<()> {
     session
         .arrow()
         .register_importer(Arc::new(ValueRejectingImporter));
-    let field = Field::new("v", DataType::Int32, false).with_metadata(
-        [(
-            EXTENSION_TYPE_NAME_KEY.to_string(),
-            REJECT_VALUE_EXTENSION_NAME.to_string(),
-        )]
-        .into(),
-    );
+    let field = Field::new("v", DataType::Int32, false).with_metadata(Metadata::from_iter([(
+        EXTENSION_TYPE_NAME_KEY.to_string(),
+        REJECT_VALUE_EXTENSION_NAME.to_string(),
+    )]));
     let literal = Arc::new(df_expr::Literal::new_with_metadata(
         ScalarValue::Int32(Some(1)),
         Some(FieldMetadata::new_from_field(&field)),
@@ -939,10 +948,9 @@ fn test_comparison_literal_metadata_is_not_replaced(
         value.clone(),
         Some(FieldMetadata::new_from_field(&field)),
     )) as Arc<dyn PhysicalExpr>;
-    field.metadata_mut().insert(
-        "ARROW:extension:name".into(),
-        "unregistered.extension".into(),
-    );
+    field
+        .metadata_mut()
+        .insert("ARROW:extension:name", "unregistered.extension");
     let invalid = Arc::new(df_expr::Literal::new_with_metadata(
         value,
         Some(FieldMetadata::new_from_field(&field)),
@@ -977,10 +985,9 @@ fn test_comparison_inherits_complete_extension_metadata() -> anyhow::Result<()> 
 
     let mut literal_field = field;
     literal_field.metadata_mut().remove(EXTENSION_TYPE_NAME_KEY);
-    literal_field.metadata_mut().insert(
-        EXTENSION_TYPE_METADATA_KEY.into(),
-        "unrelated payload".into(),
-    );
+    literal_field
+        .metadata_mut()
+        .insert(EXTENSION_TYPE_METADATA_KEY, "unrelated payload");
     let literal = df_expr::Literal::new_with_metadata(
         ScalarValue::FixedSizeBinary(16, Some(bytes.to_vec())),
         Some(FieldMetadata::new_from_field(&literal_field)),
@@ -1028,7 +1035,7 @@ fn test_expr_from_df_binary() -> DFResult<()> {
     )?;
 
     assert_snapshot!(result.display_tree().to_string(), @r"
-    vortex.binary(=)
+    vortex.compare(=)
     ├── lhs: vortex.get_item(left)
     │   └── input: vortex.root()
     └── rhs: vortex.literal(42i32)
@@ -1243,7 +1250,7 @@ fn test_unsupported_field_is_declined_only_when_referenced(
         ));
         assert_eq!(
             convert(expr, &schema)?,
-            Binary.new_expr(Operator::Eq, [get_item("id", root()), lit(42i32)]),
+            Compare.new_expr(CompareOperator::Eq, [get_item("id", root()), lit(42i32)]),
         );
     }
     Ok(())
@@ -1297,9 +1304,9 @@ fn test_projection_ignores_unreferenced_unsupported_field() -> DFResult<()> {
         pack(
             [(
                 "sum",
-                Binary.new_expr(
-                    Operator::Add,
-                    [b.clone(), Binary.new_expr(Operator::Add, [a, b])]
+                Numeric.new_expr(
+                    NumericOperator::Add,
+                    [b.clone(), Numeric.new_expr(NumericOperator::Add, [a, b])]
                 )
             )],
             Nullability::NonNullable,
@@ -2593,6 +2600,166 @@ fn test_native_nested_get_field(
         PrimitiveArray::from_option_iter(expected),
         &mut session.create_execution_ctx()
     );
+    Ok(())
+}
+
+/// An [`AnyStorage`] point over `Struct<x: i32, y: i32>`.
+fn point_dtype(nullable: bool) -> VortexResult<ExtDTypeRef> {
+    let coordinate = DType::Primitive(PType::I32, Nullability::NonNullable);
+    let storage = DType::struct_(
+        [("x", coordinate.clone()), ("y", coordinate)],
+        nullable.into(),
+    );
+
+    AnyStorage::dtype(storage)
+}
+
+/// A batch with a `point` column and an `outer` struct around the same points, with the point
+/// field that `session` infers.
+///
+/// `x` holds 10, 20, 30, and 40. `point` is null at index 1, and `outer` is null at index 2.
+fn point_batch(session: &VortexSession) -> anyhow::Result<RecordBatch> {
+    let point = session
+        .arrow()
+        .to_arrow_field("point", &DType::Extension(point_dtype(true)?))?;
+    let DataType::Struct(fields) = point.data_type() else {
+        anyhow::bail!("Expected point storage as a struct, got {point}");
+    };
+    let points: ArrowArrayRef = Arc::new(StructArray::try_new(
+        fields.clone(),
+        vec![
+            Arc::new(Int32Array::from(vec![10, 20, 30, 40])),
+            Arc::new(Int32Array::from(vec![11, 21, 31, 41])),
+        ],
+        Some(NullBuffer::from(vec![true, false, true, true])),
+    )?);
+    let outer = StructArray::try_new(
+        vec![point.clone()].into(),
+        vec![Arc::clone(&points)],
+        Some(NullBuffer::from(vec![true, true, false, true])),
+    )?;
+    let schema = Schema::new(vec![
+        point,
+        Field::new("outer", outer.data_type().clone(), true),
+    ]);
+    Ok(RecordBatch::try_new(
+        Arc::new(schema),
+        vec![points, Arc::new(outer)],
+    )?)
+}
+
+/// A registered extension reads its storage through `ext_storage`. The session imports an unknown
+/// extension name as plain storage, so the same read is a plain `get_item` with the same values.
+#[rstest]
+#[case::column(   "point", &["x"],          false, [Some(10), None, Some(30), Some(40)])]
+#[case::flattened("outer", &["point", "x"], false, [Some(10), None, None,     Some(40)])]
+#[case::chained(  "outer", &["point", "x"], true,  [Some(10), None, None,     Some(40)])]
+fn test_get_field_reads_extension_storage(
+    #[case] column: &str,
+    #[case] path: &[&str],
+    #[case] chained: bool,
+    #[case] expected: [Option<i32>; 4],
+    #[values(false, true)] registered: bool,
+) -> anyhow::Result<()> {
+    let session = VortexSession::default();
+    if registered {
+        session.dtypes().register(AnyStorage);
+    }
+    let batch = point_batch(&session)?;
+    let schema = batch.schema();
+    let source = Arc::new(df_expr::Column::new(column, schema.index_of(column)?));
+    let expr = if chained {
+        let (first, rest) = path.split_at(1);
+        get_field_expr(get_field_expr(source, first, &schema)?, rest, &schema)?
+    } else {
+        get_field_expr(source, path, &schema)?
+    };
+
+    let converted = DefaultExpressionConverter::new(session.clone())
+        .try_convert(&expr, &schema)?
+        .ok_or_else(|| anyhow::anyhow!("Expected native conversion for {expr}"))?;
+    let point = if column == "point" {
+        get_item("point", root())
+    } else {
+        get_item("point", get_item("outer", root()))
+    };
+    let point = if registered {
+        ext_storage(point)
+    } else {
+        point
+    };
+    assert_eq!(converted, get_item("x", point));
+
+    let input = session.arrow().from_arrow_record_batch(batch, &schema)?;
+    assert_arrays_eq!(
+        input.apply(&converted)?,
+        PrimitiveArray::from_option_iter(expected),
+        &mut session.create_execution_ctx()
+    );
+    Ok(())
+}
+
+/// Declines every array, so each export falls through to the Vortex-ID storage export.
+///
+/// The converter cannot know that before the export runs, so it treats the plugin as opaque.
+#[derive(Debug)]
+struct DecliningPointExporter;
+
+impl ArrowExportVTable for DecliningPointExporter {
+    fn arrow_ext_id(&self) -> Id {
+        *ANY_STORAGE_ID
+    }
+
+    fn vortex_id(&self) -> Id {
+        *ANY_STORAGE_ID
+    }
+
+    fn to_arrow_field(
+        &self,
+        _name: &str,
+        _dtype: &DType,
+        _session: &ArrowSession,
+    ) -> VortexResult<Option<Field>> {
+        Ok(None)
+    }
+
+    fn execute_arrow(
+        &self,
+        array: ArrayRef,
+        _target: &Field,
+        _options: &ArrowExportOptions,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrowExport> {
+        Ok(ArrowExport::Unsupported(array))
+    }
+}
+
+#[rstest]
+#[case::column("point", &["x"])]
+#[case::nested("outer", &["point", "x"])]
+fn test_get_field_on_plugin_export_stays_in_datafusion(
+    #[case] column: &str,
+    #[case] path: &[&str],
+) -> anyhow::Result<()> {
+    let session = VortexSession::default();
+    session.dtypes().register(AnyStorage);
+    let batch = point_batch(&session)?;
+    session
+        .arrow()
+        .register_exporter(Arc::new(DecliningPointExporter));
+
+    // The plugin leaves the inferred field as it is, so the field alone does not show the plugin.
+    let schema = batch.schema();
+    let point = DType::Extension(point_dtype(true)?);
+    assert_eq!(
+        &session.arrow().to_arrow_field("point", &point)?,
+        schema.field(0)
+    );
+
+    let source = Arc::new(df_expr::Column::new(column, schema.index_of(column)?));
+    let expr = get_field_expr(source, path, &schema)?;
+    let converter = DefaultExpressionConverter::new(session);
+    assert!(converter.try_convert(&expr, &schema)?.is_none());
     Ok(())
 }
 

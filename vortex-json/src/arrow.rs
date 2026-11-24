@@ -134,6 +134,7 @@ mod tests {
     use arrow_array::cast::AsArray;
     use arrow_schema::DataType;
     use arrow_schema::Field;
+    use arrow_schema::Metadata;
     use arrow_schema::extension::EXTENSION_TYPE_METADATA_KEY;
     use arrow_schema::extension::EXTENSION_TYPE_NAME_KEY;
     use arrow_schema::extension::ExtensionType;
@@ -177,7 +178,7 @@ mod tests {
             )
         });
         Field::new("data", data_type, false)
-            .with_metadata([name].into_iter().chain(metadata).collect())
+            .with_metadata([name].into_iter().chain(metadata).collect::<Metadata>())
     }
 
     /// A field that names `arrow.json` imports as JSON when it follows the canonical spec, which
