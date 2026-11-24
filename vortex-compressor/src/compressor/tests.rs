@@ -67,9 +67,9 @@ use crate::builtins::StringDictScheme;
 use crate::scheme::Child;
 use crate::scheme::ChildDecision;
 use crate::scheme::ChildKind;
-use crate::scheme::ChildPolicy;
 use crate::scheme::ChildRequest;
 use crate::scheme::CompressionEstimate;
+use crate::scheme::CompressionPolicy;
 use crate::scheme::CompressorContext;
 use crate::scheme::DeferredEstimate;
 use crate::scheme::Encoded;
@@ -1479,8 +1479,8 @@ struct RecordingPolicy {
     requests: Mutex<Vec<(ChildKind, ChildDecision)>>,
 }
 
-impl ChildPolicy for RecordingPolicy {
-    fn decide(&self, request: &ChildRequest<'_>) -> ChildDecision {
+impl CompressionPolicy for RecordingPolicy {
+    fn decide_child(&self, request: &ChildRequest<'_>) -> ChildDecision {
         self.requests.lock().push((request.kind, request.requested));
         self.decision.unwrap_or(request.requested)
     }
@@ -1513,7 +1513,7 @@ fn policy_sees_each_registered_child() -> VortexResult<()> {
     let policy = Arc::new(RecordingPolicy::default());
     let compressor =
         CascadingCompressor::new(vec![&KEEPING_DICT])
-            .with_child_policy(Arc::<RecordingPolicy>::clone(&policy));
+            .with_policy(Arc::<RecordingPolicy>::clone(&policy));
     let input = alternating_ints();
     let mut ctx = SESSION.create_execution_ctx();
     let compressed = compressor.compress(&input, &mut ctx)?;
@@ -1541,7 +1541,7 @@ fn policy_can_compress_a_kept_child() -> VortexResult<()> {
     });
     // With the kept values compressed, the policy is asked about the values' own children too,
     // and the result still round-trips.
-    let compressor = CascadingCompressor::new(vec![&KEEPING_DICT]).with_child_policy(policy);
+    let compressor = CascadingCompressor::new(vec![&KEEPING_DICT]).with_policy(policy);
     let input = alternating_ints();
     let mut ctx = SESSION.create_execution_ctx();
     let compressed = compressor.compress(&input, &mut ctx)?;

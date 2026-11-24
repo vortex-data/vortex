@@ -35,10 +35,14 @@ use vortex_error::vortex_err;
 
 use super::CascadingCompressor;
 use super::constant;
+use crate::scheme::CompressionPolicy;
 use crate::scheme::CompressorContext;
 use crate::scheme::Scheme;
 use crate::scheme::SchemeExt;
 use crate::scheme::SchemeId;
+use crate::scheme::SchemeSelection;
+use crate::scheme::SiteOutcome;
+use crate::scheme::SiteRequest;
 use crate::stats::ArrayAndStats;
 use crate::stats::GenerateStatsOptions;
 use crate::trace;
@@ -404,14 +408,72 @@ impl CascadingCompressor {
 
         let data = ArrayAndStats::new(array, merged_opts);
 
+        // Samples are compressed only to estimate, so the policy neither chooses nor observes them.
+        let policy = self.policy.as_deref().filter(|_| !compress_ctx.is_sample());
+
         if eligible_schemes.is_empty() {
-            return Ok(Selection::unchanged(data));
+            return Ok(observed(
+                policy,
+                None,
+                &compress_ctx,
+                Selection::unchanged(data),
+            ));
+        }
+
+        if let Some(policy) = policy {
+            let eligible: Vec<SchemeId> = eligible_schemes.iter().map(|s| s.id()).collect();
+            let request = SiteRequest {
+                array: data.array(),
+                eligible: &eligible,
+                ctx: &compress_ctx,
+            };
+            match policy.select_scheme(&request) {
+                SchemeSelection::Estimate => {}
+                SchemeSelection::Canonical => {
+                    return Ok(observed(
+                        Some(policy),
+                        None,
+                        &compress_ctx,
+                        Selection::unchanged(data),
+                    ));
+                }
+                SchemeSelection::Scheme(id) => {
+                    if let Some(&scheme) = eligible_schemes.iter().find(|s| s.id() == id)
+                        && let Some(compressed) =
+                            self.try_scheme(scheme, &data, &compress_ctx, before_nbytes, exec_ctx)
+                    {
+                        return Ok(observed(
+                            Some(policy),
+                            Some(id),
+                            &compress_ctx,
+                            Selection::Compressed(compressed),
+                        ));
+                    }
+                }
+                SchemeSelection::Best(ids) => {
+                    let selection = self.compress_best(
+                        policy,
+                        &eligible_schemes,
+                        &ids,
+                        data,
+                        &compress_ctx,
+                        before_nbytes,
+                        exec_ctx,
+                    );
+                    return Ok(selection);
+                }
+            }
         }
 
         let Some((winner, winner_estimate)) =
             self.choose_best_scheme(&eligible_schemes, &data, compress_ctx.clone(), exec_ctx)?
         else {
-            return Ok(Selection::unchanged(data));
+            return Ok(observed(
+                policy,
+                None,
+                &compress_ctx,
+                Selection::unchanged(data),
+            ));
         };
 
         // Run the winning scheme's `encode` and compress the children it registers, unless an
@@ -429,9 +491,11 @@ impl CascadingCompressor {
             })?;
 
         // The winner was picked on estimates. A trial output is measured, so it wins when smaller.
-        let compressed = match data.get::<TrialOutput>() {
-            Some(trial) if trial.array.nbytes() < compressed.nbytes() => trial.array.clone(),
-            _ => compressed,
+        let (compressed, applied) = match data.get::<TrialOutput>() {
+            Some(trial) if trial.array.nbytes() < compressed.nbytes() => {
+                (trial.array.clone(), trial.scheme)
+            }
+            _ => (compressed, winner.id()),
         };
 
         let after_nbytes = compressed.nbytes();
@@ -446,12 +510,102 @@ impl CascadingCompressor {
             accepted,
         );
 
-        if accepted {
-            Ok(Selection::Compressed(compressed))
+        Ok(if accepted {
+            observed(
+                policy,
+                Some(applied),
+                &compress_ctx,
+                Selection::Compressed(compressed),
+            )
         } else {
-            Ok(Selection::unchanged(data))
+            observed(policy, None, &compress_ctx, Selection::unchanged(data))
+        })
+    }
+
+    /// Compresses `data` in full with each candidate scheme, and keeps the output `policy` ranks
+    /// lowest, or the canonical array if it ranks lower still.
+    ///
+    /// The candidates are the eligible schemes in `ids`, or every eligible scheme when `ids` is
+    /// empty.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "internal helper threading selection state"
+    )]
+    fn compress_best(
+        &self,
+        policy: &dyn CompressionPolicy,
+        eligible_schemes: &[&'static dyn Scheme],
+        ids: &[SchemeId],
+        data: ArrayAndStats,
+        compress_ctx: &CompressorContext,
+        before_nbytes: u64,
+        exec_ctx: &mut ExecutionCtx,
+    ) -> Selection {
+        let mut best: Option<(f64, SchemeId, ArrayRef)> = None;
+        for &scheme in eligible_schemes {
+            if !ids.is_empty() && !ids.contains(&scheme.id()) {
+                continue;
+            }
+            let Some(compressed) =
+                self.try_scheme(scheme, &data, compress_ctx, before_nbytes, exec_ctx)
+            else {
+                continue;
+            };
+            let rank = policy.rank(&compressed, compress_ctx);
+            if best
+                .as_ref()
+                .is_none_or(|(best_rank, ..)| rank < *best_rank)
+            {
+                best = Some((rank, scheme.id(), compressed));
+            }
+        }
+        match best {
+            Some((rank, id, compressed)) if rank < policy.rank(data.array(), compress_ctx) => {
+                observed(
+                    Some(policy),
+                    Some(id),
+                    compress_ctx,
+                    Selection::Compressed(compressed),
+                )
+            }
+            _ => observed(Some(policy), None, compress_ctx, Selection::unchanged(data)),
         }
     }
+
+    /// Compresses `data` with `scheme` on a policy's request, returning `None` if the scheme fails
+    /// or does not make the array smaller than `before_nbytes`.
+    fn try_scheme(
+        &self,
+        scheme: &dyn Scheme,
+        data: &ArrayAndStats,
+        compress_ctx: &CompressorContext,
+        before_nbytes: u64,
+        exec_ctx: &mut ExecutionCtx,
+    ) -> Option<ArrayRef> {
+        match self.compress_with_scheme(scheme, data, compress_ctx, exec_ctx) {
+            Ok(compressed) => (compressed.nbytes() < before_nbytes).then_some(compressed),
+            Err(err) => {
+                trace::candidate_failed(scheme.id(), &err);
+                None
+            }
+        }
+    }
+}
+
+/// Reports the scheme a site applied to `policy`, if any, and hands `selection` back.
+fn observed(
+    policy: Option<&dyn CompressionPolicy>,
+    scheme: Option<SchemeId>,
+    ctx: &CompressorContext,
+    selection: Selection,
+) -> Selection {
+    if let Some(policy) = policy {
+        let array = match &selection {
+            Selection::Compressed(array) | Selection::Unchanged(array, _) => array,
+        };
+        policy.observe(&SiteOutcome { scheme, array, ctx });
+    }
+    selection
 }
 
 impl CascadingCompressor {
