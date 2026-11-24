@@ -87,6 +87,11 @@ impl CascadingCompressor {
         self.child_policy = Some(policy);
         self
     }
+
+    /// Whether the compressor has the scheme with this ID enabled.
+    pub fn has_scheme(&self, id: SchemeId) -> bool {
+        self.schemes.iter().any(|s| s.id() == id)
+    }
 }
 
 // NB: Cascading compression logic is located in `vortex-compressor/src/compressor/cascade.rs`.

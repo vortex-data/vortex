@@ -71,6 +71,8 @@ impl Default for CompressionSession {
             &integer::SequenceScheme,
             &integer::IntRLEScheme,
             &DELTA_SCHEME,
+            // rANS requires `vortex.rans` (`UNSTABLE`); excluded in CUDA mode until GPU kernel lands.
+            &integer::RansScheme,
             #[cfg(feature = "pco")]
             &integer::PcoScheme,
             ////////////////////////////////////////////////////////////////////////////////////

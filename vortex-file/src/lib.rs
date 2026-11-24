@@ -199,6 +199,7 @@ pub fn register_default_encodings(session: &VortexSession) {
     vortex_zstd::initialize(session);
 
     vortex_pco::initialize(session);
+    vortex_rans::initialize(session);
     if use_experimental_patches() {
         session.arrays().register(Patched);
     }
@@ -290,17 +291,55 @@ pub(crate) fn enable_all_registered_array_encodings(session: &VortexSession) {
 mod default_encoding_tests {
     use std::sync::Arc;
 
+    use rand::RngExt;
+    use rand::SeedableRng;
+    use rand::rngs::StdRng;
+    use vortex_array::IntoArray;
     use vortex_array::VTable as _;
+    use vortex_array::VortexSessionExecute;
+    use vortex_array::aggregate_fn::session::AggregateFnSession;
     use vortex_array::arrays::Filter;
+    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::arrays::StructArray;
+    use vortex_array::assert_arrays_eq;
+    use vortex_array::dtype::FieldNames;
+    use vortex_array::dtype::session::DTypeSession;
+    use vortex_array::memory::MemorySession;
     use vortex_array::optimizer::kernels::ArrayKernelsExt as _;
+    use vortex_array::optimizer::kernels::KernelSession;
     use vortex_array::scalar_fn::ScalarFnVTable;
+    use vortex_array::scalar_fn::session::ScalarFnSession;
     use vortex_array::scalar_fn::session::ScalarFnSessionExt as _;
+    use vortex_array::session::ArraySession;
     use vortex_array::session::ArraySessionExt as _;
+    use vortex_array::stream::ArrayStreamExt;
+    use vortex_array::validity::Validity;
+    use vortex_btrblocks::BtrBlocksCompressorBuilder;
+    use vortex_btrblocks::CompressionSession;
+    use vortex_buffer::ByteBufferMut;
+    use vortex_edition::EDITION_DECLARATIONS;
+    use vortex_edition::EDITION_FAMILIES;
+    use vortex_edition::EditionSession;
+    use vortex_edition::EditionSessionExt;
+    use vortex_edition::declarations::core::CORE_2026_08_3;
+    use vortex_edition::declarations::unstable::UNSTABLE;
+    use vortex_error::VortexResult;
+    use vortex_expr::get_item;
+    use vortex_expr::gt;
+    use vortex_expr::lit;
+    use vortex_expr::root;
+    use vortex_expr::stats::session::StatsSession;
     use vortex_fsst::FSST;
     use vortex_functions::byte_length::ByteLength;
+    use vortex_io::session::RuntimeSession;
+    use vortex_layout::session::LayoutSession;
     use vortex_onpair::OnPair;
+    use vortex_rans::Rans;
     use vortex_session::VortexSession;
 
+    use crate::OpenOptionsSessionExt;
+    use crate::WriteOptionsSessionExt;
+    use crate::WriteStrategyBuilder;
     use crate::register_default_encodings;
 
     #[test]
@@ -320,6 +359,149 @@ mod default_encoding_tests {
                 .kernels()
                 .has_execute_parent(Filter.id(), OnPair.id())
         );
+        assert!(session.arrays().registry().contains_key(&Rans.id()));
+        assert!(session.kernels().has_execute_parent(Filter.id(), Rans.id()));
+    }
+
+    #[tokio::test]
+    async fn vortex_file_roundtrips_rans_for_gt_and_pl_streams() -> VortexResult<()> {
+        let build_session = |enable_unstable: bool| {
+            let s = VortexSession::empty()
+                .with::<DTypeSession>()
+                .with::<ArraySession>()
+                .with::<KernelSession>()
+                .with::<LayoutSession>()
+                .with::<ScalarFnSession>()
+                .with::<StatsSession>()
+                .with::<AggregateFnSession>()
+                .with::<MemorySession>()
+                .with::<EditionSession>()
+                .with::<CompressionSession>()
+                .with::<RuntimeSession>();
+            vortex_functions::initialize(&s);
+            register_default_encodings(&s);
+            for family in EDITION_FAMILIES {
+                s.editions().declare_family(family).expect("family");
+            }
+            for decl in EDITION_DECLARATIONS {
+                s.register_edition(decl).expect("edition");
+            }
+            s.enable_edition(CORE_2026_08_3).expect("core");
+            if enable_unstable {
+                s.enable_edition(UNSTABLE).expect("unstable");
+            }
+            s
+        };
+
+        let mut rng = StdRng::seed_from_u64(11892);
+        let n_rows = 30_000usize;
+
+        // `statpopgen.GT`-shaped `{0, 1, 2}` u64 stream with ~21% nulls & ~78% of valid calls == 0
+        let gt_col = PrimitiveArray::from_option_iter((0..n_rows).map(|_| {
+            let d = rng.random_range(0..1000u32);
+            if d < 210 {
+                None
+            } else if d < 826 {
+                Some(0u64)
+            } else if d < 990 {
+                Some(1u64)
+            } else {
+                Some(2u64)
+            }
+        }))
+        .into_array();
+
+        // `statpopgen.PL`-shaped `[0, ~60, ~900]` i32 genotype likelihood triples
+        let pl_col = PrimitiveArray::from_iter((0..n_rows).map(|i| match i % 3 {
+            0 => 0i32,
+            1 => 45 + rng.random_range(0..35i32),
+            _ => 750 + rng.random_range(0..350i32),
+        }))
+        .into_array();
+
+        let batch = StructArray::try_new(
+            FieldNames::from(["gt", "pl"]),
+            vec![gt_col, pl_col],
+            n_rows,
+            Validity::NonNullable,
+        )?
+        .into_array();
+
+        let core_session = build_session(false);
+        let unstable_session = build_session(true);
+
+        // Verify in-memory BtrBlocks under UNSTABLE selects `vortex.rans` on both columns and
+        // significantly beats CORE (BitPacked).
+        let mut core_ctx = core_session.create_execution_ctx();
+        let mut unstable_ctx = unstable_session.create_execution_ctx();
+        let core_comp = BtrBlocksCompressorBuilder::from_session(&core_session)
+            .build()
+            .compress(&batch, &mut core_ctx)?;
+        let unstable_comp = BtrBlocksCompressorBuilder::from_session(&unstable_session)
+            .build()
+            .compress(&batch, &mut unstable_ctx)?;
+        assert!(
+            unstable_comp
+                .depth_first_traversal()
+                .any(|a| a.is::<Rans>()),
+            "UNSTABLE compressor must select vortex.rans: {}",
+            unstable_comp.display_tree()
+        );
+        assert!(
+            unstable_comp.nbytes() * 100 < core_comp.nbytes() * 80,
+            "vortex.rans ({}) should significantly beat CORE BitPacked ({})",
+            unstable_comp.nbytes(),
+            core_comp.nbytes()
+        );
+
+        // Full VortexFile write + open + full scan + filtered scan round-trip!
+        let mut core_bytes = ByteBufferMut::empty();
+        core_session
+            .write_options()
+            .with_strategy(WriteStrategyBuilder::from_session(&core_session).build())
+            .write(&mut core_bytes, batch.clone().to_array_stream())
+            .await?;
+
+        let mut unstable_bytes = ByteBufferMut::empty();
+        unstable_session
+            .write_options()
+            .with_strategy(WriteStrategyBuilder::from_session(&unstable_session).build())
+            .write(&mut unstable_bytes, batch.clone().to_array_stream())
+            .await?;
+
+        assert!(
+            unstable_bytes.len() < core_bytes.len(),
+            "UNSTABLE VortexFile ({}) must be smaller than CORE VortexFile ({})",
+            unstable_bytes.len(),
+            core_bytes.len()
+        );
+
+        let vxf = unstable_session
+            .open_options()
+            .open_buffer(unstable_bytes)?;
+        let scanned = vxf.scan()?.into_array_stream()?.read_all().await?;
+        assert_arrays_eq!(scanned, batch, &mut unstable_ctx);
+
+        let pred = gt(get_item("pl", root()), lit(800i32))
+            .bind(vxf.dtype())?
+            .optimize_recursive()?;
+        let filtered_scan = vxf
+            .scan()?
+            .with_filter(pred.clone())
+            .into_array_stream()?
+            .read_all()
+            .await?;
+
+        let core_vxf = core_session.open_options().open_buffer(core_bytes)?;
+        let expected_filtered = core_vxf
+            .scan()?
+            .with_filter(pred)
+            .into_array_stream()?
+            .read_all()
+            .await?;
+        assert_arrays_eq!(filtered_scan, expected_filtered, &mut unstable_ctx);
+
+        Ok(())
     }
 
     #[test]

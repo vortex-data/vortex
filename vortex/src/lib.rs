@@ -273,6 +273,7 @@ pub mod utils {
 }
 
 /// Maintained array encoding and extension dtype crates.
+pub use encodings::rans;
 pub mod encodings {
     /// Adaptive Lossless floating-point encodings.
     pub mod alp {
@@ -318,6 +319,11 @@ pub mod encodings {
     /// Pco numeric compression encoding.
     pub mod pco {
         pub use vortex_pco::*;
+    }
+
+    /// 32-lane block-reset Pow2-Bin + Raw-Bits rANS integer compression encoding.
+    pub mod rans {
+        pub use vortex_rans::*;
     }
 
     /// Arrow-compatible run-end encoding.

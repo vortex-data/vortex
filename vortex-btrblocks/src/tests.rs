@@ -56,6 +56,7 @@ use vortex_error::VortexResult;
 use vortex_fastlanes::BitPacked;
 use vortex_fastlanes::Delta;
 use vortex_onpair::OnPair;
+#[cfg(feature = "zstd")]
 use vortex_session::VortexSession;
 use vortex_sparse::Sparse;
 

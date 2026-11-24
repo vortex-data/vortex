@@ -52,6 +52,7 @@ vortex-mask = { workspace = true }
 vortex-metrics = { workspace = true }
 vortex-onpair = { workspace = true }
 vortex-pco = { workspace = true }
+vortex-rans = { workspace = true }
 vortex-scan = { workspace = true }
 vortex-sequence = { workspace = true }
 vortex-session = { workspace = true }
