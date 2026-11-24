@@ -151,7 +151,7 @@
   "vortex-layout": {
     "aggregate_partial_merge": 3,
     "bloom_filter": 8,
-    "list_masked_read": 12,
+    "list_masked_read": 16,
     "pipeline_scan": 9,
     "zone_map_prune": 15
   },

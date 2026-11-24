@@ -81,6 +81,10 @@ enum Selection {
     Alternating,
     /// About 1% of the lists, at random.
     Random1,
+    /// About 10% of the lists, at random.
+    Random10,
+    /// About 25% of the lists, at random.
+    Random25,
     /// About 50% of the lists, at random.
     Random50,
     /// About 90% of the lists, at random.
@@ -101,6 +105,8 @@ impl Selection {
             Selection::TwoEnds => Mask::from_iter((0..lists).map(|i| i == 0 || i == lists - 1)),
             Selection::Alternating => Mask::from_iter((0..lists).map(|i| i % 2 == 0)),
             Selection::Random1 => Mask::from_iter((0..lists).map(|_| percent(1))),
+            Selection::Random10 => Mask::from_iter((0..lists).map(|_| percent(10))),
+            Selection::Random25 => Mask::from_iter((0..lists).map(|_| percent(25))),
             Selection::Random50 => Mask::from_iter((0..lists).map(|_| percent(50))),
             Selection::Random90 => Mask::from_iter((0..lists).map(|_| percent(90))),
         }
@@ -202,6 +208,8 @@ const SELECTIONS: &[Selection] = &[
     Selection::TwoEnds,
     Selection::Alternating,
     Selection::Random1,
+    Selection::Random10,
+    Selection::Random25,
     Selection::Random50,
     Selection::Random90,
 ];
