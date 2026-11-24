@@ -182,16 +182,6 @@ pub struct ScanRequest {
     /// order is completion order, so each partition applies the limit locally and the caller must
     /// trim the concatenated result.
     pub limit: Option<u64>,
-    /// The most splits that each worker decodes at once, where a worker is a partition or a
-    /// stream of an opened scan.
-    ///
-    /// It bounds each worker on its own, not the whole scan: a scan read by several workers
-    /// decodes up to this many splits in each. `None` keeps the source's default. Each
-    /// split being decoded holds the decoded chunks of every column it overlaps, so a scan that
-    /// runs alongside others, such as one task of several on a machine, can set this to bound its
-    /// memory. It does not bound I/O: segment reads for later splits may still be coalesced ahead
-    /// of them.
-    pub split_concurrency: Option<NonZeroUsize>,
 }
 
 impl Default for ScanRequest {
@@ -205,7 +195,6 @@ impl Default for ScanRequest {
             ordered: false,
             limit: None,
             partition_range: None,
-            split_concurrency: None,
         }
     }
 }
@@ -250,8 +239,11 @@ pub trait DataSourceScan: 'static + Send {
     /// Opens the scan into a [`ScanExec`], whose work host threads share by each reading a
     /// [stream](ScanExec::stream) of it.
     ///
-    /// A source that has no queue of work of its own may return
-    /// [`ScanExec::from_partitions`] over itself.
+    /// A scan with no work, such as one whose filter the source's statistics reject, opens
+    /// exhausted: [`ScanExec::is_exhausted`] is already true, so a host skips it without creating
+    /// a stream. A source that has no queue of work of its own may return
+    /// [`ScanExec::from_partitions`] over itself, which opens exhausted when the scan reports
+    /// exactly zero partitions.
     fn open(self: Box<Self>) -> VortexResult<ScanExec>;
 }
 

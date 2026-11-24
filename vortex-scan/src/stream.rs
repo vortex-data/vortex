@@ -4,6 +4,7 @@
 //! An opened scan: the work its host threads share, and the streams that read it.
 
 use std::fmt;
+use std::num::NonZeroUsize;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
@@ -14,10 +15,12 @@ use std::task::Poll;
 use async_lock::Mutex;
 use futures::Stream;
 use futures::StreamExt;
+use futures::TryStreamExt;
 use futures::stream;
 use futures::stream::BoxStream;
 use vortex_array::ArrayRef;
 use vortex_array::dtype::DType;
+use vortex_array::expr::stats::Precision;
 use vortex_array::stream::ArrayStream;
 use vortex_error::VortexResult;
 
@@ -91,18 +94,25 @@ impl ScanExec {
         }
     }
 
-    /// An opened scan whose streams take the partitions of `scan` one at a time.
+    /// An opened scan whose streams take the partitions of `scan` one at a time, each stream
+    /// reading up to `read_ahead` of its partitions at once.
     ///
-    /// A source that has no queue of work of its own can open into this one. It does not know its
-    /// work up front, so it is exhausted only once a stream finds the partitions have run out.
-    pub fn from_partitions(scan: DataSourceScanRef) -> Self {
+    /// A source that has no queue of work of its own can open into this one. A scan that reports
+    /// exactly zero partitions opens exhausted. Otherwise the source does not know its work up
+    /// front, so the scan is exhausted only once a stream finds the partitions have run out. A
+    /// stream returns the arrays of the partitions it reads at once in no particular order, so an
+    /// ordered scan reads ahead one partition.
+    pub fn from_partitions(scan: DataSourceScanRef, read_ahead: NonZeroUsize) -> Self {
         let dtype = scan.dtype().clone();
         let exhausted = ExhaustedFlag::new();
+        if matches!(scan.partition_count(), Precision::Exact(0)) {
+            exhausted.set();
+        }
         let partitions = Arc::new(Mutex::new(scan.partitions()));
         let flag = exhausted.clone();
         Self::new(dtype, exhausted, move || {
             let flag = flag.clone();
-            let partitions = stream::unfold(Arc::clone(&partitions), move |shared| {
+            stream::unfold(Arc::clone(&partitions), move |shared| {
                 let flag = flag.clone();
                 async move {
                     let Some(next) = shared.lock().await.next().await else {
@@ -111,15 +121,10 @@ impl ScanExec {
                     };
                     Some((next, shared))
                 }
-            });
-            partitions
-                .flat_map(
-                    |partition| match partition.and_then(|partition| partition.execute()) {
-                        Ok(arrays) => arrays.left_stream(),
-                        Err(err) => stream::once(async move { Err(err) }).right_stream(),
-                    },
-                )
-                .boxed()
+            })
+            .map(|partition| partition.and_then(|partition| partition.execute()))
+            .try_flatten_unordered(Some(read_ahead.get()))
+            .boxed()
         })
     }
 
@@ -272,7 +277,7 @@ mod tests {
         }
 
         fn open(self: Box<Self>) -> VortexResult<ScanExec> {
-            Ok(ScanExec::from_partitions(self))
+            Ok(ScanExec::from_partitions(self, NonZeroUsize::MIN))
         }
 
         fn partition_count(&self) -> Precision<usize> {
@@ -310,6 +315,26 @@ mod tests {
         );
         assert!(exec.is_exhausted());
         assert_eq!(total_rows([exec.stream()])?, 0);
+        Ok(())
+    }
+
+    /// A host skips a scan with no work as soon as it opens it, before any stream runs.
+    #[test]
+    fn a_scan_with_no_partitions_opens_exhausted() -> VortexResult<()> {
+        let exec = Box::new(PartitionOnlyScan { rows: vec![] }).open()?;
+        assert!(exec.is_exhausted());
+        assert_eq!(total_rows([exec.stream()])?, 0);
+        Ok(())
+    }
+
+    /// Streams that read ahead still return every row once.
+    #[test]
+    fn streams_reading_ahead_share_partitions() -> VortexResult<()> {
+        let scan = Box::new(PartitionOnlyScan {
+            rows: vec![2, 3, 4, 5],
+        });
+        let exec = ScanExec::from_partitions(scan, NonZeroUsize::MIN.saturating_add(1));
+        assert_eq!(total_rows([exec.stream(), exec.stream()])?, 14);
         Ok(())
     }
 }

@@ -47,6 +47,7 @@ use crate::LayoutReaderRef;
 use crate::scan::limit::RowLimit;
 use crate::scan::metrics::ScanMetrics;
 use crate::scan::metrics::ScanRecorder;
+use crate::scan::options::LayoutScanOptions;
 use crate::scan::scan_builder::ScanBuilder;
 
 /// Cursor over absolute split-grid partition indices for a [`LayoutReaderDataSource`].
@@ -146,6 +147,7 @@ pub struct LayoutReaderDataSource {
     reader: LayoutReaderRef,
     session: VortexSession,
     split_max_row_count: u64,
+    split_concurrency: Option<NonZeroUsize>,
     metrics: Option<ScanMetrics>,
 }
 
@@ -157,10 +159,20 @@ impl LayoutReaderDataSource {
     /// I/O pipeline and `SplitBy::Layout` chunking to operate without per-split overhead from
     /// redundant expression resolution and layout tree traversal.
     pub fn new(reader: LayoutReaderRef, session: VortexSession) -> Self {
+        Self::with_options(reader, session, LayoutScanOptions::default())
+    }
+
+    /// Creates a new [`LayoutReaderDataSource`] whose scans run with `options`.
+    pub fn with_options(
+        reader: LayoutReaderRef,
+        session: VortexSession,
+        options: LayoutScanOptions,
+    ) -> Self {
         Self {
             reader,
             session,
             split_max_row_count: u64::MAX,
+            split_concurrency: options.concurrency(),
             metrics: None,
         }
     }
@@ -307,7 +319,7 @@ impl DataSource for LayoutReaderDataSource {
             row_limit,
             selection: scan_request.selection,
             ordered: scan_request.ordered,
-            split_concurrency: scan_request.split_concurrency,
+            split_concurrency: self.split_concurrency,
             metrics: self.metrics.clone(),
             cursor,
         }))
@@ -348,7 +360,7 @@ impl DataSourceScan for LayoutReaderScan {
     }
 
     fn open(self: Box<Self>) -> VortexResult<ScanExec> {
-        Ok(ScanExec::from_partitions(self))
+        Ok(ScanExec::from_partitions(self, NonZeroUsize::MIN))
     }
 
     fn partition_count(&self) -> Precision<usize> {
@@ -532,7 +544,7 @@ impl DataSourceScan for EmptyScan {
     }
 
     fn open(self: Box<Self>) -> VortexResult<ScanExec> {
-        Ok(ScanExec::from_partitions(self))
+        Ok(ScanExec::from_partitions(self, NonZeroUsize::MIN))
     }
 
     fn partition_count(&self) -> Precision<usize> {
