@@ -14,10 +14,10 @@ use crate::Benchmark;
 use crate::BenchmarkDataset;
 use crate::Engine;
 use crate::Format;
-use crate::IdempotentPath;
 use crate::TableSpec;
 use crate::conversions::parquet_to_vortex_chunks;
 use crate::datasets::Dataset;
+use crate::utils::file::resolve_data_url;
 use crate::workspace_root;
 
 /// Statistical population genetics benchmark implementation.
@@ -30,7 +30,7 @@ use crate::workspace_root;
 /// such as allele frequency calculations, Hardy-Weinberg equilibrium tests, and
 /// variant filtering operations.
 pub struct StatPopGenBenchmark {
-    /// Base URL for the dataset location (must be a file:// URL for local datasets)
+    /// Base URL of the dataset: a local `file://` directory, or a remote one such as `s3://`.
     pub data_url: Url,
     /// The scale factor. The dataset contains this many thousands of rows.
     pub scale_factor: u64,
@@ -44,12 +44,13 @@ impl StatPopGenBenchmark {
     /// Creates a new StatPopGenBenchmark instance.
     ///
     /// # Arguments
-    /// * `data_url` - Base URL pointing to the dataset location (must be a file:// URL)
     /// * `scale_factor` - Scale factor. The dataset will contain this many thousands of rows.
+    /// * `remote_data_dir` - Remote directory holding a copy of the local
+    ///   `statpopgen/{n_rows}/` directory, or `None` to read the local data.
     ///
     /// # Returns
     /// A configured benchmark instance with pre-calculated expected row counts for query validation.
-    pub fn new(scale_factor: u64) -> Result<Self> {
+    pub fn new(scale_factor: u64, remote_data_dir: Option<String>) -> Result<Self> {
         let n_rows = scale_factor * 1000;
         let n_rows = usize::try_from(n_rows).map_err(|_| {
             anyhow::anyhow!(
@@ -58,10 +59,8 @@ impl StatPopGenBenchmark {
             )
         })?;
 
-        let data_path = "statpopgen".to_data_path().join(format!("{n_rows}/"));
-
         let data_url =
-            Url::from_directory_path(data_path).map_err(|_| anyhow::anyhow!("bad data path?"))?;
+            resolve_data_url(remote_data_dir.as_deref(), &format!("statpopgen/{n_rows}"))?;
 
         Ok(Self {
             data_url,
@@ -129,11 +128,9 @@ impl Benchmark for StatPopGenBenchmark {
     }
 
     async fn generate_base_data(&self) -> Result<()> {
+        // Remote data is generated locally and uploaded before the benchmark runs.
         if self.data_url.scheme() != "file" {
-            anyhow::bail!(
-                "Unsupported URL scheme '{}' - only 'file://' URLs are supported for local datasets",
-                self.data_url.scheme()
-            );
+            return Ok(());
         }
 
         self.download_parquet().await?;
