@@ -491,9 +491,11 @@ mod standalone {
             assert!(matches!(values_bp.bit_widths(), BitWidthsView::Global(6)));
             assert!(matches!(codes_bp.bit_widths(), BitWidthsView::Global(6)));
 
-            let values_packed = block_on(cuda_ctx.ensure_on_device(values_bp.packed().clone()))
+            let values_packed = cuda_ctx
+                .ensure_on_device(values_bp.packed().clone())
                 .vortex_expect("values packed");
-            let codes_packed = block_on(cuda_ctx.ensure_on_device(codes_bp.packed().clone()))
+            let codes_packed = cuda_ctx
+                .ensure_on_device(codes_bp.packed().clone())
                 .vortex_expect("codes packed");
 
             let values_len = values_bp.len();

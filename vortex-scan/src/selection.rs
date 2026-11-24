@@ -31,6 +31,17 @@ pub enum Selection {
 }
 
 impl Selection {
+    /// Return whether `index` is included in this selection.
+    pub fn contains(&self, index: u64) -> bool {
+        match self {
+            Selection::All => true,
+            Selection::IncludeByIndex(include) => include.as_slice().binary_search(&index).is_ok(),
+            Selection::ExcludeByIndex(exclude) => exclude.as_slice().binary_search(&index).is_err(),
+            Selection::IncludeRoaring(roaring) => roaring.contains(index),
+            Selection::ExcludeRoaring(roaring) => !roaring.contains(index),
+        }
+    }
+
     /// Return the row count for this selection.
     pub fn row_count(&self, total_rows: u64) -> u64 {
         match self {

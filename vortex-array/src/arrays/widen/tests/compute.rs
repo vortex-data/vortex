@@ -44,11 +44,8 @@ use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::optimizer::ArrayOptimizer;
 use crate::scalar::Scalar;
-use crate::scalar_fn::fns::between::BetweenOptions;
-use crate::scalar_fn::fns::between::StrictComparison;
-use crate::scalar_fn::fns::binary::CompareKernel;
-use crate::scalar_fn::fns::operators::CompareOperator;
-use crate::scalar_fn::fns::operators::Operator;
+use crate::scalar_fn::builtin::compare::CompareKernel;
+use crate::scalar_fn::builtin::operators::CompareOperator;
 use crate::validity::Validity;
 
 /// Slice, filter and mask run on the values, so each result is a `Widen`. The conformance suites
@@ -230,129 +227,6 @@ fn test_fill_null(
     Ok(())
 }
 
-/// The zip runs on the values at the type that holds both branches. The null mask row takes the
-/// `if_false` branch.
-#[rstest]
-#[case::constant_if_false(
-    signed().into_array(),
-    ConstantArray::new(1_000i64, 5).into_array(),
-)]
-#[case::constant_if_true(
-    ConstantArray::new(1_000i64, 5).into_array(),
-    signed().into_array(),
-)]
-#[case::nullable_if_false(
-    ConstantArray::new(1_000i64, 5).into_array(),
-    partially_valid().into_array(),
-)]
-#[case::widen_both(
-    signed().into_array(),
-    widen(buffer![1_000i16, 2, 300, -4, 5], PType::I64).into_array(),
-)]
-fn test_zip(#[case] if_true: ArrayRef, #[case] if_false: ArrayRef) -> VortexResult<()> {
-    let mut ctx = SESSION.create_execution_ctx();
-    let mask = BoolArray::from_iter([Some(true), None, Some(false), Some(true), Some(false)]);
-    let mask = mask.into_array();
-
-    let zipped = mask
-        .zip(if_true.clone(), if_false.clone())?
-        .execute::<ArrayRef>(&mut ctx)?;
-
-    assert_eq!(stored_ptype(&zipped), PType::I16);
-    let expected = mask.zip(
-        canonical(&if_true, &mut ctx)?,
-        canonical(&if_false, &mut ctx)?,
-    )?;
-    assert_arrays_eq!(zipped, expected, &mut ctx);
-
-    Ok(())
-}
-
-/// Constant bounds inside the range of the values run on the values, and the other bounds run as
-/// two compares. The strict lower and non-strict upper bounds check an exclusive and an inclusive
-/// edge.
-#[rstest]
-fn test_between_constant_bounds(
-    #[values(-129i64, -128, 0, 128)] lower: i64,
-    #[values(-128i64, 0, 127, 128)] upper: i64,
-) -> VortexResult<()> {
-    let mut ctx = SESSION.create_execution_ctx();
-    let values = PrimitiveArray::from_option_iter([Some(-128i8), None, Some(0), Some(127)]);
-    let array = widen(values, PType::I64).into_array();
-    let lower = ConstantArray::new(lower, array.len()).into_array();
-    let upper = ConstantArray::new(upper, array.len()).into_array();
-    let options = BetweenOptions {
-        lower_strict: StrictComparison::Strict,
-        upper_strict: StrictComparison::NonStrict,
-    };
-
-    let between = array
-        .clone()
-        .between(lower.clone(), upper.clone(), options.clone())?;
-
-    let expected = canonical(&array, &mut ctx)?.between(lower, upper, options)?;
-    assert_arrays_eq!(between, expected, &mut ctx);
-
-    Ok(())
-}
-
-/// Nullable bounds, in range or null, give a nullable result over non-nullable values.
-#[rstest]
-#[case::in_range(
-    Scalar::primitive(-1i64, Nullability::Nullable),
-    Scalar::primitive(0i64, Nullability::Nullable),
-)]
-#[case::null(
-    Scalar::null(DType::Primitive(PType::I64, Nullability::Nullable)),
-    Scalar::primitive(0i64, Nullability::Nullable)
-)]
-fn test_between_nullable_bounds(#[case] lower: Scalar, #[case] upper: Scalar) -> VortexResult<()> {
-    let mut ctx = SESSION.create_execution_ctx();
-    let array = widen(buffer![-128i8, 0, 127], PType::I64).into_array();
-    let lower = ConstantArray::new(lower, array.len()).into_array();
-    let upper = ConstantArray::new(upper, array.len()).into_array();
-    let options = BetweenOptions {
-        lower_strict: StrictComparison::NonStrict,
-        upper_strict: StrictComparison::NonStrict,
-    };
-
-    let between = array
-        .clone()
-        .between(lower.clone(), upper.clone(), options.clone())?;
-
-    let expected = canonical(&array, &mut ctx)?.between(lower, upper, options)?;
-    assert_arrays_eq!(between, expected, &mut ctx);
-
-    Ok(())
-}
-
-/// A `Widen` bound runs as two compares, and any other array bound declines.
-#[rstest]
-#[case::widen(
-    widen(PrimitiveArray::from_option_iter([Some(-129i16), None, Some(128)]), PType::I64)
-        .into_array()
-)]
-#[case::primitive(PrimitiveArray::from_option_iter([Some(-129i64), None, Some(128)]).into_array())]
-fn test_between_array_bound(#[case] lower: ArrayRef) -> VortexResult<()> {
-    let mut ctx = SESSION.create_execution_ctx();
-    let array = widen(buffer![-128i8, 0, 127], PType::I64).into_array();
-    let upper = ConstantArray::new(0i64, array.len()).into_array();
-    let options = BetweenOptions {
-        lower_strict: StrictComparison::NonStrict,
-        upper_strict: StrictComparison::NonStrict,
-    };
-
-    let between = array
-        .clone()
-        .between(lower.clone(), upper.clone(), options.clone())?;
-
-    let expected =
-        canonical(&array, &mut ctx)?.between(canonical(&lower, &mut ctx)?, upper, options)?;
-    assert_arrays_eq!(between, expected, &mut ctx);
-
-    Ok(())
-}
-
 #[rstest]
 #[case::below(partially_valid(), Scalar::from(-32_769i64))]
 #[case::values_min(partially_valid(), Scalar::from(-32_768i64))]
@@ -363,14 +237,14 @@ fn test_compare_constant_matches_canonical(
     #[case] array: WidenArray,
     #[case] constant: Scalar,
     #[values(
-        Operator::Eq,
-        Operator::NotEq,
-        Operator::Lt,
-        Operator::Lte,
-        Operator::Gt,
-        Operator::Gte
+        CompareOperator::Eq,
+        CompareOperator::NotEq,
+        CompareOperator::Lt,
+        CompareOperator::Lte,
+        CompareOperator::Gt,
+        CompareOperator::Gte
     )]
-    operator: Operator,
+    operator: CompareOperator,
 ) -> VortexResult<()> {
     let mut ctx = SESSION.create_execution_ctx();
     let constant = ConstantArray::new(constant, array.len()).into_array();
@@ -381,14 +255,14 @@ fn test_compare_constant_matches_canonical(
 #[rstest]
 fn test_compare_two_widen_matches_canonical(
     #[values(
-        Operator::Eq,
-        Operator::NotEq,
-        Operator::Lt,
-        Operator::Lte,
-        Operator::Gt,
-        Operator::Gte
+        CompareOperator::Eq,
+        CompareOperator::NotEq,
+        CompareOperator::Lt,
+        CompareOperator::Lte,
+        CompareOperator::Gt,
+        CompareOperator::Gte
     )]
-    operator: Operator,
+    operator: CompareOperator,
 ) -> VortexResult<()> {
     let mut ctx = SESSION.create_execution_ctx();
     // The nullable `i16` values of `partially_valid` against non-nullable `i8` values.
@@ -415,7 +289,7 @@ fn test_compare_runs_at_narrowest_width(
 
     let step = signed()
         .into_array()
-        .binary(rhs, Operator::Lt)?
+        .compare(rhs, CompareOperator::Lt)?
         .execute::<ArrayRef>(&mut ctx)?;
 
     let compared = step

@@ -10,6 +10,7 @@ from pathlib import Path
 from types import ModuleType
 
 import pandas as pd
+import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 COMPARE_SCRIPT = REPO_ROOT / "scripts" / "compare-benchmark-jsons.py"
@@ -751,6 +752,27 @@ def test_baseline_fetch_refuses_a_shallow_checkout(tmp_path: Path) -> None:
     assert "fetch-depth: 0" in result.stderr
 
 
+def test_baseline_fetch_walks_the_given_head(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The fork PR report checks out the default branch, so the PR head is not `HEAD`.
+
+    The baseline must come from the history of the PR head that `--head` names, which
+    includes commits that the checked-out branch does not reach.
+    """
+
+    fetch = load_module("fetch_benchmark_baseline", FETCH_BASELINE_SCRIPT)
+    repo = git_repo_with_one_commit(tmp_path / "repo")
+    identity = ["-c", "user.name=Vortex Test", "-c", "user.email=test@example.com"]
+    subprocess.run(["git", *identity, "commit", "--quiet", "--allow-empty", "-m", "pr"], cwd=repo, check=True)
+    pr_head = subprocess.run(
+        ["git", "rev-parse", "HEAD"], cwd=repo, check=True, capture_output=True, text=True
+    ).stdout.strip()
+    subprocess.run(["git", "checkout", "--quiet", "--detach", "HEAD~1"], cwd=repo, check=True)
+    monkeypatch.chdir(repo)
+
+    assert pr_head not in fetch.reachable_commits("HEAD")
+    assert pr_head in fetch.reachable_commits(pr_head)
+
+
 def test_baseline_fetch_groups_distinct_pr_identities_by_kind() -> None:
     fetch = load_module("fetch_benchmark_baseline", FETCH_BASELINE_SCRIPT)
     records = [
@@ -934,6 +956,43 @@ def test_summary_reports_hot_alone_when_no_row_recorded_its_runs(tmp_path: Path)
     assert "**Vortex (geomean)**: hot 0.500x ✅" in summary
     assert "**Parquet (geomean)**: hot 1.000x ➖" in summary
     assert "cold" not in summary
+
+
+def test_capture_file_sizes_names_parquet_by_its_directory(tmp_path: Path) -> None:
+    data_dir = tmp_path / "data"
+    files = {
+        # ClickBench's own files are Snappy, and they are its `parquet`.
+        ("clickbench_partitioned", "parquet", "hits_0.parquet"): 40,
+        ("clickbench_partitioned", "arrow-ipc", "hits_0.arrow"): 80,
+    }
+    for parts, size in files.items():
+        path = data_dir.joinpath(*parts)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"x" * size)
+    output_path = tmp_path / "sizes.jsonl"
+
+    subprocess.run(
+        [
+            sys.executable,
+            str(CAPTURE_SCRIPT),
+            str(data_dir),
+            "--benchmark",
+            "clickbench",
+            "--dataset-dir",
+            "clickbench_partitioned",
+            "--commit",
+            "deadbeef",
+            "-o",
+            str(output_path),
+        ],
+        check=True,
+    )
+
+    records = [json.loads(line) for line in output_path.read_text(encoding="utf-8").splitlines()]
+    assert sorted((r["file_size"]["format"], r["value"]) for r in records) == [
+        ("arrow-ipc", 80),
+        ("parquet", 40),
+    ]
 
 
 def test_capture_file_sizes_reads_only_the_named_directory(tmp_path: Path) -> None:

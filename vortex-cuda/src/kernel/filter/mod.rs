@@ -98,13 +98,13 @@ async fn filter_sized<T: DeviceRepr + CubFilterable + Debug + Send + Sync + 'sta
     mask: Mask,
     ctx: &mut CudaExecutionCtx,
 ) -> VortexResult<BufferHandle> {
-    let d_input = ctx.ensure_on_device(input).await?;
+    let d_input = ctx.ensure_on_device(input)?;
 
     // Construct the inputs for the cub::DeviceSelect::Flagged call.
     let output_len = mask.true_count();
     let (offset, len, flags) = mask.into_bit_buffer().into_inner();
 
-    let d_flags = ctx.copy_to_device(flags.to_vec())?.await?;
+    let d_flags = ctx.copy_to_device(flags.as_slice())?;
 
     let offset = offset as u64;
     let len = len as i64;

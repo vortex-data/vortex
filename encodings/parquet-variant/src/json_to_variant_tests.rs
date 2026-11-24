@@ -27,11 +27,11 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::expr::root;
-use vortex_array::expr::variant_get;
-use vortex_array::scalar_fn::fns::variant_get::VariantPath;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
+use vortex_functions::expr::variant_get;
+use vortex_functions::variant_get::VariantPath;
 use vortex_json::Json;
 use vortex_session::VortexSession;
 

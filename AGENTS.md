@@ -231,7 +231,17 @@ These CI checks are the ones most often missed when adding files rather than edi
   - DuckDB: `(FORMAT parquet, COMPRESSION zstd, COMPRESSION_LEVEL 3)`
   - tpchgen-cli: `parquet --compression='ZSTD(3)'`
 - Benchmarks that deliberately compare Parquet codecs, such as the GPU compress benchmark's
-  `--codec`, are exempt.
+  `--codec` and the Snappy Parquet whose size `compress-bench` and TPC-DS at SF1 record, are
+  exempt.
+- Every parquet-rs writer of benchmark data uses `parquet_writer_properties()` in
+  `vortex-bench/src/utils/parquet.rs`: zstd level 3, 64 KiB dictionaries, a page index, and
+  parquet-rs's default pages of at most 1 MiB and about 20,000 rows. Only the row-group size
+  differs. SQL data has row groups of 122,880 rows (`LOCAL_ROW_GROUP_ROWS`, DuckDB's default) on
+  local disk and 1,048,576 rows (`S3_ROW_GROUP_ROWS`, parquet-rs's default) on S3: the CI matrix
+  passes `--opt row-group-rows=1048576` to `data-gen` for S3 entries. Random access uses the S3
+  size on local disk too, because its S3 job reads the files that its local job prepares. When a
+  setting changes, raise `LAYOUT_VERSION` so that local data is generated again. The suites that
+  DuckDB's `COPY` writes get DuckDB's 122,880-row groups by default.
 
 ## Common Mistakes
 

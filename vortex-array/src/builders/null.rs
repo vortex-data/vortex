@@ -71,11 +71,11 @@ impl ArrayBuilder for NullBuilder {
     fn reserve_exact(&mut self, _additional: usize) {}
 
     fn finish(&mut self) -> ArrayRef {
-        NullArray::new(self.length).into_array()
+        NullArray::new(std::mem::take(&mut self.length)).into_array()
     }
 
     fn finish_into_canonical(&mut self, _ctx: &mut ExecutionCtx) -> Canonical {
-        Canonical::Null(NullArray::new(self.length))
+        Canonical::Null(NullArray::new(std::mem::take(&mut self.length)))
     }
 }
 

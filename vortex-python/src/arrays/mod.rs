@@ -53,7 +53,7 @@ use vortex::error::VortexResult;
 use vortex::flatbuffers::WriteFlatBufferExt;
 use vortex::ipc::messages::EncoderMessage;
 use vortex::ipc::messages::MessageEncoder;
-use vortex::scalar_fn::fns::operators::Operator;
+use vortex::scalar_fn::builtin::operators::CompareOperator;
 use vortex_arrow::ArrowSessionExt;
 use vortex_arrow::ExecuteArrowExt;
 use vortex_python_abi::BUFFER_EXPORT_CAPSULE_NAME;
@@ -704,7 +704,7 @@ impl PyArray {
     fn __lt__(slf: Bound<Self>, other: PyArrayRef) -> PyVortexResult<PyArrayRef> {
         let slf = PyArrayRef::extract(slf.as_any().as_borrowed())?.into_inner();
         let inner = slf
-            .binary(other.into_inner(), Operator::Lt)?
+            .compare(other.into_inner(), CompareOperator::Lt)?
             .optimize_ctx(session())?;
         Ok(PyArrayRef::from(inner))
     }
@@ -713,7 +713,7 @@ impl PyArray {
     fn __le__(slf: Bound<Self>, other: PyArrayRef) -> PyVortexResult<PyArrayRef> {
         let slf = PyArrayRef::extract(slf.as_any().as_borrowed())?.into_inner();
         let inner = slf
-            .binary(other.into_inner(), Operator::Lte)?
+            .compare(other.into_inner(), CompareOperator::Lte)?
             .optimize_ctx(session())?;
         Ok(PyArrayRef::from(inner))
     }
@@ -722,7 +722,7 @@ impl PyArray {
     fn __eq__(slf: Bound<Self>, other: PyArrayRef) -> PyVortexResult<PyArrayRef> {
         let slf = PyArrayRef::extract(slf.as_any().as_borrowed())?.into_inner();
         let inner = slf
-            .binary(other.into_inner(), Operator::Eq)?
+            .compare(other.into_inner(), CompareOperator::Eq)?
             .optimize_ctx(session())?;
         Ok(PyArrayRef::from(inner))
     }
@@ -731,7 +731,7 @@ impl PyArray {
     fn __ne__(slf: Bound<Self>, other: PyArrayRef) -> PyVortexResult<PyArrayRef> {
         let slf = PyArrayRef::extract(slf.as_any().as_borrowed())?.into_inner();
         let inner = slf
-            .binary(other.into_inner(), Operator::NotEq)?
+            .compare(other.into_inner(), CompareOperator::NotEq)?
             .optimize_ctx(session())?;
         Ok(PyArrayRef::from(inner))
     }
@@ -740,7 +740,7 @@ impl PyArray {
     fn __ge__(slf: Bound<Self>, other: PyArrayRef) -> PyVortexResult<PyArrayRef> {
         let slf = PyArrayRef::extract(slf.as_any().as_borrowed())?.into_inner();
         let inner = slf
-            .binary(other.into_inner(), Operator::Gte)?
+            .compare(other.into_inner(), CompareOperator::Gte)?
             .optimize_ctx(session())?;
         Ok(PyArrayRef::from(inner))
     }
@@ -749,7 +749,7 @@ impl PyArray {
     fn __gt__(slf: Bound<Self>, other: PyArrayRef) -> PyVortexResult<PyArrayRef> {
         let slf = PyArrayRef::extract(slf.as_any().as_borrowed())?.into_inner();
         let inner = slf
-            .binary(other.into_inner(), Operator::Gt)?
+            .compare(other.into_inner(), CompareOperator::Gt)?
             .optimize_ctx(session())?;
         Ok(PyArrayRef::from(inner))
     }

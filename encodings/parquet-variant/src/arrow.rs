@@ -17,6 +17,7 @@ use parquet_variant_compute::GetOptions;
 use parquet_variant_compute::VariantArray as ArrowVariantArray;
 use parquet_variant_compute::unshred_variant;
 use vortex_array::ArrayRef;
+use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VTable;
@@ -145,7 +146,8 @@ impl Matcher for ParquetVariantExportable {
     type Match<'a> = &'a ArrayRef;
 
     fn try_match(array: &ArrayRef) -> Option<Self::Match<'_>> {
-        (array.is::<ParquetVariant>()
+        (array.is_empty()
+            || array.is::<ParquetVariant>()
             || array.is::<Constant>()
             || array.is::<Masked>()
             || is_non_empty_chunked(array))
@@ -189,6 +191,12 @@ pub(crate) fn prepare_variant_for_export(
 
     if array.is::<ParquetVariant>() {
         return attach_typed_value(array, typed_value);
+    }
+
+    // Empty storage, such as the empty chunked storage of an empty canonical Variant, has no
+    // chunk to take Parquet Variant children from.
+    if array.is_empty() {
+        return empty_variant_storage(array.dtype(), typed_value);
     }
 
     if is_non_empty_chunked(&array) {
@@ -265,6 +273,17 @@ fn attach_typed_value(storage: ArrayRef, typed_value: Option<ArrayRef>) -> Vorte
         storage.metadata().clone(),
         storage.value().cloned(),
         Some(typed_value),
+    )
+    .map(IntoArray::into_array)
+}
+
+fn empty_variant_storage(dtype: &DType, typed_value: Option<ArrayRef>) -> VortexResult<ArrayRef> {
+    let empty_binary = || Canonical::empty(&DType::Binary(Nullability::NonNullable)).into_array();
+    ParquetVariant::try_new(
+        Validity::from(dtype.nullability()),
+        empty_binary(),
+        Some(empty_binary()),
+        typed_value,
     )
     .map(IntoArray::into_array)
 }

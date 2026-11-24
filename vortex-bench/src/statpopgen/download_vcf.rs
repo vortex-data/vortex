@@ -38,6 +38,8 @@ use super::StatPopGenBenchmark;
 use crate::idempotent_async;
 use crate::statpopgen::builder::GnomADBuilder;
 use crate::statpopgen::schema::schema_from_vcf_header;
+use crate::utils::parquet::parquet_writer_properties;
+use crate::utils::parquet::remove_stale_parquet;
 
 // DuckDB parallelizes parquet at row-group granularity. Each of our rows are quite big (~4000
 // genotypes each with tens of bytes of data).
@@ -55,6 +57,8 @@ impl StatPopGenBenchmark {
             StatPopGenBenchmark::FILE_NAME
         );
         let parquet_output_path = self.parquet_path()?;
+        // A file written in an older Parquet layout is written again.
+        remove_stale_parquet(&parquet_output_path)?;
 
         idempotent_async(
             &parquet_output_path,
@@ -82,7 +86,8 @@ impl StatPopGenBenchmark {
                 );
                 let schema = schema_from_vcf_header(&header);
                 let file = File::create(parquet_output_path).await?;
-                let mut writer = AsyncArrowWriter::try_new(file, Arc::clone(&schema), None)
+                let props = parquet_writer_properties().build();
+                let mut writer = AsyncArrowWriter::try_new(file, Arc::clone(&schema), Some(props))
                     .context("Failed to create parquet writer")?;
 
                 // Splitting lines is cheap and stays serial; parsing each row group's lines into

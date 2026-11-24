@@ -1,0 +1,14 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+include ../setup.slt.no
+
+query I
+COPY (SELECT * FROM (VALUES (1), (42), (100), (-5), (0)) t(number)) TO '${WORK_DIR}/not_in.vortex';
+----
+5
+
+query I
+SELECT sum(number) FROM '${WORK_DIR}/not_in.vortex' WHERE number NOT IN (42, 100);
+----
+-4

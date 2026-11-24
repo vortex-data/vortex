@@ -19,14 +19,14 @@ use vortex_array::extension::datetime::Timestamp;
 use vortex_array::optimizer::kernels::ArrayKernelsExt;
 use vortex_array::optimizer::rules::ArrayParentReduceRule;
 use vortex_array::scalar::Scalar;
-use vortex_array::scalar_fn::fns::between::Between;
-use vortex_array::scalar_fn::fns::binary::Binary;
-use vortex_array::scalar_fn::fns::cast::Cast;
-use vortex_array::scalar_fn::fns::cast::CastReduceAdaptor;
-use vortex_array::scalar_fn::fns::mask::Mask as MaskFn;
-use vortex_array::scalar_fn::fns::mask::MaskReduceAdaptor;
+use vortex_array::scalar_fn::builtin::cast::Cast;
+use vortex_array::scalar_fn::builtin::cast::CastReduceAdaptor;
+use vortex_array::scalar_fn::builtin::compare::Compare;
+use vortex_array::scalar_fn::builtin::mask::Mask as MaskFn;
+use vortex_array::scalar_fn::builtin::mask::MaskReduceAdaptor;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_functions::between::Between;
 use vortex_session::VortexSession;
 
 use crate::DateTimeParts;
@@ -108,7 +108,7 @@ impl ArrayParentReduceRule<DateTimeParts> for DTPFilterPushDownRule {
     }
 }
 
-/// Push down comparison operators (Binary and Between) to the days column when both seconds
+/// Push down comparison operators (Compare and Between) to the days column when both seconds
 /// and subseconds are constant zero on both sides of the comparison.
 ///
 /// When a DateTimeParts array has constant zero for seconds and subseconds, and is being
@@ -130,13 +130,8 @@ impl ArrayParentReduceRule<DateTimeParts> for DTPComparisonPushDownRule {
         parent: ArrayView<'_, ScalarFn>,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
-        // Only handle comparison operations (Binary comparisons or Between)
-        if parent
-            .scalar_fn()
-            .as_opt::<Binary>()
-            .is_none_or(|c| !c.is_comparison())
-            && !parent.scalar_fn().is::<Between>()
-        {
+        // Only handle comparison operations (Compare or Between)
+        if !parent.scalar_fn().is::<Compare>() && !parent.scalar_fn().is::<Between>() {
             return Ok(None);
         }
 
@@ -230,11 +225,11 @@ mod tests {
     use vortex_array::extension::datetime::TimestampOptions;
     use vortex_array::optimizer::ArrayOptimizer;
     use vortex_array::scalar::Scalar;
-    use vortex_array::scalar_fn::fns::between::BetweenOptions;
-    use vortex_array::scalar_fn::fns::between::StrictComparison;
-    use vortex_array::scalar_fn::fns::operators::Operator;
+    use vortex_array::scalar_fn::builtin::operators::CompareOperator;
     use vortex_array::validity::Validity;
     use vortex_buffer::Buffer;
+    use vortex_functions::between::BetweenOptions;
+    use vortex_functions::between::StrictComparison;
     use vortex_session::VortexSession;
 
     use super::*;
@@ -320,14 +315,14 @@ mod tests {
     }
 
     #[rstest]
-    #[case::lt(Operator::Lt, true)]
-    #[case::lte(Operator::Lte, true)]
-    #[case::eq(Operator::Eq, false)]
-    #[case::not_eq(Operator::NotEq, true)]
-    #[case::gt(Operator::Gt, false)]
-    #[case::gte(Operator::Gte, false)]
+    #[case::lt(CompareOperator::Lt, true)]
+    #[case::lte(CompareOperator::Lte, true)]
+    #[case::eq(CompareOperator::Eq, false)]
+    #[case::not_eq(CompareOperator::NotEq, true)]
+    #[case::gt(CompareOperator::Gt, false)]
+    #[case::gte(CompareOperator::Gte, false)]
     fn test_midnight_comparison_beyond_narrowed_days(
-        #[case] op: Operator,
+        #[case] op: CompareOperator,
         #[case] expected: bool,
     ) -> VortexResult<()> {
         let narrowed = DateTimeParts::try_new(
@@ -341,7 +336,7 @@ mod tests {
 
         // Midnight on 9999-12-31 UTC, beyond the narrowed days child's range.
         let constant = midnight_constant(2_932_896, TimeUnit::Microseconds, 2);
-        let comparison = Binary::try_new(narrowed.into_array(), constant, op)?.into_array();
+        let comparison = Compare::try_new(narrowed.into_array(), constant, op)?.into_array();
 
         let mut ctx = SESSION.create_execution_ctx();
         assert_arrays_eq!(
@@ -361,7 +356,7 @@ mod tests {
 
         // Compare: dtp <= day 1 (midnight)
         let constant = midnight_constant(1, TimeUnit::Seconds, len);
-        let comparison = Binary::try_new(dtp.into_array(), constant, Operator::Lte)
+        let comparison = Compare::try_new(dtp.into_array(), constant, CompareOperator::Lte)
             .unwrap()
             .into_array();
 
@@ -436,7 +431,7 @@ mod tests {
             .clone()
             .into_nullable();
         let constant = ConstantArray::new(scalar, dtp.len()).into_array();
-        let comparison = Binary::try_new(dtp, constant, Operator::Lte)?.into_array();
+        let comparison = Compare::try_new(dtp, constant, CompareOperator::Lte)?.into_array();
 
         let optimized = comparison.optimize_ctx(&SESSION)?;
         assert_eq!(optimized.dtype(), comparison.dtype());
@@ -458,7 +453,7 @@ mod tests {
 
         // Compare against non-midnight constant (day 1 at noon)
         let constant = non_midnight_constant(1, 43200, TimeUnit::Seconds, len);
-        let comparison = Binary::try_new(dtp.into_array(), constant, Operator::Lte)
+        let comparison = Compare::try_new(dtp.into_array(), constant, CompareOperator::Lte)
             .unwrap()
             .into_array();
 
@@ -494,7 +489,7 @@ mod tests {
 
         // Compare against midnight constant
         let constant = midnight_constant(1, TimeUnit::Seconds, len);
-        let comparison = Binary::try_new(dtp.into_array(), constant, Operator::Lte)
+        let comparison = Compare::try_new(dtp.into_array(), constant, CompareOperator::Lte)
             .unwrap()
             .into_array();
 

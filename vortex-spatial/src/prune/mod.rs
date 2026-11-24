@@ -24,22 +24,22 @@ use vortex_array::VortexSessionExecute;
 use vortex_array::aggregate_fn::AggregateFnVTableExt;
 use vortex_array::aggregate_fn::EmptyOptions;
 use vortex_array::expr::BoundExpression;
-use vortex_array::expr::bound::binary;
-use vortex_array::expr::bound::case_when;
 use vortex_array::expr::bound::checked_add;
-use vortex_array::expr::bound::ext_storage;
 use vortex_array::expr::bound::get_item;
 use vortex_array::expr::bound::gt;
 use vortex_array::expr::bound::gt_eq;
 use vortex_array::expr::bound::lit;
 use vortex_array::expr::bound::lt;
 use vortex_array::expr::bound::lt_eq;
+use vortex_array::expr::bound::numeric;
+use vortex_array::scalar::NumericOperator;
 use vortex_array::scalar::Scalar;
-use vortex_array::scalar_fn::fns::get_item::GetItem;
-use vortex_array::scalar_fn::fns::literal::Literal;
-use vortex_array::scalar_fn::fns::operators::Operator;
+use vortex_array::scalar_fn::builtin::get_item::GetItem;
+use vortex_array::scalar_fn::builtin::literal::Literal;
 use vortex_error::VortexResult;
 use vortex_expr::stats::bound::stat;
+use vortex_functions::expr::bound::case_when;
+use vortex_functions::expr::bound::ext_storage;
 use vortex_session::VortexSession;
 
 use crate::aggregate_fn::GeometryAabb;
@@ -122,8 +122,8 @@ fn min_dist_sq(aabb: &BoundExpression, query: SpatialRect<f64>) -> BoundExpressi
         maximum(
             lit(0.0),
             maximum(
-                binary(Operator::Sub, lit(q_lo), hi),
-                binary(Operator::Sub, lo, lit(q_hi)),
+                numeric(NumericOperator::Sub, lit(q_lo), hi),
+                numeric(NumericOperator::Sub, lo, lit(q_hi)),
             ),
         )
     };
@@ -141,8 +141,8 @@ fn max_dist_sq(aabb: &BoundExpression, query: SpatialRect<f64>) -> BoundExpressi
     // boxes can be apart. The nullable AABB field is the second `maximum`/`minimum` argument so
     // that `case_when`'s else branch carries the nullability - a missing stat propagates null.
     let span = |q_lo: f64, q_hi: f64, lo: BoundExpression, hi: BoundExpression| {
-        binary(
-            Operator::Sub,
+        numeric(
+            NumericOperator::Sub,
             maximum(lit(q_hi), hi),
             minimum(lit(q_lo), lo),
         )
@@ -154,7 +154,7 @@ fn max_dist_sq(aabb: &BoundExpression, query: SpatialRect<f64>) -> BoundExpressi
 
 /// `e * e`.
 fn square(e: BoundExpression) -> BoundExpression {
-    binary(Operator::Mul, e.clone(), e)
+    numeric(NumericOperator::Mul, e.clone(), e)
 }
 
 /// `max(a, b)`.
