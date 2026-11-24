@@ -118,6 +118,7 @@ use vortex_layout::layouts::struct_::StructStrategy;
 use vortex_layout::layouts::table::TableStrategy;
 use vortex_layout::layouts::zoned::LegacyStats;
 use vortex_layout::layouts::zoned::Zoned;
+use vortex_layout::scan::options::LayoutScanOptions;
 use vortex_layout::scan::scan_builder::ScanBuilder;
 use vortex_layout::scan::split_by::DEFAULT_MAX_SPLIT_ROWS;
 use vortex_layout::scan::split_by::SplitBy;
@@ -2663,7 +2664,10 @@ async fn file_data_source_returns_mergeable_partials() -> VortexResult<()> {
         .with_file_statistics(vec![sum.clone()])
         .write(&mut buf, array.to_array_stream())
         .await?;
-    let source = SESSION.open_options().open_buffer(buf)?.data_source()?;
+    let source = SESSION
+        .open_options()
+        .open_buffer(buf)?
+        .layout_reader_data_source(LayoutScanOptions::default())?;
     let partial = source
         .field_statistic(&field_path!(numbers), &sum)
         .await?
@@ -2715,7 +2719,7 @@ async fn file_sources_scan_with_either_executor(#[case] layout_reader: bool) -> 
         .await?;
     let file = SESSION.open_options().open_buffer(buf)?;
     let source = if layout_reader {
-        file.layout_reader_data_source()?
+        file.layout_reader_data_source(LayoutScanOptions::default())?
     } else {
         file.plan_data_source()
     };
@@ -2725,7 +2729,6 @@ async fn file_sources_scan_with_either_executor(#[case] layout_reader: bool) -> 
         ScanRequest {
             projection: get_item("numbers", root()),
             filter: Some(gt(get_item("numbers", root()), lit(3u32))),
-            ordered: true,
             ..Default::default()
         },
     )

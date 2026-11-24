@@ -13,12 +13,10 @@ use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::assert_arrays_eq;
 use vortex_array::expr::checked_add;
 use vortex_array::expr::gt;
 use vortex_array::expr::lit;
 use vortex_array::expr::root;
-use vortex_buffer::Buffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_io::session::RuntimeSessionExt;
@@ -81,47 +79,50 @@ async fn collect(partitions: Vec<PartitionRef>) -> VortexResult<ArrayRef> {
     Ok(ChunkedArray::try_new(arrays, dtype)?.into_array())
 }
 
-#[rstest]
-#[case::unordered(false)]
-#[case::ordered(true)]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn execute_applies_the_request(#[case] ordered: bool) -> VortexResult<()> {
+async fn execute_applies_the_request() -> VortexResult<()> {
     let partitions = partitions(ScanRequest {
         projection: checked_add(root(), lit(100_u64)),
         filter: Some(gt(root(), lit(5_u64))),
         row_range: Some(2..18),
-        ordered,
         ..Default::default()
     })
     .await?;
     assert_eq!(partitions.len(), 1);
-    let mut ctx = VortexSession::empty().create_execution_ctx();
-    let actual = collect(partitions)
-        .await?
-        .execute::<PrimitiveArray>(&mut ctx)?;
-    let mut values = actual.as_slice::<u64>().to_vec();
-    if !ordered {
-        values.sort_unstable();
-    }
-    assert_eq!(values, (106_u64..118).collect::<Vec<_>>());
+    assert_eq!(
+        sorted_values(partitions).await?,
+        (106_u64..118).collect::<Vec<_>>()
+    );
     Ok(())
 }
 
+/// A limited scan returns exactly the limit's rows, each passing the filter, whichever they are.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn execute_applies_the_limit() -> VortexResult<()> {
     let partitions = partitions(ScanRequest {
         filter: Some(gt(root(), lit(5_u64))),
-        ordered: true,
         limit: Some(5),
         ..Default::default()
     })
     .await?;
-    assert_arrays_eq!(
-        collect(partitions).await?,
-        Buffer::from_iter(6_u64..11).into_array(),
-        &mut VortexSession::empty().create_execution_ctx()
+    let values = sorted_values(partitions).await?;
+    assert_eq!(values.len(), 5);
+    assert!(values.iter().all(|&value| value > 5), "{values:?}");
+    assert!(
+        values.windows(2).all(|pair| pair[0] < pair[1]),
+        "{values:?}"
     );
     Ok(())
+}
+
+/// A plan source cannot return rows in order, so it refuses an ordered request.
+#[tokio::test]
+async fn ordered_requests_are_refused() {
+    let request = ScanRequest {
+        ordered: true,
+        ..Default::default()
+    };
+    assert!(source().scan(request).await.is_err());
 }
 
 /// A request that selects no rows of the source scans one partition, which reads nothing.

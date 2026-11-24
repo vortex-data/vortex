@@ -17,6 +17,7 @@ use vortex::expr::lit;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::file::VortexFile;
 use vortex::layout::LayoutRef;
+use vortex::layout::scan::options::LayoutScanOptions;
 use vortex::scan::ScanRequest;
 use vortex::session::VortexSession;
 
@@ -108,7 +109,7 @@ async fn read_array_tree(file: &VortexFile) -> VortexResult<ArrayRef> {
     let filter = matches!(file.dtype(), DType::Struct(fields, Nullability::NonNullable) if fields.nfields() == 0)
         .then(|| lit(true));
     let scan = file
-        .data_source()?
+        .layout_reader_data_source(LayoutScanOptions::default())?
         .scan(ScanRequest {
             filter,
             ordered: true,

@@ -33,6 +33,7 @@ use vortex::error::VortexResult;
 use vortex::error::vortex_err;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::file::WriteOptionsSessionExt;
+use vortex::layout::scan::options::LayoutScanOptions;
 use vortex::scan::ScanRequest;
 use vortex::utils::aliases::hash_map::HashMap;
 
@@ -478,7 +479,7 @@ impl Dataset for PBIBenchmark {
             .open_options()
             .open_path(path.as_path())
             .await?
-            .data_source()?
+            .layout_reader_data_source(LayoutScanOptions::default())?
             .scan(ScanRequest {
                 ordered: true,
                 ..Default::default()

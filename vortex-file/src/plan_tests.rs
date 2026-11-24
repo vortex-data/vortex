@@ -143,10 +143,9 @@ fn n() -> Expression {
     get_item("n", root())
 }
 
-fn request(ordered: bool) -> ScanRequest {
+fn request() -> ScanRequest {
     ScanRequest {
         projection: n(),
-        ordered,
         ..Default::default()
     }
 }
@@ -193,7 +192,7 @@ async fn open_reads_every_row_once(#[case] filtered: bool) -> VortexResult<()> {
     let scan = source
         .scan(ScanRequest {
             filter: filtered.then(m_filter),
-            ..request(false)
+            ..request()
         })
         .await?;
     let workers = read_stream(scan.open()?, 4).await?;
@@ -203,36 +202,26 @@ async fn open_reads_every_row_once(#[case] filtered: bool) -> VortexResult<()> {
 
 /// A child's splits are its parts, each of several chunks, and the workers read every row of them once.
 #[rstest]
-#[case::unordered(false, false)]
-#[case::unordered_filter(false, true)]
-#[case::ordered(true, false)]
-#[case::ordered_filter(true, true)]
+#[case::projection(false)]
+#[case::filter(true)]
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[cfg_attr(miri, ignore)]
-async fn open_cuts_parts_on_file_splits(
-    #[case] ordered: bool,
-    #[case] filtered: bool,
-) -> VortexResult<()> {
+async fn open_cuts_parts_on_file_splits(#[case] filtered: bool) -> VortexResult<()> {
     let file = open_one_file().await?;
-    let splits: Arc<[u64]> = Arc::from([0, 150_000, 400_000, u64::from(ROWS)]);
+    let splits = [0, 150_000, 400_000, u64::from(ROWS)];
     let source: DataSourceRef = Arc::new(PlanDataSource::from_child(
         SESSION.clone(),
-        file.plan_child().with_splits(splits),
+        file.plan_child()
+            .with_splitter(Arc::new(move |_, _| Ok(splits.to_vec()))),
     ));
     let scan = source
         .scan(ScanRequest {
             filter: filtered.then(m_filter),
-            ..request(ordered)
+            ..request()
         })
         .await?;
     let workers = read_stream(scan.open()?, 3).await?;
-    if ordered {
-        let reader = workers.iter().find(|values| !values.is_empty());
-        assert_eq!(reader, Some(&expected(0..ROWS, filtered)));
-    } else {
-        // Each worker returns its parts' rows in order within each part.
-        assert_eq!(sorted(workers), expected(0..ROWS, filtered));
-    }
+    assert_eq!(sorted(workers), expected(0..ROWS, filtered));
     Ok(())
 }
 
@@ -248,7 +237,7 @@ async fn open_cuts_parts_on_layout_splits() -> VortexResult<()> {
     assert!(splits.len() > 2, "the file has several layout splits");
 
     // One worker takes the parts in row order and finishes each before the next.
-    let scan = file.plan_data_source().scan(request(false)).await?;
+    let scan = file.plan_data_source().scan(request()).await?;
     let arrays: Vec<ArrayRef> = scan.open()?.stream().try_collect().await?;
     let mut boundaries = vec![0u64];
     for array in &arrays {
@@ -267,14 +256,9 @@ async fn open_cuts_parts_on_layout_splits() -> VortexResult<()> {
 /// A dynamic filter, such as a top-N's bound, prunes a file as a whole when the scan is made,
 /// before its parts are cut. The rows follow the bound as it stands when the streams read, not as
 /// it stood when the scan was made.
-#[rstest]
-#[case::unordered(false)]
-#[case::ordered(true)]
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[cfg_attr(miri, ignore)]
-async fn scan_prunes_the_file_first_for_a_dynamic_filter(
-    #[case] ordered: bool,
-) -> VortexResult<()> {
+async fn scan_prunes_the_file_first_for_a_dynamic_filter() -> VortexResult<()> {
     let bound = Arc::new(AtomicU32::new(0));
     let value = Arc::clone(&bound);
     let filter = dynamic(
@@ -288,7 +272,7 @@ async fn scan_prunes_the_file_first_for_a_dynamic_filter(
         .await?
         .scan(ScanRequest {
             filter: Some(filter),
-            ..request(ordered)
+            ..request()
         })
         .await?;
     let stream = scan.open()?;
@@ -300,27 +284,13 @@ async fn scan_prunes_the_file_first_for_a_dynamic_filter(
     Ok(())
 }
 
-/// An ordered scan gives all of its rows, in order, to its first stream.
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-#[cfg_attr(miri, ignore)]
-async fn ordered_open_reads_in_order_on_one_stream() -> VortexResult<()> {
-    let source = one_file().await?;
-    let mut workers = read_stream(source.scan(request(true)).await?.open()?, 3).await?;
-    workers.sort_by_key(|values| std::cmp::Reverse(values.len()));
-    assert_eq!(workers[0], (0..ROWS).collect::<Vec<_>>());
-    assert!(workers[1..].iter().all(Vec::is_empty));
-    Ok(())
-}
-
-/// A scan's limit holds across its streams; an ordered scan returns the first rows.
+/// A scan's limit holds across its streams.
 #[rstest]
-#[case::unordered(false, false)]
-#[case::unordered_filter(false, true)]
-#[case::ordered(true, false)]
-#[case::ordered_filter(true, true)]
+#[case::projection(false)]
+#[case::filter(true)]
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[cfg_attr(miri, ignore)]
-async fn open_applies_the_limit(#[case] ordered: bool, #[case] filtered: bool) -> VortexResult<()> {
+async fn open_applies_the_limit(#[case] filtered: bool) -> VortexResult<()> {
     const LIMIT: usize = 150_000;
     let rows = expected(0..ROWS, filtered);
     let source = one_file().await?;
@@ -328,7 +298,7 @@ async fn open_applies_the_limit(#[case] ordered: bool, #[case] filtered: bool) -
         .scan(ScanRequest {
             filter: filtered.then(m_filter),
             limit: Some(LIMIT as u64),
-            ..request(ordered)
+            ..request()
         })
         .await?;
     // A limit holds across the whole scan, so a limited scan is not split.
@@ -338,10 +308,6 @@ async fn open_applies_the_limit(#[case] ordered: bool, #[case] filtered: bool) -
         pieces.remove(0)
     };
     let workers = read_stream(scan.open()?, 3).await?;
-    if ordered {
-        let reader = workers.iter().find(|values| !values.is_empty());
-        assert_eq!(reader.map(Vec::as_slice), Some(&rows[..LIMIT]));
-    }
     let all = sorted(workers);
     assert_eq!(all.len(), LIMIT);
     all.windows(2).for_each(|w| assert!(w[0] < w[1]));
