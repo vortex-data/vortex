@@ -1204,17 +1204,14 @@ def format_target_summary_row(
 
 def format_target_summary_table(
     df: pd.DataFrame,
-    verdict: dict[str, str] | None,
     engine_analyses: dict[str, dict[str, Any]],
     improvement_threshold: float,
     regression_threshold: float,
 ) -> str | None:
-    """Render the PR summary: an `all` row, then one row per target.
+    """Render the PR summary with one row per target, in the same order as the query table columns.
 
-    The target rows are in the same order as the query table columns. Each target has its own
-    row, so a change on one engine or one scan is not hidden in a geomean over all the Vortex
-    targets. The `all` row gives the geomean over every cell, and its `vs parquet` cell is the
-    attributed Vortex impact over all the engines.
+    Each target has its own row, so a change on one engine or one scan is not hidden in a geomean
+    over all the Vortex targets.
     """
 
     rows = df[df["engine"].notna() & df["file_format"].notna() & df["ratio"].notna()]
@@ -1226,17 +1223,9 @@ def format_target_summary_table(
         key=query_column_sort_key,
     )
     show_cold = bool(rows["cold_ratio"].notna().any())
-    show_attribution = verdict is not None or bool(engine_analyses)
+    show_attribution = bool(engine_analyses)
 
-    queries = rows["query"].nunique()
-    query_noun = "query" if queries == 1 else "queries"
-    all_row = format_target_summary_row(
-        f"**all** ({queries} {query_noun})", rows, show_cold, improvement_threshold, regression_threshold
-    )
-    if show_attribution:
-        all_row += [format_attributed_cell(verdict), verdict["confidence"] if verdict is not None else ""]
-
-    table_rows = [all_row]
+    table_rows = []
     for engine, file_format in combos:
         target_rows = rows[(rows["engine"] == engine) & (rows["file_format"] == file_format)]
         row = format_target_summary_row(
@@ -1249,7 +1238,7 @@ def format_target_summary_table(
 
         if show_attribution:
             if file_format == CONTROL_FORMAT:
-                row += ["control", ""]
+                row.append("control")
             else:
                 target_verdict = None
                 analysis = engine_analyses.get(engine)
@@ -1257,8 +1246,7 @@ def format_target_summary_table(
                     detail_df = analysis["detail_df"]
                     target_detail = detail_df[detail_df["combo"] == f"{engine}:{file_format}"]
                     target_verdict = build_verdict(analysis | {"detail_df": target_detail})
-                confidence = target_verdict["confidence"] if target_verdict is not None else ""
-                row += [format_attributed_cell(target_verdict), confidence]
+                row.append(format_attributed_cell(target_verdict))
 
         table_rows.append(row)
 
@@ -1266,7 +1254,7 @@ def format_target_summary_table(
     for run in ("hot", "cold") if show_cold else ("hot",):
         headers += [run, f"{run} 🟢", f"{run} 🔴"]
     if show_attribution:
-        headers += ["vs parquet", "confidence"]
+        headers.append("vs parquet")
 
     return pd.DataFrame(table_rows, columns=headers).to_markdown(
         index=False,
@@ -1308,15 +1296,12 @@ def format_report_help() -> str:
             "<br>",
             "",
             "- **Target table**: One row per target, in the same order as the query table "
-            "columns, after an `all` row over every target. `hot` and `cold` are the geomean "
+            "columns. `hot` and `cold` are the geomean "
             "of PR ÷ develop over the queries, marked like the query cells, and the 🟢 and 🔴 "
             "columns count the queries that cleared this suite's threshold faster or slower.",
             "- **vs parquet**: The change after the drift of the Parquet control on the same "
-            "engine is removed. On the `all` row it is the attributed Vortex impact over every "
-            "engine. It is marked 🟢 or 🔴 only when it is above the noise floor, and it shows "
+            "engine is removed. It is marked 🟢 or 🔴 only when it is above the noise floor, and it shows "
             "`—` when the control is too noisy to remove.",
-            "- **Confidence**: Based on directional consistency, share of rows above "
-            "the noise floor, and control-run noise.",
             "- **Hot vs cold**: Every measurement is run several times. The first run is "
             "reported as the cold run, and the median of the runs after it is reported as "
             "the hot run. The attribution and significance use hot runs. The target table "
@@ -1442,7 +1427,7 @@ def main() -> None:
     summary_fields: list[str] = [f"**Commits**: PR `{pr_commit_id[:8]}` vs base `{base_label}`"]
 
     target_table = format_target_summary_table(
-        headline_df, verdict, engine_analyses, improvement_threshold, regression_threshold
+        headline_df, engine_analyses, improvement_threshold, regression_threshold
     )
 
     if verdict is not None:
