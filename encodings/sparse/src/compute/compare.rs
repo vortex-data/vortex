@@ -7,10 +7,9 @@ use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::builtins::ArrayBuiltins;
-use vortex_array::scalar_fn::fns::binary::CompareKernel;
-use vortex_array::scalar_fn::fns::binary::scalar_cmp;
-use vortex_array::scalar_fn::fns::operators::CompareOperator;
-use vortex_array::scalar_fn::fns::operators::Operator;
+use vortex_array::scalar_fn::builtin::compare::CompareKernel;
+use vortex_array::scalar_fn::builtin::compare::scalar_cmp;
+use vortex_array::scalar_fn::builtin::operators::CompareOperator;
 use vortex_error::VortexResult;
 
 use crate::Sparse;
@@ -40,9 +39,9 @@ impl CompareKernel for Sparse {
 
         let new_patches = patches.map_values(|values| {
             let len = values.len();
-            values.binary(
+            values.compare(
                 ConstantArray::new(rhs_scalar.clone(), len).into_array(),
-                Operator::from(operator),
+                operator,
             )
         })?;
 
@@ -64,7 +63,7 @@ mod tests {
     use vortex_array::assert_arrays_eq;
     use vortex_array::builtins::ArrayBuiltins;
     use vortex_array::scalar::Scalar;
-    use vortex_array::scalar_fn::fns::operators::Operator;
+    use vortex_array::scalar_fn::builtin::operators::CompareOperator;
     use vortex_buffer::buffer;
     use vortex_session::VortexSession;
 
@@ -79,12 +78,12 @@ mod tests {
     });
 
     #[rstest]
-    #[case::eq_fill(Scalar::from(1i32), Operator::Eq)]
-    #[case::eq_patch(Scalar::from(10i32), Operator::Eq)]
-    #[case::gt(Scalar::from(5i32), Operator::Gt)]
-    #[case::lte(Scalar::from(10i32), Operator::Lte)]
-    #[case::neq(Scalar::from(1i32), Operator::NotEq)]
-    fn compare_matches_canonical(#[case] rhs: Scalar, #[case] op: Operator) {
+    #[case::eq_fill(Scalar::from(1i32), CompareOperator::Eq)]
+    #[case::eq_patch(Scalar::from(10i32), CompareOperator::Eq)]
+    #[case::gt(Scalar::from(5i32), CompareOperator::Gt)]
+    #[case::lte(Scalar::from(10i32), CompareOperator::Lte)]
+    #[case::neq(Scalar::from(1i32), CompareOperator::NotEq)]
+    fn compare_matches_canonical(#[case] rhs: Scalar, #[case] op: CompareOperator) {
         let mut ctx = SESSION.create_execution_ctx();
         let array: SparseArray = Sparse::try_new(
             buffer![1u64, 3, 5].into_array(),
@@ -99,13 +98,13 @@ mod tests {
 
         // Kernel path: compare pushes through the Sparse encoding.
         let kernel_bool = arr
-            .binary(ConstantArray::new(rhs.clone(), len).into_array(), op)
+            .compare(ConstantArray::new(rhs.clone(), len).into_array(), op)
             .unwrap();
 
         // Baseline: canonicalize first, then compare on the PrimitiveArray.
         let canonical_input = arr.execute::<Canonical>(&mut ctx).unwrap().into_array();
         let canonical_bool = canonical_input
-            .binary(ConstantArray::new(rhs, len).into_array(), op)
+            .compare(ConstantArray::new(rhs, len).into_array(), op)
             .unwrap();
 
         assert_arrays_eq!(kernel_bool, canonical_bool, &mut ctx);

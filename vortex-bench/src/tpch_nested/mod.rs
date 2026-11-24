@@ -48,6 +48,7 @@ use crate::tpch::schema::SUPPLIER;
 use crate::tpch::tpchgen;
 use crate::tpch::tpchgen::TableShape;
 use crate::tpch::tpchgen::TpchGenOptions;
+use crate::utils::parquet::LOCAL_ROW_GROUP_ROWS;
 use crate::utils::split;
 
 /// How each table's non-key columns are nested.
@@ -122,6 +123,7 @@ pub struct TpcHNestedBenchmark {
     pub scale_factor: String,
     pub shape: Shape,
     data_url: Url,
+    row_group_rows: usize,
 }
 
 impl TpcHNestedBenchmark {
@@ -153,7 +155,14 @@ impl TpcHNestedBenchmark {
             scale_factor,
             shape,
             data_url,
+            row_group_rows: LOCAL_ROW_GROUP_ROWS,
         })
+    }
+
+    /// Generate Parquet in row groups of `row_group_rows` rows.
+    pub fn with_row_group_rows(mut self, row_group_rows: usize) -> Self {
+        self.row_group_rows = row_group_rows;
+        self
     }
 }
 
@@ -178,7 +187,8 @@ impl Benchmark for TpcHNestedBenchmark {
             .map_err(|_| anyhow::anyhow!("Invalid file URL: {}", self.data_url.as_str()))?;
 
         let options = TpchGenOptions::new(self.scale_factor.clone(), base_data_dir)
-            .with_shape(self.shape.table_shape());
+            .with_shape(self.shape.table_shape())
+            .with_row_group_rows(self.row_group_rows);
 
         tpchgen::generate_tpch_tables(options).await?;
 

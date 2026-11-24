@@ -72,7 +72,44 @@ message ShreddingSpecField {
   vortex.dtype.DType dtype = 2;
 }
 
-// Options for `vortex.binary`
+// Options for `vortex.compare`
+message CompareOpts {
+  CompareOp op = 1;
+
+  enum CompareOp {
+    Eq = 0;
+    NotEq = 1;
+    Gt = 2;
+    Gte = 3;
+    Lt = 4;
+    Lte = 5;
+  }
+}
+
+// Options for `vortex.boolean`
+message BooleanOpts {
+  BooleanOp op = 1;
+
+  enum BooleanOp {
+    And = 0;
+    Or = 1;
+  }
+}
+
+// Options for `vortex.numeric`
+message NumericOpts {
+  NumericOp op = 1;
+
+  enum NumericOp {
+    Add = 0;
+    Sub = 1;
+    Mul = 2;
+    Div = 3;
+  }
+}
+
+// Options for the legacy `vortex.binary` function. Vortex no longer writes it. A reader converts
+// it to `vortex.compare`, `vortex.boolean`, or `vortex.numeric`.
 message BinaryOpts {
   BinaryOp op = 1;
 

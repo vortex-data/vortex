@@ -206,6 +206,64 @@ fn splits_produce_their_own_rows() -> VortexResult<()> {
     Ok(())
 }
 
+/// Changing `with_max_active` after execution has started preserves live slots and queued work
+/// when shrinking or growing, and honours a lowered limit for subsequent admissions.
+#[rstest]
+#[case::shrink_after_reads(3, 1, false)]
+#[case::shrink_to_zero_clamps_to_one(3, 0, false)]
+#[case::grow_after_reads(1, 3, false)]
+#[case::shrink_after_output(3, 1, true)]
+#[case::grow_after_output(2, 4, true)]
+fn with_max_active_mid_scan_preserves_live_slots(
+    #[case] initial: usize,
+    #[case] resized: usize,
+    #[case] resize_on_output: bool,
+) -> VortexResult<()> {
+    let plan = RowSource::plan(12, vec![1; 12], segment(3), false);
+    let splits = vec![
+        Split::all(0..3),
+        Split::all(3..6),
+        Split::all(6..9),
+        Split::all(9..12),
+    ];
+    let mut scan = Scan::try_new(SESSION.clone(), plan, splits)?.with_max_active(initial);
+    let mut by_split: Vec<Vec<ArrayRef>> = vec![Vec::new(); 4];
+    let mut inflight = Vec::new();
+    let mut resized_once = false;
+    loop {
+        match scan.step()? {
+            Turn::Read(read) => {
+                if resized_once && resized < initial {
+                    // With the limit lowered, the last split starts only once the others finish.
+                    assert!(by_split[..3].iter().all(|arrays| arrays.len() == 3));
+                }
+                inflight.push(read);
+                if !resize_on_output && !resized_once && inflight.len() >= initial {
+                    scan = scan.with_max_active(resized);
+                    resized_once = true;
+                }
+            }
+            Turn::Output(split, array) => {
+                by_split[split].push(array);
+                if resize_on_output && !resized_once {
+                    scan = scan.with_max_active(resized);
+                    resized_once = true;
+                }
+            }
+            Turn::Waiting => {
+                let read: ReadRequest = inflight.remove(0);
+                scan.deliver(read.id, empty_segment())?;
+            }
+            Turn::Done => break,
+        }
+    }
+    assert!(resized_once, "test did not reach mid-scan resize point");
+    for (split, rows) in [(0, 0..3), (1, 3..6), (2, 6..9), (3, 9..12)] {
+        assert_rows(indices(rows), std::mem::take(&mut by_split[split]))?;
+    }
+    Ok(())
+}
+
 /// Asks for every segment at once and emits each segment's id as it arrives.
 struct ManyReads {
     wanted: Vec<SegmentId>,

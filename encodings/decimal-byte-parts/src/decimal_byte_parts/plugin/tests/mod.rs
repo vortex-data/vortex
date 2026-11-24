@@ -365,13 +365,7 @@ fn take_keeps_widen_msp_on_top(
     decimal_byte_parts_v2_id(),
     v2_metadata(vec![PType::U64 as i32]),
     vec![msp()],
-    "v2 expects the msp child plus one child per lower part"
-)]
-#[case::v2_extra_child(
-    decimal_byte_parts_v2_id(),
-    v2_metadata(vec![PType::U64 as i32]),
-    vec![msp(), lower_part(), lower_part()],
-    "v2 expects the msp child plus one child per lower part"
+    "v2 expects at least the msp child plus one child per lower part"
 )]
 #[case::v2_too_many_lower_parts(
     decimal_byte_parts_v2_id(),
@@ -412,12 +406,15 @@ fn decoder_rejects_malformed_payloads(
     );
 }
 
+/// A later writer may append children and node buffers that do not change the decoded values, so
+/// a reader ignores everything after the declared children.
 #[test]
-fn v2_rejects_node_buffers() {
+fn v2_ignores_trailing_children_and_node_buffers() -> VortexResult<()> {
     let dtype = DType::Decimal(DecimalDType::new(38, 2), Nullability::NonNullable);
     let metadata = v2_metadata(vec![PType::U64 as i32]);
     let buffers = [BufferHandle::new_host(ByteBuffer::copy_from([1]))];
-    let children = vec![msp(), lower_part()];
+    // In-memory children assert the requested dtype, so decoding this `i32` child would panic.
+    let children = vec![msp(), lower_part(), buffer![7i32, 8, 9].into_array()];
     let parts = ArrayDeserialization::new(
         decimal_byte_parts_v2_id(),
         &dtype,
@@ -426,10 +423,16 @@ fn v2_rejects_node_buffers() {
         &buffers,
         &children,
     );
-    let error = DecimalBytePartsPlugin
-        .deserialize(parts, &SESSION)
-        .expect_err("v2 has only child arrays");
-    assert!(error.to_string().contains("v2 must not carry node buffers"));
+    let actual = DecimalBytePartsPlugin.deserialize(parts, &SESSION)?;
+
+    let expected = deserialize_with(
+        decimal_byte_parts_v2_id(),
+        &metadata,
+        vec![msp(), lower_part()],
+    )?;
+    assert_eq!(actual.as_::<DecimalByteParts>().lower_parts().len(), 1);
+    assert_arrays_eq!(actual, expected, &mut SESSION.create_execution_ctx());
+    Ok(())
 }
 
 #[test]

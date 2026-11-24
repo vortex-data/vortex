@@ -39,6 +39,8 @@ use std::ops::Range;
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use futures::StreamExt;
+use futures::TryStreamExt;
 use futures::stream::BoxStream;
 use selection::Selection;
 use stream::ScanStream;
@@ -50,6 +52,8 @@ use vortex_array::expr::root;
 use vortex_array::expr::stats::Precision;
 use vortex_array::scalar::Scalar;
 use vortex_array::stats::StatsSet;
+use vortex_array::stream::ArrayStream;
+use vortex_array::stream::ArrayStreamAdapter;
 use vortex_array::stream::SendableArrayStream;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -159,7 +163,7 @@ pub struct ScanRequest {
     /// Filter expression, `None` implies no filter.
     pub filter: Option<Expression>,
     /// The per-partition row range to read. Row range will be applied
-    /// over every partition you scan.
+    /// over every partition you scan. A range that starts after it ends selects no rows.
     pub row_range: Option<Range<u64>>,
     /// The per-partition row selection to read. Row selection will be applied
     /// over every partition you scan.
@@ -249,6 +253,18 @@ pub trait DataSourceScan: 'static + Send {
     /// A source that has no queue of work of its own may return
     /// [`ScanStream::from_partitions`] over itself.
     fn open(self: Box<Self>) -> VortexResult<ScanStream>;
+}
+
+impl dyn DataSourceScan {
+    /// Execute partitions lazily, yielding their arrays in the order the partitions are emitted.
+    pub fn into_array_stream(self: Box<Self>) -> impl ArrayStream + Send {
+        let dtype = self.dtype().clone();
+        let arrays = self
+            .partitions()
+            .map(|partition| partition?.execute())
+            .try_flatten();
+        ArrayStreamAdapter::new(dtype, arrays)
+    }
 }
 
 /// A reference-counted partition.

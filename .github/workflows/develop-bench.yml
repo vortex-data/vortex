@@ -1,10 +1,14 @@
-# Runs after every commit to `develop` (or in other words, _after_ every pull request merges).
+# Runs benchmarks on `develop`, dispatched every 10 minutes by `develop-bench-trigger.yml`
+# whenever new commits have landed on `develop` (or manually via `workflow_dispatch` on `develop`).
 
 name: Develop Benchmarks
 
+concurrency:
+  group: develop-bench-${{ github.ref }}
+  cancel-in-progress: false
+
 on:
-  push:
-    branches: [develop]
+  workflow_dispatch: { }
 
 permissions:
   id-token: write  # enables AWS-GitHub OIDC
@@ -13,6 +17,7 @@ permissions:
 
 jobs:
   build:
+    if: github.ref == 'refs/heads/develop'
     timeout-minutes: 60
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
@@ -207,6 +212,7 @@ jobs:
                   hashFiles(
                     'vortex-bench/src/datasets/**',
                     'vortex-bench/src/random_access/**',
+                    'vortex-bench/src/utils/parquet.rs',
                     'scripts/litdata-random-access.py',
                     'benchmarks/random-access-bench/src/litdata.rs') }}
 
@@ -217,6 +223,7 @@ jobs:
         env:
           RUST_BACKTRACE: full
           FLAT_LAYOUT_INLINE_ARRAY_NODE: "1"
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
           bench="${{ matrix.benchmark.id }}"
           python3 "scripts/${bench%-bench}-split.py" --prepare-data \
@@ -326,18 +333,19 @@ jobs:
           deduplication-key: ci-bench-${{ matrix.benchmark.id }}-failure
 
   sql:
+    if: github.ref == 'refs/heads/develop'
     uses: ./.github/workflows/sql-bench-matrix.yml
     secrets: inherit
     with:
       mode: "develop"
       matrix_preset: "develop"
 
-  # Tell the benchmarks website that new results exist, once per push, after every benchmark job
-  # of the push has ingested its results. `always()` runs it even when a benchmark job failed, so
+  # Tell the benchmarks website that new results exist, once per run, after every benchmark job
+  # of the run has ingested its results. `always()` runs it even when a benchmark job failed, so
   # the results that other jobs ingested still appear.
   refresh-site:
     needs: [bench, sql]
-    if: ${{ always() }}
+    if: ${{ always() && github.ref == 'refs/heads/develop' }}
     uses: ./.github/workflows/refresh-bench-site.yml
     secrets:
       BENCH_REVALIDATE_TOKEN: ${{ secrets.BENCH_REVALIDATE_TOKEN }}

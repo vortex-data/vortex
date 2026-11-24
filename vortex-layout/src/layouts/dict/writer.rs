@@ -27,8 +27,11 @@ use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
+use vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::uncompressed_size_in_bytes;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::Dict;
+use vortex_array::arrays::WidenArray;
+use vortex_array::arrays::dict::DictArraySlotsExt;
 use vortex_array::builders::dict::DictConstraints;
 use vortex_array::builders::dict::DictEncoder;
 use vortex_array::builders::dict::dict_encoder_in;
@@ -36,6 +39,8 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::optimizer::ArrayOptimizer;
+use vortex_decimal_byte_parts::DecimalByteParts;
+use vortex_decimal_byte_parts::DecimalBytePartsArraySlotsExt;
 use vortex_error::VortexError;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -66,14 +71,17 @@ use crate::sequence::SequentialStreamExt;
 /// cardinality, the fallback encoding strategy should be used instead.
 #[derive(Clone)]
 pub struct DictLayoutConstraints {
-    /// Maximum size of the dictionary in bytes.
+    /// Maximum size of the dictionary in bytes, measured on the values before compression. Once a
+    /// dictionary reaches it, the remaining rows start a new dictionary.
     pub max_bytes: usize,
     /// Maximum dictionary length. Limited to `u16` because dictionaries with more than 64k unique
     /// values provide diminishing compression returns given typical chunk sizes (~8k elements).
     ///
-    /// The codes dtype is chosen upfront and is at most [`PType::U16`]. Primitive dictionaries
-    /// use [`PType::U8`] when `max_len <= 256` or the value domain fits in 256 entries including
-    /// any null entry. String and binary dictionaries use [`PType::U8`] when `max_len <= 256`, as
+    /// The codes dtype is chosen upfront and is at most [`PType::U16`]. Primitive and decimal
+    /// dictionaries use [`PType::U8`] when `max_len <= 256` or the value domain fits in 256 entries
+    /// including any null entry, where a decimal's value domain is that of the integer type its
+    /// dictionary stores values in. String and binary dictionaries use [`PType::U8`] when
+    /// `max_len <= 256`, as
     /// [`codes_ptype_for_max_len`](vortex_array::builders::dict::codes_ptype_for_max_len) picks.
     ///
     /// Vortex encoders must always produce unsigned integer codes; signed codes are only accepted for external compatibility.
@@ -92,7 +100,7 @@ impl From<DictLayoutConstraints> for DictConstraints {
 impl Default for DictLayoutConstraints {
     fn default() -> Self {
         Self {
-            max_bytes: 1024 * 1024,
+            max_bytes: 2 * 1024 * 1024,
             max_len: u16::MAX,
         }
     }
@@ -171,16 +179,30 @@ impl LayoutStrategy for DictStrategy {
         let (stream, sample) = peek_probe_sample(stream, options.probe_len).await?;
         let stream = SequentialStreamAdapter::new(dtype.clone(), stream).sendable();
 
-        let should_fallback = match sample {
-            None => true, // empty stream
+        // The probe is the first compression of the column, long before the first full chunk.
+        // Record it, so that the size estimate of the write has a ratio early. The codes have
+        // a different form and ratio than the values, so keep the codes part of the probe for
+        // the codes scopes.
+        let codes_probe = match sample {
+            None => None, // empty stream
             Some(sample) => {
                 let mut exec_ctx = session.create_execution_ctx();
                 let compressed = self
                     .probe_compressor
                     .compress_chunk(&sample, &mut exec_ctx)?;
-                !compressed.is::<Dict>()
+                let sample_size =
+                    u64::try_from(uncompressed_size_in_bytes(&sample, &mut exec_ctx)?)
+                        .map_err(|e| vortex_err!("probe size does not fit in u64: {e}"))?;
+                ctx.size_scope()
+                    .record_probe(sample_size, compressed.nbytes());
+
+                probe_dict_codes(&compressed).map(|codes| {
+                    let element_size = codes.dtype().element_size().unwrap_or(1) as u64;
+                    (codes.len() as u64 * element_size, codes.nbytes())
+                })
             }
         };
+        let should_fallback = codes_probe.is_none();
         if should_fallback {
             // first chunk did not compress to dict, or did not exist. Skip dict layout
             return self
@@ -207,10 +229,20 @@ impl LayoutStrategy for DictStrategy {
         let child_layouts = stream! {
             pin_mut!(runs);
 
-            while let Some((codes_stream, values_fut)) = runs.next().await {
+            while let Some(run) = runs.next().await {
+                let (codes_stream, values_fut) = match run {
+                    Ok(run) => run,
+                    Err(e) => {
+                        yield async move { Err(e) }.boxed();
+                        break;
+                    }
+                };
                 let codes = Arc::clone(&self.codes);
                 let codes_eof = eof.split_off();
-                let ctx2 = ctx.clone();
+                let ctx2 = ctx.clone().with_child_size_scope();
+                if let Some((uncompressed, compressed)) = codes_probe {
+                    ctx2.size_scope().record_probe(uncompressed, compressed);
+                }
                 let segment_sink2 = Arc::clone(&segment_sink);
                 let session2 = session.clone();
                 let codes_fut = handle.spawn_nested(move |_| async move {
@@ -225,7 +257,7 @@ impl LayoutStrategy for DictStrategy {
 
                 let values = Arc::clone(&self.values);
                 let values_eof = eof.split_off();
-                let ctx2 = ctx.clone();
+                let ctx2 = ctx.clone().with_child_size_scope();
                 let segment_sink2 = Arc::clone(&segment_sink);
                 let dtype2 = dtype2.clone();
                 let session2 = session.clone();
@@ -426,7 +458,7 @@ impl DictionaryTransformer {
 }
 
 impl Stream for DictionaryTransformer {
-    type Item = (SendableSequentialStream, BoxFuture<'static, SequencedChunk>);
+    type Item = VortexResult<(SendableSequentialStream, BoxFuture<'static, SequencedChunk>)>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         loop {
@@ -486,7 +518,7 @@ impl Stream for DictionaryTransformer {
                         }
                         .boxed();
 
-                        return Poll::Ready(Some((codes_stream, values_future)));
+                        return Poll::Ready(Some(Ok((codes_stream, values_future))));
                     }
 
                     // Continue streaming codes to existing group
@@ -504,13 +536,12 @@ impl Stream for DictionaryTransformer {
                     self.active_codes_tx = None; // Close codes stream
                 }
                 Poll::Ready(Some(Err(e))) => {
-                    // Send error to active channels if any
+                    self.active_codes_tx = None;
                     if let Some(values_tx) = self.active_values_tx.take() {
                         drop(values_tx.send(Err(e)));
+                        return Poll::Ready(None);
                     }
-                    self.active_codes_tx = None;
-                    // And terminate the stream
-                    return Poll::Ready(None);
+                    return Poll::Ready(Some(Err(e)));
                 }
                 Poll::Ready(None) => {
                     // Handle any incomplete group
@@ -557,10 +588,31 @@ async fn peek_probe_sample(
     Ok((stream, Some(sample)))
 }
 
+/// Returns the probe dictionary's codes array when the probe compressor chose a dictionary.
+///
+/// Byte parts with only a most significant part can also hold the dictionary, under an integer
+/// `Widen` when compression narrowed that part. The dictionary then holds the unscaled decimals
+/// with the same codes, so the column gets a dict layout either way. Byte parts with lower parts
+/// do not count, because a dictionary of one part says little about the distinct count of the
+/// whole decimals.
+fn probe_dict_codes(compressed: &ArrayRef) -> Option<ArrayRef> {
+    if let Some(dict) = compressed.as_opt::<Dict>() {
+        return Some(dict.codes().clone());
+    }
+
+    let parts = compressed.as_opt::<DecimalByteParts>()?;
+    if !parts.lower_parts().is_empty() {
+        return None;
+    }
+
+    let stored = WidenArray::to_stored_integer(parts.msp());
+    stored.as_opt::<Dict>().map(|dict| dict.codes().clone())
+}
+
 pub fn dict_layout_supported(dtype: &DType) -> bool {
     matches!(
         dtype,
-        DType::Primitive(..) | DType::Utf8(_) | DType::Binary(_)
+        DType::Primitive(..) | DType::Decimal(..) | DType::Utf8(_) | DType::Binary(_)
     )
 }
 
@@ -623,17 +675,25 @@ mod tests {
     use vortex_array::IntoArray;
     use vortex_array::MaskFuture;
     use vortex_array::VortexSessionExecute;
+    use vortex_array::arrays::ChunkedArray;
+    use vortex_array::arrays::DecimalArray;
+    use vortex_array::arrays::DictArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::VarBinArray;
+    use vortex_array::arrays::WidenArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::builders::dict::DictConstraints;
     use vortex_array::builders::dict::dict_encode;
+    use vortex_array::builtins::ArrayBuiltins;
     use vortex_array::dtype::DType;
+    use vortex_array::dtype::DecimalDType;
     use vortex_array::dtype::Nullability::NonNullable;
     use vortex_array::dtype::PType;
     use vortex_array::expr::root;
     use vortex_array::optimizer::ArrayOptimizer;
     use vortex_array::session::ArraySession;
+    use vortex_buffer::buffer;
+    use vortex_decimal_byte_parts::DecimalByteParts;
     use vortex_error::VortexResult;
     use vortex_io::runtime::single::block_on;
     use vortex_io::session::RuntimeSessionExt;
@@ -646,6 +706,7 @@ mod tests {
     use super::DictionaryChunk;
     use super::DictionaryTransformer;
     use super::dict_encode_stream;
+    use super::probe_dict_codes;
     use crate::LayoutStrategy;
     use crate::layouts::chunked::writer::ChunkedLayoutStrategy;
     use crate::layouts::dict::Dict;
@@ -665,7 +726,7 @@ mod tests {
     /// produces U8 codes, but the stream was incorrectly typed as U16, causing a dtype mismatch
     /// assertion failure in [`SequentialStreamAdapter`].
     #[tokio::test]
-    async fn test_dict_transformer_uses_u8_for_small_dictionaries() {
+    async fn test_dict_transformer_uses_u8_for_small_dictionaries() -> VortexResult<()> {
         // Use max_len = 100 to force U8 codes (since 100 <= 255).
         let constraints = DictConstraints {
             max_bytes: 1024 * 1024,
@@ -694,7 +755,7 @@ mod tests {
         let (codes_stream, _values_fut) = transformer
             .next()
             .await
-            .expect("expected at least one dictionary run");
+            .expect("expected at least one dictionary run")?;
 
         // The key assertion: codes stream dtype should be U8, not U16.
         assert_eq!(
@@ -702,11 +763,12 @@ mod tests {
             &DType::Primitive(PType::U8, NonNullable),
             "codes stream should use U8 dtype for small dictionaries, not U16"
         );
+        Ok(())
     }
 
     /// Test that the codes stream uses U16 dtype when the dictionary has more than 255 entries.
     #[tokio::test]
-    async fn test_dict_transformer_uses_u16_for_large_dictionaries() {
+    async fn test_dict_transformer_uses_u16_for_large_dictionaries() -> VortexResult<()> {
         // Use max_len = 1000 to allow U16 codes (since 1000 > 255).
         let constraints = DictConstraints {
             max_bytes: 1024 * 1024,
@@ -737,7 +799,7 @@ mod tests {
         let (codes_stream, _values_fut) = transformer
             .next()
             .await
-            .expect("expected at least one dictionary run");
+            .expect("expected at least one dictionary run")?;
 
         // Codes stream dtype should be U16 since we have more than 255 distinct values.
         assert_eq!(
@@ -745,6 +807,7 @@ mod tests {
             &DType::Primitive(PType::U16, NonNullable),
             "codes stream should use U16 dtype for dictionaries with >255 entries"
         );
+        Ok(())
     }
 
     fn encoded_row_count(chunks: &[DictionaryChunk]) -> usize {
@@ -888,6 +951,93 @@ mod tests {
             PROBE_LEN.min(nchunks * chunk_len)
         );
         assert_arrays_eq!(actual, values, &mut SESSION.create_execution_ctx());
+        Ok(())
+    }
+
+    /// The probe counts a dictionary under byte parts with only a most significant part, also
+    /// under an integer `Widen` there, and does not count one next to lower parts.
+    #[rstest]
+    #[case::msp(false, false, true)]
+    #[case::widen_msp(true, false, true)]
+    #[case::lower_parts(false, true, false)]
+    fn probe_finds_dictionary_in_byte_parts(
+        #[case] widen: bool,
+        #[case] lower_part: bool,
+        #[case] expected: bool,
+    ) -> VortexResult<()> {
+        let codes = buffer![0u8, 1, 0, 1].into_array();
+        let msp = if widen {
+            let dict = DictArray::try_new(codes, buffer![100i16, -5].into_array())?.into_array();
+            WidenArray::try_new(dict, DType::Primitive(PType::I64, NonNullable))?.into_array()
+        } else {
+            DictArray::try_new(codes, buffer![100i64, -5].into_array())?.into_array()
+        };
+
+        let parts = if lower_part {
+            DecimalByteParts::try_new_with_lower_parts(
+                msp,
+                vec![buffer![0u64; 4].into_array()],
+                DecimalDType::new(38, 2),
+            )?
+        } else {
+            DecimalByteParts::try_new(msp, DecimalDType::new(18, 2))?
+        };
+
+        assert_eq!(probe_dict_codes(&parts.into_array()).is_some(), expected);
+
+        Ok(())
+    }
+
+    #[test]
+    fn dict_strategy_propagates_first_encode_error() -> VortexResult<()> {
+        let mut ctx = new_session().create_execution_ctx();
+        let dtype = DType::Decimal(DecimalDType::new(38, 20), NonNullable);
+        let good = PrimitiveArray::from_iter([1u64, 1, 1, 1])
+            .into_array()
+            .cast(dtype.clone())?
+            .execute::<DecimalArray>(&mut ctx)?
+            .into_array();
+        let bad = PrimitiveArray::from_iter([u64::MAX])
+            .into_array()
+            .cast(dtype.clone())?;
+        let chunk = ChunkedArray::try_new([good, bad], dtype.clone())?.into_array();
+
+        let probe = |sample: &ArrayRef, ctx: &mut ExecutionCtx| -> VortexResult<ArrayRef> {
+            let canonical = sample.clone().execute::<Canonical>(ctx)?.into_array();
+            Ok(dict_encode(&canonical, ctx)?.into_array())
+        };
+        let strategy = DictStrategy::new(
+            ChunkedLayoutStrategy::new(FlatLayoutStrategy::default()),
+            FlatLayoutStrategy::default(),
+            ChunkedLayoutStrategy::new(FlatLayoutStrategy::default()),
+            DictLayoutOptions {
+                probe_len: 2,
+                ..Default::default()
+            },
+            Arc::new(probe),
+        );
+        let (mut seq, eof) = SequenceId::root().split();
+        let input: Vec<VortexResult<_>> = vec![Ok((seq.advance(), chunk))];
+        drop(seq);
+
+        let err = block_on(|handle| async move {
+            let session = new_session().with_handle(handle);
+            strategy
+                .write_stream(
+                    ArrayContext::empty().into(),
+                    Arc::new(TestSegments::default()),
+                    SequentialStreamAdapter::new(dtype, futures::stream::iter(input)).sendable(),
+                    eof,
+                    &session,
+                )
+                .await
+        })
+        .expect_err("failed dictionary encode must return an error");
+
+        assert!(
+            err.to_string().contains("does not fit in precision"),
+            "unexpected error: {err}"
+        );
         Ok(())
     }
 }

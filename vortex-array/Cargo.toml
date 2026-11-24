@@ -40,7 +40,6 @@ humansize = { workspace = true }
 inventory = { workspace = true }
 itertools = { workspace = true }
 jiff = { workspace = true }
-memchr = { workspace = true }
 num-traits = { workspace = true }
 num_enum = { workspace = true }
 parking_lot = { workspace = true }
@@ -52,8 +51,6 @@ primitive-types = { workspace = true, optional = true, features = [
 prost = { workspace = true }
 prost-types = { workspace = true }
 rand = { workspace = true }
-regex = { workspace = true }
-regex-syntax = { workspace = true }
 rstest = { workspace = true, optional = true }
 rstest_reuse = { workspace = true, optional = true }
 rustc-hash = { workspace = true }
@@ -99,6 +96,8 @@ vortex-array = { path = ".", features = [
     "unstable_row_fns",
 ] }
 vortex-bench-support = { workspace = true }
+# Path-only to avoid a publish cycle with vortex-functions -> vortex-array.
+vortex-functions = { path = "../vortex-functions" }
 
 [[bench]]
 name = "aggregate_max"
@@ -161,14 +160,6 @@ name = "kleene_bool"
 harness = false
 
 [[bench]]
-name = "like"
-harness = false
-
-[[bench]]
-name = "list_contains_set"
-harness = false
-
-[[bench]]
 name = "interleave"
 harness = false
 
@@ -210,11 +201,6 @@ path = "benches/expr/large_struct_pack.rs"
 harness = false
 
 [[bench]]
-name = "expr_case_when"
-path = "benches/expr/case_when_bench.rs"
-harness = false
-
-[[bench]]
 name = "expr_optimize"
 path = "benches/expr/optimize_bench.rs"
 harness = false
@@ -251,27 +237,11 @@ name = "dict_unreferenced_mask"
 harness = false
 
 [[bench]]
-name = "varbinview_zip"
-harness = false
-
-[[bench]]
 name = "varbinview_try_new"
 harness = false
 
 [[bench]]
 name = "varbinview_fill_null"
-harness = false
-
-[[bench]]
-name = "bool_zip"
-harness = false
-
-[[bench]]
-name = "primitive_zip"
-harness = false
-
-[[bench]]
-name = "listview_zip"
 harness = false
 
 [[bench]]
@@ -316,14 +286,6 @@ harness = false
 
 [[bench]]
 name = "filter_list"
-harness = false
-
-[[bench]]
-name = "list_length"
-harness = false
-
-[[bench]]
-name = "list_sum"
 harness = false
 
 [[bench]]

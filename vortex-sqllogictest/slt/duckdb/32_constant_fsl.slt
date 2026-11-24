@@ -1,0 +1,14 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+include ../setup.slt.no
+
+query I
+COPY (SELECT [1, 2, 3]::INTEGER[3] AS constant FROM generate_series(1, 100) t(i)) TO '${WORK_DIR}/constant-fsl.vortex';
+----
+100
+
+query I
+SELECT count(*) FROM '${WORK_DIR}/constant-fsl.vortex' WHERE constant[2] = 2 AND constant = [1, 2, 3]::INTEGER[3];
+----
+100

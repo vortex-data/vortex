@@ -1,0 +1,223 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+//! `list_contains(lit([...]), column)`, the `IN` shape: a constant set looked up by a column of
+//! needles, so that the cost of preparing the set shows next to the cost of looking up in it.
+//!
+//! Each element type exercises one haystack: integers, UTF-8 strings, and nested lists that
+//! compare whole rows. Integer needles are also split into chunks, which share one prepared set.
+
+#![expect(clippy::unwrap_used)]
+
+use std::sync::Arc;
+use std::sync::LazyLock;
+
+use divan::Bencher;
+use mimalloc::MiMalloc;
+use rand::RngExt;
+use rand::SeedableRng;
+use rand::prelude::StdRng;
+use vortex_array::ArrayRef;
+use vortex_array::IntoArray;
+use vortex_array::VortexSessionExecute;
+use vortex_array::arrays::BoolArray;
+use vortex_array::arrays::ChunkedArray;
+use vortex_array::arrays::ListArray;
+use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::VarBinViewArray;
+use vortex_array::arrays::WidenArray;
+use vortex_array::dtype::DType;
+use vortex_array::dtype::Nullability;
+use vortex_array::dtype::PType;
+use vortex_array::expr::lit;
+use vortex_array::expr::root;
+use vortex_array::memory::MemorySession;
+use vortex_array::optimizer::ArrayOptimizer;
+use vortex_array::optimizer::kernels::KernelSession;
+use vortex_array::scalar::Scalar;
+use vortex_functions::expr::list_contains;
+use vortex_session::VortexSession;
+
+static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+    let session = VortexSession::empty()
+        .with::<KernelSession>()
+        .with::<MemorySession>();
+    vortex_functions::initialize(&session);
+    session
+});
+
+#[global_allocator]
+static GLOBAL: MiMalloc = MiMalloc;
+
+fn main() {
+    LazyLock::force(&SESSION);
+    divan::main();
+}
+
+// Sized to keep CodSpeed simulation under 1ms per benchmark.
+const ROWS: usize = 1_024;
+const BATCHED_ROWS: usize = 32_768;
+const CHUNKS: usize = 4;
+const SET_LENS: &[usize] = &[256];
+/// A nested set compares whole rows to sort its elements and to look them up, so it stays smaller.
+const NESTED_SET_LENS: &[usize] = &[32];
+
+/// A random set of `len` values, and needles of which about half are members.
+fn random_i64(len: usize) -> (Vec<i64>, Vec<i64>) {
+    random_i64_in_span(len, 40)
+}
+
+/// A random set of `len` values below `2^span_bits`, and `ROWS` needles of which about half are
+/// members.
+fn random_i64_in_span(len: usize, span_bits: u32) -> (Vec<i64>, Vec<i64>) {
+    random_i64_in_span_rows(len, span_bits, ROWS)
+}
+
+/// A random set of `len` values below `2^span_bits`, and `rows` needles of which about half are
+/// members.
+fn random_i64_in_span_rows(len: usize, span_bits: u32, rows: usize) -> (Vec<i64>, Vec<i64>) {
+    let mut rng = StdRng::seed_from_u64(0);
+    let span = 1i64 << span_bits;
+    let set: Vec<i64> = (0..len).map(|_| rng.random_range(0..span)).collect();
+    let needles = (0..rows)
+        .map(|_| {
+            if rng.random_bool(0.5) {
+                set[rng.random_range(0..len)]
+            } else {
+                rng.random_range(0..span)
+            }
+        })
+        .collect();
+    (set, needles)
+}
+
+fn bench_in_set(bencher: Bencher, set: Scalar, needles: ArrayRef) {
+    // Optimized as a scan optimizes it, so the set arrives normalized.
+    let expr = list_contains(lit(set), root())
+        .bind(needles.dtype())
+        .unwrap()
+        .optimize_recursive()
+        .unwrap();
+    bencher
+        .with_inputs(|| {
+            let array = needles
+                .clone()
+                .apply_bound(&expr)
+                .unwrap()
+                .optimize_ctx(&SESSION)
+                .unwrap();
+
+            (array, SESSION.create_execution_ctx())
+        })
+        .bench_values(|(array, mut ctx)| array.execute::<BoolArray>(&mut ctx).unwrap());
+}
+
+fn i64_set(values: Vec<i64>) -> Scalar {
+    Scalar::list(
+        Arc::new(DType::Primitive(PType::I64, Nullability::NonNullable)),
+        values.into_iter().map(Scalar::from).collect(),
+        Nullability::NonNullable,
+    )
+}
+
+#[divan::bench(args = SET_LENS)]
+fn i64_random(bencher: Bencher, set_len: usize) {
+    let (set, needles) = random_i64(set_len);
+    let needles = PrimitiveArray::from_iter(needles);
+    bench_in_set(bencher, i64_set(set), needles.into_array());
+}
+
+/// Lengths of sets in the 2^12..2^20 span range, including a small set over a wide span.
+const BITMAP_SPAN_SET_LENS: &[usize] = &[4, 256];
+
+#[divan::bench(args = BITMAP_SPAN_SET_LENS)]
+fn i64_bitmap_span_2_20(bencher: Bencher, set_len: usize) {
+    let (set, needles) = random_i64_in_span(set_len, 20);
+    let needles = PrimitiveArray::from_iter(needles);
+    bench_in_set(bencher, i64_set(set), needles.into_array());
+}
+
+#[divan::bench(args = SPARSE_SET_LENS)]
+fn i64_batched_widen(bencher: Bencher, set_len: usize) {
+    let (set, needles) = random_i64_in_span_rows(set_len, 20, BATCHED_ROWS);
+    let narrow = PrimitiveArray::from_iter(needles.into_iter().map(|v| i32::try_from(v).unwrap()));
+    let needles = WidenArray::try_new(
+        narrow.into_array(),
+        DType::Primitive(PType::I64, Nullability::NonNullable),
+    )
+    .unwrap();
+    bench_in_set(bencher, i64_set(set), needles.into_array());
+}
+
+/// Lengths of sets too sparse for a bitmap over their whole span.
+const SPARSE_SET_LENS: &[usize] = &[256];
+/// Small and large sparse set lengths to compare linear equality checks against binary search.
+const SPARSE_SPAN_2_40_SET_LENS: &[usize] = &[4, 256];
+
+#[divan::bench(args = SPARSE_SET_LENS)]
+fn i64_sparse_span_2_24(bencher: Bencher, set_len: usize) {
+    let (set, needles) = random_i64_in_span(set_len, 24);
+    let needles = PrimitiveArray::from_iter(needles);
+    bench_in_set(bencher, i64_set(set), needles.into_array());
+}
+
+#[divan::bench(args = SPARSE_SPAN_2_40_SET_LENS)]
+fn i64_sparse_span_2_40(bencher: Bencher, set_len: usize) {
+    let (set, needles) = random_i64_in_span(set_len, 40);
+    let needles = PrimitiveArray::from_iter(needles);
+    bench_in_set(bencher, i64_set(set), needles.into_array());
+}
+
+#[divan::bench(args = SET_LENS)]
+fn i64_random_chunked(bencher: Bencher, set_len: usize) {
+    let (set, needles) = random_i64(set_len);
+    let chunks = needles
+        .chunks(ROWS / CHUNKS)
+        .map(|chunk| PrimitiveArray::from_iter(chunk.iter().copied()).into_array());
+    let needles = ChunkedArray::try_new(
+        chunks,
+        DType::Primitive(PType::I64, Nullability::NonNullable),
+    )
+    .unwrap();
+    bench_in_set(bencher, i64_set(set), needles.into_array());
+}
+
+#[divan::bench(args = SET_LENS)]
+fn utf8_random(bencher: Bencher, set_len: usize) {
+    let (set, needles) = random_i64(set_len);
+    let set = Scalar::list(
+        Arc::new(DType::Utf8(Nullability::NonNullable)),
+        set.iter()
+            .map(|v| Scalar::utf8(format!("value-{v}"), Nullability::NonNullable))
+            .collect(),
+        Nullability::NonNullable,
+    );
+    let needles = VarBinViewArray::from_iter_str(needles.iter().map(|v| format!("value-{v}")));
+    bench_in_set(bencher, set, needles.into_array());
+}
+
+#[divan::bench(args = NESTED_SET_LENS)]
+fn nested_list_random(bencher: Bencher, set_len: usize) {
+    let (set, needles) = random_i64(set_len);
+    let element_dtype = Arc::new(DType::Primitive(PType::I64, Nullability::NonNullable));
+    let set = Scalar::list(
+        DType::List(Arc::clone(&element_dtype), Nullability::NonNullable),
+        set.into_iter()
+            .map(|value| {
+                Scalar::list(
+                    Arc::clone(&element_dtype),
+                    vec![value.into(), (value + 1).into()],
+                    Nullability::NonNullable,
+                )
+            })
+            .collect(),
+        Nullability::NonNullable,
+    );
+    let needles = ListArray::from_iter_slow::<u64, _>(
+        needles.into_iter().map(|value| vec![value, value + 1]),
+        element_dtype,
+    )
+    .unwrap()
+    .into_array();
+    bench_in_set(bencher, set, needles);
+}

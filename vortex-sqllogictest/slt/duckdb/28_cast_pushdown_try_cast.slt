@@ -1,0 +1,38 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+include ../setup.slt.no
+
+statement ok
+COPY (SELECT * FROM (
+    VALUES (1, 0),(1, 0),(1, 0),(1, 0),(1, 0),(1, 0),(2, 0),(3, 0),(3, 0),(3, 257)
+) AS t(column00, column01))
+TO '$__TEST_DIR__/cast_pushdown.vortex';
+
+# TRY_CAST is not pushed down
+query TT
+EXPLAIN (FORMAT json)
+SELECT TRY_CAST(column00 AS UTINYINT) FROM '$__TEST_DIR__/cast_pushdown.vortex';
+----
+<REGEX>:.*PROJECTION.*
+
+query I
+SELECT TRY_CAST(column01 AS UTINYINT) FROM '$__TEST_DIR__/cast_pushdown.vortex' ORDER BY 1 NULLS LAST;
+----
+0
+0
+0
+0
+0
+0
+0
+0
+0
+NULL
+
+# TRY_CAST is not pushed in WHERE -> conflict
+query TT
+EXPLAIN SELECT column00 FROM '$__TEST_DIR__/cast_pushdown.vortex'
+WHERE TRY_CAST(column00 AS UTINYINT) > 0;
+----
+<REGEX>:.*Filter.*

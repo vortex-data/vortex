@@ -57,10 +57,8 @@ async fn out_of_line_binary(len: usize, ctx: &mut CudaExecutionCtx) -> VortexRes
         )
     }));
 
-    let views = ctx
-        .ensure_on_device(BufferHandle::new_host(views.into_byte_buffer()))
-        .await?;
-    let values = ctx.ensure_on_device(BufferHandle::new_host(values)).await?;
+    let views = ctx.ensure_on_device(BufferHandle::new_host(views.into_byte_buffer()))?;
+    let values = ctx.ensure_on_device(BufferHandle::new_host(values))?;
 
     Ok(VarBinViewArray::new_handle(
         views,

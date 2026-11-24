@@ -1,0 +1,40 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+include ../setup.slt.no
+
+statement ok
+COPY (
+    SELECT DATE '2013-07-01' + ((i % 30)::INTEGER) AS d
+    FROM generate_series(1, 5000) t(i))
+TO '${WORK_DIR}/agg_partition_stats-date.vortex';
+
+query TT
+EXPLAIN SELECT min(d), max(d)
+FROM '${WORK_DIR}/agg_partition_stats-date.vortex';
+----
+<REGEX>:.*Column Data Scan.*
+
+query DD
+SELECT min(d), max(d) FROM '${WORK_DIR}/agg_partition_stats-date.vortex';
+----
+2013-07-01 2013-07-30
+
+statement ok
+COPY (
+    SELECT * FROM (VALUES
+        ('12:00:00'::TIME_NS),
+        ('01:02:03.123456789'::TIME_NS),
+        ('23:59:59.999999999'::TIME_NS)) t(tn))
+TO '${WORK_DIR}/agg_partition_stats-time_ns.vortex';
+
+query TT
+EXPLAIN SELECT min(tn), max(tn)
+FROM '${WORK_DIR}/agg_partition_stats-time_ns.vortex';
+----
+<REGEX>:.*Column Data Scan.*
+
+query ??
+SELECT min(tn), max(tn) FROM '${WORK_DIR}/agg_partition_stats-time_ns.vortex';
+----
+01:02:03.123456789 23:59:59.999999999
