@@ -59,6 +59,10 @@ pub enum ArrowMetadataPolicy {
 
 /// Native Arrow conversion callbacks for one Vortex extension type.
 ///
+/// The array callbacks must follow the value contracts of [`crate::ArrowExportVTable`] and
+/// [`crate::ArrowImportVTable`]. The adapter carries Vortex metadata so that importing with the
+/// inferred Arrow field can recover the original dtype.
+///
 /// Register through [`ArrowSession::register_extension`], and use the session's conversion APIs.
 /// Calling these callbacks directly bypasses metadata transport and schema validation. Callbacks
 /// **must** describe only the native Arrow representation, leaving Vortex metadata transport to the

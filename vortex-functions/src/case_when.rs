@@ -506,10 +506,11 @@ mod tests {
     use vortex_array::expr::proto::ExprSerializeProtoExt;
     use vortex_array::expr::root;
     use vortex_array::expr::test_harness;
+    use vortex_array::scalar::NumericOperator;
     use vortex_array::scalar::Scalar;
     use vortex_array::scalar_fn::ScalarFnVTableExt;
     use vortex_array::scalar_fn::VecExecutionArgs;
-    use vortex_array::scalar_fn::builtin::operators::Operator;
+    use vortex_array::scalar_fn::builtin::operators::CompareOperator;
     use vortex_array::validity::Validity;
     use vortex_buffer::Buffer;
     use vortex_buffer::buffer;
@@ -704,7 +705,7 @@ mod tests {
             BoolArray::from_iter([Some(true), Some(false), Some(true), None]).into_array();
         let division = buffer![20i32, 30, 40, 50]
             .into_array()
-            .binary(buffer![2i32, 0, 4, 0].into_array(), Operator::Div)?;
+            .numeric(buffer![2i32, 0, 4, 0].into_array(), NumericOperator::Div)?;
         assert!(division.clone().execute::<Canonical>(&mut ctx).is_err());
         let options = CaseWhenOptions {
             num_when_then_pairs: 1,
@@ -749,8 +750,11 @@ mod tests {
 
         let later_condition = buffer![20i32, 30, 40, 50]
             .into_array()
-            .binary(buffer![0i32, 3, 0, 5].into_array(), Operator::Div)?
-            .binary(ConstantArray::new(0i32, 4).into_array(), Operator::Gt)?;
+            .numeric(buffer![0i32, 3, 0, 5].into_array(), NumericOperator::Div)?
+            .compare(
+                ConstantArray::new(0i32, 4).into_array(),
+                CompareOperator::Gt,
+            )?;
         let result = CaseWhen.execute(
             &CaseWhenOptions {
                 num_when_then_pairs: 2,
@@ -776,7 +780,7 @@ mod tests {
                 ConstantArray::new(true, 4).into_array(),
                 buffer![20i32, 30, 40, 50]
                     .into_array()
-                    .binary(buffer![2i32, 0, 4, 0].into_array(), Operator::Div)?,
+                    .numeric(buffer![2i32, 0, 4, 0].into_array(), NumericOperator::Div)?,
                 ConstantArray::new(7i32, 4).into_array(),
             ],
         )?

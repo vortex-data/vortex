@@ -243,10 +243,11 @@ impl ArrowExtVTable for FixedShapeTensor {
         // and the item nullability to the form that arrow-rs accepts, and checks that the shape
         // product fits in `i32` (arrow-rs panics on `i32` overflow).
         let mut field_metadata = field.metadata().clone();
-        let shape = if let Some(json) = field_metadata.get_mut(EXTENSION_TYPE_METADATA_KEY) {
-            *json = normalize_metadata(json)?;
+        let shape = if let Some(json) = field_metadata.get(EXTENSION_TYPE_METADATA_KEY) {
+            let json = normalize_metadata(json)?;
             let ArrowShape { shape } =
-                serde_json::from_str(json).map_err(|e| vortex_err!("{e}"))?;
+                serde_json::from_str(&json).map_err(|e| vortex_err!("{e}"))?;
+            field_metadata.insert(EXTENSION_TYPE_METADATA_KEY, json);
             shape
                 .iter()
                 .try_fold(1usize, |acc, &dim| acc.checked_mul(dim))
@@ -358,6 +359,7 @@ mod tests {
     use arrow_buffer::NullBuffer;
     use arrow_schema::DataType;
     use arrow_schema::Field;
+    use arrow_schema::Metadata;
     use arrow_schema::extension::FixedShapeTensor as ArrowFixedShapeTensor;
     use rstest::rstest;
     use serde_json::Value;
@@ -403,16 +405,13 @@ mod tests {
     fn arrow_tensors_with_item(metadata: &str, nullable_item: bool) -> (Field, ArrowArrayRef) {
         let item = Arc::new(Field::new("item", DataType::Float32, nullable_item));
         let mut field = Field::new("t", DataType::FixedSizeList(Arc::clone(&item), 4), true);
-        field.set_metadata(
-            [
-                (
-                    "ARROW:extension:name".to_string(),
-                    ARROW_EXTENSION_NAME.to_string(),
-                ),
-                ("ARROW:extension:metadata".to_string(), metadata.to_string()),
-            ]
-            .into(),
-        );
+        field.set_metadata(Metadata::from_iter([
+            (
+                "ARROW:extension:name".to_string(),
+                ARROW_EXTENSION_NAME.to_string(),
+            ),
+            ("ARROW:extension:metadata".to_string(), metadata.to_string()),
+        ]));
 
         let values = Float32Array::from(vec![
             Some(1.0),
@@ -563,19 +562,16 @@ mod tests {
         let session = SESSION.arrow();
         let item = Arc::new(Field::new("item", DataType::Boolean, false));
         let mut field = Field::new("t", DataType::FixedSizeList(item, 4), true);
-        field.set_metadata(
-            [
-                (
-                    "ARROW:extension:name".to_string(),
-                    ARROW_EXTENSION_NAME.to_string(),
-                ),
-                (
-                    "ARROW:extension:metadata".to_string(),
-                    r#"{"shape": [2, 2]}"#.to_string(),
-                ),
-            ]
-            .into(),
-        );
+        field.set_metadata(Metadata::from_iter([
+            (
+                "ARROW:extension:name".to_string(),
+                ARROW_EXTENSION_NAME.to_string(),
+            ),
+            (
+                "ARROW:extension:metadata".to_string(),
+                r#"{"shape": [2, 2]}"#.to_string(),
+            ),
+        ]));
         assert!(session.from_arrow_field(&field).is_err());
     }
 

@@ -13,6 +13,8 @@ use vortex_session::SessionGuard;
 use vortex_session::SessionVar;
 use vortex_utils::aliases::hash_map::HashMap;
 
+use crate::stats::derive::StatDerivation;
+use crate::stats::derive::StatDerivationRef;
 use crate::stats::rewrite::StatsRewriteRule;
 use crate::stats::rewrite::StatsRewriteRuleRef;
 use crate::stats::rewrite::register_builtins;
@@ -23,12 +25,14 @@ type StatsRewriteRuleSet = Arc<[StatsRewriteRuleRef]>;
 #[derive(Clone, Debug)]
 pub struct StatsSession {
     rewrite_rules: Arc<RwLock<HashMap<ScalarFnId, StatsRewriteRuleSet>>>,
+    stat_derivations: Arc<RwLock<HashMap<ScalarFnId, StatDerivationRef>>>,
 }
 
 impl Default for StatsSession {
     fn default() -> Self {
         let this = Self {
             rewrite_rules: Arc::new(RwLock::new(HashMap::default())),
+            stat_derivations: Arc::new(RwLock::new(HashMap::default())),
         };
         register_builtins(&this);
         this
@@ -59,6 +63,29 @@ impl StatsSession {
         scalar_fn_id: ScalarFnId,
     ) -> Option<StatsRewriteRuleSet> {
         self.rewrite_rules.read().get(&scalar_fn_id).cloned()
+    }
+
+    /// Register how the statistics of a scalar function's result derive from its inputs'.
+    ///
+    /// This replaces any derivation already registered for that function, including a builtin
+    /// one, so a plugin can refine how a function's statistics are derived.
+    pub fn register_stat_derivation<D: StatDerivation>(&self, derivation: D) {
+        self.register_stat_derivation_ref(Arc::new(derivation));
+    }
+
+    /// Register a shared statistic derivation. See [`Self::register_stat_derivation`].
+    pub fn register_stat_derivation_ref(&self, derivation: StatDerivationRef) {
+        self.stat_derivations
+            .write()
+            .insert(derivation.scalar_fn_id(), derivation);
+    }
+
+    /// Return the statistic derivation registered for `scalar_fn_id`.
+    pub(crate) fn stat_derivation_for(
+        &self,
+        scalar_fn_id: ScalarFnId,
+    ) -> Option<StatDerivationRef> {
+        self.stat_derivations.read().get(&scalar_fn_id).cloned()
     }
 }
 

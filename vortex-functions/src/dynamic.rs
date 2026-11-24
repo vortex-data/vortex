@@ -28,9 +28,8 @@ use vortex_array::scalar_fn::ScalarFnId;
 use vortex_array::scalar_fn::ScalarFnVTable;
 use vortex_array::scalar_fn::ScalarFnVTableExt;
 use vortex_array::scalar_fn::VecExecutionArgs;
-use vortex_array::scalar_fn::builtin::binary::Binary;
+use vortex_array::scalar_fn::builtin::compare::Compare;
 use vortex_array::scalar_fn::builtin::operators::CompareOperator;
-use vortex_array::scalar_fn::builtin::operators::Operator;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -108,9 +107,7 @@ impl ScalarFnVTable for DynamicComparison {
             let rhs = ConstantArray::new(scalar, args.row_count()).into_array();
 
             let delegate_args = VecExecutionArgs::new(vec![lhs, rhs], args.row_count());
-            return Binary
-                .bind(Operator::from(data.operator))
-                .execute(&delegate_args, ctx);
+            return Compare.bind(data.operator).execute(&delegate_args, ctx);
         }
         let ret_dtype =
             DType::Bool(args.get(0)?.dtype().nullability() | data.rhs.dtype.nullability());

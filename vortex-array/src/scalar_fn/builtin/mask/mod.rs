@@ -34,9 +34,9 @@ use crate::scalar_fn::ReduceNodeValidity;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
 use crate::scalar_fn::ScalarFnVTableExt;
-use crate::scalar_fn::builtin::binary::Binary;
+use crate::scalar_fn::builtin::boolean::Boolean;
 use crate::scalar_fn::builtin::literal::Literal;
-use crate::scalar_fn::builtin::operators::Operator;
+use crate::scalar_fn::builtin::operators::BooleanOperator;
 use crate::scalar_fn::is_not_null_node;
 
 /// An expression that masks an input based on a boolean mask.
@@ -146,7 +146,7 @@ impl ScalarFnVTable for Mask {
     ) -> VortexResult<ReduceNodeValidity<T>> {
         let input_validity = is_not_null_node(&node.child(0))?;
         Ok(ReduceNodeValidity::Reduced(input_validity.new_node(
-            Binary.bind(Operator::And),
+            Boolean.bind(BooleanOperator::And),
             &[input_validity.clone(), node.child(1)],
         )?))
     }

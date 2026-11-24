@@ -70,7 +70,7 @@ not pushed down.
 
 ## Source layout
 
-Shared Java and Scala live in `java/vortex-spark/common`. Thin projects in `v3.5` and `v4.0`
+Shared Java and Scala live in `lang/java/vortex-spark/common`. Thin projects in `v3.5` and `v4.0`
 select the corresponding Spark and Scala dependencies. The Scala shims isolate the binary
 differences in Spark's Scala APIs; nothing in Java depends on them, so javac compiles the Java
 sources and ErrorProne and Nopen keep covering them.

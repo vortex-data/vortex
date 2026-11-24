@@ -39,7 +39,8 @@ use vortex_array::scalar_fn::ScalarFnExecutionResult;
 use vortex_array::scalar_fn::ScalarFnId;
 use vortex_array::scalar_fn::ScalarFnVTable;
 use vortex_array::scalar_fn::ScalarFnVTableExt;
-use vortex_array::scalar_fn::builtin::operators::Operator;
+use vortex_array::scalar_fn::builtin::operators::BooleanOperator;
+use vortex_array::scalar_fn::builtin::operators::CompareOperator;
 use vortex_array::scalar_fn::session::ScalarFnSessionExt;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -98,10 +99,10 @@ pub enum StrictComparison {
 }
 
 impl StrictComparison {
-    pub const fn to_operator(&self) -> Operator {
+    pub const fn to_operator(&self) -> CompareOperator {
         match self {
-            StrictComparison::Strict => Operator::Lt,
-            StrictComparison::NonStrict => Operator::Lte,
+            StrictComparison::Strict => CompareOperator::Lt,
+            StrictComparison::NonStrict => CompareOperator::Lte,
         }
     }
 
@@ -179,9 +180,9 @@ pub(crate) fn as_two_compares(
     upper: &ArrayRef,
     options: &BetweenOptions,
 ) -> VortexResult<ArrayRef> {
-    let lower_cmp = lower.binary(arr.clone(), options.lower_strict.to_operator())?;
-    let upper_cmp = arr.binary(upper.clone(), options.upper_strict.to_operator())?;
-    lower_cmp.binary(upper_cmp, Operator::And)
+    let lower_cmp = lower.compare(arr.clone(), options.lower_strict.to_operator())?;
+    let upper_cmp = arr.compare(upper.clone(), options.upper_strict.to_operator())?;
+    lower_cmp.boolean(upper_cmp, BooleanOperator::And)
 }
 
 /// Between on a canonical array by directly dispatching to the appropriate kernel.

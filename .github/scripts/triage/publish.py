@@ -1,4 +1,4 @@
-"""Keep one Slack thread per tracked item, and reply in it when the item changes."""
+"""Keep one Slack thread per tracked item, with its updates and reminders in that thread."""
 
 from __future__ import annotations
 
@@ -7,6 +7,14 @@ from collections.abc import Callable
 from dataclasses import dataclass, replace
 from typing import Any, Protocol
 
+from .evaluate import (
+    WAITING_ON_VORTEX,
+    Cadence,
+    Verdict,
+    fallback_verdict,
+    is_ping_due,
+    mention_for,
+)
 from .github import EXTERNAL_AUTHOR, EXTERNAL_COMMENT, FUZZER, Item
 from .slack import SlackError, SlackUnknown
 
@@ -30,6 +38,9 @@ class Thread:
     # The key of a post that was started but not confirmed. It is saved before the post is sent,
     # so a run that dies in between is found by the next run instead of posting twice.
     pending: str | None = None
+    last_ping_at: float = 0.0
+    last_checked_at: float = 0.0
+    pings: int = 0
 
     @property
     def open(self) -> bool:
@@ -37,7 +48,7 @@ class Thread:
 
 
 class Store(Protocol):
-    """Durable thread state. Slack only displays it."""
+    """Durable thread state. May be backed by Slack metadata or a database."""
 
     def load(self) -> dict[int, Thread]: ...
 
@@ -52,6 +63,8 @@ class Messenger(Protocol):
     def post(self, text: str, key: str, payload: dict[str, str], thread_ts: str | None) -> str: ...
 
     def find(self, key: str, thread_ts: str | None, oldest: float) -> dict[str, Any] | None: ...
+
+    def update(self, ts: str, text: str, key: str, payload: dict[str, str]) -> None: ...
 
 
 class MemoryStore:
@@ -104,6 +117,13 @@ def update_text(thread: Thread, new_status: str, item: Item | None) -> str | Non
     return "\n".join(lines) or None
 
 
+def ping_text(
+    item: Item, verdict: Verdict, slack_users: dict[str, str], oncall_slack_id: str | None
+) -> str:
+    who = mention_for(item, slack_users, oncall_slack_id)
+    return f"Reminder for {who}: {_escape(verdict.reason)}"
+
+
 class Publisher:
     def __init__(
         self,
@@ -117,7 +137,17 @@ class Publisher:
         self.closed_state = closed_state
         self.now = now
 
-    def sync(self, items: list[Item], max_new: int | None = None) -> list[str]:
+    def sync(
+        self,
+        items: list[Item],
+        max_new: int | None = None,
+        *,
+        ping: bool = False,
+        verdicts: dict[int, Verdict] | None = None,
+        cadence: Cadence | None = None,
+        slack_users: dict[str, str] | None = None,
+        oncall_slack_id: str | None = None,
+    ) -> list[str]:
         """Bring Slack up to date with the open `items`. Returns the items that failed.
 
         `items` must hold every open item, so that a tracked item missing from it is known to be
@@ -125,6 +155,8 @@ class Publisher:
         """
         threads = self.store.load()
         open_items = {item.number: item for item in items}
+        active_cadence = cadence or Cadence()
+        users = slack_users or {}
         failures = []
         started = 0
         for number in sorted(open_items.keys() | threads.keys()):
@@ -136,20 +168,46 @@ class Publisher:
                     continue
             elif not item and not thread.open and not thread.pending:
                 continue
+
+            def count_root() -> None:
+                nonlocal started
+                started += 1
+
             try:
-                if self._sync_item(number, item, thread, can_start=can_start):
-                    started += 1
+                self._sync_item(
+                    number,
+                    item,
+                    thread,
+                    can_start=can_start,
+                    on_root_started=count_root,
+                    ping=ping,
+                    verdicts=verdicts,
+                    cadence=active_cadence,
+                    slack_users=users,
+                    oncall_slack_id=oncall_slack_id,
+                )
             except (SlackError, SlackUnknown, RuntimeError) as error:
                 failures.append(f"#{number}: {error}")
         return failures
 
     def _sync_item(
-        self, number: int, item: Item | None, thread: Thread | None, *, can_start: bool
-    ) -> bool:
+        self,
+        number: int,
+        item: Item | None,
+        thread: Thread | None,
+        *,
+        can_start: bool,
+        on_root_started: Callable[[], None],
+        ping: bool,
+        verdicts: dict[int, Verdict] | None,
+        cadence: Cadence,
+        slack_users: dict[str, str],
+        oncall_slack_id: str | None,
+    ) -> None:
         if thread is None:
             thread = Thread(created_at=self.now())
             if not self.store.create(number, thread):
-                return False
+                return
         if thread.pending:
             thread = self._recover(number, thread)
 
@@ -160,22 +218,58 @@ class Publisher:
             closed = self.closed_state(number)
             if closed is None:
                 # Reopened after the scan. The next run sees it as an open item.
-                return False
+                return
             new_status, external_at = closed.capitalize(), thread.external_at
         payload = {"status": new_status, "external_at": external_at}
 
+        had_new_external = bool(item and item.external_at and item.external_at > thread.external_at)
         if thread.root_ts is None:
             if item is None or not item.reasons or not can_start:
-                return False
-            self._post(number, thread, f"{number}:root", root_text(item), payload)
-            return True
-        if text := update_text(thread, new_status, item):
-            self._post(number, thread, f"{number}:update:{thread.updates + 1}", text, payload)
-        return False
+                return
+            try:
+                thread = self._post(number, thread, f"{number}:root", root_text(item), payload)
+            except SlackUnknown:
+                on_root_started()
+                raise
+            on_root_started()
+        elif text := update_text(thread, new_status, item):
+            thread = self._post(
+                number, thread, f"{number}:update:{thread.updates + 1}", text, payload
+            )
+
+        if ping and item is not None and thread.root_ts is not None:
+            now_ts = self.now()
+            if is_ping_due(item, thread, now_ts, cadence, new_external=had_new_external):
+                verdict = (verdicts or {}).get(number) or fallback_verdict(item)
+                if verdict.state == WAITING_ON_VORTEX:
+                    ping_payload = {
+                        **payload,
+                        "last_ping_at": str(int(now_ts)),
+                        "verdict": verdict.state,
+                    }
+                    self._post(
+                        number,
+                        thread,
+                        f"{number}:ping:{thread.pings + 1}",
+                        ping_text(item, verdict, slack_users, oncall_slack_id),
+                        ping_payload,
+                    )
+                else:
+                    # Record the check timestamp in the root message's metadata so cadence applies
+                    # without posting a noisy thread reply.
+                    check_payload = {
+                        **payload,
+                        "last_checked_at": str(int(now_ts)),
+                        "verdict": verdict.state,
+                    }
+                    self.slack.update(
+                        thread.root_ts, root_text(item), f"{number}:root", check_payload
+                    )
+                    self.store.save(number, replace(thread, last_checked_at=now_ts))
 
     def _post(
         self, number: int, thread: Thread, key: str, text: str, payload: dict[str, str]
-    ) -> None:
+    ) -> Thread:
         thread = replace(thread, pending=key)
         self.store.save(number, thread)
         try:
@@ -189,26 +283,35 @@ class Publisher:
             # Slack refused the post, so there is nothing to look for on the next run.
             self.store.save(number, replace(thread, pending=None))
             raise
-        self.store.save(number, _posted(thread, ts, payload))
+        updated = _posted(thread, ts, key, payload)
+        self.store.save(number, updated)
+        return updated
 
     def _recover(self, number: int, thread: Thread) -> Thread:
         """Settle a post that an earlier run started: adopt it if it reached Slack."""
+        pending = thread.pending or ""
         try:
-            found = self.slack.find(thread.pending or "", thread.root_ts, thread.created_at - 60)
+            found = self.slack.find(pending, thread.root_ts, thread.created_at - 60)
         except SlackError as error:
             if error.code == "thread_not_found" and thread.root_ts is not None:
                 reset = Thread(created_at=self.now())
                 self.store.save(number, reset)
                 return reset
             raise
-        thread = _posted(thread, found["ts"], found) if found else replace(thread, pending=None)
+        thread = (
+            _posted(thread, found["ts"], pending, found) if found else replace(thread, pending=None)
+        )
         self.store.save(number, thread)
         return thread
 
 
-def _posted(thread: Thread, ts: str, payload: dict[str, Any]) -> Thread:
+def _posted(thread: Thread, ts: str, key: str, payload: dict[str, Any]) -> Thread:
     if thread.root_ts is None:
         thread = replace(thread, root_ts=ts)
+    elif ":ping:" in key:
+        raw_ping = payload.get("last_ping_at")
+        ping_ts = float(raw_ping) if raw_ping else float(ts)
+        thread = replace(thread, pings=thread.pings + 1, last_ping_at=ping_ts)
     else:
         thread = replace(thread, updates=thread.updates + 1)
     return replace(

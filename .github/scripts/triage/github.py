@@ -14,6 +14,10 @@ EXTERNAL_AUTHOR = "external_author"
 EXTERNAL_COMMENT = "external_comment"
 FUZZER = "fuzzer"
 
+_BODY_LIMIT = 1000
+_COMMENT_LIMIT = 600
+_RECENT_LIMIT = 8
+
 # A reply to an inline review comment is itself a review, so `reviews` covers those too.
 _QUERY = """
 query($owner: String!, $name: String!, $cursor: String) {
@@ -21,13 +25,13 @@ query($owner: String!, $name: String!, $cursor: String) {
     items: %(connection)s(first: 50, after: $cursor, states: OPEN) {
       pageInfo { hasNextPage endCursor }
       nodes {
-        number title url createdAt
+        number title url createdAt body
         author { login __typename }
         labels(first: 50) { nodes { name } }
         assignees(first: 20) { nodes { login } }
         # GitHub GraphQL caps a single page at 100; more than 100 trailing bot comments
         # would push older human comments out of this window.
-        comments(last: 100) { nodes { at: createdAt author { login __typename } } }
+        comments(last: 100) { nodes { at: createdAt body author { login __typename } } }
         %(extra)s
       }
     }
@@ -38,11 +42,26 @@ _CONNECTIONS = {
     "issue": {"connection": "issues", "extra": ""},
     "pr": {
         "connection": "pullRequests",
-        "extra": "reviews(last: 100) { nodes { at: submittedAt author { login __typename } } }",
+        "extra": (
+            "reviews(last: 100) {"
+            " nodes { at: submittedAt body state author { login __typename } } }"
+        ),
     },
 }
 
 Query = Callable[[str, dict[str, str | int]], dict[str, Any]]
+
+
+@dataclass(frozen=True)
+class Comment:
+    """One human comment or submitted review on an issue or pull request."""
+
+    at: str
+    author: str
+    team: bool
+    kind: str
+    body: str = ""
+    state: str = ""
 
 
 @dataclass(frozen=True)
@@ -62,6 +81,8 @@ class Item:
     external_at: str | None = None
     external_by: str | None = None
     team_at: str | None = None
+    body: str = ""
+    recent: tuple[Comment, ...] = ()
 
 
 def gh_graphql(query: str, variables: dict[str, str | int]) -> dict[str, Any]:
@@ -101,6 +122,13 @@ def _is_team(actor: dict[str, Any] | None) -> bool:
     return actor is not None and actor["login"].lower() in TEAM
 
 
+def _trim(text: str | None, limit: int) -> str:
+    cleaned = " ".join((text or "").split())
+    if len(cleaned) <= limit:
+        return cleaned
+    return cleaned[: limit - 3].rstrip() + "..."
+
+
 def classify(kind: str, node: dict[str, Any]) -> Item:
     """Turn one GraphQL issue or pull request node into an `Item`."""
     author = node["author"]
@@ -110,16 +138,30 @@ def classify(kind: str, node: dict[str, Any]) -> Item:
         reasons.append(EXTERNAL_AUTHOR)
         external_at, external_by = node["createdAt"], _login(author)
 
-    activity = node["comments"]["nodes"] + node.get("reviews", {}).get("nodes", [])
+    activity = [("comment", entry) for entry in node["comments"]["nodes"]] + [
+        ("review", entry) for entry in node.get("reviews", {}).get("nodes", [])
+    ]
     # A review that is not submitted yet has no timestamp and is not visible to anyone else.
-    people = [a for a in activity if a["at"] and not _is_bot(a["author"])]
-    people.sort(key=lambda a: a["at"])
-    for entry in people:
-        if _is_team(entry["author"]):
+    people = [(entry_kind, a) for entry_kind, a in activity if a["at"] and not _is_bot(a["author"])]
+    people.sort(key=lambda pair: pair[1]["at"])
+    recent: list[Comment] = []
+    for entry_kind, entry in people:
+        team_member = _is_team(entry["author"])
+        if team_member:
             team_at = entry["at"]
         else:
             external_at, external_by = entry["at"], _login(entry["author"])
-    if people and not _is_team(people[-1]["author"]):
+        recent.append(
+            Comment(
+                at=entry["at"],
+                author=_login(entry["author"]),
+                team=team_member,
+                kind=entry_kind,
+                body=_trim(entry.get("body"), _COMMENT_LIMIT),
+                state=str(entry.get("state") or ""),
+            )
+        )
+    if people and not _is_team(people[-1][1]["author"]):
         reasons.append(EXTERNAL_COMMENT)
 
     if kind == "issue" and any(label["name"] == FUZZER for label in node["labels"]["nodes"]):
@@ -137,34 +179,49 @@ def classify(kind: str, node: dict[str, Any]) -> Item:
         external_at=external_at,
         external_by=external_by,
         team_at=team_at,
+        body=_trim(node.get("body"), _BODY_LIMIT),
+        recent=tuple(recent[-_RECENT_LIMIT:]),
     )
 
 
-def _nodes(kind: str, repo: str, query: Query) -> Iterator[dict[str, Any]]:
-    owner, name = repo.split("/")
-    variables: dict[str, str | int] = {"owner": owner, "name": name}
+def _pages(repo: str, kind: str, query: Query) -> Iterator[dict[str, Any]]:
+    owner, name = repo.split("/", 1)
+    text = _QUERY % _CONNECTIONS[kind]
+    cursor: str | None = None
     while True:
-        page = query(_QUERY % _CONNECTIONS[kind], variables)["repository"]["items"]
+        variables: dict[str, str | int] = {"owner": owner, "name": name}
+        if cursor is not None:
+            variables["cursor"] = cursor
+        page = query(text, variables)["repository"]["items"]
         yield from page["nodes"]
         if not page["pageInfo"]["hasNextPage"]:
             return
-        variables["cursor"] = page["pageInfo"]["endCursor"]
+        cursor = page["pageInfo"]["endCursor"]
 
 
 def scan(repo: str, query: Query = gh_graphql) -> list[Item]:
-    """Return every open issue and pull request in `repo`, sorted by number."""
-    items = [classify(kind, node) for kind in _CONNECTIONS for node in _nodes(kind, repo, query)]
+    """Return every open issue and pull request in `repo`, sorted by number.
+
+    Items with no `reasons` are included so the publisher can tell them apart from closed items.
+    """
+    items = [classify(kind, node) for kind in _CONNECTIONS for node in _pages(repo, kind, query)]
     return sorted(items, key=lambda item: item.number)
 
 
 def closed_state(repo: str, number: int, query: Query = gh_graphql) -> str | None:
     """Return `closed`, `merged`, or `deleted` for a non-open item, or None if it is open."""
-    owner, name = repo.split("/")
+    owner, name = repo.split("/", 1)
     data = query(
-        "query($owner: String!, $name: String!, $number: Int!) {"
-        " repository(owner: $owner, name: $name) {"
-        " item: issueOrPullRequest(number: $number) {"
-        " ... on Issue { state } ... on PullRequest { state } } } }",
+        """
+        query($owner: String!, $name: String!, $number: Int!) {
+          repository(owner: $owner, name: $name) {
+            item: issueOrPullRequest(number: $number) {
+              ... on Issue { state }
+              ... on PullRequest { state }
+            }
+          }
+        }
+        """,
         {"owner": owner, "name": name, "number": number},
     )
     item = data["repository"]["item"]

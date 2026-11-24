@@ -12,8 +12,10 @@ use vortex_session::registry::Id;
 
 use crate::scalar_fn::ScalarFnPluginRef;
 use crate::scalar_fn::ScalarFnVTable;
-use crate::scalar_fn::builtin::binary::Binary;
+use crate::scalar_fn::builtin::LegacyBinary;
+use crate::scalar_fn::builtin::boolean::Boolean;
 use crate::scalar_fn::builtin::cast::Cast;
+use crate::scalar_fn::builtin::compare::Compare;
 use crate::scalar_fn::builtin::fill_null::FillNull;
 use crate::scalar_fn::builtin::get_item::GetItem;
 use crate::scalar_fn::builtin::is_not_null::IsNotNull;
@@ -21,6 +23,7 @@ use crate::scalar_fn::builtin::is_null::IsNull;
 use crate::scalar_fn::builtin::literal::Literal;
 use crate::scalar_fn::builtin::mask::Mask;
 use crate::scalar_fn::builtin::not::Not;
+use crate::scalar_fn::builtin::numeric::Numeric;
 use crate::scalar_fn::builtin::pack::Pack;
 use crate::scalar_fn::builtin::select::Select;
 
@@ -53,8 +56,9 @@ impl Default for ScalarFnSession {
 
         // Register the functions vortex-array is built on. `vortex_functions::initialize` registers
         // the rest.
-        this.register(Binary);
+        this.register(Boolean);
         this.register(Cast);
+        this.register(Compare);
         this.register(FillNull);
         this.register(GetItem);
         this.register(IsNotNull);
@@ -62,8 +66,13 @@ impl Default for ScalarFnSession {
         this.register(Literal);
         this.register(Mask);
         this.register(Not);
+        this.register(Numeric);
         this.register(Pack);
         this.register(Select);
+
+        // Expressions that an older version serialized can hold the legacy `vortex.binary` id.
+        let legacy_binary = Arc::new(LegacyBinary) as ScalarFnPluginRef;
+        this.registry.insert(legacy_binary.id(), legacy_binary);
 
         this
     }

@@ -33,10 +33,10 @@ use crate::scalar::Scalar;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnRef;
 use crate::scalar_fn::TypedScalarFnInstance;
-use crate::scalar_fn::builtin::binary::Binary;
+use crate::scalar_fn::builtin::boolean::Boolean;
 use crate::scalar_fn::builtin::is_not_null::IsNotNull;
 use crate::scalar_fn::builtin::literal::Literal;
-use crate::scalar_fn::builtin::operators::Operator;
+use crate::scalar_fn::builtin::operators::BooleanOperator;
 use crate::validity::Validity;
 
 // Here and beyond we use validity(x) interchangeably with is_not_null(x).
@@ -75,7 +75,7 @@ pub fn union_child_validities<T: ReduceNode>(node: &T) -> VortexResult<T> {
     let parts = parts
         .into_iter()
         .try_reduce_balanced(|lhs, rhs| {
-            lhs.new_node(Binary.bind(Operator::And), &[lhs.clone(), rhs])
+            lhs.new_node(Boolean.bind(BooleanOperator::And), &[lhs.clone(), rhs])
         })?
         .unwrap_or_else(|| node.new_constant(true.into()));
     Ok(parts)

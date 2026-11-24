@@ -9,7 +9,10 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from collections.abc import Iterator
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from .publish import Thread
 
 # Marks the messages this tool posts, in Slack message metadata.
 EVENT_TYPE = "vortex_triage"
@@ -85,7 +88,20 @@ class Slack:
             params["thread_ts"] = thread_ts
         return self._call("chat.postMessage", params, post=True)["ts"]
 
-    def _messages(self, thread_ts: str | None, oldest: float) -> Iterator[dict[str, Any]]:
+    def update(self, ts: str, text: str, key: str, payload: dict[str, str]) -> None:
+        """Update a message's metadata (and text) in place."""
+        params: dict[str, object] = {
+            "channel": self.channel,
+            "ts": ts,
+            "text": text,
+            "metadata": {"event_type": EVENT_TYPE, "event_payload": {"key": key, **payload}},
+        }
+        self._call("chat.update", params, post=True)
+
+    def messages(
+        self, thread_ts: str | None = None, oldest: float = 0.0
+    ) -> Iterator[dict[str, Any]]:
+        """Iterate messages in the channel or in one thread, including Slack metadata."""
         method = "conversations.replies" if thread_ts else "conversations.history"
         params: dict[str, object] = {
             "channel": self.channel,
@@ -94,7 +110,7 @@ class Slack:
         }
         if thread_ts:
             params["ts"] = thread_ts
-        else:
+        elif oldest > 0:
             params["oldest"] = f"{oldest:.6f}"
         while True:
             body = self._call(method, params, post=False)
@@ -109,9 +125,137 @@ class Slack:
 
         Returns the message's `ts` and the payload it was posted with, or None.
         """
-        for message in self._messages(thread_ts, oldest):
+        for message in self.messages(thread_ts, oldest):
             metadata = message.get("metadata") or {}
             payload = metadata.get("event_payload") or {}
             if metadata.get("event_type") == EVENT_TYPE and payload.get("key") == key:
                 return {"ts": message["ts"], **payload}
         return None
+
+
+def _triage_payload(message: dict[str, Any]) -> dict[str, str] | None:
+    metadata = message.get("metadata") or {}
+    if metadata.get("event_type") != EVENT_TYPE:
+        return None
+    payload = metadata.get("event_payload")
+    return payload if isinstance(payload, dict) else None
+
+
+def _parse_key(key: str) -> tuple[int, str, int] | None:
+    parts = key.split(":")
+    if len(parts) < 2 or not parts[0].isdigit():
+        return None
+    number = int(parts[0])
+    kind = parts[1]
+    if kind == "root" and len(parts) == 2:
+        return number, "root", 0
+    if kind in {"update", "ping"} and len(parts) == 3 and parts[2].isdigit():
+        return number, kind, int(parts[2])
+    return None
+
+
+def _parse_float(value: object) -> float:
+    if not isinstance(value, (int, float, str)):
+        return 0.0
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+class SlackStore:
+    """Reconstruct thread state from Slack channel history and thread metadata.
+
+    Requires no external database: every root message and bot reply carries `vortex_triage`
+    metadata with the item number, status, latest external activity timestamp, and last ping time.
+    """
+
+    def __init__(self, slack: Slack, oldest: float = 0.0) -> None:
+        self.slack = slack
+        self.oldest = oldest
+        self._threads: dict[int, Thread] | None = None
+
+    def load(self) -> dict[int, Thread]:
+        if self._threads is not None:
+            return dict(self._threads)
+        from .publish import Thread
+
+        roots: dict[int, tuple[dict[str, Any], dict[str, str]]] = {}
+        for message in self.slack.messages(thread_ts=None, oldest=self.oldest):
+            payload = _triage_payload(message)
+            if not payload:
+                continue
+            parsed = _parse_key(str(payload.get("key", "")))
+            if not parsed or parsed[1] != "root":
+                continue
+            number = parsed[0]
+            existing = roots.get(number)
+            if existing is None or _parse_float(message.get("ts")) < _parse_float(
+                existing[0].get("ts")
+            ):
+                roots[number] = (message, payload)
+
+        threads: dict[int, Thread] = {}
+        for number, (root_msg, root_payload) in roots.items():
+            root_ts = str(root_msg["ts"])
+            status = str(root_payload.get("status", ""))
+            external_at = str(root_payload.get("external_at", ""))
+            last_ping_at = _parse_float(root_payload.get("last_ping_at"))
+            last_checked_at = _parse_float(root_payload.get("last_checked_at"))
+            updates = 0
+            pings = 0
+
+            if int(root_msg.get("reply_count") or 0) > 0:
+                replies = sorted(
+                    self.slack.messages(thread_ts=root_ts),
+                    key=lambda msg: _parse_float(msg.get("ts")),
+                )
+                for reply in replies:
+                    if str(reply.get("ts")) == root_ts:
+                        continue
+                    payload = _triage_payload(reply)
+                    if not payload:
+                        continue
+                    parsed = _parse_key(str(payload.get("key", "")))
+                    if not parsed or parsed[0] != number:
+                        continue
+                    _, kind, seq = parsed
+                    if kind == "update":
+                        updates = max(updates, seq)
+                    elif kind == "ping":
+                        pings = max(pings, seq)
+                        ping_ts = _parse_float(payload.get("last_ping_at")) or _parse_float(
+                            reply.get("ts")
+                        )
+                        last_ping_at = max(last_ping_at, ping_ts)
+                    if payload.get("status"):
+                        status = str(payload["status"])
+                    if payload.get("external_at"):
+                        external_at = max(external_at, str(payload["external_at"]))
+
+            threads[number] = Thread(
+                created_at=_parse_float(root_ts),
+                root_ts=root_ts,
+                status=status,
+                external_at=external_at,
+                updates=updates,
+                last_ping_at=last_ping_at,
+                last_checked_at=last_checked_at,
+                pings=pings,
+            )
+
+        self._threads = threads
+        return dict(threads)
+
+    def create(self, number: int, thread: Thread) -> bool:
+        threads = self.load()
+        if number in threads:
+            return False
+        assert self._threads is not None
+        self._threads[number] = thread
+        return True
+
+    def save(self, number: int, thread: Thread) -> None:
+        self.load()
+        assert self._threads is not None
+        self._threads[number] = thread

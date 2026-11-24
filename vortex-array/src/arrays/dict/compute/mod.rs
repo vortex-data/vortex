@@ -64,7 +64,7 @@ mod test {
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::dtype::PType::I32;
-    use crate::scalar_fn::builtin::operators::Operator;
+    use crate::scalar_fn::builtin::operators::CompareOperator;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
@@ -177,7 +177,7 @@ mod test {
         use crate::arrays::BoolArray;
         let sliced = sliced_dict_array();
         let compared = sliced
-            .binary(ConstantArray::new(42, 3).into_array(), Operator::Eq)
+            .compare(ConstantArray::new(42, 3).into_array(), CompareOperator::Eq)
             .unwrap();
 
         let expected = BoolArray::from_iter([Some(false), None, Some(true)]);

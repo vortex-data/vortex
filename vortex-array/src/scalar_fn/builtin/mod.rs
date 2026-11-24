@@ -15,8 +15,11 @@
 //!
 //! [`ArrayBuiltins`]: crate::builtins::ArrayBuiltins
 
-pub mod binary;
+mod binary;
+pub(crate) use binary::LegacyBinary;
+pub mod boolean;
 pub mod cast;
+pub mod compare;
 pub mod fill_null;
 pub mod get_item;
 pub mod is_not_null;
@@ -24,6 +27,7 @@ pub mod is_null;
 pub mod literal;
 pub mod mask;
 pub mod not;
+pub mod numeric;
 pub mod operators;
 pub mod pack;
 pub mod select;

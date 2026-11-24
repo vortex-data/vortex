@@ -19,6 +19,7 @@ use datafusion_common::Result as DFResult;
 use datafusion_common::ScalarValue;
 use datafusion_common::exec_datafusion_err;
 use datafusion_common::format::DEFAULT_FORMAT_OPTIONS;
+use datafusion_common::metadata::FieldMetadata;
 use datafusion_common::tree_node::Transformed as DFTransformed;
 use datafusion_common::tree_node::TreeNode;
 use datafusion_expr::Operator as DFOperator;
@@ -49,6 +50,7 @@ use vortex::dtype::PType;
 use vortex::dtype::StructFields;
 use vortex::expr::Expression;
 use vortex::expr::Lambda;
+use vortex::expr::binary;
 use vortex::expr::byte_length;
 use vortex::expr::cast;
 use vortex::expr::ext_storage;
@@ -72,11 +74,13 @@ use vortex::expr::var;
 use vortex::functions::like::Like;
 use vortex::functions::like::LikeOptions;
 use vortex::layout::layouts::row_idx;
+use vortex::scalar::NumericOperator;
 use vortex::scalar::Scalar;
 use vortex::scalar_fn::ScalarFnVTableExt;
-use vortex::scalar_fn::builtin::binary::Binary;
 use vortex::scalar_fn::builtin::get_item::GetItem;
-use vortex::scalar_fn::builtin::operators::Operator;
+use vortex::scalar_fn::builtin::operators::BinaryOperator;
+use vortex::scalar_fn::builtin::operators::BooleanOperator;
+use vortex::scalar_fn::builtin::operators::CompareOperator;
 use vortex::session::VortexSession;
 use vortex_arrow::ArrowSessionExt;
 
@@ -380,7 +384,7 @@ impl DefaultExpressionConverter {
         if let Some(binary_expr) = expr.downcast_ref::<df_expr::BinaryExpr>() {
             let operator =
                 try_operator_from_df(binary_expr.op()).ok_or(Unconverted::Unsupported)?;
-            let boolean_operator = matches!(operator, Operator::And | Operator::Or);
+            let boolean_operator = matches!(operator, BinaryOperator::Boolean(_));
             let left_type = binary_expr.left().data_type(schema)?;
             let right_type = binary_expr.right().data_type(schema)?;
             if boolean_operator {
@@ -417,7 +421,7 @@ impl DefaultExpressionConverter {
             {
                 return Err(Unconverted::Unsupported);
             }
-            return Ok(Binary.new_expr(operator, [left, right]));
+            return Ok(binary(operator, left, right));
         }
 
         if let Some(col_expr) = expr.downcast_ref::<df_expr::Column>() {
@@ -535,11 +539,11 @@ impl DefaultExpressionConverter {
         &self,
         expr: &Arc<dyn PhysicalExpr>,
         other: &Arc<dyn PhysicalExpr>,
-        operator: Operator,
+        operator: BinaryOperator,
         schema: &Schema,
         input_dtype: &DType,
     ) -> Conversion<Expression> {
-        if operator.is_comparison()
+        if matches!(operator, BinaryOperator::Compare(_))
             && let Some(literal) = expr.downcast_ref::<df_expr::Literal>()
         {
             let field = other.return_field(schema)?;
@@ -572,7 +576,7 @@ impl DefaultExpressionConverter {
         for key in [EXTENSION_TYPE_NAME_KEY, EXTENSION_TYPE_METADATA_KEY] {
             field.metadata_mut().remove(key);
             if let Some(value) = operand_field.metadata().get(key) {
-                field.metadata_mut().insert(key.into(), value.clone());
+                field.metadata_mut().insert(key, value.clone());
             }
         }
 
@@ -658,17 +662,33 @@ impl DefaultExpressionConverter {
 
         // The list of a hash join filter holds every build-side key, which repeat. Each element
         // converts through Arrow, so equal values with equal metadata are converted once.
-        let elements = in_list
+        let literals = in_list
             .list()
             .iter()
-            .unique_by(|element| element.downcast_ref::<df_expr::Literal>().cloned())
             .map(|element| {
-                let literal = element
+                element
                     .downcast_ref::<df_expr::Literal>()
-                    .ok_or(Unconverted::Unsupported)?;
-
-                self.import_literal_for_operand(literal, &value_field, schema)
+                    .cloned()
+                    .ok_or(Unconverted::Unsupported)
             })
+            .collect::<Conversion<Vec<_>>>()?;
+        let signed_zero_partners = literals
+            .iter()
+            .filter_map(|literal| {
+                let partner = signed_zero_partner(literal.value())?;
+                Some(literal.return_field(schema).map(|field| {
+                    df_expr::Literal::new_with_metadata(
+                        partner,
+                        Some(FieldMetadata::new_from_field(&field)),
+                    )
+                }))
+            })
+            .collect::<DFResult<Vec<_>>>()?;
+        let elements = literals
+            .into_iter()
+            .chain(signed_zero_partners)
+            .unique()
+            .map(|literal| self.import_literal_for_operand(&literal, &value_field, schema))
             .collect::<Conversion<Vec<_>>>()?;
 
         // An element of another type than the value declines the pushdown: no implicit casts.
@@ -979,6 +999,26 @@ impl ExpressionConverter for DefaultExpressionConverter {
     }
 }
 
+/// The other signed zero, for a float zero.
+///
+/// DataFusion's `IN` treats `0.0` and `-0.0` as equal but otherwise compares floats by their bits,
+/// so a NaN matches only the same NaN. Vortex's set lookup compares bits, so a converted list holds
+/// both zeros whenever DataFusion's list holds either.
+fn signed_zero_partner(value: &ScalarValue) -> Option<ScalarValue> {
+    match value {
+        ScalarValue::Float16(Some(zero)) if zero.to_f32() == 0.0 => {
+            Some(ScalarValue::Float16(Some(-*zero)))
+        }
+        ScalarValue::Float32(Some(zero)) if *zero == 0.0 => {
+            Some(ScalarValue::Float32(Some(-*zero)))
+        }
+        ScalarValue::Float64(Some(zero)) if *zero == 0.0 => {
+            Some(ScalarValue::Float64(Some(-*zero)))
+        }
+        _ => None,
+    }
+}
+
 /// Whether evaluating `expr` cannot fail, so Vortex may evaluate it on rows DataFusion skips.
 pub(crate) fn is_infallible(expr: &Expression) -> bool {
     expr.as_scalar()
@@ -1083,20 +1123,20 @@ fn classify_cast_types(source: &DataType, target: &DataType) -> Conversion<CastP
     })
 }
 
-fn try_operator_from_df(value: &DFOperator) -> Option<Operator> {
+fn try_operator_from_df(value: &DFOperator) -> Option<BinaryOperator> {
     match value {
-        DFOperator::Eq => Some(Operator::Eq),
-        DFOperator::NotEq => Some(Operator::NotEq),
-        DFOperator::Lt => Some(Operator::Lt),
-        DFOperator::LtEq => Some(Operator::Lte),
-        DFOperator::Gt => Some(Operator::Gt),
-        DFOperator::GtEq => Some(Operator::Gte),
-        DFOperator::And => Some(Operator::And),
-        DFOperator::Or => Some(Operator::Or),
-        DFOperator::Plus => Some(Operator::Add),
-        DFOperator::Minus => Some(Operator::Sub),
-        DFOperator::Multiply => Some(Operator::Mul),
-        DFOperator::Divide => Some(Operator::Div),
+        DFOperator::Eq => Some(BinaryOperator::Compare(CompareOperator::Eq)),
+        DFOperator::NotEq => Some(BinaryOperator::Compare(CompareOperator::NotEq)),
+        DFOperator::Lt => Some(BinaryOperator::Compare(CompareOperator::Lt)),
+        DFOperator::LtEq => Some(BinaryOperator::Compare(CompareOperator::Lte)),
+        DFOperator::Gt => Some(BinaryOperator::Compare(CompareOperator::Gt)),
+        DFOperator::GtEq => Some(BinaryOperator::Compare(CompareOperator::Gte)),
+        DFOperator::And => Some(BinaryOperator::Boolean(BooleanOperator::And)),
+        DFOperator::Or => Some(BinaryOperator::Boolean(BooleanOperator::Or)),
+        DFOperator::Plus => Some(BinaryOperator::Numeric(NumericOperator::Add)),
+        DFOperator::Minus => Some(BinaryOperator::Numeric(NumericOperator::Sub)),
+        DFOperator::Multiply => Some(BinaryOperator::Numeric(NumericOperator::Mul)),
+        DFOperator::Divide => Some(BinaryOperator::Numeric(NumericOperator::Div)),
         DFOperator::IsDistinctFrom
         | DFOperator::IsNotDistinctFrom
         | DFOperator::RegexMatch

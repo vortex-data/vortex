@@ -227,6 +227,7 @@ mod multipart_lifecycle_tests {
             Ok(PutResult {
                 e_tag: Some("test-etag".to_owned()),
                 version: None,
+                extensions: Default::default(),
             })
         }
 
