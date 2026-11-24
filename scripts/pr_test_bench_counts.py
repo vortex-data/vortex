@@ -228,7 +228,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--base", required=True, help="the base branch commit")
     parser.add_argument("--head", required=True, help="the PR head commit")
-    parser.add_argument("--tests-warn", type=int, default=50)
+    parser.add_argument("--tests-warn", type=int, default=40)
     parser.add_argument("--benches-warn", type=int, default=10)
     parser.add_argument("--codspeed-warn", type=int, default=100)
     args = parser.parse_args()

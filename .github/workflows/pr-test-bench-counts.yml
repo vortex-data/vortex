@@ -18,7 +18,7 @@ on:
 permissions: { }
 
 env:
-  TESTS_WARN: 50
+  TESTS_WARN: 40
   BENCHES_WARN: 10
   CODSPEED_WARN: 100
 
