@@ -24,6 +24,13 @@ pub struct CompressorContext {
     /// Whether we're compressing a sample (for ratio estimation).
     is_sample: bool,
 
+    /// Whether this site is nested inside another array compressed by the same call: a struct
+    /// field, a list's elements or a validity bitmap. A [`CompressionPolicy`] is not consulted
+    /// at nested sites, so a plan covers the cascade of a single leaf.
+    ///
+    /// [`CompressionPolicy`]: crate::scheme::CompressionPolicy
+    is_nested: bool,
+
     /// Remaining cascade depth allowed.
     allowed_cascading: usize,
 
@@ -47,6 +54,7 @@ impl CompressorContext {
     pub(crate) fn new() -> Self {
         Self {
             is_sample: false,
+            is_nested: false,
             allowed_cascading: MAX_CASCADE,
             merged_stats_options: GenerateStatsOptions::default(),
             cascade_history: Vec::new(),
@@ -58,6 +66,20 @@ impl CompressorContext {
     /// Whether this context is for sample compression (ratio estimation).
     pub fn is_sample(&self) -> bool {
         self.is_sample
+    }
+
+    /// Whether this site is nested inside another array compressed by the same call, such as a
+    /// struct field, a list's elements or a validity bitmap.
+    pub fn is_nested(&self) -> bool {
+        self.is_nested
+    }
+
+    /// Returns a root context for a site nested inside another array.
+    pub(crate) fn nested() -> Self {
+        Self {
+            is_nested: true,
+            ..Self::new()
+        }
     }
 
     /// Returns the merged stats generation options for this compression site.
