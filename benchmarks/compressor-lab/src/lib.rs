@@ -33,6 +33,7 @@ pub mod oracle;
 pub mod plan;
 pub mod queue;
 pub mod runner;
+pub mod selector;
 pub mod shard;
 pub mod source;
 pub mod spec;

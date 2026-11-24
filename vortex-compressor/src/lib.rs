@@ -66,6 +66,7 @@
 pub mod builtins;
 pub mod plan;
 pub mod scheme;
+pub mod selector;
 pub mod stats;
 
 mod compressor;
