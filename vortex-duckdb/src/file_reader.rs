@@ -6,6 +6,7 @@ use std::ops::Range;
 use std::sync::Arc;
 use std::sync::OnceLock;
 use std::sync::atomic::AtomicBool;
+use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 
 use futures::FutureExt;
@@ -39,6 +40,7 @@ use vortex::mask::Mask;
 use vortex::scan::DataSource as _;
 use vortex::scan::DataSourceRef;
 use vortex::scan::ScanRequest;
+use vortex::scan::stream::Claims;
 use vortex::scan::stream::ScanStream;
 use vortex::session::SessionExt as _;
 
@@ -135,6 +137,8 @@ pub struct FileScanState {
     stream: OnceLock<FileStream>,
     /// Whether a clone of `stream` has ended, so no work of the file is left to take.
     finished: AtomicBool,
+    /// How many threads have joined the file, each with its own clone of `stream`.
+    joined: AtomicUsize,
     cache: ConversionCache,
 }
 
@@ -156,9 +160,18 @@ impl FileScanState {
         if self.finished.load(Ordering::Acquire) {
             return None;
         }
-        self.stream
-            .get()
-            .map(|stream| Split(stream.stream.lock().clone()))
+        let stream = self.stream.get()?.stream.lock();
+        // A clone claims its first unit of work, a V1 split or a V2 part, only when its thread
+        // first polls it, outside DuckDB's lock, so without a bound every thread would join before
+        // any had claimed. As many clones as units drain the file, so a later thread moves on
+        // instead.
+        if let Some(Claims { claimed, total }) = stream.claims()
+            && (claimed >= total || self.joined.load(Ordering::Relaxed) >= total)
+        {
+            return None;
+        }
+        self.joined.fetch_add(1, Ordering::Relaxed);
+        Some(Split(stream.clone()))
     }
 }
 
@@ -177,6 +190,7 @@ impl OpenFileReader {
                 plan_source: file.plan_data_source(),
                 stream: OnceLock::new(),
                 finished: AtomicBool::new(false),
+                joined: AtomicUsize::new(0),
                 cache: ConversionCache::default(),
             })),
         })
@@ -473,8 +487,14 @@ pub fn reader_get_progress_in_file(file: &OpenFileReader) -> f64 {
     state
         .stream
         .get()
-        .and_then(|stream| stream.stream.lock().progress())
-        .map_or(0.0, |progress| 100.0 * progress)
+        .and_then(|stream| stream.stream.lock().claims())
+        .map_or(0.0, |Claims { claimed, total }| {
+            if total == 0 {
+                100.0
+            } else {
+                100.0 * claimed as f64 / total as f64
+            }
+        })
 }
 
 /// Called by one thread in planning phase
