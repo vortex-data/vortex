@@ -36,13 +36,13 @@ __device__ void alp_device(const EncT *__restrict in,
     constexpr int per_thread = 1024 / ThreadCount;
     uint64_t chunk_base = static_cast<uint64_t>(blockIdx.x) * 1024;
 
-    // Step 1: decode the chunk into shared memory. Full chunks of an unshifted array take the fast
-    // path with no per-element branch; the tail block and shifted arrays are bounds-checked.
-    if (slice_shift == 0 && chunk_base + 1024 <= array_len) {
+    // The whole block can read without per-row checks when it lies inside the sliced input.
+    if (chunk_base >= slice_shift && chunk_base - slice_shift + 1024 <= array_len) {
+        const EncT *chunk_in = in + (chunk_base - slice_shift);
 #pragma unroll
         for (int i = 0; i < per_thread; i++) {
             int idx = i * ThreadCount + thread_idx;
-            shared_out[idx] = static_cast<FloatT>(in[chunk_base + idx]) * f * e;
+            shared_out[idx] = static_cast<FloatT>(chunk_in[idx]) * f * e;
         }
     } else {
 #pragma unroll
