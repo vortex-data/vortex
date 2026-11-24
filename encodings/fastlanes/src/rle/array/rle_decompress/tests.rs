@@ -348,7 +348,6 @@ fn decode_delta_values_idx_offsets() -> VortexResult<()> {
         rle.len(),
     )?;
 
-    let decoded = rle_decompress(rle, &mut ctx)?;
-    assert_arrays_eq!(decoded, input, &mut ctx);
+    assert_arrays_eq!(rle.into_array(), input, &mut ctx);
     Ok(())
 }

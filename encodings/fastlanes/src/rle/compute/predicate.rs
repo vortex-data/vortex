@@ -32,7 +32,6 @@ use vortex_functions::builtins::ArrayFunctions;
 use crate::RLE;
 use crate::rle::RLEArrayExt;
 use crate::rle::RLEArraySlotsExt;
-use crate::rle::array::rle_decompress::rle_decompress;
 
 impl CompareKernel for RLE {
     fn compare(
@@ -115,7 +114,7 @@ fn expand_run_answers(
             array.len(),
         )
     };
-    let answers = rle_decompress(answers, ctx)?;
+    let answers = answers.into_array().execute::<PrimitiveArray>(ctx)?;
     let bits = BitBufferMut::from(answers.as_slice::<u8>()).freeze();
 
     Ok(BoolArray::new(bits, validity).into_array())
