@@ -349,7 +349,6 @@ impl VortexDataSourceBuilder {
             dynamic_filters: Vec::new(),
             limit: None,
             ordered: self.output_ordering.is_some(),
-            preserve_order: false,
             target_parallelism: get_available_parallelism().unwrap_or(1),
         })
     }
@@ -389,10 +388,9 @@ impl VortexDataSource {
 ///
 /// - An unordered scan is [opened] once, and every output partition reads its own stream of it,
 ///   so partitions that finish early keep taking work.
-/// - A scan with a declared ordering, or whose output partitions DataFusion asks to keep their
-///   order, is [split] into one fixed piece per output partition, and output partition `i` reads
-///   piece `i` in order. The pieces are contiguous, so each partition keeps the ordering. Partitions beyond the
-///   piece count return no rows.
+/// - A scan with a declared ordering is [split] into one fixed piece per output partition, and
+///   output partition `i` reads piece `i` in order. The pieces are contiguous, so each partition
+///   keeps the ordering. Partitions beyond the piece count return no rows.
 ///
 /// Either way an output partition holds work that no other partition reads: the work its stream
 /// has taken, or its piece. Dropping an output partition before it finishes therefore cancels its
@@ -453,9 +451,6 @@ pub struct VortexDataSource {
     limit: Option<usize>,
     /// Whether to preserve a declared ordering in each output partition.
     ordered: bool,
-    /// Whether each output partition must return its rows in order, as DataFusion requests
-    /// through [`DataSource::with_preserve_order`].
-    preserve_order: bool,
 
     /// Target Arrow conversion concurrency when only one output partition is exposed.
     target_parallelism: usize,
@@ -482,7 +477,7 @@ impl VortexDataSource {
             projection: self.projected_projection.clone(),
             filter: self.filter.clone(),
             limit: self.limit.map(|l| u64::try_from(l).unwrap_or(u64::MAX)),
-            ordered: self.ordered || self.preserve_order,
+            ordered: self.ordered,
             ..Default::default()
         }
     }
@@ -903,12 +898,6 @@ impl DataSource for VortexDataSource {
 
     fn fetch(&self) -> Option<usize> {
         self.limit
-    }
-
-    fn with_preserve_order(&self, preserve_order: bool) -> Option<Arc<dyn DataSource>> {
-        let mut this = self.clone();
-        this.preserve_order = preserve_order;
-        Some(Arc::new(this))
     }
 
     // Note that we're explicitly "swapping" the projection. That means everything we do must
@@ -1405,14 +1394,14 @@ mod tests {
     }
 
     /// One execution scans once, lazily, and a reset execution scans again. Unordered output
-    /// partitions share the opened scan's work; output partitions that keep their order read piece
-    /// `i` of one split, and partitions beyond the piece count return no rows.
+    /// partitions share the opened scan's work; output partitions with a declared ordering read
+    /// piece `i` of one split, and partitions beyond the piece count return no rows.
     #[rstest]
     #[case::shared_work(false)]
     #[case::ordered_pieces(true)]
     #[tokio::test]
     async fn output_partitions_read_one_scan_per_execution(
-        #[case] preserve_order: bool,
+        #[case] ordered: bool,
     ) -> anyhow::Result<()> {
         let scans = Arc::new(AtomicUsize::new(0));
         let data_source: DataSourceRef = Arc::new(TestDataSource {
@@ -1430,8 +1419,12 @@ mod tests {
                 requested.max(1)
             );
         }
+        let ordering = ordered.then(|| {
+            let key = Arc::new(Column::new("x", 0)) as Arc<dyn PhysicalExpr>;
+            LexOrdering::new([PhysicalSortExpr::new_default(key)]).expect("one key")
+        });
         let source = source
-            .repartitioned(4, 0, None)?
+            .repartitioned(4, 0, ordering)?
             .expect("repartitioning supported");
         assert_eq!(source.output_partitioning().partition_count(), 4);
         assert_eq!(
@@ -1442,14 +1435,6 @@ mod tests {
             .with_fetch(Some(1))
             .expect("fetch bounds each partition");
         assert_eq!(fetched.output_partitioning().partition_count(), 4);
-        let source = if preserve_order {
-            source
-                .with_preserve_order(true)
-                .expect("order preserved per partition")
-        } else {
-            source
-        };
-
         let plan = Arc::new(DataSourceExec::new(Arc::clone(&source))) as Arc<dyn ExecutionPlan>;
         let context = Arc::new(TaskContext::default());
         let streams = (0..4)
@@ -1461,7 +1446,7 @@ mod tests {
             let batches: Vec<RecordBatch> = stream.try_collect().await?;
             partitions.push(partition_values(&batches));
         }
-        if preserve_order {
+        if ordered {
             assert_eq!(partitions, [vec![0, 1], vec![100, 101], vec![], vec![]]);
         } else {
             let mut values = partitions.concat();
