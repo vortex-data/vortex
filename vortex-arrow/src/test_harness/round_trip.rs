@@ -9,12 +9,15 @@
 use std::sync::Arc;
 
 use arrow_array::Array;
+use arrow_ord::cmp;
 use arrow_schema::DataType;
 use arrow_schema::Field;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
+use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::DictArray;
+use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::FixedSizeListArray;
 use vortex_array::arrays::ListArray;
 use vortex_array::arrays::ListViewArray;
@@ -22,11 +25,14 @@ use vortex_array::arrays::MapArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::RunEnd;
 use vortex_array::arrays::StructArray;
+use vortex_array::arrays::extension::ExtensionArrayExt;
 use vortex_array::assert_arrays_eq;
+use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldNames;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
+use vortex_array::scalar_fn::builtin::operators::CompareOperator;
 use vortex_array::validity::Validity;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -39,6 +45,9 @@ use crate::ExecuteArrowExt;
 /// The caller builds both representations and the expected field independently from source
 /// values. The Vortex array must have an extension dtype. Arrow data equality ignores values
 /// masked by nulls.
+///
+/// Also check the export against the Vortex storage for nulls, equality, and order where the Arrow
+/// comparison kernels support the output type.
 #[track_caller]
 pub fn check_arrow(
     array: ArrayRef,
@@ -46,7 +55,8 @@ pub fn check_arrow(
     expected: arrow_array::ArrayRef,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<()> {
-    check_arrow_values(array.clone(), field, Arc::clone(&expected), ctx)?;
+    let exported = check_arrow_values(array.clone(), field, Arc::clone(&expected), ctx)?;
+    check_exported_values(array.clone(), exported.as_ref(), ctx)?;
     check_nested_arrow(array.clone(), field, Arc::clone(&expected), ctx)?;
     let len = array.len();
     let indices: Vec<_> = (0..u32::try_from(len)?)
@@ -78,9 +88,7 @@ pub fn check_arrow(
     ];
     for (operation, selected, expected) in selected {
         assert_eq!(selected.dtype(), array.dtype(), "{operation} dtype");
-        let selected = selected
-            .execute::<vortex_array::arrays::ExtensionArray>(ctx)?
-            .into_array();
+        let selected = selected.execute::<ExtensionArray>(ctx)?.into_array();
         let exported = selected.execute_arrow(Some(field), ctx)?;
         assert_eq!(exported.to_data(), expected.to_data(), "{operation} values");
     }
@@ -94,7 +102,7 @@ fn check_arrow_values(
     field: &Field,
     expected: arrow_array::ArrayRef,
     ctx: &mut ExecutionCtx,
-) -> VortexResult<()> {
+) -> VortexResult<arrow_array::ArrayRef> {
     let session = ctx.session().clone();
     let arrow = session.arrow();
     assert_eq!(expected.data_type(), field.data_type());
@@ -109,8 +117,73 @@ fn check_arrow_values(
     data.validate_full()?;
     assert_eq!(data, expected_data, "explicit export values");
 
-    let round_tripped = arrow.from_arrow_array(exported, field)?;
+    let round_tripped = arrow.from_arrow_array(Arc::clone(&exported), field)?;
     assert_arrays_eq!(round_tripped, array, ctx);
+
+    Ok(exported)
+}
+
+/// Checks the nulls and comparable storage values against the exported array.
+///
+/// [`ArrowExportVTable::execute_arrow`] states the two rules. Check nulls across all rows, then
+/// compare consecutive non-null rows. If the array contains distinct values, at least one pair
+/// compares them. Nested exports only support the null check.
+///
+/// [`ArrowExportVTable::execute_arrow`]: crate::ArrowExportVTable::execute_arrow
+#[track_caller]
+fn check_exported_values(
+    array: ArrayRef,
+    exported: &dyn Array,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<()> {
+    let len = array.len();
+    let nulls = exported.logical_nulls();
+    let exported_is_null = match &nulls {
+        Some(nulls) => BoolArray::from_iter(nulls.iter().map(|valid| !valid)),
+        None => BoolArray::from_iter(std::iter::repeat_n(false, len)),
+    };
+    assert_arrays_eq!(exported_is_null.into_array(), array.is_null()?, ctx);
+
+    if exported.data_type().is_nested() {
+        return Ok(());
+    }
+
+    let indices = match nulls {
+        Some(nulls) => nulls
+            .valid_indices()
+            .map(u32::try_from)
+            .collect::<Result<Vec<_>, _>>()?,
+        None => (0..u32::try_from(len)?).collect(),
+    };
+    if indices.len() < 2 {
+        return Ok(());
+    }
+
+    let left_indices = &indices[..indices.len() - 1];
+    let right_indices = &indices[1..];
+
+    let session = ctx.session().clone();
+    let extension = array.execute::<ExtensionArray>(ctx)?;
+    let storage = extension.storage_array();
+    let arrow_left = reference_take(exported, left_indices)?;
+    let arrow_right = reference_take(exported, right_indices)?;
+    let storage_left =
+        storage.take(PrimitiveArray::from_iter(left_indices.iter().copied()).into_array())?;
+    let storage_right =
+        storage.take(PrimitiveArray::from_iter(right_indices.iter().copied()).into_array())?;
+
+    let comparisons = [
+        (CompareOperator::Eq, cmp::eq(&arrow_left, &arrow_right)?),
+        (CompareOperator::Lt, cmp::lt(&arrow_left, &arrow_right)?),
+    ];
+
+    for (operator, in_arrow) in comparisons {
+        let in_vortex = storage_left.compare(storage_right.clone(), operator)?;
+        let in_arrow = session
+            .arrow()
+            .from_arrow_array(Arc::new(in_arrow), in_vortex.dtype().is_nullable())?;
+        assert_arrays_eq!(in_arrow, in_vortex, ctx);
+    }
 
     Ok(())
 }
@@ -298,7 +371,9 @@ fn check_nested_arrow(
             .data_type(run_field.data_type().clone())
             .build()?,
     );
-    check_arrow_values(runs, &run_field, expected_runs, ctx)
+    check_arrow_values(runs, &run_field, expected_runs, ctx)?;
+
+    Ok(())
 }
 
 /// Selects source rows while retaining the row count of zero-width lists.
@@ -506,4 +581,32 @@ pub(super) fn check_nested_round_trips(
     check_field_round_trip(&run_end, &field, Some(&field), ctx)?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use arrow_array::Date32Array;
+    use vortex_array::VortexSessionExecute as _;
+    use vortex_error::VortexExpect;
+    use vortex_session::VortexSession;
+
+    use super::check_exported_values;
+    use crate::ArrowSessionExt;
+
+    #[test]
+    #[should_panic(expected = "assertion failed: arrays do not match")]
+    fn test_export_order_check_pairs_non_null_rows() {
+        let session = VortexSession::empty();
+        let storage_order = Date32Array::from(vec![Some(1), Some(2), None, None]);
+        let reversed_order = Date32Array::from(vec![Some(2), Some(1), None, None]);
+        let array = session
+            .arrow()
+            .from_arrow_array(Arc::new(storage_order), true)
+            .vortex_expect("Date32 imports as a Vortex date array");
+
+        check_exported_values(array, &reversed_order, &mut session.create_execution_ctx())
+            .vortex_expect("Date32 comparisons are supported");
+    }
 }

@@ -59,11 +59,18 @@ jobs:
       - name: Ensure wheel and sdist can be built on Linux - PyVortex
         shell: bash
         run: |
-          dist_dir=$(mktemp -d "${RUNNER_TEMP}/python-dist.XXXXXX")
+          dist_dir="${RUNNER_TEMP}/python-dist"
+          mkdir "$dist_dir"
 
           uv venv
-          # Build the wheel from the sdist, reusing cached dependencies outside its temporary source tree.
-          uv tool run maturin@1.15.0 build --interpreter python3.11 --zig --sdist \
+          uv tool run maturin@1.15.0 sdist --out "$dist_dir"
+
+          src_dir="${RUNNER_TEMP}/sdist-src"
+          mkdir -p "$src_dir"
+          tar -xzf "$dist_dir"/*.tar.gz -C "$src_dir" --strip-components=1
+
+          uv tool run maturin@1.15.0 build --interpreter python3.11 --zig --profile ci \
+            --manifest-path "$src_dir/vortex-python/Cargo.toml" \
             --target-dir "${GITHUB_WORKSPACE}/target" --out "$dist_dir"
 
           shopt -s nullglob

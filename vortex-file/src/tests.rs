@@ -1683,6 +1683,66 @@ async fn file_excluding_dtype() -> VortexResult<()> {
 }
 
 #[tokio::test]
+async fn open_with_unknown_field_dtype_tag_drops_file_statistics() -> VortexResult<()> {
+    use vortex_array::dtype::flatbuffers as dtype_fb;
+    use vortex_array::flatbuffers::FlatBuffer;
+
+    let array = StructArray::from_fields(&[("a", buffer![1i32, 2, 3].into_array())])?.into_array();
+
+    let mut writer = vec![];
+    SESSION
+        .write_options()
+        .exclude_dtype()
+        .write(&mut writer, array.to_array_stream())
+        .await?;
+    let buffer: Bytes = writer.into();
+
+    let vxf = SESSION
+        .open_options()
+        .with_dtype(array.dtype().clone())
+        .open_buffer(buffer.clone())?;
+    assert!(vxf.file_stats().is_some());
+
+    let mut fbb = FlatBufferBuilder::new();
+    let name_a = fbb.create_string("a");
+    let names = fbb.create_vector(&[name_a]);
+    let unknown_type = dtype_fb::Null::create(&mut fbb, &dtype_fb::NullArgs {});
+    let unknown = dtype_fb::DType::create(
+        &mut fbb,
+        &dtype_fb::DTypeArgs {
+            type_type: dtype_fb::Type(200),
+            type_: Some(unknown_type.as_union_value()),
+        },
+    );
+    let dtypes = fbb.create_vector(&[unknown]);
+    let struct_table = dtype_fb::Struct_::create(
+        &mut fbb,
+        &dtype_fb::Struct_Args {
+            names: Some(names),
+            dtypes: Some(dtypes),
+            nullable: false,
+        },
+    );
+    let root = dtype_fb::DType::create(
+        &mut fbb,
+        &dtype_fb::DTypeArgs {
+            type_type: dtype_fb::Type::Struct_,
+            type_: Some(struct_table.as_union_value()),
+        },
+    );
+    fbb.finish_minimal(root);
+    let dtype = DType::from_flatbuffer(FlatBuffer::copy_from(fbb.finished_data()), &SESSION)?;
+
+    let vxf = SESSION
+        .open_options()
+        .with_dtype(dtype)
+        .open_buffer(buffer)?;
+    assert!(vxf.file_stats().is_none());
+
+    Ok(())
+}
+
+#[tokio::test]
 async fn file_take() -> VortexResult<()> {
     let vxf = chunked_file().await?;
     let result = vxf
