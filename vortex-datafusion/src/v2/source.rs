@@ -118,9 +118,7 @@ use futures::stream;
 use futures::stream::BoxStream;
 use futures::task::AtomicWaker;
 use tokio::sync::OnceCell;
-use vortex::array::stream::ArrayStreamAdapter;
 use vortex::array::stream::ArrayStreamExt;
-use vortex::array::stream::SendableArrayStream;
 use vortex::dtype::DType;
 use vortex::dtype::FieldPath;
 use vortex::dtype::Nullability;
@@ -136,8 +134,6 @@ use vortex::expr::stats::Precision;
 use vortex::expr::transform::replace;
 use vortex::scan::DataSourceRef;
 use vortex::scan::DataSourceScanRef;
-use vortex::scan::PartitionRef;
-use vortex::scan::PartitionStream;
 use vortex::scan::ScanRequest;
 use vortex::scan::stream::ScanExec;
 use vortex::session::VortexSession;
@@ -199,19 +195,6 @@ pub struct VortexDataSourceBuilder {
     projection: Option<Vec<usize>>,
     expression_converter: Arc<dyn ExpressionConverter>,
     output_ordering: Option<LexOrdering>,
-    split_scan: bool,
-}
-
-/// The environment variable that selects how [`VortexDataSource`] reads its scan: `0` reads the
-/// scan's shared partition stream, anything else (the default) reads it through
-/// [`DataSourceScan::open`](vortex::scan::DataSourceScan::open) and
-/// [`DataSourceScan::split`](vortex::scan::DataSourceScan::split).
-///
-/// It exists to compare the two in one binary, and goes away with the partition stream.
-pub const SCAN_POOL_ENV: &str = "VORTEX_SCAN_POOL";
-
-fn split_scan_from_env() -> bool {
-    std::env::var(SCAN_POOL_ENV).map_or(true, |value| value != "0")
 }
 
 impl VortexDataSourceBuilder {
@@ -266,14 +249,6 @@ impl VortexDataSourceBuilder {
     /// The adapter preserves this sequence using one output partition; it does not sort rows.
     pub fn with_output_ordering(mut self, ordering: LexOrdering) -> Self {
         self.output_ordering = Some(ordering);
-        self
-    }
-
-    /// Selects whether output partitions read the scan through its `open` and `split` (`true`) or
-    /// take partitions from the scan's shared partition stream (`false`). Defaults to
-    /// [`SCAN_POOL_ENV`], read when the builder is created.
-    pub fn with_split_scan(mut self, split_scan: bool) -> Self {
-        self.split_scan = split_scan;
         self
     }
 
@@ -376,7 +351,6 @@ impl VortexDataSourceBuilder {
             ordered: self.output_ordering.is_some(),
             preserve_order: false,
             target_parallelism: get_available_parallelism().unwrap_or(1),
-            split_scan: self.split_scan,
         })
     }
 }
@@ -391,7 +365,6 @@ impl VortexDataSource {
             arrow_schema: None,
             projection: None,
             output_ordering: None,
-            split_scan: split_scan_from_env(),
         }
     }
 }
@@ -421,11 +394,8 @@ impl VortexDataSource {
 ///   piece `i` in order. The pieces are contiguous, so each partition keeps the ordering. Partitions beyond the
 ///   piece count return no rows.
 ///
-/// Setting [`SCAN_POOL_ENV`] to `0` instead has the output partitions take partitions from one
-/// shared partition stream, for comparison.
-///
-/// In every mode an output partition holds work that no other partition reads: the work its stream
-/// has taken, its piece, or the partitions it has taken. Dropping an output partition before it finishes therefore cancels its
+/// Either way an output partition holds work that no other partition reads: the work its stream
+/// has taken, or its piece. Dropping an output partition before it finishes therefore cancels its
 /// execution, and the other output partitions report an error rather than finish without those
 /// rows.
 ///
@@ -489,10 +459,6 @@ pub struct VortexDataSource {
 
     /// Target Arrow conversion concurrency when only one output partition is exposed.
     target_parallelism: usize,
-    /// Whether output partitions read the scan through its `open` and `split` rather than taking
-    /// partitions from the scan's shared partition stream, which keeps one output partition for a
-    /// limited scan.
-    split_scan: bool,
 }
 
 impl fmt::Debug for VortexDataSource {
@@ -508,12 +474,7 @@ impl fmt::Debug for VortexDataSource {
 
 impl VortexDataSource {
     fn output_partition_count(&self) -> usize {
-        // The shared partition stream keeps an ordering only in one output partition.
-        if !self.split_scan && (self.ordered || self.limit.is_some()) {
-            1
-        } else {
-            self.output_partitions
-        }
+        self.output_partitions
     }
 
     fn scan_request(&self) -> ScanRequest {
@@ -550,7 +511,6 @@ impl VortexDataSource {
         let session = self.session.clone();
         let schema = Arc::clone(&self.projected_schema);
         let concurrency = self.conversion_concurrency();
-        let ordered = self.ordered;
         let shared = Arc::clone(&execution);
         let batches = stream::once(async move {
             let work = execution
@@ -560,7 +520,6 @@ impl VortexDataSource {
                 .as_ref()
                 .map_err(Clone::clone)?;
             let arrays = match work {
-                ScanWork::Partitions(partitions) => Arc::clone(partitions).arrays(ordered),
                 ScanWork::Stream(exec) => ArrayStreamExt::boxed(exec.stream()),
                 ScanWork::Pieces(pieces) => {
                     let piece = match pieces.get(partition) {
@@ -676,7 +635,6 @@ fn invalid_partition(partition: usize) -> DataFusionError {
 ///
 /// The first output partition polled starts the scan; every other partition reads the same one.
 struct ScanExecution {
-    split: bool,
     output_partitions: Vec<OutputPartitionState>,
     cancelled: AtomicBool,
     work: OnceCell<VortexResult<ScanWork>>,
@@ -689,8 +647,6 @@ struct OutputPartitionState {
 }
 
 enum ScanWork {
-    /// Every output partition takes partitions from this shared stream.
-    Partitions(Arc<SharedPartitions>),
     /// Every output partition reads its own stream of the opened scan.
     Stream(ScanExec),
     /// Output partition `i` takes piece `i`, if there is one.
@@ -698,9 +654,8 @@ enum ScanWork {
 }
 
 impl ScanExecution {
-    fn new(output_partitions: usize, split: bool) -> Self {
+    fn new(output_partitions: usize) -> Self {
         Self {
-            split,
             output_partitions: (0..output_partitions)
                 .map(|_| OutputPartitionState::default())
                 .collect(),
@@ -721,11 +676,6 @@ impl ScanExecution {
     /// Drops the scan work that no output partition holds, once the execution is cancelled.
     fn release(&self) {
         match self.work.get() {
-            Some(Ok(ScanWork::Partitions(shared))) => {
-                if let Some(mut partitions) = shared.partitions.try_lock() {
-                    drop(partitions.take());
-                }
-            }
             Some(Ok(ScanWork::Pieces(pieces))) => {
                 for piece in pieces {
                     if let Some(mut piece) = piece.try_lock() {
@@ -745,12 +695,6 @@ impl ScanExecution {
     ) -> VortexResult<ScanWork> {
         let ordered = request.ordered;
         let scan = data_source.scan(request).await?;
-        if !self.split {
-            return Ok(ScanWork::Partitions(Arc::new(SharedPartitions {
-                dtype: scan.dtype().clone(),
-                partitions: AsyncMutex::new(Some(scan.partitions())),
-            })));
-        }
         if !ordered {
             return Ok(ScanWork::Stream(scan.open()?));
         }
@@ -761,46 +705,6 @@ impl ScanExecution {
                 .map(|piece| AsyncMutex::new(Some(piece)))
                 .collect(),
         ))
-    }
-}
-
-/// Scan API partitions shared by every output partition, each taking the next one it needs.
-struct SharedPartitions {
-    dtype: DType,
-    partitions: AsyncMutex<Option<PartitionStream>>,
-}
-
-/// The most partitions each output partition reads at once from [`SharedPartitions`].
-const SCAN_PARTITION_READ_AHEAD: usize = 2;
-
-impl SharedPartitions {
-    /// Takes the next partition, dropping the stream once it ends.
-    async fn next(&self) -> Option<VortexResult<PartitionRef>> {
-        let mut partitions = self.partitions.lock().await;
-        let next = partitions.as_mut()?.next().await;
-        if next.is_none() {
-            drop(partitions.take());
-        }
-        next
-    }
-
-    /// The arrays of the partitions this output partition takes, in partition order when
-    /// `ordered`, or reading a few partitions at once otherwise.
-    fn arrays(self: Arc<Self>, ordered: bool) -> SendableArrayStream {
-        let dtype = self.dtype.clone();
-        let partitions = stream::unfold(self, |shared| async move {
-            let next = shared.next().await?;
-            Some((next, shared))
-        })
-        .map(|partition| partition.and_then(|partition| partition.execute()));
-        let arrays = if ordered {
-            partitions.try_flatten().boxed()
-        } else {
-            partitions
-                .try_flatten_unordered(Some(SCAN_PARTITION_READ_AHEAD))
-                .boxed()
-        };
-        ArrayStreamExt::boxed(ArrayStreamAdapter::new(dtype, arrays))
     }
 }
 
@@ -891,14 +795,11 @@ impl DataSource for VortexDataSource {
                 "multiple scan output partitions require sibling execution state".into(),
             ));
         }
-        self.open_partition(partition, Arc::new(ScanExecution::new(1, self.split_scan)))
+        self.open_partition(partition, Arc::new(ScanExecution::new(1)))
     }
 
     fn create_sibling_state(&self, _config: &ConfigOptions) -> Option<Arc<dyn Any + Send + Sync>> {
-        Some(Arc::new(ScanExecution::new(
-            self.output_partition_count(),
-            self.split_scan,
-        )))
+        Some(Arc::new(ScanExecution::new(self.output_partition_count())))
     }
 
     fn open_with_args(&self, args: OpenArgs) -> DFResult<SendableRecordBatchStream> {
@@ -991,10 +892,7 @@ impl DataSource for VortexDataSource {
     fn with_fetch(&self, limit: Option<usize>) -> Option<Arc<dyn DataSource>> {
         // DataSourceExec retains its partition properties when accepting fetch, so the fetch
         // bounds each output partition and DataFusion keeps a global limit above several.
-        if limit.is_some()
-            && (!self.dynamic_filters.is_empty()
-                || (!self.split_scan && self.output_partition_count() > 1))
-        {
+        if limit.is_some() && !self.dynamic_filters.is_empty() {
             return None;
         }
         let mut this = self.clone();
@@ -1008,9 +906,6 @@ impl DataSource for VortexDataSource {
     }
 
     fn with_preserve_order(&self, preserve_order: bool) -> Option<Arc<dyn DataSource>> {
-        if !self.split_scan {
-            return None;
-        }
         let mut this = self.clone();
         this.preserve_order = preserve_order;
         Some(Arc::new(this))
@@ -1377,7 +1272,7 @@ mod tests {
         }
 
         fn open(self: Box<Self>) -> VortexResult<ScanExec> {
-            Ok(ScanExec::from_partitions(self))
+            Ok(ScanExec::from_partitions(self, NonZeroUsize::MIN))
         }
 
         fn partition_count(&self) -> Precision<usize> {
@@ -1526,7 +1421,6 @@ mod tests {
             scans: Arc::clone(&scans),
         });
         let source = VortexDataSource::builder(data_source, VortexSession::default())
-            .with_split_scan(true)
             .build()
             .await?;
         for requested in [0, 1, 257] {
@@ -1626,32 +1520,6 @@ mod tests {
             .collect()
     }
 
-    /// Without `open` and `split`, output partitions share the scan's partition stream: a
-    /// fetch keeps one partition, and direct opens need a single partition.
-    #[tokio::test]
-    async fn without_split_scan_partitions_share_the_partition_stream() -> anyhow::Result<()> {
-        let data_source: DataSourceRef = Arc::new(TestDataSource {
-            dtype: test_dtype(),
-            polls: Arc::default(),
-            scans: Arc::default(),
-        });
-        let source = VortexDataSource::builder(data_source, VortexSession::default())
-            .with_split_scan(false)
-            .build()
-            .await?
-            .repartitioned(4, 0, None)?
-            .expect("repartitioning supported");
-        assert!(source.with_fetch(Some(1)).is_none());
-        assert!(source.with_preserve_order(true).is_none());
-        assert!(source.open(0, Arc::new(TaskContext::default())).is_err());
-
-        let plan = Arc::new(DataSourceExec::new(Arc::clone(&source))) as Arc<dyn ExecutionPlan>;
-        let mut values = partition_values(&collect(plan, Arc::new(TaskContext::default())).await?);
-        values.sort_unstable();
-        assert_eq!(values, [0, 1, 100, 101]);
-        Ok(())
-    }
-
     #[derive(Default)]
     struct WakeCounter(AtomicUsize);
 
@@ -1663,20 +1531,14 @@ mod tests {
 
     /// Dropping an output partition before it finishes cancels the execution, so the other
     /// partitions report an error rather than finish without the rows it held.
-    #[rstest]
-    #[case::split(true)]
-    #[case::shared_partitions(false)]
     #[tokio::test]
-    async fn dropping_an_unfinished_partition_cancels_the_execution(
-        #[case] split: bool,
-    ) -> anyhow::Result<()> {
+    async fn dropping_an_unfinished_partition_cancels_the_execution() -> anyhow::Result<()> {
         let data_source: DataSourceRef = Arc::new(TestDataSource {
             dtype: test_dtype(),
             polls: Arc::default(),
             scans: Arc::default(),
         });
         let source = VortexDataSource::builder(data_source, VortexSession::default())
-            .with_split_scan(split)
             .build()
             .await?
             .repartitioned(2, 0, None)?
@@ -1688,7 +1550,7 @@ mod tests {
         assert!(plan.execute(1, Arc::new(TaskContext::default())).is_err());
 
         // A partition already waiting is woken and reports the cancellation.
-        let execution = Arc::new(ScanExecution::new(2, split));
+        let execution = Arc::new(ScanExecution::new(2));
         let output = |partition| OutputPartitionStream {
             partition,
             schema: plan.schema(),
@@ -1720,7 +1582,6 @@ mod tests {
         let (data_source, session, schema) = split_file_source().await?;
         let source = VortexDataSource::builder(data_source, session)
             .with_arrow_schema(schema)
-            .with_split_scan(true)
             .build()
             .await?
             .repartitioned(4, 0, None)?
@@ -1762,16 +1623,8 @@ mod tests {
                 LexOrdering::new([PhysicalSortExpr::new_default(Arc::clone(&key))])
                     .expect("one key"),
             )
-            .with_split_scan(true)
             .build()
             .await?;
-        let mut shared_partitions = source.clone();
-        shared_partitions.split_scan = false;
-        let shared_partitions = shared_partitions
-            .repartitioned(4, 0, None)?
-            .expect("repartitioning supported");
-        assert_eq!(shared_partitions.output_partitioning().partition_count(), 1);
-
         // Output partition `i` reads piece `i` of the split, in order.
         let source = source
             .repartitioned(4, 0, None)?

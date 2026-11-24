@@ -4,8 +4,8 @@
 //! An opened [`PlanDataSource`](super::PlanDataSource) scan: V2's planners and [`Run`] driver
 //! behind [`ScanExec`] and its [`ScanStream`](crate::stream::ScanStream)s.
 //!
-//! When an unordered scan is made, it prepares each child once and runs its [`part_root`], which
-//! cuts the child into parts: the rows between the child's splits for the fields the scan reads,
+//! When a scan is made, it prepares its child once and runs its [`part_root`], which cuts the
+//! child into parts: the rows between the child's splits for the fields the scan reads,
 //! such as a file's layout splits, or the scan's chunks for a child without splits. With a dynamic
 //! filter, such as the bound a top-N pushes down, the root first prunes the child as a whole
 //! against the bound as it stands, which reads zone maps. Those are the reads the scan needs to
@@ -20,11 +20,6 @@
 //! another's compute, batches are returned as they are produced, and reads are awaited with
 //! [`Run::poll_completion`]. Nothing is spawned, so a host that polls a stream with `block_on`
 //! runs the scan's compute on its own thread.
-//!
-//! An ordered scan returns its rows in order through its first stream, running one child after
-//! another on [`ScanDriver`], which keeps a scan's chunks in order. The scan is exhausted once
-//! that stream exists, and later streams return nothing. A host that reads an ordered scan in
-//! parallel [splits](crate::DataSourceScan::split) it first.
 //!
 //! A limit is one [`RowLimit`] for the whole scan: streams stop taking parts once it is spent,
 //! which also exhausts the scan, and each stream's output is trimmed to it.
@@ -46,11 +41,9 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_functions::dynamic::DynamicExprUpdates;
 use vortex_io::request::IoService;
-use vortex_io::session::RuntimeSessionExt;
 
 use super::plan::ScanState;
 use super::plan::Unit;
-use crate::execution::driver::ScanDriver;
 use crate::execution::scan_chunks;
 use crate::limit::RowLimit;
 use crate::limit::limit_rows;
@@ -64,50 +57,30 @@ use crate::stream::Claims;
 use crate::stream::ExhaustedFlag;
 use crate::stream::ScanExec;
 
-/// The parts of an unordered scan, cut when the scan is made.
+/// The parts of a scan, cut when the scan is made.
 pub(super) struct Planned {
     work: Vec<Work>,
 }
 
-/// Prepares each of the scan's `units` once and runs its root, awaiting the zone maps a dynamic
-/// filter's root reads, and returns the work the roots produce, in unit and row order.
-pub(super) async fn plan(state: &ScanState, units: &[Unit]) -> VortexResult<Planned> {
+/// Prepares the scan's `unit`, if it reads one, and runs its root, awaiting the zone maps a
+/// dynamic filter's root reads, and returns the work the root produces, in row order.
+pub(super) async fn plan(state: &ScanState, unit: Option<&Unit>) -> VortexResult<Planned> {
     let mut work = Vec::new();
-    for unit in units {
+    if let Some(unit) = unit {
         let rows = state.unit_rows(unit)?;
-        if rows.is_empty() {
-            continue;
+        if !rows.is_empty() {
+            let (child, root) = prepare(state, rows)?;
+            work = run_root(child, root).await?;
         }
-        let (child, root) = prepare(state, unit, rows)?;
-        work.extend(run_root(child, root).await?);
     }
     Ok(Planned { work })
 }
 
-/// Opens a scan of `units`. An unordered scan reads the parts it `planned`.
-pub(super) fn open(
-    state: Arc<ScanState>,
-    units: Vec<Unit>,
-    planned: Option<Planned>,
-) -> VortexResult<ScanExec> {
+/// Opens a scan onto the parts it `planned`. A scan with no parts opens exhausted.
+pub(super) fn open(state: Arc<ScanState>, planned: Planned) -> ScanExec {
     let dtype = state.dtype.clone();
     let limit = state.limit.map(RowLimit::new);
     let exhausted = ExhaustedFlag::new();
-    if state.ordered {
-        let arrays = Arc::new(Mutex::new(Some(in_order(state, units))));
-        let flag = exhausted.clone();
-        return Ok(ScanExec::new(dtype, exhausted, move || {
-            // The first stream returns every row, so later ones would find nothing.
-            flag.set();
-            let arrays = arrays
-                .lock()
-                .take()
-                .unwrap_or_else(|| stream::empty().boxed());
-            limited(arrays, limit.clone())
-        }));
-    }
-
-    let planned = planned.vortex_expect("an unordered scan cuts its parts when it is made");
     if planned.work.is_empty() {
         exhausted.set();
     }
@@ -118,7 +91,7 @@ pub(super) fn open(
         exhausted: exhausted.clone(),
     });
     let progress = Arc::clone(&queue);
-    Ok(ScanExec::new(dtype, exhausted, move || {
+    ScanExec::new(dtype, exhausted, move || {
         let worker = Worker {
             queue: Arc::clone(&queue),
             limit: limit.clone(),
@@ -136,7 +109,7 @@ pub(super) fn open(
         .boxed();
         limited(arrays, limit.clone())
     })
-    .with_progress(move || progress.claims()))
+    .with_progress(move || progress.claims())
 }
 
 /// One child's prepared scan, shared by the parts of it that streams run.
@@ -152,15 +125,15 @@ struct Part {
     planner: Box<dyn Planner>,
 }
 
-/// Prepares the scan of `rows` of the unit's child once and composes its root.
+/// Prepares the scan of `rows` of the child once and composes its root.
 fn prepare(
     state: &ScanState,
-    unit: &Unit,
     rows: Range<u64>,
 ) -> VortexResult<(Arc<PreparedChild>, Box<dyn Planner>)> {
-    let child = state.child(unit.child);
-    let splits = child.splits(&state.projection, state.filter.as_ref())?;
-    let scan = Arc::new(state.builder(child, rows).prepare()?);
+    let splits = state
+        .child
+        .splits(&state.projection, state.filter.as_ref())?;
+    let scan = Arc::new(state.builder(rows).prepare()?);
     let splits = splits.unwrap_or_else(|| chunk_bounds(&scan));
     let dynamic = state
         .filter
@@ -209,16 +182,16 @@ async fn run_root(child: Arc<PreparedChild>, root: Box<dyn Planner>) -> VortexRe
     Ok(work)
 }
 
-/// A unit of work in the queue of an unordered scan.
+/// A unit of work in the queue of a scan.
 enum Work {
     Part(Part),
     /// A batch a root returned itself.
     Batch(ArrayRef),
 }
 
-/// The queue of an unordered scan, which every stream of it takes from.
+/// The queue of a scan, which every stream of it takes from.
 struct Queue {
-    /// The work no stream has taken yet, in unit and row order.
+    /// The work no stream has taken yet, in row order.
     work: Mutex<VecDeque<Work>>,
     /// The work the queue started with.
     total: usize,
@@ -296,23 +269,6 @@ impl Worker {
             }
         }
     }
-}
-
-/// The arrays of an ordered scan: each unit's rows in order, one unit after another.
-fn in_order(state: Arc<ScanState>, units: Vec<Unit>) -> BoxStream<'static, VortexResult<ArrayRef>> {
-    stream::iter(units)
-        .flat_map(move |unit| {
-            let rows = match state.unit_rows(&unit) {
-                Ok(rows) => rows,
-                Err(err) => return stream::once(future::ready(Err(err))).boxed(),
-            };
-            if rows.is_empty() {
-                return stream::empty().boxed();
-            }
-            ScanDriver::new(state.session.handle(), 1, true)
-                .run(state.builder(state.child(unit.child), rows))
-        })
-        .boxed()
 }
 
 /// `arrays`, trimmed to the scan's limit.

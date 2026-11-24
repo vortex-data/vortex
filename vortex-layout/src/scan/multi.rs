@@ -59,7 +59,6 @@ use vortex_scan::PartitionRef;
 use vortex_scan::PartitionStream;
 use vortex_scan::ScanRequest;
 use vortex_scan::selection::Selection;
-use vortex_scan::stream::ExhaustedFlag;
 use vortex_scan::stream::ScanExec;
 use vortex_session::VortexSession;
 use vortex_utils::parallelism::get_available_parallelism;
@@ -67,13 +66,14 @@ use vortex_utils::parallelism::get_available_parallelism;
 use crate::LayoutReaderRef;
 use crate::scan::layout::group_contiguous;
 use crate::scan::limit::RowLimit;
+use crate::scan::options::LayoutScanOptions;
 use crate::scan::scan_builder::ScanBuilder;
 
 /// How many files each stream of an opened unordered scan reads at once.
 ///
 /// This matches the read-ahead of the DataFusion `VortexTable` path on develop
 /// (`SCAN_PARTITION_READ_AHEAD`), whose partitions share one stream of files as the scan's streams do.
-const PARTITION_READ_AHEAD: usize = 2;
+const PARTITION_READ_AHEAD: NonZeroUsize = NonZeroUsize::MIN.saturating_add(1);
 
 /// Default concurrency for opening deferred readers.
 const DEFAULT_CONCURRENCY: usize = 8;
@@ -105,6 +105,7 @@ pub struct MultiLayoutDataSource {
     session: VortexSession,
     children: Arc<[MultiLayoutChild]>,
     concurrency: usize,
+    split_concurrency: Option<NonZeroUsize>,
 }
 
 pub enum MultiLayoutChild {
@@ -176,6 +177,7 @@ impl MultiLayoutDataSource {
             session: session.clone(),
             children: children.into(),
             concurrency,
+            split_concurrency: None,
         }
     }
 
@@ -213,6 +215,7 @@ impl MultiLayoutDataSource {
                 .map(|(factory, byte_size)| MultiLayoutChild::Deferred { factory, byte_size })
                 .collect(),
             concurrency,
+            split_concurrency: None,
         }
     }
 
@@ -226,6 +229,12 @@ impl MultiLayoutDataSource {
     /// Defaults to the number of available CPU cores.
     pub fn with_concurrency(mut self, concurrency: usize) -> Self {
         self.concurrency = concurrency;
+        self
+    }
+
+    /// Runs every child's scans with `options`.
+    pub fn with_options(mut self, options: LayoutScanOptions) -> Self {
+        self.split_concurrency = options.concurrency();
         self
     }
 }
@@ -305,7 +314,7 @@ impl DataSource for MultiLayoutDataSource {
     }
 
     async fn scan(&self, scan_request: ScanRequest) -> VortexResult<DataSourceScanRef> {
-        let request = BoundScanRequest::try_new(scan_request, &self.dtype)?;
+        let request = BoundScanRequest::try_new(scan_request, &self.dtype, self.split_concurrency)?;
         let dtype = request.projection.dtype().clone();
 
         let mut ready = VecDeque::new();
@@ -371,7 +380,11 @@ struct BoundScanRequest {
 }
 
 impl BoundScanRequest {
-    fn try_new(request: ScanRequest, dtype: &DType) -> VortexResult<Self> {
+    fn try_new(
+        request: ScanRequest,
+        dtype: &DType,
+        split_concurrency: Option<NonZeroUsize>,
+    ) -> VortexResult<Self> {
         let ScanRequest {
             projection,
             filter,
@@ -381,7 +394,6 @@ impl BoundScanRequest {
             partition_range,
             ordered,
             limit,
-            split_concurrency,
         } = request;
 
         Ok(Self {
@@ -578,30 +590,12 @@ impl DataSourceScan for MultiLayoutScan {
     /// next file's first. An ordered scan must finish a file before it starts the next, and a
     /// limited one would read files the limit may never need, so both read one at a time.
     fn open(self: Box<Self>) -> VortexResult<ScanExec> {
-        if self.request.ordered || self.request.limit.is_some() {
-            return Ok(ScanExec::from_partitions(self));
-        }
-        let dtype = self.dtype.clone();
-        let exhausted = ExhaustedFlag::new();
-        let flag = exhausted.clone();
-        let partitions = Arc::new(futures::lock::Mutex::new(self.partitions()));
-        Ok(ScanExec::new(dtype, exhausted, move || {
-            let flag = flag.clone();
-            stream::unfold(Arc::clone(&partitions), move |shared| {
-                let flag = flag.clone();
-                async move {
-                    let Some(next) = shared.lock().await.next().await else {
-                        flag.set();
-                        return None;
-                    };
-                    Some((next, shared))
-                }
-            })
-            .map(|partition| partition.and_then(|partition| partition.execute()))
-            // Matches the read-ahead of the DataFusion `VortexTable` path on develop.
-            .try_flatten_unordered(Some(PARTITION_READ_AHEAD))
-            .boxed()
-        }))
+        let read_ahead = if self.request.ordered || self.request.limit.is_some() {
+            NonZeroUsize::MIN
+        } else {
+            PARTITION_READ_AHEAD
+        };
+        Ok(ScanExec::from_partitions(self, read_ahead))
     }
 
     fn partition_count(&self) -> Precision<usize> {
@@ -944,7 +938,7 @@ mod tests {
             ..ScanRequest::default()
         };
 
-        let request = BoundScanRequest::try_new(request, &dtype)?;
+        let request = BoundScanRequest::try_new(request, &dtype, None)?;
 
         assert_eq!(request.projection.dtype(), &dtype);
         assert!(request.filter.is_err());
@@ -1183,12 +1177,12 @@ mod tests {
                 }) as Arc<dyn LayoutReaderFactory>
             })
             .collect();
-        let source = MultiLayoutDataSource::new_with_first(file(0), rest, vec![], &session);
+        let source = MultiLayoutDataSource::new_with_first(file(0), rest, vec![], &session)
+            .with_options(LayoutScanOptions::default().with_concurrency(NonZeroUsize::MIN));
 
         let stream = runtime
             .block_on(source.scan(ScanRequest {
                 ordered,
-                split_concurrency: NonZeroUsize::new(1),
                 ..Default::default()
             }))?
             .open()?
@@ -1216,11 +1210,14 @@ mod tests {
                 .with_split_size(1)
                 .with_in_flight(Arc::clone(&in_flight)),
         );
-        let source = MultiLayoutDataSource::new_with_first(reader, vec![], vec![], &session);
+        let mut source = MultiLayoutDataSource::new_with_first(reader, vec![], vec![], &session);
+        if let Some(concurrency) = split_concurrency {
+            source =
+                source.with_options(LayoutScanOptions::default().with_concurrency(concurrency));
+        }
 
         let scan = runtime.block_on(source.scan(ScanRequest {
             ordered: true,
-            split_concurrency,
             ..Default::default()
         }))?;
         let mut values = Vec::new();
