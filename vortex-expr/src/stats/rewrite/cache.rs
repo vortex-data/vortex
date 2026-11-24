@@ -28,6 +28,10 @@ struct ProofCache {
 }
 
 impl ProofCache {
+    fn contains(&self, expr: &BoundExpression) -> bool {
+        self.entries.contains_key(expr as &dyn ExactKey)
+    }
+
     fn get(&self, expr: &BoundExpression) -> Option<Option<BoundExpression>> {
         self.entries.get(expr as &dyn ExactKey).cloned()
     }
@@ -93,6 +97,11 @@ impl RewriteCache {
         expr: &BoundExpression,
     ) -> Option<Option<BoundExpression>> {
         self.rewrites(proof).get(expr)
+    }
+
+    /// Returns `true` if the cache holds a rewrite for `expr`.
+    pub(crate) fn contains(&self, proof: StatsProof, expr: &BoundExpression) -> bool {
+        self.rewrites(proof).contains(expr)
     }
 
     /// Adds the rewrite of `expr`, if no rule was registered after `revision` was read.

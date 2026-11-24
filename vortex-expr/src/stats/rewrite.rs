@@ -165,12 +165,6 @@ fn rewrite(
     };
 
     let stats = session.stats();
-    if !stats.is_cacheable_expr(expr) {
-        let rules = stats.rewrite_rules_for(scalar_fn.id());
-        drop(stats);
-        return apply_rules(expr, session, proof, rules.as_deref().unwrap_or_default());
-    }
-
     let (revision, rules) = match stats.lookup_rewrite(proof, expr, scalar_fn.id()) {
         RewriteLookup::Cached(rewrite) => return Ok(rewrite),
         RewriteLookup::Uncached { revision, rules } => (revision, rules),

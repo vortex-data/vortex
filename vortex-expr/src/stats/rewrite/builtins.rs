@@ -500,6 +500,7 @@ mod tests {
     use crate::lit;
     use crate::lt;
     use crate::lt_eq;
+    use crate::not_eq;
     use crate::or;
     use crate::stats::expr::StatFn;
     use crate::stats::expr::StatOptions;
@@ -666,6 +667,101 @@ mod tests {
 
         // One visit per `Compare` or `Boolean` node: 16 comparisons plus 15 `or`s.
         assert_eq!(visits.load(Ordering::Relaxed), 31);
+        Ok(())
+    }
+
+    fn cmp_satisfier(
+        lhs_nulls: Expression,
+        rhs_nulls: Expression,
+        value_predicate: Expression,
+    ) -> Expression {
+        and(
+            and(eq(lhs_nulls, lit(0u64)), eq(rhs_nulls, lit(0u64))),
+            value_predicate,
+        )
+    }
+
+    #[test]
+    fn rewrites_comparison_satisfier() -> VortexResult<()> {
+        assert_rewrite_eq!(
+            satisfy(&gt(col("a"), lit(10)))?,
+            Some(cmp_satisfier(
+                stat(col("a"), Stat::NullCount),
+                lit(0u64),
+                gt(stat(col("a"), Stat::Min), lit(10)),
+            ))
+        );
+        assert_rewrite_eq!(
+            satisfy(&gt_eq(col("a"), lit(10)))?,
+            Some(cmp_satisfier(
+                stat(col("a"), Stat::NullCount),
+                lit(0u64),
+                gt_eq(stat(col("a"), Stat::Min), lit(10)),
+            ))
+        );
+        assert_rewrite_eq!(
+            satisfy(&lt(col("a"), lit(10)))?,
+            Some(cmp_satisfier(
+                stat(col("a"), Stat::NullCount),
+                lit(0u64),
+                lt(stat(col("a"), Stat::Max), lit(10)),
+            ))
+        );
+        assert_rewrite_eq!(
+            satisfy(&lt_eq(col("a"), lit(10)))?,
+            Some(cmp_satisfier(
+                stat(col("a"), Stat::NullCount),
+                lit(0u64),
+                lt_eq(stat(col("a"), Stat::Max), lit(10)),
+            ))
+        );
+        assert_rewrite_eq!(satisfy(&eq(col("a"), lit(10)))?, None);
+        assert_rewrite_eq!(satisfy(&not_eq(col("a"), lit(10)))?, None);
+
+        // Float comparisons also require a NaNCount == 0 guard.
+        assert_rewrite_eq!(
+            satisfy(&gt(col("f"), lit(1.0f32)))?,
+            Some(and(
+                eq(stat(col("f"), Stat::NaNCount), lit(0u64)),
+                cmp_satisfier(
+                    stat(col("f"), Stat::NullCount),
+                    lit(0u64),
+                    gt(stat(col("f"), Stat::Min), lit(1.0f32)),
+                ),
+            ))
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn rewrites_boolean_satisfiers() -> VortexResult<()> {
+        let lhs_sat = cmp_satisfier(
+            stat(col("a"), Stat::NullCount),
+            lit(0u64),
+            gt(stat(col("a"), Stat::Min), lit(10)),
+        );
+        let rhs_sat = cmp_satisfier(
+            stat(col("a"), Stat::NullCount),
+            lit(0u64),
+            lt(stat(col("a"), Stat::Max), lit(50)),
+        );
+
+        assert_rewrite_eq!(
+            satisfy(&and(gt(col("a"), lit(10)), lt(col("a"), lit(50))))?,
+            Some(and(lhs_sat.clone(), rhs_sat.clone()))
+        );
+        assert_rewrite_eq!(
+            satisfy(&and(gt(col("a"), lit(10)), eq(col("a"), lit(20))))?,
+            None
+        );
+        assert_rewrite_eq!(
+            satisfy(&or(gt(col("a"), lit(10)), lt(col("a"), lit(50))))?,
+            Some(or(lhs_sat.clone(), rhs_sat))
+        );
+        assert_rewrite_eq!(
+            satisfy(&or(gt(col("a"), lit(10)), eq(col("a"), lit(20))))?,
+            Some(lhs_sat)
+        );
         Ok(())
     }
 

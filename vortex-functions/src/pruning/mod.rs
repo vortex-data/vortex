@@ -563,6 +563,68 @@ mod tests {
     }
 
     #[test]
+    fn rewrites_between_satisfier() -> VortexResult<()> {
+        let cmp_satisfier =
+            |lhs_nulls: Expression, rhs_nulls: Expression, value_predicate: Expression| {
+                and(
+                    and(eq(lhs_nulls, lit(0u64)), eq(rhs_nulls, lit(0u64))),
+                    value_predicate,
+                )
+            };
+
+        let non_strict = between(
+            col("a"),
+            lit(10),
+            lit(50),
+            BetweenOptions {
+                lower_strict: StrictComparison::NonStrict,
+                upper_strict: StrictComparison::NonStrict,
+            },
+        );
+        assert_rewrite_eq!(
+            satisfy(&non_strict)?,
+            Some(and(
+                cmp_satisfier(
+                    lit(0u64),
+                    stat(col("a"), Stat::NullCount),
+                    lt_eq(lit(10), stat(col("a"), Stat::Min)),
+                ),
+                cmp_satisfier(
+                    stat(col("a"), Stat::NullCount),
+                    lit(0u64),
+                    lt_eq(stat(col("a"), Stat::Max), lit(50)),
+                ),
+            ))
+        );
+
+        let strict = between(
+            col("a"),
+            lit(10),
+            lit(50),
+            BetweenOptions {
+                lower_strict: StrictComparison::Strict,
+                upper_strict: StrictComparison::Strict,
+            },
+        );
+        assert_rewrite_eq!(
+            satisfy(&strict)?,
+            Some(and(
+                cmp_satisfier(
+                    lit(0u64),
+                    stat(col("a"), Stat::NullCount),
+                    lt(lit(10), stat(col("a"), Stat::Min)),
+                ),
+                cmp_satisfier(
+                    stat(col("a"), Stat::NullCount),
+                    lit(0u64),
+                    lt(stat(col("a"), Stat::Max), lit(50)),
+                ),
+            ))
+        );
+        Ok(())
+    }
+
+    #[test]
     fn rewrites_nan_falsifiers() -> VortexResult<()> {
         assert_rewrite_eq!(
             falsify(&is_nan(col("f")))?,

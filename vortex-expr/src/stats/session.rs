@@ -80,16 +80,20 @@ impl StatsSession {
         self.rewrite_rules.get(&scalar_fn_id)
     }
 
-    pub(crate) fn is_cacheable_expr(&self, expr: &BoundExpression) -> bool {
+    fn is_cacheable_expr(
+        &self,
+        cache: &RewriteCache,
+        proof: StatsProof,
+        expr: &BoundExpression,
+    ) -> bool {
         let cacheable_node = expr.as_scalar().is_none_or(|scalar_fn| {
             self.rewrite_rules_for(scalar_fn.id())
                 .is_none_or(|rules| rules.iter().all(|rule| rule.is_cacheable()))
         });
         cacheable_node
-            && expr
-                .children()
-                .iter()
-                .all(|child| self.is_cacheable_expr(child))
+            && expr.children().iter().all(|child| {
+                cache.contains(proof, child) || self.is_cacheable_expr(cache, proof, child)
+            })
     }
 
     /// Returns the cached `proof` rewrite of `expr`, or the rules to make it and the cache
@@ -111,7 +115,8 @@ impl StatsSession {
         }
     }
 
-    /// Adds the `proof` rewrite of `expr`, if no rule was registered after `revision`.
+    /// Adds the `proof` rewrite of `expr`, if `expr` is cacheable and no rule was registered after
+    /// `revision`.
     pub(crate) fn cache_rewrite(
         &self,
         proof: StatsProof,
@@ -119,6 +124,14 @@ impl StatsSession {
         expr: &BoundExpression,
         rewrite: Option<BoundExpression>,
     ) {
+        // Check cacheability under the read lock so uncacheable (dynamic) predicates never take
+        // the exclusive write lock and serialize concurrent scans.
+        {
+            let cache = self.rewrite_cache.read();
+            if cache.revision() != revision || !self.is_cacheable_expr(&cache, proof, expr) {
+                return;
+            }
+        }
         self.rewrite_cache
             .write()
             .insert(revision, proof, expr, rewrite);
