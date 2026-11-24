@@ -60,6 +60,7 @@ use vortex::layout::scan::v2::partition_row_range;
 use vortex::layout::segments::SegmentSource;
 use vortex::metrics::Label;
 use vortex::metrics::MetricsRegistry;
+use vortex::scan::execution::driver::ChunkBudget;
 use vortex::scan::execution::driver::ScanDriver;
 use vortex::scan::prepare::ScanCache;
 use vortex::scan::prepare::WeakScanCache;
@@ -67,7 +68,6 @@ use vortex::session::VortexSession;
 use vortex_arrow::ArrowSessionExt;
 use vortex_utils::aliases::dash_map::DashMap;
 use vortex_utils::aliases::dash_map::Entry;
-use vortex_utils::parallelism::get_available_parallelism;
 
 use crate::VortexAccessPlan;
 use crate::convert::exprs::ExpressionConverter;
@@ -140,9 +140,9 @@ pub(crate) struct VortexOpener {
     pub projection_pushdown: bool,
     pub scan_concurrency: Option<usize>,
     pub scan_v2: bool,
-    /// How many partitions the engine runs the scan on, so a V2 scan parallelises inside a
-    /// partition only as far as the engine has not.
-    pub partitions: usize,
+    /// The chunks in flight that the V2 scans of all partitions share, unless `scan_concurrency`
+    /// bounds each file's scan instead.
+    pub chunk_budget: ChunkBudget,
 }
 
 /// Identifies a dynamic filter of a scan's predicate by its allocation, which the predicate keeps
@@ -227,7 +227,7 @@ impl FileOpener for VortexOpener {
         let file_schemas = Arc::clone(&self.file_schemas);
         let has_output_ordering = self.has_output_ordering;
         let scan_concurrency = self.scan_concurrency;
-        let partitions = self.partitions.max(1);
+        let chunk_budget = self.chunk_budget.clone();
         let scan_v2 = self.scan_v2;
 
         let expr_converter = Arc::clone(&self.expression_converter);
@@ -514,20 +514,16 @@ impl FileOpener for VortexOpener {
                 {
                     builder = builder.with_selection(selection.clone());
                 }
-                // Scale per-scan concurrency by the number of DataFusion partitions by default.
-                let concurrency = scan_concurrency.unwrap_or_else(|| {
-                    get_available_parallelism()
-                        .unwrap_or(1)
-                        .div_ceil(partitions)
-                        .max(1)
-                });
                 let handle = vxf.session().handle();
                 // Lowering and planning a wide file is real CPU: it runs where compute runs.
                 let scan = handle
                     .spawn_cpu(move || builder.prepare())
                     .await
                     .map_err(|e| exec_datafusion_err!("Failed to plan Vortex scan: {e}"))?;
-                let driver = ScanDriver::new(handle, concurrency, has_output_ordering);
+                let driver = match scan_concurrency {
+                    Some(concurrency) => ScanDriver::new(handle, concurrency, has_output_ordering),
+                    None => ScanDriver::with_budget(handle, chunk_budget, has_output_ordering),
+                };
                 Ok(driver.run_prepared(scan, map_batch))
             } else {
                 // Share V1 layout readers across partitions of the file.
@@ -856,6 +852,7 @@ mod tests {
     use arrow_array::record_batch;
     use arrow_schema::Field;
     use arrow_schema::Fields;
+    use arrow_schema::Metadata;
     use arrow_schema::SchemaRef;
     use datafusion::arrow::array::DictionaryArray;
     use datafusion::arrow::array::Int32Array;
@@ -1171,7 +1168,7 @@ mod tests {
             layout_readers: Default::default(),
             segment_sources: Default::default(),
             scan_caches: Default::default(),
-            partitions: 1,
+            chunk_budget: ChunkBudget::new(1),
             natural_splits: Default::default(),
             file_schemas: Default::default(),
             dynamic_filters: Default::default(),
@@ -1339,7 +1336,7 @@ mod tests {
             batch.schema().as_ref().clone().with_metadata(
                 [("table".to_string(), "metadata".to_string())]
                     .into_iter()
-                    .collect(),
+                    .collect::<Metadata>(),
             ),
         );
         let table_schema = TableSchema::builder(file_schema)
@@ -1347,7 +1344,7 @@ mod tests {
                 Field::new("part", DataType::Int32, false).with_metadata(
                     [("partition".to_string(), "metadata".to_string())]
                         .into_iter()
-                        .collect(),
+                        .collect::<Metadata>(),
                 ),
             )])
             .build();
@@ -1624,7 +1621,7 @@ mod tests {
             layout_readers: Default::default(),
             segment_sources: Default::default(),
             scan_caches: Default::default(),
-            partitions: 1,
+            chunk_budget: ChunkBudget::new(1),
             natural_splits: Default::default(),
             file_schemas: Default::default(),
             dynamic_filters: Default::default(),
@@ -1719,7 +1716,7 @@ mod tests {
             layout_readers: Default::default(),
             segment_sources: Default::default(),
             scan_caches: Default::default(),
-            partitions: 1,
+            chunk_budget: ChunkBudget::new(1),
             natural_splits: Default::default(),
             file_schemas: Default::default(),
             dynamic_filters: Default::default(),
@@ -1905,7 +1902,7 @@ mod tests {
             layout_readers: Default::default(),
             segment_sources: Default::default(),
             scan_caches: Default::default(),
-            partitions: 1,
+            chunk_budget: ChunkBudget::new(1),
             natural_splits: Default::default(),
             file_schemas: Default::default(),
             dynamic_filters: Default::default(),
@@ -1973,7 +1970,7 @@ mod tests {
             layout_readers: Default::default(),
             segment_sources: Default::default(),
             scan_caches: Default::default(),
-            partitions: 1,
+            chunk_budget: ChunkBudget::new(1),
             natural_splits: Default::default(),
             file_schemas: Default::default(),
             dynamic_filters: Default::default(),
@@ -2192,7 +2189,7 @@ mod tests {
             layout_readers: Default::default(),
             segment_sources: Default::default(),
             scan_caches: Default::default(),
-            partitions: 1,
+            chunk_budget: ChunkBudget::new(1),
             natural_splits: Default::default(),
             file_schemas: Default::default(),
             dynamic_filters: Default::default(),

@@ -21,7 +21,7 @@ use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::expr::BoundExpression;
 use vortex_array::expr::root;
-use vortex_array::scalar_fn::builtin::operators::Operator;
+use vortex_array::scalar::NumericOperator;
 use vortex_array::validity::Validity;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -594,7 +594,7 @@ fn rebase_offsets(offsets: ArrayRef, first: u64) -> VortexResult<ArrayRef> {
     let constant = ConstantArray::new(first, offsets.len())
         .into_array()
         .cast(offsets.dtype().clone())?;
-    offsets.binary(constant, Operator::Sub)
+    offsets.numeric(constant, NumericOperator::Sub)
 }
 
 /// Compute `offsets[i + 1] - offsets[i]` as the unmasked list length values.
@@ -602,7 +602,7 @@ fn list_lengths_from_offsets(offsets: ArrayRef) -> VortexResult<ArrayRef> {
     let len = offsets.len().saturating_sub(1);
     offsets
         .slice(1..offsets.len())?
-        .binary(offsets.slice(0..len)?, Operator::Sub)
+        .numeric(offsets.slice(0..len)?, NumericOperator::Sub)
 }
 
 fn apply_lengths_validity(

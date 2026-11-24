@@ -270,6 +270,36 @@ async fn test_read_simple() {
     assert_arrays_eq!(result, st, &mut SESSION.create_execution_ctx());
 }
 
+#[tokio::test]
+#[cfg_attr(miri, ignore)]
+async fn test_scan_row_range_past_the_end() -> VortexResult<()> {
+    // Several chunks, so that the file uses the chunked layout.
+    const CHUNK: u32 = 100_000;
+    let chunked = ChunkedArray::from_iter(
+        (0..3).map(|i| PrimitiveArray::from_iter(i * CHUNK..(i + 1) * CHUNK).into_array()),
+    )
+    .into_array();
+    let rows: u64 = (3 * CHUNK).into();
+
+    let mut buf = ByteBufferMut::empty();
+    SESSION
+        .write_options()
+        .write(&mut buf, chunked.to_array_stream())
+        .await?;
+    let scan = SESSION.open_options().open_buffer(buf)?.scan()?.prepare()?;
+
+    for range in [rows - 5..rows + 100, rows + 5..rows + 9, 0..rows + 1] {
+        assert!(scan.execute_array_stream(Some(range)).is_err());
+    }
+
+    let tail = scan
+        .execute_array_stream(Some(rows - 5..rows))?
+        .read_all()
+        .await?;
+    assert_eq!(tail.len(), 5);
+    Ok(())
+}
+
 #[rstest]
 #[case::non_nullable(Validity::NonNullable)]
 #[case::partially_valid(Validity::from_iter([true, false, true, true, false]))]
@@ -1648,6 +1678,66 @@ async fn file_excluding_dtype() -> VortexResult<()> {
         .open_buffer(buffer)?;
     assert_eq!(vxf.dtype(), &dtype);
     assert_eq!(vxf.row_count(), 9);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn open_with_unknown_field_dtype_tag_drops_file_statistics() -> VortexResult<()> {
+    use vortex_array::dtype::flatbuffers as dtype_fb;
+    use vortex_array::flatbuffers::FlatBuffer;
+
+    let array = StructArray::from_fields(&[("a", buffer![1i32, 2, 3].into_array())])?.into_array();
+
+    let mut writer = vec![];
+    SESSION
+        .write_options()
+        .exclude_dtype()
+        .write(&mut writer, array.to_array_stream())
+        .await?;
+    let buffer: Bytes = writer.into();
+
+    let vxf = SESSION
+        .open_options()
+        .with_dtype(array.dtype().clone())
+        .open_buffer(buffer.clone())?;
+    assert!(vxf.file_stats().is_some());
+
+    let mut fbb = FlatBufferBuilder::new();
+    let name_a = fbb.create_string("a");
+    let names = fbb.create_vector(&[name_a]);
+    let unknown_type = dtype_fb::Null::create(&mut fbb, &dtype_fb::NullArgs {});
+    let unknown = dtype_fb::DType::create(
+        &mut fbb,
+        &dtype_fb::DTypeArgs {
+            type_type: dtype_fb::Type(200),
+            type_: Some(unknown_type.as_union_value()),
+        },
+    );
+    let dtypes = fbb.create_vector(&[unknown]);
+    let struct_table = dtype_fb::Struct_::create(
+        &mut fbb,
+        &dtype_fb::Struct_Args {
+            names: Some(names),
+            dtypes: Some(dtypes),
+            nullable: false,
+        },
+    );
+    let root = dtype_fb::DType::create(
+        &mut fbb,
+        &dtype_fb::DTypeArgs {
+            type_type: dtype_fb::Type::Struct_,
+            type_: Some(struct_table.as_union_value()),
+        },
+    );
+    fbb.finish_minimal(root);
+    let dtype = DType::from_flatbuffer(FlatBuffer::copy_from(fbb.finished_data()), &SESSION)?;
+
+    let vxf = SESSION
+        .open_options()
+        .with_dtype(dtype)
+        .open_buffer(buffer)?;
+    assert!(vxf.file_stats().is_none());
 
     Ok(())
 }

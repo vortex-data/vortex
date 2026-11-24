@@ -11,6 +11,7 @@
 
 use fastlanes::BitPacking;
 use fastlanes::BitPackingCompare;
+use fastlanes::CmpOp;
 use fastlanes::FastLanesComparable;
 use num_traits::AsPrimitive;
 use num_traits::WrappingSub;
@@ -189,30 +190,11 @@ where
         return constant_result(array, false, nullability, &predicate, ctx);
     }
 
-    let kernel = offset_within::<T>(first, last);
-    stream_compare_fused(
-        array,
-        bit_width,
-        lower,
-        nullability,
-        kernel,
-        false,
-        &predicate,
-        ctx,
-    )
-}
-
-/// `first <= v <= last` as one unsigned compare: values below `first` wrap around.
-fn offset_within<T>(first: T, last: T) -> impl Fn(T, T) -> bool + Copy
-where
-    T: NativePType + PhysicalPType + AsPrimitive<<T as PhysicalPType>::Physical>,
-    <T as PhysicalPType>::Physical: NativePType + WrappingSub + PartialOrd,
-{
-    let span: <T as PhysicalPType>::Physical = (last - first).as_();
-    let first: <T as PhysicalPType>::Physical = first.as_();
-    move |v: T, _| {
-        AsPrimitive::<<T as PhysicalPType>::Physical>::as_(v).wrapping_sub(&first) <= span
-    }
+    let op = CmpOp::Between {
+        lower: first.as_(),
+        upper: last.as_(),
+    };
+    stream_compare_fused(array, bit_width, op, nullability, false, &predicate, ctx)
 }
 
 #[cfg(test)]

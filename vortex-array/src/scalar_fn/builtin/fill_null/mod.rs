@@ -329,9 +329,10 @@ mod tests {
     use crate::kernel::ExecuteParentKernel;
     use crate::matcher::Matcher;
     use crate::optimizer::rules::ArrayParentReduceRule;
+    use crate::scalar::NumericOperator;
     use crate::scalar::Scalar;
-    use crate::scalar_fn::builtin::binary::Binary;
-    use crate::scalar_fn::builtin::operators::Operator;
+    use crate::scalar_fn::builtin::numeric::Numeric;
+    use crate::scalar_fn::builtin::operators::CompareOperator;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
@@ -361,7 +362,7 @@ mod tests {
     /// A fill of `40 + 2` that is not a [`ConstantArray`] until it executes.
     fn lazy_fill_42(len: usize) -> VortexResult<ArrayRef> {
         Ok(ScalarFnArray::try_new(
-            Binary.bind(Operator::Add),
+            Numeric.bind(NumericOperator::Add),
             vec![
                 ConstantArray::new(40i32, len).into_array(),
                 ConstantArray::new(2i32, len).into_array(),
@@ -628,7 +629,10 @@ mod tests {
         let mut ctx = SESSION.create_execution_ctx();
         let input = PrimitiveArray::from_option_iter([Some(1i32), None, Some(3)])
             .into_array()
-            .binary(ConstantArray::new(2i32, 3).into_array(), Operator::Gt)?;
+            .compare(
+                ConstantArray::new(2i32, 3).into_array(),
+                CompareOperator::Gt,
+            )?;
 
         let result = input.fill_null(Scalar::from(false))?;
 

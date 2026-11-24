@@ -151,6 +151,8 @@ fn i64_batched_widen(bencher: Bencher, set_len: usize) {
 
 /// Lengths of sets too sparse for a bitmap over their whole span.
 const SPARSE_SET_LENS: &[usize] = &[256];
+/// Small and large sparse set lengths to compare linear equality checks against binary search.
+const SPARSE_SPAN_2_40_SET_LENS: &[usize] = &[4, 256];
 
 #[divan::bench(args = SPARSE_SET_LENS)]
 fn i64_sparse_span_2_24(bencher: Bencher, set_len: usize) {
@@ -159,7 +161,7 @@ fn i64_sparse_span_2_24(bencher: Bencher, set_len: usize) {
     bench_in_set(bencher, i64_set(set), needles.into_array());
 }
 
-#[divan::bench(args = SPARSE_SET_LENS)]
+#[divan::bench(args = SPARSE_SPAN_2_40_SET_LENS)]
 fn i64_sparse_span_2_40(bencher: Bencher, set_len: usize) {
     let (set, needles) = random_i64_in_span(set_len, 40);
     let needles = PrimitiveArray::from_iter(needles);

@@ -150,18 +150,18 @@ mod tests {
     use crate::executor::VortexSessionExecute;
     use crate::optimizer::ArrayOptimizer;
     use crate::scalar::Scalar;
-    use crate::scalar_fn::builtin::binary::Binary;
+    use crate::scalar_fn::builtin::boolean::Boolean;
     use crate::scalar_fn::builtin::mask::Mask as MaskExpr;
-    use crate::scalar_fn::builtin::operators::Operator;
+    use crate::scalar_fn::builtin::operators::BooleanOperator;
     use crate::validity::Validity;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     fn lazy_mask() -> VortexResult<ArrayRef> {
-        Binary::try_new(
+        Boolean::try_new(
             BoolArray::from_iter([true, true, false]).into_array(),
             BoolArray::from_iter([true, false, true]).into_array(),
-            Operator::And,
+            BooleanOperator::And,
         )
         .map(IntoArray::into_array)
     }

@@ -20,7 +20,7 @@ support can reach this tier.
 
 Filter and projection pushdown via expressions. Expressions can be serialized as protobuf bytes or
 constructed natively in the host language. Results are still returned as Arrow streams, making this
-tier suitable for query engine integrations (e.g. DataFusion, DuckDB, Spark, Trino).
+tier suitable for query engine integrations (e.g. ClickHouse, DataFusion, DuckDB, Spark, Trino).
 
 **Capabilities:** everything in Tier 0, plus scan builder with filter, projection, limit, and row
 range pushdown, and expression construction.
