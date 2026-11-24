@@ -1,16 +1,13 @@
 # Releases
 
 [Release Drafter][drafter-src] ([runs][drafter-runs]) keeps a draft release with release notes
-as changes land on `develop`. Attach the binaries to the draft before you publish it:
+as changes land on `develop`. A release takes two workflow runs, then a manual publication:
 
-1. Get the version of the draft release. Create the tag with this version at the commit to
-   release, and push it:
-
-   ```bash
-   git tag <version> <commit>
-   git push origin <version>
-   ```
-
+1. Run the [Release Tag][tag-src] workflow from its [Actions page][tag-runs] and supply the
+   `commit` input, a commit on `develop`. The workflow takes the version from the draft release
+   and creates that tag at the commit. It fails if the commit is not on `develop`, if the tag
+   already exists, or if there is not exactly one draft release. If there are several drafts,
+   supply the `tag` input to choose one.
 2. Run the [Release Binaries][binaries-src] workflow from its [Actions page][binaries-runs] and
    supply the `tag` input. The workflow gets the commit from the tag. It fails if the tag does not
    exist or if no draft release has this tag. All five platform builds use the same commit: macOS
@@ -24,6 +21,8 @@ as changes land on `develop`. Attach the binaries to the draft before you publis
 
 [drafter-src]: release-drafter.yml
 [drafter-runs]: https://github.com/vortex-data/vortex/actions/workflows/release-drafter.yml
+[tag-src]: release-tag.yml
+[tag-runs]: https://github.com/vortex-data/vortex/actions/workflows/release-tag.yml
 [binaries-src]: release-binaries.yml
 [binaries-runs]: https://github.com/vortex-data/vortex/actions/workflows/release-binaries.yml
 [publish-src]: publish.yml
