@@ -27,6 +27,7 @@
 
 use fastlanes::BitPacking;
 use fastlanes::BitPackingCompare;
+use fastlanes::CmpOp;
 use fastlanes::FastLanesComparable;
 use fastlanes::transpose_bits;
 use vortex_array::ArrayRef;
@@ -56,27 +57,18 @@ const U64_BITS: usize = u64::BITS as usize;
 /// `u64` words spanning one FastLanes block (1024 bits / 64).
 const WORDS_PER_CHUNK: usize = CHUNK_SIZE / U64_BITS;
 
-/// Compare the unpacked values of a [`BitPackedArray`] against `rhs` using the fused FastLanes
-/// `unpack_cmp` kernel, producing a [`BoolArray`].
+/// Compare the unpacked values of a [`BitPackedArray`] using the fused FastLanes `unpack_cmp`
+/// kernel for `op`, producing a [`BoolArray`].
 ///
-/// `kernel(value, rhs)` sees only packed values, so it may assume `[0, 2^W - 1]`. It compares values
-/// as `V`, which can be the physical type of `T` so that types of one width share kernels. When
-/// `negate` is set, the result of `kernel` is inverted, so one kernel serves an operator and its
-/// negation.
-/// `predicate(value)` is exact and handles patches and width 0; it is `&dyn` since that path is
-/// cold.
+/// When `negate` is set, the result of `op` is inverted. `predicate(value)` is exact and handles
+/// patches and width 0.
 ///
 /// [`BitPackedArray`]: crate::BitPackedArray
-#[expect(
-    clippy::too_many_arguments,
-    reason = "typed compare execution parameters"
-)]
-pub(super) fn stream_compare_fused<T, V, K>(
+pub(super) fn stream_compare_fused<T>(
     array: ArrayView<'_, BitPacked>,
     bit_width: u8,
-    rhs: V,
+    op: CmpOp<<T as PhysicalPType>::Physical>,
     nullability: Nullability,
-    kernel: K,
     negate: bool,
     predicate: &dyn Fn(T) -> bool,
     ctx: &mut ExecutionCtx,
@@ -86,8 +78,6 @@ where
         + BitPackedIter
         + FastLanesComparable<Bitpacked = <T as PhysicalPType>::Physical>,
     <T as PhysicalPType>::Physical: BitPacking + NativePType + BitPackingCompare,
-    V: FastLanesComparable<Bitpacked = <T as PhysicalPType>::Physical>,
-    K: Fn(V, V) -> bool + Copy,
 {
     let len = array.len();
     let bit_width = bit_width as usize;
@@ -121,10 +111,12 @@ where
                 // elements and `bit_width <= U::T`, satisfying `unchecked_unpack_cmp`'s contract. The
                 // kernel assigns every word in `transposed`, so its previous contents are irrelevant.
                 unsafe {
-                    <<T as PhysicalPType>::Physical as BitPackingCompare>::unchecked_unpack_cmp::<
-                        V,
-                        _,
-                    >(bit_width, packed_chunk, &mut lane_major, kernel, rhs);
+                    <<T as PhysicalPType>::Physical as BitPackingCompare>::unchecked_unpack_cmp_op(
+                        bit_width,
+                        packed_chunk,
+                        &mut lane_major,
+                        op,
+                    );
                 }
                 transpose_bits::<<T as PhysicalPType>::Physical>(&lane_major, out);
                 if negate {

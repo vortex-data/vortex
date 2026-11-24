@@ -4344,9 +4344,9 @@ checksum = "c6e8948ce679d00a02a94739ea185595dca7118ed04feb991127e443bd3d761f"
 
 [[package]]
 name = "fastlanes"
-version = "0.8.1"
+version = "0.8.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "27b6ffac7ffa7b170248358e13c114d5ace91bfe4135a3f6e590c1548d0e60b5"
+checksum = "e8ecfed9994b53d8bab778667fa2404fddad952d1828a132c14ed8e58a32b7af"
 dependencies = [
  "const_for",
  "cpufeatures 0.3.1",
