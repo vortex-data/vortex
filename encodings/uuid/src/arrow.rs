@@ -194,6 +194,7 @@ mod tests {
     use arrow_buffer::OffsetBuffer;
     use arrow_buffer::ScalarBuffer;
     use arrow_schema::Fields;
+    use arrow_schema::Metadata;
     use arrow_schema::Schema;
     use arrow_schema::extension::EXTENSION_TYPE_METADATA_KEY;
     use arrow_schema::extension::EXTENSION_TYPE_NAME_KEY;
@@ -326,19 +327,16 @@ mod tests {
     #[case::fixed_size_binary_8(DataType::FixedSizeBinary(8), "")]
     #[case::metadata(DataType::FixedSizeBinary(16), "v4")]
     fn from_arrow_field_rejects_invalid_uuid(#[case] data_type: DataType, #[case] metadata: &str) {
-        let field = Field::new("id", data_type, false).with_metadata(
-            [
-                (
-                    EXTENSION_TYPE_NAME_KEY.to_string(),
-                    ArrowUuid::NAME.to_string(),
-                ),
-                (
-                    EXTENSION_TYPE_METADATA_KEY.to_string(),
-                    metadata.to_string(),
-                ),
-            ]
-            .into(),
-        );
+        let field = Field::new("id", data_type, false).with_metadata(Metadata::from_iter([
+            (
+                EXTENSION_TYPE_NAME_KEY.to_string(),
+                ArrowUuid::NAME.to_string(),
+            ),
+            (
+                EXTENSION_TYPE_METADATA_KEY.to_string(),
+                metadata.to_string(),
+            ),
+        ]));
         let err = uuid_session()
             .arrow()
             .from_arrow_field(&field)
@@ -542,7 +540,7 @@ mod tests {
         let batch = RecordBatch::try_new(Arc::clone(&schema), vec![Arc::new(ids)])?;
 
         let reader = RecordBatchIterator::new([Ok(batch)], schema);
-        let stream = ffi_stream::ArrowArrayStreamReader::try_new(
+        let stream = ffi_stream::RecordBatchStreamReader::try_new(
             ffi_stream::FFI_ArrowArrayStream::new(Box::new(reader)),
         )?;
 

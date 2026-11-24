@@ -561,13 +561,17 @@ mod tests {
         );
         // The same pages: each page of each column chunk starts at the same row.
         let page_starts = |metadata: &ParquetMetaData| -> Vec<Vec<Vec<i64>>> {
+            let index = match metadata.page_index() {
+                Some(index) if index.has_offset_indexes() => index,
+                _ => return Vec::new(),
+            };
             metadata
-                .offset_index()
-                .into_iter()
-                .flatten()
-                .map(|row_group| {
-                    row_group
-                        .iter()
+                .row_groups()
+                .iter()
+                .enumerate()
+                .map(|(row_group_idx, row_group)| {
+                    (0..row_group.num_columns())
+                        .filter_map(|column_idx| index.offset_index(row_group_idx, column_idx))
                         .map(|column| {
                             column
                                 .page_locations()

@@ -11,7 +11,7 @@ Guidance for Claude, Codex and other coding agents working in the Vortex reposit
 ## Overview
 
 Vortex is a Rust monorepo for columnar array processing, compression encodings, and file IO.
-The workspace also contains Java bindings in `java/`, Python bindings in `vortex-python/`,
+The workspace also contains Java bindings in `lang/java/`, Python bindings in `vortex-python/`,
 documentation in `docs/`, and benchmark tooling in `vortex-bench/` and `benchmarks/`.
 
 ## Repository Layout
