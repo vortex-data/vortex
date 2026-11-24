@@ -131,14 +131,17 @@ jobs:
               # which reaches only the tip of a shallow clone.
               fetch-depth: 0
 
-      # The workflow can run a PR head whose benchmark still needs local files to open S3.
-      - name: Check whether the S3 benchmark can skip local data
+      # Older PR heads may still need local files or emit unversioned S3 measurements.
+      - name: Check S3 benchmark capabilities
         id: remote-data
         if: inputs.remote_data_dir != ''
         shell: bash
         run: |
           if git grep -q -F 'fn relative_path(&self, format: Format) -> String;' -- vortex-bench/src/random_access/mod.rs; then
             echo "skip-local=true" >> "$GITHUB_OUTPUT"
+          fi
+          if git grep -q -F 'const S3_TIMING_VERSION:' -- benchmarks/random-access-bench/src/lib.rs; then
+            echo "versioned-records=true" >> "$GITHUB_OUTPUT"
           fi
 
       # Every install and download below is independent of the others.
@@ -285,9 +288,19 @@ jobs:
           FLAT_LAYOUT_INLINE_ARRAY_NODE: "1"
           AWS_REGION: "us-east-1"
           AWS_SKIP_SIGNATURE: ${{ inputs.remote_data_dir != '' }}
+          REMOTE_DATA_DIR: ${{ inputs.remote_data_dir }}
+          VERSIONED_RECORDS: ${{ steps.remote-data.outputs.versioned-records }}
         run: |
           python3 scripts/random-access-split.py --emit-ingest-records \
             ${{ inputs.remote_data_dir != '' && format('--remote-data-dir {0}', inputs.remote_data_dir) || '' }}
+
+          # Keep legacy PR timings visible without matching historical or current baselines.
+          if [[ -n "$REMOTE_DATA_DIR" && "$VERSIONED_RECORDS" != "true" ]]; then
+            jq -c --arg fixture "$REMOTE_DATA_DIR" \
+              '.dataset |= ("legacy-" + ($fixture | rtrimstr("/") | @uri) + "-" + .)' \
+              results.ingest.jsonl > results.legacy.ingest.jsonl
+            mv results.legacy.ingest.jsonl results.ingest.jsonl
+          fi
 
       - name: Run ${{ inputs.benchmark_name }} benchmark (per-dataset)
         if: inputs.benchmark_id == 'compress-bench'

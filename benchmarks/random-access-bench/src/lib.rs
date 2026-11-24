@@ -13,6 +13,7 @@ use rand::SeedableRng;
 use rand::rngs::StdRng;
 use rand_distr::Distribution;
 use rand_distr::Exp;
+use url::form_urlencoded::byte_serialize;
 use vortex_bench::Engine;
 use vortex_bench::Format;
 use vortex_bench::Target;
@@ -276,14 +277,24 @@ fn v3_random_access_dataset_name(dataset: &str, pattern: Option<AccessPattern>) 
     }
 }
 
-fn push_v3_random_access_record(records: &mut Vec<v3::V3Record>, run: &RandomAccessRun) {
-    // v3 records have no storage field, so S3 runs get their own dataset name. Otherwise they
-    // would share a measurement ID with, and overwrite, the local-disk rows.
-    let dataset = if run.timing.storage == STORAGE_S3 {
-        format!("{}-s3", run.dataset)
-    } else {
-        run.dataset.clone()
-    };
+// Bump this when the timed S3 work changes. Revision 2 opens the fixture directly,
+// removing local file preparation and Parquet footer reads from reopen timing.
+const S3_TIMING_VERSION: u8 = 2;
+
+fn s3_dataset_suffix(remote: &RemoteDataDir) -> Result<String> {
+    // The location identifies the fixture snapshot. Encode it as one component
+    // so the following access-pattern suffix keeps its existing meaning.
+    let uri = remote.uri("")?;
+    let fixture: String = byte_serialize(uri.as_bytes()).collect();
+    Ok(format!("-read-v{S3_TIMING_VERSION}-{fixture}-s3"))
+}
+
+fn push_v3_random_access_record(
+    records: &mut Vec<v3::V3Record>,
+    run: &RandomAccessRun,
+    s3_suffix: Option<&str>,
+) {
+    let dataset = format!("{}{}", run.dataset, s3_suffix.unwrap_or_default());
     let dataset = v3_random_access_dataset_name(&dataset, run.pattern);
     let open_mode = if run.reopen { "reopen" } else { "cached" };
     records.push(v3::random_access_record(&run.timing, &dataset, open_mode));
@@ -430,6 +441,7 @@ pub async fn run(config: RunConfig) -> Result<()> {
     } = config;
 
     let remote = remote_data_dir.as_ref();
+    let s3_suffix = remote.map(s3_dataset_suffix).transpose()?;
     let storage = if remote.is_some() {
         STORAGE_S3
     } else {
@@ -479,7 +491,7 @@ pub async fn run(config: RunConfig) -> Result<()> {
                     )
                     .await?;
 
-                    push_v3_random_access_record(&mut v3_records, &run);
+                    push_v3_random_access_record(&mut v3_records, &run, s3_suffix.as_deref());
                     runs.push(run);
                     progress.inc(1);
                 }
@@ -508,7 +520,7 @@ pub async fn run(config: RunConfig) -> Result<()> {
                     )
                     .await?;
 
-                    push_v3_random_access_record(&mut v3_records, &run);
+                    push_v3_random_access_record(&mut v3_records, &run, s3_suffix.as_deref());
                     runs.push(run);
                     progress.inc(1);
                 }
@@ -573,14 +585,16 @@ mod tests {
     fn v3_random_access_records_include_open_modes() {
         let mut records = Vec::new();
 
-        push_v3_random_access_record(&mut records, &fake_run("taxi", None, false));
+        push_v3_random_access_record(&mut records, &fake_run("taxi", None, false), None);
         push_v3_random_access_record(
             &mut records,
             &fake_run("taxi", Some(AccessPattern::Uniform), false),
+            None,
         );
         push_v3_random_access_record(
             &mut records,
             &fake_run("taxi", Some(AccessPattern::Correlated), true),
+            None,
         );
 
         assert_eq!(records.len(), 3);
@@ -608,17 +622,32 @@ mod tests {
     }
 
     #[test]
-    fn v3_random_access_records_keep_s3_runs_apart() {
-        let mut run = fake_run("taxi", Some(AccessPattern::Uniform), false);
+    fn v3_random_access_records_include_the_fixture_and_timing_revision() -> Result<()> {
+        let mut run = fake_run("taxi", Some(AccessPattern::Uniform), true);
         run.timing.storage = STORAGE_S3.to_string();
         let mut records = Vec::new();
 
-        push_v3_random_access_record(&mut records, &run);
-
-        match &records[0] {
-            v3::V3Record::RandomAccessTime(record) => assert_eq!(record.dataset, "taxi-s3/uniform"),
-            other => panic!("expected random-access record, got {other:?}"),
+        for version in ["v1", "v2"] {
+            let url = url::Url::parse(&format!("s3://bucket/random-access/{version}/"))?;
+            let remote = RemoteDataDir::try_new(url)?;
+            let suffix = s3_dataset_suffix(&remote)?;
+            push_v3_random_access_record(&mut records, &run, Some(&suffix));
         }
+
+        assert_eq!(records.len(), 2);
+        for (record, version) in records.iter().zip(["v1", "v2"]) {
+            match record {
+                v3::V3Record::RandomAccessTime(record) => {
+                    assert_eq!(
+                        record.dataset,
+                        format!("taxi-read-v2-s3%3A%2F%2Fbucket%2Frandom-access%2F{version}-s3/uniform")
+                    );
+                    assert_eq!(record.open_mode, "reopen");
+                }
+                other => panic!("expected random-access record, got {other:?}"),
+            }
+        }
+        Ok(())
     }
 
     #[test]
