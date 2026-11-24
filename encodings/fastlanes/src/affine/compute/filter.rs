@@ -169,15 +169,13 @@ where
         }
         let patch_val = scalar_residual_as_t::<T>(constant);
         match_each_unsigned_integer_ptype!(patch_indices.ptype(), |P| {
-            visit_surviving_patches(
+            apply_constant_patch_values::<T, P>(
+                values,
                 patch_indices.as_slice::<P>(),
                 patch_offset,
+                patch_val,
+                params,
                 mask_values,
-                |out_idx, orig_idx, _patch_slot| {
-                    let pos = params.offset + orig_idx;
-                    values[out_idx] =
-                        params.decode(pos / FL_CHUNK_SIZE, pos % FL_CHUNK_SIZE, patch_val);
-                },
             );
         });
         return Ok(());
@@ -201,13 +199,11 @@ where
     // patches.
     let mut hits: Vec<(usize, usize, u64)> = Vec::new();
     match_each_unsigned_integer_ptype!(patch_indices.ptype(), |P| {
-        visit_surviving_patches(
+        collect_surviving_patch_hits::<P>(
             patch_indices.as_slice::<P>(),
             patch_offset,
             mask_values,
-            |out_idx, orig_idx, patch_slot| {
-                hits.push((out_idx, orig_idx, patch_slot as u64));
-            },
+            &mut hits,
         );
     });
     if hits.is_empty() {
@@ -230,6 +226,47 @@ where
         });
     }
     Ok(())
+}
+
+fn apply_constant_patch_values<T, P>(
+    values: &mut [T],
+    patch_indices: &[P],
+    patch_offset: usize,
+    patch_val: T,
+    params: &Params<T>,
+    mask_values: &MaskValues,
+) where
+    T: NativePType + PrimInt + WrappingAdd + WrappingMul,
+    i64: AsPrimitive<T>,
+    P: Copy + AsPrimitive<usize>,
+{
+    visit_surviving_patches(
+        patch_indices,
+        patch_offset,
+        mask_values,
+        |out_idx, orig_idx, _patch_slot| {
+            let pos = params.offset + orig_idx;
+            values[out_idx] = params.decode(pos / FL_CHUNK_SIZE, pos % FL_CHUNK_SIZE, patch_val);
+        },
+    );
+}
+
+fn collect_surviving_patch_hits<P>(
+    patch_indices: &[P],
+    patch_offset: usize,
+    mask_values: &MaskValues,
+    hits: &mut Vec<(usize, usize, u64)>,
+) where
+    P: Copy + AsPrimitive<usize>,
+{
+    visit_surviving_patches(
+        patch_indices,
+        patch_offset,
+        mask_values,
+        |out_idx, orig_idx, patch_slot| {
+            hits.push((out_idx, orig_idx, patch_slot as u64));
+        },
+    );
 }
 
 fn scalar_residual_as_t<T>(scalar: &vortex_array::scalar::Scalar) -> T

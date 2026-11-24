@@ -7,7 +7,6 @@ mod compare;
 mod filter;
 mod take;
 
-use std::mem;
 use std::mem::MaybeUninit;
 
 use fastlanes::BitPacking;
@@ -200,23 +199,22 @@ where
     #[inline]
     fn decode_chunk(&self, chunk_idx: usize, dst: &mut [MaybeUninit<T>; FILTER_CHUNK_LEN]) {
         let packed_chunk = self.chunk(chunk_idx);
-        // SAFETY: `T::Physical` has the same size and alignment as `T`, and the unpack below
-        // initializes every slot of `dst` before any element is read.
-        let phys_dst = unsafe {
-            mem::transmute::<
-                &mut [MaybeUninit<T>; FILTER_CHUNK_LEN],
-                &mut [T::Physical; FL_CHUNK_SIZE],
-            >(dst)
-        };
+        let mut scratch = [T::Physical::default(); FL_CHUNK_SIZE];
         if self.params.is_flat(chunk_idx) {
             let reference = self.params.references.get(chunk_idx).as_();
             // SAFETY: `packed_chunk` holds one chunk packed at `self.bit_width` bits.
-            unsafe { FoR::unchecked_unfor_pack(self.bit_width, packed_chunk, reference, phys_dst) };
+            unsafe {
+                FoR::unchecked_unfor_pack(self.bit_width, packed_chunk, reference, &mut scratch)
+            };
         } else {
             // SAFETY: `packed_chunk` holds one chunk packed at `self.bit_width` bits.
-            unsafe { BitPacking::unchecked_unpack(self.bit_width, packed_chunk, phys_dst) };
+            unsafe { BitPacking::unchecked_unpack(self.bit_width, packed_chunk, &mut scratch) };
             self.params
-                .apply_chunk(chunk_idx, 0, physical_as_logical::<T>(phys_dst));
+                .apply_chunk(chunk_idx, 0, physical_as_logical::<T>(&mut scratch));
+        }
+        let logical = physical_as_logical::<T>(&mut scratch);
+        for (out, &val) in dst.iter_mut().zip(logical.iter()) {
+            out.write(val);
         }
     }
 

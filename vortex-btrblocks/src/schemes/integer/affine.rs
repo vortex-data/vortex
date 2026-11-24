@@ -55,7 +55,7 @@ const MIN_BITS_SAVED_PER_VALUE: f64 = 0.5;
 ///
 /// The scheme pre-estimates all candidate modes (`FOR`, `SCALE`, `SLOPE`, `ALL`) directly in
 /// memory from sampled residual bit-width histograms + outlier patch costs, rejecting early if no
-/// non-`FOR` mode saves at least [`MIN_BITS_SAVED_PER_VALUE`] bits per value over per-chunk FoR.
+/// non-`FOR` mode saves at least `MIN_BITS_SAVED_PER_VALUE` bits per value over per-chunk FoR.
 /// Only the winning mode is cascaded through the compressor on the sample to measure its final
 /// compression ratio.
 ///

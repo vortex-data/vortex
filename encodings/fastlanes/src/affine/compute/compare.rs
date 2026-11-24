@@ -43,7 +43,7 @@ use vortex_array::match_each_integer_ptype;
 use vortex_array::match_each_unsigned_integer_ptype;
 use vortex_array::patches::Patches;
 use vortex_array::scalar::Scalar;
-use vortex_array::scalar_fn::builtin::binary::CompareKernel;
+use vortex_array::scalar_fn::builtin::compare::CompareKernel;
 use vortex_array::scalar_fn::builtin::operators::CompareOperator;
 use vortex_array::validity::Validity;
 use vortex_buffer::BitBuffer;

@@ -207,8 +207,8 @@ fn validate_parts(
         encoded_dtype == dtype
             || (encoded_dtype.is_unsigned_int()
                 && encoded_dtype.nullability() == dtype.nullability()
-                && encoded_dtype.as_ptype().byte_width() <= dtype.as_ptype().byte_width()),
-        "Affine encoded dtype must be {dtype} or a no wider unsigned integer, got {encoded_dtype}"
+                && encoded_dtype.as_ptype().byte_width() < dtype.as_ptype().byte_width()),
+        "Affine encoded dtype must be {dtype} or a narrower unsigned integer, got {encoded_dtype}"
     );
     vortex_ensure_eq!(slots.encoded.len(), len, "Affine encoded length mismatch");
     let num_chunks = num_chunks(offset, len);

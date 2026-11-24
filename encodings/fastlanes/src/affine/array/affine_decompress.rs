@@ -101,7 +101,7 @@ pub fn decompress(array: &AffineArray, ctx: &mut ExecutionCtx) -> VortexResult<P
         let values = dict.values().clone().execute::<PrimitiveArray>(ctx)?;
         if codes.all_valid(ctx)? && values.all_valid(ctx)? {
             return match_each_integer_ptype!(array.ptype(), |T| {
-                match_each_unsigned_integer_ptype!(codes.ptype(), |C| {
+                match_each_integer_ptype!(codes.ptype(), |C| {
                     decompress_dict::<T, C>(array, &codes, &values, ctx)
                 })
             });
@@ -186,35 +186,29 @@ where
     let params = Params::<T>::new(array);
     let offset = usize::from(bp.offset());
     let mut values = BufferMut::<T>::with_capacity_in(len, ctx.allocator().clone());
-    // SAFETY: `T::Physical` is `T` with the same size and alignment, and every unpack below
-    // initializes the whole destination before it is read.
-    let output = unsafe {
-        mem::transmute::<&mut [MaybeUninit<T>], &mut [T::Physical]>(
-            &mut values.spare_capacity_mut()[..len],
-        )
-    };
+    let output = &mut values.spare_capacity_mut()[..len];
     let mut scratch = [T::Physical::default(); FL_CHUNK_SIZE];
     for_each_bitpacked_chunk::<T>(bp, |packed, bit_width, range| {
         let chunk_idx = range.start / FL_CHUNK_SIZE;
         // `range` counts from the start of the first chunk, and the output starts at `offset`.
         let skip = offset.saturating_sub(range.start);
         let dst = &mut output[range.start + skip - offset..range.end - offset];
-        if dst.len() == FL_CHUNK_SIZE {
-            if params.is_flat(chunk_idx) {
-                let reference = params.references.get(chunk_idx).as_();
-                // SAFETY: `packed` holds one chunk at `bit_width` and `dst` is a whole chunk.
-                unsafe { FoR::unchecked_unfor_pack(bit_width, packed, reference, dst) };
-            } else {
-                // SAFETY: as above.
-                unsafe { BitPacking::unchecked_unpack(bit_width, packed, dst) };
-                params.apply_chunk(chunk_idx, 0, physical_as_logical::<T>(dst));
+        if dst.len() == FL_CHUNK_SIZE && params.is_flat(chunk_idx) {
+            let reference = params.references.get(chunk_idx).as_();
+            // SAFETY: `packed` holds one chunk at `bit_width` and `scratch` is a whole chunk.
+            unsafe { FoR::unchecked_unfor_pack(bit_width, packed, reference, &mut scratch) };
+            let logical = physical_as_logical::<T>(&mut scratch);
+            for (out, &val) in dst.iter_mut().zip(logical.iter()) {
+                out.write(val);
             }
         } else {
             // SAFETY: `packed` holds one chunk at `bit_width` and `scratch` is a whole chunk.
             unsafe { BitPacking::unchecked_unpack(bit_width, packed, &mut scratch) };
-            let chunk = &mut scratch[skip..range.len()];
-            params.apply_chunk(chunk_idx, skip, physical_as_logical::<T>(chunk));
-            dst.copy_from_slice(chunk);
+            let chunk = physical_as_logical::<T>(&mut scratch[skip..range.len()]);
+            params.apply_chunk(chunk_idx, skip, chunk);
+            for (out, &val) in dst.iter_mut().zip(chunk.iter()) {
+                out.write(val);
+            }
         }
     })?;
     // SAFETY: the loop above initialized every value.
@@ -225,15 +219,43 @@ where
         let patch_values = patches.values().clone().execute::<PrimitiveArray>(ctx)?;
         let patch_values = patch_values.as_slice::<T>();
         match_each_unsigned_integer_ptype!(indices.ptype(), |P| {
-            for (&index, &value) in indices.as_slice::<P>().iter().zip(patch_values) {
-                let index = <P as AsPrimitive<usize>>::as_(index) - patches.offset();
-                let position = offset + index;
-                values[index] =
-                    params.decode(position / FL_CHUNK_SIZE, position % FL_CHUNK_SIZE, value);
-            }
+            apply_affine_patches(
+                values.as_mut_slice(),
+                indices.as_slice::<P>(),
+                patch_values,
+                patches.offset(),
+                offset,
+                &params,
+                |v| v,
+            );
         });
     }
     Ok(PrimitiveArray::new(values.freeze(), bp.validity()?))
+}
+
+fn apply_affine_patches<T, U, P>(
+    values: &mut [T],
+    indices: &[P],
+    patch_values: &[U],
+    patches_offset: usize,
+    offset: usize,
+    params: &Params<T>,
+    to_logical: impl Fn(U) -> T,
+) where
+    T: NativePType + PrimInt + WrappingAdd + WrappingMul,
+    i64: AsPrimitive<T>,
+    U: Copy,
+    P: Copy + AsPrimitive<usize>,
+{
+    for (&index, &value) in indices.iter().zip(patch_values) {
+        let index = index.as_() - patches_offset;
+        let position = offset + index;
+        values[index] = params.decode(
+            position / FL_CHUNK_SIZE,
+            position % FL_CHUNK_SIZE,
+            to_logical(value),
+        );
+    }
 }
 
 /// Call `f` with each packed chunk of `bp`, its bit width, and its range of positions counted from
@@ -298,15 +320,15 @@ where
                 let patch_values = patches.values().clone().execute::<PrimitiveArray>(ctx)?;
                 let patch_values = patch_values.as_slice::<U>();
                 match_each_unsigned_integer_ptype!(indices.ptype(), |P| {
-                    for (&index, &value) in indices.as_slice::<P>().iter().zip(patch_values) {
-                        let index = <P as AsPrimitive<usize>>::as_(index) - patches.offset();
-                        let position = offset + index;
-                        values[index] = params.decode(
-                            position / FL_CHUNK_SIZE,
-                            position % FL_CHUNK_SIZE,
-                            value.as_(),
-                        );
-                    }
+                    apply_affine_patches(
+                        values.as_mut_slice(),
+                        indices.as_slice::<P>(),
+                        patch_values,
+                        patches.offset(),
+                        offset,
+                        &params,
+                        AsPrimitive::as_,
+                    );
                 });
             }
             bp.validity()?
@@ -362,11 +384,7 @@ where
     let params = Params::<T>::new(array);
     // Residuals of any integer type, as `T` by the same truncation the other paths use.
     let residuals: Vec<T> = match_each_integer_ptype!(values.ptype(), |V| {
-        values
-            .as_slice::<V>()
-            .iter()
-            .map(|&v| <u64 as AsPrimitive<T>>::as_(AsPrimitive::<u64>::as_(v)))
-            .collect()
+        collect_dict_residuals::<T, V>(values)
     });
     let codes = codes.as_slice::<C>();
     let mut table = vec![T::zero(); residuals.len()];
@@ -408,6 +426,19 @@ where
     // SAFETY: the loop above initialized every value.
     unsafe { out.set_len(len) };
     Ok(PrimitiveArray::new(out.freeze(), validity))
+}
+
+fn collect_dict_residuals<T, V>(values: &PrimitiveArray) -> Vec<T>
+where
+    T: NativePType,
+    u64: AsPrimitive<T>,
+    V: NativePType + AsPrimitive<u64>,
+{
+    values
+        .as_slice::<V>()
+        .iter()
+        .map(|&v| <u64 as AsPrimitive<T>>::as_(v.as_()))
+        .collect()
 }
 
 /// View unpacked physical values as the array's logical type.

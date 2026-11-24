@@ -60,18 +60,19 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
 
 const LEN: usize = 64 * 1024;
 
-/// A deterministic xorshift stream of 16-bit noise.
+/// A deterministic xorshift stream of 15-bit noise (stays below `u16::MAX` so narrowed `u16`
+/// residuals remain bit-packed rather than falling back to an unpacked primitive array).
 fn noise() -> impl FnMut() -> i64 {
     let mut x = 0x1234_5678u64;
     move || {
         x ^= x << 13;
         x ^= x >> 7;
         x ^= x << 17;
-        (x % 65_536) as i64
+        (x % 32_768) as i64
     }
 }
 
-/// Microsecond timestamps on a one-millisecond grid with 16 bits of spread per chunk, which a
+/// Microsecond timestamps on a one-millisecond grid with 15 bits of spread per chunk, which a
 /// common divisor narrows.
 fn grid() -> PrimitiveArray {
     let mut noise = noise();
@@ -81,7 +82,7 @@ fn grid() -> PrimitiveArray {
     )
 }
 
-/// Nanosecond timestamps on a one-minute grid with 16 bits of jitter, which a slope fits.
+/// Nanosecond timestamps on a one-minute grid with 15 bits of jitter, which a slope fits.
 fn trend() -> PrimitiveArray {
     let mut noise = noise();
     PrimitiveArray::from_iter(

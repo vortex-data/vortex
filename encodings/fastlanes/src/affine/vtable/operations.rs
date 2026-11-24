@@ -39,27 +39,48 @@ impl OperationsVTable<Affine> for Affine {
         let shift = array.slope_shift();
 
         Ok(match_each_integer_ptype!(array.ptype(), |P| {
-            let encoded = encoded.as_primitive();
-            // Narrow residuals are unsigned and fit in `P`'s bits, so they convert by truncation.
-            let residual = if encoded.ptype() == P::PTYPE {
-                encoded.typed_value::<P>()
-            } else {
-                encoded.as_::<u64>().map(<u64 as AsPrimitive<P>>::as_)
-            };
-            residual
-                .map(|e| {
-                    let reference = reference
-                        .as_primitive()
-                        .typed_value::<P>()
-                        .vortex_expect("Affine references are non-nullable");
-                    let scale = scale
-                        .as_primitive()
-                        .typed_value::<P>()
-                        .vortex_expect("Affine scales are non-nullable");
-                    decode_one(e, reference, scale, slope, j, shift)
-                })
-                .map(|v| Scalar::primitive::<P>(v, array.dtype().nullability()))
-                .unwrap_or_else(|| Scalar::null(array.dtype().clone()))
+            scalar_at_typed::<P>(&encoded, &reference, &scale, slope, j, shift, array.dtype())
         }))
     }
+}
+
+fn scalar_at_typed<P>(
+    encoded: &Scalar,
+    reference: &Scalar,
+    scale: &Scalar,
+    slope: i64,
+    j: usize,
+    shift: u8,
+    dtype: &vortex_array::dtype::DType,
+) -> Scalar
+where
+    P: NativePType
+        + num_traits::PrimInt
+        + num_traits::WrappingAdd
+        + num_traits::WrappingMul
+        + Into<vortex_array::scalar::PValue>,
+    i64: AsPrimitive<P>,
+    u64: AsPrimitive<P>,
+{
+    let encoded = encoded.as_primitive();
+    // Narrow residuals are unsigned and fit in `P`'s bits, so they convert by truncation.
+    let residual = if encoded.ptype() == P::PTYPE {
+        encoded.typed_value::<P>()
+    } else {
+        encoded.as_::<u64>().map(<u64 as AsPrimitive<P>>::as_)
+    };
+    residual
+        .map(|e| {
+            let reference = reference
+                .as_primitive()
+                .typed_value::<P>()
+                .vortex_expect("Affine references are non-nullable");
+            let scale = scale
+                .as_primitive()
+                .typed_value::<P>()
+                .vortex_expect("Affine scales are non-nullable");
+            decode_one(e, reference, scale, slope, j, shift)
+        })
+        .map(|v| Scalar::primitive::<P>(v, dtype.nullability()))
+        .unwrap_or_else(|| Scalar::null(dtype.clone()))
 }

@@ -14,6 +14,7 @@ use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ConstantArray;
+use vortex_array::arrays::DictArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::dict::TakeExecute;
 use vortex_array::arrays::filter::FilterKernel;
@@ -30,9 +31,8 @@ use vortex_array::dtype::PType;
 use vortex_array::optimizer::ArrayOptimizer;
 use vortex_array::patches::Patches;
 use vortex_array::scalar::Scalar;
-use vortex_array::scalar_fn::builtin::binary::CompareKernel;
+use vortex_array::scalar_fn::builtin::compare::CompareKernel;
 use vortex_array::scalar_fn::builtin::operators::CompareOperator;
-use vortex_array::scalar_fn::builtin::operators::Operator;
 use vortex_array::serde::SerializeOptions;
 use vortex_array::serde::SerializedArray;
 use vortex_array::validity::Validity;
@@ -580,7 +580,7 @@ fn compare_matches_primitive_across_modes_and_slices(
                     )
                     .into_array();
                     for op in ALL_OPERATORS {
-                        let expected = expected_slice.binary(rhs.clone(), Operator::from(op))?;
+                        let expected = expected_slice.compare(rhs.clone(), op)?;
                         if let Some(sliced_bp) = &sliced_bp {
                             let got_bp = <Affine as CompareKernel>::compare(
                                 sliced_bp.as_::<Affine>(),
@@ -607,15 +607,15 @@ fn compare_matches_primitive_across_modes_and_slices(
             let target = sliced_bp.as_ref().unwrap_or(&sliced_prim);
             if let Some(first_scalar) = constants.first() {
                 let rhs = ConstantArray::new(first_scalar.clone(), slice_len).into_array();
-                let actual_rev = rhs.binary(target.clone(), Operator::Lt)?;
-                let expected_rev = rhs.binary(expected_slice.clone(), Operator::Lt)?;
+                let actual_rev = rhs.compare(target.clone(), CompareOperator::Lt)?;
+                let expected_rev = rhs.compare(expected_slice.clone(), CompareOperator::Lt)?;
                 assert_arrays_eq!(actual_rev, expected_rev, &mut ctx);
             }
             let null_rhs =
                 ConstantArray::new(Scalar::null(values.dtype().as_nullable()), slice_len)
                     .into_array();
-            let actual_null = target.binary(null_rhs.clone(), Operator::Eq)?;
-            let expected_null = expected_slice.binary(null_rhs, Operator::Eq)?;
+            let actual_null = target.compare(null_rhs.clone(), CompareOperator::Eq)?;
+            let expected_null = expected_slice.compare(null_rhs, CompareOperator::Eq)?;
             assert_arrays_eq!(actual_null, expected_null, &mut ctx);
         }
     }
@@ -676,7 +676,7 @@ fn compare_negative_scales_slopes_and_wrapping() -> VortexResult<()> {
                 let got =
                     <Affine as CompareKernel>::compare(affine.as_::<Affine>(), &rhs, op, &mut ctx)?
                         .expect("compare kernel must engage");
-                let want = canonical.binary(rhs.clone(), Operator::from(op))?;
+                let want = canonical.compare(rhs.clone(), op)?;
                 assert_arrays_eq!(got, want, &mut ctx);
             }
         }
@@ -709,7 +709,7 @@ fn compare_negative_scales_slopes_and_wrapping() -> VortexResult<()> {
                 &mut ctx,
             )?
             .expect("compare kernel must engage");
-            let want = wrap_canonical.binary(rhs.clone(), Operator::from(op))?;
+            let want = wrap_canonical.compare(rhs.clone(), op)?;
             assert_arrays_eq!(got, want, &mut ctx);
         }
     }
@@ -776,7 +776,7 @@ fn compare_constant_short_circuit_and_patched_override() -> VortexResult<()> {
         let want = patched_vals
             .clone()
             .into_array()
-            .binary(rhs_high.clone(), Operator::from(op))?;
+            .compare(rhs_high.clone(), op)?;
         assert_arrays_eq!(got, want, &mut ctx);
     }
     Ok(())
@@ -800,11 +800,8 @@ fn zero_bit_width_filter_take_compare() -> VortexResult<()> {
         let rhs = ConstantArray::new(rhs_val, 3072).into_array();
         for op in ALL_OPERATORS {
             assert_arrays_eq!(
-                bp.binary(rhs.clone(), Operator::from(op))?,
-                values
-                    .clone()
-                    .into_array()
-                    .binary(rhs.clone(), Operator::from(op))?,
+                bp.compare(rhs.clone(), op)?,
+                values.clone().into_array().compare(rhs.clone(), op)?,
                 &mut ctx
             );
         }
@@ -888,8 +885,8 @@ fn compute_kernels_with_dict_child_and_compressed_patches() -> VortexResult<()> 
     let rhs = ConstantArray::new(1_050_500i64, 3895).into_array();
     for op in ALL_OPERATORS {
         assert_arrays_eq!(
-            dict_affine.binary(rhs.clone(), Operator::from(op))?,
-            expected_slice.binary(rhs.clone(), Operator::from(op))?,
+            dict_affine.compare(rhs.clone(), op)?,
+            expected_slice.compare(rhs.clone(), op)?,
             &mut ctx
         );
     }
@@ -1044,5 +1041,33 @@ fn compute_kernels_edge_cases() -> VortexResult<()> {
         Validity::from_iter([true, false, true, false, true]),
     );
     assert_arrays_eq!(filtered, expected, &mut ctx);
+    Ok(())
+}
+
+#[test]
+fn rejects_equal_width_unsigned_residuals_for_signed_dtype() {
+    let encoded = PrimitiveArray::from_iter([0u32, 1]).into_array();
+    let references = ConstantArray::new(100i32, 1).into_array();
+    let scales = ConstantArray::new(1i32, 1).into_array();
+    let slopes = ConstantArray::new(0i64, 1).into_array();
+    assert!(Affine::try_new(encoded, references, scales, slopes, 0, 0).is_err());
+}
+
+#[test]
+fn decompress_handles_signed_dict_codes() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let codes = PrimitiveArray::from_iter([0i16, 1, 2, 1, 0]).into_array();
+    let values = PrimitiveArray::from_iter([0u8, 3, 7]).into_array();
+    let dict = DictArray::try_new(codes, values)?.into_array();
+    let affine = Affine::try_new(
+        dict,
+        ConstantArray::new(100i32, 1).into_array(),
+        ConstantArray::new(10i32, 1).into_array(),
+        ConstantArray::new(0i64, 1).into_array(),
+        0,
+        0,
+    )?;
+    let expected = PrimitiveArray::from_iter([100i32, 130, 170, 130, 100]);
+    assert_arrays_eq!(affine, expected, &mut ctx);
     Ok(())
 }

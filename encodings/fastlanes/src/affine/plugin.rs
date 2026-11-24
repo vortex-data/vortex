@@ -122,13 +122,16 @@ impl ArrayPlugin for AffinePlugin {
         let offset = u16::try_from(metadata.offset)?;
         let chunks = num_chunks(offset, parts.len);
         let param_dtype = parts.dtype.as_nonnullable();
+        let logical_bytes = parts.dtype.as_ptype().byte_width();
         let encoded_dtype = match metadata.encoded_bytes {
             0 => parts.dtype.clone(),
-            1 => DType::Primitive(PType::U8, parts.dtype.nullability()),
-            2 => DType::Primitive(PType::U16, parts.dtype.nullability()),
-            4 => DType::Primitive(PType::U32, parts.dtype.nullability()),
-            8 => DType::Primitive(PType::U64, parts.dtype.nullability()),
-            other => vortex_bail!("Affine residuals cannot be {other} bytes wide"),
+            1 if 1 < logical_bytes => DType::Primitive(PType::U8, parts.dtype.nullability()),
+            2 if 2 < logical_bytes => DType::Primitive(PType::U16, parts.dtype.nullability()),
+            4 if 4 < logical_bytes => DType::Primitive(PType::U32, parts.dtype.nullability()),
+            other => vortex_bail!(
+                "Invalid Affine encoded_bytes {other} for dtype {}",
+                parts.dtype
+            ),
         };
         let encoded = parts.children.get(0, &encoded_dtype, parts.len)?;
         let references = parts.children.get(1, &param_dtype, chunks)?;
