@@ -4706,8 +4706,9 @@ dependencies = [
 
 [[package]]
 name = "geoarrow"
-version = "0.9.0"
-source = "git+https://github.com/geoarrow/geoarrow-rs?rev=ff61a948ac890b0e3071edd68825d081c4d06ac8#ff61a948ac890b0e3071edd68825d081c4d06ac8"
+version = "0.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9eb48f90caa24d0483b8c652b9e783dce85070fb538b66a5f153c8611c5f55e4"
 dependencies = [
  "geoarrow-array",
  "geoarrow-schema",
@@ -4715,8 +4716,9 @@ dependencies = [
 
 [[package]]
 name = "geoarrow-array"
-version = "0.9.0"
-source = "git+https://github.com/geoarrow/geoarrow-rs?rev=ff61a948ac890b0e3071edd68825d081c4d06ac8#ff61a948ac890b0e3071edd68825d081c4d06ac8"
+version = "0.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c947ced364ad8a7b06f9e841277e775dcb3a2f2939acdc9ea8079fb9c8a42ee7"
 dependencies = [
  "arrow-array 60.1.0",
  "arrow-buffer 60.1.0",
@@ -4730,8 +4732,9 @@ dependencies = [
 
 [[package]]
 name = "geoarrow-cast"
-version = "0.9.0"
-source = "git+https://github.com/geoarrow/geoarrow-rs?rev=ff61a948ac890b0e3071edd68825d081c4d06ac8#ff61a948ac890b0e3071edd68825d081c4d06ac8"
+version = "0.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "07fec3668df2e207e32b5e1a28ecf70ad29b5d7eaa46fac66c2cbfdb5aef6167"
 dependencies = [
  "arrow-schema 60.1.0",
  "geo-traits",
@@ -4742,8 +4745,9 @@ dependencies = [
 
 [[package]]
 name = "geoarrow-schema"
-version = "0.9.0"
-source = "git+https://github.com/geoarrow/geoarrow-rs?rev=ff61a948ac890b0e3071edd68825d081c4d06ac8#ff61a948ac890b0e3071edd68825d081c4d06ac8"
+version = "0.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4d636e7ad5bdd26a16eb916c29635b82671c5d2561ca64a86f883223a697cc59"
 dependencies = [
  "arrow-schema 60.1.0",
  "geo-traits",

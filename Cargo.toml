@@ -171,8 +171,8 @@ fuzzy-matcher = "0.3"
 geo = "0.31.0"
 geo-traits = "0.3.0"
 geo-types = "0.7.19"
-geoarrow = "0.9.0"
-geoarrow-cast = "0.9.0"
+geoarrow = "0.10.0"
+geoarrow-cast = "0.10.0"
 geozero = { version = "0.14", default-features = false, features = [
     "with-geo",
     "with-wkb",
@@ -477,9 +477,3 @@ incremental = false
 # This improved build times significantly for default common cases that we use locally
 [profile.dev.package.vortex-fastlanes]
 debug = false
-
-[patch.crates-io]
-geoarrow = { version = "=0.9.0", git = "https://github.com/geoarrow/geoarrow-rs", rev = "ff61a948ac890b0e3071edd68825d081c4d06ac8" }
-geoarrow-array = { version = "=0.9.0", git = "https://github.com/geoarrow/geoarrow-rs", rev = "ff61a948ac890b0e3071edd68825d081c4d06ac8" }
-geoarrow-cast = { version = "=0.9.0", git = "https://github.com/geoarrow/geoarrow-rs", rev = "ff61a948ac890b0e3071edd68825d081c4d06ac8" }
-geoarrow-schema = { version = "=0.9.0", git = "https://github.com/geoarrow/geoarrow-rs", rev = "ff61a948ac890b0e3071edd68825d081c4d06ac8" }
