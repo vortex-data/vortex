@@ -90,6 +90,7 @@ mod tests {
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
+    use vortex_array::dtype::extension::ExtDType;
     use vortex_array::scalar::Scalar;
     use vortex_array::scalar_fn::EmptyOptions;
     use vortex_array::scalar_fn::ScalarFnVTable;
@@ -145,12 +146,13 @@ mod tests {
         let mut buf = Vec::new();
         wkb::writer::write_geometry(&mut buf, geometry, &WriteOptions::default())
             .map_err(|e| vortex_err!("writing WKB failed: {e}"))?;
-        let wkb = Scalar::extension::<WellKnownBinary>(
+        let dtype = ExtDType::<WellKnownBinary>::try_new(
             SpatialMetadata::default(),
-            Scalar::binary(buf, Nullability::NonNullable),
-        );
+            Nullability::NonNullable,
+        )?;
+        let storage = Scalar::binary(buf, Nullability::NonNullable);
         let session = VortexSession::empty();
-        let scalar = native_geometry_scalar_from_wkb(&wkb, &session)?
+        let scalar = native_geometry_scalar_from_wkb(&dtype, storage.value(), &session)?
             .ok_or_else(|| vortex_err!("unsupported geometry type"))?;
         Ok(ConstantArray::new(scalar, len).into_array())
     }

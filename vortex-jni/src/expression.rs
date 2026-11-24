@@ -760,11 +760,13 @@ pub extern "system" fn Java_dev_vortex_jni_NativeExpression_literalGeometry(
         }
         let bytes = env.convert_byte_array(&wkb)?;
         // The Java API passes WKB bytes only, so the literal has no CRS.
-        let literal = Scalar::extension::<WellKnownBinary>(
+        let dtype = ExtDType::<WellKnownBinary>::try_new(
             SpatialMetadata::default(),
-            Scalar::binary(bytes, Nullability::NonNullable),
-        );
-        let scalar = native_geometry_scalar_from_wkb(&literal, &VortexSession::default())?
+            Nullability::NonNullable,
+        )?;
+        let storage = Scalar::binary(bytes, Nullability::NonNullable);
+        let session = VortexSession::default();
+        let scalar = native_geometry_scalar_from_wkb(&dtype, storage.value(), &session)?
             .ok_or_else(|| vortex_err!("unsupported WKB geometry type for a geometry literal"))?;
         Ok(into_raw(lit(scalar)))
     })

@@ -190,10 +190,10 @@ fn spatial_operand(value: &ExpressionRef, ctx: ConvertCtx<'_>) -> VortexResult<O
             let DType::Extension(ext_dtype) = scalar.dtype() else {
                 return Ok(None);
             };
-            if !ext_dtype.is::<WellKnownBinary>() {
+            let Ok(wkb_dtype) = ext_dtype.clone().try_downcast::<WellKnownBinary>() else {
                 return Ok(None);
-            }
-            Ok(native_geometry_scalar_from_wkb(&scalar, &SESSION)?.map(lit))
+            };
+            Ok(native_geometry_scalar_from_wkb(&wkb_dtype, scalar.value(), &SESSION)?.map(lit))
         }
         Some(BoundColumnRef(col_ref))
             if is_native_spatial_column(ctx.fields, col_ref.name.as_ref()) =>

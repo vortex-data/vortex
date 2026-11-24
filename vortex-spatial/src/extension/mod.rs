@@ -70,9 +70,11 @@ use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
+use vortex_array::dtype::extension::ExtDType;
 use vortex_array::dtype::extension::ExtId;
 use vortex_array::dtype::extension::ExtVTable;
 use vortex_array::scalar::Scalar;
+use vortex_array::scalar::ScalarValue;
 use vortex_arrow::ArrowSession;
 use vortex_arrow::ArrowSessionExt;
 use vortex_buffer::Buffer;
@@ -210,24 +212,18 @@ pub(crate) fn single_geometry(
         .ok_or_else(|| vortex_err!("spatial: constant operand decoded to no geometry"))
 }
 
-/// Convert a [`WellKnownBinary`] geometry literal (DuckDB's wire form for `GEOMETRY` constants) to
-/// its native geometry scalar, keeping the literal's CRS. `None` for a null literal or an
-/// unsupported geometry type. Plan-time, one value only.
+/// Convert a geometry literal to its native geometry scalar.
+/// Returns `None` for a null literal or an unsupported geometry type.
 pub fn native_geometry_scalar_from_wkb(
-    wkb: &Scalar,
+    dtype: &ExtDType<WellKnownBinary>,
+    value: Option<&ScalarValue>,
     session: &VortexSession,
 ) -> VortexResult<Option<Scalar>> {
-    let wkb_metadata = wkb
-        .dtype()
-        .as_extension_opt()
-        .and_then(|ext| ext.metadata_opt::<WellKnownBinary>())
-        .ok_or_else(|| vortex_err!("spatial: {} is not a WKB geometry literal", wkb.dtype()))?;
-    let stored_metadata = SpatialStoredMetadata::new(wkb_metadata.get_crs().map(str::to_owned));
-    let storage = wkb.as_extension().to_storage_scalar();
-    let Some(bytes) = storage.as_binary().value() else {
+    let Some(value) = value else {
         return Ok(None);
     };
-    let bytes = bytes.as_slice();
+    let bytes = value.as_binary().as_slice();
+    let stored_metadata = SpatialStoredMetadata::new(dtype.metadata().get_crs().map(str::to_owned));
 
     let metadata = geoarrow_metadata(&SpatialMetadata::default());
     let binary = BinaryArray::from(vec![Some(bytes)]);
@@ -518,17 +514,14 @@ mod tests {
         SpatialMetadata::default().with_dimension(Dimension::Xy)
     }
 
-    /// Test shim: decode WKB `bytes` without a CRS, with an explicitly constructed session.
-    fn native_geometry_scalar_from_wkb(bytes: &[u8]) -> VortexResult<Option<Scalar>> {
-        super::native_geometry_scalar_from_wkb(&wkb_literal(bytes, None), &VortexSession::empty())
-    }
-
-    /// A non-null WKB geometry literal over `bytes` in coordinate reference system `crs`.
-    fn wkb_literal(bytes: &[u8], crs: Option<&str>) -> Scalar {
-        Scalar::extension::<WellKnownBinary>(
+    /// Decode the WKB geometry literal `bytes` in coordinate reference system `crs`.
+    fn wkb_literal(bytes: &[u8], crs: Option<&str>) -> VortexResult<Option<Scalar>> {
+        let dtype = ExtDType::<WellKnownBinary>::try_new(
             SpatialMetadata::new(crs.map(str::to_owned)),
-            Scalar::binary(bytes.to_vec(), Nullability::NonNullable),
-        )
+            Nullability::NonNullable,
+        )?;
+        let storage = Scalar::binary(bytes.to_vec(), Nullability::NonNullable);
+        super::native_geometry_scalar_from_wkb(&dtype, storage.value(), &VortexSession::empty())
     }
 
     #[test]
@@ -616,8 +609,7 @@ mod tests {
         wkb.extend_from_slice(&1.0f64.to_le_bytes()); // x
         wkb.extend_from_slice(&2.0f64.to_le_bytes()); // y
 
-        let literal = wkb_literal(&wkb, Some("EPSG:32633"));
-        let scalar = super::native_geometry_scalar_from_wkb(&literal, &VortexSession::empty())?
+        let scalar = wkb_literal(&wkb, Some("EPSG:32633"))?
             .ok_or_else(|| vortex_err!("a point scalar"))?;
         let DType::Extension(ext) = scalar.dtype() else {
             return Err(vortex_err!(
@@ -627,8 +619,12 @@ mod tests {
         };
         assert_eq!(ext.metadata::<Point>().get_crs(), Some("EPSG:32633"));
 
-        let null = Scalar::null(literal.dtype().as_nullable());
-        assert!(super::native_geometry_scalar_from_wkb(&null, &VortexSession::empty())?.is_none());
+        let dtype = ExtDType::<WellKnownBinary>::try_new(
+            SpatialMetadata::new(Some("EPSG:32633".to_owned())),
+            Nullability::Nullable,
+        )?;
+        let null = super::native_geometry_scalar_from_wkb(&dtype, None, &VortexSession::empty())?;
+        assert!(null.is_none());
         Ok(())
     }
 
@@ -640,7 +636,7 @@ mod tests {
         wkb.extend_from_slice(&1.0f64.to_le_bytes()); // x
         wkb.extend_from_slice(&2.0f64.to_le_bytes()); // y
 
-        let scalar = native_geometry_scalar_from_wkb(&wkb)?.expect("a point scalar");
+        let scalar = wkb_literal(&wkb, None)?.expect("a point scalar");
         let DType::Extension(ext) = scalar.dtype() else {
             panic!("expected an extension dtype, got {}", scalar.dtype());
         };
@@ -670,7 +666,7 @@ mod tests {
             wkb.extend_from_slice(&f64::to_le_bytes(y));
         }
 
-        let scalar = native_geometry_scalar_from_wkb(&wkb)?.expect("a polygon scalar");
+        let scalar = wkb_literal(&wkb, None)?.expect("a polygon scalar");
         let DType::Extension(ext) = scalar.dtype() else {
             panic!("expected an extension dtype, got {}", scalar.dtype());
         };
@@ -704,7 +700,7 @@ mod tests {
             wkb.extend_from_slice(&f64::to_le_bytes(y));
         }
 
-        let scalar = native_geometry_scalar_from_wkb(&wkb)?.expect("a linestring scalar");
+        let scalar = wkb_literal(&wkb, None)?.expect("a linestring scalar");
         let DType::Extension(ext) = scalar.dtype() else {
             panic!("expected an extension dtype, got {}", scalar.dtype());
         };
@@ -736,7 +732,7 @@ mod tests {
             wkb.extend_from_slice(&f64::to_le_bytes(y));
         }
 
-        let scalar = native_geometry_scalar_from_wkb(&wkb)?.expect("a multipoint scalar");
+        let scalar = wkb_literal(&wkb, None)?.expect("a multipoint scalar");
         let DType::Extension(ext) = scalar.dtype() else {
             panic!("expected an extension dtype, got {}", scalar.dtype());
         };
@@ -772,7 +768,7 @@ mod tests {
             }
         }
 
-        let scalar = native_geometry_scalar_from_wkb(&wkb)?.expect("a multilinestring scalar");
+        let scalar = wkb_literal(&wkb, None)?.expect("a multilinestring scalar");
         let DType::Extension(ext) = scalar.dtype() else {
             panic!("expected an extension dtype, got {}", scalar.dtype());
         };
