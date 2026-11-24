@@ -143,6 +143,7 @@
     "list_contains_set": 10,
     "list_length": 6,
     "list_sum": 11,
+    "list_transform": 9,
     "listview_zip": 2,
     "primitive_zip": 2,
     "varbinview_zip": 2,
