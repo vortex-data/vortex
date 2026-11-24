@@ -38,13 +38,17 @@ pub struct AffineSlots {
 /// `j = p % FL_CHUNK_SIZE`, and decodes as
 ///
 /// ```text
-/// value = encoded[i] * scales[c] + references[c] + ((slopes[c] * j) >> slope_shift)
+/// whole = slopes[c] >> slope_shift
+/// frac  = slopes[c] & ((1 << slope_shift) - 1)
+/// term  = whole * j + ((frac * j) >> slope_shift)
+/// value = encoded[i] * scales[c] + references[c] + term
 /// ```
 ///
-/// All arithmetic wraps in the array's integer type, except the slope term, which is computed in
-/// `i64` with wrapping multiplication and an arithmetic shift before truncating to the array's
-/// type. Both encoder and decoder compute the same terms, so the encoding is lossless for any
-/// parameters.
+/// All arithmetic wraps in the array's integer type, except `term`, which is computed in `i64`
+/// using wrapping arithmetic on `whole * j` and an unsigned `u32` shift on `frac * j` (agreeing
+/// with `(slopes[c] * j) >> slope_shift` whenever `slopes[c] * j` does not overflow `i64`;
+/// `slope_term` is the normative definition) before truncating to the array's type. Both encoder
+/// and decoder compute the same terms, so the encoding is lossless for any parameters.
 ///
 /// The children select the mode. Constant `scales` of one and constant `slopes` of zero reduce to
 /// per-chunk [`FoR`](crate::FoR). A scale above one divides out a common divisor, such as the step
