@@ -23,6 +23,7 @@ use vortex::dtype::Nullability::NonNullable;
 use vortex::expr::col;
 use vortex::expr::pack;
 use vortex::file::OpenOptionsSessionExt;
+use vortex::layout::scan::options::LayoutScanOptions;
 use vortex::scan::ScanRequest;
 
 use crate::Format;
@@ -87,7 +88,7 @@ impl Dataset for TPCHLCommentChunked {
         let path = ensure_lineitem(Format::OnDiskVortex).await?;
         let file = SESSION.open_options().open_path(path).await?;
         let scan = file
-            .data_source()?
+            .layout_reader_data_source(LayoutScanOptions::default())?
             .scan(ScanRequest {
                 projection: pack(vec![("l_comment", col("l_comment"))], NonNullable),
                 ordered: true,

@@ -21,6 +21,7 @@ use vortex_error::VortexResult;
 use vortex_layout::LayoutReader;
 use vortex_layout::scan::layout::LayoutReaderDataSource;
 use vortex_layout::scan::metrics::ScanUsage;
+use vortex_layout::scan::options::LayoutScanOptions;
 use vortex_layout::scan::scan_builder::ScanBuilder;
 use vortex_layout::scan::scan_builder::referenced_field_masks;
 use vortex_layout::scan::split_by::SplitBy;
@@ -248,25 +249,19 @@ impl VortexFile {
         }
     }
 
-    /// Create a [`DataSource`](vortex_scan::DataSource) from this file for scanning.
+    /// Create a [`DataSource`](vortex_scan::DataSource) that scans this file on the V1 executor:
+    /// its [layout reader](Self::layout_reader), whose scans run with `options`.
     ///
-    /// Scans run on the file's [layout reader](Self::layout_reader), as with
-    /// [`layout_reader_data_source`](Self::layout_reader_data_source). Stored footer aggregates
-    /// are available through the source statistics methods without reading payloads.
-    pub fn data_source(&self) -> VortexResult<DataSourceRef> {
-        self.layout_reader_data_source()
-    }
-
-    /// Create a [`DataSource`](vortex_scan::DataSource) that scans this file with its
-    /// [layout reader](Self::layout_reader), whatever its layouts.
-    ///
-    /// Use [`data_source`](Self::data_source) unless the layout reader is required, for example
-    /// to compare it with [`plan_data_source`](Self::plan_data_source). Stored footer aggregates
-    /// are available through the source statistics methods without reading payloads.
-    pub fn layout_reader_data_source(&self) -> VortexResult<DataSourceRef> {
+    /// A file has a source for each executor, [this one](Self::layout_reader_data_source) and
+    /// [`plan_data_source`](Self::plan_data_source), and the host picks one. Stored footer
+    /// aggregates are available through the source statistics methods without reading payloads.
+    pub fn layout_reader_data_source(
+        &self,
+        options: LayoutScanOptions,
+    ) -> VortexResult<DataSourceRef> {
         let reader = self.layout_reader()?;
         Ok(Arc::new(FileDataSource::new(
-            LayoutReaderDataSource::new(reader, self.session.clone()),
+            LayoutReaderDataSource::with_options(reader, self.session.clone(), options),
             self.file_stats().cloned(),
         )))
     }
@@ -276,9 +271,9 @@ impl VortexFile {
     ///
     /// The source is a [`PlanDataSource`] over [`plan_child`](Self::plan_child). Every scan of
     /// the source shares one [`ScanCache`]: the file's, with [caching](Self::with_caching), or else
-    /// one of its own. A scan whose filter the file-level statistics prove false reads nothing.
-    /// Stored footer aggregates are available through the source statistics methods. Opening the
-    /// source reads nothing and builds no layout reader.
+    /// one of its own, so a host need not enable caching. A scan whose filter the file-level
+    /// statistics prove false reads nothing. Stored footer aggregates are available through the
+    /// source statistics methods. Creating the source reads nothing and builds no layout reader.
     pub fn plan_data_source(&self) -> DataSourceRef {
         let source = PlanDataSource::from_child(self.session.clone(), self.plan_child());
         Arc::new(FileDataSource::new(source, self.file_stats().cloned()))
@@ -287,15 +282,26 @@ impl VortexFile {
     /// This file as a child of a [`PlanDataSource`]: its V2 scan input, row count, and a pruner
     /// that skips scans whose filter the file-level statistics prove false.
     ///
-    /// An opened scan of the child cuts its work on the file's layout splits over the fields it
-    /// reads, as a V1 scan of the same fields does.
+    /// A scan of the child cuts its work on the file's layout splits over the fields it reads, as
+    /// a V1 scan of the same fields does, so that no batch joins chunks of several layout chunks
+    /// whose dictionaries a host would then have to decode. The child builds the file's layout
+    /// reader to find those splits on its first scan, once.
     pub fn plan_child(&self) -> PlanChild {
         let splitter = {
             let file = self.clone();
+            let reader = Arc::new(OnceLock::<Arc<dyn LayoutReader>>::new());
             Arc::new(
                 move |projection: &BoundExpression, filter: Option<&BoundExpression>| {
+                    // get_or_try_init is unstable
+                    let reader = match reader.get() {
+                        Some(reader) => Arc::clone(reader),
+                        None => {
+                            let built = file.layout_reader()?;
+                            Arc::clone(reader.get_or_init(|| built))
+                        }
+                    };
                     SplitBy::default().splits(
-                        file.layout_reader()?.as_ref(),
+                        reader.as_ref(),
                         &(0..file.row_count()),
                         &referenced_field_masks(projection, filter)?,
                     )

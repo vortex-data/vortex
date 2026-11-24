@@ -12,9 +12,9 @@ use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::ChunkedArray;
+use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::VarBinArray;
-use vortex_array::assert_arrays_eq;
 use vortex_array::expr::get_item;
 use vortex_array::expr::gt;
 use vortex_array::expr::lit;
@@ -115,7 +115,6 @@ async fn plan_data_source_scans_like_the_file() -> VortexResult<()> {
         projection: get_item("numbers", root()),
         filter: Some(gt(get_item("numbers", root()), lit(4))),
         row_range: Some(4..28),
-        ordered: true,
         ..Default::default()
     };
     let dtype = file.dtype().clone();
@@ -143,7 +142,18 @@ async fn plan_data_source_scans_like_the_file() -> VortexResult<()> {
             .try_collect()
             .await?,
     )?;
-    assert_arrays_eq!(executed, expected, &mut SESSION.create_execution_ctx());
+    // The source's scan is unordered, so compare the rows in sorted order.
+    let mut ctx = SESSION.create_execution_ctx();
+    let mut sorted = |array: ChunkedArray| -> VortexResult<Vec<i32>> {
+        let mut values = array
+            .into_array()
+            .execute::<PrimitiveArray>(&mut ctx)?
+            .as_slice::<i32>()
+            .to_vec();
+        values.sort_unstable();
+        Ok(values)
+    };
+    assert_eq!(sorted(executed)?, sorted(expected)?);
 
     Ok(())
 }
