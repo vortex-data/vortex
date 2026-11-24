@@ -139,7 +139,7 @@ use vortex::scan::DataSourceScanRef;
 use vortex::scan::PartitionRef;
 use vortex::scan::PartitionStream;
 use vortex::scan::ScanRequest;
-use vortex::scan::stream::ScanStream;
+use vortex::scan::stream::ScanExec;
 use vortex::session::VortexSession;
 use vortex_arrow::ArrowArrayStreamExt;
 use vortex_arrow::ArrowSessionExt;
@@ -414,7 +414,7 @@ impl VortexDataSource {
 /// partition polled starts the scan. Like DataFusion's own file scans, the output partitions share
 /// the work unless each must keep its rows in order:
 ///
-/// - An unordered scan is [opened] once, and every output partition reads a clone of its stream,
+/// - An unordered scan is [opened] once, and every output partition reads its own stream of it,
 ///   so partitions that finish early keep taking work.
 /// - A scan with a declared ordering, or whose output partitions DataFusion asks to keep their
 ///   order, is [split] into one fixed piece per output partition, and output partition `i` reads
@@ -424,7 +424,7 @@ impl VortexDataSource {
 /// Setting [`SCAN_POOL_ENV`] to `0` instead has the output partitions take partitions from one
 /// shared partition stream, for comparison.
 ///
-/// In every mode an output partition holds work that no other partition reads: the work its clone
+/// In every mode an output partition holds work that no other partition reads: the work its stream
 /// has taken, its piece, or the partitions it has taken. Dropping an output partition before it finishes therefore cancels its
 /// execution, and the other output partitions report an error rather than finish without those
 /// rows.
@@ -561,7 +561,7 @@ impl VortexDataSource {
                 .map_err(Clone::clone)?;
             let arrays = match work {
                 ScanWork::Partitions(partitions) => Arc::clone(partitions).arrays(ordered),
-                ScanWork::Stream(shared) => ArrayStreamExt::boxed(shared.lock().await.clone()),
+                ScanWork::Stream(exec) => ArrayStreamExt::boxed(exec.stream()),
                 ScanWork::Pieces(pieces) => {
                     let piece = match pieces.get(partition) {
                         Some(piece) => piece.lock().await.take(),
@@ -571,7 +571,7 @@ impl VortexDataSource {
                     let Some(piece) = piece else {
                         return VortexResult::Ok(stream::empty().boxed());
                     };
-                    ArrayStreamExt::boxed(piece.open()?)
+                    ArrayStreamExt::boxed(piece.open()?.stream())
                 }
             };
             Ok(arrays.to_arrow(&session, Some(schema), concurrency))
@@ -691,8 +691,8 @@ struct OutputPartitionState {
 enum ScanWork {
     /// Every output partition takes partitions from this shared stream.
     Partitions(Arc<SharedPartitions>),
-    /// Every output partition reads a clone of the opened scan's stream, which is not `Sync`.
-    Stream(AsyncMutex<ScanStream>),
+    /// Every output partition reads its own stream of the opened scan.
+    Stream(ScanExec),
     /// Output partition `i` takes piece `i`, if there is one.
     Pieces(Vec<AsyncMutex<Option<DataSourceScanRef>>>),
 }
@@ -733,7 +733,7 @@ impl ScanExecution {
                     }
                 }
             }
-            // The clones that output partitions hold end with the execution's error.
+            // The streams that output partitions hold end with the execution's error.
             Some(Ok(ScanWork::Stream(_)) | Err(_)) | None => {}
         }
     }
@@ -752,7 +752,7 @@ impl ScanExecution {
             })));
         }
         if !ordered {
-            return Ok(ScanWork::Stream(AsyncMutex::new(scan.open()?)));
+            return Ok(ScanWork::Stream(scan.open()?));
         }
         let pieces = NonZeroUsize::new(self.output_partitions.len()).unwrap_or(NonZeroUsize::MIN);
         Ok(ScanWork::Pieces(
@@ -1376,8 +1376,8 @@ mod tests {
             &self.dtype
         }
 
-        fn open(self: Box<Self>) -> VortexResult<ScanStream> {
-            Ok(ScanStream::from_partitions(self))
+        fn open(self: Box<Self>) -> VortexResult<ScanExec> {
+            Ok(ScanExec::from_partitions(self))
         }
 
         fn partition_count(&self) -> Precision<usize> {
