@@ -165,11 +165,8 @@ impl CascadingCompressor {
             leaf @ (Canonical::Bool(_)
             | Canonical::Primitive(_)
             | Canonical::Decimal(_)
-            | Canonical::VarBinView(_)) => self.compress_leaf(leaf, compress_ctx, exec_ctx),
-            // No scheme handles fixed-size binary yet, so only its validity is compressed.
-            leaf @ Canonical::FixedSizeBinary(_) => Ok(self
-                .compress_leaf_validity(leaf, None, &compress_ctx, exec_ctx)?
-                .into_array()),
+            | Canonical::VarBinView(_)
+            | Canonical::FixedSizeBinary(_)) => self.compress_leaf(leaf, compress_ctx, exec_ctx),
             Canonical::Struct(struct_array) => {
                 let fields = struct_array
                     .iter_unmasked_fields()

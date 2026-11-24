@@ -906,7 +906,6 @@ fn widened_primitive_dtype(dtype: &DType) -> Option<DType> {
 /// Cast targets exercised for each logical dtype.
 fn slice_cast_targets(dtype: &DType) -> Vec<DType> {
     match dtype {
-        DType::FixedSizeBinary(..) => vortex_panic!("FixedSizeBinary is not supported yet"),
         DType::Null => vec![],
         DType::Bool(nullability) => vec![
             DType::Primitive(PType::U8, *nullability),
@@ -988,6 +987,16 @@ fn slice_cast_targets(dtype: &DType) -> Vec<DType> {
             vec![
                 DType::Binary(opposite),
                 DType::Utf8(*nullability), // May fail if not valid UTF-8
+            ]
+        }
+        DType::FixedSizeBinary(byte_width, nullability) => {
+            let opposite = match nullability {
+                Nullability::NonNullable => Nullability::Nullable,
+                Nullability::Nullable => Nullability::NonNullable,
+            };
+            vec![
+                DType::FixedSizeBinary(*byte_width, opposite),
+                DType::Binary(*nullability),
             ]
         }
         DType::List(element_type, nullability) => {

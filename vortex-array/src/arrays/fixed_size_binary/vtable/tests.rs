@@ -21,6 +21,7 @@ use crate::arrays::fixed_size_binary::FixedSizeBinaryArrayExt;
 use crate::assert_arrays_eq;
 use crate::buffer::BufferHandle;
 use crate::builtins::ArrayBuiltins;
+use crate::compute::conformance::consistency::test_array_consistency;
 use crate::compute::conformance::filter::test_filter_conformance;
 use crate::compute::conformance::mask::test_mask_conformance;
 use crate::compute::conformance::take::test_take_conformance;
@@ -250,4 +251,22 @@ fn structural_conformance(#[case] array: ArrayRef) {
     test_take_conformance(&array, &mut ctx);
     test_filter_conformance(&array, &mut ctx);
     test_mask_conformance(&array, &mut ctx);
+}
+
+#[rstest]
+#[case::non_nullable(FixedSizeBinaryArray::from_iter(
+    [b"aaaa", b"bbbb", b"aaab", b"dddd", b"eeee"],
+    4,
+).into_array())]
+#[case::nullable(nullable_array().into_array())]
+#[case::width_3(FixedSizeBinaryArray::from_iter(
+    (0u8..50).map(|i| [i % 7, i.wrapping_mul(3), 7]),
+    3,
+).into_array())]
+#[case::width_16(FixedSizeBinaryArray::from_option_iter(
+    (0u8..40).map(|i| (i % 5 != 0).then_some([i % 9; 16])),
+    16,
+).into_array())]
+fn consistency(#[case] array: ArrayRef) {
+    test_array_consistency(&array, &mut SESSION.create_execution_ctx());
 }

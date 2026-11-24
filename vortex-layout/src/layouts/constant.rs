@@ -176,7 +176,8 @@ fn supports_constant_detection(dtype: &DType) -> bool {
         | DType::Primitive(..)
         | DType::Decimal(..)
         | DType::Utf8(_)
-        | DType::Binary(_) => true,
+        | DType::Binary(_)
+        | DType::FixedSizeBinary(..) => true,
         DType::List(element, _) | DType::FixedSizeList(element, ..) => {
             supports_constant_detection(element)
         }
@@ -186,8 +187,7 @@ fn supports_constant_detection(dtype: &DType) -> bool {
         }
         DType::Struct(fields, _) => fields.fields().all(|f| supports_constant_detection(&f)),
         DType::Extension(ext) => supports_constant_detection(ext.storage_dtype()),
-        // TODO(FixedSizeBinary): enable once `is_constant` supports fixed-size binary.
-        DType::FixedSizeBinary(..) | DType::Union(..) | DType::Variant(_) => false,
+        DType::Union(..) | DType::Variant(_) => false,
     }
 }
 

@@ -19,7 +19,6 @@ use vortex_array::validity::Validity;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::Buffer;
 use vortex_error::VortexResult;
-use vortex_error::vortex_panic;
 
 use crate::array::take_canonical_array_non_nullable_indices;
 
@@ -45,7 +44,6 @@ pub fn filter_canonical_array(
     };
 
     match array.dtype() {
-        DType::FixedSizeBinary(..) => vortex_panic!("FixedSizeBinary is not supported yet"),
         DType::Bool(_) => {
             let bool_array = array.clone().execute::<BoolArray>(ctx)?;
             Ok(BoolArray::new(
@@ -101,7 +99,7 @@ pub fn filter_canonical_array(
                 .collect::<Vec<_>>();
             Ok(VarBinViewArray::from_iter(values, array.dtype().clone()).into_array())
         }
-        DType::List(..) | DType::FixedSizeList(..) => {
+        DType::FixedSizeBinary(..) | DType::List(..) | DType::FixedSizeList(..) => {
             let mut indices = Vec::new();
             for (idx, bool) in filter.iter().enumerate() {
                 if *bool {

@@ -19,6 +19,7 @@ use vortex_session::registry::CachedId;
 
 use self::bool::check_bool_sorted;
 use self::decimal::check_decimal_sorted;
+use self::fixed_size_list::check_fixed_size_binary_sorted;
 use self::fixed_size_list::check_fixed_size_bytes_sorted;
 use self::primitive::check_primitive_sorted;
 use self::varbin::check_varbinview_sorted;
@@ -271,7 +272,6 @@ impl AggregateFnVTable for IsSorted {
 
     fn return_dtype(&self, _options: &Self::Options, input_dtype: &DType) -> Option<DType> {
         match input_dtype {
-            DType::FixedSizeBinary(..) => None,
             DType::FixedSizeList(..) if is_fixed_size_bytes(input_dtype) => {
                 Some(DType::Bool(Nullability::NonNullable))
             }
@@ -287,13 +287,13 @@ impl AggregateFnVTable for IsSorted {
             | DType::Primitive(..)
             | DType::Decimal(..)
             | DType::Utf8(_)
-            | DType::Binary(_) => Some(DType::Bool(Nullability::NonNullable)),
+            | DType::Binary(_)
+            | DType::FixedSizeBinary(..) => Some(DType::Bool(Nullability::NonNullable)),
         }
     }
 
     fn partial_dtype(&self, _options: &Self::Options, input_dtype: &DType) -> Option<DType> {
         match input_dtype {
-            DType::FixedSizeBinary(..) => None,
             DType::FixedSizeList(..) if is_fixed_size_bytes(input_dtype) => {
                 Some(make_is_sorted_partial_dtype(input_dtype))
             }
@@ -309,7 +309,8 @@ impl AggregateFnVTable for IsSorted {
             | DType::Primitive(..)
             | DType::Decimal(..)
             | DType::Utf8(_)
-            | DType::Binary(_) => Some(make_is_sorted_partial_dtype(input_dtype)),
+            | DType::Binary(_)
+            | DType::FixedSizeBinary(..) => Some(make_is_sorted_partial_dtype(input_dtype)),
         }
     }
 
@@ -542,6 +543,9 @@ impl AggregateFnVTable for IsSorted {
                     Canonical::Decimal(d) => check_decimal_sorted(d, args.options.strict, ctx)?,
                     Canonical::FixedSizeList(f) => {
                         check_fixed_size_bytes_sorted(f, args.options.strict, ctx)?
+                    }
+                    Canonical::FixedSizeBinary(f) => {
+                        check_fixed_size_binary_sorted(f, args.options.strict, ctx)?
                     }
                     Canonical::Null(_) => !args.options.strict,
                     // Struct, List, other FixedSizeLists and Extension should have been filtered

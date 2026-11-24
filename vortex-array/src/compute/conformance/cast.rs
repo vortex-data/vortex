@@ -68,7 +68,31 @@ pub fn test_cast_conformance(array: &ArrayRef, ctx: &mut ExecutionCtx) {
             | PType::I64 => test_cast_to_integral_types(array, ctx),
             PType::F16 | PType::F32 | PType::F64 => test_cast_from_floating_point_types(array, ctx),
         },
+        DType::FixedSizeBinary(..) => test_cast_fixed_size_binary_to_binary(array, ctx),
         _ => {}
+    }
+}
+
+/// Every fixed-size binary value is also a binary value, so the cast keeps each row's bytes.
+fn test_cast_fixed_size_binary_to_binary(array: &ArrayRef, ctx: &mut ExecutionCtx) {
+    let target = DType::Binary(array.dtype().nullability());
+    let result = cast_and_execute(array, target.clone(), ctx)
+        .vortex_expect("cast should succeed in conformance test");
+    assert_eq!(result.len(), array.len());
+    assert_eq!(result.dtype(), &target);
+
+    for i in 0..array.len() {
+        let original = array
+            .execute_scalar(i, ctx)
+            .vortex_expect("scalar_at should succeed in conformance test");
+        let cast = result
+            .execute_scalar(i, ctx)
+            .vortex_expect("scalar_at should succeed in conformance test");
+        assert_eq!(
+            original.as_binary().value(),
+            cast.as_binary().value(),
+            "row {i} changed bytes when cast to binary"
+        );
     }
 }
 

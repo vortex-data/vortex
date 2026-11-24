@@ -8,9 +8,24 @@ use crate::arrays::Dict;
 use crate::arrays::FixedSizeBinary;
 use crate::arrays::dict::TakeExecuteAdaptor;
 use crate::optimizer::kernels::ArrayKernelsExt;
+use crate::scalar_fn::ScalarFnVTable;
+use crate::scalar_fn::builtin::cast::Cast;
+use crate::scalar_fn::builtin::cast::CastExecuteAdaptor;
+use crate::scalar_fn::builtin::fill_null::FillNull;
+use crate::scalar_fn::builtin::fill_null::FillNullExecuteAdaptor;
 
 pub(crate) fn initialize(session: &VortexSession) {
     let kernels = session.kernels();
+    kernels.register_execute_parent_kernel(
+        Cast.id(),
+        FixedSizeBinary,
+        CastExecuteAdaptor(FixedSizeBinary),
+    );
+    kernels.register_execute_parent_kernel(
+        FillNull.id(),
+        FixedSizeBinary,
+        FillNullExecuteAdaptor(FixedSizeBinary),
+    );
     kernels.register_execute_parent_kernel(
         Dict.id(),
         FixedSizeBinary,

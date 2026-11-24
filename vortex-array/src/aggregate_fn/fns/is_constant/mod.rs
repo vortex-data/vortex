@@ -4,6 +4,7 @@
 mod bool;
 mod decimal;
 mod extension;
+mod fixed_size_binary;
 mod fixed_size_list;
 mod list;
 mod map;
@@ -21,6 +22,7 @@ use vortex_session::registry::CachedId;
 use self::bool::check_bool_constant;
 use self::decimal::check_decimal_constant;
 use self::extension::check_extension_constant;
+use self::fixed_size_binary::check_fixed_size_binary_constant;
 use self::fixed_size_list::check_fixed_size_list_constant;
 use self::list::check_listview_constant;
 use self::map::check_map_constant;
@@ -435,9 +437,7 @@ impl AggregateFnVTable for IsConstant {
                     Canonical::Map(m) => check_map_constant(m, ctx)?,
                     Canonical::FixedSizeList(f) => check_fixed_size_list_constant(f, ctx)?,
                     Canonical::Null(_) => true,
-                    Canonical::FixedSizeBinary(_) => {
-                        vortex_bail!("FixedSizeBinary arrays don't support IsConstant yet")
-                    }
+                    Canonical::FixedSizeBinary(f) => check_fixed_size_binary_constant(f),
                     Canonical::Union(_) => {
                         vortex_bail!("TODO(connor)[Union]: implement IsConstant for Union arrays")
                     }

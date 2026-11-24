@@ -6,23 +6,25 @@ use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::DecimalArray;
+use vortex_array::arrays::FixedSizeBinaryArray;
 use vortex_array::arrays::FixedSizeListArray;
 use vortex_array::arrays::ListViewArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::bool::BoolArrayExt;
+use vortex_array::arrays::fixed_size_binary::FixedSizeBinaryArrayExt;
 use vortex_array::arrays::fixed_size_list::FixedSizeListArrayExt;
 use vortex_array::arrays::fixed_size_list::FixedSizeListArraySlotsExt;
 use vortex_array::arrays::listview::ListViewArraySlotsExt;
 use vortex_array::arrays::struct_::StructArrayExt;
+use vortex_array::buffer::BufferHandle;
 use vortex_array::builders::builder_with_capacity_in;
 use vortex_array::dtype::DType;
 use vortex_array::match_each_decimal_value_type;
 use vortex_array::match_each_native_ptype;
 use vortex_array::validity::Validity;
 use vortex_error::VortexResult;
-use vortex_error::vortex_panic;
 
 pub fn slice_canonical_array(
     array: &ArrayRef,
@@ -41,7 +43,6 @@ pub fn slice_canonical_array(
     };
 
     match array.dtype() {
-        DType::FixedSizeBinary(..) => vortex_panic!("FixedSizeBinary is not supported yet"),
         DType::Bool(_) => {
             let bool_array = array.clone().execute::<BoolArray>(ctx)?;
             let sliced_bools = bool_array.to_bit_buffer().slice(start..stop);
@@ -82,6 +83,18 @@ pub fn slice_canonical_array(
                 array.dtype().clone(),
             )
             .into_array())
+        }
+        DType::FixedSizeBinary(byte_width, _) => {
+            let fsb = array.clone().execute::<FixedSizeBinaryArray>(ctx)?;
+            let width = *byte_width as usize;
+            let values = fsb.values().slice(start * width..stop * width);
+            FixedSizeBinaryArray::try_new_handle(
+                BufferHandle::new_host(values),
+                *byte_width,
+                stop - start,
+                validity,
+            )
+            .map(|a| a.into_array())
         }
         DType::List(..) => {
             let list_array = array.clone().execute::<ListViewArray>(ctx)?;

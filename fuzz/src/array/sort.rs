@@ -17,13 +17,11 @@ use vortex_array::match_each_decimal_value_type;
 use vortex_array::match_each_native_ptype;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_panic;
 
 use crate::array::take_canonical_array_non_nullable_indices;
 
 pub fn sort_canonical_array(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
     match array.dtype() {
-        DType::FixedSizeBinary(..) => vortex_panic!("FixedSizeBinary is not supported yet"),
         DType::Bool(_) => {
             let bool_array = array.clone().execute::<BoolArray>(ctx)?;
             let mut opt_values = bool_array
@@ -94,7 +92,10 @@ pub fn sort_canonical_array(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexR
             opt_values.sort();
             Ok(VarBinViewArray::from_iter(opt_values, array.dtype().clone()).into_array())
         }
-        DType::List(..) | DType::FixedSizeList(..) | DType::Struct(..) => {
+        DType::FixedSizeBinary(..)
+        | DType::List(..)
+        | DType::FixedSizeList(..)
+        | DType::Struct(..) => {
             let mut sort_indices = (0..array.len()).collect::<Vec<_>>();
             sort_indices.sort_by(|a, b| {
                 let lhs = array.execute_scalar(*a, ctx).vortex_expect("scalar_at");

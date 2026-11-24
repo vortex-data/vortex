@@ -27,7 +27,6 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
-use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
@@ -69,6 +68,7 @@ use crate::validity::Validity;
 mod boolean;
 mod bytes;
 mod decimal;
+mod fixed_size_binary;
 
 mod nested;
 pub use nested::RowComparator;
@@ -350,7 +350,6 @@ fn compare_arrays(
     validate_comparison_dtypes(lhs.dtype(), rhs.dtype())?;
 
     match lhs.dtype() {
-        DType::FixedSizeBinary(..) => vortex_panic!("FixedSizeBinary is not supported yet"),
         // Every value of the null dtype is null, so every comparison result is null.
         DType::Null => Ok(ConstantArray::new(
             Scalar::null(DType::Bool(Nullability::Nullable)),
@@ -361,6 +360,14 @@ fn compare_arrays(
         DType::Primitive(..) => primitive::compare_primitive(lhs, rhs, op, ctx),
         DType::Decimal(..) => decimal::compare_decimal(lhs, rhs, op, nullability, ctx),
         DType::Utf8(_) | DType::Binary(_) => bytes::compare_bytes(lhs, rhs, op, nullability, ctx),
+        DType::FixedSizeBinary(byte_width, _) => fixed_size_binary::compare_fixed_size_binary(
+            lhs,
+            rhs,
+            *byte_width,
+            op,
+            nullability,
+            ctx,
+        ),
         DType::Struct(..) | DType::List(..) | DType::FixedSizeList(..) | DType::Map(..) => {
             nested::compare_nested(lhs, rhs, op, nullability, ctx)
         }

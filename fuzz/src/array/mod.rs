@@ -463,7 +463,6 @@ fn actions_for_dtype(dtype: &DType) -> HashSet<ActionType> {
     use ActionType::*;
 
     match dtype {
-        DType::FixedSizeBinary(..) => vortex_panic!("FixedSizeBinary is not supported yet"),
         DType::Null => {
             // Null arrays support most operations but not Sum or MinMax (return None for dtype)
             [
@@ -484,8 +483,8 @@ fn actions_for_dtype(dtype: &DType) -> HashSet<ActionType> {
             // These support all actions
             ActionType::iter().collect()
         }
-        DType::Utf8(_) | DType::Binary(_) => {
-            // Utf8/Binary supports everything except Sum and FillNull
+        DType::Utf8(_) | DType::Binary(_) | DType::FixedSizeBinary(..) => {
+            // Utf8/Binary/FixedSizeBinary support everything except Sum and FillNull
             // Actions: Compress, Slice, Take, SearchSorted, Filter, Compare, Cast, MinMax, Mask, ScalarAt
             [
                 Compress,

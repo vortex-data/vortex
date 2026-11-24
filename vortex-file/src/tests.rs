@@ -32,6 +32,7 @@ use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::DecimalArray;
 use vortex_array::arrays::Dict;
+use vortex_array::arrays::FixedSizeBinaryArray;
 use vortex_array::arrays::ListArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
@@ -332,6 +333,66 @@ async fn test_decimal_widen_default_writer_roundtrip(
 
     assert_arrays_eq!(actual, expected, &mut ctx);
 
+    Ok(())
+}
+
+#[rstest]
+#[case::non_nullable(FixedSizeBinaryArray::from_iter(
+    (0u8..100).map(|i| [i, i.wrapping_mul(7), 3, 255 - i]),
+    4,
+))]
+#[case::nullable(FixedSizeBinaryArray::from_option_iter(
+    (0u8..100).map(|i| (i % 3 != 0).then_some([i; 5])),
+    5,
+))]
+#[case::zero_width(FixedSizeBinaryArray::from_option_iter(
+    (0..10).map(|i| (i % 2 == 0).then_some([0u8; 0])),
+    0,
+))]
+#[tokio::test]
+#[cfg_attr(miri, ignore)]
+async fn test_fixed_size_binary_file_round_trip(
+    #[case] values: FixedSizeBinaryArray,
+) -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let expected = StructArray::from_fields(&[("fsb", values.into_array())])?;
+
+    let actual = write_read_roundtrip(expected.clone().into_array()).await?;
+
+    assert_arrays_eq!(actual, expected, &mut ctx);
+    Ok(())
+}
+
+/// A filter on a fixed-size binary column compares by byte, so big-endian keys keep their numeric
+/// order.
+#[tokio::test]
+#[cfg_attr(miri, ignore)]
+async fn test_fixed_size_binary_filter() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let keys = FixedSizeBinaryArray::from_iter((0u32..3000).map(u32::to_be_bytes), 4);
+    let array = StructArray::from_fields(&[("key", keys.into_array())])?.into_array();
+    let mut buf = ByteBufferMut::empty();
+    SESSION
+        .write_options()
+        .write(&mut buf, array.to_array_stream())
+        .await?;
+
+    let file = SESSION.open_options().open_buffer(buf)?;
+    let threshold =
+        Scalar::fixed_size_binary(2500u32.to_be_bytes().to_vec(), Nullability::NonNullable);
+    let actual = file
+        .scan()?
+        .with_filter(bind_scan_expr(
+            &file,
+            gt(get_item("key", root()), lit(threshold)),
+        ))
+        .into_array_stream()?
+        .read_all()
+        .await?;
+
+    let expected_keys = FixedSizeBinaryArray::from_iter((2501u32..3000).map(u32::to_be_bytes), 4);
+    let expected = StructArray::from_fields(&[("key", expected_keys.into_array())])?;
+    assert_arrays_eq!(actual, expected, &mut ctx);
     Ok(())
 }
 

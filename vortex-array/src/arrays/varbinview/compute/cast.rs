@@ -4,6 +4,7 @@
 use std::sync::Arc;
 
 use vortex_error::VortexResult;
+use vortex_error::vortex_ensure_eq;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
@@ -11,7 +12,10 @@ use crate::IntoArray;
 use crate::array::ArrayView;
 use crate::arrays::VarBinView;
 use crate::arrays::VarBinViewArray;
+use crate::builders::ArrayBuilder;
+use crate::builders::FixedSizeBinaryBuilder;
 use crate::dtype::DType;
+use crate::dtype::Nullability;
 use crate::scalar_fn::builtin::cast::CastKernel;
 use crate::scalar_fn::builtin::cast::CastReduce;
 use crate::validity::Validity;
@@ -57,6 +61,12 @@ impl CastKernel for VarBinView {
         dtype: &DType,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
+        if let (DType::Binary(_), DType::FixedSizeBinary(byte_width, nullability)) =
+            (array.dtype(), dtype)
+        {
+            return cast_to_fixed_size_binary(array, *byte_width, *nullability, ctx).map(Some);
+        }
+
         if !array.dtype().eq_ignore_nullability(dtype) {
             return Ok(None);
         }
@@ -68,6 +78,40 @@ impl CastKernel for VarBinView {
         let new_dtype = array.dtype().with_nullability(new_nullability);
         Ok(Some(build_with_validity(array, new_dtype, new_validity)))
     }
+}
+
+/// Casts a binary array to a fixed-size binary array, which requires every valid value to have
+/// exactly `byte_width` bytes. Null rows hold zero bytes.
+fn cast_to_fixed_size_binary(
+    array: ArrayView<'_, VarBinView>,
+    byte_width: u32,
+    nullability: Nullability,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ArrayRef> {
+    let validity = array
+        .validity()?
+        .cast_nullability(nullability, array.len(), ctx)?;
+    let mask = validity.execute_mask(array.len(), ctx)?;
+    let mut builder = FixedSizeBinaryBuilder::with_capacity_in(
+        array.len(),
+        byte_width,
+        nullability,
+        ctx.allocator(),
+    );
+    for index in 0..array.len() {
+        if !mask.value(index) {
+            builder.append_null();
+            continue;
+        }
+        let value = array.bytes_at(index);
+        vortex_ensure_eq!(
+            value.len(),
+            byte_width as usize,
+            "Cannot cast binary value at index {index} to fixed_size_binary[{byte_width}]",
+        );
+        builder.append_value(value);
+    }
+    Ok(builder.finish())
 }
 
 #[cfg(test)]

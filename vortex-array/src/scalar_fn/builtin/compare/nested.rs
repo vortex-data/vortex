@@ -19,7 +19,6 @@ use vortex_buffer::BitBuffer;
 use vortex_buffer::BufferAllocatorRef;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 
 use crate::ArrayRef;
@@ -29,6 +28,7 @@ use crate::RecursiveCanonical;
 use crate::arrays::BoolArray;
 use crate::arrays::DecimalArray;
 use crate::arrays::ExtensionArray;
+use crate::arrays::FixedSizeBinaryArray;
 use crate::arrays::FixedSizeListArray;
 use crate::arrays::ListViewArray;
 use crate::arrays::MapArray;
@@ -36,6 +36,7 @@ use crate::arrays::PrimitiveArray;
 use crate::arrays::StructArray;
 use crate::arrays::VarBinViewArray;
 use crate::arrays::extension::ExtensionArrayExt;
+use crate::arrays::fixed_size_binary::FixedSizeBinaryArrayExt;
 use crate::arrays::fixed_size_list::FixedSizeListArraySlotsExt;
 use crate::arrays::listview::ListViewArraySlotsExt;
 use crate::arrays::map::MapArraySlotsExt;
@@ -157,7 +158,6 @@ fn build_values_comparator(
     }
 
     Ok(match lhs.dtype() {
-        DType::FixedSizeBinary(..) => vortex_panic!("FixedSizeBinary is not supported yet"),
         // Null values compare through the validity wrapper; the value comparator is trivial.
         DType::Null => Box::new(|_, _| Ordering::Equal),
         DType::Bool(_) => {
@@ -180,6 +180,14 @@ fn build_values_comparator(
             let lhs = lhs.clone().execute::<VarBinViewArray>(ctx)?;
             let rhs = rhs.clone().execute::<VarBinViewArray>(ctx)?;
             Box::new(move |i, j| view_bytes(&lhs, i).cmp(view_bytes(&rhs, j)))
+        }
+        DType::FixedSizeBinary(byte_width, _) => {
+            let width = *byte_width as usize;
+            let lhs = lhs.clone().execute::<FixedSizeBinaryArray>(ctx)?.values();
+            let rhs = rhs.clone().execute::<FixedSizeBinaryArray>(ctx)?.values();
+            Box::new(move |i, j| {
+                lhs[i * width..(i + 1) * width].cmp(&rhs[j * width..(j + 1) * width])
+            })
         }
         DType::Struct(..) => {
             let lhs = lhs.clone().execute::<StructArray>(ctx)?;

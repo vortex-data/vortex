@@ -18,6 +18,8 @@ use crate::arrays::slice::SliceReduce;
 use crate::arrays::slice::SliceReduceAdaptor;
 use crate::optimizer::kernels::ArrayKernelsExt;
 use crate::optimizer::rules::ArrayParentReduceRule;
+use crate::scalar_fn::builtin::cast::Cast;
+use crate::scalar_fn::builtin::cast::CastReduceAdaptor;
 use crate::scalar_fn::builtin::mask::Mask as MaskFn;
 use crate::scalar_fn::builtin::mask::MaskReduceAdaptor;
 
@@ -27,6 +29,11 @@ pub(crate) fn register_parent_rules(session: &VortexSession) {
         Masked,
         FixedSizeBinary,
         const { &FixedSizeBinaryMaskedValidityRule },
+    );
+    kernels.register_reduce_parent_rule(
+        Cast,
+        FixedSizeBinary,
+        const { &CastReduceAdaptor(FixedSizeBinary) },
     );
     kernels.register_reduce_parent_rule(
         MaskFn,

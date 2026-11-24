@@ -20,6 +20,7 @@ use vortex_session::registry::CachedId;
 use self::bool::accumulate_bool;
 use self::decimal::accumulate_decimal;
 use self::extension::accumulate_extension;
+use self::fixed_size_list::accumulate_fixed_size_binary;
 use self::fixed_size_list::accumulate_fixed_size_bytes;
 use self::primitive::accumulate_primitive;
 use self::varbinview::accumulate_varbinview;
@@ -318,6 +319,7 @@ fn minmax_supported_dtype(input_dtype: &DType) -> bool {
         | DType::Decimal(..)
         | DType::Utf8(..)
         | DType::Binary(..)
+        | DType::FixedSizeBinary(..)
         | DType::Extension(..) => true,
         DType::List(element_dtype, _) => minmax_supported_dtype(element_dtype),
         DType::FixedSizeList(element_dtype, ..) => minmax_supported_dtype(element_dtype),
@@ -339,6 +341,7 @@ fn minmax_compute_supported_dtype(input_dtype: &DType) -> bool {
             | DType::Decimal(..)
             | DType::Utf8(..)
             | DType::Binary(..)
+            | DType::FixedSizeBinary(..)
             | DType::Extension(..)
     ) || is_fixed_size_bytes(input_dtype)
 }
@@ -506,6 +509,9 @@ impl AggregateFnVTable for MinMax {
                 Canonical::FixedSizeList(f) if is_fixed_size_bytes(f.dtype()) => {
                     accumulate_fixed_size_bytes(args, partial, f, ctx)
                 }
+                Canonical::FixedSizeBinary(f) => {
+                    accumulate_fixed_size_binary(args, partial, f, ctx)
+                }
                 Canonical::Null(_) => Ok(()),
                 Canonical::Union(_) => {
                     vortex_bail!("TODO(connor)[Union]: implement min_max for Union arrays")
@@ -514,7 +520,6 @@ impl AggregateFnVTable for MinMax {
                 | Canonical::List(_)
                 | Canonical::Map(_)
                 | Canonical::FixedSizeList(_)
-                | Canonical::FixedSizeBinary(_)
                 | Canonical::Variant(_) => {
                     vortex_bail!("Unsupported canonical type for min_max: {}", batch.dtype())
                 }

@@ -8,7 +8,6 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
-use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
@@ -23,6 +22,7 @@ use crate::arrays::Bool;
 use crate::arrays::Constant;
 use crate::arrays::Decimal;
 use crate::arrays::Extension;
+use crate::arrays::FixedSizeBinary;
 use crate::arrays::Primitive;
 use crate::arrays::ScalarFnArray;
 use crate::arrays::VarBinView;
@@ -221,7 +221,6 @@ impl ScalarFnVTable for FillNull {
 /// Returns whether `dtype` is or contains a union or a variant.
 fn contains_union_or_variant(dtype: &DType) -> bool {
     match dtype {
-        DType::FixedSizeBinary(..) => vortex_panic!("FixedSizeBinary is not supported yet"),
         DType::Union(..) | DType::Variant(_) => true,
         DType::List(element, _) | DType::FixedSizeList(element, ..) => {
             contains_union_or_variant(element)
@@ -238,6 +237,7 @@ fn contains_union_or_variant(dtype: &DType) -> bool {
         | DType::Bool(_)
         | DType::Primitive(..)
         | DType::Decimal(..)
+        | DType::FixedSizeBinary(..)
         | DType::Utf8(_)
         | DType::Binary(_) => false,
     }
@@ -267,6 +267,10 @@ fn fill_null_canonical(
         }
         CanonicalView::Decimal(a) => <Decimal as FillNullKernel>::fill_null(a, fill_value, ctx)?
             .ok_or_else(|| vortex_err!("FillNullKernel for DecimalArray returned None")),
+        CanonicalView::FixedSizeBinary(a) => {
+            <FixedSizeBinary as FillNullKernel>::fill_null(a, fill_value, ctx)?
+                .ok_or_else(|| vortex_err!("FillNullKernel for FixedSizeBinaryArray returned None"))
+        }
         CanonicalView::VarBinView(a) => {
             <VarBinView as FillNullKernel>::fill_null(a, fill_value, ctx)?
                 .ok_or_else(|| vortex_err!("FillNullKernel for VarBinViewArray returned None"))
@@ -284,10 +288,7 @@ fn fill_null_canonical(
                 arr.dtype()
             )
         }
-        CanonicalView::Null(_)
-        | CanonicalView::FixedSizeBinary(_)
-        | CanonicalView::Union(_)
-        | CanonicalView::Variant(_) => {
+        CanonicalView::Null(_) | CanonicalView::Union(_) | CanonicalView::Variant(_) => {
             vortex_bail!("fill_null is not supported for {} arrays", arr.dtype())
         }
     }

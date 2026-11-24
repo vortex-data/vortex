@@ -4,6 +4,7 @@
 mod bool;
 mod decimal;
 mod extension;
+mod fixed_size_binary;
 mod fixed_size_list;
 mod list_view;
 mod null;
@@ -17,6 +18,7 @@ use std::mem::size_of;
 use bool::bool_uncompressed_size_in_bytes;
 use decimal::decimal_uncompressed_size_in_bytes;
 use extension::extension_uncompressed_size_in_bytes;
+use fixed_size_binary::fixed_size_binary_uncompressed_size_in_bytes;
 use fixed_size_list::fixed_size_list_uncompressed_size_in_bytes;
 use list_view::list_view_uncompressed_size_in_bytes;
 use null::null_uncompressed_size_in_bytes;
@@ -28,7 +30,6 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
-use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
@@ -240,8 +241,8 @@ pub(crate) fn canonical_uncompressed_size_in_bytes(
         Canonical::Struct(array) => struct_uncompressed_size_in_bytes(array, ctx),
         Canonical::Union(array) => union_uncompressed_size_in_bytes(array, ctx),
         Canonical::Extension(array) => extension_uncompressed_size_in_bytes(array, ctx),
-        Canonical::FixedSizeBinary(_) => {
-            vortex_bail!("UncompressedSizeInBytes is not supported for FixedSizeBinary arrays yet")
+        Canonical::FixedSizeBinary(array) => {
+            fixed_size_binary_uncompressed_size_in_bytes(array, ctx)
         }
         Canonical::Variant(_) => {
             vortex_bail!("UncompressedSizeInBytes is not supported for Variant arrays")
@@ -254,7 +255,6 @@ pub(crate) fn constant_uncompressed_size_in_bytes(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<u64> {
     let value_size = match array.dtype() {
-        DType::FixedSizeBinary(..) => vortex_panic!("FixedSizeBinary is not supported yet"),
         DType::Null => return Ok(0),
         DType::Bool(_) => packed_bit_buffer_size_in_bytes(array.len())?,
         DType::Primitive(ptype, _) => {
@@ -273,6 +273,9 @@ pub(crate) fn constant_uncompressed_size_in_bytes(
             array.len(),
             array.scalar().as_binary().value().map(|value| value.len()),
         )?,
+        DType::FixedSizeBinary(byte_width, _) => {
+            checked_len_mul(array.len(), *byte_width as usize, "fixed-size binary")?
+        }
         DType::List(..)
         | DType::Map(..)
         | DType::FixedSizeList(..)
@@ -328,13 +331,13 @@ fn checked_len_mul(len: usize, width: usize, name: &str) -> VortexResult<u64> {
 
 fn supports_uncompressed_size_in_bytes(dtype: &DType) -> bool {
     match dtype {
-        DType::FixedSizeBinary(..) => false,
         DType::Null
         | DType::Bool(_)
         | DType::Primitive(..)
         | DType::Decimal(..)
         | DType::Utf8(_)
-        | DType::Binary(_) => true,
+        | DType::Binary(_)
+        | DType::FixedSizeBinary(..) => true,
         DType::List(element_dtype, _) | DType::FixedSizeList(element_dtype, ..) => {
             supports_uncompressed_size_in_bytes(element_dtype)
         }
