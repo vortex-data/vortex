@@ -4,6 +4,7 @@
 //! Source-independent fixtures shared by plan and engine tests.
 
 use std::any::Any;
+use std::num::NonZeroUsize;
 use std::ops::Range;
 use std::sync::Arc;
 use std::sync::LazyLock;
@@ -69,6 +70,7 @@ use crate::source::ScanInput;
 use crate::source::SegmentFuture;
 use crate::source::SegmentId;
 use crate::source::SegmentSource;
+use crate::stream::ScanStream;
 
 pub static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
@@ -97,6 +99,14 @@ struct TestArrayScan {
 impl DataSourceScan for TestArrayScan {
     fn dtype(&self) -> &DType {
         &self.dtype
+    }
+
+    fn split(self: Box<Self>, _n: NonZeroUsize) -> VortexResult<Vec<DataSourceScanRef>> {
+        Ok(vec![self])
+    }
+
+    fn open(self: Box<Self>) -> VortexResult<ScanStream> {
+        Ok(ScanStream::from_partitions(self))
     }
 
     fn partition_count(&self) -> Precision<usize> {
