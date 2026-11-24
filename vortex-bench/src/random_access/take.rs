@@ -306,7 +306,10 @@ async fn load_metadata<T: AsyncFileReader + Send>(
     let options = ArrowReaderOptions::new().with_page_index_policy(PageIndexPolicy::Required);
     let metadata = ArrowReaderMetadata::load_async(reader, options).await?;
     anyhow::ensure!(
-        metadata.metadata().offset_index().is_some(),
+        metadata
+            .metadata()
+            .page_index()
+            .is_some_and(|index| index.has_offset_indexes()),
         "the Parquet file has no offset index; write it with `random_access_writer_properties`"
     );
     Ok(metadata)

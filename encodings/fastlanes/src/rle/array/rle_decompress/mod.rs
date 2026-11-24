@@ -44,6 +44,7 @@ use crate::bitpack_decompress::execute_block_offsets;
 use crate::bitpack_decompress::for_each_packed_block;
 use crate::rle::RLEArrayExt;
 use crate::rle::RLEArraySlotsExt;
+use crate::rle::RLESlots;
 use crate::unpack_iter::for_each_packed_chunk;
 
 /// Number of `u8` FastLanes lanes in a chunk.
@@ -52,30 +53,49 @@ pub(crate) const U8_LANES: usize = 128;
 /// Decompresses an RLE array back into a primitive array.
 ///
 /// The `values` and `values_idx_offsets` children must already be primitive arrays.
-pub fn rle_decompress(array: &RLEArray, ctx: &mut ExecutionCtx) -> VortexResult<PrimitiveArray> {
-    // The per-chunk value-index offsets are tiny (one entry per 1024-element chunk), so cast them
-    // to `u64` once here instead of monomorphizing the whole decode loop over the offset width.
-    let values_idx_offsets = array
-        .values_idx_offsets()
-        .as_opt::<Primitive>()
-        .ok_or_else(|| {
+pub(crate) fn rle_decompress(
+    array: RLEArray,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<PrimitiveArray> {
+    let validity = array.validity()?;
+    let offset = array.offset();
+    let len = array.len();
+    let RLESlots {
+        values,
+        indices,
+        values_idx_offsets,
+    } = match array.try_into_parts() {
+        Ok(parts) => RLESlots::from_slots(parts.slots),
+        Err(array) => RLESlots {
+            values: array.values().clone(),
+            indices: array.indices().clone(),
+            values_idx_offsets: array.values_idx_offsets().clone(),
+        },
+    };
+
+    let values = values.try_downcast::<Primitive>().map_err(|_| {
+        vortex_err!("RLE values must be executed to Primitive before decompression")
+    })?;
+    let values_idx_offsets = values_idx_offsets
+        .try_downcast::<Primitive>()
+        .map_err(|_| {
             vortex_err!("RLE values_idx_offsets must be executed to Primitive before decompression")
         })?;
+    // The per-chunk value-index offsets are tiny (one entry per 1024-element chunk), so widen them
+    // to `u64` once here instead of monomorphizing the whole decode loop over the offset width.
     let values_idx_offsets: Vec<u64> =
         match_each_unsigned_integer_ptype!(values_idx_offsets.ptype(), |O| {
             widen_offsets(values_idx_offsets.as_slice::<O>())
         });
+    let rle = RLEChunks {
+        indices,
+        offset,
+        len,
+        validity,
+    };
 
-    match_each_native_ptype!(array.values().dtype().as_ptype(), |V| {
-        // RLE indices are always u16 (or u8 if downcasted).
-        match array.indices().dtype().as_ptype() {
-            PType::U8 => rle_decode_typed::<V, u8>(array, &values_idx_offsets, ctx),
-            PType::U16 => rle_decode_typed::<V, u16>(array, &values_idx_offsets, ctx),
-            _ => vortex_panic!(
-                "Unsupported index type for RLE decoding: {}",
-                array.indices().dtype().as_ptype()
-            ),
-        }
+    match_each_native_ptype!(values.ptype(), |V| {
+        decode_values::<V>(rle, values.as_slice::<V>(), &values_idx_offsets, ctx)
     })
 }
 
@@ -84,7 +104,30 @@ fn widen_offsets<O: AsPrimitive<u64>>(offsets: &[O]) -> Vec<u64> {
     offsets.iter().map(|&o| o.as_()).collect()
 }
 
-/// Decompresses an `RLEArray` into to a primitive array of unsigned integers.
+/// Decodes the rows of `rle` with its index type.
+fn decode_values<V: NativePType + RLE>(
+    rle: RLEChunks,
+    values: &[V],
+    values_idx_offsets: &[u64],
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<PrimitiveArray> {
+    // RLE indices are always u16 (or u8 if downcasted).
+    match rle.indices.dtype().as_ptype() {
+        PType::U8 => rle_decode_typed::<V, u8>(rle, values, values_idx_offsets, ctx),
+        PType::U16 => rle_decode_typed::<V, u16>(rle, values, values_idx_offsets, ctx),
+        ptype => vortex_panic!("Unsupported index type for RLE decoding: {ptype}"),
+    }
+}
+
+/// The indices of an RLE array with the position and validity of the rows they decode.
+struct RLEChunks {
+    indices: ArrayRef,
+    offset: usize,
+    len: usize,
+    validity: Validity,
+}
+
+/// Decodes the rows of `rle` from its run `values` into a primitive array.
 ///
 /// The indices are decoded in one of three ways, from the cheapest:
 ///
@@ -95,7 +138,8 @@ fn widen_offsets<O: AsPrimitive<u64>>(offsets: &[O]) -> Vec<u64> {
 ///   that chunk is in L1, instead of unpacking every index first.
 /// - Any other indices are executed to a primitive array and gathered.
 fn rle_decode_typed<V, I>(
-    array: &RLEArray,
+    rle: RLEChunks,
+    values: &[V],
     values_idx_offsets: &[u64],
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<PrimitiveArray>
@@ -103,11 +147,6 @@ where
     V: NativePType + RLE,
     I: NativePType + PhysicalPType<Physical = I> + BitPacking + Ord + Into<usize>,
 {
-    let values = array.values().as_opt::<Primitive>().ok_or_else(|| {
-        vortex_err!("RLE values must be executed to Primitive before decompression")
-    })?;
-    let values = values.as_slice::<V>();
-
     // The offsets come from (possibly untrusted) storage. Validate them once here so
     // that the per-chunk slicing and the unchecked decodes below stay within `values`:
     // offsets must be non-decreasing and span at most `values.len()` values.
@@ -124,8 +163,8 @@ where
         );
     }
 
-    let chunk_start_idx = array.offset() / FL_CHUNK_SIZE;
-    let chunk_end_idx = (array.offset() + array.len()).div_ceil(FL_CHUNK_SIZE);
+    let chunk_start_idx = rle.offset / FL_CHUNK_SIZE;
+    let chunk_end_idx = (rle.offset + rle.len).div_ceil(FL_CHUNK_SIZE);
     let num_chunks = chunk_end_idx - chunk_start_idx;
     let chunks = ChunkValues {
         values,
@@ -139,7 +178,7 @@ where
     // in full before the buffer is read.
     let out_buf: &mut [[V; FL_CHUNK_SIZE]] = unsafe { std::mem::transmute(out_buf) };
 
-    let indices = array.indices().clone();
+    let indices = rle.indices;
     assert!(indices.len().is_multiple_of(FL_CHUNK_SIZE));
     let decoded = size_of::<I>() == 1
         && match DeltaIndices::try_new(&indices, ctx)? {
@@ -157,13 +196,9 @@ where
         buffer.set_len(num_chunks * FL_CHUNK_SIZE);
     }
 
-    let offset_within_chunk = array.offset();
-
     Ok(PrimitiveArray::new(
-        buffer
-            .freeze()
-            .slice(offset_within_chunk..(offset_within_chunk + array.len())),
-        array.validity()?,
+        buffer.freeze().slice(rle.offset..(rle.offset + rle.len)),
+        rle.validity,
     ))
 }
 
