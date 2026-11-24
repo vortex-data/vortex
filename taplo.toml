@@ -7,7 +7,7 @@ include = [
     "pyproject.toml",
     "*/pyproject.toml",
 ]
-exclude = [".venv/**", "target/**", "java/**"]
+exclude = [".venv/**", "target/**", "lang/java/**"]
 
 [formatting]
 allowed_blank_lines = 1

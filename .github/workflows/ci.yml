@@ -695,7 +695,7 @@ jobs:
         env:
           TASKS: ${{ matrix.tasks }}
         run: ./gradlew $TASKS
-        working-directory: ./java
+        working-directory: ./lang/java
 
   # Keeps the "Java" check, which now gathers the java-tests matrix.
   build-java:
