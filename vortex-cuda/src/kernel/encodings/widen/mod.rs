@@ -12,9 +12,11 @@ use async_trait::async_trait;
 use tracing::instrument;
 use vortex::array::ArrayRef;
 use vortex::array::Canonical;
+use vortex::array::IntoArray;
 use vortex::array::arrays::DecimalArray;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::Widen;
+use vortex::array::arrays::WidenArray;
 use vortex::array::arrays::widen::WidenArraySlotsExt;
 use vortex::array::buffer::BufferHandle;
 use vortex::array::match_each_integer_ptype;
@@ -26,6 +28,7 @@ use vortex::error::vortex_err;
 use vortex_cuda_driver::DeviceRepr;
 use vortex_cuda_driver::PushKernelArg;
 
+use crate::CanonicalCudaExt;
 use crate::CudaBufferExt;
 use crate::CudaDeviceBuffer;
 use crate::CudaExecutionCtx;
@@ -51,10 +54,14 @@ impl CudaExecute for WidenExecutor {
                 array.encoding_id()
             )
         })?;
-        if array.dtype().is_float() {
-            vortex_bail!("CUDA Widen does not support floating-point arrays");
-        }
         let child = array.values().clone().execute_cuda(ctx).await?;
+        if array.dtype().is_float() {
+            let host_child = child.into_host(ctx.execution_ctx()).await?.into_array();
+            let host_widen = WidenArray::try_new(host_child, array.dtype().clone())?;
+            return host_widen
+                .into_array()
+                .execute::<Canonical>(ctx.execution_ctx());
+        }
 
         match (array.dtype(), child) {
             (DType::Primitive(output_ptype, _), Canonical::Primitive(child))

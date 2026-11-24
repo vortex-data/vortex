@@ -100,10 +100,13 @@ fn all_valid_slices_match<T>(slice: &[T], mask: &Mask, check: impl Fn(&[T]) -> b
 
 /// Returns the narrowest floating-point [`PType`] strictly narrower than `array`'s type that
 /// reproduces every valid element bit-for-bit on widening back, or `None` when no narrower float
-/// type fits (including when `array` is already `f16` or not a float).
+/// type fits (including when `array` is already `f16`, not a float, or not host-resident).
 ///
 /// `mask` **must** be the validity mask of `array`.
 pub fn narrowest_float_ptype(array: &PrimitiveArray, mask: &Mask) -> Option<PType> {
+    if !array.buffer_handle().is_on_host() {
+        return None;
+    }
     match array.ptype() {
         PType::F64 => {
             let slice = array.as_slice::<f64>();
@@ -134,6 +137,10 @@ pub fn narrow_float_values(
     target: PType,
     mask: &Mask,
 ) -> VortexResult<PrimitiveArray> {
+    vortex_ensure!(
+        array.buffer_handle().is_on_host(),
+        "Widen float narrowing requires host-resident values"
+    );
     let validity = array.validity()?;
     match (array.ptype(), target) {
         (PType::F64, PType::F32) => {
