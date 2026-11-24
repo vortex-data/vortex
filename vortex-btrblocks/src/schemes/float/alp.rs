@@ -89,15 +89,8 @@ impl Scheme for ALPScheme {
         let alp_stats = alp_encoded.as_array().statistics().to_owned();
         let exponents = alp_encoded.exponents();
 
-        let mut keep = Vec::new();
-        let patches = KeptPatches::new(
-            self,
-            1,
-            data.array(),
-            alp_encoded.patches(),
-            &mut keep,
-            exec_ctx,
-        )?;
+        let (patches, keep) =
+            KeptPatches::new(self, 1, data.array(), alp_encoded.patches(), exec_ctx)?;
         Ok(Encoded::new(
             vec![Child::new(self, 0, alp_encoded.encoded().clone())],
             keep,

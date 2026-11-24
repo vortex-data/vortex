@@ -116,10 +116,10 @@ impl KeptPatches {
             return Ok((Self::Patched(patched.into_array()), keep));
         }
 
-        Self::interior(scheme, index, Some(patches), keep, ctx)
+        Self::interior(scheme, index, Some(patches), ctx)
     }
 
-    /// Registers the arrays of `patches`, stored inside the encoding however
+    /// Returns the arrays of `patches`, stored inside the encoding however
     /// `use_experimental_patches` is set, as kept children of `scheme`, numbered from `index`.
     ///
     /// # Errors
@@ -129,11 +129,10 @@ impl KeptPatches {
         scheme: &dyn Scheme,
         index: usize,
         patches: Option<Patches>,
-        keep: &mut Vec<Child>,
         ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Self> {
+    ) -> VortexResult<(Self, Vec<Child>)> {
         let Some(patches) = patches else {
-            return Ok(Self::None);
+            return Ok((Self::None, Vec::new()));
         };
         let PatchesParts {
             array_len,

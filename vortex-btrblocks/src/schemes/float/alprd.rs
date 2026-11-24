@@ -95,9 +95,8 @@ impl Scheme for ALPRDScheme {
         } = ALPRDArrayOwnedExt::into_data_parts(alp_rd);
         let (left_parts, validity) = take_validity(left_parts)?;
 
-        let mut keep = Vec::new();
         // The patches are of the left parts, not of the input, so they stay inside ALP-RD.
-        let patches = KeptPatches::interior(self, 0, left_parts_patches, &mut keep, exec_ctx)?;
+        let (patches, keep) = KeptPatches::interior(self, 0, left_parts_patches, exec_ctx)?;
         Ok(Encoded::new(Vec::new(), keep, move |children, _| {
             let left_parts = left_parts.with_validity(children.validity()?)?;
             patches.build(children, |patches| {
