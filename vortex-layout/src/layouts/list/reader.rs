@@ -25,14 +25,11 @@ use vortex_array::expr::BoundExpression;
 use vortex_array::expr::root;
 use vortex_array::scalar::NumericOperator;
 use vortex_array::validity::Validity;
-use vortex_buffer::BitBufferMut;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
-use vortex_error::vortex_panic;
-use vortex_mask::AllOr;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
 
@@ -251,14 +248,14 @@ impl ListReader {
         let validity_fut = fetch_validity(
             self.validity.as_ref(),
             &selected_row_range,
-            MaskFuture::new_true(selection.len()),
+            MaskFuture::ready(selection.clone()),
         )?;
 
         Ok(async move {
             let offsets = offsets_fut.await?;
             let mut ctx = reader.session.create_execution_ctx();
 
-            let (elements, offsets, validity) = if selection.all_true() {
+            let (elements_fut, offsets) = if selection.all_true() {
                 let elements_range = elements_range_from_offsets(&offsets, &reader.session)?;
                 let elements_fut = reader.fetch_elements(
                     &elements_range,
@@ -266,23 +263,16 @@ impl ListReader {
                         elements_range.end - elements_range.start,
                     )?),
                 )?;
-                let (elements, validity) = try_join!(elements_fut, validity_fut)?;
-                (
-                    elements,
-                    rebase_offsets(offsets, elements_range.start)?,
-                    validity,
-                )
+                (elements_fut, rebase_offsets(offsets, elements_range.start)?)
             } else {
-                let validity = validity_fut.await?;
-                let selected = select_lists(&offsets, validity, &selection, &mut ctx)?;
-                let elements = reader
-                    .fetch_elements(
-                        &selected.elements_range,
-                        MaskFuture::ready(selected.elements),
-                    )?
-                    .await?;
-                (elements, selected.offsets, selected.validity)
+                let selected = select_lists(&offsets, &selection, &mut ctx)?;
+                let elements_fut = reader.fetch_elements(
+                    &selected.elements_range,
+                    MaskFuture::ready(selected.elements),
+                )?;
+                (elements_fut, selected.offsets)
             };
+            let (elements, validity) = try_join!(elements_fut, validity_fut)?;
 
             let lists = lists_over(
                 elements,
@@ -371,18 +361,14 @@ struct SelectedLists {
     elements: Mask,
     /// The kept lists' offsets into the elements read.
     offsets: ArrayRef,
-    /// The kept lists' validity.
-    validity: Option<ArrayRef>,
 }
 
-/// Keep the `selection` lists of a cropped read, given their offsets (one more than the lists)
-/// and validity. The selection is cropped to its first and last selected list, so it keeps at
-/// least one.
+/// Keep the `selection` lists of a cropped read, given their offsets (one more than the lists).
 ///
-/// The elements read are those of the kept lists.
+/// The elements read are those of the kept lists, and the kept lists' offsets are prefix sums of
+/// their lengths.
 fn select_lists(
     offsets: &ArrayRef,
-    validity: Option<ArrayRef>,
     selection: &Mask,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<SelectedLists> {
@@ -392,49 +378,16 @@ fn select_lists(
     let offsets = offsets.as_slice::<u64>();
     vortex_ensure!(offsets.is_sorted(), "list offsets must not decrease");
     let lists = selection.len();
-    let elements_range = offsets[0]..offsets[lists];
-
-    let (elements, kept_offsets) = kept_elements(offsets, selection)?;
-    let offsets = match selection.slices() {
-        AllOr::All => kept_offsets.freeze(),
-        AllOr::None => vortex_panic!("the selection is cropped to its selected lists"),
-        AllOr::Some(runs) => {
-            let mut picked = BufferMut::with_capacity(selection.true_count() + 1);
-            for &(start, end) in runs {
-                picked.extend_from_slice(&kept_offsets[start..end]);
-            }
-            picked.push(kept_offsets[lists]);
-            picked.freeze()
-        }
-    };
-    let validity = match validity {
-        Some(validity) if !selection.all_true() => Some(validity.filter(selection.clone())?),
-        validity => validity,
-    };
-    Ok(SelectedLists {
-        elements_range,
-        elements,
-        offsets: offsets.into_array(),
-        validity,
-    })
-}
-
-/// Which elements the `keep` lists reference, counted from where the first list starts, and the
-/// offsets of every list over only those elements. Lists not kept come out empty.
-fn kept_elements(offsets: &[u64], keep: &Mask) -> VortexResult<(Mask, BufferMut<u64>)> {
-    let lists = keep.len();
+    vortex_ensure_eq!(offsets.len(), lists + 1);
     let first = offsets[0];
     let len = usize::try_from(offsets[lists] - first)?;
     let all = [(0, lists)];
-    let runs = keep.slices().unwrap_or_else(|| &all, || &[]);
+    let runs = selection.slices().unwrap_or_else(|| &all, || &[]);
 
-    let mut kept_offsets = BufferMut::with_capacity(lists + 1);
+    let mut kept_offsets = BufferMut::with_capacity(selection.true_count() + 1);
     let mut ranges: Vec<(usize, usize)> = Vec::with_capacity(runs.len());
     let mut kept = 0u64;
-    let mut from = 0;
     for &(start, end) in runs {
-        // Lists between runs are dropped, so they all start where the next kept list does.
-        kept_offsets.push_n(kept, start - from);
         let base = offsets[start];
         kept_offsets.extend(
             offsets[start..end]
@@ -447,28 +400,20 @@ fn kept_elements(offsets: &[u64], keep: &Mask) -> VortexResult<(Mask, BufferMut<
         );
         if range.0 < range.1 {
             match ranges.last_mut() {
+                // Only empty lists were dropped since the last run, so the elements are adjacent.
                 Some(last) if last.1 == range.0 => last.1 = range.1,
                 _ => ranges.push(range),
             }
         }
         kept += offsets[end] - base;
-        from = end;
     }
-    kept_offsets.push_n(kept, lists + 1 - from);
+    kept_offsets.push(kept);
 
-    let elements = match ranges[..] {
-        [] => Mask::new_false(len),
-        [(0, end)] if end == len => Mask::new_true(len),
-        [_] => Mask::from_slices(len, ranges),
-        _ => {
-            let mut bits = BitBufferMut::new_unset(len);
-            for &(start, end) in &ranges {
-                bits.fill_range(start, end, true);
-            }
-            Mask::from_buffer_with_slices(bits.freeze(), ranges)
-        }
-    };
-    Ok((elements, kept_offsets))
+    Ok(SelectedLists {
+        elements_range: first..offsets[lists],
+        elements: Mask::from_slices(len, ranges),
+        offsets: kept_offsets.freeze().into_array(),
+    })
 }
 
 /// The lists over `elements`, sharing `offsets` and `validity`.
@@ -820,7 +765,8 @@ mod tests {
     use crate::layouts::repartition::RepartitionWriterOptions;
     use crate::layouts::table::TableStrategy;
     use crate::scan::split_by::SplitBy;
-    use crate::segments::CountingSegmentSource;
+    use crate::segments::RecordingSegmentSource;
+    use crate::segments::SegmentId;
     use crate::segments::SegmentSource;
     use crate::segments::TestSegments;
     use crate::sequence::SequenceId;
@@ -1336,7 +1282,7 @@ mod tests {
         let ctx = LayoutReaderContext::new();
         let (segments, layout, session) =
             write_layout(&chunked_elements_list_strategy(), list.clone()).await?;
-        let source = Arc::new(CountingSegmentSource::new(segments));
+        let source = Arc::new(RecordingSegmentSource::new(segments));
         let reader = layout.new_reader("".into(), Arc::clone(&source) as _, &session, &ctx)?;
 
         let mask = Mask::from_iter([true, false, false, false, false]);
@@ -1508,34 +1454,36 @@ mod tests {
     fn segment_columns(
         layout: &LayoutRef,
         path: &str,
-        columns: &mut HashMap<crate::segments::SegmentId, String>,
+        columns: &mut HashMap<SegmentId, String>,
     ) -> VortexResult<()> {
         for id in layout.segment_ids() {
             columns.insert(id, path.to_string());
         }
         for (child_type, child) in layout.child_types().zip(layout.children()?) {
-            let child_path = match child_type {
-                LayoutChildType::Field(name) if path.is_empty() => name.to_string(),
-                LayoutChildType::Field(name) => format!("{path}.{name}"),
-                LayoutChildType::Auxiliary(name) => format!("{path}.{name}"),
-                LayoutChildType::Chunk(_) | LayoutChildType::Transparent(_) => path.to_string(),
+            let name: Option<&str> = match &child_type {
+                LayoutChildType::Field(name) => Some(name.as_ref()),
+                LayoutChildType::Auxiliary(name) => Some(name.as_ref()),
+                LayoutChildType::Chunk(_) | LayoutChildType::Transparent(_) => None,
+            };
+            let child_path = match name {
+                Some(name) if path.is_empty() => name.to_string(),
+                Some(name) => format!("{path}.{name}"),
+                None => path.to_string(),
             };
             segment_columns(&child, &child_path, columns)?;
         }
         Ok(())
     }
 
-    /// Read `expr` through the reader and over the array in memory, and check they agree.
+    /// Read `expr` through `reader` and over `array` in memory, and check they agree.
     async fn assert_read_matches(
         array: &ArrayRef,
-        strategy: &impl LayoutStrategy,
+        reader: &LayoutReaderRef,
+        session: &VortexSession,
         expr: &Expression,
         row_range: Range<u64>,
         mask: Mask,
     ) -> VortexResult<()> {
-        let (segments, layout, session) = write_layout(strategy, array.clone()).await?;
-        let reader =
-            layout.new_reader("".into(), segments, &session, &LayoutReaderContext::new())?;
         let bound = expr.bind(reader.dtype())?;
         let read = reader
             .projection_evaluation(&row_range, &bound, MaskFuture::ready(mask.clone()))?
@@ -1555,7 +1503,7 @@ mod tests {
         let list = create_wider_list_array(false);
         let (segments, layout, session) =
             write_layout(&chunked_elements_list_strategy(), list.clone()).await?;
-        let source = Arc::new(CountingSegmentSource::new(segments));
+        let source = Arc::new(RecordingSegmentSource::new(segments));
         let reader = layout.new_reader(
             "".into(),
             Arc::clone(&source) as _,
@@ -1577,7 +1525,7 @@ mod tests {
         let element_reads = source
             .requested()
             .iter()
-            .filter(|id| segment_column[*id] == ".elements")
+            .filter(|id| segment_column[*id] == "elements")
             .count();
         assert_eq!(element_reads, 2);
         Ok(())
@@ -1605,6 +1553,9 @@ mod tests {
         for _ in 0..40 {
             let lists = rng.random_range(1..40usize);
             let table = random_struct_lists(&mut rng, lists)?;
+            let (segments, layout, session) = write_layout(&strategy, table.clone()).await?;
+            let reader =
+                layout.new_reader("".into(), segments, &session, &LayoutReaderContext::new())?;
             let start = rng.random_range(0..lists);
             let end = rng.random_range(start + 1..=lists);
             let mask = match rng.random_range(0..3u8) {
@@ -1614,7 +1565,8 @@ mod tests {
             };
             for expr in &exprs {
                 let range = u64::try_from(start)?..u64::try_from(end)?;
-                assert_read_matches(&table, &strategy, expr, range, mask.clone()).await?;
+                assert_read_matches(&table, &reader, &session, expr, range, mask.clone())
+                    .await?;
             }
         }
         Ok(())

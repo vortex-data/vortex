@@ -63,12 +63,12 @@ impl SegmentSink for TestSegments {
 ///
 /// Clones share the record.
 #[derive(Clone)]
-pub struct CountingSegmentSource {
+pub struct RecordingSegmentSource {
     inner: Arc<dyn SegmentSource>,
     requested: Arc<Mutex<Vec<SegmentId>>>,
 }
 
-impl CountingSegmentSource {
+impl RecordingSegmentSource {
     /// Wraps `inner`, with nothing requested yet.
     pub fn new(inner: Arc<dyn SegmentSource>) -> Self {
         Self {
@@ -88,7 +88,7 @@ impl CountingSegmentSource {
     }
 }
 
-impl SegmentSource for CountingSegmentSource {
+impl SegmentSource for RecordingSegmentSource {
     fn request(&self, id: SegmentId) -> SegmentFuture {
         self.requested.lock().push(id);
         self.inner.request(id)

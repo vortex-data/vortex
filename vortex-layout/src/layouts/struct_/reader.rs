@@ -752,7 +752,7 @@ mod tests {
     use crate::layouts::zoned::writer::ZonedStrategy;
     use crate::scan::split_by::SplitBy;
     use crate::scan::split_by::register_boundaries;
-    use crate::segments::CountingSegmentSource;
+    use crate::segments::RecordingSegmentSource;
     use crate::segments::SegmentId;
     use crate::segments::SegmentSource;
     use crate::segments::TestSegments;
@@ -1345,7 +1345,7 @@ mod tests {
         #[case] expr: Expression,
         #[case] expected_requests: usize,
     ) -> VortexResult<()> {
-        let source = Arc::new(CountingSegmentSource::new(segments));
+        let source = Arc::new(RecordingSegmentSource::new(segments));
         let reader = layout.new_reader(
             "".into(),
             Arc::clone(&source) as _,
@@ -1394,7 +1394,7 @@ mod tests {
         #[case] s_projection: Expression,
         #[case] expected_b: ArrayRef,
     ) -> VortexResult<()> {
-        let source = Arc::new(CountingSegmentSource::new(segments));
+        let source = Arc::new(RecordingSegmentSource::new(segments));
         let reader = layout.new_reader(
             "".into(),
             Arc::clone(&source) as _,
