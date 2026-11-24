@@ -37,6 +37,7 @@ use vortex_array::SerializeMetadata;
 use vortex_array::aggregate_fn::AggregateFnRef;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::TryFromBytes;
+use vortex_array::proto::expr as pb;
 use vortex_array::stats::Stat;
 use vortex_array::stats::as_stat_bitset_bytes;
 use vortex_array::stats::stats_from_bitset_bytes;
@@ -61,7 +62,6 @@ use crate::LayoutRef;
 use crate::VTable;
 use crate::children::OwnedLayoutChildren;
 use crate::layouts::zoned::reader::ZonedReader;
-use crate::layouts::zoned::schema::AggregateSpecProto;
 use crate::layouts::zoned::schema::aggregate_specs_from_fns;
 use crate::layouts::zoned::schema::aggregate_stats_table_dtype;
 use crate::layouts::zoned::schema::legacy_stats_table_dtype;
@@ -506,7 +506,7 @@ fn present_aggregates(schema: &ZoneMapSchema) -> Arc<[String]> {
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct ZonedMetadata {
     pub(super) zone_len: u32,
-    pub(super) aggregate_specs: Arc<[AggregateSpecProto]>,
+    pub(super) aggregate_specs: Arc<[pb::AggregateFn]>,
 }
 
 /// Serialized metadata for legacy `vortex.stats` layouts.
@@ -523,7 +523,7 @@ struct ZonedMetadataProto {
     #[prost(uint32, tag = "1")]
     zone_len: u32,
     #[prost(message, repeated, tag = "2")]
-    aggregate_specs: Vec<AggregateSpecProto>,
+    aggregate_specs: Vec<pb::AggregateFn>,
 }
 
 impl DeserializeMetadata for ZonedMetadata {
@@ -611,6 +611,7 @@ mod tests {
     use vortex_array::aggregate_fn::fns::bounded_max::BoundedMaxOptions;
     use vortex_array::aggregate_fn::fns::max::Max;
     use vortex_array::aggregate_fn::fns::min::Min;
+    use vortex_array::aggregate_fn::fns::sum::Sum;
     use vortex_array::aggregate_fn::session::AggregateFnSession;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
@@ -625,12 +626,13 @@ mod tests {
     use crate::layouts::flat::FlatLayout;
     use crate::layouts::zoned::aggregates::bloom_filter::BloomFilter;
     use crate::layouts::zoned::aggregates::bloom_filter::BloomOptions;
+    use crate::layouts::zoned::schema::unknown_aggregate_spec;
     use crate::segments::SegmentId;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
-    fn aggregate_spec(aggregate_fn: AggregateFnRef) -> AggregateSpecProto {
-        AggregateSpecProto::try_from_aggregate_fn(&aggregate_fn).unwrap()
+    fn aggregate_spec(aggregate_fn: AggregateFnRef) -> pb::AggregateFn {
+        aggregate_fn.serialize_proto().unwrap()
     }
 
     #[rstest]
@@ -666,7 +668,7 @@ mod tests {
         });
         let metadata = ZonedMetadata {
             zone_len: 314,
-            aggregate_specs: Arc::new([AggregateSpecProto::try_from_aggregate_fn(&aggregate_fn)?]),
+            aggregate_specs: Arc::new([aggregate_fn.serialize_proto()?]),
         };
 
         let deserialized = ZonedMetadata::deserialize(&metadata.serialize())?;
@@ -675,6 +677,24 @@ mod tests {
             .expect("known aggregates resolve");
 
         assert_eq!(aggregate_fns.as_ref(), std::slice::from_ref(&aggregate_fn));
+        Ok(())
+    }
+
+    /// Zoned metadata written before specs were stored as `vortex.expr.AggregateFn` omits the
+    /// options field when the options are empty. It must still resolve.
+    #[test]
+    fn test_metadata_without_options_field_resolves() -> VortexResult<()> {
+        // Version 1, `zone_len: 8`, one spec holding only `id: "vortex.sum"`.
+        let bytes = b"\x01\x08\x08\x12\x0c\x0a\x0avortex.sum";
+        let metadata = ZonedMetadata::deserialize(bytes)?;
+        assert_eq!(metadata.zone_len, 8);
+
+        let aggregate_fns = try_aggregate_fns_from_specs(&metadata.aggregate_specs, &SESSION)?
+            .expect("known aggregates resolve");
+        assert_eq!(
+            aggregate_fns.as_ref(),
+            [Sum.bind(NumericalAggregateOpts::include_nans())]
+        );
         Ok(())
     }
 
@@ -799,7 +819,7 @@ mod tests {
 
         let metadata = ZonedMetadata {
             zone_len: 8,
-            aggregate_specs: Arc::new([AggregateSpecProto::new_unknown("vortex.test.unknown")]),
+            aggregate_specs: Arc::new([unknown_aggregate_spec("vortex.test.unknown")]),
         };
 
         let layout = <Zoned as VTable>::build(
@@ -834,7 +854,7 @@ mod tests {
 
         let metadata = ZonedMetadata {
             zone_len: 8,
-            aggregate_specs: Arc::new([AggregateSpecProto::new_unknown("vortex.test.unknown")]),
+            aggregate_specs: Arc::new([unknown_aggregate_spec("vortex.test.unknown")]),
         };
 
         let result = <Zoned as VTable>::build(
