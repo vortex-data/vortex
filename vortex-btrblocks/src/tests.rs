@@ -9,6 +9,7 @@
 use std::iter;
 use std::sync::Arc;
 
+use parking_lot::Mutex;
 use rand::Rng;
 use rand::RngExt;
 use rand::SeedableRng;
@@ -62,9 +63,14 @@ use vortex_sparse::Sparse;
 use crate::BtrBlocksCompressor;
 use crate::BtrBlocksCompressorBuilder;
 use crate::ChildDecision;
-use crate::ChildPolicy;
 use crate::ChildRequest;
+use crate::CompressionPolicy;
 use crate::SESSION;
+use crate::SchemeExt;
+use crate::SchemeId;
+use crate::SchemeSelection;
+use crate::SiteOutcome;
+use crate::SiteRequest;
 use crate::schemes::binary::VarBinScheme;
 use crate::schemes::boolean::BoolRunEndScheme;
 use crate::schemes::integer::BitPackingScheme;
@@ -532,8 +538,8 @@ fn test_unique_text_selects_onpair_on_every_chunk() -> VortexResult<()> {
 #[derive(Debug)]
 struct KeepEverything;
 
-impl ChildPolicy for KeepEverything {
-    fn decide(&self, _request: &ChildRequest<'_>) -> ChildDecision {
+impl CompressionPolicy for KeepEverything {
+    fn decide_child(&self, _request: &ChildRequest<'_>) -> ChildDecision {
         ChildDecision::Keep
     }
 }
@@ -547,7 +553,7 @@ fn test_child_policy_overrides_schemes(#[case] keep: bool) -> VortexResult<()> {
         .with_new_scheme(&RunEndScheme)
         .with_new_scheme(&BITPACKING_V1);
     if keep {
-        builder = builder.with_child_policy(Arc::new(KeepEverything));
+        builder = builder.with_policy(Arc::new(KeepEverything));
     }
     let compressed = assert_roundtrip(&builder.build(), &input)?;
 
@@ -558,5 +564,110 @@ fn test_child_policy_overrides_schemes(#[case] keep: bool) -> VortexResult<()> {
         .flatten()
         .all(ArrayRef::is_canonical);
     assert_eq!(children_canonical, keep);
+    Ok(())
+}
+
+/// A site's cascade history and the scheme applied there.
+type Applied = (Vec<(SchemeId, usize)>, Option<SchemeId>);
+
+/// Answers every site with one selection, and records each site's applied scheme by its cascade
+/// history.
+#[derive(Debug)]
+struct SelectingPolicy {
+    selection: SchemeSelection,
+    applied: Mutex<Vec<Applied>>,
+}
+
+impl SelectingPolicy {
+    fn new(selection: SchemeSelection) -> Arc<Self> {
+        Arc::new(Self {
+            selection,
+            applied: Mutex::new(Vec::new()),
+        })
+    }
+
+    /// The scheme applied at the root of the last compressed array.
+    fn root(&self) -> Option<SchemeId> {
+        self.applied
+            .lock()
+            .iter()
+            .rev()
+            .find(|(path, _)| path.is_empty())
+            .and_then(|(_, scheme)| *scheme)
+    }
+}
+
+impl CompressionPolicy for SelectingPolicy {
+    fn select_scheme(&self, _request: &SiteRequest<'_>) -> SchemeSelection {
+        self.selection.clone()
+    }
+
+    fn observe(&self, outcome: &SiteOutcome<'_>) {
+        self.applied
+            .lock()
+            .push((outcome.ctx.cascade_history().to_vec(), outcome.scheme));
+    }
+}
+
+fn runs_compressor(policy: Option<Arc<SelectingPolicy>>) -> BtrBlocksCompressor {
+    let builder = BtrBlocksCompressorBuilder::empty()
+        .with_new_scheme(&RunEndScheme)
+        .with_new_scheme(&BITPACKING_V1);
+    match policy {
+        Some(policy) => builder.with_policy(policy),
+        None => builder,
+    }
+    .build()
+}
+
+fn runs() -> ArrayRef {
+    PrimitiveArray::from_iter((0..100_000).map(|i| i / 100)).into_array()
+}
+
+#[test]
+fn test_policy_forces_a_scheme() -> VortexResult<()> {
+    let policy = SelectingPolicy::new(SchemeSelection::Scheme(BITPACKING_V1.id()));
+    let compressed = assert_roundtrip(&runs_compressor(Some(Arc::clone(&policy))), &runs())?;
+    assert!(compressed.is::<BitPacked>(), "{}", compressed.encoding_id());
+    assert_eq!(policy.root(), Some(BITPACKING_V1.id()));
+    Ok(())
+}
+
+#[test]
+fn test_policy_keeps_an_array_canonical() -> VortexResult<()> {
+    let policy = SelectingPolicy::new(SchemeSelection::Canonical);
+    let compressed = assert_roundtrip(&runs_compressor(Some(Arc::clone(&policy))), &runs())?;
+    assert!(compressed.is_canonical(), "{}", compressed.encoding_id());
+    assert_eq!(policy.root(), None);
+    Ok(())
+}
+
+#[test]
+fn test_policy_best_is_no_larger_than_estimates() -> VortexResult<()> {
+    let estimated = assert_roundtrip(&runs_compressor(None), &runs())?;
+    let policy = SelectingPolicy::new(SchemeSelection::Best(Vec::new()));
+    let best = assert_roundtrip(&runs_compressor(Some(Arc::clone(&policy))), &runs())?;
+    assert!(
+        best.nbytes() <= estimated.nbytes(),
+        "{} > {}",
+        best.nbytes(),
+        estimated.nbytes()
+    );
+    // The children of every tried scheme are reported, under their own cascade histories.
+    let applied = policy.applied.lock();
+    assert!(
+        applied
+            .iter()
+            .any(|(path, _)| path.first().is_some_and(|(s, _)| *s == RunEndScheme.id()))
+    );
+    Ok(())
+}
+
+#[test]
+fn test_policy_ignores_an_ineligible_scheme() -> VortexResult<()> {
+    let estimated = assert_roundtrip(&runs_compressor(None), &runs())?;
+    let policy = SelectingPolicy::new(SchemeSelection::Scheme(VarBinScheme.id()));
+    let compressed = assert_roundtrip(&runs_compressor(Some(policy)), &runs())?;
+    assert_eq!(compressed.encoding_id(), estimated.encoding_id());
     Ok(())
 }
