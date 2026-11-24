@@ -19,7 +19,9 @@ use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::dtype::i256;
 use vortex_array::scalar::DecimalValue;
+use vortex_array::scalar::NumericOperator;
 use vortex_array::scalar::Scalar;
+use vortex_array::scalar_fn::builtin::operators::CompareOperator;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -33,8 +35,6 @@ use crate::combined::PairOptions;
 use crate::count::Count;
 use crate::sum::Sum;
 use crate::sum::sum_decimal_dtype;
-use vortex_array::scalar::NumericOperator;
-use vortex_array::scalar_fn::builtin::operators::CompareOperator;
 
 /// Compute the arithmetic mean of an array.
 ///

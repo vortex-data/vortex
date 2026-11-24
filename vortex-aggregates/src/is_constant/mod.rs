@@ -36,7 +36,7 @@ use vortex_array::stats::Stat;
 use vortex_array::stats::StatsProvider;
 use vortex_array::stats::StatsProviderExt;
 use vortex_array::scalar::Scalar;
-use vortex_array::scalar_fn::builtin::operators::Operator;
+use vortex_array::scalar_fn::builtin::operators::CompareOperator;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -52,7 +52,6 @@ use self::map::check_map_constant;
 use self::primitive::check_primitive_constant;
 use self::struct_::check_struct_constant;
 use self::varbin::check_varbinview_constant;
-use vortex_array::scalar_fn::builtin::operators::CompareOperator;
 
 /// Check if two arrays of the same length have equal values at every position (null-safe).
 ///

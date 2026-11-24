@@ -214,6 +214,7 @@ mod test {
     pub static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
         let session = VortexSession::empty();
         initialize(&session);
+        vortex_aggregates::initialize(&session);
         session
     });
 
