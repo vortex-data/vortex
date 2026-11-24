@@ -3,15 +3,15 @@
 
 //! `ST_Contains` pruning with a geometry column and a constant in either operand order.
 
-use vortex_array::expr::BoundExpression;
-use vortex_array::expr::bound::get_item;
-use vortex_array::expr::bound::gt;
-use vortex_array::expr::bound::lit;
-use vortex_array::expr::bound::lt;
-use vortex_array::expr::bound::or;
 use vortex_array::scalar_fn::ScalarFnId;
 use vortex_array::scalar_fn::ScalarFnVTable;
 use vortex_error::VortexResult;
+use vortex_expr::BoundExpression;
+use vortex_expr::bound::get_item;
+use vortex_expr::bound::gt;
+use vortex_expr::bound::lit;
+use vortex_expr::bound::lt;
+use vortex_expr::bound::or;
 use vortex_expr::stats::rewrite::StatsRewriteRule;
 use vortex_session::VortexSession;
 
@@ -83,15 +83,8 @@ mod tests {
     use vortex_array::aggregate_fn::AggregateFnVTableExt;
     use vortex_array::aggregate_fn::EmptyOptions as AggregateOptions;
     use vortex_array::arrays::StructArray;
-    use vortex_array::expr::Expression;
-    use vortex_array::expr::fill_null;
-    use vortex_array::expr::get_item;
-    use vortex_array::expr::lit;
-    use vortex_array::expr::not;
-    use vortex_array::expr::root;
     use vortex_array::scalar::Scalar;
     use vortex_array::scalar_fn::EmptyOptions;
-    use vortex_array::scalar_fn::ScalarFnVTableExt;
     use vortex_buffer::ByteBuffer;
     use vortex_buffer::ByteBufferMut;
     use vortex_edition::EDITION_DECLARATIONS;
@@ -101,6 +94,14 @@ mod tests {
     use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
     use vortex_error::vortex_err;
+    use vortex_expr::ArrayExprExt;
+    use vortex_expr::Expression;
+    use vortex_expr::ScalarFnExprExt;
+    use vortex_expr::fill_null;
+    use vortex_expr::get_item;
+    use vortex_expr::lit;
+    use vortex_expr::not;
+    use vortex_expr::root;
     use vortex_expr::stats::rewrite::BoundExpressionPruneExt;
     use vortex_file::OpenOptionsSessionExt;
     use vortex_file::WriteOptionsSessionExt;

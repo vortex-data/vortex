@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Sweeps the public `BitPackedArray` compare-against-constant path (`array.binary(rhs, op)`) over
+//! Sweeps the public `BitPackedArray` compare-against-constant path (`array.compare(rhs, op)`) over
 //! every integer type and every valid bit width, so a kernel change shows up as a CodSpeed diff.
 //!
 //! The array holds in-range values (no patches, no out-of-range fast path), so each iteration runs
@@ -29,7 +29,7 @@ use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::NativePType;
 use vortex_array::optimizer::kernels::KernelSession;
 use vortex_array::scalar::Scalar;
-use vortex_array::scalar_fn::fns::operators::Operator;
+use vortex_array::scalar_fn::builtin::operators::CompareOperator;
 use vortex_array::session::ArraySession;
 use vortex_array::test_harness::mark_optimized;
 use vortex_array::validity::Validity;
@@ -78,7 +78,7 @@ fn widths(native_bits: usize) -> Vec<usize> {
 }
 
 /// Operator under test. `Lt` exercises the full unpack + per-element comparison path.
-const OP: Operator = Operator::Lt;
+const OP: CompareOperator = CompareOperator::Lt;
 
 /// Integer types we can build packed arrays for in the benchmark.
 trait BenchInt: NativePType + Copy + Into<Scalar> {
@@ -160,7 +160,7 @@ macro_rules! bench_type {
                 bencher.counter(ItemsCount::new(LEN)).bench_local(|| {
                     array
                         .clone()
-                        .binary(rhs.clone(), OP)
+                        .compare(rhs.clone(), OP)
                         .unwrap()
                         .execute::<BoolArray>(&mut ctx)
                         .unwrap()

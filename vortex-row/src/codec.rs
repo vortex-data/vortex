@@ -17,6 +17,8 @@
 //!   value and column-byte boundaries stay aligned across rows. See
 //!   [`varlen_null_sentinel`], [`varlen_empty_sentinel`], [`varlen_non_empty_sentinel`].
 //! - Fixed-width integers are big-endian, with the sign bit flipped for signed types.
+//! - A decimal key encodes the unscaled integer at the canonical width of its precision, so keys
+//!   from differently compressed chunks of one column can be compared byte for byte.
 //! - Floats are bit-pattern big-endian with sign-aware mask: non-negative flips the top
 //!   bit; negative flips all bits.
 //! - Nullable structs and fixed-size lists encode null parent rows with a **canonical null
@@ -24,6 +26,7 @@
 //!   contribute their fixed null encoding, and variable-width children collapse to a single
 //!   null sentinel byte.
 
+use num_traits::ToPrimitive;
 use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::arrays::BoolArray;
@@ -36,19 +39,16 @@ use vortex_array::arrays::NullArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::VarBinViewArray;
-use vortex_array::arrays::decimal::DecimalArrayExt;
-use vortex_array::arrays::decimal::converted_buffer;
 use vortex_array::arrays::fixed_size_list::FixedSizeListArrayExt;
 use vortex_array::arrays::fixed_size_list::FixedSizeListArraySlotsExt;
 use vortex_array::arrays::listview::ListViewArraySlotsExt;
 use vortex_array::arrays::map::MapArraySlotsExt;
 use vortex_array::arrays::struct_::StructArrayExt;
 use vortex_array::dtype::DType;
-use vortex_array::dtype::DecimalDType;
-use vortex_array::dtype::DecimalType;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::half::f16;
 use vortex_array::dtype::i256;
+use vortex_array::match_each_decimal_value_type;
 use vortex_array::match_each_integer_ptype;
 use vortex_array::match_each_native_ptype;
 use vortex_array::validity::Validity;
@@ -226,12 +226,9 @@ pub(crate) fn row_width_for_dtype(dtype: &DType) -> VortexResult<RowWidth> {
         DType::Primitive(ptype, _) => Ok(RowWidth::Fixed(encoded_size_for_fixed(byte_width_u32(
             ptype.byte_width(),
         )))),
-        DType::Decimal(dt, _) => {
-            let vt = decimal_key_type(dt);
-            Ok(RowWidth::Fixed(encoded_size_for_fixed(byte_width_u32(
-                vt.byte_width(),
-            ))))
-        }
+        DType::Decimal(decimal, _) => Ok(RowWidth::Fixed(encoded_size_for_fixed(byte_width_u32(
+            decimal.canonical_values_type().byte_width(),
+        )))),
         DType::Utf8(_) | DType::Binary(_) => Ok(RowWidth::Variable),
         DType::List(elem, _) => {
             row_width_for_dtype(elem)?;
@@ -465,38 +462,31 @@ fn add_size_primitive(arr: &PrimitiveArray, sizes: &mut [u32]) {
 }
 
 fn add_size_decimal(arr: &DecimalArray, sizes: &mut [u32]) {
-    let width = byte_width_u32(decimal_key_type(&arr.decimal_dtype()).byte_width());
+    let width = byte_width_u32(arr.values_type().byte_width());
     add_size_const(sizes, encoded_size_for_fixed(width));
 }
 
 fn list_ranges(arr: &ListViewArray, ctx: &mut ExecutionCtx) -> VortexResult<Vec<(usize, usize)>> {
-    use num_traits::ToPrimitive;
-
     let offsets = arr.offsets().clone().execute::<PrimitiveArray>(ctx)?;
     let sizes = arr.sizes().clone().execute::<PrimitiveArray>(ctx)?;
     let offsets = match_each_integer_ptype!(offsets.ptype(), |O| {
-        offsets
-            .as_slice::<O>()
-            .iter()
-            .map(|value| {
-                value
-                    .to_usize()
-                    .vortex_expect("validated list offset must fit usize")
-            })
-            .collect::<Vec<_>>()
+        values_to_usize(
+            offsets.as_slice::<O>(),
+            "validated list offset must fit usize",
+        )
     });
     let sizes = match_each_integer_ptype!(sizes.ptype(), |S| {
-        sizes
-            .as_slice::<S>()
-            .iter()
-            .map(|value| {
-                value
-                    .to_usize()
-                    .vortex_expect("validated list size must fit usize")
-            })
-            .collect::<Vec<_>>()
+        values_to_usize(sizes.as_slice::<S>(), "validated list size must fit usize")
     });
     Ok(offsets.into_iter().zip(sizes).collect())
+}
+
+/// Converts each value to `usize`, panicking with `msg` if one does not fit.
+fn values_to_usize<T: ToPrimitive>(values: &[T], msg: &'static str) -> Vec<usize> {
+    values
+        .iter()
+        .map(|value| value.to_usize().vortex_expect(msg))
+        .collect::<Vec<_>>()
 }
 
 fn add_size_list(
@@ -574,15 +564,6 @@ fn add_size_map(
         sizes,
         ctx,
     )
-}
-
-/// The decimal type every chunk of a decimal column encodes its keys at.
-///
-/// Derived from the declared decimal dtype rather than the chunk's physical `values_type`,
-/// so keys from differently compressed chunks stay memcmp-comparable. Both the size plan
-/// ([`row_width_for_dtype`]) and the encoder derive their width from here.
-fn decimal_key_type(dt: &DecimalDType) -> DecimalType {
-    dt.canonical_values_type()
 }
 
 fn add_size_varbinview(
@@ -773,51 +754,18 @@ fn encode_primitive(
     out: &mut [u8],
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<()> {
+    let validity = resolve_validity(arr.as_ref().validity()?, arr.len(), ctx)?;
     match_each_native_ptype!(arr.ptype(), |T| {
-        encode_primitive_typed::<T>(arr, field, row_offsets, col_offset, out, ctx)?;
+        encode_fixed_width(
+            arr.as_slice::<T>(),
+            validity,
+            field,
+            row_offsets,
+            col_offset,
+            out,
+        );
     });
-    Ok(())
-}
 
-fn encode_primitive_typed<T: NativePType + RowEncode>(
-    arr: &PrimitiveArray,
-    field: RowSortField,
-    row_offsets: &[u32],
-    col_offset: &mut [u32],
-    out: &mut [u8],
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<()> {
-    let slice: &[T] = arr.as_slice();
-    let non_null = field.non_null_sentinel();
-    let value_bytes = size_of::<T>();
-    let stride = encoded_size_for_fixed(byte_width_u32(value_bytes));
-    match resolve_validity(arr.as_ref().validity()?, arr.len(), ctx)? {
-        ValidityKind::AllValid => {
-            for (i, &v) in slice.iter().enumerate() {
-                let pos = (row_offsets[i] + col_offset[i]) as usize;
-                out[pos] = non_null;
-                v.encode_to(&mut out[pos + 1..pos + 1 + value_bytes], field.descending);
-                col_offset[i] += stride;
-            }
-        }
-        ValidityKind::Mask(mask) => {
-            let null = field.null_sentinel();
-            for (i, &v) in slice.iter().enumerate() {
-                let pos = (row_offsets[i] + col_offset[i]) as usize;
-                if mask.value(i) {
-                    out[pos] = non_null;
-                    v.encode_to(&mut out[pos + 1..pos + 1 + value_bytes], field.descending);
-                } else {
-                    out[pos] = null;
-                    // Zero-fill the value bytes.
-                    for b in &mut out[pos + 1..pos + 1 + value_bytes] {
-                        *b = 0;
-                    }
-                }
-                col_offset[i] += stride;
-            }
-        }
-    }
     Ok(())
 }
 
@@ -829,25 +777,55 @@ fn encode_decimal(
     out: &mut [u8],
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<()> {
-    let mask = arr.as_ref().validity()?.execute_mask(arr.len(), ctx)?;
-    match decimal_key_type(&arr.decimal_dtype()) {
-        DecimalType::I8 => {
-            encode_decimal_typed::<i8>(arr, &mask, field, row_offsets, col_offset, out)
+    let validity = resolve_validity(arr.as_ref().validity()?, arr.len(), ctx)?;
+    match_each_decimal_value_type!(arr.values_type(), |T| {
+        encode_fixed_width(
+            &arr.buffer::<T>(),
+            validity,
+            field,
+            row_offsets,
+            col_offset,
+            out,
+        );
+    });
+
+    Ok(())
+}
+
+fn encode_fixed_width<T: RowEncode>(
+    values: &[T],
+    validity: ValidityKind,
+    field: RowSortField,
+    row_offsets: &[u32],
+    col_offset: &mut [u32],
+    out: &mut [u8],
+) {
+    let non_null = field.non_null_sentinel();
+    let value_bytes = size_of::<T>();
+    let stride = encoded_size_for_fixed(byte_width_u32(value_bytes));
+
+    match validity {
+        ValidityKind::AllValid => {
+            for (i, &value) in values.iter().enumerate() {
+                let pos = (row_offsets[i] + col_offset[i]) as usize;
+                out[pos] = non_null;
+                value.encode_to(&mut out[pos + 1..pos + 1 + value_bytes], field.descending);
+                col_offset[i] += stride;
+            }
         }
-        DecimalType::I16 => {
-            encode_decimal_typed::<i16>(arr, &mask, field, row_offsets, col_offset, out)
-        }
-        DecimalType::I32 => {
-            encode_decimal_typed::<i32>(arr, &mask, field, row_offsets, col_offset, out)
-        }
-        DecimalType::I64 => {
-            encode_decimal_typed::<i64>(arr, &mask, field, row_offsets, col_offset, out)
-        }
-        DecimalType::I128 => {
-            encode_decimal_typed::<i128>(arr, &mask, field, row_offsets, col_offset, out)
-        }
-        DecimalType::I256 => {
-            encode_decimal_typed::<i256>(arr, &mask, field, row_offsets, col_offset, out)
+        ValidityKind::Mask(mask) => {
+            let null = field.null_sentinel();
+            for (i, &value) in values.iter().enumerate() {
+                let pos = (row_offsets[i] + col_offset[i]) as usize;
+                if mask.value(i) {
+                    out[pos] = non_null;
+                    value.encode_to(&mut out[pos + 1..pos + 1 + value_bytes], field.descending);
+                } else {
+                    out[pos] = null;
+                    out[pos + 1..pos + 1 + value_bytes].fill(0);
+                }
+                col_offset[i] += stride;
+            }
         }
     }
 }
@@ -940,38 +918,6 @@ fn encode_map(
         out,
         ctx,
     )
-}
-
-fn encode_decimal_typed<T>(
-    arr: &DecimalArray,
-    mask: &vortex_mask::Mask,
-    field: RowSortField,
-    row_offsets: &[u32],
-    col_offset: &mut [u32],
-    out: &mut [u8],
-) -> VortexResult<()>
-where
-    T: vortex_array::dtype::NativeDecimalType + RowEncode,
-{
-    let non_null = field.non_null_sentinel();
-    let null = field.null_sentinel();
-    let value_bytes = size_of::<T>();
-    let total = encoded_size_for_fixed(byte_width_u32(value_bytes));
-    let slice = converted_buffer::<T>(arr, mask)?;
-    for i in 0..slice.len() {
-        let pos = (row_offsets[i] + col_offset[i]) as usize;
-        if mask.value(i) {
-            out[pos] = non_null;
-            slice[i].encode_to(&mut out[pos + 1..pos + 1 + value_bytes], field.descending);
-        } else {
-            out[pos] = null;
-            for b in &mut out[pos + 1..pos + 1 + value_bytes] {
-                *b = 0;
-            }
-        }
-        col_offset[i] += total;
-    }
-    Ok(())
 }
 
 fn encode_varbinview(
@@ -1447,19 +1393,32 @@ pub(crate) trait RowEncode: Copy {
     fn encode_to(self, out: &mut [u8], descending: bool);
 }
 
+/// Writes big-endian `bytes` into `out`, inverting each byte for descending order.
+#[inline]
+fn write_row_bytes<const N: usize>(bytes: [u8; N], out: &mut [u8], descending: bool) {
+    if descending {
+        for (i, b) in bytes.iter().enumerate() {
+            out[i] = b ^ 0xFF;
+        }
+    } else {
+        out.copy_from_slice(&bytes);
+    }
+}
+
+/// Writes big-endian two's-complement `bytes` into `out` with the sign bit flipped, so
+/// negatives sort before non-negatives, inverting each byte for descending order.
+#[inline]
+fn write_signed_row_bytes<const N: usize>(mut bytes: [u8; N], out: &mut [u8], descending: bool) {
+    bytes[0] ^= 0x80;
+    write_row_bytes(bytes, out, descending);
+}
+
 macro_rules! impl_row_encode_unsigned {
     ($t:ty) => {
         impl RowEncode for $t {
             #[inline]
             fn encode_to(self, out: &mut [u8], descending: bool) {
-                let bytes = self.to_be_bytes();
-                if descending {
-                    for (i, b) in bytes.iter().enumerate() {
-                        out[i] = b ^ 0xFF;
-                    }
-                } else {
-                    out.copy_from_slice(&bytes);
-                }
+                write_row_bytes(self.to_be_bytes(), out, descending);
             }
         }
     };
@@ -1470,16 +1429,7 @@ macro_rules! impl_row_encode_signed {
         impl RowEncode for $t {
             #[inline]
             fn encode_to(self, out: &mut [u8], descending: bool) {
-                let mut bytes = self.to_be_bytes();
-                // Flip sign bit so negatives < non-negatives lexicographically.
-                bytes[0] ^= 0x80;
-                if descending {
-                    for (i, b) in bytes.iter().enumerate() {
-                        out[i] = b ^ 0xFF;
-                    }
-                } else {
-                    out.copy_from_slice(&bytes);
-                }
+                write_signed_row_bytes(self.to_be_bytes(), out, descending);
             }
         }
     };

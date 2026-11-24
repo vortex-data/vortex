@@ -7,7 +7,6 @@ use std::fmt::Debug;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use futures::future::try_join_all;
 use tracing::debug;
 use tracing::instrument;
 use vortex::array::ArrayRef;
@@ -19,14 +18,16 @@ use vortex::array::buffer::BufferHandle;
 use vortex::array::buffer::DeviceBuffer;
 use vortex::array::vtable::child_to_validity;
 use vortex::buffer::Alignment;
-use vortex::buffer::Buffer;
+use vortex::buffer::BufferMut;
 use vortex::buffer::ByteBuffer;
 use vortex::dtype::DType;
 use vortex::encodings::zstd::Zstd;
 use vortex::encodings::zstd::ZstdArray;
+use vortex::encodings::zstd::ZstdArraySlotsExt;
 use vortex::encodings::zstd::ZstdDataParts;
 use vortex::encodings::zstd::ZstdMetadata;
-use vortex::encodings::zstd::reconstruct_views;
+use vortex::encodings::zstd::slice_views;
+use vortex::encodings::zstd::try_reconstruct_views;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::error::vortex_err;
@@ -38,6 +39,7 @@ use vortex_cuda_driver::SyncOnDrop;
 use vortex_nvcomp::sys::nvcompStatus_t;
 use vortex_nvcomp::zstd as nvcomp_zstd;
 
+use super::zstd_buffers::validate_decompress_results;
 use crate::CudaBufferExt;
 use crate::CudaDeviceBuffer;
 use crate::executor::CudaExecute;
@@ -53,6 +55,8 @@ pub struct ZstdKernelPrep {
     pub output_sizes_ptr: u64,
     /// Device pointer to array of pointers to output buffers.
     pub output_ptrs_ptr: u64,
+    /// Expected uncompressed size per frame on host.
+    pub(crate) output_sizes: Vec<usize>,
     /// Number of frames to decompress.
     pub num_frames: usize,
     /// Size of temporary buffer for nvcomp.
@@ -108,21 +112,20 @@ pub async fn zstd_kernel_prepare(
         nvcomp_zstd::get_decompress_temp_size(num_frames, output_size_max, output_size_total)
             .map_err(|e| vortex_err!("nvcomp get_decompress_temp_size failed: {}", e))?;
 
-    // Async copy frames to the device.
-    let frame_futs = frames
-        .into_iter()
-        .map(|frame| ctx.copy_to_device(frame))
+    // Copy frames to the device.
+    let device_frame_handles = frames
+        .iter()
+        .map(|frame| ctx.copy_to_device(frame.as_ref()))
         .collect::<VortexResult<Vec<_>>>()?;
-
-    let device_frame_handles = try_join_all(frame_futs).await?;
 
     // Allocate contiguous output buffer for all decompressed data.
     let device_output = ctx.device_alloc::<u8>(output_size_total)?;
 
     // Device pointers for all compressed frames.
+    let stream = ctx.stream();
     let frame_ptrs = device_frame_handles
         .iter()
-        .map(|handle| handle.cuda_device_ptr())
+        .map(|handle| handle.cuda_device_ptr(stream))
         .collect::<VortexResult<Vec<_>>>()?;
 
     // Build output_ptrs from output base pointer + offsets.
@@ -139,23 +142,21 @@ pub async fn zstd_kernel_prepare(
             .collect::<Vec<_>>()
     };
 
-    // Copy metadata asynchronously to the device.
-    let (frame_ptrs_handle, frame_sizes_handle, output_sizes_handle, output_ptrs_handle) = futures::try_join!(
-        ctx.copy_to_device(frame_ptrs)?,
-        ctx.copy_to_device(frame_sizes)?,
-        ctx.copy_to_device(output_sizes)?,
-        ctx.copy_to_device(output_ptrs)?
-    )?;
+    // Copy metadata to the device.
+    let frame_ptrs_handle = ctx.copy_to_device(&frame_ptrs)?;
+    let frame_sizes_handle = ctx.copy_to_device(&frame_sizes)?;
+    let output_sizes_handle = ctx.copy_to_device(&output_sizes)?;
+    let output_ptrs_handle = ctx.copy_to_device(&output_ptrs)?;
 
     // Allocate working buffers
     let device_actual_sizes: CudaSlice<usize> = ctx.device_alloc(num_frames)?;
     let device_statuses: CudaSlice<nvcompStatus_t> = ctx.device_alloc(num_frames)?;
     let nvcomp_temp_buffer: CudaSlice<u8> = ctx.device_alloc(nvcomp_temp_buffer_size)?;
 
-    let frame_ptrs_ptr = frame_ptrs_handle.cuda_device_ptr()?;
-    let frame_sizes_ptr = frame_sizes_handle.cuda_device_ptr()?;
-    let output_sizes_ptr = output_sizes_handle.cuda_device_ptr()?;
-    let output_ptrs_ptr = output_ptrs_handle.cuda_device_ptr()?;
+    let frame_ptrs_ptr = frame_ptrs_handle.cuda_device_ptr(stream)?;
+    let frame_sizes_ptr = frame_sizes_handle.cuda_device_ptr(stream)?;
+    let output_sizes_ptr = output_sizes_handle.cuda_device_ptr(stream)?;
+    let output_ptrs_ptr = output_ptrs_handle.cuda_device_ptr(stream)?;
 
     // Return device pointers and handles to keep device memory alive
     Ok(ZstdKernelPrep {
@@ -163,6 +164,7 @@ pub async fn zstd_kernel_prepare(
         frame_sizes_ptr,
         output_sizes_ptr,
         output_ptrs_ptr,
+        output_sizes,
         num_frames,
         nvcomp_temp_buffer_size,
         device_actual_sizes,
@@ -213,7 +215,7 @@ impl CudaExecute for ZstdExecutor {
 
 async fn decode_zstd(array: ZstdArray, ctx: &mut CudaExecutionCtx) -> VortexResult<Canonical> {
     let dtype = array.dtype().clone();
-    let validity = child_to_validity(array.as_ref().slots()[0].as_ref(), dtype.nullability());
+    let validity = child_to_validity(array.validity_child(), dtype.nullability());
     let ZstdDataParts {
         frames,
         metadata,
@@ -229,17 +231,25 @@ async fn decode_zstd(array: ZstdArray, ctx: &mut CudaExecutionCtx) -> VortexResu
         return Err(vortex_err!("ZSTD dictionary not supported on GPU"));
     }
 
-    if frames.is_empty() {
-        let result = unsafe {
-            VarBinViewArray::new_unchecked(
-                Buffer::<BinaryView>::empty(),
-                Arc::from([]),
-                dtype,
-                validity,
-            )
-        };
+    let slice_len = slice_stop - slice_start;
+    let sliced_validity = validity.slice(slice_start..slice_stop)?;
+    let sliced_mask = sliced_validity.execute_mask(slice_len, ctx.execution_ctx())?;
 
-        return Ok(Canonical::VarBinView(result));
+    let valid_count = sliced_mask.true_count();
+    if valid_count == 0 {
+        return Ok(Canonical::VarBinView(VarBinViewArray::try_new(
+            BufferMut::<BinaryView>::zeroed(slice_len).freeze(),
+            Arc::from([]),
+            dtype,
+            sliced_validity,
+            ctx.execution_ctx(),
+        )?));
+    }
+
+    if frames.is_empty() {
+        vortex_bail!(
+            "Zstd array has no compressed frames but {valid_count} of {slice_len} rows are non-null"
+        );
     }
 
     let mut exec = zstd_kernel_prepare(frames, &metadata, ctx).await?;
@@ -332,6 +342,13 @@ async fn decode_zstd(array: ZstdArray, ctx: &mut CudaExecutionCtx) -> VortexResu
     })?;
     finish_result?;
 
+    validate_decompress_results(
+        &exec.output_sizes,
+        exec.device_actual_sizes,
+        exec.device_statuses,
+    )
+    .await?;
+
     // Unconditionally copy back to the host as Zstd arrays are fully
     // self-contained. They neither have any parent or child encodings.
     //
@@ -346,15 +363,11 @@ async fn decode_zstd(array: ZstdArray, ctx: &mut CudaExecutionCtx) -> VortexResu
     let slice_value_idx_start = slice_value_indices[0];
     let slice_value_idx_stop = slice_value_indices[1];
 
-    let sliced_validity = validity.slice(slice_start..slice_stop)?;
-
-    match sliced_validity
-        .execute_mask(slice_stop - slice_start, ctx.execution_ctx())?
-        .indices()
-    {
+    match sliced_mask.indices() {
         AllOr::All => {
-            let (buffers, all_views) = reconstruct_views(&host_buffer, 0, MAX_BUFFER_LEN);
-            let sliced_views = all_views.slice(slice_value_idx_start..slice_value_idx_stop);
+            let (buffers, all_views) = try_reconstruct_views(&host_buffer, 0, MAX_BUFFER_LEN)?;
+            let sliced_views =
+                slice_views(&all_views, slice_value_idx_start..slice_value_idx_stop)?;
 
             Ok(Canonical::VarBinView(unsafe {
                 VarBinViewArray::new_unchecked(
@@ -375,10 +388,12 @@ async fn decode_zstd(array: ZstdArray, ctx: &mut CudaExecutionCtx) -> VortexResu
 mod tests {
     use std::sync::LazyLock;
 
+    use rstest::rstest;
     use vortex::array::IntoArray;
     use vortex::array::arrays::VarBinViewArray;
     use vortex::array::assert_arrays_eq;
     use vortex::array::optimizer::ArrayOptimizer;
+    use vortex::dtype::Nullability;
     use vortex::encodings::zstd::Zstd;
     use vortex::error::VortexExpect;
     use vortex::error::VortexResult;
@@ -521,6 +536,89 @@ mod tests {
             .into_array();
 
         assert_arrays_eq!(gpu_result, strings, &mut ctx);
+        Ok(())
+    }
+
+    fn all_null_varbinview(dtype: &DType, len: usize) -> VarBinViewArray {
+        match dtype {
+            DType::Utf8(Nullability::Nullable) => {
+                VarBinViewArray::from_iter_nullable_str(std::iter::repeat_n(None::<&str>, len))
+            }
+            DType::Binary(Nullability::Nullable) => {
+                VarBinViewArray::from_iter_nullable_bin(std::iter::repeat_n(None::<&[u8]>, len))
+            }
+            _ => unreachable!("test helper expects nullable Binary or Utf8"),
+        }
+    }
+
+    #[rstest]
+    #[case::utf8_full(DType::Utf8(Nullability::Nullable), 5, 0..5)]
+    #[case::utf8_offset_slice(DType::Utf8(Nullability::Nullable), 5, 1..4)]
+    #[case::utf8_empty(DType::Utf8(Nullability::Nullable), 0, 0..0)]
+    #[case::binary_full(DType::Binary(Nullability::Nullable), 5, 0..5)]
+    #[case::binary_offset_slice(DType::Binary(Nullability::Nullable), 5, 1..4)]
+    #[case::binary_empty(DType::Binary(Nullability::Nullable), 0, 0..0)]
+    #[crate::test]
+    async fn test_cuda_zstd_decompression_all_null(
+        #[case] dtype: DType,
+        #[case] len: usize,
+        #[case] slice_range: std::ops::Range<usize>,
+    ) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
+            .vortex_expect("failed to create execution context");
+
+        let input = all_null_varbinview(&dtype, len);
+        let zstd_array = Zstd::from_var_bin_view(&input, 3, 2, cuda_ctx.execution_ctx())?;
+        let zstd_sliced = if slice_range == (0..len) {
+            zstd_array
+        } else {
+            zstd_array
+                .into_array()
+                .slice(slice_range)?
+                .optimize_ctx(cuda_ctx.execution_ctx())?
+                .try_downcast::<Zstd>()
+                .map_err(|_| vortex_err!("expected ZstdArray"))?
+        };
+        let cpu_result = Zstd::decompress(&zstd_sliced, &mut ctx)?;
+
+        let gpu_result = ZstdExecutor
+            .execute(zstd_sliced.into_array(), &mut cuda_ctx)
+            .await?
+            .into_array();
+
+        assert_arrays_eq!(gpu_result, cpu_result, &mut ctx);
+        Ok(())
+    }
+
+    #[crate::test]
+    async fn test_cuda_zstd_decompression_all_null_slice_with_frames() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
+            .vortex_expect("failed to create execution context");
+
+        let input = VarBinViewArray::from_iter_nullable_str([
+            Some("hello"),
+            Some("world"),
+            None,
+            None,
+            None,
+        ]);
+        let zstd_array = Zstd::from_var_bin_view(&input, 3, 2, cuda_ctx.execution_ctx())?;
+        let zstd_sliced = zstd_array
+            .into_array()
+            .slice(2..5)?
+            .optimize_ctx(cuda_ctx.execution_ctx())?
+            .try_downcast::<Zstd>()
+            .map_err(|_| vortex_err!("expected ZstdArray"))?;
+        let cpu_result = Zstd::decompress(&zstd_sliced, &mut ctx)?;
+
+        let gpu_result = ZstdExecutor
+            .execute(zstd_sliced.into_array(), &mut cuda_ctx)
+            .await?
+            .into_array();
+
+        assert_arrays_eq!(gpu_result, cpu_result, &mut ctx);
         Ok(())
     }
 }

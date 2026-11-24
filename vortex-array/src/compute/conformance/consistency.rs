@@ -43,7 +43,8 @@ use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
-use crate::scalar_fn::fns::operators::Operator;
+use crate::scalar_fn::builtin::operators::BooleanOperator;
+use crate::scalar_fn::builtin::operators::CompareOperator;
 
 /// Tests that filter and take operations produce consistent results.
 ///
@@ -687,18 +688,18 @@ fn test_comparison_inverse_consistency(array: &ArrayRef, ctx: &mut ExecutionCtx)
     let const_array = ConstantArray::new(test_scalar, len).into_array();
 
     for (operator, counterpart) in [
-        (Operator::Eq, Operator::NotEq),
-        (Operator::Gt, Operator::Lte),
-        (Operator::Lt, Operator::Gte),
+        (CompareOperator::Eq, CompareOperator::NotEq),
+        (CompareOperator::Gt, CompareOperator::Lte),
+        (CompareOperator::Lt, CompareOperator::Gte),
     ] {
         let left = array
-            .binary(const_array.clone(), operator)
+            .compare(const_array.clone(), operator)
             .vortex_expect("comparison should succeed in conformance test");
         let left = left
             .not()
             .vortex_expect("not should succeed in conformance test");
         let right = array
-            .binary(const_array.clone(), counterpart)
+            .compare(const_array.clone(), counterpart)
             .vortex_expect("comparison should succeed in conformance test");
         assert_arrays_eq!(left, right, ctx);
     }
@@ -740,12 +741,15 @@ fn test_comparison_symmetry_consistency(array: &ArrayRef, ctx: &mut ExecutionCtx
         .vortex_expect("scalar_at should succeed in conformance test");
     let const_array = ConstantArray::new(test_scalar, len).into_array();
 
-    for (operator, counterpart) in [(Operator::Gt, Operator::Lt), (Operator::Eq, Operator::Eq)] {
+    for (operator, counterpart) in [
+        (CompareOperator::Gt, CompareOperator::Lt),
+        (CompareOperator::Eq, CompareOperator::Eq),
+    ] {
         let left = array
-            .binary(const_array.clone(), operator)
+            .compare(const_array.clone(), operator)
             .vortex_expect("comparison should succeed in conformance test");
         let right = const_array
-            .binary(array.clone(), counterpart)
+            .compare(array.clone(), counterpart)
             .vortex_expect("comparison should succeed in conformance test");
         assert_arrays_eq!(left, right, ctx);
     }
@@ -773,9 +777,12 @@ fn test_boolean_demorgan_consistency(array: &ArrayRef, ctx: &mut ExecutionCtx) {
     }
 
     let bool_mask = BoolArray::from_iter((0..array.len()).map(|i| i % 3 == 0)).into_array();
-    for (operator, counterpart) in [(Operator::And, Operator::Or), (Operator::Or, Operator::And)] {
+    for (operator, counterpart) in [
+        (BooleanOperator::And, BooleanOperator::Or),
+        (BooleanOperator::Or, BooleanOperator::And),
+    ] {
         let left = array
-            .binary(bool_mask.clone(), operator)
+            .boolean(bool_mask.clone(), operator)
             .vortex_expect("boolean operation should succeed in conformance test")
             .not()
             .vortex_expect("not should succeed in conformance test");
@@ -786,7 +793,7 @@ fn test_boolean_demorgan_consistency(array: &ArrayRef, ctx: &mut ExecutionCtx) {
             .not()
             .vortex_expect("not should succeed in conformance test");
         let right = not_a
-            .binary(not_b, counterpart)
+            .boolean(not_b, counterpart)
             .vortex_expect("boolean operation should succeed in conformance test");
         assert_arrays_eq!(left, right, ctx);
     }

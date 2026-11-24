@@ -52,10 +52,10 @@ use crate::arrays::varbinview::BinaryView;
 use crate::dtype::DType;
 use crate::dtype::Nullability::NonNullable;
 use crate::dtype::PType;
-use crate::expr::stats::Precision;
-use crate::expr::stats::Stat;
-use crate::expr::stats::StatsProvider;
 use crate::scalar::Scalar;
+use crate::stats::Precision;
+use crate::stats::Stat;
+use crate::stats::StatsProvider;
 
 /// Return the uncompressed size of an array in bytes.
 ///
@@ -409,13 +409,13 @@ mod tests {
     use crate::dtype::Nullability;
     use crate::dtype::PType;
     use crate::dtype::UnionVariants;
-    use crate::expr::stats::Precision;
-    use crate::expr::stats::Stat;
-    use crate::expr::stats::StatsProvider;
     use crate::extension::datetime::Date;
     use crate::extension::datetime::TimeUnit;
     use crate::scalar::Scalar;
     use crate::scalar::ScalarValue;
+    use crate::stats::Precision;
+    use crate::stats::Stat;
+    use crate::stats::StatsProvider;
     use crate::validity::Validity;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
@@ -563,12 +563,8 @@ mod tests {
 
     #[test]
     fn decimal_matches_materialized_size() -> VortexResult<()> {
-        let array = DecimalArray::new(
-            buffer![12345i64, -123i64, 0i64],
-            DecimalDType::new(5, 2),
-            Validity::NonNullable,
-        )
-        .into_array();
+        let array =
+            DecimalArray::from_iter([12345i32, -123, 0], DecimalDType::new(5, 2)).into_array();
 
         assert_eq!(
             aggregate(&array)?,

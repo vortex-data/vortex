@@ -16,10 +16,10 @@ use crate::arrays::DictArray;
 use crate::arrays::Primitive;
 use crate::arrays::dict::DictArraySlotsExt;
 use crate::arrays::slice::SliceReduce;
-use crate::expr::stats::Precision;
-use crate::expr::stats::Stat;
 use crate::scalar::Scalar;
 use crate::scalar::ScalarValue;
+use crate::stats::Precision;
+use crate::stats::Stat;
 
 impl SliceReduce for Dict {
     fn slice(array: ArrayView<'_, Self>, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {

@@ -22,7 +22,7 @@ use vortex_array::extension::datetime::Timestamp;
 use vortex_array::memory::MemorySession;
 use vortex_array::optimizer::kernels::KernelSession;
 use vortex_array::scalar::Scalar;
-use vortex_array::scalar_fn::fns::operators::Operator;
+use vortex_array::scalar_fn::builtin::operators::CompareOperator;
 use vortex_array::test_harness::mark_optimized;
 use vortex_buffer::Buffer;
 use vortex_session::VortexSession;
@@ -44,7 +44,7 @@ fn main() {
 // Target less than 1 ms per iteration.
 const LEN: u32 = 4_096;
 
-fn bench_compare(bencher: Bencher, lhs: ArrayRef, constant: Scalar, op: Operator) {
+fn bench_compare(bencher: Bencher, lhs: ArrayRef, constant: Scalar, op: CompareOperator) {
     let rhs = ConstantArray::new(constant, lhs.len()).into_array();
     mark_optimized(&lhs, &SESSION).unwrap();
     mark_optimized(&rhs, &SESSION).unwrap();
@@ -56,7 +56,7 @@ fn bench_compare(bencher: Bencher, lhs: ArrayRef, constant: Scalar, op: Operator
             input
                 .0
                 .clone()
-                .binary(input.1.clone(), op)
+                .compare(input.1.clone(), op)
                 .unwrap()
                 .execute::<Canonical>(&mut input.2)
                 .unwrap()
@@ -74,7 +74,12 @@ fn needle() -> i64 {
 
 #[divan::bench]
 fn i64_lt(bencher: Bencher) {
-    bench_compare(bencher, ints().into_array(), needle().into(), Operator::Lt);
+    bench_compare(
+        bencher,
+        ints().into_array(),
+        needle().into(),
+        CompareOperator::Lt,
+    );
 }
 
 #[divan::bench]
@@ -82,7 +87,7 @@ fn timestamp_gte(bencher: Bencher) {
     let dtype = Timestamp::new(TimeUnit::Milliseconds, Nullability::NonNullable).erased();
     let array = ExtensionArray::new(dtype.clone(), ints().into_array()).into_array();
     let constant = Scalar::extension_ref(dtype, needle().into());
-    bench_compare(bencher, array, constant, Operator::Gte);
+    bench_compare(bencher, array, constant, CompareOperator::Gte);
 }
 
 #[divan::bench]
@@ -90,5 +95,5 @@ fn utf8_lt(bencher: Bencher) {
     let array =
         VarBinViewArray::from_iter_str((0..LEN).map(|i| format!("value-{i:012}"))).into_array();
     let constant = Scalar::from(format!("value-{:012}x", LEN / 2).as_str());
-    bench_compare(bencher, array, constant, Operator::Lt);
+    bench_compare(bencher, array, constant, CompareOperator::Lt);
 }

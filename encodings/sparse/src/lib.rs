@@ -40,9 +40,10 @@ use vortex_array::patches::PatchesData;
 use vortex_array::patches::PatchesMetadata;
 use vortex_array::require_child;
 use vortex_array::require_opt_child;
+use vortex_array::scalar::NumericOperator;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar::ScalarValue;
-use vortex_array::scalar_fn::fns::operators::Operator;
+use vortex_array::scalar_fn::builtin::operators::CompareOperator;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityVTable;
@@ -148,19 +149,15 @@ pub(crate) trait SparseOwnedExt {
 
 impl SparseOwnedExt for Array<Sparse> {
     fn into_parts(self) -> VortexResult<SparseParts> {
-        let chunk_offsets = self.slots()[SparseSlots::PATCH_CHUNK_OFFSETS].clone();
+        let chunk_offsets = self.patch_chunk_offsets().cloned();
         let offset_within_chunk = chunk_offsets.as_ref().map(|_| 0);
         // SAFETY: the patch slots come from a valid sparse array.
         let patches = unsafe {
             Patches::new_unchecked(
                 self.len(),
                 self.patches().offset(),
-                self.slots()[SparseSlots::PATCH_INDICES]
-                    .clone()
-                    .vortex_expect("indices"),
-                self.slots()[SparseSlots::PATCH_VALUES]
-                    .clone()
-                    .vortex_expect("values"),
+                self.patch_indices().clone(),
+                self.patch_values().clone(),
                 chunk_offsets,
                 offset_within_chunk,
             )
@@ -263,9 +260,9 @@ impl VTable for Sparse {
             let values = array.patch_values().clone();
             let len = array.len();
             let offset_scalar = Scalar::from(offset).cast(indices.dtype())?;
-            let resolved_indices = indices.binary(
+            let resolved_indices = indices.numeric(
                 ConstantArray::new(offset_scalar, indices.len()).into_array(),
-                Operator::Sub,
+                NumericOperator::Sub,
             )?;
             let patches = Patches::new(len, 0, resolved_indices.clone(), values, None, ctx)?;
             // Decompose, update in place, and reassemble without re-validation.
@@ -563,7 +560,7 @@ impl SparseData {
 
         let fill_array = ConstantArray::new(fill.clone(), array.len()).into_array();
         let non_top_bool = array
-            .binary(fill_array.clone(), Operator::NotEq)?
+            .compare(fill_array.clone(), CompareOperator::NotEq)?
             .fill_null(Scalar::bool(true, Nullability::NonNullable))?
             .execute::<BoolArray>(ctx)?;
         let non_top_mask = Mask::from_buffer(non_top_bool.to_bit_buffer());
@@ -602,9 +599,9 @@ pub trait SparseExt {
     fn resolved_patches(&self) -> VortexResult<Patches> {
         let patches = self.patches();
         let indices_offset = Scalar::from(patches.offset()).cast(patches.indices().dtype())?;
-        let indices = patches.indices().binary(
+        let indices = patches.indices().numeric(
             ConstantArray::new(indices_offset, patches.indices().len()).into_array(),
-            Operator::Sub,
+            NumericOperator::Sub,
         )?;
 
         // SAFETY: subtracting the offset from valid patch indices keeps them sorted and within

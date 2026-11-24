@@ -26,7 +26,7 @@ use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::match_each_integer_ptype;
 use vortex_array::optimizer::ArrayOptimizer;
-use vortex_array::scalar_fn::fns::operators::Operator;
+use vortex_array::scalar_fn::builtin::operators::CompareOperator;
 use vortex_array::test_harness::check_metadata;
 use vortex_array::validity::Validity;
 use vortex_buffer::BufferMut;
@@ -219,7 +219,7 @@ fn test_onpair_u64_codes_offsets() -> vortex_error::VortexResult<()> {
 
     // Equality compare drives CodesWindow over the u64 codes_offsets.
     let needle = ConstantArray::new("https://www.example.com/page", wide.len()).into_array();
-    let eq = wide.into_array().binary(needle, Operator::Eq)?;
+    let eq = wide.into_array().compare(needle, CompareOperator::Eq)?;
     assert_arrays_eq!(
         &eq,
         &BoolArray::from_iter([true, false, false, false, true]),
@@ -676,6 +676,51 @@ fn test_sparse_dict_over_onpair_appends_to_builder() -> vortex_error::VortexResu
         builder.finish_into_varbin(),
         expected.finish_into_varbin(),
         &mut ctx
+    );
+    Ok(())
+}
+
+/// Regression for #11420: the `onpair` crate grows the codes from empty, and the compressed array
+/// must not keep the spare capacity of their last growth.
+#[rstest::rstest]
+#[case::str_len_64(64)]
+#[case::str_len_80(80)]
+#[case::str_len_160(160)]
+fn codes_buffer_has_little_spare_capacity(
+    #[case] str_len: usize,
+) -> vortex_error::VortexResult<()> {
+    let mut x: u64 = 1;
+    let strings: Vec<String> = (0..8192)
+        .map(|_| {
+            (0..str_len / 16)
+                .map(|_| {
+                    x ^= x << 13;
+                    x ^= x >> 7;
+                    x ^= x << 17;
+                    format!("{x:016x}")
+                })
+                .collect()
+        })
+        .collect();
+    let array = VarBinViewArray::from_iter_str(strings.iter().map(String::as_str)).into_array();
+    let mut ctx = SESSION.create_execution_ctx();
+    let onpair = compress_onpair(&array, &mut ctx)?;
+
+    let codes = onpair
+        .as_view()
+        .codes()
+        .clone()
+        .execute::<PrimitiveArray>(&mut ctx)?
+        .into_buffer::<u16>();
+    drop(onpair);
+    let codes = codes
+        .try_into_mut()
+        .map_err(|_| vortex_error::vortex_err!("codes buffer is still shared"))?;
+    let spare = codes.capacity() - codes.len();
+    assert!(
+        spare <= codes.len() / 4,
+        "{} codes have {spare} codes of spare capacity",
+        codes.len()
     );
     Ok(())
 }

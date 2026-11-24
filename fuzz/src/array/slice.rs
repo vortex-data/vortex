@@ -63,6 +63,7 @@ pub fn slice_canonical_array(
                         decimal_array.buffer::<D>().slice(start..stop),
                         *decimal_dtype,
                         validity,
+                        ctx,
                     )
                 })
                 .into_array(),

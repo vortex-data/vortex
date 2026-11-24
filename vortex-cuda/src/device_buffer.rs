@@ -25,6 +25,7 @@ use vortex::error::VortexResult;
 use vortex::error::vortex_ensure;
 use vortex::error::vortex_err;
 use vortex_cuda_driver::CudaSlice;
+use vortex_cuda_driver::CudaStream;
 use vortex_cuda_driver::CudaView;
 use vortex_cuda_driver::CudaViewMut;
 use vortex_cuda_driver::DevicePtr;
@@ -219,26 +220,49 @@ pub(crate) fn cuda_aligned_bitmap_view(
     Ok((view, prefix_bytes))
 }
 
+/// Helpers for tests in other modules that inspect device buffers.
 #[cfg(test)]
-pub(crate) fn cuda_backing_allocation(handle: &BufferHandle) -> VortexResult<BufferHandle> {
-    let device_buffer = handle
-        .as_device_opt()
-        .ok_or_else(|| vortex_err!("Buffer is not on device"))?;
+pub(crate) mod test_support {
+    use std::sync::Arc;
 
-    let cuda_buf = device_buffer
-        .as_any()
-        .downcast_ref::<CudaDeviceBuffer>()
-        .ok_or_else(|| vortex_err!("expected CudaDeviceBuffer, was {device_buffer:?}"))?;
-    let len = cuda_buf.allocation.as_bytes_view().len();
+    use vortex::array::buffer::BufferHandle;
+    use vortex::error::VortexResult;
+    use vortex::error::vortex_err;
+    use vortex_cuda_driver::sys;
 
-    Ok(BufferHandle::new_device(Arc::new(CudaDeviceBuffer {
-        allocation: Arc::clone(&cuda_buf.allocation),
-        offset: 0,
-        len,
-        device_ptr: cuda_buf.device_ptr,
-        alignment: cuda_buf.alignment,
-        zeroed_tail_start: cuda_buf.zeroed_tail_start,
-    })))
+    use super::CudaDeviceBuffer;
+
+    /// The buffer's device address, for tests that check addresses without reading through them.
+    pub(crate) fn cuda_address(handle: &BufferHandle) -> VortexResult<sys::CUdeviceptr> {
+        Ok(handle
+            .as_device_opt()
+            .ok_or_else(|| vortex_err!("Buffer is not on device"))?
+            .as_any()
+            .downcast_ref::<CudaDeviceBuffer>()
+            .ok_or_else(|| vortex_err!("expected CudaDeviceBuffer"))?
+            .offset_ptr())
+    }
+
+    pub(crate) fn cuda_backing_allocation(handle: &BufferHandle) -> VortexResult<BufferHandle> {
+        let device_buffer = handle
+            .as_device_opt()
+            .ok_or_else(|| vortex_err!("Buffer is not on device"))?;
+
+        let cuda_buf = device_buffer
+            .as_any()
+            .downcast_ref::<CudaDeviceBuffer>()
+            .ok_or_else(|| vortex_err!("expected CudaDeviceBuffer, was {device_buffer:?}"))?;
+        let len = cuda_buf.allocation.as_bytes_view().len();
+
+        Ok(BufferHandle::new_device(Arc::new(CudaDeviceBuffer {
+            allocation: Arc::clone(&cuda_buf.allocation),
+            offset: 0,
+            len,
+            device_ptr: cuda_buf.device_ptr,
+            alignment: cuda_buf.alignment,
+            zeroed_tail_start: cuda_buf.zeroed_tail_start,
+        })))
+    }
 }
 
 pub(crate) fn with_cuda_view_mut<T: DeviceRepr + Send + Sync + 'static, R>(
@@ -273,12 +297,15 @@ pub trait CudaBufferExt {
     /// Returns an error if the buffer is not a CUDA buffer.
     fn cuda_view<T: DeviceRepr + Send + Sync + 'static>(&self) -> VortexResult<CudaView<'_, T>>;
 
-    /// Returns the on-device pointer for the start of the buffer handle.
+    /// Returns the on-device pointer for the start of the buffer handle, for reading on `stream`.
+    ///
+    /// Later work on `stream` runs after earlier writes to the buffer on other streams. Frees and
+    /// later writes are not ordered after that work, so keep the buffer alive until it completes.
     ///
     /// # Errors
     ///
-    /// Returns an error if the buffer is not a CUDA buffer.
-    fn cuda_device_ptr(&self) -> VortexResult<sys::CUdeviceptr>;
+    /// Returns an error if the buffer is not a CUDA buffer or ordering the read fails.
+    fn cuda_device_ptr(&self, stream: &CudaStream) -> VortexResult<sys::CUdeviceptr>;
 
     /// Returns whether this buffer has zeroed tail padding for the requested extent.
     ///
@@ -302,15 +329,15 @@ impl CudaBufferExt for BufferHandle {
         Ok(cuda_buf.as_view::<T>())
     }
 
-    fn cuda_device_ptr(&self) -> VortexResult<sys::CUdeviceptr> {
-        let ptr = self
-            .as_device_opt()
-            .ok_or_else(|| vortex_err!("Buffer is not on device"))?
-            .as_any()
-            .downcast_ref::<CudaDeviceBuffer>()
-            .ok_or_else(|| vortex_err!("expected CudaDeviceBuffer"))?
-            .offset_ptr();
-
+    fn cuda_device_ptr(&self, stream: &CudaStream) -> VortexResult<sys::CUdeviceptr> {
+        let view = self.cuda_view::<u8>()?;
+        // Finishing right away keeps the queued wait for earlier writes on other streams.
+        let (ptr, record_read) = view.device_ptr(stream).map_err(|err| {
+            VortexError::external(err).with_context("Failed to order CUDA buffer read")
+        })?;
+        record_read.finish().map_err(|err| {
+            VortexError::external(err).with_context("Failed to track CUDA buffer read")
+        })?;
         Ok(ptr)
     }
 
@@ -600,11 +627,12 @@ mod tests {
 
     use super::*;
     use crate::CudaSession;
+    use crate::device_buffer::test_support::cuda_address;
 
     #[crate::test]
     async fn alignment_update_is_metadata_only() -> VortexResult<()> {
         let ctx = CudaSession::create_execution_ctx(&crate::cuda_session())?;
-        let original = ctx.copy_to_device(vec![7u8; 17])?.await?;
+        let original = ctx.copy_to_device(&[7u8; 17])?;
         let aligned = original.clone().ensure_aligned(Alignment::new(16))?;
         let original = original
             .as_device_opt()
@@ -645,14 +673,13 @@ mod tests {
     ) -> VortexResult<()> {
         let ctx = CudaSession::create_execution_ctx(&crate::cuda_session())?;
         let buffer = ctx
-            .copy_to_device(vec![0u8; 32])?
-            .await?
+            .copy_to_device(&[0u8; 32])?
             .ensure_aligned(Alignment::new(16))?;
         let slice = buffer.slice(offset..32);
         assert_eq!(slice.alignment(), alignment);
         assert_eq!(
-            slice.cuda_device_ptr()?,
-            buffer.cuda_device_ptr()? + offset as u64
+            cuda_address(&slice)?,
+            cuda_address(&buffer)? + offset as u64
         );
         Ok(())
     }
@@ -805,7 +832,7 @@ mod tests {
             launch_ctx.stream().cu_stream()
         );
 
-        let handle = allocation_ctx.copy_to_device(vec![0u32; 4])?.await?;
+        let handle = allocation_ctx.copy_to_device(&[0u32; 4])?;
         let kernel = launch_ctx.load_function("constant_numeric", &[PType::U32])?;
         let value = 42u32;
         let len = 4u64;

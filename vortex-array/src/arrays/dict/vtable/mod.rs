@@ -165,54 +165,58 @@ impl VTable for Dict {
         builder: &mut dyn ArrayBuilder,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
-        if !array.is_empty() {
-            let codes = array.codes().clone().execute::<PrimitiveArray>(ctx)?;
-            if !codes.validity()?.definitely_all_null() {
-                let values = array.values();
-                if array.len() <= values.len() / 4
-                    && matches!(array.dtype(), DType::Utf8(_) | DType::Binary(_))
-                    && !values.is::<AnyCanonical>()
-                {
-                    // A sparse selection reaches the take kernel of the values, such as the OnPair
-                    // token-run gather, before the whole dictionary is decoded.
-                    // SAFETY: executing the codes keeps their values, dtype and length.
-                    let taken =
-                        unsafe { DictArray::new_unchecked(codes.into_array(), values.clone()) };
-                    let canonical = taken.into_array().execute::<Canonical>(ctx)?.into_array();
-                    return canonical.append_to_builder(builder, ctx);
-                }
+        if !array.is_empty() && !array.codes().validity()?.definitely_all_null() {
+            let values = array.values();
 
-                // Decode the children without taking values to the full row count. The
-                // variable-binary builders gather directly through these dictionary codes.
-                let values = if array.values().is::<AnyCanonical>() {
-                    array.values().clone()
-                } else {
-                    array
-                        .values()
-                        .clone()
-                        .execute::<Canonical>(ctx)?
-                        .into_array()
-                };
-                let values = values.as_::<AnyCanonical>();
-                let codes = codes.as_view();
-                if let CanonicalView::VarBinView(values) = values
-                    && let Some(result) = match_each_varbin_builder!(builder, |builder| {
-                        let validity = array.validity()?.execute_mask(array.len(), ctx)?;
-                        append_dict_to_varbin(codes, values, validity, builder)
-                    })
-                {
-                    return result;
-                }
-                if let CanonicalView::VarBinView(values) = values
-                    && let Some(builder) = builder.as_any_mut().downcast_mut::<VarBinViewBuilder>()
-                {
-                    let validity = array.validity()?.execute_mask(array.len(), ctx)?;
-                    return append_dict_to_varbinview(codes, values, validity, builder);
-                }
-                let canonical = take_canonical(values, codes, ctx)?.into_array();
-                canonical.append_to_builder(builder, ctx)?;
-                return Ok(());
+            if array.len() <= values.len() / sparse_take_ratio(array.dtype())
+                && !values.is::<AnyCanonical>()
+            {
+                // A Dict with few codes over encoded values is usually a lazy `take`. Execute it
+                // so the take kernel of the values (ALP-RD, BitPacked, the OnPair token-run
+                // gather, ...) decodes only the selected rows, rather than decoding every value
+                // and then gathering. The codes stay as they are: a kernel can take a structured
+                // index array, such as the runs of a `PiecewiseSequenceArray`, faster than the
+                // same indices expanded one by one.
+                let canonical = array
+                    .array()
+                    .clone()
+                    .execute::<Canonical>(ctx)?
+                    .into_array();
+                return canonical.append_to_builder(builder, ctx);
             }
+
+            let codes = array.codes().clone().execute::<PrimitiveArray>(ctx)?;
+
+            // Decode the children without taking values to the full row count. The
+            // variable-binary builders gather directly through these dictionary codes.
+            let values = if array.values().is::<AnyCanonical>() {
+                array.values().clone()
+            } else {
+                array
+                    .values()
+                    .clone()
+                    .execute::<Canonical>(ctx)?
+                    .into_array()
+            };
+            let values = values.as_::<AnyCanonical>();
+            let codes = codes.as_view();
+            if let CanonicalView::VarBinView(values) = values
+                && let Some(result) = match_each_varbin_builder!(builder, |builder| {
+                    let validity = array.validity()?.execute_mask(array.len(), ctx)?;
+                    append_dict_to_varbin(codes, values, validity, builder)
+                })
+            {
+                return result;
+            }
+            if let CanonicalView::VarBinView(values) = values
+                && let Some(builder) = builder.as_any_mut().downcast_mut::<VarBinViewBuilder>()
+            {
+                let validity = array.validity()?.execute_mask(array.len(), ctx)?;
+                return append_dict_to_varbinview(codes, values, validity, builder);
+            }
+            let canonical = take_canonical(values, codes, ctx)?.into_array();
+            canonical.append_to_builder(builder, ctx)?;
+            return Ok(());
         }
 
         let canonical = array
@@ -226,6 +230,20 @@ impl VTable for Dict {
 
     fn reduce(array: ArrayView<'_, Self>) -> VortexResult<Option<ArrayRef>> {
         RULES.evaluate(array)
+    }
+}
+
+/// The values-to-codes ratio at or above which `Dict::append_to_builder` runs the take kernel of
+/// encoded values instead of decoding all of them.
+///
+/// Fixed-width encodings decode in bulk for under a nanosecond per value, while their take kernels
+/// cost over ten times that per row: taking rows of an ALP-RD `f32` segment breaks even at about
+/// one row in eleven (see the `alp_rd_take_chunked` benchmark in `vortex-alp`). The ratio for
+/// variable-width values was chosen for their take kernels, such as the OnPair token-run gather.
+fn sparse_take_ratio(dtype: &DType) -> usize {
+    match dtype {
+        DType::Utf8(_) | DType::Binary(_) => 4,
+        _ => 16,
     }
 }
 
@@ -328,11 +346,15 @@ mod tests {
 
     use super::*;
     use crate::VortexSessionExecute;
+    use crate::arrays::ChunkedArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::VarBinViewArray;
     use crate::arrays::dict::DictArray;
     use crate::assert_arrays_eq;
+    use crate::builders::builder_with_capacity_in;
+    use crate::dtype::Nullability::NonNullable;
     use crate::dtype::Nullability::Nullable;
+    use crate::dtype::PType;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
@@ -406,6 +428,33 @@ mod tests {
             DType::Utf8(Nullable),
         );
         assert_arrays_eq!(builder.finish_into_varbin(), expected, &mut ctx);
+        Ok(())
+    }
+
+    /// A few codes over encoded values are appended through the take of the values, which must
+    /// match the gather through the decoded values, including null codes.
+    #[test]
+    fn append_to_builder_takes_few_rows_of_encoded_values() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let values = ChunkedArray::try_new(
+            [
+                PrimitiveArray::from_iter(0i32..32).into_array(),
+                PrimitiveArray::from_iter(32i32..64).into_array(),
+            ],
+            DType::Primitive(PType::I32, NonNullable),
+        )?;
+        let dict = DictArray::try_new(
+            PrimitiveArray::from_option_iter([Some(40u32), None, Some(3)]).into_array(),
+            values.into_array(),
+        )?;
+        assert!(dict.len() <= dict.values().len() / sparse_take_ratio(dict.dtype()));
+
+        let mut builder = builder_with_capacity_in(dict.dtype(), 4, ctx.allocator());
+        builder.append_scalar(&Scalar::primitive(-1i32, Nullable))?;
+        dict.append_to_builder(builder.as_mut(), &mut ctx)?;
+
+        let expected = PrimitiveArray::from_option_iter([Some(-1i32), Some(40), None, Some(3)]);
+        assert_arrays_eq!(builder.finish(), expected, &mut ctx);
         Ok(())
     }
 

@@ -69,25 +69,30 @@ fn uncompressed_size(fsst: ArrayView<'_, FSST>, ctx: &mut ExecutionCtx) -> Vorte
 /// Sums the lengths of the valid rows that a [`BinaryView`] cannot inline.
 fn referenced_len(lengths: &PrimitiveArray, validity: &Mask) -> VortexResult<usize> {
     match_each_integer_ptype!(lengths.ptype(), |P| {
-        let lengths = lengths.as_slice::<P>();
-        let out_of_line = |acc: usize, &length: &P| {
-            let length = length.to_usize()?;
-            if length > BinaryView::MAX_INLINED_SIZE {
-                acc.checked_add(length)
-            } else {
-                Some(acc)
-            }
-        };
-        match validity {
-            Mask::AllTrue(_) => lengths.iter().try_fold(0usize, out_of_line),
-            Mask::AllFalse(_) => Some(0),
-            Mask::Values(values) => values
-                .indices()
-                .iter()
-                .try_fold(0usize, |acc, &row| out_of_line(acc, &lengths[row])),
-        }
+        sum_out_of_line_lengths(lengths.as_slice::<P>(), validity)
     })
     .ok_or_else(|| vortex_err!("FSST uncompressed lengths are negative or overflow"))
+}
+
+/// Sums the valid `lengths` above the inline limit, or `None` if one is negative or the sum
+/// overflows.
+fn sum_out_of_line_lengths<P: ToPrimitive + Copy>(lengths: &[P], validity: &Mask) -> Option<usize> {
+    let out_of_line = |acc: usize, &length: &P| {
+        let length = length.to_usize()?;
+        if length > BinaryView::MAX_INLINED_SIZE {
+            acc.checked_add(length)
+        } else {
+            Some(acc)
+        }
+    };
+    match validity {
+        Mask::AllTrue(_) => lengths.iter().try_fold(0usize, out_of_line),
+        Mask::AllFalse(_) => Some(0),
+        Mask::Values(values) => values
+            .indices()
+            .iter()
+            .try_fold(0usize, |acc, &row| out_of_line(acc, &lengths[row])),
+    }
 }
 
 fn validity_size(validity: Mask) -> u64 {

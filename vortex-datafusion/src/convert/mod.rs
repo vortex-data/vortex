@@ -9,7 +9,14 @@
 //! [`FromDataFusion`] - Converts a DataFusion type into a Vortex type infallible.
 //! [TryToDataFusion] - Fallibly converts a Vortex type to a DataFusion type.
 
+use arrow_array::RecordBatch;
+use arrow_array::cast::AsArray;
+use arrow_schema::Field;
+use vortex::array::ArrayRef;
+use vortex::array::VortexSessionExecute;
 use vortex::error::VortexResult;
+use vortex::session::VortexSession;
+use vortex_arrow::ExecuteArrowExt;
 
 pub(crate) mod exprs;
 mod scalars;
@@ -20,6 +27,16 @@ pub use exprs::DefaultExpressionConverter;
 pub use exprs::ExpressionConverter;
 pub use exprs::ProcessedProjection;
 pub use scalars::scalar_from_df;
+
+/// Convert a scan chunk using the non-nullable struct field for its projected Arrow columns.
+pub(crate) fn to_record_batch(
+    chunk: ArrayRef,
+    target_field: &Field,
+    session: &VortexSession,
+) -> VortexResult<RecordBatch> {
+    let arrow = chunk.execute_arrow(Some(target_field), &mut session.create_execution_ctx())?;
+    Ok(RecordBatch::from(arrow.as_struct().clone()))
+}
 
 /// First-party trait for implementing conversion from DataFusion types to Vortex types.
 pub trait FromDataFusion<D: ?Sized>: Sized {

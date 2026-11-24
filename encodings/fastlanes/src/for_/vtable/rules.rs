@@ -10,9 +10,11 @@ use vortex_array::arrays::filter::FilterReduceAdaptor;
 use vortex_array::arrays::slice::SliceReduceAdaptor;
 use vortex_array::optimizer::kernels::ArrayKernelsExt;
 use vortex_array::optimizer::rules::ArrayParentReduceRule;
-use vortex_array::scalar_fn::fns::cast::Cast;
-use vortex_array::scalar_fn::fns::cast::CastReduceAdaptor;
+use vortex_array::scalar_fn::builtin::cast::Cast;
+use vortex_array::scalar_fn::builtin::cast::CastReduceAdaptor;
 use vortex_error::VortexResult;
+use vortex_functions::list_contains::ListContains;
+use vortex_functions::list_contains::ListContainsElementReduceAdaptor;
 use vortex_session::VortexSession;
 
 use crate::FoR;
@@ -27,6 +29,11 @@ pub(crate) fn register_parent_rules(session: &VortexSession) {
     kernels.register_reduce_parent_rule(Filter, FoR, const { &FilterReduceAdaptor(FoR) });
     kernels.register_reduce_parent_rule(Slice, FoR, const { &SliceReduceAdaptor(FoR) });
     kernels.register_reduce_parent_rule(Cast, FoR, const { &CastReduceAdaptor(FoR) });
+    kernels.register_reduce_parent_rule(
+        ListContains,
+        FoR,
+        const { &ListContainsElementReduceAdaptor(FoR) },
+    );
 }
 
 #[derive(Debug)]

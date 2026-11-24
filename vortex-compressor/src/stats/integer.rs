@@ -11,12 +11,12 @@ use vortex_array::ExecutionCtx;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::primitive::NativeValue;
 use vortex_array::dtype::IntegerPType;
-use vortex_array::expr::stats::Precision;
-use vortex_array::expr::stats::Stat;
-use vortex_array::expr::stats::StatsProvider;
 use vortex_array::match_each_integer_ptype;
 use vortex_array::scalar::PValue;
 use vortex_array::scalar::Scalar;
+use vortex_array::stats::Precision;
+use vortex_array::stats::Stat;
+use vortex_array::stats::StatsProvider;
 use vortex_error::VortexError;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -518,7 +518,7 @@ where
 }
 
 /// Counts occurrences of valid values.
-trait Counter<T> {
+pub(super) trait Counter<T> {
     /// Whether this counts at all. The pass skips all counting work otherwise.
     const COUNTS: bool = true;
 
@@ -527,7 +527,7 @@ trait Counter<T> {
 }
 
 /// Counts nothing.
-struct NoCounter;
+pub(super) struct NoCounter;
 
 impl<T> Counter<T> for NoCounter {
     const COUNTS: bool = false;
@@ -574,13 +574,13 @@ const CHUNK_U32: u32 = 64;
 
 /// The result of a [`scan`]. Statistics it did not compute keep their initial values: `T::MAX`
 /// for `min`, `T::MIN` for `max` and 1 for `runs`.
-struct Scan<T> {
+pub(super) struct Scan<T> {
     /// The smallest valid value.
     min: T,
     /// The largest valid value.
     max: T,
     /// The number of runs of equal consecutive valid values.
-    runs: u32,
+    pub(super) runs: u32,
 }
 
 /// The state of a [`scan`], kept in locals so that it stays in registers: the counter is reached
@@ -605,7 +605,7 @@ struct ScanState<T> {
 ///
 /// Not inlined: in the caller, which covers every integer type, the vectorizer gives up on the
 /// lanes.
-fn scan<T, C, const MIN_MAX: bool, const RUNS: bool>(
+pub(super) fn scan<T, C, const MIN_MAX: bool, const RUNS: bool>(
     values: &[T],
     validity: &Mask,
     counter: &mut C,

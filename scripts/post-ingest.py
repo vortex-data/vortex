@@ -185,6 +185,10 @@ _RECORD_FIELDS: dict[str, tuple[frozenset[str], frozenset[str]]] = {
                 "physical_delta",
                 "virtual_delta",
                 "env_triple",
+                # The bench orchestrator's Vortex scan axes. The format identity already names
+                # them (see `BenchmarkTarget.result_format`), so they are validated but not stored.
+                "integration",
+                "scan_engine",
             }
         ),
     ),
@@ -374,6 +378,8 @@ _FIELD_TYPES: dict[str, tuple[tuple[str, str], ...]] = {
         ("storage", "str"),
         ("engine", "str"),
         ("format", "str"),
+        ("integration", "opt_str"),
+        ("scan_engine", "opt_str"),
         ("value_ns", "i64"),
         ("all_runtimes_ns", "i64_list"),
         ("peak_physical", "opt_i64"),
@@ -463,6 +469,11 @@ def _validate_record_values(record: dict, kind: str, index: int) -> None:
             raise SystemExit(
                 f"record {index} (query_measurement): storage must be 'nvme' or 's3', got {record['storage']!r}"
             )
+        for field, values in (("integration", ("file", "datasource")), ("scan_engine", ("v1", "v2"))):
+            if record.get(field) not in (None, *values):
+                raise SystemExit(
+                    f"record {index} (query_measurement): {field} must be one of {values}, got {record[field]!r}"
+                )
         if not _memory_quartet_consistent(record):
             raise SystemExit(
                 f"record {index} (query_measurement): memory fields must be populated together (all four or none)"

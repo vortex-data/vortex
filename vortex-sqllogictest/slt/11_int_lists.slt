@@ -1,0 +1,24 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+include ./setup.slt.no
+
+query I
+COPY (SELECT * FROM (VALUES
+    ([10, 20, 30]),
+    ([40, 50, 60, 70]),
+    ([80]),
+    ([90, 100, 110, 120, 130]),
+    ([140, 150])
+) t(int_list)) TO '${WORK_DIR}/int-lists.vortex';
+----
+5
+
+query ? rowsort
+SELECT int_list FROM '${WORK_DIR}/int-lists.vortex';
+----
+[10, 20, 30]
+[140, 150]
+[40, 50, 60, 70]
+[80]
+[90, 100, 110, 120, 130]

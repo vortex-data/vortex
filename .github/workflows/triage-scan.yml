@@ -1,0 +1,24 @@
+# Lists the open issues and pull requests that involve an external contributor or the fuzzer, in
+# the run summary. It only reads from GitHub: nothing is posted, labelled or assigned.
+
+name: Triage scan
+
+on:
+  workflow_dispatch: { }
+
+permissions:
+  contents: read
+  issues: read
+  pull-requests: read
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+      - name: Scan open issues and pull requests
+        working-directory: .github/scripts
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 -m triage scan --repo "$GITHUB_REPOSITORY" >> "$GITHUB_STEP_SUMMARY"

@@ -24,12 +24,12 @@ use crate::arrays::runend::compute::take_from::RunEndTakeFrom;
 use crate::kernel::ExecuteParentKernel;
 use crate::optimizer::kernels::ArrayKernelsExt;
 use crate::scalar_fn::ScalarFnVTable;
-use crate::scalar_fn::fns::binary::Binary;
-use crate::scalar_fn::fns::binary::CompareExecuteAdaptor;
+use crate::scalar_fn::builtin::compare::Compare;
+use crate::scalar_fn::builtin::compare::CompareExecuteAdaptor;
 
 pub(super) fn initialize(session: &VortexSession) {
     let kernels = session.kernels();
-    kernels.register_execute_parent_kernel(Binary.id(), RunEnd, CompareExecuteAdaptor(RunEnd));
+    kernels.register_execute_parent_kernel(Compare.id(), RunEnd, CompareExecuteAdaptor(RunEnd));
     kernels.register_execute_parent_kernel(Slice.id(), RunEnd, RunEndSliceKernel);
     kernels.register_execute_parent_kernel(Filter.id(), RunEnd, FilterExecuteAdaptor(RunEnd));
     kernels.register_execute_parent_kernel(Dict.id(), RunEnd, TakeExecuteAdaptor(RunEnd));

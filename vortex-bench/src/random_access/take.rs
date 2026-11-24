@@ -35,10 +35,11 @@ use vortex::array::stream::ArrayStreamExt;
 use vortex::buffer::Buffer;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::file::VortexFile;
-use vortex::file::v2::ScanDriver;
 use vortex::io::session::RuntimeSessionExt;
 use vortex::layout::scan::v2::ScanBuilder;
+use vortex::scan::execution::driver::ScanDriver;
 use vortex::scan::strict_sorted_buffer::StrictSortedBuffer;
+use vortex::utils::parallelism::get_available_parallelism;
 
 use crate::Format;
 use crate::SESSION;
@@ -133,7 +134,7 @@ impl RandomAccessor for ArrowIpcRandomAccessor {
 /// Random accessor for Vortex format files.
 ///
 /// The file handle is opened at construction time and reused across `take()` calls, sharing its
-/// V2 [`ScanCache`](vortex::layout::scan::v2::ScanCache). Rows are read with the V2 scan, which
+/// V2 [`ScanCache`](vortex::scan::prepare::ScanCache). Rows are read with the V2 scan, which
 /// requires files without list layouts.
 pub struct VortexRandomAccessor {
     name: String,
@@ -194,7 +195,12 @@ impl RandomAccessor for VortexRandomAccessor {
         let indices = StrictSortedBuffer::try_new(Buffer::from(indices.to_vec()))?;
         let scan =
             ScanBuilder::new(SESSION.clone(), self.file.scan_file()).with_row_indices(indices);
-        let stream = ScanDriver::new(SESSION.handle(), 4, true).run(scan);
+        let stream = ScanDriver::new(
+            SESSION.handle(),
+            4 * get_available_parallelism().unwrap_or(1),
+            true,
+        )
+        .run(scan);
         let array = ArrayStreamAdapter::new(self.file.dtype().clone(), stream)
             .read_all()
             .await?;
@@ -291,11 +297,22 @@ impl ParquetRandomAccessor {
 }
 
 /// Parse the Parquet footer, including the page index, from any async reader.
+///
+/// parquet-rs returns no page index, and no error, for a file that has none at all. Without the
+/// offset index every lookup would decode whole column chunks, so this returns an error instead.
 async fn load_metadata<T: AsyncFileReader + Send>(
     reader: &mut T,
 ) -> anyhow::Result<ArrowReaderMetadata> {
     let options = ArrowReaderOptions::new().with_page_index_policy(PageIndexPolicy::Required);
-    Ok(ArrowReaderMetadata::load_async(reader, options).await?)
+    let metadata = ArrowReaderMetadata::load_async(reader, options).await?;
+    anyhow::ensure!(
+        metadata
+            .metadata()
+            .page_index()
+            .is_some_and(|index| index.has_offset_indexes()),
+        "the Parquet file has no offset index; write it with `random_access_writer_properties`"
+    );
+    Ok(metadata)
 }
 
 /// The rows to read from one row group: runs of consecutive row-group-local indices.

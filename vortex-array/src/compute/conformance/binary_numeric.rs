@@ -52,7 +52,7 @@ use crate::scalar::DecimalValue;
 use crate::scalar::NumericOperator;
 use crate::scalar::PrimitiveScalar;
 use crate::scalar::Scalar;
-use crate::scalar_fn::fns::binary::numeric_op_result_decimal_dtype;
+use crate::scalar_fn::builtin::numeric::numeric_op_result_decimal_dtype;
 
 fn to_vec_of_scalar(array: &ArrayRef, ctx: &mut ExecutionCtx) -> Vec<Scalar> {
     // Not fast, but obviously correct
@@ -244,7 +244,7 @@ fn test_decimal_binary_numeric_direction(
         (constant, array.clone())
     };
     let result = lhs
-        .binary(rhs, operator.into())
+        .numeric(rhs, operator)
         .vortex_expect("binary decimal op shouldn't fail")
         .execute::<RecursiveCanonical>(ctx)
         .map(|c| c.0.into_array());
@@ -489,7 +489,7 @@ fn test_binary_numeric_with_scalar<T>(
                 (constant, array.clone())
             };
             let result = lhs
-                .binary(rhs, operator.into())
+                .numeric(rhs, operator)
                 .vortex_expect("binary numeric construction must succeed")
                 .execute::<RecursiveCanonical>(ctx);
             let result = match result {

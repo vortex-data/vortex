@@ -10,6 +10,7 @@ use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VTable;
+use vortex_array::arrays::Constant;
 use vortex_array::arrays::Patched;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::patched::use_experimental_patches;
@@ -93,10 +94,11 @@ impl Scheme for BitPackingScheme {
     }
 
     fn produced_encodings(&self) -> Vec<ArrayId> {
+        // `compress_patches` stores constant patch values as a Constant array.
         let mut encodings = match self.mode {
             // Global-width arrays serialize under the frozen v1 ID.
-            BitPackingSchemeMode::V1 => vec![bitpacked_v1_id()],
-            BitPackingSchemeMode::V2 => vec![bitpacked_v1_id(), bitpacked_v2_id()],
+            BitPackingSchemeMode::V1 => vec![bitpacked_v1_id(), Constant.id()],
+            BitPackingSchemeMode::V2 => vec![bitpacked_v1_id(), bitpacked_v2_id(), Constant.id()],
         };
         if use_experimental_patches() {
             encodings.push(Patched.id());
@@ -143,7 +145,9 @@ impl Scheme for BitPackingScheme {
         compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        let primitive_array = data.array_as_primitive().into_owned();
+        let primitive_array = compressor
+            .with_compressed_validity(data.array(), exec_ctx)?
+            .execute::<PrimitiveArray>(exec_ctx)?;
         let packed = match self.mode {
             BitPackingSchemeMode::V1 => compress_global(&primitive_array, exec_ctx)?,
             BitPackingSchemeMode::V2 => compress_blocked(&primitive_array, exec_ctx)?,

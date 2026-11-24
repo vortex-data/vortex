@@ -10,3 +10,6 @@ linker = "isolated"
 # them out of a local install, a lock file refresh, and CI. Renovate waits
 # the same 7 days before it proposes an update (renovate.json).
 minimumReleaseAge = 604800
+
+[test]
+preload = ["./tests/setup/happydom.ts"]

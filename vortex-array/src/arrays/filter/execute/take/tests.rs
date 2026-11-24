@@ -35,6 +35,7 @@ use crate::dtype::BigCast;
 use crate::dtype::DecimalDType;
 use crate::dtype::DecimalType;
 use crate::dtype::FieldNames;
+use crate::dtype::NativeDecimalType;
 use crate::dtype::half::f16;
 use crate::dtype::i256;
 use crate::executor::ExecutionCtx;
@@ -492,18 +493,8 @@ fn test_take_execute_kernel_handles_decimal_filter_child() -> VortexResult<()> {
     let decimal_dtype = DecimalDType::new(19, 2);
 
     assert_take_execute_maps_child_dtype(
-        DecimalArray::new(
-            buffer![100i128, 200, 300, 400, 500],
-            decimal_dtype,
-            Validity::NonNullable,
-        )
-        .into_array(),
-        DecimalArray::new(
-            buffer![400i128, 100, 300],
-            decimal_dtype,
-            Validity::NonNullable,
-        )
-        .into_array(),
+        DecimalArray::from_iter([100i128, 200, 300, 400, 500], decimal_dtype).into_array(),
+        DecimalArray::from_iter([400i128, 100, 300], decimal_dtype).into_array(),
     )
 }
 
@@ -519,8 +510,9 @@ fn decimal_contiguous_take_preserves_storage_and_shares_buffer(
     )]
     values_type: DecimalType,
 ) -> VortexResult<()> {
-    let dtype = DecimalDType::new(2, 0);
+    let mut ctx = SESSION.create_execution_ctx();
     let (child, expected) = match_each_decimal_value_type!(values_type, |T| {
+        let dtype = DecimalDType::new(T::MAX_PRECISION, 0);
         let values = Buffer::from_iter([1i8, 2, 3, 4, 5].map(|value| {
             <T as BigCast>::from(value).vortex_expect("small values fit every decimal type")
         }));
@@ -539,13 +531,9 @@ fn decimal_contiguous_take_preserves_storage_and_shares_buffer(
             values_type,
             dtype,
             Validity::NonNullable,
+            &mut ctx,
         )?;
-        let expected = DecimalArray::from_iter(
-            [3i8, 4].map(|value| {
-                <T as BigCast>::from(value).vortex_expect("small values fit every decimal type")
-            }),
-            dtype,
-        );
+        let expected = DecimalArray::from_iter([3i8, 4], dtype);
 
         (child, expected)
     });
@@ -553,7 +541,6 @@ fn decimal_contiguous_take_preserves_storage_and_shares_buffer(
     let filter =
         FilterArray::new(child.into_array(), Mask::from_slices(5, vec![(2, 5)])).into_array();
     let parent = DictArray::try_new(buffer![0u64, 1].into_array(), filter.clone())?.into_array();
-    let mut ctx = SESSION.create_execution_ctx();
     let taken = execute_parent(&filter, &parent, 1, &mut ctx)?
         .vortex_expect("decimal filter should execute its take parent")
         .execute::<DecimalArray>(&mut ctx)?;

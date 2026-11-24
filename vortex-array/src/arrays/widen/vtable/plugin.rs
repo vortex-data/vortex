@@ -1,16 +1,27 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Serialization of decimal `Widen` arrays as narrow `vortex.decimal` nodes.
+//! Wire layout of a `vortex.widen` node.
 //!
-//! The node stores the child's buffer width, while its containing format supplies the logical dtype
-//! of the `Widen`. No `Widen` node or child decimal dtype is written.
+//! A node has one child and no buffers of its own. The enclosing format supplies the logical dtype
+//! and length of the [`Widen`]. The child has the same length and nullability. A decimal child
+//! also has the same scale.
 //!
-//! This uses the legacy decimal wire format because [`Widen`] has no wire representation of its
-//! own. Noncanonical stored widths can therefore come from current writers as well as old files.
+//! Readers require the first child and ignore any children after it, as well as any node buffers.
+//! A later writer may append a child or buffer under this ID only if decoding without it yields the
+//! same values, such as a statistic or an index. A child, buffer or metadata field that changes the
+//! decoded values needs a new ID.
+//!
+//! A protobuf `oneof` supplies the rest of the child dtype. Tag 1 holds the integer [`PType`].
+//! Tag 2 holds the decimal precision as a `uint32`. The child dtype must meet the requirements
+//! of [`WidenArray::try_new`].
 
+use prost::Message as _;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
+use vortex_error::vortex_err;
 use vortex_session::VortexSession;
 
 use crate::ArrayDeserialization;
@@ -19,24 +30,36 @@ use crate::ArrayPlugin;
 use crate::ArrayRef;
 use crate::ArraySerialization;
 use crate::ArrayVTable;
+use crate::IntoArray;
 use crate::arrays::Decimal;
 use crate::arrays::Widen;
+use crate::arrays::WidenArray;
 use crate::arrays::widen::WidenArraySlotsExt;
+use crate::arrays::widen::array::validate_dtypes;
+use crate::dtype::DType;
+use crate::dtype::DecimalDType;
+use crate::dtype::PType;
 use crate::session::ArraySessionExt;
 
-/// Writes a decimal [`Widen`] as one `vortex.decimal` node with its child's values buffer.
+#[derive(Clone, prost::Message)]
+struct WidenMetadata {
+    #[prost(oneof = "ChildType", tags = "1, 2")]
+    child_type: Option<ChildType>,
+}
+
+#[derive(Clone, prost::Oneof)]
+enum ChildType {
+    #[prost(enumeration = "PType", tag = "1")]
+    Integer(i32),
+    #[prost(uint32, tag = "2")]
+    DecimalPrecision(u32),
+}
+
+/// Reads and writes serialized [`Widen`] arrays.
 ///
-/// The old decimal wire format allows a buffer narrower than the logical dtype's canonical width.
-/// For example, a `Widen` of `Decimal(38, 2)` over a `Decimal(9, 2)` child writes the child's `i32`
-/// buffer while keeping the logical dtype `Decimal(38, 2)`.
-///
-/// The child **must** be a [`Decimal`] leaf. Its serializer supplies width metadata, buffers and
-/// validity children through [`ArraySerialization`], which contains no dtype. The containing format
-/// supplies the original `Widen` dtype and length, and array serialization keeps its statistics.
-///
-/// This plugin registers only a writer. The decimal reader handles the resulting node. Serialization
-/// executes neither values nor validity, so integer arrays, non-decimal children and validity that
-/// cannot be serialized require preparation by the caller.
+/// Writing reuses the child without executing its values or validity. When the child is a
+/// [`Decimal`] array, this plugin writes `vortex.decimal` so older readers can read it. The decimal
+/// reader handles those nodes.
 #[derive(Clone, Debug)]
 pub struct WidenPlugin;
 
@@ -45,12 +68,10 @@ impl ArrayPlugin for WidenPlugin {
         ArrayVTable::id(&Widen)
     }
 
-    fn read_ids(&self) -> Vec<ArrayId> {
-        vec![]
-    }
-
     fn write_ids(&self) -> Vec<ArrayId> {
-        vec![ArrayVTable::id(&Decimal)]
+        // Older editions allow `vortex.decimal`, which can store the child's narrow buffer
+        // under the parent's decimal dtype.
+        vec![ArrayVTable::id(&Decimal), self.id()]
     }
 
     fn serialize(
@@ -58,32 +79,80 @@ impl ArrayPlugin for WidenPlugin {
         array: &ArrayRef,
         session: &VortexSession,
     ) -> VortexResult<Option<ArraySerialization>> {
-        let widen = array.as_::<Widen>();
-        if !array.dtype().is_decimal() {
-            vortex_bail!(
-                "Widen serialization requires a decimal dtype, got {}",
-                array.dtype()
-            );
-        }
-
+        let widen = array.as_opt::<Widen>().ok_or_else(|| {
+            vortex_err!(
+                "Widen serialization requires a Widen array, got {}",
+                array.encoding_id()
+            )
+        })?;
         let values = widen.values();
-        if !values.is::<Decimal>() {
-            vortex_bail!(
-                "Decimal Widen serialization requires a Decimal leaf, got {}",
-                values.encoding_id()
-            );
+        if values.is::<Decimal>() {
+            // The wire node gets the buffer width and validity from the child. The enclosing
+            // format supplies the parent dtype, and serialization keeps the parent's statistics.
+            return session.array_serialize(values);
         }
 
-        // Only the child's wire components are returned, not its dtype. The enclosing format and
-        // serialization tree still use the original Widen's logical dtype and statistics.
-        session.array_serialize(values)
+        let child_type = match values.dtype() {
+            DType::Primitive(ptype, _) if ptype.is_int() => ChildType::Integer(*ptype as i32),
+            DType::Decimal(dtype, _) => ChildType::DecimalPrecision(u32::from(dtype.precision())),
+            dtype => {
+                vortex_bail!(
+                    "Widen serialization requires an integer or decimal child, got {dtype}"
+                )
+            }
+        };
+        let metadata = WidenMetadata {
+            child_type: Some(child_type),
+        };
+
+        Ok(Some(ArraySerialization::new(
+            self.id(),
+            metadata.encode_to_vec(),
+            vec![],
+            vec![values.clone()],
+        )))
     }
 
     fn deserialize(
         &self,
-        _parts: ArrayDeserialization<'_>,
+        parts: ArrayDeserialization<'_>,
         _session: &VortexSession,
     ) -> VortexResult<ArrayRef> {
-        vortex_bail!("Widen has no wire form yet (#10733)")
+        vortex_ensure_eq!(parts.serialized_id, self.id(), "expected the Widen wire ID");
+        // NB: Node buffers and children after the first child are optional extensions, so they
+        // are ignored. See the module documentation.
+        vortex_ensure!(
+            !parts.children.is_empty(),
+            "Widen must carry at least one child"
+        );
+
+        let child_type = WidenMetadata::decode(parts.metadata)?
+            .child_type
+            .ok_or_else(|| vortex_err!("Widen metadata must name the child type"))?;
+        let nullability = parts.dtype.nullability();
+        let child_dtype = match (child_type, parts.dtype) {
+            (ChildType::Integer(ptype), DType::Primitive(parent, _)) if parent.is_int() => {
+                DType::Primitive(PType::try_from(ptype)?, nullability)
+            }
+            (ChildType::DecimalPrecision(precision), DType::Decimal(parent, _)) => {
+                let precision = u8::try_from(precision).map_err(|_| {
+                    vortex_err!("Widen child precision {precision} is out of range")
+                })?;
+                DType::Decimal(
+                    DecimalDType::try_new(precision, parent.scale())?,
+                    nullability,
+                )
+            }
+            (_, dtype) => {
+                vortex_bail!("Widen child metadata does not match the parent dtype {dtype}")
+            }
+        };
+
+        // The child decoder uses this dtype to read its buffers, so check it against the parent
+        // before decoding.
+        validate_dtypes(&child_dtype, parts.dtype)?;
+        let values = parts.children.get(0, &child_dtype, parts.len)?;
+
+        Ok(WidenArray::try_new(values, parts.dtype.clone())?.into_array())
     }
 }

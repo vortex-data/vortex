@@ -10,9 +10,9 @@
 """Fetch the develop baseline for a PR benchmark run from the benchmarks Postgres.
 
 Reads the PR's `--ingest-jsonl` records, finds the newest commit reachable from
-`HEAD` that recorded any of the same measurements, and writes that commit's
-matching rows in the same JSONL record shape. `compare-benchmark-jsons.py` then
-compares the two record files.
+the PR head (`HEAD` unless `--head` names another commit) that recorded any of
+the same measurements, and writes that commit's matching rows in the same JSONL
+record shape. `compare-benchmark-jsons.py` then compares the two record files.
 
 It connects as the read-only `bench_ci_read` Postgres user, with an RDS IAM token minted
 (by `post-ingest.py`'s token helper) from the AWS credentials of the assumed
@@ -80,6 +80,11 @@ def parse_args() -> argparse.Namespace:
         help="Libpq DSN of the benchmarks database. Without a password, an RDS IAM token is minted.",
     )
     parser.add_argument("--region", default=None, help="AWS region for RDS IAM token minting.")
+    parser.add_argument(
+        "--head",
+        default="HEAD",
+        help="The PR head commit. Give it when the checkout is not the PR, as in the fork PR report.",
+    )
     return parser.parse_args()
 
 
@@ -103,8 +108,8 @@ def identities_by_kind(records: list[dict]) -> dict[str, list[tuple]]:
     return {kind: sorted(keys, key=repr) for kind, keys in identities.items()}
 
 
-def reachable_commits() -> list[str]:
-    """Return every commit reachable from `HEAD`; a shallow checkout cannot pick a baseline."""
+def reachable_commits(head: str) -> list[str]:
+    """Return every commit reachable from `head`; a shallow checkout cannot pick a baseline."""
 
     is_shallow = subprocess.run(
         ["git", "rev-parse", "--is-shallow-repository"], check=True, capture_output=True, text=True
@@ -112,9 +117,9 @@ def reachable_commits() -> list[str]:
     if is_shallow == "true":
         raise SystemExit(
             "Cannot resolve a baseline from a shallow checkout: the baseline is the newest "
-            "recorded commit reachable from HEAD. Check the repository out with `fetch-depth: 0`."
+            "recorded commit reachable from the PR head. Check the repository out with `fetch-depth: 0`."
         )
-    commits = subprocess.run(["git", "rev-list", "HEAD"], check=True, capture_output=True, text=True).stdout
+    commits = subprocess.run(["git", "rev-list", head, "--"], check=True, capture_output=True, text=True).stdout
     return commits.split()
 
 
@@ -170,7 +175,7 @@ def newest_baseline_commit(
     """Return the newest reachable commit that recorded any PR identity, with its timestamp.
 
     Each identity's rows are read newest first, a page at a time, until one is from a commit
-    reachable from `HEAD`. That is usually the first page: the baseline is the PR's merge base
+    reachable from the PR head. That is usually the first page: the baseline is the PR's merge base
     or close to it. One query per identity, as Postgres plans a `UNION ALL` of them far worse.
     """
 
@@ -260,7 +265,7 @@ def main() -> None:
     identities = identities_by_kind(read_records(args.pr_records))
     records: list[dict] = []
     if identities:
-        commits = reachable_commits()
+        commits = reachable_commits(args.head)
         with connect_postgres(args.postgres, args.region) as conn:
             identities = existing_kinds(conn, identities)
             newest = newest_baseline_commit(conn, commit_selection_identities(identities), set(commits))

@@ -21,10 +21,17 @@ The contribution process is outlined below:
 1. Start a discussion by creating or commenting on a GitHub Issue (unless it's a very minor change).
 
 2. Implement the change.
-   - If the change is large, consider posting a draft pull request (PR)
-     with the title prefixed with [WIP], and share with the team to get early feedback.
-   - Give the PR a clear, brief description; this will be the commit
-     message when the PR is merged.
+   - If the change is large, consider opening a draft pull request (PR) and sharing it with the
+     team to get early feedback.
+   - Explain why the change is needed and why this approach was chosen, usually in 1–3 sentences.
+     Reviewers can read the diff to see what changed. Summarize what changed only when the diff
+     is large enough that reviewers need guidance on where to focus. With the title, the
+     description becomes the commit message when the PR is squash-merged.
+   - Link relevant design documents and tracking issues. If the change is complex or only makes
+     sense in the context of other changes, create a tracking issue if none exists. Create any
+     supporting documentation the change needs, and link it from the PR.
+   - Write the title in the imperative mood, in 72 characters or fewer, without a `feat:`-style
+     prefix; the required `changelog/*` label categorizes the PR.
    - For significant new functionality, ensure that you write tests to cover that new functionality. Similarly,
      for bugfixes, include a test that reproduces the original bug (and that should now pass after the fix).
    - Make sure the PR passes all CI tests.
@@ -71,8 +78,9 @@ uv sync --all-packages
 ### Rust toolchain and MSRV
 
 Workspace declares a Minimum Supported Rust Version through `rust-version`
-in the root `Cargo.toml`, which the `Rust (MSRV)` CI job verifies by building
-the publishable crates with exactly that toolchain:
+in the root `Cargo.toml`, which the `Rust (MSRV)` release check verifies before each release by
+building the publishable crates with exactly that toolchain. Pull requests do not run it, so run
+it locally when you change dependencies or use a newer language feature:
 
 ```bash
 cargo hack --rust-version --no-dev-deps --ignore-private check --all-features
@@ -160,6 +168,10 @@ Python check:
 
 This synchronizes the workspace, rebuilds the extension, runs Python formatting, linting, type
 checks and tests, and validates the documentation.
+
+### Releases
+
+Maintainers cut releases with the [release runbook](.github/workflows/README.md).
 
 ### Documentation
 

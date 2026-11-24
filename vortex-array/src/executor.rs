@@ -197,6 +197,10 @@ impl ArrayRef {
         // root here, with the nodes below it that were never optimized, and a child when execution
         // focuses it.
         let mut current_array = optimizer.optimize_array(&self)?;
+
+        // Release the caller's handle, so that the root is not shared for the whole execution.
+        // Encodings that decode a uniquely owned child buffer in place would otherwise copy it.
+        drop(self);
         let mut current_builder: Option<Box<dyn ArrayBuilder>> = None;
         let mut stack: Vec<StackFrame> = Vec::new();
         // Whether `current_array` was rewritten since its parent was suspended, so its
@@ -513,6 +517,12 @@ impl ExecutionCtx {
     /// the context uses instead of looking up the session's kernels again.
     pub(crate) fn reduce_parent_kernels(&self) -> &ParentReduceKernels {
         &self.kernels.reduce_parent
+    }
+
+    /// Try to rewrite `array` using a registered execute-parent kernel on one of its children.
+    pub fn try_execute_parent(&mut self, array: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
+        let kernels = Arc::clone(&self.kernels.execute_parent);
+        try_execute_parent(array, kernels.as_ref(), self)
     }
 
     /// Get the allocator for this execution context.
@@ -1096,9 +1106,10 @@ macro_rules! require_patches {
     };
 }
 
-/// Require that the validity slot is a [`Bool`](crate::arrays::Bool) array. If validity is not
-/// array-backed (e.g. `NonNullable` or `AllValid`), this is a no-op. If it is array-backed but
-/// not `Bool`, early-returns an [`ExecutionResult`] requesting execution of the validity slot.
+/// Require that the validity slot is columnar ([`Bool`](crate::arrays::Bool) or
+/// [`Constant`](crate::arrays::Constant)). If validity is not array-backed (e.g. `NonNullable` or
+/// `AllValid`), or is already a constant bool array (e.g. `AllInvalid`), this is a no-op.
+/// Otherwise, early-returns an [`ExecutionResult`] requesting execution of the validity slot.
 ///
 /// Like [`require_opt_child!`], `$parent` is moved (not cloned) into the early-return path.
 ///
@@ -1111,7 +1122,7 @@ macro_rules! require_validity {
         $crate::require_opt_child!(
             $parent,
             $parent.slots()[$idx].as_ref(),
-            $idx => $crate::arrays::Bool
+            $idx => $crate::AnyColumnar
         );
     };
 }

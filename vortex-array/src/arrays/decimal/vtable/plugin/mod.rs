@@ -42,7 +42,7 @@ use crate::arrays::Widen;
 use crate::arrays::WidenArray;
 use crate::arrays::decimal::DecimalDataParts;
 use crate::dtype::DecimalType;
-use crate::expr::stats::Precision;
+use crate::stats::Precision;
 
 /// The metadata of a `vortex.decimal` node.
 #[derive(prost::Message)]
@@ -113,7 +113,7 @@ impl ArrayPlugin for Decimal {
         )?;
 
         if !stored.is_legacy() {
-            return Ok(Array::<Decimal>::try_from_parts(stored.into_array_parts()?)?.into_array());
+            return Ok(Array::<Decimal>::try_from_parts(stored.into_array_parts())?.into_array());
         }
 
         // This is a legacy node, whose width a `Decimal` leaf no longer allows, so the valid values

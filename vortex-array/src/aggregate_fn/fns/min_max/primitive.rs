@@ -24,10 +24,10 @@ pub(super) fn accumulate_primitive(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<()> {
     let skip_nans = args.options.skip_nans;
-    match_each_native_ptype!(p.ptype(), |T| {
-        let local = compute_min_max_with_validity::<T>(p, ctx, skip_nans)?;
-        partial.merge(args, local)
-    })
+    let local = match_each_native_ptype!(p.ptype(), |T| {
+        compute_min_max_with_validity::<T>(p, ctx, skip_nans)
+    })?;
+    partial.merge(args, local)
 }
 
 fn compute_min_max_with_validity<T>(

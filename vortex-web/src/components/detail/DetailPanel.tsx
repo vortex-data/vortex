@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-import { useId, useMemo, useState, type KeyboardEvent } from 'react';
+import { useCallback, useId, useMemo, useState, type KeyboardEvent } from 'react';
 import { useVortexFile } from '../../contexts/VortexFileContextCore';
 import { useSelection } from '../../contexts/SelectionContextCore';
 import {
@@ -27,6 +27,16 @@ export function DetailPanel() {
   const file = useVortexFile();
   const { state: selection, selectNode, hoverNode } = useSelection();
   const [activeTab, setActiveTab] = useState<TabId>('segments');
+
+  const { expandArrayTree } = file;
+  const handleExpandArrayTree = useCallback(
+    (nodeId: string) => {
+      expandArrayTree(nodeId).catch((err) => {
+        console.error('Explorer: failed to expand array tree', err);
+      });
+    },
+    [expandArrayTree],
+  );
 
   const isArrayNode = selection.selectedNode?.isArrayNode ?? false;
 
@@ -175,11 +185,11 @@ export function DetailPanel() {
             hoveredNodeId={selection.hoveredNodeId}
             onSelectNode={selectNode}
             onHoverNode={hoverNode}
-            onExpand={file.expandArrayTree}
+            onExpand={handleExpandArrayTree}
           />
         )}
         {currentTab === 'buffers' && selection.selectedNode && (
-          <BuffersPane node={selection.selectedNode} />
+          <BuffersPane key={selection.selectedNode.id} node={selection.selectedNode} />
         )}
         {!selection.selectedNode && (
           <p className="vx-label x-empty">
