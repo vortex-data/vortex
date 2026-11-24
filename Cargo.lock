@@ -11054,6 +11054,7 @@ dependencies = [
  "mimalloc",
  "parquet 60.2.0",
  "rand 0.10.3",
+ "rstest",
  "serde_json",
  "tokio",
  "tracing",
