@@ -1,8 +1,8 @@
 name: Triage sync
 
 # Keeps the on-call triage channel in Slack up to date with external issues, external PRs, external
-# comments on team items, and fuzzer issues. The code and its design notes are in
-# .github/scripts/triage.
+# comments on team items, fuzzer issues, and bug issues that the team or a bot filed. The code and
+# its design notes are in .github/scripts/triage.
 #
 # The repository and its Actions logs are public, so the scripts print counts only. Claude runs
 # inside the sync step, so its input and its verdicts never pass through a job output or a step's
@@ -28,7 +28,7 @@ on:
         type: boolean
         default: false
       use_claude:
-        description: Ask Claude who owes the next move
+        description: Ask Claude who owes the next move and how urgent each item is
         type: boolean
         default: true
       purge:
