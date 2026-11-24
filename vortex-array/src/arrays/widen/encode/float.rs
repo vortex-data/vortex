@@ -130,6 +130,10 @@ pub fn narrowest_float_ptype(array: &PrimitiveArray, mask: &Mask) -> Option<PTyp
 /// Narrows floating-point `array` to the strictly narrower floating-point type `target`,
 /// preserving its validity and writing zero into null slots.
 ///
+/// Callers **must** verify that every valid element in `array` fits losslessly in `target`
+/// (for example via [`narrowest_float_ptype`]); otherwise values are rounded silently. Use
+/// [`WidenArray::encode_float`] for checked encoding.
+///
 /// Null slots are zeroed so arbitrary null payloads cannot introduce signaling NaNs into the
 /// narrowed child. `mask` **must** be the validity mask of `array`.
 pub fn narrow_float_values(

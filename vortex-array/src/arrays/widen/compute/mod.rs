@@ -109,9 +109,8 @@ pub fn cast_keeping_nullability(array: &ArrayRef, ptype: PType) -> VortexResult<
 
 /// Returns whether the dtype of `values` holds `constant` losslessly.
 ///
-/// Integers must have the same signedness, floats must round-trip bit-for-bit without being NaN,
-/// and decimals must have the same scale. Returns `None` for null or NaN constants, unsupported
-/// dtypes, or incompatible constants.
+/// Integers must have the same signedness and decimals must have the same scale. Returns `None`
+/// for null constants, floats, unsupported dtypes, or incompatible constants.
 pub fn constant_fits_values(constant: &Scalar, values: &DType) -> Option<bool> {
     match (values, constant.dtype()) {
         (DType::Decimal(values_dtype, _), DType::Decimal(constant_dtype, _))
