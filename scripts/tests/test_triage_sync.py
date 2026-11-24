@@ -444,6 +444,14 @@ def test_reminders_go_to_each_item_thread_after_one_summary():
     assert item_reminders(fake, 1)[0].startswith("⏰ <@UALICE>, this item waits on you")
     assert item_reminders(fake, 2)[0].startswith("⏰ <@UALICE>, this item waits on you")
     assert item_reminders(fake, 3)[0].startswith("⏰ <@UONCALL> (on call), this item waits on you")
+    # Each item in the summary links to its reminder, which opens the item's thread in Slack.
+    summary = next(m for m in fake.thread(overview_ts(fake)) if m["text"].startswith("Due today"))
+    blocks = json.dumps(summary["blocks"], ensure_ascii=False)
+    for number in (1, 2, 3):
+        root = fake.root(number)["ts"]
+        reply = next(m["ts"] for m in fake.thread(root) if m["text"].startswith("⏰"))
+        link = f"https://example.slack.com/archives/C1/p{reply.replace('.', '')}?thread_ts={root}&cid=C1"
+        assert f"<{link}|#{number}>" in blocks
 
     run(fake, items, NOW + HOUR, pings=True)
     assert len(overview_replies(fake)) == 1

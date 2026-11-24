@@ -479,11 +479,15 @@ def reminder_summary(due: Mapping[str | None, Sequence[Row]]) -> Message:
     """Build the day's one reminder in the overview's thread, which points everyone to their items.
 
     It mentions each person with due items once and links each of their items to its Slack thread,
-    where the item's own reminder waits.
+    where the item's own reminder waits. An item without a thread is named without a link, because
+    a link to GitHub would look like a link to the thread.
     """
     lines = []
     for user, rows in due.items():
-        links = [f"<{row.thread_url or row.item.url}|#{row.item.number}>" for row in rows]
+        links = [
+            f"<{row.thread_url}|#{row.item.number}>" if row.thread_url else f"#{row.item.number}"
+            for row in rows
+        ]
         # One person's line is one section, which cannot be split, so a long list is cut short.
         if len(links) > _SUMMARY_LINKS:
             links = [*links[:_SUMMARY_LINKS], f"+{len(links) - _SUMMARY_LINKS} more"]
