@@ -5,6 +5,7 @@ pub use array::*;
 pub use compress::*;
 
 mod array;
+pub mod block;
 mod canonical;
 mod compress;
 mod compute;

@@ -11,7 +11,8 @@
     "alp_compress": 36,
     "alp_fsl_take": 2,
     "alp_rd_take_chunked": 4,
-    "alp_slice_take": 2
+    "alp_slice_take": 2,
+    "block_fusion": 4
   },
   "vortex-array": {
     "aggregate_grouped": 18,
@@ -98,6 +99,7 @@
     "lane_kernels": 7
   },
   "vortex-datetime-parts": {
+    "block_fusion": 2,
     "split_temporal": 6
   },
   "vortex-decimal-byte-parts": {
@@ -116,6 +118,7 @@
     "bitpacking_filter": 0,
     "bitpacking_list_contains": 5,
     "bitpacking_take": 41,
+    "block_fusion": 6,
     "canonicalize_bench": 14,
     "cast_bitpacked": 6,
     "chunked_fsl_take": 2,

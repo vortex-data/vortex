@@ -105,6 +105,10 @@ name = "delta_decode"
 harness = false
 
 [[bench]]
+name = "block_fusion"
+harness = false
+
+[[bench]]
 name = "for_decode"
 harness = false
 
