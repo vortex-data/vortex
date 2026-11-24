@@ -70,7 +70,7 @@ use crate::source::ScanInput;
 use crate::source::SegmentFuture;
 use crate::source::SegmentId;
 use crate::source::SegmentSource;
-use crate::stream::ScanStream;
+use crate::stream::ScanExec;
 
 pub static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
@@ -105,8 +105,8 @@ impl DataSourceScan for TestArrayScan {
         Ok(vec![self])
     }
 
-    fn open(self: Box<Self>) -> VortexResult<ScanStream> {
-        Ok(ScanStream::from_partitions(self))
+    fn open(self: Box<Self>) -> VortexResult<ScanExec> {
+        Ok(ScanExec::from_partitions(self))
     }
 
     fn partition_count(&self) -> Precision<usize> {
