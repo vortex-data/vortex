@@ -25,7 +25,9 @@ use vortex_sparse::Sparse;
 
 use crate::ArrayAndStats;
 use crate::CascadingCompressor;
+use crate::Child;
 use crate::CompressorContext;
+use crate::Encoded;
 use crate::Scheme;
 use crate::SchemeExt;
 use crate::schemes::integer::IntDictScheme;
@@ -109,24 +111,21 @@ impl Scheme for FixedSizeListSparseScheme {
         CompressionEstimate::Verdict(EstimateVerdict::Ratio(ratio))
     }
 
-    fn compress(
+    /// Children: values=0, the valid rows, and indices=1, their positions.
+    fn encode(
         &self,
-        compressor: &CascadingCompressor,
         data: &ArrayAndStats,
-        compress_ctx: CompressorContext,
+        _compress_ctx: &CompressorContext,
         exec_ctx: &mut ExecutionCtx,
-    ) -> VortexResult<ArrayRef> {
+    ) -> VortexResult<Encoded> {
         let array = data.array();
         let mask = validity_mask(array, exec_ctx)?;
         let AllOr::Some(valid_indices) = mask.indices() else {
             // The estimate skips lists without both valid and null rows.
-            return Ok(array.clone());
+            return Ok(Encoded::leaf(array.clone()));
         };
 
         let values = array.filter(mask.clone())?;
-        let compressed_values =
-            compressor.compress_child(&values, &compress_ctx, self.id(), 0, exec_ctx)?;
-
         let indices = PrimitiveArray::new(
             valid_indices
                 .iter()
@@ -135,22 +134,31 @@ impl Scheme for FixedSizeListSparseScheme {
             Validity::NonNullable,
         )
         .narrow(exec_ctx)?;
-        let compressed_indices = compressor.compress_child(
-            &indices.into_array(),
-            &compress_ctx,
-            self.id(),
-            1,
-            exec_ctx,
-        )?;
 
-        Ok(Sparse::try_new(
-            compressed_indices,
-            compressed_values,
-            array.len(),
-            Scalar::null(array.dtype().clone()),
-            exec_ctx,
-        )?
-        .into_array())
+        let len = array.len();
+        let fill = Scalar::null(array.dtype().clone());
+        Ok(Encoded::new(
+            vec![
+                Child::new(self, 0, values),
+                Child::new(self, 1, indices.into_array()),
+            ],
+            Vec::new(),
+            move |children, exec_ctx| {
+                let [values, indices] = children.compressed()?;
+                Ok(Sparse::try_new(indices, values, len, fill, exec_ctx)?.into_array())
+            },
+        ))
+    }
+
+    #[expect(clippy::unimplemented, reason = "replaced by `encode`")]
+    fn compress(
+        &self,
+        _compressor: &CascadingCompressor,
+        _data: &ArrayAndStats,
+        _compress_ctx: CompressorContext,
+        _exec_ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        unimplemented!("{} compresses through Scheme::encode", self.scheme_name())
     }
 }
 
