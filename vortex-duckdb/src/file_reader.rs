@@ -35,6 +35,7 @@ use vortex::io::runtime::BlockingRuntime as _;
 use vortex::io::std_file::StdFileSystem;
 use vortex::layout::LayoutReaderRef;
 use vortex::layout::scan::layout::LayoutReaderDataSource;
+use vortex::layout::scan::options::LayoutScanOptions;
 use vortex::layout::scan::scan_builder::ScanBuilder;
 use vortex::layout::scan::v2::ScanBuilder as V2ScanBuilder;
 use vortex::layout::scan::v2::ScanFile;
@@ -234,17 +235,16 @@ pub fn reader_bind(file: &OpenFileReader, result: &mut BindResultRef) -> VortexR
 /// whether the opened file should be skipped. If this function returns false,
 /// duckdb closes the file and doesn't call reader_try_initialize_scan on it.
 pub fn reader_initialize(file: &mut OpenFileReader, global: &GlobalState) -> VortexResult<bool> {
-    if file.can_skip(&global.filter)? {
-        // DuckDB releases a skipped file under the global lock. Here only the
-        // file-local lock is held, so drop the scan state now.
-        file.scan_state = None;
-        return Ok(true);
-    }
-
     // Opening the file's scan, or planning a V2 scan, is non-trivial work so we prefer
     // doing it here under file lock and not in reader_try_initialize_scan under
     // global lock.
     if global.scan_v2 {
+        if file.can_skip(&global.filter)? {
+            // DuckDB releases a skipped file under the global lock. Here only the
+            // file-local lock is held, so drop the scan state now.
+            file.scan_state = None;
+            return Ok(true);
+        }
         let state = file.scan_state();
         let splits = ScanBuilder::new(SESSION.clone(), Arc::clone(&state.reader))
             .with_projection(global.projection.clone())
@@ -267,19 +267,25 @@ pub fn reader_initialize(file: &mut OpenFileReader, global: &GlobalState) -> Vor
     let request = ScanRequest {
         projection: global.projection_expr.clone(),
         filter: filter.expr.clone(),
-        row_range: Some(file_rows(state, filter)),
+        row_range: filter.row_range.clone(),
         selection: filter.row_selection.clone(),
         ordered: false,
-        // DuckDB runs one thread per core, so its threads are the scan's parallelism: each runs
-        // one split at a time, polling it itself. A clone with room for more would claim splits
-        // other threads could have run, leaving them nothing on a file with few splits.
-        split_concurrency: Some(NonZeroUsize::MIN),
         ..ScanRequest::default()
     };
+    // DuckDB runs one thread per core, so its threads are the scan's parallelism: each runs one
+    // split at a time, polling it itself. A stream with room for more would claim splits other
+    // threads could have run, leaving them nothing on a file with few splits.
+    let options = LayoutScanOptions::default().with_concurrency(NonZeroUsize::MIN);
+    let source =
+        LayoutReaderDataSource::with_options(Arc::clone(&state.reader), SESSION.clone(), options);
     // An unordered scan without a limit opens onto a queue of the file's splits, whose streams
-    // each claim the next split once they have finished their last.
-    let source = LayoutReaderDataSource::new(Arc::clone(&state.reader), SESSION.clone());
+    // each claim the next split once they have finished their last. A scan that the file's
+    // statistics reject opens exhausted.
     let exec = RUNTIME.block_on(source.scan(request))?.open()?;
+    if exec.is_exhausted() {
+        file.scan_state = None;
+        return Ok(true);
+    }
     if state.exec.set(exec).is_err() {
         vortex_panic!("file initialized twice");
     }
