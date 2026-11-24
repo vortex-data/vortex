@@ -1116,7 +1116,12 @@ fn decompress_rejects_out_of_bounds_dict_codes() -> VortexResult<()> {
             0,
             0,
         )?;
-        assert!(affine.into_array().execute::<PrimitiveArray>(&mut ctx).is_err());
+        assert!(
+            affine
+                .into_array()
+                .execute::<PrimitiveArray>(&mut ctx)
+                .is_err()
+        );
     }
     Ok(())
 }
