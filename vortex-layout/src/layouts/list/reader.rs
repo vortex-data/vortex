@@ -1565,8 +1565,7 @@ mod tests {
             };
             for expr in &exprs {
                 let range = u64::try_from(start)?..u64::try_from(end)?;
-                assert_read_matches(&table, &reader, &session, expr, range, mask.clone())
-                    .await?;
+                assert_read_matches(&table, &reader, &session, expr, range, mask.clone()).await?;
             }
         }
         Ok(())
