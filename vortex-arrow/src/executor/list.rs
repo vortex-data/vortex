@@ -15,6 +15,7 @@ use vortex_array::arrays::List;
 use vortex_array::arrays::ListArray;
 use vortex_array::arrays::ListView;
 use vortex_array::arrays::ListViewArray;
+use vortex_array::arrays::list::ListArrayExt;
 use vortex_array::arrays::list::ListArraySlotsExt;
 use vortex_array::arrays::listview::ListViewArraySlotsExt;
 use vortex_array::arrays::listview::ListViewDataParts;
@@ -24,7 +25,6 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::Nullability;
 use vortex_array::matcher::Matcher;
-use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -93,6 +93,10 @@ fn list_to_list<O: OffsetSizeTrait + NativePType>(
     options: &ArrowExportOptions,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrowArrayRef> {
+    // A sliced list keeps its whole elements array. Trim it to the elements the remaining lists
+    // reference, so that the export does not convert elements no list reads.
+    let array = &array.reset_offsets(false, ctx)?;
+
     // We must cast the offsets to the required offset type.
     let offsets = array
         .offsets()
@@ -100,15 +104,16 @@ fn list_to_list<O: OffsetSizeTrait + NativePType>(
         .execute::<Canonical>(ctx)?
         .into_primitive()
         .to_buffer::<O>();
-    let (offsets, elements) = referenced_elements(offsets, array.elements().clone())?;
 
     // SAFETY: `ListArray` guarantees its offsets are non-empty, non-negative and sorted. The
-    // checked cast keeps every value, so the order stays the same, and rebasing them onto the
-    // first referenced element keeps them non-negative.
+    // checked cast keeps every value, so the order stays the same.
     let offsets = unsafe { offsets.into_arrow_offset_buffer_unchecked() };
 
-    let elements =
-        elements.execute_arrow_with_options(Some(elements_field.as_ref()), options, ctx)?;
+    let elements = array.elements().clone().execute_arrow_with_options(
+        Some(elements_field.as_ref()),
+        options,
+        ctx,
+    )?;
     vortex_ensure!(
         elements_field.is_nullable() || elements.null_count() == 0,
         "Cannot convert to non-nullable Arrow array with null elements"
@@ -123,39 +128,6 @@ fn list_to_list<O: OffsetSizeTrait + NativePType>(
         elements,
         null_buffer,
     )))
-}
-
-/// The elements `offsets` reference, with the offsets rebased onto them when that drops more
-/// elements than there are offsets.
-///
-/// A sliced list keeps its whole elements array, and exporting the elements no list references
-/// costs as much as exporting the rest: a scan that slices one list into many batches would
-/// export its elements once per batch. The elements after the last list are dropped by slicing
-/// alone; those before the first cost rewriting every offset, so a few are kept, and the
-/// offsets with them.
-fn referenced_elements<O: OffsetSizeTrait + NativePType>(
-    offsets: Buffer<O>,
-    elements: ArrayRef,
-) -> VortexResult<(Buffer<O>, ArrayRef)> {
-    let (Some(&first), Some(&last)) = (offsets.first(), offsets.last()) else {
-        return Ok((offsets, elements));
-    };
-    let start = if first.as_usize() > offsets.len() {
-        first.as_usize()
-    } else {
-        0
-    };
-    let end = last.as_usize();
-    if start == 0 && end == elements.len() {
-        return Ok((offsets, elements));
-    }
-    let elements = elements.slice(start..end)?;
-    let offsets = if start == 0 {
-        offsets
-    } else {
-        offsets.iter().map(|&offset| offset - first).collect()
-    };
-    Ok((offsets, elements))
 }
 
 fn list_view_zctl<O: OffsetSizeTrait + NativePType>(
@@ -179,6 +151,9 @@ fn list_view_zctl<O: OffsetSizeTrait + NativePType>(
             None,
         )));
     }
+
+    // As for a sliced list: drop the elements before the first list and after the last.
+    let array = array.rebuild(ListViewRebuildMode::TrimElements, ctx)?;
 
     let ListViewDataParts {
         elements,
@@ -219,7 +194,6 @@ fn list_view_zctl<O: OffsetSizeTrait + NativePType>(
         offsets[offsets.len() - 1] + final_size
     });
 
-    let (offsets, elements) = referenced_elements(offsets.freeze(), elements)?;
     let elements =
         elements.execute_arrow_with_options(Some(elements_field.as_ref()), options, ctx)?;
     vortex_ensure!(
@@ -231,8 +205,8 @@ fn list_view_zctl<O: OffsetSizeTrait + NativePType>(
 
     // SAFETY: zero-copy-to-list offsets are non-negative and sorted, and the final offset we
     // pushed is the last offset plus a non-negative size. The array is not empty, so the buffer
-    // is not empty, and rebasing it onto the first referenced element keeps it non-negative.
-    let offsets = unsafe { offsets.into_arrow_offset_buffer_unchecked() };
+    // is not empty.
+    let offsets = unsafe { offsets.freeze().into_arrow_offset_buffer_unchecked() };
 
     Ok(Arc::new(GenericListArray::<O>::new(
         Arc::clone(elements_field),
@@ -548,13 +522,15 @@ mod tests {
         assert_eq!(second_vals.values(), &[4, 5, 6]);
 
         // The conversion shares the elements buffer regardless of which path resolves the
-        // Slice (revealed List or zero-copy-to-list ListView).
+        // Slice (revealed List or zero-copy-to-list ListView), starting at the first element the
+        // slice references.
         let values = arrow_list
             .values()
             .as_any()
             .downcast_ref::<Int32Array>()
             .unwrap();
-        assert_eq!(values.values().as_ptr(), elements_ptr);
+        assert_eq!(values.values().as_ptr(), elements_ptr.wrapping_add(2));
+        assert_eq!(values.values(), &[3, 4, 5, 6]);
         let expected = [Some(vec![3]), Some(vec![4, 5, 6])];
         assert_eq!(arrow_list.len(), expected.len());
         for (index, expected) in expected.into_iter().enumerate() {
