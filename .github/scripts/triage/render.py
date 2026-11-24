@@ -130,7 +130,8 @@ def _parts(*parts: str) -> str:
 
 
 def _thread(row: Row) -> str:
-    return f"<{row.thread_url}|🧵>" if row.thread_url else ""
+    # A word in link color reads as a link, and an emoji alone does not.
+    return f"<{row.thread_url}|thread>" if row.thread_url else ""
 
 
 def _overview_line(row: Row, now: datetime) -> str:
@@ -139,9 +140,11 @@ def _overview_line(row: Row, now: datetime) -> str:
         if row.section is WAITING
         else _wait(row, now).removeprefix("waiting ")
     )
+    # A row shows the number but not the title, which is on the item's card, and no owner when
+    # nobody is assigned. Short rows fit on one line in the narrow column of an attachment.
     return _parts(
-        f"{kind_emoji(row.item, row.assessment)} {_link(row.item)}",
-        _owner(row.item),
+        f"{kind_emoji(row.item, row.assessment)} <{row.item.url}|#{row.item.number}>",
+        ", ".join(row.item.assignees),
         detail,
         _thread(row),
     )
@@ -334,7 +337,7 @@ def invalid(error: str) -> Message:
 
 def wrong_thread() -> Message:
     return Message(
-        text="❓ Commands work only in an item's thread. Open the item's 🧵 link and reply there."
+        text="❓ Commands work only in an item's thread. Open its thread link in the overview."
     )
 
 
@@ -383,17 +386,16 @@ def instructions() -> Message:
             "",
             "*Key*",
             *(f"{kind.emoji} {kind.meaning}" for kind in KINDS),
-            "🧵 the item's thread in this channel",
             "😴 snoozed until the time shown on the item's card",
             f"{_DONE} merged, closed, or answered by a teammate",
             f"{_UNTRACKED} no longer tracked",
-            "An item's number and title link to GitHub.",
+            "An item's number opens it on GitHub, and its thread link opens its thread here.",
             "",
             "*Owners*",
             "To take an item, assign yourself on GitHub. "
             "Reminders go to the assignees, or to on-call when nobody is assigned.",
             "",
-            "*Commands*, as a reply in an item's 🧵 thread:",
+            "*Commands*, as a reply in an item's thread:",
             "`!snooze 5h` hides the item from the overview and pauses its reminders for 5 working "
             f"hours (at most {MAX_HOURS}).",
             f"`!snooze 2d` does the same for 2 working days (at most {MAX_DAYS}).",

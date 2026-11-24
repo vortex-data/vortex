@@ -53,8 +53,9 @@ def test_overview_groups_sections_in_order_with_colors():
     assert summary.startswith("On call gatesn · 🔴 2 High · 🟡 1 Normal · ⚪ 1 Low · 🔵 1 waiting · Claude checked 2")
     assert [a["color"] for a in message.attachments] == [s.color for s in render.SECTIONS]
     high = texts_of(message)[1]
-    # The highest score comes first.
-    assert high.index("#3 ") < high.index("#2 ")
+    # The highest score comes first. A row shows the number, not the title, and a worded thread link.
+    assert high.index("|#3>") < high.index("|#2>")
+    assert "A title" not in high and "|thread>" in high
 
 
 def test_overview_hides_snoozed_items_and_counts_them():
@@ -64,8 +65,8 @@ def test_overview_hides_snoozed_items_and_counts_them():
     rows.append(row(4, snooze_until=(NOW - timedelta(hours=1)).timestamp()))
     message = render.overview(rows, NOW.date(), NOW, "", "")
     body = "\n".join(texts_of(message))
-    assert "#1 " in body and "#4 " in body
-    assert "#2 " not in body and "#3 " not in body
+    assert "|#1>" in body and "|#4>" in body
+    assert "|#2>" not in body and "|#3>" not in body
     assert (
         "🔴 2 High · 🟡 0 Normal · ⚪ 0 Low · 🔵 0 waiting · 😴 2 snoozed" in message.blocks[1]["elements"][0]["text"]
     )
@@ -75,20 +76,20 @@ def test_overview_fits_slack_limits_and_cuts_low_first():
     long = "x" * 200
     rows = [row(n, Tier.HIGH, title=long) for n in range(1, 41)]
     rows += [row(n, Tier.NORMAL, title=long) for n in range(100, 200)]
-    rows += [row(n, Tier.LOW, title=long) for n in range(1000, 1800)]
-    rows += [row(n, Tier.NORMAL, owes=Owes.CONTRIBUTOR, title=long) for n in range(2000, 2100)]
+    rows += [row(n, Tier.LOW, title=long) for n in range(1000, 3000)]
+    rows += [row(n, Tier.NORMAL, owes=Owes.CONTRIBUTOR, title=long) for n in range(5000, 5100)]
     message = render.overview(rows, NOW.date(), NOW, "", "")
     assert blocks_of(message) <= 50
     assert all(len(text) <= 3000 for text in texts_of(message))
     body = "\n".join(texts_of(message))
     # Every High row survives, and Low is cut before anything else.
-    assert all(f"#{n} " in body for n in range(1, 41))
+    assert all(f"|#{n}>" in body for n in range(1, 41))
     assert "_+" in body
     # Every list block asks Slack to show its whole text, without a "see more" link.
     assert all(b.get("expand") for a in message.attachments for b in a["blocks"][1:])
     low = next(a for a in message.attachments if a["color"] == render.LOW.color)
     assert "more_" in json.dumps(low)
-    assert "⚪ 800 Low" in message.blocks[1]["elements"][0]["text"]
+    assert "⚪ 2000 Low" in message.blocks[1]["elements"][0]["text"]
 
 
 def test_titles_and_reasons_are_escaped():
