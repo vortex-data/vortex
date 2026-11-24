@@ -6,13 +6,14 @@
 //!
 //! When a scan is made, it prepares its child once and runs its [`part_root`], which cuts the
 //! child into parts: the rows between the child's splits for the fields the scan reads,
-//! such as a file's layout splits, or the scan's chunks for a child without splits. With a dynamic
-//! filter, such as the bound a top-N pushes down, the root first prunes the child as a whole
-//! against the bound as it stands, which reads zone maps. Those are the reads the scan needs to
-//! know its units of work, so they run in the async [`scan`](crate::DataSource::scan), which the
-//! host awaits. Opening the scan reads nothing: it only queues the parts, so no stream waits on
-//! another for its work. Each part prunes again against the bound as it stands when a stream
-//! takes it.
+//! such as a file's layout splits, or the scan's chunks for a child without splits. With a filter,
+//! the root first prunes the child as a whole, which reads its zone maps, and queues only the parts
+//! the zones leave rows in. Those are the reads the scan needs to know its units of work, so they
+//! run in the async [`scan`](crate::DataSource::scan), which the host awaits: a host gives no
+//! thread to a part the zones rule out, and its threads do not race each other to read the same
+//! zone maps. Opening the scan reads nothing: it only queues the parts, so no stream waits on
+//! another for its work. Each part prunes again when a stream takes it, against a dynamic filter's
+//! bound as it stands then, such as the bound a top-N pushes down.
 //!
 //! Every stream of the scan takes parts from the one queue, and the scan is exhausted once the
 //! last part is taken. Each stream owns a [`Run`], driven on the task that polls the stream, and
@@ -39,7 +40,6 @@ use parking_lot::Mutex;
 use vortex_array::ArrayRef;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_functions::dynamic::DynamicExprUpdates;
 use vortex_io::request::IoService;
 
 use super::plan::ScanState;
@@ -62,8 +62,8 @@ pub(super) struct Planned {
     work: Vec<Work>,
 }
 
-/// Prepares the scan's `unit`, if it reads one, and runs its root, awaiting the zone maps a
-/// dynamic filter's root reads, and returns the work the root produces, in row order.
+/// Prepares the scan's `unit`, if it reads one, and runs its root, awaiting the zone maps its
+/// filter's pruning reads, and returns the work the root produces, in row order.
 pub(super) async fn plan(state: &ScanState, unit: Option<&Unit>) -> VortexResult<Planned> {
     let mut work = Vec::new();
     if let Some(unit) = unit {
@@ -135,11 +135,7 @@ fn prepare(
         .splits(&state.projection, state.filter.as_ref())?;
     let scan = Arc::new(state.builder(rows).prepare()?);
     let splits = splits.unwrap_or_else(|| chunk_bounds(&scan));
-    let dynamic = state
-        .filter
-        .as_ref()
-        .is_some_and(|filter| DynamicExprUpdates::new(filter).is_some());
-    let root = part_root(&scan, &splits, dynamic);
+    let root = part_root(&scan, &splits, true);
     let prepared = PreparedChild {
         rows: scan.rows().clone(),
         io: scan.io(),
