@@ -783,15 +783,19 @@ SCAN_AXIS_ORDER = {"file": 0, "datasource": 1, "v2": 0, "v1": 1}
 
 
 def query_column_sort_key(combo: tuple[str, str]) -> tuple[int, int, str, tuple[int, ...], str]:
-    """Order query table columns by engine, then format, with a format's scan variants beside it,
-    e.g. `[file, v2]`, `[file, v1]`, then `[datasource, v1]`."""
+    """Order query table columns by format, then engine, with an engine's scan variants beside it,
+    e.g. `[file, v2]`, `[file, v1]`, then `[datasource, v1]`.
+
+    The columns of one format are beside each other, so the reader compares the Vortex targets
+    of all engines before the Parquet controls.
+    """
 
     engine, file_format = combo
     base_format, _, axes = file_format.partition(" [")
     axis_order = tuple(SCAN_AXIS_ORDER.get(axis.strip(), len(SCAN_AXIS_ORDER)) for axis in axes.rstrip("]").split(","))
     return (
-        ENGINE_ORDER.get(engine, len(ENGINE_ORDER)),
         FILE_FORMAT_ORDER.get(base_format, len(FILE_FORMAT_ORDER)),
+        ENGINE_ORDER.get(engine, len(ENGINE_ORDER)),
         engine,
         axis_order if axes else (),
         file_format,
@@ -818,25 +822,6 @@ def format_query_table_caption(df: pd.DataFrame, base_label: str, pr_label: str,
     if any(" [" in str(file_format) for file_format in df["file_format"]):
         lines.append(SCAN_AXES_NOTE)
     return "<br>".join(lines)
-
-
-def format_query_table_summary(
-    df: pd.DataFrame, run: str, title: str, improvement_threshold: float, regression_threshold: float
-) -> str:
-    """Summarize a folded query table: the geomean ratio over every cell with a develop time,
-    marked 🟢 or 🔴 past the threshold, then the table's size and how many cells moved each way."""
-
-    ratios = df["ratio" if run == "hot" else "cold_ratio"]
-    geomean = geometric_mean_from_values(ratios)
-    badge = format_change_marker(geomean, improvement_threshold, regression_threshold) or "➖"
-    geomean_text = "no baseline" if pd.isna(geomean) else f"geomean {geomean:.3f}x {badge}"
-    queries = df["name"].map(lambda name: str(name).rsplit("/", 1)[0]).nunique()
-    targets = df[["engine", "file_format"]].drop_duplicates().shape[0]
-    faster = int((ratios <= improvement_threshold).sum())
-    slower = int((ratios >= regression_threshold).sum())
-    query_noun = "query" if queries == 1 else "queries"
-    target_noun = "target" if targets == 1 else "targets"
-    return f"{title}: {geomean_text} · {queries} {query_noun} × {targets} {target_noun} ({faster}↑ {slower}↓)"
 
 
 def format_query_table(
@@ -1189,16 +1174,47 @@ def format_attributed_cell(verdict: dict[str, str] | None) -> str:
     return verdict["impact"]
 
 
+def format_change_counts(
+    ratios: pd.Series, improvement_threshold: float, regression_threshold: float
+) -> tuple[str, str]:
+    """Count the cells that clear the threshold faster and slower."""
+
+    faster = int((ratios <= improvement_threshold).sum())
+    slower = int((ratios >= regression_threshold).sum())
+    return str(faster), str(slower)
+
+
+def format_target_summary_row(
+    label: str,
+    rows: pd.DataFrame,
+    show_cold: bool,
+    improvement_threshold: float,
+    regression_threshold: float,
+) -> list[str]:
+    """Render the geomean ratio and the change counts of each run for one row of the target table."""
+
+    row = [label]
+    for run_ratio in ("ratio", "cold_ratio") if show_cold else ("ratio",):
+        ratios = rows[run_ratio]
+        geomean = geometric_mean_from_values(ratios)
+        row.append(format_ratio_cell(geomean, improvement_threshold, regression_threshold))
+        row += format_change_counts(ratios, improvement_threshold, regression_threshold)
+    return row
+
+
 def format_target_summary_table(
     df: pd.DataFrame,
+    verdict: dict[str, str] | None,
     engine_analyses: dict[str, dict[str, Any]],
     improvement_threshold: float,
     regression_threshold: float,
 ) -> str | None:
-    """Render one row per target with its hot and cold geomeans and its change against Parquet.
+    """Render the PR summary: an `all` row, then one row per target.
 
-    The rows are in the same order as the query table columns. Each target has its own row, so a
-    change on one engine or one scan is not hidden in a geomean over all the Vortex targets.
+    The target rows are in the same order as the query table columns. Each target has its own
+    row, so a change on one engine or one scan is not hidden in a geomean over all the Vortex
+    targets. The `all` row gives the geomean over every cell, and its `vs parquet` cell is the
+    attributed Vortex impact over all the engines.
     """
 
     rows = df[df["engine"].notna() & df["file_format"].notna() & df["ratio"].notna()]
@@ -1210,37 +1226,45 @@ def format_target_summary_table(
         key=query_column_sort_key,
     )
     show_cold = bool(rows["cold_ratio"].notna().any())
-    show_attribution = bool(engine_analyses)
+    show_attribution = verdict is not None or bool(engine_analyses)
 
-    table_rows = []
+    queries = rows["query"].nunique()
+    query_noun = "query" if queries == 1 else "queries"
+    all_row = format_target_summary_row(
+        f"**all** ({queries} {query_noun})", rows, show_cold, improvement_threshold, regression_threshold
+    )
+    if show_attribution:
+        all_row += [format_attributed_cell(verdict), verdict["confidence"] if verdict is not None else ""]
+
+    table_rows = [all_row]
     for engine, file_format in combos:
         target_rows = rows[(rows["engine"] == engine) & (rows["file_format"] == file_format)]
-        row = [
+        row = format_target_summary_row(
             query_column_label(engine, file_format),
-            format_ratio_cell(calculate_geometric_mean(target_rows, "ratio"), improvement_threshold, regression_threshold),
-        ]
-
-        if show_cold:
-            cold_ratio = calculate_geometric_mean(target_rows, "cold_ratio")
-            row.append(format_ratio_cell(cold_ratio, improvement_threshold, regression_threshold))
+            target_rows,
+            show_cold,
+            improvement_threshold,
+            regression_threshold,
+        )
 
         if show_attribution:
             if file_format == CONTROL_FORMAT:
                 row += ["control", ""]
             else:
-                verdict = None
+                target_verdict = None
                 analysis = engine_analyses.get(engine)
                 if analysis is not None:
                     detail_df = analysis["detail_df"]
                     target_detail = detail_df[detail_df["combo"] == f"{engine}:{file_format}"]
-                    verdict = build_verdict(analysis | {"detail_df": target_detail})
-                row += [format_attributed_cell(verdict), verdict["confidence"] if verdict is not None else ""]
+                    target_verdict = build_verdict(analysis | {"detail_df": target_detail})
+                confidence = target_verdict["confidence"] if target_verdict is not None else ""
+                row += [format_attributed_cell(target_verdict), confidence]
 
         table_rows.append(row)
 
-    headers = ["target", "hot"]
-    if show_cold:
-        headers.append("cold")
+    headers = ["target"]
+    for run in ("hot", "cold") if show_cold else ("hot",):
+        headers += [run, f"{run} 🟢", f"{run} 🔴"]
     if show_attribution:
         headers += ["vs parquet", "confidence"]
 
@@ -1283,21 +1307,19 @@ def format_report_help() -> str:
             "",
             "<br>",
             "",
-            "- **Verdict**: Overall PR-level signal after subtracting baseline drift "
-            "estimated from Parquet control rows. It can be `Likely improvement`, "
-            "`Likely regression`, or `No clear signal`. When the controls are too noisy, "
-            "the attributed impact is not shown.",
             "- **Target table**: One row per target, in the same order as the query table "
-            "columns. `hot` and `cold` are the geomean of PR ÷ develop over the target's "
-            "queries, marked like the query cells. `vs parquet` is the target's change after "
-            "the drift of the Parquet control on the same engine is removed. It is marked 🟢 "
-            "or 🔴 only when it is above the noise floor, and it shows `—` when the control "
-            "is too noisy.",
+            "columns, after an `all` row over every target. `hot` and `cold` are the geomean "
+            "of PR ÷ develop over the queries, marked like the query cells, and the 🟢 and 🔴 "
+            "columns count the queries that cleared this suite's threshold faster or slower.",
+            "- **vs parquet**: The change after the drift of the Parquet control on the same "
+            "engine is removed. On the `all` row it is the attributed Vortex impact over every "
+            "engine. It is marked 🟢 or 🔴 only when it is above the noise floor, and it shows "
+            "`—` when the control is too noisy to remove.",
             "- **Confidence**: Based on directional consistency, share of rows above "
             "the noise floor, and control-run noise.",
             "- **Hot vs cold**: Every measurement is run several times. The first run is "
             "reported as the cold run, and the median of the runs after it is reported as "
-            "the hot run. The verdict and significance use hot runs. The target table "
+            "the hot run. The attribution and significance use hot runs. The target table "
             "shows a cold column only where the individual runs were recorded. In the "
             "detail tables, the cold column shows first-run cost per row, and `hot/cold` is how much of "
             "each run the warm path saves. Rows whose results predate per-run reporting "
@@ -1416,17 +1438,12 @@ def main() -> None:
     statistical_analysis = build_statistical_analysis(query_df, threshold_pct)
     verdict = build_verdict(statistical_analysis) if statistical_analysis is not None else None
     engine_analyses = build_within_engine_statistical_analyses(query_df, threshold_pct)
-    target_table = format_target_summary_table(
-        headline_df, engine_analyses, improvement_threshold, regression_threshold
-    )
-
     base_label = str(base_commit_id)[:8] if base_commit_id is not None else "none"
     summary_fields: list[str] = [f"**Commits**: PR `{pr_commit_id[:8]}` vs base `{base_label}`"]
 
-    if verdict is not None:
-        summary_fields.append(f"**Verdict**: {verdict['status']} ({verdict['confidence']} confidence)")
-        if verdict["confidence"] != NOISY_CONFIDENCE:
-            summary_fields.append(f"**Attributed Vortex impact**: {verdict['impact']}")
+    target_table = format_target_summary_table(
+        headline_df, verdict, engine_analyses, improvement_threshold, regression_threshold
+    )
 
     if verdict is not None:
         shifts = f"Parquet (control) {verdict['environment_shift']}"
@@ -1466,9 +1483,8 @@ def main() -> None:
         table = format_query_table(sql_df, run, improvement_threshold, regression_threshold)
         if table is None:
             continue
-        summary = format_query_table_summary(sql_df, run, title, improvement_threshold, regression_threshold)
         print("<details>")
-        print(f"<summary>{summary}</summary>")
+        print(f"<summary>{title}</summary>")
         print("")
         print("<br>")
         print("")

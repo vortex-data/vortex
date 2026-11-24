@@ -269,7 +269,7 @@ def test_random_access_report_keeps_competitor_details_without_attribution(tmp_p
 
     report = render_report(tmp_path, base_rows, pr_rows, "Random Access")
 
-    assert "**Attributed Vortex impact**: -10.0%" in report
+    assert "-10.0%" in markdown_row(report, "**all**")[7]
     assert "<summary>random-access / lance / ns " in report
     assert "<summary>random-access / litdata / ns " in report
 
@@ -353,7 +353,7 @@ def test_comparison_report_retains_sql_analysis(tmp_path: Path) -> None:
 
     report = render_report(tmp_path, base_rows, pr_rows, "TPC-H")
 
-    assert "**Verdict**:" in report
+    assert "**Verdict**" not in report
     # The summary has one row per target, in the order of the query table columns.
     assert markdown_row(report, "datafusion:vortex")[:2] == ["datafusion:vortex", "🟢 **0.88**"]
     assert markdown_row(report, "datafusion:parquet")[:2] == ["datafusion:parquet", "1.05"]
@@ -446,11 +446,17 @@ def test_report_splits_cold_and_hot_runs(tmp_path: Path) -> None:
     assert hot == ["tpch_q01", "🟢 **50.0 ns (0.50)**", "100 ns (1.00)"]
     assert cold == ["tpch_q01", "🔴 **2.00 µs (2.00)**", "1.00 µs (1.00)"]
     # Both tables fold by default, under a summary of what moved.
-    assert "<summary>Hot runs: geomean 0.707x 🟢 · 1 query × 2 targets (1↑ 0↓)</summary>" in report
-    assert "<summary>Cold runs (first iteration): geomean 1.414x 🔴 · 1 query × 2 targets (0↑ 1↓)</summary>" in report
-    assert "**Attributed Vortex impact**: -50.0%" in report
-    assert markdown_row(report, "datafusion:vortex")[:3] == ["datafusion:vortex", "🟢 **0.50**", "🔴 **2.00**"]
-    assert markdown_row(report, "datafusion:parquet")[:4] == ["datafusion:parquet", "1.00", "1.00", "control"]
+    assert "<summary>Hot runs</summary>" in report
+    assert "<summary>Cold runs (first iteration)</summary>" in report
+    # The top table carries the geomean and the change counts over every target.
+    assert markdown_row(report, "target") == ["target", "hot", "hot 🟢", "hot 🔴", "cold", "cold 🟢", "cold 🔴", "vs parquet", "confidence"]
+    all_targets = markdown_row(report, "**all**")
+    assert all_targets[:7] == ["**all** (1 query)", "🟢 **0.71**", "1", "0", "🔴 **1.41**", "0", "1"]
+    assert "-50.0%" in all_targets[7]
+    vortex = markdown_row(report, "datafusion:vortex")
+    assert (vortex[1], vortex[4]) == ("🟢 **0.50**", "🔴 **2.00**")
+    parquet = markdown_row(report, "datafusion:parquet")
+    assert (parquet[1], parquet[4], parquet[7]) == ("1.00", "1.00", "control")
     assert "**Commits**: PR `pr-sha` vs base " in report
 
 
@@ -478,8 +484,9 @@ def test_verdict_ignores_a_cold_start_only_regression(tmp_path: Path) -> None:
 
     report = render_report(tmp_path, base_rows, pr_rows, "TPC-H")
 
-    assert "**Attributed Vortex impact**: +0.0%" in report
-    assert markdown_row(report, "datafusion:vortex")[:3] == ["datafusion:vortex", "1.00", "🔴 **4.00**"]
+    assert "+0.0%" in markdown_row(report, "**all**")[7]
+    vortex = markdown_row(report, "datafusion:vortex")
+    assert (vortex[1], vortex[4]) == ("1.00", "🔴 **4.00**")
     hot, cold = markdown_rows(report, "tpch_q01")
     assert hot[1] == "100 ns (1.00)"
     assert cold[1] == "🔴 **400 ns (4.00)**"
@@ -822,9 +829,8 @@ def test_report_compares_ingest_records(tmp_path: Path) -> None:
     report = render_report(tmp_path, base_records, pr_results, "TPC-H", pr_records)
 
     assert "vs base `base-sha`" in report
-    assert "**Verdict**:" in report
-    assert markdown_row(report, "target") == ["target", "hot", "cold", "vs parquet", "confidence"]
-    assert markdown_row(report, "datafusion:parquet")[3] == "control"
+    assert markdown_row(report, "target") == ["target", "hot", "hot 🟢", "hot 🔴", "cold", "cold 🟢", "cold 🔴", "vs parquet", "confidence"]
+    assert markdown_row(report, "datafusion:parquet")[7] == "control"
     assert "random-access " in report
     assert "ignored when records exist" not in report
     assert markdown_row(report, "tpch_q01")[1:] == ["🟢 **70.0 ns (0.88)**", "105 ns (1.05)"]
@@ -961,9 +967,8 @@ def test_summary_hides_attribution_when_the_control_is_too_noisy(tmp_path: Path)
 
     report = render_report(tmp_path, base_rows, pr_rows, "TPC-H")
 
-    assert "environment too noisy confidence" in report
-    assert "**Attributed Vortex impact**" not in report
-    assert markdown_row(report, "datafusion:vortex")[3:] == ["—", "environment too noisy"]
+    assert markdown_row(report, "**all**")[7:] == ["—", "environment too noisy"]
+    assert markdown_row(report, "datafusion:vortex")[7:] == ["—", "environment too noisy"]
 
 
 def test_summary_reports_hot_alone_when_no_row_recorded_its_runs(tmp_path: Path) -> None:
@@ -980,9 +985,10 @@ def test_summary_reports_hot_alone_when_no_row_recorded_its_runs(tmp_path: Path)
 
     report = render_report(tmp_path, base_rows, pr_rows, "Random Access")
 
-    assert markdown_row(report, "target") == ["target", "hot", "vs parquet", "confidence"]
-    assert markdown_row(report, "random-access:vortex")[1] == "🟢 **0.50**"
-    assert markdown_row(report, "random-access:parquet")[1:3] == ["1.00", "control"]
+    assert markdown_row(report, "target") == ["target", "hot", "hot 🟢", "hot 🔴", "vs parquet", "confidence"]
+    assert markdown_row(report, "random-access:vortex")[1:4] == ["🟢 **0.50**", "1", "0"]
+    parquet = markdown_row(report, "random-access:parquet")
+    assert (parquet[1], parquet[4]) == ("1.00", "control")
 
 
 def test_capture_file_sizes_names_parquet_by_its_directory(tmp_path: Path) -> None:
@@ -1078,8 +1084,8 @@ def test_query_table_names_each_vortex_columns_integration_and_scan(tmp_path: Pa
         "datafusion:vortex [file, v2]",
         "datafusion:vortex [file, v1]",
         "datafusion:vortex [datasource, v1]",
-        "datafusion:parquet",
         "duckdb:vortex [file, v2]",
+        "datafusion:parquet",
     ]
     assert markdown_row(report, "tpch_q01")[3] == "🟢 **1.20 ms (0.80)**"
     # The bare default identity still matches develop's records.
