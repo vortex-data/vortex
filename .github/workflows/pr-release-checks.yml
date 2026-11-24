@@ -1,0 +1,40 @@
+# Runs the release checks on a pull request when it is labelled `action/release-checks`.
+# Pull requests do not run these checks otherwise; Release Tag runs them before each release.
+# The label is removed when the run starts, so adding it again runs the checks again.
+# This is a separate workflow so that other label events do not create check suites on the PR.
+
+name: PR Release Checks
+run-name: >-
+  PR #${{ github.event.pull_request.number }} release checks
+
+on:
+  pull_request:
+    types: [labeled]
+
+permissions:
+  actions: read
+  contents: read
+  pull-requests: write  # for label removal
+
+jobs:
+  remove-label:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    if: github.event.label.name == 'action/release-checks'
+    steps:
+      - uses: actions-ecosystem/action-remove-labels@2ce5d41b4b6aa8503e285553f75ed56e0a40bae0  # v1
+        if: github.event.pull_request.head.repo.full_name == 'vortex-data/vortex'
+        with:
+          labels: action/release-checks
+          fail_on_error: true
+
+  checks:
+    needs: remove-label
+    uses: ./.github/workflows/release-checks.yml
+    with:
+      # The merge of the pull request into its base, as the pull request's other CI checks.
+      ref: ${{ github.sha }}
+    secrets: inherit
+    permissions:
+      actions: read
+      contents: read
