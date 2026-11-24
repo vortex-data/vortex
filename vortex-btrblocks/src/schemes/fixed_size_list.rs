@@ -125,7 +125,6 @@ impl Scheme for FixedSizeListSparseScheme {
             return Ok(Encoded::leaf(array.clone()));
         };
 
-        let values = array.filter(mask.clone())?;
         let indices = PrimitiveArray::new(
             valid_indices
                 .iter()
@@ -134,6 +133,7 @@ impl Scheme for FixedSizeListSparseScheme {
             Validity::NonNullable,
         )
         .narrow(exec_ctx)?;
+        let values = array.filter(mask)?;
 
         let len = array.len();
         let fill = Scalar::null(array.dtype().clone());

@@ -74,7 +74,7 @@ impl Scheme for BoolRunEndScheme {
         ))
     }
 
-    /// Children: ends=0, and the run values, kept: one bit per run.
+    /// Children: ends=0, and the run values, kept at 1: one bit per run.
     fn encode(
         &self,
         data: &ArrayAndStats,
@@ -143,7 +143,7 @@ impl Scheme for BoolSparseScheme {
         ))
     }
 
-    /// Children: indices=0. The patch values are all the exception, a constant.
+    /// Children: indices=0. Every patch value is the exception, so the values are a constant.
     fn encode(
         &self,
         data: &ArrayAndStats,

@@ -93,14 +93,11 @@ impl Scheme for TemporalScheme {
             subseconds,
         } = split_temporal(temporal_array, exec_ctx)?;
 
-        let children = [days, seconds, subseconds]
-            .into_iter()
-            .enumerate()
-            .map(|(index, part)| {
-                let narrowed = part.execute::<PrimitiveArray>(exec_ctx)?.narrow(exec_ctx)?;
-                Ok(Child::new(self, index, narrowed.into_array()))
-            })
-            .collect::<VortexResult<Vec<_>>>()?;
+        let children = vec![
+            Child::new(self, 0, narrowed(days, exec_ctx)?),
+            Child::new(self, 1, narrowed(seconds, exec_ctx)?),
+            Child::new(self, 2, narrowed(subseconds, exec_ctx)?),
+        ];
         Ok(Encoded::new(children, Vec::new(), move |children, _| {
             let [days, seconds, subseconds] = children.compressed()?;
             Ok(DateTimeParts::try_new(dtype, days, seconds, subseconds)?.into_array())
@@ -117,4 +114,12 @@ impl Scheme for TemporalScheme {
     ) -> VortexResult<ArrayRef> {
         unimplemented!("{} compresses through Scheme::encode", self.scheme_name())
     }
+}
+
+/// Narrows a datetime part to the smallest integer type that holds its values.
+fn narrowed(part: ArrayRef, exec_ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
+    Ok(part
+        .execute::<PrimitiveArray>(exec_ctx)?
+        .narrow(exec_ctx)?
+        .into_array())
 }

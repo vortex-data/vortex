@@ -3,8 +3,6 @@
 
 //! Decimal compression scheme using byte-part decomposition.
 
-use std::iter;
-
 use vortex_array::ArrayId;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
@@ -144,8 +142,8 @@ impl Scheme for DecimalScheme {
         CompressionEstimate::Verdict(EstimateVerdict::AlwaysUse)
     }
 
-    /// Children: the most significant part, which carries the validity, and the lower parts, at
-    /// their slot indices.
+    /// Children: msp=0, which carries the validity, then the lower parts from 1 on, most
+    /// significant first.
     fn encode(
         &self,
         data: &ArrayAndStats,
@@ -176,32 +174,26 @@ impl Scheme for DecimalScheme {
         let canonical_msp = parts.msp.execute::<PrimitiveArray>(exec_ctx)?;
         let msp = WidenArray::encode(canonical_msp, exec_ctx)?;
 
-        // NB: Register the narrow child, then wrap it. `CascadingCompressor::compress_child`
-        // executes its input to canonical form, which would undo the `Widen`.
+        // NB: Register the narrow stored integer and wrap it again in the constructor. The
+        // compressor executes each child to canonical form, which would undo the `Widen`.
         let logical_dtype = msp.dtype().clone();
+        let stored_msp = WidenArray::to_stored_integer(&msp);
         let num_lower_parts = parts.lower_parts.len();
-        let children = iter::once(Child::new(
-            self,
-            DecimalBytePartsSlots::MSP,
-            WidenArray::to_stored_integer(&msp),
-        ))
-        .chain(
-            parts
-                .lower_parts
-                .into_iter()
-                .enumerate()
-                .map(|(idx, part)| {
-                    Child::new(self, DecimalBytePartsSlots::LOWER_PARTS_OFFSET + idx, part)
-                }),
-        )
-        .collect();
+        let mut children = Vec::with_capacity(1 + num_lower_parts);
+        children.push(Child::new(self, DecimalBytePartsSlots::MSP, stored_msp));
+        children.extend(
+            (DecimalBytePartsSlots::LOWER_PARTS_OFFSET..)
+                .zip(parts.lower_parts)
+                .map(|(slot, part)| Child::new(self, slot, part)),
+        );
 
         let decimal_dtype = decimal.decimal_dtype();
         Ok(Encoded::new(children, Vec::new(), move |children, _| {
             let [msp] = children.compressed()?;
             let msp = WidenArray::from_stored_integer(msp, logical_dtype)?;
+            // `compressed` takes a fixed count, so take the lower parts one at a time.
             let lower_parts = (0..num_lower_parts)
-                .map(|_| children.compressed().map(|[part]| part))
+                .map(|_| children.compressed::<1>().map(|[part]| part))
                 .collect::<VortexResult<Vec<_>>>()?;
             DecimalByteParts::try_new_with_lower_parts(msp, lower_parts, decimal_dtype)
                 .map(IntoArray::into_array)
