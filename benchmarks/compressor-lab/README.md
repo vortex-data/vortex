@@ -163,6 +163,46 @@ No source is worse by more than 0.9% under these policies.
   Dict and RunEnd can serve filters without decompressing, which these numbers don't credit.
   Timings come from a single shared 4-core cloud machine.
 
+## Site features and quality measures
+
+Every features task now also records **site features**: the chunk is compressed once with the
+production compressor under a recording policy (`site_features::SiteRecorder`), and every distinct
+array it chose a scheme for (the root and each cascaded child, deduplicated by content hash) gets a
+row of tiered features (`site_features::compute`), for any dtype:
+
+| Tier | What | Examples |
+|---|---|---|
+| 0 | context | ptype bits, log length, cascade depth, budget left, eligible scheme count |
+| 1 | `vortex-compressor`'s own stats, called directly | null fraction, truncated average run length, `bits_for` from `max_minus_min` |
+| 2 | one hash pass | distinct fraction, top-k coverage, entropy (plus the compressor's own distinct stats) |
+| 3 | one extra scan | runs, sortedness, delta and second-order delta widths, width percentiles, GCD, affine residual; float NaN, digits, XOR zeros; string lengths, prefixes, byte entropy |
+| 4 | closed-form size estimates | `est_for`, `est_dict`, `est_runend`, `est_sparse`, ... |
+| 5 | the compressor's sample compressed with each eligible scheme forced at the root | `trial.vortex.int.for` |
+
+Tiers 2–3 are computed on the whole site and on the compressor's sample (`s.` prefix). What each
+group costs is a timing, so it is measured in the `time` stage (`feature_costs`), not stored in
+the deterministic fact.
+
+The `time` stage measures, per candidate and for the canonical array (`canonical`): decode,
+filter (random 1%, random 50%, one clustered 1% run), take (1,000 random and sorted indices),
+compare (`=` and `<` against the median), and 100 `scalar_at` reads. Each result is checked against
+the same operation on the canonical array before it is timed. Peak bytes and allocation counts
+come from the counting global allocator in the `vx-lab` binary. Production compression is timed
+with its own selection and replaying its plan, so selection cost is their difference. Each run
+also records a memcpy reference time and its timing conditions (governor, turbo, CPU affinity,
+target features; target features are part of the machine id).
+
+Timing method (`measure.rs`): batch an operation until a sample takes at least 50 µs, take samples
+round-robin across candidates, stop when the 95% interval of the median is within 5% (at least 5
+and at most 31 samples, 200 ms per operation). Override with `--max-samples`, `--target-ci`,
+`--min-sample-us` and `--op-budget-ms`. Run the time stage pinned: `taskset -c 3 vx-lab run ... --stages time`.
+
+`materialize` writes these long-format tables beside the existing ones: `site-features-*.csv`,
+`feature-costs-*.csv`, `measures-*.csv` and `production-*.csv`.
+
+`vx-lab probe --table lineitem --out probe.jsonl` runs site features and measures on every column
+of a generated TPC-H table, any dtype, without a plan.
+
 ## Extending it
 
 | To add… | Change | What re-runs |

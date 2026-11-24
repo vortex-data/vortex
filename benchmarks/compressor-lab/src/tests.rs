@@ -165,6 +165,11 @@ fn options(stages: &[&str], verify: bool) -> RunOptions {
         compress_reps: 1,
         keep_going: false,
         skip: Default::default(),
+        timing: crate::measure::TimingConfig {
+            max_samples: 3,
+            min_samples: 3,
+            ..Default::default()
+        },
     }
 }
 
@@ -365,6 +370,7 @@ mod sources {
             compress_reps: 1,
             keep_going: false,
             skip: Default::default(),
+            timing: Default::default(),
         })?;
         Ok(report.values().map(|r| r.ran).sum())
     }

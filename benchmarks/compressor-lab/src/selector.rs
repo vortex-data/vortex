@@ -153,7 +153,10 @@ fn time_compress(
     Ok((out, median(times)))
 }
 
-fn production(session: &VortexSession, policy: Option<Arc<dyn CompressionPolicy>>) -> BtrBlocksCompressor {
+fn production(
+    session: &VortexSession,
+    policy: Option<Arc<dyn CompressionPolicy>>,
+) -> BtrBlocksCompressor {
     let builder = BtrBlocksCompressorBuilder::from_session(session);
     match policy {
         Some(policy) => builder.with_policy(policy),
@@ -228,7 +231,8 @@ pub fn gather(
                 chunk.group,
                 chunk.column,
                 site.path,
-                site.applied.map_or("canonical".to_string(), |s| s.to_string())
+                site.applied
+                    .map_or("canonical".to_string(), |s| s.to_string())
             );
             for f in site.features {
                 write!(row, ",{f}")?;

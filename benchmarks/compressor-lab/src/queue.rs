@@ -749,6 +749,7 @@ fn run_shard(
                 compress_reps: 0,
                 keep_going: true,
                 skip: skip.clone(),
+                timing: Default::default(),
             })?;
             let report = &reports[kind.as_str()];
             ran += report.ran;
