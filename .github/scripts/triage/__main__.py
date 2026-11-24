@@ -173,8 +173,8 @@ def main(argv: list[str] | None = None) -> int:
         pairs = _assessed(items, now)
         rows = [render.Row(item, a, None, None) for item, a in pairs]
         content = {
-            "overview": render.overview(rows, london_date(now), now, "on-call", "Claude off"),
-            "cards": [render.card(row, now) for row in rows],
+            "overview": render.overview(rows, london_date(now), now, render.People(), "Claude off"),
+            "cards": [render.card(row, now, render.People()) for row in rows],
             "instructions": render.instructions(),
         }
         text = json.dumps({k: _dump(v) for k, v in content.items()}, indent=2, ensure_ascii=False)

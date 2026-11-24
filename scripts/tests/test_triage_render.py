@@ -10,10 +10,14 @@ from dataclasses import replace
 from datetime import timedelta
 from typing import Any
 
+import pytest
+
 support = importlib.import_module("triage_support")
 render, rules, state = support.render, support.rules, support.state
 item, event, ago, NOW = support.item, support.event, support.ago, support.NOW
 TEAMMATE = support.TEAMMATE
+PLAIN = render.People()
+MENTIONS = render.People({"alice": "UALICE", "gatesn": "UGATESN"}, "UGATESN", mention=True)
 Category, Owes, Tier = rules.Category, rules.Owes, rules.Tier
 
 
@@ -50,7 +54,7 @@ def test_overview_groups_sections_in_order_with_colors():
         row(4, Tier.NORMAL, owes=Owes.CONTRIBUTOR),
         row(5, Tier.NORMAL),
     ]
-    message = render.overview(rows, NOW.date(), NOW, "gatesn", "Claude checked 2")
+    message = render.overview(rows, NOW.date(), NOW, MENTIONS.plain(), "Claude checked 2")
     assert message.blocks[0]["text"]["text"] == "📋 Vortex triage · Tue 24 Nov"
     summary = message.blocks[1]["elements"][0]["text"]
     assert summary.startswith("On call gatesn · 🔴 2 High · 🟡 1 Normal · ⚪ 1 Low · 🔵 1 waiting · Claude checked 2")
@@ -61,8 +65,18 @@ def test_overview_groups_sections_in_order_with_colors():
     # Each item takes two lines, and a blank line separates the items.
     assert high.split("\n\n")[0] == (
         "📝 <https://github.com/o/r/issues/3|#3 A title> · alamb\n"
-        "\u2003\u2003unassigned · waiting 2d · <https://example.slack.com/archives/C1/p3|thread>"
+        "\u2003\u2003gatesn (on call) · waiting 2d · <https://example.slack.com/archives/C1/p3|thread>"
     )
+
+
+def test_people_mention_mapped_logins_and_give_unassigned_items_to_on_call():
+    assigned = item(1, assignees=["Alice", "bob"])
+    assert MENTIONS.owners(assigned) == "<@UALICE>, bob"
+    assert MENTIONS.owners(item(2)) == "<@UGATESN> (on call)"
+    # A post names everyone by login, so it notifies nobody.
+    assert MENTIONS.plain().owners(assigned) == "Alice, bob"
+    assert MENTIONS.plain().owners(item(2)) == "gatesn (on call)"
+    assert PLAIN.owners(item(2)) == "unassigned"
 
 
 def test_overview_hides_snoozed_items_and_counts_them():
@@ -70,7 +84,7 @@ def test_overview_hides_snoozed_items_and_counts_them():
     rows = [row(1), row(2, snooze_until=later), row(3, owes=Owes.CONTRIBUTOR, snooze_until=later)]
     # A snooze that already ended does not hide its item.
     rows.append(row(4, snooze_until=(NOW - timedelta(hours=1)).timestamp()))
-    message = render.overview(rows, NOW.date(), NOW, "", "")
+    message = render.overview(rows, NOW.date(), NOW, PLAIN, "")
     body = "\n".join(texts_of(message))
     assert "|#1 " in body and "|#4 " in body
     assert "|#2 " not in body and "|#3 " not in body
@@ -79,13 +93,15 @@ def test_overview_hides_snoozed_items_and_counts_them():
     )
 
 
-def test_overview_fits_slack_limits_and_cuts_low_first():
+# Mentions are longer than logins, so the limits must hold for the edited overview as well.
+@pytest.mark.parametrize("people", [PLAIN, MENTIONS], ids=["plain", "mentions"])
+def test_overview_fits_slack_limits_and_cuts_low_first(people):
     long = "x" * 200
     rows = [row(n, Tier.HIGH, title=long) for n in range(1, 41)]
     rows += [row(n, Tier.NORMAL, title=long) for n in range(100, 200)]
     rows += [row(n, Tier.LOW, title=long) for n in range(1000, 3000)]
     rows += [row(n, Tier.NORMAL, owes=Owes.CONTRIBUTOR, title=long) for n in range(5000, 5100)]
-    message = render.overview(rows, NOW.date(), NOW, "", "")
+    message = render.overview(rows, NOW.date(), NOW, people, "")
     assert blocks_of(message) <= 50
     assert all(len(text) <= 3000 for text in texts_of(message))
     body = "\n".join(texts_of(message))
@@ -101,7 +117,7 @@ def test_overview_fits_slack_limits_and_cuts_low_first():
 
 def first_line(target) -> str:
     """Return the first line of an overview entry as Slack shows it, without link targets."""
-    text = render.overview([target], NOW.date(), NOW, "", "").attachments[0]["blocks"][1]["text"]["text"]
+    text = render.overview([target], NOW.date(), NOW, PLAIN, "").attachments[0]["blocks"][1]["text"]["text"]
     return re.sub(r"<[^|>]*\|([^>]*)>", r"\1", text.split("\n")[0])
 
 
@@ -120,32 +136,32 @@ def test_overview_entry_cuts_the_title_to_fit_one_line_and_names_the_commenter()
     comment = replace(
         comment, item=team_item, assessment=replace(comment.assessment, category=Category.EXTERNAL_COMMENT)
     )
-    text = render.overview([comment], NOW.date(), NOW, "", "").attachments[0]["blocks"][1]["text"]["text"]
+    text = render.overview([comment], NOW.date(), NOW, PLAIN, "").attachments[0]["blocks"][1]["text"]["text"]
     assert "> · bob\n\u2003\u2003unassigned · waiting 2d · <" in text
 
 
 def test_titles_and_reasons_are_escaped():
     hostile = row(7, owes=Owes.CONTRIBUTOR, title="Fix ```code```\nand <b> & more", reason="<!channel> look")
-    card = render.card(hostile, NOW)
+    card = render.card(hostile, NOW, PLAIN)
     text = json.dumps(card.blocks)
     assert "```" not in text
     assert "\\nand" not in text
     assert "&lt;b&gt; &amp; more" in text
     assert "&lt;!channel&gt; look" in text
-    assert "<!channel>" not in json.dumps(render.overview([hostile], NOW.date(), NOW, "", "").attachments)
+    assert "<!channel>" not in json.dumps(render.overview([hostile], NOW.date(), NOW, PLAIN, "").attachments)
 
 
 def test_long_titles_are_cut():
-    card = render.card(row(8, title="y" * 100), NOW)
+    card = render.card(row(8, title="y" * 100), NOW, PLAIN)
     assert "y" * 57 + "..." in card.blocks[0]["text"]["text"]
     assert "y" * 58 not in card.blocks[0]["text"]["text"]
 
 
 def test_card_shows_the_snooze_and_who_owns_the_item():
     snoozed = row(9, snooze_until=(NOW + timedelta(hours=5)).timestamp())
-    detail = render.card(snoozed, NOW).blocks[1]["elements"][0]["text"]
+    detail = render.card(snoozed, NOW, PLAIN).blocks[1]["elements"][0]["text"]
     assert detail.startswith("by alamb · owner unassigned · 😴 until <!date^")
-    waiting = render.card(row(9), NOW).blocks[1]["elements"][0]["text"]
+    waiting = render.card(row(9), NOW, PLAIN).blocks[1]["elements"][0]["text"]
     assert "waiting 2d" in waiting
 
 
@@ -157,27 +173,27 @@ def test_ended_card():
 
 def test_activity_summarizes_events_in_one_line():
     events = [event(ago(hours=3)), event(ago(hours=2), kind="push"), event(ago(hours=1), "kou", "comment")]
-    text = render.activity(item(3), events, snooze_ended=True).text
+    text = render.activity(item(3), events, True, PLAIN).text
     assert text.startswith("💬 New activity from `alamb`, `kou`: 2 comments, 1 push")
     assert text.endswith("· snooze ended")
 
 
 def test_reminder_mentions_the_owner_once_and_lists_items():
     rows = [row(1, Tier.HIGH), row(2, Tier.NORMAL)]
-    first = render.reminder("UALICE", rows, True, NOW)
+    first = render.reminder("UALICE", rows, True, NOW, PLAIN)
     assert first.text == "<@UALICE>, 2 items wait on you today"
     # A reminder lists the same two-line entries as the overview, with each item's section marker.
     assert first.blocks[1]["text"]["text"].startswith(
         "🔴 📝 <https://github.com/o/r/issues/1|#1 A title> · alamb\n\u2003\u2003unassigned · waiting 2d"
     )
-    later = render.reminder(None, rows[:1], False, NOW)
+    later = render.reminder(None, rows[:1], False, NOW, PLAIN)
     assert later.text == "On-call (not set), 1 more item is due"
     assert "!snooze 2d" in json.dumps(first.blocks)
 
 
 def test_long_reminder_is_cut_with_a_count_and_keeps_its_footer():
     rows = [row(n, title="x" * 200) for n in range(1, 1001)]
-    message = render.reminder("UALICE", rows, True, NOW)
+    message = render.reminder("UALICE", rows, True, NOW, PLAIN)
     assert len(message.blocks) <= render.MAX_BLOCKS
     assert "_+" in message.blocks[-2]["text"]["text"]
     assert "!snooze 2d" in json.dumps(message.blocks[-1])

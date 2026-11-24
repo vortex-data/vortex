@@ -1,14 +1,16 @@
 """Build every Slack message that the bot posts, as Block Kit.
 
-Cards and the overview show GitHub logins as plain text and never mention anyone, so editing them
-on every run sends no notifications. Only reminders and command confirmations mention people.
+Messages name the people in the Slack mapping with Slack mentions, and everyone else by GitHub
+login. Slack does not notify the people that an edit mentions, so the bot posts each message with
+plain names (`People.mention` off) and then edits the mentions in. Only the recipient of a reminder
+and the sender of a command are mentioned in a post, so they are the only people notified.
 """
 
 from __future__ import annotations
 
 from collections import Counter
-from collections.abc import Sequence
-from dataclasses import dataclass
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass, field, replace
 from datetime import date, datetime
 from typing import Any
 
@@ -113,8 +115,37 @@ def kind_emoji(item: Item, assessment: Assessment) -> str:
     return (_BUG if BUG_LABEL in item.labels else _ISSUE).emoji
 
 
-def _owner(item: Item) -> str:
-    return ", ".join(item.assignees) if item.assignees else "unassigned"
+@dataclass(frozen=True)
+class People:
+    """How a message names people."""
+
+    # Lowercase GitHub login to Slack user ID, for the people the bot may mention.
+    users: Mapping[str, str] = field(default_factory=dict)
+    # The Slack user ID of the on-call engineer, who owns every item without an assignee.
+    oncall: str | None = None
+    # Whether to name the people in `users` with Slack mentions instead of GitHub logins.
+    mention: bool = False
+
+    def plain(self) -> People:
+        return replace(self, mention=False)
+
+    def name(self, login: str) -> str:
+        user = self.users.get(login.lower()) if self.mention else None
+        return f"<@{user}>" if user else login
+
+    def oncall_name(self) -> str:
+        if not self.oncall:
+            return ""
+        if self.mention:
+            return f"<@{self.oncall}>"
+        logins = [login for login, user in self.users.items() if user == self.oncall]
+        # Without a login, the Slack ID still says who is on call.
+        return logins[0] if logins else self.oncall
+
+    def owners(self, item: Item) -> str:
+        if item.assignees:
+            return ", ".join(self.name(login) for login in item.assignees)
+        return f"{self.oncall_name()} (on call)" if self.oncall else "unassigned"
 
 
 def _contributor(item: Item, assessment: Assessment) -> str:
@@ -154,22 +185,24 @@ def _thread(row: Row) -> str:
     return f"<{row.thread_url}|thread>" if row.thread_url else ""
 
 
-def _first_line(row: Row, marker: bool) -> str:
+def _first_line(row: Row, people: People, marker: bool) -> str:
     emoji = [row.section.marker] if marker else []
     emoji.append(kind_emoji(row.item, row.assessment))
-    contributor = _contributor(row.item, row.assessment)
-    tail = f" · {contributor}" if contributor else ""
-    # An emoji is about as wide as two letters, and a space follows each one.
-    used = 3 * len(emoji) + len(f"#{row.item.number} ") + len(tail)
+    login = _contributor(row.item, row.assessment)
+    # An emoji is about as wide as two letters, and a space follows each one. The width counts the
+    # login even when a mention shows the person's Slack name, because the bot does not know that
+    # name.
+    used = 3 * len(emoji) + len(f"#{row.item.number} ") + (len(f" · {login}") if login else 0)
     title_chars = max(LINE_CHARS - used, _MIN_TITLE_CHARS)
+    tail = f" · {people.name(login)}" if login else ""
     return f"{' '.join(emoji)} {_link(row.item, title_chars)}{tail}"
 
 
-def _entry(row: Row, now: datetime, *, marker: bool = False) -> str:
+def _entry(row: Row, now: datetime, people: People, *, marker: bool = False) -> str:
     """Show an item on two lines: the item and its contributor, then the team's side of it."""
     detail = escape(row.assessment.owes_reason) if row.section is WAITING else _wait(row, now)
-    second = _parts(_owner(row.item), detail, _thread(row))
-    return f"{_first_line(row, marker)}\n{_INDENT}{second}"
+    second = _parts(people.owners(row.item), detail, _thread(row))
+    return f"{_first_line(row, people, marker)}\n{_INDENT}{second}"
 
 
 def ordered(rows: Sequence[Row]) -> dict[Section, list[Row]]:
@@ -217,7 +250,7 @@ def _context(text: str) -> dict[str, Any]:
     return {"type": "context", "elements": [{"type": "mrkdwn", "text": text}]}
 
 
-def overview(rows: Sequence[Row], day: date, now: datetime, oncall: str, claude: str) -> Message:
+def overview(rows: Sequence[Row], day: date, now: datetime, people: People, claude: str) -> Message:
     """Build the daily overview, which lists every tracked item that is not snoozed."""
     # A snoozed item leaves the overview until its snooze ends, as a closed item does, so that the
     # overview lists only what needs attention. The summary still counts snoozed items.
@@ -226,7 +259,7 @@ def overview(rows: Sequence[Row], day: date, now: datetime, oncall: str, claude:
     counts = {section: len(members) for section, members in grouped.items()}
     label = day.strftime("%a %d %b").replace(" 0", " ")
     summary = _parts(
-        f"On call {oncall}" if oncall else "No on-call set",
+        f"On call {people.oncall_name()}" if people.oncall else "No on-call set",
         *(f"{s.marker} {counts[s]} {s.title if s is not WAITING else 'waiting'}" for s in SECTIONS),
         f"😴 {snoozed} snoozed" if snoozed else "",
         claude,
@@ -239,7 +272,10 @@ def overview(rows: Sequence[Row], day: date, now: datetime, oncall: str, claude:
         },
         _context(summary),
     ]
-    lines = {section: [_entry(row, now) for row in members] for section, members in grouped.items()}
+    lines = {
+        section: [_entry(row, now, people) for row in members]
+        for section, members in grouped.items()
+    }
     cut = {section: 0 for section in SECTIONS}
 
     def build() -> tuple[list[dict[str, Any]], int]:
@@ -277,12 +313,12 @@ def replaced_overview(day: date, link: str) -> Message:
     )
 
 
-def card(row: Row, now: datetime) -> Message:
+def card(row: Row, now: datetime, people: People) -> Message:
     """Build the two-line card that an open item's root shows."""
     item, assessment = row.item, row.assessment
     detail = _parts(
-        f"by {item.author}",
-        f"owner {_owner(item)}",
+        f"by {people.name(item.author)}",
+        f"owner {people.owners(item)}",
         _wait(row, now),
         # A reason can come from Claude, whose input contributors write, so it is escaped too.
         escape(assessment.owes_reason if row.section is WAITING else assessment.tier_reason),
@@ -319,7 +355,7 @@ def _count(n: int, singular: str, plural: str) -> str:
     return f"{n} {singular if n == 1 else plural}"
 
 
-def activity(item: Item, events: Sequence[Event], snooze_ended: bool) -> Message:
+def activity(item: Item, events: Sequence[Event], snooze_ended: bool, people: People) -> Message:
     """Report new contributor activity in one line."""
     kinds = Counter(e.kind for e in events)
     words = [
@@ -329,7 +365,8 @@ def activity(item: Item, events: Sequence[Event], snooze_ended: bool) -> Message
         "ready for review" if kinds[READY] else "",
         "opened" if kinds[OPENED] else "",
     ]
-    actors = ", ".join(f"`{escape(actor)}`" for actor in dict.fromkeys(e.actor for e in events))
+    names = [people.name(actor) for actor in dict.fromkeys(e.actor for e in events)]
+    actors = ", ".join(name if name.startswith("<@") else f"`{escape(name)}`" for name in names)
     what = ", ".join(word for word in words if word)
     text = f"💬 New activity from {actors}: {what} · <{item.url}|GitHub>"
     if snooze_ended:
@@ -360,7 +397,9 @@ def wrong_thread() -> Message:
     )
 
 
-def reminder(user: str | None, rows: Sequence[Row], first: bool, now: datetime) -> Message:
+def reminder(
+    user: str | None, rows: Sequence[Row], first: bool, now: datetime, people: People
+) -> Message:
     """Build one person's reminder, which lists their due items with links."""
     who = f"<@{user}>" if user else "On-call (not set)"
     count = _count(len(rows), "item waits", "items wait")
@@ -369,7 +408,7 @@ def reminder(user: str | None, rows: Sequence[Row], first: bool, now: datetime) 
         if first
         else f"⏰ {who}, {_count(len(rows), 'more item is', 'more items are')} due"
     )
-    lines = [_entry(row, now, marker=True) for row in rows]
+    lines = [_entry(row, now, people, marker=True) for row in rows]
     footer = "Reply `!snooze 2d` in an item's thread to pause its reminders."
     # The header and the footer take two blocks. Rows that do not fit are cut from the end, which
     # holds the least urgent items.
@@ -403,12 +442,14 @@ def instructions() -> Message:
             f"{_DONE} merged, closed, or answered by a teammate",
             f"{_UNTRACKED} no longer tracked",
             "Each item takes two lines. The first shows the item and the outside contributor, and "
-            "the item's number and title open it on GitHub. The second shows the assignees, how "
-            "long Vortex has owed a reply, and a link to the item's thread here.",
+            "the item's number and title open it on GitHub. The second shows the assignees (or "
+            "on-call when nobody is assigned), how long Vortex has owed a reply, and a link to the "
+            "item's thread here.",
             "",
             "*Owners*",
             "To take an item, assign yourself on GitHub. "
-            "Reminders go to the assignees, or to on-call when nobody is assigned.",
+            "Reminders go to the assignees, or to on-call when nobody is assigned. Messages show "
+            "teammates as Slack mentions, but only reminders and command replies notify anyone.",
             "",
             "*Commands*, as a reply in an item's thread:",
             "`!snooze 5h` hides the item from the overview and pauses its reminders for 5 working "

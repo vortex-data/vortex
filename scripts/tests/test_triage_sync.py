@@ -9,6 +9,7 @@ also check that the state in Slack is enough to continue after a crash.
 
 import importlib
 import json
+import re
 from datetime import timedelta
 from typing import Any
 
@@ -254,7 +255,32 @@ def test_every_assignee_with_a_slack_id_is_reminded():
     run(fake, [shared], pings=True, users={"alice": "UALICE", "bob": "UBOB"})
     reminders = fake.bot_replies(overview_ts(fake))
     assert sorted(reminders) == ["<@UALICE>, 1 item waits on you today", "<@UBOB>, 1 item waits on you today"]
-    assert "Bob, alice, carol" in json.dumps(fake.messages[overview_ts(fake)], ensure_ascii=False)
+    assert "<@UBOB>, <@UALICE>, carol" in json.dumps(fake.messages[overview_ts(fake)], ensure_ascii=False)
+
+
+def test_posts_mention_only_their_recipients_and_edits_add_everyone_else():
+    items = [item(1, created=ago(days=1), assignees=["alice", "bob"]), item(2, created=ago(days=1))]
+    users = {"alice": "UALICE", "bob": "UBOB"}
+    fake = FakeSlack()
+    run(fake, items, pings=True, users=users)
+    # Slack notifies the people that a post mentions, but not the people that an edit adds, so a
+    # post may mention only the recipient of a reminder.
+    for posted in fake.posted:
+        key = str(posted["metadata"]["event_payload"].get("key", ""))
+        recipient = {key.split(":")[2]} if key.startswith("remind:") else set()
+        assert set(re.findall(r"<@(\w+)>", json.dumps(posted))) <= recipient
+    assert "<@UALICE>, <@UBOB> · waiting" in json.dumps(fake.root(1), ensure_ascii=False)
+    assert "owner <@UONCALL> (on call)" in json.dumps(fake.root(2), ensure_ascii=False)
+    overview = json.dumps(fake.messages[overview_ts(fake)], ensure_ascii=False)
+    assert "On call <@UONCALL>" in overview and "<@UALICE>, <@UBOB> · waiting" in overview
+    replies = [m for m in fake.messages.values() if m.get("thread_ts") == overview_ts(fake)]
+    alice = next(r for r in replies if r["text"].startswith("<@UALICE>"))
+    assert "<@UALICE>, <@UBOB> · waiting" in json.dumps(alice, ensure_ascii=False)
+
+    # A second run with nothing new edits only the overview, so no card flips between the two forms.
+    fake.calls.clear()
+    run(fake, items, NOW + timedelta(minutes=5), pings=True, users=users)
+    assert fake.calls.count("update") == 1
 
 
 def test_next_day_replaces_the_overview_and_respects_cadence_and_snoozes():
@@ -303,7 +329,7 @@ def test_failed_thread_read_keeps_the_item_in_the_overview_and_reminders():
     assert run(fake, [HIGH], NOW + HOUR, pings=True) == ["#1: replies: fault"]
     summary = fake.messages[overview_ts(fake)]["blocks"][1]["elements"][0]["text"]
     # On-call has no GitHub login in the users map, so the overview names their Slack ID.
-    assert summary.startswith("On call UONCALL · 🔴 1 High")
+    assert summary.startswith("On call <@UONCALL> · 🔴 1 High")
     assert fake.bot_replies(overview_ts(fake)) == ["<@UONCALL>, 1 item waits on you today"]
 
 
@@ -316,10 +342,10 @@ def test_no_reminders_without_pings():
 def test_one_broken_item_does_not_stop_the_others(monkeypatch):
     original = render.card
 
-    def card(row, now) -> Any:
+    def card(row, now, people) -> Any:
         if row.item.number == 2:
             raise ValueError("secret title")
-        return original(row, now)
+        return original(row, now, people)
 
     monkeypatch.setattr(render, "card", card)
     fake = FakeSlack()

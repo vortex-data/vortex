@@ -13,6 +13,7 @@ import traceback
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
+from functools import partial
 from typing import Any, Protocol
 
 from . import render
@@ -161,6 +162,9 @@ class Run:
         self.channel = channel
         self.failures: list[str] = []
         self.identity = slack.identity()
+        # Posts use `quiet`, and the edits after them use `people`. See the `render` module.
+        self.people = render.People(config.users, config.oncall, mention=True)
+        self.quiet = self.people.plain()
 
     def _link(self, ts: str) -> str:
         return f"{self.identity.url}archives/{self.slack.channel}/p{ts.replace('.', '')}"
@@ -196,11 +200,18 @@ class Run:
             and message.get("user") != self.identity.user_id
         )
 
-    def _reply(self, thread: Thread, key: str, message: Message) -> None:
+    def _reply(self, thread: Thread, key: str, build: Callable[[render.People], Message]) -> None:
+        """Post a reply once, with plain names, and then edit the mentions in."""
         if key in thread.keys:
             return
-        self.slack.post(message, metadata(REPLY_EVENT, {"key": key}), thread.ts)
+        data = metadata(REPLY_EVENT, {"key": key})
+        quiet = build(self.quiet)
+        ts = self.slack.post(quiet, data, thread.ts)
+        # The key goes in before the edit, so a failed edit leaves plain names and no second post.
         thread.keys.add(key)
+        loud = build(self.people)
+        if loud != quiet:
+            self.slack.update(ts, loud, data)
 
     def execute(self, items: list[Item]) -> list[str]:
         """Bring Slack up to date with the open `items`, and return what failed."""
@@ -265,7 +276,8 @@ class Run:
                 state = ItemState(
                     item.number, seen_external_at=assessment.last_external_at or "", verdict=verdict
                 )
-                message = render.card(replace(row, state=state), self.now)
+                # `_save` edits the mentions in later in this run.
+                message = render.card(replace(row, state=state), self.now, self.quiet)
                 state = replace(state, card=_hash(message))
                 ts = self.slack.post(message, metadata(ITEM_EVENT, state.payload()))
                 root = Root(Thread(ts, ""), state, state)
@@ -290,7 +302,9 @@ class Run:
             wake = state.snoozed(self.now) and any(
                 parse_time(e.at).timestamp() > state.snoozed_at for e in new
             )
-            self._reply(root.thread, f"activity:{last_external}", render.activity(item, new, wake))
+            self._reply(
+                root.thread, f"activity:{last_external}", partial(render.activity, item, new, wake)
+            )
             if wake:
                 state = state.unsnoozed()
             state = replace(state, seen_external_at=last_external)
@@ -321,7 +335,7 @@ class Run:
         else:
             assert isinstance(command, Invalid)
             reply = render.invalid(command.error)
-        self._reply(thread, f"command:{request['ts']}", reply)
+        self._reply(thread, f"command:{request['ts']}", lambda _people: reply)
         return state
 
     def _end(self, number: int, root: Root) -> None:
@@ -342,19 +356,11 @@ class Run:
         root = self.channel.roots.get(row.item.number)
         if root is None:
             return
-        message = render.card(replace(row, state=root.state), self.now)
+        message = render.card(replace(row, state=root.state), self.now, self.people)
         state = replace(root.state, card=_hash(message))
         if state != root.saved:
             self.slack.update(root.thread.ts, message, metadata(ITEM_EVENT, state.payload()))
         root.state = root.saved = state
-
-    def _oncall_login(self) -> str:
-        if not self.config.oncall:
-            return ""
-        logins = [login for login, user in self.config.users.items() if user == self.config.oncall]
-        # Without a login, the Slack ID still says who is on call. A mention would notify them
-        # every time the overview is posted.
-        return logins[0] if logins else self.config.oncall
 
     def _overview(self, rows: list[render.Row]) -> None:
         today = london_date(self.now)
@@ -362,9 +368,8 @@ class Run:
         current = self.channel.overview
         started = bounds is not None and self.now >= bounds[0]
         if current is None or (started and current.state.day != today.isoformat()):
-            content = render.overview(
-                rows, today, self.now, self._oncall_login(), self.config.claude
-            )
+            # The edit at the end of this method brings in the mentions.
+            content = render.overview(rows, today, self.now, self.quiet, self.config.claude)
             state = OverviewState(day=today.isoformat())
             ts = self.slack.post(content, metadata(OVERVIEW_EVENT, state.payload()))
             if current is not None:
@@ -380,13 +385,14 @@ class Run:
         requests, read_until = self._requests(current.thread, state.read_until)
         for request in requests:
             if parse(str(request.get("text") or "")) is not None:
-                self._reply(current.thread, f"command:{request['ts']}", render.wrong_thread())
+                key = f"command:{request['ts']}"
+                self._reply(current.thread, key, lambda _people: render.wrong_thread())
         state = replace(state, read_until=read_until)
         if self.config.pings and in_window(self.now) and state.day == today.isoformat():
             state = self._remind(current.thread, state, rows)
 
         day = datetime.fromisoformat(state.day).date()
-        content = render.overview(rows, day, self.now, self._oncall_login(), self.config.claude)
+        content = render.overview(rows, day, self.now, self.people, self.config.claude)
         self.slack.update(current.thread.ts, content, metadata(OVERVIEW_EVENT, state.payload()))
         current.state = state
 
@@ -440,7 +446,9 @@ class Run:
             )
             name = person or "oncall"
             key = f"remind:{state.day}:{name}:{hashlib.sha256(numbers.encode()).hexdigest()[:12]}"
-            self._reply(thread, key, render.reminder(person, flat, name not in reminded, self.now))
+            self._reply(
+                thread, key, partial(render.reminder, person, flat, name not in reminded, self.now)
+            )
             reminded.add(name)
             for row in flat:
                 root = self.channel.roots[row.item.number]

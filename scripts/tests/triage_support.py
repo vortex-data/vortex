@@ -94,6 +94,8 @@ class FakeSlack:
         # (method, when) pairs. `before` raises SlackError and changes nothing. `after` acts and
         # then raises SlackUnknown, like a timeout after Slack stored the message.
         self.faults: list[tuple[str, str]] = []
+        # Every post as Slack received it, before any edit, which decides who gets notified.
+        self.posted: list[dict[str, Any]] = []
 
     def identity(self) -> Any:
         return slack.Identity(BOT_USER, BOT_ID, "https://example.slack.com/")
@@ -139,6 +141,7 @@ class FakeSlack:
     def post(self, message: Any, metadata: dict[str, Any], thread_ts: str | None = None) -> str:
         self.calls.append("post")
         when = self._fault("post")
+        self.posted.append({**message.params(), "metadata": metadata})
         ts = self._store(
             {
                 "ts": self._ts(),
