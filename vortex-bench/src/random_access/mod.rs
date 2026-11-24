@@ -244,18 +244,25 @@ mod tests {
         let published = ParquetMetaDataReader::new()
             .with_page_index_policy(PageIndexPolicy::Optional)
             .parse_and_finish(&File::open(&input)?)?;
-        assert!(published.offset_index().is_none());
+        assert!(
+            !published
+                .page_index()
+                .is_some_and(|index| index.has_offset_indexes())
+        );
 
         write_random_access_parquet(&input, &output)?;
 
         let metadata = ParquetMetaDataReader::new()
             .with_page_index_policy(PageIndexPolicy::Required)
             .parse_and_finish(&File::open(&output)?)?;
-        assert!(metadata.column_index().is_some());
-        let offset_index = metadata
-            .offset_index()
-            .ok_or_else(|| anyhow!("no offset index"))?;
-        let pages = offset_index[0][0].page_locations();
+        let page_index = metadata
+            .page_index()
+            .ok_or_else(|| anyhow!("no page index"))?;
+        assert!(page_index.column_index(0, 0).is_some());
+        let pages = page_index
+            .offset_index(0, 0)
+            .ok_or_else(|| anyhow!("no offset index"))?
+            .page_locations();
         assert!(pages.len() >= 5);
         for pair in pages.windows(2) {
             // parquet-rs checks the 20,000-row limit after every 1,024 rows.

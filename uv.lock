@@ -6,13 +6,13 @@ resolution-markers = [
     "python_full_version >= '3.14' and sys_platform == 'emscripten'",
     "python_full_version >= '3.14' and sys_platform != 'emscripten' and sys_platform != 'win32'",
     "python_full_version == '3.13.*' and sys_platform == 'win32'",
-    "python_full_version == '3.12.*' and sys_platform == 'win32'",
-    "python_full_version < '3.12' and sys_platform == 'win32'",
     "python_full_version == '3.13.*' and sys_platform == 'emscripten'",
-    "python_full_version == '3.12.*' and sys_platform == 'emscripten'",
-    "python_full_version < '3.12' and sys_platform == 'emscripten'",
     "python_full_version == '3.13.*' and sys_platform != 'emscripten' and sys_platform != 'win32'",
+    "python_full_version == '3.12.*' and sys_platform == 'win32'",
+    "python_full_version == '3.12.*' and sys_platform == 'emscripten'",
     "python_full_version == '3.12.*' and sys_platform != 'emscripten' and sys_platform != 'win32'",
+    "python_full_version < '3.12' and sys_platform == 'win32'",
+    "python_full_version < '3.12' and sys_platform == 'emscripten'",
     "python_full_version < '3.12' and sys_platform != 'emscripten' and sys_platform != 'win32'",
 ]
 
@@ -98,7 +98,7 @@ wheels = [
 [[package]]
 name = "bench-orchestrator"
 version = "0.1.0"
-source = { editable = "bench-orchestrator" }
+source = { editable = "benchmarks/bench-orchestrator" }
 dependencies = [
     { name = "boto3" },
     { name = "pandas" },
@@ -420,10 +420,10 @@ version = "0.22.4"
 source = { registry = "https://pypi.org/simple" }
 resolution-markers = [
     "python_full_version == '3.12.*' and sys_platform == 'win32'",
-    "python_full_version < '3.12' and sys_platform == 'win32'",
     "python_full_version == '3.12.*' and sys_platform == 'emscripten'",
-    "python_full_version < '3.12' and sys_platform == 'emscripten'",
     "python_full_version == '3.12.*' and sys_platform != 'emscripten' and sys_platform != 'win32'",
+    "python_full_version < '3.12' and sys_platform == 'win32'",
+    "python_full_version < '3.12' and sys_platform == 'emscripten'",
     "python_full_version < '3.12' and sys_platform != 'emscripten' and sys_platform != 'win32'",
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/ae/b6/03bb70946330e88ffec97aefd3ea75ba575cb2e762061e0e62a213befee8/docutils-0.22.4.tar.gz", hash = "sha256:4db53b1fde9abecbb74d91230d32ab626d94f6badfc575d6db9194a49df29968", size = 2291750, upload-time = "2025-12-18T19:00:26.443Z" }
@@ -1165,10 +1165,10 @@ resolution-markers = [
     "python_full_version >= '3.14' and sys_platform == 'emscripten'",
     "python_full_version >= '3.14' and sys_platform != 'emscripten' and sys_platform != 'win32'",
     "python_full_version == '3.13.*' and sys_platform == 'win32'",
-    "python_full_version == '3.12.*' and sys_platform == 'win32'",
     "python_full_version == '3.13.*' and sys_platform == 'emscripten'",
-    "python_full_version == '3.12.*' and sys_platform == 'emscripten'",
     "python_full_version == '3.13.*' and sys_platform != 'emscripten' and sys_platform != 'win32'",
+    "python_full_version == '3.12.*' and sys_platform == 'win32'",
+    "python_full_version == '3.12.*' and sys_platform == 'emscripten'",
     "python_full_version == '3.12.*' and sys_platform != 'emscripten' and sys_platform != 'win32'",
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/4e/3a/8770c288c47f0b5c2a786d3c20e79f66fd245f2d42cd232d7cd5e00e83e5/numpy-2.5.5.tar.gz", hash = "sha256:5cddc243c75114ba845f01b1f87aca1572dbf7b6c2d88636ed3e1d2bccd7f1bf", size = 20873892, upload-time = "2026-11-15T21:32:28.607Z" }
@@ -2697,7 +2697,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "bench-orchestrator", editable = "bench-orchestrator" },
+    { name = "bench-orchestrator", editable = "benchmarks/bench-orchestrator" },
     { name = "docs", virtual = "docs" },
     { name = "vortex-data", editable = "vortex-python" },
 ]
