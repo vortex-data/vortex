@@ -3,8 +3,6 @@
 
 //! FSST (Fast Static Symbol Table) string compression.
 
-use std::sync::Arc;
-
 use vortex_array::ArrayId;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
@@ -22,7 +20,6 @@ use vortex_error::VortexResult;
 use vortex_fsst::FSST;
 use vortex_fsst::FSSTArrayExt;
 use vortex_fsst::FSSTArraySlotsExt;
-use vortex_fsst::FSSTSymbolTable;
 use vortex_fsst::fsst_compress;
 use vortex_fsst::fsst_train_compressor;
 
@@ -84,31 +81,27 @@ impl Scheme for FSSTScheme {
         _compress_ctx: &CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<Encoded> {
-        let utf8 = data.array();
-        let compressor_fsst = fsst_train_compressor(utf8, exec_ctx)?;
-        let fsst = fsst_compress(utf8, &compressor_fsst, exec_ctx)?;
+        let array = data.array();
+        let compressor_fsst = fsst_train_compressor(array, exec_ctx)?;
+        let fsst = fsst_compress(array, &compressor_fsst, exec_ctx)?;
 
         let uncompressed_lengths = fsst
             .uncompressed_lengths()
             .clone()
             .execute::<PrimitiveArray>(exec_ctx)?
             .narrow(exec_ctx)?;
-        let codes_offsets = fsst
-            .codes()
+        let codes = fsst.codes();
+        let codes_offsets = codes
             .offsets()
             .clone()
             .execute::<PrimitiveArray>(exec_ctx)?
             .narrow(exec_ctx)?;
 
-        // Reuse the padded symbol table as-is; only the codes and lengths change here.
-        let symbol_table = Arc::new(FSSTSymbolTable::new_padded(
-            fsst.padded_symbols().clone(),
-            fsst.padded_symbol_lengths().clone(),
-            fsst.n_symbols(),
-        )?);
+        // Share the trained symbol table; only the codes and lengths change here.
+        let symbol_table = fsst.symbol_table();
         let dtype = fsst.dtype().clone();
-        let codes_bytes = fsst.codes().bytes().clone();
-        let codes_dtype = fsst.codes().dtype().clone();
+        let codes_bytes = codes.bytes().clone();
+        let codes_dtype = codes.dtype().clone();
         Ok(Encoded::new(
             vec![
                 Child::new(self, 0, uncompressed_lengths.into_array()),
@@ -134,7 +127,7 @@ impl Scheme for FSSTScheme {
                 .into_array())
             },
         )
-        .with_validity(fsst.codes().validity()?))
+        .with_validity(codes.validity()?))
     }
 
     #[expect(clippy::unimplemented, reason = "replaced by `encode`")]

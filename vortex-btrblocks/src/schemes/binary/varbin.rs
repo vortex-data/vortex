@@ -62,7 +62,7 @@ impl Scheme for VarBinScheme {
         CompressionEstimate::Deferred(DeferredEstimate::Sample)
     }
 
-    /// Children: offsets=0. The validity is rebuilt, and registered.
+    /// Children: offsets=0. The builder rebuilds the input's validity, which is registered.
     fn encode(
         &self,
         data: &ArrayAndStats,
