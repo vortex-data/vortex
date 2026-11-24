@@ -4,7 +4,10 @@
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::IntoArray;
+use vortex_array::arrays::Widen;
+use vortex_array::arrays::WidenArray;
 use vortex_array::arrays::dict::TakeReduce;
+use vortex_array::arrays::widen::WidenArraySlotsExt;
 use vortex_error::VortexResult;
 
 use crate::DecimalByteParts;
@@ -22,10 +25,35 @@ impl TakeReduce for DecimalByteParts {
             return Ok(None);
         }
 
-        array
-            .map_parts(|part| part.take(indices.clone()))
-            .map(|a| Some(a.into_array()))
+        let msp = take_msp(array.msp(), indices)?;
+        let lower_parts = array
+            .lower_parts()
+            .iter()
+            .map(|part| part.take(indices.clone()))
+            .collect::<VortexResult<Vec<_>>>()?;
+
+        DecimalByteParts::try_new_with_lower_parts(msp, lower_parts, array.decimal_dtype())
+            .map(|array| Some(array.into_array()))
     }
+}
+
+/// Takes the rows of `msp` at `indices`, and keeps a [`Widen`] MSP at the top of the slot.
+fn take_msp(msp: &ArrayRef, indices: &ArrayRef) -> VortexResult<ArrayRef> {
+    let Some(widen) = msp.as_opt::<Widen>() else {
+        return msp.take(indices.clone());
+    };
+
+    // NB: Take under the `Widen`, so that the slot holds `Widen(Dict)` and not `Dict(Widen)`.
+    // `WidenArray::to_stored_integer` removes a `Widen` only at the top of the MSP slot, and an
+    // integer `Widen` has no wire form until #10733. A take on a `Widen` array runs its gather
+    // instead of leaving a lazy `Dict` under the `Widen`, because the DuckDB exporter and the dict
+    // layout writer look for a `Dict` at the root of an array (see the
+    // `vortex_array::arrays::widen` module docs). The MSP slot is never a root, so a lazy `Dict` is
+    // fine here.
+    let values = widen.values().take(indices.clone())?;
+    let dtype = msp.dtype().with_nullability(values.dtype().nullability());
+
+    Ok(WidenArray::try_new(values, dtype)?.into_array())
 }
 
 #[cfg(test)]
@@ -64,6 +92,7 @@ mod tests {
             Buffer::from(vec![1i128 << 70, 2, 3]),
             DecimalDType::new(38, 2),
             Validity::NonNullable,
+            &mut SESSION.create_execution_ctx(),
         );
         let indices = buffer![0u64, 2].into_array();
         let taken = DecimalByteParts::encode(&decimal, &mut SESSION.create_execution_ctx())?
@@ -86,11 +115,13 @@ mod tests {
         Buffer::from(vec![1i128 << 70, 2, 3]),
         DecimalDType::new(38, 2),
         Validity::NonNullable,
+        &mut SESSION.create_execution_ctx(),
     ))]
     #[case::three_lower_parts(DecimalArray::new(
         Buffer::from(vec![i256::from_parts(1 << 70, 1), i256::from_parts(2, 0), i256::from_parts(3, 0)]),
         DecimalDType::new(76, 2),
         Validity::NonNullable,
+        &mut SESSION.create_execution_ctx(),
     ))]
     fn take_with_nullable_indices(#[case] decimal: DecimalArray) -> VortexResult<()> {
         let session = VortexSession::empty();

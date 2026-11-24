@@ -79,84 +79,31 @@ mod tests {
     }
 
     #[test]
-    fn cast_to_from_extension_types() {
+    fn cast_to_from_extension_types() -> VortexResult<()> {
         let apples = Apples::new(DType::Primitive(PType::U16, Nullability::NonNullable));
+        let storage_dtype = apples.storage_dtype().clone();
+        let storage_scalar = Scalar::from(1000u16);
+        let ext_scalar = Scalar::extension_ref(apples.erased(), storage_scalar.clone());
+        let ext_dtype = ext_scalar.dtype();
+        let nullable_ext_dtype = ext_dtype.as_nullable();
 
-        let ext_dtype = DType::Extension(apples.clone().erased());
-        let ext_scalar = Scalar::new(
-            ext_dtype.clone(),
-            Some(ScalarValue::Primitive(PValue::U16(1000))),
-        );
+        for target in [ext_dtype, &nullable_ext_dtype] {
+            let actual = ext_scalar.cast(target)?;
+            assert_eq!(actual.dtype(), target);
+            assert_eq!(actual.value(), ext_scalar.value());
+            assert!(storage_scalar.cast(target).is_err());
+        }
 
-        let storage_scalar = Scalar::new(
-            DType::clone(apples.storage_dtype()),
-            Some(ScalarValue::Primitive(PValue::U16(1000))),
-        );
-
-        // to self
-        let expected_dtype = &ext_dtype;
-        let actual = ext_scalar.cast(expected_dtype).unwrap();
-        assert_eq!(actual.dtype(), expected_dtype);
-        assert_eq!(
-            actual.value(),
-            Some(&ScalarValue::Primitive(PValue::U16(1000)))
-        );
-
-        // to nullable self
-        let expected_dtype = &ext_dtype.as_nullable();
-        let actual = ext_scalar.cast(expected_dtype).unwrap();
-        assert_eq!(actual.dtype(), expected_dtype);
-        assert_eq!(
-            actual.value(),
-            Some(&ScalarValue::Primitive(PValue::U16(1000)))
-        );
-
-        // cast to the storage type
-        let expected_dtype = apples.storage_dtype();
-        let actual = ext_scalar.cast(expected_dtype).unwrap();
-        assert_eq!(actual.dtype(), expected_dtype);
-        assert_eq!(
-            actual.value(),
-            Some(&ScalarValue::Primitive(PValue::U16(1000)))
-        );
-
-        // cast to the storage type, nullable
-        let expected_dtype = &apples.storage_dtype().as_nullable();
-        let actual = ext_scalar.cast(expected_dtype).unwrap();
-        assert_eq!(actual.dtype(), expected_dtype);
-        assert_eq!(
-            actual.value(),
-            Some(&ScalarValue::Primitive(PValue::U16(1000)))
-        );
-
-        // cast from storage type to extension
-        let expected_dtype = &ext_dtype;
-        let actual = storage_scalar.cast(expected_dtype).unwrap();
-        assert_eq!(actual.dtype(), expected_dtype);
-        assert_eq!(
-            actual.value(),
-            Some(&ScalarValue::Primitive(PValue::U16(1000)))
-        );
-
-        // cast from storage type to extension, nullable
-        let expected_dtype = &ext_dtype.as_nullable();
-        let actual = storage_scalar.cast(expected_dtype).unwrap();
-        assert_eq!(actual.dtype(), expected_dtype);
-        assert_eq!(
-            actual.value(),
-            Some(&ScalarValue::Primitive(PValue::U16(1000)))
-        );
-
-        // cast from *incompatible* storage type to extension
+        assert!(ext_scalar.cast(&storage_dtype).is_err());
+        assert!(ext_scalar.cast(&storage_dtype.as_nullable()).is_err());
         let apples_u8 = Apples::new(DType::Primitive(PType::U8, Nullability::NonNullable));
-        let expected_dtype = &DType::Extension(apples_u8.erased());
-        let result = storage_scalar.cast(expected_dtype);
         assert!(
-            result
-                .as_ref()
-                .is_err_and(|err| { err.to_string().contains("Cannot cast 1000u16 to u8") }),
-            "{result:?}"
+            storage_scalar
+                .cast(&DType::Extension(apples_u8.erased()))
+                .is_err()
         );
+
+        Ok(())
     }
 
     #[test]

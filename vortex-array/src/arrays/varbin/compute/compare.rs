@@ -19,8 +19,8 @@ use crate::arrays::varbin::VarBinArraySlotsExt;
 use crate::dtype::DType;
 use crate::dtype::IntegerPType;
 use crate::match_each_integer_ptype;
-use crate::scalar_fn::fns::binary::CompareKernel;
-use crate::scalar_fn::fns::operators::CompareOperator;
+use crate::scalar_fn::builtin::compare::CompareKernel;
+use crate::scalar_fn::builtin::operators::CompareOperator;
 
 // This implementation exists so we can compare against a constant in encoded space, without
 // canonicalizing the VarBin array to VarBinView.
@@ -189,7 +189,7 @@ mod test {
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::scalar::Scalar;
-    use crate::scalar_fn::fns::operators::Operator;
+    use crate::scalar_fn::builtin::operators::CompareOperator;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
@@ -202,13 +202,13 @@ mod test {
         );
         let result = array
             .into_array()
-            .binary(
+            .compare(
                 ConstantArray::new(
                     Scalar::binary(ByteBuffer::copy_from(b"abc"), Nullability::Nullable),
                     3,
                 )
                 .into_array(),
-                Operator::Eq,
+                CompareOperator::Eq,
             )
             .unwrap();
 
@@ -232,7 +232,7 @@ mod test {
         );
         let result = array
             .into_array()
-            .binary(vbv.into_array(), Operator::Eq)
+            .compare(vbv.into_array(), CompareOperator::Eq)
             .unwrap();
 
         assert_arrays_eq!(
@@ -261,7 +261,7 @@ mod tests {
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::scalar::Scalar;
-    use crate::scalar_fn::fns::operators::Operator;
+    use crate::scalar_fn::builtin::operators::CompareOperator;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
@@ -273,7 +273,7 @@ mod tests {
 
         let result = arr
             .into_array()
-            .binary(const_.into_array(), Operator::Eq)
+            .compare(const_.into_array(), CompareOperator::Eq)
             .unwrap();
         assert_arrays_eq!(
             result,
@@ -302,9 +302,9 @@ mod tests {
 
         let result = array
             .into_array()
-            .binary(
+            .compare(
                 ConstantArray::new(Scalar::utf8("abc", Nullability::NonNullable), 3).into_array(),
-                Operator::Eq,
+                CompareOperator::Eq,
             )
             .unwrap();
 
@@ -327,13 +327,13 @@ mod tests {
 
         let result = array
             .into_array()
-            .binary(
+            .compare(
                 ConstantArray::new(
                     Scalar::binary(ByteBuffer::copy_from(b"abc"), Nullability::NonNullable),
                     3,
                 )
                 .into_array(),
-                Operator::Eq,
+                CompareOperator::Eq,
             )
             .unwrap();
 

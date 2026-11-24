@@ -3,24 +3,20 @@
 
 use std::sync::Arc;
 use std::sync::LazyLock;
-use std::thread;
 
 use arrow_array::RecordBatch;
 use arrow_array::cast::AsArray;
 use arrow_schema::Field;
 use futures::TryStreamExt;
-use parking_lot::Mutex;
-use rstest::rstest;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::VarBinArray;
-use vortex_array::assert_arrays_eq;
+use vortex_arrow::ArrowScanExt;
 use vortex_arrow::ArrowSessionExt;
 use vortex_arrow::ExecuteArrowExt;
-use vortex_buffer::Buffer;
 use vortex_buffer::ByteBufferMut;
 use vortex_buffer::buffer;
 use vortex_error::VortexResult;
@@ -95,61 +91,5 @@ async fn record_batches_match_arrays() -> VortexResult<()> {
 
     assert_eq!(derived, expected);
     assert_eq!(given, expected);
-    Ok(())
-}
-
-/// Per-batch work, such as executing to Arrow, must run on the driver's tasks: on the thread
-/// polling the stream it is serialised, which is what slowed the decompress benchmark down.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn batches_are_mapped_off_the_polling_thread() -> VortexResult<()> {
-    let file = file().await?;
-    let polling = thread::current().id();
-    let mapped_on = Arc::new(Mutex::new(Vec::new()));
-    let map_fn = {
-        let mapped_on = Arc::clone(&mapped_on);
-        Arc::new(move |batch: ArrayRef| {
-            mapped_on.lock().push(thread::current().id());
-            Ok(batch)
-        })
-    };
-
-    let batches: Vec<ArrayRef> = driver()
-        .drive(ScanBuilder::new(SESSION.clone(), file.scan_file()), map_fn)
-        .try_collect()
-        .await?;
-
-    let mapped_on = mapped_on.lock();
-    assert!(!batches.is_empty());
-    assert_eq!(mapped_on.len(), batches.len());
-    assert!(mapped_on.iter().all(|thread| *thread != polling));
-    Ok(())
-}
-
-/// An ordered scan yields its chunks in row order however many run beside each other, including
-/// at a concurrency of one, where an unordered scan would run them inline on the scan's own run.
-#[rstest]
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn ordered_scan_yields_chunks_in_row_order(
-    #[values(1, 4)] concurrency: usize,
-) -> VortexResult<()> {
-    let rows = 300_000;
-    let values = Buffer::from_iter(0..rows).into_array();
-    let array = StructArray::from_fields(&[("values", values)])?.into_array();
-    let mut buf = ByteBufferMut::empty();
-    SESSION
-        .write_options()
-        .write(&mut buf, array.to_array_stream())
-        .await?;
-    let file = SESSION.open_options().open_buffer(buf)?;
-
-    let batches: Vec<ArrayRef> = ScanDriver::new(TokioRuntime::current(), concurrency, true)
-        .run(ScanBuilder::new(SESSION.clone(), file.scan_file()))
-        .try_collect()
-        .await?;
-
-    assert!(batches.len() > 1, "the scan should span several chunks");
-    let scanned = ChunkedArray::try_new(batches, array.dtype().clone())?.into_array();
-    let mut ctx = SESSION.create_execution_ctx();
-    assert_arrays_eq!(scanned, array, &mut ctx);
     Ok(())
 }

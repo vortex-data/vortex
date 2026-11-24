@@ -26,6 +26,8 @@ use vortex_utils::aliases::hash_map::HashMap;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::array::ArrayView;
+use crate::arrays::VarBinView;
 use crate::arrays::VarBinViewArray;
 use crate::arrays::filter::append_filtered_slice;
 use crate::arrays::varbinview::VarBinViewArrayExt;
@@ -33,6 +35,7 @@ use crate::arrays::varbinview::build_views::BinaryView;
 use crate::arrays::varbinview::build_views::MAX_BUFFER_LEN;
 use crate::arrays::varbinview::build_views::extend_views;
 use crate::arrays::varbinview::compact::BufferUtilization;
+use crate::arrays::varbinview::compact::VarBinViewCompactExt;
 use crate::builders::ArrayBuilder;
 use crate::builders::LazyBitBufferBuilder;
 use crate::canonical::Canonical;
@@ -838,7 +841,7 @@ impl VarBinViewBuilder {
 
     pub(crate) fn append_varbinview_array(
         &mut self,
-        array: &VarBinViewArray,
+        array: ArrayView<'_, VarBinView>,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
         self.flush_in_progress();
@@ -963,7 +966,7 @@ impl VarBinViewBuilder {
         &mut self,
         view: BinaryView,
         adjustment: &RewritingViewAdjustment,
-        array: &VarBinViewArray,
+        array: ArrayView<'_, VarBinView>,
         idx: usize,
     ) -> BinaryView {
         if view.is_inlined() {
@@ -1157,14 +1160,13 @@ impl DeduplicatedBuffers {
             .collect()
     }
 
-    pub(crate) fn extend_from_iter(
-        &mut self,
-        buffers: impl Iterator<Item = ByteBuffer>,
-    ) -> Vec<u32> {
+    /// Pushes each of `buffers`, returning the index of each in the deduplicated buffers.
+    pub fn extend_from_iter(&mut self, buffers: impl Iterator<Item = ByteBuffer>) -> Vec<u32> {
         buffers.map(|buffer| self.push(buffer)).collect()
     }
 
-    pub(crate) fn finish(self) -> Arc<[ByteBuffer]> {
+    /// The deduplicated buffers, in the order they were first pushed.
+    pub fn finish(self) -> Arc<[ByteBuffer]> {
         Arc::from(self.buffers)
     }
 }
@@ -1246,7 +1248,7 @@ enum BuffersWithOffsets {
 
 impl BuffersWithOffsets {
     pub fn from_array(
-        array: &VarBinViewArray,
+        array: ArrayView<'_, VarBinView>,
         compaction_threshold: f64,
         ctx: &mut ExecutionCtx,
     ) -> Self {

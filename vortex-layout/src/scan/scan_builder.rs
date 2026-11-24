@@ -10,7 +10,6 @@ use std::task::Poll;
 use std::task::ready;
 
 use futures::Stream;
-use futures::future::BoxFuture;
 use futures::stream::BoxStream;
 use itertools::Itertools;
 use vortex_array::ArrayRef;
@@ -39,7 +38,10 @@ use crate::layouts::row_idx::RowIdx;
 use crate::layouts::row_idx::RowIdxLayoutReader;
 use crate::scan::limit::RowLimit;
 use crate::scan::limit::ScanLimit;
+use crate::scan::metrics::ScanMetrics;
+use crate::scan::metrics::ScanUsage;
 use crate::scan::repeated_scan::RepeatedScan;
+use crate::scan::repeated_scan::ScanTasks;
 use crate::scan::repeated_scan::SplitConcurrency;
 use crate::scan::split_by::SplitBy;
 use crate::scan::splits::Splits;
@@ -76,7 +78,10 @@ pub struct ScanBuilder<A> {
     concurrency: SplitConcurrency,
     /// Function to apply to each [`ArrayRef`] within the spawned split tasks.
     map_fn: Arc<dyn Fn(ArrayRef) -> VortexResult<A> + Send + Sync>,
-    metrics_registry: Option<Arc<dyn MetricsRegistry>>,
+    /// Caller-owned resource usage that the scan adds to.
+    usage: Option<Arc<ScanUsage>>,
+    /// Registry counters that the scan adds to.
+    metrics: Option<ScanMetrics>,
     /// Maximal number of rows to read after filtering.
     limit: Option<ScanLimit>,
     /// The row-offset assigned to the first row of the file. Used by the `row_idx` expression,
@@ -105,7 +110,8 @@ impl ScanBuilder<ArrayRef> {
                 max: None,
             },
             map_fn: Arc::new(Ok),
-            metrics_registry: None,
+            usage: None,
+            metrics: None,
             limit: None,
             row_offset: 0,
         }
@@ -255,15 +261,41 @@ impl<A: 'static + Send> ScanBuilder<A> {
         self
     }
 
-    /// Add or clear the metrics registry used by scan execution.
-    pub fn with_some_metrics_registry(mut self, metrics: Option<Arc<dyn MetricsRegistry>>) -> Self {
-        self.metrics_registry = metrics;
+    /// Adds the resource usage of this scan to `usage`.
+    ///
+    /// The caller owns the scope. Share one value across scans to get the total of a partition or
+    /// a query. A prepared [`RepeatedScan`] adds every execution to the same value.
+    pub fn with_usage(self, usage: Arc<ScanUsage>) -> Self {
+        self.with_some_usage(Some(usage))
+    }
+
+    /// Sets or clears the resource usage that this scan adds to.
+    pub fn with_some_usage(mut self, usage: Option<Arc<ScanUsage>>) -> Self {
+        self.usage = usage;
         self
     }
 
-    /// Set the metrics registry used by scan execution.
-    pub fn with_metrics_registry(mut self, metrics: Arc<dyn MetricsRegistry>) -> Self {
-        self.metrics_registry = Some(metrics);
+    /// Registers scan counters in `metrics`.
+    ///
+    /// Each call registers new counters. For many scans, register once with [`ScanMetrics::new`]
+    /// and use [`Self::with_scan_metrics`].
+    pub fn with_metrics_registry(self, metrics: Arc<dyn MetricsRegistry>) -> Self {
+        self.with_some_metrics_registry(Some(metrics))
+    }
+
+    /// Registers scan counters in `metrics`, or clears them.
+    pub fn with_some_metrics_registry(self, metrics: Option<Arc<dyn MetricsRegistry>>) -> Self {
+        self.with_some_scan_metrics(metrics.as_deref().map(ScanMetrics::new))
+    }
+
+    /// Uses shared registry counters without new registry entries.
+    pub fn with_scan_metrics(self, metrics: ScanMetrics) -> Self {
+        self.with_some_scan_metrics(Some(metrics))
+    }
+
+    /// Sets or clears shared registry counters.
+    pub fn with_some_scan_metrics(mut self, metrics: Option<ScanMetrics>) -> Self {
+        self.metrics = metrics;
         self
     }
 
@@ -315,7 +347,8 @@ impl<A: 'static + Send> ScanBuilder<A> {
             split_by: self.split_by,
             natural_splits: self.natural_splits,
             concurrency: self.concurrency,
-            metrics_registry: self.metrics_registry,
+            usage: self.usage,
+            metrics: self.metrics,
             limit: self.limit,
             row_offset: self.row_offset,
             map_fn: Arc::new(move |a| old_map_fn(a).and_then(&map_fn)),
@@ -325,6 +358,10 @@ impl<A: 'static + Send> ScanBuilder<A> {
     /// Rewrite range comparisons in the filter into betweens, compute split ranges, and return an
     /// executable repeated scan.
     pub fn prepare(self) -> VortexResult<RepeatedScan<A>> {
+        // Validate split configuration before selecting the range strategy so empty row ranges,
+        // sparse selections, and natural splits fail consistently with full scans.
+        self.split_by.validate()?;
+
         let dtype = self.dtype()?;
 
         // Spin up the root layout reader, and wrap it in a FilterLayoutReader to perform
@@ -380,6 +417,8 @@ impl<A: 'static + Send> ScanBuilder<A> {
             splits,
             self.concurrency,
             self.map_fn,
+            self.usage,
+            self.metrics,
             self.limit,
             dtype,
         ))
@@ -389,7 +428,7 @@ impl<A: 'static + Send> ScanBuilder<A> {
     ///
     /// Scans with row limits must use [`Self::into_stream`] or [`Self::into_iter`] so the scan
     /// can coordinate the limit across splits.
-    pub fn build(self) -> VortexResult<Vec<BoxFuture<'static, VortexResult<Option<A>>>>> {
+    pub fn build(self) -> VortexResult<ScanTasks<A>> {
         self.prepare()?.execute(None)
     }
 
@@ -516,7 +555,6 @@ mod test {
     use vortex_array::expr::BoundExpression;
     use vortex_array::expr::ExactBoundExpr;
     use vortex_array::expr::and;
-    use vortex_array::expr::between;
     use vortex_array::expr::col;
     use vortex_array::expr::eq;
     use vortex_array::expr::get_item;
@@ -525,15 +563,19 @@ mod test {
     use vortex_array::expr::lit;
     use vortex_array::expr::lt;
     use vortex_array::expr::root;
-    use vortex_array::scalar_fn::fns::between::BetweenOptions;
-    use vortex_array::scalar_fn::fns::between::StrictComparison;
+    use vortex_buffer::Buffer;
     use vortex_error::VortexResult;
     use vortex_error::vortex_bail;
     use vortex_error::vortex_err;
+    use vortex_functions::between::BetweenOptions;
+    use vortex_functions::between::StrictComparison;
+    use vortex_functions::expr::between;
     use vortex_io::runtime::BlockingRuntime;
     use vortex_io::runtime::single::SingleThreadRuntime;
     use vortex_io::runtime::tokio::TokioRuntime;
     use vortex_mask::Mask;
+    use vortex_scan::selection::Selection;
+    use vortex_scan::strict_sorted_buffer::StrictSortedBuffer;
     use vortex_session::VortexSession;
 
     use super::ScanBuilder;
@@ -543,6 +585,7 @@ mod test {
     use crate::RowSplits;
     use crate::SplitRange;
     use crate::scan::limit::RowLimit;
+    use crate::scan::split_by::SplitBy;
     use crate::scan::test::SCAN_SESSION;
     use crate::scan::test::TestLayoutReader;
     use crate::scan::test::collect_scan_values;
@@ -1353,6 +1396,42 @@ mod test {
 
         assert_eq!(calls.load(Ordering::Relaxed), 1);
         assert_eq!(values.as_ref(), [1, 2]);
+
+        Ok(())
+    }
+
+    #[test]
+    fn prepare_rejects_zero_split_size_for_empty_range_and_sparse_selection() -> VortexResult<()> {
+        let runtime = SingleThreadRuntime::default();
+        let session = session_with_handle(runtime.handle());
+        let sparse_indices = StrictSortedBuffer::try_new(Buffer::from_iter([0u64, 2u64]))?;
+
+        for split_by in [
+            SplitBy::RowCount(0),
+            SplitBy::LayoutSubSplitting { max_rows: 0 },
+        ] {
+            let empty_err = ScanBuilder::new(
+                session.clone(),
+                Arc::new(SplittingLayoutReader::new(Arc::new(AtomicUsize::new(0)))),
+            )
+            .with_row_range(0..0)
+            .with_split_by(split_by)
+            .prepare()
+            .err()
+            .expect("empty row range should reject zero split size");
+            assert!(empty_err.to_string().contains("must be greater than zero"));
+
+            let sparse_err = ScanBuilder::new(
+                session.clone(),
+                Arc::new(SplittingLayoutReader::new(Arc::new(AtomicUsize::new(0)))),
+            )
+            .with_selection(Selection::IncludeByIndex(sparse_indices.clone()))
+            .with_split_by(split_by)
+            .prepare()
+            .err()
+            .expect("sparse selection should reject zero split size");
+            assert!(sparse_err.to_string().contains("must be greater than zero"));
+        }
 
         Ok(())
     }

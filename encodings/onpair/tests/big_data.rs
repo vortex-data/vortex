@@ -26,7 +26,7 @@ use vortex_array::assert_arrays_eq;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
-use vortex_array::scalar_fn::fns::operators::Operator;
+use vortex_array::scalar_fn::builtin::operators::CompareOperator;
 use vortex_onpair::DEFAULT_CONFIG;
 use vortex_onpair::onpair_compress;
 use vortex_session::VortexSession;
@@ -108,9 +108,9 @@ fn smoke_100k_rows() -> vortex_error::VortexResult<()> {
     let needle_row = 42;
     let needle = strings[needle_row].clone();
     let want_eq = strings.iter().filter(|s| **s == needle).count();
-    let eq = arr_ref.binary(
+    let eq = arr_ref.compare(
         ConstantArray::new(needle.as_str(), n).into_array(),
-        Operator::Eq,
+        CompareOperator::Eq,
     )?;
     let eq_count = sum(&eq, &mut ctx)?.as_primitive().as_::<usize>().unwrap();
     assert_eq!(eq_count, want_eq);

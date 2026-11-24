@@ -508,3 +508,153 @@ fn edition_that_never_freezes_must_remain_a_draft() -> VortexResult<()> {
     assert!(error.contains("never freezes"), "{error}");
     Ok(())
 }
+
+#[test]
+fn failed_declaration_does_not_publish_partial_membership() -> VortexResult<()> {
+    const THIRD: EditionId = EditionId::new("test", 2026, 10, 0);
+
+    // Valid first member followed by a conflict with an earlier edition in the same family.
+    static CONFLICTING: EditionDeclaration = EditionDeclaration {
+        edition: Edition {
+            id: THIRD,
+            immutable: true,
+            min_library_version: None,
+        },
+        added: &[
+            EditionMember::array(&"test.delta"),
+            EditionMember::array(&"test.alpha"),
+        ],
+    };
+
+    static CORRECTED: EditionDeclaration = EditionDeclaration {
+        edition: Edition {
+            id: THIRD,
+            immutable: true,
+            min_library_version: None,
+        },
+        added: &[
+            EditionMember::array(&"test.delta"),
+            EditionMember::array(&"test.epsilon"),
+        ],
+    };
+
+    let session = VortexSession::empty().with::<EditionSession>();
+    session.editions().declare_family(&TEST_FAMILY)?;
+    for declaration in DECLARATIONS {
+        session.register_edition(declaration)?;
+    }
+
+    let err = session.register_edition(&CONFLICTING).unwrap_err();
+    assert!(
+        err.to_string().contains("already joined family test"),
+        "{err}"
+    );
+
+    // The failed edition must not be visible to lookup or enable.
+    assert!(session.editions().find(&THIRD).is_none());
+    assert!(
+        session
+            .editions()
+            .find_by_name(&THIRD.to_string())
+            .is_none()
+    );
+    assert!(session.enable_edition(THIRD).is_err());
+
+    // Existing family membership must not contain the failed declaration's first member.
+    let existing: Vec<String> = session
+        .editions()
+        .components_in(&THIRD, ComponentKind::Array)
+        .iter()
+        .map(|i| i.component_id.to_string())
+        .collect();
+    assert_eq!(
+        existing,
+        ["test.alpha", "test.alpha_v2", "test.beta", "test.gamma"]
+    );
+
+    // Retrying with a corrected declaration succeeds and exposes every expected component.
+    session.register_edition(&CORRECTED)?;
+    session.enable_edition(THIRD)?;
+    let enabled: Vec<String> = session
+        .enabled_component_ids(ComponentKind::Array)
+        .iter()
+        .map(|id| id.to_string())
+        .collect();
+    assert_eq!(
+        enabled,
+        [
+            "test.alpha",
+            "test.alpha_v2",
+            "test.beta",
+            "test.delta",
+            "test.epsilon",
+            "test.gamma",
+        ]
+    );
+
+    Ok(())
+}
+
+#[test]
+fn failed_declaration_with_intra_batch_duplicate_leaves_no_partial_state() -> VortexResult<()> {
+    const THIRD: EditionId = EditionId::new("test", 2026, 10, 0);
+
+    static DUPLICATE_IN_BATCH: EditionDeclaration = EditionDeclaration {
+        edition: Edition {
+            id: THIRD,
+            immutable: true,
+            min_library_version: None,
+        },
+        added: &[
+            EditionMember::array(&"test.delta"),
+            EditionMember::array(&"test.delta"),
+        ],
+    };
+
+    static CORRECTED: EditionDeclaration = EditionDeclaration {
+        edition: Edition {
+            id: THIRD,
+            immutable: true,
+            min_library_version: None,
+        },
+        added: &[
+            EditionMember::array(&"test.delta"),
+            EditionMember::layout(&"test.delta"),
+        ],
+    };
+
+    let session = VortexSession::empty().with::<EditionSession>();
+    session.editions().declare_family(&TEST_FAMILY)?;
+    for declaration in DECLARATIONS {
+        session.register_edition(declaration)?;
+    }
+
+    let err = session.register_edition(&DUPLICATE_IN_BATCH).unwrap_err();
+    assert!(
+        err.to_string()
+            .contains("is listed more than once in edition test2026.10.0"),
+        "{err}"
+    );
+    assert!(session.editions().find(&THIRD).is_none());
+    assert!(session.enable_edition(THIRD).is_err());
+
+    // Different component kinds may still share an id in the corrected declaration.
+    session.register_edition(&CORRECTED)?;
+    session.enable_edition(THIRD)?;
+    assert!(
+        session
+            .enabled_component_ids(ComponentKind::Array)
+            .iter()
+            .any(|id| id.as_str() == "test.delta")
+    );
+    assert_eq!(
+        session
+            .enabled_component_ids(ComponentKind::Layout)
+            .iter()
+            .map(|id| id.as_str())
+            .collect::<Vec<_>>(),
+        ["test.delta"]
+    );
+
+    Ok(())
+}

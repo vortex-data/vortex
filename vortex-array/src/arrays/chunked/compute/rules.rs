@@ -24,12 +24,10 @@ use crate::optimizer::kernels::ArrayKernelsExt;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ArrayReduceRule;
 use crate::optimizer::rules::ReduceRuleSet;
-use crate::scalar_fn::fns::cast::Cast;
-use crate::scalar_fn::fns::cast::CastReduceAdaptor;
-use crate::scalar_fn::fns::fill_null::FillNull;
-use crate::scalar_fn::fns::fill_null::FillNullReduceAdaptor;
-use crate::scalar_fn::fns::list_contains::ListContains;
-use crate::scalar_fn::fns::list_contains::ListContainsElementReduceAdaptor;
+use crate::scalar_fn::builtin::cast::Cast;
+use crate::scalar_fn::builtin::cast::CastReduceAdaptor;
+use crate::scalar_fn::builtin::fill_null::FillNull;
+use crate::scalar_fn::builtin::fill_null::FillNullReduceAdaptor;
 
 pub(crate) const RULES: ReduceRuleSet<Chunked> =
     ReduceRuleSet::new(&[&ChunkedDictValuesPullUpRule]);
@@ -88,11 +86,6 @@ pub(crate) fn register_parent_rules(session: &VortexSession) {
         AnyScalarFn,
         Chunked,
         const { &ChunkedUnaryScalarFnPushDownRule },
-    );
-    kernels.register_reduce_parent_rule(
-        ListContains,
-        Chunked,
-        const { &ListContainsElementReduceAdaptor(Chunked) },
     );
     kernels.register_reduce_parent_rule(
         AnyScalarFn,

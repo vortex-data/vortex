@@ -6,12 +6,15 @@ use vortex_array::ArrayId;
 use vortex_array::ArrayParts;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
+use vortex_array::Canonical;
 use vortex_array::EmptyArrayData;
 use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
 use vortex_array::arrays::VariantArray;
 use vortex_array::buffer::BufferHandle;
+use vortex_array::builders::ArrayBuilder;
+use vortex_array::builders::VariantBuilder;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::proto::dtype as pb;
@@ -28,6 +31,7 @@ use crate::array::ParquetVariantArraySlotsExt;
 use crate::array::ParquetVariantSlots;
 use crate::array::core_storage_without_typed_value;
 use crate::array::logical_shredded_from_parquet_typed_value;
+use crate::builder::StorageBuilder;
 
 mod plugin;
 
@@ -185,6 +189,30 @@ impl VTable for ParquetVariant {
         Ok(ExecutionResult::done(
             VariantArray::try_new(core_storage, shredded)?.into_array(),
         ))
+    }
+
+    /// Storage without a shredded child joins the storage appended before it, so that a chunked
+    /// Variant builds one storage array. A shredded child executes to the canonical shredded
+    /// child first, which the builder concatenates on its own.
+    fn append_to_builder(
+        array: ArrayView<'_, Self>,
+        builder: &mut dyn ArrayBuilder,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
+        if array.typed_value().is_none()
+            && array.value().is_some()
+            && let Some(builder) = builder.as_any_mut().downcast_mut::<VariantBuilder>()
+        {
+            return builder.append_storage(array.dtype(), StorageBuilder::new, |storage| {
+                storage.append(array)
+            });
+        }
+        array
+            .array()
+            .clone()
+            .execute::<Canonical>(ctx)?
+            .into_array()
+            .append_to_builder(builder, ctx)
     }
 }
 

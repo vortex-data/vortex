@@ -1,0 +1,66 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+include ../setup.slt.no
+
+# str has storage_index=1. This tests cases where column_index (i.e. 0 in
+# SELECT strlen(str)) is different from storage_index.
+statement ok
+CREATE TABLE pep_test (before INTEGER, str VARCHAR, after INTEGER);
+
+statement ok
+INSERT INTO pep_test VALUES (0, 'Hello', 0), (1, 'Hi', 1), (2, 'Hey', 2);
+
+statement ok
+COPY (SELECT * FROM pep_test) TO '${WORK_DIR}/pe-pushdown.vortex';
+
+query T
+SELECT str FROM '${WORK_DIR}/pe-pushdown.vortex' ORDER BY str;
+----
+Hello
+Hey
+Hi
+
+# strlen is pushed down with direct reads from vortex.
+# Vortex EXPLAIN output now has "SELECT projections" which indicates
+# pushdown was successful
+query TT
+EXPLAIN (FORMAT json) SELECT strlen(str) FROM '${WORK_DIR}/pe-pushdown.vortex';
+----
+<REGEX>:SELECT projections
+
+# we need an "order by" for test output to be deterministic
+query I
+SELECT strlen(str) FROM '${WORK_DIR}/pe-pushdown.vortex' ORDER BY strlen(str);
+----
+2
+3
+5
+
+# explain: same for aliased columns
+query TT
+EXPLAIN (FORMAT json) SELECT strlen(str) AS l FROM '${WORK_DIR}/pe-pushdown.vortex';
+----
+<REGEX>:SELECT projections
+
+query I
+SELECT strlen(str) AS l FROM '${WORK_DIR}/pe-pushdown.vortex' ORDER BY strlen(str);
+----
+2
+3
+5
+
+# both strlen()s are replaced correctly.
+query II
+SELECT strlen(str), strlen(str) * 2 FROM '${WORK_DIR}/pe-pushdown.vortex'
+ORDER BY strlen(str);
+----
+2 4
+3 6
+5 10
+
+query TT
+EXPLAIN (FORMAT JSON)
+SELECT strlen(str), strlen(str) * 2 FROM '${WORK_DIR}/pe-pushdown.vortex';
+----
+<REGEX>:SELECT projections

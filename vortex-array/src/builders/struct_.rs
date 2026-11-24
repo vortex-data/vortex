@@ -5,7 +5,6 @@ use std::any::Any;
 
 use itertools::Itertools;
 use vortex_buffer::BufferAllocatorRef;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure_eq;
@@ -14,6 +13,8 @@ use vortex_error::vortex_panic;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::array::ArrayView;
+use crate::arrays::Struct;
 use crate::arrays::StructArray;
 use crate::arrays::struct_::StructArrayExt;
 use crate::builders::ArrayBuilder;
@@ -125,21 +126,20 @@ impl StructBuilder {
             .map(|builder| builder.finish())
             .collect::<Vec<_>>();
 
-        if fields.len() > 1 {
-            let expected_length = fields[0].len();
-            for (index, field) in fields[1..].iter().enumerate() {
-                assert_eq!(
-                    field.len(),
-                    expected_length,
-                    "Field {index} does not have expected length {expected_length}"
-                );
-            }
+        for (index, field) in fields.iter().enumerate() {
+            assert_eq!(
+                field.len(),
+                len,
+                "Field {index} does not have expected length {len}"
+            );
         }
 
         let validity = self.nulls.finish_with_nullability(self.dtype.nullability());
 
-        StructArray::try_new_with_dtype(fields, self.struct_fields().clone(), len, validity)
-            .vortex_expect("Fields must all have same length.")
+        // SAFETY: each field is finished by the child builder this builder made for that field of
+        // the struct dtype, so the fields match the dtype in order, and the assert above pairs
+        // every one of them with the `len` rows the validity covers.
+        unsafe { StructArray::new_unchecked(fields, self.struct_fields().clone(), len, validity) }
     }
 
     /// The [`StructFields`] of this struct builder.
@@ -155,7 +155,7 @@ impl StructBuilder {
     /// field's builder.
     pub(crate) fn append_struct_array(
         &mut self,
-        array: &StructArray,
+        array: ArrayView<'_, Struct>,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
         for (field, builder) in array
@@ -213,6 +213,13 @@ impl ArrayBuilder for StructBuilder {
         self.append_value(scalar.as_struct())
     }
 
+    fn reserve_chunks(&mut self, additional: usize) {
+        self.builders.iter_mut().for_each(|builder| {
+            builder.reserve_chunks(additional);
+        });
+        self.nulls.reserve_runs(additional);
+    }
+
     fn reserve_exact(&mut self, capacity: usize) {
         self.builders.iter_mut().for_each(|builder| {
             builder.reserve_exact(capacity);
@@ -234,10 +241,12 @@ mod tests {
     use std::sync::LazyLock;
 
     use vortex_buffer::BufferAllocatorRef;
+    use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
     use crate::IntoArray;
     use crate::VortexSessionExecute;
+    use crate::arrays::NullArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::VarBinArray;
     use crate::assert_arrays_eq;
@@ -403,5 +412,32 @@ mod tests {
         );
         let wrong_scalar = Scalar::from(42i32);
         assert!(builder.append_scalar(&wrong_scalar).is_err());
+    }
+
+    #[test]
+    fn finish_with_null_child_after_mixed_appends() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let source = StructArray::from_fields(&[
+            ("a", NullArray::new(1).into_array()),
+            ("b", PrimitiveArray::from_iter([7i32]).into_array()),
+        ])?;
+
+        let mut builder = StructBuilder::new_in(
+            source.dtype().as_struct_fields().clone(),
+            Nullability::NonNullable,
+            BufferAllocatorRef::static_ref(),
+        );
+        builder.append_scalar(&Scalar::default_value(builder.dtype()))?;
+        source
+            .into_array()
+            .append_to_builder(&mut builder, &mut ctx)?;
+
+        let finished = builder.finish_into_struct();
+        let expected = StructArray::from_fields(&[
+            ("a", NullArray::new(2).into_array()),
+            ("b", PrimitiveArray::from_iter([0i32, 7]).into_array()),
+        ])?;
+        assert_arrays_eq!(&finished, &expected, &mut ctx);
+        Ok(())
     }
 }

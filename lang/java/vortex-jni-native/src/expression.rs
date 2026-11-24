@@ -1,0 +1,1279 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+//! JNI bindings for Vortex expressions.
+//!
+//! Expressions are built on the native side — Java holds opaque pointers and combines them
+//! through these JNI entry points. Each `new*` call returns a pointer that must be freed
+//! with [`Java_dev_vortex_jni_NativeExpression_free`]. Builders do not take ownership of
+//! their inputs so Java remains responsible for freeing child expressions.
+
+use std::sync::Arc;
+
+use jni::EnvUnowned;
+use jni::objects::JBooleanArray;
+use jni::objects::JByteArray;
+use jni::objects::JClass;
+use jni::objects::JDoubleArray;
+use jni::objects::JFloatArray;
+use jni::objects::JIntArray;
+use jni::objects::JLongArray;
+use jni::objects::JObjectArray;
+use jni::objects::JShortArray;
+use jni::objects::JString;
+use jni::objects::ReleaseMode;
+use jni::sys::jboolean;
+use jni::sys::jbyte;
+use jni::sys::jdouble;
+use jni::sys::jfloat;
+use jni::sys::jint;
+use jni::sys::jlong;
+use jni::sys::jshort;
+use vortex::VortexSessionDefault;
+use vortex::dtype::BigCast;
+use vortex::dtype::DType;
+use vortex::dtype::DecimalDType;
+use vortex::dtype::DecimalType;
+use vortex::dtype::FieldName;
+use vortex::dtype::FieldNames;
+use vortex::dtype::MapDType;
+use vortex::dtype::Nullability;
+use vortex::dtype::PType;
+use vortex::dtype::StructFields;
+use vortex::dtype::extension::ExtDType;
+use vortex::dtype::half::f16;
+use vortex::encodings::uuid::Uuid;
+use vortex::encodings::uuid::UuidMetadata;
+use vortex::error::VortexResult;
+use vortex::error::vortex_err;
+use vortex::expr::Expression;
+use vortex::expr::and_collect;
+use vortex::expr::between;
+use vortex::expr::binary;
+use vortex::expr::get_item;
+use vortex::expr::is_not_null;
+use vortex::expr::is_null;
+use vortex::expr::list_contains_opts;
+use vortex::expr::lit;
+use vortex::expr::mask;
+use vortex::expr::merge_opts;
+use vortex::expr::not;
+use vortex::expr::or_collect;
+use vortex::expr::pack;
+use vortex::expr::root;
+use vortex::expr::select;
+use vortex::extension::datetime::Date;
+use vortex::extension::datetime::Time;
+use vortex::extension::datetime::TimeUnit;
+use vortex::extension::datetime::Timestamp;
+use vortex::functions::between::BetweenOptions;
+use vortex::functions::between::StrictComparison;
+use vortex::functions::like::Like;
+use vortex::functions::like::LikeOptions;
+use vortex::functions::list_contains::ListContainsOptions;
+use vortex::functions::merge::DuplicateHandling;
+use vortex::layout::layouts::row_idx::row_idx;
+use vortex::scalar::DecimalValue;
+use vortex::scalar::NumericOperator;
+use vortex::scalar::Scalar;
+use vortex::scalar::ScalarValue;
+use vortex::scalar_fn::EmptyOptions;
+use vortex::scalar_fn::ScalarFnVTableExt;
+use vortex::scalar_fn::builtin::literal::Literal;
+use vortex::scalar_fn::builtin::operators::BinaryOperator;
+use vortex::scalar_fn::builtin::operators::BooleanOperator;
+use vortex::scalar_fn::builtin::operators::CompareOperator;
+use vortex::session::VortexSession;
+use vortex_spatial::extension::native_geometry_scalar_from_wkb;
+use vortex_spatial::scalar_fn::area::SpatialArea;
+use vortex_spatial::scalar_fn::collect::SpatialCollect;
+use vortex_spatial::scalar_fn::contains::SpatialContains;
+use vortex_spatial::scalar_fn::convex_hull::SpatialConvexHull;
+use vortex_spatial::scalar_fn::distance::SpatialDistance;
+use vortex_spatial::scalar_fn::envelope::SpatialEnvelope;
+use vortex_spatial::scalar_fn::intersects::SpatialIntersects;
+use vortex_spatial::scalar_fn::length::SpatialLength;
+use vortex_spatial::scalar_fn::make_line::SpatialMakeLine;
+
+use crate::errors::JNIError;
+use crate::errors::try_or_throw;
+
+fn into_raw(expr: Expression) -> jlong {
+    Box::into_raw(Box::new(expr)) as jlong
+}
+
+/// SAFETY: pointer must originate from [`into_raw`] and not yet be freed.
+unsafe fn expr_ref<'a>(ptr: jlong) -> &'a Expression {
+    debug_assert!(ptr != 0, "null expression pointer");
+    unsafe { &*(ptr as *const Expression) }
+}
+
+fn parse_op(op: jbyte) -> Result<BinaryOperator, JNIError> {
+    Ok(match op {
+        0 => BinaryOperator::Compare(CompareOperator::Eq),
+        1 => BinaryOperator::Compare(CompareOperator::NotEq),
+        2 => BinaryOperator::Compare(CompareOperator::Gt),
+        3 => BinaryOperator::Compare(CompareOperator::Gte),
+        4 => BinaryOperator::Compare(CompareOperator::Lt),
+        5 => BinaryOperator::Compare(CompareOperator::Lte),
+        6 => BinaryOperator::Boolean(BooleanOperator::And),
+        7 => BinaryOperator::Boolean(BooleanOperator::Or),
+        8 => BinaryOperator::Numeric(NumericOperator::Add),
+        9 => BinaryOperator::Numeric(NumericOperator::Sub),
+        10 => BinaryOperator::Numeric(NumericOperator::Mul),
+        11 => BinaryOperator::Numeric(NumericOperator::Div),
+        other => throw_runtime!("unknown binary operator code: {other}"),
+    })
+}
+
+/// Parse a Vortex [`TimeUnit`] from the wire-encoded byte tag.
+fn parse_time_unit(tag: jbyte) -> Result<TimeUnit, JNIError> {
+    TimeUnit::try_from(tag as u8).map_err(JNIError::from)
+}
+
+/// Parse a merge [`DuplicateHandling`] strategy from its wire-encoded byte tag.
+///
+/// See `dev.vortex.api.Expression.DuplicateHandling` on the Java side for the source of truth.
+fn parse_duplicate_handling(tag: jbyte) -> Result<DuplicateHandling, JNIError> {
+    Ok(match tag {
+        0 => DuplicateHandling::RightMost,
+        1 => DuplicateHandling::Error,
+        other => throw_runtime!("unknown duplicate handling code: {other}"),
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_vortex_jni_NativeExpression_free(
+    _env: EnvUnowned,
+    _class: JClass,
+    pointer: jlong,
+) {
+    if pointer == 0 {
+        return;
+    }
+    // SAFETY: pointer was created via `into_raw` above.
+    drop(unsafe { Box::from_raw(pointer as *mut Expression) });
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_vortex_jni_NativeExpression_root(
+    _env: EnvUnowned,
+    _class: JClass,
+) -> jlong {
+    into_raw(root())
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_vortex_jni_NativeExpression_rowIdx(
+    _env: EnvUnowned,
+    _class: JClass,
+) -> jlong {
+    into_raw(row_idx())
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_vortex_jni_NativeExpression_getItem(
+    mut env: EnvUnowned,
+    _class: JClass,
+    name: JString,
+    child: jlong,
+) -> jlong {
+    try_or_throw(&mut env, |env| {
+        let field: String = name.try_to_string(env)?;
+        let field: FieldName = Arc::<str>::from(field.as_str()).into();
+        let child = unsafe { expr_ref(child) }.clone();
+        Ok(into_raw(get_item(field, child)))
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_vortex_jni_NativeExpression_select(
+    mut env: EnvUnowned,
+    _class: JClass,
+    field_names: JObjectArray,
+    child: jlong,
+) -> jlong {
+    try_or_throw(&mut env, |env| {
+        let count = field_names.len(env)?;
+        let mut fields: Vec<FieldName> = Vec::with_capacity(count);
+        for idx in 0..count {
+            let obj = field_names.get_element(env, idx)?;
+            let s = env.cast_local::<JString>(obj)?;
+            let name: String = s.try_to_string(env)?;
+            fields.push(Arc::<str>::from(name.as_str()).into());
+        }
+        let child = unsafe { expr_ref(child) }.clone();
+        Ok(into_raw(select(fields, child)))
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_vortex_jni_NativeExpression_pack(
+    mut env: EnvUnowned,
+    _class: JClass,
+    field_names: JObjectArray,
+    expressions: JLongArray,
+    nullable: jboolean,
+) -> jlong {
+    try_or_throw(&mut env, |env| {
+        let count = field_names.len(env)?;
+        let expressions = unsafe { expressions.get_elements(env, ReleaseMode::NoCopyBack)? };
+        let mut elements = Vec::with_capacity(count);
+
+        for idx in 0..count {
+            let obj = field_names.get_element(env, idx)?;
+            let s = env.cast_local::<JString>(obj)?;
+            let name: FieldName = s.try_to_string(env)?.into();
+
+            let expr_ptr = *expressions.get(idx).ok_or_else(|| -> JNIError {
+                vortex_err!("missing pack expression child").into()
+            })?;
+            let expr = unsafe { expr_ref(expr_ptr) }.clone();
+
+            elements.push((name, expr));
+        }
+
+        Ok(into_raw(pack(elements, nullable.into())))
+    })
+}
+
+/// Merge zero or more struct-returning expressions into a single struct.
+///
+/// `duplicate_handling` selects how shared field names are resolved (see
+/// [`parse_duplicate_handling`]). An empty `expressions` array yields an empty struct.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_vortex_jni_NativeExpression_merge(
+    mut env: EnvUnowned,
+    _class: JClass,
+    expressions: JLongArray,
+    duplicate_handling: jbyte,
+) -> jlong {
+    try_or_throw(&mut env, |env| {
+        let exprs = collect_operands(env, &expressions)?;
+        let handling = parse_duplicate_handling(duplicate_handling)?;
+        Ok(into_raw(merge_opts(exprs, handling)))
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_vortex_jni_NativeExpression_and(
+    mut env: EnvUnowned,
+    _class: JClass,
+    operands: JLongArray,
+) -> jlong {
+    try_or_throw(&mut env, |env| {
+        let exprs = collect_operands(env, &operands)?;
+        and_collect(exprs)
+            .map(into_raw)
+            .ok_or_else(|| vortex_err!("empty AND expression").into())
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_vortex_jni_NativeExpression_or(
+    mut env: EnvUnowned,
+    _class: JClass,
+    operands: JLongArray,
+) -> jlong {
+    try_or_throw(&mut env, |env| {
+        let exprs = collect_operands(env, &operands)?;
+        or_collect(exprs)
+            .map(into_raw)
+            .ok_or_else(|| vortex_err!("empty OR expression").into())
+    })
+}
+
+fn collect_operands(
+    env: &mut jni::Env,
+    operands: &JLongArray,
+) -> Result<Vec<Expression>, JNIError> {
+    let ptrs = unsafe { operands.get_elements(env, ReleaseMode::NoCopyBack) }?;
+    Ok(ptrs
+        .iter()
+        .map(|ptr| unsafe { expr_ref(*ptr) }.clone())
+        .collect())
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_vortex_jni_NativeExpression_binary(
+    mut env: EnvUnowned,
+    _class: JClass,
+    op: jbyte,
+    lhs: jlong,
+    rhs: jlong,
+) -> jlong {
+    try_or_throw(&mut env, |_| {
+        let operator = parse_op(op)?;
+        let lhs = unsafe { expr_ref(lhs) }.clone();
+        let rhs = unsafe { expr_ref(rhs) }.clone();
+        Ok(into_raw(binary(operator, lhs, rhs)))
+    })
+}
+
+/// Build a spatial function expression over `operands`.
+///
+/// `function` selects the function; see `dev.vortex.api.Expression.SpatialFunction` on the Java
+/// side for the source of truth.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_vortex_jni_NativeExpression_spatial(
+    mut env: EnvUnowned,
+    _class: JClass,
+    function: jbyte,
+    operands: JLongArray,
+) -> jlong {
+    try_or_throw(&mut env, |env| {
+        let operands = collect_operands(env, &operands)?;
+        // `try_new_expr` rejects an operand count that does not match the function's arity.
+        let expr = match function {
+            0 => SpatialArea.try_new_expr(EmptyOptions, operands),
+            1 => SpatialCollect.try_new_expr(EmptyOptions, operands),
+            2 => SpatialContains.try_new_expr(EmptyOptions, operands),
+            3 => SpatialConvexHull.try_new_expr(EmptyOptions, operands),
+            4 => SpatialDistance.try_new_expr(EmptyOptions, operands),
+            5 => SpatialEnvelope.try_new_expr(EmptyOptions, operands),
+            6 => SpatialIntersects.try_new_expr(EmptyOptions, operands),
+            7 => SpatialLength.try_new_expr(EmptyOptions, operands),
+            8 => SpatialMakeLine.try_new_expr(EmptyOptions, operands),
+            other => throw_runtime!("unknown spatial function code: {other}"),
+        }?;
+        Ok(into_raw(expr))
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_vortex_jni_NativeExpression_not(
+    _env: EnvUnowned,
+    _class: JClass,
+    child: jlong,
+) -> jlong {
+    let child = unsafe { expr_ref(child) }.clone();
+    into_raw(not(child))
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_vortex_jni_NativeExpression_isNull(
+    _env: EnvUnowned,
+    _class: JClass,
+    child: jlong,
+) -> jlong {
+    let child = unsafe { expr_ref(child) }.clone();
+    into_raw(is_null(child))
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_vortex_jni_NativeExpression_isNotNull(
+    _env: EnvUnowned,
+    _class: JClass,
+    child: jlong,
+) -> jlong {
+    let child = unsafe { expr_ref(child) }.clone();
+    into_raw(is_not_null(child))
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_vortex_jni_NativeExpression_mask(
+    _env: EnvUnowned,
+    _class: JClass,
+    child: jlong,
+    mask_expr: jlong,
+) -> jlong {
+    let child = unsafe { expr_ref(child) }.clone();
+    let mask_expr = unsafe { expr_ref(mask_expr) }.clone();
+    into_raw(mask(child, mask_expr))
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_vortex_jni_NativeExpression_like(
+    _env: EnvUnowned,
+    _class: JClass,
+    child: jlong,
+    pattern: jlong,
+    negated: jboolean,
+    case_insensitive: jboolean,
+) -> jlong {
+    let child = unsafe { expr_ref(child) }.clone();
+    let pattern = unsafe { expr_ref(pattern) }.clone();
+    into_raw(Like.new_expr(
+        LikeOptions {
+            negated,
+            case_insensitive,
+        },
+        [child, pattern],
+    ))
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_vortex_jni_NativeExpression_between(
+    mut env: EnvUnowned,
+    _class: JClass,
+    value: jlong,
+    lower: jlong,
+    upper: jlong,
+    lower_strict: jboolean,
+    upper_strict: jboolean,
+) -> jlong {
+    try_or_throw(&mut env, |_| {
+        let value = unsafe { expr_ref(value) }.clone();
+        let lower = unsafe { expr_ref(lower) }.clone();
+        let upper = unsafe { expr_ref(upper) }.clone();
+        Ok(into_raw(between(
+            value,
+            lower,
+            upper,
+            BetweenOptions {
+                lower_strict: strict_from_bool(lower_strict),
+                upper_strict: strict_from_bool(upper_strict),
+            },
+        )))
+    })
+}
+
+fn strict_from_bool(value: jboolean) -> StrictComparison {
+    if value {
+        StrictComparison::Strict
+    } else {
+        StrictComparison::NonStrict
+    }
+}
+
+/// Build `list_contains(list, needle)`: whether the list-typed `list` expression contains
+/// `needle`.
+///
+/// `list` must evaluate to a Vortex `List`; the list's element dtype must match `needle`'s dtype
+/// ignoring nullability. With a list literal on the left and a column on the right this is a
+/// set-membership (`IN`) test that a constant-set kernel answers in one pass over the column.
+///
+/// `sql_null_semantics` selects how a null list element behaves: off, it never matches and a
+/// non-matching needle is `false`; on, it is SQL's unknown value and a non-matching needle is
+/// `null`, so `NOT IN` never admits it.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_vortex_jni_NativeExpression_listContains(
+    _env: EnvUnowned,
+    _class: JClass,
+    list: jlong,
+    needle: jlong,
+    sql_null_semantics: jboolean,
+) -> jlong {
+    let list = unsafe { expr_ref(list) }.clone();
+    let needle = unsafe { expr_ref(needle) }.clone();
+    into_raw(list_contains_opts(
+        list,
+        needle,
+        ListContainsOptions { sql_null_semantics },
+    ))
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_vortex_jni_NativeExpression_literalBool(
+    _env: EnvUnowned,
+    _class: JClass,
+    value: jboolean,
+    is_null_flag: jboolean,
+) -> jlong {
+    if is_null_flag {
+        let scalar = Scalar::null_native::<bool>();
+        return into_raw(lit(scalar));
+    }
+    into_raw(lit(value))
+}
+
+macro_rules! literal_primitive {
+    ($fname:ident, $jty:ty, $rust:ty) => {
+        #[unsafe(no_mangle)]
+        pub extern "system" fn $fname(
+            _env: EnvUnowned,
+            _class: JClass,
+            value: $jty,
+            is_null_flag: jboolean,
+        ) -> jlong {
+            if is_null_flag {
+                let scalar = Scalar::null_native::<$rust>();
+                return into_raw(lit(scalar));
+            }
+            into_raw(lit(value as $rust))
+        }
+    };
+}
+
+literal_primitive!(Java_dev_vortex_jni_NativeExpression_literalI8, jbyte, i8);
+literal_primitive!(Java_dev_vortex_jni_NativeExpression_literalI16, jshort, i16);
+literal_primitive!(Java_dev_vortex_jni_NativeExpression_literalI32, jint, i32);
+literal_primitive!(Java_dev_vortex_jni_NativeExpression_literalI64, jlong, i64);
+// Java has no unsigned integers, so unsigned literals arrive as the signed type of the same
+// width and are reinterpreted bit-for-bit.
+literal_primitive!(Java_dev_vortex_jni_NativeExpression_literalU8, jbyte, u8);
+literal_primitive!(Java_dev_vortex_jni_NativeExpression_literalU16, jshort, u16);
+literal_primitive!(Java_dev_vortex_jni_NativeExpression_literalU32, jint, u32);
+literal_primitive!(Java_dev_vortex_jni_NativeExpression_literalU64, jlong, u64);
+literal_primitive!(Java_dev_vortex_jni_NativeExpression_literalF32, jfloat, f32);
+literal_primitive!(
+    Java_dev_vortex_jni_NativeExpression_literalF64,
+    jdouble,
+    f64
+);
+
+/// Build a half-precision float literal, rounding `value` to the nearest `f16`.
+///
+/// Java has no half-precision type (before `Float.floatToFloat16` in Java 20), so the value
+/// arrives as a `float`.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_vortex_jni_NativeExpression_literalF16(
+    _env: EnvUnowned,
+    _class: JClass,
+    value: jfloat,
+    is_null_flag: jboolean,
+) -> jlong {
+    if is_null_flag {
+        return into_raw(lit(Scalar::null_native::<f16>()));
+    }
+    into_raw(lit(f16::from_f32(value)))
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_vortex_jni_NativeExpression_literalString(
+    mut env: EnvUnowned,
+    _class: JClass,
+    value: JString,
+) -> jlong {
+    try_or_throw(&mut env, |env| {
+        if value.is_null() {
+            let scalar = Scalar::null_native::<String>();
+            return Ok(into_raw(lit(scalar)));
+        }
+        let s: String = value.try_to_string(env)?;
+        Ok(into_raw(lit(s)))
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_vortex_jni_NativeExpression_literalBinary(
+    mut env: EnvUnowned,
+    _class: JClass,
+    value: JByteArray,
+) -> jlong {
+    try_or_throw(&mut env, |env| {
+        if value.is_null() {
+            let scalar = Scalar::null_native::<vortex::buffer::ByteBuffer>();
+            return Ok(into_raw(lit(scalar)));
+        }
+        let bytes: Vec<u8> = env.convert_byte_array(&value)?;
+        Ok(into_raw(lit(bytes.as_slice())))
+    })
+}
+
+/// Build a decimal literal from a two's-complement big-endian byte representation of the
+/// unscaled value (the format produced by Java's `BigInteger.toByteArray()`).
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_vortex_jni_NativeExpression_literalDecimal(
+    mut env: EnvUnowned,
+    _class: JClass,
+    unscaled_big_endian: JByteArray,
+    precision: jint,
+    scale: jint,
+    is_null_flag: jboolean,
+) -> jlong {
+    try_or_throw(&mut env, |env| {
+        let precision = u8::try_from(precision)
+            .map_err(|_| vortex_err!("decimal precision out of range: {precision}"))?;
+        let scale =
+            i8::try_from(scale).map_err(|_| vortex_err!("decimal scale out of range: {scale}"))?;
+        let decimal_dtype = DecimalDType::try_new(precision, scale)?;
+        if is_null_flag {
+            return Ok(into_raw(lit(Scalar::null(DType::Decimal(
+                decimal_dtype,
+                Nullability::Nullable,
+            )))));
+        }
+        if unscaled_big_endian.len(env)? > 32 {
+            throw_runtime!("Decimal value must fit with 32 bytes");
+        }
+
+        let bytes = env.convert_byte_array(&unscaled_big_endian)?;
+        let decimal_value = decimal_value_from_be_bytes(&bytes, &decimal_dtype)?;
+        let scalar = Scalar::try_new(
+            DType::Decimal(decimal_dtype, Nullability::NonNullable),
+            Some(ScalarValue::from(decimal_value)),
+        )?;
+        Ok(into_raw(lit(scalar)))
+    })
+}
+
+/// Decode a two's-complement big-endian byte array (Java `BigInteger.toByteArray()` format)
+/// into the [`DecimalValue`] variant of the canonical width of the precision.
+fn decimal_value_from_be_bytes(
+    bytes: &[u8],
+    dtype: &DecimalDType,
+) -> Result<DecimalValue, JNIError> {
+    if bytes.is_empty() {
+        throw_runtime!("decimal unscaled value must have at least one byte");
+    }
+    let value = i256_from_twos_complement_be(bytes);
+
+    let values_type = dtype.canonical_values_type();
+    let overflow = || vortex_err!("decimal value does not fit in {values_type}");
+    Ok(match values_type {
+        DecimalType::I8 => DecimalValue::I8(BigCast::from(value).ok_or_else(overflow)?),
+        DecimalType::I16 => DecimalValue::I16(BigCast::from(value).ok_or_else(overflow)?),
+        DecimalType::I32 => DecimalValue::I32(BigCast::from(value).ok_or_else(overflow)?),
+        DecimalType::I64 => DecimalValue::I64(BigCast::from(value).ok_or_else(overflow)?),
+        DecimalType::I128 => DecimalValue::I128(value.maybe_i128().ok_or_else(overflow)?),
+        DecimalType::I256 => DecimalValue::I256(value),
+    })
+}
+
+/// Sign-extend a two's-complement big-endian byte slice into an `i256`.
+fn i256_from_twos_complement_be(bytes: &[u8]) -> vortex::dtype::i256 {
+    let mut le = [0u8; 32];
+    let len = bytes.len().min(32);
+    // Most significant byte comes first in big-endian; copy lowest 32 bytes reversed into LE.
+    for (i, b) in bytes.iter().rev().take(len).enumerate() {
+        le[i] = *b;
+    }
+    // If the original value is negative (high bit of the most-significant byte is set),
+    // sign-extend the remaining high bytes with 0xff.
+    if !bytes.is_empty() && (bytes[0] & 0x80) != 0 {
+        for byte in &mut le[len..] {
+            *byte = 0xff;
+        }
+    }
+    vortex::dtype::i256::from_le_bytes(le)
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_vortex_jni_NativeExpression_literalDate(
+    mut env: EnvUnowned,
+    _class: JClass,
+    value: jlong,
+    time_unit_tag: jbyte,
+    is_null_flag: jboolean,
+) -> jlong {
+    try_or_throw(&mut env, |_| {
+        let unit = parse_time_unit(time_unit_tag)?;
+        let nullability = if is_null_flag {
+            Nullability::Nullable
+        } else {
+            Nullability::NonNullable
+        };
+        let ext = Date::try_new(unit, nullability)?;
+        let dtype = DType::Extension(ext.erased());
+        if is_null_flag {
+            return Ok(into_raw(lit(Scalar::null(dtype))));
+        }
+        let storage_value = match unit {
+            TimeUnit::Days => ScalarValue::from(
+                i32::try_from(value)
+                    .map_err(|_| vortex_err!("date value does not fit in i32 days: {value}"))?,
+            ),
+            TimeUnit::Milliseconds => ScalarValue::from(value),
+            other => throw_runtime!("date does not support time unit {other}"),
+        };
+        Ok(into_raw(lit(Scalar::try_new(dtype, Some(storage_value))?)))
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_vortex_jni_NativeExpression_literalTimestamp(
+    mut env: EnvUnowned,
+    _class: JClass,
+    value: jlong,
+    time_unit_tag: jbyte,
+    timezone: JString,
+    is_null_flag: jboolean,
+) -> jlong {
+    try_or_throw(&mut env, |env| {
+        let unit = parse_time_unit(time_unit_tag)?;
+        let tz: Option<Arc<str>> = if timezone.is_null() {
+            None
+        } else {
+            let s: String = timezone.try_to_string(env)?;
+            Some(Arc::<str>::from(s.as_str()))
+        };
+        let nullability = if is_null_flag {
+            Nullability::Nullable
+        } else {
+            Nullability::NonNullable
+        };
+        let ext = Timestamp::try_new_with_tz(unit, tz, nullability)?;
+        let dtype = DType::Extension(ext.erased());
+        if is_null_flag {
+            return Ok(into_raw(lit(Scalar::null(dtype))));
+        }
+        Ok(into_raw(lit(Scalar::try_new(
+            dtype,
+            Some(ScalarValue::from(value)),
+        )?)))
+    })
+}
+
+/// Build a time-of-day literal. `value` is the number of `unit` units since midnight.
+///
+/// Seconds and milliseconds are stored as `i32`, microseconds and nanoseconds as `i64`; days are
+/// rejected by [`Time::try_new`].
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_vortex_jni_NativeExpression_literalTime(
+    mut env: EnvUnowned,
+    _class: JClass,
+    value: jlong,
+    time_unit_tag: jbyte,
+    is_null_flag: jboolean,
+) -> jlong {
+    try_or_throw(&mut env, |_| {
+        let unit = parse_time_unit(time_unit_tag)?;
+        let nullability = if is_null_flag {
+            Nullability::Nullable
+        } else {
+            Nullability::NonNullable
+        };
+        let ext = Time::try_new(unit, nullability)?;
+        let dtype = DType::Extension(ext.erased());
+        if is_null_flag {
+            return Ok(into_raw(lit(Scalar::null(dtype))));
+        }
+        let storage_value = match unit {
+            TimeUnit::Seconds | TimeUnit::Milliseconds => ScalarValue::from(
+                i32::try_from(value)
+                    .map_err(|_| vortex_err!("time value does not fit in i32 {unit}: {value}"))?,
+            ),
+            _ => ScalarValue::from(value),
+        };
+        Ok(into_raw(lit(Scalar::try_new(dtype, Some(storage_value))?)))
+    })
+}
+
+/// Build a geometry literal from its OGC Well-Known Binary (WKB) encoding.
+///
+/// The value is decoded into the native geometry extension type matching its geometry kind
+/// (`Point`, `LineString`, `Polygon`, `MultiPoint`, `MultiLineString` or `MultiPolygon`, all XY
+/// with no CRS), which is the form the spatial scalar functions and pruning rules operate on.
+/// Geometry collections and malformed WKB are rejected.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_vortex_jni_NativeExpression_literalGeometry(
+    mut env: EnvUnowned,
+    _class: JClass,
+    wkb: JByteArray,
+) -> jlong {
+    try_or_throw(&mut env, |env| {
+        if wkb.is_null() {
+            throw_runtime!("geometry literal WKB bytes must not be null");
+        }
+        let bytes = env.convert_byte_array(&wkb)?;
+        let scalar = native_geometry_scalar_from_wkb(&bytes, &VortexSession::default())?
+            .ok_or_else(|| vortex_err!("unsupported WKB geometry type for a geometry literal"))?;
+        Ok(into_raw(lit(scalar)))
+    })
+}
+
+/// Number of bytes in a UUID's big-endian representation.
+const UUID_BYTE_LEN: usize = 16;
+
+/// Build the version-agnostic UUID extension [`DType`] with the given nullability.
+///
+/// The metadata records no version constraint, so the dtype is compatible with any UUID column
+/// regardless of the UUID versions it contains.
+fn uuid_dtype(nullability: Nullability) -> Result<DType, JNIError> {
+    let ext = ExtDType::<Uuid>::try_new(UuidMetadata::default(), nullability)?;
+    Ok(DType::Extension(ext.erased()))
+}
+
+/// Build a non-null UUID [`Scalar`] from its 16-byte big-endian representation.
+fn uuid_scalar(bytes: &[u8]) -> Result<Scalar, JNIError> {
+    if bytes.len() != UUID_BYTE_LEN {
+        throw_runtime!(
+            "UUID literal must be exactly {UUID_BYTE_LEN} bytes, got {}",
+            bytes.len()
+        );
+    }
+    let children: Vec<Scalar> = bytes
+        .iter()
+        .map(|&b| Scalar::primitive(b, Nullability::NonNullable))
+        .collect();
+    let storage = Scalar::fixed_size_list(
+        DType::Primitive(PType::U8, Nullability::NonNullable),
+        children,
+        Nullability::NonNullable,
+    );
+    Ok(Scalar::try_new(
+        uuid_dtype(Nullability::NonNullable)?,
+        storage.into_value(),
+    )?)
+}
+
+/// Build a UUID literal from its 16-byte big-endian representation.
+///
+/// When `is_null_flag` is true the `value` array is ignored and a typed null UUID literal is
+/// produced. Otherwise `value` must hold exactly 16 bytes in big-endian (network) order — the
+/// same layout as a `java.util.UUID` written most-significant-bits first, and Arrow's canonical
+/// UUID extension. The literal is version-agnostic so it compares against any UUID column.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_vortex_jni_NativeExpression_literalUuid(
+    mut env: EnvUnowned,
+    _class: JClass,
+    value: JByteArray,
+    is_null_flag: jboolean,
+) -> jlong {
+    try_or_throw(&mut env, |env| {
+        if is_null_flag {
+            return Ok(into_raw(lit(Scalar::null(uuid_dtype(
+                Nullability::Nullable,
+            )?))));
+        }
+        if value.is_null() {
+            throw_runtime!("UUID literal bytes must not be null");
+        }
+        let bytes = env.convert_byte_array(&value)?;
+        Ok(into_raw(lit(uuid_scalar(&bytes)?)))
+    })
+}
+
+/// The scalar held by a literal expression, or an error naming `role` if `ptr` is not a literal.
+///
+/// SAFETY: `ptr` must satisfy the contract of [`expr_ref`].
+unsafe fn literal_scalar<'a>(ptr: jlong, role: &str) -> Result<&'a Scalar, JNIError> {
+    let expr = unsafe { expr_ref(ptr) };
+    expr.as_opt::<Literal>()
+        .ok_or_else(|| vortex_err!("{role} must be a literal expression, got {expr}").into())
+}
+
+/// The dtype of the literal `ptr`, used as a type prototype, with `nullability` applied.
+///
+/// SAFETY: `ptr` must satisfy the contract of [`expr_ref`].
+unsafe fn prototype_dtype(
+    ptr: jlong,
+    role: &str,
+    nullability: Nullability,
+) -> Result<DType, JNIError> {
+    Ok(unsafe { literal_scalar(ptr, role) }?
+        .dtype()
+        .with_nullability(nullability))
+}
+
+/// Read the literal expressions in `pointers` and cast each one to `dtype`.
+fn cast_literals(
+    env: &mut jni::Env,
+    pointers: &JLongArray,
+    role: &str,
+    dtype: &DType,
+) -> Result<Vec<Scalar>, JNIError> {
+    let ptrs = unsafe { pointers.get_elements(env, ReleaseMode::NoCopyBack) }?;
+    ptrs.iter()
+        .map(|ptr| -> Result<Scalar, JNIError> {
+            Ok(unsafe { literal_scalar(*ptr, role) }?.cast(dtype)?)
+        })
+        .collect()
+}
+
+/// Build a variable-length list literal.
+///
+/// Every element must be a literal expression and is cast to the element dtype: the dtype of the
+/// `element_type` literal (typically a typed null) with nullability `elements_nullable`. With
+/// `is_null_flag` the `elements` are ignored and a null list of that element dtype is produced.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_vortex_jni_NativeExpression_literalList(
+    mut env: EnvUnowned,
+    _class: JClass,
+    elements: JLongArray,
+    element_type: jlong,
+    elements_nullable: jboolean,
+    is_null_flag: jboolean,
+) -> jlong {
+    try_or_throw(&mut env, |env| {
+        let element_dtype = unsafe {
+            prototype_dtype(element_type, "list element type", elements_nullable.into())
+        }?;
+        if is_null_flag {
+            return Ok(into_raw(lit(Scalar::null(DType::List(
+                Arc::new(element_dtype),
+                Nullability::Nullable,
+            )))));
+        }
+        let children = cast_literals(env, &elements, "list element", &element_dtype)?;
+        Ok(into_raw(lit(Scalar::list(
+            element_dtype,
+            children,
+            Nullability::NonNullable,
+        ))))
+    })
+}
+
+/// Build a list literal from `values`, each cast to the element dtype, plus a null element when
+/// `with_null` is set.
+///
+/// The element dtype follows [`Java_dev_vortex_jni_NativeExpression_literalList`]. A filter such as
+/// a runtime join filter can hold thousands of values, and one native call for all of them avoids a
+/// Java expression object and a native literal per value.
+fn bulk_list_literal(
+    element_type: jlong,
+    elements_nullable: jboolean,
+    with_null: jboolean,
+    values: impl Iterator<Item = Scalar>,
+) -> Result<jlong, JNIError> {
+    let element_dtype =
+        unsafe { prototype_dtype(element_type, "list element type", elements_nullable.into()) }?;
+
+    let mut children = values
+        .map(|value| bulk_list_element(value, &element_dtype))
+        .collect::<VortexResult<Vec<Scalar>>>()?;
+    if with_null {
+        children.push(Scalar::null(element_dtype.as_nullable()));
+    }
+
+    Ok(into_raw(lit(Scalar::list(
+        element_dtype,
+        children,
+        Nullability::NonNullable,
+    ))))
+}
+
+/// Convert one value of a bulk list literal to the element `dtype`.
+///
+/// A cast never turns a primitive into an extension value, so the value of an extension element,
+/// such as a timestamp, is its storage value: it is cast to the storage dtype and then wrapped.
+fn bulk_list_element(value: Scalar, dtype: &DType) -> VortexResult<Scalar> {
+    let DType::Extension(ext) = dtype else {
+        return value.cast(dtype);
+    };
+    let storage = value.cast(ext.storage_dtype())?;
+    Scalar::try_extension_ref(ext.clone(), storage)
+}
+
+/// Defines the native method that builds a list literal from one Java array of primitives. See
+/// [`bulk_list_literal`].
+macro_rules! bulk_list_literal_of {
+    ($(#[$doc:meta])* $name:ident, $array:ty, $scalar:expr) => {
+        $(#[$doc])*
+        #[unsafe(no_mangle)]
+        pub extern "system" fn $name(
+            mut env: EnvUnowned,
+            _class: JClass,
+            values: $array,
+            element_type: jlong,
+            elements_nullable: jboolean,
+            with_null: jboolean,
+        ) -> jlong {
+            try_or_throw(&mut env, |env| {
+                let values = unsafe { values.get_elements(env, ReleaseMode::NoCopyBack) }?;
+
+                bulk_list_literal(
+                    element_type,
+                    elements_nullable,
+                    with_null,
+                    values.iter().map(|value| ($scalar)(*value)),
+                )
+            })
+        }
+    };
+}
+
+bulk_list_literal_of!(
+    /// Build a list literal of booleans. See [`bulk_list_literal`].
+    Java_dev_vortex_jni_NativeExpression_literalListBool,
+    JBooleanArray,
+    |value: jboolean| Scalar::bool(value, Nullability::NonNullable)
+);
+bulk_list_literal_of!(
+    /// Build a list literal of 8-bit integers. See [`bulk_list_literal`].
+    Java_dev_vortex_jni_NativeExpression_literalListI8,
+    JByteArray,
+    |value: jbyte| Scalar::primitive(value, Nullability::NonNullable)
+);
+bulk_list_literal_of!(
+    /// Build a list literal of 16-bit integers. See [`bulk_list_literal`].
+    Java_dev_vortex_jni_NativeExpression_literalListI16,
+    JShortArray,
+    |value: jshort| Scalar::primitive(value, Nullability::NonNullable)
+);
+bulk_list_literal_of!(
+    /// Build a list literal of 32-bit integers. See [`bulk_list_literal`].
+    Java_dev_vortex_jni_NativeExpression_literalListI32,
+    JIntArray,
+    |value: jint| Scalar::primitive(value, Nullability::NonNullable)
+);
+bulk_list_literal_of!(
+    /// Build a list literal of 64-bit integers. See [`bulk_list_literal`].
+    Java_dev_vortex_jni_NativeExpression_literalListI64,
+    JLongArray,
+    |value: jlong| Scalar::primitive(value, Nullability::NonNullable)
+);
+bulk_list_literal_of!(
+    /// Build a list literal of 32-bit floats. See [`bulk_list_literal`].
+    Java_dev_vortex_jni_NativeExpression_literalListF32,
+    JFloatArray,
+    |value: jfloat| Scalar::primitive(value, Nullability::NonNullable)
+);
+bulk_list_literal_of!(
+    /// Build a list literal of 64-bit floats. See [`bulk_list_literal`].
+    Java_dev_vortex_jni_NativeExpression_literalListF64,
+    JDoubleArray,
+    |value: jdouble| Scalar::primitive(value, Nullability::NonNullable)
+);
+
+/// Build a list literal of strings. See [`bulk_list_literal`].
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_vortex_jni_NativeExpression_literalListUtf8(
+    mut env: EnvUnowned,
+    _class: JClass,
+    values: JObjectArray,
+    element_type: jlong,
+    elements_nullable: jboolean,
+    with_null: jboolean,
+) -> jlong {
+    try_or_throw(&mut env, |env| {
+        let length = values.len(env)?;
+        let mut strings = Vec::with_capacity(length);
+
+        for index in 0..length {
+            let element = values.get_element(env, index)?;
+            let value = env.cast_local::<JString>(element)?;
+            strings.push(Scalar::utf8(
+                value.try_to_string(env)?,
+                Nullability::NonNullable,
+            ));
+
+            // A long list would otherwise fill the table of local references.
+            env.delete_local_ref(value);
+        }
+
+        bulk_list_literal(
+            element_type,
+            elements_nullable,
+            with_null,
+            strings.into_iter(),
+        )
+    })
+}
+
+/// Build a fixed-size list literal of `size` elements.
+///
+/// Elements and `element_type` follow [`Java_dev_vortex_jni_NativeExpression_literalList`]. A
+/// non-null literal must have exactly `size` elements.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_vortex_jni_NativeExpression_literalFixedSizeList(
+    mut env: EnvUnowned,
+    _class: JClass,
+    elements: JLongArray,
+    element_type: jlong,
+    elements_nullable: jboolean,
+    size: jint,
+    is_null_flag: jboolean,
+) -> jlong {
+    try_or_throw(&mut env, |env| {
+        let size = u32::try_from(size)
+            .map_err(|_| vortex_err!("fixed-size list size must not be negative: {size}"))?;
+        let element_dtype = unsafe {
+            prototype_dtype(
+                element_type,
+                "fixed-size list element type",
+                elements_nullable.into(),
+            )
+        }?;
+        if is_null_flag {
+            return Ok(into_raw(lit(Scalar::null(DType::FixedSizeList(
+                Arc::new(element_dtype),
+                size,
+                Nullability::Nullable,
+            )))));
+        }
+        let children = cast_literals(env, &elements, "fixed-size list element", &element_dtype)?;
+        if children.len() != size as usize {
+            throw_runtime!(
+                "fixed-size list literal of size {size} has {} elements",
+                children.len()
+            );
+        }
+        Ok(into_raw(lit(Scalar::fixed_size_list(
+            element_dtype,
+            children,
+            Nullability::NonNullable,
+        ))))
+    })
+}
+
+/// Build a struct literal from named literal fields.
+///
+/// The struct's field dtypes are the dtypes of the `fields` literals. With `is_null_flag` the
+/// `fields` only supply those dtypes (typically as typed nulls) and a null struct is produced.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_vortex_jni_NativeExpression_literalStruct(
+    mut env: EnvUnowned,
+    _class: JClass,
+    field_names: JObjectArray,
+    fields: JLongArray,
+    is_null_flag: jboolean,
+) -> jlong {
+    try_or_throw(&mut env, |env| {
+        let count = field_names.len(env)?;
+        let ptrs = unsafe { fields.get_elements(env, ReleaseMode::NoCopyBack) }?;
+        if ptrs.len() != count {
+            throw_runtime!(
+                "struct literal has {count} field names but {} fields",
+                ptrs.len()
+            );
+        }
+        let mut names: Vec<FieldName> = Vec::with_capacity(count);
+        let mut children: Vec<Scalar> = Vec::with_capacity(count);
+        for (idx, ptr) in ptrs.iter().enumerate() {
+            let obj = field_names.get_element(env, idx)?;
+            let name = env.cast_local::<JString>(obj)?;
+            names.push(name.try_to_string(env)?.into());
+            children.push(unsafe { literal_scalar(*ptr, "struct field") }?.clone());
+        }
+
+        let struct_fields = StructFields::new(
+            FieldNames::from(names),
+            children.iter().map(|child| child.dtype().clone()).collect(),
+        );
+        if is_null_flag {
+            return Ok(into_raw(lit(Scalar::null(DType::Struct(
+                struct_fields,
+                Nullability::Nullable,
+            )))));
+        }
+        Ok(into_raw(lit(Scalar::struct_(
+            DType::Struct(struct_fields, Nullability::NonNullable),
+            children,
+        ))))
+    })
+}
+
+/// Build a map literal from parallel arrays of literal keys and values.
+///
+/// Keys are cast to the non-nullable dtype of `key_type`, and values to the dtype of `value_type`
+/// with nullability `values_nullable`. With `is_null_flag` the entries are ignored and a null map
+/// of that type is produced.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_vortex_jni_NativeExpression_literalMap(
+    mut env: EnvUnowned,
+    _class: JClass,
+    keys: JLongArray,
+    values: JLongArray,
+    key_type: jlong,
+    value_type: jlong,
+    values_nullable: jboolean,
+    is_null_flag: jboolean,
+) -> jlong {
+    try_or_throw(&mut env, |env| {
+        let key_dtype =
+            unsafe { prototype_dtype(key_type, "map key type", Nullability::NonNullable) }?;
+        let value_dtype =
+            unsafe { prototype_dtype(value_type, "map value type", values_nullable.into()) }?;
+        let map_dtype = MapDType::try_new(key_dtype.clone(), value_dtype.clone(), false)?;
+        if is_null_flag {
+            return Ok(into_raw(lit(Scalar::null(DType::Map(
+                map_dtype,
+                Nullability::Nullable,
+            )))));
+        }
+        let keys = cast_literals(env, &keys, "map key", &key_dtype)?;
+        let values = cast_literals(env, &values, "map value", &value_dtype)?;
+        if keys.len() != values.len() {
+            throw_runtime!(
+                "map literal has {} keys but {} values",
+                keys.len(),
+                values.len()
+            );
+        }
+        Ok(into_raw(lit(Scalar::try_map(
+            DType::Map(map_dtype, Nullability::NonNullable),
+            keys.into_iter().zip(values),
+        )?)))
+    })
+}
+
+/// Build a typed null literal whose nullable dtype is selected by `dtype_tag`.
+///
+/// Tag values intentionally do not overlap with [`parse_time_unit`].
+/// See `dev.vortex.api.Expression.DType` on the Java side for the source of truth.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_vortex_jni_NativeExpression_literalNull(
+    mut env: EnvUnowned,
+    _class: JClass,
+    dtype_tag: jbyte,
+) -> jlong {
+    try_or_throw(&mut env, |_| {
+        let dtype = match dtype_tag {
+            0 => DType::Bool(Nullability::Nullable),
+            1 => DType::Primitive(PType::I8, Nullability::Nullable),
+            2 => DType::Primitive(PType::I16, Nullability::Nullable),
+            3 => DType::Primitive(PType::I32, Nullability::Nullable),
+            4 => DType::Primitive(PType::I64, Nullability::Nullable),
+            5 => DType::Primitive(PType::F32, Nullability::Nullable),
+            6 => DType::Primitive(PType::F64, Nullability::Nullable),
+            7 => DType::Utf8(Nullability::Nullable),
+            8 => DType::Binary(Nullability::Nullable),
+            9 => DType::Primitive(PType::U8, Nullability::Nullable),
+            10 => DType::Primitive(PType::U16, Nullability::Nullable),
+            11 => DType::Primitive(PType::U32, Nullability::Nullable),
+            12 => DType::Primitive(PType::U64, Nullability::Nullable),
+            13 => DType::Primitive(PType::F16, Nullability::Nullable),
+            other => throw_runtime!("unknown null dtype tag: {other}"),
+        };
+        Ok(into_raw(lit(Scalar::null(dtype))))
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+    use vortex::dtype::DType;
+    use vortex::dtype::DecimalDType;
+    use vortex::dtype::Nullability;
+    use vortex::extension::datetime::Date;
+    use vortex::extension::datetime::TimeUnit;
+    use vortex::extension::datetime::Timestamp;
+    use vortex::scalar::DecimalValue;
+    use vortex::scalar::Scalar;
+    use vortex::scalar::ScalarValue;
+
+    use super::bulk_list_element;
+    use super::decimal_value_from_be_bytes;
+    use crate::errors::JNIError;
+
+    /// A bulk value for a temporal element is a count of its unit, which is the storage value.
+    #[rstest]
+    #[case::timestamp(
+        DType::Extension(Timestamp::new(TimeUnit::Microseconds, Nullability::NonNullable).erased()),
+        ScalarValue::from(5i64),
+    )]
+    #[case::date_days(
+        DType::Extension(Date::new(TimeUnit::Days, Nullability::NonNullable).erased()),
+        ScalarValue::from(5i32),
+    )]
+    fn bulk_list_element_wraps_temporal_storage(
+        #[case] dtype: DType,
+        #[case] storage: ScalarValue,
+    ) -> Result<(), JNIError> {
+        let element = bulk_list_element(Scalar::primitive(5i64, Nullability::NonNullable), &dtype)?;
+
+        assert_eq!(element, Scalar::try_new(dtype, Some(storage))?);
+        Ok(())
+    }
+
+    #[test]
+    fn bulk_list_element_rejects_a_value_outside_the_storage_type() {
+        let dtype = DType::Extension(Date::new(TimeUnit::Days, Nullability::NonNullable).erased());
+
+        assert!(
+            bulk_list_element(
+                Scalar::primitive(1i64 << 40, Nullability::NonNullable),
+                &dtype
+            )
+            .is_err()
+        );
+    }
+
+    /// Precision 19 holds values above `i64::MAX`, so the value must use the canonical `i128`.
+    #[rstest]
+    #[case::max(9_999_999_999_999_999_999)]
+    #[case::min(-9_999_999_999_999_999_999)]
+    fn decimal_value_at_precision_19_uses_i128(#[case] unscaled: i128) -> Result<(), JNIError> {
+        let dtype = DecimalDType::try_new(19, 0)?;
+
+        let value = decimal_value_from_be_bytes(&unscaled.to_be_bytes(), &dtype)?;
+
+        assert!(
+            matches!(value, DecimalValue::I128(v) if v == unscaled),
+            "expected DecimalValue::I128({unscaled}), got {value:?}"
+        );
+        Ok(())
+    }
+}

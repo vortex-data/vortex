@@ -171,14 +171,14 @@ impl CanonicalCudaExt for Canonical {
                     ..
                 } = decimal.into_data_parts();
                 let validity = validity_into_host(validity, ctx).await?;
-                Ok(Canonical::Decimal(unsafe {
-                    DecimalArray::new_unchecked_handle(
+                Ok(Canonical::Decimal(
+                    DecimalArray::try_new_handle_from_trusted_values(
                         BufferHandle::new_host(values.try_into_host()?.await?),
                         values_type,
                         decimal_dtype,
                         validity,
-                    )
-                }))
+                    )?,
+                ))
             }
             Canonical::VarBinView(varbinview) => {
                 let VarBinViewDataParts {
@@ -262,8 +262,8 @@ mod tests {
     #[crate::test]
     async fn test_into_host_rejects_out_of_bounds_device_list_view() -> VortexResult<()> {
         let cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())?;
-        let offsets = cuda_ctx.stream().copy_to_device(vec![0u32, 2])?.await?;
-        let sizes = cuda_ctx.stream().copy_to_device(vec![2u32, 5])?.await?;
+        let offsets = cuda_ctx.stream().copy_to_device(&[0u32, 2])?;
+        let sizes = cuda_ctx.stream().copy_to_device(&[2u32, 5])?;
         let mut ctx = SESSION.create_execution_ctx();
         // The second list reads elements 2..7 of 3. The range check is skipped while the offsets
         // and sizes are on the device, so it must run once they are copied to the host.
@@ -298,7 +298,7 @@ mod tests {
         }
         let mut buffers = Vec::new();
         for buffer in array.buffer_handles() {
-            buffers.push(cuda_ctx.ensure_on_device_sync(buffer)?);
+            buffers.push(cuda_ctx.ensure_on_device(buffer)?);
         }
         // SAFETY: the buffers are byte-for-byte copies; only their placement changes.
         unsafe { array.with_buffers(buffers) }
@@ -318,10 +318,7 @@ mod tests {
         )
         .into_array();
         let mask = encoded_on_device(mask, &cuda_ctx)?;
-        let values = cuda_ctx
-            .stream()
-            .copy_to_device(vec![1i32, 2, 3, 4, 5, 6])?
-            .await?;
+        let values = cuda_ctx.stream().copy_to_device(&[1i32, 2, 3, 4, 5, 6])?;
         let array = PrimitiveArray::from_buffer_handle(values, PType::I32, Validity::Array(mask));
 
         let host = Canonical::Primitive(array)
@@ -350,10 +347,7 @@ mod tests {
         )?
         .into_array();
         let mask = encoded_on_device(mask, &cuda_ctx)?;
-        let values = cuda_ctx
-            .stream()
-            .copy_to_device(vec![1i32, 2, 3, 4, 5, 6])?
-            .await?;
+        let values = cuda_ctx.stream().copy_to_device(&[1i32, 2, 3, 4, 5, 6])?;
         let array = PrimitiveArray::from_buffer_handle(values, PType::I32, Validity::Array(mask));
 
         let host = Canonical::Primitive(array)

@@ -17,7 +17,7 @@ use crate::arrays::PrimitiveArray;
 use crate::dtype::ToBytes;
 use crate::match_each_ptype_width;
 use crate::scalar::Scalar;
-use crate::scalar_fn::fns::fill_null::FillNullKernel;
+use crate::scalar_fn::builtin::fill_null::FillNullKernel;
 use crate::validity::Validity;
 
 impl FillNullKernel for Primitive {
@@ -46,10 +46,7 @@ impl FillNullKernel for Primitive {
                             Buffer::<[u8; W]>::from_byte_buffer_aligned(values, alignment).into_mut();
                         let mut fill_bytes = [0u8; W];
                         fill_bytes.copy_from_slice(fill_value.to_le_bytes());
-
-                        for invalid_index in is_invalid.set_indices() {
-                            buffer[invalid_index] = fill_bytes;
-                        }
+                        buffer.fill_where::<false>(&is_invalid, fill_bytes);
 
                         PrimitiveArray::from_byte_buffer(
                             buffer.freeze().into_byte_buffer(),

@@ -10,6 +10,16 @@ on:
         required: true
         type: string
         description: "Named benchmark matrix to run"
+      benchmarks:
+        required: false
+        type: string
+        default: ""
+        description: "Benchmarks to keep from the preset, each optionally with queries (tpch-nvme:q1-4); empty runs all of it"
+      pr_number:
+        required: false
+        type: string
+        default: ""
+        description: "PR to comment on, for runs without a pull_request event; empty uses the event's PR"
       machine_type:
         required: false
         type: string
@@ -23,6 +33,7 @@ jobs:
       contents: read
     outputs:
       benchmark_matrix: ${{ steps.resolve.outputs.benchmark_matrix }}
+      comment_groups: ${{ steps.resolve.outputs.comment_groups }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
         with:
@@ -37,11 +48,16 @@ jobs:
         shell: bash
         env:
           MATRIX_PRESET: ${{ inputs.matrix_preset }}
+          BENCHMARKS: ${{ inputs.benchmarks }}
         run: |
           set -Eeuo pipefail
 
-          matrix="$(uv run --project bench-orchestrator vx-bench matrix "$MATRIX_PRESET")"
+          matrix="$(uv run --project benchmarks/bench-orchestrator vx-bench matrix "$MATRIX_PRESET" --only "$BENCHMARKS")"
           echo "benchmark_matrix=$matrix" >> "$GITHUB_OUTPUT"
+          # A case runs as one entry per scan when it covers every scan; its PR comment collects
+          # the entries of its `group` into one table. A run of some queries comments separately.
+          groups="$(jq -c '[group_by(.group)[] | {group: .[0].group, name: .[0].group_name, ids: map(.id), queries: (.[0].queries // "")}]' <<<"$matrix")"
+          echo "comment_groups=$groups" >> "$GITHUB_OUTPUT"
 
   build:
     timeout-minutes: 60
@@ -216,9 +232,10 @@ jobs:
           RUST_BACKTRACE: full
           S3_CACHE: ${{ (inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false) && 's3://vortex-ci-benchmark-datasets/data-gen-cache/' || '' }}
         run: |
-          uv run --project bench-orchestrator vx-bench prepare-data "${{ matrix.subcommand }}" \
+          uv run --project benchmarks/bench-orchestrator vx-bench prepare-data "${{ matrix.subcommand }}" \
             --formats-json '${{ toJSON(matrix.data_formats) }}' \
             ${S3_CACHE:+--s3-cache "$S3_CACHE"} \
+            ${{ matrix.row_group_rows && format('--opt row-group-rows={0}', matrix.row_group_rows) || '' }} \
             ${{ matrix.scale_factor && format('--opt scale-factor={0}', matrix.scale_factor) || '' }}
 
       # setup-benchmark.sh pins every running process to the housekeeping CPUs, so it waits for
@@ -250,6 +267,8 @@ jobs:
       - name: Setup benchmark environment
         run: sudo bash scripts/setup-benchmark.sh
 
+      # The run steps pass the same row groups as "Generate data". A fork PR runs an S3 entry
+      # here, on local data, and a benchmark that expects other row groups removes that data.
       - name: Run ${{ matrix.name }} benchmark
         if: matrix.remote_key == null || github.event.pull_request.head.repo.fork == true
         shell: bash
@@ -260,12 +279,14 @@ jobs:
           OTEL_EXPORTER_OTLP_HEADERS: "${{ (inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false) && secrets.OTEL_EXPORTER_OTLP_HEADERS || '' }}"
           OTEL_RESOURCE_ATTRIBUTES: "bench-name=${{ matrix.id }}"
         run: |
-          bash scripts/bench-taskset.sh uv run --project bench-orchestrator vx-bench run "${{ matrix.subcommand }}" \
+          bash scripts/bench-taskset.sh uv run --project benchmarks/bench-orchestrator vx-bench run "${{ matrix.subcommand }}" \
             --targets-json '${{ toJSON(matrix.targets) }}' \
             --output results.json \
             --ingest-jsonl results.ingest.jsonl \
             --no-build \
             ${{ matrix.iterations && format('--iterations {0}', matrix.iterations) || '' }} \
+            ${{ matrix.queries && format('--queries {0}', matrix.queries) || '' }} \
+            ${{ matrix.row_group_rows && format('--opt row-group-rows={0}', matrix.row_group_rows) || '' }} \
             ${{ matrix.scale_factor && format('--opt scale-factor={0}', matrix.scale_factor) || '' }}
 
       - name: Run ${{ matrix.name }} benchmark (remote)
@@ -280,20 +301,33 @@ jobs:
           OTEL_RESOURCE_ATTRIBUTES: "bench-name=${{ matrix.id }}"
           REMOTE_STORAGE: "s3://vortex-ci-benchmark-datasets/${{ github.ref_name }}/${{ github.run_id }}/${{ inputs.matrix_preset }}/${{ matrix.remote_key }}/"
         run: |
-          bash scripts/bench-taskset.sh uv run --project bench-orchestrator vx-bench run "${{ matrix.subcommand }}" \
+          bash scripts/bench-taskset.sh uv run --project benchmarks/bench-orchestrator vx-bench run "${{ matrix.subcommand }}" \
             --targets-json '${{ toJSON(matrix.targets) }}' \
             --output results.json \
             --ingest-jsonl results.ingest.jsonl \
             --no-build \
             ${{ matrix.iterations && format('--iterations {0}', matrix.iterations) || '' }} \
+            ${{ matrix.queries && format('--queries {0}', matrix.queries) || '' }} \
+            ${{ matrix.row_group_rows && format('--opt row-group-rows={0}', matrix.row_group_rows) || '' }} \
             --opt remote-data-dir="$REMOTE_STORAGE" \
+            ${{ matrix.scale_factor && format('--opt scale-factor={0}', matrix.scale_factor) || '' }}
+
+      # Formats that no query reads, written after the queries so they cannot affect them, only
+      # for the file sizes that "Capture file sizes" records.
+      - name: Write size-only formats
+        if: matrix.remote_key == null && matrix.records_data && join(matrix.size_formats, ',') != ''
+        shell: bash
+        run: |
+          uv run --project benchmarks/bench-orchestrator vx-bench write-size-formats "${{ matrix.subcommand }}" \
+            --formats-json '${{ toJSON(matrix.size_formats) }}' \
             ${{ matrix.scale_factor && format('--opt scale-factor={0}', matrix.scale_factor) || '' }}
 
       # The `file_size` records join the run's ingest records: develop runs store them in the
       # benchmarks database (the `file_sizes` table), and PR runs fetch them back as the baseline.
       - parallel:
+          # Every entry of a case generates the same data, so only the case's default entry records it.
           - name: Capture file sizes
-            if: matrix.remote_key == null
+            if: matrix.remote_key == null && matrix.records_data
             shell: bash
             run: |
               uv run --no-project scripts/capture-file-sizes.py \
@@ -309,7 +343,7 @@ jobs:
           # dumped, then one file of every table is kept, plus more partitions weighted by size up to a
           # line budget. Observability only, so it never fails the benchmark or holds up its job.
           - name: Dump sampled file trees
-            if: ${{ !cancelled() && matrix.remote_key == null }}
+            if: ${{ !cancelled() && matrix.remote_key == null && matrix.records_data }}
             continue-on-error: true
             timeout-minutes: 20
             shell: bash
@@ -320,56 +354,38 @@ jobs:
                 --seed ${{ inputs.mode == 'pr' && github.event.pull_request.head.sha || github.sha }} \
                 -o file-trees
 
-      # "Fetch baseline" reads the file-size records "Capture file sizes" appends, so it waits for them.
-      - parallel:
-          - name: Upload sampled file trees
-            if: ${{ !cancelled() && matrix.remote_key == null }}
-            continue-on-error: true
-            uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
-            with:
-              name: file-trees-${{ inputs.matrix_preset }}-${{ matrix.id }}
-              path: file-trees/
-              retention-days: 5
-              if-no-files-found: ignore
-          - name: Fetch baseline from the benchmarks database
-            if: inputs.mode == 'pr'
-            uses: ./.github/actions/fetch-bench-baseline
-            with:
-              role-arn: ${{ vars.GH_BENCH_READ_ROLE_ARN }}
-              region: ${{ vars.RDS_BENCH_REGION }}
-              endpoint: ${{ vars.RDS_BENCH_INSTANCE_ENDPOINT }}
-              database: ${{ vars.RDS_BENCH_DB_NAME }}
+      - name: Upload sampled file trees
+        if: ${{ !cancelled() && matrix.remote_key == null && matrix.records_data }}
+        continue-on-error: true
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
+        with:
+          name: file-trees-${{ inputs.matrix_preset }}-${{ matrix.id }}
+          path: file-trees/
+          retention-days: 5
+          if-no-files-found: ignore
 
-      - name: Compare results
-        if: inputs.mode == 'pr'
+      # The `comment` job compares and comments once per case, over every entry of the case.
+      # The results go in a directory named after the entry, because download-artifact extracts
+      # a lone matching artifact straight into its path, without the artifact's name.
+      - name: Stage results for the PR comment
+        if: ${{ !cancelled() && inputs.mode == 'pr' }}
         shell: bash
+        env:
+          ENTRY_ID: ${{ matrix.id }}
         run: |
-          set -Eeu -o pipefail -x
-
-          uv run --no-project scripts/compare-benchmark-jsons.py base.ingest.jsonl results.json \
-            "${{ matrix.name }}" --pr-records results.ingest.jsonl > comment.md
-          cat comment.md >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Comment PR
-        if: inputs.mode == 'pr' && github.event.pull_request.head.repo.fork == false
-        uses: thollander/actions-comment-pull-request@24bffb9b452ba05a4f3f77933840a6a841d1b32b  # v3
+          set -Eeuo pipefail
+          mkdir -p "pr-comment-results/${ENTRY_ID}"
+          for file in results.json results.ingest.jsonl; do
+            if [[ -f "$file" ]]; then cp "$file" "pr-comment-results/${ENTRY_ID}/"; fi
+          done
+      - name: Upload results for the PR comment
+        if: ${{ !cancelled() && inputs.mode == 'pr' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
         with:
-          file-path: comment.md
-          # There is exactly one comment per comment-tag. If a comment with this tag already exists,
-          # this action will *update* the comment instead of posting a new comment. The preset is
-          # part of the tag because presets overlap on benchmark ids (`pr` and `pr-compact` share
-          # nine) and can run concurrently, so a preset-less tag would let them clobber each other.
-          comment-tag: bench-pr-comment-${{ matrix.id }}-${{ inputs.matrix_preset }}
-
-      - name: Comment PR on failure
-        if: failure() && inputs.mode == 'pr' && github.event.pull_request.head.repo.fork == false
-        uses: thollander/actions-comment-pull-request@24bffb9b452ba05a4f3f77933840a6a841d1b32b  # v3
-        with:
-          message: |
-            # 🚨🚨🚨❌❌❌ SQL BENCHMARK FAILED ❌❌❌🚨🚨🚨
-
-            Benchmark `${{ matrix.name }}` (${{ inputs.matrix_preset }}) failed! Check the [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) for details.
-          comment-tag: bench-pr-comment-${{ matrix.id }}-${{ inputs.matrix_preset }}
+          name: sql-results-${{ inputs.matrix_preset }}--${{ matrix.group }}--${{ matrix.id }}
+          path: pr-comment-results/
+          retention-days: 5
+          if-no-files-found: ignore
 
       # v4 (Postgres) ingest -- the REQUIRED benchmark-results pipeline feeding the live
       # benchmarks website (see develop-bench.yml for the full rationale); a failure here fails the
@@ -436,3 +452,114 @@ jobs:
           separate-directories: true
           delete-merged: true
           retention-days: 5
+
+  # One comment per case: the entries of a case run on machines of their own, one per Vortex scan,
+  # and their results are compared here against one baseline, so the comment shows every scan side
+  # by side and names any entry that did not report.
+  comment:
+    needs: [resolve-matrix, bench]
+    if: ${{ !cancelled() && inputs.mode == 'pr' }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.resolve-matrix.outputs.comment_groups) }}
+    runs-on: >-
+      ${{ github.repository == 'vortex-data/vortex'
+          && format('runs-on={0}/region=us-east-1/runner=amd64-ci-small/image=ubuntu26-full-x64-pre-v2/tag=comment-{1}{2}', github.run_id, matrix.group, github.event.pull_request.head.repo.fork == false && '/extras=s3-cache' || '')
+          || 'ubuntu-latest' }}
+    steps:
+      # `extras=s3-cache` points the artifact API at the RunsOn proxy, which only this action wires up.
+      - uses: runs-on/action@v2
+        if: github.event.pull_request.head.repo.fork == false
+      # The baseline is the newest develop commit reachable from the PR head, which needs full history.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Install uv
+        uses: spiraldb/actions/.github/actions/setup-uv@a746510eafaa926484c354541cfc49b2ec06cc63  # 0.18.6
+        with:
+          sync: false
+      - name: Download results
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8
+        with:
+          pattern: sql-results-${{ inputs.matrix_preset }}--${{ matrix.group }}--*
+          path: entries
+      - name: Merge results
+        id: merge
+        shell: bash
+        env:
+          IDS: ${{ toJSON(matrix.ids) }}
+        run: |
+          set -Eeuo pipefail
+          : > results.json
+          : > results.ingest.jsonl
+          missing=()
+          while read -r id; do
+            # Each artifact holds a directory named after its entry. download-artifact puts each
+            # artifact in a directory of the artifact's name, except a lone match, which it
+            # extracts straight into `entries`.
+            dir="entries/sql-results-${{ inputs.matrix_preset }}--${{ matrix.group }}--${id}/${id}"
+            [[ -d "$dir" ]] || dir="entries/${id}"
+            if [[ -s "$dir/results.ingest.jsonl" ]]; then
+              cat "$dir/results.ingest.jsonl" >> results.ingest.jsonl
+              cat "$dir/results.json" >> results.json 2>/dev/null || true
+            else
+              missing+=("\`${id}\`")
+            fi
+          done < <(jq -r '.[]' <<<"$IDS")
+          echo "missing=${missing[*]}" >> "$GITHUB_OUTPUT"
+          echo "reported=$([[ -s results.ingest.jsonl ]] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+      # A fork PR's job has no OIDC token, so pr-bench-report.yml reads its baseline.
+      - name: Fetch baseline from the benchmarks database
+        if: steps.merge.outputs.reported == 'true' && github.event.pull_request.head.repo.fork != true
+        uses: ./.github/actions/fetch-bench-baseline
+        with:
+          role-arn: ${{ vars.GH_BENCH_READ_ROLE_ARN }}
+          region: ${{ vars.RDS_BENCH_REGION }}
+          endpoint: ${{ vars.RDS_BENCH_INSTANCE_ENDPOINT }}
+          database: ${{ vars.RDS_BENCH_DB_NAME }}
+      - name: Compare results
+        shell: bash
+        env:
+          MISSING: ${{ steps.merge.outputs.missing }}
+          REPORTED: ${{ steps.merge.outputs.reported }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -Eeu -o pipefail -x
+          : > comment.md
+          if [[ -n "$MISSING" ]]; then
+            echo "# 🚨🚨🚨❌❌❌ SQL BENCHMARK FAILED ❌❌❌🚨🚨🚨" >> comment.md
+            echo >> comment.md
+            echo "Benchmark \`${{ matrix.name }}\` (${{ inputs.matrix_preset }}) has entries that did not report: ${MISSING}. Check the [workflow run](${RUN_URL}) for details." >> comment.md
+            echo >> comment.md
+          fi
+          if [[ "$REPORTED" == "true" ]]; then
+            uv run --no-project scripts/compare-benchmark-jsons.py base.ingest.jsonl results.json \
+              "${{ matrix.name }}${{ matrix.queries && format(' (queries {0})', matrix.queries) || '' }}" \
+              --pr-records results.ingest.jsonl >> comment.md
+          fi
+          cat comment.md >> "$GITHUB_STEP_SUMMARY"
+      # A fork PR's job has no OIDC token, so pr-bench-report.yml reads its baseline and comments.
+      - name: Upload report for pr-bench-report.yml
+        if: github.event.pull_request.head.repo.fork == true
+        uses: ./.github/actions/upload-fork-bench-report
+        with:
+          benchmark-name: ${{ matrix.name }}
+          comment-tag: bench-pr-comment-${{ matrix.group }}-${{ inputs.matrix_preset }}${{ matrix.queries && format('-q{0}', matrix.queries) || '' }}
+          matrix-preset: ${{ inputs.matrix_preset }}
+          missing-entries: ${{ steps.merge.outputs.missing }}
+      # A manual run on a branch without an open PR has nowhere to comment; its job summary has the table.
+      - name: Comment PR
+        if: github.event.pull_request.head.repo.fork == false && (inputs.pr_number != '' || github.event.pull_request.number)
+        uses: thollander/actions-comment-pull-request@24bffb9b452ba05a4f3f77933840a6a841d1b32b  # v3
+        with:
+          pr-number: ${{ inputs.pr_number || github.event.pull_request.number }}
+          file-path: comment.md
+          # There is exactly one comment per comment-tag. If a comment with this tag already exists,
+          # this action will *update* the comment instead of posting a new comment. The preset is
+          # part of the tag because presets overlap on benchmark ids (`pr` and `pr-compact` share
+          # nine) and can run concurrently, so a preset-less tag would let them clobber each other.
+          comment-tag: bench-pr-comment-${{ matrix.group }}-${{ inputs.matrix_preset }}${{ matrix.queries && format('-q{0}', matrix.queries) || '' }}

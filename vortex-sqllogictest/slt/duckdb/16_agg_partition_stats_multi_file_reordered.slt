@@ -1,0 +1,27 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+include ../setup.slt.no
+
+statement ok
+COPY (SELECT 1::INTEGER AS a, 100::INTEGER AS b) TO '${WORK_DIR}/reordered_1.vortex';
+
+statement ok
+COPY (SELECT 200::INTEGER AS b, 2::INTEGER AS a) TO '${WORK_DIR}/reordered_2.vortex';
+
+# Caches both footers.
+query I
+SELECT a FROM '${WORK_DIR}/reordered_*.vortex' ORDER BY a;
+----
+1
+2
+
+query TT
+EXPLAIN SELECT max(a), min(b) FROM '${WORK_DIR}/reordered_*.vortex';
+----
+<REGEX>:.*Column Data Scan.*
+
+query II
+SELECT max(a), min(b) FROM '${WORK_DIR}/reordered_*.vortex';
+----
+2 100

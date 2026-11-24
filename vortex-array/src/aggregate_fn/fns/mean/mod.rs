@@ -32,8 +32,9 @@ use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::dtype::i256;
 use crate::scalar::DecimalValue;
+use crate::scalar::NumericOperator;
 use crate::scalar::Scalar;
-use crate::scalar_fn::fns::operators::Operator;
+use crate::scalar_fn::builtin::operators::CompareOperator;
 
 /// Compute the arithmetic mean of an array.
 ///
@@ -109,9 +110,9 @@ impl BinaryCombined for Mean {
         let count = count.cast(target.clone())?;
 
         let non_zero = count
-            .binary(
+            .compare(
                 ConstantArray::new(Scalar::zero_value(&target), count.len()).into_array(),
-                Operator::NotEq,
+                CompareOperator::NotEq,
             )?
             .fill_null(false)?;
         // if count is 0, dividing by 0 below produces NaN, and we need Null.
@@ -119,7 +120,7 @@ impl BinaryCombined for Mean {
         // Null is always Null
         let count = count.mask(non_zero)?;
 
-        sum.binary(count, Operator::Div)
+        sum.numeric(count, NumericOperator::Div)
     }
 
     fn finalize_scalar(
@@ -358,8 +359,7 @@ mod tests {
     #[test]
     fn mean_decimal() -> VortexResult<()> {
         let dtype = DecimalDType::new(6, 2);
-        let array =
-            DecimalArray::new(buffer![100i32, 200, 300], dtype, Validity::NonNullable).into_array();
+        let array = DecimalArray::from_iter([100i32, 200, 300], dtype).into_array();
         let mut ctx = SESSION.create_execution_ctx();
         let result = mean(&array, &mut ctx)?;
         assert_eq!(
@@ -376,10 +376,11 @@ mod tests {
 
     #[test]
     fn mean_decimal_null() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
         let dtype = DecimalDType::new(6, 2);
         let validity = Validity::from_iter([true, false, true]);
-        let array = DecimalArray::new(buffer![150i32, 0, 450], dtype, validity).into_array();
-        let mut ctx = SESSION.create_execution_ctx();
+        let array =
+            DecimalArray::new(buffer![150i32, 0, 450], dtype, validity, &mut ctx).into_array();
         let result = mean(&array, &mut ctx)?;
         // mean(1.50, 4.50) = 3.000000
         assert_eq!(
@@ -395,13 +396,15 @@ mod tests {
 
     #[test]
     fn mean_decimal_chunked() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
         let dtype = DecimalDType::new(6, 2);
         let validity = Validity::NonNullable;
-        let chunk1 = DecimalArray::new(buffer![100i32, 200], dtype, validity.clone()).into_array();
-        let chunk2 = DecimalArray::new(buffer![300i32, 400, 500], dtype, validity).into_array();
+        let chunk1 =
+            DecimalArray::new(buffer![100i32, 200], dtype, validity.clone(), &mut ctx).into_array();
+        let chunk2 =
+            DecimalArray::new(buffer![300i32, 400, 500], dtype, validity, &mut ctx).into_array();
         let dtype = chunk1.dtype().clone();
         let chunked = ChunkedArray::try_new(vec![chunk1, chunk2], dtype)?;
-        let mut ctx = SESSION.create_execution_ctx();
         let result = mean(&chunked.into_array(), &mut ctx)?;
         // mean(1.00, 2.00, 3.00, 4.00, 5.00) = 3.000000
         assert_eq!(
@@ -417,10 +420,10 @@ mod tests {
 
     #[test]
     fn mean_decimal_33() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
         let dtype = DecimalDType::new(6, 2);
         let buf = buffer![100i32, 0, 0];
-        let array = DecimalArray::new(buf, dtype, Validity::NonNullable).into_array();
-        let mut ctx = SESSION.create_execution_ctx();
+        let array = DecimalArray::new(buf, dtype, Validity::NonNullable, &mut ctx).into_array();
         let result = mean(&array, &mut ctx)?;
         // mean(1.00, 0.00, 0.00) = 1/3 => 0.333333
         assert_eq!(

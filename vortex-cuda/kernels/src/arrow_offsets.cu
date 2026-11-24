@@ -42,14 +42,17 @@
 // most INT32_MAX. Retaining this validation as a separate pass keeps malformed inputs from reaching
 // consumers with wrapped Arrow offsets.
 extern "C" __global__ void
-arrow_offsets_validate(const int32_t *__restrict offsets, uint32_t *status, uint64_t scan_len) {
+arrow_offsets_validate(const int32_t *__restrict offsets, uint32_t *offset_summary, uint64_t scan_len) {
     const uint64_t elements_per_block = (uint64_t)blockDim.x * ELEMENTS_PER_THREAD;
     const uint64_t block_start = (uint64_t)blockIdx.x * elements_per_block;
     const uint64_t block_stop = min(block_start + elements_per_block, scan_len);
     for (uint64_t idx = block_start + threadIdx.x; idx < block_stop; idx += blockDim.x) {
         if (offsets[idx] < 0) {
-            atomicMax(status, 2u);
+            atomicMax(&offset_summary[0], 2u);
         }
+    }
+    if (blockIdx.x == 0 && threadIdx.x == 0) {
+        offset_summary[1] = static_cast<uint32_t>(offsets[scan_len - 1]);
     }
 }
 

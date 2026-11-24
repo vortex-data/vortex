@@ -4,6 +4,7 @@
 use std::sync::Arc;
 
 use arrow_array::Array;
+use arrow_array::ArrayRef as ArrowArrayRef;
 use arrow_array::BooleanArray;
 use arrow_array::DictionaryArray;
 use arrow_array::FixedSizeBinaryArray;
@@ -25,6 +26,7 @@ use arrow_array::types::UInt32Type;
 use arrow_schema::DataType;
 use arrow_schema::Field;
 use arrow_schema::IntervalUnit;
+use arrow_schema::Metadata;
 use arrow_schema::Schema;
 use arrow_schema::TimeUnit as ArrowTimeUnit;
 use arrow_schema::extension::EXTENSION_TYPE_METADATA_KEY;
@@ -53,26 +55,104 @@ use datafusion_physical_expr::projection::ProjectionExpr;
 use datafusion_physical_plan::expressions as df_expr;
 use insta::assert_snapshot;
 use rstest::rstest;
+use vortex::array::ArrayRef;
 use vortex::array::Canonical;
+use vortex::array::ExecutionCtx;
 use vortex::array::IntoArray;
 use vortex::array::arrays::ConstantArray;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::builtins::ArrayBuiltins;
 use vortex::dtype::PType;
+use vortex::dtype::extension::ExtDTypeRef;
+use vortex::dtype::session::DTypeSessionExt;
 use vortex::encodings::uuid::Uuid;
+use vortex::error::VortexResult;
+use vortex::error::vortex_bail;
 use vortex::expr::between;
 use vortex::expr::proto::ExprSerializeProtoExt;
+use vortex::functions::between::BetweenOptions;
+use vortex::functions::between::StrictComparison;
+use vortex::functions::list_contains::ListContains;
 use vortex::scalar::Scalar;
-use vortex::scalar_fn::fns::between::BetweenOptions;
-use vortex::scalar_fn::fns::between::StrictComparison;
-use vortex::scalar_fn::fns::cast::Cast;
-use vortex::scalar_fn::fns::list_contains::ListContains;
-use vortex::scalar_fn::fns::literal::Literal;
+use vortex::scalar_fn::builtin::cast::Cast;
+use vortex::scalar_fn::builtin::compare::Compare;
+use vortex::scalar_fn::builtin::literal::Literal;
+use vortex::scalar_fn::builtin::numeric::Numeric;
+use vortex::session::registry::CachedId;
+use vortex::session::registry::Id;
 use vortex_array::assert_arrays_eq;
+use vortex_arrow::ArrowExport;
+use vortex_arrow::ArrowExportOptions;
+use vortex_arrow::ArrowExportVTable;
+use vortex_arrow::ArrowImport;
+use vortex_arrow::ArrowImportVTable;
+use vortex_arrow::ArrowSession;
 
 use super::*;
+use crate::common_tests::ANY_STORAGE_ID;
+use crate::common_tests::AnyStorage;
 use crate::common_tests::TestSessionContext;
 use crate::convert::TryToDataFusion;
+
+#[test]
+fn test_row_index_conversion_and_raw_projection() -> DFResult<()> {
+    let schema = Schema::new(vec![Field::new(
+        "__vortex_row_index",
+        DataType::Int32,
+        false,
+    )]);
+    let expr = crate::row_index();
+    assert_eq!(expr.data_type(&schema)?, DataType::UInt64);
+    assert!(!expr.nullable(&schema)?);
+    assert!(expr.is_volatile_node());
+    assert!(expr.children().is_empty());
+    assert!(
+        expr.evaluate(&RecordBatch::new_empty(Arc::new(schema.clone())))
+            .is_err()
+    );
+    assert!(
+        Arc::clone(&expr)
+            .with_new_children(vec![Arc::clone(&expr)])
+            .is_err()
+    );
+    assert!(Arc::ptr_eq(
+        &Arc::clone(&expr).with_new_children(vec![])?,
+        &expr
+    ));
+    let converter = DefaultExpressionConverter::default();
+    assert_eq!(
+        converter.try_convert(&expr, &schema)?,
+        Some(row_idx::row_idx())
+    );
+
+    // A nested row-index leaf must be rewritten even when its output alias collides
+    // with a real file column and projection pushdown is disabled.
+    let nested: Arc<dyn PhysicalExpr> = Arc::new(df_expr::BinaryExpr::new(
+        expr,
+        DFOperator::Plus,
+        Arc::new(df_expr::Literal::new(ScalarValue::UInt64(Some(1)))),
+    ));
+    let processed = converter.no_pushdown_projection(
+        vec![ProjectionExpr::new(nested, "__vortex_row_index")].into(),
+        &schema,
+    )?;
+    assert_eq!(
+        processed.scan_reference_schema.field(0).name(),
+        "__vortex_row_index_"
+    );
+    assert_eq!(
+        processed.scan_reference_schema.field(0).data_type(),
+        &DataType::UInt64
+    );
+    assert!(!processed.scan_reference_schema.field(0).is_nullable());
+    let columns = collect_columns(&processed.leftover_projection.as_ref()[0].expr);
+    assert_eq!(columns.len(), 1);
+    assert_eq!(
+        columns.iter().next().expect("row-index column").name(),
+        "__vortex_row_index_"
+    );
+    Ok(())
+}
 
 #[rstest::fixture]
 fn test_schema() -> Schema {
@@ -596,21 +676,21 @@ fn test_in_list_malformed_literal() -> DFResult<()> {
 }
 
 #[rstest]
-#[case::eq(DFOperator::Eq, Operator::Eq)]
-#[case::not_eq(DFOperator::NotEq, Operator::NotEq)]
-#[case::lt(DFOperator::Lt, Operator::Lt)]
-#[case::lte(DFOperator::LtEq, Operator::Lte)]
-#[case::gt(DFOperator::Gt, Operator::Gt)]
-#[case::gte(DFOperator::GtEq, Operator::Gte)]
-#[case::and(DFOperator::And, Operator::And)]
-#[case::or(DFOperator::Or, Operator::Or)]
-#[case::plus(DFOperator::Plus, Operator::Add)]
-#[case::plus(DFOperator::Minus, Operator::Sub)]
-#[case::plus(DFOperator::Multiply, Operator::Mul)]
-#[case::plus(DFOperator::Divide, Operator::Div)]
+#[case::eq(DFOperator::Eq, BinaryOperator::Compare(CompareOperator::Eq))]
+#[case::not_eq(DFOperator::NotEq, BinaryOperator::Compare(CompareOperator::NotEq))]
+#[case::lt(DFOperator::Lt, BinaryOperator::Compare(CompareOperator::Lt))]
+#[case::lte(DFOperator::LtEq, BinaryOperator::Compare(CompareOperator::Lte))]
+#[case::gt(DFOperator::Gt, BinaryOperator::Compare(CompareOperator::Gt))]
+#[case::gte(DFOperator::GtEq, BinaryOperator::Compare(CompareOperator::Gte))]
+#[case::and(DFOperator::And, BinaryOperator::Boolean(BooleanOperator::And))]
+#[case::or(DFOperator::Or, BinaryOperator::Boolean(BooleanOperator::Or))]
+#[case::plus(DFOperator::Plus, BinaryOperator::Numeric(NumericOperator::Add))]
+#[case::plus(DFOperator::Minus, BinaryOperator::Numeric(NumericOperator::Sub))]
+#[case::plus(DFOperator::Multiply, BinaryOperator::Numeric(NumericOperator::Mul))]
+#[case::plus(DFOperator::Divide, BinaryOperator::Numeric(NumericOperator::Div))]
 fn test_operator_conversion_supported(
     #[case] df_op: DFOperator,
-    #[case] expected_vortex_op: Operator,
+    #[case] expected_vortex_op: BinaryOperator,
 ) {
     assert_eq!(try_operator_from_df(&df_op), Some(expected_vortex_op));
 }
@@ -798,6 +878,62 @@ fn test_literal_preserves_extension_metadata(
     Ok(())
 }
 
+const REJECT_VALUE_EXTENSION_NAME: &str = "test.reject_value";
+static REJECT_VALUE_ID: CachedId = CachedId::new(REJECT_VALUE_EXTENSION_NAME);
+
+/// An Arrow importer that accepts every field with its extension name and rejects every value.
+#[derive(Debug)]
+struct ValueRejectingImporter;
+
+impl ArrowImportVTable for ValueRejectingImporter {
+    fn arrow_ext_id(&self) -> Id {
+        *REJECT_VALUE_ID
+    }
+
+    fn from_arrow_field(
+        &self,
+        field: &Field,
+        session: &ArrowSession,
+    ) -> VortexResult<Option<DType>> {
+        session
+            .from_arrow_datatype(field.data_type(), field.is_nullable().into())
+            .map(Some)
+    }
+
+    fn from_arrow_array(
+        &self,
+        _array: ArrowArrayRef,
+        _field: &Field,
+        _dtype: &DType,
+        _session: &ArrowSession,
+    ) -> VortexResult<ArrowImport> {
+        vortex_bail!("{REJECT_VALUE_EXTENSION_NAME} rejects every value")
+    }
+}
+
+/// A literal whose field an Arrow importer accepts but whose value it rejects stays in DataFusion
+/// instead of failing the conversion.
+#[test]
+fn test_literal_rejected_by_importer_is_unsupported() -> anyhow::Result<()> {
+    let session = VortexSession::default();
+    session
+        .arrow()
+        .register_importer(Arc::new(ValueRejectingImporter));
+    let field = Field::new("v", DataType::Int32, false).with_metadata(Metadata::from_iter([(
+        EXTENSION_TYPE_NAME_KEY.to_string(),
+        REJECT_VALUE_EXTENSION_NAME.to_string(),
+    )]));
+    let literal = Arc::new(df_expr::Literal::new_with_metadata(
+        ScalarValue::Int32(Some(1)),
+        Some(FieldMetadata::new_from_field(&field)),
+    )) as Arc<dyn PhysicalExpr>;
+
+    let converted =
+        DefaultExpressionConverter::new(session).try_convert(&literal, &Schema::empty())?;
+    assert!(converted.is_none());
+    Ok(())
+}
+
 #[rstest]
 #[case::comparison(false)]
 #[case::membership(true)]
@@ -812,10 +948,9 @@ fn test_comparison_literal_metadata_is_not_replaced(
         value.clone(),
         Some(FieldMetadata::new_from_field(&field)),
     )) as Arc<dyn PhysicalExpr>;
-    field.metadata_mut().insert(
-        "ARROW:extension:name".into(),
-        "unregistered.extension".into(),
-    );
+    field
+        .metadata_mut()
+        .insert("ARROW:extension:name", "unregistered.extension");
     let invalid = Arc::new(df_expr::Literal::new_with_metadata(
         value,
         Some(FieldMetadata::new_from_field(&field)),
@@ -850,10 +985,9 @@ fn test_comparison_inherits_complete_extension_metadata() -> anyhow::Result<()> 
 
     let mut literal_field = field;
     literal_field.metadata_mut().remove(EXTENSION_TYPE_NAME_KEY);
-    literal_field.metadata_mut().insert(
-        EXTENSION_TYPE_METADATA_KEY.into(),
-        "unrelated payload".into(),
-    );
+    literal_field
+        .metadata_mut()
+        .insert(EXTENSION_TYPE_METADATA_KEY, "unrelated payload");
     let literal = df_expr::Literal::new_with_metadata(
         ScalarValue::FixedSizeBinary(16, Some(bytes.to_vec())),
         Some(FieldMetadata::new_from_field(&literal_field)),
@@ -901,7 +1035,7 @@ fn test_expr_from_df_binary() -> DFResult<()> {
     )?;
 
     assert_snapshot!(result.display_tree().to_string(), @r"
-    vortex.binary(=)
+    vortex.compare(=)
     ├── lhs: vortex.get_item(left)
     │   └── input: vortex.root()
     └── rhs: vortex.literal(42i32)
@@ -1039,6 +1173,42 @@ fn test_expr_from_df_array_length(test_schema: Schema) -> DFResult<()> {
     ),
     false
 )]
+// Run-end encoded types - should be supported if value type is supported
+#[case::ree_utf8(ree_utf8(DataType::Int32), true)]
+#[case::ree_unsupported(
+    DataType::RunEndEncoded(
+        Arc::new(Field::new("run_ends", DataType::Int32, false)),
+        Arc::new(Field::new(
+            "values",
+            DataType::List(Arc::new(Field::new("item", DataType::Int32, true))),
+            true
+        ))
+    ),
+    false
+)]
+#[case::ree_dict_utf8(
+    DataType::RunEndEncoded(
+        Arc::new(Field::new("run_ends", DataType::Int32, false)),
+        Arc::new(Field::new(
+            "values",
+            DataType::Dictionary(Box::new(DataType::UInt32), Box::new(DataType::Utf8)),
+            true
+        ))
+    ),
+    true
+)]
+// Arrow's comparison kernels only unwrap run-end encoding as the outermost layer.
+#[case::ree_of_ree(
+    DataType::RunEndEncoded(
+        Arc::new(Field::new("run_ends", DataType::Int32, false)),
+        Arc::new(Field::new("values", ree_utf8(DataType::Int32), true))
+    ),
+    false
+)]
+#[case::dict_of_ree(
+    DataType::Dictionary(Box::new(DataType::UInt32), Box::new(ree_utf8(DataType::Int32))),
+    false
+)]
 fn test_supported_data_types(#[case] data_type: DataType, #[case] expected: bool) {
     assert_eq!(supported_data_types(&data_type), expected);
 }
@@ -1080,7 +1250,7 @@ fn test_unsupported_field_is_declined_only_when_referenced(
         ));
         assert_eq!(
             convert(expr, &schema)?,
-            Binary.new_expr(Operator::Eq, [get_item("id", root()), lit(42i32)]),
+            Compare.new_expr(CompareOperator::Eq, [get_item("id", root()), lit(42i32)]),
         );
     }
     Ok(())
@@ -1134,9 +1304,9 @@ fn test_projection_ignores_unreferenced_unsupported_field() -> DFResult<()> {
         pack(
             [(
                 "sum",
-                Binary.new_expr(
-                    Operator::Add,
-                    [b.clone(), Binary.new_expr(Operator::Add, [a, b])]
+                Numeric.new_expr(
+                    NumericOperator::Add,
+                    [b.clone(), Numeric.new_expr(NumericOperator::Add, [a, b])]
                 )
             )],
             Nullability::NonNullable,
@@ -1764,13 +1934,24 @@ fn contains_cast(expr: &Expression) -> bool {
 
 /// Plans `predicate` as DataFusion does: type coercion, simplification, then physical planning.
 fn plan_predicate(predicate: &str, schema: &Schema) -> DFResult<Arc<dyn PhysicalExpr>> {
+    let df_schema = DFSchema::try_from(schema.clone())?;
+    plan_expr(
+        SessionContext::new().parse_sql_expr(predicate, &df_schema)?,
+        schema,
+    )
+}
+
+/// Plans a logical `expr` as DataFusion does: type coercion, simplification, then physical planning.
+fn plan_expr(
+    expr: datafusion::logical_expr::Expr,
+    schema: &Schema,
+) -> DFResult<Arc<dyn PhysicalExpr>> {
     let df_schema = Arc::new(DFSchema::try_from(schema.clone())?);
     let simplifier = ExprSimplifier::new(
         SimplifyContext::builder()
             .with_schema(Arc::clone(&df_schema))
             .build(),
     );
-    let expr = SessionContext::new().parse_sql_expr(predicate, &df_schema)?;
     let expr = simplifier.simplify(simplifier.coerce(expr, &df_schema)?)?;
     create_physical_expr(
         &expr,
@@ -2046,6 +2227,135 @@ fn test_ree_dict_comparison_matches_datafusion(#[case] predicate: &str) -> anyho
     assert_native_matches(plan_predicate(predicate, &schema)?, batch)
 }
 
+/// Filters on plain, dictionary and run-end encoded columns of these value types evaluate the same
+/// in Vortex as in DataFusion. Add a value type here when `supported_data_types` starts to accept
+/// it.
+#[rstest]
+fn test_encoded_comparison_matches_datafusion(
+    #[values(
+        DataType::Int8,
+        DataType::Int16,
+        DataType::Int32,
+        DataType::Int64,
+        DataType::UInt8,
+        DataType::UInt16,
+        DataType::UInt32,
+        DataType::UInt64,
+        DataType::Float16,
+        DataType::Float32,
+        DataType::Float64,
+        DataType::Decimal128(10, 2),
+        DataType::Decimal256(20, 2),
+        DataType::Boolean,
+        DataType::Date32,
+        DataType::Date64,
+        DataType::Timestamp(ArrowTimeUnit::Nanosecond, None),
+        DataType::Timestamp(ArrowTimeUnit::Millisecond, Some("UTC".into())),
+        DataType::Time32(ArrowTimeUnit::Second),
+        DataType::Time64(ArrowTimeUnit::Nanosecond),
+        DataType::Utf8,
+        DataType::LargeUtf8,
+        DataType::Utf8View,
+        DataType::Binary,
+        DataType::LargeBinary,
+        DataType::BinaryView
+    )]
+    value_type: DataType,
+    #[values("plain", "dictionary", "ree_int16", "ree_int32", "ree_int64")] encoding: &str,
+) -> anyhow::Result<()> {
+    // DataFusion casts the literal to the column's dictionary type, which Arrow cannot build for
+    // Boolean values, so it cannot plan the comparison.
+    if value_type == DataType::Boolean && encoding == "dictionary" {
+        return Ok(());
+    }
+    let distinct = if value_type.is_string() || value_type.is_binary() {
+        cast(
+            &StringArray::from(vec!["x", "y", "unused", "other"]),
+            &value_type,
+        )?
+    } else {
+        let ints = Int64Array::from(vec![0, 1, 2, 3]);
+        cast(&ints, &value_type).or_else(|_| cast(&cast(&ints, &DataType::Int32)?, &value_type))?
+    };
+    // Rows: v0, v0, NULL, v1, v1, v0. The dictionary also holds values no key references.
+    let dictionary = DictionaryArray::<UInt32Type>::try_new(
+        UInt32Array::from(vec![Some(0), Some(0), None, Some(1), Some(1), Some(0)]),
+        distinct,
+    )?;
+    let unused = ScalarValue::try_from_array(dictionary.values(), 2)?;
+    let other = ScalarValue::try_from_array(dictionary.values(), 3)?;
+    let plain = cast(&dictionary, &value_type)?;
+    let run_ends = |run_ends: DataType| {
+        cast(
+            &plain,
+            &DataType::RunEndEncoded(
+                Arc::new(Field::new("run_ends", run_ends, false)),
+                Arc::new(Field::new("values", value_type.clone(), true)),
+            ),
+        )
+    };
+    let encoded = match encoding {
+        "plain" => Arc::clone(&plain),
+        "dictionary" => Arc::new(dictionary) as arrow_array::ArrayRef,
+        "ree_int16" => run_ends(DataType::Int16)?,
+        "ree_int32" => run_ends(DataType::Int32)?,
+        "ree_int64" => run_ends(DataType::Int64)?,
+        _ => unreachable!(),
+    };
+    let schema = Arc::new(Schema::new(vec![Field::new(
+        "c",
+        encoded.data_type().clone(),
+        true,
+    )]));
+    let batch = RecordBatch::try_new(Arc::clone(&schema), vec![encoded])?;
+
+    let first = ScalarValue::try_from_array(&plain, 0)?;
+    let second = ScalarValue::try_from_array(&plain, 3)?;
+    let column = || datafusion::logical_expr::col("c");
+    let literal = |value: &ScalarValue| datafusion::logical_expr::lit(value.clone());
+    for predicate in [
+        column().eq(literal(&first)),
+        column().not_eq(literal(&first)),
+        column().lt(literal(&second)),
+        column().lt_eq(literal(&first)),
+        column().gt(literal(&first)),
+        column().gt_eq(literal(&second)),
+        literal(&first).lt(column()),
+        column()
+            .eq(literal(&first))
+            .and(column().not_eq(literal(&second))),
+        column()
+            .eq(literal(&first))
+            .or(column().eq(literal(&second))),
+    ] {
+        let expr = plan_expr(predicate, &schema)?;
+        expr.evaluate(&batch)?;
+        assert_native_matches(expr, batch.clone())?;
+    }
+
+    // DataFusion rewrites a column IN list of up to three values into comparisons.
+    let null = ScalarValue::try_from(&value_type)?;
+    for last in [&second, &null] {
+        for negated in [false, true] {
+            let list = [&first, &unused, &other, last].map(literal).to_vec();
+            let expr = plan_expr(column().in_list(list, negated), &schema)?;
+            assert!(
+                expr.downcast_ref::<df_expr::InListExpr>().is_some(),
+                "{expr}"
+            );
+            expr.evaluate(&batch)?;
+            if last.is_null() && encoding.starts_with("ree") {
+                let converted = DefaultExpressionConverter::new(VortexSession::default())
+                    .try_convert(&expr, &schema)?;
+                assert!(converted.is_none(), "{expr} should stay in DataFusion");
+            } else {
+                assert_native_matches(expr, batch.clone())?;
+            }
+        }
+    }
+    Ok(())
+}
+
 #[rstest]
 #[case::add(DFOperator::Plus)]
 #[case::sub(DFOperator::Minus)]
@@ -2290,6 +2600,166 @@ fn test_native_nested_get_field(
         PrimitiveArray::from_option_iter(expected),
         &mut session.create_execution_ctx()
     );
+    Ok(())
+}
+
+/// An [`AnyStorage`] point over `Struct<x: i32, y: i32>`.
+fn point_dtype(nullable: bool) -> VortexResult<ExtDTypeRef> {
+    let coordinate = DType::Primitive(PType::I32, Nullability::NonNullable);
+    let storage = DType::struct_(
+        [("x", coordinate.clone()), ("y", coordinate)],
+        nullable.into(),
+    );
+
+    AnyStorage::dtype(storage)
+}
+
+/// A batch with a `point` column and an `outer` struct around the same points, with the point
+/// field that `session` infers.
+///
+/// `x` holds 10, 20, 30, and 40. `point` is null at index 1, and `outer` is null at index 2.
+fn point_batch(session: &VortexSession) -> anyhow::Result<RecordBatch> {
+    let point = session
+        .arrow()
+        .to_arrow_field("point", &DType::Extension(point_dtype(true)?))?;
+    let DataType::Struct(fields) = point.data_type() else {
+        anyhow::bail!("Expected point storage as a struct, got {point}");
+    };
+    let points: ArrowArrayRef = Arc::new(StructArray::try_new(
+        fields.clone(),
+        vec![
+            Arc::new(Int32Array::from(vec![10, 20, 30, 40])),
+            Arc::new(Int32Array::from(vec![11, 21, 31, 41])),
+        ],
+        Some(NullBuffer::from(vec![true, false, true, true])),
+    )?);
+    let outer = StructArray::try_new(
+        vec![point.clone()].into(),
+        vec![Arc::clone(&points)],
+        Some(NullBuffer::from(vec![true, true, false, true])),
+    )?;
+    let schema = Schema::new(vec![
+        point,
+        Field::new("outer", outer.data_type().clone(), true),
+    ]);
+    Ok(RecordBatch::try_new(
+        Arc::new(schema),
+        vec![points, Arc::new(outer)],
+    )?)
+}
+
+/// A registered extension reads its storage through `ext_storage`. The session imports an unknown
+/// extension name as plain storage, so the same read is a plain `get_item` with the same values.
+#[rstest]
+#[case::column(   "point", &["x"],          false, [Some(10), None, Some(30), Some(40)])]
+#[case::flattened("outer", &["point", "x"], false, [Some(10), None, None,     Some(40)])]
+#[case::chained(  "outer", &["point", "x"], true,  [Some(10), None, None,     Some(40)])]
+fn test_get_field_reads_extension_storage(
+    #[case] column: &str,
+    #[case] path: &[&str],
+    #[case] chained: bool,
+    #[case] expected: [Option<i32>; 4],
+    #[values(false, true)] registered: bool,
+) -> anyhow::Result<()> {
+    let session = VortexSession::default();
+    if registered {
+        session.dtypes().register(AnyStorage);
+    }
+    let batch = point_batch(&session)?;
+    let schema = batch.schema();
+    let source = Arc::new(df_expr::Column::new(column, schema.index_of(column)?));
+    let expr = if chained {
+        let (first, rest) = path.split_at(1);
+        get_field_expr(get_field_expr(source, first, &schema)?, rest, &schema)?
+    } else {
+        get_field_expr(source, path, &schema)?
+    };
+
+    let converted = DefaultExpressionConverter::new(session.clone())
+        .try_convert(&expr, &schema)?
+        .ok_or_else(|| anyhow::anyhow!("Expected native conversion for {expr}"))?;
+    let point = if column == "point" {
+        get_item("point", root())
+    } else {
+        get_item("point", get_item("outer", root()))
+    };
+    let point = if registered {
+        ext_storage(point)
+    } else {
+        point
+    };
+    assert_eq!(converted, get_item("x", point));
+
+    let input = session.arrow().from_arrow_record_batch(batch, &schema)?;
+    assert_arrays_eq!(
+        input.apply(&converted)?,
+        PrimitiveArray::from_option_iter(expected),
+        &mut session.create_execution_ctx()
+    );
+    Ok(())
+}
+
+/// Declines every array, so each export falls through to the Vortex-ID storage export.
+///
+/// The converter cannot know that before the export runs, so it treats the plugin as opaque.
+#[derive(Debug)]
+struct DecliningPointExporter;
+
+impl ArrowExportVTable for DecliningPointExporter {
+    fn arrow_ext_id(&self) -> Id {
+        *ANY_STORAGE_ID
+    }
+
+    fn vortex_id(&self) -> Id {
+        *ANY_STORAGE_ID
+    }
+
+    fn to_arrow_field(
+        &self,
+        _name: &str,
+        _dtype: &DType,
+        _session: &ArrowSession,
+    ) -> VortexResult<Option<Field>> {
+        Ok(None)
+    }
+
+    fn execute_arrow(
+        &self,
+        array: ArrayRef,
+        _target: &Field,
+        _options: &ArrowExportOptions,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrowExport> {
+        Ok(ArrowExport::Unsupported(array))
+    }
+}
+
+#[rstest]
+#[case::column("point", &["x"])]
+#[case::nested("outer", &["point", "x"])]
+fn test_get_field_on_plugin_export_stays_in_datafusion(
+    #[case] column: &str,
+    #[case] path: &[&str],
+) -> anyhow::Result<()> {
+    let session = VortexSession::default();
+    session.dtypes().register(AnyStorage);
+    let batch = point_batch(&session)?;
+    session
+        .arrow()
+        .register_exporter(Arc::new(DecliningPointExporter));
+
+    // The plugin leaves the inferred field as it is, so the field alone does not show the plugin.
+    let schema = batch.schema();
+    let point = DType::Extension(point_dtype(true)?);
+    assert_eq!(
+        &session.arrow().to_arrow_field("point", &point)?,
+        schema.field(0)
+    );
+
+    let source = Arc::new(df_expr::Column::new(column, schema.index_of(column)?));
+    let expr = get_field_expr(source, path, &schema)?;
+    let converter = DefaultExpressionConverter::new(session);
+    assert!(converter.try_convert(&expr, &schema)?.is_none());
     Ok(())
 }
 

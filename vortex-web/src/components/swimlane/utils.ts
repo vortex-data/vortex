@@ -93,7 +93,7 @@ export function getNodeDisplayName(node: LayoutTreeNode): string {
  * Check if a node has expandable children
  */
 export function hasExpandableChildren(node: LayoutTreeNode): boolean {
-  return node.children.length > 0;
+  return node.children.length > 0 || (isFlatLayout(node) && node.segmentIds.length > 0);
 }
 
 /**

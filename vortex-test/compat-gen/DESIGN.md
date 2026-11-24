@@ -41,21 +41,13 @@ contain. The contract is that `build()` for a given fixture name is immutable
 once defined. It must never change its output. If someone modifies it, the
 check fails loudly against every old version.
 
-Some fixtures must publish an old physical form. An example is a decimal
-array that is stored narrower or wider than the canonical width of its
-precision. `build()` must not return such a form, because `check` runs
-`build()` with the current library. So these fixtures also override
-`build_written()`, which builds the arrays that `generate` and `publish`
-write. `check` still compares each published file with the result of
-`build()`. The two results have the same dtype and the same logical values.
-Only their physical form differs. So the published file keeps the old form,
-and `build()` stays the oracle.
-
-An override works only while the current library can still build the old
-form. For the decimal fixtures, that is while `DecimalArray::try_new` accepts
-the stored width. When it rejects the width, `build_written()` fails, and the
-override must be deleted. The files that earlier releases published keep the
-old form. Later releases publish the canonical form under the same name.
+A fixture can override `build_written()` to publish a particular physical
+representation while `build()` supplies the logical values used by `check`.
+The writer must be able to produce that representation. Earlier releases used
+this hook to publish decimal columns wider or narrower than the canonical
+width of their precision. These fixtures now write their canonical arrays
+under the same names. The published files preserve the original widths for
+compatibility checks.
 
 ### Fixture evolution
 

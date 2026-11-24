@@ -566,10 +566,10 @@ mod tests {
     use crate::expr::lit;
     use crate::expr::not_eq;
     use crate::expr::root;
-    use crate::scalar_fn::fns::binary::Binary;
-    use crate::scalar_fn::fns::get_item::GetItem;
-    use crate::scalar_fn::fns::literal::Literal;
-    use crate::scalar_fn::fns::operators::Operator;
+    use crate::scalar_fn::builtin::compare::Compare;
+    use crate::scalar_fn::builtin::get_item::GetItem;
+    use crate::scalar_fn::builtin::literal::Literal;
+    use crate::scalar_fn::builtin::operators::CompareOperator;
 
     #[derive(Default)]
     pub struct ExprLitCollector<'a>(pub Vec<&'a Expression>);
@@ -670,8 +670,8 @@ mod tests {
             if node.is::<GetItem>() {
                 nodes.push(node)
             }
-            if let Some(operator) = node.as_opt::<Binary>()
-                && *operator == Operator::Eq
+            if let Some(operator) = node.as_opt::<Compare>()
+                && *operator == CompareOperator::Eq
             {
                 return Ok(TraversalOrder::Skip);
             }
@@ -698,8 +698,8 @@ mod tests {
             if node.is::<GetItem>() {
                 nodes.push(node)
             }
-            if let Some(operator) = node.as_opt::<Binary>()
-                && *operator == Operator::Eq
+            if let Some(operator) = node.as_opt::<Compare>()
+                && *operator == CompareOperator::Eq
             {
                 return Ok(TraversalOrder::Stop);
             }

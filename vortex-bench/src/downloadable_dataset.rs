@@ -9,6 +9,7 @@ use vortex::array::IntoArray;
 use vortex::array::stream::ArrayStreamExt;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::file::WriteOptionsSessionExt;
+use vortex::scan::ScanRequest;
 
 use crate::IdempotentPath;
 use crate::SESSION;
@@ -79,14 +80,17 @@ impl Dataset for DownloadableDataset {
         })
         .await?;
 
-        Ok(SESSION
+        let scan = SESSION
             .open_options()
             .open_path(vortex.as_path())
             .await?
-            .scan()?
-            .into_array_stream()?
-            .read_all()
-            .await?)
+            .data_source()?
+            .scan(ScanRequest {
+                ordered: true,
+                ..Default::default()
+            })
+            .await?;
+        Ok(scan.into_array_stream().read_all().await?)
     }
 
     async fn to_parquet_path(&self) -> anyhow::Result<PathBuf> {

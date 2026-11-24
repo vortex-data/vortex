@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Serialization through existing wire forms, including nested arrays and stored statistics.
+//! Tests for the `Widen` wire formats.
 //!
-//! Wire IDs and logical values are checked separately because a `Widen` can read back as another
-//! encoding.
+//! A decimal leaf can use the `vortex.decimal` wire ID while preserving the values of the original
+//! `Widen`. The tests check the wire ID and the decoded values separately.
 
 use rstest::rstest;
 use vortex_buffer::ByteBuffer;
@@ -17,7 +17,9 @@ use vortex_session::registry::ReadContext;
 
 use super::SESSION;
 use crate::ArrayContext;
+use crate::ArrayDeserialization;
 use crate::ArrayId;
+use crate::ArrayPlugin;
 use crate::ArrayRef;
 use crate::ArrayVTable;
 use crate::IntoArray;
@@ -27,12 +29,16 @@ use crate::arrays::ChunkedArray;
 use crate::arrays::Decimal;
 use crate::arrays::DecimalArray;
 use crate::arrays::DictArray;
+use crate::arrays::Primitive;
 use crate::arrays::SliceArray;
 use crate::arrays::StructArray;
 use crate::arrays::Widen;
 use crate::arrays::WidenArray;
 use crate::arrays::decimal::DecimalArrayExt;
+use crate::arrays::widen::WidenArraySlotsExt;
+use crate::arrays::widen::WidenPlugin;
 use crate::assert_arrays_eq;
+use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::dtype::DecimalDType;
 use crate::dtype::Nullability;
@@ -87,6 +93,17 @@ fn serialize_round_trip(
     Ok((decoded, ids))
 }
 
+#[track_caller]
+fn assert_widen_decode_error(parts: ArrayDeserialization<'_>, expected_error: &str) {
+    let error = WidenPlugin
+        .deserialize(parts, &SESSION)
+        .expect_err("invalid Widen nodes must fail before decoding the child");
+    assert!(
+        error.to_string().contains(expected_error),
+        "expected {expected_error}, got {error}"
+    );
+}
+
 #[test]
 fn decimal_widen_writes_narrow_bytes() -> VortexResult<()> {
     let values = [-999_999_999i32, 0, 999_999_999];
@@ -99,7 +116,8 @@ fn decimal_widen_writes_narrow_bytes() -> VortexResult<()> {
         .vortex_expect("WidenPlugin serializes a decimal Widen over a Decimal leaf");
     assert_eq!(serialization.buffers[0].as_ptr(), child_ptr.cast::<u8>());
 
-    let ctx = ArrayContext::empty();
+    let ctx =
+        ArrayContext::empty().with_allowed_ids([ArrayVTable::id(&Decimal)].into_iter().collect());
     let serialized = SerializedArray::try_from(serialize_blob(&widen, &ctx, &SESSION)?)?;
     let read_ctx = ReadContext::new(ctx.to_ids());
 
@@ -128,6 +146,7 @@ fn decimal_widen_writes_narrow_bytes() -> VortexResult<()> {
 ), 38)]
 #[case::all_null(DecimalArray::new(
     buffer![i32::MIN, i32::MAX], DecimalDType::new(9, 2), Validity::AllInvalid,
+    &mut SESSION.create_execution_ctx(),
 ), 38)]
 #[case::empty(DecimalArray::from_iter(Vec::<i32>::new(), DecimalDType::new(9, 2)), 38)]
 #[case::i128_child(DecimalArray::from_iter(
@@ -199,22 +218,136 @@ fn serialization_keeps_parent_statistics() -> VortexResult<()> {
     Ok(())
 }
 
-#[test]
-fn serialization_requires_a_ready_decimal_leaf() -> VortexResult<()> {
-    let child = DecimalArray::from_iter([1i32, 2, 3], DecimalDType::new(9, 2)).into_array();
-    let dict = DictArray::try_new(buffer![0u8, 1, 2].into_array(), child)?;
-    let widen = widen_over(
-        dict,
-        DType::Decimal(DecimalDType::new(38, 2), Nullability::NonNullable),
-    )?;
-    let error = serialize_blob(&widen, &ArrayContext::empty(), &SESSION)
-        .expect_err("serialization requires a ready, serializable Decimal leaf");
-    assert!(error.to_string().contains("requires a Decimal leaf"));
+#[rstest]
+#[case::zero_ptype(
+    buffer![0u8, u8::MAX].into_array(),
+    DType::from(PType::U64),
+    [8, 0], // The zero enum value for U8 still needs its field tag.
+)]
+#[case::encoded_decimal(
+    DictArray::try_new(
+        buffer![2u8, 0, 1, 2].into_array(),
+        DecimalArray::from_option_iter([Some(-5i32), None, Some(8)], DecimalDType::new(9, 2))
+            .into_array(),
+    )?.into_array(),
+    DType::Decimal(DecimalDType::new(38, 2), Nullability::Nullable),
+    [16, 9],
+)]
+fn test_widen_wire_round_trip(
+    #[case] child: ArrayRef,
+    #[case] dtype: DType,
+    #[case] metadata: [u8; 2],
+) -> VortexResult<()> {
+    let widen = widen_over(child.clone(), dtype)?;
+    let ctx = ArrayContext::empty();
+    let serialized = SerializedArray::try_from(serialize_blob(&widen, &ctx, &SESSION)?)?;
+    let read_ctx = ReadContext::new(ctx.to_ids());
 
-    let integer = widen_over(buffer![1i8, 2, 3], DType::from(PType::I64))?;
-    let error = serialize_blob(&integer, &ArrayContext::empty(), &SESSION)
-        .expect_err("WidenPlugin only serializes decimal arrays");
-    assert!(error.to_string().contains("requires a decimal dtype"));
+    assert_eq!(
+        read_ctx.resolve(serialized.encoding_id()),
+        Some(ArrayVTable::id(&Widen))
+    );
+    assert_eq!(serialized.metadata(), metadata.as_slice());
+    assert_eq!(serialized.nbuffers(), 0);
+    assert_eq!(serialized.nchildren(), 1);
+
+    let decoded = serialized.decode(widen.dtype(), widen.len(), &read_ctx, &SESSION)?;
+    let decoded_widen = decoded.as_::<Widen>();
+    let values = decoded_widen.values();
+    assert_eq!(values.dtype(), child.dtype());
+    assert_eq!(values.encoding_id(), child.encoding_id());
+    assert_arrays_eq!(decoded, widen, &mut SESSION.create_execution_ctx());
+
+    Ok(())
+}
+
+#[test]
+fn test_widen_wire_id_requires_permission() -> VortexResult<()> {
+    let widen = widen_over(buffer![1i8, 2, 3], DType::from(PType::I64))?;
+    let restricted =
+        ArrayContext::empty().with_allowed_ids([ArrayVTable::id(&Primitive)].into_iter().collect());
+    let error = serialize_blob(&widen, &restricted, &SESSION)
+        .expect_err("the target must permit the Widen wire ID");
+    assert!(error.to_string().contains("vortex.widen not permitted"));
+
+    Ok(())
+}
+
+#[rstest]
+#[case::missing(      PType::I64.into(), &[],        "must name the child type")]
+#[case::unknown_ptype(PType::I64.into(), &[8, 127],  "unknown enumeration value 127")]
+#[case::wrong_parent( PType::I64.into(), &[16, 9],   "does not match the parent")]
+#[case::incompatible_child(
+    PType::I64.into(),
+    &[8, PType::U8 as u8],
+    "signedness",
+)]
+#[case::precision_would_truncate(
+    DType::Decimal(DecimalDType::new(38, 2), Nullability::NonNullable),
+    &[16, 137, 2], // A wrapping cast from 265 to u8 would accept precision 9.
+    "out of range",
+)]
+#[case::precision_below_scale(
+    DType::Decimal(DecimalDType::new(38, 2), Nullability::NonNullable),
+    &[16, 1],
+    "scale",
+)]
+fn test_widen_wire_rejects_invalid_child_metadata(
+    #[case] dtype: DType,
+    #[case] metadata: &[u8],
+    #[case] expected_error: &str,
+) {
+    let children = [buffer![1u32].into_array()];
+    let parts =
+        ArrayDeserialization::new(ArrayVTable::id(&Widen), &dtype, 1, metadata, &[], &children);
+
+    assert_widen_decode_error(parts, expected_error);
+}
+
+#[test]
+fn test_widen_wire_rejects_invalid_node() {
+    let dtype = DType::from(PType::I64);
+    let metadata = [8, PType::I8 as u8];
+    let children = [buffer![1i8].into_array()];
+    let cases = [
+        (ArrayVTable::id(&Decimal), &children[..], "wire ID"),
+        (
+            ArrayVTable::id(&Widen),
+            &children[..0],
+            "at least one child",
+        ),
+    ];
+
+    for (id, children, expected_error) in cases {
+        let parts = ArrayDeserialization::new(id, &dtype, 1, &metadata, &[], &children);
+        assert_widen_decode_error(parts, expected_error);
+    }
+}
+
+/// A later writer may append children and node buffers that do not change the decoded values, so
+/// a reader ignores everything after the first child.
+#[test]
+fn test_widen_wire_ignores_trailing_children_and_node_buffers() -> VortexResult<()> {
+    let dtype = DType::from(PType::I64);
+    let metadata = [8, PType::I8 as u8];
+    let buffers = [BufferHandle::new_host(ByteBuffer::copy_from([1]))];
+    // In-memory children assert the requested dtype, so decoding this `u32` child would panic.
+    let children = [
+        buffer![1i8, -2, 3].into_array(),
+        buffer![7u32, 8, 9].into_array(),
+    ];
+    let parts = ArrayDeserialization::new(
+        ArrayVTable::id(&Widen),
+        &dtype,
+        3,
+        &metadata,
+        &buffers,
+        &children,
+    );
+
+    let decoded = WidenPlugin.deserialize(parts, &SESSION)?;
+    let expected = widen_over(buffer![1i8, -2, 3], dtype)?;
+    assert_arrays_eq!(decoded, expected, &mut SESSION.create_execution_ctx());
 
     Ok(())
 }
@@ -227,6 +360,7 @@ fn serialization_does_not_execute_validity() -> VortexResult<()> {
         buffer![1i32, 2],
         DecimalDType::new(9, 2),
         Validity::Array(validity),
+        &mut SESSION.create_execution_ctx(),
     );
     let widen = widen_over(
         child,

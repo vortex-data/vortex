@@ -198,9 +198,9 @@ where
 
                         for _ in 0..iters {
                             // Copy input to device
-                            let d_input_handle =
-                                block_on(cuda_ctx.copy_to_device(input_data.clone()).unwrap())
-                                    .vortex_expect("failed to copy input to device");
+                            let d_input_handle = cuda_ctx
+                                .copy_to_device(input_data)
+                                .vortex_expect("failed to copy input to device");
                             let d_input = d_input_handle
                                 .as_device()
                                 .as_any()
@@ -208,9 +208,9 @@ where
                                 .unwrap();
 
                             // Copy bitmask to device
-                            let d_bitmask_handle =
-                                block_on(cuda_ctx.copy_to_device(bitmask.clone()).unwrap())
-                                    .vortex_expect("failed to copy bitmask to device");
+                            let d_bitmask_handle = cuda_ctx
+                                .copy_to_device(bitmask)
+                                .vortex_expect("failed to copy bitmask to device");
                             let d_bitmask = d_bitmask_handle
                                 .as_device()
                                 .as_any()

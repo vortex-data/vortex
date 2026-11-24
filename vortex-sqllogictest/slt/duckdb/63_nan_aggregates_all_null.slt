@@ -1,0 +1,22 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+include ../setup.slt.no
+
+statement ok
+SET disabled_optimizers='statistics_propagation';
+
+statement ok
+COPY (
+    SELECT * FROM (VALUES (CAST(NULL AS DOUBLE)), (CAST(NULL AS DOUBLE))) AS t(x)
+) TO '${WORK_DIR}/all-null.vortex';
+
+query IRR
+SELECT count(x), sum(x), max(x) FROM '${WORK_DIR}/all-null.vortex';
+----
+0 NULL NULL
+
+query R
+SELECT min(x) FROM '${WORK_DIR}/all-null.vortex';
+----
+NULL

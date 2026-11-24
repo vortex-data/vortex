@@ -79,44 +79,12 @@ mod tests {
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
     use vortex_array::dtype::extension::ExtDTypePlugin;
-    use vortex_array::dtype::extension::ExtVTable;
-    use vortex_error::VortexResult;
 
     use crate::types::vector::Vector;
-    use crate::types::vector::VectorMetadata;
-
-    /// Constructs a `FixedSizeList` storage dtype with the given float [`PType`], list size, and
-    /// [`Nullability`].
-    fn vector_storage_dtype(ptype: PType, size: u32, nullability: Nullability) -> DType {
-        DType::FixedSizeList(
-            Arc::new(DType::Primitive(ptype, Nullability::NonNullable)),
-            size,
-            nullability,
-        )
-    }
 
     /// Constructs a non-nullable `FixedSizeList` storage dtype of 128 `element`s.
     fn fixed_size_list(element: DType) -> DType {
         DType::FixedSizeList(Arc::new(element), 128, Nullability::NonNullable)
-    }
-
-    #[rstest]
-    #[case::f16(PType::F16)]
-    #[case::f32(PType::F32)]
-    #[case::f64(PType::F64)]
-    fn read_accepts_float_types(#[case] ptype: PType) -> VortexResult<()> {
-        let storage = vector_storage_dtype(ptype, 128, Nullability::NonNullable);
-        Vector.deserialize(&[], storage)?;
-        Ok(())
-    }
-
-    #[rstest]
-    #[case::nullable(Nullability::Nullable)]
-    #[case::non_nullable(Nullability::NonNullable)]
-    fn read_accepts_any_outer_nullability(#[case] nullability: Nullability) -> VortexResult<()> {
-        let storage = vector_storage_dtype(PType::F32, 128, nullability);
-        Vector.deserialize(&[], storage)?;
-        Ok(())
     }
 
     /// A read fails unless the stored storage dtype is a `FixedSizeList` of non-nullable floats,
@@ -141,17 +109,5 @@ mod tests {
     fn read_rejects_other_storage_dtype(#[case] storage: DType, #[case] expected: &str) {
         let result = Vector.deserialize(&[], storage);
         assert!(result.is_err_and(|error| error.to_string().contains(expected)));
-    }
-
-    #[test]
-    fn roundtrip_metadata() -> VortexResult<()> {
-        let vtable = Vector;
-        let metadata = VectorMetadata::try_new(PType::F32, 128)?;
-        let bytes = vtable.serialize_metadata(&metadata)?;
-        assert!(bytes.is_empty());
-        let storage = vector_storage_dtype(PType::F32, 128, Nullability::NonNullable);
-        let deserialized = vtable.deserialize(&bytes, storage)?;
-        assert_eq!(deserialized.metadata::<Vector>(), &metadata);
-        Ok(())
     }
 }

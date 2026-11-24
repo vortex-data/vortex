@@ -3,9 +3,10 @@
 
 //! Widening casts of decimal values buffers on the device.
 //!
-//! The Arrow export widens decimal values to the width that the Arrow schema fixes, and the
-//! Widen executor widens a narrow decimal child to the canonical width of its decimal dtype. Both
-//! launch the `decimal_cast` kernels through this module.
+//! The Arrow export widens decimal values to the width that the Arrow schema fixes, the Widen
+//! executor widens a narrow decimal child to the canonical width of its decimal dtype, and the
+//! DecimalByteParts executor widens a stored MSP to the canonical width of its decimal dtype. All
+//! three launch the `decimal_cast` kernels through this module.
 //!
 //! These casts only widen. A narrowing cast can overflow, and to detect that on the device, the
 //! kernel would need an overflow flag that synchronizes with the host. So this module rejects a
@@ -53,7 +54,7 @@ pub(crate) async fn widen_decimal_values(
     );
     vortex_ensure_eq!(values.len(), len * values_type.byte_width());
 
-    let values = ctx.ensure_on_device(values).await?;
+    let values = ctx.ensure_on_device(values)?;
 
     match_each_decimal_value_type!(values_type, |S| {
         decimal_cast_to::<S>(values, target_type, len, ctx).await
@@ -98,11 +99,9 @@ where
     D: NativeDecimalType + DeviceRepr,
 {
     if len == 0 {
-        return ctx
-            .ensure_on_device(BufferHandle::new_host(
-                Buffer::<D>::empty().into_byte_buffer(),
-            ))
-            .await;
+        return ctx.ensure_on_device(BufferHandle::new_host(
+            Buffer::<D>::empty().into_byte_buffer(),
+        ));
     }
 
     let mut output_buffer = ctx.device_alloc::<D>(len)?;

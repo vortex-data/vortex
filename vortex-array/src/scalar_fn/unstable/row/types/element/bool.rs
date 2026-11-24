@@ -44,7 +44,11 @@ unsafe impl InputElement for bool {
     }
 
     fn decode(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self::Column> {
-        Ok(array.execute::<BoolArray>(ctx)?.into_bit_buffer())
+        let array = array.execute::<BoolArray>(ctx)?;
+        let len = array.len();
+        let parts = array.into_data().into_parts(len);
+        let bits = parts.bits.try_into_host_sync()?;
+        Ok(BitBuffer::new_with_offset(bits, len, parts.meta.offset()))
     }
 
     fn decode_constant(array: ArrayRef, _ctx: &mut ExecutionCtx) -> VortexResult<Self::Constant> {

@@ -56,6 +56,8 @@ import pandas as pd
 # cutoff that is closer to a 99% two-sided interval before calling a change real.
 Z_SCORE_99 = 2.5758293035489004
 CONTROL_FORMAT = "parquet"
+# The confidence of an attribution whose Parquet control moved too much to subtract.
+NOISY_CONFIDENCE = "environment too noisy"
 FILE_SIZE_METRIC = "file_size"
 # Every format's file sizes are stored; the PR comment compares only the Vortex formats.
 FILE_SIZE_REPORT_FORMAT_PREFIX = "vortex"
@@ -64,6 +66,10 @@ EMPTY_ROW_COLUMNS = ["commit_id", "name", "storage", "unit", "value", "all_runti
 QUERY_TARGET_PATTERN = re.compile(r"_q(\d+)/([^:]+):(.+)$")
 FORMAT_DISPLAY_NAMES = {
     "vortex": "vortex-file-compressed",
+}
+# Query table columns use the short format names targets are declared with.
+FORMAT_COLUMN_NAMES = {
+    "vortex-file-compressed": "vortex",
 }
 
 
@@ -200,6 +206,7 @@ def ingest_record_row(record: dict[str, Any]) -> dict[str, Any] | None:
         if dims:
             row["dataset"] = dims
         row["target"] = {"engine": engine, "format": file_format}
+        row.update({axis: record[axis] for axis in SCAN_AXES if record.get(axis) is not None})
     elif kind == "random_access_time":
         ext = "vortex" if str(file_format).startswith("vortex") else file_format
         row["name"] = f"random-access/{record['dataset']}/{ext}-{record['open_mode']}"
@@ -250,6 +257,35 @@ def read_benchmark_rows(path: str) -> pd.DataFrame:
     if not rows:
         return pd.DataFrame(columns=EMPTY_ROW_COLUMNS)
     return pd.DataFrame(rows)
+
+
+# Fields the bench orchestrator records on Vortex SQL results: the integration (`file` or
+# `datasource`) and the scan engine (`v1` or `v2`). See `BenchmarkTarget` in bench-orchestrator.
+SCAN_AXES = ("integration", "scan_engine")
+
+
+def label_scan_axes(base: pd.DataFrame, pr: pd.DataFrame) -> None:
+    """Name the integration and scan engine in every Vortex format that does not already.
+
+    Only the file integration on a suite's default scan engine keeps the bare format identity, so
+    its history continues; every other combination already carries `[integration, scan]`. The PR
+    rows record both axes as fields, which label the bare format on both sides alike, so a column
+    never reads as a different engine than it ran. The match and merge keys are left unchanged.
+    """
+
+    if not set(SCAN_AXES) <= set(pr.columns):
+        return
+    labels = {}
+    for engine, file_format, integration, scan in zip(
+        pr["engine"], pr["file_format"], pr["integration"], pr["scan_engine"]
+    ):
+        if isinstance(integration, str) and isinstance(scan, str) and " [" not in str(file_format):
+            labels[(engine, file_format)] = f"{file_format} [{integration}, {scan}]"
+    for df in (base, pr):
+        df["file_format"] = [
+            labels.get((engine, file_format), file_format)
+            for engine, file_format in zip(df["engine"], df["file_format"])
+        ]
 
 
 def normalize_measurement_rows(df: pd.DataFrame) -> pd.DataFrame:
@@ -601,34 +637,6 @@ def format_performance(
     return f"{ratio:.3f}x {emoji}"
 
 
-def format_target_summary(
-    group: pd.DataFrame,
-    hot_ratio: float,
-    improvement_threshold: float,
-    regression_threshold: float,
-    target_name: str,
-) -> str:
-    """Render one target's hot geomean with its cold geomean beside it.
-
-    The detail tables put a row's hot and cold runs side by side, so the summary
-    reads the same way: a cold-start-only change is visible on the target's own
-    line instead of on a separate one the reader has to cross-reference. Rows that
-    recorded no per-run timings have no cold geomean, and the target then reports
-    its hot geomean alone.
-    """
-
-    hot = format_performance(hot_ratio, improvement_threshold, regression_threshold, target_name)
-    if pd.isna(hot_ratio):
-        return hot
-
-    cold_ratio = calculate_geometric_mean(group, "cold_ratio")
-    if pd.isna(cold_ratio):
-        return f"hot {hot}"
-
-    cold = format_performance(cold_ratio, improvement_threshold, regression_threshold, target_name)
-    return f"hot {hot} · cold {cold}"
-
-
 def format_measurement_value(value: float) -> str:
     """Render integral and fractional measurements for a Markdown table."""
 
@@ -701,6 +709,185 @@ def format_delta_cell(
     if not marker:
         return f"{pr_text} / {base_text} / {change_text}"
     return f"{pr_text} / {base_text} / {change_text} {marker}"
+
+
+def format_duration(value_ns: object) -> str:
+    """Render a nanosecond duration with three significant figures in a readable unit."""
+
+    if pd.isna(value_ns):
+        return "—"
+    value = float(value_ns)
+    for scale, unit in ((1e9, "s"), (1e6, "ms"), (1e3, "µs")):
+        if abs(value) >= scale:
+            value /= scale
+            break
+    else:
+        unit = "ns"
+    if abs(value) >= 100:
+        return f"{value:.0f} {unit}"
+    if abs(value) >= 10:
+        return f"{value:.1f} {unit}"
+    return f"{value:.2f} {unit}"
+
+
+def format_query_cell(
+    base_value: object,
+    pr_value: object,
+    ratio: object,
+    improvement_threshold: float,
+    regression_threshold: float,
+) -> str:
+    """Render one query cell as `PR time (PR ÷ develop)`, as in `118 ms (0.90)`.
+
+    The ratio is always the last item, so right-aligned columns put every ratio at the same edge
+    and the reader can scan down a column. A change past the threshold is bold, and its marker
+    goes in front so that it does not move the ratio. A cell with no develop time shows `(—)`.
+    """
+
+    if pd.isna(pr_value):
+        return "—"
+
+    pr_text = format_duration(pr_value)
+    if pd.isna(base_value) or pd.isna(ratio) or float(ratio) <= 0:
+        return f"{pr_text} (—)"
+
+    cell = f"{pr_text} ({float(ratio):.2f})"
+    marker = format_change_marker(float(ratio), improvement_threshold, regression_threshold)
+    return f"{marker} **{cell}**" if marker else cell
+
+
+def is_sql_query(query: object) -> bool:
+    """Return whether a row's query is a SQL query number, not a random-access variant."""
+
+    if isinstance(query, bool):
+        return False
+    if isinstance(query, (int, np.integer)):
+        return True
+    # A column that also holds query-less rows stores the numbers as floats.
+    return isinstance(query, (float, np.floating)) and float(query).is_integer()
+
+
+def query_column_label(engine: str, file_format: str) -> str:
+    """Name a query table column the way targets are named, e.g. `datafusion:vortex`."""
+
+    for full_name, short_name in FORMAT_COLUMN_NAMES.items():
+        if file_format == full_name or file_format.startswith(f"{full_name} "):
+            file_format = short_name + file_format[len(full_name) :]
+            break
+    return f"{engine}:{file_format}"
+
+
+# Within a format, the file integration comes before datasource and the v2 scan before v1, so
+# each engine's columns start with the target its history is recorded under.
+SCAN_AXIS_ORDER = {"file": 0, "datasource": 1, "v2": 0, "v1": 1}
+
+
+def query_column_sort_key(combo: tuple[str, str]) -> tuple[int, int, str, tuple[int, ...], str]:
+    """Order query table columns by format, then engine, with an engine's scan variants beside it,
+    e.g. `[file, v2]`, `[file, v1]`, then `[datasource, v1]`.
+
+    The columns of one format are beside each other, so the reader compares the Vortex targets
+    of all engines before the Parquet controls.
+    """
+
+    engine, file_format = combo
+    base_format, _, axes = file_format.partition(" [")
+    axis_order = tuple(SCAN_AXIS_ORDER.get(axis.strip(), len(SCAN_AXIS_ORDER)) for axis in axes.rstrip("]").split(","))
+    return (
+        FILE_FORMAT_ORDER.get(base_format, len(FILE_FORMAT_ORDER)),
+        ENGINE_ORDER.get(engine, len(ENGINE_ORDER)),
+        engine,
+        axis_order if axes else (),
+        file_format,
+    )
+
+
+# Printed under the query table caption when any column names an integration and scan engine.
+SCAN_AXES_NOTE = (
+    "Vortex columns name the integration and the scan engine: `file` reads through the engine's file "
+    "format (DataFusion `ListingTable`, DuckDB `MultiFileReader`), `datasource` through DataFusion's "
+    "`VortexTable` over a Vortex `DataSource`; `v1` and `v2` are the LayoutReader and plan scans. "
+    "Each column compares with its own develop times."
+)
+
+
+def format_query_table_caption(df: pd.DataFrame, base_label: str, pr_label: str, threshold_pct: int) -> str:
+    """Say what the query table compares, and what the scan axes on its Vortex columns mean."""
+
+    lines = [
+        f"Each cell is the hot-run time of this PR `{pr_label}`, with PR ÷ develop `{base_label}` in "
+        f"parentheses: below 1.00 is faster. Changes past ±{threshold_pct}% are bold. The geomean row "
+        "compares each target's geomean over its queries."
+    ]
+    if any(" [" in str(file_format) for file_format in df["file_format"]):
+        lines.append(SCAN_AXES_NOTE)
+    return "<br>".join(lines)
+
+
+def format_query_table(
+    df: pd.DataFrame,
+    run: str,
+    improvement_threshold: float,
+    regression_threshold: float,
+) -> str | None:
+    """Render one row per query and one column per target, with a geomean row first.
+
+    Each cell compares the develop baseline's `run` ("hot" or "cold") time with the PR's and
+    gives their ratio. The geomean row does the same with each target's geomeans over its
+    queries; it does not compare targets with each other.
+    """
+
+    value_column = f"{run}_value_pr"
+    base_column = f"{run}_value_base"
+    ratio_column = "ratio" if run == "hot" else "cold_ratio"
+    rows = df[df[value_column].notna()].copy()
+    if rows.empty:
+        return None
+
+    rows["row_label"] = rows["name"].map(lambda name: str(name).rsplit("/", 1)[0])
+    row_keys = ["row_label"]
+    for extra in ("storage", "dataset_key"):
+        if rows[extra].astype(str).nunique() > 1:
+            row_keys.append(extra)
+    combos = sorted(
+        {(str(engine), str(file_format)) for engine, file_format in zip(rows["engine"], rows["file_format"])},
+        key=query_column_sort_key,
+    )
+
+    def cell(base_value: object, value: object, ratio: object) -> str:
+        return format_query_cell(base_value, value, ratio, improvement_threshold, regression_threshold)
+
+    geomean_cells = []
+    for engine, file_format in combos:
+        target_rows = rows[(rows["engine"] == engine) & (rows["file_format"] == file_format)]
+        geomean_cells.append(
+            cell(
+                geometric_mean_from_values(target_rows[base_column]),
+                geometric_mean_from_values(target_rows[value_column]),
+                calculate_geometric_mean(target_rows, ratio_column),
+            )
+        )
+
+    table_rows = [["**geomean**", *geomean_cells]]
+    for key, group in sorted(rows.groupby(row_keys, sort=False), key=lambda item: tuple(str(k) for k in item[0])):
+        key = key if isinstance(key, tuple) else (key,)
+        label = str(key[0]) + "".join(f" ({part})" for part in key[1:] if part is not None and str(part) != "nan")
+        cells = []
+        for engine, file_format in combos:
+            match = group[(group["engine"] == engine) & (group["file_format"] == file_format)]
+            if match.empty:
+                cells.append("—")
+            else:
+                cells.append(cell(match[base_column].iloc[0], match[value_column].iloc[0], match[ratio_column].iloc[0]))
+        table_rows.append([label, *cells])
+
+    headers = ["query", *(query_column_label(engine, file_format) for engine, file_format in combos)]
+    return pd.DataFrame(table_rows, columns=headers).to_markdown(
+        index=False,
+        tablefmt="github",
+        disable_numparse=True,
+        colalign=("left", *("right" for _ in combos)),
+    )
 
 
 def format_comparison_ratio(value: float) -> str:
@@ -926,7 +1113,7 @@ def build_verdict(statistical_analysis: dict[str, Any]) -> dict[str, str] | None
         status = "Likely improvement"
 
     if control_sigma > 1.05:
-        confidence = "environment too noisy"
+        confidence = NOISY_CONFIDENCE
     elif evidence_share >= 0.7:
         confidence = "high"
     elif evidence_share >= 0.4:
@@ -958,25 +1145,131 @@ def build_within_engine_statistical_analyses(df: pd.DataFrame, threshold_pct: in
     return analyses
 
 
-def format_within_engine_summary(analyses: dict[str, dict[str, Any]]) -> str | None:
-    """Render a compact summary of per-engine attributed changes."""
+def format_ratio_cell(ratio: float, improvement_threshold: float, regression_threshold: float) -> str:
+    """Render a geomean ratio the way query cells end, marked first so that the ratios align."""
 
-    summaries = []
-    for engine in sorted(analyses, key=lambda value: (ENGINE_ORDER.get(value, len(ENGINE_ORDER)), value)):
-        verdict = build_verdict(analyses[engine])
-        if verdict is None:
-            continue
-        display_name = {
-            "datafusion": "DataFusion",
-            "duckdb": "DuckDB",
-        }.get(engine, engine)
-        summaries.append(
-            f"{display_name} {verdict['status']} ({verdict['impact']}, {verdict['confidence']} confidence)"
+    if pd.isna(ratio) or ratio <= 0:
+        return "—"
+
+    cell = f"{ratio:.2f}"
+    marker = format_change_marker(ratio, improvement_threshold, regression_threshold)
+    return f"{marker} **{cell}**" if marker else cell
+
+
+def format_attributed_cell(verdict: dict[str, str] | None) -> str:
+    """Render a target's change after its engine's Parquet drift is removed.
+
+    The attribution decides by itself if the change is above the noise floor, so the marker follows
+    its verdict and not the threshold. When the control moves too much, the remainder is not a
+    result, so the cell shows no value.
+    """
+
+    if verdict is None or verdict["confidence"] == NOISY_CONFIDENCE:
+        return "—"
+
+    if verdict["status"] == "Likely improvement":
+        return f"🟢 **{verdict['impact']}**"
+    if verdict["status"] == "Likely regression":
+        return f"🔴 **{verdict['impact']}**"
+    return verdict["impact"]
+
+
+def format_change_counts(ratios: pd.Series, improvement_threshold: float, regression_threshold: float) -> str:
+    """Count the cells that clear the threshold faster (↑) and slower (↓), as in `(3↑ 1↓)`.
+
+    A zero count is left out, and a run with no change past the threshold gets no counts at all.
+    """
+
+    faster = int((ratios <= improvement_threshold).sum())
+    slower = int((ratios >= regression_threshold).sum())
+
+    counts = []
+    if faster:
+        counts.append(f"{faster}↑")
+    if slower:
+        counts.append(f"{slower}↓")
+    return f"({' '.join(counts)})" if counts else ""
+
+
+def format_target_summary_row(
+    label: str,
+    rows: pd.DataFrame,
+    show_cold: bool,
+    improvement_threshold: float,
+    regression_threshold: float,
+) -> list[str]:
+    """Render one row of the target table: each run's geomean ratio, with its change counts beside it."""
+
+    row = [label]
+    for run_ratio in ("ratio", "cold_ratio") if show_cold else ("ratio",):
+        ratios = rows[run_ratio]
+        geomean = geometric_mean_from_values(ratios)
+        ratio_cell = format_ratio_cell(geomean, improvement_threshold, regression_threshold)
+        counts = format_change_counts(ratios, improvement_threshold, regression_threshold)
+        row.append(f"{ratio_cell} {counts}" if counts else ratio_cell)
+    return row
+
+
+def format_target_summary_table(
+    df: pd.DataFrame,
+    engine_analyses: dict[str, dict[str, Any]],
+    improvement_threshold: float,
+    regression_threshold: float,
+) -> str | None:
+    """Render the PR summary with one row per target, in the same order as the query table columns.
+
+    Each target has its own row, so a change on one engine or one scan is not hidden in a geomean
+    over all the Vortex targets.
+    """
+
+    rows = df[df["engine"].notna() & df["file_format"].notna() & df["ratio"].notna()]
+    if rows.empty:
+        return None
+
+    combos = sorted(
+        {(str(engine), str(file_format)) for engine, file_format in zip(rows["engine"], rows["file_format"])},
+        key=query_column_sort_key,
+    )
+    show_cold = bool(rows["cold_ratio"].notna().any())
+    show_attribution = bool(engine_analyses)
+
+    table_rows = []
+    for engine, file_format in combos:
+        target_rows = rows[(rows["engine"] == engine) & (rows["file_format"] == file_format)]
+        row = format_target_summary_row(
+            query_column_label(engine, file_format),
+            target_rows,
+            show_cold,
+            improvement_threshold,
+            regression_threshold,
         )
 
-    if not summaries:
-        return None
-    return " · ".join(summaries)
+        if show_attribution:
+            if file_format == CONTROL_FORMAT:
+                row.append("control")
+            else:
+                target_verdict = None
+                analysis = engine_analyses.get(engine)
+                if analysis is not None:
+                    detail_df = analysis["detail_df"]
+                    target_detail = detail_df[detail_df["combo"] == f"{engine}:{file_format}"]
+                    target_verdict = build_verdict(analysis | {"detail_df": target_detail})
+                row.append(format_attributed_cell(target_verdict))
+
+        table_rows.append(row)
+
+    headers = ["target"]
+    for run in ("hot", "cold") if show_cold else ("hot",):
+        headers.append(run)
+    if show_attribution:
+        headers.append("vs parquet")
+
+    return pd.DataFrame(table_rows, columns=headers).to_markdown(
+        index=False,
+        tablefmt="github",
+        disable_numparse=True,
+        colalign=("left", *("right" for _ in headers[1:])),
+    )
 
 
 def format_title(benchmark_name: str, pr: pd.DataFrame) -> str:
@@ -1006,30 +1299,32 @@ def format_report_help() -> str:
     return "\n".join(
         [
             "<details>",
-            "<summary>How to read Verdict and Engines</summary>",
+            "<summary>How to read the summary</summary>",
             "",
             "<br>",
             "",
-            "- **Verdict**: Overall PR-level signal after subtracting baseline drift "
-            "estimated from Parquet control rows. It can be `Likely improvement`, "
-            "`Likely regression`, or `No clear signal`.",
-            "- **Engines**: Per-engine attribution. DataFusion is compared against "
-            "DataFusion/Parquet controls; DuckDB is compared against DuckDB/Parquet "
-            "controls. This answers whether each engine improved or regressed independently.",
-            "- **Confidence**: Based on directional consistency, share of rows above "
-            "the noise floor, and control-run noise.",
+            "- **Target table**: One row per target, in the same order as the query table "
+            "columns. `hot` and `cold` are the geomean "
+            "of PR ÷ develop over the queries, marked like the query cells. Beside it, `(3↑ 1↓)` "
+            "counts the queries that cleared this suite's threshold faster or slower; zero "
+            "counts are left out.",
+            "- **vs parquet**: The change after the drift of the Parquet control on the same "
+            "engine is removed. It is marked 🟢 or 🔴 only when it is above the noise floor, and it shows "
+            "`—` when the control is too noisy to remove.",
             "- **Hot vs cold**: Every measurement is run several times. The first run is "
             "reported as the cold run, and the median of the runs after it is reported as "
-            "the hot run. The verdict and significance use hot runs; each target's "
-            "geomean reports hot and cold beside each other where the individual runs "
-            "were recorded and hot alone where they were not, the cold column shows "
-            "first-run cost per row, and `hot/cold` is how much of "
+            "the hot run. The attribution and significance use hot runs. The target table "
+            "shows a cold column only where the individual runs were recorded. In the "
+            "detail tables, the cold column shows first-run cost per row, and `hot/cold` is how much of "
             "each run the warm path saves. Rows whose results predate per-run reporting "
             "show only one value, taken from the value the runner reported.",
-            "- **Table cells**: Each cell reads `PR / base / %diff`. The hot and cold "
-            "columns mark a change as 🔴 slower or 🟢 faster once it clears this suite's "
-            "threshold; anything smaller is noise here and is left unmarked, as is "
-            "`hot/cold`, because a shift in the warm-up ratio is not a win or a loss by itself.",
+            "- **Query tables**: One row per query and one column per target. Each cell "
+            "reads `PR time (PR ÷ develop)`, so `(0.80)` is 20% faster than develop. A "
+            "change that clears this suite's threshold is bold and marked 🔴 slower or 🟢 "
+            "faster; anything smaller is noise here and is left plain. The `geomean` row "
+            "compares each target's geomean over its queries with develop's. Hot runs are "
+            "shown first and cold runs are folded below them.",
+            "- **Other tables**: Each cell reads `PR / base / %diff`, marked the same way.",
             "",
             "</details>",
         ]
@@ -1048,10 +1343,11 @@ FILE_FORMAT_ORDER = {
     "vortex-file-compressed": 0,
     "vortex-compact": 1,
     "parquet": 2,
-    "lance": 3,
-    "duckdb": 4,
-    "arrow": 5,
-    "litdata": 6,
+    "parquet-snappy": 3,
+    "lance": 4,
+    "duckdb": 5,
+    "arrow": 6,
+    "litdata": 7,
 }
 
 UNIT_ORDER = {
@@ -1115,6 +1411,7 @@ def main() -> None:
 
     base = normalize_measurement_rows(base)
     pr = normalize_measurement_rows(pr)
+    label_scan_axes(base, pr)
 
     comparison_keys = ["name", "storage", "dataset_key", "engine", "file_format", "unit", "query"]
     df3 = pd.merge(base, pr, on=comparison_keys, how="right", suffixes=("_base", "_pr"))
@@ -1132,44 +1429,15 @@ def main() -> None:
     headline_df = query_df
     if headline_df.empty and df3["unit"].nunique() == 1:
         headline_df = df3
-    vortex_df = headline_df[headline_df["file_format"].str.startswith("vortex")]
-    parquet_df = headline_df[headline_df["file_format"].eq(CONTROL_FORMAT)]
-
-    vortex_geometric_mean_ratio = calculate_geometric_mean(vortex_df)
-    parquet_geometric_mean_ratio = calculate_geometric_mean(parquet_df)
-
     statistical_analysis = build_statistical_analysis(query_df, threshold_pct)
     verdict = build_verdict(statistical_analysis) if statistical_analysis is not None else None
     engine_analyses = build_within_engine_statistical_analyses(query_df, threshold_pct)
-    engine_summary = format_within_engine_summary(engine_analyses)
-
     base_label = str(base_commit_id)[:8] if base_commit_id is not None else "none"
     summary_fields: list[str] = [f"**Commits**: PR `{pr_commit_id[:8]}` vs base `{base_label}`"]
 
-    if verdict is not None:
-        summary_fields.append(f"**Verdict**: {verdict['status']} ({verdict['confidence']} confidence)")
-        summary_fields.append(f"**Attributed Vortex impact**: {verdict['impact']}")
-    if engine_summary is not None:
-        summary_fields.append(f"**Engines**: {engine_summary}")
-
-    if len(vortex_df) > 0:
-        vortex_performance = format_target_summary(
-            vortex_df,
-            vortex_geometric_mean_ratio,
-            improvement_threshold,
-            regression_threshold,
-            "vortex",
-        )
-        summary_fields.append(f"**Vortex (geomean)**: {vortex_performance}")
-    if len(parquet_df) > 0:
-        parquet_performance = format_target_summary(
-            parquet_df,
-            parquet_geometric_mean_ratio,
-            improvement_threshold,
-            regression_threshold,
-            "parquet",
-        )
-        summary_fields.append(f"**Parquet (geomean)**: {parquet_performance}")
+    target_table = format_target_summary_table(
+        headline_df, engine_analyses, improvement_threshold, regression_threshold
+    )
 
     if verdict is not None:
         shifts = f"Parquet (control) {verdict['environment_shift']}"
@@ -1184,6 +1452,9 @@ def main() -> None:
     if summary_fields:
         print("<br>".join(summary_fields))
         print("")
+    if target_table is not None:
+        print(target_table)
+        print("")
     if not base_fetched:
         print(
             "_The baseline could not be read from the benchmarks database; "
@@ -1193,13 +1464,33 @@ def main() -> None:
     elif base_commit_id is None:
         print("_No baseline is available for this benchmark yet; PR measurements are shown without comparison._")
         print("")
-    if verdict is not None or engine_summary is not None:
+    if verdict is not None or engine_analyses:
         print(format_report_help())
         print("")
     print("---")
     print("")
 
-    grouped_tables = df3.groupby(["engine", "file_format", "unit"], dropna=False, sort=False)
+    sql_mask = df3["query"].map(is_sql_query) & df3["unit"].eq("ns")
+    sql_df = df3[sql_mask]
+    caption = format_query_table_caption(sql_df, base_label, pr_commit_id[:8], threshold_pct)
+    for run, title in (("hot", "Hot runs"), ("cold", "Cold runs (first iteration)")):
+        table = format_query_table(sql_df, run, improvement_threshold, regression_threshold)
+        if table is None:
+            continue
+        print("<details>")
+        print(f"<summary>{title}</summary>")
+        print("")
+        print("<br>")
+        print("")
+        if run == "hot":
+            print(caption)
+            print("")
+        print(table)
+        print("")
+        print("</details>")
+        print("")
+
+    grouped_tables = df3[~sql_mask].groupby(["engine", "file_format", "unit"], dropna=False, sort=False)
     for engine, file_format, unit in sorted(grouped_tables.groups.keys(), key=group_sort_key):
         group_df = grouped_tables.get_group((engine, file_format, unit)).sort_values("name")
         group_performance = format_performance(

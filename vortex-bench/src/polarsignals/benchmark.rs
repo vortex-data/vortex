@@ -16,6 +16,8 @@ use crate::Format;
 use crate::IdempotentPath;
 use crate::TableSpec;
 use crate::idempotent;
+use crate::utils::parquet::LOCAL_ROW_GROUP_ROWS;
+use crate::utils::parquet::prepare_parquet_dir;
 use crate::workspace_root;
 
 const FILE_NAME: &str = "stacktraces";
@@ -88,6 +90,9 @@ impl Benchmark for PolarSignalsBenchmark {
 
         let n_rows = self.n_rows;
         let parquet_path = self.parquet_path()?;
+        if let Some(parquet_dir) = parquet_path.parent() {
+            prepare_parquet_dir(parquet_dir, LOCAL_ROW_GROUP_ROWS)?;
+        }
         idempotent(&parquet_path, |tmp_path| {
             tracing::info!(
                 n_rows,

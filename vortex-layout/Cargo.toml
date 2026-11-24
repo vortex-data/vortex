@@ -36,7 +36,6 @@ pin-project-lite = { workspace = true }
 prost = { workspace = true }
 roaring = { workspace = true }
 rustc-hash = { workspace = true }
-sketches-ddsketch = { workspace = true }
 smallvec = { workspace = true }
 termtree = { workspace = true }
 tokio = { workspace = true, features = ["rt"], optional = true }
@@ -46,8 +45,10 @@ vortex-array = { workspace = true }
 vortex-arrow = { workspace = true }
 vortex-btrblocks = { workspace = true }
 vortex-buffer = { workspace = true }
+vortex-decimal-byte-parts = { workspace = true }
 vortex-error = { workspace = true }
 vortex-expr = { workspace = true }
+vortex-functions = { workspace = true }
 vortex-io = { workspace = true }
 vortex-mask = { workspace = true }
 vortex-metrics = { workspace = true }
