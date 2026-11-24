@@ -725,6 +725,7 @@ def open_dataset(
     store: AzureStore | CosStore | GCSStore | HfStore | HTTPStore | LocalStore | MemoryStore | S3Store | None = None,
     concurrency: int | None = None,
     memory_map: bool = False,
+    without_segment_cache: bool = False,
 ) -> VortexDataset:
     """Open many Vortex files as one :class:`~vortex.dataset.VortexDataset`.
 
@@ -755,6 +756,11 @@ def open_dataset(
         Reads then come from the page cache, with no IO requests and no copies. This is fastest
         for many small reads of the same files, such as random batches of rows. A map holds no
         file handle. Every source must be a local path.
+    without_segment_cache : :class:`bool`
+        If ``False``, the dataset keeps the segments that it reads in a cache of up to 256 MiB that
+        all of its files share, so a later read of the same rows does not read them again. If
+        ``True``, each read reads its segments again. A dataset with ``memory_map=True`` has no
+        segment cache, because the page cache holds the segments.
 
     Examples
     --------
@@ -777,7 +783,11 @@ def open_dataset(
     sources = [source] if isinstance(source, (str, os.PathLike)) else list(source)
     return VortexDataset(
         _dataset.dataset_from_sources(
-            [os.fspath(source) for source in sources], store=store, concurrency=concurrency, memory_map=memory_map
+            [os.fspath(source) for source in sources],
+            store=store,
+            concurrency=concurrency,
+            memory_map=memory_map,
+            without_segment_cache=without_segment_cache,
         )
     )
 

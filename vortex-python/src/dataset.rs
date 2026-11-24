@@ -55,6 +55,9 @@ use vortex::io::std_file::StdFileSystem;
 use vortex::layout::scan::arrow::RecordBatchIteratorAdapter;
 use vortex::layout::scan::scan_builder::ScanBuilder;
 use vortex::layout::scan::split_by::SplitBy;
+use vortex::layout::segments::FileSegmentCache;
+use vortex::layout::segments::MokaSegmentCache;
+use vortex::layout::segments::SegmentEviction;
 use vortex::scan::strict_sorted_buffer::StrictSortedBuffer;
 use vortex::utils::parallelism::get_available_parallelism;
 use vortex_arrow::ArrowSessionExt;
@@ -158,10 +161,20 @@ struct DatasetFile {
     ///
     /// Each scan clones the source, and `for_file` clones the file, so the clones share this.
     kept: Arc<OnceLock<KeptFile>>,
+
+    /// The view of the dataset's segment cache for this file, if the dataset has one.
+    ///
+    /// Each open of the file uses it, so a later scan does not read the same segments again.
+    segment_cache: Option<FileSegmentCache>,
 }
 
 impl DatasetFile {
-    fn new(fs: FileSystemRef, listing: FileListing, memory_map: bool) -> Self {
+    fn new(
+        fs: FileSystemRef,
+        listing: FileListing,
+        memory_map: bool,
+        segment_cache: Option<FileSegmentCache>,
+    ) -> Self {
         let mapped_path = memory_map.then(|| PathBuf::from(&listing.path));
 
         Self {
@@ -169,9 +182,15 @@ impl DatasetFile {
             listing,
             mapped_path,
             kept: Arc::default(),
+            segment_cache,
         }
     }
 }
+
+/// The most bytes of segments that the segment cache of a dataset holds.
+///
+/// This is the same as the private cache of `vortex.open`.
+const DATASET_SEGMENT_CACHE_BYTES: u64 = 256 << 20;
 
 /// What a dataset keeps of a file after its first open, so that a later open reads no footer.
 #[derive(Clone)]
@@ -390,6 +409,10 @@ async fn open_lazy_read(file: &DatasetFile, footer: Option<Footer>) -> VortexRes
 
     if let Some(footer) = footer {
         options = options.with_footer(footer);
+    }
+
+    if let Some(cache) = &file.segment_cache {
+        options = options.with_segment_cache(Arc::new(cache.clone()));
     }
 
     options.open(source).await
@@ -891,7 +914,15 @@ async fn collect_file_splits(source: DatasetSource) -> VortexResult<Vec<(u64, Ve
 
 /// Open the Vortex files that `sources` name as one dataset, in the order the sources name them.
 #[pyfunction]
-#[pyo3(signature = (sources, *, store = None, concurrency = None, expand = true, memory_map = false))]
+#[pyo3(signature = (
+    sources,
+    *,
+    store = None,
+    concurrency = None,
+    expand = true,
+    memory_map = false,
+    without_segment_cache = false,
+))]
 pub fn dataset_from_sources(
     py: Python,
     sources: Vec<String>,
@@ -899,8 +930,17 @@ pub fn dataset_from_sources(
     concurrency: Option<usize>,
     expand: bool,
     memory_map: bool,
+    without_segment_cache: bool,
 ) -> PyVortexResult<PyVortexDataset> {
-    open_dataset(py, sources, store, concurrency, expand, memory_map)
+    open_dataset(
+        py,
+        sources,
+        store,
+        concurrency,
+        expand,
+        memory_map,
+        without_segment_cache,
+    )
 }
 
 /// Open the Vortex files that `sources` name as one dataset.
@@ -908,6 +948,10 @@ pub fn dataset_from_sources(
 /// Every Python entry point that reads from paths or URLs opens its files here, so all of them
 /// expand directories, prefixes and glob patterns the same way. With `memory_map`, every source
 /// must be a local path.
+///
+/// Unless `without_segment_cache` is set, the dataset has a segment cache that all of its files
+/// share. A dataset that memory-maps its files has no segment cache: the page cache holds the
+/// segments.
 pub(crate) fn open_dataset(
     py: Python,
     sources: Vec<String>,
@@ -915,6 +959,7 @@ pub(crate) fn open_dataset(
     concurrency: Option<usize>,
     expand: bool,
     memory_map: bool,
+    without_segment_cache: bool,
 ) -> PyVortexResult<PyVortexDataset> {
     let concurrency = check_concurrency(concurrency)?;
 
@@ -924,7 +969,16 @@ pub(crate) fn open_dataset(
 
     let store = store.map(AnyVortexStore::into_inner);
     let (files, dtype) = py.detach(move || {
-        current_runtime().block_on(discover_sources(sources, store, expand, memory_map))
+        let segment_cache = (!memory_map && !without_segment_cache)
+            .then(|| MokaSegmentCache::new(DATASET_SEGMENT_CACHE_BYTES, SegmentEviction::TinyLfu));
+
+        current_runtime().block_on(discover_sources(
+            sources,
+            store,
+            expand,
+            memory_map,
+            segment_cache,
+        ))
     })?;
 
     Ok(PyVortexDataset::from_lazy(files, dtype, concurrency)?)
@@ -953,6 +1007,7 @@ async fn discover_sources(
     store: Option<Arc<dyn ObjectStore>>,
     expand: bool,
     memory_map: bool,
+    segment_cache: Option<MokaSegmentCache>,
 ) -> VortexResult<(Vec<DatasetFile>, DType)> {
     if sources.is_empty() {
         vortex_bail!("a dataset needs at least one source");
@@ -964,11 +1019,15 @@ async fn discover_sources(
         if found.is_empty() {
             vortex_bail!("no Vortex files found for {source:?}");
         }
-        files.extend(
-            found
-                .into_iter()
-                .map(|(fs, listing)| DatasetFile::new(fs, listing, memory_map)),
-        );
+        for (fs, listing) in found {
+            // The cache is private to this dataset, so the position of the file in the dataset
+            // identifies its contents: the files must not change while the dataset is open.
+            let file_cache = segment_cache
+                .as_ref()
+                .map(|cache| cache.for_file(files.len().to_string()));
+
+            files.push(DatasetFile::new(fs, listing, memory_map, file_cache));
+        }
     }
 
     // Open only the first file eagerly to confirm it is readable and learn the dataset's dtype;

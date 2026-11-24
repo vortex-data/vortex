@@ -349,3 +349,38 @@ def test_forked_process_reads_the_files_its_parent_mapped(root: Path):
 
     assert process.exitcode == 0
     assert child_rows == rows.to_pylist()
+
+
+def zero_files(data: Path) -> None:
+    """Write zeros over each Vortex file below `data`, and keep the size of the file."""
+    for path in data.rglob("*.vortex"):
+        path.write_bytes(bytes(path.stat().st_size))
+
+
+def test_segment_cache_serves_a_later_read(root: Path):
+    ds = vx.open_dataset(root / "data")
+    rows = expected("a.vortex", "b/b.vortex", "c.vortex")
+    assert ds.to_table() == rows
+
+    # The dataset keeps the footers and the segments that it read, so a later read of the same rows
+    # does not read the files again. Zeros in the files show this.
+    zero_files(root / "data")
+    assert ds.to_table() == rows
+
+    indices = pa.array([29, 3, 12])
+    assert ds.take(indices) == pc.take(rows, indices)
+
+
+def test_without_segment_cache_reads_the_files_again(root: Path):
+    ds = vx.open_dataset(root / "data", without_segment_cache=True)
+    rows = expected("a.vortex", "b/b.vortex", "c.vortex")
+    assert ds.to_table() == rows
+
+    zero_files(root / "data")
+
+    try:
+        result = ds.to_table()
+    except Exception:
+        result = None
+
+    assert result != rows
