@@ -38,7 +38,6 @@ use super::packed_range::constant_bits;
 use super::packed_range::packed_range;
 use crate::BitPacked;
 use crate::BitPackedArrayExt;
-use crate::BitWidthsView;
 use crate::unpack_iter::BitPacked as BitPackedIter;
 
 const MAX_FUSED_MEMBERS: usize = 4;
@@ -54,9 +53,7 @@ impl ListContainsElementKernel for BitPacked {
         options: &ListContainsOptions,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        let BitWidthsView::Global(bit_width) = element.bit_widths() else {
-            return Ok(None);
-        };
+        let bit_width = element.bit_width();
 
         let prepared = PreparedSet::set_of(list);
         let Some(list_scalar) = prepared.map(PreparedSetData::list).or_else(|| {
@@ -602,26 +599,6 @@ mod tests {
             "kernel declines >= 5 distinct in-domain members"
         );
 
-        // Blocked bit widths -> kernel declines.
-        let prim_arr = prim.into_array();
-        let blocked = BitPackedData::encode_blocked(&prim_arr, &[5u8], &mut ctx)?.into_array();
-        let blocked_expr = eval_list_contains(
-            &blocked,
-            make_list_scalar(PType::U32, &[Some(1), Some(5)], Nullability::NonNullable),
-            opts,
-        )?;
-        assert!(
-            ctx.try_execute_parent(&blocked_expr)?.is_none(),
-            "kernel declines blocked bit widths"
-        );
-
-        // Make sure blocked still executes correctly via fallback.
-        let expected = eval_list_contains(
-            &prim_arr,
-            make_list_scalar(PType::U32, &[Some(1), Some(5)], Nullability::NonNullable),
-            opts,
-        )?;
-        assert_arrays_eq!(blocked_expr, expected, &mut ctx);
         Ok(())
     }
 
