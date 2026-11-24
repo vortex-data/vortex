@@ -198,13 +198,12 @@ where
         });
     }
 
-    let null_count = u32::try_from(
-        array
-            .statistics()
-            .compute_null_count(ctx)
-            .ok_or_else(|| vortex_err!("Failed to compute null_count"))?,
-    )?;
-    let value_count = u32::try_from(array.len())? - null_count;
+    let null_count = array
+        .statistics()
+        .compute_null_count(ctx)
+        .ok_or_else(|| vortex_err!("Failed to compute null_count"))?;
+    let value_count = u32::try_from(array.len() - null_count)?;
+    let null_count = u32::try_from(null_count)?;
 
     let mut distinct_values = if count_distinct_values {
         HashMap::with_capacity_and_hasher(array.len() / 2, FxBuildHasher)
