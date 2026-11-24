@@ -117,7 +117,7 @@ jobs:
       # which otherwise clashes with bench-orchestrator's `benchmark` test parameter.
       - name: Pytest - bench-orchestrator
         if: "!cancelled()"
-        run: uv run --project bench-orchestrator --with pytest pytest -p no:benchmark bench-orchestrator/tests
+        run: uv run --project benchmarks/bench-orchestrator --with pytest pytest -p no:benchmark benchmarks/bench-orchestrator/tests
 
   python-test:
     name: "Python (test)"
