@@ -122,7 +122,6 @@ impl Scheme for FloatDictScheme {
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<Encoded> {
         let stats = data.float_stats(exec_ctx);
-        // `dictionary_encode` already sizes the codes from the dictionary length.
         let dict = dictionary_encode(data.array_as_primitive(), &stats)?;
         Ok(dictionary_encoded(self, &dict))
     }

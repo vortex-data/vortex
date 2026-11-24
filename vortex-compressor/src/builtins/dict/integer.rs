@@ -117,7 +117,6 @@ impl Scheme for IntDictScheme {
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<Encoded> {
         let stats = data.integer_stats(exec_ctx);
-        // `dictionary_encode` already sizes the codes from the dictionary length.
         let dict = dictionary_encode(data.array_as_primitive(), &stats)?;
         Ok(dictionary_encoded(self, &dict))
     }

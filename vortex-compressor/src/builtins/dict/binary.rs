@@ -12,10 +12,11 @@ use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::VTable;
 use vortex_array::arrays::Dict;
+use vortex_array::builders::dict::dict_encode;
 use vortex_error::VortexResult;
 
 use super::bytes_candidate::bytes_dictionary_estimate;
-use super::bytes_candidate::encode_bytes_dictionary;
+use super::dictionary_encoded;
 use crate::CascadingCompressor;
 use crate::builtins::IntDictScheme;
 use crate::scheme::ChildSelection;
@@ -78,7 +79,8 @@ impl Scheme for BinaryDictScheme {
         _compress_ctx: &CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<Encoded> {
-        encode_bytes_dictionary(self, data, exec_ctx)
+        let dict = dict_encode(data.array(), exec_ctx)?;
+        Ok(dictionary_encoded(self, &dict))
     }
 
     #[expect(clippy::unimplemented, reason = "replaced by `encode`")]

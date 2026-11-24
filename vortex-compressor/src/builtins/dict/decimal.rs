@@ -148,7 +148,6 @@ impl Scheme for DecimalDictScheme {
         _compress_ctx: &CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<Encoded> {
-        // The encoder already narrows the codes.
         let dict = dictionary_encode(data.array_as_decimal(), exec_ctx)?;
         Ok(dictionary_encoded(self, &dict))
     }

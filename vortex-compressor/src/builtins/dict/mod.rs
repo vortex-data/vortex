@@ -141,10 +141,11 @@ where
     output.freeze()
 }
 
-/// Registers the values (child 0) and codes (child 1) of `dict`, which `scheme` produced.
+/// Registers the values of `dict` as child 0 of `scheme` and its codes as child 1.
 ///
-/// The codes carry the input's validity, so compressing them compresses it too.
-pub(super) fn dictionary_encoded(scheme: &dyn Scheme, dict: &DictArray) -> Encoded {
+/// The codes carry the validity. Every dictionary encoder already hands back the narrowest codes
+/// that can address its dictionary, so they are compressed as they are.
+fn dictionary_encoded(scheme: &dyn Scheme, dict: &DictArray) -> Encoded {
     let all_values_referenced = dict.has_all_values_referenced();
     Encoded::new(
         vec![

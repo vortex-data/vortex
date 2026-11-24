@@ -24,7 +24,6 @@ use vortex_array::arrays::VarBinView;
 use vortex_array::arrays::varbinview::BinaryView;
 use vortex_array::builders::dict::DictConstraints;
 use vortex_array::builders::dict::codes_ptype_for_max_len;
-use vortex_array::builders::dict::dict_encode;
 use vortex_array::builders::dict::dict_encode_with_constraints;
 use vortex_error::VortexResult;
 use vortex_mask::AllOr;
@@ -40,7 +39,6 @@ use crate::compressor::sample_slices;
 use crate::scheme::CompressionEstimate;
 use crate::scheme::CompressorContext;
 use crate::scheme::DeferredEstimate;
-use crate::scheme::Encoded;
 use crate::scheme::EstimateScore;
 use crate::scheme::EstimateVerdict;
 use crate::scheme::Scheme;
@@ -106,21 +104,6 @@ pub(super) fn bytes_dictionary_estimate(scheme: &'static dyn Scheme) -> Compress
             )
         },
     )))
-}
-
-/// Dictionary-encodes the input.
-///
-/// The compressor reuses the trial output instead when the estimate stored one.
-pub(super) fn encode_bytes_dictionary(
-    scheme: &dyn Scheme,
-    data: &ArrayAndStats,
-    exec_ctx: &mut ExecutionCtx,
-) -> VortexResult<Encoded> {
-    // Every dictionary reaching the compressor came from `dict_encode` or
-    // `dict_encode_with_constraints`, which already hand back the narrowest codes that can
-    // address the dictionary.
-    let dict = dict_encode(data.array(), exec_ctx)?;
-    Ok(dictionary_encoded(scheme, &dict))
 }
 
 /// Resolves the deferred dictionary estimate.
