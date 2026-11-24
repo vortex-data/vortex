@@ -233,8 +233,9 @@ impl BtrBlocksCompressorBuilder {
         self
     }
 
-    /// Sets a policy that decides, child by child, whether to compress the children schemes
-    /// register, overriding the schemes' own decisions.
+    /// Sets a policy that selects the scheme at each compression site and decides, child by
+    /// child, whether to compress the children schemes register, overriding the compressor's
+    /// own choices.
     pub fn with_policy(mut self, policy: Arc<dyn CompressionPolicy>) -> Self {
         self.policy = Some(policy);
         self

@@ -20,6 +20,9 @@ pub enum SchemeSelection {
     /// without a policy.
     Estimate,
     /// Leave the array in its canonical encoding.
+    ///
+    /// At an extension or fixed-size list root this skips only the schemes over the whole array:
+    /// its storage or elements are still compressed as a nested site.
     Canonical,
     /// Compress with this scheme, without estimating.
     ///
@@ -63,9 +66,13 @@ pub struct SiteOutcome<'a> {
 /// Every method has a default that keeps the compressor's own behavior, so a policy implements
 /// only what it changes.
 ///
-/// The compressor consults the policy at every compression site of the full array: the root and
-/// each cascaded child. It does not consult it while compressing samples for estimates. Empty,
-/// all-null and constant arrays are handled before the policy is asked.
+/// The compressor asks the policy to select and observe schemes at the root of the array and at
+/// each child a scheme cascades into. Nested sites, such as struct fields, list and fixed-size
+/// list elements, union children, extension storage and validity bitmaps, skip
+/// [`select_scheme`](Self::select_scheme) and [`observe`](Self::observe) and are always
+/// estimated, but still call [`decide_child`](Self::decide_child) for the children their schemes
+/// register. The policy is not consulted while compressing samples for estimates. Empty, all-null
+/// and constant arrays are handled before the policy is asked.
 pub trait CompressionPolicy: Debug + Send + Sync {
     /// Decides whether a child a scheme registered is compressed or kept as it is.
     ///
@@ -93,7 +100,9 @@ pub trait CompressionPolicy: Debug + Send + Sync {
 
     /// Observes the scheme the compressor applied to an array.
     ///
-    /// Called once per compression site, after its children were compressed. Under
+    /// Called once per compression site, after its children were compressed. At an extension or
+    /// fixed-size list root it reports the scheme-level attempt, which the compressor can still
+    /// discard for a smaller result with compressed storage or elements. Under
     /// [`SchemeSelection::Best`], the children of every tried scheme are reported, each under its
     /// own cascade history, so a recorder keeps only those below the schemes their parents
     /// applied.
