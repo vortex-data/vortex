@@ -15,6 +15,7 @@ use vortex_array::dtype::NativePType;
 use vortex_array::memory::MemorySession;
 use vortex_array::optimizer::kernels::KernelSession;
 use vortex_array::session::ArraySession;
+use vortex_array::test_harness::mark_optimized;
 use vortex_error::VortexExpect;
 use vortex_fsst::test_utils::gen_dict_fsst_test_data;
 use vortex_session::VortexSession;
@@ -52,10 +53,13 @@ fn make_dict_fsst_chunks<T: NativePType>(
     chunk_count: usize,
 ) -> ArrayRef {
     let mut ctx = SESSION.create_execution_ctx();
-    (0..chunk_count)
+    let array = (0..chunk_count)
         .map(|_| gen_dict_fsst_test_data::<T>(len, unique_values, 20, 30, &mut ctx).into_array())
         .collect::<ChunkedArray>()
-        .into_array()
+        .into_array();
+    mark_optimized(&array, &SESSION).vortex_expect("mark the chunked array as optimized");
+
+    array
 }
 
 #[divan::bench(args = BENCH_ARGS)]

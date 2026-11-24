@@ -43,7 +43,16 @@ impl VortexCudaStreamPool {
     ///
     /// * `context` - The CUDA context for creating streams.
     /// * `max_capacity` - Maximum number of streams to maintain in the pool.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `max_capacity` is zero, as the pool could never return a stream.
     pub fn new(context: Arc<CudaContext>, max_capacity: usize) -> Self {
+        // Fail here rather than on the first `stream`, which would divide by zero.
+        assert!(
+            max_capacity > 0,
+            "CUDA stream pool capacity must be nonzero"
+        );
         let slots = (0..max_capacity)
             .map(|_| OnceCell::new())
             .collect::<Vec<_>>()
@@ -88,6 +97,7 @@ impl VortexCudaStreamPool {
 
 #[cfg(test)]
 mod tests {
+    use std::panic::AssertUnwindSafe;
     use std::sync::Arc;
     use std::sync::Barrier;
     use std::thread;
@@ -98,6 +108,16 @@ mod tests {
     use vortex_cuda_driver::CudaContext;
 
     use super::VortexCudaStreamPool;
+
+    #[crate::test]
+    fn rejects_zero_capacity() -> VortexResult<()> {
+        let context =
+            CudaContext::new(0).map_err(|e| vortex_err!("Failed to create CUDA context: {e}"))?;
+        let pool =
+            std::panic::catch_unwind(AssertUnwindSafe(|| VortexCudaStreamPool::new(context, 0)));
+        assert!(pool.is_err());
+        Ok(())
+    }
 
     #[crate::test]
     fn lazy_creation() -> VortexResult<()> {

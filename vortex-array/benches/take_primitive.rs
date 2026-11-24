@@ -21,6 +21,7 @@ use vortex_array::arrays::DictArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::memory::MemorySession;
 use vortex_array::optimizer::kernels::KernelSession;
+use vortex_array::test_harness::mark_optimized;
 use vortex_session::VortexSession;
 
 #[global_allocator]
@@ -55,6 +56,8 @@ fn primitive_take_u32(bencher: Bencher) {
     let values = PrimitiveArray::from_iter(0u32..256).into_array();
     let indices =
         PrimitiveArray::from_iter((0..NUM_INDICES).map(|index| index as u32 & 255)).into_array();
+    mark_optimized(&values, &SESSION).unwrap();
+    mark_optimized(&indices, &SESSION).unwrap();
 
     bencher
         .counter(ItemsCount::new(NUM_INDICES))
@@ -79,6 +82,7 @@ fn dict_canonicalize_uniform<const NUM_VALUES: usize>(bencher: Bencher, num_indi
     let codes = PrimitiveArray::from_iter(rng.sample_iter(range).take(num_indices));
 
     let dict = DictArray::try_new(codes.into_array(), values.into_array()).unwrap();
+    mark_optimized(dict.as_array(), &SESSION).unwrap();
 
     bencher
         .with_inputs(|| (&dict, SESSION.create_execution_ctx()))
@@ -98,6 +102,7 @@ fn dict_canonicalize_zipfian<const NUM_VALUES: usize>(bencher: Bencher, num_indi
     );
 
     let dict = DictArray::try_new(codes.into_array(), values.into_array()).unwrap();
+    mark_optimized(dict.as_array(), &SESSION).unwrap();
 
     bencher
         .with_inputs(|| (&dict, SESSION.create_execution_ctx()))
@@ -122,6 +127,7 @@ fn dict_canonicalize_gt_u8(bencher: Bencher, num_indices: usize) {
             }),
     );
     let dict = DictArray::try_new(codes.into_array(), values.into_array()).unwrap();
+    mark_optimized(dict.as_array(), &SESSION).unwrap();
 
     bencher
         .counter(ItemsCount::new(num_indices))

@@ -39,8 +39,8 @@ Do not wait for a deep code read before showing benchmark comparisons or first s
 
 2. Identify the exact benchmark target:
 
-   - suite: `tpch`, `tpcds`, `clickbench`, `fineweb`, `gh-archive`, `job`, `polarsignals`,
-     `public-bi`, or `statpopgen`;
+   - suite: `tpch`, `tpch-nested`, `tpcds`, `clickbench`, `fineweb`, `gh-archive`, `job`,
+     `polarsignals`, `public-bi`, or `statpopgen`;
    - query number(s), for example `-q <query>`;
    - engine/format target(s), for example `datafusion:vortex` versus `datafusion:parquet`;
    - runtime environment toggles, if the branch exposes any.
@@ -49,7 +49,7 @@ Do not wait for a deep code read before showing benchmark comparisons or first s
 
    ```bash
    FEATURE_TOGGLE=1 UV_CACHE_DIR=/private/tmp/vortex-uv-cache \
-     uv run --project bench-orchestrator vx-bench run <benchmark> \
+     uv run --project benchmarks/bench-orchestrator vx-bench run <benchmark> \
      -e <engine> \
      -f <baseline-format>,<candidate-format> \
      -q <query> \

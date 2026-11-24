@@ -33,12 +33,12 @@ use vortex_array::compute::conformance::consistency::test_array_consistency;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability::NonNullable;
 use vortex_array::dtype::PType;
-use vortex_array::expr::stats::Precision;
-use vortex_array::expr::stats::Stat;
 use vortex_array::match_each_unsigned_integer_ptype;
 use vortex_array::scalar::ScalarValue;
 use vortex_array::serde::SerializeOptions;
 use vortex_array::serde::SerializedArray;
+use vortex_array::stats::Precision;
+use vortex_array::stats::Stat;
 use vortex_array::test_harness::check_metadata;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::VTable;
@@ -278,10 +278,8 @@ fn test_try_new_rejects() -> VortexResult<()> {
     Ok(())
 }
 
-#[rstest]
-#[case::vtable(false)]
-#[case::plugin(true)]
-fn test_deserialize_rejects(#[case] plugin: bool) -> VortexResult<()> {
+#[test]
+fn test_deserialize_rejects() -> VortexResult<()> {
     let dtype = DType::Primitive(PType::U64, NonNullable);
     let metadata = |num_ones: u64| {
         UnaryMetadata {
@@ -293,26 +291,12 @@ fn test_deserialize_rejects(#[case] plugin: bool) -> VortexResult<()> {
     // `[1, 0]` takes the bits `10 0`.
     let bits = BufferHandle::new_host(BitBuffer::from(vec![true, false, false]).inner().clone());
     let no_children: [ArrayRef; 0] = [];
-    // Through the vtable alone, and through the array plugin, the path readers run.
     let deserialize = |metadata: &[u8], buffers: &[BufferHandle], children: &[ArrayRef]| {
-        if plugin {
-            ArrayPlugin::deserialize(
-                &Unary,
-                ArrayDeserialization::new(
-                    VTable::id(&Unary),
-                    &dtype,
-                    2,
-                    metadata,
-                    buffers,
-                    &children,
-                ),
-                &SESSION,
-            )
-        } else {
-            VTable::deserialize(&Unary, &dtype, 2, metadata, buffers, &children, &SESSION)
-                .and_then(Array::try_from_parts)
-                .map(IntoArray::into_array)
-        }
+        ArrayPlugin::deserialize(
+            &Unary,
+            ArrayDeserialization::new(VTable::id(&Unary), &dtype, 2, metadata, buffers, &children),
+            &SESSION,
+        )
     };
 
     let one = slice::from_ref(&bits);

@@ -26,9 +26,9 @@ use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::IntegerPType;
 use vortex_array::dtype::OffsetBuilderPType;
-use vortex_array::expr::stats::Precision;
-use vortex_array::expr::stats::Stat;
 use vortex_array::match_each_integer_ptype;
+use vortex_array::stats::Precision;
+use vortex_array::stats::Stat;
 use vortex_array::validity::Validity;
 use vortex_buffer::Alignment;
 use vortex_buffer::BufferAllocatorRef;
@@ -134,10 +134,7 @@ fn compress_varbin_array(
     let mask = strings.validity()?.execute_mask(strings.len(), ctx)?;
     let offsets = strings.offsets().clone().execute::<PrimitiveArray>(ctx)?;
     let total_input_bytes = match_each_integer_ptype!(offsets.ptype(), |O| {
-        let off = offsets.as_slice::<O>();
-        let first: usize = off[0].as_();
-        let last: usize = off[off.len() - 1].as_();
-        last - first
+        offsets_byte_span(offsets.as_slice::<O>())
     });
 
     if fsst_output_fits_in_i32_offsets(total_input_bytes) {
@@ -194,6 +191,13 @@ fn train_varbin_array(
     });
 
     Ok(Compressor::train(&lines))
+}
+
+/// Returns the number of bytes spanned by `off`, from its first offset to its last.
+fn offsets_byte_span<O: IntegerPType>(off: &[O]) -> usize {
+    let first: usize = off[0].as_();
+    let last: usize = off[off.len() - 1].as_();
+    last - first
 }
 
 #[inline]
@@ -393,12 +397,26 @@ where
             .set(Stat::IsSorted, Precision::Exact(true.into()));
         let validity = Validity::from_mask(mask.clone(), dtype.nullability());
 
+        // The codes buffer grows by doubling, so up to half of its allocation can be spare.
+        // Freezing keeps that allocation, which `nbytes` does not count, so copy the codes into an
+        // exactly sized buffer when the spare capacity is large.
+        let codes_bytes = if self.codes.capacity() - self.codes.len() > self.codes.len() / 4 {
+            ByteBufferMut::copy_from_aligned_in(
+                &self.codes,
+                self.codes.alignment(),
+                ctx.allocator().clone(),
+            )
+            .freeze()
+        } else {
+            self.codes.freeze()
+        };
+
         // SAFETY: the offsets start at zero, grow monotonically, and end at the length of the
         // codes. The validity is the validity of the input, which has one entry per row.
         let codes = unsafe {
             VarBinArray::new_unchecked(
                 codes_offsets.into_array(),
-                self.codes.freeze(),
+                codes_bytes,
                 DType::Binary(dtype.nullability()),
                 validity,
             )
@@ -424,11 +442,13 @@ where
 mod tests {
     use std::sync::LazyLock;
 
+    use rstest::rstest;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::VarBinViewArray;
     use vortex_array::arrays::varbin::VarBinArraySlotsExt;
     use vortex_array::dtype::PType;
     use vortex_error::VortexResult;
+    use vortex_error::vortex_err;
     use vortex_session::VortexSession;
 
     use super::fsst_compress;
@@ -436,7 +456,11 @@ mod tests {
     use super::fsst_train_compressor;
     use crate::array::FSSTArrayExt;
 
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+        let session = VortexSession::empty();
+        crate::initialize(&session);
+        session
+    });
 
     /// Regression for #7833: the i32-vs-i64 codes-offsets decision must cross at
     /// `i32::MAX` against the worst-case bound `2 * total`.
@@ -458,6 +482,45 @@ mod tests {
         let compressor = fsst_train_compressor(array.as_array(), &mut ctx)?;
         let fsst = fsst_compress(array.as_array(), &compressor, &mut ctx)?;
         assert_eq!(fsst.codes().offsets().dtype().as_ptype(), PType::I32);
+        Ok(())
+    }
+
+    /// Regression for #11420: the codes buffer grows by doubling, and must not keep the spare
+    /// capacity of the last doubling once it is frozen.
+    #[rstest]
+    #[case::str_len_80(80)]
+    #[case::str_len_128(128)]
+    #[case::str_len_160(160)]
+    fn codes_buffer_has_little_spare_capacity(#[case] str_len: usize) -> VortexResult<()> {
+        let mut x: u64 = 1;
+        let strings: Vec<String> = (0..8192)
+            .map(|_| {
+                (0..str_len / 16)
+                    .map(|_| {
+                        x ^= x << 13;
+                        x ^= x >> 7;
+                        x ^= x << 17;
+                        format!("{x:016x}")
+                    })
+                    .collect()
+            })
+            .collect();
+        let array = VarBinViewArray::from_iter_str(strings.iter().map(String::as_str));
+        let mut ctx = SESSION.create_execution_ctx();
+        let compressor = fsst_train_compressor(array.as_array(), &mut ctx)?;
+        let fsst = fsst_compress(array.as_array(), &compressor, &mut ctx)?;
+
+        let codes = fsst.codes_bytes().clone();
+        drop(fsst);
+        let codes = codes
+            .try_into_mut()
+            .map_err(|_| vortex_err!("codes buffer is still shared"))?;
+        let spare = codes.capacity() - codes.len();
+        assert!(
+            spare <= codes.len() / 4,
+            "codes len {} has {spare} bytes of spare capacity",
+            codes.len()
+        );
         Ok(())
     }
 }

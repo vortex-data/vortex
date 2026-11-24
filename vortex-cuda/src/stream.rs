@@ -11,7 +11,6 @@ use std::sync::Arc;
 
 use async_channel::Receiver;
 use async_channel::Sender;
-use futures::future::BoxFuture;
 use tracing::warn;
 use vortex::array::buffer::BufferHandle;
 use vortex::error::VortexResult;
@@ -21,7 +20,9 @@ use vortex_cuda_driver::CudaSlice;
 use vortex_cuda_driver::CudaStream;
 use vortex_cuda_driver::DeviceRepr;
 use vortex_cuda_driver::ValidAsZeroBits;
-use vortex_cuda_driver::result::stream;
+use vortex_cuda_driver::stream;
+use vortex_cuda_driver::sys::CUresult;
+use vortex_cuda_driver::sys::CUstream;
 
 use crate::CudaDeviceBuffer;
 use crate::device_buffer::CUDF_VALIDITY_BUFFER_PADDING;
@@ -74,67 +75,20 @@ impl VortexCudaStream {
 
     /// Copies host data to the device.
     ///
-    /// Allocates device memory, schedules an async copy, and returns a future
-    /// that completes when the copy is finished. The source data is moved into
-    /// the future to ensure it remains valid until the copy completes.
+    /// Allocates device memory, enqueues the H2D copy on the stream, and
+    /// returns immediately. Later work on this stream runs after the copy, and
+    /// so does work on other streams that accesses the buffer through views or
+    /// launch arguments. Raw pointers from `cuda_device_ptr` are not tracked,
+    /// so other streams must not read them without waiting.
     ///
-    /// For **pageable** host memory, `memcpy_htod_async` stages the source
-    /// synchronously before returning. For **pinned** host memory the transfer
-    /// is truly async and the source must stay alive until the copy completes
-    /// (guaranteed by the returned future capturing it).
+    /// The copy no longer reads `data` once this returns: the driver stages
+    /// **pageable** host memory, and copies of **pinned** host memory are
+    /// waited for.
     ///
     /// The returned [`BufferHandle`] keeps the source byte length, while its
     /// CUDA allocation may include zeroed tail padding for consumers such as cuDF
     /// that read validity masks through padded extents.
-    pub(crate) fn copy_to_device<T, D>(
-        &self,
-        data: D,
-    ) -> VortexResult<BoxFuture<'static, VortexResult<BufferHandle>>>
-    where
-        T: DeviceRepr + ValidAsZeroBits + Debug + Send + Sync + 'static,
-        D: AsRef<[T]> + Send + 'static,
-    {
-        let host_slice: &[T] = data.as_ref();
-        let byte_count = size_of_val(host_slice);
-        let allocation_len = padded_device_allocation_len::<T>(byte_count)?;
-        // `device_alloc` binds the CUDA context to the current thread.
-        let mut cuda_slice: CudaSlice<T> = self.device_alloc::<T>(allocation_len)?;
-
-        let mut values = cuda_slice.slice_mut(..host_slice.len());
-        self.memcpy_htod(host_slice, &mut values)
-            .map_err(|e| vortex_err!("Failed to schedule H2D copy: {}", e))?;
-
-        zero_padding(self, &mut cuda_slice, host_slice.len())?;
-
-        // `zero_padding` zeroed all allocation bytes after `byte_count`.
-        let cuda_buf = CudaDeviceBuffer::new_with_zeroed_tail(cuda_slice, byte_count)?;
-        let buffer = BufferHandle::new_device(Arc::new(cuda_buf)).slice(0..byte_count);
-        let stream = Arc::clone(&self.0);
-
-        Ok(Box::pin(async move {
-            await_stream_callback(&stream).await?;
-
-            // Keep source memory alive until copy completes.
-            let _keep_alive = data;
-
-            Ok(buffer)
-        }))
-    }
-
-    /// Synchronous variant of [`copy_to_device`](Self::copy_to_device).
-    ///
-    /// Allocates device memory, enqueues the H2D copy on the stream, and
-    /// returns immediately. The device pointer is valid as soon as this call
-    /// returns; the copy completes before any later work on the same stream.
-    ///
-    /// For **pageable** host memory (the common case), `memcpy_htod` stages
-    /// the source into a driver-managed pinned buffer before returning, so
-    /// the source data is safe to drop after this call.
-    ///
-    /// Like [`copy_to_device`](Self::copy_to_device), this preserves the source
-    /// byte length on the returned handle while keeping any tail padding in the
-    /// backing CUDA allocation.
-    pub(crate) fn copy_to_device_sync<T>(&self, data: &[T]) -> VortexResult<BufferHandle>
+    pub(crate) fn copy_to_device<T>(&self, data: &[T]) -> VortexResult<BufferHandle>
     where
         T: DeviceRepr + ValidAsZeroBits + Debug + Send + Sync + 'static,
     {
@@ -202,47 +156,62 @@ pub(crate) fn zero_padding<T: DeviceRepr + ValidAsZeroBits>(
 ///
 /// # Errors
 ///
-/// Returns an error if registering the stream callback fails or if the callback
-/// channel closes unexpectedly.
+/// Returns an error if registering the stream callback fails, if the preceding work failed on
+/// the device, or if the callback channel closes unexpectedly.
 pub(crate) async fn await_stream_callback(stream: &CudaStream) -> VortexResult<()> {
     let rx = register_stream_callback(stream)?;
 
-    rx.recv()
+    let status = rx
+        .recv()
         .await
-        .map_err(|e| vortex_err!("CUDA stream callback channel closed unexpectedly: {}", e))
+        .map_err(|e| vortex_err!("CUDA stream callback channel closed unexpectedly: {}", e))?;
+    status
+        .result()
+        .map_err(|e| vortex_err!("CUDA stream work failed: {}", e))
 }
 
-/// Registers a host function callback on the stream.
+/// Registers a callback on the stream.
+///
+/// The driver runs the callback exactly once, even after a device error, so the receiver always
+/// gets the status of the preceding work and the sender is always freed.
 ///
 /// # Returns
 ///
-/// An async receiver that receives a message when all preceding work on the
-/// stream completes.
+/// An async receiver that receives the status of all preceding work on the stream once it
+/// completes.
 ///
 /// # Errors
 ///
-/// Returns an error if registering the host callback function fails.
-fn register_stream_callback(stream: &CudaStream) -> VortexResult<Receiver<()>> {
-    let (tx, rx) = async_channel::bounded::<()>(1);
-
-    let tx_ptr = Box::into_raw(Box::new(tx));
-
+/// Returns an error if registering the callback fails.
+fn register_stream_callback(stream: &CudaStream) -> VortexResult<Receiver<CUresult>> {
+    // Bind before handing the sender to raw ownership, which a failed bind would leak.
     stream
         .context()
         .bind_to_thread()
         .map_err(|e| vortex_err!("Failed to bind CUDA context: {}", e))?;
 
-    /// Called from CUDA driver thread when all preceding work on the stream completes.
-    unsafe extern "C" fn callback(user_data: *mut std::ffi::c_void) {
+    let (tx, rx) = async_channel::bounded::<CUresult>(1);
+    let tx_ptr = Box::into_raw(Box::new(tx));
+
+    /// Called from CUDA driver thread when all preceding work on the stream completes or fails.
+    unsafe extern "C" fn callback(
+        _stream: CUstream,
+        status: CUresult,
+        user_data: *mut std::ffi::c_void,
+    ) {
         // SAFETY: The memory of `tx` is manually managed has not been freed
         // before. We have unique ownership and can therefore free it.
-        let tx = unsafe { Box::from_raw(user_data as *mut Sender<()>) };
+        let tx = unsafe { Box::from_raw(user_data as *mut Sender<CUresult>) };
 
         // The callback sends once into an empty capacity-one channel.
         // NOTE: send can fail if the CudaEvent is dropped by the caller, in which case the receiver
         //  is closed and sends will fail.
-        if let Err(_e) = tx.try_send(()) {
-            warn!(error = ?_e, "register_stream_callback send failed due to error");
+        if let Err(_e) = tx.try_send(status) {
+            warn!(
+                status = status.0,
+                error = ?_e,
+                "CUDA stream callback receiver unavailable"
+            );
         }
     }
 
@@ -251,7 +220,7 @@ fn register_stream_callback(stream: &CudaStream) -> VortexResult<Receiver<()>> {
     // 2. Valid function pointer with the the correct signature
     // 3. Valid user data pointer which is consumed exactly once
     unsafe {
-        stream::launch_host_function(
+        stream::add_callback(
             stream.cu_stream(),
             callback,
             tx_ptr as *mut std::ffi::c_void,
@@ -277,6 +246,7 @@ mod tests {
     use vortex::array::VortexSessionExecute;
     use vortex::array::arrays::BoolArray;
     use vortex::array::assert_arrays_eq;
+    use vortex::array::optimizer::ArrayOptimizer;
     use vortex::array::validity::Validity;
     use vortex::error::VortexResult;
     use vortex::session::VortexSession;
@@ -285,7 +255,7 @@ mod tests {
     use crate::CanonicalCudaExt;
     use crate::CudaSession;
     use crate::device_buffer::CUDF_VALIDITY_BUFFER_PADDING;
-    use crate::device_buffer::cuda_backing_allocation;
+    use crate::device_buffer::test_support::cuda_backing_allocation;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
@@ -318,7 +288,7 @@ mod tests {
     #[crate::test]
     async fn test_copy_to_device_preserves_visible_len_with_padding() -> VortexResult<()> {
         let ctx = CudaSession::create_execution_ctx(&crate::cuda_session())?;
-        let handle = ctx.stream().copy_to_device(vec![0xab_u8])?.await?;
+        let handle = ctx.stream().copy_to_device(&[0xab_u8])?;
 
         assert_eq!(handle.len(), 1);
         let host = handle.try_to_host()?.await?;
@@ -334,33 +304,14 @@ mod tests {
     }
 
     #[crate::test]
-    async fn test_copy_to_device_sync_preserves_visible_len_with_padding() -> VortexResult<()> {
-        let ctx = CudaSession::create_execution_ctx(&crate::cuda_session())?;
-        let handle = ctx.stream().copy_to_device_sync(&[1_u8, 2, 3, 4, 5])?;
-
-        assert_eq!(handle.len(), 5);
-        let host = handle.try_to_host()?.await?;
-        assert_eq!(host.as_slice(), &[1, 2, 3, 4, 5]);
-
-        let backing = cuda_backing_allocation(&handle)?;
-        assert_eq!(backing.len(), CUDF_VALIDITY_BUFFER_PADDING);
-        let backing_host = backing.try_to_host()?.await?;
-        assert_eq!(&backing_host[..5], &[1, 2, 3, 4, 5]);
-        assert!(backing_host[5..].iter().all(|byte| *byte == 0));
-
-        Ok(())
-    }
-
-    #[crate::test]
     async fn test_slice_device_bool_preserves_device_buffer() -> VortexResult<()> {
-        let ctx = CudaSession::create_execution_ctx(&crate::cuda_session())?;
+        let mut ctx = CudaSession::create_execution_ctx(&crate::cuda_session())?;
         let bits = ctx
             .stream()
-            .copy_to_device(vec![0b1010_1100_u8, 0b0110_1001, 0b1100_0011])?
-            .await?;
+            .copy_to_device(&[0b1010_1100_u8, 0b0110_1001, 0b1100_0011])?;
         let array = BoolArray::new_handle(bits, 3, 18, Validity::NonNullable).into_array();
 
-        let sliced = array.slice(7..16)?;
+        let sliced = array.slice(7..16)?.optimize_ctx(ctx.execution_ctx())?;
 
         assert_eq!(sliced.len(), 9);
         assert!(sliced.buffer_handles()[0].is_on_device());

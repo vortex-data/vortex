@@ -23,11 +23,6 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::struct_::StructArrayExt;
 use vortex_array::dtype::FieldPath;
-use vortex_array::expr::col;
-use vortex_array::expr::eq;
-use vortex_array::expr::lit;
-use vortex_array::expr::root;
-use vortex_array::expr::select;
 use vortex_array::stream::ArrayStreamExt;
 use vortex_arrow::ArrowSessionExt;
 use vortex_edition::Edition;
@@ -36,9 +31,14 @@ use vortex_edition::EditionId;
 use vortex_edition::EditionMember;
 use vortex_edition::EditionSession;
 use vortex_edition::EditionSessionExt;
+use vortex_expr::col;
+use vortex_expr::eq;
+use vortex_expr::lit;
+use vortex_expr::root;
 use vortex_file::OpenOptionsSessionExt;
 use vortex_file::WriteOptionsSessionExt;
 use vortex_file::WriteStrategyBuilder;
+use vortex_functions::expr::select;
 use vortex_io::InstrumentedReadAt;
 use vortex_io::VortexWrite;
 use vortex_io::object_store::ObjectStoreReadAt;
@@ -113,7 +113,6 @@ fn session_with_indexed_layout() -> anyhow::Result<VortexSession> {
         .with::<LayoutSession>()
         .with::<RuntimeSession>()
         .with::<EditionSession>();
-    vortex_arrow::initialize(&session);
     vortex_sequence::initialize(&session);
     session.register_edition(&INDEXED_TEST_DECLARATION)?;
     session.enable_edition(INDEXED_TEST_EDITION)?;
@@ -129,7 +128,6 @@ fn session_without_reverse_index() -> VortexSession {
         .with::<LayoutSession>()
         .with::<RuntimeSession>()
         .with::<EditionSession>();
-    vortex_arrow::initialize(&session);
     vortex_sequence::initialize(&session);
     session
 }

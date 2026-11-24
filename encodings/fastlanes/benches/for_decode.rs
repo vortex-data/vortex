@@ -29,6 +29,7 @@ use vortex_array::dtype::NativePType;
 use vortex_array::memory::MemorySession;
 use vortex_array::optimizer::kernels::KernelSession;
 use vortex_array::session::ArraySession;
+use vortex_array::test_harness::mark_optimized;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_error::vortex_panic;
@@ -108,6 +109,8 @@ fn bitpacked_for_array<T: NativePType + TryFrom<usize>>(len: usize, child: Child
 fn run<T: NativePType + TryFrom<usize>>(bencher: Bencher, bytes: usize, child: Child) {
     let len = bytes / size_of::<T>();
     let array = bitpacked_for_array::<T>(len, child);
+    mark_optimized(&array, &SESSION).unwrap();
+
     bencher
         .counter(ItemsCount::new(len))
         .with_inputs(|| (&array, SESSION.create_execution_ctx()))
@@ -140,6 +143,7 @@ fn decode_chunked<T: NativePType + TryFrom<usize>>(bencher: Bencher, bytes: usiz
             let array = FoR::try_new_chunked(encoded.into_array(), references.clone(), 0)
                 .unwrap()
                 .into_array();
+            mark_optimized(&array, &SESSION).unwrap();
 
             (array, SESSION.create_execution_ctx())
         })

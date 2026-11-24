@@ -39,11 +39,11 @@ use crate::dtype::FieldNames;
 use crate::dtype::Nullability;
 use crate::dtype::Nullability::Nullable;
 use crate::dtype::PType;
-use crate::expr::stats::Precision;
-use crate::expr::stats::Stat;
 use crate::proto::expr as pb;
 use crate::scalar::Scalar;
 use crate::scalar::ScalarValue;
+use crate::stats::Precision;
+use crate::stats::Stat;
 use crate::validity::Validity;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
@@ -112,6 +112,7 @@ fn legacy_sum_is_unchanged() -> VortexResult<()> {
         buffer![0i64, 0],
         DecimalDType::new(10, 2),
         Validity::AllInvalid,
+        &mut SESSION.create_execution_ctx(),
     )
     .into_array()
 )]

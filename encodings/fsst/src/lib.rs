@@ -43,4 +43,5 @@ pub fn initialize(session: &VortexSession) {
         Some(UncompressedSizeInBytes.id()),
         &compute::uncompressed_size_in_bytes::FsstUncompressedSizeKernel,
     );
+    rules::register_parent_rules(session);
 }

@@ -37,7 +37,7 @@ The `vortex-scan` crate provides efficient scanning operations over Vortex array
 
 ```rust
 use vortex_scan::ScanBuilder;
-use vortex_array::expr::lit;
+use vortex_expr::lit;
 
 // Create a scan that reads specific columns with a filter
 let scan = ScanBuilder::new(layout_reader)
@@ -167,12 +167,11 @@ This controls how many splits are processed concurrently.
 
 Core dependencies:
 
-- `vortex-array`: Core array types and operations (includes expression evaluation framework)
-- `vortex-layout`: Layout reader abstraction
+- `vortex-array`: Core array types and operations
+- `vortex-expr`: Expression trees and the analyses and rewrites built on them
+- `vortex-io`: Byte requests and runtime abstractions
 - `futures`: Async runtime abstractions
-- `arrow-array` (optional): Arrow integration
+- `vortex-session`: Shared execution context
 
-## Feature Flags
+Arrow output adapters live in `vortex-arrow`, which depends on `vortex-scan`.
 
-- `default`: Standard features for most use cases
-- `roaring`: Support for Roaring bitmap selections

@@ -7,7 +7,6 @@ use std::sync::Arc;
 use std::sync::OnceLock;
 
 use parking_lot::RwLock;
-use vortex_array::ExecutionCtx;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
@@ -17,6 +16,7 @@ use super::StatsSet;
 use super::StatsSetIntoIter;
 use super::TypedStatsSetRef;
 use crate::ArrayRef;
+use crate::ExecutionCtx;
 use crate::aggregate_fn::NumericalAggregateOpts;
 use crate::aggregate_fn::fns::is_constant::is_constant;
 use crate::aggregate_fn::fns::is_sorted::is_sorted;
@@ -26,11 +26,11 @@ use crate::aggregate_fn::fns::min_max::min_max;
 use crate::aggregate_fn::fns::nan_count::nan_count;
 use crate::aggregate_fn::fns::sum::sum;
 use crate::aggregate_fn::fns::uncompressed_size_in_bytes::uncompressed_size_in_bytes;
-use crate::expr::stats::Precision;
-use crate::expr::stats::Stat;
-use crate::expr::stats::StatsProvider;
 use crate::scalar::Scalar;
 use crate::scalar::ScalarValue;
+use crate::stats::Precision;
+use crate::stats::Stat;
+use crate::stats::StatsProvider;
 
 /// A shared [`StatsSet`] stored in an array. Can be shared by copies of the array and can also be mutated in place.
 /// Stats are created lazily on read or write.
@@ -417,9 +417,9 @@ mod tests {
     use super::ArrayStats;
     use super::StatsSet;
     use crate::IntoArray;
-    use crate::expr::stats::Precision;
-    use crate::expr::stats::Stat;
     use crate::scalar::ScalarValue;
+    use crate::stats::Precision;
+    use crate::stats::Stat;
 
     #[test]
     fn empty_stats() {

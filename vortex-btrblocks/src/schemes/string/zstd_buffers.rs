@@ -46,11 +46,12 @@ impl Scheme for ZstdBuffersScheme {
 
     fn compress(
         &self,
-        _compressor: &CascadingCompressor,
+        compressor: &CascadingCompressor,
         data: &ArrayAndStats,
         _compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        Ok(vortex_zstd::ZstdBuffers::compress(data.array(), 3, exec_ctx.session())?.into_array())
+        let input = compressor.with_compressed_validity(data.array(), exec_ctx)?;
+        Ok(vortex_zstd::ZstdBuffers::compress(&input, 3, exec_ctx.session())?.into_array())
     }
 }

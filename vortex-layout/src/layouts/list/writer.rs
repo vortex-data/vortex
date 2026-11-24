@@ -18,6 +18,7 @@ use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::List;
 use vortex_array::arrays::ListView;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::list::ListArrayExt;
 use vortex_array::arrays::list::ListDataParts;
 use vortex_array::arrays::listview::list_from_list_view;
 use vortex_array::builtins::ArrayBuiltins;
@@ -25,7 +26,7 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::matcher::Matcher;
-use vortex_array::scalar_fn::fns::operators::Operator;
+use vortex_array::scalar::NumericOperator;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -288,13 +289,16 @@ fn canonicalize_to_list_parts(
     exec_ctx: &mut ExecutionCtx,
 ) -> VortexResult<ListDataParts> {
     let canonical = array.execute_until::<AnyList>(exec_ctx)?;
-    if let Some(list) = canonical.as_opt::<List>() {
-        Ok(list.into_owned().into_data_parts())
+    let list = if let Some(list) = canonical.as_opt::<List>() {
+        list.into_owned()
     } else if let Some(view) = canonical.as_opt::<ListView>() {
-        Ok(list_from_list_view(view.into_owned(), exec_ctx)?.into_data_parts())
+        list_from_list_view(view.into_owned(), exec_ctx)?
     } else {
         unreachable!("AnyList matcher guarantees List or ListView")
-    }
+    };
+    // Sliced lists can retain unused elements, and rebuilding a list view can leave a lazy
+    // elements slice. Normalize both before passing their children to serializing strategies.
+    Ok(list.reset_offsets(false, exec_ctx)?.into_data_parts())
 }
 
 /// Rebase a chunk's local `offsets` into global `u64` positions for the whole-column `offsets`
@@ -313,7 +317,7 @@ fn global_offsets(
         widened
     } else {
         let base = ConstantArray::new(element_base, widened.len()).into_array();
-        widened.binary(base, Operator::Add)?
+        widened.numeric(base, NumericOperator::Add)?
     };
     let based = if first {
         based

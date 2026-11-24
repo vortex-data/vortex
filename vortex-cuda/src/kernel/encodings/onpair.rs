@@ -67,7 +67,6 @@ use vortex::error::vortex_ensure_eq;
 use vortex::error::vortex_err;
 use vortex_array::ArrayView;
 use vortex_cuda_driver::CudaSlice;
-use vortex_cuda_driver::DevicePtr;
 use vortex_cuda_driver::DeviceRepr;
 use vortex_cuda_driver::LaunchConfig;
 use vortex_cuda_driver::PushKernelArg;
@@ -167,7 +166,7 @@ async fn decode_onpair(
                 .arg(&num_rows_u64);
         })?;
 
-        let views = BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(device_views)));
+        let views = BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(device_views)?));
         return Ok(Canonical::VarBinView(unsafe {
             VarBinViewArray::new_handle_unchecked(views, Arc::from([bytes]), dtype, validity)
         }));
@@ -210,8 +209,8 @@ pub(crate) async fn decode_onpair_varbin(
 
     let Some(decoded) = decode_onpair_bytes(onpair.as_view(), ctx).await? else {
         // Zero decoded bytes: all-zero offsets and an empty values heap.
-        let offsets = ctx.copy_to_device(vec![0i32; len + 1])?.await?;
-        let allocation = CudaDeviceBuffer::new(ctx.device_alloc::<u8>(1)?);
+        let offsets = ctx.copy_to_device(&vec![0i32; len + 1])?;
+        let allocation = CudaDeviceBuffer::new(ctx.device_alloc::<u8>(1)?)?;
         let values = BufferHandle::new_device(allocation.slice(0..0));
         return Ok(DecodedVarBin {
             dtype,
@@ -352,11 +351,9 @@ async fn stage_dict(
         dict_s8[code * 8..code * 8 + head].copy_from_slice(&token[..head]);
     }
 
-    let (s8_dev, padded_dev, lens_dev) = futures::try_join!(
-        ctx.copy_to_device(dict_s8)?,
-        ctx.copy_to_device(dict_padded)?,
-        ctx.copy_to_device(lens)?,
-    )?;
+    let s8_dev = ctx.copy_to_device(&dict_s8)?;
+    let padded_dev = ctx.copy_to_device(&dict_padded)?;
+    let lens_dev = ctx.copy_to_device(&lens)?;
 
     Ok(StagedDict {
         dict_s8: s8_dev,
@@ -415,7 +412,7 @@ where
         buffer: offsets_buffer,
         ..
     } = codes_offsets.into_data_parts();
-    let offsets_dev = ctx.ensure_on_device(offsets_buffer).await?;
+    let offsets_dev = ctx.ensure_on_device(offsets_buffer)?;
     let window_fn = ctx.load_function_with_suffixes(
         "onpair",
         &["window_offsets", &ptype, &offsets_ptype.to_string()],
@@ -496,7 +493,7 @@ where
     // Decode only batches intersecting the visible token window. The kernel's drain gates 16-byte
     // stores on `out_start % 16` relative to the buffer base, so the base must be 16-aligned.
     let mut bytes = ctx.device_alloc::<u8>(total_size)?;
-    let (bytes_base_ptr, _) = bytes.device_ptr(ctx.stream());
+    let bytes_base_ptr = bytes.device_address();
     assert_eq!(
         bytes_base_ptr % 16,
         0,
@@ -527,7 +524,7 @@ where
     )?;
 
     Ok(Some(OnPairDecoded {
-        bytes: BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(bytes))),
+        bytes: BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(bytes)?)),
         total_size,
         lengths,
     }))
@@ -559,7 +556,7 @@ async fn stage_codes(
         buffer: codes_buffer,
         ..
     } = codes.into_data_parts();
-    let codes_dev = ctx.ensure_on_device(codes_buffer).await?;
+    let codes_dev = ctx.ensure_on_device(codes_buffer)?;
 
     let num_batches = num_tokens.div_ceil(TOKENS_PER_BATCH);
     let chunk_offsets = onpair_batch_offsets(
@@ -597,7 +594,7 @@ async fn empty_views(
     validity: Validity,
     ctx: &mut CudaExecutionCtx,
 ) -> VortexResult<Canonical> {
-    let views = ctx.copy_to_device(vec![0i128; num_rows])?.await?;
+    let views = ctx.copy_to_device(&vec![0i128; num_rows])?;
     Ok(Canonical::VarBinView(unsafe {
         VarBinViewArray::new_handle_unchecked(views, Arc::from([]), dtype, validity)
     }))
@@ -672,6 +669,7 @@ mod tests {
     use vortex::array::IntoArray;
     use vortex::array::arrays::VarBinArray;
     use vortex::array::assert_arrays_eq;
+    use vortex::array::optimizer::ArrayOptimizer;
     use vortex::buffer::Buffer;
     use vortex::dtype::Nullability;
     use vortex::error::VortexExpect;
@@ -685,7 +683,7 @@ mod tests {
     use crate::arrow::DeviceArrayExt;
     use crate::arrow::release_device_array;
     use crate::arrow::release_schema;
-    use crate::device_buffer::cuda_backing_allocation;
+    use crate::device_buffer::test_support::cuda_backing_allocation;
     use crate::session::CudaSession;
     use crate::session::VarBinExportLayout;
 
@@ -802,7 +800,7 @@ mod tests {
 
         // Rebuild the array with its dictionary blob resident on the device.
         let dict_bytes = view.dict_bytes_handle().as_host().to_vec();
-        let dict_device = cuda_ctx.copy_to_device(dict_bytes)?.await?;
+        let dict_device = cuda_ctx.copy_to_device(&dict_bytes)?;
         let device_onpair = OnPair::try_new(
             dtype.clone(),
             dict_device,
@@ -843,7 +841,7 @@ mod tests {
             Some(&b"after the window"[..]),
         ];
         let onpair = compress_onpair(values, DType::Utf8(Nullability::Nullable), &mut cuda_ctx)?;
-        let sliced = onpair.slice(1..4)?;
+        let sliced = onpair.slice(1..4)?.optimize_ctx(cuda_ctx.execution_ctx())?;
 
         let gpu_result = OnPairExecutor
             .execute(sliced.clone(), &mut cuda_ctx)
@@ -866,7 +864,7 @@ mod tests {
             .vortex_expect("failed to create execution context");
         let values = vec![Some(&b"alpha"[..]), None, None, Some(&b"omega"[..])];
         let onpair = compress_onpair(values, DType::Utf8(Nullability::Nullable), &mut cuda_ctx)?;
-        let sliced = onpair.slice(1..3)?;
+        let sliced = onpair.slice(1..3)?.optimize_ctx(cuda_ctx.execution_ctx())?;
 
         let gpu_result = OnPairExecutor
             .execute(sliced.clone(), &mut cuda_ctx)
@@ -930,7 +928,9 @@ mod tests {
         )
         .into_array();
         let onpair = onpair_compress(&varbin, DEFAULT_CONFIG, cuda_ctx.execution_ctx())?;
-        let sliced = onpair.slice(19_997..20_101)?;
+        let sliced = onpair
+            .slice(19_997..20_101)?
+            .optimize_ctx(cuda_ctx.execution_ctx())?;
 
         let gpu_result = OnPairExecutor
             .execute(sliced.clone(), &mut cuda_ctx)

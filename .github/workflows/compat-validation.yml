@@ -10,6 +10,11 @@ on:
         required: true
         default: "all"
         type: string
+      ref:
+        description: "Commit to check; empty checks the commit the run started from"
+        required: false
+        type: string
+        default: ""
   workflow_dispatch:
     inputs:
       mode:
@@ -25,7 +30,7 @@ jobs:
   compat-test:
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/region=us-east-1/runner=amd64-medium/image=ubuntu26-full-x64-pre-v2/extras=s3-cache/tag=compat-validation', github.run_id)
+          && format('runs-on={0}/runner=amd64-medium/image=ubuntu26-full-x64-pre-v2/extras=s3-cache/tag=compat-validation', format('{0}/region={1}', github.run_id, vars.CI_REGION || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T1') && 'ap-northeast-1') || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T2') && 'eu-west-2') || 'us-east-1'))
           || 'ubuntu-latest' }}
     timeout-minutes: 30
     steps:
@@ -35,6 +40,8 @@ jobs:
             with:
               sccache: s3
           - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+            with:
+              ref: ${{ inputs.ref }}
       - uses: ./.github/actions/setup-prebuild
         with:
           enable-sccache: ${{ github.repository == 'vortex-data/vortex' && 'true' || 'false' }}

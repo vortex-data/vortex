@@ -6,6 +6,7 @@ use vortex_error::VortexResult;
 use crate::ExecutionCtx;
 use crate::array::ArrayView;
 use crate::array::OperationsVTable;
+use crate::array::ProbeState;
 use crate::arrays::Decimal;
 use crate::match_each_decimal_value_type;
 use crate::scalar::DecimalValue;
@@ -14,18 +15,31 @@ use crate::scalar::Scalar;
 impl OperationsVTable<Decimal> for Decimal {
     type ProbeState = ();
 
-    fn scalar_at(
-        array: ArrayView<'_, Decimal>,
+    fn probe_scalar(
+        state: &mut ProbeState<'_, Decimal>,
         index: usize,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
-        Ok(match_each_decimal_value_type!(array.values_type(), |D| {
-            Scalar::decimal(
+        let array = state.array();
+        if !state.is_valid(index, ctx)? {
+            return Ok(Scalar::null(array.dtype().clone()));
+        }
+        // A canonical file node keeps its buffer without checking the values against its precision.
+        match_each_decimal_value_type!(array.values_type(), |D| {
+            Scalar::try_decimal(
                 DecimalValue::from(array.buffer::<D>()[index]),
                 array.decimal_dtype(),
                 array.dtype().nullability(),
             )
-        }))
+        })
+    }
+
+    fn scalar_at(
+        array: ArrayView<'_, Decimal>,
+        index: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Scalar> {
+        Self::probe_scalar(&mut ProbeState::once(array), index, ctx)
     }
 }
 
@@ -34,6 +48,7 @@ mod tests {
     use std::sync::LazyLock;
 
     use vortex_buffer::buffer;
+    use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
     use crate::IntoArray;
@@ -43,6 +58,7 @@ mod tests {
     use crate::assert_arrays_eq;
     use crate::dtype::DecimalDType;
     use crate::dtype::Nullability;
+    use crate::optimizer::ArrayOptimizer;
     use crate::scalar::DecimalValue;
     use crate::scalar::Scalar;
     use crate::validity::Validity;
@@ -51,26 +67,23 @@ mod tests {
 
     #[test]
     fn test_slice() {
-        let array = DecimalArray::new(
-            buffer![100i128, 200i128, 300i128, 4000i128],
-            DecimalDType::new(3, 2),
-            Validity::NonNullable,
-        )
-        .into_array();
+        let array =
+            DecimalArray::from_iter([100i16, 200, 300, 400], DecimalDType::new(3, 2)).into_array();
 
-        let sliced = array.slice(1..3).unwrap();
+        let sliced = array.slice(1..3).unwrap().optimize_ctx(&SESSION).unwrap();
         assert_eq!(sliced.len(), 2);
 
         let decimal = sliced.as_::<Decimal>();
-        assert_eq!(decimal.buffer::<i128>(), buffer![200i128, 300i128]);
+        assert_eq!(decimal.buffer::<i16>(), buffer![200i16, 300]);
     }
 
     #[test]
     fn test_slice_nullable() {
         let array = DecimalArray::new(
-            buffer![100i128, 200i128, 300i128, 4000i128],
+            buffer![100i16, 200, 300, 400],
             DecimalDType::new(3, 2),
             Validity::from_iter([false, true, false, true]),
+            &mut SESSION.create_execution_ctx(),
         )
         .into_array();
 
@@ -78,28 +91,46 @@ mod tests {
         assert_eq!(sliced.len(), 2);
         assert_arrays_eq!(
             sliced,
-            DecimalArray::from_option_iter([Some(200i128), None], DecimalDType::new(3, 2)),
+            DecimalArray::from_option_iter([Some(200i16), None], DecimalDType::new(3, 2)),
             &mut SESSION.create_execution_ctx()
         );
     }
 
     #[test]
     fn test_scalar_at() {
-        let array = DecimalArray::new(
-            buffer![100i128],
-            DecimalDType::new(3, 2),
-            Validity::NonNullable,
-        );
+        let array = DecimalArray::from_iter([100i16], DecimalDType::new(3, 2));
 
         assert_eq!(
             array
                 .execute_scalar(0, &mut SESSION.create_execution_ctx())
                 .unwrap(),
             Scalar::decimal(
-                DecimalValue::I128(100),
+                DecimalValue::I16(100),
                 DecimalDType::new(3, 2),
                 Nullability::NonNullable
             )
         );
+    }
+
+    #[test]
+    fn test_scalar_at_ignores_value_outside_precision_in_null_slot() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let array = DecimalArray::new(
+            buffer![5i8, 100i8],
+            DecimalDType::new(2, 0),
+            Validity::from_iter([true, false]),
+            &mut ctx,
+        );
+
+        assert_eq!(
+            array.execute_scalar(0, &mut ctx)?,
+            Scalar::decimal(
+                DecimalValue::I8(5),
+                DecimalDType::new(2, 0),
+                Nullability::Nullable
+            )
+        );
+        assert!(array.execute_scalar(1, &mut ctx)?.is_null());
+        Ok(())
     }
 }

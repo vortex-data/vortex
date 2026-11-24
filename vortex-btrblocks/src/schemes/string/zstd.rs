@@ -9,6 +9,7 @@ use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VTable;
+use vortex_array::arrays::VarBinViewArray;
 use vortex_compressor::scheme::CompressionEstimate;
 use vortex_compressor::scheme::DeferredEstimate;
 use vortex_error::VortexResult;
@@ -46,14 +47,14 @@ impl Scheme for ZstdScheme {
 
     fn compress(
         &self,
-        _compressor: &CascadingCompressor,
+        compressor: &CascadingCompressor,
         data: &ArrayAndStats,
         _compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        let compacted = data
-            .array_as_varbinview()
-            .into_owned()
+        let compacted = compressor
+            .with_compressed_validity(data.array(), exec_ctx)?
+            .execute::<VarBinViewArray>(exec_ctx)?
             .compact_buffers(exec_ctx)?;
         Ok(
             vortex_zstd::Zstd::from_var_bin_view_without_dict(&compacted, 3, 8192, exec_ctx)?

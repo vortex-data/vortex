@@ -1,7 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::mem::MaybeUninit;
+
 use ::alp::ENCODE_CHUNK_SIZE;
+use fearless_simd::Level;
+use fearless_simd::Simd;
+use fearless_simd::dispatch;
+use fearless_simd_macros::simd;
 use itertools::Itertools;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
@@ -59,6 +65,48 @@ pub fn alp_encode(
     unsafe { Ok(ALP::new_unchecked(encoded, exponents, patches)) }
 }
 
+/// Runs the `alp` encoder compiled for the best SIMD level the CPU supports.
+fn encode_into<T: ALPFloat>(
+    values: &[T],
+    exponents: Option<Exponents>,
+    encoded: &mut [MaybeUninit<T::ALPInt>],
+    patch_indices: &mut Vec<u64>,
+    patch_values: &mut Vec<T>,
+    chunk_offsets: &mut Vec<u64>,
+) -> Exponents {
+    dispatch!(Level::new(), simd => encode_into_simd(
+        simd,
+        values,
+        exponents,
+        encoded,
+        patch_indices,
+        patch_values,
+        chunk_offsets,
+    ))
+}
+
+/// The `alp` encoder is generic, so it is instantiated in this crate; whatever of it LLVM inlines
+/// here is compiled with the target features of `S`.
+#[simd]
+fn encode_into_simd<S: Simd, T: ALPFloat>(
+    _: S,
+    values: &[T],
+    exponents: Option<Exponents>,
+    encoded: &mut [MaybeUninit<T::ALPInt>],
+    patch_indices: &mut Vec<u64>,
+    patch_values: &mut Vec<T>,
+    chunk_offsets: &mut Vec<u64>,
+) -> Exponents {
+    ::alp::encode_into(
+        values,
+        exponents,
+        encoded,
+        patch_indices,
+        patch_values,
+        chunk_offsets,
+    )
+}
+
 #[expect(
     clippy::cast_possible_truncation,
     reason = "u64 index cast to usize is safe for reasonable array sizes"
@@ -84,7 +132,7 @@ where
 
     // There's exactly one offset per chunk.
     let mut chunk_offsets = Vec::with_capacity(values_slice.len().div_ceil(ENCODE_CHUNK_SIZE));
-    let exponents = ::alp::encode_into(
+    let exponents = encode_into::<T>(
         values_slice,
         exponents,
         &mut encoded.spare_capacity_mut()[..values_slice.len()],
@@ -168,7 +216,6 @@ mod tests {
     use super::*;
     use crate::alp::array::ALPArrayExt;
     use crate::alp::array::ALPArraySlotsExt;
-    use crate::decompress_into_array;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
         let session = VortexSession::empty();
@@ -190,7 +237,10 @@ mod tests {
         );
         assert_eq!(encoded.exponents(), Exponents { e: 9, f: 6 });
 
-        let decoded = decompress_into_array(encoded, &mut SESSION.create_execution_ctx()).unwrap();
+        let decoded = encoded
+            .into_array()
+            .execute::<PrimitiveArray>(&mut SESSION.create_execution_ctx())
+            .unwrap();
         assert_arrays_eq!(decoded, array, &mut SESSION.create_execution_ctx());
     }
 
@@ -208,7 +258,10 @@ mod tests {
         );
         assert_eq!(encoded.exponents(), Exponents { e: 9, f: 6 });
 
-        let decoded = decompress_into_array(encoded, &mut SESSION.create_execution_ctx()).unwrap();
+        let decoded = encoded
+            .into_array()
+            .execute::<PrimitiveArray>(&mut SESSION.create_execution_ctx())
+            .unwrap();
         let expected = PrimitiveArray::from_option_iter(vec![None, Some(1.234f32), None]);
         assert_arrays_eq!(decoded, expected, &mut SESSION.create_execution_ctx());
     }
@@ -229,7 +282,10 @@ mod tests {
         );
         assert_eq!(encoded.exponents(), Exponents { e: 16, f: 13 });
 
-        let decoded = decompress_into_array(encoded, &mut SESSION.create_execution_ctx()).unwrap();
+        let decoded = encoded
+            .into_array()
+            .execute::<PrimitiveArray>(&mut SESSION.create_execution_ctx())
+            .unwrap();
         let expected_decoded = PrimitiveArray::new(values, Validity::NonNullable);
         assert_arrays_eq!(
             decoded,
@@ -255,7 +311,10 @@ mod tests {
         );
         assert_eq!(encoded.exponents(), Exponents { e: 16, f: 13 });
 
-        let decoded = decompress_into_array(encoded, &mut SESSION.create_execution_ctx()).unwrap();
+        let decoded = encoded
+            .into_array()
+            .execute::<PrimitiveArray>(&mut SESSION.create_execution_ctx())
+            .unwrap();
         assert_arrays_eq!(decoded, array, &mut SESSION.create_execution_ctx());
     }
 
@@ -276,9 +335,6 @@ mod tests {
         assert_eq!(encoded.exponents(), Exponents { e: 16, f: 13 });
 
         assert_arrays_eq!(encoded, array, &mut SESSION.create_execution_ctx());
-
-        let decoded = decompress_into_array(encoded, &mut SESSION.create_execution_ctx()).unwrap();
-        assert_arrays_eq!(decoded, array, &mut SESSION.create_execution_ctx());
     }
 
     #[test]
@@ -545,7 +601,10 @@ mod tests {
             alp_encode(array.as_view(), None, &mut SESSION.create_execution_ctx()).unwrap();
 
         assert!(encoded.patches().is_none());
-        let decoded = decompress_into_array(encoded, &mut SESSION.create_execution_ctx()).unwrap();
+        let decoded = encoded
+            .into_array()
+            .execute::<PrimitiveArray>(&mut SESSION.create_execution_ctx())
+            .unwrap();
         assert_arrays_eq!(decoded, array, &mut SESSION.create_execution_ctx());
     }
 
@@ -557,7 +616,10 @@ mod tests {
             alp_encode(array.as_view(), None, &mut SESSION.create_execution_ctx()).unwrap();
 
         assert!(encoded.patches().is_none());
-        let decoded = decompress_into_array(encoded, &mut SESSION.create_execution_ctx()).unwrap();
+        let decoded = encoded
+            .into_array()
+            .execute::<PrimitiveArray>(&mut SESSION.create_execution_ctx())
+            .unwrap();
         assert_arrays_eq!(decoded, array, &mut SESSION.create_execution_ctx());
     }
 
@@ -575,7 +637,10 @@ mod tests {
             alp_encode(array.as_view(), None, &mut SESSION.create_execution_ctx()).unwrap();
 
         assert!(encoded.patches().is_some());
-        let decoded = decompress_into_array(encoded, &mut SESSION.create_execution_ctx()).unwrap();
+        let decoded = encoded
+            .into_array()
+            .execute::<PrimitiveArray>(&mut SESSION.create_execution_ctx())
+            .unwrap();
         assert_arrays_eq!(decoded, array, &mut SESSION.create_execution_ctx());
     }
 
@@ -597,7 +662,10 @@ mod tests {
             alp_encode(array.as_view(), None, &mut SESSION.create_execution_ctx()).unwrap();
 
         assert!(encoded.patches().is_some());
-        let decoded = decompress_into_array(encoded, &mut SESSION.create_execution_ctx()).unwrap();
+        let decoded = encoded
+            .into_array()
+            .execute::<PrimitiveArray>(&mut SESSION.create_execution_ctx())
+            .unwrap();
 
         for idx in 0..size {
             let decoded_val = decoded.as_slice::<f64>()[idx];
@@ -625,7 +693,10 @@ mod tests {
         let array = PrimitiveArray::from_option_iter(values);
         let encoded =
             alp_encode(array.as_view(), None, &mut SESSION.create_execution_ctx()).unwrap();
-        let decoded = decompress_into_array(encoded, &mut SESSION.create_execution_ctx()).unwrap();
+        let decoded = encoded
+            .into_array()
+            .execute::<PrimitiveArray>(&mut SESSION.create_execution_ctx())
+            .unwrap();
 
         assert_arrays_eq!(decoded, array, &mut SESSION.create_execution_ctx());
     }
@@ -646,7 +717,10 @@ mod tests {
         let array = PrimitiveArray::new(Buffer::from(values), validity);
         let encoded =
             alp_encode(array.as_view(), None, &mut SESSION.create_execution_ctx()).unwrap();
-        let decoded = decompress_into_array(encoded, &mut SESSION.create_execution_ctx()).unwrap();
+        let decoded = encoded
+            .into_array()
+            .execute::<PrimitiveArray>(&mut SESSION.create_execution_ctx())
+            .unwrap();
 
         assert_arrays_eq!(decoded, array, &mut SESSION.create_execution_ctx());
     }

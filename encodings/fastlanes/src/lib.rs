@@ -35,6 +35,7 @@ use vortex_array::ExecutionCtx;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::bool::BoolArrayExt;
 use vortex_array::validity::Validity;
+use vortex_buffer::BitBuffer;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
@@ -43,10 +44,12 @@ mod bitpacking;
 mod delta;
 mod for_;
 mod rle;
+mod take_chunks;
 
 pub const FL_CHUNK_SIZE: usize = 1024;
 
 use bitpacking::compute::is_constant::BitPackedIsConstantKernel;
+use delta::compute::is_constant::DeltaIsConstantKernel;
 use for_::compute::is_constant::FoRIsConstantKernel;
 use for_::compute::is_sorted::FoRIsSortedKernel;
 use vortex_array::ArrayVTable;
@@ -71,6 +74,7 @@ pub fn initialize(session: &VortexSession) {
     session.arrays().register(FoRPlugin);
     session.arrays().register(RLE);
     bitpacking::initialize(session);
+    delta::initialize(session);
     for_::initialize(session);
     rle::initialize(session);
 
@@ -79,6 +83,11 @@ pub fn initialize(session: &VortexSession) {
         BitPacked.id(),
         Some(IsConstant.id()),
         &BitPackedIsConstantKernel,
+    );
+    session.aggregate_fns().register_aggregate_kernel(
+        Delta.id(),
+        Some(IsConstant.id()),
+        &DeltaIsConstantKernel,
     );
     session.aggregate_fns().register_aggregate_kernel(
         FoR.id(),
@@ -92,15 +101,19 @@ pub fn initialize(session: &VortexSession) {
     );
 }
 
-/// What the fill-forward carry does when it enters a new [`FL_CHUNK_SIZE`] chunk.
+/// How [`fill_forward_nulls`] fills the nulls at the start of each [`FL_CHUNK_SIZE`] chunk.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub(crate) enum ChunkBoundary {
     /// Restart from `T::default()`. Encodings whose values are chunk-local, such as RLE
     /// indices, must not see a value from the previous chunk.
     Reset,
-    /// Keep the last valid value. Delta encodes each chunk against its own bases, so a
-    /// carried value only keeps the first residual small.
-    Carry,
+    /// Fill the nulls before a chunk's first valid value with that value, and later nulls with
+    /// the last valid value. An all-null chunk keeps the last valid value of earlier chunks.
+    ///
+    /// Delta encodes each chunk against its own bases, so its leading nulls become bases. Taking
+    /// the chunk's first valid value keeps their residuals zero, whether the values continue
+    /// from the previous chunk or restart in every chunk, as RLE indices do.
+    Backfill,
 }
 
 /// Fill-forward null values in a buffer, replacing each null with the last valid value seen.
@@ -125,7 +138,7 @@ pub(crate) fn fill_forward_nulls<T: Copy + Default>(
                 .to_bit_buffer();
             let mut last_valid = T::default();
             let resets = boundary == ChunkBoundary::Reset;
-            match values.try_into_mut() {
+            let mut filled = match values.try_into_mut() {
                 Ok(mut to_fill_mut) => {
                     for (i, (v, is_valid)) in
                         to_fill_mut.iter_mut().zip(bit_buffer.iter()).enumerate()
@@ -139,7 +152,7 @@ pub(crate) fn fill_forward_nulls<T: Copy + Default>(
                             *v = last_valid;
                         }
                     }
-                    Ok(to_fill_mut.freeze())
+                    to_fill_mut
                 }
                 Err(to_fill) => {
                     let mut to_fill_mut = BufferMut::<T>::with_capacity(to_fill.len());
@@ -161,9 +174,28 @@ pub(crate) fn fill_forward_nulls<T: Copy + Default>(
                         out.write(last_valid);
                     }
                     unsafe { to_fill_mut.set_len(to_fill.len()) };
-                    Ok(to_fill_mut.freeze())
+                    to_fill_mut
                 }
+            };
+            if boundary == ChunkBoundary::Backfill {
+                backfill_leading_nulls(&mut filled, &bit_buffer);
             }
+            Ok(filled.freeze())
+        }
+    }
+}
+
+/// Overwrites the nulls before each chunk's first valid value with that value.
+fn backfill_leading_nulls<T: Copy>(values: &mut [T], validity: &BitBuffer) {
+    for (chunk_idx, chunk) in values.chunks_mut(FL_CHUNK_SIZE).enumerate() {
+        let chunk_start = chunk_idx * FL_CHUNK_SIZE;
+        let first_valid = validity
+            .slice(chunk_start..chunk_start + chunk.len())
+            .set_indices()
+            .next();
+        if let Some(first_valid) = first_valid.filter(|&first_valid| first_valid > 0) {
+            let value = chunk[first_valid];
+            chunk[..first_valid].fill(value);
         }
     }
 }
@@ -188,13 +220,14 @@ mod test {
     /// Only one value is valid, the last of chunk 0. Chunk 1 is all null and must either
     /// restart from zero or repeat that value, and the shared-buffer copy path must agree.
     #[rstest]
-    #[case::reset_owned(ChunkBoundary::Reset, false, 0)]
-    #[case::reset_shared(ChunkBoundary::Reset, true, 0)]
-    #[case::carry_owned(ChunkBoundary::Carry, false, 42)]
-    #[case::carry_shared(ChunkBoundary::Carry, true, 42)]
+    #[case::reset_owned(ChunkBoundary::Reset, false, 0, 0)]
+    #[case::reset_shared(ChunkBoundary::Reset, true, 0, 0)]
+    #[case::backfill_owned(ChunkBoundary::Backfill, false, 42, 42)]
+    #[case::backfill_shared(ChunkBoundary::Backfill, true, 42, 42)]
     fn fill_forward_nulls_at_chunk_boundary(
         #[case] boundary: ChunkBoundary,
         #[case] shared: bool,
+        #[case] first_chunk_fill: u32,
         #[case] next_chunk_fill: u32,
     ) -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
@@ -210,8 +243,30 @@ mod test {
         let result = fill_forward_nulls(values, &validity, boundary, &mut ctx)?;
 
         let mut expected = BufferMut::zeroed(2 * FL_CHUNK_SIZE);
+        expected[..FL_CHUNK_SIZE].fill(first_chunk_fill);
         expected[FL_CHUNK_SIZE - 1] = 42;
         expected[FL_CHUNK_SIZE..].fill(next_chunk_fill);
+        assert_eq!(result, expected.freeze());
+        Ok(())
+    }
+
+    /// Leading nulls of a chunk take the chunk's first valid value rather than the previous
+    /// chunk's last, so values that restart every chunk (like RLE indices) keep small residuals.
+    #[test]
+    fn backfill_fills_leading_nulls_from_chunk() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let values = BufferMut::from_iter((0..2 * FL_CHUNK_SIZE as u32).map(|i| i % 1024)).freeze();
+        let mut validity_bits = BitBufferMut::new_set(2 * FL_CHUNK_SIZE);
+        for i in [FL_CHUNK_SIZE, FL_CHUNK_SIZE + 1, FL_CHUNK_SIZE + 5] {
+            validity_bits.unset(i);
+        }
+        let validity = Validity::from(validity_bits.freeze());
+        let result = fill_forward_nulls(values, &validity, ChunkBoundary::Backfill, &mut ctx)?;
+
+        let mut expected = BufferMut::from_iter((0..2 * FL_CHUNK_SIZE as u32).map(|i| i % 1024));
+        expected[FL_CHUNK_SIZE] = 2;
+        expected[FL_CHUNK_SIZE + 1] = 2;
+        expected[FL_CHUNK_SIZE + 5] = 4;
         assert_eq!(result, expected.freeze());
         Ok(())
     }

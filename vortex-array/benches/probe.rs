@@ -12,6 +12,7 @@ use mimalloc::MiMalloc;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
+use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::DictArray;
 use vortex_array::arrays::FixedSizeListArray;
@@ -19,16 +20,15 @@ use vortex_array::arrays::InterleaveArray;
 use vortex_array::arrays::ListArray;
 use vortex_array::arrays::ListViewArray;
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::arrays::ScalarFnArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::VarBinArray;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldNames;
 use vortex_array::dtype::Nullability;
 use vortex_array::optimizer::kernels::KernelSession;
-use vortex_array::scalar_fn::TypedScalarFnInstance;
-use vortex_array::scalar_fn::fns::binary::Binary;
-use vortex_array::scalar_fn::fns::operators::Operator;
+use vortex_array::scalar_fn::builtin::boolean::Boolean;
+use vortex_array::scalar_fn::builtin::operators::BooleanOperator;
+use vortex_array::test_harness::mark_optimized;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_error::VortexExpect;
@@ -140,21 +140,17 @@ fn nullable_interleave() -> ArrayRef {
     .into_array()
 }
 
-fn scalar_fn(nested: bool) -> ArrayRef {
-    let add = TypedScalarFnInstance::new(Binary, Operator::Add).erased();
-    let lhs = nullable_primitive(LEN);
-    let rhs = ConstantArray::new(3i64, LEN).into_array();
-    let added = ScalarFnArray::try_new(add, vec![lhs, rhs])
-        .vortex_expect("scalar function add fixture")
-        .into_array();
-    if !nested {
-        return added;
-    }
-
-    let mul = TypedScalarFnInstance::new(Binary, Operator::Mul).erased();
-    ScalarFnArray::try_new(mul, vec![added, nullable_primitive(LEN)])
-        .vortex_expect("nested scalar function fixture")
+/// Kleene AND is not strict, so its validity is irreducible and reads through
+/// `ScalarFnValidity`.
+fn kleene_and_validity() -> ArrayRef {
+    let lhs = BoolArray::from_iter((0..LEN).map(|i| (i % 7 != 0).then_some(i % 2 == 0)));
+    let rhs = BoolArray::from_iter((0..LEN).map(|i| (i % 5 != 0).then_some(i % 3 == 0)));
+    Boolean::try_new(lhs.into_array(), rhs.into_array(), BooleanOperator::And)
+        .vortex_expect("Kleene AND fixture")
         .into_array()
+        .validity()
+        .vortex_expect("scalar function validity")
+        .to_array(LEN)
 }
 
 fn indices() -> Vec<usize> {
@@ -171,6 +167,7 @@ const ARRAYS: &[&str] = &[
     "primitive",
     "dict",
     "struct",
+    "bool",
     "varbin",
     "list",
     "listview",
@@ -185,13 +182,13 @@ fn array(name: &str) -> ArrayRef {
         "list" => nullable_list(),
         "listview" => nullable_listview(),
         "fixed_size_list" => nullable_fixed_size_list(),
-        "scalar_fn_validity" => scalar_fn(false)
-            .validity()
-            .vortex_expect("scalar function validity")
-            .to_array(LEN),
+        "scalar_fn_validity" => kleene_and_validity(),
         "interleave" => nullable_interleave(),
         "dict" => dict_over_nullable_values(),
         "struct" => nullable_struct(),
+        "bool" => {
+            BoolArray::from_iter((0..LEN).map(|i| (i % 7 != 0).then_some(i % 2 == 0))).into_array()
+        }
         "varbin" => VarBinArray::from_iter(
             [Some("short"), None, Some("longer varbin string")]
                 .into_iter()
@@ -207,6 +204,7 @@ fn array(name: &str) -> ArrayRef {
 #[divan::bench(args = ARRAYS)]
 fn once(bencher: Bencher, name: &str) {
     let array = array(name);
+    mark_optimized(&array, &SESSION).vortex_expect("optimize the benchmark input");
     let indices = indices();
     bencher
         .with_inputs(|| SESSION.create_execution_ctx())
@@ -224,6 +222,7 @@ fn once(bencher: Bencher, name: &str) {
 #[divan::bench(args = ARRAYS)]
 fn repeated(bencher: Bencher, name: &str) {
     let array = array(name);
+    mark_optimized(&array, &SESSION).vortex_expect("optimize the benchmark input");
     let indices = indices();
     bencher
         .with_inputs(|| (SESSION.create_execution_ctx(), array.repeated_probe()))

@@ -15,12 +15,15 @@ use vortex_array::aggregate_fn::session::AggregateFnSession;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::runend::RunEnd;
+use vortex_array::arrays::runend::compress::bool_run_count;
 use vortex_array::arrays::runend::compress::runend_encode;
 use vortex_array::dtype::IntegerPType;
 use vortex_array::memory::MemorySession;
 use vortex_array::optimizer::kernels::KernelSession;
 use vortex_array::session::ArraySession;
+use vortex_array::test_harness::mark_optimized;
 use vortex_array::validity::Validity;
+use vortex_buffer::BitBuffer;
 use vortex_buffer::Buffer;
 use vortex_session::VortexSession;
 
@@ -46,19 +49,29 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
 // (length, run_step). The (4_000, 1024) point is left out: it flipped by 20% between runs of
 // identical code on more than 40 pull requests, and (10_000, 1024) and (10_000, 4096) keep long
 // runs covered.
-const BENCH_ARGS: &[(usize, usize)] = &[
-    (1000, 4),
-    (1000, 16),
-    (1000, 256),
-    (4_000, 4),
-    (4_000, 16),
-    (4_000, 256),
-    (10_000, 4),
-    (10_000, 16),
-    (10_000, 256),
-    (10_000, 1024),
-    (10_000, 4096),
-];
+const BENCH_ARGS: &[(usize, usize)] = if cfg!(codspeed) {
+    &[
+        (10_000, 4),
+        (10_000, 16),
+        (10_000, 256),
+        (10_000, 1024),
+        (10_000, 4096),
+    ]
+} else {
+    &[
+        (1000, 4),
+        (1000, 16),
+        (1000, 256),
+        (4_000, 4),
+        (4_000, 16),
+        (4_000, 256),
+        (10_000, 4),
+        (10_000, 16),
+        (10_000, 256),
+        (10_000, 1024),
+        (10_000, 4096),
+    ]
+};
 
 #[divan::bench(args = BENCH_ARGS)]
 fn compress(bencher: Bencher, (length, run_step): (usize, usize)) {
@@ -69,10 +82,24 @@ fn compress(bencher: Bencher, (length, run_step): (usize, usize)) {
             .collect::<Buffer<_>>(),
         Validity::NonNullable,
     );
+    mark_optimized(values.as_array(), &SESSION).unwrap();
 
     bencher
         .with_inputs(|| (&values, SESSION.create_execution_ctx()))
         .bench_refs(|(values, ctx)| runend_encode(values.as_view(), ctx));
+}
+
+/// Counts the runs of a bitmap that starts mid-byte, as a sliced boolean array does.
+#[divan::bench(args = BENCH_ARGS)]
+fn count_bool_runs(bencher: Bencher, (length, run_step): (usize, usize)) {
+    const OFFSET: usize = 3;
+
+    let bits = BitBuffer::from_iter((0..length + OFFSET).map(|idx| (idx / run_step) % 2 == 0))
+        .slice(OFFSET..);
+
+    bencher
+        .with_inputs(|| &bits)
+        .bench_refs(|bits| bool_run_count(bits));
 }
 
 #[divan::bench(types = [u8, u16, u32, u64], args = BENCH_ARGS)]
@@ -90,6 +117,7 @@ fn decompress<T: IntegerPType>(bencher: Bencher, (length, run_step): (usize, usi
 
     let run_end_array = RunEnd::new(ends, values, &mut SESSION.create_execution_ctx());
     let array = run_end_array.into_array();
+    mark_optimized(&array, &SESSION).unwrap();
 
     bencher
         .with_inputs(|| (array.clone(), SESSION.create_execution_ctx()))
@@ -117,6 +145,8 @@ fn take_indices(bencher: Bencher, (length, run_step): (usize, usize)) {
     let runend_array = RunEnd::try_new(ends.into_array(), values, &mut encode_ctx)
         .unwrap()
         .into_array();
+    mark_optimized(&source_array, &SESSION).unwrap();
+    mark_optimized(&runend_array, &SESSION).unwrap();
 
     bencher
         .with_inputs(|| (&source_array, &runend_array, SESSION.create_execution_ctx()))
@@ -142,6 +172,7 @@ fn decompress_utf8(bencher: Bencher, (length, run_step): (usize, usize)) {
 
     let run_end_array = RunEnd::new(ends, values, &mut SESSION.create_execution_ctx());
     let array = run_end_array.into_array();
+    mark_optimized(&array, &SESSION).unwrap();
 
     bencher
         .with_inputs(|| (array.clone(), SESSION.create_execution_ctx()))

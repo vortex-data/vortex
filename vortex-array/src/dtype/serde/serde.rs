@@ -34,6 +34,20 @@ use crate::dtype::extension::ExtId;
 use crate::dtype::extension::ForeignExtDType;
 use crate::dtype::session::DTypeSessionExt;
 
+impl<'de> Deserialize<'de> for DecimalDType {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(rename = "DecimalDType")]
+        struct Fields {
+            precision: u8,
+            scale: i8,
+        }
+
+        let fields = Fields::deserialize(deserializer)?;
+        Self::try_new(fields.precision, fields.scale).map_err(de::Error::custom)
+    }
+}
+
 /// Serialize Nullability as a boolean
 impl Serialize for Nullability {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>

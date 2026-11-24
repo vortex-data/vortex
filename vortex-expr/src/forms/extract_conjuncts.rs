@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_array::expr::Expression;
-use vortex_array::scalar_fn::fns::binary::Binary;
-use vortex_array::scalar_fn::fns::operators::Operator;
+use vortex_array::scalar_fn::builtin::boolean::Boolean;
+use vortex_array::scalar_fn::builtin::operators::BooleanOperator;
+
+use crate::Expression;
 
 /// Converting an expression to a conjunctive normal form can lead to a large number of expression
 /// nodes.
@@ -19,8 +20,8 @@ pub fn conjuncts(expr: &Expression) -> Vec<Expression> {
 }
 
 fn conjuncts_impl(expr: &Expression, conjuncts: &mut Vec<Expression>) {
-    if let Some(operator) = expr.as_opt::<Binary>()
-        && *operator == Operator::And
+    if let Some(operator) = expr.as_opt::<Boolean>()
+        && *operator == BooleanOperator::And
     {
         conjuncts_impl(expr.child(0), conjuncts);
         conjuncts_impl(expr.child(1), conjuncts);

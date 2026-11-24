@@ -146,17 +146,33 @@ impl Default for QueryState {
 }
 
 impl QueryState {
+    fn prev_char_boundary(&self) -> Option<usize> {
+        let pos = self.cursor_position.min(self.sql_input.len());
+        self.sql_input[..pos]
+            .char_indices()
+            .next_back()
+            .map(|(idx, _)| idx)
+    }
+
+    fn next_char_boundary(&self) -> Option<usize> {
+        let pos = self.cursor_position.min(self.sql_input.len());
+        self.sql_input[pos..]
+            .chars()
+            .next()
+            .map(|c| pos + c.len_utf8())
+    }
+
     /// Insert a character at the cursor position.
     pub fn insert_char(&mut self, c: char) {
         self.sql_input.insert(self.cursor_position, c);
-        self.cursor_position += 1;
+        self.cursor_position += c.len_utf8();
     }
 
     /// Delete the character before the cursor.
     pub fn delete_char(&mut self) {
-        if self.cursor_position > 0 {
-            self.cursor_position -= 1;
-            self.sql_input.remove(self.cursor_position);
+        if let Some(prev) = self.prev_char_boundary() {
+            self.cursor_position = prev;
+            self.sql_input.remove(prev);
         }
     }
 
@@ -169,13 +185,15 @@ impl QueryState {
 
     /// Move cursor left.
     pub fn move_cursor_left(&mut self) {
-        self.cursor_position = self.cursor_position.saturating_sub(1);
+        if let Some(prev) = self.prev_char_boundary() {
+            self.cursor_position = prev;
+        }
     }
 
     /// Move cursor right.
     pub fn move_cursor_right(&mut self) {
-        if self.cursor_position < self.sql_input.len() {
-            self.cursor_position += 1;
+        if let Some(next) = self.next_char_boundary() {
+            self.cursor_position = next;
         }
     }
 
@@ -238,7 +256,7 @@ impl QueryState {
     /// Get total number of pages.
     pub fn total_pages(&self) -> usize {
         match self.total_row_count {
-            Some(total) if total > 0 => total.div_ceil(self.page_size),
+            Some(total) if total > 0 && self.page_size > 0 => total.div_ceil(self.page_size),
             _ => 1,
         }
     }
@@ -324,7 +342,7 @@ impl QueryState {
     /// Parse SQL to extract base query, ORDER BY clause, and LIMIT value.
     fn parse_sql_parts(&self) -> (String, Option<String>, Option<usize>) {
         let sql = &self.sql_input;
-        let sql_upper = sql.to_uppercase();
+        let sql_upper = sql.to_ascii_uppercase();
 
         // Find positions of clauses
         let order_idx = sql_upper.find(" ORDER BY ");
@@ -697,6 +715,139 @@ fn truncate_str(s: &str, max_len: usize) -> &str {
     if s.len() <= max_len {
         s
     } else {
-        &s[..max_len.saturating_sub(3)]
+        &s[..s.floor_char_boundary(max_len.saturating_sub(3))]
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn assert_cursor_valid(state: &QueryState, expected_sql: &str, expected_pos: usize) {
+        assert_eq!(state.sql_input, expected_sql);
+        assert_eq!(state.cursor_position, expected_pos);
+        assert!(
+            state.sql_input.is_char_boundary(state.cursor_position),
+            "cursor {} is not on a UTF-8 char boundary in {:?}",
+            state.cursor_position,
+            state.sql_input
+        );
+    }
+
+    #[test]
+    fn sql_cursor_handles_ascii_accented_wide_and_combining_chars() {
+        let mut state = QueryState::default();
+        state.clear_input();
+        assert_cursor_valid(&state, "", 0);
+
+        // ASCII, 2-byte accented ('é'), 3-byte wide CJK ('中'), 4-byte emoji ('🦀'),
+        // and combining mark sequence ('e' + U+0301).
+        for (ch, expected_sql, expected_pos) in [
+            ('a', "a", 1),
+            ('é', "aé", 3),
+            ('中', "aé中", 6),
+            ('🦀', "aé中🦀", 10),
+            ('e', "aé中🦀e", 11),
+            ('\u{0301}', "aé中🦀e\u{0301}", 13),
+        ] {
+            state.insert_char(ch);
+            assert_cursor_valid(&state, expected_sql, expected_pos);
+        }
+
+        // Walk left across each character boundary.
+        for expected_pos in [11, 10, 6, 3, 1, 0, 0] {
+            state.move_cursor_left();
+            assert_cursor_valid(&state, "aé中🦀e\u{0301}", expected_pos);
+        }
+
+        // Walk right across each character boundary.
+        for expected_pos in [1, 3, 6, 10, 11, 13, 13] {
+            state.move_cursor_right();
+            assert_cursor_valid(&state, "aé中🦀e\u{0301}", expected_pos);
+        }
+
+        // Home and End preserve byte boundaries.
+        state.move_cursor_start();
+        assert_cursor_valid(&state, "aé中🦀e\u{0301}", 0);
+        state.move_cursor_end();
+        assert_cursor_valid(&state, "aé中🦀e\u{0301}", 13);
+
+        // Insert in the middle after moving left across multi-byte characters.
+        state.move_cursor_left(); // before U+0301 (byte 11)
+        state.move_cursor_left(); // before 'e' (byte 10)
+        state.move_cursor_left(); // before '🦀' (byte 6)
+        state.insert_char('λ');
+        assert_cursor_valid(&state, "aé中λ🦀e\u{0301}", 8);
+
+        // Forward delete removes '🦀' (4 bytes) while keeping cursor at byte 8.
+        state.delete_char_forward();
+        assert_cursor_valid(&state, "aé中λe\u{0301}", 8);
+
+        // Backspace removes 'λ' (2 bytes), then '中' (3 bytes), then 'é' (2 bytes).
+        state.delete_char();
+        assert_cursor_valid(&state, "aé中e\u{0301}", 6);
+        state.delete_char();
+        assert_cursor_valid(&state, "aée\u{0301}", 3);
+        state.delete_char();
+        assert_cursor_valid(&state, "ae\u{0301}", 1);
+
+        // Clear resets text and cursor.
+        state.clear_input();
+        assert_cursor_valid(&state, "", 0);
+    }
+
+    #[test]
+    fn truncate_str_stays_on_utf8_char_boundary() {
+        let cell = format!("{}éabcd", "a".repeat(26));
+        assert_eq!(cell.len(), 32);
+        assert_eq!(truncate_str(&cell, 30), "a".repeat(26));
+
+        assert_eq!(truncate_str("🦀🦀", 4), "");
+        assert_eq!(truncate_str("é", 2), "é");
+    }
+
+    #[test]
+    fn parse_sql_parts_preserves_utf8_offsets() {
+        let mut state = QueryState {
+            sql_input: "SELECT * FROM data WHERE name = 'ı' LIMIT 10".to_string(),
+            ..Default::default()
+        };
+        assert_eq!(
+            state.parse_sql_parts(),
+            (
+                "SELECT * FROM data WHERE name = 'ı'".to_string(),
+                None,
+                Some(10),
+            )
+        );
+
+        state.sql_input = "SELECT 'ı', é ORDER BY id LIMIT 5 OFFSET 2".to_string();
+        assert_eq!(
+            state.parse_sql_parts(),
+            (
+                "SELECT 'ı', é".to_string(),
+                Some("ORDER BY id".to_string()),
+                Some(5),
+            )
+        );
+    }
+
+    #[test]
+    fn limit_zero_pagination_does_not_panic() {
+        let mut state = QueryState {
+            sql_input: "SELECT * FROM data LIMIT 0".to_string(),
+            ..Default::default()
+        };
+        state.prepare_initial_query();
+        assert_eq!(state.page_size, 0);
+        assert_eq!(state.sql_input, "SELECT * FROM data LIMIT 0 OFFSET 0");
+
+        state.total_row_count = Some(19);
+        assert_eq!(state.total_pages(), 1);
+
+        state.pending_execution = false;
+        state.prepare_next_page();
+        assert_eq!(state.current_page, 0);
+        assert!(!state.pending_execution);
     }
 }

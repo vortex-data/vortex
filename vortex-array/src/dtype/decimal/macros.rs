@@ -24,7 +24,9 @@
 /// assert_eq!(width, 16);
 /// ```
 ///
-/// Logical precision and scale do not determine an existing buffer's physical width:
+/// A canonical array gets its storage type from
+/// [`DecimalDType::canonical_values_type`](crate::dtype::DecimalDType::canonical_values_type).
+/// A serialized decimal node records its own storage type.
 ///
 /// ```compile_fail
 /// use vortex_array::dtype::DecimalDType;

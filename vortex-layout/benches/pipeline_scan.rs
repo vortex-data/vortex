@@ -23,7 +23,7 @@ use vortex_buffer::Alignment;
 use vortex_buffer::ByteBufferMut;
 use vortex_layout::plan::physical::PackPlan;
 use vortex_layout::plan::physical::PlanRef;
-use vortex_layout::plan::physical::SegmentScanPlan;
+use vortex_layout::plan::physical::SegmentScan;
 use vortex_layout::plan::physical::pipeline::Scan;
 use vortex_layout::plan::physical::pipeline::Split;
 use vortex_layout::plan::physical::pipeline::Turn;
@@ -76,7 +76,7 @@ impl Fixture {
         );
         let children = (0..columns)
             .map(|index| {
-                SegmentScanPlan::new(
+                SegmentScan::new_plan(
                     array.dtype().clone(),
                     ROWS,
                     SegmentId::from(index),

@@ -14,7 +14,6 @@ use vortex::array::VortexSessionExecute as _;
 use vortex::array::arrays::Chunked;
 use vortex::array::arrays::chunked::ChunkedArrayExt as _;
 use vortex::array::arrays::struct_::StructArrayExt as _;
-use vortex::array::scalar_fn::fns::dynamic::DynamicExprUpdates;
 use vortex::dtype::FieldPath;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
@@ -25,6 +24,7 @@ use vortex::file::multi::MultiFileSession;
 use vortex::file::multi::open_cached;
 use vortex::file::multi::parse_uri_or_path;
 use vortex::file::v2::FileStatsLayoutReader;
+use vortex::functions::dynamic::DynamicExprUpdates;
 use vortex::io::compat::Compat;
 use vortex::io::filesystem::FileSystemRef;
 use vortex::io::object_store::ObjectStoreFileSystem;
@@ -160,7 +160,7 @@ impl OpenFileReader {
             .vortex_expect("file used after its scan state was released")
     }
 
-    fn reader(&self) -> &LayoutReaderRef {
+    pub(crate) fn reader(&self) -> &LayoutReaderRef {
         &self.scan_state().reader
     }
 

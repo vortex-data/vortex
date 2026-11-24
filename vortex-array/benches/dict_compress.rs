@@ -17,10 +17,12 @@ use vortex_array::arrays::VarBinArray;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::dict_test::gen_primitive_for_dict;
 use vortex_array::arrays::dict_test::gen_varbin_words;
+use vortex_array::arrays::dict_test::gen_varbin_words_of_len;
 use vortex_array::builders::dict::dict_encode;
 use vortex_array::dtype::NativePType;
 use vortex_array::memory::MemorySession;
 use vortex_array::optimizer::kernels::KernelSession;
+use vortex_array::test_harness::mark_optimized;
 use vortex_session::VortexSession;
 
 #[global_allocator]
@@ -31,22 +33,35 @@ fn main() {
     divan::main();
 }
 
-const BENCH_ARGS: &[(usize, usize)] = &[
-    // length, unique_values
-    // Lengths sized to keep CodSpeed simulation under 1ms per benchmark.
-    (1_000, 2),
-    (1_000, 4),
-    (1_000, 8),
-    (1_000, 32),
-    (1_000, 512),
-    (2_000, 2),
-    (2_000, 4),
-    (2_000, 8),
-    (2_000, 32),
-    (2_000, 512),
-];
+// Lengths sized to keep CodSpeed simulation under 1ms per benchmark.
+const BENCH_ARGS: &[(usize, usize)] = if cfg!(codspeed) {
+    &[
+        // length, unique_values
+        (2_000, 2),
+        (2_000, 32),
+        (2_000, 512),
+    ]
+} else {
+    &[
+        // length, unique_values
+        (1_000, 2),
+        (1_000, 4),
+        (1_000, 8),
+        (1_000, 32),
+        (1_000, 512),
+        (2_000, 2),
+        (2_000, 4),
+        (2_000, 8),
+        (2_000, 32),
+        (2_000, 512),
+    ]
+};
 
-const DECODE_BENCH_ARGS: &[(usize, usize)] = &[(1_000, 2), (1_000, 512), (2_000, 2), (2_000, 512)];
+const DECODE_BENCH_ARGS: &[(usize, usize)] = if cfg!(codspeed) {
+    &[(2_000, 2), (2_000, 512)]
+} else {
+    &[(1_000, 2), (1_000, 512), (2_000, 2), (2_000, 512)]
+};
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     VortexSession::empty()
@@ -62,6 +77,7 @@ where
     StandardUniform: Distribution<T>,
 {
     let primitive_arr = gen_primitive_for_dict::<T>(len, unique_values).into_array();
+    mark_optimized(&primitive_arr, &SESSION).unwrap();
 
     bencher
         .with_inputs(|| (&primitive_arr, SESSION.create_execution_ctx()))
@@ -71,6 +87,7 @@ where
 #[divan::bench(args = BENCH_ARGS)]
 fn encode_varbin(bencher: Bencher, (len, unique_values): (usize, usize)) {
     let varbin_arr = VarBinArray::from(gen_varbin_words(len, unique_values)).into_array();
+    mark_optimized(&varbin_arr, &SESSION).unwrap();
 
     bencher
         .with_inputs(|| (&varbin_arr, SESSION.create_execution_ctx()))
@@ -81,9 +98,33 @@ fn encode_varbin(bencher: Bencher, (len, unique_values): (usize, usize)) {
 fn encode_varbinview(bencher: Bencher, (len, unique_values): (usize, usize)) {
     let varbinview_arr =
         VarBinViewArray::from_iter_str(gen_varbin_words(len, unique_values)).into_array();
+    mark_optimized(&varbinview_arr, &SESSION).unwrap();
 
     bencher
         .with_inputs(|| (&varbinview_arr, SESSION.create_execution_ctx()))
+        .bench_refs(|(arr, ctx)| dict_encode(arr, ctx));
+}
+
+/// Words short enough to be held inline in their view, the common shape for the low-cardinality
+/// string columns that dictionary encoding targets.
+#[divan::bench(args = BENCH_ARGS)]
+fn encode_varbinview_inlined(bencher: Bencher, (len, unique_values): (usize, usize)) {
+    let varbinview_arr =
+        VarBinViewArray::from_iter_str(gen_varbin_words_of_len(len, unique_values, 8)).into_array();
+    mark_optimized(&varbinview_arr, &SESSION).unwrap();
+
+    bencher
+        .with_inputs(|| (&varbinview_arr, SESSION.create_execution_ctx()))
+        .bench_refs(|(arr, ctx)| dict_encode(arr, ctx));
+}
+
+#[divan::bench(args = BENCH_ARGS)]
+fn encode_varbin_inlined(bencher: Bencher, (len, unique_values): (usize, usize)) {
+    let varbin_arr = VarBinArray::from(gen_varbin_words_of_len(len, unique_values, 8)).into_array();
+    mark_optimized(&varbin_arr, &SESSION).unwrap();
+
+    bencher
+        .with_inputs(|| (&varbin_arr, SESSION.create_execution_ctx()))
         .bench_refs(|(arr, ctx)| dict_encode(arr, ctx));
 }
 
@@ -97,6 +138,7 @@ where
     let dict = dict_encode(&primitive_arr, &mut SESSION.create_execution_ctx())
         .unwrap()
         .into_array();
+    mark_optimized(&dict, &SESSION).unwrap();
 
     bencher
         .with_inputs(|| (&dict, SESSION.create_execution_ctx()))
@@ -109,6 +151,7 @@ fn decode_varbin(bencher: Bencher, (len, unique_values): (usize, usize)) {
     let dict = dict_encode(&varbin_arr, &mut SESSION.create_execution_ctx())
         .unwrap()
         .into_array();
+    mark_optimized(&dict, &SESSION).unwrap();
 
     bencher
         .with_inputs(|| (&dict, SESSION.create_execution_ctx()))
@@ -122,6 +165,7 @@ fn decode_varbinview(bencher: Bencher, (len, unique_values): (usize, usize)) {
     let dict = dict_encode(&varbinview_arr, &mut SESSION.create_execution_ctx())
         .unwrap()
         .into_array();
+    mark_optimized(&dict, &SESSION).unwrap();
 
     bencher
         .with_inputs(|| (&dict, SESSION.create_execution_ctx()))

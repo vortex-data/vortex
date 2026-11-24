@@ -5,7 +5,6 @@ use std::hash::Hash;
 use std::hash::Hasher;
 
 use num_traits::AsPrimitive;
-use prost::Message;
 use vortex_array::Array;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
@@ -24,7 +23,6 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability::NonNullable;
 use vortex_array::dtype::PType;
 use vortex_array::match_each_unsigned_integer_ptype;
-use vortex_array::serde::ArrayChildren;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::VTable;
 use vortex_buffer::BitBuffer;
@@ -32,12 +30,12 @@ use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_panic;
-use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
 use super::array::UnaryData;
 
 mod operations;
+mod plugin;
 mod validity;
 
 /// A [`Unary`]-encoded Vortex array.
@@ -129,46 +127,6 @@ impl VTable for Unary {
             self.clone(),
             array.dtype().clone(),
             array.len(),
-            data,
-            ArraySlots::new(),
-        ))
-    }
-
-    fn serialize(
-        array: ArrayView<'_, Self>,
-        _session: &VortexSession,
-    ) -> VortexResult<Option<Vec<u8>>> {
-        Ok(Some(
-            UnaryMetadata {
-                num_ones: num_ones_of(array)?,
-                offset: u32::try_from(array.meta.offset())?,
-            }
-            .encode_to_vec(),
-        ))
-    }
-
-    fn deserialize(
-        &self,
-        dtype: &DType,
-        len: usize,
-        metadata: &[u8],
-        buffers: &[BufferHandle],
-        children: &dyn ArrayChildren,
-        _session: &VortexSession,
-    ) -> VortexResult<ArrayParts<Self>> {
-        vortex_ensure_eq!(buffers.len(), 1);
-        vortex_ensure_eq!(children.len(), 0);
-        let metadata = UnaryMetadata::decode(metadata)?;
-        let data = UnaryData::from_buffer(
-            buffers[0].clone(),
-            metadata.num_ones,
-            usize::try_from(metadata.offset)?,
-            len,
-        )?;
-        Ok(ArrayParts::new(
-            self.clone(),
-            dtype.clone(),
-            len,
             data,
             ArraySlots::new(),
         ))

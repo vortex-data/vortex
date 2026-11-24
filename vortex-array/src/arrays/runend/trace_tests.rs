@@ -3,6 +3,8 @@
 
 //! Snapshot tests tracing how reductions and executions flow through run-end arrays.
 
+use std::sync::LazyLock;
+
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
@@ -20,10 +22,12 @@ use crate::arrays::runend::RunEnd;
 use crate::assert_arrays_eq;
 use crate::optimizer::ArrayOptimizer;
 use crate::scalar::Scalar;
-use crate::scalar_fn::fns::binary::Binary;
-use crate::scalar_fn::fns::operators::Operator;
+use crate::scalar_fn::builtin::compare::Compare;
+use crate::scalar_fn::builtin::operators::CompareOperator;
 use crate::session::ArraySession;
 use crate::test_harness::trace::trace_op;
+
+static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
 fn execution_ctx() -> ExecutionCtx {
     ExecutionCtx::new(VortexSession::empty().with::<ArraySession>())
@@ -42,12 +46,12 @@ fn runend_array() -> VortexResult<ArrayRef> {
 fn trace_compare_on_runend() -> VortexResult<()> {
     let runend = runend_array()?;
     let rhs = ConstantArray::new(Scalar::from(2i32), runend.len()).into_array();
-    let compared = Binary::try_new(runend, rhs, Operator::Eq)?.into_array();
+    let compared = Compare::try_new(runend, rhs, CompareOperator::Eq)?.into_array();
 
-    let traced = trace_op(|| compared.optimize())?;
+    let traced = trace_op(|| compared.optimize_ctx(&SESSION))?;
     insta::assert_snapshot!(traced.trace.to_string(), @"
-    optimize root=vortex.binary(bool, len=9) session=false
-      reduce_parent static:RunEndScalarFnRule slot=0 parent=vortex.binary(bool, len=9) child=vortex.runend(i32, len=9) -> vortex.runend(bool, len=9)
+    optimize root=vortex.compare(bool, len=9)
+      reduce_parent session[0]:RunEndScalarFnRule slot=0 parent=vortex.compare(bool, len=9) child=vortex.runend(i32, len=9) -> vortex.runend(bool, len=9)
       done output=vortex.runend(bool, len=9)
     ");
 
@@ -66,8 +70,8 @@ fn trace_compare_on_runend() -> VortexResult<()> {
     insta::assert_snapshot!(traced.trace.to_string(), @"
     execute_until target=AnyCanonical root=vortex.runend(bool, len=9)
       iter 0 current=vortex.runend(bool, len=9) builder_active=false
-        ExecuteSlot slot=1 parent=vortex.runend(bool, len=9) child=vortex.binary(bool, len=3)
-      iter 1 current=vortex.binary(bool, len=3) stack_parent=vortex.runend(bool, len=9) slot=1 builder_active=false
+        ExecuteSlot slot=1 parent=vortex.runend(bool, len=9) child=vortex.compare(bool, len=3)
+      iter 1 current=vortex.compare(bool, len=3) stack_parent=vortex.runend(bool, len=9) slot=1 builder_active=false
         Done array=vortex.bool(bool, len=3)
       iter 2 current=vortex.bool(bool, len=3) stack_parent=vortex.runend(bool, len=9) slot=1 builder_active=false
         pop_frame slot=1 output=vortex.runend(bool, len=9)
