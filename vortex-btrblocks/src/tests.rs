@@ -401,8 +401,6 @@ fn test_cuda_binary_zstd_follows_editions(
     Ok(())
 }
 
-static BITPACKING_V1: BitPackingScheme = BitPackingScheme::v1();
-
 /// A scheme that stores its input's validity compresses it before encoding.
 #[test]
 fn test_bitpacking_compresses_its_validity() -> VortexResult<()> {
@@ -411,7 +409,7 @@ fn test_bitpacking_compresses_its_validity() -> VortexResult<()> {
     )
     .into_array();
     let compressor = BtrBlocksCompressorBuilder::empty()
-        .with_new_scheme(&BITPACKING_V1)
+        .with_new_scheme(&BitPackingScheme)
         .with_new_scheme(&BoolRunEndScheme)
         .build();
     let compressed = assert_roundtrip(&compressor, &input)?;

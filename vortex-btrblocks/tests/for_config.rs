@@ -27,14 +27,12 @@ use vortex_edition::EditionSession;
 use vortex_edition::EditionSessionExt;
 use vortex_edition::declarations::core::CORE_2026_08_3;
 use vortex_error::VortexResult;
-use vortex_fastlanes::bitpacked_v2_id;
 use vortex_fastlanes::for_v1_id;
 use vortex_fastlanes::for_v2_id;
 use vortex_session::VortexSession;
 use vortex_session::registry::ReadContext;
 
 static FOR_V1: FoRScheme = FoRScheme::v1();
-static BITPACKING: BitPackingScheme = BitPackingScheme::v1();
 
 /// Registers the fastlanes encodings, and enables no editions.
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
@@ -80,12 +78,6 @@ fn clustered() -> ArrayRef {
     PrimitiveArray::from_iter((0..8192u32).map(|i| 1_000_000 + i % 100)).into_array()
 }
 
-/// Values whose range doubles every chunk from the same base, so the child needs a different bit
-/// width in each block.
-fn widening() -> ArrayRef {
-    PrimitiveArray::from_iter((0..8192u32).map(|i| 1_000_000 + i % (4 << (i / 1024)))).into_array()
-}
-
 /// Compresses `array`, round trips it through serialization, and returns the serialized IDs.
 fn compress_roundtrip(
     builder: BtrBlocksCompressorBuilder,
@@ -114,7 +106,7 @@ fn compress_roundtrip(
 fn for_only() -> BtrBlocksCompressorBuilder {
     BtrBlocksCompressorBuilder::empty()
         .with_new_scheme(&FOR_V1)
-        .with_new_scheme(&BITPACKING)
+        .with_new_scheme(&BitPackingScheme)
 }
 
 #[rstest]
@@ -172,19 +164,5 @@ fn cuda_preset_keeps_single_reference() -> VortexResult<()> {
     let ids = compress_roundtrip(for_only().only_cuda_compatible(), &drifting())?;
     assert!(ids.contains(&for_v1_id()));
     assert!(!ids.contains(&for_v2_id()));
-    Ok(())
-}
-
-/// FoR bit-packs its child with per-block widths exactly when `fastlanes.bitpacked.v2` is allowed.
-#[rstest]
-#[case::all_allowed(for_only(), true)]
-#[case::cuda(for_only().only_cuda_compatible(), false)]
-fn child_widths_follow_bitpacked_v2(
-    #[case] builder: BtrBlocksCompressorBuilder,
-    #[case] expect_v2: bool,
-) -> VortexResult<()> {
-    let ids = compress_roundtrip(builder, &widening())?;
-    assert!(ids.contains(&for_v1_id()));
-    assert_eq!(ids.contains(&bitpacked_v2_id()), expect_v2);
     Ok(())
 }

@@ -16,7 +16,6 @@ use vortex_array::EqMode;
 use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
-use vortex_array::arrays::Primitive;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::builders::ArrayBuilder;
 use vortex_array::dtype::DType;
@@ -24,7 +23,6 @@ use vortex_array::dtype::PType;
 use vortex_array::match_each_integer_ptype;
 use vortex_array::patches::Patches;
 use vortex_array::patches::PatchesData;
-use vortex_array::require_opt_child;
 use vortex_array::require_patches;
 use vortex_array::require_validity;
 use vortex_array::validity::Validity;
@@ -33,27 +31,19 @@ use vortex_array::vtable::child_to_validity;
 use vortex_array::vtable::validity_to_child;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
+use vortex_session::registry::CachedId;
 
 use crate::BitPackedArrayExt;
-use crate::BitPackedArraySlotsExt;
 use crate::BitPackedData;
 use crate::BitPackedDataParts;
-use crate::BitWidths;
-use crate::BitWidthsView;
-use crate::FL_CHUNK_SIZE;
 use crate::bitpack_decompress::unpack_array;
-use crate::bitpack_decompress::unpack_array_blocked;
 use crate::bitpack_decompress::unpack_into_primitive_builder;
-use crate::bitpack_decompress::unpack_into_primitive_builder_blocked;
-use crate::bitpacked_v2_id;
 use crate::bitpacking::array::BitPackedSlots;
 use crate::bitpacking::array::BitPackedSlotsView;
 use crate::bitpacking::array::PATCH_SLOTS;
-use crate::bitpacking::array::validate_block_offsets;
 mod kernels;
 mod operations;
 mod rules;
@@ -70,7 +60,7 @@ pub(crate) fn initialize(session: &VortexSession) {
 impl ArrayHash for BitPackedData {
     fn array_hash<H: Hasher>(&self, state: &mut H, accuracy: EqMode) {
         self.offset.hash(state);
-        self.global_bit_width.hash(state);
+        self.bit_width.hash(state);
         self.packed.array_hash(state, accuracy);
         self.patches_data.hash(state);
     }
@@ -79,7 +69,7 @@ impl ArrayHash for BitPackedData {
 impl ArrayEq for BitPackedData {
     fn array_eq(&self, other: &Self, accuracy: EqMode) -> bool {
         self.offset == other.offset
-            && self.global_bit_width == other.global_bit_width
+            && self.bit_width == other.bit_width
             && self.packed.array_eq(&other.packed, accuracy)
             && self.patches_data == other.patches_data
     }
@@ -92,7 +82,8 @@ impl VTable for BitPacked {
     type ValidityVTable = Self;
 
     fn id(&self) -> ArrayId {
-        bitpacked_v2_id()
+        static ID: CachedId = CachedId::new("fastlanes.bitpacked");
+        *ID
     }
 
     fn validate(
@@ -104,19 +95,6 @@ impl VTable for BitPacked {
     ) -> VortexResult<()> {
         vortex_ensure_eq!(slots.len(), BitPackedSlots::COUNT);
         let bp_slots = BitPackedSlotsView::from_slots(slots);
-        match (data.global_bit_width, bp_slots.block_offsets) {
-            (Some(_), None) => {}
-            (None, Some(block_offsets)) => validate_block_offsets(
-                block_offsets,
-                dtype.as_ptype(),
-                (len + data.offset as usize).div_ceil(FL_CHUNK_SIZE),
-                data.packed.len(),
-            )?,
-            _ => {
-                vortex_bail!("BitPacked needs exactly one of a global bit width and block offsets")
-            }
-        }
-
         let validity = child_to_validity(bp_slots.validity_child, dtype.nullability());
         let patches =
             PatchesData::patches_from_slots(data.patches_data.as_ref(), len, slots, PATCH_SLOTS);
@@ -125,7 +103,7 @@ impl VTable for BitPacked {
             dtype.as_ptype(),
             &validity,
             patches.as_ref(),
-            data.global_bit_width,
+            data.bit_width,
             len,
             data.offset,
         )
@@ -171,18 +149,12 @@ impl VTable for BitPacked {
         builder: &mut dyn ArrayBuilder,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
-        let bit_widths = array.bit_widths();
         match_each_integer_ptype!(array.dtype().as_ptype(), |T| {
             let builder = builder
                 .as_any_mut()
                 .downcast_mut()
                 .vortex_expect("bit packed array must canonicalize into a primitive array");
-            match bit_widths {
-                BitWidthsView::Global(_) => unpack_into_primitive_builder::<T>(array, builder, ctx),
-                BitWidthsView::Blocked(offsets) => {
-                    unpack_into_primitive_builder_blocked::<T>(array, offsets, builder, ctx)
-                }
-            }
+            unpack_into_primitive_builder::<T>(array, builder, ctx)
         })
     }
 
@@ -198,16 +170,8 @@ impl VTable for BitPacked {
             BitPackedSlots::PATCH_CHUNK_OFFSETS
         );
         require_validity!(array, BitPackedSlots::VALIDITY_CHILD);
-        require_opt_child!(
-            array,
-            array.block_offsets(),
-            BitPackedSlots::BLOCK_OFFSETS => Primitive
-        );
 
-        let decoded = match array.bit_widths() {
-            BitWidthsView::Global(_) => unpack_array(array.as_view(), ctx)?,
-            BitWidthsView::Blocked(offsets) => unpack_array_blocked(array.as_view(), offsets, ctx)?,
-        };
+        let decoded = unpack_array(array.as_view(), ctx)?;
         Ok(ExecutionResult::done(decoded.into_array()))
     }
 }
@@ -231,36 +195,9 @@ impl BitPacked {
             let mut s = ArraySlots::with_capacity(BitPackedSlots::COUNT);
             PatchesData::push_slots(&mut s, patches.as_ref());
             s.push(validity_to_child(&validity, len));
-            s.push(None);
             s
         };
         let data = BitPackedData::try_new(packed, patches, bit_width, offset)?;
-        Array::try_from_parts(ArrayParts::new(BitPacked, dtype, len, data, slots))
-    }
-
-    /// Construct a bit-packed array from packed data and explicit block byte boundaries.
-    ///
-    /// `block_offsets` must be non-nullable unsigned integers with one boundary per block and a
-    /// trailing end boundary. Each block's bit width is derived from the distance between its
-    /// boundaries.
-    pub fn try_new_with_block_offsets(
-        packed: BufferHandle,
-        ptype: PType,
-        validity: Validity,
-        patches: Option<Patches>,
-        block_offsets: ArrayRef,
-        len: usize,
-        offset: u16,
-    ) -> VortexResult<BitPackedArray> {
-        let dtype = DType::Primitive(ptype, validity.nullability());
-        let slots = {
-            let mut s = ArraySlots::with_capacity(BitPackedSlots::COUNT);
-            PatchesData::push_slots(&mut s, patches.as_ref());
-            s.push(validity_to_child(&validity, len));
-            s.push(Some(block_offsets));
-            s
-        };
-        let data = BitPackedData::try_new_blocked(packed, patches, offset)?;
         Array::try_from_parts(ArrayParts::new(BitPacked, dtype, len, data, slots))
     }
 
@@ -269,11 +206,10 @@ impl BitPacked {
         let len = array.len();
         let patches = array.patches();
         let validity = array.validity().vortex_expect("BitPacked validity");
-        let bit_widths: BitWidths = array.bit_widths().into();
         let data = array.into_data();
         BitPackedDataParts {
             offset: data.offset,
-            bit_widths,
+            bit_width: data.bit_width,
             len,
             packed: data.packed,
             patches,

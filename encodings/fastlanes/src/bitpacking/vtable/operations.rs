@@ -10,7 +10,6 @@ use vortex_array::vtable::OperationsVTable;
 use vortex_error::VortexResult;
 
 use crate::BitPacked;
-use crate::BitWidthsView;
 use crate::bitpack_decompress;
 use crate::bitpacking::array::BitPackedArrayExt;
 use crate::bitpacking::array::PATCH_SLOTS;
@@ -51,12 +50,7 @@ fn read_valid(
         {
             patch
         } else {
-            match array.bit_widths() {
-                BitWidthsView::Global(_) => bitpack_decompress::unpack_single(array, index)?,
-                BitWidthsView::Blocked(offsets) => {
-                    bitpack_decompress::unpack_single_blocked(array, offsets, index, ctx)?
-                }
-            }
+            bitpack_decompress::unpack_single(array, index)?
         },
     )
 }

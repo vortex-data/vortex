@@ -34,14 +34,11 @@ use vortex_error::vortex_panic;
 use crate::BitPacked;
 use crate::BitPackedArray;
 use crate::BitPackedArrayExt;
-use crate::BitWidthsView;
 use crate::Delta;
 use crate::DeltaArrayExt;
 use crate::DeltaArraySlotsExt;
 use crate::FL_CHUNK_SIZE;
 use crate::RLEArray;
-use crate::bitpack_decompress::execute_block_offsets;
-use crate::bitpack_decompress::for_each_packed_block;
 use crate::rle::RLEArrayExt;
 use crate::rle::RLEArraySlotsExt;
 use crate::rle::RLESlots;
@@ -417,18 +414,10 @@ where
             &mut out_buf[chunk_idx],
         );
     };
-    match array.bit_widths() {
-        BitWidthsView::Global(bit_width) => {
-            let bit_width = usize::from(bit_width);
-            for_each_packed_chunk::<I, _>(packed, bit_width, 0, len, |packed, range| {
-                decode_packed(packed, bit_width, range)
-            })?;
-        }
-        BitWidthsView::Blocked(offsets) => {
-            let offsets = execute_block_offsets(array.as_view(), offsets, ctx)?;
-            for_each_packed_block::<I, _>(packed, &offsets, 0, len, decode_packed);
-        }
-    }
+    let bit_width = usize::from(array.bit_width());
+    for_each_packed_chunk::<I, _>(packed, bit_width, 0, len, |packed, range| {
+        decode_packed(packed, bit_width, range)
+    })?;
     result
 }
 
@@ -459,11 +448,11 @@ impl DeltaIndices {
             Ok(bp) => {
                 let fits = bp.is_whole()
                     && bp.array.len() == padded_len
-                    && matches!(bp.array.bit_widths(), BitWidthsView::Global(0 | 1));
+                    && matches!(bp.array.bit_width(), 0 | 1);
                 if !fits {
                     return Ok(None);
                 }
-                matches!(bp.array.bit_widths(), BitWidthsView::Global(1)).then_some(bp.array)
+                (bp.array.bit_width() == 1).then_some(bp.array)
             }
             Err(deltas) => match deltas.try_downcast::<Constant>() {
                 Ok(constant) if constant.scalar().as_primitive().typed_value::<u8>() == Some(0) => {

@@ -38,7 +38,6 @@ use super::PackedChunks;
 use super::unpack_chunk_threshold;
 use crate::BitPacked;
 use crate::BitPackedArrayExt;
-use crate::BitWidthsView;
 use crate::FL_CHUNK_SIZE;
 use crate::take_chunks::nullable_positions;
 use crate::take_chunks::take_in_order;
@@ -55,9 +54,7 @@ impl TakeExecute for BitPacked {
         indices: &ArrayRef,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        let BitWidthsView::Global(bit_width) = array.bit_widths() else {
-            return Ok(None);
-        };
+        let bit_width = array.bit_width();
         // If the indices are large enough, it's faster to flatten and take the primitive array.
         if indices.len() * FULL_ARRAY_DECODE_RATIO > array.len() {
             let prim = array.array().clone().execute::<PrimitiveArray>(ctx)?;
@@ -785,23 +782,14 @@ mod tests {
         Ok(())
     }
 
-    #[rstest]
-    fn test_take_piecewise_fsl_integration(
-        #[values(false, true)] blocked: bool,
-    ) -> VortexResult<()> {
+    #[test]
+    fn test_take_piecewise_fsl_integration() -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
         let values = PrimitiveArray::from_option_iter(
             (0usize..65536).map(|i| (!i.is_multiple_of(29)).then_some((i % 128) as u8)),
         )
         .into_array();
-        let packed = if blocked {
-            let widths = (0..64)
-                .map(|i| if i % 2 == 0 { 4 } else { 7 })
-                .collect::<Vec<_>>();
-            BitPackedData::encode_blocked(&values, &widths, &mut ctx)?
-        } else {
-            BitPackedData::encode(&values, 4, &mut ctx)?
-        };
+        let packed = BitPackedData::encode(&values, 4, &mut ctx)?;
         let validity = Validity::from_iter((0usize..1024).map(|i| !i.is_multiple_of(11)));
         let expected = FixedSizeListArray::new(values, 64, validity.clone(), 1024);
         let array = FixedSizeListArray::new(packed.into_array(), 64, validity, 1024);

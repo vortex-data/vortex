@@ -9,6 +9,7 @@ use vortex_array::ArrayContext;
 use vortex_array::ArrayDeserialization;
 use vortex_array::ArrayPlugin;
 use vortex_array::ArrayRef;
+use vortex_array::ArrayVTable;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::PatchedArray;
@@ -17,36 +18,24 @@ use vortex_array::arrays::patched::PatchedArraySlotsExt;
 use vortex_array::arrays::slice::SliceKernel;
 use vortex_array::assert_arrays_eq;
 use vortex_array::buffer::BufferHandle;
-use vortex_array::builtins::ArrayBuiltins;
-use vortex_array::dtype::DType;
-use vortex_array::dtype::Nullability;
-use vortex_array::dtype::PType;
 use vortex_array::optimizer::ArrayOptimizer;
 use vortex_array::serde::SerializeOptions;
 use vortex_array::serde::SerializedArray;
 use vortex_array::session::ArraySessionExt;
-use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_buffer::ByteBufferMut;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_session::VortexSession;
 use vortex_session::registry::ReadContext;
 
 use super::BitPackedPatchedPlugin;
 use super::BitPackedPlugin;
-use super::bitpacked_v1_id;
-use super::bitpacked_v2_id;
 use super::v1::BitPackedMetadata;
-use super::v2::BitPackedV2Metadata;
 use crate::BitPacked;
 use crate::BitPackedArray;
 use crate::BitPackedArrayExt;
 use crate::BitPackedData;
-use crate::BitWidthsView;
-use crate::bitpack_compress::bitpack_blocked_to_best_bit_widths;
-use crate::bitpack_compress::bitpack_encode_blocked;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     let session = VortexSession::empty();
@@ -80,7 +69,7 @@ fn test_decode_bitpacked_patches() -> VortexResult<()> {
 
     let deserialized = BitPackedPatchedPlugin.deserialize(
         ArrayDeserialization::new(
-            bitpacked_v1_id(),
+            ArrayVTable::id(&BitPacked),
             array.dtype(),
             array.len(),
             &serialization.metadata,
@@ -135,7 +124,7 @@ fn bitpacked_without_patches_stays_bitpacked() -> VortexResult<()> {
 
     let deserialized = BitPackedPatchedPlugin.deserialize(
         ArrayDeserialization::new(
-            bitpacked_v1_id(),
+            ArrayVTable::id(&BitPacked),
             array.dtype(),
             array.len(),
             &serialization.metadata,
@@ -170,7 +159,7 @@ fn primitive_array_returns_error() -> VortexResult<()> {
 
     let result = BitPackedPatchedPlugin.deserialize(
         ArrayDeserialization::new(
-            bitpacked_v1_id(),
+            ArrayVTable::id(&BitPacked),
             array.dtype(),
             array.len(),
             &serialization.metadata,
@@ -233,7 +222,7 @@ fn serde_roundtrip(
     let serialization = PLUGIN_SESSION
         .array_serialize(&array)?
         .ok_or_else(|| vortex_err!("BitPacked must serialize"))?;
-    assert_eq!(serialization.serialized_id, bitpacked_v1_id());
+    assert_eq!(serialization.serialized_id, ArrayVTable::id(&BitPacked));
     let metadata = BitPackedMetadata::decode(serialization.metadata.as_slice())?;
     assert_eq!(metadata.bit_width, u32::from(bit_width));
     assert_eq!(metadata.offset, u32::from(view.offset()));
@@ -245,187 +234,9 @@ fn serde_roundtrip(
     Ok(())
 }
 
-/// Values whose 1024-value blocks need 2 to 6 bits.
-fn drifting() -> PrimitiveArray {
-    PrimitiveArray::from_iter((0..5000u32).map(|i| i % (4 << (i / 1024))))
-}
-
-#[rstest]
-#[case::no_patches(drifting(), None)]
-#[case::patches(drifting(), Some(vec![2, 3, 4, 5, 3]))]
-#[case::nullable(
-    PrimitiveArray::from_option_iter(
-        (0..5000u32).map(|i| (i % 7 != 0).then_some(i % (4 << (i / 1024)))),
-    ),
-    None,
-)]
-fn v2_roundtrip(
-    #[case] values: PrimitiveArray,
-    #[case] bit_widths: Option<Vec<u8>>,
-) -> VortexResult<()> {
-    let mut ctx = PLUGIN_SESSION.create_execution_ctx();
-    let array = match bit_widths {
-        Some(bit_widths) => bitpack_encode_blocked(&values, &bit_widths, None, &mut ctx)?,
-        None => bitpack_blocked_to_best_bit_widths(&values, &mut ctx)?,
-    };
-    let BitWidthsView::Blocked(block_offsets) = array.bit_widths() else {
-        vortex_bail!("expected block offsets");
-    };
-    let serialization = PLUGIN_SESSION
-        .array_serialize(array.as_array())?
-        .ok_or_else(|| vortex_err!("BitPacked must serialize"))?;
-    assert_eq!(serialization.serialized_id, bitpacked_v2_id());
-    let metadata = BitPackedV2Metadata::decode(serialization.metadata.as_slice())?;
-    assert_eq!(metadata.offset, 0);
-    assert_eq!(
-        metadata.block_offsets_ptype,
-        PType::try_from(block_offsets.dtype())? as i32
-    );
-    assert_eq!(metadata.patches.is_some(), array.patches().is_some());
-
-    let read = roundtrip(array.as_array())?;
-    assert_eq!(read.encoding_id(), bitpacked_v2_id());
-    assert!(!read.as_::<BitPacked>().bit_widths().is_global());
-    assert_arrays_eq!(read, values, &mut ctx);
-    Ok(())
-}
-
-#[test]
-fn v2_roundtrip_offset_and_nonzero_base() -> VortexResult<()> {
-    let mut ctx = PLUGIN_SESSION.create_execution_ctx();
-    let values = drifting();
-    let encoded = bitpack_blocked_to_best_bit_widths(&values, &mut ctx)?;
-    let BitWidthsView::Blocked(block_offsets) = encoded.bit_widths() else {
-        vortex_bail!("expected block offsets");
-    };
-    let block_offsets = block_offsets
-        .cast(DType::Primitive(PType::U64, Nullability::NonNullable))?
-        .execute::<PrimitiveArray>(&mut ctx)?;
-    let block_offsets =
-        PrimitiveArray::from_iter(block_offsets.as_slice::<u64>().iter().map(|o| o + 128));
-    let array = BitPacked::try_new_with_block_offsets(
-        encoded.packed().clone(),
-        PType::U32,
-        Validity::NonNullable,
-        None,
-        block_offsets.into_array(),
-        4900,
-        17,
-    )?
-    .into_array();
-
-    let serialization = PLUGIN_SESSION
-        .array_serialize(&array)?
-        .ok_or_else(|| vortex_err!("BitPacked must serialize"))?;
-    assert_eq!(
-        BitPackedV2Metadata::decode(serialization.metadata.as_slice())?.offset,
-        17
-    );
-    assert_arrays_eq!(
-        roundtrip(&array)?,
-        values.into_array().slice(17..4917)?,
-        &mut ctx
-    );
-    Ok(())
-}
-
-#[test]
-fn v2_rejects_malformed_parts() -> VortexResult<()> {
-    let array = bitpack_blocked_to_best_bit_widths(
-        &drifting(),
-        &mut PLUGIN_SESSION.create_execution_ctx(),
-    )?;
-    let BitWidthsView::Blocked(block_offsets) = array.bit_widths() else {
-        vortex_bail!("expected block offsets");
-    };
-    let metadata = BitPackedV2Metadata {
-        offset: 0,
-        block_offsets_ptype: PType::try_from(block_offsets.dtype())? as i32,
-        patches: None,
-    };
-    let buffers = [array.packed().clone()];
-    let deserialize = |metadata: &BitPackedV2Metadata, children: &[ArrayRef]| {
-        BitPackedPlugin.deserialize(
-            ArrayDeserialization::new(
-                bitpacked_v2_id(),
-                array.dtype(),
-                array.len(),
-                &metadata.encode_to_vec(),
-                &buffers,
-                &children,
-            ),
-            &PLUGIN_SESSION,
-        )
-    };
-
-    assert!(deserialize(&metadata, std::slice::from_ref(block_offsets)).is_ok());
-    assert!(deserialize(&metadata, &[]).is_err());
-    let offset_past_block = BitPackedV2Metadata {
-        offset: 1024,
-        block_offsets_ptype: metadata.block_offsets_ptype,
-        patches: None,
-    };
-    assert!(deserialize(&offset_past_block, std::slice::from_ref(block_offsets)).is_err());
-    let signed = BitPackedV2Metadata {
-        offset: 0,
-        block_offsets_ptype: PType::I32 as i32,
-        patches: None,
-    };
-    let signed_offsets =
-        block_offsets.cast(DType::Primitive(PType::I32, Nullability::NonNullable))?;
-    assert!(deserialize(&signed, &[signed_offsets]).is_err());
-    Ok(())
-}
-
-#[test]
-fn test_decode_blocked_bitpacked_patches() -> VortexResult<()> {
-    let mut ctx = SESSION.create_execution_ctx();
-    let values = drifting();
-    let array = bitpack_encode_blocked(&values, &[2, 3, 4, 5, 3], None, &mut ctx)?.into_array();
-
-    let serialization = SESSION.array_serialize(&array)?.unwrap();
-    assert_eq!(serialization.serialized_id, bitpacked_v2_id());
-    let children = array.children();
-    let buffers = array
-        .buffers()
-        .into_iter()
-        .map(BufferHandle::new_host)
-        .collect::<Vec<_>>();
-
-    let deserialized = BitPackedPatchedPlugin.deserialize(
-        ArrayDeserialization::new(
-            bitpacked_v2_id(),
-            array.dtype(),
-            array.len(),
-            &serialization.metadata,
-            &buffers,
-            &children,
-        ),
-        &SESSION,
-    )?;
-
-    let patched: PatchedArray = deserialized
-        .try_downcast()
-        .map_err(|a| vortex_err!("Expected Patched, got {}", a.encoding_id()))?;
-    let inner_bitpacked: BitPackedArray = patched
-        .inner()
-        .clone()
-        .try_downcast()
-        .map_err(|a| vortex_err!("Expected inner BitPacked, got {}", a.encoding_id()))?;
-    assert!(inner_bitpacked.patches().is_none());
-    assert!(!inner_bitpacked.bit_widths().is_global());
-    assert_arrays_eq!(patched, values, &mut ctx);
-    Ok(())
-}
-
 /// Slicing removes individual patches while retaining the first chunk's original offset.
 #[rstest]
-#[case::v1(false)]
-#[case::v2(true)]
-fn serde_roundtrip_sliced_chunked_patches(
-    #[case] blocked: bool,
-    #[values(500, 1500)] start: usize,
-) -> VortexResult<()> {
+fn serde_roundtrip_sliced_chunked_patches(#[values(500, 1500)] start: usize) -> VortexResult<()> {
     let mut ctx = PLUGIN_SESSION.create_execution_ctx();
     // Every 7th value does not fit 11 bits and becomes a patch, in every chunk.
     let values =
@@ -434,29 +245,9 @@ fn serde_roundtrip_sliced_chunked_patches(
     // Slice mid-chunk while still encoded, as the slice kernel does.
     let sliced = <BitPacked as SliceKernel>::slice(encoded.as_view(), start..4096, &mut ctx)?
         .ok_or_else(|| vortex_err!("BitPacked slices"))?;
-    let sliced = if blocked {
-        // Represent the same sliced blocks as v2 without relying on a blocked slice kernel.
-        let view = sliced.as_::<BitPacked>();
-        let num_blocks = (usize::from(view.offset()) + view.len()).div_ceil(1024);
-        let block_offsets = PrimitiveArray::from_iter(
-            (0..=u32::try_from(num_blocks)?).map(|block| block * 11 * 128),
-        );
-        BitPacked::try_new_with_block_offsets(
-            view.packed().clone(),
-            PType::U32,
-            view.validity()?,
-            view.patches(),
-            block_offsets.into_array(),
-            view.len(),
-            view.offset(),
-        )?
-        .into_array()
-    } else {
-        sliced
-    };
     let sliced = sliced.optimize_ctx(&PLUGIN_SESSION)?;
     let read = roundtrip(&sliced)?;
-    assert_eq!(read.as_::<BitPacked>().bit_widths().is_global(), !blocked);
+    assert_eq!(read.as_::<BitPacked>().bit_width(), 11);
     let expected = values.into_array().slice(start..4096)?;
     // Probe the first patch of the second retained chunk (row 529 when start is 500).
     let patch_index = ((start / 1024 + 1) * 1024).next_multiple_of(7) - start;

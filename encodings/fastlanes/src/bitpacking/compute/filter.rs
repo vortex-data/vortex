@@ -22,7 +22,6 @@ use super::PackedChunks;
 use crate::BitPacked;
 use crate::BitPackedArrayExt;
 use crate::BitPackedData;
-use crate::BitWidthsView;
 use crate::FL_CHUNK_SIZE;
 
 const _: () = assert!(FL_CHUNK_SIZE == FILTER_CHUNK_LEN);
@@ -37,9 +36,7 @@ impl FilterKernel for BitPacked {
         mask: &Mask,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        let BitWidthsView::Global(bit_width) = array.bit_widths() else {
-            return Ok(None);
-        };
+        let bit_width = array.bit_width();
         let values = match mask {
             Mask::AllTrue(_) | Mask::AllFalse(_) => {
                 return Ok(None);

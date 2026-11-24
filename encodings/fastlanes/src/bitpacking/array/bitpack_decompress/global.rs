@@ -18,11 +18,9 @@ use vortex_array::match_each_unsigned_integer_ptype;
 use vortex_array::patches::Patches;
 use vortex_array::scalar::Scalar;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
 
 use crate::BitPacked;
 use crate::BitPackedArrayExt;
-use crate::BitWidthsView;
 use crate::FL_CHUNK_SIZE;
 use crate::unpack_iter::BitPacked as BitPackedUnpack;
 use crate::unpack_iter::BitUnpackedChunks;
@@ -183,10 +181,7 @@ fn set_patch_values<P, S, T, F>(
 }
 
 pub fn unpack_single(array: ArrayView<'_, BitPacked>, index: usize) -> VortexResult<Scalar> {
-    let BitWidthsView::Global(bit_width) = array.bit_widths() else {
-        vortex_bail!("BitPacked array has per-block bit widths");
-    };
-    let bit_width = bit_width as usize;
+    let bit_width = array.bit_width() as usize;
     let ptype = array.dtype().as_ptype();
     // let packed = array.packed().into_primitive()?;
     let index_in_encoded = index + array.offset() as usize;
