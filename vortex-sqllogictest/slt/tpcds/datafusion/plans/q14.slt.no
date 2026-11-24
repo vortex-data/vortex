@@ -417,8 +417,8 @@ physical_plan
 24)------------------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/item.vortex]]}, projection=[i_item_sk, i_brand_id, i_class_id, i_category_id], file_type=vortex
 25)------------------------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/web_sales.vortex:<slt:ignore>], [${WORK_DIR}/web_sales.vortex:<slt:ignore>], [${WORK_DIR}/web_sales.vortex:<slt:ignore>], [${WORK_DIR}/web_sales.vortex:<slt:ignore>]]}, projection=[ws_sold_date_sk, ws_item_sk], file_type=vortex
 26)------------------------------------AggregateExec: mode=SinglePartitioned, gby=[brand_id@0 as brand_id, class_id@1 as class_id, category_id@2 as category_id], aggr=[]
-27)--------------------------------------HashJoinExec: mode=Partitioned, join_type=RightSemi, on=[(i_brand_id@0, brand_id@0), (i_class_id@1, class_id@1), (i_category_id@2, category_id@2)], NullsEqual: true
-28)----------------------------------------RepartitionExec: partitioning=Hash([i_brand_id@0, i_class_id@1, i_category_id@2], 4), input_partitions=4
+27)--------------------------------------HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(i_brand_id@0, brand_id@0), (i_class_id@1, class_id@1), (i_category_id@2, category_id@2)], NullsEqual: true
+28)----------------------------------------CoalescePartitionsExec
 29)------------------------------------------HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(d_date_sk@0, cs_sold_date_sk@0)], projection=[i_brand_id@1, i_class_id@2, i_category_id@3]
 30)--------------------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_date_sk], file_type=vortex, predicate: d_year@6 >= 1999 AND d_year@6 <= 2001
 31)--------------------------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(i_item_sk@0, cs_item_sk@1)], projection=[cs_sold_date_sk@4, i_brand_id@1, i_class_id@2, i_category_id@3]
@@ -456,8 +456,8 @@ physical_plan
 63)------------------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/item.vortex]]}, projection=[i_item_sk, i_brand_id, i_class_id, i_category_id], file_type=vortex
 64)------------------------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/web_sales.vortex:<slt:ignore>], [${WORK_DIR}/web_sales.vortex:<slt:ignore>], [${WORK_DIR}/web_sales.vortex:<slt:ignore>], [${WORK_DIR}/web_sales.vortex:<slt:ignore>]]}, projection=[ws_sold_date_sk, ws_item_sk], file_type=vortex
 65)------------------------------------AggregateExec: mode=SinglePartitioned, gby=[brand_id@0 as brand_id, class_id@1 as class_id, category_id@2 as category_id], aggr=[]
-66)--------------------------------------HashJoinExec: mode=Partitioned, join_type=RightSemi, on=[(i_brand_id@0, brand_id@0), (i_class_id@1, class_id@1), (i_category_id@2, category_id@2)], NullsEqual: true
-67)----------------------------------------RepartitionExec: partitioning=Hash([i_brand_id@0, i_class_id@1, i_category_id@2], 4), input_partitions=4
+66)--------------------------------------HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(i_brand_id@0, brand_id@0), (i_class_id@1, class_id@1), (i_category_id@2, category_id@2)], NullsEqual: true
+67)----------------------------------------CoalescePartitionsExec
 68)------------------------------------------HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(d_date_sk@0, cs_sold_date_sk@0)], projection=[i_brand_id@1, i_class_id@2, i_category_id@3]
 69)--------------------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_date_sk], file_type=vortex, predicate: d_year@6 >= 1999 AND d_year@6 <= 2001
 70)--------------------------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(i_item_sk@0, cs_item_sk@1)], projection=[cs_sold_date_sk@4, i_brand_id@1, i_class_id@2, i_category_id@3]
@@ -495,8 +495,8 @@ physical_plan
 102)------------------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/item.vortex]]}, projection=[i_item_sk, i_brand_id, i_class_id, i_category_id], file_type=vortex
 103)------------------------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/web_sales.vortex:<slt:ignore>], [${WORK_DIR}/web_sales.vortex:<slt:ignore>], [${WORK_DIR}/web_sales.vortex:<slt:ignore>], [${WORK_DIR}/web_sales.vortex:<slt:ignore>]]}, projection=[ws_sold_date_sk, ws_item_sk], file_type=vortex
 104)------------------------------------AggregateExec: mode=SinglePartitioned, gby=[brand_id@0 as brand_id, class_id@1 as class_id, category_id@2 as category_id], aggr=[]
-105)--------------------------------------HashJoinExec: mode=Partitioned, join_type=RightSemi, on=[(i_brand_id@0, brand_id@0), (i_class_id@1, class_id@1), (i_category_id@2, category_id@2)], NullsEqual: true
-106)----------------------------------------RepartitionExec: partitioning=Hash([i_brand_id@0, i_class_id@1, i_category_id@2], 4), input_partitions=4
+105)--------------------------------------HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(i_brand_id@0, brand_id@0), (i_class_id@1, class_id@1), (i_category_id@2, category_id@2)], NullsEqual: true
+106)----------------------------------------CoalescePartitionsExec
 107)------------------------------------------HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(d_date_sk@0, cs_sold_date_sk@0)], projection=[i_brand_id@1, i_class_id@2, i_category_id@3]
 108)--------------------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_date_sk], file_type=vortex, predicate: d_year@6 >= 1999 AND d_year@6 <= 2001
 109)--------------------------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(i_item_sk@0, cs_item_sk@1)], projection=[cs_sold_date_sk@4, i_brand_id@1, i_class_id@2, i_category_id@3]
