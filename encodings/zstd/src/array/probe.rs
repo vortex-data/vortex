@@ -10,17 +10,21 @@ use vortex_array::vtable::OperationsVTable;
 use vortex_array::vtable::child_to_validity;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
+use vortex_mask::AllOr;
 use vortex_mask::Mask;
 
 use super::Zstd;
 use super::ZstdArraySlotsExt;
 
+/// Rows between two valid-row checkpoints. A repeated read counts at most this many validity bits.
+const ROWS_PER_CHECKPOINT: usize = 2048;
+
 /// What a repeated probe keeps between reads of a [`Zstd`] array.
 ///
 /// A one-off read executes the validity of the unsliced array to find the stored value of its row,
-/// and then decompresses the frame that holds it. A repeated probe finds the frame boundaries
-/// once, and keeps the last frame that it decompressed. Reads that stay in one frame thus
-/// decompress it only once.
+/// and then decompresses the frame that holds it. A repeated probe finds the validity and the
+/// frame boundaries once, and keeps the last frame that it decompressed. Reads that stay in one
+/// frame thus decompress it only once.
 #[derive(Default)]
 pub struct ZstdProbeState {
     layout: Option<FrameLayout>,
@@ -32,6 +36,9 @@ struct FrameLayout {
     /// The validity of the unsliced array. Nulls are not stored, so the number of valid rows
     /// before a row is the index of its stored value.
     validity: Mask,
+    /// The number of valid rows before each multiple of [`ROWS_PER_CHECKPOINT`]. Empty when no
+    /// row or every row is valid.
+    checkpoints: Vec<usize>,
     /// The first stored value of each frame, followed by the number of stored values.
     value_starts: Vec<usize>,
 }
@@ -43,10 +50,38 @@ impl FrameLayout {
             .execute_mask(data.unsliced_n_rows(), ctx)?;
         let value_starts = data.frame_value_starts(array.dtype(), validity.true_count())?;
 
+        let checkpoints = match validity.bit_buffer() {
+            AllOr::Some(bits) => {
+                let mut checkpoints = Vec::with_capacity(bits.len().div_ceil(ROWS_PER_CHECKPOINT));
+                let mut valid_rows = 0;
+                for start in (0..bits.len()).step_by(ROWS_PER_CHECKPOINT) {
+                    checkpoints.push(valid_rows);
+                    valid_rows +=
+                        bits.count_range(start, (start + ROWS_PER_CHECKPOINT).min(bits.len()));
+                }
+                checkpoints
+            }
+            AllOr::All | AllOr::None => Vec::new(),
+        };
+
         Ok(Self {
             validity,
+            checkpoints,
             value_starts,
         })
+    }
+
+    /// The stored value of `row` of the unsliced array, or `None` if the row is null.
+    fn stored_value(&self, row: usize) -> Option<usize> {
+        match self.validity.bit_buffer() {
+            AllOr::All => Some(row),
+            AllOr::None => None,
+            AllOr::Some(bits) => bits.value(row).then(|| {
+                let checkpoint = row / ROWS_PER_CHECKPOINT;
+                self.checkpoints[checkpoint]
+                    + bits.count_range(checkpoint * ROWS_PER_CHECKPOINT, row)
+            }),
+        }
     }
 
     /// The frame that holds stored value `value`, and the first stored value of that frame.
@@ -79,12 +114,12 @@ impl OperationsVTable<Zstd> for Zstd {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
         let array = state.array();
-        if !state.is_valid(index, ctx)? {
-            return Ok(Scalar::null(array.dtype().clone()));
-        }
-
         let data = array.data();
         let Some(retained) = state.retained() else {
+            if !state.is_valid(index, ctx)? {
+                return Ok(Scalar::null(array.dtype().clone()));
+            }
+
             let unsliced_validity =
                 child_to_validity(array.validity_child(), array.dtype().nullability());
             return data
@@ -97,8 +132,10 @@ impl OperationsVTable<Zstd> for Zstd {
             Some(layout) => layout,
             slot @ None => slot.insert(FrameLayout::new(array, ctx)?),
         };
-        let row = data.slice_start() + index;
-        let value = layout.validity.valid_counts_for_indices(&[row])[0];
+        // The retained validity answers both whether the row is null and where its value is.
+        let Some(value) = layout.stored_value(data.slice_start() + index) else {
+            return Ok(Scalar::null(array.dtype().clone()));
+        };
         let (frame_index, frame_start) = layout.frame_of(value)?;
 
         let frame = match &mut retained.frame {
@@ -154,8 +191,8 @@ mod tests {
         PrimitiveArray::from_iter((0..LEN).map(|i| i as i32 * 7))
     }
 
-    fn nullable_primitive() -> PrimitiveArray {
-        PrimitiveArray::from_option_iter((0..LEN).map(|i| (i % 3 != 0).then_some(i as i64)))
+    fn nullable_primitive(len: usize) -> PrimitiveArray {
+        PrimitiveArray::from_option_iter((0..len).map(|i| (i % 3 != 0).then_some(i as i64)))
     }
 
     fn nullable_utf8() -> VarBinViewArray {
@@ -187,7 +224,9 @@ mod tests {
     /// starts and ends in the middle of a frame.
     #[rstest]
     #[case::primitive(compressed_primitive(primitive()))]
-    #[case::nullable_primitive(compressed_primitive(nullable_primitive()))]
+    #[case::nullable_primitive(compressed_primitive(nullable_primitive(LEN)))]
+    // Past the first validity checkpoint.
+    #[case::long_nullable_primitive(compressed_primitive(nullable_primitive(5_000)))]
     #[case::nullable_utf8(compressed_utf8(nullable_utf8(), true))]
     #[case::nullable_utf8_without_dict(compressed_utf8(nullable_utf8(), false))]
     fn repeated_probe_matches_input(
@@ -199,8 +238,10 @@ mod tests {
         for (array, expected) in [
             (compressed.clone(), input.clone()),
             (
-                compressed.slice(5..LEN - 9)?.optimize_ctx(&SESSION)?,
-                input.slice(5..LEN - 9)?,
+                compressed
+                    .slice(5..input.len() - 9)?
+                    .optimize_ctx(&SESSION)?,
+                input.slice(5..input.len() - 9)?,
             ),
         ] {
             // The optimized slice is Zstd, so the probe reads the frames with a slice offset.
