@@ -178,23 +178,25 @@ async fn selecting_the_unit_returns_its_partition(
     Ok(())
 }
 
-/// Clones of an opened scan share its parts: polled together, they return every row once.
+/// The streams of an opened scan share its parts: polled together, they return every row once,
+/// and the scan is exhausted once they have taken every part.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn clones_share_the_scan() -> VortexResult<()> {
-    let stream = source_of(100_000)
+async fn streams_share_the_scan() -> VortexResult<()> {
+    let exec = source_of(100_000)
         .scan(ScanRequest::default())
         .await?
         .open()?;
-    let clones = [stream.clone(), stream.clone(), stream.clone()];
+    assert!(!exec.is_exhausted());
+    let streams = [exec.stream(), exec.stream(), exec.stream()];
     let batches = try_join_all(
-        clones
+        streams
             .into_iter()
-            .map(|clone| clone.try_collect::<Vec<ArrayRef>>()),
+            .map(|stream| stream.try_collect::<Vec<ArrayRef>>()),
     )
     .await?;
+    assert!(exec.is_exhausted());
     assert!(
-        stream
-            .claims()
+        exec.progress()
             .is_some_and(|claims| claims.total > 0 && claims.claimed == claims.total)
     );
     let mut ctx = VortexSession::empty().create_execution_ctx();

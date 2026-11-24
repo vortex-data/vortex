@@ -44,6 +44,7 @@ use vortex_layout::session::LayoutSession;
 use vortex_scan::DataSourceRef;
 use vortex_scan::ScanRequest;
 use vortex_scan::source::PlanDataSource;
+use vortex_scan::stream::ScanExec;
 use vortex_scan::stream::ScanStream;
 use vortex_session::VortexSession;
 
@@ -160,10 +161,10 @@ async fn values(stream: ScanStream) -> VortexResult<Vec<u32>> {
     Ok(values)
 }
 
-/// Reads `stream` with `workers` clones, each polled on a task of its own.
-async fn read_stream(stream: ScanStream, workers: usize) -> VortexResult<Vec<Vec<u32>>> {
+/// Reads `exec` with `workers` streams, each polled on a task of its own.
+async fn read_stream(exec: ScanExec, workers: usize) -> VortexResult<Vec<Vec<u32>>> {
     let tasks: Vec<_> = (0..workers)
-        .map(|_| tokio::spawn(values(stream.clone())))
+        .map(|_| tokio::spawn(values(exec.stream())))
         .collect();
     let mut out = Vec::with_capacity(workers);
     for task in tasks {
@@ -181,7 +182,7 @@ fn sorted(workers: Vec<Vec<u32>>) -> Vec<u32> {
     all
 }
 
-/// The clones of an unordered scan's stream together read every selected row once.
+/// The streams of an unordered scan together read every selected row once.
 #[rstest]
 #[case::projection(false)]
 #[case::filter(true)]
@@ -248,7 +249,7 @@ async fn open_cuts_parts_on_layout_splits() -> VortexResult<()> {
 
     // One worker takes the parts in row order and finishes each before the next.
     let scan = file.plan_data_source().scan(request(false)).await?;
-    let arrays: Vec<ArrayRef> = scan.open()?.try_collect().await?;
+    let arrays: Vec<ArrayRef> = scan.open()?.stream().try_collect().await?;
     let mut boundaries = vec![0u64];
     for array in &arrays {
         let end = boundaries.last().copied().unwrap_or(0) + array.len() as u64;
@@ -264,7 +265,7 @@ async fn open_cuts_parts_on_layout_splits() -> VortexResult<()> {
 }
 
 /// A dynamic filter, such as a top-N's bound, prunes a file as a whole when the scan is made,
-/// before its parts are cut. The rows follow the bound as it stands when the clones read, not as
+/// before its parts are cut. The rows follow the bound as it stands when the streams read, not as
 /// it stood when the scan was made.
 #[rstest]
 #[case::unordered(false)]
@@ -299,10 +300,10 @@ async fn scan_prunes_the_file_first_for_a_dynamic_filter(
     Ok(())
 }
 
-/// An ordered scan gives all of its rows, in order, to the first clone polled.
+/// An ordered scan gives all of its rows, in order, to its first stream.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[cfg_attr(miri, ignore)]
-async fn ordered_open_reads_in_order_on_one_clone() -> VortexResult<()> {
+async fn ordered_open_reads_in_order_on_one_stream() -> VortexResult<()> {
     let source = one_file().await?;
     let mut workers = read_stream(source.scan(request(true)).await?.open()?, 3).await?;
     workers.sort_by_key(|values| std::cmp::Reverse(values.len()));
@@ -311,7 +312,7 @@ async fn ordered_open_reads_in_order_on_one_clone() -> VortexResult<()> {
     Ok(())
 }
 
-/// A scan's limit holds across the clones of its stream; an ordered scan returns the first rows.
+/// A scan's limit holds across its streams; an ordered scan returns the first rows.
 #[rstest]
 #[case::unordered(false, false)]
 #[case::unordered_filter(false, true)]
