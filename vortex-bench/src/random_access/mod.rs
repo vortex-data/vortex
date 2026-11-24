@@ -1,6 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! Dataset layout and readers for the random-access benchmarks.
+//!
+//! Local benchmarks can prepare files through [`BenchDataset`]. S3 benchmarks use the same
+//! relative paths to open fixtures from a [`RemoteDataDir`].
+
 use std::fs::File;
 use std::path::Path;
 use std::path::PathBuf;
@@ -151,7 +156,8 @@ impl RemoteDataDir {
         ObjectStorePath::from(format!("{}/{relative_path}", self.url.path()))
     }
 
-    /// The fully qualified URL of a dataset path relative to the benchmark data directory.
+    /// The fully qualified URL of a dataset path relative to the benchmark data directory. An
+    /// empty path returns the directory URL.
     pub fn uri(&self, relative_path: &str) -> Result<String> {
         let scheme = self.url.scheme();
         let host = self
@@ -171,7 +177,8 @@ pub trait BenchDataset: Send + Sync {
     /// The total number of rows in this dataset.
     fn row_count(&self) -> u64;
 
-    /// The data file's path relative to the benchmark data directory, derived from metadata.
+    /// The data file's path relative to the benchmark data directory. This must match the path
+    /// used by the local writer so an uploaded snapshot can be read from S3.
     fn relative_path(&self, format: Format) -> String;
 
     /// Prepare the data file for the given format and return its path.
@@ -291,6 +298,7 @@ mod tests {
 
     #[test]
     fn dataset_paths_match_the_published_fixtures() {
+        let formats = [Format::Parquet, Format::OnDiskVortex, Format::Lance];
         let cases: [(&dyn BenchDataset, [&str; 3]); 4] = [
             (
                 &TaxiData,
@@ -327,7 +335,6 @@ mod tests {
         ];
 
         for (dataset, expected) in cases {
-            let formats = [Format::Parquet, Format::OnDiskVortex, Format::Lance];
             assert_eq!(
                 formats.map(|format| dataset.relative_path(format)),
                 expected,
