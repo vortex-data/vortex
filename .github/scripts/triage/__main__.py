@@ -135,7 +135,11 @@ def main(argv: list[str] | None = None) -> int:
     sync_cmd.add_argument("--repo", required=True, help="owner/name")
     sync_cmd.add_argument("--channel", required=True, help="Slack channel ID")
     sync_cmd.add_argument("--pings", action="store_true", help="Send reminders that mention people")
-    sync_cmd.add_argument("--claude", action="store_true", help="Ask Claude who owes the next move")
+    sync_cmd.add_argument(
+        "--claude",
+        action="store_true",
+        help="Ask Claude who owes the next move and how urgent each item is",
+    )
     sync_cmd.add_argument(
         "--run-hours-only",
         action="store_true",
@@ -191,17 +195,16 @@ def main(argv: list[str] | None = None) -> int:
         from . import claude
 
         ask = claude.ask
-    verdicts, status = evaluate.judge(items, channel, now, ask)
+    judgment = evaluate.judge(items, channel, now, ask)
     config = Config(
         oncall=os.environ.get("ONCALL_SLACK_ID", "").strip() or None,
         users=evaluate.parse_slack_users(os.environ.get("SLACK_USERS_JSON", "")),
         pings=args.pings,
-        claude=status,
-        verdicts=verdicts,
+        claude=judgment,
     )
     run = Run(slack, config, now, lambda number: closed_state(args.repo, number), channel)
     failures = run.execute(items)
-    print(f"Synced {len(items)} open items and {len(verdicts)} new verdicts.")
+    print(f"Synced {len(items)} open items and {len(judgment.verdicts)} new verdicts.")
     print(f"{len(failures)} failures.")
     try:
         remaining, limit = rate_limit()

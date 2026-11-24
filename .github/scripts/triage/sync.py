@@ -10,7 +10,7 @@ from __future__ import annotations
 import hashlib
 import json
 import traceback
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from functools import partial
@@ -62,16 +62,29 @@ class SlackApi(Protocol):
 
 
 @dataclass(frozen=True)
+class Judgment:
+    """What this run learned from Claude."""
+
+    # False when this run does not use Claude at all.
+    on: bool = True
+    # The outcome of this run's request, for example "Claude checked 12", or empty without one.
+    status: str = ""
+    # New verdicts, which replace the cached ones.
+    verdicts: Mapping[int, Verdict] = field(default_factory=dict)
+    # The items that this run asked Claude about, whether or not Claude answered.
+    asked: frozenset[int] = frozenset()
+    # The items whose reminders wait until Claude sees their newest activity.
+    held: frozenset[int] = frozenset()
+
+
+@dataclass(frozen=True)
 class Config:
     # The Slack user ID of the on-call engineer, who owns every item without a known assignee.
     oncall: str | None
     # Lowercase GitHub login to Slack user ID, for the people the bot may mention.
     users: dict[str, str]
     pings: bool
-    # The Claude status that the overview shows, for example "Claude checked 12".
-    claude: str = ""
-    # Verdicts from this run's Claude job, which replace the cached ones.
-    verdicts: dict[int, Verdict] = field(default_factory=dict)
+    claude: Judgment = field(default_factory=Judgment)
 
 
 @dataclass
@@ -251,9 +264,13 @@ class Run:
 
     def _item(self, item: Item, rows: dict[int, render.Row]) -> None:
         root = self.channel.roots.get(item.number)
+        previous = root.state.verdict if root else None
         # This run's verdict wins over the cached one, which `assess` drops if it is stale.
-        verdict = self.config.verdicts.get(item.number) or (root.state.verdict if root else None)
+        verdict = self.config.claude.verdicts.get(item.number) or previous
         assessment = assess(item, self.now, verdict, root.state.priority if root else None)
+        asked_at = root.state.asked_at if root else 0.0
+        if item.number in self.config.claude.asked:
+            asked_at = self.now.timestamp()
         if assessment is None:
             if root is not None and root.state.status is Status.OPEN:
                 # A teammate answered the external comment on a team item. Otherwise the item
@@ -273,7 +290,10 @@ class Run:
             row = rows[item.number] = render.Row(item, assessment, None, None)
             # Every item gets a root, so that people can snooze or reprioritize it in its thread.
             state = ItemState(
-                item.number, seen_external_at=assessment.last_external_at or "", verdict=verdict
+                item.number,
+                seen_external_at=assessment.last_external_at or "",
+                verdict=verdict,
+                asked_at=asked_at,
             )
             # `_save` edits the mentions in later in this run.
             message = render.card(replace(row, state=state), self.now, self.quiet)
@@ -282,9 +302,10 @@ class Run:
             root = Root(Thread(ts, ""), state, state)
             self.channel.roots[item.number] = root
             rows[item.number] = render.Row(item, assessment, state, self._link(ts))
+            self._claude_moved(root.thread, item, None, verdict, None)
             return
 
-        state = replace(root.state, status=Status.OPEN, verdict=verdict)
+        state = replace(root.state, status=Status.OPEN, verdict=verdict, asked_at=asked_at)
         link = self._link(root.thread.ts)
         # A failed Slack call below must cost only this item's thread work, not its place in the
         # overview and the reminders. A retry on the next run cannot post twice, because every
@@ -310,8 +331,38 @@ class Run:
             if wake:
                 state = state.unsnoozed()
             state = replace(state, seen_external_at=last_external)
+        # A failed note leaves the old verdict and ask time in Slack, so a later run asks Claude
+        # again and retries the note.
+        self._claude_moved(root.thread, item, previous, verdict, state.priority)
         root.state = state
         rows[item.number] = render.Row(item, assessment, state, link)
+
+    def _claude_moved(
+        self,
+        thread: Thread,
+        item: Item,
+        previous: Verdict | None,
+        verdict: Verdict | None,
+        priority: Tier | None,
+    ) -> None:
+        """Say in the item's thread when a new verdict changes Claude's choice of tier.
+
+        Each change gets a note, so that the thread shows every tier that Claude chose and why.
+        """
+        if verdict is None or item.number not in self.config.claude.verdicts:
+            return
+        rules = assess(item, self.now)
+        old = previous.tier if previous is not None else None
+        if rules is None or verdict.tier is old:
+            return
+        before, after = old or rules.tier, verdict.tier or rules.tier
+        if before is after:
+            return
+        note = render.claude_moved(
+            before, after, verdict.tier is None, verdict.tier_reason, priority
+        )
+        key = f"claude:{verdict.checked_at.timestamp():.0f}"
+        self._reply(thread, key, lambda _people: note)
 
     def _command(self, thread: Thread, state: ItemState, request: dict[str, Any]) -> ItemState:
         command = parse(str(request.get("text") or ""))
@@ -373,9 +424,12 @@ class Run:
         current = self.channel.overview
         started = bounds is not None and self.now >= bounds[0]
         if current is None or (started and current.state.day != today.isoformat()):
+            # The day's first overview keeps showing the outcome of the latest request to Claude.
+            state = OverviewState(
+                day=today.isoformat(), claude=current.state.claude if current else ""
+            )
             # The edit at the end of this method brings in the mentions.
-            content = render.overview(rows, today, self.now, self.quiet, self.config.claude)
-            state = OverviewState(day=today.isoformat())
+            content = render.overview(rows, today, self.now, self.quiet, self._claude(state))
             ts = self.slack.post(content, metadata(OVERVIEW_EVENT, state.payload()))
             if current is not None:
                 self.channel.stale.append(current)
@@ -393,15 +447,20 @@ class Run:
                 key = f"command:{request['ts']}"
                 self._reply(current.thread, key, lambda _people: render.wrong_thread())
         state = replace(state, read_until=read_until)
+        if self.config.claude.status:
+            state = replace(state, claude=self.config.claude.status)
         # The list goes first in a new overview's thread, above the day's reminder summary.
         state = self._waiting(current.thread, state, rows)
         if self.config.pings and in_window(self.now) and state.day == today.isoformat():
             state = self._remind(current.thread, state, rows)
 
         day = datetime.fromisoformat(state.day).date()
-        content = render.overview(rows, day, self.now, self.people, self.config.claude)
+        content = render.overview(rows, day, self.now, self.people, self._claude(state))
         self.slack.update(current.thread.ts, content, metadata(OVERVIEW_EVENT, state.payload()))
         current.state = state
+
+    def _claude(self, state: OverviewState) -> str:
+        return state.claude if self.config.claude.on else "Claude off"
 
     def _retire(self, old: Overview, link: str) -> None:
         """Replace an older overview's list with a link to the newest overview."""
@@ -450,6 +509,8 @@ class Run:
             return False
         if self._snooze_ended(state):
             return True
+        if row.item.number in self.config.claude.held:
+            return False
         if assessment.owes is not Owes.VORTEX or assessment.tier is Tier.LOW:
             return False
         if not state.reminded_at:

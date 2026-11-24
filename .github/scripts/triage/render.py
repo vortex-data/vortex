@@ -442,6 +442,25 @@ def prioritized(tier: Tier | None, user: str, was_set: bool) -> Message:
     return Message(text=f"🔄 <@{user}>, the bot already sets this item's priority.")
 
 
+def claude_moved(
+    before: Tier, after: Tier, automatic: bool, reason: str, priority: Tier | None
+) -> Message:
+    """Build the note that Claude changed an item's tier.
+
+    `automatic` means that Claude agreed with the rules again. The reason comes from Claude, whose
+    input contributors write, so it is escaped.
+    """
+    old, new = _BY_TIER[before], _BY_TIER[after]
+    to = "back to the rules'" if automatic else "to"
+    text = (
+        f"🤖 Claude moved this item from {old.marker} {old.title} {to} {new.marker} {new.title}: "
+        f"{escape(reason)}"
+    )
+    if priority is not None:
+        text += "\nA teammate's `!priority` still decides."
+    return Message(text=text)
+
+
 def invalid(error: str) -> Message:
     return Message(text=f"❓ {error}")
 
@@ -545,8 +564,14 @@ def instructions() -> Message:
             "When a snooze ends, the item's owners get a reminder in its thread.",
             "`!unsnooze` ends a snooze.",
             "`!priority high`, `!priority normal`, or `!priority low` sets the item's priority "
-            "until `!priority auto` hands it back to the bot.",
+            "until `!priority auto` hands it back to the bot. It wins over Claude.",
             "New contributor activity ends a snooze early. The bot answers at its next run.",
+            "",
+            "*Claude* looks at an item when it is new, has new activity, or comes out of a "
+            "snooze, and every 5 working days while nobody gets reminders for it, but at most "
+            "once an hour. It decides who owes the next move and can change an item's priority. "
+            "Each change of priority gets a 🤖 note in the item's thread. Reminders for an item "
+            "with new activity wait up to an hour for Claude's look.",
             "",
             "*Working time*, which snoozes and reminders count, runs on weekdays from 09:00 "
             "London to 18:00 New York.",

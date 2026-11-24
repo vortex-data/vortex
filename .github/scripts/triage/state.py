@@ -57,6 +57,9 @@ class ItemState:
     # A hash of the rendered card, so the bot edits the root only when it changes.
     card: str = ""
     verdict: Verdict | None = None
+    # When the bot last asked Claude about the item, whether or not Claude answered. It spaces out
+    # Claude's looks at a busy item.
+    asked_at: float = 0.0
     # The tier that a teammate chose with `!priority`, and their Slack user ID. None lets the bot
     # decide.
     priority: Tier | None = None
@@ -80,6 +83,7 @@ class ItemState:
             "read_until": self.read_until,
             "seen_external_at": self.seen_external_at,
             "card": self.card,
+            "asked_at": _num(self.asked_at),
             "priority": self.priority.value if self.priority else "",
             "priority_by": self.priority_by,
         }
@@ -89,6 +93,8 @@ class ItemState:
                 "verdict_reason": self.verdict.reason,
                 "verdict_activity_at": self.verdict.activity_at,
                 "verdict_checked_at": _num(self.verdict.checked_at.timestamp()),
+                "verdict_tier": self.verdict.tier.value if self.verdict.tier else "",
+                "verdict_tier_reason": self.verdict.tier_reason,
             }
         return out
 
@@ -105,6 +111,8 @@ class ItemState:
                     reason=str(payload.get("verdict_reason", "")),
                     activity_at=str(payload.get("verdict_activity_at", "")),
                     checked_at=datetime.fromtimestamp(float(payload["verdict_checked_at"]), UTC),
+                    tier=Tier(payload["verdict_tier"]) if payload.get("verdict_tier") else None,
+                    tier_reason=str(payload.get("verdict_tier_reason", "")),
                 )
             return cls(
                 number=int(payload["number"]),
@@ -117,6 +125,7 @@ class ItemState:
                 seen_external_at=str(payload.get("seen_external_at", "")),
                 card=str(payload.get("card", "")),
                 verdict=verdict,
+                asked_at=float(payload.get("asked_at") or 0),
                 priority=Tier(payload["priority"]) if payload.get("priority") else None,
                 priority_by=str(payload.get("priority_by", "")),
             )
@@ -137,6 +146,9 @@ class OverviewState:
     waiting: str = ""
     # A hash of that reply's content, so the bot edits it only when it changes.
     waiting_card: str = ""
+    # The outcome of the latest request to Claude, for example "Claude checked 3". The overview
+    # shows it until the next request, so a failure stays visible while Claude is not asked.
+    claude: str = ""
     # True once a newer overview replaced this one.
     replaced: bool = False
 

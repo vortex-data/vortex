@@ -201,7 +201,7 @@ def run(
     now: datetime = NOW,
     *,
     pings: bool = False,
-    verdicts: dict[int, Any] | None = None,
+    claude: Any = None,
     users: dict[str, str] | None = None,
     ended: Callable[[int], Any] | None = None,
 ) -> Any:
@@ -211,7 +211,7 @@ def run(
         oncall=ONCALL,
         users={"alice": "UALICE"} if users is None else users,
         pings=pings,
-        verdicts=verdicts or {},
+        claude=claude or sync.Judgment(),
     )
     channel = sync.load(fake.history())
     return sync.Run(fake, config, now, ended or (lambda _number: None), channel).execute(items)

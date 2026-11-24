@@ -303,12 +303,112 @@ def test_reopened_item_is_left_for_the_next_scan():
 def test_claude_verdict_is_cached_in_the_root():
     fake = FakeSlack()
     verdict = rules.Verdict(rules.Owes.CONTRIBUTOR, "asked to wait for a release", HIGH.events[-1].at, NOW)
-    run(fake, [HIGH], verdicts={1: verdict})
+    run(fake, [HIGH], claude=sync.Judgment(verdicts={1: verdict}, asked=frozenset({1})))
     assert payload(fake, 1)["verdict_owes"] == "contributor"
     assert "🔵" in card_text(fake, 1) and "asked to wait for a release" in card_text(fake, 1)
     # A later run without Claude keeps using the cached verdict.
     run(fake, [HIGH], NOW + HOUR)
     assert "🔵" in card_text(fake, 1)
+
+
+def claude_says(owes, priority="normal", reason="a reason") -> Any:
+    """Return a fake Claude that gives every item the same answer."""
+
+    def answer(sent) -> str:
+        entries = [
+            {"number": e["number"], "owes": owes, "reason": reason, "priority": priority, "priority_reason": reason}
+            for e in sent["items"]
+        ]
+        return json.dumps({"verdicts": entries})
+
+    return answer
+
+
+def judged(fake, items, now, ask) -> Any:
+    """Ask the fake Claude about the channel's state before a run, as the sync command does."""
+    return support.evaluate.judge(items, sync.load(fake.history()), now, ask)
+
+
+def overview_text(fake) -> str:
+    return json.dumps(fake.messages[overview_ts(fake)]["blocks"], ensure_ascii=False)
+
+
+def test_claude_priority_changes_get_one_note_each():
+    target = item(1, kind="pr", created=ago(days=1))
+    fake = FakeSlack()
+    run(fake, [target], claude=judged(fake, [target], NOW, claude_says("vortex", "low", "superseded by #9")))
+    root = fake.root(1)["ts"]
+    assert fake.bot_replies(root) == ["🤖 Claude moved this item from 🔴 High to ⚪ Low: superseded by #9"]
+    assert "⚪" in card_text(fake, 1) and "Claude: superseded by #9" in card_text(fake, 1)
+
+    # The same answer after new activity changes nothing, so it gets no note.
+    later = item(1, kind="pr", created=ago(days=1), events=[event(ago(minutes=-90))])
+    at = NOW + 2 * HOUR
+    run(fake, [later], at, claude=judged(fake, [later], at, claude_says("vortex", "low", "still superseded")))
+    assert len(fake.bot_replies(root)) == 2  # The activity reply only.
+
+    # A teammate's priority still wins, and Claude's change back to the rules gets a note.
+    fake.say(root, "!priority normal", at + timedelta(minutes=1))
+    newest = item(1, kind="pr", created=ago(days=1), events=[event(ago(minutes=-150))])
+    at = NOW + 4 * HOUR
+    run(fake, [newest], at, claude=judged(fake, [newest], at, claude_says("vortex", "high", "a ready PR")))
+    assert fake.bot_replies(root)[-1] == (
+        "🤖 Claude moved this item from ⚪ Low back to the rules' 🔴 High: a ready PR\n"
+        "A teammate's `!priority` still decides."
+    )
+    assert "🟡" in card_text(fake, 1)
+
+
+def test_reminders_wait_for_claude_to_see_new_activity():
+    # A teammate asked something, and Claude agreed that the contributor owes the answer.
+    asked = item(1, created=ago(days=3), events=[event(ago(hours=2), TEAMMATE)])
+    fake = FakeSlack()
+    run(fake, [asked], pings=True, claude=judged(fake, [asked], NOW, claude_says("contributor")))
+    assert item_reminders(fake, 1) == []
+
+    # The contributor only says thanks. The rules alone would remind, but Claude looked within the
+    # hour, so the reminder waits for Claude's next look.
+    thanks = item(1, created=ago(days=3), events=[event(ago(hours=2), TEAMMATE), event(ago(minutes=-10))])
+
+    def unused(_sent) -> str:
+        raise AssertionError("Claude must not be asked within the hour")
+
+    at = NOW + timedelta(minutes=15)
+    judgment = judged(fake, [thanks], at, unused)
+    assert judgment.held == {1}
+    run(fake, [thanks], at, pings=True, claude=judgment)
+    assert item_reminders(fake, 1) == []
+
+    # After the hour, Claude looks and finds that nothing waits on Vortex.
+    at = NOW + timedelta(minutes=65)
+    run(fake, [thanks], at, pings=True, claude=judged(fake, [thanks], at, claude_says("contributor")))
+    assert item_reminders(fake, 1) == []
+    assert "🔵" in card_text(fake, 1)
+
+    # A failed look does not hold reminders, so a broken Claude never silences the bot.
+    more = item(
+        1, created=ago(days=3), events=[event(ago(hours=2), TEAMMATE), event(ago(minutes=-10)), event(ago(minutes=-70))]
+    )
+    at = NOW + timedelta(minutes=135)
+    run(fake, [more], at, pings=True, claude=judged(fake, [more], at, lambda _sent: "{}"))
+    assert len(item_reminders(fake, 1)) == 1
+
+
+def test_overview_keeps_showing_a_claude_failure_until_claude_answers():
+    fake = FakeSlack()
+    run(fake, [HIGH], claude=judged(fake, [HIGH], NOW, lambda _sent: "{}"))
+    assert "⚠️ Claude failed, rules only" in overview_text(fake)
+    # Within the hour, Claude is not asked, and the overview still shows the failure.
+    at = NOW + timedelta(minutes=10)
+    run(fake, [HIGH], at, claude=judged(fake, [HIGH], at, claude_says("vortex")))
+    assert "⚠️ Claude failed, rules only" in overview_text(fake)
+    at = NOW + 2 * HOUR
+    run(fake, [HIGH], at, claude=judged(fake, [HIGH], at, claude_says("vortex", "high")))
+    assert "Claude checked 1" in overview_text(fake)
+    # The next day's overview starts with the latest status, and a run without Claude says so.
+    tomorrow = NOW + timedelta(days=1)
+    run(fake, [HIGH], tomorrow, claude=judged(fake, [HIGH], tomorrow, None))
+    assert "Claude off" in overview_text(fake)
 
 
 def item_reminders(fake, number) -> list[str]:
@@ -485,7 +585,7 @@ def test_state_from_another_schema_is_ignored(schema):
 
 
 def test_state_round_trips_through_metadata():
-    verdict = rules.Verdict(rules.Owes.VORTEX, "reason", ago(days=1), NOW)
+    verdict = rules.Verdict(rules.Owes.VORTEX, "reason", ago(days=1), NOW, rules.Tier.LOW, "duplicate")
     original = state.ItemState(
         7,
         status=state.Status.ANSWERED,
@@ -497,13 +597,20 @@ def test_state_round_trips_through_metadata():
         seen_external_at=ago(days=1),
         card="abc",
         verdict=verdict,
+        asked_at=NOW.timestamp(),
         priority=rules.Tier.NORMAL,
         priority_by="U2",
     )
     assert all(isinstance(v, str) for v in original.payload().values())
     assert state.ItemState.from_payload(original.payload()) == original
     overview = state.OverviewState(
-        "2026-11-24", read_until="1.0", reminded="UALICE,oncall", waiting="2.0", waiting_card="ab", replaced=True
+        "2026-11-24",
+        read_until="1.0",
+        reminded="UALICE,oncall",
+        waiting="2.0",
+        waiting_card="ab",
+        claude="Claude checked 3",
+        replaced=True,
     )
     assert state.OverviewState.from_payload(overview.payload()) == overview
 

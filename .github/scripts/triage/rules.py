@@ -1,7 +1,8 @@
 """Decide which items the bot tracks, who owes the next move, and how urgent each item is.
 
-Every rule here is deterministic, because only Claude's verdict on who owes the next move may come
-from a model. A valid verdict replaces the rule for that one question.
+Whether an item is tracked is always deterministic, so a model can never hide an item. A valid
+Claude verdict can replace the rules' answer on who owes the next move and the rules' tier. A
+teammate's `!priority` replaces both tiers.
 """
 
 from __future__ import annotations
@@ -11,7 +12,7 @@ from datetime import UTC, datetime
 from enum import StrEnum
 
 from .github import COMMENT, READY, REVIEW, Event, Item
-from .hours import working_days_between, working_seconds
+from .hours import working_seconds
 
 FUZZER_LABEL = "fuzzer"
 BUG_LABEL = "bug"
@@ -29,9 +30,6 @@ _WORKING_DAY = 14 * 3600
 BUG_BOOST = 3 * _WORKING_DAY
 SMALL_PR_LINES, SMALL_PR_BOOST = 100, 2 * _WORKING_DAY
 MEDIUM_PR_LINES, MEDIUM_PR_BOOST = 500, 1 * _WORKING_DAY
-
-# "No progress" depends on time, so a verdict expires even when nothing new happens.
-VERDICT_MAX_WORKING_DAYS = 5
 
 
 class Category(StrEnum):
@@ -56,12 +54,17 @@ class Owes(StrEnum):
 
 @dataclass(frozen=True)
 class Verdict:
-    """Claude's answer to who owes the next move, for the activity it saw."""
+    """Claude's answer to who owes the next move and how urgent the item is, for the activity it
+    saw."""
 
     owes: Owes
     reason: str
     activity_at: str
     checked_at: datetime
+    # Claude's tier, or None when Claude kept the rules' tier.
+    tier: Tier | None = None
+    # Why Claude chose its tier, or why it kept the rules' tier.
+    tier_reason: str = ""
 
 
 @dataclass(frozen=True)
@@ -207,13 +210,13 @@ def _tier(
 ALWAYS_VORTEX = (Category.FUZZER, Category.INTERNAL_BUG)
 
 
-def verdict_applies(verdict: Verdict | None, last_activity_at: str, now: datetime) -> bool:
-    """Return True if a cached verdict still answers who owes the next move."""
-    return (
-        verdict is not None
-        and verdict.activity_at >= last_activity_at
-        and working_days_between(verdict.checked_at, now) < VERDICT_MAX_WORKING_DAYS
-    )
+def verdict_applies(verdict: Verdict | None, last_activity_at: str) -> bool:
+    """Return True if a cached verdict still applies, because nothing happened after Claude's look.
+
+    A verdict does not expire with age. Claude looks again at an item that nobody is reminded about
+    after a few working days, so time alone cannot leave a wrong verdict in place for long.
+    """
+    return verdict is not None and verdict.activity_at >= last_activity_at
 
 
 def assess(
@@ -221,7 +224,8 @@ def assess(
 ) -> Assessment | None:
     """Assess a tracked item, or return None when the bot does not track it.
 
-    `priority` is the tier that a teammate chose in Slack, which replaces the rule's tier.
+    `priority` is the tier that a teammate chose in Slack, which replaces the rules' and Claude's
+    tier.
     """
     category = categorize(item)
     if category is None:
@@ -231,10 +235,11 @@ def assess(
     last_activity_at = item.events[-1].at if item.events else item.created_at
 
     owes, owes_reason, owed_since = _owes(item, category, now)
-    # A fuzzer issue or a team's bug always waits on Vortex, so no verdict applies to it.
-    from_claude = category not in ALWAYS_VORTEX and verdict_applies(verdict, last_activity_at, now)
-    if from_claude and verdict is not None:
-        owes, owes_reason = verdict.owes, verdict.reason
+    valid = verdict if verdict_applies(verdict, last_activity_at) else None
+    # A fuzzer issue or a team's bug always waits on Vortex, so Claude only judges its tier.
+    from_claude = valid is not None and category not in ALWAYS_VORTEX
+    if from_claude and valid is not None:
+        owes, owes_reason = valid.owes, valid.reason
         if owes is Owes.CONTRIBUTOR:
             owed_since = None
         elif owed_since is None:
@@ -242,6 +247,8 @@ def assess(
             # owed the next move since the contributor last acted.
             owed_since = last_external or parse_time(item.created_at)
     tier, tier_reason = _tier(item, category, last_external, now)
+    if valid is not None and valid.tier is not None:
+        tier, tier_reason = valid.tier, f"Claude: {valid.tier_reason}"
     if priority is not None:
         tier, tier_reason = priority, "priority set in Slack"
 

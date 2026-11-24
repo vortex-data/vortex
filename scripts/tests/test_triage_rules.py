@@ -198,16 +198,29 @@ def test_contributor_verdict_clears_the_wait():
     assert (result.owes, result.owed_since) == (Owes.CONTRIBUTOR, None)
 
 
-def test_verdict_goes_stale_with_new_activity_or_age():
+def test_verdict_goes_stale_with_new_activity_but_not_with_age():
     target = item(created=ago(days=10), events=[event(ago(days=1))])
     stale = rules.Verdict(Owes.CONTRIBUTOR, "old", ago(days=10), NOW - timedelta(hours=1))
     assert not assess(target, stale).from_claude
-    current = rules.Verdict(Owes.CONTRIBUTOR, "fresh", ago(days=1), NOW - timedelta(days=6))
-    assert rules.working_days_between(current.checked_at, NOW) == 4
-    assert assess(target, current).from_claude
-    expired = rules.Verdict(Owes.CONTRIBUTOR, "old", ago(days=1), NOW - timedelta(days=7))
-    assert rules.working_days_between(expired.checked_at, NOW) == 5
-    assert not assess(target, expired).from_claude
+    old = rules.Verdict(Owes.CONTRIBUTOR, "old but current", ago(days=1), NOW - timedelta(days=60))
+    assert assess(target, old).from_claude
+
+
+def test_claude_tier_applies_until_new_activity_and_slack_priority_wins():
+    target = item(created=ago(days=10), events=[event(ago(days=1))])
+    assert assess(target).tier is Tier.NORMAL
+    verdict = rules.Verdict(Owes.VORTEX, "waiting", ago(days=1), NOW, Tier.HIGH, "reports wrong results")
+    result = assess(target, verdict)
+    assert (result.tier, result.tier_reason) == (Tier.HIGH, "Claude: reports wrong results")
+    stale = rules.Verdict(Owes.VORTEX, "waiting", ago(days=2), NOW, Tier.HIGH, "reports wrong results")
+    assert assess(target, stale).tier is Tier.NORMAL
+    manual = rules.assess(target, NOW, verdict, Tier.LOW)
+    assert manual is not None and (manual.tier, manual.tier_reason) == (Tier.LOW, "priority set in Slack")
+    # Claude judges the tier of a team's bug, but never who owes the next move.
+    bug = item(author=TEAMMATE, labels=["bug"], created=ago(days=10))
+    verdict = rules.Verdict(Owes.CONTRIBUTOR, "no", bug.events[-1].at, NOW, Tier.LOW, "duplicate of #3")
+    result = assess(bug, verdict)
+    assert (result.owes, result.from_claude, result.tier) == (Owes.VORTEX, False, Tier.LOW)
 
 
 def test_score_adds_boosts_to_the_working_time_owed():
