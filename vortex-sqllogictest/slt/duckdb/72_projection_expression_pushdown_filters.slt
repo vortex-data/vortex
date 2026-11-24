@@ -1,0 +1,47 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+include ../setup.slt.no
+
+# str has storage_index=1. This tests cases where column_index (i.e. 0 in
+# SELECT strlen(str)) is different from storage_index.
+statement ok
+CREATE TABLE pep_test (before INTEGER, str VARCHAR, after INTEGER);
+
+statement ok
+INSERT INTO pep_test VALUES (0, 'Hello', 0), (1, 'Hi', 1), (2, 'Hey', 2);
+
+statement ok
+COPY (SELECT * FROM pep_test) TO '${WORK_DIR}/pe-pushdown.vortex';
+
+# explain: strlen with filter using strlen
+query TT
+EXPLAIN (FORMAT json)
+SELECT strlen(str) FROM '${WORK_DIR}/pe-pushdown.vortex'
+WHERE strlen(str) > 2;
+----
+<REGEX>:SELECT projections
+
+query I
+SELECT strlen(str) AS l FROM '${WORK_DIR}/pe-pushdown.vortex'
+WHERE strlen(str) > 2
+ORDER BY strlen(str);
+----
+3
+5
+
+# Same, but filter expression has multiple children
+query I
+SELECT strlen(str) AS l FROM '${WORK_DIR}/pe-pushdown.vortex'
+WHERE strlen(str) * 2 > 4
+ORDER BY strlen(str);
+----
+3
+5
+
+# explain: len() in WHERE conflicts with strlen() in SELECT, no pushdown
+query TT
+EXPLAIN (FORMAT json)
+SELECT strlen(str) FROM '${WORK_DIR}/pe-pushdown.vortex' WHERE len(str) > 2;
+----
+<!REGEX>:SELECT projections

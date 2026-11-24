@@ -15,8 +15,8 @@ use crate::expr::lit;
 use crate::expr::pack;
 use crate::scalar::arbitrary::random_scalar;
 use crate::scalar_fn::ScalarFnVTableExt;
-use crate::scalar_fn::fns::binary::Binary;
-use crate::scalar_fn::fns::operators::Operator;
+use crate::scalar_fn::builtin::compare::Compare;
+use crate::scalar_fn::builtin::operators::CompareOperator;
 
 pub fn projection_expr(u: &mut Unstructured<'_>, dtype: &DType) -> AResult<Option<Expression>> {
     let Some(struct_dtype) = dtype.as_struct_fields_opt() else {
@@ -59,20 +59,20 @@ fn random_comparison(
     dtype: &DType,
 ) -> AResult<Expression> {
     let scalar = random_scalar(u, dtype)?;
-    Ok(Binary.new_expr(
+    Ok(Compare.new_expr(
         arbitrary_comparison_operator(u)?,
         [col(name.clone()), lit(scalar)],
     ))
 }
 
-fn arbitrary_comparison_operator(u: &mut Unstructured<'_>) -> AResult<Operator> {
+fn arbitrary_comparison_operator(u: &mut Unstructured<'_>) -> AResult<CompareOperator> {
     Ok(match u.int_in_range(0..=5)? {
-        0 => Operator::Eq,
-        1 => Operator::NotEq,
-        2 => Operator::Gt,
-        3 => Operator::Gte,
-        4 => Operator::Lt,
-        5 => Operator::Lte,
+        0 => CompareOperator::Eq,
+        1 => CompareOperator::NotEq,
+        2 => CompareOperator::Gt,
+        3 => CompareOperator::Gte,
+        4 => CompareOperator::Lt,
+        5 => CompareOperator::Lte,
         _ => unreachable!("range 0..=5"),
     })
 }

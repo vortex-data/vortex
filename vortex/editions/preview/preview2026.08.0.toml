@@ -11,7 +11,9 @@ origin = "vortex"
 
 # Components added by this edition.
 [added]
-arrays = []
+arrays = [
+    "fastlanes.delta",
+]
 layouts = []
 dtypes = []
 aggregates = [
@@ -21,7 +23,9 @@ aggregates = [
 # The edition's full membership: the members above, plus every member of earlier
 # editions of the family.
 [components]
-arrays = []
+arrays = [
+    "fastlanes.delta",
+]
 layouts = []
 dtypes = []
 aggregates = [

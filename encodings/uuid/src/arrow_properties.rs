@@ -38,7 +38,6 @@ mod tests {
     use vortex_array::dtype::extension::ExtVTable;
     use vortex_array::validity::Validity;
     use vortex_arrow::ExecuteArrowExt;
-    use vortex_arrow::test_harness::DefaultExport;
     use vortex_arrow::test_harness::check_arrow;
     use vortex_arrow::test_harness::check_canonical_field;
     use vortex_arrow::test_harness::check_generated;
@@ -107,12 +106,12 @@ mod tests {
         field.try_with_extension_type(ArrowUuid)?;
         if version.is_some() {
             field.metadata_mut().insert(
-                "vortex:extension:metadata".into(),
+                "vortex:extension:metadata",
                 BASE64_STANDARD.encode(&metadata),
             );
             field
                 .metadata_mut()
-                .insert("vortex:extension:metadata:encoding".into(), "base64".into());
+                .insert("vortex:extension:metadata:encoding", "base64");
         }
         let storage = FixedSizeListArray::try_new(
             PrimitiveArray::from_iter(bytes).into_array(),
@@ -156,7 +155,7 @@ mod tests {
         let default = case.array.clone().execute_arrow(None, &mut ctx)?;
         assert_eq!(default.to_data(), case.arrow.to_data());
         check_canonical_field(&case.array, &case.field, &mut ctx)?;
-        check_generated(tc, case.array, DefaultExport::Supported, &mut ctx)
+        check_generated(tc, case.array, &mut ctx)
     }
 
     #[track_caller]

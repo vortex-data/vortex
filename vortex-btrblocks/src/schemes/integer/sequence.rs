@@ -9,6 +9,7 @@ use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::VTable;
 use vortex_compressor::builtins::BinaryDictScheme;
+use vortex_compressor::builtins::DecimalDictScheme;
 use vortex_compressor::builtins::FloatDictScheme;
 use vortex_compressor::builtins::IntDictScheme;
 use vortex_compressor::builtins::StringDictScheme;
@@ -66,6 +67,10 @@ impl Scheme for SequenceScheme {
             },
             AncestorExclusion {
                 ancestor: BinaryDictScheme.id(),
+                children: ChildSelection::One(1),
+            },
+            AncestorExclusion {
+                ancestor: DecimalDictScheme.id(),
                 children: ChildSelection::One(1),
             },
         ]

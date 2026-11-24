@@ -11,7 +11,6 @@ use std::f64::consts::PI;
 use std::mem::size_of;
 use std::os::raw::c_void;
 use std::ptr;
-use std::sync::Arc;
 use std::sync::LazyLock;
 use std::time::Duration;
 
@@ -66,7 +65,6 @@ use vortex_cuda::dynamic_dispatch::MaterializedPlan;
 use vortex_cuda::dynamic_dispatch::dispatch_kernel;
 use vortex_cuda_driver::CudaFunction;
 use vortex_cuda_driver::CudaSlice;
-use vortex_cuda_driver::DevicePtr;
 use vortex_cuda_driver::DeviceRepr;
 use vortex_cuda_driver::LaunchConfig;
 use vortex_cuda_driver::PushKernelArg;
@@ -94,22 +92,18 @@ fn global_reference(array: &FoRArray) -> Scalar {
 /// Launch the dynamic_dispatch kernel and return GPU-timed duration.
 ///
 /// This deliberately does not use `CudaDispatchPlan::execute` because the
-/// benchmark pre-allocates the output buffer and device plan once, then reuses
-/// them across iterations.
+/// benchmark pre-allocates the output buffer once, then reuses it across
+/// iterations.
 fn run_timed<T: DeviceRepr + NativePType>(
     cuda_ctx: &mut CudaExecutionCtx,
     array_len: usize,
     output_buf: &mut CudaSlice<T>,
     plan: &CudaDispatchPlan,
-    device_plan: &Arc<CudaSlice<u8>>,
     shared_mem_bytes: u32,
 ) -> VortexResult<Duration> {
     let (cuda_function, num_blocks) =
         dispatch_kernel(cuda_ctx, T::PTYPE, plan, array_len, shared_mem_bytes)?;
     let array_len_u64 = array_len as u64;
-    let (plan_ptr, record_plan) = device_plan
-        .device_ptr(cuda_ctx.stream())
-        .map_err(|e| vortex_err!("Failed to access device plan: {e}"))?;
 
     let stream = cuda_ctx.stream();
     let ctx = stream.context();
@@ -123,7 +117,7 @@ fn run_timed<T: DeviceRepr + NativePType>(
     let mut launch_builder = cuda_ctx.stream().launch_builder(&cuda_function);
     launch_builder.arg(output_buf);
     launch_builder.arg(&array_len_u64);
-    launch_builder.arg(&plan_ptr);
+    launch_builder.arg(plan.kernel_param());
 
     let config = LaunchConfig {
         grid_dim: (num_blocks, 1, 1),
@@ -131,16 +125,8 @@ fn run_timed<T: DeviceRepr + NativePType>(
         shared_mem_bytes,
     };
 
-    let launch = unsafe { launch_builder.launch(config) };
-    let completion = record_plan.finish();
-    launch
-        .inspect_err(|_| {
-            if let Err(error) = &completion {
-                tracing::error!(%error, "Failed to track device plan access after launch failure");
-            }
-        })
+    unsafe { launch_builder.launch(config) }
         .map_err(|e| vortex_err!("kernel launch failed: {e}"))?;
-    completion.map_err(|e| vortex_err!("Failed to track device plan access: {e}"))?;
 
     let stream = cuda_ctx.stream();
     let ctx = stream.context();
@@ -164,7 +150,6 @@ struct BenchRunner<T> {
     plan: CudaDispatchPlan,
     smem_bytes: u32,
     len: usize,
-    device_plan: Arc<CudaSlice<u8>>,
     output_buf: CudaSlice<T>,
     _plan_buffers: Vec<BufferHandle>,
 }
@@ -184,18 +169,10 @@ impl<T: DeviceRepr + NativePType> BenchRunner<T> {
             ..
         } = block_on(plan.materialize(cuda_ctx)).vortex_expect("materialize plan");
 
-        let device_plan = Arc::new(
-            cuda_ctx
-                .stream()
-                .clone_htod(dispatch_plan.as_bytes())
-                .expect("htod plan"),
-        );
-
         Self {
             plan: dispatch_plan,
             smem_bytes: shared_mem_bytes,
             len,
-            device_plan,
             output_buf: cuda_ctx
                 .device_alloc::<T>(len.next_multiple_of(1024))
                 .expect("alloc output"),
@@ -210,7 +187,6 @@ impl<T: DeviceRepr + NativePType> BenchRunner<T> {
             self.len,
             &mut self.output_buf,
             &self.plan,
-            &self.device_plan,
             self.smem_bytes,
         )
         .unwrap()
@@ -515,9 +491,11 @@ mod standalone {
             assert!(matches!(values_bp.bit_widths(), BitWidthsView::Global(6)));
             assert!(matches!(codes_bp.bit_widths(), BitWidthsView::Global(6)));
 
-            let values_packed = block_on(cuda_ctx.ensure_on_device(values_bp.packed().clone()))
+            let values_packed = cuda_ctx
+                .ensure_on_device(values_bp.packed().clone())
                 .vortex_expect("values packed");
-            let codes_packed = block_on(cuda_ctx.ensure_on_device(codes_bp.packed().clone()))
+            let codes_packed = cuda_ctx
+                .ensure_on_device(codes_bp.packed().clone())
                 .vortex_expect("codes packed");
 
             let values_len = values_bp.len();

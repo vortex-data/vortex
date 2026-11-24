@@ -446,6 +446,7 @@ mod tests {
 
     use arrow_schema::FieldRef;
     use arrow_schema::Fields;
+    use arrow_schema::Metadata;
     use arrow_schema::TimeUnit as ArrowTimeUnit;
     use arrow_schema::extension::EXTENSION_TYPE_METADATA_KEY;
     use arrow_schema::extension::EXTENSION_TYPE_NAME_KEY;
@@ -498,7 +499,7 @@ mod tests {
             vec![Field::new("col", DataType::Int32, false)],
             [("table".to_string(), "metadata".to_string())]
                 .into_iter()
-                .collect(),
+                .collect::<Metadata>(),
         );
         let dtype = DType::Struct(
             StructFields::from_iter([(
@@ -682,11 +683,11 @@ mod tests {
     #[test]
     fn test_map_schema_conversion_preserves_reference_fields() {
         let key = Field::new("custom_key", DataType::Int32, false)
-            .with_metadata([("key_metadata".to_owned(), "key_value".to_owned())].into());
+            .with_metadata([("key_metadata".to_owned(), "key_value".to_owned())]);
         let value = Field::new("custom_value", DataType::Utf8, true)
-            .with_metadata([("value_metadata".to_owned(), "value_value".to_owned())].into());
+            .with_metadata([("value_metadata".to_owned(), "value_value".to_owned())]);
         let entries = Field::new_struct("custom_entries", vec![key, value], false)
-            .with_metadata([("entries_metadata".to_owned(), "entries_value".to_owned())].into());
+            .with_metadata([("entries_metadata".to_owned(), "entries_value".to_owned())]);
         let logical_schema = Schema::new(vec![Field::new(
             "map_col",
             DataType::Map(Arc::new(entries), true),
@@ -808,7 +809,7 @@ mod tests {
     fn test_list_family_conversion_preserves_element_metadata() -> DFResult<()> {
         let elem = || {
             Field::new("item", DataType::Int32, true)
-                .with_metadata([("elem_meta".to_owned(), "v".to_owned())].into())
+                .with_metadata([("elem_meta".to_owned(), "v".to_owned())])
         };
         let logical_schema = Schema::new(vec![
             Field::new("list_col", DataType::List(Arc::new(elem())), true),

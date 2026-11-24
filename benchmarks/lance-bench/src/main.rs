@@ -65,6 +65,11 @@ struct Args {
     #[arg(long, default_value_t = false)]
     print_queries: bool,
 
+    /// Write the benchmark's Lance data and exit without running queries. CI uses it to record
+    /// Lance file sizes for a benchmark whose queries it does not run on Lance.
+    #[arg(long, default_value_t = false)]
+    data_only: bool,
+
     #[arg(short)]
     output_path: Option<PathBuf>,
 
@@ -88,6 +93,17 @@ struct Args {
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
 
+/// Queries that Lance cannot run, as `(dataset name, query index)`. They are left out of the
+/// query list, so `--print-queries` does not name them either.
+///
+/// - TPC-DS q72 fails with an Arrow offset overflow on Lance's data. Lance stores strings as
+///   `Utf8`, whose 32-bit offsets overflow when the query collects more than 2 GiB of strings in
+///   one array. Parquet reads as `Utf8View`, which does not overflow.
+///
+/// A skipped query is not a free win: bench.vortex.dev ranks a series that has no time for a
+/// query below every series that ran them all.
+const UNSUPPORTED_QUERIES: &[(&str, usize)] = &[("tpcds", 72)];
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     vortex_bench::configure_allocator();
@@ -98,11 +114,21 @@ async fn main() -> anyhow::Result<()> {
 
     let benchmark = create_benchmark(args.benchmark, &opts)?;
 
-    let filtered_queries = filter_queries(
+    let mut filtered_queries = filter_queries(
         benchmark.queries()?,
         args.queries.as_ref(),
         args.exclude_queries.as_ref(),
     );
+    filtered_queries.retain(|(query_idx, _)| {
+        let unsupported = UNSUPPORTED_QUERIES.contains(&(benchmark.dataset_name(), *query_idx));
+        if unsupported {
+            info!(
+                "Skipping {} q{query_idx}, which Lance cannot run",
+                benchmark.dataset_name()
+            );
+        }
+        !unsupported
+    });
 
     if args.print_queries {
         for (query_idx, _) in &filtered_queries {
@@ -116,6 +142,10 @@ async fn main() -> anyhow::Result<()> {
 
     // Convert Parquet to Lance format
     generate_lance_data(&*benchmark).await?;
+
+    if args.data_only {
+        return Ok(());
+    }
 
     let mut runner = SqlBenchmarkRunner::new(
         &*benchmark,

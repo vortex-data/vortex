@@ -32,7 +32,6 @@ mod tests {
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
-    use crate::test_harness::DefaultExport;
     use crate::test_harness::StorageCase;
     use crate::test_harness::check_arrow;
     use crate::test_harness::check_canonical_field;
@@ -158,7 +157,7 @@ mod tests {
         check_arrow(array.clone(), &field, expected, &mut ctx)?;
         check_canonical_field(&array, &field, &mut ctx)?;
 
-        check_generated(tc, array, DefaultExport::Supported, &mut ctx)
+        check_generated(tc, array, &mut ctx)
     }
 
     #[hegel::test(test_cases = 100, print_blob = true)]

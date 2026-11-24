@@ -20,8 +20,9 @@ use crate::builders::builder_with_capacity_in;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
+use crate::scalar::NumericOperator;
 use crate::scalar::Scalar;
-use crate::scalar_fn::fns::operators::Operator;
+use crate::scalar_fn::builtin::operators::CompareOperator;
 use crate::validity::Validity;
 
 /// A one-off or retained probe over `array`, the retained one living in `retained`.
@@ -89,8 +90,8 @@ fn lazy_value_validity_only_evaluates_requested_runs() -> VortexResult<()> {
     let mut ctx = SESSION.create_execution_ctx();
     let numerators = buffer![1u32, 1].into_array();
     let validity = numerators
-        .binary(buffer![1u32, 0].into_array(), Operator::Div)?
-        .binary(numerators, Operator::Eq)?;
+        .numeric(buffer![1u32, 0].into_array(), NumericOperator::Div)?
+        .compare(numerators, CompareOperator::Eq)?;
     let values = PrimitiveArray::new(buffer![42u32, 99], Validity::Array(validity));
     let array =
         RunEnd::try_new(buffer![4u32, 8].into_array(), values.into_array(), &mut ctx)?.into_array();

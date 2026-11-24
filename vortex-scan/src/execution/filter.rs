@@ -31,6 +31,7 @@ use super::adaptor::AdaptorStep;
 use super::adaptor::Piece;
 use super::adaptor::ScanAdaptor;
 use super::projection::ProjectionPlanner;
+use super::segment_target;
 use crate::execution::filter_expr::FilterExpr;
 use crate::execution::pipeline::Scan;
 use crate::execution::pipeline::Split;
@@ -228,7 +229,7 @@ pub(super) fn hint(
         batch.push(IoRequest {
             intent,
             request: IoRequestId(*next_hint),
-            target: locations[*segment as usize].target(),
+            target: segment_target(&locations[*segment as usize]),
         });
         *next_hint -= 1;
     }

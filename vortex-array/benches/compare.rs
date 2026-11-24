@@ -42,7 +42,7 @@ use vortex_array::dtype::DecimalDType;
 use vortex_array::memory::MemorySession;
 use vortex_array::optimizer::kernels::KernelSession;
 use vortex_array::scalar::Scalar;
-use vortex_array::scalar_fn::fns::operators::Operator;
+use vortex_array::scalar_fn::builtin::operators::CompareOperator;
 use vortex_array::test_harness::mark_optimized;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
@@ -65,7 +65,7 @@ fn main() {
 // Keep simulated workloads within CodSpeed's per-case runtime limit.
 const ARRAY_SIZE: usize = 8_192;
 
-fn bench_compare(bencher: Bencher, lhs: ArrayRef, rhs: ArrayRef, op: Operator) {
+fn bench_compare(bencher: Bencher, lhs: ArrayRef, rhs: ArrayRef, op: CompareOperator) {
     mark_optimized(&lhs, &SESSION).unwrap();
     mark_optimized(&rhs, &SESSION).unwrap();
 
@@ -78,7 +78,7 @@ fn bench_compare(bencher: Bencher, lhs: ArrayRef, rhs: ArrayRef, op: Operator) {
             input
                 .0
                 .clone()
-                .binary(input.1.clone(), op)
+                .compare(input.1.clone(), op)
                 .unwrap()
                 .execute::<Canonical>(&mut input.2)
         });
@@ -166,7 +166,7 @@ fn compare_bool(bencher: Bencher) {
     let mut rng = StdRng::seed_from_u64(0);
     let arr1 = bool_array(&mut rng);
     let arr2 = bool_array(&mut rng);
-    bench_compare(bencher, arr1, arr2, Operator::Gte);
+    bench_compare(bencher, arr1, arr2, CompareOperator::Gte);
 }
 
 #[divan::bench]
@@ -174,7 +174,7 @@ fn compare_bool_nullable(bencher: Bencher) {
     let mut rng = StdRng::seed_from_u64(0);
     let arr1 = bool_array_nullable(&mut rng);
     let arr2 = bool_array_nullable(&mut rng);
-    bench_compare(bencher, arr1, arr2, Operator::Gte);
+    bench_compare(bencher, arr1, arr2, CompareOperator::Gte);
 }
 
 #[divan::bench]
@@ -182,7 +182,7 @@ fn compare_bool_constant(bencher: Bencher) {
     let mut rng = StdRng::seed_from_u64(0);
     let arr = bool_array(&mut rng);
     let constant = ConstantArray::new(true, ARRAY_SIZE).into_array();
-    bench_compare(bencher, arr, constant, Operator::Eq);
+    bench_compare(bencher, arr, constant, CompareOperator::Eq);
 }
 
 #[vortex_bench_support::cpu_features]
@@ -191,7 +191,7 @@ fn compare_int(bencher: Bencher) {
     let mut rng = StdRng::seed_from_u64(0);
     let arr1 = int_array(&mut rng);
     let arr2 = int_array(&mut rng);
-    bench_compare(bencher, arr1, arr2, Operator::Gte);
+    bench_compare(bencher, arr1, arr2, CompareOperator::Gte);
 }
 
 #[vortex_bench_support::cpu_features]
@@ -200,7 +200,7 @@ fn compare_int_nullable(bencher: Bencher) {
     let mut rng = StdRng::seed_from_u64(0);
     let arr1 = int_array_nullable(&mut rng);
     let arr2 = int_array_nullable(&mut rng);
-    bench_compare(bencher, arr1, arr2, Operator::Gte);
+    bench_compare(bencher, arr1, arr2, CompareOperator::Gte);
 }
 
 #[vortex_bench_support::cpu_features]
@@ -209,7 +209,7 @@ fn compare_int_constant(bencher: Bencher) {
     let mut rng = StdRng::seed_from_u64(0);
     let arr = int_array(&mut rng);
     let constant = ConstantArray::new(50_000_000i64, ARRAY_SIZE).into_array();
-    bench_compare(bencher, arr, constant, Operator::Gte);
+    bench_compare(bencher, arr, constant, CompareOperator::Gte);
 }
 
 #[vortex_bench_support::cpu_features]
@@ -218,7 +218,7 @@ fn compare_u8(bencher: Bencher) {
     let mut rng = StdRng::seed_from_u64(0);
     let arr1 = u8_array(&mut rng);
     let arr2 = u8_array(&mut rng);
-    bench_compare(bencher, arr1, arr2, Operator::Gte);
+    bench_compare(bencher, arr1, arr2, CompareOperator::Gte);
 }
 
 #[vortex_bench_support::cpu_features]
@@ -227,7 +227,7 @@ fn compare_u64(bencher: Bencher) {
     let mut rng = StdRng::seed_from_u64(0);
     let arr1 = u64_array(&mut rng);
     let arr2 = u64_array(&mut rng);
-    bench_compare(bencher, arr1, arr2, Operator::Gte);
+    bench_compare(bencher, arr1, arr2, CompareOperator::Gte);
 }
 
 #[vortex_bench_support::cpu_features]
@@ -236,7 +236,7 @@ fn compare_f32(bencher: Bencher) {
     let mut rng = StdRng::seed_from_u64(0);
     let arr1 = f32_array(&mut rng);
     let arr2 = f32_array(&mut rng);
-    bench_compare(bencher, arr1, arr2, Operator::Gte);
+    bench_compare(bencher, arr1, arr2, CompareOperator::Gte);
 }
 
 #[vortex_bench_support::cpu_features]
@@ -245,7 +245,7 @@ fn compare_int_eq(bencher: Bencher) {
     let mut rng = StdRng::seed_from_u64(0);
     let arr1 = int_array(&mut rng);
     let arr2 = int_array(&mut rng);
-    bench_compare(bencher, arr1, arr2, Operator::Eq);
+    bench_compare(bencher, arr1, arr2, CompareOperator::Eq);
 }
 
 #[vortex_bench_support::cpu_features]
@@ -254,7 +254,7 @@ fn compare_float(bencher: Bencher) {
     let mut rng = StdRng::seed_from_u64(0);
     let arr1 = float_array(&mut rng);
     let arr2 = float_array(&mut rng);
-    bench_compare(bencher, arr1, arr2, Operator::Gte);
+    bench_compare(bencher, arr1, arr2, CompareOperator::Gte);
 }
 
 #[divan::bench]
@@ -262,7 +262,7 @@ fn compare_decimal(bencher: Bencher) {
     let mut rng = StdRng::seed_from_u64(0);
     let arr1 = decimal_array(&mut rng);
     let arr2 = decimal_array(&mut rng);
-    bench_compare(bencher, arr1, arr2, Operator::Gte);
+    bench_compare(bencher, arr1, arr2, CompareOperator::Gte);
 }
 
 #[divan::bench]
@@ -270,7 +270,7 @@ fn compare_string_eq(bencher: Bencher) {
     let mut rng = StdRng::seed_from_u64(0);
     let arr1 = string_array(&mut rng);
     let arr2 = string_array(&mut rng);
-    bench_compare(bencher, arr1, arr2, Operator::Eq);
+    bench_compare(bencher, arr1, arr2, CompareOperator::Eq);
 }
 
 #[divan::bench]
@@ -278,7 +278,7 @@ fn compare_string_lt(bencher: Bencher) {
     let mut rng = StdRng::seed_from_u64(0);
     let arr1 = string_array(&mut rng);
     let arr2 = string_array(&mut rng);
-    bench_compare(bencher, arr1, arr2, Operator::Lt);
+    bench_compare(bencher, arr1, arr2, CompareOperator::Lt);
 }
 
 #[divan::bench]
@@ -286,7 +286,7 @@ fn compare_string_constant(bencher: Bencher) {
     let mut rng = StdRng::seed_from_u64(0);
     let arr = string_array(&mut rng);
     let constant = ConstantArray::new(Scalar::from("mmmmmmmmmmmm"), ARRAY_SIZE).into_array();
-    bench_compare(bencher, arr, constant, Operator::Lt);
+    bench_compare(bencher, arr, constant, CompareOperator::Lt);
 }
 
 fn struct_array(rng: &mut StdRng) -> ArrayRef {
@@ -300,7 +300,7 @@ fn compare_struct_lt(bencher: Bencher) {
     let mut rng = StdRng::seed_from_u64(0);
     let arr1 = struct_array(&mut rng);
     let arr2 = struct_array(&mut rng);
-    bench_compare(bencher, arr1, arr2, Operator::Lt);
+    bench_compare(bencher, arr1, arr2, CompareOperator::Lt);
 }
 
 #[divan::bench]
@@ -308,5 +308,5 @@ fn compare_struct_eq(bencher: Bencher) {
     let mut rng = StdRng::seed_from_u64(0);
     let arr1 = struct_array(&mut rng);
     let arr2 = struct_array(&mut rng);
-    bench_compare(bencher, arr1, arr2, Operator::Eq);
+    bench_compare(bencher, arr1, arr2, CompareOperator::Eq);
 }

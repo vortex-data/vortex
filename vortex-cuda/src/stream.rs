@@ -11,7 +11,6 @@ use std::sync::Arc;
 
 use async_channel::Receiver;
 use async_channel::Sender;
-use futures::future::BoxFuture;
 use tracing::warn;
 use vortex::array::buffer::BufferHandle;
 use vortex::error::VortexResult;
@@ -76,61 +75,20 @@ impl VortexCudaStream {
 
     /// Copies host data to the device.
     ///
-    /// Allocates device memory, schedules an async copy, and returns a future
-    /// that completes when the copy is finished.
+    /// Allocates device memory, enqueues the H2D copy on the stream, and
+    /// returns immediately. Later work on this stream runs after the copy, and
+    /// so does work on other streams that accesses the buffer through views or
+    /// launch arguments. Raw pointers from `cuda_device_ptr` are not tracked,
+    /// so other streams must not read them without waiting.
     ///
     /// The copy no longer reads `data` once this returns: the driver stages
     /// **pageable** host memory, and copies of **pinned** host memory are
-    /// waited for. Dropping the future early therefore cannot free memory that
-    /// the copy still reads.
+    /// waited for.
     ///
     /// The returned [`BufferHandle`] keeps the source byte length, while its
     /// CUDA allocation may include zeroed tail padding for consumers such as cuDF
     /// that read validity masks through padded extents.
-    pub(crate) fn copy_to_device<T, D>(
-        &self,
-        data: D,
-    ) -> VortexResult<BoxFuture<'static, VortexResult<BufferHandle>>>
-    where
-        T: DeviceRepr + ValidAsZeroBits + Debug + Send + Sync + 'static,
-        D: AsRef<[T]> + Send + 'static,
-    {
-        let host_slice: &[T] = data.as_ref();
-        let byte_count = size_of_val(host_slice);
-        let allocation_len = padded_device_allocation_len::<T>(byte_count)?;
-        // `device_alloc` binds the CUDA context to the current thread.
-        let mut cuda_slice: CudaSlice<T> = self.device_alloc::<T>(allocation_len)?;
-
-        let mut values = cuda_slice.slice_mut(..host_slice.len());
-        self.memcpy_htod(host_slice, &mut values)
-            .map_err(|e| vortex_err!("Failed to schedule H2D copy: {}", e))?;
-
-        zero_padding(self, &mut cuda_slice, host_slice.len())?;
-
-        // `zero_padding` zeroed all allocation bytes after `byte_count`.
-        let cuda_buf = CudaDeviceBuffer::new_with_zeroed_tail(cuda_slice, byte_count)?;
-        let buffer = BufferHandle::new_device(Arc::new(cuda_buf)).slice(0..byte_count);
-        let stream = Arc::clone(&self.0);
-
-        Ok(Box::pin(async move {
-            await_stream_callback(&stream).await?;
-            Ok(buffer)
-        }))
-    }
-
-    /// Synchronous variant of [`copy_to_device`](Self::copy_to_device).
-    ///
-    /// Allocates device memory, enqueues the H2D copy on the stream, and
-    /// returns immediately. The device pointer is valid as soon as this call
-    /// returns; the copy completes before any later work on the same stream.
-    ///
-    /// As with [`copy_to_device`](Self::copy_to_device), the copy no longer
-    /// reads `data` once this returns, so the source is safe to drop or modify.
-    ///
-    /// Like [`copy_to_device`](Self::copy_to_device), this preserves the source
-    /// byte length on the returned handle while keeping any tail padding in the
-    /// backing CUDA allocation.
-    pub(crate) fn copy_to_device_sync<T>(&self, data: &[T]) -> VortexResult<BufferHandle>
+    pub(crate) fn copy_to_device<T>(&self, data: &[T]) -> VortexResult<BufferHandle>
     where
         T: DeviceRepr + ValidAsZeroBits + Debug + Send + Sync + 'static,
     {
@@ -297,7 +255,7 @@ mod tests {
     use crate::CanonicalCudaExt;
     use crate::CudaSession;
     use crate::device_buffer::CUDF_VALIDITY_BUFFER_PADDING;
-    use crate::device_buffer::cuda_backing_allocation;
+    use crate::device_buffer::test_support::cuda_backing_allocation;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
@@ -330,7 +288,7 @@ mod tests {
     #[crate::test]
     async fn test_copy_to_device_preserves_visible_len_with_padding() -> VortexResult<()> {
         let ctx = CudaSession::create_execution_ctx(&crate::cuda_session())?;
-        let handle = ctx.stream().copy_to_device(vec![0xab_u8])?.await?;
+        let handle = ctx.stream().copy_to_device(&[0xab_u8])?;
 
         assert_eq!(handle.len(), 1);
         let host = handle.try_to_host()?.await?;
@@ -346,30 +304,11 @@ mod tests {
     }
 
     #[crate::test]
-    async fn test_copy_to_device_sync_preserves_visible_len_with_padding() -> VortexResult<()> {
-        let ctx = CudaSession::create_execution_ctx(&crate::cuda_session())?;
-        let handle = ctx.stream().copy_to_device_sync(&[1_u8, 2, 3, 4, 5])?;
-
-        assert_eq!(handle.len(), 5);
-        let host = handle.try_to_host()?.await?;
-        assert_eq!(host.as_slice(), &[1, 2, 3, 4, 5]);
-
-        let backing = cuda_backing_allocation(&handle)?;
-        assert_eq!(backing.len(), CUDF_VALIDITY_BUFFER_PADDING);
-        let backing_host = backing.try_to_host()?.await?;
-        assert_eq!(&backing_host[..5], &[1, 2, 3, 4, 5]);
-        assert!(backing_host[5..].iter().all(|byte| *byte == 0));
-
-        Ok(())
-    }
-
-    #[crate::test]
     async fn test_slice_device_bool_preserves_device_buffer() -> VortexResult<()> {
         let mut ctx = CudaSession::create_execution_ctx(&crate::cuda_session())?;
         let bits = ctx
             .stream()
-            .copy_to_device(vec![0b1010_1100_u8, 0b0110_1001, 0b1100_0011])?
-            .await?;
+            .copy_to_device(&[0b1010_1100_u8, 0b0110_1001, 0b1100_0011])?;
         let array = BoolArray::new_handle(bits, 3, 18, Validity::NonNullable).into_array();
 
         let sliced = array.slice(7..16)?.optimize_ctx(ctx.execution_ctx())?;

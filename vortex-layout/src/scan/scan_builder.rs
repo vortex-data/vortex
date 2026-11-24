@@ -358,6 +358,10 @@ impl<A: 'static + Send> ScanBuilder<A> {
     /// Rewrite range comparisons in the filter into betweens, compute split ranges, and return an
     /// executable repeated scan.
     pub fn prepare(self) -> VortexResult<RepeatedScan<A>> {
+        // Validate split configuration before selecting the range strategy so empty row ranges,
+        // sparse selections, and natural splits fail consistently with full scans.
+        self.split_by.validate()?;
+
         let dtype = self.dtype()?;
 
         // Spin up the root layout reader, and wrap it in a FilterLayoutReader to perform
@@ -551,7 +555,6 @@ mod test {
     use vortex_array::expr::BoundExpression;
     use vortex_array::expr::ExactBoundExpr;
     use vortex_array::expr::and;
-    use vortex_array::expr::between;
     use vortex_array::expr::col;
     use vortex_array::expr::eq;
     use vortex_array::expr::get_item;
@@ -560,15 +563,19 @@ mod test {
     use vortex_array::expr::lit;
     use vortex_array::expr::lt;
     use vortex_array::expr::root;
-    use vortex_array::scalar_fn::fns::between::BetweenOptions;
-    use vortex_array::scalar_fn::fns::between::StrictComparison;
+    use vortex_buffer::Buffer;
     use vortex_error::VortexResult;
     use vortex_error::vortex_bail;
     use vortex_error::vortex_err;
+    use vortex_functions::between::BetweenOptions;
+    use vortex_functions::between::StrictComparison;
+    use vortex_functions::expr::between;
     use vortex_io::runtime::BlockingRuntime;
     use vortex_io::runtime::single::SingleThreadRuntime;
     use vortex_io::runtime::tokio::TokioRuntime;
     use vortex_mask::Mask;
+    use vortex_scan::selection::Selection;
+    use vortex_scan::strict_sorted_buffer::StrictSortedBuffer;
     use vortex_session::VortexSession;
 
     use super::ScanBuilder;
@@ -578,6 +585,7 @@ mod test {
     use crate::RowSplits;
     use crate::SplitRange;
     use crate::scan::limit::RowLimit;
+    use crate::scan::split_by::SplitBy;
     use crate::scan::test::SCAN_SESSION;
     use crate::scan::test::TestLayoutReader;
     use crate::scan::test::collect_scan_values;
@@ -1388,6 +1396,42 @@ mod test {
 
         assert_eq!(calls.load(Ordering::Relaxed), 1);
         assert_eq!(values.as_ref(), [1, 2]);
+
+        Ok(())
+    }
+
+    #[test]
+    fn prepare_rejects_zero_split_size_for_empty_range_and_sparse_selection() -> VortexResult<()> {
+        let runtime = SingleThreadRuntime::default();
+        let session = session_with_handle(runtime.handle());
+        let sparse_indices = StrictSortedBuffer::try_new(Buffer::from_iter([0u64, 2u64]))?;
+
+        for split_by in [
+            SplitBy::RowCount(0),
+            SplitBy::LayoutSubSplitting { max_rows: 0 },
+        ] {
+            let empty_err = ScanBuilder::new(
+                session.clone(),
+                Arc::new(SplittingLayoutReader::new(Arc::new(AtomicUsize::new(0)))),
+            )
+            .with_row_range(0..0)
+            .with_split_by(split_by)
+            .prepare()
+            .err()
+            .expect("empty row range should reject zero split size");
+            assert!(empty_err.to_string().contains("must be greater than zero"));
+
+            let sparse_err = ScanBuilder::new(
+                session.clone(),
+                Arc::new(SplittingLayoutReader::new(Arc::new(AtomicUsize::new(0)))),
+            )
+            .with_selection(Selection::IncludeByIndex(sparse_indices.clone()))
+            .with_split_by(split_by)
+            .prepare()
+            .err()
+            .expect("sparse selection should reject zero split size");
+            assert!(sparse_err.to_string().contains("must be greater than zero"));
+        }
 
         Ok(())
     }

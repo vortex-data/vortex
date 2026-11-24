@@ -540,6 +540,7 @@ typedef struct {
     /**
      * Used only when "include" is not VX_SELECTION_INCLUDE_ALL.
      * If set, must point to an array of len "idx_len" row_indices.
+     * May be NULL when idx_len is 0.
      */
     const uint64_t *idx;
     /**
@@ -1114,13 +1115,13 @@ vx_expression *vx_expression_select(const vx_view *names, size_t len, const vx_e
 
 /**
  * Create an AND expression for multiple child expressions.
- * If len == 0, returns NULL
+ * Returns NULL if `len == 0` or `expressions` is NULL.
  */
 vx_expression *vx_expression_and(const vx_expression *const *expressions, size_t len);
 
 /**
  * Create an OR disjunction expression for multiple child expressions.
- * If len == 0, returns NULL
+ * Returns NULL if `len == 0` or `expressions` is NULL.
  */
 vx_expression *vx_expression_or(const vx_expression *const *expressions, size_t len);
 
@@ -1597,15 +1598,17 @@ vx_partition *vx_scan_next_partition(vx_scan *scan, vx_error **err);
 int vx_partition_row_count(const vx_partition *partition, vx_estimate *count, vx_error **err);
 
 /**
- * Scan partition to ArrowArrayStream.
- * Consumes partition fully: subsequent calls to vx_partition_scan_arrow or
- * vx_partition_next are undefined behaviour.
- * This call blocks current thread until underlying stream is fully consumed.
+ * Export a partition as an Arrow C Data Interface `ArrowArrayStream`.
  *
- * Caller must not free partition after calling this function.
+ * Consumes `partition` unconditionally: subsequent calls to `vx_partition_scan_arrow` or
+ * `vx_partition_next` are undefined behaviour, and the caller must not free `partition` after
+ * calling this function.
  *
- * On success, sets "stream" and returns 0.
- * On error, sets "err" and returns 1, freeing the partition.
+ * The returned stream iterates lazily and retains its own handle to `session`, so the caller may
+ * free `session` after this function returns.
+ *
+ * On success, writes `stream` and returns 0.
+ * On error, sets `err` and returns 1, freeing `partition`.
  */
 int vx_partition_scan_arrow(const vx_session *session,
                             vx_partition *partition,

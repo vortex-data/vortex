@@ -28,7 +28,7 @@ jobs:
     timeout-minutes: 90
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/region=us-east-1/runner=amd64-large/image=ubuntu26-full-x64-pre-v2/tag=rust-build-musl', github.run_id)
+          && format('runs-on={0}/runner=amd64-large/image=ubuntu26-full-x64-pre-v2/tag=rust-build-musl', format('{0}/region={1}', github.run_id, vars.CI_REGION || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T1') && 'ap-northeast-1') || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T2') && 'eu-west-2') || 'us-east-1'))
           || 'ubuntu-latest' }}
     container:
       image: ghcr.io/rust-lang/rust:1-alpine3.24

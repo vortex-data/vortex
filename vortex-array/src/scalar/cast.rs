@@ -16,7 +16,7 @@ use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::match_each_native_ptype;
 use crate::scalar::Scalar;
-use crate::scalar_fn::fns::cast::check_extension_cast;
+use crate::scalar_fn::builtin::cast::check_extension_cast;
 
 impl Scalar {
     /// Cast this scalar to another data type.

@@ -418,11 +418,29 @@ pub fn compression_size_record(
     value_bytes: u64,
     uncompressed_bytes: u64,
 ) -> V3Record {
+    named_compression_size_record(
+        dataset,
+        dataset_variant,
+        format.name(),
+        value_bytes,
+        uncompressed_bytes,
+    )
+}
+
+/// Build a `compression_size` record for a format that has no [`Format`] of its own, such as
+/// `parquet-snappy`, which `compress-bench` measures for size only.
+pub fn named_compression_size_record(
+    dataset: &str,
+    dataset_variant: Option<&str>,
+    format: &str,
+    value_bytes: u64,
+    uncompressed_bytes: u64,
+) -> V3Record {
     V3Record::CompressionSize(CompressionSizeRecord {
         commit_sha: GIT_COMMIT_ID.clone(),
         dataset: dataset.to_lowercase(),
         dataset_variant: dataset_variant.map(str::to_string),
-        format: format.name().to_string(),
+        format: format.to_string(),
         value_bytes,
         uncompressed_bytes,
     })
@@ -830,6 +848,17 @@ mod tests {
             panic!("expected CompressionSize variant, got {record:?}");
         };
         assert_eq!(size.dataset, "cmsprovider");
+    }
+
+    #[test]
+    fn named_compression_size_record_keeps_the_format_name() {
+        let record = named_compression_size_record("Taxi", None, "parquet-snappy", 42, 420);
+        let V3Record::CompressionSize(size) = &record else {
+            panic!("expected CompressionSize variant, got {record:?}");
+        };
+        assert_eq!(size.dataset, "taxi");
+        assert_eq!(size.format, "parquet-snappy");
+        assert_eq!((size.value_bytes, size.uncompressed_bytes), (42, 420));
     }
 
     #[test]
