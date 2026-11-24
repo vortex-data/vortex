@@ -55,8 +55,8 @@ use crate::trace_op;
 
 /// Configuration for array and aggregate execution, stored in a [`VortexSession`].
 ///
-/// Set this with [`VortexSession::with_some`] before creating an [`ExecutionCtx`]. Each context
-/// snapshots the configuration at creation; later session changes affect only new contexts.
+/// Set this with [`VortexSession::with_some`]. Execution reads the current configuration at the
+/// start of each iterative loop.
 #[derive(Clone, Debug)]
 pub struct ExecutionConfig {
     /// Maximum iterations in each iterative execution loop before falling back or returning an
@@ -481,7 +481,6 @@ struct ContextKernels {
 #[derive(Debug, Clone)]
 pub struct ExecutionCtx {
     session: VortexSession,
-    max_iterations: usize,
     // OnceLock avoids cloning the session allocator when a context does not allocate.
     allocator: OnceLock<BufferAllocatorRef>,
     kernels: Arc<ContextKernels>,
@@ -499,9 +498,7 @@ impl ExecutionCtx {
     /// This captures a snapshot of the session's execute-parent and parent-reduce kernel
     /// registries. Kernels registered after this context is created are not visible to it; create
     /// a new [`ExecutionCtx`] after registration to use newly registered kernels.
-    /// The iteration limit is also snapshotted from the session's [`ExecutionConfig`].
     pub fn new(session: VortexSession) -> Self {
-        let max_iterations = session.get::<ExecutionConfig>().max_iterations;
         let session_kernels = session.kernels();
         let kernels = Arc::new(ContextKernels {
             execute_parent: session_kernels.execute_parent_snapshot(),
@@ -510,7 +507,6 @@ impl ExecutionCtx {
         drop(session_kernels);
         Self {
             session,
-            max_iterations,
             allocator: OnceLock::new(),
             kernels,
             aggregate_kernels: OnceLock::new(),
@@ -525,7 +521,7 @@ impl ExecutionCtx {
     }
 
     pub(crate) fn max_iterations(&self) -> usize {
-        self.max_iterations
+        self.session.get::<ExecutionConfig>().max_iterations
     }
 
     /// Get the session associated with this execution context.
@@ -1274,14 +1270,20 @@ mod tests {
     }
 
     #[test]
-    fn execution_ctx_snapshots_iteration_limit() {
-        let session = VortexSession::empty().with_some(ExecutionConfig { max_iterations: 1 });
-        let ctx = session.create_execution_ctx();
-        session.register(ExecutionConfig { max_iterations: 2 });
+    fn execution_ctx_observes_session_iteration_limit_changes() -> VortexResult<()> {
+        let session = VortexSession::empty().with_some(ExecutionConfig { max_iterations: 0 });
+        let mut ctx = session.create_execution_ctx();
+        let array = BoolArray::from_iter([true, false]).into_array();
+        assert!(
+            array
+                .clone()
+                .execute_until::<AnyCanonical>(&mut ctx)
+                .is_err()
+        );
 
-        assert_eq!(ctx.max_iterations(), 1);
-        assert_eq!(ctx.clone().max_iterations(), 1);
-        assert_eq!(session.create_execution_ctx().max_iterations(), 2);
+        session.register(ExecutionConfig { max_iterations: 1 });
+        array.execute_until::<AnyCanonical>(&mut ctx)?;
+        Ok(())
     }
 
     #[test]
