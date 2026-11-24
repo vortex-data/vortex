@@ -12,8 +12,6 @@
 #![allow(clippy::tests_outside_test_module)]
 
 use std::ops::BitAnd;
-use std::time::Duration;
-use std::time::Instant;
 
 use rstest::rstest;
 use vortex::VortexSessionDefault;
@@ -39,7 +37,6 @@ use vortex::mask::Mask;
 use vortex_session::VortexSession;
 
 const ROWS: usize = 256 * 1024;
-const RUNS: usize = 5;
 
 fn strings() -> ArrayRef {
     VarBinViewArray::from_iter_str((0..ROWS as u64).map(|i| {
@@ -97,17 +94,6 @@ fn cache_activity<T>(f: impl FnOnce() -> T) -> (T, CanonicalCacheStats) {
     (result, delta)
 }
 
-/// The fastest of [`RUNS`] runs of `f`.
-fn fastest(mut f: impl FnMut() -> VortexResult<()>) -> VortexResult<Duration> {
-    let mut fastest = Duration::MAX;
-    for _ in 0..RUNS {
-        let start = Instant::now();
-        f()?;
-        fastest = fastest.min(start.elapsed());
-    }
-    Ok(fastest)
-}
-
 #[rstest]
 #[case::compact_strings(strings(), string_conjuncts())]
 #[case::compact_integers(integers(), integer_conjuncts())]
@@ -142,24 +128,5 @@ fn filter_unit_decodes_compact_column_once(
         .expect("two conjuncts");
     assert_eq!(actual?, expected);
 
-    let as_unit = fastest(|| evaluate(&session, &compressed, &unit).map(drop))?;
-    let one_by_one = fastest(|| {
-        for conjunct in &conjuncts {
-            evaluate(&session, &compressed, conjunct)?;
-        }
-        Ok(())
-    })?;
-    let millis = |duration: Duration| duration.as_secs_f64() * 1e3;
-    eprintln!(
-        "{} ({}): {} hit, {} canonical bytes reused; fastest of {RUNS}: {:.1} ms as a unit, \
-         {:.1} ms one conjunct at a time, {:.1} ms saved",
-        compressed.encoding_id(),
-        compressed.dtype(),
-        unit_stats.hits,
-        unit_stats.saved_bytes,
-        millis(as_unit),
-        millis(one_by_one),
-        millis(one_by_one.saturating_sub(as_unit)),
-    );
     Ok(())
 }

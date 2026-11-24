@@ -37,6 +37,7 @@ use crate::IntoArray;
 use crate::aggregate_fn::session::AggregateFnSessionExt;
 use crate::aggregate_fn::session::AggregateKernels;
 use crate::array::ArrayId;
+use crate::arrays::ScalarFn;
 use crate::builders::ArrayBuilder;
 use crate::builders::builder_with_capacity_in;
 use crate::dtype::DType;
@@ -376,7 +377,7 @@ impl ArrayRef {
                     let (parent, child) = unsafe { array.take_slot_unchecked(i) }?;
 
                     trace_op!(record_execute_slot(i, &parent, &child));
-                    let (child, cache_key) = canonical_cache.lookup(child);
+                    let (child, cache_key) = canonical_cache.lookup(child, parent.is::<ScalarFn>());
                     stack.push(StackFrame {
                         parent_array: parent,
                         parent_builder: current_builder.take(),
@@ -474,6 +475,10 @@ const CANONICAL_CACHE_CAPACITY: usize = 64;
 /// Entries are keyed by array identity. Only shared children are cached, since a uniquely
 /// owned child can never be requested again, and a key is held alive by its entry so its
 /// allocation cannot be reused by a different array while the call runs.
+///
+/// Only the inputs of scalar functions are cached. They only read their inputs, while other
+/// encodings may decode a uniquely owned child buffer in place, and a cached copy would make
+/// that child shared and force a copy.
 #[derive(Default)]
 struct CanonicalCache {
     entries: Vec<(ArrayRef, ArrayRef)>,
@@ -481,9 +486,10 @@ struct CanonicalCache {
 
 impl CanonicalCache {
     /// Returns the canonical form cached for `child` if there is one, else `child` with the
-    /// key to cache its canonical form under once it is executed.
-    fn lookup(&mut self, child: ArrayRef) -> (ArrayRef, Option<ArrayRef>) {
-        if !child.is_shared() || AnyCanonical::matches(&child) {
+    /// key to cache its canonical form under once it is executed. `scalar_fn_input` tells
+    /// whether the child is an input of a scalar function.
+    fn lookup(&mut self, child: ArrayRef, scalar_fn_input: bool) -> (ArrayRef, Option<ArrayRef>) {
+        if !scalar_fn_input || !child.is_shared() || AnyCanonical::matches(&child) {
             return (child, None);
         }
         if let Some((_, canonical)) = self
@@ -1421,6 +1427,21 @@ mod tests {
         // over from the first execution to the second.
         assert_eq!(stats.inserts, 2);
         assert_eq!(stats.hits, 2);
+        Ok(())
+    }
+
+    /// Other encodings may decode a uniquely owned child in place, which a cached copy of the
+    /// child's canonical form would prevent.
+    #[test]
+    fn canonical_cache_skips_children_of_other_encodings() -> VortexResult<()> {
+        let mut cache = CanonicalCache::default();
+        let child = comparison()?;
+        let _other_owner = child.clone();
+
+        let (_, key) = cache.lookup(child.clone(), false);
+        assert!(key.is_none());
+        let (_, key) = cache.lookup(child, true);
+        assert!(key.is_some());
         Ok(())
     }
 
