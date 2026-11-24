@@ -150,6 +150,15 @@ fn bits_for_count(count: f64) -> f64 {
     }
 }
 
+/// Whether the children of a scheme applied at this site compress as leaves.
+///
+/// The models size values by their range, which needs frame-of-reference below the scheme. Leaf
+/// children are bit-packed at the width of their maximum, or kept canonical when negative, so
+/// these sites keep the wrapped scheme's estimate.
+fn children_are_leaves(compress_ctx: &CompressorContext) -> bool {
+    compress_ctx.remaining_cascade() <= 1
+}
+
 /// Which scheme a [`Modeled`] wraps.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Kind {
@@ -207,8 +216,7 @@ impl Modeled {
         compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> CompressionEstimate {
-        // The model sizes the children as they compress, which they cannot at the last level.
-        if compress_ctx.finished_cascading() {
+        if children_are_leaves(&compress_ctx) {
             return self
                 .inner
                 .expected_compression_ratio(data, compress_ctx, exec_ctx);
@@ -241,6 +249,11 @@ impl Modeled {
         if compress_ctx.finished_cascading() {
             return CompressionEstimate::Verdict(EstimateVerdict::Skip);
         }
+        if children_are_leaves(&compress_ctx) {
+            return self
+                .inner
+                .expected_compression_ratio(data, compress_ctx, exec_ctx);
+        }
         let Some(i) = Inputs::from(data, exec_ctx) else {
             return CompressionEstimate::Verdict(EstimateVerdict::Skip);
         };
@@ -268,7 +281,7 @@ impl Modeled {
         compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> CompressionEstimate {
-        if compress_ctx.finished_cascading() {
+        if children_are_leaves(&compress_ctx) {
             return self
                 .inner
                 .expected_compression_ratio(data, compress_ctx, exec_ctx);
