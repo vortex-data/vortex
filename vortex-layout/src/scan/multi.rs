@@ -59,7 +59,8 @@ use vortex_scan::PartitionRef;
 use vortex_scan::PartitionStream;
 use vortex_scan::ScanRequest;
 use vortex_scan::selection::Selection;
-use vortex_scan::stream::ScanStream;
+use vortex_scan::stream::ExhaustedFlag;
+use vortex_scan::stream::ScanExec;
 use vortex_session::VortexSession;
 use vortex_utils::parallelism::get_available_parallelism;
 
@@ -68,10 +69,10 @@ use crate::scan::layout::group_contiguous;
 use crate::scan::limit::RowLimit;
 use crate::scan::scan_builder::ScanBuilder;
 
-/// How many files each clone of an unordered scan's opened stream reads at once.
+/// How many files each stream of an opened unordered scan reads at once.
 ///
 /// This matches the read-ahead of the DataFusion `VortexTable` path on develop
-/// (`SCAN_PARTITION_READ_AHEAD`), whose partitions share one stream of files as the clones do.
+/// (`SCAN_PARTITION_READ_AHEAD`), whose partitions share one stream of files as the scan's streams do.
 const PARTITION_READ_AHEAD: usize = 2;
 
 /// Default concurrency for opening deferred readers.
@@ -570,22 +571,31 @@ impl DataSourceScan for MultiLayoutScan {
     }
 
     /// Opens the scan into its partition pipeline, which opens up to `concurrency` files ahead
-    /// and reads each file as one partition, handing the partitions to the stream's clones.
+    /// and reads each file as one partition, handing the partitions to the scan's streams.
     ///
-    /// Each clone of an unordered scan without a limit reads [`PARTITION_READ_AHEAD`] files at
+    /// Each stream of an unordered scan without a limit reads [`PARTITION_READ_AHEAD`] files at
     /// once, each with its own split concurrency, so that one file's last splits overlap the
     /// next file's first. An ordered scan must finish a file before it starts the next, and a
     /// limited one would read files the limit may never need, so both read one at a time.
-    fn open(self: Box<Self>) -> VortexResult<ScanStream> {
+    fn open(self: Box<Self>) -> VortexResult<ScanExec> {
         if self.request.ordered || self.request.limit.is_some() {
-            return Ok(ScanStream::from_partitions(self));
+            return Ok(ScanExec::from_partitions(self));
         }
         let dtype = self.dtype.clone();
+        let exhausted = ExhaustedFlag::new();
+        let flag = exhausted.clone();
         let partitions = Arc::new(futures::lock::Mutex::new(self.partitions()));
-        Ok(ScanStream::new(dtype, move || {
-            stream::unfold(Arc::clone(&partitions), |shared| async move {
-                let next = shared.lock().await.next().await?;
-                Some((next, shared))
+        Ok(ScanExec::new(dtype, exhausted, move || {
+            let flag = flag.clone();
+            stream::unfold(Arc::clone(&partitions), move |shared| {
+                let flag = flag.clone();
+                async move {
+                    let Some(next) = shared.lock().await.next().await else {
+                        flag.set();
+                        return None;
+                    };
+                    Some((next, shared))
+                }
             })
             .map(|partition| partition.and_then(|partition| partition.execute()))
             // Matches the read-ahead of the DataFusion `VortexTable` path on develop.
@@ -1146,7 +1156,7 @@ mod tests {
         Ok(())
     }
 
-    /// A clone of an unordered scan's opened stream reads two files at once, each with its own
+    /// A stream of an opened unordered scan reads two files at once, each with its own
     /// split concurrency. An ordered scan reads one file at a time.
     #[rstest]
     #[case::unordered(false, 2)]
@@ -1181,7 +1191,8 @@ mod tests {
                 split_concurrency: NonZeroUsize::new(1),
                 ..Default::default()
             }))?
-            .open()?;
+            .open()?
+            .stream();
         let mut values = collect_scan_values(runtime.block_on_stream(stream))?;
         values.sort_unstable();
         let expected: Vec<i32> = [0, 10, 20]

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! The queue of splits behind an opened layout scan's stream.
+//! The queue of splits behind an opened layout scan.
 
 use std::iter;
 use std::sync::Arc;
@@ -16,6 +16,7 @@ use parking_lot::Mutex;
 use vortex_array::ArrayRef;
 use vortex_error::VortexResult;
 use vortex_io::runtime::Handle;
+use vortex_scan::stream::ExhaustedFlag;
 
 use crate::scan::repeated_scan::ScanTasks;
 
@@ -23,8 +24,8 @@ use crate::scan::repeated_scan::ScanTasks;
 /// of its rows.
 type SplitTask = BoxFuture<'static, VortexResult<Option<ArrayRef>>>;
 
-/// A queue of the split futures of [`RepeatedScan::execute`], in row order, which the clones of
-/// an opened scan's stream share. Each clone polls one worker over the queue.
+/// A queue of the split futures of [`RepeatedScan::execute`], in row order, which the streams of
+/// an opened scan share. Each stream polls one worker over the queue.
 ///
 /// Each worker claims splits from the queue and keeps up to `per_worker` of its own in
 /// flight, spawned on the session's runtime, yielding them as they finish. This is the scan's
@@ -44,23 +45,40 @@ pub(crate) struct SplitQueue {
     handle: Handle,
     per_worker: usize,
     splits: Mutex<vec::IntoIter<SplitTask>>,
+    /// Set once the last split is claimed.
+    exhausted: ExhaustedFlag,
 }
 
 impl SplitQueue {
-    pub(crate) fn new(handle: Handle, per_worker: usize, splits: ScanTasks<ArrayRef>) -> Self {
+    pub(crate) fn new(
+        handle: Handle,
+        per_worker: usize,
+        splits: ScanTasks<ArrayRef>,
+        exhausted: ExhaustedFlag,
+    ) -> Self {
+        if splits.is_empty() {
+            exhausted.set();
+        }
         Self {
             handle,
             per_worker: per_worker.max(1),
             splits: Mutex::new(splits.into_iter()),
+            exhausted,
         }
     }
 
-    /// Claims the next split, if any is left.
+    /// Claims the next split, if any is left, and marks the queue exhausted when it claims the
+    /// last.
     fn claim(&self) -> Option<SplitTask> {
-        self.splits.lock().next()
+        let mut splits = self.splits.lock();
+        let split = splits.next()?;
+        if splits.len() == 0 {
+            self.exhausted.set();
+        }
+        Some(split)
     }
 
-    /// A new worker over the shared queue, which one clone of the scan's stream polls.
+    /// A new worker over the shared queue, which one stream of the scan polls.
     pub(crate) fn worker(self: Arc<Self>) -> BoxStream<'static, VortexResult<ArrayRef>> {
         let handle = self.handle.clone();
         let per_worker = self.per_worker;
