@@ -445,13 +445,7 @@ def test_reminders_go_to_each_item_thread_after_one_summary():
     assert item_reminders(fake, 2)[0].startswith("⏰ <@UALICE>, this item waits on you")
     assert item_reminders(fake, 3)[0].startswith("⏰ <@UONCALL> (on call), this item waits on you")
     # Each item in the summary links to its reminder, which opens the item's thread in Slack.
-    summary = next(m for m in fake.thread(overview_ts(fake)) if m["text"].startswith("Due today"))
-    blocks = json.dumps(summary["blocks"], ensure_ascii=False)
-    for number in (1, 2, 3):
-        root = fake.root(number)["ts"]
-        reply = next(m["ts"] for m in fake.thread(root) if m["text"].startswith("⏰"))
-        link = f"https://example.slack.com/archives/C1/p{reply.replace('.', '')}?thread_ts={root}&cid=C1"
-        assert f"<{link}|#{number}>" in blocks
+    assert all(reminder_link(fake, n) in summary_blocks(fake) for n in (1, 2, 3))
 
     run(fake, items, NOW + HOUR, pings=True)
     assert len(overview_replies(fake)) == 1
@@ -462,6 +456,40 @@ def test_reminders_go_to_each_item_thread_after_one_summary():
     run(fake, [*items, later], NOW + 2 * HOUR, pings=True)
     assert len(overview_replies(fake)) == 1
     assert item_reminders(fake, 4)[0].startswith("⏰ <@UALICE>, this item waits on you")
+
+
+def reminder_link(fake, number) -> str:
+    root = fake.root(number)["ts"]
+    reply = next(m["ts"] for m in fake.thread(root) if m["text"].startswith("⏰"))
+    return f"<https://example.slack.com/archives/C1/p{reply.replace('.', '')}?thread_ts={root}&cid=C1|#{number}>"
+
+
+def summary_blocks(fake) -> str:
+    summary = next(m for m in fake.thread(overview_ts(fake)) if m["text"].startswith("Due today"))
+    return json.dumps(summary["blocks"], ensure_ascii=False)
+
+
+def test_summary_is_kept_up_to_date_without_new_posts():
+    items = [item(1, created=ago(days=1), assignees=["alice"]), item(2, created=ago(days=1))]
+    fake = FakeSlack()
+    run(fake, items, pings=True)
+    # A summary from an older version of the bot stored no links to the reminders.
+    summary = next(m for m in fake.thread(overview_ts(fake)) if m["text"].startswith("Due today"))
+    summary["blocks"] = []
+    fake.messages[overview_ts(fake)]["metadata"]["event_payload"].pop("summary")
+    for number in (1, 2):
+        fake.root(number)["metadata"]["event_payload"].pop("reminder")
+    posts = len(fake.posted)
+    run(fake, items, NOW + timedelta(minutes=5))
+    assert all(reminder_link(fake, n) in summary_blocks(fake) for n in (1, 2))
+
+    # An item reminded later in the day joins the summary through an edit, which pings nobody.
+    later = item(3, created=ago(minutes=30), assignees=["alice"])
+    run(fake, [*items, later], NOW + HOUR, pings=True)
+    assert reminder_link(fake, 3) in summary_blocks(fake)
+    assert len(overview_replies(fake)) == 1
+    # The new root and its reminder are the only new posts.
+    assert len(fake.posted) == posts + 2
 
 
 def test_every_assignee_with_a_slack_id_is_reminded():

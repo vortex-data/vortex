@@ -173,8 +173,6 @@ class Run:
         self.ended = ended
         self.channel = channel
         self.failures: list[str] = []
-        # Links to the reminders that this run posted or found, by item number.
-        self.reminders: dict[int, str] = {}
         self.identity = slack.identity()
         # Posts use `quiet`, and the edits after them use `people`. See the `render` module.
         self.people = render.People(config.users, config.oncall, mention=True)
@@ -461,6 +459,14 @@ class Run:
         if self.config.pings and in_window(self.now) and state.day == today.isoformat():
             state = self._remind(current.thread, state, rows)
 
+        def refresh() -> None:
+            nonlocal state
+            state = self._summary(current.thread, state, rows)
+
+        # A failed edit of the summary must not stop the overview's update, which saves the state
+        # that says the summary exists.
+        self._attempt("summary", refresh)
+
         day = datetime.fromisoformat(state.day).date()
         content = render.overview(rows, day, self.now, self.people, self._claude(state))
         self.slack.update(current.thread.ts, content, metadata(OVERVIEW_EVENT, state.payload()))
@@ -542,45 +548,61 @@ class Run:
         due = [row for section in render.SECTIONS for row in grouped[section]]
         if not due:
             return state
-        people: dict[str | None, list[render.Row]] = {}
-        first = not state.reminded
-        if first:
-            for row in due:
-                for person in self._owners(row.item):
-                    people.setdefault(person, []).append(row)
+        if not state.reminded:
+            people = self._by_owner(due)
             # A failed summary stops here, before any item is marked reminded, so the next run
             # posts the summary and the item reminders together.
             summary = render.reminder_summary(people)
-            self._reply(thread, f"remind:{state.day}", lambda _people: summary)
-            state = replace(state, reminded=",".join(sorted(p or "oncall" for p in people)))
+            key = f"remind:{state.day}"
+            self._reply(thread, key, lambda _people: summary)
+            reminded = ",".join(sorted(p or "oncall" for p in people))
+            state = replace(state, reminded=reminded, summary=thread.keys[key])
         for row in due:
             self._attempt(f"#{row.item.number}", lambda: self._remind_item(row, state.day))
-        if first:
-            self._attempt("summary", lambda: self._link_summary(thread, state.day, people))
         return state
 
-    def _link_summary(
-        self, thread: Thread, day: str, people: dict[str | None, list[render.Row]]
-    ) -> None:
-        """Point each item in the day's summary at its reminder.
+    def _by_owner(self, rows: list[render.Row]) -> dict[str | None, list[render.Row]]:
+        """Group rows by the Slack user who owns them, in overview order."""
+        grouped = render.ordered(rows)
+        people: dict[str | None, list[render.Row]] = {}
+        for section in render.SECTIONS:
+            for row in grouped[section]:
+                for person in self._owners(row.item):
+                    people.setdefault(person, []).append(row)
+        return people
 
-        A link to a reply opens the item's thread, but the reminders exist only after the summary,
-        so the summary first links to the item roots. The edit changes only links, so it notifies
-        nobody again.
+    def _summary(
+        self, thread: Thread, state: OverviewState, rows: list[render.Row]
+    ) -> OverviewState:
+        """Keep the day's summary in line with the day's reminders.
+
+        The summary links each item to its reminder, because Slack opens a thread only from a link
+        to one of its replies. The reminders come after the summary, and an item that becomes due
+        later in the day gets a reminder too, so the bot edits the summary when its content
+        changes. An edit notifies nobody, so only the first post mentions people.
         """
-        linked = {
-            person: [
-                replace(row, thread_url=self.reminders.get(row.item.number, row.thread_url))
-                for row in rows
-            ]
-            for person, rows in people.items()
-        }
-        key = f"remind:{day}"
-        self.slack.update(
-            thread.keys[key],
-            render.reminder_summary(linked),
-            metadata(REPLY_EVENT, {"key": key}),
-        )
+        key = f"remind:{state.day}"
+        ts = state.summary or thread.keys.get(key, "")
+        if not ts:
+            return state
+        day = datetime.fromisoformat(state.day).date()
+        reminded = []
+        for row in rows:
+            root = self.channel.roots.get(row.item.number)
+            at = root.state.reminded_at if root else 0.0
+            if root is None or not at or london_date(datetime.fromtimestamp(at, UTC)) != day:
+                continue
+            # A summary from before the bot stored each reminder finds it among the thread's keys.
+            reply = root.state.reminder or root.thread.keys.get(key, "")
+            link = self._reply_link(reply, root.thread.ts) if reply else row.thread_url
+            reminded.append(replace(row, thread_url=link))
+        if not reminded:
+            return replace(state, summary=ts)
+        message = render.reminder_summary(self._by_owner(reminded))
+        card = _hash(message)
+        if card != state.summary_card:
+            self.slack.update(ts, message, metadata(REPLY_EVENT, {"key": key}))
+        return replace(state, summary=ts, summary_card=card)
 
     def _remind_item(self, row: render.Row, day: str) -> None:
         root = self.channel.roots[row.item.number]
@@ -595,5 +617,6 @@ class Run:
         # The end of a snooze has its own key, because the item may already have today's reminder.
         key = f"snooze-end:{root.state.snooze_until:.0f}" if ended else f"remind:{day}"
         self._reply(root.thread, key, lambda _people: reminder)
-        self.reminders[row.item.number] = self._reply_link(root.thread.keys[key], root.thread.ts)
-        root.state = replace(root.state, reminded_at=self.now.timestamp())
+        root.state = replace(
+            root.state, reminded_at=self.now.timestamp(), reminder=root.thread.keys[key]
+        )

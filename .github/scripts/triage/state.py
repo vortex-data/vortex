@@ -47,6 +47,8 @@ class ItemState:
     status: Status = Status.OPEN
     # Unix times. Zero means never.
     reminded_at: float = 0.0
+    # The Slack timestamp of the reminder sent at `reminded_at`, which the day's summary links to.
+    reminder: str = ""
     snoozed_at: float = 0.0
     snooze_until: float = 0.0
     snoozed_by: str = ""
@@ -77,6 +79,7 @@ class ItemState:
             "number": str(self.number),
             "status": self.status.value,
             "reminded_at": _num(self.reminded_at),
+            "reminder": self.reminder,
             "snoozed_at": _num(self.snoozed_at),
             "snooze_until": _num(self.snooze_until),
             "snoozed_by": self.snoozed_by,
@@ -118,6 +121,7 @@ class ItemState:
                 number=int(payload["number"]),
                 status=Status(payload.get("status", Status.OPEN.value)),
                 reminded_at=float(payload.get("reminded_at") or 0),
+                reminder=str(payload.get("reminder", "")),
                 snoozed_at=float(payload.get("snoozed_at") or 0),
                 snooze_until=float(payload.get("snooze_until") or 0),
                 snoozed_by=str(payload.get("snoozed_by", "")),
@@ -141,6 +145,10 @@ class OverviewState:
     # The people that this day's summary reminder mentioned, comma separated. It stays empty until
     # the summary is posted, which happens once a day.
     reminded: str = ""
+    # The Slack timestamp of that summary, and a hash of its content, so the bot edits it only when
+    # it changes.
+    summary: str = ""
+    summary_card: str = ""
     # The Slack timestamp of the reply in this overview's thread that lists the items that wait on
     # the contributor, or empty before it is posted.
     waiting: str = ""
