@@ -88,17 +88,18 @@ pub struct ShreddingSpecField {
     #[prost(message, optional, tag = "2")]
     pub dtype: ::core::option::Option<super::dtype::DType>,
 }
-/// Options for `vortex.compare`
+/// How a type-specific comparison orders the values in its domain.
+///
+/// Each type with more than one useful order has one field. To add the order of another type, add
+/// a field whose zero value is the default order of that type.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
-pub struct CompareOpts {
-    #[prost(enumeration = "compare_opts::CompareOp", tag = "1")]
-    pub op: i32,
+pub struct CompareMode {
     /// How a comparison orders float values.
-    #[prost(enumeration = "compare_opts::FloatOrder", tag = "2")]
+    #[prost(enumeration = "compare_mode::FloatOrder", tag = "1")]
     pub float_order: i32,
 }
-/// Nested message and enum types in `CompareOpts`.
-pub mod compare_opts {
+/// Nested message and enum types in `CompareMode`.
+pub mod compare_mode {
     #[derive(
         Clone,
         Copy,
@@ -145,6 +146,18 @@ pub mod compare_opts {
             }
         }
     }
+}
+/// Options for `vortex.compare`
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct CompareOpts {
+    #[prost(enumeration = "compare_opts::CompareOp", tag = "1")]
+    pub op: i32,
+    /// How the comparison orders values. When absent, the comparison uses the default mode.
+    #[prost(message, optional, tag = "2")]
+    pub mode: ::core::option::Option<CompareMode>,
+}
+/// Nested message and enum types in `CompareOpts`.
+pub mod compare_opts {
     #[derive(
         Clone,
         Copy,
@@ -384,9 +397,9 @@ pub struct LikeOpts {
 pub struct ListContainsOpts {
     #[prost(bool, tag = "1")]
     pub sql_null_semantics: bool,
-    /// How the needle and the elements compare float values.
-    #[prost(enumeration = "compare_opts::FloatOrder", tag = "2")]
-    pub float_order: i32,
+    /// How the needle and the elements compare. When absent, they compare in the default mode.
+    #[prost(message, optional, tag = "2")]
+    pub compare_mode: ::core::option::Option<CompareMode>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct CastOpts {

@@ -5,6 +5,7 @@ use std::sync::Arc;
 use std::sync::LazyLock;
 use std::sync::atomic::Ordering;
 
+use prost::Message;
 use rstest::rstest;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::buffer;
@@ -45,6 +46,7 @@ use crate::extension::datetime::Timestamp;
 use crate::extension::datetime::TimestampOptions;
 use crate::memory::MemorySessionExt;
 use crate::memory::test_allocator::counting_allocator;
+use crate::proto::expr as pb;
 use crate::scalar::DecimalValue;
 use crate::scalar::Scalar;
 use crate::scalar_fn::ScalarFnVTable;
@@ -1194,9 +1196,9 @@ const MODE_VALUES: [f64; 8] = [
     f64::NAN,
 ];
 
-const DATAFUSION: CompareMode = CompareMode::new(FloatOrder::ZerosEqual);
-const SPARK: CompareMode = CompareMode::new(FloatOrder::Canonical);
-const PYARROW: CompareMode = CompareMode::new(FloatOrder::Ieee754);
+const DATAFUSION: CompareMode = CompareMode::new().with_float_order(FloatOrder::ZerosEqual);
+const SPARK: CompareMode = CompareMode::new().with_float_order(FloatOrder::Canonical);
+const PYARROW: CompareMode = CompareMode::new().with_float_order(FloatOrder::Ieee754);
 
 fn compare_with(
     lhs: ArrayRef,
@@ -1438,4 +1440,35 @@ fn compare_options_round_trip(#[case] options: CompareOptions) -> VortexResult<(
 
     assert_eq!(Compare.deserialize(&bytes, &SESSION)?, options);
     Ok(())
+}
+
+/// Options written before the mode existed have no mode. They read as the default mode.
+#[test]
+fn compare_options_without_mode_use_default_mode() -> VortexResult<()> {
+    let bytes = pb::CompareOpts {
+        op: pb::compare_opts::CompareOp::Lt.into(),
+        mode: None,
+    }
+    .encode_to_vec();
+
+    assert_eq!(
+        Compare.deserialize(&bytes, &SESSION)?,
+        CompareOptions::from(CompareOperator::Lt)
+    );
+    Ok(())
+}
+
+/// A later version can write an order that this version does not know. The read must fail: a
+/// comparison in another order gives wrong rows.
+#[test]
+fn compare_options_reject_unknown_float_order() {
+    let bytes = pb::CompareOpts {
+        op: pb::compare_opts::CompareOp::Eq.into(),
+        mode: Some(pb::CompareMode { float_order: 99 }),
+    }
+    .encode_to_vec();
+
+    let error = Compare.deserialize(&bytes, &SESSION).unwrap_err();
+
+    assert!(error.to_string().contains("unknown float order code: 99"));
 }

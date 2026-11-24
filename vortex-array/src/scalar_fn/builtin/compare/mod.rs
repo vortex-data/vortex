@@ -85,7 +85,7 @@ mod primitive;
 pub struct Compare;
 
 /// The options of a [`Compare`] function: a [`CompareOperator`] and the [`CompareMode`] that sets
-/// how floats and nulls are ordered.
+/// how the values of each type are ordered.
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
 pub struct CompareOptions {
     operator: CompareOperator,
@@ -106,7 +106,7 @@ impl CompareOptions {
         self.operator
     }
 
-    /// Returns how the comparison orders floats and nulls.
+    /// Returns how the comparison orders the values of each type.
     pub fn compare_mode(&self) -> CompareMode {
         self.compare_mode
     }
@@ -182,12 +182,10 @@ impl ScalarFnVTable for Compare {
     }
 
     fn serialize(&self, options: &CompareOptions) -> VortexResult<Option<Vec<u8>>> {
-        let mode = options.compare_mode;
-
         Ok(Some(
             pb::CompareOpts {
                 op: pb::compare_opts::CompareOp::from(options.operator).into(),
-                float_order: pb::compare_opts::FloatOrder::from(mode.float_order()).into(),
+                mode: Some(options.compare_mode.into()),
             }
             .encode_to_vec(),
         ))
@@ -201,8 +199,11 @@ impl ScalarFnVTable for Compare {
         let opts = pb::CompareOpts::decode(metadata)?;
         let operator = pb::compare_opts::CompareOp::try_from(opts.op)?.into();
 
-        let float_order = pb::compare_opts::FloatOrder::try_from(opts.float_order)?.into();
-        let compare_mode = CompareMode::new(float_order);
+        let compare_mode = opts
+            .mode
+            .map(CompareMode::try_from)
+            .transpose()?
+            .unwrap_or_default();
 
         Ok(CompareOptions::new(operator, compare_mode))
     }

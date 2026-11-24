@@ -35,16 +35,24 @@ use vortex_array::scalar_fn::builtin::operators::CompareMode;
 use vortex_array::scalar_fn::builtin::operators::FloatOrder;
 use vortex_array::scalar_fn::builtin::operators::contains_float;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 
 /// How to normalize the floats of a membership lookup, so that bitwise equality of the normalized
-/// values is the equality of a [`FloatOrder`]. [`FloatOrder::TotalOrder`] needs no normalization.
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
-pub(super) struct FloatNormalization(FloatOrder);
-
-impl Default for FloatNormalization {
-    fn default() -> Self {
-        Self(FloatOrder::TotalOrder)
-    }
+/// values is the equality of a [`FloatOrder`].
+///
+/// [`FloatOrder`] is an open enum. This enum holds only the orders that have a normalization, so
+/// its matches are complete.
+#[derive(Copy, Clone, Debug, Default, Eq, PartialEq)]
+pub(super) enum FloatNormalization {
+    /// Leaves each value unchanged, for [`FloatOrder::TotalOrder`] and for values without floats.
+    #[default]
+    Identity,
+    /// The normalization of [`FloatOrder::ZerosEqual`].
+    ZerosEqual,
+    /// The normalization of [`FloatOrder::Canonical`].
+    Canonical,
+    /// The normalization of [`FloatOrder::Ieee754`].
+    Ieee754,
 }
 
 /// The side of a membership lookup that a value is on.
@@ -61,12 +69,22 @@ impl FloatNormalization {
     pub(super) const COUNT: usize = 4;
 
     /// The normalization that gives the equality of `mode` for values of `dtype`.
-    pub(super) fn new(mode: CompareMode, dtype: &DType) -> Self {
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the order of floats in `mode` has no normalization.
+    pub(super) fn try_new(mode: CompareMode, dtype: &DType) -> VortexResult<Self> {
         if !contains_float(dtype) {
-            return Self::default();
+            return Ok(Self::Identity);
         }
 
-        Self(mode.float_order())
+        Ok(match mode.float_order() {
+            FloatOrder::TotalOrder => Self::Identity,
+            FloatOrder::ZerosEqual => Self::ZerosEqual,
+            FloatOrder::Canonical => Self::Canonical,
+            FloatOrder::Ieee754 => Self::Ieee754,
+            order => vortex_bail!("list membership does not support the float order {order}"),
+        })
     }
 
     /// Whether this normalization leaves each value unchanged.
@@ -76,11 +94,11 @@ impl FloatNormalization {
 
     /// A number below [`Self::COUNT`] that identifies this normalization. The identity is `0`.
     pub(super) fn index(self) -> usize {
-        match self.0 {
-            FloatOrder::TotalOrder => 0,
-            FloatOrder::ZerosEqual => 1,
-            FloatOrder::Canonical => 2,
-            FloatOrder::Ieee754 => 3,
+        match self {
+            Self::Identity => 0,
+            Self::ZerosEqual => 1,
+            Self::Canonical => 2,
+            Self::Ieee754 => 3,
         }
     }
 
@@ -160,15 +178,15 @@ impl FloatNormalization {
     /// Normalizes one float for `side`.
     fn normalize<T: Float>(self, value: T, side: Side) -> T {
         if value.is_nan() {
-            return match (self.0, side) {
-                (FloatOrder::TotalOrder | FloatOrder::ZerosEqual, _) => value,
-                (FloatOrder::Canonical, _) | (FloatOrder::Ieee754, Side::Element) => T::nan(),
+            return match (self, side) {
+                (Self::Identity | Self::ZerosEqual, _) => value,
+                (Self::Canonical, _) | (Self::Ieee754, Side::Element) => T::nan(),
                 // A needle `NaN` gets a bit pattern that no element has, so it is in no list.
-                (FloatOrder::Ieee754, Side::Needle) => -T::nan(),
+                (Self::Ieee754, Side::Needle) => -T::nan(),
             };
         }
 
-        if self.0 != FloatOrder::TotalOrder && value.is_zero() {
+        if !self.is_identity() && value.is_zero() {
             return T::zero();
         }
 

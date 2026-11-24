@@ -169,7 +169,8 @@ impl PreparedSetData {
         options: &ListContainsOptions,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<(BitBuffer, Validity)> {
-        let normalization = FloatNormalization::new(options.compare_mode, self.element_dtype());
+        let normalization =
+            FloatNormalization::try_new(options.compare_mode, self.element_dtype())?;
         let needles = normalization.apply(needles, Side::Needle, ctx)?;
         self.element_set(normalization, ctx)?
             .haystack

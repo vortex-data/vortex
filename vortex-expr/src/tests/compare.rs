@@ -169,15 +169,15 @@ fn test_struct_comparison() {
     );
 }
 
-const SPARK: CompareMode = CompareMode::new(FloatOrder::Canonical);
+const SPARK: CompareMode = CompareMode::new().with_float_order(FloatOrder::Canonical);
 
 /// A comparison with a literal that has no floats keeps the default mode, so rewrites that need
 /// the default mode still apply to it. A float literal keeps the requested mode.
 #[rstest]
-#[case::integer(Scalar::from(1i32), CompareMode::new(FloatOrder::ZerosEqual))]
-#[case::string(Scalar::from("a"), CompareMode::new(FloatOrder::ZerosEqual))]
+#[case::integer(Scalar::from(1i32), CompareMode::new())]
+#[case::string(Scalar::from("a"), CompareMode::new())]
 #[case::float(Scalar::from(1.0f64), SPARK)]
-#[case::integer_list(int_list_scalar(), CompareMode::new(FloatOrder::ZerosEqual))]
+#[case::integer_list(int_list_scalar(), CompareMode::new())]
 fn compare_with_mode_keeps_default_mode_without_floats(
     #[case] value: Scalar,
     #[case] expected: CompareMode,

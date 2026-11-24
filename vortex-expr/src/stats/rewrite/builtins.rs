@@ -817,7 +817,7 @@ mod tests {
     /// zeros are equal. The stat comparison uses the mode of the predicate.
     #[test]
     fn comparison_falsifier_keeps_compare_mode() -> VortexResult<()> {
-        let mode = CompareMode::new(FloatOrder::Canonical);
+        let mode = CompareMode::new().with_float_order(FloatOrder::Canonical);
         let expr = compare_with_mode(CompareOperator::Gt, mode, col("f"), lit(-0.0f32));
 
         assert_rewrite_eq!(

@@ -249,10 +249,7 @@ impl ScalarFnVTable for ListContains {
         Ok(Some(
             pb::ListContainsOpts {
                 sql_null_semantics: instance.sql_null_semantics,
-                float_order: pb::compare_opts::FloatOrder::from(
-                    instance.compare_mode.float_order(),
-                )
-                .into(),
+                compare_mode: Some(instance.compare_mode.into()),
             }
             .encode_to_vec(),
         ))
@@ -265,11 +262,15 @@ impl ScalarFnVTable for ListContains {
     ) -> VortexResult<Self::Options> {
         let opts = pb::ListContainsOpts::decode(metadata)?;
 
-        let float_order = pb::compare_opts::FloatOrder::try_from(opts.float_order)?;
+        let compare_mode = opts
+            .compare_mode
+            .map(CompareMode::try_from)
+            .transpose()?
+            .unwrap_or_default();
 
         Ok(ListContainsOptions {
             sql_null_semantics: opts.sql_null_semantics,
-            compare_mode: CompareMode::new(float_order.into()),
+            compare_mode,
         })
     }
 
@@ -324,7 +325,8 @@ impl ScalarFnVTable for ListContains {
         // takes the lookup below.
         if let Some(value_scalar) = value_array.as_constant()
             && let Some(list) = constant_list(&list_array)
-            && FloatNormalization::new(options.compare_mode, value_scalar.dtype()).is_identity()
+            && FloatNormalization::try_new(options.compare_mode, value_scalar.dtype())?
+                .is_identity()
         {
             let result = compute_contains_scalar(list, value_scalar, options)?;
             return Ok(ConstantArray::new(result, args.row_count()).into_array());
@@ -343,7 +345,7 @@ impl ScalarFnVTable for ListContains {
 
         if let Some(needle) = needle.as_constant()
             && let Some(list) = constant_list_node(&list)
-            && FloatNormalization::new(options.compare_mode, needle.dtype()).is_identity()
+            && FloatNormalization::try_new(options.compare_mode, needle.dtype())?.is_identity()
         {
             let result = compute_contains_scalar(list, needle, options)?;
             return Ok(Some(node.new_constant(result)));
@@ -1601,9 +1603,9 @@ mod tests {
         Ok(())
     }
 
-    const ZEROS_EQUAL: CompareMode = CompareMode::new(FloatOrder::ZerosEqual);
-    const CANONICAL: CompareMode = CompareMode::new(FloatOrder::Canonical);
-    const IEEE754: CompareMode = CompareMode::new(FloatOrder::Ieee754);
+    const ZEROS_EQUAL: CompareMode = CompareMode::new().with_float_order(FloatOrder::ZerosEqual);
+    const CANONICAL: CompareMode = CompareMode::new().with_float_order(FloatOrder::Canonical);
+    const IEEE754: CompareMode = CompareMode::new().with_float_order(FloatOrder::Ieee754);
 
     #[rstest]
     #[case::total_order(CompareMode::TOTAL_ORDER, [false, true, true, false, false])]

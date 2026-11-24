@@ -141,12 +141,16 @@ pub(super) fn compare_nested(
 
     let validity = compare_validity(lhs.validity()?, rhs.validity()?, nullability)?;
 
-    let bits = if mode.float_order() == FloatOrder::Ieee754 {
-        let comparator = build_mode_comparator::<Option<Ordering>>(&lhs, &rhs, mode, ctx)?;
-        partial_ordering_bits(len, &comparator, op, ctx.allocator())
-    } else {
-        let comparator = build_mode_comparator::<Ordering>(&lhs, &rhs, mode, ctx)?;
-        total_ordering_bits(len, &comparator, op, ctx.allocator())
+    // The match has no wildcard, so that a new order must select its ordering here.
+    let bits = match mode.float_order() {
+        FloatOrder::Ieee754 => {
+            let comparator = build_mode_comparator::<Option<Ordering>>(&lhs, &rhs, mode, ctx)?;
+            partial_ordering_bits(len, &comparator, op, ctx.allocator())
+        }
+        FloatOrder::ZerosEqual | FloatOrder::TotalOrder | FloatOrder::Canonical => {
+            let comparator = build_mode_comparator::<Ordering>(&lhs, &rhs, mode, ctx)?;
+            total_ordering_bits(len, &comparator, op, ctx.allocator())
+        }
     };
 
     Ok(BoolArray::try_new(bits, validity)?.into_array())

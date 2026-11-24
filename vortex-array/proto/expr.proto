@@ -72,11 +72,13 @@ message ShreddingSpecField {
   vortex.dtype.DType dtype = 2;
 }
 
-// Options for `vortex.compare`
-message CompareOpts {
-  CompareOp op = 1;
+// How a type-specific comparison orders the values in its domain.
+//
+// Each type with more than one useful order has one field. To add the order of another type, add
+// a field whose zero value is the default order of that type.
+message CompareMode {
   // How a comparison orders float values.
-  FloatOrder float_order = 2;
+  FloatOrder float_order = 1;
 
   enum FloatOrder {
     // `-0.0 = +0.0`, and NaN values order by sign and payload.
@@ -88,6 +90,13 @@ message CompareOpts {
     // `-0.0 = +0.0`, and NaN is unordered.
     Ieee754 = 3;
   }
+}
+
+// Options for `vortex.compare`
+message CompareOpts {
+  CompareOp op = 1;
+  // How the comparison orders values. When absent, the comparison uses the default mode.
+  CompareMode mode = 2;
 
   enum CompareOp {
     Eq = 0;
@@ -154,8 +163,8 @@ message LikeOpts {
 
 message ListContainsOpts {
   bool sql_null_semantics = 1;
-  // How the needle and the elements compare float values.
-  CompareOpts.FloatOrder float_order = 2;
+  // How the needle and the elements compare. When absent, they compare in the default mode.
+  CompareMode compare_mode = 2;
 }
 
 message CastOpts {
