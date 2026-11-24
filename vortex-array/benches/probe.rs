@@ -143,16 +143,30 @@ fn piecewise(variable_lengths: bool) -> ArrayRef {
 
 fn same_piece_indices(variable_lengths: bool) -> Vec<usize> {
     let length = if variable_lengths { 4 } else { 8 };
-    (0..ACCESSES).map(|i| LEN / 2 + i % length).collect()
+    let count = if variable_lengths {
+        accesses("piecewise_variable")
+    } else {
+        ACCESSES
+    };
+    (0..count).map(|i| LEN / 2 + i % length).collect()
 }
 
 fn same_lane_indices() -> Vec<usize> {
     (0..ACCESSES).map(|i| (i % 32) * 32).collect()
 }
 
-fn indices() -> Vec<usize> {
+/// Reads per iteration. Fixtures with costly reads use fewer, so that each benchmark stays under
+/// 1 ms in the CodSpeed simulation.
+fn accesses(name: &str) -> usize {
+    match name {
+        "piecewise_variable" => 32,
+        _ => ACCESSES,
+    }
+}
+
+fn indices(count: usize) -> Vec<usize> {
     let mut seed = 42u64;
-    (0..ACCESSES)
+    (0..count)
         .map(|_| {
             seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
             (seed >> 32) as usize % LEN
@@ -191,7 +205,7 @@ fn array(name: &str) -> ArrayRef {
 fn once(bencher: Bencher, name: &str) {
     let array = array(name);
     mark_optimized(&array, &SESSION).vortex_expect("optimize the benchmark input");
-    let indices = indices();
+    let indices = indices(accesses(name));
     bencher
         .with_inputs(|| SESSION.create_execution_ctx())
         .bench_refs(|ctx| {
@@ -209,7 +223,7 @@ fn once(bencher: Bencher, name: &str) {
 fn repeated(bencher: Bencher, name: &str) {
     let array = array(name);
     mark_optimized(&array, &SESSION).vortex_expect("optimize the benchmark input");
-    let indices = indices();
+    let indices = indices(accesses(name));
     bencher
         .with_inputs(|| (SESSION.create_execution_ctx(), array.repeated_probe()))
         .bench_refs(|(ctx, probe)| {
