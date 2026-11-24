@@ -10,6 +10,7 @@ use fastlanes::BitPacking;
 use fastlanes::FoR;
 use num_traits::AsPrimitive;
 use num_traits::PrimInt;
+use num_traits::ToPrimitive;
 use num_traits::WrappingAdd;
 use num_traits::WrappingMul;
 use vortex_array::ArrayRef;
@@ -28,6 +29,8 @@ use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure;
 
 use crate::Affine;
 use crate::AffineArray;
@@ -374,7 +377,7 @@ where
     T: NativePType + PrimInt + WrappingAdd + WrappingMul,
     i64: AsPrimitive<T>,
     u64: AsPrimitive<T>,
-    C: NativePType + AsPrimitive<usize>,
+    C: NativePType + AsPrimitive<usize> + ToPrimitive,
 {
     let len = array.len();
     let validity = array.encoded().validity()?;
@@ -387,7 +390,17 @@ where
         collect_dict_residuals::<T, V>(values)
     });
     let codes = codes.as_slice::<C>();
-    let mut table = vec![T::zero(); residuals.len()];
+    let table_len = residuals.len();
+    for &code in codes {
+        let Some(idx) = code.to_usize() else {
+            vortex_bail!("Affine dict code {code} is negative or out of usize range");
+        };
+        vortex_ensure!(
+            idx < table_len,
+            "Affine dict code {idx} out of bounds for dictionary of length {table_len}"
+        );
+    }
+    let mut table = vec![T::zero(); table_len];
     let mut out = BufferMut::<T>::with_capacity_in(len, ctx.allocator().clone());
     let output = &mut out.spare_capacity_mut()[..len];
 

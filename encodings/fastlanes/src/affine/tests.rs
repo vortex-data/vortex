@@ -1097,3 +1097,26 @@ fn deserialize_rejects_non_integer_dtype() -> VortexResult<()> {
     );
     Ok(())
 }
+
+#[test]
+fn decompress_rejects_out_of_bounds_dict_codes() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let values = PrimitiveArray::from_iter([0u8, 3, 7]).into_array();
+
+    for bad_codes in [
+        PrimitiveArray::from_iter([0i16, -1, 2]).into_array(),
+        PrimitiveArray::from_iter([0u8, 3, 1]).into_array(),
+    ] {
+        let dict = DictArray::try_new(bad_codes, values.clone())?.into_array();
+        let affine = Affine::try_new(
+            dict,
+            ConstantArray::new(100i32, 1).into_array(),
+            ConstantArray::new(10i32, 1).into_array(),
+            ConstantArray::new(0i64, 1).into_array(),
+            0,
+            0,
+        )?;
+        assert!(affine.into_array().execute::<PrimitiveArray>(&mut ctx).is_err());
+    }
+    Ok(())
+}
