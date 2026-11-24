@@ -1,15 +1,22 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! Array operations for the `Widen` encoding.
+//!
+//! Execution produces values at the logical dtype's width. [`WidenPlugin`] handles storage at the
+//! child's width.
+
 mod operations;
+
+mod plugin;
+pub use plugin::WidenPlugin;
+
 mod validity;
 
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
-use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
 use crate::ArrayRef;
@@ -24,20 +31,25 @@ use crate::array::ArrayView;
 use crate::array::VTable;
 use crate::array::ValidityVTableFromChild;
 use crate::array::with_empty_buffers;
+use crate::arrays::Decimal;
+use crate::arrays::DecimalArray;
+use crate::arrays::decimal::widened_buffer;
 use crate::arrays::widen::WidenArraySlotsExt;
 use crate::arrays::widen::WidenSlots;
 use crate::arrays::widen::array::validate_dtypes;
-use crate::arrays::widen::compute::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
-use crate::serde::ArrayChildren;
+use crate::dtype::DecimalDType;
+use crate::dtype::NativeDecimalType;
+use crate::match_each_decimal_value_type;
+use crate::require_child;
 
 /// The encoding of a [`WidenArray`].
 #[derive(Clone, Debug)]
 pub struct Widen;
 
-/// A [`Widen`]-encoded integer array.
+/// A [`Widen`]-encoded integer or decimal array.
 pub type WidenArray = Array<Widen>;
 
 impl VTable for Widen {
@@ -87,35 +99,33 @@ impl VTable for Widen {
         with_empty_buffers(self, array, buffers)
     }
 
-    fn serialize(
-        _array: ArrayView<'_, Self>,
-        _session: &VortexSession,
-    ) -> VortexResult<Option<Vec<u8>>> {
-        // `ArraySession` does not register `Widen`, so `array_serialize` fails before it calls
-        // this method. Only a session that registers `Widen` itself can reach it.
-        vortex_panic!("TODO(connor)[Widen]: Widen has no wire form yet (#10733)")
-    }
-
-    fn deserialize(
-        &self,
-        _dtype: &DType,
-        _len: usize,
-        _metadata: &[u8],
-        _buffers: &[BufferHandle],
-        _children: &dyn ArrayChildren,
-        _session: &VortexSession,
-    ) -> VortexResult<ArrayParts<Self>> {
-        vortex_bail!("Widen deserialization is not supported")
-    }
-
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         WidenSlots::NAMES[idx].to_string()
     }
 
     fn execute(array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
-        // Yield a cast, not a canonical array, so that one kernel decodes and widens the values.
-        let widened = array.values().cast(array.dtype().clone())?;
-        Ok(ExecutionResult::done(widened))
+        match array.dtype() {
+            DType::Decimal(decimal_dtype, _) => {
+                let decimal_dtype = *decimal_dtype;
+                let array = require_child!(array, array.values(), WidenSlots::VALUES => Decimal);
+                let values = array.values().as_::<Decimal>();
+                let target_type = decimal_dtype.canonical_values_type();
+                let widened = match_each_decimal_value_type!(target_type, |T| {
+                    copy_decimal_values::<T>(values, decimal_dtype)?
+                });
+
+                Ok(ExecutionResult::done(widened.into_array()))
+            }
+            DType::Primitive(..) => {
+                // Integer casts let the child's kernel decode and widen its values in one pass.
+                let widened = array.values().cast(array.dtype().clone())?;
+
+                Ok(ExecutionResult::done(widened))
+            }
+            dtype => {
+                vortex_panic!("Widen validation requires an integer or decimal dtype, got {dtype}")
+            }
+        }
     }
 
     fn reduce(array: ArrayView<'_, Self>) -> VortexResult<Option<ArrayRef>> {
@@ -127,12 +137,22 @@ impl VTable for Widen {
         let flattened = WidenArray::try_new(array.values().clone(), array.dtype().clone())?;
         Ok(Some(flattened.into_array()))
     }
+}
 
-    fn reduce_parent(
-        array: ArrayView<'_, Self>,
-        parent: &ArrayRef,
-        child_idx: usize,
-    ) -> VortexResult<Option<ArrayRef>> {
-        PARENT_RULES.evaluate(array, parent, child_idx)
-    }
+/// Copies the executed decimal `values` of a [`WidenArray`] into the canonical width of
+/// `decimal_dtype`, the logical dtype of the `Widen`.
+fn copy_decimal_values<T: NativeDecimalType>(
+    values: ArrayView<'_, Decimal>,
+    decimal_dtype: DecimalDType,
+) -> VortexResult<DecimalArray> {
+    let validity = values.validity()?;
+    let buffer = widened_buffer::<T>(&values);
+
+    // The wider precision holds every value of the child's native type, at the same scale.
+    DecimalArray::try_new_handle_from_trusted_values(
+        BufferHandle::new_host(buffer.into_byte_buffer()),
+        T::DECIMAL_TYPE,
+        decimal_dtype,
+        validity,
+    )
 }

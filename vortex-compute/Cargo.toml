@@ -19,15 +19,11 @@ all-features = true
 vortex-buffer = { workspace = true }
 
 [dev-dependencies]
-arrow-arith = { workspace = true }
-arrow-array = { workspace = true }
-arrow-buffer = { workspace = true }
-arrow-cast = { workspace = true }
-arrow-schema = { workspace = true }
 divan = { workspace = true }
 mimalloc = { workspace = true }
 num-traits = { workspace = true }
 rand = { workspace = true }
+rstest = { workspace = true }
 vortex-bench-support = { workspace = true }
 
 [lints]

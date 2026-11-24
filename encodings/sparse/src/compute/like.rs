@@ -6,10 +6,10 @@ use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ConstantArray;
-use vortex_array::scalar_fn::fns::like::Like;
-use vortex_array::scalar_fn::fns::like::LikeKernel;
-use vortex_array::scalar_fn::fns::like::LikeOptions;
 use vortex_error::VortexResult;
+use vortex_functions::like::Like;
+use vortex_functions::like::LikeKernel;
+use vortex_functions::like::LikeOptions;
 
 use crate::Sparse;
 use crate::SparseExt as _;
@@ -71,10 +71,10 @@ mod tests {
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::scalar::Scalar;
-    use vortex_array::scalar_fn::fns::like::Like;
-    use vortex_array::scalar_fn::fns::like::LikeOptions;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
+    use vortex_functions::like::Like;
+    use vortex_functions::like::LikeOptions;
     use vortex_session::VortexSession;
 
     use crate::Sparse;

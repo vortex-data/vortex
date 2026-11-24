@@ -3,29 +3,38 @@
 
 use Sign::Negative;
 use num_traits::NumCast;
+use num_traits::ToPrimitive;
+use smallvec::SmallVec;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::builtins::ArrayBuiltins;
+use vortex_array::dtype::DType;
 use vortex_array::dtype::IntegerPType;
+use vortex_array::dtype::NativeDecimalType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::dtype::ToI256;
+use vortex_array::dtype::i256;
 use vortex_array::match_each_decimal_value;
 use vortex_array::match_each_integer_ptype;
+use vortex_array::match_each_signed_integer_ptype;
 use vortex_array::scalar::DecimalValue;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar::ScalarValue;
-use vortex_array::scalar_fn::fns::binary::CompareKernel;
-use vortex_array::scalar_fn::fns::operators::CompareOperator;
-use vortex_array::scalar_fn::fns::operators::Operator;
+use vortex_array::scalar_fn::builtin::compare::CompareKernel;
+use vortex_array::scalar_fn::builtin::operators::BooleanOperator;
+use vortex_array::scalar_fn::builtin::operators::CompareOperator;
+use vortex_array::validity::Validity;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use crate::DecimalByteParts;
 use crate::decimal_byte_parts::DecimalBytePartsArraySlotsExt;
+use crate::decimal_byte_parts::LOWER_PART_BITS;
+use crate::decimal_byte_parts::MAX_LOWER_PARTS;
 use crate::decimal_byte_parts::compute::compare::Sign::Positive;
 
 impl CompareKernel for DecimalByteParts {
@@ -33,63 +42,193 @@ impl CompareKernel for DecimalByteParts {
         lhs: ArrayView<'_, Self>,
         rhs: &ArrayRef,
         operator: CompareOperator,
-        ctx: &mut ExecutionCtx,
+        _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         let Some(rhs_const) = rhs.as_constant() else {
             return Ok(None);
         };
 
-        // The MSP alone only determines the ordering when it holds the whole value. With
-        // lower parts present, fall back to comparing the canonical decimal.
-        //
-        // TODO(mk): Compare the signed MSP and then the unsigned lower parts in significance
-        // order to avoid canonicalizing wide decimals.
-        if !lhs.lower_parts().is_empty() {
-            return Ok(None);
-        }
-
         let nullability = lhs.dtype().nullability() | rhs.dtype().nullability();
-        let scalar_type = lhs.msp().dtype().with_nullability(nullability);
-
         let rhs_decimal = rhs_const
             .as_decimal()
             .decimal_value()
             .vortex_expect("checked for null in entry func");
 
-        match decimal_value_wrapper_to_primitive(rhs_decimal, lhs.msp().dtype().as_ptype()) {
-            Ok(value) => {
-                let encoded_scalar = Scalar::try_new(scalar_type, Some(value))?;
-                let encoded_const = ConstantArray::new(encoded_scalar, rhs.len());
-                lhs.msp()
-                    .binary(encoded_const.into_array(), Operator::from(operator))
-                    .map(Some)
-            }
-
-            Err(sign) => {
-                // If the MSP and the constant are non-null, we know that failing to coerce the
-                // constant into the MSP bit-width means that it is larger/smaller
-                // (depending on the `sign`) than all values in MSP.
-                // If the LHS or the RHS contain nulls, then we must fallback to the canonicalized
-                // implementation which does null-checking instead.
-                if lhs.array().all_valid(ctx)? && rhs.all_valid(ctx)? {
-                    Ok(Some(
-                        ConstantArray::new(
-                            unconvertible_value(sign, operator, nullability),
-                            lhs.len(),
-                        )
-                        .into_array(),
-                    ))
-                } else {
-                    Ok(None)
-                }
-            }
+        if lhs.lower_parts().is_empty() {
+            compare_constant_narrow(lhs, rhs_decimal, operator, nullability).map(Some)
+        } else {
+            compare_constant_wide(lhs, rhs_decimal, operator, nullability).map(Some)
         }
     }
 }
 
+/// Compares a decimal held entirely in the most significant part against the constant.
+fn compare_constant_narrow(
+    lhs: ArrayView<'_, DecimalByteParts>,
+    rhs_decimal: DecimalValue,
+    operator: CompareOperator,
+    nullability: Nullability,
+) -> VortexResult<ArrayRef> {
+    let scalar_type = lhs.msp().dtype().with_nullability(nullability);
+    match decimal_value_wrapper_to_primitive(rhs_decimal, lhs.msp().dtype().as_ptype()) {
+        Ok(value) => {
+            let encoded_scalar = Scalar::try_new(scalar_type, Some(value))?;
+            let encoded_const = ConstantArray::new(encoded_scalar, lhs.len());
+            lhs.msp().compare(encoded_const.into_array(), operator)
+        }
+        Err(sign) => {
+            let answer =
+                ConstantArray::new(unconvertible_value(sign, operator, nullability), lhs.len());
+            with_validity(answer.into_array(), lhs.validity()?, nullability)
+        }
+    }
+}
+
+/// Compares a decimal split across the most significant part and its lower parts.
+///
+/// The most significant part is the signed high word and the lower parts are unsigned words, so
+/// the value order is the lexicographic order of the parts: the first part that differs decides,
+/// and the last part carries the operator's strictness.
+fn compare_constant_wide(
+    lhs: ArrayView<'_, DecimalByteParts>,
+    rhs_decimal: DecimalValue,
+    operator: CompareOperator,
+    nullability: Nullability,
+) -> VortexResult<ArrayRef> {
+    let lower_parts = lhs.lower_parts().to_vec();
+    let msp_ptype = lhs.msp().dtype().as_ptype();
+    let constant = match_each_decimal_value!(rhs_decimal, |value| {
+        value
+            .to_i256()
+            .vortex_expect("every DecimalValue fits i256")
+    });
+
+    // TODO(connor): Check the constant MSP against the Widen child's range to restore the
+    // whole-answer shortcut for narrow storage next to lower parts.
+    let split = match split_constant(constant, lower_parts.len(), msp_ptype) {
+        Ok(split) => split,
+        Err(sign) => {
+            let answer =
+                ConstantArray::new(unconvertible_value(sign, operator, nullability), lhs.len());
+            return with_validity(answer.into_array(), lhs.validity()?, nullability);
+        }
+    };
+
+    let last = lower_parts.len() - 1;
+    let mut answer = compare_lower_part(&lower_parts[last], split.words[last], operator)?;
+
+    for (part, word) in lower_parts.iter().zip(&split.words).take(last).rev() {
+        answer = lexicographic_step(part, Scalar::from(*word), operator, answer)?;
+    }
+
+    let msp_scalar = Scalar::primitive(split.msp, nullability)
+        .cast(&lhs.msp().dtype().with_nullability(nullability))?;
+    let answer = lexicographic_step(lhs.msp(), msp_scalar, operator, answer)?;
+
+    // Only the most significant part is nullable, so combining it with the lower parts under
+    // Kleene logic can turn a null row into `false` or `true`. Restore the array's validity.
+    with_validity(answer, lhs.validity()?, nullability)
+}
+
+/// Combines the comparison of one part with `rest`, the answer over the less significant parts.
+fn lexicographic_step(
+    part: &ArrayRef,
+    constant: Scalar,
+    operator: CompareOperator,
+    rest: ArrayRef,
+) -> VortexResult<ArrayRef> {
+    let compare = |operator: CompareOperator| {
+        part.compare(
+            ConstantArray::new(constant.clone(), part.len()).into_array(),
+            operator,
+        )
+    };
+    match operator {
+        CompareOperator::Eq => compare(CompareOperator::Eq)?.boolean(rest, BooleanOperator::And),
+        CompareOperator::NotEq => {
+            compare(CompareOperator::NotEq)?.boolean(rest, BooleanOperator::Or)
+        }
+        CompareOperator::Lt | CompareOperator::Lte => compare(CompareOperator::Lt)?.boolean(
+            compare(CompareOperator::Eq)?.boolean(rest, BooleanOperator::And)?,
+            BooleanOperator::Or,
+        ),
+        CompareOperator::Gt | CompareOperator::Gte => compare(CompareOperator::Gt)?.boolean(
+            compare(CompareOperator::Eq)?.boolean(rest, BooleanOperator::And)?,
+            BooleanOperator::Or,
+        ),
+    }
+}
+
+/// Compares the least significant lower part against the last word of the constant.
+fn compare_lower_part(
+    part: &ArrayRef,
+    word: u64,
+    operator: CompareOperator,
+) -> VortexResult<ArrayRef> {
+    part.compare(
+        ConstantArray::new(Scalar::from(word), part.len()).into_array(),
+        operator,
+    )
+}
+
+/// The constant broken into the array's parts.
+struct SplitConstant {
+    msp: i64,
+    words: SmallVec<[u64; MAX_LOWER_PARTS]>,
+}
+
+/// Splits `constant` into a most significant part that fits `msp_ptype` and `lower_parts`
+/// 64-bit words, or reports on which side of the representable range it lies.
+fn split_constant(
+    constant: i256,
+    lower_parts: usize,
+    msp_ptype: PType,
+) -> Result<SplitConstant, Sign> {
+    let sign = if constant > i256::from(0i64) {
+        Positive
+    } else {
+        Negative
+    };
+    let shifted = |bits: usize| constant >> i256::from(bits as i64);
+
+    let msp = shifted(LOWER_PART_BITS * lower_parts)
+        .to_i64()
+        .ok_or(sign)?;
+    let fits =
+        match_each_signed_integer_ptype!(msp_ptype, |P| { <P as NumCast>::from(msp).is_some() });
+    if !fits {
+        return Err(sign);
+    }
+
+    let words = (0..lower_parts)
+        .map(|index| {
+            let (low, _) = shifted(LOWER_PART_BITS * (lower_parts - 1 - index)).to_parts();
+            u64::try_from(low & 0xFFFF_FFFF_FFFF_FFFF).vortex_expect("masked to 64 bits")
+        })
+        .collect();
+    Ok(SplitConstant { msp, words })
+}
+
+/// Applies the array's validity to a comparison answer.
+fn with_validity(
+    answer: ArrayRef,
+    validity: Validity,
+    nullability: Nullability,
+) -> VortexResult<ArrayRef> {
+    Ok(match validity.union_nullability(nullability) {
+        Validity::NonNullable | Validity::AllValid => answer,
+        Validity::AllInvalid => ConstantArray::new(
+            Scalar::null(DType::Bool(Nullability::Nullable)),
+            answer.len(),
+        )
+        .into_array(),
+        Validity::Array(validity) => answer.mask(validity)?,
+    })
+}
+
 // Used to represent the overflow direction when trying to
 // convert into the scalar type.
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub(super) enum Sign {
     Positive,
     Negative,
@@ -125,28 +264,38 @@ where
     ScalarValue: From<P>,
 {
     match_each_decimal_value!(decimal_value, |decimal_v| {
-        let Some(encoded) = <P as NumCast>::from(decimal_v) else {
-            let decimal_i256 = decimal_v
-                .to_i256()
-                .vortex_expect("i256 is big enough for any DecimalValue");
-            return if decimal_i256
-                > P::max_value()
-                    .to_i256()
-                    .vortex_expect("i256 is big enough for any PType")
-            {
-                Err(Positive)
-            } else {
-                assert!(
-                    decimal_i256
-                        < P::min_value()
-                            .to_i256()
-                            .vortex_expect("i256 is big enough for any PType")
-                );
-                Err(Negative)
-            };
-        };
-        Ok(ScalarValue::from(encoded))
+        native_decimal_to_primitive::<P, _>(decimal_v)
     })
+}
+
+/// Converts a native decimal value into `P`, or returns the direction in which it overflows `P`.
+fn native_decimal_to_primitive<P, D>(decimal_v: D) -> Result<ScalarValue, Sign>
+where
+    P: IntegerPType + ToI256,
+    ScalarValue: From<P>,
+    D: NativeDecimalType,
+{
+    let Some(encoded) = <P as NumCast>::from(decimal_v) else {
+        let decimal_i256 = decimal_v
+            .to_i256()
+            .vortex_expect("i256 is big enough for any DecimalValue");
+        return if decimal_i256
+            > P::max_value()
+                .to_i256()
+                .vortex_expect("i256 is big enough for any PType")
+        {
+            Err(Positive)
+        } else {
+            assert!(
+                decimal_i256
+                    < P::min_value()
+                        .to_i256()
+                        .vortex_expect("i256 is big enough for any PType")
+            );
+            Err(Negative)
+        };
+    };
+    Ok(ScalarValue::from(encoded))
 }
 
 #[cfg(test)]
@@ -157,23 +306,30 @@ mod tests {
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::ConstantArray;
+    use vortex_array::arrays::DecimalArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::builtins::ArrayBuiltins;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::DecimalDType;
     use vortex_array::dtype::Nullability;
+    use vortex_array::dtype::i256;
     use vortex_array::scalar::DecimalValue;
     use vortex_array::scalar::Scalar;
-    use vortex_array::scalar_fn::fns::operators::Operator;
+    use vortex_array::scalar_fn::builtin::compare::CompareKernel;
+    use vortex_array::scalar_fn::builtin::operators::CompareOperator;
     use vortex_array::validity::Validity;
+    use vortex_buffer::Buffer;
     use vortex_buffer::buffer;
     use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
     use crate::DecimalByteParts;
+    use crate::DecimalBytePartsArray;
     use crate::decimal_byte_parts::testing::i128_parts;
+    use crate::decimal_byte_parts::testing::i256_parts;
+    use crate::decimal_byte_parts::testing::widen_msp;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
         let session = VortexSession::empty();
@@ -196,7 +352,7 @@ mod tests {
             lhs.len(),
         );
 
-        let res = lhs.binary(rhs.into_array(), Operator::Eq).unwrap();
+        let res = lhs.compare(rhs.into_array(), CompareOperator::Eq).unwrap();
 
         let expected = BoolArray::from_iter([Some(false), Some(false), Some(true)]).into_array();
         assert_arrays_eq!(res, expected, &mut SESSION.create_execution_ctx());
@@ -224,7 +380,7 @@ mod tests {
         )
         .into_array();
 
-        let res = lhs.into_array().binary(rhs, Operator::Lte)?;
+        let res = lhs.into_array().compare(rhs, CompareOperator::Lte)?;
         let expected =
             BoolArray::from_iter([None, Some(true), Some(true), Some(true)]).into_array();
         assert_arrays_eq!(res, expected, &mut SESSION.create_execution_ctx());
@@ -256,14 +412,17 @@ mod tests {
 
         let mut ctx = SESSION.create_execution_ctx();
         for (operator, predicate) in [
-            (Operator::Eq, (|v, p| v == p) as fn(i128, i128) -> bool),
-            (Operator::NotEq, |v, p| v != p),
-            (Operator::Lt, |v, p| v < p),
-            (Operator::Lte, |v, p| v <= p),
-            (Operator::Gt, |v, p| v > p),
-            (Operator::Gte, |v, p| v >= p),
+            (
+                CompareOperator::Eq,
+                (|v, p| v == p) as fn(i128, i128) -> bool,
+            ),
+            (CompareOperator::NotEq, |v, p| v != p),
+            (CompareOperator::Lt, |v, p| v < p),
+            (CompareOperator::Lte, |v, p| v <= p),
+            (CompareOperator::Gt, |v, p| v > p),
+            (CompareOperator::Gte, |v, p| v >= p),
         ] {
-            let res = lhs.clone().binary(rhs.clone(), operator)?;
+            let res = lhs.clone().compare(rhs.clone(), operator)?;
             let expected =
                 BoolArray::from_iter(values.iter().map(|v| predicate(*v, pivot))).into_array();
             assert_arrays_eq!(res, expected, &mut ctx);
@@ -276,12 +435,17 @@ mod tests {
         let decimal_dtype = DecimalDType::new(40, 2);
         let dtype = DType::Decimal(decimal_dtype, Nullability::Nullable);
         let lhs = DecimalByteParts::try_new(
-            PrimitiveArray::new(buffer![100i32, 200i32, 400i32], Validity::AllValid).into_array(),
+            widen_msp(
+                PrimitiveArray::new(buffer![100i32, 200i32, 400i32], Validity::AllValid)
+                    .into_array(),
+                decimal_dtype,
+            )
+            .unwrap(),
             decimal_dtype,
         )
         .unwrap()
         .into_array();
-        // This cannot be converted to a i32.
+        // This cannot be converted to an i64.
         let rhs = ConstantArray::new(
             Scalar::try_new(
                 dtype.clone(),
@@ -291,34 +455,250 @@ mod tests {
             lhs.len(),
         );
 
-        let res = lhs.binary(rhs.clone().into_array(), Operator::Eq).unwrap();
+        let res = lhs
+            .compare(rhs.clone().into_array(), CompareOperator::Eq)
+            .unwrap();
         let expected = BoolArray::from_iter([Some(false), Some(false), Some(false)]).into_array();
         assert_arrays_eq!(res, expected, &mut SESSION.create_execution_ctx());
 
-        let res = lhs.binary(rhs.clone().into_array(), Operator::Gt).unwrap();
+        let res = lhs
+            .compare(rhs.clone().into_array(), CompareOperator::Gt)
+            .unwrap();
         let expected = BoolArray::from_iter([Some(true), Some(true), Some(true)]).into_array();
         assert_arrays_eq!(res, expected, &mut SESSION.create_execution_ctx());
 
-        let res = lhs.binary(rhs.into_array(), Operator::Lt).unwrap();
+        let res = lhs.compare(rhs.into_array(), CompareOperator::Lt).unwrap();
         let expected = BoolArray::from_iter([Some(false), Some(false), Some(false)]).into_array();
         assert_arrays_eq!(res, expected, &mut SESSION.create_execution_ctx());
 
-        // This cannot be converted to a i32.
+        // This cannot be converted to an i64.
         let rhs = ConstantArray::new(
             Scalar::try_new(dtype, Some(DecimalValue::I128(9999999999999965304).into())).unwrap(),
             lhs.len(),
         );
 
-        let res = lhs.binary(rhs.clone().into_array(), Operator::Eq).unwrap();
+        let res = lhs
+            .compare(rhs.clone().into_array(), CompareOperator::Eq)
+            .unwrap();
         let expected = BoolArray::from_iter([Some(false), Some(false), Some(false)]).into_array();
         assert_arrays_eq!(res, expected, &mut SESSION.create_execution_ctx());
 
-        let res = lhs.binary(rhs.clone().into_array(), Operator::Gt).unwrap();
+        let res = lhs
+            .compare(rhs.clone().into_array(), CompareOperator::Gt)
+            .unwrap();
         let expected = BoolArray::from_iter([Some(false), Some(false), Some(false)]).into_array();
         assert_arrays_eq!(res, expected, &mut SESSION.create_execution_ctx());
 
-        let res = lhs.binary(rhs.into_array(), Operator::Lt).unwrap();
+        let res = lhs.compare(rhs.into_array(), CompareOperator::Lt).unwrap();
         let expected = BoolArray::from_iter([Some(true), Some(true), Some(true)]).into_array();
         assert_arrays_eq!(res, expected, &mut SESSION.create_execution_ctx());
+    }
+
+    const ALL_OPERATORS: [CompareOperator; 6] = [
+        CompareOperator::Eq,
+        CompareOperator::NotEq,
+        CompareOperator::Lt,
+        CompareOperator::Lte,
+        CompareOperator::Gt,
+        CompareOperator::Gte,
+    ];
+
+    /// Asserts the kernel engages for every operator and matches the comparison over the
+    /// decimal array the parts were split from.
+    fn assert_matches_decimal(
+        array: &DecimalBytePartsArray,
+        baseline: &DecimalArray,
+        constants: impl IntoIterator<Item = DecimalValue>,
+    ) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        for constant in constants {
+            let rhs = ConstantArray::new(
+                Scalar::decimal(constant, baseline.decimal_dtype(), Nullability::NonNullable),
+                array.len(),
+            )
+            .into_array();
+            for operator in ALL_OPERATORS {
+                let actual = <DecimalByteParts as CompareKernel>::compare(
+                    array.as_view(),
+                    &rhs,
+                    operator,
+                    &mut ctx,
+                )?
+                .unwrap_or_else(|| {
+                    panic!("decimal byte parts compare must engage for {operator:?}")
+                });
+                let expected = baseline
+                    .clone()
+                    .into_array()
+                    .compare(rhs.clone(), operator)?;
+                assert_arrays_eq!(actual, expected, &mut ctx);
+            }
+        }
+        Ok(())
+    }
+
+    fn i128_cases() -> (Vec<i128>, Vec<DecimalValue>) {
+        // Precision 38 admits magnitudes below 10^38.
+        let limit = 10i128.pow(38) - 1;
+        let values = vec![
+            1i128 << 70,
+            (1i128 << 70) + 1,
+            5,
+            -(1i128 << 70),
+            -1,
+            0,
+            1 << 64,
+            limit,
+            -limit,
+        ];
+        let mut constants = Vec::new();
+        for value in &values {
+            constants.extend([value - 1, *value, value + 1]);
+        }
+        constants.extend([(1i128 << 64) - 1, -(1i128 << 64), u64::MAX.into()]);
+        (
+            values,
+            constants
+                .into_iter()
+                .filter(|constant| constant.abs() <= limit)
+                .map(DecimalValue::I128)
+                .collect(),
+        )
+    }
+
+    #[test]
+    fn wide_i128_matches_decimal() -> VortexResult<()> {
+        let (values, constants) = i128_cases();
+        let array = i128_parts(values.clone(), Validity::NonNullable);
+        let baseline = DecimalArray::new(
+            Buffer::from(values),
+            DecimalDType::new(38, 2),
+            Validity::NonNullable,
+            &mut SESSION.create_execution_ctx(),
+        );
+        assert_matches_decimal(&array, &baseline, constants)
+    }
+
+    #[test]
+    fn wide_i128_nullable_matches_decimal() -> VortexResult<()> {
+        let (values, constants) = i128_cases();
+        let validity = Validity::from_iter((0..values.len()).map(|i| i % 3 != 1));
+        let array = i128_parts(values.clone(), validity.clone());
+        let baseline = DecimalArray::new(
+            Buffer::from(values),
+            DecimalDType::new(38, 2),
+            validity,
+            &mut SESSION.create_execution_ctx(),
+        );
+        assert_matches_decimal(&array, &baseline, constants)
+    }
+
+    #[test]
+    fn wide_i256_matches_decimal() -> VortexResult<()> {
+        // Precision 76 admits magnitudes below 10^76, which is above 2^252.
+        let values = vec![
+            i256::from_parts(0, 1),
+            i256::from_parts(0, -1),
+            i256::from_parts(u128::MAX, 0),
+            i256::from_parts(7, 1 << 64),
+            i256::from_parts(0, 0),
+            i256::from_parts(u128::MAX, -1),
+            i256::from_parts(u128::MAX, (1 << 120) - 1),
+            i256::from_parts(0, -(1 << 120)),
+        ];
+        let mut constants: Vec<i256> = values.clone();
+        constants.extend([
+            i256::from_parts(1, 1),
+            i256::from_parts(u128::MAX - 1, 0),
+            i256::from_parts(8, 1 << 64),
+            i256::from_parts(1, -1),
+            i256::from_parts(u128::MAX, -2),
+            i256::from_parts(1, -(1 << 120)),
+        ]);
+        let validity = Validity::from_iter((0..values.len()).map(|i| i % 4 != 2));
+        let array = i256_parts(values.clone(), validity.clone());
+        let baseline = DecimalArray::new(
+            Buffer::from(values),
+            DecimalDType::new(76, 2),
+            validity,
+            &mut SESSION.create_execution_ctx(),
+        );
+        assert_matches_decimal(
+            &array,
+            &baseline,
+            constants.into_iter().map(DecimalValue::I256),
+        )
+    }
+
+    /// A `Widen` MSP with no lower parts compares at its logical `i64` width, so constants outside
+    /// the range of the `i8` child still compare the values.
+    #[test]
+    fn widen_msp_matches_decimal_outside_child_range() -> VortexResult<()> {
+        let dtype = DecimalDType::new(10, 0);
+        let msp = PrimitiveArray::from_option_iter([Some(1i8), Some(-1), None]).into_array();
+        let array = DecimalByteParts::try_new(widen_msp(msp, dtype)?, dtype)?;
+        let baseline = DecimalArray::from_option_iter([Some(1i64), Some(-1), None], dtype);
+
+        assert_matches_decimal(
+            &array,
+            &baseline,
+            [1000i64, -1000, 127, 128, -128, -129].map(DecimalValue::I64),
+        )
+    }
+
+    /// A differing middle word decides the answer before the less significant parts. Constant MSPs
+    /// outside the range of the `i8` child still compare at the logical `i64` width.
+    #[test]
+    fn middle_parts_match_decimal() -> VortexResult<()> {
+        let dtype = DecimalDType::new(76, 2);
+        let validity = Validity::from_iter([true, false, true, true]);
+        let msp = PrimitiveArray::new(buffer![1i8, 0, -1, 3], validity.clone()).into_array();
+        let msp = widen_msp(msp, dtype)?;
+        let upper = buffer![5u64, 7, u64::from(u8::MAX), 0].into_array();
+        let middle = buffer![9u64, u64::from(u16::MAX), 0, 3].into_array();
+        let lower = buffer![2u64, u64::MAX, 4, 0].into_array();
+        let array =
+            DecimalByteParts::try_new_with_lower_parts(msp, vec![upper, middle, lower], dtype)?;
+
+        let parts = [
+            (1i128, 5u64, 9u64, 2u64),
+            (0, 7, u64::from(u16::MAX), u64::MAX),
+            (-1, u64::from(u8::MAX), 0, 4),
+            (3, 0, 3, 0),
+        ];
+        let value = |msp: i128, upper: u64, middle: u64, lower: u64| {
+            i256::from_parts(
+                (u128::from(middle) << 64) | u128::from(lower),
+                (msp << 64) | i128::from(upper),
+            )
+        };
+        let values: Vec<i256> = parts
+            .iter()
+            .map(|&(msp, upper, middle, lower)| value(msp, upper, middle, lower))
+            .collect();
+        let baseline = DecimalArray::new(
+            Buffer::from(values.clone()),
+            dtype,
+            validity,
+            &mut SESSION.create_execution_ctx(),
+        );
+
+        let mut constants = values;
+        constants.extend([
+            value(1, 300, 0, 0),
+            value(1, 5, 70_000, 0),
+            value(0, 7, 70_000, 0),
+            value(-1, 300, 0, 0),
+            value(3, 0, 70_000, 0),
+            value(1, 5, 9, 1),
+            value(1, 5, 9, 3),
+            value(1 << 40, 0, 0, 0),
+            value(-(1 << 40), 0, 0, 0),
+        ]);
+        assert_matches_decimal(
+            &array,
+            &baseline,
+            constants.into_iter().map(DecimalValue::I256),
+        )
     }
 }

@@ -24,12 +24,12 @@ use crate::arrays::runend::compute::take_from::RunEndTakeFrom;
 use crate::kernel::ExecuteParentKernel;
 use crate::optimizer::kernels::ArrayKernelsExt;
 use crate::scalar_fn::ScalarFnVTable;
-use crate::scalar_fn::fns::binary::Binary;
-use crate::scalar_fn::fns::binary::CompareExecuteAdaptor;
+use crate::scalar_fn::builtin::compare::Compare;
+use crate::scalar_fn::builtin::compare::CompareExecuteAdaptor;
 
 pub(super) fn initialize(session: &VortexSession) {
     let kernels = session.kernels();
-    kernels.register_execute_parent_kernel(Binary.id(), RunEnd, CompareExecuteAdaptor(RunEnd));
+    kernels.register_execute_parent_kernel(Compare.id(), RunEnd, CompareExecuteAdaptor(RunEnd));
     kernels.register_execute_parent_kernel(Slice.id(), RunEnd, RunEndSliceKernel);
     kernels.register_execute_parent_kernel(Filter.id(), RunEnd, FilterExecuteAdaptor(RunEnd));
     kernels.register_execute_parent_kernel(Dict.id(), RunEnd, TakeExecuteAdaptor(RunEnd));
@@ -64,8 +64,10 @@ fn slice(
 ) -> VortexResult<ArrayRef> {
     let new_length = range.len();
 
-    let slice_begin = array.find_physical_index(range.start, ctx)?;
-    let slice_end = array.find_slice_end_index(range.end, ctx)?;
+    let Range {
+        start: slice_begin,
+        end: slice_end,
+    } = array.find_physical_range(range.clone(), ctx)?;
 
     // If the sliced range contains only a single run, opt to return a ConstantArray.
     if slice_begin + 1 == slice_end {

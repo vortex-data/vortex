@@ -7,23 +7,22 @@ use std::fmt::Debug;
 use std::sync::Arc;
 
 use vortex_array::dtype::DType;
-use vortex_array::expr::BoundExpression;
 use vortex_array::scalar_fn::ScalarFnId;
-use vortex_array::scalar_fn::ScalarFnVTableExt;
-use vortex_array::scalar_fn::fns::binary::Binary;
-use vortex_array::scalar_fn::fns::operators::Operator;
+use vortex_array::scalar_fn::builtin::boolean::Boolean;
+use vortex_array::scalar_fn::builtin::operators::BooleanOperator;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_session::VortexSession;
 use vortex_utils::iter::ReduceBalancedIterExt;
 
+use crate::BoundExpression;
+use crate::ScalarFnExprExt;
 use crate::stats::session::StatsSessionExt;
 
 mod builtins;
-mod dynamic_expression;
 #[cfg(test)]
 mod fn_tests;
-mod like_variant;
+pub mod helpers;
 
 pub(crate) use builtins::register_builtins;
 
@@ -161,7 +160,7 @@ fn rewrite(
 
     rewrites
         .into_iter()
-        .try_reduce_balanced(|lhs, rhs| Binary.try_new_bound_expr(Operator::Or, [lhs, rhs]))
+        .try_reduce_balanced(|lhs, rhs| Boolean.try_new_bound_expr(BooleanOperator::Or, [lhs, rhs]))
 }
 
 #[cfg(test)]
@@ -171,17 +170,17 @@ mod tests {
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
-    use vortex_array::expr::BoundExpression;
-    use vortex_array::expr::lit;
-    use vortex_array::expr::not;
-    use vortex_array::expr::or;
     use vortex_array::scalar_fn::ScalarFnId;
     use vortex_array::scalar_fn::ScalarFnVTable;
-    use vortex_array::scalar_fn::fns::not::Not;
+    use vortex_array::scalar_fn::builtin::not::Not;
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
     use super::StatsRewriteRule;
+    use crate::BoundExpression;
+    use crate::lit;
+    use crate::not;
+    use crate::or;
     use crate::stats::rewrite::BoundExpressionPruneExt;
     use crate::stats::session::StatsSessionExt;
 

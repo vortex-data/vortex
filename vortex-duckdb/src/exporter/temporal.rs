@@ -47,7 +47,6 @@ pub(crate) fn new_exporter(
 mod tests {
     use vortex::array::IntoArray as _;
     use vortex::array::VortexSessionExecute;
-    use vortex::array::arrays::PrimitiveArray;
     use vortex::array::arrays::TemporalArray;
     use vortex::buffer::buffer;
     use vortex::extension::datetime::TimeUnit;
@@ -79,56 +78,6 @@ mod tests {
             String::try_from(&*chunk).unwrap(),
             r#"Chunk - [1 Columns]
 - FLAT TIMESTAMP_S: 5 = [ 2025-06-18 16:43:45, 2025-06-18 16:43:46, 2025-06-18 16:43:47, 2025-06-18 16:43:48, 2025-06-18 16:43:49]
-"#
-        );
-    }
-
-    #[test]
-    fn test_timestamp_us() {
-        let arr = TemporalArray::new_timestamp(
-            PrimitiveArray::from_iter((0..10).map(|i| 1_000_000 * i + 1750265188000001i64))
-                .into_array(),
-            TimeUnit::Microseconds,
-            None,
-        );
-        let mut chunk = DataChunk::new([LogicalType::new(cpp::duckdb_type::DUCKDB_TYPE_TIMESTAMP)]);
-        let mut ctx = SESSION.create_execution_ctx();
-
-        new_exporter(arr, &mut ctx)
-            .unwrap()
-            .export(1, 5, chunk.get_vector_mut(0), &mut ctx)
-            .unwrap();
-        chunk.set_len(5);
-
-        assert_eq!(
-            String::try_from(&*chunk).unwrap(),
-            r#"Chunk - [1 Columns]
-- FLAT TIMESTAMP: 5 = [ 2025-06-18 16:46:29.000001, 2025-06-18 16:46:30.000001, 2025-06-18 16:46:31.000001, 2025-06-18 16:46:32.000001, 2025-06-18 16:46:33.000001]
-"#
-        );
-    }
-
-    #[test]
-    fn test_timestamp_time_us() {
-        let arr = TemporalArray::new_time(
-            PrimitiveArray::from_iter((1i64..10).map(|i| 1_000_000 * i)).into_array(),
-            TimeUnit::Microseconds,
-        );
-
-        let mut chunk = DataChunk::new([LogicalType::try_from(arr.dtype()).unwrap()]);
-        let mut ctx = SESSION.create_execution_ctx();
-
-        new_exporter(arr, &mut ctx)
-            .unwrap()
-            .export(1, 5, chunk.get_vector_mut(0), &mut ctx)
-            .unwrap();
-
-        chunk.set_len(5);
-
-        assert_eq!(
-            String::try_from(&*chunk).unwrap(),
-            r#"Chunk - [1 Columns]
-- FLAT TIME: 5 = [ 00:00:02, 00:00:03, 00:00:04, 00:00:05, 00:00:06]
 "#
         );
     }

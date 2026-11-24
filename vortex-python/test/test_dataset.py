@@ -3,6 +3,7 @@
 
 import math
 import os
+from collections.abc import Iterator
 from pathlib import Path
 
 import duckdb
@@ -11,6 +12,7 @@ import pyarrow as pa
 import pyarrow.compute as pc
 import pyarrow.dataset as pd
 import pytest
+import vortex._runtime as vx_runtime
 import vortex.dataset as vx_dataset
 
 import vortex as vx
@@ -52,6 +54,25 @@ def test_head(ds: pd.Dataset) -> None:
     assert ds.head(1).to_pylist() == [{"index": 0, "string": "0", "bool": True, "float": 0.0}]
 
 
+@pytest.mark.parametrize("num_rows", [0, 2_000_000])
+def test_head_matches_to_table(ds: pd.Dataset, num_rows: int) -> None:
+    assert ds.head(num_rows) == ds.to_table().slice(0, num_rows)
+
+
+def test_head_with_fewer_matching_rows_than_requested(ds: pd.Dataset) -> None:
+    expression = pc.field("index") >= 999_995
+    assert ds.head(10, columns=["index"], filter=expression).column("index").to_pylist() == list(
+        range(999_995, 1_000_000)
+    )
+    assert ds.head(10, filter=pc.field("index") < 0).num_rows == 0
+
+
+def test_head_with_filter_matching_more_rows_than_requested(ds: pd.Dataset) -> None:
+    expression = pc.field("bool")
+    expected = ds.to_table(filter=expression).slice(0, 5_000)
+    assert ds.head(5_000, filter=expression) == expected
+
+
 def test_take(ds: pd.Dataset) -> None:
     assert ds.take(pa.array([10, 50, 1_000, 999_999])).to_pylist() == [
         {"index": 10, "string": "10", "bool": True, "float": math.sqrt(10)},
@@ -59,6 +80,53 @@ def test_take(ds: pd.Dataset) -> None:
         {"index": 1000, "string": "1000", "bool": True, "float": math.sqrt(1000.0)},
         {"index": 999999, "string": "999999", "bool": False, "float": math.sqrt(999999.0)},
     ]
+
+
+@pytest.mark.parametrize("indices", [[999_999, 10], [50, 10, 50], [10, 10], [1_000, 10, 999_999, 50]])
+def test_take_unordered(ds: pd.Dataset, indices: list[int]) -> None:
+    assert ds.take(pa.array(indices)).column("index").to_pylist() == indices
+
+
+@pytest.mark.parametrize("indices", [[0, 6], [6], [6, 0]])
+def test_take_out_of_bounds_raises_index_error(tmp_path: Path, indices: list[int]) -> None:
+    table = pa.table({"v": pa.array([0, 1, 2], type=pa.int64())})
+    path = tmp_path / "three.vortex"
+    vx.io.write(table, str(path))
+    dataset = vx.open_dataset(path)
+
+    with pytest.raises(IndexError):
+        dataset.take(pa.array(indices, type=pa.uint64()))
+
+
+def test_take_out_of_bounds_with_filter_raises_index_error(tmp_path: Path) -> None:
+    table = pa.table({"v": pa.array([0, 1, 2], type=pa.int64())})
+    path = tmp_path / "three.vortex"
+    vx.io.write(table, str(path))
+    dataset = vx.open_dataset(path)
+    always_true = pc.field("v") >= 0
+    indices = pa.array([0, 6], type=pa.uint64())
+
+    with pytest.raises(IndexError):
+        dataset.take(indices, filter=always_true)
+    with pytest.raises(IndexError):
+        dataset.filter(always_true).take(indices)
+
+
+def test_take_unordered_on_filtered_dataset_requires_sorted_indices(ds: vx.dataset.VortexDataset) -> None:
+    filtered = ds.filter(pc.field("index") >= 50)
+    assert filtered.take(pa.array([50, 999_999])).column("index").to_pylist() == [50, 999_999]
+    with pytest.raises(RuntimeError, match="strictly increasing"):
+        filtered.take(pa.array([999_999, 10]))
+
+
+def test_fragment_take_unordered(ds: vx.dataset.VortexDataset) -> None:
+    fragment = list(ds.get_fragments())[-1]
+    assert fragment.take(pa.array([999_999, 999_998, 999_999])).column("index").to_pylist() == [
+        999_999,
+        999_998,
+        999_999,
+    ]
+    assert fragment.take(pa.array([999_999, 10, 999_998])).column("index").to_pylist() == [999_999, 999_998]
 
 
 def test_to_batches(ds: pd.Dataset) -> None:
@@ -84,19 +152,21 @@ def test_use_threads_configures_worker_pool(monkeypatch: pytest.MonkeyPatch) -> 
         calls.append(count)
         current_workers = 11 if count is None else count
 
-    monkeypatch.setattr(vx_dataset, "_worker_threads", fake_worker_threads)
-    monkeypatch.setattr(vx_dataset, "_set_worker_threads", fake_set_worker_threads)
+    monkeypatch.setattr(vx_runtime, "_worker_threads", fake_worker_threads)
+    monkeypatch.setattr(vx_runtime, "_set_worker_threads", fake_set_worker_threads)
+    monkeypatch.setattr(vx_runtime, "_UNTHREADED_LEASES", vx_runtime._UnthreadedLeaseManager())
 
-    with vx_dataset._temporary_worker_threads(True):
-        assert current_workers == 11
+    with vx_runtime._temporary_worker_threads(True):
+        assert current_workers == 3
 
     assert current_workers == 3
+    assert calls == []
 
-    with vx_dataset._temporary_worker_threads(False):
+    with vx_runtime._temporary_worker_threads(False):
         assert current_workers == 0
 
     assert current_workers == 3
-    assert calls == [None, 3, 0, 3]
+    assert calls == [0, 3]
 
     calls.clear()
     reader = pa.RecordBatchReader.from_batches(
@@ -111,7 +181,145 @@ def test_use_threads_configures_worker_pool(monkeypatch: pytest.MonkeyPatch) -> 
 
     assert [batch.to_pylist() for batch in batches] == [[{"x": 1}], [{"x": 2}]]
     assert current_workers == 3
-    assert calls == [None, 3]
+    assert calls == []
+
+
+def _make_two_batch_reader(values: tuple[int, int]) -> pa.RecordBatchReader:
+    return pa.RecordBatchReader.from_batches(
+        pa.schema([("x", pa.int64())]),
+        [
+            pa.record_batch([pa.array([values[0]])], names=["x"]),
+            pa.record_batch([pa.array([values[1]])], names=["x"]),
+        ],
+    )
+
+
+class _FakeWorkerPool:
+    def __init__(self, initial: int) -> None:
+        self.workers = initial
+
+
+def _patch_worker_pool(monkeypatch: pytest.MonkeyPatch, initial: int = 4) -> _FakeWorkerPool:
+    pool = _FakeWorkerPool(initial=initial)
+
+    def fake_worker_threads() -> int:
+        return pool.workers
+
+    def fake_set_worker_threads(count: int | None) -> None:
+        assert count is not None
+        pool.workers = count
+
+    monkeypatch.setattr(vx_runtime, "_worker_threads", fake_worker_threads)
+    monkeypatch.setattr(vx_runtime, "_set_worker_threads", fake_set_worker_threads)
+    monkeypatch.setattr(vx_runtime, "_UNTHREADED_LEASES", vx_runtime._UnthreadedLeaseManager())
+    return pool
+
+
+@pytest.mark.parametrize("close_first_created_first", [True, False])
+def test_overlapping_unthreaded_readers_restore_baseline(
+    monkeypatch: pytest.MonkeyPatch, close_first_created_first: bool
+) -> None:
+    pool = _patch_worker_pool(monkeypatch, initial=4)
+    gen1 = vx_dataset._read_batches_with_temporary_worker_threads(_make_two_batch_reader((1, 2)), False)
+    gen2 = vx_dataset._read_batches_with_temporary_worker_threads(_make_two_batch_reader((3, 4)), False)
+
+    assert next(gen1).to_pylist() == [{"x": 1}]
+    assert pool.workers == 0
+    assert next(gen2).to_pylist() == [{"x": 3}]
+    assert pool.workers == 0
+
+    first_to_close, second_to_close = (gen1, gen2) if close_first_created_first else (gen2, gen1)
+    first_to_close.close()
+    assert pool.workers == 0
+    second_to_close.close()
+    assert pool.workers == 4
+
+
+def test_overlapping_reader_error_still_restores_baseline(monkeypatch: pytest.MonkeyPatch) -> None:
+    pool = _patch_worker_pool(monkeypatch, initial=5)
+
+    class FailingReader:
+        def __iter__(self) -> Iterator[pa.RecordBatch]:
+            yield pa.record_batch([pa.array([1])], names=["x"])
+            raise RuntimeError("boom")
+
+    gen_ok = vx_dataset._read_batches_with_temporary_worker_threads(_make_two_batch_reader((10, 20)), False)
+    gen_err = vx_dataset._read_batches_with_temporary_worker_threads(FailingReader(), False)  # ty: ignore[invalid-argument-type]
+
+    assert next(gen_ok).to_pylist() == [{"x": 10}]
+    assert pool.workers == 0
+    assert next(gen_err).to_pylist() == [{"x": 1}]
+    assert pool.workers == 0
+
+    with pytest.raises(RuntimeError, match="boom"):
+        next(gen_err)
+    assert pool.workers == 0
+
+    gen_ok.close()
+    assert pool.workers == 5
+
+
+def test_reentrant_release_during_acquire_does_not_deadlock(monkeypatch: pytest.MonkeyPatch) -> None:
+    pool = _FakeWorkerPool(initial=4)
+    manager = vx_runtime._UnthreadedLeaseManager()
+    stale_gen: int | None = None
+    triggered = False
+
+    def fake_worker_threads() -> int:
+        nonlocal triggered
+        if stale_gen is not None and not triggered:
+            triggered = True
+            manager.release(stale_gen)
+        return pool.workers
+
+    def fake_set_worker_threads(count: int | None) -> None:
+        assert count is not None
+        pool.workers = count
+
+    monkeypatch.setattr(vx_runtime, "_worker_threads", fake_worker_threads)
+    monkeypatch.setattr(vx_runtime, "_set_worker_threads", fake_set_worker_threads)
+    monkeypatch.setattr(vx_runtime, "_UNTHREADED_LEASES", manager)
+
+    stale_gen = manager.acquire()
+    manager.reset_after_fork()
+    assert pool.workers == 4
+
+    gen = manager.acquire()
+    assert triggered
+    assert pool.workers == 0
+
+    manager.release(gen)
+    assert pool.workers == 4
+
+
+@pytest.mark.parametrize("close_first_then_second", [True, False])
+def test_public_record_batch_reader_close_restores_worker_count_while_alive(
+    ds: vx_dataset.VortexDataset, monkeypatch: pytest.MonkeyPatch, close_first_then_second: bool
+) -> None:
+    pool = _patch_worker_pool(monkeypatch, initial=4)
+    reader1 = ds.to_record_batch_reader(batch_size=1024, use_threads=False)
+    reader2 = ds.to_record_batch_reader(batch_size=1024, use_threads=False)
+
+    assert isinstance(reader1, pa.RecordBatchReader)
+    assert reader1.read_next_batch().num_rows > 0
+    assert pool.workers == 0
+
+    assert reader2.read_next_batch().num_rows > 0
+    assert pool.workers == 0
+
+    first_to_close, second_to_close = (reader1, reader2) if close_first_then_second else (reader2, reader1)
+    first_to_close.close()
+    assert pool.workers == 0
+
+    second_to_close.close()
+    assert pool.workers == 4
+    # Keep both closed reader objects alive across the restored-count assertion.
+    assert reader1 is not None and reader2 is not None
+
+    # Verify native PyArrow consumers (e.g. Scanner.from_batches) accept the returned reader.
+    scanner = pd.Scanner.from_batches(ds.to_record_batch_reader(batch_size=1024, use_threads=False))
+    assert scanner.to_table().num_rows == ds.count_rows()
+    assert pool.workers == 4
 
 
 @pytest.mark.parametrize("batch_size", [1234, 8192, 1 << 31])
@@ -223,6 +431,24 @@ def test_fragment_schema(ds: vx.dataset.VortexDataset) -> None:
         ), (f, i)
 
     assert ds.head(1).to_pylist() == [{"index": 0, "string": "0", "bool": True, "float": 0.0}]
+
+
+def test_fragment_reads_accept_only_the_dataset_schema(ds: vx.dataset.VortexDataset) -> None:
+    fragment = next(iter(ds.get_fragments()))
+    expected = fragment.to_table()
+
+    # DataFusion passes the dataset schema to unify it with the fragment schema.
+    assert fragment.scanner(ds.schema).to_table() == expected
+    assert fragment.to_table(ds.schema) == expected
+    assert pa.Table.from_batches(fragment.to_batches(ds.schema)) == expected
+
+    other = pa.schema([("index", pa.int32())])
+    with pytest.raises(ValueError, match="schema of the dataset"):
+        fragment.scanner(other)
+    with pytest.raises(ValueError, match="schema of the dataset"):
+        fragment.to_table(other)
+    with pytest.raises(ValueError, match="schema of the dataset"):
+        list(fragment.to_batches(other))
 
 
 def test_fragment_take(ds: vx.dataset.VortexDataset) -> None:
@@ -343,3 +569,14 @@ def test_filter_is_in_with_a_null_member_is_unsupported(tmp_path: Path) -> None:
     # Substrait does not carry whether PyArrow skips nulls, which decides a null row.
     with pytest.raises(NotImplementedError):
         vx.open(str(path)).to_dataset().to_table(filter=pc.field("x").isin([1, None]))
+
+
+def test_zero_batch_size_rejected(ds: vx.dataset.VortexDataset) -> None:
+    with pytest.raises(ValueError, match="batch_size must be greater than zero"):
+        ds.to_record_batch_reader(batch_size=0)
+    with pytest.raises(ValueError, match="batch_size must be greater than zero"):
+        list(ds.to_batches(batch_size=0))
+    with pytest.raises(ValueError, match="batch_size must be greater than zero"):
+        ds.count_rows(batch_size=0)
+    with pytest.raises(ValueError, match="batch_size must be greater than zero"):
+        ds.count_rows(filter=pc.field("index") >= 0, batch_size=0)

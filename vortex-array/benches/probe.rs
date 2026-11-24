@@ -12,6 +12,7 @@ use mimalloc::MiMalloc;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
+use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::DictArray;
 use vortex_array::arrays::ListViewArray;
@@ -26,9 +27,10 @@ use vortex_array::dtype::MapDType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::optimizer::kernels::KernelSession;
+use vortex_array::scalar::NumericOperator;
 use vortex_array::scalar_fn::TypedScalarFnInstance;
-use vortex_array::scalar_fn::fns::binary::Binary;
-use vortex_array::scalar_fn::fns::operators::Operator;
+use vortex_array::scalar_fn::builtin::numeric::Numeric;
+use vortex_array::test_harness::mark_optimized;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_error::VortexExpect;
@@ -132,7 +134,7 @@ fn nullable_map() -> ArrayRef {
 }
 
 fn scalar_fn(nested: bool) -> ArrayRef {
-    let add = TypedScalarFnInstance::new(Binary, Operator::Add).erased();
+    let add = TypedScalarFnInstance::new(Numeric, NumericOperator::Add).erased();
     let lhs = nullable_primitive(LEN);
     let rhs = ConstantArray::new(3i64, LEN).into_array();
     let added = ScalarFnArray::try_new(add, vec![lhs, rhs])
@@ -142,7 +144,7 @@ fn scalar_fn(nested: bool) -> ArrayRef {
         return added;
     }
 
-    let mul = TypedScalarFnInstance::new(Binary, Operator::Mul).erased();
+    let mul = TypedScalarFnInstance::new(Numeric, NumericOperator::Mul).erased();
     ScalarFnArray::try_new(mul, vec![added, nullable_primitive(LEN)])
         .vortex_expect("nested scalar function fixture")
         .into_array()
@@ -162,6 +164,7 @@ const ARRAYS: &[&str] = &[
     "primitive",
     "dict",
     "struct",
+    "bool",
     "map",
     "scalar_fn_binary",
     "scalar_fn_nested",
@@ -177,6 +180,9 @@ fn array(name: &str) -> ArrayRef {
         "scalar_fn_nested" => scalar_fn(true),
         "dict" => dict_over_nullable_values(),
         "struct" => nullable_struct(),
+        "bool" => {
+            BoolArray::from_iter((0..LEN).map(|i| (i % 7 != 0).then_some(i % 2 == 0))).into_array()
+        }
         _ => unreachable!("unknown fixture {name}"),
     }
 }
@@ -184,6 +190,7 @@ fn array(name: &str) -> ArrayRef {
 #[divan::bench(args = ARRAYS)]
 fn once(bencher: Bencher, name: &str) {
     let array = array(name);
+    mark_optimized(&array, &SESSION).vortex_expect("optimize the benchmark input");
     let indices = indices();
     bencher
         .with_inputs(|| SESSION.create_execution_ctx())
@@ -201,6 +208,7 @@ fn once(bencher: Bencher, name: &str) {
 #[divan::bench(args = ARRAYS)]
 fn repeated(bencher: Bencher, name: &str) {
     let array = array(name);
+    mark_optimized(&array, &SESSION).vortex_expect("optimize the benchmark input");
     let indices = indices();
     bencher
         .with_inputs(|| (SESSION.create_execution_ctx(), array.repeated_probe()))

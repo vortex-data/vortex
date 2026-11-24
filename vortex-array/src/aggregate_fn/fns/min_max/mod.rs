@@ -41,13 +41,13 @@ use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::dtype::StructFields;
 use crate::dtype::half::f16;
-use crate::expr::stats::Precision;
-use crate::expr::stats::Stat;
-use crate::expr::stats::StatsProvider;
-use crate::expr::stats::StatsProviderExt;
 use crate::partial_ord::partial_max;
 use crate::partial_ord::partial_min;
 use crate::scalar::Scalar;
+use crate::stats::Precision;
+use crate::stats::Stat;
+use crate::stats::StatsProvider;
+use crate::stats::StatsProviderExt;
 
 static NAMES: LazyLock<FieldNames> = LazyLock::new(|| FieldNames::from(["min", "max"]));
 
@@ -574,23 +574,24 @@ mod tests {
     use crate::arrays::ListArray;
     use crate::arrays::NullArray;
     use crate::arrays::PrimitiveArray;
+    use crate::arrays::TemporalArray;
     use crate::arrays::VarBinArray;
     use crate::dtype::BigCast;
     use crate::dtype::DType;
     use crate::dtype::DecimalDType;
-    use crate::dtype::DecimalType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
     use crate::dtype::extension::ExtDType;
     use crate::dtype::extension::ExtId;
     use crate::dtype::extension::ExtVTable;
-    use crate::expr::stats::Precision;
-    use crate::expr::stats::Stat;
-    use crate::expr::stats::StatsProvider;
+    use crate::extension::datetime::TimeUnit;
     use crate::match_each_decimal_value_type;
     use crate::scalar::DecimalValue;
     use crate::scalar::Scalar;
     use crate::scalar::ScalarValue;
+    use crate::stats::Precision;
+    use crate::stats::Stat;
+    use crate::stats::StatsProvider;
     use crate::validity::Validity;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
@@ -606,6 +607,30 @@ mod tests {
                 max: 3.into()
             })
         );
+        Ok(())
+    }
+
+    #[test]
+    fn test_timestamp_min_max_beyond_jiff_range() -> VortexResult<()> {
+        // Midnight on 9999-12-31 UTC.
+        const END_OF_9999_US: i64 = 253_402_214_400_000_000;
+        let timestamps = TemporalArray::new_timestamp(
+            PrimitiveArray::from_iter([0i64, END_OF_9999_US]).into_array(),
+            TimeUnit::Microseconds,
+            None,
+        )
+        .into_array();
+        let mut ctx = SESSION.create_execution_ctx();
+        let MinMaxResult { min, max } =
+            min_max(&timestamps, &mut ctx, NumericalAggregateOpts::default())?
+                .vortex_expect("two non-null timestamps have min and max");
+
+        assert_eq!(min.as_extension().to_storage_scalar(), 0i64.into());
+        assert_eq!(
+            max.as_extension().to_storage_scalar(),
+            END_OF_9999_US.into()
+        );
+
         Ok(())
     }
 
@@ -980,12 +1005,13 @@ mod tests {
 
     #[test]
     fn test_decimal() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
         let decimal = DecimalArray::new(
-            buffer![100i32, 2000i32, 200i32],
+            buffer![100i16, 2000, 200],
             DecimalDType::new(4, 2),
             Validity::from_iter([true, false, true]),
+            &mut ctx,
         );
-        let mut ctx = SESSION.create_execution_ctx();
         let result = min_max(
             &decimal.into_array(),
             &mut ctx,
@@ -1021,18 +1047,10 @@ mod tests {
         #[case] values: Vec<Option<i8>>,
         #[case] nullable: bool,
         #[case] expected: Option<(i8, i8)>,
-        #[values(
-            DecimalType::I8,
-            DecimalType::I16,
-            DecimalType::I32,
-            DecimalType::I64,
-            DecimalType::I128,
-            DecimalType::I256
-        )]
-        storage: DecimalType,
+        #[values(2, 4, 9, 18, 38, 76)] precision: u8,
     ) -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
-        let decimal_dtype = DecimalDType::new(9, 2);
+        let decimal_dtype = DecimalDType::new(precision, 2);
         let validity = if nullable {
             Validity::from_iter(values.iter().map(Option::is_some))
         } else {
@@ -1043,7 +1061,7 @@ mod tests {
             max: Scalar::decimal(max.into(), decimal_dtype, Nullability::NonNullable),
         });
 
-        match_each_decimal_value_type!(storage, |T| {
+        match_each_decimal_value_type!(decimal_dtype.canonical_values_type(), |T| {
             let buffer: Buffer<T> = values
                 .iter()
                 .enumerate()
@@ -1054,7 +1072,7 @@ mod tests {
                     None => T::MAX,
                 })
                 .collect();
-            let array = DecimalArray::new(buffer, decimal_dtype, validity).into_array();
+            let array = DecimalArray::new(buffer, decimal_dtype, validity, &mut ctx).into_array();
             let actual = min_max(&array, &mut ctx, NumericalAggregateOpts::default())?;
             assert_eq!(actual, expected);
             if let Some(actual) = actual {
@@ -1065,6 +1083,33 @@ mod tests {
 
             Ok(())
         })
+    }
+
+    #[test]
+    fn test_decimal_value_outside_precision_in_null_slot() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        // The out-of-range value sits in a null slot, so it must be ignored.
+        let decimal = DecimalArray::new(
+            buffer![5i8, 100i8],
+            DecimalDType::new(2, 0),
+            Validity::from_iter([true, false]),
+            &mut ctx,
+        );
+        let result = min_max(
+            &decimal.into_array(),
+            &mut ctx,
+            NumericalAggregateOpts::default(),
+        )?
+        .vortex_expect("should have result");
+
+        let expected = Scalar::decimal(
+            DecimalValue::I8(5),
+            DecimalDType::new(2, 0),
+            Nullability::NonNullable,
+        );
+        assert_eq!(result.min, expected);
+        assert_eq!(result.max, expected);
+        Ok(())
     }
 
     #[test]
@@ -1286,6 +1331,7 @@ mod tests {
 
     impl ExtVTable for F64Ext {
         type Metadata = EmptyMetadata;
+        type StoredMetadata = Self::Metadata;
         type NativeValue<'a> = &'a ScalarValue;
 
         #[expect(clippy::disallowed_methods, reason = "test-only id")]
@@ -1297,12 +1343,20 @@ mod tests {
             Ok(vec![])
         }
 
-        fn deserialize_metadata(&self, _data: &[u8]) -> VortexResult<Self::Metadata> {
+        fn deserialize_metadata(&self, _data: &[u8]) -> VortexResult<Self::StoredMetadata> {
             Ok(EmptyMetadata)
         }
 
-        fn validate_dtype(_extension_dtype: &ExtDType<Self>) -> VortexResult<()> {
-            Ok(())
+        fn metadata_from_storage(
+            &self,
+            stored_metadata: Self::StoredMetadata,
+            _storage_dtype: &DType,
+        ) -> VortexResult<Self::Metadata> {
+            Ok(stored_metadata)
+        }
+
+        fn storage_dtype(_metadata: &Self::Metadata) -> DType {
+            DType::Primitive(PType::F64, Nullability::NonNullable)
         }
 
         fn unpack_native<'a>(
@@ -1314,11 +1368,8 @@ mod tests {
     }
 
     fn f64_ext_array(values: Buffer<f64>) -> VortexResult<ArrayRef> {
-        let ext_dtype = ExtDType::<F64Ext>::try_new(
-            EmptyMetadata,
-            DType::Primitive(PType::F64, Nullability::NonNullable),
-        )?
-        .erased();
+        let ext_dtype =
+            ExtDType::<F64Ext>::try_new(EmptyMetadata, Nullability::NonNullable)?.erased();
         Ok(ExtensionArray::new(ext_dtype, values.into_array()).into_array())
     }
 

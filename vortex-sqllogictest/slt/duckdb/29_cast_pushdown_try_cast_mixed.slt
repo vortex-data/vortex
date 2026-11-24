@@ -1,0 +1,44 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+include ../setup.slt.no
+
+statement ok
+COPY (SELECT * FROM (
+    VALUES (1, 0),(1, 0),(1, 0),(1, 0),(1, 0),(1, 0),(2, 0),(3, 0),(3, 0),(3, 257)
+) AS t(column00, column01))
+TO '$__TEST_DIR__/cast_pushdown.vortex';
+
+# Same TRY_CAST in SELECT and WHERE: CAST stays in the plan.
+query TT
+EXPLAIN SELECT TRY_CAST(column00 AS UTINYINT)
+FROM '$__TEST_DIR__/cast_pushdown.vortex'
+WHERE TRY_CAST(column00 AS UTINYINT) > 0;
+----
+<REGEX>:.*CAST.*
+
+query TT
+EXPLAIN SELECT column00::UTINYINT, TRY_CAST(column00 AS UTINYINT)
+FROM '$__TEST_DIR__/cast_pushdown.vortex';
+----
+<REGEX>:.*CAST.*
+
+query TT
+EXPLAIN SELECT column00::UTINYINT, TRY_CAST(column00 AS UTINYINT)
+FROM '$__TEST_DIR__/cast_pushdown.vortex';
+----
+<!REGEX>:.*SELECT projections.*
+
+# CAST and TRY_CAST of different target types: conflict, pushdown blocked
+query TT
+EXPLAIN (FORMAT json)
+SELECT column00::UTINYINT, TRY_CAST(column00 AS USMALLINT)
+FROM '$__TEST_DIR__/cast_pushdown.vortex';
+----
+<REGEX>:.*PROJECTION.*
+
+query TT
+EXPLAIN SELECT column00::UTINYINT, TRY_CAST(column00 AS USMALLINT)
+FROM '$__TEST_DIR__/cast_pushdown.vortex';
+----
+<!REGEX>:.*SELECT projections.*

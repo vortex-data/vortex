@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use itertools::Itertools;
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;
@@ -11,23 +12,25 @@ use crate::arrays::ChunkedArray;
 use crate::arrays::chunked::ChunkedArrayExt;
 use crate::builtins::ArrayBuiltins;
 use crate::scalar::Scalar;
-use crate::scalar_fn::fns::fill_null::FillNullReduce;
+use crate::scalar_fn::builtin::fill_null::FillNullReduce;
 
 impl FillNullReduce for Chunked {
     fn fill_null(
         array: ArrayView<'_, Chunked>,
         fill_value: &Scalar,
     ) -> VortexResult<Option<ArrayRef>> {
-        let new_chunks = array
-            .iter_chunks()
-            .map(|c| c.fill_null(fill_value.clone()))
-            .collect::<VortexResult<Vec<_>>>()?;
-
-        // SAFETY: wrapping each chunk in ScalarFnArray preserves the same DType across all chunks.
-        Ok(Some(
-            unsafe { ChunkedArray::new_unchecked(new_chunks, fill_value.dtype().clone()) }
-                .into_array(),
-        ))
+        let chunks = array.iter_chunks().map(|c| c.fill_null(fill_value.clone()));
+        chunks.process_results(|chunks| {
+            // SAFETY: filling nulls gives every chunk the fill value's dtype.
+            Some(unsafe {
+                ChunkedArray::new_unchecked_sized(
+                    chunks,
+                    fill_value.dtype().clone(),
+                    array.nchunks(),
+                )
+                .into_array()
+            })
+        })
     }
 }
 

@@ -78,4 +78,14 @@ impl ExecutionArgs for BorrowedRowFnArgs<'_> {
     fn row_count(&self) -> usize {
         self.row_count
     }
+
+    fn input_matches(&self, index: usize, predicate: fn(&ArrayRef) -> bool) -> VortexResult<bool> {
+        let input = self.arrays.get(index).ok_or_else(|| {
+            vortex_err!(
+                "row-function input index must be less than {}, got {index}",
+                self.arrays.len(),
+            )
+        })?;
+        Ok(predicate(input))
+    }
 }

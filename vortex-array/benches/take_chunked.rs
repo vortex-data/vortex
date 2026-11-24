@@ -24,6 +24,7 @@ use vortex_array::arrays::StructArray;
 use vortex_array::dtype::FieldNames;
 use vortex_array::memory::MemorySession;
 use vortex_array::optimizer::kernels::KernelSession;
+use vortex_array::test_harness::mark_optimized;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_session::VortexSession;
@@ -75,6 +76,7 @@ enum ValueKind {
     Primitive,
     Struct8,
     FixedSizeList8,
+    StructOfFixedSizeList8,
 }
 
 impl Display for ValueKind {
@@ -83,6 +85,7 @@ impl Display for ValueKind {
             Self::Primitive => "primitive",
             Self::Struct8 => "struct8",
             Self::FixedSizeList8 => "fsl8",
+            Self::StructOfFixedSizeList8 => "struct_fsl8",
         })
     }
 }
@@ -177,10 +180,17 @@ fn cases() -> Vec<Case> {
             ValueKind::Primitive,
             ValueKind::Struct8,
             ValueKind::FixedSizeList8,
+            ValueKind::StructOfFixedSizeList8,
         ] {
             cases.push(Case::new("value_shape", pattern, 16, 100).with_value_kind(value_kind));
         }
     }
+
+    // Random rows of a file scan: few indices over many struct chunks.
+    cases.push(
+        Case::new("sparse_rows", Pattern::Sorted, 4_096, 64)
+            .with_value_kind(ValueKind::StructOfFixedSizeList8),
+    );
 
     for chunks in [4, 16] {
         for validity in [IndexValidity::AllValid, IndexValidity::TenPercentNull] {
@@ -238,20 +248,28 @@ fn chunk_values(value_kind: ValueKind, start: usize, end: usize) -> ArrayRef {
             )
             .into_array()
         }
+        ValueKind::StructOfFixedSizeList8 => StructArray::try_new(
+            FieldNames::from(["tokens", "id"]),
+            vec![
+                chunk_values(ValueKind::FixedSizeList8, start, end),
+                primitive_values(start, end),
+            ],
+            end - start,
+            Validity::NonNullable,
+        )
+        .unwrap()
+        .into_array(),
     }
 }
 
 fn chunked_values(case: Case) -> ArrayRef {
     let chunk_len = SOURCE_LEN / case.chunks;
-    let chunks = (0..case.chunks)
-        .map(|chunk_idx| {
-            let start = chunk_idx * chunk_len;
-            let end = start + chunk_len;
-            chunk_values(case.value_kind, start, end)
-        })
-        .collect::<Vec<_>>();
-    let dtype = chunks[0].dtype().clone();
-    ChunkedArray::try_new(chunks, dtype).unwrap().into_array()
+    let chunks = (0..case.chunks).map(|chunk_idx| {
+        let start = chunk_idx * chunk_len;
+        let end = start + chunk_len;
+        chunk_values(case.value_kind, start, end)
+    });
+    ChunkedArray::from_iter(chunks).into_array()
 }
 
 fn advance_random(state: &mut u64) -> u64 {
@@ -354,6 +372,8 @@ fn take_indices(case: Case) -> ArrayRef {
 fn take(bencher: Bencher, case: Case) {
     let values = chunked_values(case);
     let indices = take_indices(case);
+    mark_optimized(&values, &SESSION).unwrap();
+    mark_optimized(&indices, &SESSION).unwrap();
 
     bencher
         .counter(ItemsCount::new(case.indices))

@@ -53,6 +53,7 @@ pin_project! {
         #[pin]
         inflight: FuturesUnordered<SizedFut<Fut>>,
         bytes_available: Arc<Semaphore>,
+        max_bytes: usize,
     }
 }
 
@@ -61,6 +62,7 @@ impl<Fut> SizeLimitedStream<Fut> {
         Self {
             inflight: FuturesUnordered::new(),
             bytes_available: Arc::new(Semaphore::new(max_bytes)),
+            max_bytes,
         }
     }
 
@@ -77,7 +79,18 @@ where
     ///
     /// This call may need to wait until there is sufficient capacity available in the stream to
     /// begin work on this future.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `bytes` exceeds the stream's configured `max_bytes` capacity or does not fit in a
+    /// `u32`.
     pub async fn push(&self, fut: Fut, bytes: usize) {
+        assert!(
+            bytes <= self.max_bytes,
+            "cannot reserve {bytes} bytes in a stream with max_bytes {}",
+            self.max_bytes
+        );
+
         // Attempt to acquire enough permits to begin working on a request that will occupy
         // `bytes` amount of memory when it completes.
         // Acquiring the permits is what creates backpressure for the producer.
@@ -98,7 +111,9 @@ where
     /// Synchronous push method. This method will attempt to push if there is enough capacity
     /// to begin work on the future immediately.
     ///
-    /// If there is not enough capacity, the original future is returned to the caller.
+    /// If there is not enough capacity, the original future is returned to the caller. If `bytes`
+    /// exceeds the stream's configured `max_bytes` capacity, `Err(fut)` is permanent and retrying
+    /// will never succeed.
     pub fn try_push(&self, fut: Fut, bytes: usize) -> Result<(), Fut> {
         match Arc::clone(&self.bytes_available)
             .try_acquire_many_owned(bytes.try_into().vortex_expect("bytes must fit in u32"))
@@ -149,6 +164,7 @@ mod tests {
     use std::future;
     use std::io;
     use std::sync::Arc;
+    use std::time::Duration;
 
     use bytes::Bytes;
     use futures::FutureExt;
@@ -293,5 +309,14 @@ mod tests {
     fn test_size_overflow_protection() {
         let stream = SizeLimitedStream::new(100);
         let _result = stream.try_push(async {}, (u32::MAX as usize) + 1);
+    }
+
+    #[tokio::test]
+    #[should_panic(expected = "cannot reserve 11 bytes")]
+    async fn test_push_above_capacity_panics() {
+        let stream = SizeLimitedStream::new(10);
+        tokio::time::timeout(Duration::from_secs(1), stream.push(make_future(11), 11))
+            .await
+            .expect("push above capacity should panic immediately, not wait");
     }
 }

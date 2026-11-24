@@ -31,3 +31,12 @@ jobs:
         machine_type:
           - id: arm64
             instance_name: c8gd.metal-24xl
+
+  # Tell the benchmarks website that new results exist, once per run, after every machine type
+  # has ingested its results. `always()` runs it even when one machine type failed.
+  refresh-site:
+    needs: sql
+    if: ${{ always() }}
+    uses: ./.github/workflows/refresh-bench-site.yml
+    secrets:
+      BENCH_REVALIDATE_TOKEN: ${{ secrets.BENCH_REVALIDATE_TOKEN }}

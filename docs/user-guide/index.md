@@ -1,6 +1,7 @@
-# User Guides
+# User guides
 
 Vortex has an integration with
+[ClickHouse](https://clickhouse.com),
 [DuckDB](https://duckdb.org),
 [Apache Datafusion](https://datafusion.apache.org),
 [Pandas](https://pandas.pydata.org),
@@ -18,6 +19,7 @@ and [cuDF](https://github.com/NVIDIA/cudf/pull/24289).
 maxdepth: 2
 ---
 
+clickhouse
 datafusion
 duckdb
 pandas

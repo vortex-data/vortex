@@ -37,6 +37,9 @@ use vortex_array::extension::datetime::TemporalMetadata;
 use vortex_array::extension::datetime::TimeUnit;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_expr::ArrayExprExt;
+use vortex_expr::root;
+use vortex_functions::expr::ext_storage;
 
 use crate::null_buffer::to_null_buffer;
 
@@ -121,6 +124,11 @@ where
     T: ArrowTemporalType,
     T::Native: NativePType,
 {
+    let array = if array.dtype().is_extension() {
+        array.apply(&ext_storage(root()))?
+    } else {
+        array
+    };
     let dtype = DType::Primitive(T::Native::PTYPE, array.dtype().nullability());
     let array = array.cast(dtype)?;
     let primitive = array.execute::<PrimitiveArray>(ctx)?;

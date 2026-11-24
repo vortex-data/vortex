@@ -3,7 +3,7 @@
 //
 //! Decode-path microbenchmarks for the OnPair Vortex array.
 //!
-//! * `decode_into` — the upstream `onpair::decode_into` decoder hot
+//! * `decode_into` — the upstream `onpair::decompress_into` decoder hot
 //!   loop, fed by pre-materialised [`DecodeInputs`]. Measures the inner loop
 //!   only (no child `execute`, no allocation).
 //! * `canonicalize_to_varbinview` — the full Vortex
@@ -52,7 +52,7 @@ use vortex_onpair::OnPairArraySlotsExt;
 use vortex_session::VortexSession;
 
 /// Host-resident decode inputs, materialised once so the decode-loop benchmark
-/// measures only `onpair::decode_into` (not child `execute`/allocation).
+/// measures only `onpair::decompress_into` (not child `execute`/allocation).
 struct DecodeInputs {
     dict_bytes: BufferHandle,
     dict_offsets: Buffer<u32>,
@@ -71,17 +71,15 @@ impl DecodeInputs {
         }
     }
 
-    fn decoded_len(&self) -> usize {
-        onpair::decoded_len(self.codes.as_slice(), self.dict())
-    }
-
-    fn decode_into(&self, out: &mut [MaybeUninit<u8>]) -> usize {
-        // SAFETY: callers allocate `decoded_len + DECODE_PADDING` bytes.
-        unsafe { onpair::decode_into(self.codes.as_slice(), self.dict(), out) }
+    fn decompress_into(&self, out: &mut [MaybeUninit<u8>]) -> usize {
+        onpair::decompress_into(self.codes.as_slice(), self.dict(), out)
+            .expect("callers allocate the decompressed length")
+            .len()
     }
 }
 use vortex_array::optimizer::kernels::KernelSession;
 use vortex_array::session::ArraySession;
+use vortex_array::test_harness::mark_optimized;
 use vortex_onpair::onpair_compress;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
@@ -166,10 +164,13 @@ fn compress(n: usize, shape: Shape, ctx: &mut ExecutionCtx) -> OnPairArray {
         strings.iter().map(|s| Some(s.as_bytes())),
         DType::Utf8(Nullability::NonNullable),
     );
-    onpair_compress(varbin.as_array(), DEFAULT_CONFIG, ctx)
+    let array = onpair_compress(varbin.as_array(), DEFAULT_CONFIG, ctx)
         .unwrap_or_else(|e| panic!("onpair_compress failed: {e}"))
         .try_downcast::<OnPair>()
-        .unwrap_or_else(|array| panic!("expected OnPair array, got {}", array.encoding_id()))
+        .unwrap_or_else(|array| panic!("expected OnPair array, got {}", array.encoding_id()));
+    mark_optimized(array.as_array(), &SESSION).unwrap();
+
+    array
 }
 
 /// Canonicalise a slot child to the decoder's native primitive width.
@@ -195,12 +196,17 @@ fn materialise(arr: &OnPairArray, ctx: &mut ExecutionCtx) -> (DecodeInputs, usiz
         dict_offsets,
         codes: widen::<u16>(view.codes(), ctx),
     };
-    let total = inputs.decoded_len();
+    // The decompressed length is the sum of the stored row lengths.
+    let total = widen::<u64>(view.uncompressed_lengths(), ctx)
+        .iter()
+        .sum::<u64>() as usize;
     (inputs, total)
 }
 
 const CASES: &[(Shape, usize)] = &[
     (Shape::UrlLog, 100_000),
+    // Keep the larger scaling case for local runs without lengthening CPU simulation.
+    #[cfg(not(codspeed))]
     (Shape::UrlLog, 1_000_000),
     (Shape::Short, 100_000),
     (Shape::Long, 100_000),
@@ -208,7 +214,7 @@ const CASES: &[(Shape, usize)] = &[
 ];
 
 /// Raw decode loop time, excluding child `execute` and the output allocation.
-/// Hits `onpair::decode_into` directly.
+/// Hits `onpair::decompress_into` directly.
 #[divan::bench(args = CASES)]
 fn decode_into_bench(bencher: Bencher, case: (Shape, usize)) {
     let mut ctx = SESSION.create_execution_ctx();
@@ -216,8 +222,8 @@ fn decode_into_bench(bencher: Bencher, case: (Shape, usize)) {
     let arr = compress(n, shape, &mut ctx);
     let (inputs, total) = materialise(&arr, &mut ctx);
     bencher.bench_local(|| {
-        let mut out: Vec<u8> = Vec::with_capacity(total + onpair::DECODE_PADDING);
-        let written = inputs.decode_into(out.spare_capacity_mut());
+        let mut out: Vec<u8> = Vec::with_capacity(total);
+        let written = inputs.decompress_into(out.spare_capacity_mut());
         unsafe { out.set_len(written) };
         divan::black_box(out);
     });
@@ -242,7 +248,11 @@ fn canonicalize_to_varbinview(bencher: Bencher, case: (Shape, usize)) {
 
 // ─── Compute kernels ─────────────────────────────────────────────────────
 
-const COMPUTE_CASES: &[(Shape, usize)] = &[(Shape::UrlLog, 100_000), (Shape::UrlLog, 1_000_000)];
+const COMPUTE_CASES: &[(Shape, usize)] = &[
+    (Shape::UrlLog, 100_000),
+    #[cfg(not(codspeed))]
+    (Shape::UrlLog, 1_000_000),
+];
 
 /// Filter — share-dict path. Builds a 1-in-7 mask so we keep ~14 % of
 /// rows; the cost is dominated by the `codes` segment copy + offsets.

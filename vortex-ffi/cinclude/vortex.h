@@ -66,6 +66,15 @@ typedef struct ArrowArrayStream FFI_ArrowArrayStream;
 #define vx_bool_view_nth(X, I)                                                                               \
     ((((X).ptr[((I) + (X).bit_offset) / 8] & (1 << (((I) + (X).bit_offset) % 8))) != 0))
 
+// Core edition names accepted by vx_session_enable_edition.
+#define VX_EDITION_CORE_2025_05_0 "core2025.05.0"
+#define VX_EDITION_CORE_2025_06_0 "core2025.06.0"
+#define VX_EDITION_CORE_2025_10_0 "core2025.10.0"
+#define VX_EDITION_CORE_2026_08_0 "core2026.08.0"
+#define VX_EDITION_CORE_2026_08_1 "core2026.08.1"
+#define VX_EDITION_CORE_2026_08_2 "core2026.08.2"
+#define VX_EDITION_CORE_2026_08_3 "core2026.08.3"
+
 #include <stdarg.h>
 #include <stdbool.h>
 #include <stddef.h>
@@ -531,6 +540,7 @@ typedef struct {
     /**
      * Used only when "include" is not VX_SELECTION_INCLUDE_ALL.
      * If set, must point to an array of len "idx_len" row_indices.
+     * May be NULL when idx_len is 0.
      */
     const uint64_t *idx;
     /**
@@ -1105,13 +1115,13 @@ vx_expression *vx_expression_select(const vx_view *names, size_t len, const vx_e
 
 /**
  * Create an AND expression for multiple child expressions.
- * If len == 0, returns NULL
+ * Returns NULL if `len == 0` or `expressions` is NULL.
  */
 vx_expression *vx_expression_and(const vx_expression *const *expressions, size_t len);
 
 /**
  * Create an OR disjunction expression for multiple child expressions.
- * If len == 0, returns NULL
+ * Returns NULL if `len == 0` or `expressions` is NULL.
  */
 vx_expression *vx_expression_or(const vx_expression *const *expressions, size_t len);
 
@@ -1588,15 +1598,17 @@ vx_partition *vx_scan_next_partition(vx_scan *scan, vx_error **err);
 int vx_partition_row_count(const vx_partition *partition, vx_estimate *count, vx_error **err);
 
 /**
- * Scan partition to ArrowArrayStream.
- * Consumes partition fully: subsequent calls to vx_partition_scan_arrow or
- * vx_partition_next are undefined behaviour.
- * This call blocks current thread until underlying stream is fully consumed.
+ * Export a partition as an Arrow C Data Interface `ArrowArrayStream`.
  *
- * Caller must not free partition after calling this function.
+ * Consumes `partition` unconditionally: subsequent calls to `vx_partition_scan_arrow` or
+ * `vx_partition_next` are undefined behaviour, and the caller must not free `partition` after
+ * calling this function.
  *
- * On success, sets "stream" and returns 0.
- * On error, sets "err" and returns 1, freeing the partition.
+ * The returned stream iterates lazily and retains its own handle to `session`, so the caller may
+ * free `session` after this function returns.
+ *
+ * On success, writes `stream` and returns 0.
+ * On error, sets `err` and returns 1, freeing `partition`.
  */
 int vx_partition_scan_arrow(const vx_session *session,
                             vx_partition *partition,
@@ -1631,6 +1643,24 @@ vx_session *vx_session_new(void);
  * Clone a vx_session
  */
 vx_session *vx_session_clone(const vx_session *session);
+
+/**
+ * Enable a registered edition by its UTF-8 name. For core editions, use a `VX_EDITION_CORE_*`
+ * macro with `vx_view_from_cstr`.
+ *
+ * This replaces the enabled edition of the same family on the shared session. Call this
+ * before opening a file sink. Use separate sessions for overlapping writes with different editions.
+ *
+ * Returns 0 on success and 1 on failure. If `error_out` is non-NULL, `*error_out` is cleared on
+ * success and set to an error on failure. Free that error with `vx_error_free`.
+ *
+ * # Safety
+ *
+ * `session` must be NULL or a live session handle created by this library. `name.ptr` must be
+ * readable for `name.len` bytes, or NULL when `name.len` is zero. If non-NULL, `error_out` must be
+ * writable.
+ */
+int vx_session_enable_edition(const vx_session *session, vx_view name, vx_error **error_out);
 
 /**
  * Opens a writable array stream, where sink is used to push values into the stream.

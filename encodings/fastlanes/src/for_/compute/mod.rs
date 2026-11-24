@@ -5,6 +5,7 @@ mod cast;
 mod compare;
 pub(crate) mod is_constant;
 pub(crate) mod is_sorted;
+mod list_contains;
 
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
@@ -66,7 +67,11 @@ mod test {
     use crate::FoR;
     use crate::FoRArray;
 
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+        let session = VortexSession::empty();
+        crate::initialize(&session);
+        session
+    });
 
     fn fa(encoded: ArrayRef, reference: Scalar) -> FoRArray {
         FoR::try_new(encoded, reference).vortex_expect("FoR array construction should succeed")
@@ -125,7 +130,11 @@ mod tests {
     use crate::FoR;
     use crate::FoRArray;
 
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+        let session = VortexSession::empty();
+        crate::initialize(&session);
+        session
+    });
 
     fn fa(encoded: ArrayRef, reference: Scalar) -> FoRArray {
         FoR::try_new(encoded, reference).vortex_expect("FoR array construction should succeed")

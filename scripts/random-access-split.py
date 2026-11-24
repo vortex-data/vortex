@@ -24,6 +24,8 @@ FORMATS = ["arrow-ipc", "parquet", "lance", "litdata", "vortex"]
 LOCAL_ONLY_FORMATS = {"arrow-ipc", "litdata"}
 PATTERNS = ["correlated", "uniform"]
 OPEN_MODES = ["cached", "reopen"]
+# Seconds each measurement runs for, passed as --time-limit.
+TIME_LIMIT_SECS = 5
 
 
 def drop_os_caches() -> None:
@@ -53,12 +55,26 @@ def benchmark_formats(remote_data_dir: str | None) -> list[str]:
 
 
 def prepare_data(remote_data_dir: str | None) -> None:
-    formats = ",".join(benchmark_formats(remote_data_dir))
+    """Generate every dataset concurrently, one process per dataset.
+
+    Files that already exist, such as those CI restores from its cache, are not regenerated.
+    """
+    joined = ",".join(benchmark_formats(remote_data_dir))
+    procs = []
     for dataset in DATASETS:
-        args = [BINARY, "--prepare-data", "--datasets", dataset, "--formats", formats]
-        with log_group(f"Generate {dataset} ({formats})"):
-            print("+", " ".join(args), flush=True)
-            subprocess.run(args, check=True)
+        args = [BINARY, "--prepare-data", "--datasets", dataset, "--formats", joined]
+        print("+", " ".join(args), flush=True)
+        procs.append((dataset, subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)))
+
+    failed = []
+    for dataset, proc in procs:
+        output, _ = proc.communicate()
+        with log_group(f"Generate {dataset} ({joined})"):
+            print(output, end="", flush=True)
+        if proc.returncode != 0:
+            failed.append(dataset)
+    if failed:
+        raise SystemExit(f"data generation failed for: {', '.join(failed)}")
 
 
 def run_combinations(emit_ingest_records: bool, remote_data_dir: str | None) -> None:
@@ -84,6 +100,8 @@ def run_combinations(emit_ingest_records: bool, remote_data_dir: str | None) -> 
                         pattern,
                         "--open-mode",
                         open_mode,
+                        "--time-limit",
+                        str(TIME_LIMIT_SECS),
                         "-d",
                         "gh-json",
                         "-o",

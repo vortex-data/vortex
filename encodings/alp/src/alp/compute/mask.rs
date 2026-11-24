@@ -6,8 +6,8 @@ use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::builtins::ArrayBuiltins;
-use vortex_array::scalar_fn::fns::mask::MaskKernel;
-use vortex_array::scalar_fn::fns::mask::MaskReduce;
+use vortex_array::scalar_fn::builtin::mask::MaskKernel;
+use vortex_array::scalar_fn::builtin::mask::MaskReduce;
 use vortex_array::validity::Validity;
 use vortex_error::VortexResult;
 
@@ -58,14 +58,18 @@ mod test {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::conformance::mask::test_mask_conformance;
     use vortex_array::dtype::Nullability;
-    use vortex_array::scalar_fn::fns::mask::MaskKernel;
+    use vortex_array::scalar_fn::builtin::mask::MaskKernel;
     use vortex_buffer::buffer;
     use vortex_session::VortexSession;
 
     use crate::alp::array::ALPArrayExt;
     use crate::alp_encode;
 
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+        let session = VortexSession::empty();
+        crate::initialize(&session);
+        session
+    });
 
     #[rstest]
     #[case(buffer![10.5f32, 20.5, 30.5, 40.5, 50.5].into_array())]

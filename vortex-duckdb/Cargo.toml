@@ -27,6 +27,7 @@ custom-labels = { workspace = true }
 
 [dependencies]
 async-fs = { workspace = true }
+async-lock = { workspace = true }
 bitvec = { workspace = true }
 futures = { workspace = true }
 itertools = { workspace = true }
@@ -57,7 +58,6 @@ static-extensions = []
 anyhow = { workspace = true }
 divan = { workspace = true }
 geo-types = { workspace = true }
-jiff = { workspace = true }
 mimalloc = { workspace = true }
 rstest = { workspace = true }
 tempfile = { workspace = true }

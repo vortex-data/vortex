@@ -39,7 +39,7 @@ impl RowFn for SpatialContains {
     type Options = EmptyOptions;
 
     const ARG_NAMES: &'static [&'static str] = &["a", "b"];
-    const INFALLIBLE: bool = true;
+    const INFALLIBLE: bool = false;
 
     fn id(&self) -> ScalarFnId {
         static ID: CachedId = CachedId::new("vortex.st.contains");

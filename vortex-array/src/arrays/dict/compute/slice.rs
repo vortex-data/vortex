@@ -16,10 +16,10 @@ use crate::arrays::DictArray;
 use crate::arrays::Primitive;
 use crate::arrays::dict::DictArraySlotsExt;
 use crate::arrays::slice::SliceReduce;
-use crate::expr::stats::Precision;
-use crate::expr::stats::Stat;
 use crate::scalar::Scalar;
 use crate::scalar::ScalarValue;
+use crate::stats::Precision;
+use crate::stats::Stat;
 
 impl SliceReduce for Dict {
     fn slice(array: ArrayView<'_, Self>, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
@@ -38,9 +38,6 @@ impl SliceReduce for Dict {
         };
 
         // TODO(joe): if the range is size 1 replace with a constant array
-        if let Some(code) = sliced_code.as_opt::<Constant>() {
-            return slice_constant_code(array, code.scalar(), sliced_code.len());
-        }
         // SAFETY: slicing the codes preserves invariants.
         let array =
             unsafe { DictArray::new_unchecked(sliced_code, array.values().clone()).into_array() };

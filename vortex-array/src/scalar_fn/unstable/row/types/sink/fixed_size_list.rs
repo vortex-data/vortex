@@ -82,7 +82,10 @@ impl<T: Copy + Default> FillDefault for FixedSizeRows<'_, T> {
 
 /// A fixed-size-list sink whose row width is supplied at dispatch time.
 ///
-/// The row closure must return the [`InitializedRow`] from [`InitializedRow::fill`] on success.
+/// On success the row closure must return the [`InitializedRow`] from [`InitializedRow::fill`],
+/// either directly or in a [`VortexResult`]. A callback that returns an error may leave its row
+/// uninitialized.
+///
 /// The width must fit in the `u32` list size stored by [`FixedSizeListArray`]. A dispatch derives
 /// and validates that physical parameter before calling [`RowVisitor::visit_into`].
 ///

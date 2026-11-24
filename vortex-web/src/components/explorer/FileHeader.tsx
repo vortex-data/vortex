@@ -2,7 +2,10 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 import { useVortexFile } from '../../contexts/VortexFileContextCore';
-import { ThemePicker } from '../ThemePicker';
+import { Icon } from '../Icon';
+import { Switch } from '../Switch';
+import { formatBytes, formatRowCount } from '../swimlane/utils';
+import { Header } from './Header';
 import type { MainView } from './MainArea';
 
 interface FileHeaderProps {
@@ -11,62 +14,67 @@ interface FileHeaderProps {
   onViewChange: (view: MainView) => void;
 }
 
+const VIEWS = [
+  { value: 'details', label: 'Details' },
+  { value: 'swimlane', label: 'Swimlane' },
+] as const;
+
 export function FileHeader({ onClose, view, onViewChange }: FileHeaderProps) {
   const file = useVortexFile();
 
+  // Below 640px the tools leave the row, so the Menu's panel holds their twins.
+  const closeMenu = (el: HTMLElement) => el.closest('details')?.removeAttribute('open');
+
   return (
-    <div className="flex items-center gap-3 px-3 py-1.5 border-b border-vortex-grey-light/60 dark:border-white/[0.08] bg-vortex-white dark:bg-vortex-black flex-shrink-0">
-      <span className="font-medium text-sm text-vortex-fg-light dark:text-vortex-fg">
-        {file.fileName}
-      </span>
-      <span
-        className="text-[10px] text-vortex-grey-dark cursor-default"
-        title="Vortex file format version"
-      >
-        v{file.version}
-      </span>
-      <div className="ml-auto flex items-center gap-2">
-        {/* Primary view switch — sits with the global controls in the header. */}
-        <div className="flex rounded-md bg-vortex-grey-lightest dark:bg-white/[0.06] p-0.5">
-          {(['details', 'swimlane'] as const).map((v) => (
+    <Header
+      tools={
+        <>
+          <h1 className="x-file">
+            <span className="vx-mono x-file-name">{file.fileName}</span>
+            <span className="vx-label-sm x-file-meta">
+              v{file.version} · {formatBytes(file.fileSize)} · {formatRowCount(file.rowCount)} rows
+            </span>
+          </h1>
+          <Switch label="View" value={view} options={VIEWS} onChange={onViewChange} />
+          <button
+            type="button"
+            className="vx-btn vx-btn-ghost x-icon-btn"
+            onClick={onClose}
+            aria-label="Close file"
+            title="Close file"
+          >
+            <Icon name="close" />
+          </button>
+        </>
+      }
+      menu={
+        <>
+          {VIEWS.map((o) => (
             <button
-              key={v}
-              className={`px-3 py-0.5 text-[11px] rounded-[3px] transition-colors ${
-                view === v
-                  ? 'bg-white dark:bg-white/[0.1] text-vortex-fg-light dark:text-vortex-fg shadow-sm font-medium'
-                  : 'text-vortex-grey-dark hover:text-vortex-fg-light dark:hover:text-vortex-fg'
-              }`}
-              onClick={() => onViewChange(v)}
+              key={o.value}
+              type="button"
+              className="vx-label vx-nav-link vx-header-menu-spill"
+              aria-pressed={view === o.value}
+              onClick={(e) => {
+                onViewChange(o.value);
+                closeMenu(e.currentTarget);
+              }}
             >
-              {v === 'details' ? 'Details' : 'Swimlane'}
+              {o.label} view
             </button>
           ))}
-        </div>
-
-        <div className="flex items-center gap-1">
-          <ThemePicker />
           <button
-            onClick={onClose}
-            className="p-1.5 rounded-md text-vortex-grey-dark hover:text-vortex-fg-light dark:hover:text-vortex-fg hover:bg-vortex-grey-lightest dark:hover:bg-white/[0.06] transition-colors cursor-pointer"
-            title="Close file"
-            aria-label="Close file"
+            type="button"
+            className="vx-label vx-nav-link vx-header-menu-spill"
+            onClick={(e) => {
+              closeMenu(e.currentTarget);
+              onClose();
+            }}
           >
-            <svg
-              width="14"
-              height="14"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <line x1="18" y1="6" x2="6" y2="18" />
-              <line x1="6" y1="6" x2="18" y2="18" />
-            </svg>
+            Close file
           </button>
-        </div>
-      </div>
-    </div>
+        </>
+      }
+    />
   );
 }

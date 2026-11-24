@@ -19,12 +19,11 @@ use vortex_array::arrays::dict_test::gen_varbin_words;
 use vortex_array::arrays::varbin::VarBinArrayExt;
 use vortex_array::builders::dict::dict_encode;
 use vortex_array::builtins::ArrayBuiltins;
-use vortex_array::expr::eq;
-use vortex_array::expr::lit;
-use vortex_array::expr::root;
 use vortex_array::memory::MemorySession;
+use vortex_array::optimizer::ArrayOptimizer;
 use vortex_array::optimizer::kernels::KernelSession;
-use vortex_array::scalar_fn::fns::operators::Operator;
+use vortex_array::scalar_fn::builtin::operators::CompareOperator;
+use vortex_array::test_harness::mark_optimized;
 use vortex_session::VortexSession;
 
 #[global_allocator]
@@ -42,12 +41,20 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
         .with::<MemorySession>()
 });
 
-const LENGTH_AND_UNIQUE_VALUES: &[(usize, usize)] = &[
-    // length, unique_values
-    (50_000, 2),
-    (50_000, 64),
-    (50_000, 2048),
-];
+const LENGTH_AND_UNIQUE_VALUES: &[(usize, usize)] = if cfg!(codspeed) {
+    &[
+        // length, unique_values
+        (50_000, 2),
+        (50_000, 2048),
+    ]
+} else {
+    &[
+        // length, unique_values
+        (50_000, 2),
+        (50_000, 64),
+        (50_000, 2048),
+    ]
+};
 
 #[divan::bench(args = LENGTH_AND_UNIQUE_VALUES)]
 fn bench_compare_primitive(bencher: divan::Bencher, (len, uniqueness): (usize, usize)) {
@@ -55,13 +62,17 @@ fn bench_compare_primitive(bencher: divan::Bencher, (len, uniqueness): (usize, u
     let primitive_arr = gen_primitive_for_dict::<i32>(len, uniqueness);
     let dict = dict_encode(&primitive_arr.clone().into_array(), &mut ctx).unwrap();
     let value = primitive_arr.as_slice::<i32>()[0];
+    mark_optimized(dict.as_array(), &SESSION).unwrap();
 
     bencher
         .with_inputs(|| (&dict, SESSION.create_execution_ctx()))
         .bench_refs(|(dict, ctx)| {
             dict.clone()
                 .into_array()
-                .binary(ConstantArray::new(value, len).into_array(), Operator::Eq)
+                .compare(
+                    ConstantArray::new(value, len).into_array(),
+                    CompareOperator::Eq,
+                )
                 .unwrap()
                 .execute::<Canonical>(ctx)
                 .unwrap()
@@ -75,13 +86,17 @@ fn bench_compare_varbin(bencher: divan::Bencher, (len, uniqueness): (usize, usiz
     let dict = dict_encode(&varbin_arr.clone().into_array(), &mut ctx).unwrap();
     let const_bytes = varbin_arr.bytes_at(0, &mut ctx);
     let value = unsafe { str::from_utf8_unchecked(const_bytes.as_slice()) };
+    mark_optimized(dict.as_array(), &SESSION).unwrap();
 
     bencher
         .with_inputs(|| (&dict, SESSION.create_execution_ctx()))
         .bench_refs(|(dict, ctx)| {
             dict.clone()
                 .into_array()
-                .binary(ConstantArray::new(value, len).into_array(), Operator::Eq)
+                .compare(
+                    ConstantArray::new(value, len).into_array(),
+                    CompareOperator::Eq,
+                )
                 .unwrap()
                 .execute::<RecursiveCanonical>(ctx)
                 .unwrap()
@@ -95,30 +110,44 @@ fn bench_compare_varbinview(bencher: divan::Bencher, (len, uniqueness): (usize, 
     let dict = dict_encode(&varbinview_arr.clone().into_array(), &mut ctx).unwrap();
     let const_bytes = varbinview_arr.bytes_at(0);
     let value = unsafe { str::from_utf8_unchecked(const_bytes.as_slice()) };
+    mark_optimized(dict.as_array(), &SESSION).unwrap();
 
     bencher
         .with_inputs(|| (&dict, SESSION.create_execution_ctx()))
         .bench_refs(|(dict, ctx)| {
             dict.clone()
                 .into_array()
-                .binary(ConstantArray::new(value, len).into_array(), Operator::Eq)
+                .compare(
+                    ConstantArray::new(value, len).into_array(),
+                    CompareOperator::Eq,
+                )
                 .unwrap()
                 .execute::<RecursiveCanonical>(ctx)
                 .unwrap()
         })
 }
 
-const CODES_AND_VALUES_LENGTHS: &[(usize, usize)] = &[
-    (1_000, 10_000),
-    (2_000, 10_000),
-    (2_500, 10_000),
-    (3_333, 10_000),
-    (5_000, 10_000),
-    (7_500, 10_000),
-    (9_999, 10_000),
-    (10_000, 10_000),
-    (20_000, 10_000),
-];
+const CODES_AND_VALUES_LENGTHS: &[(usize, usize)] = if cfg!(codspeed) {
+    &[
+        (1_000, 10_000),
+        (5_000, 10_000),
+        (9_999, 10_000),
+        (10_000, 10_000),
+        (20_000, 10_000),
+    ]
+} else {
+    &[
+        (1_000, 10_000),
+        (2_000, 10_000),
+        (2_500, 10_000),
+        (3_333, 10_000),
+        (5_000, 10_000),
+        (7_500, 10_000),
+        (9_999, 10_000),
+        (10_000, 10_000),
+        (20_000, 10_000),
+    ]
+};
 
 #[divan::bench(args = CODES_AND_VALUES_LENGTHS)]
 fn bench_compare_sliced_dict_primitive(
@@ -128,14 +157,23 @@ fn bench_compare_sliced_dict_primitive(
     let mut ctx = SESSION.create_execution_ctx();
     let primitive_arr = gen_primitive_for_dict::<i32>(codes_len.max(values_len), values_len);
     let dict = dict_encode(&primitive_arr.clone().into_array(), &mut ctx).unwrap();
-    let dict = dict.into_array().slice(0..codes_len).unwrap();
+    let dict = dict
+        .into_array()
+        .slice(0..codes_len)
+        .unwrap()
+        .optimize_ctx(&SESSION)
+        .unwrap();
     let value = primitive_arr.as_slice::<i32>()[0];
+    mark_optimized(&dict, &SESSION).unwrap();
 
     bencher
         .with_inputs(|| (&dict, SESSION.create_execution_ctx()))
         .bench_refs(|(dict, ctx)| {
             dict.clone()
-                .apply(&eq(root(), lit(value)))
+                .compare(
+                    ConstantArray::new(value, codes_len).into_array(),
+                    CompareOperator::Eq,
+                )
                 .unwrap()
                 .execute::<RecursiveCanonical>(ctx)
                 .unwrap()
@@ -150,15 +188,24 @@ fn bench_compare_sliced_dict_varbinview(
     let mut ctx = SESSION.create_execution_ctx();
     let varbin_arr = VarBinArray::from(gen_varbin_words(codes_len.max(values_len), values_len));
     let dict = dict_encode(&varbin_arr.clone().into_array(), &mut ctx).unwrap();
-    let dict = dict.into_array().slice(0..codes_len).unwrap();
+    let dict = dict
+        .into_array()
+        .slice(0..codes_len)
+        .unwrap()
+        .optimize_ctx(&SESSION)
+        .unwrap();
     let const_bytes = varbin_arr.bytes_at(0, &mut ctx);
     let value = unsafe { str::from_utf8_unchecked(const_bytes.as_slice()) };
+    mark_optimized(&dict, &SESSION).unwrap();
 
     bencher
         .with_inputs(|| (&dict, SESSION.create_execution_ctx()))
         .bench_refs(|(dict, ctx)| {
             dict.clone()
-                .apply(&eq(root(), lit(value)))
+                .compare(
+                    ConstantArray::new(value, codes_len).into_array(),
+                    CompareOperator::Eq,
+                )
                 .unwrap()
                 .execute::<RecursiveCanonical>(ctx)
                 .unwrap()

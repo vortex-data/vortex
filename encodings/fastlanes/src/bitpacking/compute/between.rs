@@ -11,6 +11,7 @@
 
 use fastlanes::BitPacking;
 use fastlanes::BitPackingCompare;
+use fastlanes::CmpOp;
 use fastlanes::FastLanesComparable;
 use num_traits::AsPrimitive;
 use num_traits::WrappingSub;
@@ -21,11 +22,11 @@ use vortex_array::dtype::NativePType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PhysicalPType;
 use vortex_array::match_each_integer_ptype;
-use vortex_array::scalar_fn::fns::between::BetweenKernel;
-use vortex_array::scalar_fn::fns::between::BetweenOptions;
-use vortex_array::scalar_fn::fns::between::StrictComparison;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_functions::between::BetweenKernel;
+use vortex_functions::between::BetweenOptions;
+use vortex_functions::between::StrictComparison;
 
 use crate::BitPacked;
 use crate::BitPackedArrayExt;
@@ -189,30 +190,11 @@ where
         return constant_result(array, false, nullability, &predicate, ctx);
     }
 
-    let kernel = offset_within::<T>(first, last);
-    stream_compare_fused(
-        array,
-        bit_width,
-        lower,
-        nullability,
-        kernel,
-        false,
-        &predicate,
-        ctx,
-    )
-}
-
-/// `first <= v <= last` as one unsigned compare: values below `first` wrap around.
-fn offset_within<T>(first: T, last: T) -> impl Fn(T, T) -> bool + Copy
-where
-    T: NativePType + PhysicalPType + AsPrimitive<<T as PhysicalPType>::Physical>,
-    <T as PhysicalPType>::Physical: NativePType + WrappingSub + PartialOrd,
-{
-    let span: <T as PhysicalPType>::Physical = (last - first).as_();
-    let first: <T as PhysicalPType>::Physical = first.as_();
-    move |v: T, _| {
-        AsPrimitive::<<T as PhysicalPType>::Physical>::as_(v).wrapping_sub(&first) <= span
-    }
+    let op = CmpOp::Between {
+        lower: first.as_(),
+        upper: last.as_(),
+    };
+    stream_compare_fused(array, bit_width, op, nullability, false, &predicate, ctx)
 }
 
 #[cfg(test)]
@@ -225,13 +207,13 @@ mod tests {
     use vortex_array::arrays::ConstantArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
-    use vortex_array::builtins::ArrayBuiltins;
-    use vortex_array::scalar_fn::fns::between::BetweenKernel;
-    use vortex_array::scalar_fn::fns::between::BetweenOptions;
-    use vortex_array::scalar_fn::fns::between::StrictComparison;
     use vortex_array::validity::Validity;
     use vortex_buffer::BufferMut;
     use vortex_error::VortexResult;
+    use vortex_functions::between::BetweenKernel;
+    use vortex_functions::between::BetweenOptions;
+    use vortex_functions::between::StrictComparison;
+    use vortex_functions::builtins::ArrayFunctions;
     use vortex_session::VortexSession;
 
     use crate::BitPacked;

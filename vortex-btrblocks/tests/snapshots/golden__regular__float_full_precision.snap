@@ -3,7 +3,7 @@ source: vortex-btrblocks/tests/golden.rs
 expression: rendered
 ---
 input: f64, len=16384, nbytes=131072
-root: vortex.alprd(f64, len=16384) nbytes=112880
+root: vortex.alprd(f64, len=16384) nbytes=112896
   metadata: right_bit_width: 52, patch_offset: 0
   left_parts: fastlanes.bitpacked.v2(u16, len=16384) nbytes=6144
     metadata: bit_width: 3, offset: 0
@@ -13,3 +13,5 @@ root: vortex.alprd(f64, len=16384) nbytes=112880
     metadata: ptype: u16
   patch_values: vortex.primitive(u16, len=60) nbytes=120
     metadata: ptype: u16
+  patch_chunk_offsets: vortex.primitive(u8, len=16) nbytes=16
+    metadata: ptype: u8

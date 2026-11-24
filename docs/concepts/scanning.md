@@ -88,5 +88,5 @@ pipeline.
 
 Query engines integrate with the Scan API by translating their internal plan representations into
 scan requests and consuming the resulting array stream in their preferred format. Integrations
-exist for DuckDB, DataFusion, Spark, and Trino, with each engine converting its native filter
-and projection representations into Vortex [expressions](expressions.md).
+exist for ClickHouse, DuckDB, DataFusion, Spark, and Trino, with each engine converting its native
+filter and projection representations into Vortex [expressions](expressions.md).

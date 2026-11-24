@@ -9,6 +9,8 @@ use std::sync::LazyLock;
 
 use arbitrary::Arbitrary;
 use arbitrary::Unstructured;
+use vortex::functions::like::Like;
+use vortex::functions::like::LikeOptions;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::IntoArray;
@@ -19,8 +21,6 @@ use vortex_array::arrays::VarBinArray;
 use vortex_array::arrays::bool::BoolArrayExt;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
-use vortex_array::scalar_fn::fns::like::Like;
-use vortex_array::scalar_fn::fns::like::LikeOptions;
 use vortex_error::VortexResult;
 use vortex_fsst::FSSTArray;
 use vortex_fsst::fsst_compress;
