@@ -1114,8 +1114,10 @@ mod tests {
         let unsigned_codes = PrimitiveArray::from_iter([u16::MAX, 0]);
         let unsigned_codes_for = FoR::try_new(unsigned_codes.into_array(), Scalar::from(1u16))?;
         let unsigned_values = PrimitiveArray::from_iter([11u16, 22]);
-        let unsigned_dict =
-            DictArray::try_new(unsigned_codes_for.into_array(), unsigned_values.into_array())?;
+        let unsigned_dict = DictArray::try_new(
+            unsigned_codes_for.into_array(),
+            unsigned_values.into_array(),
+        )?;
         let unsigned_array = WidenArray::try_new(
             unsigned_dict.into_array(),
             DType::Primitive(PType::U64, Nullability::NonNullable),
@@ -1123,10 +1125,7 @@ mod tests {
         .into_array();
 
         let cases = [
-            (
-                array,
-                PrimitiveArray::from_iter([11i64, 22]).into_array(),
-            ),
+            (array, PrimitiveArray::from_iter([11i64, 22]).into_array()),
             (
                 unsigned_array,
                 PrimitiveArray::from_iter([11u64, 22]).into_array(),
