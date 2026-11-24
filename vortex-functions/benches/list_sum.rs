@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 //! Benchmarks for the `list_sum` scalar function over `List`, `ListView`, and
-//! `FixedSizeList` inputs, and over lists of bool elements.
+//! `FixedSizeList` inputs, and over lists of bool and chunked elements.
 
 #![expect(clippy::unwrap_used)]
 #![expect(clippy::cast_possible_truncation)]
@@ -21,6 +21,7 @@ use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::aggregate_fn::session::AggregateFnSession;
 use vortex_array::arrays::BoolArray;
+use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::FixedSizeListArray;
 use vortex_array::arrays::ListArray;
 use vortex_array::arrays::ListViewArray;
@@ -67,6 +68,8 @@ const LARGE: usize = 500;
 /// Average list lengths: short lists weigh per-list overhead, long lists per-element work. The
 /// longest is about the length of statpopgen's genotype lists.
 const LIST_SIZES: &[usize] = &[8, 256, 4_096];
+/// Element chunks in each chunked benchmark.
+const NUM_CHUNKS: usize = 4;
 
 /// Elements for lists of `list_size`: at least 4096, and at least 16 lists.
 fn num_elements(list_size: usize) -> usize {
@@ -176,6 +179,17 @@ fn bool_elements(len: usize, seed: u64) -> ArrayRef {
     .into_array()
 }
 
+/// `len` elements in `NUM_CHUNKS` chunks, each built by `chunk(chunk_len, seed)`.
+fn chunked(len: usize, chunk: impl Fn(usize, u64) -> ArrayRef) -> ArrayRef {
+    let chunk_len = len.div_ceil(NUM_CHUNKS);
+    let chunks: Vec<ArrayRef> = (0..len)
+        .step_by(chunk_len)
+        .map(|start| chunk(chunk_len.min(len - start), start as u64))
+        .collect();
+    let dtype = chunks[0].dtype().clone();
+    ChunkedArray::try_new(chunks, dtype).unwrap().into_array()
+}
+
 /// Apply `list_sum(root())` and materialize the result.
 fn run(bencher: Bencher, array: ArrayRef) {
     mark_optimized(&array, &SESSION).unwrap();
@@ -253,5 +267,21 @@ fn bool_sum(bencher: Bencher, list_size: usize) {
     run(
         bencher,
         list_over(bool_elements(num_elements(list_size), 0), list_size),
+    );
+}
+
+#[divan::bench(args = LIST_SIZES)]
+fn chunked_i32_sum(bencher: Bencher, list_size: usize) {
+    let elements = chunked(num_elements(list_size), |len, _| {
+        make_elements(len as i32, true)
+    });
+    run(bencher, list_over(elements, list_size));
+}
+
+#[divan::bench(args = LIST_SIZES)]
+fn chunked_bool_sum(bencher: Bencher, list_size: usize) {
+    run(
+        bencher,
+        list_over(chunked(num_elements(list_size), bool_elements), list_size),
     );
 }
