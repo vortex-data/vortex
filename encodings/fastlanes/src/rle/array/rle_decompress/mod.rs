@@ -5,7 +5,6 @@ use std::ops::Range;
 
 use fastlanes::BitPacking;
 use fastlanes::RLE;
-use num_traits::AsPrimitive;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
@@ -15,11 +14,12 @@ use vortex_array::arrays::Slice;
 use vortex_array::arrays::SliceArray;
 use vortex_array::arrays::slice::SliceArraySlotsExt;
 use vortex_array::arrays::slice::SliceReduce;
+use vortex_array::builtins::ArrayBuiltins;
+use vortex_array::dtype::DType;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::PType;
 use vortex_array::dtype::PhysicalPType;
 use vortex_array::match_each_native_ptype;
-use vortex_array::match_each_unsigned_integer_ptype;
 use vortex_array::validity::Validity;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::BufferMut;
@@ -54,32 +54,24 @@ pub(crate) const U8_LANES: usize = 128;
 pub fn rle_decompress(array: &RLEArray, ctx: &mut ExecutionCtx) -> VortexResult<PrimitiveArray> {
     // The per-chunk value-index offsets are tiny (one entry per 1024-element chunk), so cast them
     // to `u64` once here instead of monomorphizing the whole decode loop over the offset width.
-    let values_idx_offsets = array
-        .values_idx_offsets()
-        .clone()
+    let offsets = array.values_idx_offsets();
+    let values_idx_offsets = offsets
+        .cast(DType::Primitive(PType::U64, offsets.dtype().nullability()))?
         .execute::<PrimitiveArray>(ctx)?;
-    let values_idx_offsets: Vec<u64> =
-        match_each_unsigned_integer_ptype!(values_idx_offsets.ptype(), |O| {
-            widen_offsets(values_idx_offsets.as_slice::<O>())
-        });
+    let values_idx_offsets = values_idx_offsets.as_slice::<u64>();
     let values = array.values().clone().execute::<PrimitiveArray>(ctx)?;
 
     match_each_native_ptype!(values.ptype(), |V| {
         // RLE indices are always u16 (or u8 if downcasted).
         match array.indices().dtype().as_ptype() {
-            PType::U8 => rle_decode_typed::<V, u8>(array, &values, &values_idx_offsets, ctx),
-            PType::U16 => rle_decode_typed::<V, u16>(array, &values, &values_idx_offsets, ctx),
+            PType::U8 => rle_decode_typed::<V, u8>(array, &values, values_idx_offsets, ctx),
+            PType::U16 => rle_decode_typed::<V, u16>(array, &values, values_idx_offsets, ctx),
             _ => vortex_panic!(
                 "Unsupported index type for RLE decoding: {}",
                 array.indices().dtype().as_ptype()
             ),
         }
     })
-}
-
-/// Widens each value-index offset to `u64`.
-fn widen_offsets<O: AsPrimitive<u64>>(offsets: &[O]) -> Vec<u64> {
-    offsets.iter().map(|&o| o.as_()).collect()
 }
 
 /// Decompresses an `RLEArray` into to a primitive array of unsigned integers.
