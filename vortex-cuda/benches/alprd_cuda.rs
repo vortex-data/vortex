@@ -35,6 +35,7 @@ use vortex::encodings::alp::ALPRDArraySlotsExt;
 use vortex::encodings::alp::ALPRDFloat;
 use vortex::encodings::alp::RDEncoder;
 use vortex::encodings::alp::RDEncoderExt;
+use vortex::encodings::fastlanes::BitPacked;
 use vortex::error::VortexExpect;
 use vortex::session::VortexSession;
 use vortex_array::test_harness::mark_optimized;
@@ -65,9 +66,10 @@ fn base_value<T: ALPFloat>(row: usize) -> T {
 /// Create an ALP-RD-encoded array of `len` floats with the requested patch frequency.
 ///
 /// The dictionary is sampled from outlier-free values, so each outlier, a value far outside the
-/// base range, has a left part outside the dictionary and becomes a patch. Like the ALP benchmark,
-/// the children are left uncompressed, so only the ALP-RD kernel is timed.
-fn make_alp_rd_array<T>(len: usize, patch_frequency: f64) -> ALPRDArray
+/// base range, has a left part outside the dictionary and becomes a patch. With `bitpacked`
+/// false, the children are left uncompressed like in the ALP benchmark, so only the ALP-RD kernel
+/// is timed. Otherwise they stay bit-packed as the encoder writes them.
+fn make_alp_rd_array<T>(len: usize, patch_frequency: f64, bitpacked: bool) -> ALPRDArray
 where
     T: ALPFloat + ALPRDFloat + NativePType,
 {
@@ -91,26 +93,12 @@ where
 
     let primitive_array = PrimitiveArray::new(values, NonNullable);
     let encoded = RDEncoder::new(&sample).encode(primitive_array.as_view());
-    let mut ctx = SESSION.create_execution_ctx();
-    let left_parts = encoded
-        .left_parts()
-        .clone()
-        .execute::<PrimitiveArray>(&mut ctx)
-        .unwrap();
-    let right_parts = encoded
-        .right_parts()
-        .clone()
-        .execute::<PrimitiveArray>(&mut ctx)
-        .unwrap();
-    let encoded = ALPRD::try_new(
-        encoded.dtype().clone(),
-        left_parts.into_array(),
-        encoded.left_parts_dictionary().clone(),
-        right_parts.into_array(),
-        encoded.right_bit_width(),
-        encoded.left_parts_patches(),
-    )
-    .vortex_expect("failed to rebuild ALP-RD with uncompressed children");
+    let encoded = if bitpacked {
+        assert!(encoded.left_parts().is::<BitPacked>() && encoded.right_parts().is::<BitPacked>());
+        encoded
+    } else {
+        with_canonical_children(encoded)
+    };
 
     if patch_frequency > 0.0 {
         assert!(
@@ -122,21 +110,54 @@ where
     encoded
 }
 
-fn benchmark_alp_rd_decode_typed<T>(c: &mut Criterion, type_name: &str)
+/// Rebuilds `encoded` with its left and right parts decoded to primitive arrays.
+fn with_canonical_children(encoded: ALPRDArray) -> ALPRDArray {
+    let mut ctx = SESSION.create_execution_ctx();
+    let left_parts = encoded
+        .left_parts()
+        .clone()
+        .execute::<PrimitiveArray>(&mut ctx)
+        .unwrap();
+    let right_parts = encoded
+        .right_parts()
+        .clone()
+        .execute::<PrimitiveArray>(&mut ctx)
+        .unwrap();
+    ALPRD::try_new(
+        encoded.dtype().clone(),
+        left_parts.into_array(),
+        encoded.left_parts_dictionary().clone(),
+        right_parts.into_array(),
+        encoded.right_bit_width(),
+        encoded.left_parts_patches(),
+    )
+    .vortex_expect("failed to rebuild ALP-RD with uncompressed children")
+}
+
+/// Benchmarks ALP-RD decoding of `T`, with bit-packed children when `bitpacked` is true.
+///
+/// Uncompressed children run the standalone kernel alone. Bit-packed children use the default
+/// dispatch, which also times unpacking them.
+fn benchmark_alp_rd_decode_typed<T>(c: &mut Criterion, type_name: &str, bitpacked: bool)
 where
     T: ALPFloat + ALPRDFloat + NativePType + DeviceRepr,
 {
     let mut group = c.benchmark_group("cuda");
+    let (name, dispatch_mode) = if bitpacked {
+        ("alprd_bitpacked", CudaDispatchMode::Auto)
+    } else {
+        ("alprd", CudaDispatchMode::StandaloneOnly)
+    };
 
     for &(len, len_str) in BENCH_SIZES {
         group.throughput(Throughput::Bytes((len * size_of::<T>()) as u64));
 
         for &(patch_freq, patch_label) in PATCH_FREQUENCIES {
-            let array = make_alp_rd_array::<T>(len, patch_freq);
+            let array = make_alp_rd_array::<T>(len, patch_freq, bitpacked);
             mark_optimized(array.as_array(), &vortex_cuda::cuda_session()).unwrap();
 
             group.bench_with_input(
-                BenchmarkId::new(format!("cuda/alprd_{}/{}", type_name, patch_label), len_str),
+                BenchmarkId::new(format!("cuda/{name}_{type_name}/{patch_label}"), len_str),
                 &array,
                 |b, array| {
                     b.iter_custom(|iters| {
@@ -146,7 +167,7 @@ where
                         let mut cuda_ctx =
                             CudaSession::create_execution_ctx(&vortex_cuda::cuda_session())
                                 .vortex_expect("failed to create execution context")
-                                .with_dispatch_mode(CudaDispatchMode::StandaloneOnly)
+                                .with_dispatch_mode(dispatch_mode)
                                 .with_launch_strategy(Arc::new(timed));
 
                         for _ in 0..iters {
@@ -165,8 +186,10 @@ where
 }
 
 fn benchmark_alp_rd_decode(c: &mut Criterion) {
-    benchmark_alp_rd_decode_typed::<f32>(c, "f32");
-    benchmark_alp_rd_decode_typed::<f64>(c, "f64");
+    for bitpacked in [false, true] {
+        benchmark_alp_rd_decode_typed::<f32>(c, "f32", bitpacked);
+        benchmark_alp_rd_decode_typed::<f64>(c, "f64", bitpacked);
+    }
 }
 
 criterion::criterion_group! {
