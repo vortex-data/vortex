@@ -9,10 +9,10 @@ use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::BoolArray;
-use vortex_array::scalar_fn::fns::like::LikeKernel;
-use vortex_array::scalar_fn::fns::like::LikeOptions;
 use vortex_buffer::BitBuffer;
 use vortex_error::VortexResult;
+use vortex_functions::like::LikeKernel;
+use vortex_functions::like::LikeOptions;
 
 use crate::OnPair;
 use crate::array::dict_view;
@@ -88,7 +88,7 @@ enum Pattern {
 }
 
 impl Pattern {
-    /// Parses `pattern` as [`Like`](vortex_array::scalar_fn::fns::like::Like) does: `%`
+    /// Parses `pattern` as [`Like`](vortex_functions::like::Like) does: `%`
     /// matches any sequence, `\` escapes the next character, and a trailing `\` is a literal
     /// backslash. Returns `None` for patterns with `_`, a suffix, or more than one literal.
     fn parse(pattern: &[u8]) -> Option<Self> {
@@ -130,11 +130,11 @@ mod tests {
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::optimizer::ArrayOptimizer;
-    use vortex_array::scalar_fn::fns::like::Like;
-    use vortex_array::scalar_fn::fns::like::LikeKernel;
-    use vortex_array::scalar_fn::fns::like::LikeOptions;
     use vortex_error::VortexResult;
     use vortex_error::vortex_err;
+    use vortex_functions::like::Like;
+    use vortex_functions::like::LikeKernel;
+    use vortex_functions::like::LikeOptions;
     use vortex_session::VortexSession;
 
     use super::Pattern;

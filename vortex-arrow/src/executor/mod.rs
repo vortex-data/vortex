@@ -43,12 +43,12 @@ use vortex_array::arrays::varbin::VarBinArraySlotsExt;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::PType;
 use vortex_array::dtype::extension::ExtDTypeRef;
-use vortex_array::expr::ext_storage;
 use vortex_array::expr::root;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
+use vortex_functions::expr::ext_storage;
 use vortex_session::registry::Id;
 
 use crate::ArrowExport;
@@ -69,9 +69,7 @@ use crate::executor::struct_::to_arrow_struct;
 use crate::executor::temporal::to_arrow_date;
 use crate::executor::temporal::to_arrow_time;
 use crate::executor::temporal::to_arrow_timestamp;
-use crate::ext_metadata::decode_arrow_ext_metadata;
 use crate::session::ArrowSessionExt;
-use crate::session::ensure_ext_metadata;
 
 /// Execution of a Vortex array into an Arrow array, for every type that implements [`IntoArray`].
 ///
@@ -326,20 +324,9 @@ fn execute_arrow_ext_storage(
     options: &ArrowExportOptions,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrowArrayRef> {
-    if let Some(importer_dtype) = ctx
-        .session()
+    ctx.session()
         .arrow()
-        .infer_field_dtype_with_importers(target)?
-    {
-        vortex_ensure_eq!(
-            importer_dtype.as_nullable(),
-            array.dtype().as_nullable(),
-            "Arrow field {:?} must describe the source extension type",
-            target.name()
-        );
-    } else {
-        ensure_ext_metadata(target, &decode_arrow_ext_metadata(target)?, ext_dtype)?;
-    }
+        .ensure_ext_storage_metadata(ext_dtype, target)?;
 
     let target_dtype = ctx
         .session()
@@ -613,13 +600,13 @@ mod tests {
     use vortex_array::arrays::VarBinViewArray;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
-    use vortex_array::expr::ext_storage;
     use vortex_array::expr::root;
     use vortex_array::extension::datetime::TimeUnit as VortexTimeUnit;
     use vortex_array::extension::datetime::Timestamp;
     use vortex_array::scalar::Scalar;
     use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
+    use vortex_functions::expr::ext_storage;
     use vortex_session::VortexSession;
 
     use crate::ExecuteArrowExt;

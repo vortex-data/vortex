@@ -47,6 +47,48 @@ def test_prepare_data_uses_formats_json(tmp_path, monkeypatch) -> None:
     ]
 
 
+def test_write_size_formats_runs_data_gen_and_lance_bench(tmp_path, monkeypatch) -> None:
+    data_gen = tmp_path / "data-gen"
+    lance_bench = tmp_path / "lance-bench"
+    for binary in (data_gen, lance_bench):
+        binary.write_text("", encoding="utf-8")
+
+    commands: list[list[str]] = []
+
+    def fake_run(cmd: list[str], check: bool) -> None:
+        assert check is True
+        commands.append(cmd)
+
+    monkeypatch.setattr(cli_module.BenchmarkBuilder, "get_data_generator_path", lambda self: data_gen)
+    monkeypatch.setattr(cli_module.BenchmarkBuilder, "get_binary_path", lambda self, engine: lance_bench)
+    monkeypatch.setattr(cli_module.subprocess, "run", fake_run)
+
+    result = runner.invoke(
+        cli_module.app,
+        [
+            "write-size-formats",
+            "tpcds",
+            "--formats-json",
+            '["arrow-ipc","lance"]',
+            "--opt",
+            "scale-factor=1.0",
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    assert commands == [
+        [str(data_gen), "tpcds", "--size-formats", "arrow-ipc", "--opt", "scale-factor=1.0"],
+        [str(lance_bench), "tpcds", "--data-only", "--opt", "scale-factor=1.0"],
+    ]
+
+
+def test_write_size_formats_rejects_an_unknown_format() -> None:
+    result = runner.invoke(cli_module.app, ["write-size-formats", "tpcds", "--formats-json", '["orc"]'])
+
+    assert result.exit_code == 1
+    assert "Invalid size format" in result.stdout
+
+
 def test_run_writes_compatibility_results_output(tmp_path, monkeypatch) -> None:
     run_store = ResultStore(base_dir=tmp_path / "runs")
     output_path = tmp_path / "artifacts" / "results.json"
@@ -153,6 +195,33 @@ def test_run_combines_ingest_output_per_backend(tmp_path, monkeypatch) -> None:
     assert output_path.read_text(encoding="utf-8") == "datafusion-ingest\nduckdb-ingest\n"
     assert len(seen_backend_paths) == 2
     assert seen_backend_paths[0] != seen_backend_paths[1]
+
+
+def test_run_writes_lance_data_before_the_first_cache_drop(tmp_path, monkeypatch) -> None:
+    run_store = ResultStore(base_dir=tmp_path / "runs")
+    binary_path = tmp_path / "lance-bench"
+    binary_path.write_text("", encoding="utf-8")
+    events = []
+
+    monkeypatch.setattr(cli_module, "ResultStore", lambda: run_store)
+    monkeypatch.setattr(cli_module.BenchmarkBuilder, "get_binary_path", lambda self, backend: binary_path)
+    monkeypatch.setattr(cli_module, "drop_os_caches", lambda: events.append("drop caches"))
+    monkeypatch.setattr(BenchmarkExecutor, "list_queries", lambda self, *args, **kwargs: [1, 2])
+    monkeypatch.setattr(BenchmarkExecutor, "write_data", lambda self, *args, **kwargs: events.append("write data"))
+
+    def fake_run(self, **kwargs: object) -> list[str]:
+        events.append(f"query {kwargs['query']}")
+        return []
+
+    monkeypatch.setattr(BenchmarkExecutor, "run", fake_run)
+
+    result = runner.invoke(
+        cli_module.app,
+        ["run", "tpcds", "--targets-json", '[{"engine":"datafusion","format":"lance"}]', "--no-build"],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert events == ["write data", "drop caches", "query 1", "drop caches", "query 2"]
 
 
 def test_format_query_reading_summarizes_runtimes() -> None:

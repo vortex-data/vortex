@@ -33,6 +33,8 @@ use crate::IdempotentPath;
 use crate::SESSION;
 use crate::datasets::Dataset;
 use crate::idempotent_async;
+use crate::utils::parquet::parquet_writer_properties;
+use crate::utils::parquet::remove_stale_parquet;
 
 /// Creates a randomly generated struct array, where each field is a list of
 /// i64 of size one.
@@ -134,6 +136,7 @@ impl Dataset for StructListOfInts {
     async fn to_parquet_path(&self) -> Result<PathBuf> {
         let parquet_path =
             format!("struct_list_of_ints/{}", self.parquet_filename()).to_data_path();
+        remove_stale_parquet(&parquet_path)?;
 
         idempotent_async(&parquet_path, |temp_path| async move {
             // Generate the data
@@ -157,7 +160,7 @@ impl Dataset for StructListOfInts {
                     writer = Some(ArrowWriter::try_new(
                         file.try_clone()?,
                         batch.schema(),
-                        None,
+                        Some(parquet_writer_properties().build()),
                     )?);
                 }
                 writer.as_mut().unwrap().write(&batch)?;

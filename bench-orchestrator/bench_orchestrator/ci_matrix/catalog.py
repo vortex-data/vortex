@@ -9,7 +9,7 @@ validate, and render these declarations.
 
 from dataclasses import replace
 
-from ..config import Benchmark, BenchmarkTarget, Engine, Format, Integration, ScanEngine
+from ..config import Benchmark, BenchmarkTarget, Engine, Format, Integration, ScanEngine, SizeFormat
 from .model import BenchmarkCase, Catalog, Coverage, ScanCoverage, Storage
 from .render import merge_coverage
 from .targets import TargetSet, df, duck
@@ -27,7 +27,10 @@ PRESETS = {
     ),
     "pr-all": "The union of the pr, pr-compact and pr-full matrices (action/bench-all).",
     "pr-full": ("Every regular SQL benchmark at full PR target coverage (action/bench-sql-extended)."),
-    "nightly": "SF=100 TPC-H and nested TPC-H, and SF=10/100 TPC-DS, on NVMe and S3, with every Vortex scan.",
+    "nightly": (
+        "SF=100 TPC-H and nested TPC-H, and SF=10/100 TPC-DS, on NVMe and S3, with every Vortex scan "
+        "except DataFusion datasource v1."
+    ),
 }
 
 # Reusable target coverage
@@ -74,9 +77,15 @@ COMPACT_TARGETS = df(Format.PARQUET, Format.VORTEX_COMPACT) | duck(
 # as a matrix entry, and so a machine, of its own, so covering them all adds machines, not wall time.
 
 
-def with_all_scans(coverage: Coverage) -> Coverage:
-    """Run every valid integration and scan engine combination for the `vortex` format."""
-    return replace(coverage, scans=ScanCoverage.ALL)
+def with_all_scans(coverage: Coverage, skip: tuple[tuple[Integration, ScanEngine], ...] = ()) -> Coverage:
+    """Run every valid integration and scan engine combination for the `vortex` format, except `skip`."""
+    return replace(coverage, scans=ScanCoverage.ALL, skip_scans=skip)
+
+
+# Nightly leaves out DataFusion's datasource integration on the v1 scan, the legacy code path. At
+# SF=10 and SF=100 it hangs on TPC-DS q62 until the job times out, and the runner shuts down during
+# TPC-H q18. Nightly run 44843664966 lost six jobs to it.
+NIGHTLY_SKIP_SCANS = ((Integration.DATASOURCE, ScanEngine.V1),)
 
 
 DEFAULT = Coverage(DEFAULT_TARGETS)
@@ -91,6 +100,14 @@ DEFAULT_WITH_DUCKDB_PR_FULL = Coverage(
     data_formats=(Format.PARQUET, Format.VORTEX, Format.VORTEX_COMPACT, Format.DUCKDB),
 )
 STANDARD_WITH_DUCKDB = Coverage(STANDARD_WITH_DUCKDB_TARGETS)
+# TPC-DS SF1 is the SQL data that bench.vortex.dev's File Sizes summary ranks, so develop also
+# records the sizes of Lance, Arrow IPC, and Snappy Parquet there, the formats compress-bench also
+# records. It queries Lance on DataFusion, and writes Arrow IPC and Snappy Parquet only for their
+# sizes. All three are small and fast at SF1.
+STANDARD_WITH_DUCKDB_AND_SIZE_FORMATS = Coverage(
+    STANDARD_WITH_DUCKDB_TARGETS | df(Format.LANCE),
+    size_formats=(SizeFormat.ARROW_IPC, SizeFormat.PARQUET_SNAPPY),
+)
 DATAFUSION_VORTEX = Coverage(DATAFUSION_VORTEX_TARGETS)
 COMPACT = Coverage(COMPACT_TARGETS)
 JOB_DUCKDB = Coverage(duck(Format.PARQUET, Format.VORTEX, Format.DUCKDB))
@@ -98,7 +115,7 @@ JOB_DUCKDB = Coverage(duck(Format.PARQUET, Format.VORTEX, Format.DUCKDB))
 # Concrete benchmark cases
 
 # TPC-DS SF=100 runs one target per job, each on its own machine, so a single slow target cannot
-# push the others past the job timeout and lose their results.
+# push the others past the job timeout and lose their results. It leaves out `NIGHTLY_SKIP_SCANS`.
 TPCDS_SF100_TARGETS = (
     (BenchmarkTarget(Engine.DATAFUSION, Format.PARQUET), "DataFusion, Parquet"),
     (BenchmarkTarget(Engine.DATAFUSION, Format.VORTEX), "DataFusion, Vortex"),
@@ -107,10 +124,6 @@ TPCDS_SF100_TARGETS = (
     (
         BenchmarkTarget(Engine.DATAFUSION, Format.VORTEX, Integration.FILE, ScanEngine.V1),
         "DataFusion, Vortex, file v1",
-    ),
-    (
-        BenchmarkTarget(Engine.DATAFUSION, Format.VORTEX, Integration.DATASOURCE, ScanEngine.V1),
-        "DataFusion, Vortex, datasource v1",
     ),
     (
         BenchmarkTarget(Engine.DUCKDB, Format.VORTEX, Integration.FILE, ScanEngine.V1),
@@ -252,7 +265,7 @@ BENCHMARKS = (
             "pr": DEFAULT,
             "pr-compact": COMPACT,
             "pr-full": STANDARD_WITH_DUCKDB,
-            "develop": STANDARD_WITH_DUCKDB,
+            "develop": STANDARD_WITH_DUCKDB_AND_SIZE_FORMATS,
         },
     ),
     BenchmarkCase(
@@ -371,8 +384,9 @@ BENCHMARKS = (
         name="Nested TPC-H on S3",
         storage=Storage.S3,
         scale_factor=100,
-        local_dir="vortex-bench/data/tpch-nested/100.0/list",
-        remote_key="tpch-nested/100.0/list",
+        # `scale_factor=100` generates the data under `100`, not `100.0`.
+        local_dir="vortex-bench/data/tpch-nested/100/list",
+        remote_key="tpch-nested/100/list",
         runs={"nightly": DEFAULT},
     ),
     BenchmarkCase(
@@ -387,17 +401,18 @@ BENCHMARKS = (
     ),
 )
 
-# Presets whose every benchmark runs every valid integration and scan engine combination. TPC-DS
-# SF=100 lists its targets one per job already, see `TPCDS_SF100_TARGETS`. PR presets other than
-# `pr-scan` keep the default scans, so the extra machines are opt-in.
-ALL_SCAN_PRESETS = ("nightly",)
+# Presets whose every benchmark runs every valid integration and scan engine combination, except
+# the combinations each one skips. TPC-DS SF=100 lists its targets one per job already, see
+# `TPCDS_SF100_TARGETS`. PR presets other than `pr-scan` keep the default scans, so the extra
+# machines are opt-in.
+ALL_SCAN_PRESETS = {"nightly": NIGHTLY_SKIP_SCANS}
 
 
 def _with_all_scan_presets(benchmark: BenchmarkCase) -> BenchmarkCase:
     if benchmark in TPCDS_SF100_CASES:
         return benchmark
     runs = {
-        preset: with_all_scans(coverage) if preset in ALL_SCAN_PRESETS else coverage
+        preset: with_all_scans(coverage, ALL_SCAN_PRESETS[preset]) if preset in ALL_SCAN_PRESETS else coverage
         for preset, coverage in benchmark.runs.items()
     }
     return replace(benchmark, runs=runs)

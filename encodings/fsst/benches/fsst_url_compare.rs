@@ -16,13 +16,12 @@ use vortex_array::arrays::VarBinArray;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::varbin::VarBinArrayExt;
 use vortex_array::builtins::ArrayBuiltins;
-use vortex_array::expr::like;
 use vortex_array::expr::lit;
 use vortex_array::expr::root;
 use vortex_array::memory::MemorySession;
 use vortex_array::optimizer::kernels::KernelSession;
 use vortex_array::scalar::Scalar;
-use vortex_array::scalar_fn::fns::operators::Operator;
+use vortex_array::scalar_fn::builtin::operators::CompareOperator;
 use vortex_array::session::ArraySession;
 use vortex_array::test_harness::mark_optimized;
 use vortex_fsst::fsst_compress;
@@ -31,6 +30,7 @@ use vortex_fsst::test_utils::HIGH_MATCH_DOMAIN;
 use vortex_fsst::test_utils::LOW_MATCH_DOMAIN;
 use vortex_fsst::test_utils::NUM_STRINGS;
 use vortex_fsst::test_utils::generate_url_data;
+use vortex_functions::expr::like;
 use vortex_session::VortexSession;
 
 #[global_allocator]
@@ -102,7 +102,7 @@ fn eq_pushdown_high_match(bencher: Bencher) {
         .bench_refs(|(fsst_array, constant, ctx)| {
             fsst_array
                 .clone()
-                .binary(constant.clone().into_array(), Operator::Eq)
+                .compare(constant.clone().into_array(), CompareOperator::Eq)
                 .unwrap()
                 .execute::<RecursiveCanonical>(ctx)
                 .unwrap()
@@ -128,7 +128,7 @@ fn eq_pushdown_low_match(bencher: Bencher) {
         .bench_refs(|(fsst_array, constant, ctx)| {
             fsst_array
                 .clone()
-                .binary(constant.clone().into_array(), Operator::Eq)
+                .compare(constant.clone().into_array(), CompareOperator::Eq)
                 .unwrap()
                 .execute::<RecursiveCanonical>(ctx)
                 .unwrap()
@@ -154,7 +154,7 @@ fn eq_pushdown_high_match_view(bencher: Bencher) {
         .bench_refs(|(fsst_array, constant, ctx)| {
             fsst_array
                 .clone()
-                .binary(constant.clone().into_array(), Operator::Eq)
+                .compare(constant.clone().into_array(), CompareOperator::Eq)
                 .unwrap()
                 .execute::<RecursiveCanonical>(ctx)
                 .unwrap()
@@ -179,7 +179,7 @@ fn eq_pushdown_low_match_view(bencher: Bencher) {
             fsst_array
                 .clone()
                 .into_array()
-                .binary(constant.clone().into_array(), Operator::Eq)
+                .compare(constant.clone().into_array(), CompareOperator::Eq)
                 .unwrap()
                 .execute::<RecursiveCanonical>(ctx)
                 .unwrap()
@@ -208,7 +208,7 @@ fn eq_canonicalize_high_match(bencher: Bencher) {
                 .execute::<Canonical>(ctx)
                 .unwrap()
                 .into_array()
-                .binary(constant.clone().into_array(), Operator::Eq)
+                .compare(constant.clone().into_array(), CompareOperator::Eq)
                 .unwrap()
                 .execute::<RecursiveCanonical>(ctx)
                 .unwrap()
@@ -237,7 +237,7 @@ fn eq_canonicalize_low_match(bencher: Bencher) {
                 .execute::<Canonical>(ctx)
                 .unwrap()
                 .into_array()
-                .binary(constant.clone().into_array(), Operator::Eq)
+                .compare(constant.clone().into_array(), CompareOperator::Eq)
                 .unwrap()
                 .execute::<RecursiveCanonical>(ctx)
                 .unwrap()

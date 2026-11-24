@@ -300,8 +300,14 @@ impl LayoutReaderFactory for VortexFileReaderFactory {
 #[cfg(test)]
 mod tests {
     use std::fmt;
+    use std::ops::Range;
 
+    use rstest::rstest;
     use vortex_array::IntoArray;
+    use vortex_array::dtype::Nullability;
+    use vortex_array::expr::Expression;
+    use vortex_array::expr::pack;
+    use vortex_array::expr::stats::Precision;
     use vortex_buffer::ByteBuffer;
     use vortex_buffer::ByteBufferMut;
     use vortex_buffer::buffer;
@@ -309,6 +315,7 @@ mod tests {
     use vortex_io::filesystem::FileSystem;
     use vortex_io::session::RuntimeSession;
     use vortex_layout::session::LayoutSession;
+    use vortex_scan::ScanRequest;
     use vortex_session::VortexSession;
 
     use super::*;
@@ -493,6 +500,66 @@ mod tests {
             fb.metadata_segment("k").map(ByteBuffer::as_slice),
             Some(b"file-b".as_slice())
         );
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::within_bounds(2..3, 1)]
+    #[case::past_end(2..5, 1)]
+    #[case::entirely_past_end(7..9, 0)]
+    #[tokio::test]
+    async fn multi_layout_row_range_clamps_to_file_bounds(
+        #[case] row_range: Range<u64>,
+        #[case] expected_rows: u64,
+        #[values(false, true)] empty_projection: bool,
+    ) -> VortexResult<()> {
+        let session = VortexSession::empty()
+            .with::<LayoutSession>()
+            .with::<RuntimeSession>()
+            .with::<MultiFileSession>();
+        crate::register_default_encodings(&session);
+        crate::enable_all_registered_array_encodings(&session);
+
+        let mut bytes = ByteBufferMut::empty();
+        session
+            .write_options()
+            .write(
+                &mut bytes,
+                buffer![7u32, 8, 9].into_array().to_array_stream(),
+            )
+            .await?;
+        let file = session
+            .open_options()
+            .open(Arc::new(ByteBuffer::from(bytes)))
+            .await?;
+
+        let source =
+            MultiLayoutDataSource::new_with_first(file.layout_reader()?, vec![], vec![], &session);
+        let mut request = ScanRequest {
+            row_range: Some(row_range),
+            ..Default::default()
+        };
+        if empty_projection {
+            request.projection = pack(
+                std::iter::empty::<(&str, Expression)>(),
+                Nullability::NonNullable,
+            );
+        }
+
+        let scan = source.scan(request).await?;
+        let mut partitions = scan.partitions().try_collect::<Vec<_>>().await?;
+        assert_eq!(partitions.len(), 1);
+        let partition = partitions.pop().expect("one partition");
+        assert_eq!(partition.row_count(), Precision::exact(expected_rows));
+
+        let actual_rows = partition
+            .execute()?
+            .try_fold(
+                0u64,
+                |sum, chunk| async move { Ok(sum + chunk.len() as u64) },
+            )
+            .await?;
+        assert_eq!(actual_rows, expected_rows);
         Ok(())
     }
 }
