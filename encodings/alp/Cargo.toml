@@ -17,6 +17,8 @@ workspace = true
 
 [dependencies]
 alp = { workspace = true }
+fearless_simd = { workspace = true }
+fearless_simd_macros = { workspace = true }
 itertools = { workspace = true }
 num-traits = { workspace = true }
 prost = { workspace = true }
@@ -24,6 +26,7 @@ vortex-array = { workspace = true }
 vortex-buffer = { workspace = true }
 vortex-error = { workspace = true }
 vortex-fastlanes = { workspace = true }
+vortex-functions = { workspace = true }
 vortex-mask = { workspace = true }
 vortex-session = { workspace = true }
 
@@ -36,4 +39,16 @@ vortex-array = { workspace = true, features = ["_test-harness"] }
 
 [[bench]]
 name = "alp_compress"
+harness = false
+
+[[bench]]
+name = "alp_rd_take_chunked"
+harness = false
+
+[[bench]]
+name = "alp_slice_take"
+harness = false
+
+[[bench]]
+name = "alp_fsl_take"
 harness = false

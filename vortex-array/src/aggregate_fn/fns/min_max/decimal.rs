@@ -23,10 +23,10 @@ pub(super) fn accumulate_decimal(
     array: &DecimalArray,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<()> {
-    match_each_decimal_value_type!(array.values_type(), |T| {
-        let local = compute_min_max_with_validity::<T>(array, ctx)?;
-        partial.merge(args, local)
-    })
+    let local = match_each_decimal_value_type!(array.values_type(), |T| {
+        compute_min_max_with_validity::<T>(array, ctx)
+    })?;
+    partial.merge(args, local)
 }
 
 fn compute_min_max_with_validity<D>(

@@ -7,7 +7,6 @@ pub use ::alp::ALPFloat;
 pub use ::alp::Exponents;
 pub use array::*;
 pub use compress::alp_encode;
-pub use decompress::decompress_into_array;
 use vortex_session::VortexSession;
 
 mod array;

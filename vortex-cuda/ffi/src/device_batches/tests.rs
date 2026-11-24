@@ -15,17 +15,16 @@ use tempfile::NamedTempFile;
 use vortex::VortexSessionDefault;
 use vortex::array::IntoArray;
 use vortex::array::VortexSessionExecute;
-use vortex::array::arrays::DecimalArray;
 use vortex::array::arrays::DictArray;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::StructArray;
 use vortex::array::arrays::VarBinViewArray;
 use vortex::array::assert_arrays_eq;
+use vortex::array::builtins::ArrayBuiltins;
 use vortex::array::stream::ArrayStreamAdapter;
 use vortex::array::stream::ArrayStreamExt;
 use vortex::array::validity::Validity;
 use vortex::buffer::ByteBufferMut;
-use vortex::dtype::DecimalDType;
 use vortex::dtype::NativePType;
 use vortex::error::VortexError;
 use vortex::error::vortex_err;
@@ -65,10 +64,10 @@ impl Output {
 
     fn is_eos(&self) -> bool {
         assert_eq!(
-            self.schema.release.is_none(),
+            self.schema.release().is_none(),
             self.array.array.release.is_none()
         );
-        self.schema.release.is_none()
+        self.schema.release().is_none()
     }
 }
 
@@ -350,7 +349,7 @@ fn upload(array: ArrayRef, ctx: &mut CudaExecutionCtx) -> VortexResult<ArrayRef>
     }
     let mut buffers = Vec::new();
     for buffer in array.buffer_handles() {
-        buffers.push(ctx.ensure_on_device_sync(buffer)?);
+        buffers.push(ctx.ensure_on_device(buffer)?);
     }
     // SAFETY: The fixture's slots and buffers are unchanged except for their memory placement.
     unsafe { array.with_slots(slots.into())?.with_buffers(buffers) }
@@ -515,17 +514,13 @@ fn assert_terminal(
 fn test_scan_dtype_export_errors_and_panics_are_terminal() -> VortexResult<()> {
     let session = session()?;
     for failure in ["scan", "dtype", "export", "panic"] {
-        let seed = if failure == "export" {
-            DecimalArray::from_iter([1i64], DecimalDType::new(10, 2)).into_array()
-        } else {
-            primitive([1i32])
-        };
+        let seed = primitive([1i32]);
         let mut handle = batches(&session, vec![seed.clone()])?;
         let bad = match failure {
             "scan" | "panic" => Err(vortex_err!("injected scan failure")),
             "dtype" => Ok(primitive([1i64])),
-            // Same logical decimal dtype, but its physical storage requires unsupported narrowing.
-            "export" => Ok(DecimalArray::from_iter([1i128], DecimalDType::new(10, 2)).into_array()),
+            // The cast has the stream's dtype. Its first value overflows when export executes it.
+            "export" => Ok(primitive([i64::MAX, 0]).cast(seed.dtype().clone())?),
             _ => unreachable!(),
         };
         let polls = Arc::new(AtomicUsize::new(0));
@@ -544,7 +539,8 @@ fn test_scan_dtype_export_errors_and_panics_are_terminal() -> VortexResult<()> {
         let message = match failure {
             "scan" => "injected scan failure",
             "dtype" => "logical dtype changed",
-            "export" => "narrowing would require",
+            // "value exceeds" or "values exceed", as the cast's wording has been.
+            "export" => "target range",
             "panic" => "injected polling panic",
             _ => unreachable!(),
         };
@@ -602,7 +598,7 @@ fn test_invalid_output_pointers_do_not_consume_or_poison() -> VortexResult<()> {
             unsafe { vx_cuda_device_batches_next(&raw mut handle, schema, array, &raw mut error) };
         assert_eq!(status, VX_CUDA_ERR);
         assert!(take_error(error).is_some());
-        assert!(output.schema.release.is_none());
+        assert!(output.schema.release().is_none());
         assert_eq!(output.array.array.length, 123);
     }
     assert_eq!(next(&mut handle)?.array.array.length, 1);
@@ -630,7 +626,7 @@ fn test_null_and_unaligned_handles_without_cuda() {
         };
         assert_eq!(status, VX_CUDA_ERR);
         assert!(take_error(error).is_some());
-        assert!(output.schema.release.is_none());
+        assert!(output.schema.release().is_none());
         assert_eq!(output.array.array.length, 123);
     }
     // SAFETY: Null is explicitly supported, including when error details are discarded.

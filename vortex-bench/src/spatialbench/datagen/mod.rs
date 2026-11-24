@@ -5,6 +5,7 @@
 //! native-geometry Vortex files for the `vortex-spatial-native` format. The [`table`] catalog is
 //! the single source of truth for the base tables both stages share.
 
+mod batches;
 pub mod native;
 pub mod spatial_sort;
 pub mod table;

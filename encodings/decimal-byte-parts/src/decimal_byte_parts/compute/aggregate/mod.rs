@@ -19,12 +19,17 @@ use vortex_array::aggregate_fn::fns::min_max::min_max;
 use vortex_array::aggregate_fn::fns::sum::Sum;
 use vortex_array::aggregate_fn::fns::sum::sum;
 use vortex_array::aggregate_fn::kernels::DynAggregateKernel;
+use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::WidenArray;
 use vortex_array::dtype::DType;
+use vortex_array::dtype::DecimalType;
 use vortex_array::expr::stats::Stat;
+use vortex_array::match_each_signed_integer_ptype;
 use vortex_array::scalar::DecimalValue;
 use vortex_array::scalar::Scalar;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_mask::Mask;
 
 use crate::DecimalByteParts;
 use crate::decimal_byte_parts::DecimalBytePartsArraySlotsExt;
@@ -93,20 +98,23 @@ fn sum_partial(
         return Ok(None);
     }
 
-    // TODO(connor): Predict integer overflow from dtypes and batch length using Widen's
-    // is_exact_sum bound in a later refinement. For now, retry decimal execution on overflow.
-    let total = sum(msp, ctx)?;
-    if total.is_null() {
-        return Ok(None);
-    }
-
     let dtype = aggregate_fn
         .state_dtype(batch.dtype())
         .vortex_expect("Sum accepts the DBP decimal dtype");
-    let value = DecimalValue::from(i64::try_from(&total)?);
     let decimal_dtype = *dtype
         .as_decimal_opt()
         .vortex_expect("the Sum state dtype of a decimal input is a decimal");
+    let total = sum(msp, ctx)?;
+    let value = if total.is_null() {
+        // A decimal state at i64 width also overflows at this point. Retrying in a wider
+        // accumulator could hide that overflow when later values cancel it.
+        if decimal_dtype.canonical_values_type() == DecimalType::I64 {
+            return Ok(Some(Scalar::null(dtype)));
+        }
+        DecimalValue::from(sum_msp_i128(msp, ctx)?)
+    } else {
+        DecimalValue::from(i64::try_from(&total)?)
+    };
     let partial = if value.fits_in_precision(decimal_dtype) {
         Scalar::try_decimal(value, decimal_dtype, dtype.nullability())?
     } else {
@@ -114,6 +122,25 @@ fn sum_partial(
     };
 
     Ok(Some(partial))
+}
+
+/// Retries an overflowing integer sum without allocating a decimal or widening the MSP.
+fn sum_msp_i128(msp: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<i128> {
+    let msp = WidenArray::to_stored_integer(msp).execute::<PrimitiveArray>(ctx)?;
+    let mask = msp.validity()?.execute_mask(msp.len(), ctx)?;
+    Ok(match_each_signed_integer_ptype!(msp.ptype(), |T| {
+        let values = msp.as_slice::<T>();
+        // Even usize::MAX signed 64-bit values have a total that fits i128.
+        let mut total = 0i128;
+        match &mask {
+            Mask::AllTrue(_) => total = values.iter().map(|&value| i128::from(value)).sum(),
+            Mask::AllFalse(_) => {}
+            Mask::Values(mask) => mask.bit_buffer().for_each_set_index(|idx| {
+                total += i128::from(values[idx]);
+            }),
+        }
+        total
+    }))
 }
 
 /// Returns `None` to decline, so the accumulator falls back to decoding the batch.

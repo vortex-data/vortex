@@ -52,6 +52,31 @@ jobs:
               - "Cargo.lock"
               - ".github/workflows/**"
 
+  cuda-test-cudf-header:
+    needs: [changes]
+    if: >-
+      always() && github.repository == 'vortex-data/vortex' &&
+      needs.changes.outputs.run-cuda-san == 'true'
+    name: "CUDA tests (cuDF dictionary header)"
+    timeout-minutes: 30
+    runs-on: runs-on=${{ github.run_id }}/region=us-east-1/runner=gpu/tag=cuda-test-cudf-header
+    steps:
+      - uses: runs-on/action@v2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+      - name: Build and run cuDF dictionary header tests
+        # The GPU image bakes the vortex-cuda Pixi environment into /opt/cudf.
+        run: |
+          nvidia-smi
+          pixi run --no-install --manifest-path /opt/cudf/pixi.toml bash -euo pipefail -c '
+            cmake -S vortex-cuda/ffi/tests -B build/cudf-header -G Ninja \
+              -DVORTEX_CUDF_BUILD_TESTS=ON \
+              -DCMAKE_BUILD_TYPE=Release \
+              -DCMAKE_PREFIX_PATH="$CONDA_PREFIX" \
+              -DCMAKE_CUDA_ARCHITECTURES=native
+            cmake --build build/cudf-header --parallel 4
+            ctest --test-dir build/cudf-header --output-on-failure --no-tests=error --verbose
+          '
+
   cuda-build-lint:
     needs: [changes]
     if: >-
@@ -59,7 +84,7 @@ jobs:
       needs.changes.outputs.run-cuda-san == 'true'
     name: "CUDA build & lint"
     timeout-minutes: 30
-    runs-on: runs-on=${{ github.run_id }}/region=us-east-1/runner=gpu/extras=s3-cache/tag=cuda-build
+    runs-on: runs-on=${{ github.run_id }}/region=${{ vars.CI_REGION || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T1') && 'ap-northeast-1') || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T2') && 'eu-west-2') || 'us-east-1' }}/runner=gpu/extras=s3-cache/tag=cuda-build
     steps:
       - parallel:
           - uses: runs-on/action@v2
@@ -97,7 +122,7 @@ jobs:
       needs.changes.outputs.run-cuda-san == 'true'
     name: "CUDA tests"
     timeout-minutes: 30
-    runs-on: runs-on=${{ github.run_id }}/region=us-east-1/runner=gpu/extras=s3-cache/tag=cuda-tests
+    runs-on: runs-on=${{ github.run_id }}/region=${{ vars.CI_REGION || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T1') && 'ap-northeast-1') || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T2') && 'eu-west-2') || 'us-east-1' }}/runner=gpu/extras=s3-cache/tag=cuda-tests
     steps:
       - parallel:
           - uses: runs-on/action@v2
@@ -156,7 +181,7 @@ jobs:
       needs.changes.outputs.run-cuda-san == 'true'
     name: "CUDA tests (${{ matrix.sanitizer }})"
     timeout-minutes: 30
-    runs-on: runs-on=${{ github.run_id }}/region=us-east-1/runner=gpu/extras=s3-cache/tag=cuda-test-sanitizer
+    runs-on: runs-on=${{ github.run_id }}/region=${{ vars.CI_REGION || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T1') && 'ap-northeast-1') || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T2') && 'eu-west-2') || 'us-east-1' }}/runner=gpu/extras=s3-cache/tag=cuda-test-sanitizer
     strategy:
       fail-fast: false
       matrix:
@@ -199,7 +224,7 @@ jobs:
       needs.changes.outputs.run-cuda-san == 'true'
     name: "CUDA tests (cudf)"
     timeout-minutes: 30
-    runs-on: runs-on=${{ github.run_id }}/region=us-east-1/runner=gpu/extras=s3-cache/tag=cuda-test-cudf
+    runs-on: runs-on=${{ github.run_id }}/region=${{ vars.CI_REGION || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T1') && 'ap-northeast-1') || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T2') && 'eu-west-2') || 'us-east-1' }}/runner=gpu/extras=s3-cache/tag=cuda-test-cudf
     steps:
       - parallel:
           - uses: runs-on/action@v2

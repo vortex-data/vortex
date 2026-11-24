@@ -289,8 +289,7 @@ pub trait DeviceArrayExt {
     /// arrays. Top-level non-struct arrays are exported as column-shaped field schemas and
     /// column-shaped device arrays; this method does not wrap them in a single-field struct.
     ///
-    /// Decimal exports use the Arrow decimal width implied by precision; storage wider than that
-    /// width is rejected rather than narrowed on device.
+    /// Decimal exports use the Arrow width implied by precision, with a minimum of 32 bits.
     async fn export_device_array_with_schema(
         self,
         ctx: &mut CudaExecutionCtx,
@@ -589,7 +588,7 @@ unsafe fn device_stream_private_data<'a>(
 
 /// Release an Arrow C schema if it is live.
 pub fn release_schema(schema: &mut FFI_ArrowSchema) {
-    if let Some(release) = schema.release {
+    if let Some(release) = schema.release() {
         unsafe { release(schema) };
     }
 }
@@ -962,7 +961,6 @@ mod tests {
     use vortex::session::VortexSession;
     use vortex_cuda_macros::test as cuda_test;
 
-    use crate::CudaBufferExt;
     use crate::CudaSession;
     use crate::arrow::ARROW_DEVICE_CUDA;
     use crate::arrow::ArrowArray;
@@ -975,6 +973,7 @@ mod tests {
     use crate::arrow::PrivateData;
     use crate::arrow::release_device_array;
     use crate::arrow::release_schema;
+    use crate::device_buffer::test_support::cuda_address;
 
     unsafe extern "C" fn count_release(array: *mut ArrowArray) {
         // SAFETY: The callback receives the live array created by counted_array.
@@ -1076,7 +1075,7 @@ mod tests {
         assert!(!array.buffers.is_null());
         // SAFETY: The live export exposes n_buffers readable buffer pointers.
         let exported_ptr = unsafe { *array.buffers.add(index) } as u64;
-        assert_eq!(exported_ptr, buffer.cuda_device_ptr()?);
+        assert_eq!(exported_ptr, cuda_address(buffer)?);
         buffer.try_to_host_sync()
     }
 

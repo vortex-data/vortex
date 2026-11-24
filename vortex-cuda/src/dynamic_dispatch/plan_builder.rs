@@ -17,9 +17,11 @@ use vortex::array::arrays::Dict;
 use vortex::array::arrays::Primitive;
 use vortex::array::arrays::ScalarFn;
 use vortex::array::arrays::Slice;
+use vortex::array::arrays::Widen;
 use vortex::array::arrays::dict::DictArraySlotsExt;
 use vortex::array::arrays::scalar_fn::ScalarFnArrayExt;
 use vortex::array::arrays::slice::SliceArraySlotsExt;
+use vortex::array::arrays::widen::WidenArraySlotsExt;
 use vortex::array::buffer::BufferHandle;
 use vortex::array::optimizer::kernels::ArrayKernelsExt;
 use vortex::array::patches::Patches;
@@ -47,10 +49,11 @@ use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::error::vortex_err;
 use vortex::scalar_fn::ScalarFnVTable;
-use vortex::scalar_fn::fns::cast::Cast;
+use vortex::scalar_fn::builtin::cast::Cast;
 use vortex::session::VortexSession;
 
 use super::CudaDispatchPlan;
+use super::MAX_PLAN_BYTES;
 use super::MaterializedStage;
 use super::PTypeTag;
 use super::PTypeTag_PTYPE_F32;
@@ -58,6 +61,7 @@ use super::PTypeTag_PTYPE_F64;
 use super::SMEM_TILE_SIZE;
 use super::ScalarOp;
 use super::SourceOp;
+use super::packed_plan_size;
 use super::ptype_to_tag;
 use super::tag_to_ptype;
 use crate::CudaBufferExt;
@@ -133,13 +137,26 @@ fn is_dyn_dispatch_compatible(array: &ArrayRef) -> bool {
             _ => false,
         };
     }
-    // TODO(connor): Add Widen fusion after fixing sign extension of signed narrow BitPacked and
-    // FoR children in dynamic_dispatch.cu. Those paths currently zero-extend to the output width.
+    if id == Widen.id() {
+        return is_dyn_dispatch_widen_compatible(array);
+    }
     (id == FoR.id() && array.as_::<FoR>().references().is_global())
         || id == ZigZag.id()
         || id == Primitive.id()
         || id == Slice.id()
         || id == Sequence.id()
+}
+
+/// Integer widening fuses as an `EXTEND` op after the child's ops.
+fn is_dyn_dispatch_widen_compatible(array: &ArrayRef) -> bool {
+    let widen = array.as_::<Widen>();
+    match (
+        PType::try_from(array.dtype()),
+        PType::try_from(widen.values().dtype()),
+    ) {
+        (Ok(output), Ok(source)) => output.is_int() && source.is_int(),
+        _ => false,
+    }
 }
 
 fn is_dyn_dispatch_cast_compatible(array: &ArrayRef) -> bool {
@@ -342,6 +359,7 @@ impl DispatchPlan {
     /// - **RunEnd** with nullable ends is rejected (garbage values break the
     ///   binary search). RunEnd with ends wider than values is also rejected.
     /// - Validity is propagated from the root array to the output.
+    /// - Plans that exceed the shared memory limit or `MAX_PLAN_BYTES` fall back to `Unfused`.
     /// - Unrecognized encodings fall back to `Unfused`.
     pub fn new(array: &ArrayRef, mode: CudaDispatchMode) -> VortexResult<Self> {
         if mode == CudaDispatchMode::Auto && has_standalone_kernel(array) {
@@ -357,7 +375,7 @@ impl DispatchPlan {
             Err(_) => return Ok(Self::Unfused),
         };
 
-        if plan.exceeds_shared_mem_limit() {
+        if plan.exceeds_shared_mem_limit() || plan.exceeds_plan_size_limit() {
             return Ok(Self::Unfused);
         }
 
@@ -441,6 +459,22 @@ impl FusedPlan {
         false
     }
 
+    /// Returns `true` if the packed plan does not fit the `DispatchPlanParam` kernel parameter,
+    /// logging a trace message when it does not.
+    fn exceeds_plan_size_limit(&self) -> bool {
+        let required =
+            packed_plan_size(self.stages.iter().map(|(stage, ..)| stage.scalar_ops.len()));
+        if required > MAX_PLAN_BYTES as usize {
+            trace!(
+                required,
+                limit = MAX_PLAN_BYTES,
+                "plan size limit exceeded, falling back to unfused dispatch"
+            );
+            return true;
+        }
+        false
+    }
+
     /// Copy source buffers to the device, producing a [`MaterializedPlan`].
     pub async fn materialize(self, ctx: &mut CudaExecutionCtx) -> VortexResult<MaterializedPlan> {
         let shared_mem_bytes = self.dynamic_shared_mem_bytes();
@@ -453,8 +487,8 @@ impl FusedPlan {
             let source_buf = source_buf.ok_or_else(|| {
                 vortex_err!("all source buffer slots must be filled before materialize")
             })?;
-            let device_buf = ctx.ensure_on_device_sync(source_buf)?;
-            let ptr = device_buf.cuda_device_ptr()?;
+            let device_buf = ctx.ensure_on_device(source_buf)?;
+            let ptr = device_buf.cuda_device_ptr(ctx.stream())?;
             device_ptrs.push(ptr);
             device_buffers.push(device_buf);
         }
@@ -562,6 +596,8 @@ impl FusedPlan {
             self.walk_sequence(array)
         } else if id == Cast.id() {
             self.walk_cast(array, pending_subtrees)
+        } else if id == Widen.id() {
+            self.walk_widen(array, pending_subtrees)
         } else {
             vortex_bail!(
                 "Encoding {:?} not supported by dynamic dispatch plan builder",
@@ -873,6 +909,25 @@ impl FusedPlan {
         pipeline
             .scalar_ops
             .push((ScalarOp::cast(target_ptype), None));
+        Ok(pipeline)
+    }
+
+    /// Widen → decode the narrower child at the output width, then fix the high bits.
+    ///
+    /// LOAD/BITUNPACK zero-extends to the output width, so prior ops (FOR, ZIGZAG) produce
+    /// correct low bits. `EXTEND` sign-extends or zero-extends the high bits at the end.
+    fn walk_widen(
+        &mut self,
+        array: ArrayRef,
+        pending_subtrees: &mut Vec<ArrayRef>,
+    ) -> VortexResult<Stage> {
+        let output_ptype = ptype_to_tag(PType::try_from(array.dtype())?);
+        let values = array.as_::<Widen>().values().clone();
+        let source_ptype = ptype_to_tag(PType::try_from(values.dtype())?);
+        let mut pipeline = self.walk(values, pending_subtrees)?;
+        pipeline
+            .scalar_ops
+            .push((ScalarOp::extend(source_ptype, output_ptype), None));
         Ok(pipeline)
     }
 

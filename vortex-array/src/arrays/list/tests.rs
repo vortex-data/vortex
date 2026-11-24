@@ -7,13 +7,16 @@ use std::sync::LazyLock;
 
 use rstest::rstest;
 use vortex_buffer::BitBuffer;
+use vortex_buffer::ByteBufferMut;
 use vortex_buffer::buffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
+use vortex_session::registry::ReadContext;
 
 use super::*;
+use crate::ArrayContext;
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::VortexSessionExecute;
@@ -27,8 +30,12 @@ use crate::builders::ListBuilder;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType::I32;
+use crate::expr::stats::Precision;
+use crate::expr::stats::Stat;
 use crate::optimizer::ArrayOptimizer;
 use crate::scalar::Scalar;
+use crate::serde::SerializeOptions;
+use crate::serde::SerializedArray;
 use crate::validity::Validity;
 
 /// A shared session for `List` tests, used to create execution contexts.
@@ -431,7 +438,6 @@ fn test_offset_to_0() {
     let mut builder = ListBuilder::<u32>::with_capacity_in(
         Arc::new(I32.into()),
         Nullability::NonNullable,
-        10,
         5,
         vortex_buffer::BufferAllocatorRef::static_ref(),
     );
@@ -1223,5 +1229,60 @@ fn test_compact_sliced(
         &mut ctx
     );
     assert_arrays_eq!(rebuilt, list, &mut ctx);
+    Ok(())
+}
+
+/// Sets statistics that say `offsets` are sorted and in the range `0..=max`.
+fn forge_offsets_statistics(offsets: &ArrayRef, max: i32) {
+    offsets
+        .statistics()
+        .set(Stat::IsSorted, Precision::exact(true));
+    offsets.statistics().set(Stat::Min, Precision::exact(0i32));
+    offsets.statistics().set(Stat::Max, Precision::exact(max));
+}
+
+#[rstest]
+#[case::unsorted(buffer![0i32, 1000, 2].into_array(), "sorted")]
+#[case::out_of_bounds_max(buffer![0i32, 2, 1000].into_array(), "Max offset")]
+#[case::negative_min(buffer![-5i32, 0, 2].into_array(), "minimum")]
+fn try_new_ignores_forged_offsets_statistics(
+    #[case] offsets: ArrayRef,
+    #[case] expected_err: &str,
+) {
+    let mut ctx = SESSION.create_execution_ctx();
+    let elements = buffer![1i32, 2, 3, 4].into_array();
+    forge_offsets_statistics(&offsets, 4);
+
+    let result = ListArray::try_new(elements, offsets, Validity::NonNullable, &mut ctx);
+
+    assert!(result.is_err_and(|err| err.to_string().contains(expected_err)));
+}
+
+#[test]
+fn decode_rejects_offsets_with_forged_statistics() -> VortexResult<()> {
+    let elements = buffer![1i32, 2, 3, 4].into_array();
+    let offsets = buffer![0i32, 1000, 2].into_array();
+    forge_offsets_statistics(&offsets, 4);
+
+    // SAFETY: the offsets are not valid on purpose. The test only serializes this array.
+    let array =
+        unsafe { ListArray::new_unchecked(elements, offsets, Validity::NonNullable) }.into_array();
+    let dtype = array.dtype().clone();
+
+    let array_ctx = ArrayContext::empty();
+    let mut blob = ByteBufferMut::empty();
+    for buffer in array.serialize(&array_ctx, &SESSION, &SerializeOptions::default())? {
+        blob.extend_from_slice(buffer.as_ref());
+    }
+    let serialized = SerializedArray::try_from(blob.freeze())?;
+
+    let result = serialized.decode(
+        &dtype,
+        array.len(),
+        &ReadContext::new(array_ctx.to_ids()),
+        &SESSION,
+    );
+
+    assert!(result.is_err_and(|err| err.to_string().contains("sorted")));
     Ok(())
 }

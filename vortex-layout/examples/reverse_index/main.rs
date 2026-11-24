@@ -45,9 +45,9 @@ use vortex_array::expr::lit;
 use vortex_array::memory::BufferAllocatorRef;
 use vortex_array::memory::MemorySessionExt;
 use vortex_array::scalar::Scalar;
-use vortex_array::scalar_fn::fns::binary::Binary;
-use vortex_array::scalar_fn::fns::literal::Literal;
-use vortex_array::scalar_fn::fns::operators::Operator;
+use vortex_array::scalar_fn::builtin::compare::Compare;
+use vortex_array::scalar_fn::builtin::literal::Literal;
+use vortex_array::scalar_fn::builtin::operators::CompareOperator;
 use vortex_array::search_sorted::SearchSorted;
 use vortex_array::search_sorted::SearchSortedArray;
 use vortex_array::search_sorted::SearchSortedSide;
@@ -176,7 +176,7 @@ impl IndexVTable for ReverseIndex {
         _options: &(),
     ) -> VortexResult<Option<IndexQueryPlan<Scalar>>> {
         // Only `<column> == <literal>`.
-        if !expr.is::<Binary>() || *expr.as_::<Binary>() != Operator::Eq {
+        if !expr.is::<Compare>() || *expr.as_::<Compare>() != CompareOperator::Eq {
             return Ok(None);
         }
         if !expr.child(0).is_root() || !expr.child(1).is::<Literal>() {

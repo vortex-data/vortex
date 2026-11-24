@@ -5,6 +5,8 @@
 
 mod bool;
 mod cache;
+mod chunks;
+mod decimal;
 mod float;
 mod integer;
 mod options;
@@ -12,6 +14,7 @@ mod varbinview;
 
 pub use bool::BoolStats;
 pub use cache::ArrayAndStats;
+pub use decimal::DecimalStats;
 pub use float::DistinctInfo as FloatDistinctInfo;
 pub use float::ErasedStats as FloatErasedStats;
 pub use float::FloatStats;

@@ -5,8 +5,8 @@ use std::mem::MaybeUninit;
 use std::mem::size_of;
 
 use fastlanes::BitPacking;
-use vortex_array::arrays::filter::ChunkDecoder;
-use vortex_array::arrays::filter::FILTER_CHUNK_LEN;
+use vortex_buffer::filter::ChunkDecoder;
+use vortex_buffer::filter::FILTER_CHUNK_LEN;
 
 use crate::FL_CHUNK_SIZE;
 
@@ -16,6 +16,7 @@ mod compare;
 mod compare_fused;
 mod filter;
 pub(crate) mod is_constant;
+mod list_contains;
 mod packed_range;
 mod slice;
 mod stream_predicate;

@@ -19,6 +19,7 @@ use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::VarBinViewArray;
+use vortex_array::arrays::WidenArray;
 use vortex_array::arrays::listview::ListViewArrayExt;
 use vortex_array::arrays::listview::ListViewArraySlotsExt;
 use vortex_array::assert_arrays_eq;
@@ -765,21 +766,19 @@ fn map_sort_order() -> VortexResult<()> {
     Ok(())
 }
 
-/// Chunks of one decimal column can compress to different physical value widths. The key
-/// width must come from the declared dtype, not the chunk's `values_type`, otherwise keys
-/// from different chunks are not memcmp-comparable.
+/// Row keys from chunks with differently compressed values must remain comparable.
 #[rstest]
 #[case::ascending(false)]
 #[case::descending(true)]
 fn decimal_keys_comparable_across_chunk_widths(#[case] descending: bool) -> VortexResult<()> {
     let mut ctx = SESSION.create_execution_ctx();
-    let dtype = DecimalDType::new(7, 5);
+    let dtype = DType::Decimal(DecimalDType::new(7, 2), Nullability::NonNullable);
     let field = RowSortField::new(descending, true);
 
-    // One logical DECIMAL(7, 5) column whose chunks compressed to different physical widths.
-    let chunk_i8 = DecimalArray::new(buffer![91i8, -5], dtype, Validity::NonNullable).into_array();
-    let chunk_i16 =
-        DecimalArray::new(buffer![484i16, 300], dtype, Validity::NonNullable).into_array();
+    let values_i8 = DecimalArray::from_iter([91i8, -5], DecimalDType::new(2, 2));
+    let chunk_i8 = WidenArray::try_new(values_i8.into_array(), dtype.clone())?.into_array();
+    let values_i16 = DecimalArray::from_iter([484i16, 300], DecimalDType::new(3, 2));
+    let chunk_i16 = WidenArray::try_new(values_i16.into_array(), dtype)?.into_array();
     let values: [i32; 4] = [91, -5, 484, 300];
 
     let keys_i8 = collect_row_bytes(&convert_columns(&[chunk_i8], &[field], &mut ctx)?);
@@ -801,8 +800,7 @@ fn decimal_keys_comparable_across_chunk_widths(#[case] descending: bool) -> Vort
     Ok(())
 }
 
-/// A null slot's backing value is unspecified and might not fit the dtype-derived key width;
-/// encoding must ignore it rather than report a spurious overflow.
+/// A null row's key is independent of its raw payload, even when it exceeds the precision.
 #[test]
 fn decimal_null_slot_garbage_does_not_error() -> VortexResult<()> {
     let mut ctx = SESSION.create_execution_ctx();
@@ -810,36 +808,19 @@ fn decimal_null_slot_garbage_does_not_error() -> VortexResult<()> {
     let field = RowSortField::new(false, true);
 
     let chunk = DecimalArray::new(
-        buffer![484i64, 10_000_000_000_000, 91],
+        buffer![484i32, i32::MAX, 91, i32::MIN],
         dtype,
-        Validity::from_iter([true, false, true]),
+        Validity::from_iter([true, false, true, false]),
+        &mut ctx,
     )
     .into_array();
 
     let keys = collect_row_bytes(&convert_columns(&[chunk], &[field], &mut ctx)?);
-    assert_eq!(keys.len(), 3);
+    assert_eq!(keys.len(), 4);
+    assert_eq!(keys[1], keys[3]);
     assert!(keys[1] < keys[2], "null must sort before non-nulls");
     assert!(keys[2] < keys[0], "91 must sort before 484");
     Ok(())
-}
-
-/// A valid value too large for the dtype-derived key width must fail loudly instead of
-/// silently encoding a corrupt key.
-#[test]
-fn decimal_value_not_fitting_key_width_errors() {
-    let mut ctx = SESSION.create_execution_ctx();
-    let dtype = DecimalDType::new(7, 5);
-    let field = RowSortField::new(false, true);
-
-    let chunk = DecimalArray::new(buffer![10_000_000_000_000i64], dtype, Validity::NonNullable)
-        .into_array();
-
-    let err = convert_columns(&[chunk], &[field], &mut ctx)
-        .expect_err("a valid value wider than the key width must be rejected");
-    assert!(
-        err.to_string().contains("does not fit"),
-        "expected a does-not-fit error, got: {err}"
-    );
 }
 
 #[test]
@@ -861,6 +842,7 @@ fn decimal256_keys_preserve_order_and_physical_width_independence() -> VortexRes
                 values.into_iter().chain([i256::MIN]).collect(),
                 dtype,
                 Validity::from_iter([true, true, true, true, true, false]),
+                &mut ctx,
             )
             .into_array();
             let keys = collect_row_bytes(&convert_columns(&[array], &[field], &mut ctx)?);
@@ -877,8 +859,12 @@ fn decimal256_keys_preserve_order_and_physical_width_independence() -> VortexRes
                 }
                 assert_eq!(keys[5] < keys[i], nulls_first);
             }
-            let narrow =
-                DecimalArray::new(buffer![-1i8, 0, 1], dtype, Validity::NonNullable).into_array();
+            let values = DecimalArray::from_iter([-1i16, 0, 1], DecimalDType::new(4, 4));
+            let narrow = WidenArray::try_new(
+                values.into_array(),
+                DType::Decimal(dtype, Nullability::NonNullable),
+            )?
+            .into_array();
             let narrow_keys = collect_row_bytes(&convert_columns(&[narrow], &[field], &mut ctx)?);
             assert_eq!(
                 narrow_keys,

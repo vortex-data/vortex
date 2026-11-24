@@ -40,10 +40,7 @@ impl Display for MaskedData {
 
 pub trait MaskedArrayExt: TypedArrayRef<Masked> {
     fn masked_validity(&self) -> Validity {
-        child_to_validity(
-            self.slots()[MaskedSlots::VALIDITY_CHILD].as_ref(),
-            self.dtype().nullability(),
-        )
+        child_to_validity(self.validity_child(), self.dtype().nullability())
     }
 }
 impl<T: TypedArrayRef<Masked>> MaskedArrayExt for T {}

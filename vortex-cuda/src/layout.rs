@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! A CUDA-optimized flat layout that inlines small constant array buffers into layout metadata.
+//! A CUDA-optimized flat layout that inlines constant scalars and small FSST tables.
 
 use std::any::Any;
 use std::ops::BitAnd;
@@ -39,11 +39,14 @@ use vortex::editions::EditionFamily;
 use vortex::editions::EditionId;
 use vortex::editions::EditionMember;
 use vortex::editions::EditionSessionExt;
+use vortex::encodings::fsst::FSST;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::error::vortex_panic;
 use vortex::file::WriteStrategyBuilder;
+use vortex::flatbuffers::FlatBuffer;
+use vortex::flatbuffers::array as fba;
 use vortex::layout::Layout;
 use vortex::layout::LayoutChildType;
 use vortex::layout::LayoutDeserializeArgs;
@@ -376,8 +379,7 @@ impl LayoutReader for CudaFlatReader {
     }
 }
 
-/// A [`LayoutStrategy`] that writes a [`CudaFlatLayout`] with constant array buffers inlined
-/// into layout metadata for host-side access during GPU reads.
+/// A [`LayoutStrategy`] that inlines constant scalars and small FSST tables for GPU reads.
 #[derive(Clone)]
 pub struct CudaFlatLayoutStrategy {
     /// Whether to include padding for memory-mapped reads.
@@ -480,9 +482,6 @@ impl LayoutStrategy for CudaFlatLayoutStrategy {
             _ => {}
         }
 
-        // Scan for constant array buffers before serialization (while data is still on host).
-        let host_buffers = extract_constant_buffers(&chunk);
-
         let buffers = chunk.serialize(
             ctx.array_ctx(),
             session,
@@ -495,17 +494,14 @@ impl LayoutStrategy for CudaFlatLayoutStrategy {
 
         // Always store the array tree inline (the cuda path requires it for planning).
         let array_tree = buffers[buffers.len() - 2].clone();
+        let read_ctx = ReadContext::new(ctx.array_ctx().to_ids());
+        let host_buffers = extract_host_buffers(&buffers, &read_ctx)?;
 
         let segment_id = segment_sink.write(sequence_id, buffers).await?;
 
         let None = stream.next().await else {
             vortex_bail!("CudaFlatLayoutStrategy received stream with more than a single chunk");
         };
-
-        let host_buffer_map: HashMap<u32, ByteBuffer> = host_buffers
-            .iter()
-            .map(|hb| (hb.buffer_index, ByteBuffer::from(hb.data.clone())))
-            .collect();
 
         Ok(LayoutParts::new(
             CudaFlat,
@@ -515,36 +511,74 @@ impl LayoutStrategy for CudaFlatLayoutStrategy {
             layout_children(Vec::new()),
             CudaFlatData {
                 segment_id,
-                ctx: ReadContext::new(ctx.array_ctx().to_ids()),
+                ctx: read_ctx,
                 array_tree,
-                host_buffers: Arc::new(host_buffer_map),
+                host_buffers: Arc::new(host_buffers),
             },
         )
         .into_layout())
     }
 }
 
-/// Walk the array tree depth-first and extract buffer data for all `ConstantArray` nodes.
-///
-/// The buffer ordering matches `Array::serialize()` because both use depth-first traversal.
-fn extract_constant_buffers(chunk: &ArrayRef) -> Vec<InlinedBuffer> {
-    let mut result = Vec::new();
-    let mut buffer_idx = 0u32;
-    for array in chunk.depth_first_traversal() {
-        let n = array.nbuffers();
-        if array.encoding_id() == Constant.id() {
-            for buf in array.buffers() {
-                result.push(InlinedBuffer {
-                    buffer_index: buffer_idx,
-                    data: buf.to_vec(),
-                });
-                buffer_idx += 1;
+/// Bounds footer growth per leaf. Constants are not charged to this budget.
+const FSST_INLINE_BYTES_MAX: usize = 4 * 1024;
+
+/// Collect buffers that deserializers need on the host. Use the serialized tree: a serializer
+/// can replace the input array's buffers and children when writing an older encoding.
+fn extract_host_buffers(
+    chunks: &[ByteBuffer],
+    ctx: &ReadContext,
+) -> VortexResult<HashMap<u32, ByteBuffer>> {
+    let aligned = FlatBuffer::align_from(chunks[chunks.len() - 2].clone());
+    let tree = fba::root_as_array(aligned.as_ref())?;
+    let payloads = serialized_payloads(tree, chunks);
+    let mut result = HashMap::new();
+    let mut fsst_bytes_left = FSST_INLINE_BYTES_MAX;
+    let mut nodes = Vec::from_iter(tree.root());
+    while let Some(node) = nodes.pop() {
+        nodes.extend(node.children().unwrap_or_default().iter());
+        let indices = node.buffers().unwrap_or_default();
+        let inlined = match ctx.resolve(node.encoding()) {
+            Some(id) if id == Constant.id() => indices.len(),
+            Some(id) if id == FSST.id() && indices.len() >= 2 => {
+                // Both FSST layouts store symbols and lengths before the codes.
+                let symbols = payloads[usize::from(indices.get(0))];
+                let lengths = payloads[usize::from(indices.get(1))];
+                // Each entry needs at most 10 extra bytes of protobuf framing.
+                let cost = symbols.len() + lengths.len() + 2 * 10;
+                // Empty tables are never read back, so inlining them saves nothing.
+                if !lengths.is_empty() && cost <= fsst_bytes_left {
+                    fsst_bytes_left -= cost;
+                    2
+                } else {
+                    0
+                }
             }
-        } else {
-            buffer_idx += u32::try_from(n).vortex_expect("buffer count must fit in u32");
+            _ => 0,
+        };
+        for idx in indices.iter().take(inlined) {
+            let payload = payloads[usize::from(idx)];
+            result.insert(u32::from(idx), ByteBuffer::copy_from(payload));
         }
     }
-    result
+    Ok(result)
+}
+
+/// Index payload chunks by wire buffer index. Chunks start with an alignment marker, and each
+/// payload may follow a padding chunk.
+fn serialized_payloads<'a>(tree: fba::Array<'_>, chunks: &'a [ByteBuffer]) -> Vec<&'a ByteBuffer> {
+    let mut chunks = chunks[1..].iter();
+    let descriptors = tree.buffers().unwrap_or_default();
+    descriptors
+        .iter()
+        .map(|desc| {
+            let payload = chunks
+                .nth(usize::from(desc.padding() != 0))
+                .vortex_expect("serialized buffer payload");
+            debug_assert_eq!(payload.len(), desc.length() as usize);
+            payload
+        })
+        .collect()
 }
 
 /// Rows per block that [`cuda_write_strategy`] writes when given zero `block_rows`.
@@ -653,12 +687,17 @@ mod tests {
     use futures::TryStreamExt;
     use rstest::rstest;
     use vortex::VortexSessionDefault;
+    use vortex::array::ArrayContext;
+    use vortex::array::ExecutionCtx;
     use vortex::array::IntoArray;
+    use vortex::array::arrays::ConstantArray;
     use vortex::array::arrays::Dict;
     use vortex::array::arrays::PrimitiveArray;
     use vortex::array::arrays::StructArray;
+    use vortex::array::arrays::VarBinArray;
     use vortex::array::arrays::struct_::StructArrayExt;
     use vortex::array::assert_arrays_eq;
+    use vortex::buffer::Buffer;
     use vortex::buffer::ByteBufferMut;
     use vortex::editions::CORE_2025_05_0;
     use vortex::editions::ComponentKind;
@@ -671,6 +710,96 @@ mod tests {
     use vortex::layout::scan::split_by::SplitBy;
 
     use super::*;
+
+    fn fsst_node(
+        symbols: Range<u64>,
+        symbol_len: u8,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        let symbols = Buffer::from_iter(symbols.map(u64::to_le));
+        let lengths = ByteBuffer::full(symbol_len, symbols.len());
+        // An escaped literal is valid even when the table is empty.
+        let codes = VarBinArray::from_bytes(vec![b"\xff!"]);
+        Ok(FSST::try_new(
+            codes.dtype().clone(),
+            Buffer::from_byte_buffer(symbols.into_byte_buffer()),
+            lengths,
+            codes,
+            PrimitiveArray::from_iter([1u32]).into_array(),
+            ctx,
+        )?
+        .into_array())
+    }
+
+    fn serialized_host_buffers(
+        array: StructArray,
+        session: &VortexSession,
+    ) -> VortexResult<HashMap<u32, ByteBuffer>> {
+        let ctx = ArrayContext::empty();
+        let chunks = array.into_array().serialize(
+            &ctx,
+            session,
+            &SerializeOptions {
+                offset: 1,
+                include_padding: true,
+            },
+        )?;
+        // Offset 1 misaligns the payloads, so the index mapping must skip padding chunks.
+        let tree = FlatBuffer::align_from(chunks[chunks.len() - 2].clone());
+        let descriptors = fba::root_as_array(tree.as_ref())?
+            .buffers()
+            .unwrap_or_default();
+        assert!(descriptors.iter().any(|desc| desc.padding() > 0));
+        extract_host_buffers(&chunks, &ReadContext::new(ctx.to_ids()))
+    }
+
+    #[test]
+    fn test_inline_only_constant_and_nonempty_fsst_table() -> VortexResult<()> {
+        let session = VortexSession::default();
+        let mut ctx = session.create_execution_ctx();
+        let scalar = ConstantArray::new("c".repeat(FSST_INLINE_BYTES_MAX), 1).into_array();
+        let fsst = fsst_node(1..3, 1, &mut ctx)?;
+        let array = StructArray::from_fields(&[
+            ("scalar", scalar.clone()),
+            ("strings", fsst.clone()),
+            ("empty_table", fsst_node(0..0, 1, &mut ctx)?),
+        ])?;
+
+        let host = serialized_host_buffers(array, &session)?;
+        let buffers = fsst.buffers();
+        assert_eq!(host.len(), 3);
+        assert_eq!(host[&0], scalar.buffers()[0]);
+        assert_eq!(host[&1], buffers[0]); // Symbols
+        assert_eq!(host[&2], buffers[1]); // Symbol lengths
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::both_fit(2, 2)]
+    #[case::only_one_fits(230, 1)] // Two 2,070-byte tables exceed `FSST_INLINE_BYTES_MAX`.
+    fn test_fsst_budget_keeps_whole_tables(
+        #[case] table_len: u64,
+        #[case] expected: usize,
+    ) -> VortexResult<()> {
+        let session = VortexSession::default();
+        let mut ctx = session.create_execution_ctx();
+        let left = fsst_node(1..1 + table_len, 1, &mut ctx)?;
+        let right = fsst_node(257..257 + table_len, 2, &mut ctx)?;
+        let array = StructArray::from_fields(&[("left", left.clone()), ("right", right.clone())])?;
+        let host = serialized_host_buffers(array, &session)?;
+
+        let has_table = |node: &ArrayRef| {
+            node.buffers()[..2]
+                .iter()
+                .all(|buffer| host.values().any(|inlined| inlined == buffer))
+        };
+        assert_eq!(host.len(), 2 * expected);
+        assert_eq!(
+            [left, right].iter().filter(|node| has_table(node)).count(),
+            expected
+        );
+        Ok(())
+    }
 
     fn repeated_ids(unique: i64, rows: usize) -> VortexResult<ArrayRef> {
         // Wide, shuffled values favor dictionaries over bitpacking and FoR.
