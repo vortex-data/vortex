@@ -12,7 +12,6 @@ use std::sync::OnceLock;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
-use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::ListViewArray;
 use vortex_array::arrays::listview::ListViewArraySlotsExt;
@@ -239,18 +238,14 @@ impl PreparedSetData {
             );
         }
 
-        let nullability = options.result_nullability(self.list_dtype(), needle_dtype);
-
-        let validity = if self.0.is_empty && !options.sql_null_semantics {
-            Validity::NonNullable
-        } else if options.sql_null_semantics && self.0.has_null_element {
-            // Only a match is known. A comparison with the null element makes a non-match unknown.
-            needle_validity.and(Validity::from(bits.clone()))?
-        } else {
-            needle_validity
-        };
-
-        Ok(BoolArray::new(bits, validity.union_nullability(nullability)).into_array())
+        options.result_from_bits(
+            bits,
+            needle_validity,
+            self.list_dtype(),
+            needle_dtype,
+            self.0.is_empty,
+            self.0.has_null_element,
+        )
     }
 
     /// Fails when needles of `needle_dtype` cannot be elements of the list.

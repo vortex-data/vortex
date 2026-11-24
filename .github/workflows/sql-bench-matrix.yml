@@ -52,7 +52,7 @@ jobs:
         run: |
           set -Eeuo pipefail
 
-          matrix="$(uv run --project bench-orchestrator vx-bench matrix "$MATRIX_PRESET" --only "$BENCHMARKS")"
+          matrix="$(uv run --project benchmarks/bench-orchestrator vx-bench matrix "$MATRIX_PRESET" --only "$BENCHMARKS")"
           echo "benchmark_matrix=$matrix" >> "$GITHUB_OUTPUT"
           # A case runs as one entry per scan when it covers every scan; its PR comment collects
           # the entries of its `group` into one table. A run of some queries comments separately.
@@ -232,7 +232,7 @@ jobs:
           RUST_BACKTRACE: full
           S3_CACHE: ${{ (inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false) && 's3://vortex-ci-benchmark-datasets/data-gen-cache/' || '' }}
         run: |
-          uv run --project bench-orchestrator vx-bench prepare-data "${{ matrix.subcommand }}" \
+          uv run --project benchmarks/bench-orchestrator vx-bench prepare-data "${{ matrix.subcommand }}" \
             --formats-json '${{ toJSON(matrix.data_formats) }}' \
             ${S3_CACHE:+--s3-cache "$S3_CACHE"} \
             ${{ matrix.row_group_rows && format('--opt row-group-rows={0}', matrix.row_group_rows) || '' }} \
@@ -279,7 +279,7 @@ jobs:
           OTEL_EXPORTER_OTLP_HEADERS: "${{ (inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false) && secrets.OTEL_EXPORTER_OTLP_HEADERS || '' }}"
           OTEL_RESOURCE_ATTRIBUTES: "bench-name=${{ matrix.id }}"
         run: |
-          bash scripts/bench-taskset.sh uv run --project bench-orchestrator vx-bench run "${{ matrix.subcommand }}" \
+          bash scripts/bench-taskset.sh uv run --project benchmarks/bench-orchestrator vx-bench run "${{ matrix.subcommand }}" \
             --targets-json '${{ toJSON(matrix.targets) }}' \
             --output results.json \
             --ingest-jsonl results.ingest.jsonl \
@@ -301,7 +301,7 @@ jobs:
           OTEL_RESOURCE_ATTRIBUTES: "bench-name=${{ matrix.id }}"
           REMOTE_STORAGE: "s3://vortex-ci-benchmark-datasets/${{ github.ref_name }}/${{ github.run_id }}/${{ inputs.matrix_preset }}/${{ matrix.remote_key }}/"
         run: |
-          bash scripts/bench-taskset.sh uv run --project bench-orchestrator vx-bench run "${{ matrix.subcommand }}" \
+          bash scripts/bench-taskset.sh uv run --project benchmarks/bench-orchestrator vx-bench run "${{ matrix.subcommand }}" \
             --targets-json '${{ toJSON(matrix.targets) }}' \
             --output results.json \
             --ingest-jsonl results.ingest.jsonl \
@@ -318,7 +318,7 @@ jobs:
         if: matrix.remote_key == null && matrix.records_data && join(matrix.size_formats, ',') != ''
         shell: bash
         run: |
-          uv run --project bench-orchestrator vx-bench write-size-formats "${{ matrix.subcommand }}" \
+          uv run --project benchmarks/bench-orchestrator vx-bench write-size-formats "${{ matrix.subcommand }}" \
             --formats-json '${{ toJSON(matrix.size_formats) }}' \
             ${{ matrix.scale_factor && format('--opt scale-factor={0}', matrix.scale_factor) || '' }}
 

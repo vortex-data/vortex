@@ -117,7 +117,7 @@ impl TableProvider for VortexTable {
     async fn scan(
         &self,
         _state: &dyn Session,
-        projection: Option<&Vec<usize>>,
+        projection: Option<&[usize]>,
         _filters: &[Expr],
         _limit: Option<usize>,
     ) -> DFResult<Arc<dyn ExecutionPlan>> {
@@ -127,7 +127,7 @@ impl TableProvider for VortexTable {
                 .with_arrow_schema(Arc::clone(&self.arrow_schema))
                 // We push down the projection now since it can make building the physical plan a lot
                 // cheaper, e.g. by only computing stats for the projected columns.
-                .with_some_projection(projection.cloned())
+                .with_some_projection(projection.map(<[usize]>::to_vec))
                 // We don't push down filters for two reasons:
                 //  1. Vortex requires a physical expression, not logical. DataFusion will try to push
                 //     the physical filters later.

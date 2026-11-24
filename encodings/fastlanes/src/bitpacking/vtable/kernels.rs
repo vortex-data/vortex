@@ -16,6 +16,8 @@ use vortex_array::scalar_fn::builtin::compare::Compare;
 use vortex_array::scalar_fn::builtin::compare::CompareExecuteAdaptor;
 use vortex_functions::between::Between;
 use vortex_functions::between::BetweenExecuteAdaptor;
+use vortex_functions::list_contains::ListContains;
+use vortex_functions::list_contains::ListContainsElementExecuteAdaptor;
 use vortex_session::VortexSession;
 
 use crate::BitPacked;
@@ -26,6 +28,11 @@ pub(crate) fn initialize(session: &VortexSession) {
         Between.id(),
         BitPacked,
         BetweenExecuteAdaptor(BitPacked),
+    );
+    kernels.register_execute_parent_kernel(
+        ListContains.id(),
+        BitPacked,
+        ListContainsElementExecuteAdaptor(BitPacked),
     );
     kernels.register_execute_parent_kernel(Cast.id(), BitPacked, CastExecuteAdaptor(BitPacked));
     kernels.register_execute_parent_kernel(

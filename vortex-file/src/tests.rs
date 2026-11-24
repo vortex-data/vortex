@@ -270,6 +270,36 @@ async fn test_read_simple() {
     assert_arrays_eq!(result, st, &mut SESSION.create_execution_ctx());
 }
 
+#[tokio::test]
+#[cfg_attr(miri, ignore)]
+async fn test_scan_row_range_past_the_end() -> VortexResult<()> {
+    // Several chunks, so that the file uses the chunked layout.
+    const CHUNK: u32 = 100_000;
+    let chunked = ChunkedArray::from_iter(
+        (0..3).map(|i| PrimitiveArray::from_iter(i * CHUNK..(i + 1) * CHUNK).into_array()),
+    )
+    .into_array();
+    let rows: u64 = (3 * CHUNK).into();
+
+    let mut buf = ByteBufferMut::empty();
+    SESSION
+        .write_options()
+        .write(&mut buf, chunked.to_array_stream())
+        .await?;
+    let scan = SESSION.open_options().open_buffer(buf)?.scan()?.prepare()?;
+
+    for range in [rows - 5..rows + 100, rows + 5..rows + 9, 0..rows + 1] {
+        assert!(scan.execute_array_stream(Some(range)).is_err());
+    }
+
+    let tail = scan
+        .execute_array_stream(Some(rows - 5..rows))?
+        .read_all()
+        .await?;
+    assert_eq!(tail.len(), 5);
+    Ok(())
+}
+
 #[rstest]
 #[case::non_nullable(Validity::NonNullable)]
 #[case::partially_valid(Validity::from_iter([true, false, true, true, false]))]
