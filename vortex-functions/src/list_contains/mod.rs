@@ -35,6 +35,7 @@ use vortex_array::arrays::ScalarFnArray;
 use vortex_array::arrays::bool::BoolArrayExt;
 use vortex_array::arrays::listview::ListViewArraySlotsExt;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
+use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::IntegerPType;
 use vortex_array::dtype::Nullability;
@@ -132,6 +133,63 @@ impl ListContainsOptions {
             nullability |= element_dtype.nullability();
         }
         nullability
+    }
+
+    /// Builds a `list_contains` result from precomputed membership `bits` and needle validity,
+    /// applying the null semantics of a constant list with `is_empty` and `has_null_element`.
+    pub fn result_from_bits(
+        &self,
+        bits: BitBuffer,
+        needle_validity: Validity,
+        list_dtype: &DType,
+        needle_dtype: &DType,
+        is_empty: bool,
+        has_null_element: bool,
+    ) -> VortexResult<ArrayRef> {
+        let nullability = self.result_nullability(list_dtype, needle_dtype);
+        let validity = if is_empty && !self.sql_null_semantics {
+            Validity::NonNullable
+        } else if self.sql_null_semantics && has_null_element {
+            // Only a match is known. A comparison with the null element makes a non-match unknown.
+            needle_validity.and(Validity::from(bits.clone()))?
+        } else {
+            needle_validity
+        };
+
+        Ok(BoolArray::new(bits, validity.union_nullability(nullability)).into_array())
+    }
+
+    /// Builds a `list_contains` result when no valid needle row can match any list element.
+    pub fn all_false_result(
+        &self,
+        len: usize,
+        needle_validity: Validity,
+        list_dtype: &DType,
+        needle_dtype: &DType,
+        is_empty: bool,
+        has_null_element: bool,
+    ) -> VortexResult<ArrayRef> {
+        let nullability = self.result_nullability(list_dtype, needle_dtype);
+        if self.sql_null_semantics && has_null_element {
+            return Ok(
+                ConstantArray::new(Scalar::null(DType::Bool(nullability)), len).into_array(),
+            );
+        }
+        if is_empty && !self.sql_null_semantics {
+            return Ok(ConstantArray::new(Scalar::bool(false, nullability), len).into_array());
+        }
+
+        match needle_validity.union_nullability(nullability) {
+            Validity::NonNullable | Validity::AllValid => {
+                Ok(ConstantArray::new(Scalar::bool(false, nullability), len).into_array())
+            }
+            Validity::AllInvalid => {
+                Ok(ConstantArray::new(Scalar::null(DType::Bool(nullability)), len).into_array())
+            }
+            Validity::Array(validity) => ConstantArray::new(Scalar::bool(false, nullability), len)
+                .into_array()
+                .mask(validity),
+        }
     }
 }
 
@@ -376,6 +434,11 @@ fn compute_list_contains(
         );
     }
 
+    let nullability = options.result_nullability(array.dtype(), value.dtype());
+    if array.is_empty() {
+        return Ok(BoolArray::new(BitBuffer::empty(), nullability.into()).into_array());
+    }
+
     // A null needle is null against every list only when the function is strict: otherwise an
     // empty list still answers `false`, which the paths below work out per list.
     if array.all_invalid(ctx)? || (options.sql_null_semantics && value.all_invalid(ctx)?) {
@@ -391,7 +454,6 @@ fn compute_list_contains(
         return set.contains(value, options, ctx);
     }
 
-    let nullability = options.result_nullability(array.dtype(), value.dtype());
     if let Some(value_scalar) = value.as_constant() {
         return list_contains_scalar(array, value_scalar, nullability, options, ctx);
     }
@@ -2148,6 +2210,32 @@ mod tests {
             .bind(&dtype)?
             .optimize()?;
         assert_eq!(expr.child(0).as_opt::<Literal>(), Some(&null_list));
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::non_nullable_non_sql(Nullability::NonNullable, false, Nullability::NonNullable)]
+    #[case::non_nullable_sql(Nullability::NonNullable, true, Nullability::NonNullable)]
+    #[case::nullable_non_sql(Nullability::Nullable, false, Nullability::Nullable)]
+    #[case::nullable_sql(Nullability::Nullable, true, Nullability::Nullable)]
+    fn empty_input_preserves_result_dtype(
+        #[case] input_nullability: Nullability,
+        #[case] sql_null_semantics: bool,
+        #[case] expected_nullability: Nullability,
+    ) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let list_elem_dtype = DType::Primitive(I32, Nullability::NonNullable);
+        let list_scalar = Scalar::list(
+            Arc::new(list_elem_dtype),
+            vec![Scalar::primitive(1i32, Nullability::NonNullable)],
+            Nullability::NonNullable,
+        );
+        let list = ConstantArray::new(list_scalar, 0).into_array();
+        let needle = PrimitiveArray::empty::<i32>(input_nullability).into_array();
+        let options = ListContainsOptions { sql_null_semantics };
+        let result = super::compute_list_contains(&list, &needle, &options, &mut ctx)?;
+        assert_eq!(result.len(), 0);
+        assert_eq!(result.dtype(), &DType::Bool(expected_nullability));
         Ok(())
     }
 }

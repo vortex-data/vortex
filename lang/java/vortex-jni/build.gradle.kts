@@ -112,7 +112,7 @@ tasks.build {
     dependsOn("shadowJar")
 }
 
-val rustWorkspaceDir = rootProject.projectDir.absoluteFile.parentFile
+val rustWorkspaceDir = rootProject.projectDir.absoluteFile.parentFile.parentFile
 val osName = System.getProperty("os.name").lowercase()
 val osArch = System.getProperty("os.arch").lowercase()
 val osShortName =

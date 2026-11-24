@@ -19,12 +19,12 @@ ORDER BY ext_price DESC,
          i_brand_id
 LIMIT 100 ;
 ----
-3004001 edu packexporti #1 30519.9
+3004001 edu packexporti #1 30519.90
 9016003 corpunivamalg #3 25368.83
-6005003 scholarcorp #3 25087.2
+6005003 scholarcorp #3 25087.20
 1002001 importoamalg #1 22752.22
 10015011 scholaramalgamalg #11 21588.55
-5002001 importoscholar #1 20460.4
+5002001 importoscholar #1 20460.40
 6015001 scholarbrand #1 20003.24
 2001001 amalgimporto #1 19633.49
 3003001 exportiexporti #1 18168.27
@@ -37,5 +37,5 @@ LIMIT 100 ;
 5004001 edu packscholar #1 10328.77
 1001001 amalgamalg #1 9245.52
 10014016 edu packamalgamalg #16 6454.94
-4003001 exportiedu pack #1 5037.5
+4003001 exportiedu pack #1 5037.50
 2001002 amalgimporto #2 4381.67

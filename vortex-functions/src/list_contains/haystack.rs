@@ -149,11 +149,12 @@ enum IntegerSet<T> {
 }
 
 impl<T: SetInteger> IntegerSet<T> {
-    /// A bitmap over the values' span when the span is dense, and a sorted slice otherwise.
-    ///
-    /// A hash set and, for a handful of elements, a linear scan both lost to the binary search at
-    /// every set size measured by the `list_contains_set` benchmark, up to 16 384 elements.
+    /// Direct equality for up to four elements, a bitmap over the values' span when the span is
+    /// dense, and a sorted slice with binary search otherwise.
     fn new(values: Buffer<T>, allocator: &BufferAllocatorRef) -> Self {
+        if values.len() <= 4 {
+            return Self::Sorted(sorted_values(values));
+        }
         let (Some(&min), Some(&max)) = (values.iter().min(), values.iter().max()) else {
             return Self::Sorted(values);
         };
@@ -208,11 +209,28 @@ impl<T: SetInteger> IntegerSet<T> {
                     allocator,
                 )
             }
-            Self::Sorted(sorted) => collect_bits(
-                needles,
-                |needle| sorted.binary_search(&needle).is_ok(),
-                allocator,
-            ),
+            Self::Sorted(sorted) => match sorted.as_slice() {
+                [] => BitBuffer::full_in(false, needles.len(), allocator.clone()),
+                &[m0] => collect_bits(needles, |needle| needle == m0, allocator),
+                &[m0, m1] => {
+                    collect_bits(needles, |needle| (needle == m0) | (needle == m1), allocator)
+                }
+                &[m0, m1, m2] => collect_bits(
+                    needles,
+                    |needle| (needle == m0) | (needle == m1) | (needle == m2),
+                    allocator,
+                ),
+                &[m0, m1, m2, m3] => collect_bits(
+                    needles,
+                    |needle| (needle == m0) | (needle == m1) | (needle == m2) | (needle == m3),
+                    allocator,
+                ),
+                sorted => collect_bits(
+                    needles,
+                    |needle| sorted.binary_search(&needle).is_ok(),
+                    allocator,
+                ),
+            },
         }
     }
 }
@@ -764,8 +782,12 @@ mod tests {
         let small_wide = IntegerSet::new(Buffer::from(vec![0i64, 1, 2, 1 << 19]), ctx.allocator());
         assert!(matches!(small_wide, IntegerSet::Sorted(_)));
 
-        let small_narrow = IntegerSet::new(Buffer::from(vec![0i64, 1, 2, 1000]), ctx.allocator());
+        let small_narrow =
+            IntegerSet::new(Buffer::from(vec![0i64, 1, 2, 3, 1000]), ctx.allocator());
         assert!(matches!(small_narrow, IntegerSet::Bitmap { .. }));
+
+        let tiny_narrow = IntegerSet::new(Buffer::from(vec![0i64, 1, 2, 1000]), ctx.allocator());
+        assert!(matches!(tiny_narrow, IntegerSet::Sorted(_)));
 
         let large_wide: Vec<i64> = (0..256).map(|i| i * 4000).collect();
         let large_wide = IntegerSet::new(Buffer::from(large_wide), ctx.allocator());

@@ -15,7 +15,7 @@ use vortex_array::ArrayRef;
 use vortex_array::VortexSessionExecute;
 use vortex_arrow::ArrowSessionExt;
 use vortex_arrow::test_harness::check_containers;
-use vortex_arrow::test_harness::check_generated;
+use vortex_arrow::test_harness::check_generated_containers;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
@@ -71,7 +71,8 @@ fn check_variant_round_trip(tc: &TestCase) -> VortexResult<()> {
     let empty = array.slice(0..0)?;
     check_containers(empty, &mut ctx)?;
 
-    check_generated(tc, array, &mut ctx)
+    check_containers(array.clone(), &mut ctx)?;
+    check_generated_containers(tc, array, &mut ctx)
 }
 
 #[hegel::test(test_cases = 100, print_blob = true)]

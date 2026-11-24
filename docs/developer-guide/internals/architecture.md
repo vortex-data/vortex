@@ -63,22 +63,21 @@ and registers itself with the session. The standard encodings are bundled into t
 
 Language bindings expose Vortex to non-Rust environments.
 
-| Directory          | Role                                  |
-| ------------------ | ------------------------------------- |
-| `vortex-python/`   | Python bindings via PyO3 and Maturin  |
-| `java/vortex-jni/` | Java JNI bindings                     |
-| `vortex-ffi/`      | C FFI bindings (generates `vortex.h`) |
-| `vortex-cxx/`      | C++ wrapper around the C FFI          |
+| Directory               | Role                                  |
+| ----------------------- | ------------------------------------- |
+| `vortex-python/`        | Python bindings via PyO3 and Maturin  |
+| `lang/java/vortex-jni/` | Java JNI bindings                     |
+| `vortex-ffi/`           | C FFI bindings (generates `vortex.h`) |
 
 ## Integrations
 
 Query engine integrations allow Vortex files to be queried through existing analytics engines.
 
-| Crate / Directory    | Engine     | Notes                                         |
-|----------------------|------------|-----------------------------------------------|
-| `vortex-datafusion/` | DataFusion | `TableProvider` and `FileFormat` integration  |
-| `vortex-duckdb/`     | DuckDB     | Table function integration                    |
-| `java/vortex-spark/` | Spark      | Versioned Spark file-source connector via JNI |
+| Crate / Directory         | Engine     | Notes                                         |
+|---------------------------|------------|-----------------------------------------------|
+| `vortex-datafusion/`      | DataFusion | `TableProvider` and `FileFormat` integration  |
+| `vortex-duckdb/`          | DuckDB     | Table function integration                    |
+| `lang/java/vortex-spark/` | Spark      | Versioned Spark file-source connector via JNI |
 
 ## Other Crates
 
