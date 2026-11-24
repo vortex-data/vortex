@@ -1,0 +1,137 @@
+name: Release Tag
+
+# Prepares a release of a commit on `develop`: drafts the release notes, tags the commit with the
+# version that Release Drafter resolves, and attaches the `vx` binaries to the draft. Publishing
+# the draft by hand then starts the Publish workflow.
+
+on:
+  workflow_dispatch:
+    inputs:
+      commit:
+        description: "Commit on develop to release (full or abbreviated SHA)"
+        required: true
+        type: string
+      prerelease-identifier:
+        description: "Pre-release identifier (e.g., rc, beta, alpha); leave empty for a full release"
+        required: false
+        type: string
+        default: ""
+      dry-run:
+        description: "Resolve the commit, version and release notes without drafting or tagging"
+        required: false
+        type: boolean
+        default: false
+  # Pull requests that change the release process run it as a dry run at the tip of `develop`.
+  pull_request:
+    types: [opened, reopened, synchronize, ready_for_review]
+    paths:
+      - .github/workflows/release-tag.yml
+      - .github/release-drafter.yml
+
+concurrency:
+  # Dry runs on pull requests must not queue behind or ahead of real releases.
+  group: release-tag-${{ github.event_name == 'pull_request' && github.ref || 'release' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  DRY_RUN: ${{ github.event_name == 'pull_request' || inputs.dry-run }}
+
+permissions:
+  contents: read
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      sha: ${{ steps.prepare.outputs.sha }}
+    steps:
+      - name: Resolve commit on develop
+        id: prepare
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          # A pull request's base commit is not on `develop` when the pull request is stacked.
+          COMMIT: ${{ github.event_name == 'pull_request' && 'develop' || inputs.commit }}
+        run: |
+          [[ "$COMMIT" =~ ^[0-9a-fA-F]{7,40}$ || "$GITHUB_EVENT_NAME" == "pull_request" ]] || {
+            echo "Commit must be a hexadecimal SHA, got '$COMMIT'" >&2
+            exit 1
+          }
+          sha=$(gh api "repos/$GH_REPO/commits/$COMMIT" --jq .sha)
+          status=$(gh api "repos/$GH_REPO/compare/$sha...develop" --jq .status)
+          [[ "$status" == "ahead" || "$status" == "identical" ]] || {
+            echo "Commit $sha is not on develop (compare status: $status)" >&2
+            exit 1
+          }
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+
+  # Release checks go here as jobs that need `prepare`, check out
+  # `needs.prepare.outputs.sha`, and are listed in the `needs` of `tag`.
+
+  tag:
+    needs: [prepare]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    outputs:
+      tag: ${{ steps.draft.outputs.tag_name }}
+    steps:
+      # Creates the draft release, or updates the existing draft, with the notes and version for
+      # the changes between the last published release and the commit.
+      - name: Draft release
+        id: draft
+        uses: release-drafter/release-drafter@d1a19e60e81a7e650d00a7de9277f87e439117ea  # v7.11.0
+        with:
+          commitish: ${{ needs.prepare.outputs.sha }}
+          prerelease: ${{ inputs.prerelease-identifier && 'true' || 'false' }}
+          prerelease-identifier: ${{ inputs.prerelease-identifier }}
+          dry-run: ${{ env.DRY_RUN }}
+
+      - name: Create tag
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_SHA: ${{ needs.prepare.outputs.sha }}
+          RELEASE_TAG: ${{ steps.draft.outputs.tag_name }}
+          RELEASE_URL: ${{ steps.draft.outputs.html_url }}
+        run: |
+          [[ -n "$RELEASE_TAG" ]] || {
+            echo "Release Drafter did not resolve a tag" >&2
+            exit 1
+          }
+          git check-ref-format "refs/tags/$RELEASE_TAG"
+          if ref=$(gh api "repos/$GH_REPO/git/ref/tags/$RELEASE_TAG" 2>/dev/null); then
+            existing=$(jq -r .object.sha <<< "$ref")
+            if [[ $(jq -r .object.type <<< "$ref") == "tag" ]]; then
+              existing=$(gh api "repos/$GH_REPO/git/tags/$existing" --jq .object.sha)
+            fi
+            [[ "$existing" == "$RELEASE_SHA" ]] || {
+              echo "Tag $RELEASE_TAG already exists at $existing, not $RELEASE_SHA" >&2
+              exit 1
+            }
+            echo "Tag $RELEASE_TAG already exists at $RELEASE_SHA"
+          elif [[ "$DRY_RUN" == "true" ]]; then
+            echo "Dry run: would tag \`$RELEASE_SHA\` as \`$RELEASE_TAG\` and draft its release." \
+              >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          else
+            gh api "repos/$GH_REPO/git/refs" \
+              -f ref="refs/tags/$RELEASE_TAG" \
+              -f sha="$RELEASE_SHA" > /dev/null
+          fi
+          {
+            echo "Tagged \`$RELEASE_SHA\` as \`$RELEASE_TAG\` and drafted the release: $RELEASE_URL"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  binaries:
+    needs: [tag]
+    # A dry run drafts and tags nothing, so there is no release to attach binaries to.
+    if: github.event_name != 'pull_request' && !inputs.dry-run
+    uses: ./.github/workflows/release-binaries.yml
+    with:
+      tag: ${{ needs.tag.outputs.tag }}
+    secrets: inherit
+    permissions:
+      contents: write
