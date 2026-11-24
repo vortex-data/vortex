@@ -10,9 +10,8 @@ use vortex_array::arrays::ConstantArray;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::scalar::Scalar;
-use vortex_array::scalar_fn::fns::binary::CompareKernel;
-use vortex_array::scalar_fn::fns::operators::CompareOperator;
-use vortex_array::scalar_fn::fns::operators::Operator;
+use vortex_array::scalar_fn::builtin::compare::CompareKernel;
+use vortex_array::scalar_fn::builtin::operators::CompareOperator;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexExpect;
@@ -63,13 +62,13 @@ fn compare_fsst_constant(
             CompareOperator::Lt => BitBuffer::new_unset(left.len()),
             _ => left
                 .uncompressed_lengths()
-                .binary(
+                .compare(
                     ConstantArray::new(
                         Scalar::zero_value(left.uncompressed_lengths().dtype()),
                         left.uncompressed_lengths().len(),
                     )
                     .into_array(),
-                    operator.into(),
+                    operator,
                 )?
                 .execute(ctx)?,
         };
@@ -117,7 +116,7 @@ fn compare_fsst_constant(
     let rhs = ConstantArray::new(encoded_scalar, left.len());
     left.codes()
         .into_array()
-        .binary(rhs.into_array(), Operator::from(operator))
+        .compare(rhs.into_array(), operator)
         .map(Some)
 }
 
@@ -135,7 +134,7 @@ mod tests {
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::scalar::Scalar;
-    use vortex_array::scalar_fn::fns::operators::Operator;
+    use vortex_array::scalar_fn::builtin::operators::CompareOperator;
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
@@ -172,7 +171,7 @@ mod tests {
         let equals = lhs
             .clone()
             .into_array()
-            .binary(rhs.clone().into_array(), Operator::Eq)?;
+            .compare(rhs.clone().into_array(), CompareOperator::Eq)?;
 
         assert_eq!(equals.dtype(), &DType::Bool(Nullability::Nullable));
 
@@ -186,7 +185,7 @@ mod tests {
         let not_equals = lhs
             .clone()
             .into_array()
-            .binary(rhs.into_array(), Operator::NotEq)?;
+            .compare(rhs.into_array(), CompareOperator::NotEq)?;
 
         assert_eq!(not_equals.dtype(), &DType::Bool(Nullability::Nullable));
         assert_arrays_eq!(
@@ -201,7 +200,7 @@ mod tests {
         let equals_null = lhs
             .clone()
             .into_array()
-            .binary(null_rhs.clone().into_array(), Operator::Eq)?;
+            .compare(null_rhs.clone().into_array(), CompareOperator::Eq)?;
         assert_arrays_eq!(
             &equals_null,
             &BoolArray::from_iter([None::<bool>, None, None, None, None]),
@@ -210,7 +209,7 @@ mod tests {
 
         let noteq_null = lhs
             .into_array()
-            .binary(null_rhs.into_array(), Operator::NotEq)?;
+            .compare(null_rhs.into_array(), CompareOperator::NotEq)?;
         assert_arrays_eq!(
             &noteq_null,
             &BoolArray::from_iter([None::<bool>, None, None, None, None]),

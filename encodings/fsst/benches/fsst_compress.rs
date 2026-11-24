@@ -27,7 +27,7 @@ use vortex_array::dtype::Nullability;
 use vortex_array::memory::MemorySession;
 use vortex_array::optimizer::kernels::KernelSession;
 use vortex_array::scalar::Scalar;
-use vortex_array::scalar_fn::fns::operators::Operator;
+use vortex_array::scalar_fn::builtin::operators::CompareOperator;
 use vortex_array::session::ArraySession;
 use vortex_array::test_harness::mark_optimized;
 use vortex_fsst::fsst_compress;
@@ -113,7 +113,7 @@ fn pushdown_compare(bencher: Bencher, (string_count, avg_len, unique_chars): (us
         .bench_refs(|(fsst_array, constant, ctx)| {
             fsst_array
                 .clone()
-                .binary(constant.clone().into_array(), Operator::Eq)
+                .compare(constant.clone().into_array(), CompareOperator::Eq)
                 .unwrap()
                 .execute::<RecursiveCanonical>(ctx)
                 .unwrap();
@@ -144,7 +144,7 @@ fn canonicalize_compare(
                 .execute::<Canonical>(ctx)
                 .unwrap()
                 .into_array()
-                .binary(constant.clone().into_array(), Operator::Eq)
+                .compare(constant.clone().into_array(), CompareOperator::Eq)
                 .unwrap()
                 .execute::<RecursiveCanonical>(ctx)
                 .unwrap();

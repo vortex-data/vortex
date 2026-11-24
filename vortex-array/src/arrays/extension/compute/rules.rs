@@ -23,10 +23,10 @@ use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ArrayReduceRule;
 use crate::optimizer::rules::ReduceRuleSet;
 use crate::scalar::Scalar;
-use crate::scalar_fn::fns::cast::Cast;
-use crate::scalar_fn::fns::cast::CastReduceAdaptor;
-use crate::scalar_fn::fns::mask::Mask as MaskFn;
-use crate::scalar_fn::fns::mask::MaskReduceAdaptor;
+use crate::scalar_fn::builtin::cast::Cast;
+use crate::scalar_fn::builtin::cast::CastReduceAdaptor;
+use crate::scalar_fn::builtin::mask::Mask as MaskFn;
+use crate::scalar_fn::builtin::mask::MaskReduceAdaptor;
 
 pub(crate) const RULES: ReduceRuleSet<Extension> = ReduceRuleSet::new(&[&ExtensionConstantRule]);
 
@@ -123,8 +123,8 @@ mod tests {
     use crate::optimizer::ArrayOptimizer;
     use crate::scalar::Scalar;
     use crate::scalar::ScalarValue;
-    use crate::scalar_fn::fns::binary::Binary;
-    use crate::scalar_fn::fns::operators::Operator;
+    use crate::scalar_fn::builtin::compare::Compare;
+    use crate::scalar_fn::builtin::operators::CompareOperator;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
@@ -244,7 +244,7 @@ mod tests {
         let storage = buffer![15i64, 25, 35].into_array();
         let ext_array = ExtensionArray::new(ext_dtype, storage).into_array();
 
-        let scalar_fn_array = Binary::try_new(constant_ext, ext_array, Operator::Lt)
+        let scalar_fn_array = Compare::try_new(constant_ext, ext_array, CompareOperator::Lt)
             .unwrap()
             .into_array();
 
@@ -273,7 +273,7 @@ mod tests {
         let ext_array2 = ExtensionArray::new(ext_dtype, storage2).into_array();
 
         // Both children are extension arrays (not constants)
-        let scalar_fn_array = Binary::try_new(ext_array1, ext_array2, Operator::Lt)
+        let scalar_fn_array = Compare::try_new(ext_array1, ext_array2, CompareOperator::Lt)
             .unwrap()
             .into_array();
 

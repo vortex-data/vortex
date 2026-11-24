@@ -1,0 +1,32 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+include ./setup.slt.no
+
+# Check projection pushdowns with different sets of pre- and
+# post-filter column set
+
+query I
+COPY (SELECT 0 AS i) TO '${WORK_DIR}/projection-pushdown.vortex';
+----
+1
+
+query II
+SELECT i, 0 AS t FROM '${WORK_DIR}/projection-pushdown.vortex';
+----
+0 0
+
+query I
+SELECT i FROM (SELECT i, 8 AS t FROM '${WORK_DIR}/projection-pushdown.vortex');
+----
+0
+
+query I
+SELECT t FROM (SELECT i, 8 AS t FROM '${WORK_DIR}/projection-pushdown.vortex');
+----
+8
+
+query I
+SELECT 0 FROM '${WORK_DIR}/projection-pushdown.vortex';
+----
+0

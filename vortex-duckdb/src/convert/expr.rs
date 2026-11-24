@@ -43,18 +43,18 @@ use vortex::expr::not;
 use vortex::expr::or;
 use vortex::expr::or_collect;
 use vortex::expr::root;
+use vortex::functions::between::Between;
+use vortex::functions::between::BetweenOptions;
+use vortex::functions::between::StrictComparison;
+use vortex::functions::like::Like;
+use vortex::functions::like::LikeOptions;
 use vortex::layout::layouts::row_idx::row_idx;
 use vortex::scalar::Scalar;
 use vortex::scalar_fn::EmptyOptions as ScalarEmptyOptions;
 use vortex::scalar_fn::ScalarFnVTableExt;
-use vortex::scalar_fn::fns::between::Between;
-use vortex::scalar_fn::fns::between::BetweenOptions;
-use vortex::scalar_fn::fns::between::StrictComparison;
-use vortex::scalar_fn::fns::binary::Binary;
-use vortex::scalar_fn::fns::like::Like;
-use vortex::scalar_fn::fns::like::LikeOptions;
-use vortex::scalar_fn::fns::literal::Literal;
-use vortex::scalar_fn::fns::operators::Operator;
+use vortex::scalar_fn::builtin::compare::Compare;
+use vortex::scalar_fn::builtin::literal::Literal;
+use vortex::scalar_fn::builtin::operators::CompareOperator;
 use vortex_spatial::extension::LineString;
 use vortex_spatial::extension::MultiLineString;
 use vortex_spatial::extension::MultiPoint;
@@ -242,7 +242,7 @@ fn try_from_spatial_function(
                 return Ok(None);
             };
             let spatial_distance = SpatialDistance.new_expr(ScalarEmptyOptions, operands);
-            Binary.new_expr(Operator::Lte, [spatial_distance, lit(distance)])
+            Compare.new_expr(CompareOperator::Lte, [spatial_distance, lit(distance)])
         }
         "st_distance" => {
             if children.len() != 2 {
@@ -711,7 +711,7 @@ fn try_from_expression_inner(
                 DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_COMPARE_DISTINCT_FROM => {
                     not(not_distinct_from(left, right))
                 }
-                op => Binary.new_expr(Operator::try_from(op)?, [left, right]),
+                op => Compare.new_expr(CompareOperator::try_from(op)?, [left, right]),
             }
         }
         BoundBetween(between) => {
@@ -838,7 +838,7 @@ fn try_from_compare_in(
     Ok(Some(if not_in { not(expr) } else { expr }))
 }
 
-impl TryFrom<DUCKDB_VX_EXPR_TYPE> for Operator {
+impl TryFrom<DUCKDB_VX_EXPR_TYPE> for CompareOperator {
     type Error = VortexError;
 
     fn try_from(value: DUCKDB_VX_EXPR_TYPE) -> VortexResult<Self> {
@@ -846,12 +846,16 @@ impl TryFrom<DUCKDB_VX_EXPR_TYPE> for Operator {
             DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_INVALID => {
                 vortex_bail!("invalid expression")
             }
-            DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_COMPARE_EQUAL => Operator::Eq,
-            DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_COMPARE_NOTEQUAL => Operator::NotEq,
-            DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_COMPARE_LESSTHAN => Operator::Lt,
-            DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_COMPARE_GREATERTHAN => Operator::Gt,
-            DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_COMPARE_LESSTHANOREQUALTO => Operator::Lte,
-            DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_COMPARE_GREATERTHANOREQUALTO => Operator::Gte,
+            DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_COMPARE_EQUAL => CompareOperator::Eq,
+            DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_COMPARE_NOTEQUAL => CompareOperator::NotEq,
+            DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_COMPARE_LESSTHAN => CompareOperator::Lt,
+            DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_COMPARE_GREATERTHAN => CompareOperator::Gt,
+            DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_COMPARE_LESSTHANOREQUALTO => {
+                CompareOperator::Lte
+            }
+            DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_COMPARE_GREATERTHANOREQUALTO => {
+                CompareOperator::Gte
+            }
             _ => vortex_bail!("cannot convert {:?}", value),
         })
     }

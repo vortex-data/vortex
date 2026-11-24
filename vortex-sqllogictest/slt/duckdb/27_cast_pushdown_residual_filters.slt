@@ -1,0 +1,51 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+include ../setup.slt.no
+
+statement ok
+COPY (SELECT * FROM (VALUES (0), (0), (257)) AS t(col))
+TO '$__TEST_DIR__/cast_pushdown-many.vortex';
+
+query TT
+EXPLAIN SELECT col::UTINYINT FROM '$__TEST_DIR__/cast_pushdown-many.vortex'
+WHERE TRY_CAST(col AS UTINYINT) IS NOT NULL;
+----
+<REGEX>:.*Filter.*TRY_CAST.*
+
+query TT
+EXPLAIN SELECT col::UTINYINT FROM '$__TEST_DIR__/cast_pushdown-many.vortex'
+WHERE TRY_CAST(col AS UTINYINT) IS NOT NULL;
+----
+<!REGEX>:.*SELECT projections.*
+
+query I
+SELECT col::UTINYINT FROM '$__TEST_DIR__/cast_pushdown-many.vortex'
+WHERE TRY_CAST(col AS UTINYINT) IS NOT NULL;
+----
+0
+0
+
+# A cast must not be pushed below a filter that stayed in the plan
+statement ok
+COPY (SELECT * FROM (VALUES (1, 'a'), (257, 'b')) AS t(n, s))
+TO '$__TEST_DIR__/cast_pushdown-residual-filter.vortex';
+
+query TT
+EXPLAIN (FORMAT json)
+SELECT n::UTINYINT FROM '$__TEST_DIR__/cast_pushdown-residual-filter.vortex'
+WHERE s || 'x' = 'ax';
+----
+<REGEX>:.*FILTER.*
+
+query TT
+EXPLAIN SELECT n::UTINYINT FROM '$__TEST_DIR__/cast_pushdown-residual-filter.vortex'
+WHERE s || 'x' = 'ax';
+----
+<!REGEX>:.*SELECT projections.*
+
+query I
+SELECT n::UTINYINT FROM '$__TEST_DIR__/cast_pushdown-residual-filter.vortex'
+WHERE s || 'x' = 'ax';
+----
+1

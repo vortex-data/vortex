@@ -32,12 +32,12 @@ mod test {
     use vortex_array::expr::checked_add;
     use vortex_array::expr::col;
     use vortex_array::expr::get_item;
-    use vortex_array::expr::list_transform;
     use vortex_array::expr::lit;
     use vortex_array::expr::pack;
     use vortex_array::expr::root;
     use vortex_array::expr::var;
     use vortex_error::VortexResult;
+    use vortex_functions::expr::list_transform;
 
     use super::replace;
 

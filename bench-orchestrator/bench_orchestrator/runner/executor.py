@@ -107,6 +107,28 @@ class BenchmarkExecutor:
         if self.backend is not Engine.LANCE and (self.backend, integration) not in INTEGRATION_ARGS:
             raise ValueError(f"{self.backend.value} cannot run the {integration.value} integration")
 
+    def write_data(self, benchmark: Benchmark, options: dict[str, str] | None = None) -> None:
+        """Write the data this backend's queries read, without running a query.
+
+        Only `lance-bench` writes its own data: it converts the base Parquet files to Lance on its
+        first run. The run loop drops the OS caches before each query, so without this step the
+        first Lance query would read files that the conversion just left in the page cache.
+        """
+        if self.backend is not Engine.LANCE:
+            return
+        cmd = [str(self.binary_path), benchmark.value, "--data-only"]
+        for key, value in (options or {}).items():
+            cmd.extend(["--opt", f"{key}={value}"])
+
+        if self.verbose:
+            console.print(f"[dim]$ {' '.join(cmd)}[/dim]")
+
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        if result.returncode != 0:
+            raise RuntimeError(
+                f"Failed to write {self.backend.value} data for {benchmark.value}: {result.stderr.strip()}"
+            )
+
     def list_queries(
         self,
         benchmark: Benchmark,

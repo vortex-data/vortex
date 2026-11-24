@@ -104,15 +104,31 @@ export function TreePanel() {
   }, [selection.hoveredNodeId, file.layoutTree]);
 
   // When a flat layout node is expanded, lazily attach array encoding children.
-  // Track which nodes we've already requested to avoid re-triggering on tree updates.
+  // Track requested and failed nodes so pending requests are shared and failures retry after collapse.
+  const expandedRef = useRef(expanded);
   const expandedArrayRequests = useRef(new Set<string>());
+  const failedArrayRequests = useRef(new Set<string>());
   useEffect(() => {
+    expandedRef.current = expanded;
+    for (const id of failedArrayRequests.current) {
+      if (!expanded.has(id)) {
+        failedArrayRequests.current.delete(id);
+        expandedArrayRequests.current.delete(id);
+      }
+    }
     for (const id of expanded) {
       if (expandedArrayRequests.current.has(id)) continue;
       const node = findNodeById(file.layoutTree, id);
       if (node && isFlatLayout(node) && !node.children.some((c) => c.isArrayNode)) {
         expandedArrayRequests.current.add(id);
-        file.expandArrayTree(id);
+        file.expandArrayTree(id).catch((err) => {
+          console.error('Explorer: failed to expand array tree', err);
+          if (expandedRef.current.has(id)) {
+            failedArrayRequests.current.add(id);
+          } else {
+            expandedArrayRequests.current.delete(id);
+          }
+        });
       }
     }
   }, [expanded, file]);

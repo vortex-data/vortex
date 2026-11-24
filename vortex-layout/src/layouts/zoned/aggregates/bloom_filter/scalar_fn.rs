@@ -32,9 +32,9 @@ use vortex_array::scalar_fn::ExecutionArgs;
 use vortex_array::scalar_fn::ScalarFnId;
 use vortex_array::scalar_fn::ScalarFnVTable;
 use vortex_array::scalar_fn::ScalarFnVTableExt;
-use vortex_array::scalar_fn::fns::binary::Binary;
-use vortex_array::scalar_fn::fns::literal::Literal;
-use vortex_array::scalar_fn::fns::operators::Operator;
+use vortex_array::scalar_fn::builtin::compare::Compare;
+use vortex_array::scalar_fn::builtin::literal::Literal;
+use vortex_array::scalar_fn::builtin::operators::CompareOperator;
 use vortex_buffer::BitBufferMut;
 use vortex_buffer::Buffer;
 use vortex_error::VortexExpect;
@@ -236,7 +236,7 @@ struct BloomEqRewrite {
 
 impl StatsRewriteRule for BloomEqRewrite {
     fn scalar_fn_id(&self) -> ScalarFnId {
-        Binary.id()
+        Compare.id()
     }
 
     /// Returns a falsifier for equality expression between the root column
@@ -249,7 +249,7 @@ impl StatsRewriteRule for BloomEqRewrite {
         expr: &BoundExpression,
         _session: &VortexSession,
     ) -> VortexResult<Option<BoundExpression>> {
-        if *expr.as_::<Binary>() != Operator::Eq {
+        if *expr.as_::<Compare>() != CompareOperator::Eq {
             return Ok(None);
         }
 

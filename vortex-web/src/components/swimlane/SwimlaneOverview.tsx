@@ -62,14 +62,30 @@ export function SwimlaneOverview() {
 
   // Expanding a flat layout node lazily attaches its array-encoding children.
   // The tree is hidden in this view, so the swimlane drives the load itself.
+  const expandedRef = useRef(expanded);
   const arrayRequests = useRef(new Set<string>());
+  const failedArrayRequests = useRef(new Set<string>());
   useEffect(() => {
+    expandedRef.current = expanded;
+    for (const id of failedArrayRequests.current) {
+      if (!expanded.has(id)) {
+        failedArrayRequests.current.delete(id);
+        arrayRequests.current.delete(id);
+      }
+    }
     for (const id of expanded) {
       if (arrayRequests.current.has(id)) continue;
       const node = findNodeById(file.layoutTree, id);
       if (node && isFlatLayout(node) && !node.children.some((c) => c.isArrayNode)) {
         arrayRequests.current.add(id);
-        file.expandArrayTree(id);
+        file.expandArrayTree(id).catch((err) => {
+          console.error('Explorer: failed to expand array tree', err);
+          if (expandedRef.current.has(id)) {
+            failedArrayRequests.current.add(id);
+          } else {
+            arrayRequests.current.delete(id);
+          }
+        });
       }
     }
   }, [expanded, file]);

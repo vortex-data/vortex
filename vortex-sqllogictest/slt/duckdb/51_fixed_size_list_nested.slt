@@ -1,0 +1,22 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+include ../setup.slt.no
+
+query I
+COPY (SELECT nested::VARCHAR[4][3] AS nested FROM (VALUES
+    ([['first', 'second', 'third', 'fourth'],
+      ['fifth', 'sixth', 'first', 'second'],
+      ['third', 'fourth', 'fifth', 'sixth']]),
+    ([['first', 'second', 'third', 'fourth'],
+      ['fifth', 'sixth', 'first', 'second'],
+      ['third', 'fourth', 'fifth', 'sixth']])
+) t(nested)) TO '${WORK_DIR}/nested-string-fsl.vortex';
+----
+2
+
+query ?
+SELECT nested FROM '${WORK_DIR}/nested-string-fsl.vortex';
+----
+[[first, second, third, fourth], [fifth, sixth, first, second], [third, fourth, fifth, sixth]]
+[[first, second, third, fourth], [fifth, sixth, first, second], [third, fourth, fifth, sixth]]

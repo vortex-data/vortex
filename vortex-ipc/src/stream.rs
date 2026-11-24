@@ -230,9 +230,12 @@ mod test {
     use vortex_array::stream::ArrayStream;
     use vortex_array::stream::ArrayStreamExt;
     use vortex_buffer::buffer;
+    use vortex_error::VortexExpect;
 
     use super::*;
+    use crate::iterator::SyncIPCReader;
     use crate::test::SESSION;
+    use crate::test::assert_io_error_kind;
 
     #[tokio::test]
     async fn test_async_stream() {
@@ -313,5 +316,50 @@ mod test {
         let result = reader.read_all().await.unwrap();
         let expected = buffer![42i64, -1, 0, i64::MAX, i64::MIN].into_array();
         assert_arrays_eq!(result, expected, &mut SESSION.create_execution_ctx());
+    }
+
+    #[tokio::test]
+    async fn sync_and_async_adapters_reject_truncated_second_chunk() -> VortexResult<()> {
+        let chunk1 = buffer![1i32, 2, 3].into_array();
+        let chunk2 = buffer![4i32, 5, 6, 7].into_array();
+
+        let mut encoder = MessageEncoder::new(SESSION.clone());
+        let mut truncated = Vec::new();
+        for part in encoder.encode(EncoderMessage::DType(chunk1.dtype()))? {
+            truncated.extend_from_slice(part.as_ref());
+        }
+        for part in encoder.encode(EncoderMessage::Array(&chunk1))? {
+            truncated.extend_from_slice(part.as_ref());
+        }
+        let chunk2_parts = encoder.encode(EncoderMessage::Array(&chunk2))?;
+        // Include only the 4-byte length prefix of chunk 2.
+        truncated.extend_from_slice(chunk2_parts[0].as_ref());
+
+        let mut ctx = SESSION.create_execution_ctx();
+
+        let mut sync_reader = SyncIPCReader::try_new(io::Cursor::new(truncated.clone()), &SESSION)?;
+        let first = sync_reader.next().vortex_expect("expected first chunk")?;
+        assert_arrays_eq!(first, chunk1, &mut ctx);
+        let err = sync_reader
+            .next()
+            .vortex_expect("expected error on truncated chunk")
+            .unwrap_err();
+        assert_io_error_kind(&err, io::ErrorKind::UnexpectedEof);
+        assert!(sync_reader.next().is_none());
+
+        let mut async_reader = AsyncIPCReader::try_new(Cursor::new(truncated), &SESSION).await?;
+        let first = async_reader
+            .next()
+            .await
+            .vortex_expect("expected first chunk")?;
+        assert_arrays_eq!(first, chunk1, &mut ctx);
+        let err = async_reader
+            .next()
+            .await
+            .vortex_expect("expected error on truncated chunk")
+            .unwrap_err();
+        assert_io_error_kind(&err, io::ErrorKind::UnexpectedEof);
+        assert!(async_reader.next().await.is_none());
+        Ok(())
     }
 }

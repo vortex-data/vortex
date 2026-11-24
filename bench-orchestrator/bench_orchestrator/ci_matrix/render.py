@@ -3,12 +3,16 @@
 
 """Render declarative benchmark coverage as GitHub Actions matrices."""
 
-from ..config import Benchmark, BenchmarkTarget, Engine, Format, Integration, ScanEngine
-from .model import BenchmarkCase, Catalog, Coverage, ScanCoverage
+from collections.abc import Collection, Mapping, Sequence
+
+from ..config import SCAN_COMBINATIONS, Benchmark, BenchmarkTarget, Engine, Format, Integration, ScanEngine, SizeFormat
+from .model import BenchmarkCase, Catalog, Coverage, ScanCoverage, Storage
 from .targets import TargetSet
 from .validate import validate_catalog
 
 _NOT_GENERATED = frozenset({Format.LANCE})
+# vortex-bench's `S3_ROW_GROUP_ROWS`: parquet-rs's default.
+S3_ROW_GROUP_ROWS = 1024 * 1024
 _FORMAT_ORDER = (
     Format.PARQUET,
     Format.VORTEX,
@@ -31,12 +35,26 @@ def merge_coverage(benchmark: Benchmark, coverages: list[Coverage]) -> Coverage:
     """Union several coverages of `benchmark`: every resolved target and every generated format."""
     targets = TargetSet()
     formats: set[Format] = set()
+    size_formats: set[SizeFormat] = set()
     for coverage in coverages:
         resolved = coverage.resolved_targets(benchmark)
         targets = targets | resolved
         formats.update(_data_formats(coverage, resolved))
-    scans = ScanCoverage.ALL if any(c.scans is ScanCoverage.ALL for c in coverages) else ScanCoverage.DEFAULT
-    return Coverage(targets, data_formats=tuple(fmt for fmt in _FORMAT_ORDER if fmt in formats), scans=scans)
+        size_formats.update(coverage.size_formats)
+    all_scans = [c for c in coverages if c.scans is ScanCoverage.ALL]
+    scans = ScanCoverage.ALL if all_scans else ScanCoverage.DEFAULT
+    return Coverage(
+        targets,
+        data_formats=tuple(fmt for fmt in _FORMAT_ORDER if fmt in formats),
+        scans=scans,
+        size_formats=tuple(fmt for fmt in SizeFormat if fmt in size_formats),
+        # Skip a combination only when every coverage that adds scans skips it.
+        skip_scans=tuple(
+            combination
+            for combination in SCAN_COMBINATIONS
+            if all_scans and all(combination in c.skip_scans for c in all_scans)
+        ),
+    )
 
 
 ScanGroup = tuple[Engine, Integration, ScanEngine]
@@ -95,6 +113,8 @@ def _matrix_entry(
         # File sizes and trees describe the data, which every entry of a case generates alike, so
         # only the default entry records them.
         "records_data": group is None,
+        # Formats the default entry writes after its queries, only for their file sizes.
+        "size_formats": [fmt.value for fmt in coverage.size_formats] if group is None else [],
     }
     if benchmark.scale_factor is not None:
         entry["scale_factor"] = str(benchmark.scale_factor)
@@ -105,11 +125,23 @@ def _matrix_entry(
     if benchmark.remote_key is not None:
         # A distinct key per entry: each S3 entry clears and re-uploads its own copy of the data.
         entry["remote_key"] = benchmark.remote_key + suffix
+    if benchmark.storage is Storage.S3:
+        # Generated Parquet that queries read from S3 has larger row groups than the default, so
+        # it needs fewer requests to object storage. Suites that query published files ignore it.
+        entry["row_group_rows"] = str(S3_ROW_GROUP_ROWS)
     return entry
 
 
-def render_matrix(preset: str, catalog: Catalog) -> list[dict[str, object]]:
-    """Render one named catalog preset as GitHub Actions matrix entries."""
+def render_matrix(
+    preset: str, catalog: Catalog, only: Mapping[str, Sequence[int]] | Collection[str] | None = None
+) -> list[dict[str, object]]:
+    """Render one named catalog preset as GitHub Actions matrix entries.
+
+    When ``only`` is non-empty, keep just the entries it names, at the preset's coverage. A
+    benchmark ID selects every entry of that benchmark (its `group`); an entry ID selects one scan.
+    A mapping also gives each ID the queries to run, where an empty sequence means all of them;
+    a selected entry with queries carries them as `queries`, for `vx-bench run --queries`.
+    """
     if preset not in catalog.presets:
         known = ", ".join(catalog.presets)
         raise ValueError(f"Unknown matrix preset {preset!r}. Available: {known}")
@@ -125,4 +157,23 @@ def render_matrix(preset: str, catalog: Catalog) -> list[dict[str, object]]:
     duplicates = sorted({entry_id for entry_id in ids if ids.count(entry_id) > 1})
     if duplicates:
         raise ValueError(f"Preset {preset!r} renders duplicate matrix entry IDs: {duplicates}")
-    return entries
+    if not only:
+        return entries
+
+    available = list(dict.fromkeys(str(key) for entry in entries for key in (entry["group"], entry["id"])))
+    unknown = [benchmark_id for benchmark_id in only if benchmark_id not in available]
+    if unknown:
+        raise ValueError(
+            f"Benchmark IDs not in matrix preset {preset!r}: {', '.join(unknown)}. Available: {', '.join(available)}"
+        )
+    queries = only if isinstance(only, Mapping) else {}
+    selected = []
+    for entry in entries:
+        if entry["group"] not in only and entry["id"] not in only:
+            continue
+        # An entry's own ID is more specific than its benchmark's.
+        entry_queries = queries.get(str(entry["id"] if entry["id"] in only else entry["group"]), ())
+        if entry_queries:
+            entry = {**entry, "queries": ",".join(str(query) for query in entry_queries)}
+        selected.append(entry)
+    return selected

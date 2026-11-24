@@ -32,8 +32,9 @@ use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::dtype::i256;
 use crate::scalar::DecimalValue;
+use crate::scalar::NumericOperator;
 use crate::scalar::Scalar;
-use crate::scalar_fn::fns::operators::Operator;
+use crate::scalar_fn::builtin::operators::CompareOperator;
 
 /// Compute the arithmetic mean of an array.
 ///
@@ -109,9 +110,9 @@ impl BinaryCombined for Mean {
         let count = count.cast(target.clone())?;
 
         let non_zero = count
-            .binary(
+            .compare(
                 ConstantArray::new(Scalar::zero_value(&target), count.len()).into_array(),
-                Operator::NotEq,
+                CompareOperator::NotEq,
             )?
             .fill_null(false)?;
         // if count is 0, dividing by 0 below produces NaN, and we need Null.
@@ -119,7 +120,7 @@ impl BinaryCombined for Mean {
         // Null is always Null
         let count = count.mask(non_zero)?;
 
-        sum.binary(count, Operator::Div)
+        sum.numeric(count, NumericOperator::Div)
     }
 
     fn finalize_scalar(

@@ -95,7 +95,9 @@ jobs:
           FLAT_LAYOUT_INLINE_ARRAY_NODE: "1"
         run: |
           python3 scripts/compress-split.py --gpu-decompress --emit-ingest-records
+      # A fork PR's job has no OIDC token, so pr-bench-report.yml reads its baseline.
       - name: Fetch baseline from the benchmarks database
+        if: github.event.pull_request.head.repo.fork != true
         uses: ./.github/actions/fetch-bench-baseline
         with:
           role-arn: ${{ vars.GH_BENCH_READ_ROLE_ARN }}
@@ -111,6 +113,14 @@ jobs:
           uv run --no-project scripts/compare-benchmark-jsons.py base.ingest.jsonl results.json \
             "GPU Compression" --pr-records results.ingest.jsonl > comment.md
           cat comment.md >> "$GITHUB_STEP_SUMMARY"
+      # A fork PR's job has no OIDC token, so pr-bench-report.yml reads its baseline and comments.
+      - name: Upload report for pr-bench-report.yml
+        if: (success() || failure()) && github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork == true
+        uses: ./.github/actions/upload-fork-bench-report
+        with:
+          benchmark-name: GPU Compression
+          comment-tag: bench-pr-comment-gpu-compress
+          failed: ${{ job.status == 'failure' }}
       - name: Comment PR
         if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork == false
         uses: thollander/actions-comment-pull-request@24bffb9b452ba05a4f3f77933840a6a841d1b32b  # v3
