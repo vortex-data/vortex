@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::ops::Range;
+
 use rstest::rstest;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
@@ -174,5 +176,53 @@ fn unsupported_sparse_type_is_not_rewritten() -> VortexResult<()> {
     let dict = DictArray::try_new(codes.clone(), values)?.into_array();
 
     assert!(session.kernels().reduce_parent(&codes, &dict, 0)?.is_none());
+    Ok(())
+}
+
+#[rstest]
+#[case::no_patches(4..6, [None, None])]
+#[case::only_patches(3..4, [Some(20)])]
+fn sliced_codes_that_collapse_take_values<const N: usize>(
+    #[case] range: Range<usize>,
+    #[case] expected: [Option<i32>; N],
+) -> VortexResult<()> {
+    let session = VortexSession::empty();
+    crate::initialize(&session);
+    let mut ctx = session.create_execution_ctx();
+
+    let codes = Sparse::try_new(
+        buffer![1u32, 3, 6].into_array(),
+        PrimitiveArray::from_option_iter([Some(0u8), Some(1), Some(0)]).into_array(),
+        8,
+        Scalar::null_native::<u8>(),
+        &mut ctx,
+    )?
+    .into_array()
+    .slice(range)?;
+
+    let values = buffer![10i32, 20].into_array();
+    let dict = DictArray::try_new(codes, values)?.into_array();
+
+    assert_arrays_eq!(dict, PrimitiveArray::from_option_iter(expected), &mut ctx);
+    Ok(())
+}
+
+#[test]
+fn sparse_values_use_take() -> VortexResult<()> {
+    let session = VortexSession::empty();
+    crate::initialize(&session);
+    let mut ctx = session.create_execution_ctx();
+
+    let values = Sparse::try_new(
+        buffer![1u32].into_array(),
+        buffer![5i32].into_array(),
+        3,
+        Scalar::from(0i32),
+        &mut ctx,
+    )?
+    .into_array();
+    let dict = DictArray::try_new(buffer![1u8, 0, 2, 1].into_array(), values)?.into_array();
+
+    assert_arrays_eq!(dict, PrimitiveArray::from_iter([5i32, 0, 0, 5]), &mut ctx);
     Ok(())
 }
