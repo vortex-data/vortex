@@ -13,6 +13,7 @@ immutable = false
 # Components added by this edition.
 [added]
 arrays = [
+    "fastlanes.affine",
     "fastlanes.for.v2",
 ]
 layouts = []
@@ -23,6 +24,7 @@ aggregates = []
 # editions of the family.
 [components]
 arrays = [
+    "fastlanes.affine",
     "fastlanes.for.v2",
 ]
 layouts = []

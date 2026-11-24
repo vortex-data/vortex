@@ -9,6 +9,7 @@ use std::sync::Arc;
 use vortex_array::dtype::FieldPath;
 use vortex_btrblocks::BtrBlocksCompressorBuilder;
 use vortex_btrblocks::SchemeExt;
+use vortex_btrblocks::schemes::integer::AffineScheme;
 use vortex_btrblocks::schemes::integer::IntDictScheme;
 use vortex_edition::ComponentKind;
 use vortex_edition::EditionSessionExt;
@@ -59,18 +60,18 @@ struct Compressors {
 impl CompressorConfig {
     /// Splits the configured compressor into the codes and full compressors.
     ///
-    /// The codes compressor excludes `IntDictScheme` because `DictStrategy` already
-    /// dictionary-encoded the column, and dictionary-encoding its integer codes again would be
-    /// redundant. The full compressor keeps every scheme, so chunks that `DictStrategy` rejects can
-    /// still use integer dictionaries, e.g. for a decimal's most significant part. An opaque
-    /// compressor is used as-is for both.
+    /// The codes compressor excludes `IntDictScheme` (preventing recursive dictionary encoding)
+    /// and `AffineScheme` (matching `AffineScheme::ancestor_exclusions` on dictionary codes so
+    /// layout codes compress consistently with the dictionary probe). The full compressor keeps
+    /// every scheme, so chunks that `DictStrategy` rejects can still use integer dictionaries,
+    /// e.g. for a decimal's most significant part. An opaque compressor is used as-is for both.
     fn into_compressors(self) -> Compressors {
         match self {
             CompressorConfig::BtrBlocks(builder) => Compressors {
                 codes: Arc::new(
                     builder
                         .clone()
-                        .exclude_schemes([IntDictScheme.id()])
+                        .exclude_schemes([IntDictScheme.id(), AffineScheme.id()])
                         .build(),
                 ),
                 full: Arc::new(builder.build()),

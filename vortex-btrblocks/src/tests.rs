@@ -65,8 +65,10 @@ use crate::ChildDecision;
 use crate::ChildPolicy;
 use crate::ChildRequest;
 use crate::SESSION;
+use crate::SchemeExt;
 use crate::schemes::binary::VarBinScheme;
 use crate::schemes::boolean::BoolRunEndScheme;
+use crate::schemes::integer::AffineScheme;
 use crate::schemes::integer::BitPackingScheme;
 use crate::schemes::integer::RunEndScheme;
 
@@ -278,8 +280,10 @@ fn test_extreme_timestamps_roundtrip(#[case] unit: TimeUnit) -> VortexResult<()>
 )]
 fn test_delta_unaligned_roundtrip(#[case] input: PrimitiveArray) -> VortexResult<()> {
     // Zero-padding the final chunk used to inflate the delta span and reject this scheme.
+    // Exclude Affine so the linear ramp case exercises Delta specifically.
     let compressor = BtrBlocksCompressorBuilder::from_session(&SESSION)
         .unrestricted()
+        .exclude_schemes([AffineScheme.id()])
         .build();
     let input = input.into_array();
     let compressed = assert_roundtrip(&compressor, &input)?;
@@ -312,8 +316,10 @@ fn test_delta_chosen_for_restarting_series() -> VortexResult<()> {
     }))
     .into_array();
 
+    // Exclude Affine so this 30,000-step grid exercises Delta's outlier-patched estimator.
     let compressor = BtrBlocksCompressorBuilder::from_session(&SESSION)
         .unrestricted()
+        .exclude_schemes([AffineScheme.id()])
         .build();
     let compressed = assert_roundtrip(&compressor, &input)?;
     assert!(compressed.is::<Delta>());

@@ -31,5 +31,8 @@ pub static DECLARATION: EditionDeclaration = EditionDeclaration {
         immutable: false,
         min_library_version: None,
     },
-    added: &[EditionMember::array(&"fastlanes.for.v2")],
+    added: &[
+        EditionMember::array(&"fastlanes.affine"),
+        EditionMember::array(&"fastlanes.for.v2"),
+    ],
 };

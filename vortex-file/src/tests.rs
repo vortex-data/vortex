@@ -185,13 +185,13 @@ async fn test_eof_values() {
 #[rstest]
 #[case::default(
     BtrBlocksCompressorBuilder::from_session(&SESSION),
-    if cfg!(feature = "zstd") { 68_932 } else { 68_868 }
+    if cfg!(feature = "zstd") { 53_212 } else { 53_148 }
 )]
 #[cfg_attr(
     feature = "zstd",
     case::compact(
         BtrBlocksCompressorBuilder::from_session(&SESSION).with_compact(),
-        55_088
+        52_960
     )
 )]
 #[tokio::test]
@@ -2116,11 +2116,12 @@ async fn test_into_tokio_array_stream() -> VortexResult<()> {
 #[tokio::test]
 async fn test_array_stream_no_double_dict_encode() -> VortexResult<()> {
     let num_vals = 2048;
-    // Alternating and far apart, so neither runs nor bit widths pack them tighter than a
-    // dictionary.
-    let array =
-        PrimitiveArray::from_iter((0..num_vals).map(|i| [1_000_000_000i64, 2_000_000_000][i % 2]))
-            .into_array();
+    // Alternating, far apart, and coprime, so neither runs, bit widths, nor affine scaling pack
+    // them tighter than a dictionary.
+    let array = PrimitiveArray::from_iter(
+        (0..num_vals).map(|i| [1_000_000_000i64, 1_000_000_001, 2_000_000_003][i % 3]),
+    )
+    .into_array();
     let mut buf = Vec::new();
     SESSION
         .write_options()

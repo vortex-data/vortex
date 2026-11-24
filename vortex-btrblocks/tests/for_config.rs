@@ -102,7 +102,7 @@ static UNSTABLE_SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
 /// plain BitPacking 30, so FoR is estimated to pay off, and per-chunk references then pack to 7.
 fn drifting() -> ArrayRef {
     PrimitiveArray::from_iter(
-        (0..8192u32).map(|i| 1_000_000_000 + (i / 1024) * 1_000_000 + i % 100),
+        (0..8192u32).map(|i| 1_000_000_000 + (i / 1024) * 1_000_000 + i.wrapping_mul(37) % 100),
     )
     .into_array()
 }

@@ -7,6 +7,7 @@ use std::sync::Arc;
 
 use vortex_array::ArrayId;
 use vortex_decimal_byte_parts::decimal_byte_parts_v2_id;
+use vortex_fastlanes::affine_id;
 use vortex_fastlanes::for_v2_id;
 use vortex_session::VortexSession;
 use vortex_utils::aliases::hash_set::HashSet;
@@ -75,6 +76,7 @@ impl CompressionMode {
                 excluded.extend([
                     boolean::BoolRunEndScheme.id(),
                     boolean::BoolSparseScheme.id(),
+                    integer::AffineScheme.id(),
                     integer::DeltaScheme::default().id(),
                     integer::SparseScheme.id(),
                     integer::IntRLEScheme.id(),
@@ -102,9 +104,9 @@ impl CompressionMode {
     fn excluded_encodings(self) -> Vec<ArrayId> {
         match self {
             Self::All | Self::Default | Self::Compact => Vec::new(),
-            // Multi-part DecimalByteParts arrays and FoR arrays with per-chunk references have no
-            // CUDA decode kernel.
-            Self::Cuda => vec![decimal_byte_parts_v2_id(), for_v2_id()],
+            // Affine, multi-part DecimalByteParts, and FoR arrays with per-chunk references have
+            // no CUDA decode kernel.
+            Self::Cuda => vec![affine_id(), decimal_byte_parts_v2_id(), for_v2_id()],
         }
     }
 }

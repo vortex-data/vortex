@@ -10,6 +10,7 @@
 //! - [`BitPacked`] stores fixed-width integer values using the minimum bit width plus optional
 //!   patches.
 //! - [`FoR`] stores frame-of-reference deltas from a base value.
+//! - [`Affine`] extends per-chunk FoR with a common divisor and a linear trend per chunk.
 //! - [`Delta`] stores adjacent deltas in chunked form.
 //! - [`RLE`] stores repeated runs.
 //!
@@ -27,6 +28,7 @@
 //! The original encodings are described in the paper [The FastLanes Compression Layout](https://15721.courses.cs.cmu.edu/spring2024/papers/03-data2/p2132-afroozeh.pdf),
 //! but are not fully binary compatible. See the underlying [fastlanes](https://github.com/spiraldb/fastlanes) crate for more details.
 
+pub use affine::*;
 pub use bitpacking::*;
 pub use delta::*;
 pub use for_::*;
@@ -40,6 +42,7 @@ use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
 
+mod affine;
 mod bitpacking;
 mod delta;
 mod for_;
@@ -72,10 +75,12 @@ pub fn initialize(session: &VortexSession) {
     }
     session.arrays().register(Delta);
     session.arrays().register(FoRPlugin);
+    session.arrays().register(AffinePlugin);
     session.arrays().register(RLE);
     bitpacking::initialize(session);
     delta::initialize(session);
     for_::initialize(session);
+    affine::initialize(session);
     rle::initialize(session);
 
     // Register the encoding-specific aggregate kernels.

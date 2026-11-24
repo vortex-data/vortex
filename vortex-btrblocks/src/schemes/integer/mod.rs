@@ -3,6 +3,7 @@
 
 //! Integer compression schemes.
 
+mod affine;
 mod bitpacking;
 mod delta;
 mod elias_fano;
@@ -16,6 +17,7 @@ mod zigzag;
 #[cfg(feature = "pco")]
 mod pco;
 
+pub use affine::AffineScheme;
 pub use bitpacking::BitPackingScheme;
 pub use delta::DeltaScheme;
 pub use elias_fano::EliasFanoScheme;

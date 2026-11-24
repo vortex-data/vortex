@@ -72,6 +72,8 @@ impl Default for CompressionSession {
             &integer::SequenceScheme,
             &integer::IntRLEScheme,
             &DELTA_SCHEME,
+            // Affine requires `fastlanes.affine` (`UNSTABLE`); excluded in CUDA mode.
+            &integer::AffineScheme,
             #[cfg(feature = "pco")]
             &integer::PcoScheme,
             ////////////////////////////////////////////////////////////////////////////////////

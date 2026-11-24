@@ -866,8 +866,13 @@ mod tests {
         let session = test_session();
 
         let mut file_bytes = ByteBufferMut::empty();
-        let values = (0i32..65_536)
-            .map(|value| value.wrapping_mul(1_664_525).wrapping_add(1_013_904_223))
+        let values = (0u32..65_536)
+            .map(|value| {
+                let mut x = value.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+                x ^= x >> 16;
+                x = x.wrapping_mul(0x85EB_CA6B);
+                (x ^ (x >> 13)) as i32
+            })
             .collect::<Vec<_>>();
         let array = Buffer::from(values).into_array();
         session
