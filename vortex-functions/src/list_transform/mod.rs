@@ -29,8 +29,10 @@ use vortex_array::expr::display::ExprDisplay;
 use vortex_array::scalar_fn::Arity;
 use vortex_array::scalar_fn::ChildName;
 use vortex_array::scalar_fn::ExecutionArgs;
+use vortex_array::scalar_fn::ReduceNode;
 use vortex_array::scalar_fn::ScalarFnId;
 use vortex_array::scalar_fn::ScalarFnVTable;
+use vortex_array::scalar_fn::ScalarFnVTableExt;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
@@ -137,6 +139,34 @@ impl ScalarFnVTable for ListTransform {
         }
     }
 
+    /// A transform of a transform becomes one transform of the two lambdas composed, in expression
+    /// and array trees alike: `transform(transform(l, f), g)` is `transform(l, x -> g(f(x)))`.
+    ///
+    /// The lists pass through one transform instead of two, and `g` sees `f`'s body rather than
+    /// its result. Both forms give every list its length and validity, and run a lambda that can
+    /// fail only on the elements of valid lists.
+    fn reduce<T: ReduceNode>(
+        &self,
+        options: &ListTransformOptions,
+        node: &T,
+    ) -> VortexResult<Option<T>> {
+        let ListTransformOptions::Bound(outer) = options else {
+            return Ok(None);
+        };
+        let inner_node = node.child(0);
+        let Some(ListTransformOptions::Bound(inner)) = inner_node
+            .scalar_fn()
+            .and_then(|scalar_fn| scalar_fn.as_opt::<ListTransform>())
+        else {
+            return Ok(None);
+        };
+        let Some(composed) = compose(outer, inner)? else {
+            return Ok(None);
+        };
+        let composed = ListTransform.bind(ListTransformOptions::Bound(composed));
+        Ok(Some(node.new_node(composed, &[inner_node.child(0)])?))
+    }
+
     fn is_strict(&self, _options: &ListTransformOptions) -> bool {
         true
     }
@@ -147,6 +177,21 @@ impl ScalarFnVTable for ListTransform {
             ListTransformOptions::Bound(lambda) => lambda.is_infallible(),
         }
     }
+}
+
+/// `(x) -> outer(inner(x))`, when running it costs no more than running the two in turn and fails
+/// where they would.
+///
+/// The composed body holds `inner`'s body once per read of `outer`'s parameter. So an `outer` that
+/// reads it twice would compute `inner` twice, and one that never reads it would drop `inner`
+/// along with its failures.
+fn compose(outer: &BoundLambda, inner: &BoundLambda) -> VortexResult<Option<BoundLambda>> {
+    match outer.param_reads() {
+        0 if inner.is_infallible() => {}
+        1 => {}
+        _ => return Ok(None),
+    }
+    outer.compose(inner)
 }
 
 /// Check that a bound lambda's parameter has the element dtype of a list of this dtype.
