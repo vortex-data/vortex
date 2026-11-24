@@ -96,10 +96,9 @@ fn concat_column(batches: &[RecordBatch], index: usize) -> anyhow::Result<ArrowA
 }
 
 /// Converts an Arrow integer array to a canonical Vortex primitive array.
-#[allow(deprecated)]
 pub fn to_vortex(array: &ArrowArrayRef, ctx: &mut ExecutionCtx) -> anyhow::Result<ArrayRef> {
-    use vortex_arrow::FromArrowArray;
     let nullable = array.null_count() > 0;
-    let vortex = ArrayRef::from_arrow(array.as_ref(), nullable)?;
+    let vortex =
+        vortex_arrow::from_arrow_columnar(ArrowArrayRef::clone(array), array.len(), nullable, ctx)?;
     Ok(vortex.execute::<PrimitiveArray>(ctx)?.into_array())
 }

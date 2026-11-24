@@ -36,28 +36,28 @@ pub fn table(name: &str, scale_factor: f64) -> anyhow::Result<Arc<Vec<RecordBatc
     let batches: Vec<RecordBatch> = match name {
         "lineitem" => tpchgen_arrow::LineItemArrow::new(LineItemGenerator::new(sf, 1, 1))
             .with_batch_size(BATCH)
-            .collect(),
+            .collect::<Result<_, _>>()?,
         "orders" => tpchgen_arrow::OrderArrow::new(OrderGenerator::new(sf, 1, 1))
             .with_batch_size(BATCH)
-            .collect(),
+            .collect::<Result<_, _>>()?,
         "partsupp" => tpchgen_arrow::PartSuppArrow::new(PartSuppGenerator::new(sf, 1, 1))
             .with_batch_size(BATCH)
-            .collect(),
+            .collect::<Result<_, _>>()?,
         "customer" => tpchgen_arrow::CustomerArrow::new(CustomerGenerator::new(sf, 1, 1))
             .with_batch_size(BATCH)
-            .collect(),
+            .collect::<Result<_, _>>()?,
         "part" => tpchgen_arrow::PartArrow::new(PartGenerator::new(sf, 1, 1))
             .with_batch_size(BATCH)
-            .collect(),
+            .collect::<Result<_, _>>()?,
         "supplier" => tpchgen_arrow::SupplierArrow::new(SupplierGenerator::new(sf, 1, 1))
             .with_batch_size(BATCH)
-            .collect(),
+            .collect::<Result<_, _>>()?,
         "nation" => tpchgen_arrow::NationArrow::new(NationGenerator::new(sf, 1, 1))
             .with_batch_size(BATCH)
-            .collect(),
+            .collect::<Result<_, _>>()?,
         "region" => tpchgen_arrow::RegionArrow::new(RegionGenerator::new(sf, 1, 1))
             .with_batch_size(BATCH)
-            .collect(),
+            .collect::<Result<_, _>>()?,
         other => bail!("unknown TPC-H table `{other}`"),
     };
     let batches = Arc::new(batches);

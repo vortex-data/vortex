@@ -524,11 +524,10 @@ fn decode_timed(
     Ok((times[times.len() / 2], times[0]))
 }
 
-#[allow(deprecated)]
 fn to_vortex(array: &ArrowArrayRef, ctx: &mut ExecutionCtx) -> anyhow::Result<PrimitiveArray> {
-    use vortex_arrow::FromArrowArray;
     let nullable = array.null_count() > 0;
-    let vortex = ArrayRef::from_arrow(array.as_ref(), nullable)?;
+    let vortex =
+        vortex_arrow::from_arrow_columnar(ArrowArrayRef::clone(array), array.len(), nullable, ctx)?;
     Ok(vortex.execute::<PrimitiveArray>(ctx)?)
 }
 
@@ -588,25 +587,25 @@ fn load_chunks(args: &Args) -> anyhow::Result<Vec<Chunk>> {
                 "tpch_lineitem",
                 tpchgen_arrow::LineItemArrow::new(LineItemGenerator::new(sf, 1, 1))
                     .with_batch_size(batch)
-                    .collect(),
+                    .collect::<Result<_, _>>()?,
             ),
             (
                 "tpch_orders",
                 tpchgen_arrow::OrderArrow::new(OrderGenerator::new(sf, 1, 1))
                     .with_batch_size(batch)
-                    .collect(),
+                    .collect::<Result<_, _>>()?,
             ),
             (
                 "tpch_partsupp",
                 tpchgen_arrow::PartSuppArrow::new(PartSuppGenerator::new(sf, 1, 1))
                     .with_batch_size(batch)
-                    .collect(),
+                    .collect::<Result<_, _>>()?,
             ),
             (
                 "tpch_customer",
                 tpchgen_arrow::CustomerArrow::new(CustomerGenerator::new(sf, 1, 1))
                     .with_batch_size(batch)
-                    .collect(),
+                    .collect::<Result<_, _>>()?,
             ),
         ];
         for (source, batches) in tables {
