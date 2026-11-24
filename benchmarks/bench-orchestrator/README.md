@@ -7,7 +7,7 @@ A Python CLI tool for orchestrating Vortex benchmark runs, storing results, and 
 The best way to install the orchestrator seems to be:
 
 ```bash
-uv tool install "bench_orchestrator @ ./bench-orchestrator/"
+uv tool install "bench_orchestrator @ ./benchmarks/bench-orchestrator/"
 ```
 
 This installs the `vx-bench` command.
@@ -328,11 +328,11 @@ The SQL benchmark workflow uses explicit JSON target selection instead of parsin
 strings in shell:
 
 ```bash
-uv run --project bench-orchestrator vx-bench prepare-data tpch \
+uv run --project benchmarks/bench-orchestrator vx-bench prepare-data tpch \
   --formats-json '["parquet","vortex","vortex-compact"]' \
   --opt scale-factor=1.0
 
-uv run --project bench-orchestrator vx-bench run tpch \
+uv run --project benchmarks/bench-orchestrator vx-bench run tpch \
   --targets-json '[{"engine":"datafusion","format":"parquet"},{"engine":"duckdb","format":"vortex"}]' \
   --opt scale-factor=1.0 \
   --output results.json \

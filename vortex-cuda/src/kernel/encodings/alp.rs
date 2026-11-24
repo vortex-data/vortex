@@ -83,10 +83,6 @@ where
     let device_input = ctx.ensure_on_device(buffer)?;
     let input_view = device_input.cuda_view::<A::ALPInt>()?;
 
-    // Allocate output rounded up to a full chunk: the fused kernel writes a
-    // whole 1024-element chunk per block, and we slice off any padding below.
-    let mut output_slice = ctx.device_alloc::<A>(array_len.next_multiple_of(1024))?;
-
     // Patch validity does not need to be scattered: the ALP encoder strips null
     // positions from the exception list, so patches only exist at valid
     // positions. load_device_patches additionally rejects patches without
@@ -98,13 +94,21 @@ where
     };
     let patches_arg = build_gpu_patches(device_patches.as_ref(), ctx.stream())?;
 
+    // The kernel decodes chunk-aligned rows to match the patch positions, writing a whole chunk
+    // per block; the shift is trimmed off below.
+    let slice_shift = device_patches
+        .as_ref()
+        .map_or(0, |patches| patches.offset % 1024);
+    let aligned_len = array_len + slice_shift;
+    let mut output_slice = ctx.device_alloc::<A>(aligned_len.next_multiple_of(1024))?;
+
     // Load the kernel: alp_{enc}_{float}_32t
     let enc_suffix = A::ALPInt::PTYPE.to_string();
     let float_suffix = A::PTYPE.to_string();
     let cuda_function = ctx
         .load_function_with_suffixes("alp", &[enc_suffix.as_str(), float_suffix.as_str(), "32t"])?;
 
-    let num_blocks = u32::try_from(array_len.div_ceil(1024))?;
+    let num_blocks = u32::try_from(aligned_len.div_ceil(1024))?;
     let config = LaunchConfig {
         grid_dim: (num_blocks, 1, 1),
         block_dim: (ALP_THREADS_PER_BLOCK, 1, 1),
@@ -112,12 +116,14 @@ where
     };
 
     let array_len_u64 = array_len as u64;
+    let slice_shift_u32 = u32::try_from(slice_shift)?;
     ctx.launch_kernel_config(&cuda_function, config, array_len, |args| {
         args.arg(&input_view)
             .arg(&mut output_slice)
             .arg(&f)
             .arg(&e)
             .arg(&array_len_u64)
+            .arg(&slice_shift_u32)
             .arg(&patches_arg);
     })?;
 
@@ -126,7 +132,8 @@ where
     drop(device_patches);
 
     let output_buf = CudaDeviceBuffer::new(output_slice)?;
-    let output_handle = BufferHandle::new_device(output_buf.slice_typed::<A>(0..array_len));
+    let output_handle =
+        BufferHandle::new_device(output_buf.slice_typed::<A>(slice_shift..aligned_len));
     Ok(Canonical::Primitive(PrimitiveArray::from_buffer_handle(
         output_handle,
         A::PTYPE,
@@ -138,11 +145,13 @@ where
 mod tests {
     use std::f32;
     use std::f64;
+    use std::ops::Range;
     use std::sync::LazyLock;
 
     use rstest::rstest;
     use vortex::array::IntoArray;
     use vortex::array::arrays::PrimitiveArray;
+    use vortex::array::arrays::slice::SliceKernel;
     use vortex::array::assert_arrays_eq;
     use vortex::array::patches::Patches;
     use vortex::array::validity::Validity;
@@ -384,6 +393,54 @@ mod tests {
             .into_array();
 
         assert_arrays_eq!(gpu_result, prim, &mut ctx);
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::inside_a_chunk(5..1000)]
+    #[case::across_a_boundary(1000..1100)]
+    #[case::from_a_chunk_start(1024..2048)]
+    #[case::tail(2000..3072)]
+    #[crate::test]
+    async fn test_cuda_alp_sliced_with_patches(#[case] range: Range<usize>) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
+            .vortex_expect("failed to create execution context");
+
+        let values: Buffer<f64> = (0u32..3072)
+            .map(|i| {
+                if matches!(i, 5 | 500 | 1023 | 1024 | 1050 | 2100 | 3071) {
+                    UNENCODABLE
+                } else {
+                    i as f64
+                }
+            })
+            .collect();
+        let prim = PrimitiveArray::new(values, Validity::NonNullable);
+        let alp_array = alp_encode(prim.as_view(), None, &mut ctx)?;
+        let expected = prim.into_array().slice(range.clone())?;
+
+        // `slice` is lazy, so build the sliced ALP array the kernel receives directly.
+        let sliced = <ALP as SliceKernel>::slice(alp_array.as_view(), range.clone(), &mut ctx)?
+            .vortex_expect("ALP always slices itself");
+        let gpu_result = ALPExecutor
+            .execute(sliced, &mut cuda_ctx)
+            .await?
+            .into_host(cuda_ctx.execution_ctx())
+            .await?
+            .into_array();
+        assert_arrays_eq!(gpu_result, expected, &mut ctx);
+
+        // Scans pass the lazy slice instead.
+        let lazy_result = alp_array
+            .into_array()
+            .slice(range)?
+            .execute_cuda(&mut cuda_ctx)
+            .await?
+            .into_host(cuda_ctx.execution_ctx())
+            .await?
+            .into_array();
+        assert_arrays_eq!(lazy_result, expected, &mut ctx);
         Ok(())
     }
 

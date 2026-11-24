@@ -12,7 +12,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 
 pub mod rle_compress;
-pub mod rle_decompress;
+pub(crate) mod rle_decompress;
 
 #[array_slots(crate::RLE)]
 pub struct RLESlots {
