@@ -27,13 +27,10 @@ from __future__ import annotations
 import argparse
 import json
 import math
-import os
 import subprocess
 import sys
 import time
-import urllib.request
 from collections.abc import Callable
-from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from types import ModuleType
 from typing import TypeVar
@@ -94,12 +91,6 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         default=None,
         help="Run `git show` in this directory (default: current directory).",
-    )
-    parser.add_argument(
-        "--timeout",
-        type=float,
-        default=30.0,
-        help="Site cache refresh timeout in seconds (default: 30).",
     )
     return parser.parse_args()
 
@@ -194,6 +185,10 @@ _RECORD_FIELDS: dict[str, tuple[frozenset[str], frozenset[str]]] = {
                 "physical_delta",
                 "virtual_delta",
                 "env_triple",
+                # The bench orchestrator's Vortex scan axes. The format identity already names
+                # them (see `BenchmarkTarget.result_format`), so they are validated but not stored.
+                "integration",
+                "scan_engine",
             }
         ),
     ),
@@ -226,6 +221,10 @@ _RECORD_FIELDS: dict[str, tuple[frozenset[str], frozenset[str]]] = {
             }
         ),
         frozenset({"env_triple"}),
+    ),
+    "file_size": (
+        frozenset({"commit_sha", "benchmark", "scale_factor", "format", "file", "value_bytes"}),
+        frozenset(),
     ),
 }
 
@@ -379,6 +378,8 @@ _FIELD_TYPES: dict[str, tuple[tuple[str, str], ...]] = {
         ("storage", "str"),
         ("engine", "str"),
         ("format", "str"),
+        ("integration", "opt_str"),
+        ("scan_engine", "opt_str"),
         ("value_ns", "i64"),
         ("all_runtimes_ns", "i64_list"),
         ("peak_physical", "opt_i64"),
@@ -428,6 +429,14 @@ _FIELD_TYPES: dict[str, tuple[tuple[str, str], ...]] = {
         ("iterations", "i32"),
         ("env_triple", "opt_str"),
     ),
+    "file_size": (
+        ("commit_sha", "str"),
+        ("benchmark", "str"),
+        ("scale_factor", "str"),
+        ("format", "str"),
+        ("file", "str"),
+        ("value_bytes", "i64"),
+    ),
 }
 
 
@@ -460,6 +469,11 @@ def _validate_record_values(record: dict, kind: str, index: int) -> None:
             raise SystemExit(
                 f"record {index} (query_measurement): storage must be 'nvme' or 's3', got {record['storage']!r}"
             )
+        for field, values in (("integration", ("file", "datasource")), ("scan_engine", ("v1", "v2"))):
+            if record.get(field) not in (None, *values):
+                raise SystemExit(
+                    f"record {index} (query_measurement): {field} must be one of {values}, got {record[field]!r}"
+                )
         if not _memory_quartet_consistent(record):
             raise SystemExit(
                 f"record {index} (query_measurement): memory fields must be populated together (all four or none)"
@@ -728,6 +742,43 @@ def _insert_vector_search(conn, mid: int, r: dict) -> bool:
     )
 
 
+def _file_size_id(mid_mod, r: dict) -> int:
+    """Compute the `file_sizes` primary key."""
+    return mid_mod.measurement_id_file_size(
+        commit_sha=r["commit_sha"],
+        benchmark=r["benchmark"],
+        scale_factor=r["scale_factor"],
+        format=r["format"],
+        file=r["file"],
+    )
+
+
+def _insert_file_size(conn, mid: int, r: dict) -> bool:
+    """Upsert a `file_sizes` row."""
+    return _upsert_returning_was_update(
+        conn,
+        """
+        INSERT INTO file_sizes (
+            measurement_id, commit_sha, benchmark, scale_factor,
+            format, file, value_bytes
+        ) VALUES (%s, %s, %s, %s, %s, %s, %s)
+        ON CONFLICT (measurement_id) DO UPDATE SET
+            commit_sha   = excluded.commit_sha,
+            value_bytes  = excluded.value_bytes
+        RETURNING (xmax = 0) AS inserted
+        """,
+        (
+            mid,
+            r["commit_sha"],
+            r["benchmark"],
+            r["scale_factor"],
+            r["format"],
+            r["file"],
+            r["value_bytes"],
+        ),
+    )
+
+
 # Dispatch from a record's `kind` to its per-table primary key and upsert. Keyed identically to
 # `_RECORD_FIELDS`; the three maps are wired together when adding a fact table.
 _MEASUREMENT_ID = {
@@ -736,6 +787,7 @@ _MEASUREMENT_ID = {
     "compression_size": _compression_size_id,
     "random_access_time": _random_access_time_id,
     "vector_search_run": _vector_search_run_id,
+    "file_size": _file_size_id,
 }
 
 _APPLY_RECORD = {
@@ -744,6 +796,7 @@ _APPLY_RECORD = {
     "compression_size": _insert_compression_size,
     "random_access_time": _insert_random_access,
     "vector_search_run": _insert_vector_search,
+    "file_size": _insert_file_size,
 }
 
 
@@ -939,59 +992,6 @@ def connect_postgres(dsn: str, region: str | None) -> object:
     return conn
 
 
-def _http(method: str, url: str, token: str | None, timeout: float) -> bytes:
-    """Issue one HTTP request and return the body. Raises on any non-2xx or
-    transport error; callers in `refresh_site_cache` swallow those."""
-    headers = {"accept": "application/json"}
-    if token is not None:
-        headers["authorization"] = f"Bearer {token}"
-    req = urllib.request.Request(url, method=method, headers=headers)
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        return resp.read()
-
-
-def _warm_default_windows(base: str, timeout: float) -> None:
-    """Best-effort warm pass: prime the freshly invalidated Data Cache for the
-    landing page and every group's default last-100 bundle, so the first human
-    request after an ingest is already hot. Each request is independent; one
-    failure does not abort the others."""
-
-    def warm(url: str) -> None:
-        try:
-            _http("GET", url, None, timeout)
-        except Exception as exc:  # noqa: BLE001 -- warm is best-effort.
-            print(f"warning: warm {url} failed: {exc}", file=sys.stderr)
-
-    warm(f"{base}/")
-    try:
-        groups_body = _http("GET", f"{base}/api/groups", None, timeout)
-        slugs = [g["slug"] for g in json.loads(groups_body).get("groups", []) if "slug" in g]
-    except Exception as exc:  # noqa: BLE001 -- group discovery is best-effort.
-        print(f"warning: warm group discovery failed: {exc}", file=sys.stderr)
-        return
-    # A whole-bundle recompute is a few seconds cold, so warm with bounded
-    # concurrency rather than one slow serial pass.
-    with ThreadPoolExecutor(max_workers=4) as pool:
-        pool.map(lambda s: warm(f"{base}/api/group/{s}?n=100"), slugs)
-
-
-def refresh_site_cache(base_url: str, token: str, timeout: float) -> None:
-    """Revalidate the site's Data Cache tag, then warm the default windows.
-
-    BEST-EFFORT: every failure is logged to stderr and swallowed so a cache
-    refresh can never change the ingest exit code. The warm pass is skipped
-    when revalidation fails: warming after a failed flush would repopulate the
-    Data Cache with stale data, which is the opposite of the intent.
-    """
-    base = base_url.rstrip("/")
-    try:
-        _http("POST", f"{base}/api/revalidate", token, timeout)
-    except Exception as exc:  # noqa: BLE001 -- refresh must never raise into ingest.
-        print(f"warning: cache revalidate failed: {exc}", file=sys.stderr)
-        return  # Skip the warm pass: no point warming a cache that was not flushed.
-    _warm_default_windows(base, timeout)
-
-
 # A restart of the RDS instance refuses connections for 30 seconds to a few minutes: on 2026-10-28
 # an engine upgrade took 33 seconds and an OS update about 3 minutes, and four ingest jobs failed.
 # These waits, about 4 minutes in all, span that window.
@@ -1049,12 +1049,8 @@ def _main_postgres(args: argparse.Namespace) -> int:
             separators=(",", ":"),
         )
     )
-    # Best-effort site-cache refresh after a successful write. It runs only
-    # when both environment variables are configured and can never fail ingest.
-    base_url = os.environ.get("BENCH_SITE_BASE_URL")
-    revalidate_token = os.environ.get("BENCH_REVALIDATE_TOKEN")
-    if base_url and revalidate_token:
-        refresh_site_cache(base_url, revalidate_token, args.timeout)
+    # The site cache is refreshed once per push by `refresh-bench-site.py`, after the last
+    # benchmark job of the push, not after each ingest.
     return 0
 
 

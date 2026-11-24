@@ -1,0 +1,44 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+include ../setup.slt.no
+
+statement ok
+COPY (SELECT * FROM (
+    VALUES (1, 0),(1, 0),(1, 0),(1, 0),(1, 0),(1, 0),(2, 0),(3, 0),(3, 0),(3, 257)
+) AS t(column00, column01))
+TO '$__TEST_DIR__/cast_pushdown.vortex';
+
+# Column is used uncasted
+query TT
+EXPLAIN (FORMAT json)
+SELECT * FROM '$__TEST_DIR__/cast_pushdown.vortex';
+----
+<!REGEX>:.*PROJECTION.*
+
+query I
+SELECT DISTINCT column00 FROM '$__TEST_DIR__/cast_pushdown.vortex' ORDER BY 1;
+----
+1
+2
+3
+
+# Column is used casted
+query TT
+EXPLAIN SELECT column00::UTINYINT FROM '$__TEST_DIR__/cast_pushdown.vortex';
+----
+<!REGEX>:.*PROJECTION.*
+
+query I
+SELECT DISTINCT column00::UTINYINT FROM '$__TEST_DIR__/cast_pushdown.vortex' ORDER BY 1;
+----
+1
+2
+3
+
+# Column is used casted and uncasted
+query TT
+EXPLAIN (FORMAT json)
+SELECT column00, column00::UTINYINT FROM '$__TEST_DIR__/cast_pushdown.vortex';
+----
+<REGEX>:.*PROJECTION.*

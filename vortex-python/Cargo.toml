@@ -35,6 +35,7 @@ arrow-schema = { workspace = true }
 async-lock = { workspace = true }
 bytes = { workspace = true }
 futures = { workspace = true }
+glob = { workspace = true }
 itertools = { workspace = true }
 log = { workspace = true }
 memmap2 = { workspace = true }

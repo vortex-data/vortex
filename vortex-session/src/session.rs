@@ -11,13 +11,13 @@
 //!   read never takes a lock, it can never deadlock, and because it never holds a lock across the
 //!   returned reference there is no reader/writer contention.
 //!
-//! * **Writes** ([`VortexSession::with_some`], [`SessionExt::get`] on a missing default) are
-//!   copy-on-write: the map is cloned, the change applied to the private copy, and the new map
-//!   atomically published. The value is constructed *before* the map is updated, so no user code
-//!   (in particular, no `Default::default` implementation) ever runs while a lock is held. This is
-//!   the key difference from the previous `DashMap`-backed session, where
-//!   `entry().or_insert_with(f)` ran `f` while holding the shard's write lock and could deadlock if
-//!   `f` re-entered the session.
+//! * **Writes** ([`VortexSession::with_some`], and [`SessionExt::get`] or
+//!   [`SessionExt::get_or_insert_with`] on a missing variable) are copy-on-write: the map is cloned,
+//!   the change applied to the private copy, and the new map atomically published. The value is
+//!   constructed *before* the map is updated, so no user code (in particular, no `Default::default`
+//!   implementation or initializer closure) ever runs while a lock is held. This is the key
+//!   difference from the previous `DashMap`-backed session, where `entry().or_insert_with(f)` ran
+//!   `f` while holding the shard's write lock and could deadlock if `f` re-entered the session.
 //!
 //! A modified session is produced by mutating it **in place**: [`VortexSession::with_some`] — and
 //! the configuration `with_*` helpers built on it — apply their change copy-on-write to the shared
@@ -176,23 +176,14 @@ impl VortexSession {
         Self(SharedSessionVars::default())
     }
 
-    /// Inserts `V::default()` if no variable of type `V` is present yet, copy-on-write.
+    /// Inserts a session variable of type `V`, unconditionally replacing any existing variable of
+    /// that type.
     ///
-    /// The default is constructed *before* the map is updated, so `V::default()` never runs under a
-    /// lock and is never run more than once — it may therefore freely re-enter the session (read or
-    /// even register other variables) without risk of deadlock. If a concurrent writer published a
-    /// value first, that value is kept and the prebuilt default is simply dropped.
-    fn insert_default<V: VortexSessionVar + Default>(&self) {
-        let default: Arc<dyn VortexSessionVar> = Arc::new(V::default());
-        self.0.insert_if_absent(TypeId::of::<V>(), default);
-    }
-
-    /// Inserts a session variable of type `V`, replacing any existing variable of that type.
-    ///
-    /// This is the copy-on-write insert primitive behind [`with_some`](Self::with_some) and
-    /// [`get_mut`](SessionExt::get_mut); it is not public, so a variable can only enter the type-map
-    /// through those (or through a default inserted by [`get`](SessionExt::get)). The mutation is
-    /// applied in place to the shared backing store, so it is visible through every clone.
+    /// [`SessionMut`] uses this copy-on-write primitive on drop, while
+    /// [`with_some`](Self::with_some) and [`get_or_insert_with`](SessionExt::get_or_insert_with)
+    /// use [`ArcSwapMap::insert_if_absent`](crate::arc_swap_map::ArcSwapMap::insert_if_absent) so
+    /// that a first registration cannot overwrite another. The mutation is applied in place to the
+    /// shared backing store, so it is visible through every clone.
     pub fn register<V: VortexSessionVar>(&self, var: V) {
         self.0.insert(TypeId::of::<V>(), Arc::new(var));
     }
@@ -220,13 +211,12 @@ impl VortexSession {
     ///
     /// If a variable of that type already exists.
     pub fn with_some<V: VortexSessionVar>(self, var: V) -> Self {
-        if self.get_opt::<V>().is_some() {
+        if !self.0.insert_if_absent(TypeId::of::<V>(), Arc::new(var)) {
             vortex_panic!(
                 "Session variable of type {} already exists",
                 type_name::<V>()
             );
         }
-        self.register(var);
         self
     }
 
@@ -250,11 +240,24 @@ impl SessionExt for VortexSession {
     }
 
     fn get<V: VortexSessionVar + Default>(&self) -> SessionGuard<'_, V> {
-        if self.get_opt::<V>().is_none() {
-            self.insert_default::<V>();
+        self.get_or_insert_with(V::default)
+    }
+
+    fn get_or_insert_with<V: VortexSessionVar>(
+        &self,
+        init: impl FnOnce() -> V,
+    ) -> SessionGuard<'_, V> {
+        if let Some(var) = self.get_opt::<V>() {
+            return var;
         }
+
+        // NB: `init` runs before the map is updated, never inside it, because it may re-enter the
+        // session. If a concurrent writer published a value first, that value is kept.
+        let var: Arc<dyn VortexSessionVar> = Arc::new(init());
+        self.0.insert_if_absent(TypeId::of::<V>(), var);
+
         self.get_opt::<V>()
-            .vortex_expect("variable was just inserted")
+            .vortex_expect("a variable of type `V` is present after `insert_if_absent`")
     }
 
     fn get_opt<V: VortexSessionVar>(&self) -> Option<SessionGuard<'_, V>> {
@@ -280,6 +283,10 @@ impl SessionExt for VortexSession {
 #[cfg(test)]
 mod tests {
     use std::any::Any;
+    use std::panic::AssertUnwindSafe;
+    use std::panic::catch_unwind;
+    use std::sync::Barrier;
+    use std::thread;
 
     use super::VortexSession;
     use crate::SessionExt;
@@ -365,6 +372,19 @@ mod tests {
         assert_eq!(session.get::<Counter>().count, 0);
         // The default was published, so it is now observable.
         assert!(session.get_opt::<Counter>().is_some());
+    }
+
+    #[test]
+    fn get_or_insert_with_inserts_only_when_absent() {
+        let session = VortexSession::empty();
+
+        assert_eq!(session.get_or_insert_with(|| Counter { count: 3 }).count, 3);
+        assert_eq!(
+            session
+                .get_or_insert_with::<Counter>(|| panic!("the variable is already present"))
+                .count,
+            3
+        );
     }
 
     #[test]
@@ -499,5 +519,46 @@ mod tests {
 
         // The mutated value is published copy-on-write to the shared backing store.
         assert_eq!(clone.get::<Counter>().count, 9);
+    }
+
+    #[test]
+    fn concurrent_with_some_same_type_allows_only_one_winner() {
+        for _ in 0..200 {
+            let session = VortexSession::empty();
+            let clone_a = session.clone();
+            let clone_b = session.clone();
+            let barrier = Barrier::new(2);
+
+            let (res_a, res_b) = thread::scope(|s| {
+                let h_a = s.spawn(|| {
+                    barrier.wait();
+                    catch_unwind(AssertUnwindSafe(|| clone_a.with_some(Counter { count: 1 })))
+                });
+                let h_b = s.spawn(|| {
+                    barrier.wait();
+                    catch_unwind(AssertUnwindSafe(|| clone_b.with_some(Counter { count: 2 })))
+                });
+                (h_a.join().unwrap(), h_b.join().unwrap())
+            });
+
+            let (winner, loser, expected) = match (res_a, res_b) {
+                (Ok(winner), Err(panic)) => (winner, panic, 1),
+                (Err(panic), Ok(winner)) => (winner, panic, 2),
+                (Ok(_), Ok(_)) => {
+                    panic!("both concurrent with_some calls succeeded for same type")
+                }
+                (Err(_), Err(_)) => {
+                    panic!("both concurrent with_some calls panicked for same type")
+                }
+            };
+            let msg = loser
+                .downcast_ref::<String>()
+                .map(String::as_str)
+                .or_else(|| loser.downcast_ref::<&str>().copied())
+                .unwrap_or("");
+            assert!(msg.contains("already exists"), "unexpected panic: {msg}");
+            assert_eq!(winner.get::<Counter>().count, expected);
+            assert_eq!(session.get::<Counter>().count, expected);
+        }
     }
 }

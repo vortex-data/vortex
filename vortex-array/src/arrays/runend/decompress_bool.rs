@@ -18,7 +18,7 @@ use crate::arrays::BoolArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::bool::BoolArrayExt;
-use crate::arrays::runend::iter::trimmed_ends_iter;
+use crate::arrays::runend::iter::slice_relative_ends;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::match_each_unsigned_integer_ptype;
@@ -74,7 +74,7 @@ pub fn runend_decode_bools(
 
     Ok(match_each_unsigned_integer_ptype!(ends.ptype(), |E| {
         runend_decode_typed_bool(
-            trimmed_ends_iter(ends.as_slice::<E>(), offset, length),
+            slice_relative_ends(ends.as_slice::<E>(), offset, length),
             &values_buf,
             validity,
             nullability,
@@ -112,7 +112,7 @@ pub fn runend_decode_typed_bool(
 }
 
 /// Fast path for few runs with no offset. Uses direct slice access to minimize overhead.
-/// This avoids the `trimmed_ends_iter` iterator chain which adds significant overhead
+/// This avoids the `slice_relative_ends` iterator chain which adds significant overhead
 /// for small numbers of runs.
 #[allow(clippy::inline_always)]
 #[inline(always)]

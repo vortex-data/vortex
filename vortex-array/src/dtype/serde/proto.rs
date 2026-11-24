@@ -761,6 +761,10 @@ mod tests {
         };
         assert_eq!(ext.id().as_ref(), "vortex.test.foreign_ext");
         assert_eq!(ext.serialize_metadata().unwrap(), vec![1, 2, 3]);
+        assert_eq!(
+            ext.storage_dtype(),
+            &DType::Primitive(PType::I32, Nullability::NonNullable)
+        );
 
         let roundtrip = pb::DType::try_from(&dtype).unwrap();
         let DtypeType::Extension(roundtrip_ext) = roundtrip.dtype_type.unwrap() else {

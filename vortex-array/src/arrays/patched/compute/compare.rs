@@ -15,6 +15,7 @@ use crate::arrays::BoolArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::Patched;
 use crate::arrays::PrimitiveArray;
+use crate::arrays::bool::BoolArraySlotsExt;
 use crate::arrays::bool::BoolDataParts;
 use crate::arrays::patched::PatchedArrayExt;
 use crate::arrays::patched::PatchedArraySlotsExt;
@@ -22,8 +23,8 @@ use crate::arrays::primitive::NativeValue;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::NativePType;
 use crate::match_each_native_ptype;
-use crate::scalar_fn::fns::binary::CompareKernel;
-use crate::scalar_fn::fns::operators::CompareOperator;
+use crate::scalar_fn::builtin::binary::CompareKernel;
+use crate::scalar_fn::builtin::operators::CompareOperator;
 
 impl CompareKernel for Patched {
     fn compare(
@@ -53,7 +54,7 @@ impl CompareKernel for Patched {
             .execute::<Canonical>(ctx)?
             .into_bool();
 
-        let validity = child_to_validity(result.slots()[0].as_ref(), result.dtype().nullability());
+        let validity = child_to_validity(result.validity_child(), result.dtype().nullability());
         let len = result.len();
         let BoolDataParts { bits, meta } = result.into_data().into_parts(len);
 
@@ -175,8 +176,8 @@ mod tests {
     use crate::assert_arrays_eq;
     use crate::optimizer::ArrayOptimizer;
     use crate::patches::Patches;
-    use crate::scalar_fn::fns::binary::CompareKernel;
-    use crate::scalar_fn::fns::operators::CompareOperator;
+    use crate::scalar_fn::builtin::binary::CompareKernel;
+    use crate::scalar_fn::builtin::operators::CompareOperator;
     use crate::validity::Validity;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
@@ -234,7 +235,12 @@ mod tests {
 
         let lhs = Patched::from_array_and_patches(lhs, &patches, &mut ctx).unwrap();
         // Slice the array so that the first patch should be skipped.
-        let lhs_ref = lhs.into_array().slice(10..512).unwrap().optimize().unwrap();
+        let lhs_ref = lhs
+            .into_array()
+            .slice(10..512)
+            .unwrap()
+            .optimize_ctx(&SESSION)
+            .unwrap();
         let lhs = lhs_ref.try_downcast::<Patched>().unwrap();
 
         assert_eq!(lhs.len(), 502);

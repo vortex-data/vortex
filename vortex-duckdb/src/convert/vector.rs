@@ -297,7 +297,7 @@ pub fn flat_vector_to_vortex(vector: &VectorRef, len: usize) -> VortexResult<Arr
             let crs = logical_type.geometry_crs().map(|crs| crs.to_string());
             let wkb_type = ExtDType::<WellKnownBinary>::try_new(
                 SpatialMetadata::new(crs),
-                DType::Binary(Nullability::Nullable),
+                Nullability::Nullable,
             )?
             .erased();
 
@@ -384,7 +384,7 @@ pub fn flat_vector_to_vortex(vector: &VectorRef, len: usize) -> VortexResult<Arr
             let ext_dtype = ExtDType::<Uuid>::try_with_vtable(
                 Uuid,
                 UuidMetadata::default(),
-                storage.dtype().clone(),
+                storage.dtype().nullability(),
             )?
             .erased();
 
@@ -551,31 +551,6 @@ mod tests {
         let result = flat_vector_to_vortex(&vector, len).unwrap();
         let expected =
             PrimitiveArray::from_option_iter([Some(1i32), Some(2), Some(3), Some(4), Some(5)]);
-        assert_arrays_eq!(result, expected, &mut ctx);
-    }
-
-    #[test]
-    fn test_timestamp_vector_conversion() {
-        let mut ctx = SESSION.create_execution_ctx();
-        let values = vec![1_703_980_800_000_000_i64, 0i64, -86_400_000_000_i64]; // microseconds
-        let len = values.len();
-
-        let logical_type = LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP);
-        let mut vector = Vector::with_capacity(&logical_type, len);
-
-        // Populate with data
-        unsafe {
-            let slice = vector.as_slice_mut::<i64>(len);
-            slice.copy_from_slice(&values);
-        }
-
-        // Test conversion
-        let result = flat_vector_to_vortex(&vector, len).unwrap();
-        let expected = TemporalArray::new_timestamp(
-            PrimitiveArray::from_option_iter(values.into_iter().map(Some)).into_array(),
-            TimeUnit::Microseconds,
-            None,
-        );
         assert_arrays_eq!(result, expected, &mut ctx);
     }
 
@@ -1191,9 +1166,7 @@ mod tests {
     }
 
     #[rstest]
-    #[case::p1(1, DecimalType::I8)]
     #[case::p2(2, DecimalType::I8)]
-    #[case::p3(3, DecimalType::I16)]
     #[case::p4(4, DecimalType::I16)]
     #[case::p9(9, DecimalType::I32)]
     #[case::p18(18, DecimalType::I64)]

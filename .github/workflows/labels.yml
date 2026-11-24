@@ -35,6 +35,7 @@ jobs:
         run: |
           REQUIRED_LABELS=(
             "changelog/break"
+            "changelog/edition"
             "changelog/deprecation"
             "changelog/feature"
             "changelog/performance"

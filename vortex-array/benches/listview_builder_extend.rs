@@ -22,6 +22,7 @@ use vortex_array::dtype::Nullability::Nullable;
 use vortex_array::dtype::PType::I32;
 use vortex_array::memory::MemorySession;
 use vortex_array::optimizer::kernels::KernelSession;
+use vortex_array::test_harness::mark_optimized;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_session::VortexSession;
@@ -88,13 +89,13 @@ fn extend_from_array_zctl(bencher: Bencher, (num_lists, list_size): (usize, usiz
         make_listview(num_lists, list_size, list_size, false).with_zero_copy_to_list(true)
     };
     let source = source.into_array();
+    mark_optimized(&source, &SESSION).unwrap();
 
     bencher.with_inputs(|| &source).bench_refs(|source| {
         let mut ctx = SESSION.create_execution_ctx();
         let mut builder = ListViewBuilder::<u64, u64>::with_capacity_in(
             Arc::new(DType::Primitive(I32, NonNullable)),
             NonNullable,
-            num_lists * list_size,
             num_lists,
             ctx.allocator(),
         );
@@ -112,13 +113,13 @@ fn extend_from_array_non_zctl_overlapping(
     let source = make_listview(num_lists, list_size, 1, true);
     debug_assert!(!source.is_zero_copy_to_list());
     let source = source.into_array();
+    mark_optimized(&source, &SESSION).unwrap();
 
     bencher.with_inputs(|| &source).bench_refs(|source| {
         let mut ctx = SESSION.create_execution_ctx();
         let mut builder = ListViewBuilder::<u64, u64>::with_capacity_in(
             Arc::new(DType::Primitive(I32, NonNullable)),
             Nullable,
-            num_lists * list_size,
             num_lists,
             ctx.allocator(),
         );

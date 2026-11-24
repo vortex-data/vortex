@@ -11,6 +11,7 @@
 mod dict;
 
 pub use dict::BinaryDictScheme;
+pub use dict::DecimalDictScheme;
 pub use dict::FloatDictScheme;
 pub use dict::IntDictScheme;
 pub use dict::StringDictScheme;

@@ -111,11 +111,18 @@ pub mod expr {
     //! Expression trees, their optimizer, and the analyses and rewrites built on them.
     pub use vortex_array::expr::*;
     pub use vortex_expr::*;
+    pub use vortex_functions::expr::*;
 
     /// Statistics, stat expressions, and statistics-based pruning rewrites.
     pub mod stats {
         pub use vortex_array::expr::stats::*;
         pub use vortex_expr::stats::*;
+    }
+
+    /// Constructors for expressions whose children have already been bound and type-checked.
+    pub mod bound {
+        pub use vortex_array::expr::bound::*;
+        pub use vortex_functions::expr::bound::*;
     }
 }
 use vortex_array::memory::MemorySession;
@@ -125,6 +132,7 @@ use vortex_array::scalar_fn::session::ScalarFnSession;
 use vortex_array::session::ArraySession;
 use vortex_btrblocks::CompressionSession;
 use vortex_expr::stats::session::StatsSession;
+pub use vortex_functions as functions;
 use vortex_io::session::RuntimeSession;
 use vortex_layout::session::LayoutSession;
 use vortex_session::VortexSession;
@@ -272,6 +280,11 @@ pub mod encodings {
         pub use vortex_decimal_byte_parts::*;
     }
 
+    /// Elias-Fano and unary integer encodings.
+    pub mod elias_fano {
+        pub use vortex_elias_fano::*;
+    }
+
     /// FastLanes integer encodings: bit-packing, delta, frame-of-reference, and RLE.
     pub mod fastlanes {
         pub use vortex_fastlanes::*;
@@ -346,10 +359,11 @@ impl VortexSessionDefault for VortexSession {
             .with::<MemorySession>()
             .with::<CompressionSession>()
             .with::<RuntimeSession>();
-        vortex_arrow::initialize(&session);
+        vortex_functions::initialize(&session);
         #[cfg(feature = "parquet-variant")]
         vortex_parquet_variant::initialize(&session);
         vortex_uuid::initialize(&session);
+        vortex_elias_fano::initialize(&session);
         editions::register_default_editions(&session);
         editions::enable_default_editions(&session);
 
@@ -616,6 +630,7 @@ mod test {
         use vortex_array::dtype::extension::ExtVTable;
         use vortex_array::dtype::session::DTypeSessionExt;
         use vortex_arrow::ArrowSessionExt;
+        use vortex_arrow::ExecuteArrowExt;
         use vortex_uuid::Uuid;
 
         let session = VortexSession::default();
@@ -634,7 +649,7 @@ mod test {
         assert!(array.dtype().as_extension().is::<Uuid>());
 
         let mut ctx = session.create_execution_ctx();
-        let exported = session.arrow().execute_arrow(array, None, &mut ctx)?;
+        let exported = array.execute_arrow(None, &mut ctx)?;
         let fsb = exported.as_fixed_size_binary();
         assert_eq!(fsb.len(), 2);
         assert_eq!(fsb.value(0), b"0123456789abcdef");

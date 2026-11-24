@@ -25,6 +25,7 @@ use vortex_array::assert_arrays_eq;
 use vortex_array::compute::conformance::consistency::test_array_consistency;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::Nullability;
+use vortex_array::optimizer::ArrayOptimizer;
 use vortex_array::scalar::Scalar;
 use vortex_array::session::ArraySessionExt;
 use vortex_array::smallvec::smallvec;
@@ -146,14 +147,20 @@ fn consistency(#[case] arrays: VortexResult<(FoRArray, PrimitiveArray)>) -> Vort
 fn slice_keeps_chunk_alignment(#[case] start: usize, #[case] end: usize) -> VortexResult<()> {
     let mut ctx = SESSION.create_execution_ctx();
     let (array, expected) = unsigned()?;
-    let sliced = array.into_array().slice(start..end)?;
+    let sliced = array
+        .into_array()
+        .slice(start..end)?
+        .optimize_ctx(&*SESSION)?;
     assert_arrays_eq!(sliced, expected.into_array().slice(start..end)?, &mut ctx);
 
     if let Some(sliced) = sliced.as_opt::<FoR>() {
         assert_eq!(usize::from(sliced.offset()), start % FL_CHUNK_SIZE);
         // Slicing a slice composes offsets.
         let len = end - start;
-        let inner: ArrayRef = sliced.array().slice(len / 3..len)?;
+        let inner: ArrayRef = sliced
+            .array()
+            .slice(len / 3..len)?
+            .optimize_ctx(&*SESSION)?;
         let expected = unsigned()?.1.into_array().slice(start + len / 3..end)?;
         assert_arrays_eq!(inner, expected, &mut ctx);
     }
@@ -168,7 +175,10 @@ fn global_reference_survives_slicing() -> VortexResult<()> {
     )?;
     assert_eq!(global(&array)?, 7u32.into());
     assert!(array.blocked_references().is_none());
-    let sliced = array.into_array().slice(1500..1600)?;
+    let sliced = array
+        .into_array()
+        .slice(1500..1600)?
+        .optimize_ctx(&SESSION)?;
     assert_eq!(global(&sliced.as_::<FoR>().into_owned())?, 7u32.into());
     Ok(())
 }
@@ -335,7 +345,10 @@ fn fused_decode_sliced(
 ) -> VortexResult<()> {
     let mut ctx = SESSION.create_execution_ctx();
     let (array, expected) = fused(bit_width, signed)?;
-    let sliced = array.into_array().slice(start..end)?;
+    let sliced = array
+        .into_array()
+        .slice(start..end)?
+        .optimize_ctx(&SESSION)?;
     let sliced_for = sliced.as_::<FoR>();
     // A BitPacked child with patches slices lazily, which takes the unfused path.
     assert_eq!(sliced_for.encoded().is::<BitPacked>(), bit_width == 3);

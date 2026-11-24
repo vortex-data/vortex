@@ -11,6 +11,7 @@
 //!    `FFI_ArrowArrayStream` that Java imports via Arrow's C Data Interface.
 
 use std::io::Cursor;
+use std::num::NonZeroUsize;
 use std::ops::Range;
 use std::ptr;
 use std::sync::Arc;
@@ -27,12 +28,14 @@ use jni::objects::JByteArray;
 use jni::objects::JClass;
 use jni::objects::JLongArray;
 use jni::sys::jboolean;
+use jni::sys::jint;
 use jni::sys::jlong;
 use vortex::array::VortexSessionExecute;
 use vortex::array::stream::SendableArrayStream;
 use vortex::buffer::Buffer;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
+use vortex::error::vortex_err;
 use vortex::expr::Expression;
 use vortex::expr::root;
 use vortex::expr::stats::Precision;
@@ -45,6 +48,7 @@ use vortex::scan::ScanRequest;
 use vortex::scan::selection::Selection;
 use vortex::scan::strict_sorted_buffer::StrictSortedBuffer;
 use vortex_arrow::ArrowSessionExt;
+use vortex_arrow::ExecuteArrowExt;
 
 use crate::POOL;
 use crate::RUNTIME;
@@ -55,17 +59,21 @@ use crate::session::session_ref;
 
 /// Opaque scan handle. Holds a three-state machine: either the scan is pending (not yet
 /// realized as a stream), actively streaming partitions, or finished.
+///
+/// The scan's `split_concurrency`, if set, also bounds how many of each partition's arrays are
+/// converted to Arrow ahead of Java, so the conversion stays within the scan's bound.
 #[allow(dead_code)]
 pub(crate) enum NativeScan {
-    Pending(Box<dyn DataSourceScan>),
-    Started(PartitionStream),
+    Pending(Box<dyn DataSourceScan>, Option<NonZeroUsize>),
+    Started(PartitionStream, Option<NonZeroUsize>),
     Finished,
 }
 
-/// Opaque partition handle with the same three-state machine shape.
+/// Opaque partition handle with the same three-state machine shape, carrying its scan's
+/// `split_concurrency`.
 #[allow(dead_code)]
 pub(crate) enum NativePartition {
-    Pending(PartitionRef),
+    Pending(PartitionRef, Option<NonZeroUsize>),
     Started(SendableArrayStream),
     Finished,
 }
@@ -74,13 +82,17 @@ pub(crate) enum NativePartition {
 fn build_scan_request(
     projection_ptr: jlong,
     filter_ptr: jlong,
+    has_row_range_begin: jboolean,
     row_range_begin: jlong,
+    has_row_range_end: jboolean,
     row_range_end: jlong,
     selection_idx: &[u64],
     selection_roaring_bitmap: &[u8],
     selection_include: u8,
+    has_limit: jboolean,
     limit: jlong,
     ordered: jboolean,
+    split_concurrency: jint,
 ) -> VortexResult<ScanRequest> {
     let projection = if projection_ptr == 0 {
         root()
@@ -107,12 +119,38 @@ fn build_scan_request(
         other => vortex_bail!("unknown selection include code: {other}"),
     };
 
-    let row_range = (row_range_begin > 0 || row_range_end > 0).then_some(Range {
-        start: row_range_begin as u64,
-        end: row_range_end as u64,
-    });
+    let row_range_begin = has_row_range_begin
+        .then(|| {
+            u64::try_from(row_range_begin).map_err(|_| {
+                vortex_err!("row range begin must not be negative, got {row_range_begin}")
+            })
+        })
+        .transpose()?;
+    let row_range_end = has_row_range_end
+        .then(|| {
+            u64::try_from(row_range_end)
+                .map_err(|_| vortex_err!("row range end must not be negative, got {row_range_end}"))
+        })
+        .transpose()?;
+    let row_range = match (row_range_begin, row_range_end) {
+        (None, None) => None,
+        (Some(start), Some(end)) => Some(Range { start, end }),
+        (Some(start), None) => Some(Range {
+            start,
+            end: u64::MAX,
+        }),
+        (None, Some(end)) => Some(Range { start: 0, end }),
+    };
 
-    let limit = (limit > 0).then_some(limit as u64);
+    let limit = has_limit
+        .then(|| {
+            u64::try_from(limit).map_err(|_| vortex_err!("limit must not be negative, got {limit}"))
+        })
+        .transpose()?;
+    let split_concurrency =
+        NonZeroUsize::new(usize::try_from(split_concurrency).map_err(|_| {
+            vortex_err!("split concurrency must not be negative, got {split_concurrency}")
+        })?);
 
     Ok(ScanRequest {
         projection,
@@ -123,6 +161,7 @@ fn build_scan_request(
         limit,
         partition_selection: Selection::All,
         partition_range: None,
+        split_concurrency,
     })
 }
 
@@ -142,13 +181,17 @@ pub extern "system" fn Java_dev_vortex_jni_NativeScan_create(
     data_source_ptr: jlong,
     projection_ptr: jlong,
     filter_ptr: jlong,
+    has_row_range_begin: jboolean,
     row_range_begin: jlong,
+    has_row_range_end: jboolean,
     row_range_end: jlong,
     selection_indices: JLongArray,
     selection_roaring_bitmap: JByteArray,
     selection_include: jni::sys::jbyte,
+    has_limit: jboolean,
     limit: jlong,
     ordered: jboolean,
+    split_concurrency: jint,
 ) -> jlong {
     try_or_throw(&mut env, |env| {
         let ds = unsafe { NativeDataSource::from_ptr(data_source_ptr) };
@@ -178,17 +221,22 @@ pub extern "system" fn Java_dev_vortex_jni_NativeScan_create(
         let request = build_scan_request(
             projection_ptr,
             filter_ptr,
+            has_row_range_begin,
             row_range_begin,
+            has_row_range_end,
             row_range_end,
             &selection_idx,
             &selection_roaring_bitmap,
             selection_include as u8,
+            has_limit,
             limit,
             ordered,
+            split_concurrency,
         )?;
 
+        let split_concurrency = request.split_concurrency;
         let scan = RUNTIME.block_on(async { ds.inner().scan(request).await })?;
-        Ok(Box::into_raw(Box::new(NativeScan::Pending(scan))) as jlong)
+        Ok(Box::into_raw(Box::new(NativeScan::Pending(scan, split_concurrency))) as jlong)
     })
 }
 
@@ -219,7 +267,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeScan_arrowSchema(
         }
         let session = unsafe { session_ref(session_ptr) };
         let scan = unsafe { &*(pointer as *const NativeScan) };
-        let NativeScan::Pending(scan) = scan else {
+        let NativeScan::Pending(scan, _) = scan else {
             throw_runtime!("schema unavailable: scan already started");
         };
         let arrow_schema = session.arrow().to_arrow_schema(scan.dtype())?;
@@ -241,7 +289,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeScan_partitionCount(
 ) {
     try_or_throw(&mut env, |env| {
         let scan = unsafe { &*(pointer as *const NativeScan) };
-        let NativeScan::Pending(scan) = scan else {
+        let NativeScan::Pending(scan, _) = scan else {
             throw_runtime!("partition count unavailable: scan already started");
         };
         let (rows, cardinality) = match scan.partition_count() {
@@ -271,17 +319,20 @@ pub extern "system" fn Java_dev_vortex_jni_NativeScan_nextPartition(
         // only rewrite it on the happy path where we want to keep streaming.
         ptr::write(slot, NativeScan::Finished);
 
-        let mut stream = match owned {
-            NativeScan::Pending(scan) => scan.partitions(),
-            NativeScan::Started(stream) => stream,
+        let (mut stream, split_concurrency) = match owned {
+            NativeScan::Pending(scan, split_concurrency) => (scan.partitions(), split_concurrency),
+            NativeScan::Started(stream, split_concurrency) => (stream, split_concurrency),
             NativeScan::Finished => return Ok(0),
         };
 
         match RUNTIME.block_on(stream.next()) {
             Some(partition) => {
                 let partition = partition?;
-                let handle = Box::into_raw(Box::new(NativePartition::Pending(partition))) as jlong;
-                ptr::write(slot, NativeScan::Started(stream));
+                let handle = Box::into_raw(Box::new(NativePartition::Pending(
+                    partition,
+                    split_concurrency,
+                ))) as jlong;
+                ptr::write(slot, NativeScan::Started(stream, split_concurrency));
                 Ok(handle)
             }
             None => Ok(0),
@@ -311,7 +362,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativePartition_rowCount(
 ) {
     try_or_throw(&mut env, |env| {
         let partition = unsafe { &*(pointer as *const NativePartition) };
-        let NativePartition::Pending(partition) = partition else {
+        let NativePartition::Pending(partition, _) = partition else {
             throw_runtime!("row count unavailable: partition already started");
         };
         let (rows, cardinality) = match partition.row_count() {
@@ -346,40 +397,43 @@ pub extern "system" fn Java_dev_vortex_jni_NativePartition_scanArrow(
             throw_runtime!("null arrow stream address");
         }
 
-        let partition = match partition {
-            NativePartition::Pending(p) => p,
+        let (partition, split_concurrency) = match partition {
+            NativePartition::Pending(p, split_concurrency) => (p, split_concurrency),
             _ => throw_runtime!("partition already consumed"),
         };
+        let lookahead = split_concurrency
+            .map_or(usize::MAX, NonZeroUsize::get)
+            .min(POOL.worker_count().max(1));
 
         let array_stream = partition.execute()?;
         let dtype = array_stream.dtype().clone();
 
-        let session = unsafe { session_ref(session_ptr) };
+        let session = unsafe { session_ref(session_ptr) }.clone();
         let schema = Arc::new(session.arrow().to_arrow_schema(&dtype)?);
         let target = Arc::new(Field::new_struct("", schema.fields().clone(), false));
 
-        let iter = RUNTIME
-            .block_on_stream_thread_safe(|handle| {
-                array_stream
-                    .map(move |chunk| {
-                        let session = session.clone();
-                        let target = Arc::clone(&target);
-                        handle.spawn(async move {
-                            let chunk = chunk?;
-                            let mut ctx = session.create_execution_ctx();
-                            let arrow = session.arrow().execute_arrow(
-                                chunk,
-                                Some(target.as_ref()),
-                                &mut ctx,
-                            )?;
-                            rebase_offsets(RecordBatch::from(arrow.as_struct().clone()))
-                        })
-                    })
-                    .buffered(POOL.worker_count().max(1))
+        let handle = RUNTIME.handle();
+        let batches = array_stream
+            .map(move |chunk| {
+                let session = session.clone();
+                let target = Arc::clone(&target);
+                handle.spawn(async move {
+                    let chunk = chunk?;
+                    let mut ctx = session.create_execution_ctx();
+                    let arrow = chunk.execute_arrow(Some(target.as_ref()), &mut ctx)?;
+                    rebase_offsets(RecordBatch::from(arrow.as_struct().clone()))
+                })
             })
-            .map(|result: VortexResult<RecordBatch>| {
-                result.map_err(|e| ArrowError::ExternalError(Box::new(e)))
-            });
+            .buffered(lookahead);
+
+        // Each JNI stream has a single consumer, so keep only one completed batch ahead of Java
+        // rather than the per-core queue of `block_on_stream_thread_safe`.
+        let iter =
+            RUNTIME
+                .block_on_stream_prefetch(batches)
+                .map(|result: VortexResult<RecordBatch>| {
+                    result.map_err(|e| ArrowError::ExternalError(Box::new(e)))
+                });
 
         let reader = RecordBatchIteratorAdapter::new(iter, schema);
         let arrow_stream = FFI_ArrowArrayStream::new(Box::new(reader));
@@ -388,4 +442,85 @@ pub extern "system" fn Java_dev_vortex_jni_NativePartition_scanArrow(
         }
         Ok(())
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+    use std::sync::atomic::AtomicUsize;
+    use std::sync::atomic::Ordering;
+
+    use futures::StreamExt;
+    use futures::stream;
+    use rstest::rstest;
+    use vortex::io::runtime::BlockingRuntime;
+    use vortex::io::runtime::current::CurrentThreadRuntime;
+
+    #[rstest]
+    #[case(1)]
+    #[case(2)]
+    fn split_concurrency_bounds_completed_batches_ahead_of_the_consumer(#[case] max: usize) {
+        let runtime = CurrentThreadRuntime::new();
+        let pool = runtime.new_pool();
+        pool.set_workers(2);
+        let completed = Arc::new(AtomicUsize::new(0));
+        let counter = Arc::clone(&completed);
+        let handle = runtime.handle();
+        let batches = stream::iter(0..16)
+            .map(move |value| {
+                let counter = Arc::clone(&counter);
+                handle.spawn(async move {
+                    counter.fetch_add(1, Ordering::SeqCst);
+                    value
+                })
+            })
+            .buffered(max);
+        let mut iter = runtime.block_on_stream_prefetch(batches);
+        assert_eq!(iter.next(), Some(0));
+
+        // Let background work finish while the consumer keeps its first batch open.
+        runtime.block_on(async {
+            for _ in 0..64 {
+                runtime.handle().spawn(async {}).await;
+            }
+        });
+        assert!(
+            completed.load(Ordering::SeqCst) <= max + 1,
+            "completed batches escaped the conversion lookahead bound"
+        );
+
+        assert_eq!(iter.collect::<Vec<_>>(), (1..16).collect::<Vec<_>>());
+    }
+
+    #[rstest]
+    #[case(None, None, Some(0), None, Some(0))]
+    #[case(None, Some(0), None, Some(0..0), None)]
+    #[case(Some(0), None, None, Some(0..u64::MAX), None)]
+    #[case(Some(1), None, None, Some(1..u64::MAX), None)]
+    fn build_scan_request_preserves_option_presence(
+        #[case] begin: Option<i64>,
+        #[case] end: Option<i64>,
+        #[case] limit: Option<i64>,
+        #[case] expected_range: Option<std::ops::Range<u64>>,
+        #[case] expected_limit: Option<u64>,
+    ) -> vortex::error::VortexResult<()> {
+        let request = super::build_scan_request(
+            0,
+            0,
+            begin.is_some(),
+            begin.unwrap_or(99),
+            end.is_some(),
+            end.unwrap_or(99),
+            &[],
+            &[],
+            0,
+            limit.is_some(),
+            limit.unwrap_or(99),
+            false,
+            0,
+        )?;
+        assert_eq!(request.row_range, expected_range);
+        assert_eq!(request.limit, expected_limit);
+        Ok(())
+    }
 }

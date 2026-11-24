@@ -18,27 +18,35 @@ public final class NativeScan {
      * @param dataSourcePointer pointer from {@link NativeDataSource#open}
      * @param projectionPointer native expression pointer, or 0 for "all columns"
      * @param filterPointer native filter expression pointer, or 0 for "no filter"
-     * @param rowRangeBegin inclusive start of the row range, 0 for "unbounded"
-     * @param rowRangeEnd exclusive end of the row range, 0 for "unbounded"
+     * @param hasRowRangeBegin whether {@code rowRangeBegin} is set
+     * @param rowRangeBegin inclusive start of the row range; ignored when {@code hasRowRangeBegin} is {@code false}
+     * @param hasRowRangeEnd whether {@code rowRangeEnd} is set
+     * @param rowRangeEnd exclusive end of the row range; ignored when {@code hasRowRangeEnd} is {@code false}
      * @param selectionIndices sorted row indices; may be null
      * @param selectionRoaringBitmap portable serialized Roaring64 bitmap; may be null
      * @param selectionInclude {@code 0} (all), {@code 1} (include {@code selectionIndices}), {@code 2} (exclude
      *     {@code selectionIndices}), {@code 3} (include {@code selectionRoaringBitmap}), {@code 4} (exclude
      *     {@code selectionRoaringBitmap})
-     * @param limit max rows to return, or {@code 0} for "no limit"
+     * @param hasLimit whether {@code limit} is set
+     * @param limit max rows to return; ignored when {@code hasLimit} is {@code false}
      * @param ordered true to preserve row order across partitions
+     * @param splitConcurrency the most splits of each partition read at once, or {@code 0} for the native default
      */
     public static native long create(
             long dataSourcePointer,
             long projectionPointer,
             long filterPointer,
+            boolean hasRowRangeBegin,
             long rowRangeBegin,
+            boolean hasRowRangeEnd,
             long rowRangeEnd,
             long[] selectionIndices,
             byte[] selectionRoaringBitmap,
             byte selectionInclude,
+            boolean hasLimit,
             long limit,
-            boolean ordered);
+            boolean ordered,
+            int splitConcurrency);
 
     /** Free a scan pointer. */
     public static native void free(long pointer);

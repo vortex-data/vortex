@@ -1,0 +1,44 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+include ../setup.slt.no
+
+# first/any_value over a pushed fn; single row to stay deterministic
+
+statement ok
+CREATE TABLE t5o(s VARCHAR);
+
+statement ok
+INSERT INTO t5o VALUES ('aa');
+
+statement ok
+COPY t5o TO '${WORK_DIR}/c5o.vortex';
+
+query II
+SELECT first(strlen(s)), any_value(strlen(s)) FROM t5o;
+----
+2 2
+
+query II
+SELECT first(strlen(s)), any_value(strlen(s)) FROM '${WORK_DIR}/c5o.vortex';
+----
+2 2
+
+statement ok
+CREATE TABLE t5n(s VARCHAR);
+
+statement ok
+INSERT INTO t5n VALUES ('7'), ('123');
+
+statement ok
+COPY t5n TO '${WORK_DIR}/c5n.vortex';
+
+query I
+SELECT min(strlen(s)) FROM t5n;
+----
+1
+
+query I
+SELECT min(strlen(s)) FROM '${WORK_DIR}/c5n.vortex';
+----
+1

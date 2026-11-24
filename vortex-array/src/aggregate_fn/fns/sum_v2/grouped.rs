@@ -101,7 +101,7 @@ fn grouped_sum(
             let values = elements.as_slice::<T>();
             collect_sums::<T, f64>(
                 values, group_ranges, group_validity, &elem_mask, all_valid,
-                |acc, slice| { sum_float_all(acc, slice, skip_nans); false })
+                |acc, slice| sum_float_all(acc, slice, skip_nans))
         }
     );
 

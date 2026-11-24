@@ -168,11 +168,10 @@ This controls how many splits are processed concurrently.
 Core dependencies:
 
 - `vortex-array`: Core array types and operations (includes expression evaluation framework)
-- `vortex-layout`: Layout reader abstraction
+- `vortex-expr`: Expression analysis and rewrites
+- `vortex-io`: Byte requests and runtime abstractions
 - `futures`: Async runtime abstractions
-- `arrow-array` (optional): Arrow integration
+- `vortex-session`: Shared execution context
 
-## Feature Flags
+Arrow output adapters live in `vortex-arrow`, which depends on `vortex-scan`.
 
-- `default`: Standard features for most use cases
-- `roaring`: Support for Roaring bitmap selections

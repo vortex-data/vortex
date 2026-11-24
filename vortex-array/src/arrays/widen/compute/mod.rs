@@ -12,14 +12,13 @@
 //! needs the min and max of each operand, which come from cached statistics or from one scan of the
 //! operand. That scan is the one hidden cost in this module.
 //!
-//! [`AggregateFnSession::default`] registers the aggregate kernel, not
-//! [`initialize`](super::initialize), because the kernel session runs `initialize` on a temporary
-//! session and drops its aggregate registry.
+//! [`AggregateFnSession::default`] registers the aggregate kernel, not the `Widen` encoding's
+//! `initialize`, because the kernel session runs `initialize` on a temporary session and drops its
+//! aggregate registry.
 //!
 //! [`AggregateFnSession::default`]: crate::aggregate_fn::session::AggregateFnSession::default
 
 pub(crate) mod aggregate;
-mod between;
 mod cast;
 mod compare;
 mod fill_null;
@@ -29,8 +28,8 @@ pub(crate) mod numeric;
 pub(crate) mod rules;
 mod slice;
 mod take;
-mod zip;
 
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;
@@ -40,7 +39,6 @@ use crate::arrays::ConstantArray;
 use crate::arrays::Widen;
 use crate::arrays::WidenArray;
 use crate::arrays::widen::WidenArraySlotsExt;
-use crate::arrays::widen::encode::integer_value;
 use crate::arrays::widen::encode::smallest_integer_ptype;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
@@ -53,7 +51,7 @@ use crate::scalar::Scalar;
 /// `dtype` **must** have the nullability of `values`, because the values hold the validity of the
 /// `Widen`. A mask, a fill null or a take with nullable indices can change the nullability of the
 /// values, so those callers take the nullability of the result.
-pub(super) fn wrap_values(values: ArrayRef, dtype: DType) -> VortexResult<ArrayRef> {
+pub fn wrap_values(values: ArrayRef, dtype: DType) -> VortexResult<ArrayRef> {
     if values.dtype() == &dtype {
         return Ok(values);
     }
@@ -66,69 +64,77 @@ pub(super) fn wrap_values(values: ArrayRef, dtype: DType) -> VortexResult<ArrayR
 ///
 /// A null `scalar` keeps the type of the values. Returns `None` when `scalar` does not have the
 /// logical dtype, or when the values or the logical dtype is not an integer (a decimal `Widen`).
-pub(super) fn ptype_holding_values_and_scalar(
+pub fn ptype_holding_values_and_scalar(
     array: ArrayView<'_, Widen>,
     scalar: &Scalar,
-) -> VortexResult<Option<PType>> {
+) -> Option<PType> {
     let (DType::Primitive(values_ptype, _), DType::Primitive(logical_ptype, _)) =
         (array.values().dtype(), array.dtype())
     else {
-        return Ok(None);
+        return None;
     };
     if !scalar.dtype().eq_ignore_nullability(array.dtype()) {
-        return Ok(None);
+        return None;
     }
     if scalar.is_null() {
-        return Ok(Some(*values_ptype));
+        return Some(*values_ptype);
     }
 
-    let value = integer_value(scalar)?;
-    let Some(scalar_ptype) = smallest_integer_ptype(value..=value, logical_ptype.is_signed_int())
-    else {
-        return Ok(None);
-    };
+    let value = scalar
+        .as_primitive()
+        .pvalue()
+        .and_then(PValue::as_i128)
+        .vortex_expect("the non-null scalar has the Widen's integer dtype");
+    let scalar_ptype = smallest_integer_ptype(value..=value, logical_ptype.is_signed_int())?;
 
     if scalar_ptype.byte_width() > values_ptype.byte_width() {
-        Ok(Some(scalar_ptype))
+        Some(scalar_ptype)
     } else {
-        Ok(Some(*values_ptype))
+        Some(*values_ptype)
     }
 }
 
 /// Casts the integer array `array` to `ptype`, keeping its nullability.
-pub(super) fn cast_keeping_nullability(array: &ArrayRef, ptype: PType) -> VortexResult<ArrayRef> {
+pub fn cast_keeping_nullability(array: &ArrayRef, ptype: PType) -> VortexResult<ArrayRef> {
     array.cast(DType::Primitive(ptype, array.dtype().nullability()))
 }
 
-/// Returns whether the range of the integer dtype `values` holds `constant`.
+/// Returns whether the dtype range of `values` holds `constant`.
 ///
-/// Returns `None` when `values` is not an integer dtype, when `constant` is null, and when
-/// `constant` is not an integer with the signedness of `values`.
-pub(super) fn constant_fits_values(constant: &Scalar, values: &DType) -> Option<bool> {
-    let DType::Primitive(ptype, _) = values else {
-        return None;
-    };
-    let value = constant.as_primitive_opt()?.pvalue()?;
+/// Integers must have the same signedness, and decimals must have the same scale. Returns `None`
+/// for null constants, unsupported dtypes, or incompatible constants.
+pub fn constant_fits_values(constant: &Scalar, values: &DType) -> Option<bool> {
+    match (values, constant.dtype()) {
+        (DType::Decimal(values_dtype, _), DType::Decimal(constant_dtype, _))
+            if values_dtype.scale() == constant_dtype.scale() =>
+        {
+            let value = constant.as_decimal().decimal_value()?;
 
-    // `PValue` compares an integer with another value through `i64` or `u64`, and it panics when
-    // the other value does not convert. So only integers of the same signedness compare here.
-    let value_ptype = value.ptype();
-    if !ptype.is_int() || !value_ptype.is_int() {
-        return None;
-    }
-    if ptype.is_signed_int() != value_ptype.is_signed_int() {
-        return None;
-    }
+            Some(value.fits_in_precision(*values_dtype))
+        }
+        (DType::Primitive(values_ptype, _), DType::Primitive(constant_ptype, _))
+            if values_ptype.is_int()
+                && constant_ptype.is_int()
+                && values_ptype.is_signed_int() == constant_ptype.is_signed_int() =>
+        {
+            // `PValue` compares through `i64` or `u64`, so the signedness must match.
+            let value = constant.as_primitive().pvalue()?;
 
-    Some(PValue::min_value(*ptype) <= value && value <= PValue::max_value(*ptype))
+            Some(
+                PValue::min_value(*values_ptype) <= value
+                    && value <= PValue::max_value(*values_ptype),
+            )
+        }
+        _ => None,
+    }
 }
 
 /// Returns the wider of the value types of two [`Widen`] arrays, or `None` when a value type is
 /// not primitive.
 ///
-/// The logical dtypes **must** have the same signedness, which a debug build asserts. The value
-/// types then have that signedness too, so the wider one holds every value of the narrower one.
-pub(super) fn ptype_holding_both_values(
+/// The logical dtypes **must** have the same signedness. The value types then have that signedness
+/// too, so the wider one holds every value of the narrower one.
+pub fn ptype_holding_both_values(
     lhs: ArrayView<'_, Widen>,
     rhs: ArrayView<'_, Widen>,
 ) -> Option<PType> {
@@ -147,7 +153,7 @@ pub(super) fn ptype_holding_both_values(
 
 /// Returns `constant`, which **must** fit the type of `values`, as a constant array of that type
 /// with the nullability of `constant`.
-pub(super) fn constant_in_values_ptype(
+pub fn constant_in_values_dtype(
     constant: &Scalar,
     values: &ArrayRef,
     len: usize,

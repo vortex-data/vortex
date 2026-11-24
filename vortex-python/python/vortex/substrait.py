@@ -5,6 +5,7 @@ import operator
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Literal
 
+import pyarrow as pa
 from google.protobuf.internal.containers import RepeatedCompositeFieldContainer
 
 if TYPE_CHECKING:
@@ -31,6 +32,8 @@ else:
 
 from ._lib import dtype as _dtype
 from ._lib import expr as _expr
+from ._lib.arrays import Array
+from ._lib.scalar import Scalar
 
 ExtensionTypes = dict[int, str]
 TypeVariations = dict[int, str]
@@ -86,20 +89,29 @@ def _literal_value(
             return (_dtype.binary(nullable=False), substrait_object.binary)
         case "timestamp":
             # The unit here is from the substrait definition
-            return (_dtype.timestamp(unit="us", nullable=False), substrait_object.timestamp)
+            return (
+                _dtype.timestamp(unit="us", nullable=False),
+                _temporal_scalar(substrait_object.timestamp, pa.timestamp("us")),
+            )
         case "precision_timestamp":
             unit = _precision_to_unit("precision_timestamp", substrait_object.precision_timestamp.precision)
-
-            return (_dtype.timestamp(unit=unit, nullable=False), substrait_object.precision_timestamp.value)
+            return (
+                _dtype.timestamp(unit=unit, nullable=False),
+                _temporal_scalar(substrait_object.precision_timestamp.value, pa.timestamp(unit)),
+            )
         case "date":
             # The unit here is from the substrait definition
-            return (_dtype.date(unit="days", nullable=False), substrait_object.date)
+            return (_dtype.date(unit="days", nullable=False), _temporal_scalar(substrait_object.date, pa.date32()))
         case "time":
             # The unit here is from the substrait definition
-            return (_dtype.time(unit="us", nullable=False), substrait_object.time)
+            return (_dtype.time(unit="us", nullable=False), _temporal_scalar(substrait_object.time, pa.time64("us")))
         case "precision_time":
             unit = _precision_to_unit("precision_time", substrait_object.precision_time.precision)
-            return (_dtype.time(unit=unit, nullable=False), substrait_object.precision_time.value)
+            arrow_type = pa.time32(unit) if unit in ("s", "ms") else pa.time64(unit)
+            return (
+                _dtype.time(unit=unit, nullable=False),
+                _temporal_scalar(substrait_object.precision_time.value, arrow_type),
+            )
         case "null":
             return (
                 _type_to_dtype(
@@ -144,6 +156,14 @@ def _literal_value(
             raise NotImplementedError
         case literal_type:
             raise ValueError(f"unknown literal_type {literal_type}")
+
+
+def _temporal_scalar(value: int, arrow_type: pa.DataType) -> Scalar:
+    """The temporal scalar of ``value``, a count of the units of ``arrow_type``.
+
+    Vortex does not cast an integer to a temporal dtype, so Arrow builds the value.
+    """
+    return Array.from_arrow(pa.array([value], type=arrow_type)).scalar_at(0)
 
 
 def _type_to_dtype(
