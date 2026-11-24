@@ -52,7 +52,23 @@ the common writers are different:
 - `tpchgen-cli`: writes Snappy by default. Use `parquet --compression='ZSTD(3)'`.
 
 Benchmarks that compare Parquet codecs on purpose, such as the compress-bench `--gpu-parquet-codec`
-option, are exempt.
+option and the Snappy Parquet whose size compress-bench and TPC-DS at SF1 record
+(`parquet-snappy`), are exempt.
+
+## Parquet layout
+
+All Parquet the benchmarks generate uses the same writer settings, `parquet_writer_properties` in
+`src/utils/parquet.rs`: zstd level 3, 64 KiB dictionaries, a page index, and pages of at most 1 MiB
+and about 20,000 rows. Only the row groups differ. TPC-H, TPC-DS, nested TPC-H, JOB, Polar Signals,
+and SpatialBench write Parquet in row groups of 122,880 rows, DuckDB's default. In our tests, these
+smaller row groups were faster from local disk, because they give the query engines more units of
+work to run in parallel. The benchmarks that read from S3 use row groups of 1,048,576 rows,
+parquet-rs's default, which need fewer requests to object storage. Pass `--opt
+row-group-rows=1048576` to `data-gen` to generate data for S3. The file `parquet.layout`, beside the
+`parquet` directory, records the layout of its files: the row groups, and a version of the other
+writer settings. `data-gen` removes and generates again Parquet whose layout is different or not
+recorded, and the formats converted from it. SpatialBench keeps its `zone` files, which come from
+outside, and writes the rest again.
 
 ## Memory allocators
 

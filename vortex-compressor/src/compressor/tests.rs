@@ -5,6 +5,7 @@ use std::sync::Arc;
 use std::sync::LazyLock;
 
 use parking_lot::Mutex;
+use rstest::rstest;
 use vortex_array::ArrayId;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
@@ -63,6 +64,7 @@ use crate::scheme::EstimateScore;
 use crate::scheme::EstimateVerdict;
 use crate::scheme::Scheme;
 use crate::scheme::SchemeExt;
+use crate::scheme::SchemeId;
 use crate::stats::ArrayAndStats;
 use crate::stats::GenerateStatsOptions;
 
@@ -376,6 +378,80 @@ impl Scheme for FiniteSamplingScheme {
     }
 }
 
+/// An `AlwaysUse` default that samples to a finite ratio by writing a single byte.
+#[derive(Debug)]
+struct SampledAlwaysUseScheme;
+
+impl Scheme for SampledAlwaysUseScheme {
+    fn scheme_name(&self) -> &'static str {
+        "test.sampled_always_use"
+    }
+
+    fn matches(&self, canonical: &Canonical) -> bool {
+        matches_integer_primitive(canonical)
+    }
+
+    fn produced_encodings(&self) -> Vec<ArrayId> {
+        Vec::new()
+    }
+
+    fn expected_compression_ratio(
+        &self,
+        _data: &ArrayAndStats,
+        _compress_ctx: CompressorContext,
+        _exec_ctx: &mut ExecutionCtx,
+    ) -> CompressionEstimate {
+        CompressionEstimate::Verdict(EstimateVerdict::AlwaysUse)
+    }
+
+    fn compress(
+        &self,
+        _compressor: &CascadingCompressor,
+        _data: &ArrayAndStats,
+        _compress_ctx: CompressorContext,
+        _exec_ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        Ok(PrimitiveArray::new(buffer![0u8], Validity::NonNullable).into_array())
+    }
+}
+
+/// An `AlwaysUse` default whose samples compress to zero bytes, as samples of only nulls do.
+#[derive(Debug)]
+struct ZeroBytesAlwaysUseScheme;
+
+impl Scheme for ZeroBytesAlwaysUseScheme {
+    fn scheme_name(&self) -> &'static str {
+        "test.zero_bytes_always_use"
+    }
+
+    fn matches(&self, canonical: &Canonical) -> bool {
+        matches_integer_primitive(canonical)
+    }
+
+    fn produced_encodings(&self) -> Vec<ArrayId> {
+        Vec::new()
+    }
+
+    fn expected_compression_ratio(
+        &self,
+        _data: &ArrayAndStats,
+        _compress_ctx: CompressorContext,
+        _exec_ctx: &mut ExecutionCtx,
+    ) -> CompressionEstimate {
+        CompressionEstimate::Verdict(EstimateVerdict::AlwaysUse)
+    }
+
+    fn compress(
+        &self,
+        _compressor: &CascadingCompressor,
+        data: &ArrayAndStats,
+        _compress_ctx: CompressorContext,
+        _exec_ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        Ok(NullArray::new(data.array().len()).into_array())
+    }
+}
+
 /// Promises a ratio it does not deliver: its output is the input.
 #[derive(Debug)]
 struct OverpromisingScheme;
@@ -508,10 +584,11 @@ fn test_no_exclusion_without_history() {
     assert!(!c.is_excluded(&IntDictScheme, &ctx));
 }
 
+/// Without other candidates, the default wins without being sampled: its `compress` panics.
 #[test]
-fn immediate_always_use_wins_immediately() -> VortexResult<()> {
-    let compressor = CascadingCompressor::new(vec![&DirectRatioScheme, &ImmediateAlwaysUseScheme]);
-    let schemes: [&'static dyn Scheme; 2] = [&DirectRatioScheme, &ImmediateAlwaysUseScheme];
+fn always_use_wins_immediately_without_competitors() -> VortexResult<()> {
+    let compressor = CascadingCompressor::new(vec![&ImmediateAlwaysUseScheme]);
+    let schemes: [&'static dyn Scheme; 1] = [&ImmediateAlwaysUseScheme];
     let data = estimate_test_data();
     let mut exec_ctx = SESSION.create_execution_ctx();
 
@@ -522,6 +599,50 @@ fn immediate_always_use_wins_immediately() -> VortexResult<()> {
         winner,
         Some((scheme, WinnerEstimate::AlwaysUse))
             if scheme.id() == ImmediateAlwaysUseScheme.id()
+    ));
+    Ok(())
+}
+
+/// The default competes on a sample, and a candidate with a better estimate beats it.
+#[rstest]
+#[case::default_wins(&DirectRatioScheme, SampledAlwaysUseScheme.id())]
+#[case::candidate_wins(&HugeRatioScheme, HugeRatioScheme.id())]
+fn always_use_default_competes_with_candidates(
+    #[case] candidate: &'static dyn Scheme,
+    #[case] expected: SchemeId,
+) -> VortexResult<()> {
+    let compressor = CascadingCompressor::new(vec![candidate, &SampledAlwaysUseScheme]);
+    let schemes: [&'static dyn Scheme; 2] = [candidate, &SampledAlwaysUseScheme];
+    let data = estimate_test_data();
+    let mut exec_ctx = SESSION.create_execution_ctx();
+
+    let winner =
+        compressor.choose_best_scheme(&schemes, &data, CompressorContext::new(), &mut exec_ctx)?;
+
+    assert!(matches!(
+        winner,
+        Some((scheme, WinnerEstimate::Score(_))) if scheme.id() == expected
+    ));
+    Ok(())
+}
+
+/// When no candidate has a valid estimate, e.g. every sample holds only nulls, the default is
+/// chosen rather than no scheme.
+#[test]
+fn always_use_default_is_chosen_without_valid_estimates() -> VortexResult<()> {
+    let compressor =
+        CascadingCompressor::new(vec![&ZeroBytesSamplingScheme, &ZeroBytesAlwaysUseScheme]);
+    let schemes: [&'static dyn Scheme; 2] = [&ZeroBytesSamplingScheme, &ZeroBytesAlwaysUseScheme];
+    let data = estimate_test_data();
+    let mut exec_ctx = SESSION.create_execution_ctx();
+
+    let winner =
+        compressor.choose_best_scheme(&schemes, &data, CompressorContext::new(), &mut exec_ctx)?;
+
+    assert!(matches!(
+        winner,
+        Some((scheme, WinnerEstimate::AlwaysUse))
+            if scheme.id() == ZeroBytesAlwaysUseScheme.id()
     ));
     Ok(())
 }
@@ -844,7 +965,7 @@ fn all_null_sample_gives_no_estimate() -> VortexResult<()> {
     let score = estimate_compression_ratio_with_sampling(
         &compressor,
         &FiniteSamplingScheme,
-        &array,
+        &ArrayAndStats::new(array, GenerateStatsOptions::default()),
         CompressorContext::new(),
         &mut exec_ctx,
     )?;
@@ -921,11 +1042,107 @@ fn sampling_uses_scheme_stats_options() -> VortexResult<()> {
     let score = estimate_compression_ratio_with_sampling(
         &compressor,
         &FloatDictScheme,
-        &array,
+        &ArrayAndStats::new(array, GenerateStatsOptions::default()),
         ctx,
         &mut exec_ctx,
     )?;
     assert!(matches!(score, EstimateScore::FiniteCompression(ratio) if ratio.is_finite()));
+    Ok(())
+}
+
+/// Compresses every `i32` row to one byte, after a table of [`FixedTableScheme::TABLE_NBYTES`]
+/// bytes that stays the same size however many rows there are.
+#[derive(Debug)]
+struct FixedTableScheme;
+
+impl FixedTableScheme {
+    const TABLE_NBYTES: usize = 4096;
+}
+
+impl Scheme for FixedTableScheme {
+    fn scheme_name(&self) -> &'static str {
+        "test.fixed_table"
+    }
+
+    fn matches(&self, canonical: &Canonical) -> bool {
+        matches_integer_primitive(canonical)
+    }
+
+    fn produced_encodings(&self) -> Vec<ArrayId> {
+        Vec::new()
+    }
+
+    fn fixed_nbytes(&self, _compressed: &ArrayRef) -> u64 {
+        Self::TABLE_NBYTES as u64
+    }
+
+    fn expected_compression_ratio(
+        &self,
+        _data: &ArrayAndStats,
+        _compress_ctx: CompressorContext,
+        _exec_ctx: &mut ExecutionCtx,
+    ) -> CompressionEstimate {
+        CompressionEstimate::Deferred(DeferredEstimate::Sample)
+    }
+
+    fn compress(
+        &self,
+        _compressor: &CascadingCompressor,
+        data: &ArrayAndStats,
+        _compress_ctx: CompressorContext,
+        _exec_ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        let nbytes = Self::TABLE_NBYTES + data.array().len();
+        Ok(PrimitiveArray::new(
+            Buffer::from_iter(std::iter::repeat_n(0u8, nbytes)),
+            Validity::NonNullable,
+        )
+        .into_array())
+    }
+}
+
+/// A sample pays for a fixed-size table in full, which would rank [`FixedTableScheme`] below the
+/// canonical encoding (4096 bytes in, 5120 out) although it shrinks the full array almost 4x.
+#[test]
+fn sampling_amortizes_fixed_nbytes_over_the_full_array() -> VortexResult<()> {
+    let array =
+        PrimitiveArray::new(Buffer::from_iter(0..102_400i32), Validity::NonNullable).into_array();
+    let compressor = CascadingCompressor::new(vec![&FixedTableScheme]);
+    let mut exec_ctx = SESSION.create_execution_ctx();
+
+    let score = estimate_compression_ratio_with_sampling(
+        &compressor,
+        &FixedTableScheme,
+        &ArrayAndStats::new(array, GenerateStatsOptions::default()),
+        CompressorContext::new(),
+        &mut exec_ctx,
+    )?;
+
+    // The 1024 sampled rows are 1% of the array, so they carry 1% of the table, rounded up.
+    assert_eq!(score, EstimateScore::from_sample_sizes(4 * 1024, 1024 + 41));
+    Ok(())
+}
+
+/// An array that is compressed whole has nothing to amortize the table over.
+#[test]
+fn sampling_charges_fixed_nbytes_in_full_without_subsampling() -> VortexResult<()> {
+    let array =
+        PrimitiveArray::new(Buffer::from_iter(0..8192i32), Validity::NonNullable).into_array();
+    let compressor = CascadingCompressor::new(vec![&FixedTableScheme]);
+    let mut exec_ctx = SESSION.create_execution_ctx();
+
+    let score = estimate_compression_ratio_with_sampling(
+        &compressor,
+        &FixedTableScheme,
+        &ArrayAndStats::new(array, GenerateStatsOptions::default()),
+        CompressorContext::new().with_sampling(),
+        &mut exec_ctx,
+    )?;
+
+    assert_eq!(
+        score,
+        EstimateScore::from_sample_sizes(4 * 8192, 4096 + 8192)
+    );
     Ok(())
 }
 
@@ -1076,6 +1293,7 @@ struct BytesExtension;
 
 impl ExtVTable for BytesExtension {
     type Metadata = u8;
+    type StoredMetadata = Self::Metadata;
     type NativeValue<'a> = &'a ScalarValue;
 
     #[expect(clippy::disallowed_methods, reason = "test-only id")]
@@ -1087,17 +1305,25 @@ impl ExtVTable for BytesExtension {
         Ok(vec![*metadata])
     }
 
-    fn deserialize_metadata(&self, metadata: &[u8]) -> VortexResult<u8> {
+    fn deserialize_metadata(&self, metadata: &[u8]) -> VortexResult<Self::StoredMetadata> {
         vortex_ensure!(metadata.len() == 1, "expected one metadata byte");
         Ok(metadata[0])
     }
 
-    fn validate_dtype(dtype: &ExtDType<Self>) -> VortexResult<()> {
-        vortex_ensure!(
-            matches!(dtype.storage_dtype(), DType::FixedSizeList(..)),
-            "expected fixed-size list storage"
-        );
-        Ok(())
+    fn metadata_from_storage(
+        &self,
+        stored_metadata: Self::StoredMetadata,
+        _storage_dtype: &DType,
+    ) -> VortexResult<Self::Metadata> {
+        Ok(stored_metadata)
+    }
+
+    fn storage_dtype(_metadata: &u8) -> DType {
+        DType::FixedSizeList(
+            Arc::new(DType::Primitive(PType::U64, Nullability::NonNullable)),
+            16,
+            Nullability::NonNullable,
+        )
     }
 
     fn unpack_native<'a>(
@@ -1125,7 +1351,7 @@ fn extension_with_lazy_storage_is_not_passed_through() -> VortexResult<()> {
     let chunked = ChunkedArray::try_new(chunks, elements_dtype)?.into_array();
     let elements = SliceArray::new(chunked, 16..2048).into_array();
     let storage = FixedSizeListArray::new(elements, 16, Validity::NonNullable, 127).into_array();
-    let dtype = ExtDType::<BytesExtension>::try_new(0, storage.dtype().clone())?.erased();
+    let dtype = ExtDType::<BytesExtension>::try_new(0, storage.dtype().nullability())?.erased();
     let array = ExtensionArray::new(dtype, storage).into_array();
     let mut exec_ctx = SESSION.create_execution_ctx();
 

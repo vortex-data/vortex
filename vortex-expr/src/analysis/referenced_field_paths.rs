@@ -9,8 +9,8 @@ use vortex_array::expr::traversal::FoldDownContext;
 use vortex_array::expr::traversal::FoldUp;
 use vortex_array::expr::traversal::NodeExt;
 use vortex_array::expr::traversal::NodeFolderContext;
-use vortex_array::scalar_fn::fns::get_item::GetItem;
-use vortex_array::scalar_fn::fns::select::Select;
+use vortex_array::scalar_fn::builtin::get_item::GetItem;
+use vortex_array::scalar_fn::builtin::select::Select;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 

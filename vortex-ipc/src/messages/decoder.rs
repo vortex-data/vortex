@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::fmt::Debug;
+use std::io;
 use std::sync::Arc;
 
 use bytes::Buf;
@@ -164,6 +165,21 @@ impl MessageDecoder {
             }
         }
     }
+
+    /// Check whether the decoder is at a clean end-of-input boundary.
+    ///
+    /// Returns `Ok(())` only when the decoder is waiting for a new message with no buffered
+    /// prefix bytes. Otherwise returns an [`io::ErrorKind::UnexpectedEof`] error.
+    pub(crate) fn finish_eof(&self, buffered_bytes: usize) -> VortexResult<()> {
+        match &self.state {
+            State::Length if buffered_bytes == 0 => Ok(()),
+            _ => Err(io::Error::new(
+                io::ErrorKind::UnexpectedEof,
+                format!("unexpected EOF inside an IPC message after {buffered_bytes} bytes"),
+            )
+            .into()),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -236,6 +252,7 @@ mod tests {
             buffer![-125i32, 50, 900],
             DecimalDType::new(9, 2),
             Validity::from_iter([true, false, true]),
+            &mut SESSION.create_execution_ctx(),
         );
         let dtype = DType::Decimal(DecimalDType::new(38, 2), Nullability::Nullable);
         let array = WidenArray::try_new(values.into_array(), dtype)?.into_array();

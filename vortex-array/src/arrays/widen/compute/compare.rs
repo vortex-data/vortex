@@ -20,9 +20,8 @@ use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::DecimalDType;
 use crate::scalar::Scalar;
-use crate::scalar_fn::fns::binary::CompareKernel;
-use crate::scalar_fn::fns::operators::CompareOperator;
-use crate::scalar_fn::fns::operators::Operator;
+use crate::scalar_fn::builtin::compare::CompareKernel;
+use crate::scalar_fn::builtin::operators::CompareOperator;
 
 impl CompareKernel for Widen {
     fn compare(
@@ -53,7 +52,7 @@ impl CompareKernel for Widen {
 
         let constant = constant_in_values_dtype(constant, values, lhs.len())?;
 
-        values.binary(constant, Operator::from(operator)).map(Some)
+        values.compare(constant, operator).map(Some)
     }
 }
 
@@ -93,9 +92,7 @@ fn compare_narrow_values(
     let lhs_values = lhs_values.cast(dtype.with_nullability(lhs_values.dtype().nullability()))?;
     let rhs_values = rhs_values.cast(dtype.with_nullability(rhs_values.dtype().nullability()))?;
 
-    lhs_values
-        .binary(rhs_values, Operator::from(operator))
-        .map(Some)
+    lhs_values.compare(rhs_values, operator).map(Some)
 }
 
 /// Answers a compare of `lhs` with a valid `constant` outside the range of its values.

@@ -47,12 +47,12 @@ pub trait RowFn: 'static + Sized + Clone + Send + Sync {
     /// The arguments in display order. Its length is the function's exact arity.
     const ARG_NAMES: &'static [&'static str];
 
-    /// Whether every row operation selected by [`dispatch`](Self::dispatch) is semantically
-    /// infallible.
+    /// Whether input decoding and the row operation are semantically infallible for every
+    /// signature selected by [`dispatch`](Self::dispatch).
     ///
-    /// Input decoding declares its fallibility independently through
-    /// [`InputElement::DECODE_INFALLIBLE`] and does not affect this flag. The framework checks
-    /// row-result fallibility. A conservative `false` is allowed.
+    /// A `true` declaration lets the optimizer evaluate unreferenced values. It requires
+    /// [`InputElement::DECODE_INFALLIBLE`] for every input and an infallible row result.
+    /// A conservative `false` is allowed.
     ///
     /// See [`ScalarFnVTable::is_infallible`] for the definition of semantic errors.
     ///

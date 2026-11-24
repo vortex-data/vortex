@@ -75,7 +75,7 @@ pub struct MapDataParts {
 }
 
 /// Accessors for the canonical map representation.
-pub trait MapArrayExt: MapArraySlotsExt {
+pub trait MapArrayExt: TypedArrayRef<Map> {
     /// Returns the entry structs for one map row.
     fn entries_at(&self, index: usize, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
         self.entries()

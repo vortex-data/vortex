@@ -36,19 +36,19 @@ use tracing::trace;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
-use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::List;
 use vortex_array::arrays::VarBin;
-use vortex_array::arrays::extension::ExtensionArrayExt;
 use vortex_array::arrays::list::ListArraySlotsExt;
 use vortex_array::arrays::varbin::VarBinArraySlotsExt;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::PType;
 use vortex_array::dtype::extension::ExtDTypeRef;
+use vortex_array::expr::root;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
+use vortex_functions::expr::ext_storage;
 use vortex_session::registry::Id;
 
 use crate::ArrowExport;
@@ -69,9 +69,7 @@ use crate::executor::struct_::to_arrow_struct;
 use crate::executor::temporal::to_arrow_date;
 use crate::executor::temporal::to_arrow_time;
 use crate::executor::temporal::to_arrow_timestamp;
-use crate::ext_metadata::decode_arrow_ext_metadata;
 use crate::session::ArrowSessionExt;
-use crate::session::ensure_ext_metadata;
 
 /// Execution of a Vortex array into an Arrow array, for every type that implements [`IntoArray`].
 ///
@@ -173,6 +171,12 @@ fn execute_arrow_array(
         }
     };
 
+    if let Some(target) = target
+        && let Some(ext_dtype) = array.dtype().as_extension_opt()
+    {
+        ensure_field_keeps_extension(ext_dtype, target, ctx)?;
+    }
+
     if let DataType::Dictionary(codes, values) = target_field.data_type() {
         let values_field = target_field.clone().with_data_type(values.as_ref().clone());
         return to_arrow_dictionary(array, codes, &values_field, options, ctx);
@@ -257,7 +261,58 @@ fn execute_arrow_extension(
         "unsupported Arrow extension type encountered, falling back to naive execution"
     );
 
+    // No plugin accepted the array and the name is not its Vortex ID, so only the Arrow type can
+    // still describe an extension array.
+    if let Some(ext_dtype) = current.dtype().as_extension_opt() {
+        ensure_data_type_keeps_extension(ext_dtype, target.data_type(), ctx)?;
+    }
+
     execute_arrow_naive(current, Some(target.data_type()), options, ctx)
+}
+
+/// Checks that exporting an array of the extension type `ext_dtype` to `target` keeps the type.
+///
+/// An extension array is unwrapped to its storage only on request: the caller applies
+/// [`ext_storage`] or names the Vortex ID of the type in `target`, which then records the type.
+/// A target without an extension name keeps the type only if its Arrow type imports as it, such
+/// as an Arrow timestamp for a [`Timestamp`](vortex_array::extension::datetime::Timestamp). A
+/// dictionary or run-end target keeps it if its values do.
+fn ensure_field_keeps_extension(
+    ext_dtype: &ExtDTypeRef,
+    target: &Field,
+    ctx: &ExecutionCtx,
+) -> VortexResult<()> {
+    match target.data_type() {
+        DataType::Dictionary(_, values) => ensure_field_keeps_extension(
+            ext_dtype,
+            &target.clone().with_data_type(values.as_ref().clone()),
+            ctx,
+        ),
+        DataType::RunEndEncoded(_, values) => ensure_field_keeps_extension(ext_dtype, values, ctx),
+        // The plugins and the Vortex ID export check a target that names an extension type.
+        _ if target.extension_type_name().is_some() => Ok(()),
+        data_type => ensure_data_type_keeps_extension(ext_dtype, data_type, ctx),
+    }
+}
+
+/// Checks that `data_type` imports as `ext_dtype`, so that an export to it keeps the type.
+fn ensure_data_type_keeps_extension(
+    ext_dtype: &ExtDTypeRef,
+    data_type: &DataType,
+    ctx: &ExecutionCtx,
+) -> VortexResult<()> {
+    let target_dtype = ctx
+        .session()
+        .arrow()
+        .from_arrow_datatype(data_type, ext_dtype.nullability())?;
+
+    vortex_ensure!(
+        target_dtype
+            .as_extension_opt()
+            .is_some_and(|target| target.eq_ignore_nullability(ext_dtype)),
+        "Cannot export {ext_dtype} to Arrow type {data_type}, which does not describe it. Export to the field from ArrowSession::to_arrow_field to keep the type, or apply ext_storage to export the storage."
+    );
+    Ok(())
 }
 
 /// Export `array`, whose type is `ext_dtype`, to `target`, whose extension name is the Vortex ID of
@@ -269,7 +324,9 @@ fn execute_arrow_ext_storage(
     options: &ArrowExportOptions,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrowArrayRef> {
-    ensure_ext_metadata(target, &decode_arrow_ext_metadata(target)?, ext_dtype)?;
+    ctx.session()
+        .arrow()
+        .ensure_ext_storage_metadata(ext_dtype, target)?;
 
     let target_dtype = ctx
         .session()
@@ -290,11 +347,7 @@ fn execute_arrow_ext_storage(
         target.data_type()
     );
 
-    let storage = array
-        .execute::<ExtensionArray>(ctx)?
-        .storage_array()
-        .clone();
-
+    let storage = array.apply(&ext_storage(root()))?;
     execute_arrow_naive(storage, Some(target.data_type()), options, ctx)
 }
 
@@ -302,9 +355,10 @@ fn execute_arrow_ext_storage(
 /// ignoring nullability, after every nested extension type is replaced by its storage type. The
 /// types at the top level are compared as they are.
 ///
-/// An explicit target may omit nested extension metadata or name an unregistered Vortex ID, so
-/// export compares its inferred type with the storage layout. Each nested field is checked when
-/// it is exported.
+/// A nested field of an explicit target can import as storage, for example when it names an
+/// unregistered Vortex ID or a plugin imports less than it exported, so export compares its
+/// inferred type with the storage layout. Each nested field is checked when it is exported, and
+/// one without extension metadata must have an Arrow type that imports as its extension type.
 fn eq_storage_layout(lhs: &DType, rhs: &DType) -> bool {
     match (lhs, rhs) {
         (DType::List(lhs, _), DType::List(rhs, _)) => eq_nested_storage_layout(lhs, rhs),
@@ -528,7 +582,9 @@ mod tests {
     use arrow_array::Int32Array;
     use arrow_array::Int64Array;
     use arrow_array::LargeStringArray;
+    use arrow_array::Time32SecondArray;
     use arrow_array::TimestampMicrosecondArray;
+    use arrow_array::TimestampMillisecondArray;
     use arrow_schema::DataType;
     use arrow_schema::Field;
     use arrow_schema::TimeUnit;
@@ -537,13 +593,129 @@ mod tests {
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::BoolArray;
+    use vortex_array::arrays::ConstantArray;
     use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::arrays::StructArray;
+    use vortex_array::arrays::TemporalArray;
     use vortex_array::arrays::VarBinViewArray;
+    use vortex_array::dtype::DType;
+    use vortex_array::dtype::Nullability;
+    use vortex_array::expr::root;
+    use vortex_array::extension::datetime::TimeUnit as VortexTimeUnit;
+    use vortex_array::extension::datetime::Timestamp;
+    use vortex_array::scalar::Scalar;
+    use vortex_error::VortexExpect;
+    use vortex_error::VortexResult;
+    use vortex_functions::expr::ext_storage;
     use vortex_session::VortexSession;
 
     use crate::ExecuteArrowExt;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
+    /// An export unwraps an extension array only on request, so a target without extension
+    /// metadata must describe the type, whatever the values or the nesting.
+    #[rstest]
+    #[case::storage(timestamps(), Field::new("ts", DataType::Int64, false))]
+    #[case::dictionary_of_storage(timestamps(), dictionary_field(DataType::Int64))]
+    #[case::null_dictionary_of_storage(null_timestamps(), dictionary_field(DataType::Int64))]
+    #[case::nested_storage(
+        StructArray::from_fields(&[("ts", timestamps())])
+            .vortex_expect("a struct of one field is valid")
+            .into_array(),
+        Field::new_struct("s", vec![Field::new("ts", DataType::Int64, false)], false),
+    )]
+    fn export_rejects_targets_that_drop_the_extension(
+        #[case] input: ArrayRef,
+        #[case] target: Field,
+    ) {
+        let error = input
+            .execute_arrow(Some(&target), &mut SESSION.create_execution_ctx())
+            .expect_err("the target does not describe the timestamp");
+        assert!(
+            error.to_string().contains("does not describe it"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn ext_storage_exports_timestamp_storage() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let target = Field::new("ts", DataType::Int64, false);
+
+        let exported = timestamps()
+            .apply(&ext_storage(root()))?
+            .execute_arrow(Some(&target), &mut ctx)?;
+
+        assert_eq!(
+            exported.to_data(),
+            Int64Array::from(vec![1_000, 2_000]).to_data(),
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn timestamp_exports_to_dictionary_of_timestamps() -> VortexResult<()> {
+        let target = dictionary_field(DataType::Timestamp(TimeUnit::Millisecond, None));
+
+        let exported =
+            timestamps().execute_arrow(Some(&target), &mut SESSION.create_execution_ctx())?;
+
+        assert_eq!(exported.data_type(), target.data_type());
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::date(
+        TemporalArray::new_date(primitive(), VortexTimeUnit::Days),
+        Arc::new(Date32Array::from(vec![1, 2])),
+    )]
+    #[case::time(
+        TemporalArray::new_time(primitive(), VortexTimeUnit::Seconds),
+        Arc::new(Time32SecondArray::from(vec![1, 2])),
+    )]
+    #[case::timestamp(
+        TemporalArray::new_timestamp(
+            PrimitiveArray::from_option_iter([Some(1_000i64), None, Some(2_000)]).into_array(),
+            VortexTimeUnit::Milliseconds,
+            Some("UTC".into()),
+        ),
+        Arc::new(
+            TimestampMillisecondArray::from(vec![Some(1_000), None, Some(2_000)])
+                .with_timezone("UTC"),
+        ),
+    )]
+    fn exports_native_temporals(
+        #[case] input: TemporalArray,
+        #[case] expected: ArrowArrayRef,
+    ) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let exported = input.execute_arrow(None, &mut ctx)?;
+        assert_eq!(exported.to_data(), expected.to_data());
+        Ok(())
+    }
+
+    fn timestamps() -> ArrayRef {
+        TemporalArray::new_timestamp(
+            PrimitiveArray::from_iter([1_000i64, 2_000]).into_array(),
+            VortexTimeUnit::Milliseconds,
+            None,
+        )
+        .into_array()
+    }
+
+    fn null_timestamps() -> ArrayRef {
+        let dtype = Timestamp::new(VortexTimeUnit::Milliseconds, Nullability::Nullable);
+        ConstantArray::new(Scalar::null(DType::Extension(dtype.erased())), 2).into_array()
+    }
+
+    fn dictionary_field(values: DataType) -> Field {
+        Field::new(
+            "ts",
+            DataType::Dictionary(Box::new(DataType::Int32), Box::new(values)),
+            true,
+        )
+    }
 
     fn utf8() -> ArrayRef {
         VarBinViewArray::from_iter_str(["a", "bb"]).into_array()

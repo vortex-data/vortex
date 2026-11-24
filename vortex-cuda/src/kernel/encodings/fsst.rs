@@ -116,7 +116,7 @@ impl CudaExecute for FSSTExecutor {
         }
 
         if validity.definitely_all_null() {
-            let views = ctx.copy_to_device(vec![0i128; fsst.len()])?.await?;
+            let views = ctx.copy_to_device(&vec![0i128; fsst.len()])?;
             return Ok(Canonical::VarBinView(unsafe {
                 VarBinViewArray::new_handle_unchecked(views, Arc::from([]), dtype, validity)
             }));
@@ -230,13 +230,11 @@ where
     } = codes_offsets.into_data_parts();
     let (validity_bit_offset, validity_bits) = cuda_validity(&validity, len, ctx).await?;
 
-    let (symbols, symbol_lengths, validity_device, codes_bytes, codes_offsets) = futures::try_join!(
-        ctx.copy_to_device(symbols_u64)?,
-        ctx.copy_to_device(symbol_lengths)?,
-        ctx.ensure_on_device(validity_bits),
-        ctx.ensure_on_device(codes_bytes_handle),
-        ctx.ensure_on_device(codes_offsets_buffer),
-    )?;
+    let symbols = ctx.copy_to_device(&symbols_u64)?;
+    let symbol_lengths = ctx.copy_to_device(&symbol_lengths)?;
+    let validity_device = ctx.ensure_on_device(validity_bits)?;
+    let codes_bytes = ctx.ensure_on_device(codes_bytes_handle)?;
+    let codes_offsets = ctx.ensure_on_device(codes_offsets_buffer)?;
 
     // The kernel gates store widths on `out_pos % N` relative to the base, so the base must
     // satisfy the widest store (u128 → 16).
@@ -300,7 +298,7 @@ where
     .vortex_expect("total_size fits in usize");
 
     if total_size == 0 {
-        let views = ctx.copy_to_device(vec![0i128; num_strings])?.await?;
+        let views = ctx.copy_to_device(&vec![0i128; num_strings])?;
         return Ok(Canonical::VarBinView(unsafe {
             VarBinViewArray::new_handle_unchecked(views, Arc::from([]), dtype, validity)
         }));
@@ -320,14 +318,12 @@ where
 
     let (validity_bit_offset, validity_bits) = cuda_validity(&validity, num_strings, ctx).await?;
 
-    let (symbols, symbol_lengths, output_offsets, validity_device, codes_bytes, codes_offsets) = futures::try_join!(
-        ctx.copy_to_device(symbols_u64)?,
-        ctx.copy_to_device(symbol_lengths)?,
-        ctx.copy_to_device(output_offsets)?,
-        ctx.ensure_on_device(validity_bits),
-        ctx.ensure_on_device(codes_bytes_handle),
-        ctx.ensure_on_device(codes_offsets_buffer),
-    )?;
+    let symbols = ctx.copy_to_device(&symbols_u64)?;
+    let symbol_lengths = ctx.copy_to_device(&symbol_lengths)?;
+    let output_offsets = ctx.copy_to_device(&output_offsets)?;
+    let validity_device = ctx.ensure_on_device(validity_bits)?;
+    let codes_bytes = ctx.ensure_on_device(codes_bytes_handle)?;
+    let codes_offsets = ctx.ensure_on_device(codes_offsets_buffer)?;
 
     // The kernel checks store alignment relative to the base via
     // `out_pos % N`, so the base must satisfy the widest store (u128 → 16).

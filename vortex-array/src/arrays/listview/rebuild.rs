@@ -29,8 +29,8 @@ use crate::dtype::PType;
 use crate::match_each_integer_ptype;
 use crate::match_each_unsigned_integer_ptype;
 use crate::optimizer::ArrayOptimizer;
+use crate::scalar::NumericOperator;
 use crate::scalar::Scalar;
-use crate::scalar_fn::fns::operators::Operator;
 use crate::validity::Validity;
 
 /// The widened offset type used for a rebuilt, zero-copy-to-list array.
@@ -450,9 +450,9 @@ impl ListViewArray {
 
             self.offsets()
                 .clone()
-                .binary(
+                .numeric(
                     ConstantArray::new(scalar, self.offsets().len()).into_array(),
-                    Operator::Sub,
+                    NumericOperator::Sub,
                 )
                 .vortex_expect("was somehow unable to adjust offsets down by their minimum")
         });
@@ -789,11 +789,7 @@ mod tests {
                 &mut ctx,
             )?;
             let rebuilt = list.compact(&mut ctx)?;
-            assert_arrays_eq!(
-                rebuilt.elements().clone(),
-                expected_elements.clone(),
-                &mut ctx
-            );
+            assert_arrays_eq!(rebuilt.elements().clone(), expected_elements, &mut ctx);
             assert_eq!(rebuilt.offsets().dtype(), list.offsets().dtype());
             assert_arrays_eq!(
                 rebuilt.offsets().cast(u32_dtype.clone())?,

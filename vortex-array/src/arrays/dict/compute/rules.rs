@@ -33,13 +33,11 @@ use crate::optimizer::kernels::ArrayKernelsExt;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ArrayReduceRule;
 use crate::optimizer::rules::ReduceRuleSet;
-use crate::scalar_fn::fns::cast::Cast;
-use crate::scalar_fn::fns::cast::CastReduceAdaptor;
-use crate::scalar_fn::fns::like::Like;
-use crate::scalar_fn::fns::like::LikeReduceAdaptor;
-use crate::scalar_fn::fns::mask::Mask as MaskFn;
-use crate::scalar_fn::fns::mask::MaskReduceAdaptor;
-use crate::scalar_fn::fns::pack::Pack;
+use crate::scalar_fn::builtin::cast::Cast;
+use crate::scalar_fn::builtin::cast::CastReduceAdaptor;
+use crate::scalar_fn::builtin::mask::Mask as MaskFn;
+use crate::scalar_fn::builtin::mask::MaskReduceAdaptor;
+use crate::scalar_fn::builtin::pack::Pack;
 use crate::validity::Validity;
 
 pub(crate) const RULES: ReduceRuleSet<Dict> = ReduceRuleSet::new(&[&DictConstantCodesRule]);
@@ -71,7 +69,6 @@ pub(crate) fn register_parent_rules(session: &VortexSession) {
     kernels.register_reduce_parent_rule(Filter, Dict, const { &FilterReduceAdaptor(Dict) });
     kernels.register_reduce_parent_rule(Cast, Dict, const { &CastReduceAdaptor(Dict) });
     kernels.register_reduce_parent_rule(MaskFn, Dict, const { &MaskReduceAdaptor(Dict) });
-    kernels.register_reduce_parent_rule(Like, Dict, const { &LikeReduceAdaptor(Dict) });
     kernels.register_reduce_parent_rule(
         Chunked,
         Dict,
@@ -268,6 +265,12 @@ impl ArrayParentReduceRule<Dict> for DictionaryScalarFnCodesPullUpRule {
             return Ok(None);
         }
 
+        // Pulling up the codes evaluates every dictionary value, including unreferenced entries
+        // on which a fallible function could fail even though no row would evaluate them.
+        if !array.has_all_values_referenced() && !parent.scalar_fn().signature().is_infallible() {
+            return Ok(None);
+        }
+
         // Check that all siblings are dictionaries, and have the same number of values as us.
         // This is a cheap first loop.
         if !parent.iter_children().enumerate().all(|(idx, c)| {
@@ -310,11 +313,13 @@ impl ArrayParentReduceRule<Dict> for DictionaryScalarFnCodesPullUpRule {
 mod tests {
     use std::sync::LazyLock;
 
+    use rstest::rstest;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
     use crate::ArrayRef;
+    use crate::Canonical;
     use crate::IntoArray;
     use crate::arrays::BoolArray;
     use crate::arrays::Chunked;
@@ -323,6 +328,7 @@ mod tests {
     use crate::arrays::Dict;
     use crate::arrays::DictArray;
     use crate::arrays::PrimitiveArray;
+    use crate::arrays::ScalarFnArray;
     use crate::arrays::chunked::ChunkedArrayExt;
     use crate::arrays::dict::DictArrayExt;
     use crate::arrays::dict::DictArraySlotsExt;
@@ -330,10 +336,14 @@ mod tests {
     use crate::dtype::Nullability;
     use crate::executor::VortexSessionExecute;
     use crate::optimizer::ArrayOptimizer;
+    use crate::scalar::NumericOperator;
     use crate::scalar::Scalar;
-    use crate::scalar_fn::fns::binary::Binary;
-    use crate::scalar_fn::fns::not::Not;
-    use crate::scalar_fn::fns::operators::Operator;
+    use crate::scalar_fn::builtin::boolean::Boolean;
+    use crate::scalar_fn::builtin::compare::Compare;
+    use crate::scalar_fn::builtin::not::Not;
+    use crate::scalar_fn::builtin::numeric::Numeric;
+    use crate::scalar_fn::builtin::operators::BooleanOperator;
+    use crate::scalar_fn::builtin::operators::CompareOperator;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
@@ -418,7 +428,7 @@ mod tests {
         let dict = DictArray::try_new(codes, values)?.into_array();
         let const_false =
             ConstantArray::new(Scalar::bool(false, Nullability::NonNullable), 3).into_array();
-        let expr = Binary::try_new(dict, const_false, Operator::And)?.into_array();
+        let expr = Boolean::try_new(dict, const_false, BooleanOperator::And)?.into_array();
 
         let mut ctx = SESSION.create_execution_ctx();
         // Kleene AND: null AND false == false
@@ -435,13 +445,92 @@ mod tests {
         let dict = DictArray::try_new(codes, values)?.into_array();
         let const_true =
             ConstantArray::new(Scalar::bool(true, Nullability::NonNullable), 3).into_array();
-        let expr = Binary::try_new(dict, const_true, Operator::Or)?.into_array();
+        let expr = Boolean::try_new(dict, const_true, BooleanOperator::Or)?.into_array();
 
         let mut ctx = SESSION.create_execution_ctx();
         // Kleene OR: null OR true == true
         let expected = BoolArray::from_iter([Some(true), Some(true), Some(true)]).into_array();
         let optimized = expr.optimize_ctx(&SESSION)?;
         assert_arrays_eq!(optimized, expected, &mut ctx);
+        Ok(())
+    }
+
+    /// Both slices share the codes `[1, 1, 1]`, so the codes pull-up divides the two values
+    /// arrays. The divisor still holds the unreferenced `0`, which no row divides by, so the
+    /// result must be `[8, 8, 8] / [2, 2, 2]`.
+    #[test]
+    fn codes_pull_up_skips_fallible_fn_over_unreferenced_values() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let dividend = DictArray::try_new(
+            buffer![0u8, 1, 1, 1].into_array(),
+            buffer![7i32, 8].into_array(),
+        )?
+        .into_array()
+        .slice(1..4)?
+        .optimize_ctx(&SESSION)?;
+        let divisor = DictArray::try_new(
+            buffer![0u8, 1, 1, 1].into_array(),
+            buffer![0i32, 2].into_array(),
+        )?
+        .into_array()
+        .slice(1..4)?
+        .optimize_ctx(&SESSION)?;
+        let expr = Numeric::try_new(dividend, divisor, NumericOperator::Div)?.into_array();
+
+        let quotient = expr
+            .optimize_ctx(&SESSION)?
+            .execute::<Canonical>(&mut ctx)?;
+
+        assert_arrays_eq!(quotient, PrimitiveArray::from_iter([4i32, 4, 4]), &mut ctx);
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::infallible(
+        false,
+        |lhs, rhs| Compare::try_new(lhs, rhs, CompareOperator::Eq),
+        BoolArray::from_iter([false, true, false, true]).into_array()
+    )]
+    #[case::all_values_referenced(
+        true,
+        |lhs, rhs| Numeric::try_new(lhs, rhs, NumericOperator::Div),
+        buffer![4i32, 1, 4, 1].into_array()
+    )]
+    fn codes_pull_up_preserves_safe_rewrites(
+        #[case] all_values_referenced: bool,
+        #[case] binary: fn(ArrayRef, ArrayRef) -> VortexResult<ScalarFnArray>,
+        #[case] expected: ArrayRef,
+    ) -> VortexResult<()> {
+        let codes = buffer![0u8, 1, 0, 1].into_array();
+        // SAFETY: Both dictionary entries are referenced by valid codes.
+        let lhs = unsafe {
+            DictArray::try_new(codes.clone(), buffer![8i32, 9].into_array())?
+                .set_all_values_referenced(all_values_referenced)
+        }
+        .into_array();
+        let rhs = DictArray::try_new(codes, buffer![2i32, 9].into_array())?.into_array();
+
+        let optimized = binary(lhs, rhs)?.into_array().optimize_ctx(&SESSION)?;
+        assert!(optimized.is::<Dict>());
+        let mut ctx = SESSION.create_execution_ctx();
+        let result = optimized.execute::<Canonical>(&mut ctx)?;
+        assert_arrays_eq!(result, expected, &mut ctx);
+        Ok(())
+    }
+
+    #[test]
+    fn codes_pull_up_rejects_referenced_zero_divisor() -> VortexResult<()> {
+        let codes = buffer![0u8, 1, 0, 1].into_array();
+        let dividend =
+            DictArray::try_new(codes.clone(), buffer![7i32, 8].into_array())?.into_array();
+        let divisor = DictArray::try_new(codes, buffer![0i32, 2].into_array())?.into_array();
+        let expr = Numeric::try_new(dividend, divisor, NumericOperator::Div)?.into_array();
+
+        let error = expr
+            .optimize_ctx(&SESSION)?
+            .execute::<Canonical>(&mut SESSION.create_execution_ctx())
+            .unwrap_err();
+        assert!(error.to_string().contains("division by zero"));
         Ok(())
     }
 }

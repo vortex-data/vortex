@@ -23,7 +23,7 @@ permissions:
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
-  NIGHTLY_TOOLCHAIN: nightly-2026-09-10
+  NIGHTLY_TOOLCHAIN: nightly-2026-11-13
   TY_VERSION: 0.0.98
 
 jobs:
@@ -38,7 +38,7 @@ jobs:
     if: github.event.pull_request.draft != true
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/region=us-east-1/runner=amd64-ci-small/image=ubuntu26-full-x64-pre-v2/extras=s3-cache/tag=lightweight-checks', github.run_id)
+          && format('runs-on={0}/runner=amd64-ci-small/image=ubuntu26-full-x64-pre-v2/extras=s3-cache/tag=lightweight-checks', format('{0}/region={1}', github.run_id, vars.CI_REGION || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T1') && 'ap-northeast-1') || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T2') && 'eu-west-2') || 'us-east-1'))
           || 'ubuntu-latest' }}
     timeout-minutes: 10
     steps:
@@ -46,18 +46,19 @@ jobs:
           - uses: runs-on/action@v2
             if: github.repository == 'vortex-data/vortex'
           - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
-      - uses: spiraldb/actions/.github/actions/setup-uv@a746510eafaa926484c354541cfc49b2ec06cc63  # 0.18.6
-        with:
-          sync: false
-      - name: Install missing formatting tools
-        run: |
-          packages=()
-          command -v yamllint >/dev/null || packages+=(yamllint)
-          command -v clang-format >/dev/null || packages+=(clang-format)
-          if [ ${#packages[@]} -gt 0 ]; then
-            sudo apt-get update
-            sudo apt-get install -y "${packages[@]}"
-          fi
+      - parallel:
+          - uses: spiraldb/actions/.github/actions/setup-uv@a746510eafaa926484c354541cfc49b2ec06cc63  # 0.18.6
+            with:
+              sync: false
+          - name: Install missing formatting tools
+            run: |
+              packages=()
+              command -v yamllint >/dev/null || packages+=(yamllint)
+              command -v clang-format >/dev/null || packages+=(clang-format)
+              if [ ${#packages[@]} -gt 0 ]; then
+                sudo apt-get update
+                sudo apt-get install -y "${packages[@]}"
+              fi
       - name: TOML Lint
         if: "!cancelled()"
         uses: spiraldb/actions/.github/actions/lint-toml@a746510eafaa926484c354541cfc49b2ec06cc63  # 0.18.6
@@ -99,7 +100,7 @@ jobs:
       # benchmarks-database fact row. The golden vectors are a frozen artifact (see the note inside
       # the JSON); this job fails if a change to scripts/_measurement_id.py drifts the hash, which
       # would break ON CONFLICT idempotency against the rows already in production.
-      - name: Pytest - measurement_id, benchmark reporting, ingestion and CodSpeed shards
+      - name: Pytest - measurement_id, benchmark reporting, ingestion, CodSpeed shards and triage
         if: "!cancelled()"
         run: |
           uv run --no-project --with pytest --with pandas --with numpy --with orjson \
@@ -107,14 +108,23 @@ jobs:
             pytest scripts/tests/test_measurement_id.py \
               scripts/tests/test_benchmark_reporting.py scripts/tests/test_post_ingest.py \
               scripts/tests/test_refresh_bench_site.py \
-              scripts/tests/test_codspeed_shards.py
+              scripts/tests/test_codspeed_shards.py \
+              scripts/tests/test_sample_file_trees.py \
+              scripts/tests/test_triage.py
+
+      # bench-orchestrator does not depend on vortex-data, so this needs no Rust build.
+      # Disable pytest-benchmark (installed in the workspace venv by the ty step above),
+      # which otherwise clashes with bench-orchestrator's `benchmark` test parameter.
+      - name: Pytest - bench-orchestrator
+        if: "!cancelled()"
+        run: uv run --project benchmarks/bench-orchestrator --with pytest pytest -p no:benchmark benchmarks/bench-orchestrator/tests
 
   python-test:
     name: "Python (test)"
     if: github.event.pull_request.draft != true
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/region=us-east-1/runner=amd64-ci-large/image=ubuntu26-full-x64-pre-v2/extras=s3-cache/tag=python-test', github.run_id)
+          && format('runs-on={0}/runner=amd64-ci-large/image=ubuntu26-full-x64-pre-v2/extras=s3-cache/tag=python-test', format('{0}/region={1}', github.run_id, vars.CI_REGION || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T1') && 'ap-northeast-1') || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T2') && 'eu-west-2') || 'us-east-1'))
           || 'ubuntu-latest' }}
     timeout-minutes: 30
     env:
@@ -136,32 +146,26 @@ jobs:
           uv run --all-packages pytest --benchmark-disable -n auto test/
         working-directory: vortex-python/
 
-      # The datasets integration relies on private `datasets` APIs, so exercise the oldest
-      # supported release in addition to the locked one.
-      - name: Pytest - Vortex (datasets 4.x floor)
-        run: |
-          uv run --all-packages --with 'datasets==4.0.0' --with 'huggingface-hub<1' \
-            pytest --benchmark-disable test/test_hf_datasets.py
-        working-directory: vortex-python/
-
-      # The lockfile tracks Polars 2, so also exercise the oldest supported 1.x release. The
-      # Polars integration parses Polars' serialized expression format, which differs across
-      # versions.
-      - name: Pytest - Vortex (Polars 1.x floor)
-        run: |
-          uv run --all-packages --with 'polars==1.32.0' \
-            pytest --benchmark-disable test/test_polars_.py test/test_dataset.py
-        working-directory: vortex-python/
-
-      - name: Check Python documentation
-        run: |
-          uv run --all-packages make check
-        working-directory: docs/
+      # The first `uv run` above builds the extension and syncs the environment. These checks
+      # reuse it, and uv locks the environment, so they run at the same time.
+      - parallel:
+          # The lockfile tracks Polars 2, so also exercise the oldest supported 1.x release. The
+          # Polars integration parses Polars' serialized expression format, which differs across
+          # versions.
+          - name: Pytest - Vortex (Polars 1.x floor)
+            run: |
+              uv run --all-packages --with 'polars==1.32.0' \
+                pytest --benchmark-disable test/test_polars_.py test/test_dataset.py
+            working-directory: vortex-python/
+          - name: Check Python documentation
+            run: |
+              uv run --all-packages make check
+            working-directory: docs/
 
   python-cuda-test:
     name: "Python CUDA (test)"
     if: github.event.pull_request.draft != true && github.repository == 'vortex-data/vortex'
-    runs-on: runs-on=${{ github.run_id }}/region=us-east-1/runner=gpu/extras=s3-cache/tag=python-cuda-test
+    runs-on: runs-on=${{ github.run_id }}/region=${{ vars.CI_REGION || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T1') && 'ap-northeast-1') || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T2') && 'eu-west-2') || 'us-east-1' }}/runner=gpu/extras=s3-cache/tag=python-cuda-test
     timeout-minutes: 30
     env:
       RUST_LOG: "info,maturin=off,uv=debug"
@@ -201,7 +205,7 @@ jobs:
     timeout-minutes: 30
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/region=us-east-1/runner=amd64-ci-docs/image=ubuntu26-full-x64-pre-v2/extras=s3-cache/tag=rust-docs', github.run_id)
+          && format('runs-on={0}/runner=amd64-ci-docs/image=ubuntu26-full-x64-pre-v2/extras=s3-cache/tag=rust-docs', format('{0}/region={1}', github.run_id, vars.CI_REGION || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T1') && 'ap-northeast-1') || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T2') && 'eu-west-2') || 'us-east-1'))
           || 'ubuntu-latest' }}
     steps:
       - parallel:
@@ -230,7 +234,7 @@ jobs:
     timeout-minutes: 30
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/region=us-east-1/runner={1}/image=ubuntu26-full-x64-pre-v2/extras=s3-cache/tag={2}', github.run_id, matrix.config.runner, matrix.config.name)
+          && format('runs-on={0}/runner={1}/image=ubuntu26-full-x64-pre-v2/extras=s3-cache/tag={2}', format('{0}/region={1}', github.run_id, vars.CI_REGION || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T1') && 'ap-northeast-1') || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T2') && 'eu-west-2') || 'us-east-1'), matrix.config.runner, matrix.config.name)
           || 'ubuntu-latest' }}
     strategy:
       fail-fast: false
@@ -275,7 +279,7 @@ jobs:
     timeout-minutes: 30
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/region=us-east-1/runner=amd64-ci-medium/image=ubuntu26-full-x64-pre-v2/extras=s3-cache/tag=rust-min-deps', github.run_id)
+          && format('runs-on={0}/runner=amd64-ci-medium/image=ubuntu26-full-x64-pre-v2/extras=s3-cache/tag=rust-min-deps', format('{0}/region={1}', github.run_id, vars.CI_REGION || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T1') && 'ap-northeast-1') || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T2') && 'eu-west-2') || 'us-east-1'))
           || 'ubuntu-latest' }}
     steps:
       - parallel:
@@ -295,7 +299,7 @@ jobs:
     timeout-minutes: 30
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/region=us-east-1/runner=amd64-ci-medium/image=ubuntu26-full-x64-pre-v2/extras=s3-cache/tag=rust-msrv', github.run_id)
+          && format('runs-on={0}/runner=amd64-ci-medium/image=ubuntu26-full-x64-pre-v2/extras=s3-cache/tag=rust-msrv', format('{0}/region={1}', github.run_id, vars.CI_REGION || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T1') && 'ap-northeast-1') || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T2') && 'eu-west-2') || 'us-east-1'))
           || 'ubuntu-latest' }}
     env:
       RUSTFLAGS: "-A warnings"
@@ -319,7 +323,7 @@ jobs:
     timeout-minutes: 30
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/region=us-east-1/runner=amd64-ci-large/image=ubuntu26-full-x64-pre-v2/extras=s3-cache/tag=rust-lint', github.run_id)
+          && format('runs-on={0}/runner=amd64-ci-large/image=ubuntu26-full-x64-pre-v2/extras=s3-cache/tag=rust-lint', format('{0}/region={1}', github.run_id, vars.CI_REGION || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T1') && 'ap-northeast-1') || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T2') && 'eu-west-2') || 'us-east-1'))
           || 'ubuntu-latest' }}
     steps:
       - parallel:
@@ -388,7 +392,7 @@ jobs:
     timeout-minutes: 30
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/region=us-east-1/runner=amd64-ci-medium/image=ubuntu26-full-x64-pre-v2/extras=s3-cache/tag=rust-lint-no-default', github.run_id)
+          && format('runs-on={0}/runner=amd64-ci-medium/image=ubuntu26-full-x64-pre-v2/extras=s3-cache/tag=rust-lint-no-default', format('{0}/region={1}', github.run_id, vars.CI_REGION || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T1') && 'ap-northeast-1') || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T2') && 'eu-west-2') || 'us-east-1'))
           || 'ubuntu-latest' }}
     steps:
       - parallel:
@@ -414,9 +418,14 @@ jobs:
     timeout-minutes: 45
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/region=us-east-1/pool=windows-x64-pre/extras=s3-cache', github.run_id)
+          && format('runs-on={0}/pool=windows-x64-pre/extras=s3-cache', format('{0}/region={1}', github.run_id, vars.CI_REGION || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T1') && 'ap-northeast-1') || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T2') && 'eu-west-2') || 'us-east-1'))
           || 'windows-latest' }}
     env:
+      # Cargo 1.100 passes rustc one `-L dependency=` per crate in its new build-dir layout, so
+      # large crates exceed the Windows command line limit. Cargo falls back to an argfile, but
+      # sccache expands it and fails with os error 206 (mozilla/sccache#2397). Keep the old layout
+      # until sccache passes an argfile to rustc on Windows.
+      __CARGO_TEMPORARY_BUILD_DIR_NEW_LAYOUT_OPT_OUT: "1"
       NEXTEST_WINDOWS_ARGS: >-
         --cargo-profile ci --locked --workspace --all-features
         --exclude vortex-bench
@@ -565,7 +574,7 @@ jobs:
       github.event.pull_request.draft != true && !cancelled() && (needs.duckdb-mirror.result == 'success' || needs.duckdb-mirror.result == 'skipped') &&
       github.repository == 'vortex-data/vortex'
     timeout-minutes: 30
-    runs-on: runs-on=${{ github.run_id }}/region=us-east-1/runner=arm64-ci-test/image=ubuntu26-full-arm64-pre-v2/extras=s3-cache/tag=rust-test-linux-arm64
+    runs-on: runs-on=${{ github.run_id }}/region=${{ vars.CI_REGION || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T1') && 'ap-northeast-1') || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T2') && 'eu-west-2') || 'us-east-1' }}/runner=arm64-ci-test/image=ubuntu26-full-arm64-pre-v2/extras=s3-cache/tag=rust-test-linux-arm64
     steps:
       - parallel:
           - uses: runs-on/action@v2
@@ -622,7 +631,7 @@ jobs:
             image: ubuntu26-full-arm64-pre-v2
             expect: "neon,sve,sve2,sve2-bitperm"
     runs-on: >-
-      runs-on=${{ github.run_id }}/region=us-east-1/runner=${{ matrix.config.runner }}/family=${{ matrix.config.family }}/spot=price-capacity-optimized/image=${{ matrix.config.image }}/extras=s3-cache/tag=rust-test-cpu-features-${{ matrix.config.name }}
+      runs-on=${{ github.run_id }}/region=${{ vars.CI_REGION || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T1') && 'ap-northeast-1') || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T2') && 'eu-west-2') || 'us-east-1' }}/runner=${{ matrix.config.runner }}/family=${{ matrix.config.family }}/spot=price-capacity-optimized/image=${{ matrix.config.image }}/extras=s3-cache/tag=rust-test-cpu-features-${{ matrix.config.name }}
     env:
       VORTEX_EXPECT_CPU_FEATURES: ${{ matrix.config.expect }}
     steps:
@@ -644,12 +653,30 @@ jobs:
           cargo nextest run --cargo-profile ci --locked --no-fail-fast \
             -p vortex-buffer -p vortex-mask -p vortex-array
 
-  build-java:
-    name: "Java"
+  # The Spark 4.x compat suites all live in one Gradle project, and Gradle runs one project's
+  # tasks one at a time, so they took about 6.5 minutes in series. Each now runs on its own runner.
+  java-tests:
+    name: "Java (${{ matrix.name }})"
     if: github.event.pull_request.draft != true
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: checks
+            tasks: >-
+              --parallel javadoc check
+              -x :vortex-spark-4.0_2.13:spark41CompatTest
+              -x :vortex-spark-4.0_2.13:spark42CompatTest
+              -x :vortex-spark-4.0_2.13:spark43CompatTest
+          - name: Spark 4.1 compat
+            tasks: ":vortex-spark-4.0_2.13:spark41CompatTest"
+          - name: Spark 4.2 compat
+            tasks: ":vortex-spark-4.0_2.13:spark42CompatTest"
+          - name: Spark 4.3 compat
+            tasks: ":vortex-spark-4.0_2.13:spark43CompatTest"
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/region=us-east-1/runner=amd64-ci-medium/image=ubuntu26-full-x64-pre-v2/extras=s3-cache/tag=java', github.run_id)
+          && format('runs-on={0}/runner=amd64-ci-medium/image=ubuntu26-full-x64-pre-v2/extras=s3-cache/tag=java', format('{0}/region={1}', github.run_id, vars.CI_REGION || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T1') && 'ap-northeast-1') || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T2') && 'eu-west-2') || 'us-east-1'))
           || 'ubuntu-latest' }}
     timeout-minutes: 30
     steps:
@@ -665,8 +692,29 @@ jobs:
               enable-sccache: "true"
           - uses: gradle/actions/setup-gradle@8da46b539cd8fe6ab27ca75128919a18d757604c  # v6
       - name: Build documentation and run Java checks
-        run: ./gradlew --parallel javadoc check
-        working-directory: ./java
+        env:
+          TASKS: ${{ matrix.tasks }}
+        run: ./gradlew $TASKS
+        working-directory: ./lang/java
+
+  # Keeps the "Java" check, which now gathers the java-tests matrix.
+  build-java:
+    name: "Java"
+    needs: [java-tests]
+    # always(): a cancelled run must fail this check, not skip it (a skipped check passes).
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check the jobs it gathers
+        env:
+          RESULTS: ${{ toJSON(needs.*.result) }}
+        run: |
+          echo "$RESULTS"
+          # A skipped job counts as passed, as it did when this check was a single job.
+          if echo "$RESULTS" | grep -qE '"(failure|cancelled)"'; then
+            exit 1
+          fi
 
   license-check-and-audit-check:
     # The name is a required status check on develop; keep it unchanged.
@@ -676,22 +724,25 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
-      # Prevent sudden announcement of a new advisory from failing ci:
-      - name: cargo deny check advisories
-        id: advisories
-        continue-on-error: true
-        uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25  # v2
-        with:
-          command: check advisories
+      # The two checks are independent, so they run at the same time.
+      - parallel:
+          # Prevent sudden announcement of a new advisory from failing ci:
+          - name: cargo deny check advisories
+            id: advisories
+            continue-on-error: true
+            uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25  # v2
+            with:
+              command: check advisories
+          - name: cargo deny check bans licenses sources
+            uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25  # v2
+            with:
+              command: check bans licenses sources
       - name: Warn on advisory failures
-        if: steps.advisories.outcome == 'failure'
+        # `!cancelled()` keeps the warning when bans/licenses/sources fails alongside it.
+        if: "!cancelled() && steps.advisories.outcome == 'failure'"
         run: >-
           echo "::warning title=cargo deny advisories::cargo deny check advisories
           failed; see the 'cargo deny check advisories' step log."
-      - name: cargo deny check bans licenses sources
-        uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25  # v2
-        with:
-          command: check bans licenses sources
 
   sqllogic-test:
     name: "SQL logic tests"
@@ -699,7 +750,7 @@ jobs:
     if: github.event.pull_request.draft != true && !cancelled() && (needs.duckdb-mirror.result == 'success' || needs.duckdb-mirror.result == 'skipped')
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/region=us-east-1/runner=amd64-ci-sql-logic-test/image=ubuntu26-full-x64-pre-v2/extras=s3-cache/tag=sql-logic-test', github.run_id)
+          && format('runs-on={0}/runner=amd64-ci-sql-logic-test/image=ubuntu26-full-x64-pre-v2/extras=s3-cache/tag=sql-logic-test', format('{0}/region={1}', github.run_id, vars.CI_REGION || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T1') && 'ap-northeast-1') || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T2') && 'eu-west-2') || 'us-east-1'))
           || 'ubuntu-latest' }}
     timeout-minutes: 30
     steps:
@@ -728,7 +779,7 @@ jobs:
     timeout-minutes: 30
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/region=us-east-1/runner=amd64-ci-medium/image=ubuntu26-full-x64-pre-v2/extras=s3-cache/tag=c-cxx-generated', github.run_id)
+          && format('runs-on={0}/runner=amd64-ci-medium/image=ubuntu26-full-x64-pre-v2/extras=s3-cache/tag=c-cxx-generated', format('{0}/region={1}', github.run_id, vars.CI_REGION || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T1') && 'ap-northeast-1') || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T2') && 'eu-west-2') || 'us-east-1'))
           || 'ubuntu-latest' }}
     steps:
       - parallel:
@@ -870,7 +921,7 @@ jobs:
     if: github.event.pull_request.draft != true && !cancelled()
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/region=us-east-1/runner=amd64-ci-medium/image=ubuntu26-full-x64-pre-v2/extras=s3-cache/tag=integration-smoke', github.run_id)
+          && format('runs-on={0}/runner=amd64-ci-medium/image=ubuntu26-full-x64-pre-v2/extras=s3-cache/tag=integration-smoke', format('{0}/region={1}', github.run_id, vars.CI_REGION || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T1') && 'ap-northeast-1') || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T2') && 'eu-west-2') || 'us-east-1'))
           || 'ubuntu-latest' }}
     timeout-minutes: 30
     steps:

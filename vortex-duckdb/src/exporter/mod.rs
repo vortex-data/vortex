@@ -189,7 +189,9 @@ pub trait DictionaryParts {
     ///
     /// The offset is relative to the exported array, including any slice. The range must lie within
     /// that array, and every code must index [`Self::values`], including codes for null rows.
-    fn write_codes(&self, offset: usize, codes: &mut [u32]);
+    ///
+    /// Returns an error if a code is not a valid index into the values.
+    fn write_codes(&self, offset: usize, codes: &mut [u32]) -> VortexResult<()>;
 }
 
 fn new_array_exporter(

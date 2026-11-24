@@ -21,7 +21,7 @@ use vortex_array::memory::MemorySession;
 use vortex_array::optimizer::ArrayOptimizer;
 use vortex_array::optimizer::kernels::KernelSession;
 use vortex_array::scalar::Scalar;
-use vortex_array::scalar_fn::fns::operators::Operator;
+use vortex_array::scalar_fn::builtin::operators::BooleanOperator;
 use vortex_array::test_harness::mark_optimized;
 use vortex_session::VortexSession;
 
@@ -48,7 +48,7 @@ fn and_bool_nonnull_arrays(bencher: Bencher) {
         bencher,
         bool_nonnull(2).into_array(),
         bool_nonnull(3).into_array(),
-        Operator::And,
+        BooleanOperator::And,
     );
 }
 
@@ -58,7 +58,7 @@ fn or_bool_nonnull_arrays(bencher: Bencher) {
         bencher,
         bool_nonnull(2).into_array(),
         bool_nonnull(3).into_array(),
-        Operator::Or,
+        BooleanOperator::Or,
     );
 }
 
@@ -68,7 +68,7 @@ fn and_bool_nullable_arrays_aligned(bencher: Bencher) {
         bencher,
         bool_nullable(2, 7, 0),
         bool_nullable(3, 5, 0),
-        Operator::And,
+        BooleanOperator::And,
     );
 }
 
@@ -78,7 +78,7 @@ fn or_bool_nullable_arrays_aligned(bencher: Bencher) {
         bencher,
         bool_nullable(2, 7, 0),
         bool_nullable(3, 5, 0),
-        Operator::Or,
+        BooleanOperator::Or,
     );
 }
 
@@ -88,7 +88,7 @@ fn and_bool_nullable_arrays_shifted(bencher: Bencher) {
         bencher,
         bool_nullable(2, 7, SHIFTED_OFFSET),
         bool_nullable(3, 5, SHIFTED_OFFSET),
-        Operator::And,
+        BooleanOperator::And,
     );
 }
 
@@ -98,7 +98,7 @@ fn or_bool_nullable_arrays_shifted(bencher: Bencher) {
         bencher,
         bool_nullable(2, 7, SHIFTED_OFFSET),
         bool_nullable(3, 5, SHIFTED_OFFSET),
-        Operator::Or,
+        BooleanOperator::Or,
     );
 }
 
@@ -108,7 +108,7 @@ fn and_true_constant(bencher: Bencher) {
         bencher,
         bool_nullable(2, 7, 0),
         ConstantArray::new(true, LEN).into_array(),
-        Operator::And,
+        BooleanOperator::And,
     );
 }
 
@@ -118,7 +118,7 @@ fn or_false_constant(bencher: Bencher) {
         bencher,
         bool_nullable(2, 7, 0),
         ConstantArray::new(false, LEN).into_array(),
-        Operator::Or,
+        BooleanOperator::Or,
     );
 }
 
@@ -128,7 +128,7 @@ fn and_false_constant(bencher: Bencher) {
         bencher,
         bool_nullable(2, 7, 0),
         ConstantArray::new(false, LEN).into_array(),
-        Operator::And,
+        BooleanOperator::And,
     );
 }
 
@@ -138,7 +138,7 @@ fn or_true_constant(bencher: Bencher) {
         bencher,
         bool_nullable(2, 7, 0),
         ConstantArray::new(true, LEN).into_array(),
-        Operator::Or,
+        BooleanOperator::Or,
     );
 }
 
@@ -148,7 +148,7 @@ fn and_null_constant_aligned(bencher: Bencher) {
         bencher,
         bool_nullable(2, 7, 0),
         null_bool_constant(),
-        Operator::And,
+        BooleanOperator::And,
     );
 }
 
@@ -158,7 +158,7 @@ fn or_null_constant_aligned(bencher: Bencher) {
         bencher,
         bool_nullable(2, 7, 0),
         null_bool_constant(),
-        Operator::Or,
+        BooleanOperator::Or,
     );
 }
 
@@ -168,7 +168,7 @@ fn and_null_constant_shifted(bencher: Bencher) {
         bencher,
         bool_nullable(2, 7, SHIFTED_OFFSET),
         null_bool_constant(),
-        Operator::And,
+        BooleanOperator::And,
     );
 }
 
@@ -178,11 +178,11 @@ fn or_null_constant_shifted(bencher: Bencher) {
         bencher,
         bool_nullable(2, 7, SHIFTED_OFFSET),
         null_bool_constant(),
-        Operator::Or,
+        BooleanOperator::Or,
     );
 }
 
-fn bench_kleene(bencher: Bencher, lhs: ArrayRef, rhs: ArrayRef, operator: Operator) {
+fn bench_kleene(bencher: Bencher, lhs: ArrayRef, rhs: ArrayRef, operator: BooleanOperator) {
     mark_optimized(&lhs, &SESSION).unwrap();
     mark_optimized(&rhs, &SESSION).unwrap();
 
@@ -190,14 +190,19 @@ fn bench_kleene(bencher: Bencher, lhs: ArrayRef, rhs: ArrayRef, operator: Operat
 
     bencher.counter(ItemsCount::new(LEN)).bench_local(|| {
         lhs.clone()
-            .binary(rhs.clone(), operator)
+            .boolean(rhs.clone(), operator)
             .unwrap()
             .execute::<Columnar>(&mut ctx)
             .unwrap()
     });
 }
 
-fn bench_kleene_constant_fold(bencher: Bencher, lhs: ArrayRef, rhs: ArrayRef, operator: Operator) {
+fn bench_kleene_constant_fold(
+    bencher: Bencher,
+    lhs: ArrayRef,
+    rhs: ArrayRef,
+    operator: BooleanOperator,
+) {
     mark_optimized(&lhs, &SESSION).unwrap();
     mark_optimized(&rhs, &SESSION).unwrap();
 
@@ -205,7 +210,7 @@ fn bench_kleene_constant_fold(bencher: Bencher, lhs: ArrayRef, rhs: ArrayRef, op
 
     bencher.bench_local(|| {
         lhs.clone()
-            .binary(rhs.clone(), operator)
+            .boolean(rhs.clone(), operator)
             .unwrap()
             .execute::<Columnar>(&mut ctx)
             .unwrap()

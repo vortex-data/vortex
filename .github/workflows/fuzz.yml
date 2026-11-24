@@ -55,11 +55,13 @@ jobs:
     # is always false here. This applies to each attempt-fix-* job below.
     if: ${{ !cancelled() && needs.report-io-fuzz-failures.outputs.issue_created == 'true' }}
     permissions:
-      # actions: read is needed for `gh run download` of the crash artifact.
+      # The reusable workflow downloads the crash artifact (actions: read) and
+      # comments on the issue with GITHUB_TOKEN. It pushes the fix branch and
+      # opens the pull request with a GitHub App token, not with GITHUB_TOKEN.
       actions: read
-      contents: write
+      contents: read
       issues: write
-      pull-requests: write
+      pull-requests: read
       id-token: write
     uses: ./.github/workflows/fuzzer-fix-automation.yml
     with:
@@ -109,11 +111,13 @@ jobs:
     needs: report-ops-fuzz-failures
     if: ${{ !cancelled() && needs.report-ops-fuzz-failures.outputs.issue_created == 'true' }}
     permissions:
-      # actions: read is needed for `gh run download` of the crash artifact.
+      # The reusable workflow downloads the crash artifact (actions: read) and
+      # comments on the issue with GITHUB_TOKEN. It pushes the fix branch and
+      # opens the pull request with a GitHub App token, not with GITHUB_TOKEN.
       actions: read
-      contents: write
+      contents: read
       issues: write
-      pull-requests: write
+      pull-requests: read
       id-token: write
     uses: ./.github/workflows/fuzzer-fix-automation.yml
     with:
@@ -164,11 +168,13 @@ jobs:
     needs: report-fsst-like-fuzz-failures
     if: ${{ !cancelled() && needs.report-fsst-like-fuzz-failures.outputs.issue_created == 'true' }}
     permissions:
-      # actions: read is needed for `gh run download` of the crash artifact.
+      # The reusable workflow downloads the crash artifact (actions: read) and
+      # comments on the issue with GITHUB_TOKEN. It pushes the fix branch and
+      # opens the pull request with a GitHub App token, not with GITHUB_TOKEN.
       actions: read
-      contents: write
+      contents: read
       issues: write
-      pull-requests: write
+      pull-requests: read
       id-token: write
     uses: ./.github/workflows/fuzzer-fix-automation.yml
     with:
@@ -217,15 +223,72 @@ jobs:
     needs: report-row-encode-fuzz-failures
     if: ${{ !cancelled() && needs.report-row-encode-fuzz-failures.outputs.issue_created == 'true' }}
     permissions:
-      # actions: read is needed for `gh run download` of the crash artifact.
+      # The reusable workflow downloads the crash artifact (actions: read) and
+      # comments on the issue with GITHUB_TOKEN. It pushes the fix branch and
+      # opens the pull request with a GitHub App token, not with GITHUB_TOKEN.
       actions: read
-      contents: write
+      contents: read
       issues: write
-      pull-requests: write
+      pull-requests: read
       id-token: write
     uses: ./.github/workflows/fuzzer-fix-automation.yml
     with:
       issue_number: ${{ needs.report-row-encode-fuzz-failures.outputs.issue_number }}
+    secrets: inherit
+
+  # ============================================================================
+  # Arrow Roundtrip Fuzzer
+  # ============================================================================
+  arrow_roundtrip_fuzz:
+    name: "Arrow Roundtrip Fuzz"
+    needs: build_cpu_fuzzers
+    uses: ./.github/workflows/run-fuzzer.yml
+    with:
+      fuzz_target: arrow_roundtrip
+      jobs: 4
+      fuzzer_artifact: ${{ needs.build_cpu_fuzzers.outputs.artifact_name }}
+    secrets:
+      R2_FUZZ_ACCESS_KEY_ID: ${{ secrets.R2_FUZZ_ACCESS_KEY_ID }}
+      R2_FUZZ_SECRET_ACCESS_KEY: ${{ secrets.R2_FUZZ_SECRET_ACCESS_KEY }}
+
+  report-arrow-roundtrip-fuzz-failures:
+    name: "Report Arrow Roundtrip Fuzz Failures"
+    needs: arrow_roundtrip_fuzz
+    if: always() && needs.arrow_roundtrip_fuzz.outputs.crashes_found == 'true'
+    permissions:
+      issues: write
+      contents: read
+      id-token: write
+      pull-requests: read
+    uses: ./.github/workflows/report-fuzz-crash.yml
+    with:
+      fuzz_target: arrow_roundtrip
+      crash_file: ${{ needs.arrow_roundtrip_fuzz.outputs.first_crash_name }}
+      artifact_url: ${{ needs.arrow_roundtrip_fuzz.outputs.artifact_url }}
+      artifact_name: arrow_roundtrip-crash-artifacts
+      logs_artifact_name: arrow_roundtrip-logs
+      branch: ${{ github.ref_name }}
+      commit: ${{ github.sha }}
+    secrets:
+      gh_token: ${{ secrets.GITHUB_TOKEN }}
+      incident_io_alert_token: ${{ secrets.INCIDENT_IO_ALERT_TOKEN }}
+
+  attempt-fix-arrow-roundtrip:
+    name: "Attempt Fix for Arrow Roundtrip Fuzz Crash"
+    needs: report-arrow-roundtrip-fuzz-failures
+    if: ${{ !cancelled() && needs.report-arrow-roundtrip-fuzz-failures.outputs.issue_created == 'true' }}
+    permissions:
+      # The reusable workflow downloads the crash artifact (actions: read) and
+      # comments on the issue with GITHUB_TOKEN. It pushes the fix branch and
+      # opens the pull request with a GitHub App token, not with GITHUB_TOKEN.
+      actions: read
+      contents: read
+      issues: write
+      pull-requests: read
+      id-token: write
+    uses: ./.github/workflows/fuzzer-fix-automation.yml
+    with:
+      issue_number: ${{ needs.report-arrow-roundtrip-fuzz-failures.outputs.issue_number }}
     secrets: inherit
 
   # ============================================================================
@@ -270,11 +333,13 @@ jobs:
     needs: report-compress-fuzz-failures
     if: ${{ !cancelled() && needs.report-compress-fuzz-failures.outputs.issue_created == 'true' }}
     permissions:
-      # actions: read is needed for `gh run download` of the crash artifact.
+      # The reusable workflow downloads the crash artifact (actions: read) and
+      # comments on the issue with GITHUB_TOKEN. It pushes the fix branch and
+      # opens the pull request with a GitHub App token, not with GITHUB_TOKEN.
       actions: read
-      contents: write
+      contents: read
       issues: write
-      pull-requests: write
+      pull-requests: read
       id-token: write
     uses: ./.github/workflows/fuzzer-fix-automation.yml
     with:

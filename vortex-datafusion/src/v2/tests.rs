@@ -7,10 +7,12 @@ use anyhow::anyhow;
 use arrow_array::ArrayRef;
 use arrow_array::Int32Array;
 use arrow_array::RecordBatch;
+use arrow_array::StructArray;
 use arrow_array::cast::AsArray;
 use arrow_array::types::Int32Type;
 use arrow_schema::DataType;
 use arrow_schema::Field;
+use arrow_schema::Fields;
 use arrow_schema::Schema;
 use arrow_schema::extension::Json as ArrowJson;
 use arrow_schema::extension::Uuid as ArrowUuid;
@@ -25,7 +27,9 @@ use datafusion_common::tree_node::TreeNodeRecursion;
 use datafusion_datasource::source::DataSource;
 use datafusion_datasource::source::DataSourceExec;
 use datafusion_expr::Operator;
+use datafusion_functions::core::get_field;
 use datafusion_physical_expr::PhysicalExpr;
+use datafusion_physical_expr::ScalarFunctionExpr;
 use datafusion_physical_expr::expressions::DynamicFilterPhysicalExpr;
 use datafusion_physical_expr::projection::ProjectionExpr;
 use datafusion_physical_expr::projection::ProjectionExprs;
@@ -37,12 +41,22 @@ use futures::TryStreamExt;
 use rstest::rstest;
 use vortex::VortexSessionDefault;
 use vortex::buffer::ByteBufferMut;
+use vortex::dtype::Nullability;
+use vortex::dtype::session::DTypeSessionExt;
+use vortex::editions::ComponentKind;
+use vortex::editions::Edition;
+use vortex::editions::EditionId;
+use vortex::editions::EditionInclusion;
+use vortex::editions::EditionSessionExt;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::file::WriteOptionsSessionExt;
+use vortex::scan::DataSourceRef;
 use vortex::session::VortexSession;
 use vortex_arrow::ArrowSessionExt;
+use vortex_arrow::ext_metadata::encode_arrow_ext_metadata;
 
 use super::VortexDataSource;
+use crate::common_tests::AnyStorage;
 
 async fn vortex_source() -> anyhow::Result<VortexDataSource> {
     let batch =
@@ -59,6 +73,20 @@ async fn vortex_source_from_batch_with_session(
     session: &VortexSession,
 ) -> anyhow::Result<VortexDataSource> {
     let schema = batch.schema();
+    let data_source = data_source_from_batch(batch, session).await?;
+
+    Ok(VortexDataSource::builder(data_source, session.clone())
+        .with_arrow_schema(schema)
+        .build()
+        .await?)
+}
+
+/// Build a file-backed source so tests can supply a schema independently of the imported batch.
+async fn data_source_from_batch(
+    batch: RecordBatch,
+    session: &VortexSession,
+) -> anyhow::Result<DataSourceRef> {
+    let schema = batch.schema();
     let array = session.arrow().from_arrow_record_batch(batch, &schema)?;
     let mut buffer = ByteBufferMut::empty();
     session
@@ -66,12 +94,7 @@ async fn vortex_source_from_batch_with_session(
         .write(&mut buffer, array.to_array_stream())
         .await?;
     let file = session.open_options().open_buffer(buffer)?;
-    Ok(
-        VortexDataSource::builder(file.data_source()?, session.clone())
-            .with_arrow_schema(schema)
-            .build()
-            .await?,
-    )
+    Ok(file.data_source()?)
 }
 
 #[tokio::test]
@@ -306,6 +329,14 @@ enum ExtensionFilterType {
     Json,
 }
 
+/// The struct that holds the value column in the nested extension tests.
+#[derive(Clone, Copy, Debug)]
+enum Parent {
+    Plain,
+    /// An extension type without plugins, so that its export is its storage.
+    Extension,
+}
+
 /// Input values and Arrow metadata shared by the static and dynamic extension filter tests.
 struct ExtensionFilterFixture {
     session: VortexSession,
@@ -396,6 +427,71 @@ impl ExtensionFilterFixture {
     async fn source(&self) -> anyhow::Result<VortexDataSource> {
         vortex_source_from_batch_with_session(self.batch.clone(), &self.session).await
     }
+
+    /// Moves the value column into a `parent` struct, beside a `key` field that copies `id`.
+    ///
+    /// [`Parent::Extension`] registers [`AnyStorage`] and enables a test edition that permits it,
+    /// so the fixture can write and read `parent` as an extension value.
+    fn nested_batch(&self, parent: Parent) -> anyhow::Result<RecordBatch> {
+        let schema = self.batch.schema();
+        let fields = Fields::from(vec![
+            Field::new("key", DataType::Int32, false),
+            schema.field(1).clone(),
+        ]);
+        let mut parent_field = Field::new_struct("parent", fields.clone(), false);
+        if matches!(parent, Parent::Extension) {
+            let storage = self
+                .session
+                .arrow()
+                .from_arrow_datatype(parent_field.data_type(), Nullability::NonNullable)?;
+            let parent_dtype = AnyStorage::dtype(storage)?;
+            self.session.dtypes().register(AnyStorage);
+
+            let edition = EditionId::new("datafusion-test", 2026, 11, 0);
+            let editions = self.session.editions();
+            editions.declare_edition(Edition {
+                id: edition,
+                immutable: true,
+                min_library_version: None,
+            })?;
+            editions.declare_inclusion(EditionInclusion::new(
+                ComponentKind::DType,
+                &parent_dtype.id(),
+                edition,
+            ))?;
+            self.session.enable_edition(edition)?;
+
+            parent_field
+                .metadata_mut()
+                .extend(encode_arrow_ext_metadata(&parent_dtype)?);
+        }
+
+        let parents = StructArray::try_new(
+            fields,
+            vec![
+                Arc::clone(self.batch.column(0)),
+                Arc::clone(self.batch.column(1)),
+            ],
+            None,
+        )?;
+        Ok(RecordBatch::try_new(
+            Arc::new(Schema::new(vec![schema.field(0).clone(), parent_field])),
+            vec![Arc::clone(self.batch.column(0)), Arc::new(parents)],
+        )?)
+    }
+}
+
+/// Reads `parent.<name>` from a batch that [`ExtensionFilterFixture::nested_batch`] built.
+fn parent_field_expr(schema: &Schema, name: &str) -> anyhow::Result<Arc<dyn PhysicalExpr>> {
+    Ok(Arc::new(ScalarFunctionExpr::try_new(
+        get_field(),
+        vec![
+            Arc::new(df_expr::Column::new("parent", 1)),
+            df_expr::lit(name),
+        ],
+        schema,
+        Arc::new(ConfigOptions::new()),
+    )?))
 }
 
 /// Collects row identifiers so the tests compare the scan restriction separately from its residual.
@@ -540,6 +636,105 @@ async fn test_extension_projection_preserves_arrow_type() -> anyhow::Result<()> 
 
     let actual = concat_batches(&plan_schema, &batches)?;
     assert_eq!(actual.column(0), fixture.batch.column(1));
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_build_rejects_extension_column_over_plain() -> anyhow::Result<()> {
+    let session = VortexSession::default();
+    vortex_json::initialize(&session);
+
+    let batch = arrow_array::record_batch!(("value", Utf8, vec![r#"{"x":1}"#]))?;
+    let data_source = data_source_from_batch(batch, &session).await?;
+
+    let mut json_field = Field::new("value", DataType::Utf8, true);
+    json_field.try_with_extension_type(ArrowJson::default())?;
+
+    let error = VortexDataSource::builder(data_source, session)
+        .with_arrow_schema(Arc::new(Schema::new(vec![json_field])))
+        .build()
+        .await
+        .expect_err("the plain column must not scan as Json");
+    assert!(
+        error.to_string().contains(
+            "Field value must name no Arrow extension type for Vortex DType utf8?, got Arrow extension type arrow.json"
+        ),
+        "{error}"
+    );
+
+    Ok(())
+}
+
+/// A comparison on an extension field of a plain struct pushes down like one on a column. Through
+/// extension storage, the plugin that exports the field keeps the comparison in DataFusion.
+#[rstest]
+#[case::plain(Parent::Plain, true)]
+#[case::extension(Parent::Extension, false)]
+#[tokio::test]
+async fn test_nested_extension_comparison_pushdown(
+    #[case] parent: Parent,
+    #[case] pushed_down: bool,
+    #[values(ExtensionFilterType::Uuid, ExtensionFilterType::Json)]
+    extension_type: ExtensionFilterType,
+) -> anyhow::Result<()> {
+    let fixture = ExtensionFilterFixture::new(extension_type)?;
+    let batch = fixture.nested_batch(parent)?;
+    let predicate: Arc<dyn PhysicalExpr> = Arc::new(df_expr::BinaryExpr::new(
+        parent_field_expr(&batch.schema(), "value")?,
+        Operator::Eq,
+        fixture.literal(1),
+    ));
+    let source = vortex_source_from_batch_with_session(batch, &fixture.session).await?;
+
+    let pushed =
+        source.try_pushdown_filters(vec![Arc::clone(&predicate)], &ConfigOptions::new())?;
+    assert_eq!(
+        matches!(pushed.filters.as_slice(), [PushedDown::Yes]),
+        pushed_down
+    );
+
+    let scan = Arc::new(DataSourceExec::new(
+        pushed.updated_node.unwrap_or_else(|| Arc::new(source)),
+    ));
+    let residual = Arc::new(FilterExec::try_new(predicate, scan)?);
+    assert_eq!(scan_ids(residual).await?, [2]);
+
+    Ok(())
+}
+
+/// A plain field of an extension struct reads through its storage in the scan, both in a filter
+/// and in a projection.
+#[tokio::test]
+async fn test_get_field_through_extension_storage_is_pushed_down() -> anyhow::Result<()> {
+    let fixture = ExtensionFilterFixture::new(ExtensionFilterType::Uuid)?;
+    let batch = fixture.nested_batch(Parent::Extension)?;
+    let key = parent_field_expr(&batch.schema(), "key")?;
+    let source = vortex_source_from_batch_with_session(batch, &fixture.session).await?;
+
+    let filter: Arc<dyn PhysicalExpr> = Arc::new(df_expr::BinaryExpr::new(
+        Arc::clone(&key),
+        Operator::Eq,
+        df_expr::lit(2i32),
+    ));
+    let pushed = source.try_pushdown_filters(vec![filter], &ConfigOptions::new())?;
+    assert!(matches!(pushed.filters.as_slice(), [PushedDown::Yes]));
+    let filtered = pushed
+        .updated_node
+        .ok_or_else(|| anyhow!("filter was not pushed"))?;
+    assert_eq!(
+        scan_ids(Arc::new(DataSourceExec::new(filtered))).await?,
+        [2]
+    );
+
+    let projection = ProjectionExprs::from(vec![ProjectionExpr::new(key, "key")]);
+    let projected = source
+        .try_swapping_with_projection(&projection)?
+        .ok_or_else(|| anyhow!("projection was not swapped"))?;
+    assert_eq!(
+        scan_ids(Arc::new(DataSourceExec::new(projected))).await?,
+        [1, 2, 3, 4]
+    );
 
     Ok(())
 }

@@ -9,7 +9,6 @@ use vortex_array::vtable::OperationsVTable;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 
@@ -50,20 +49,15 @@ impl OperationsVTable<OnPair> for OnPair {
             .ok_or_else(|| {
                 vortex_err!("OnPair uncompressed_lengths[{index}] is null, negative, or too large")
             })?;
-        // The stored length controls allocation; each code emits 1 to MAX_TOKEN_SIZE bytes.
-        vortex_ensure!(
-            codes.len() <= len && len <= codes.len().saturating_mul(onpair::MAX_TOKEN_SIZE),
-            "OnPair row {index} recorded length {len} is impossible for {} codes",
-            codes.len()
-        );
-        let mut buf: Vec<u8> = Vec::with_capacity(len);
+        // MAX_TOKEN_SIZE bytes per code always hold the row, and decode it fastest.
+        let mut buf: Vec<u8> = Vec::with_capacity(codes.len() * onpair::MAX_TOKEN_SIZE);
         let written =
-            match onpair::try_decode_into(codes.as_slice(), dict, buf.spare_capacity_mut()) {
-                Ok(written) => written,
-                Err(_) => vortex_bail!("OnPair row {index} exceeds its recorded length"),
+            match onpair::decompress_into(codes.as_slice(), dict, buf.spare_capacity_mut()) {
+                Ok(decompressed) => decompressed.len(),
+                Err(_) => vortex_bail!("OnPair row {index} exceeds MAX_TOKEN_SIZE bytes per code"),
             };
         vortex_ensure_eq!(written, len, "OnPair row {index} decoded length mismatch");
-        // SAFETY: `try_decode_into` initialised exactly `written` bytes.
+        // SAFETY: `decompress_into` initialised exactly `written` bytes.
         unsafe { buf.set_len(written) };
         Ok(varbin_scalar(ByteBuffer::from(buf), array.dtype()))
     }

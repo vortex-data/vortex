@@ -16,6 +16,7 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::DecimalDType;
+use vortex_array::dtype::NativePType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::expr::stats::Stat;
@@ -65,8 +66,8 @@ fn cast_u16_to_u32(bencher: Bencher, n: usize) {
         });
 }
 
-/// Narrowing fallible cast that goes through `try_map_with_mask`. Inputs are bounded
-/// so every value fits, isolating the kernel's per-lane checked-cast overhead.
+/// Narrowing cast that has to check the values fit the target range first. Inputs are bounded
+/// so every value fits.
 #[divan::bench(args = SIZES)]
 fn cast_u32_to_u8(bencher: Bencher, n: usize) {
     let mut rng = StdRng::seed_from_u64(42);
@@ -170,4 +171,31 @@ fn cast_i32_to_decimal9_scale0(bencher: Bencher, n: usize) {
             .unwrap()
             .execute::<Canonical>(ctx)
         });
+}
+
+fn bench_cast(bencher: Bencher, arr: PrimitiveArray, target: PType) {
+    let arr = arr.into_array();
+    mark_optimized(&arr, &SESSION).unwrap();
+    bencher
+        .with_inputs(|| (arr.clone(), SESSION.create_execution_ctx()))
+        .bench_refs(|(a, ctx)| {
+            a.cast(DType::Primitive(target, Nullability::Nullable))
+                .unwrap()
+                .execute::<Canonical>(ctx)
+        });
+}
+
+fn random_nullable<T>(n: usize, f: impl Fn(&mut StdRng) -> T) -> PrimitiveArray
+where
+    T: NativePType,
+{
+    let mut rng = StdRng::seed_from_u64(42);
+    PrimitiveArray::from_option_iter((0..n).map(|_| rng.random_bool(0.7).then(|| f(&mut rng))))
+}
+
+/// Float-to-int cast that has to check the values fit the target range first.
+#[divan::bench(args = SIZES)]
+fn cast_f32_to_u16(bencher: Bencher, n: usize) {
+    let arr = random_nullable(n, |rng| rng.random_range(0.0f32..60_000.0));
+    bench_cast(bencher, arr, PType::U16);
 }

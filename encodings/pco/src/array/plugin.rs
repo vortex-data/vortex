@@ -100,7 +100,7 @@ impl ArrayPlugin for Pco {
         vortex_ensure_eq!(pages.len(), expected_n_pages);
 
         let slots = PcoSlots {
-            validity: validity_to_child(&validity, len),
+            validity_child: validity_to_child(&validity, len),
         }
         .into_slots();
         // SAFETY: `Array::try_from_parts`, which consumes these parts, validates the data before

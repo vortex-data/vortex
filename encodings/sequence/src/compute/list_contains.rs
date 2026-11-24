@@ -7,14 +7,15 @@ use vortex_array::IntoArray;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::Constant;
 use vortex_array::arrays::ConstantArray;
+use vortex_array::dtype::DType;
 use vortex_array::scalar::Scalar;
-use vortex_array::scalar_fn::fns::list_contains::ListContainsElementReduce;
-use vortex_array::scalar_fn::fns::list_contains::ListContainsOptions;
-use vortex_array::scalar_fn::fns::list_contains::PreparedSet;
-use vortex_array::scalar_fn::fns::list_contains::PreparedSetData;
 use vortex_array::validity::Validity;
 use vortex_buffer::BitBufferMut;
 use vortex_error::VortexResult;
+use vortex_functions::list_contains::ListContainsElementReduce;
+use vortex_functions::list_contains::ListContainsOptions;
+use vortex_functions::list_contains::PreparedSet;
+use vortex_functions::list_contains::PreparedSetData;
 
 use crate::array::Sequence;
 use crate::compute::compare::Intersection;
@@ -44,7 +45,7 @@ impl ListContainsElementReduce for Sequence {
 
         let nullability = options.result_nullability(list.dtype(), element.dtype());
 
-        let mut matches = BitBufferMut::new_unset(element.len());
+        let mut matches: Option<BitBufferMut> = None;
         let mut has_null = false;
         for intercept in list_elements.iter() {
             let Some(intercept) = intercept.as_primitive().pvalue() else {
@@ -59,7 +60,11 @@ impl ListContainsElementReduce for Sequence {
             ) {
                 // Non-integer elements do not match the sequence.
                 None | Some(Intersection::None) => {}
-                Some(Intersection::At(idx)) => matches.set(idx),
+                Some(Intersection::At(idx)) => {
+                    matches
+                        .get_or_insert_with(|| BitBufferMut::new_unset(element.len()))
+                        .set(idx);
+                }
                 Some(Intersection::All) => {
                     return Ok(Some(
                         ConstantArray::new(Scalar::bool(true, nullability), element.len())
@@ -68,6 +73,15 @@ impl ListContainsElementReduce for Sequence {
                 }
             }
         }
+
+        let Some(matches) = matches else {
+            let scalar = if options.sql_null_semantics && has_null {
+                Scalar::null(DType::Bool(nullability))
+            } else {
+                Scalar::bool(false, nullability)
+            };
+            return Ok(Some(ConstantArray::new(scalar, element.len()).into_array()));
+        };
 
         let matches = matches.freeze();
 
@@ -97,14 +111,14 @@ mod tests {
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType::I32;
-    use vortex_array::expr::list_contains;
-    use vortex_array::expr::list_contains_opts;
     use vortex_array::expr::lit;
     use vortex_array::expr::root;
     use vortex_array::optimizer::ArrayOptimizer;
     use vortex_array::scalar::Scalar;
-    use vortex_array::scalar_fn::fns::list_contains::ListContainsOptions;
     use vortex_error::VortexResult;
+    use vortex_functions::expr::list_contains;
+    use vortex_functions::expr::list_contains_opts;
+    use vortex_functions::list_contains::ListContainsOptions;
     use vortex_session::VortexSession;
 
     use crate::Sequence;
@@ -247,5 +261,51 @@ mod tests {
         let result = array.apply(&expr).unwrap();
         let expected = BoolArray::from_iter([Some(true), Some(true), Some(true)]);
         assert_arrays_eq!(result, expected, &mut SESSION.create_execution_ctx());
+    }
+
+    #[rstest]
+    #[case::no_null(
+        vec![Scalar::primitive(100i32, Nullability::Nullable)],
+        false,
+        Scalar::bool(false, Nullability::NonNullable)
+    )]
+    #[case::with_null_sql_false(
+        vec![
+            Scalar::primitive(100i32, Nullability::Nullable),
+            Scalar::null(DType::Primitive(I32, Nullability::Nullable)),
+        ],
+        false,
+        Scalar::bool(false, Nullability::NonNullable)
+    )]
+    #[case::with_null_sql_true(
+        vec![
+            Scalar::primitive(100i32, Nullability::Nullable),
+            Scalar::null(DType::Primitive(I32, Nullability::Nullable)),
+        ],
+        true,
+        Scalar::null(DType::Bool(Nullability::Nullable))
+    )]
+    fn test_list_contains_disjoint_returns_constant(
+        #[case] elements: Vec<Scalar>,
+        #[case] sql_null_semantics: bool,
+        #[case] expected: Scalar,
+    ) -> VortexResult<()> {
+        let seq = Sequence::try_new_typed(0i32, 2i32, Nullability::NonNullable, 10)?.into_array();
+        let list_scalar = Scalar::list(
+            Arc::new(DType::Primitive(I32, Nullability::Nullable)),
+            elements,
+            Nullability::NonNullable,
+        );
+        let expr = list_contains_opts(
+            lit(list_scalar),
+            root(),
+            ListContainsOptions { sql_null_semantics },
+        )
+        .bind(seq.dtype())?
+        .optimize_recursive()?;
+        let reduced = seq.apply_bound(&expr)?.optimize_ctx(&SESSION)?;
+        assert!(reduced.is::<vortex_array::arrays::Constant>());
+        assert_eq!(reduced.as_constant(), Some(&expected));
+        Ok(())
     }
 }

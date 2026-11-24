@@ -25,7 +25,7 @@ use vortex_array::expr::root;
 use vortex_array::memory::MemorySession;
 use vortex_array::optimizer::ArrayOptimizer;
 use vortex_array::optimizer::kernels::KernelSession;
-use vortex_array::scalar_fn::fns::operators::Operator;
+use vortex_array::scalar_fn::builtin::operators::CompareOperator;
 use vortex_array::test_harness::mark_optimized;
 use vortex_session::VortexSession;
 
@@ -72,7 +72,10 @@ fn bench_compare_primitive(bencher: divan::Bencher, (len, uniqueness): (usize, u
         .bench_refs(|(dict, ctx)| {
             dict.clone()
                 .into_array()
-                .binary(ConstantArray::new(value, len).into_array(), Operator::Eq)
+                .compare(
+                    ConstantArray::new(value, len).into_array(),
+                    CompareOperator::Eq,
+                )
                 .unwrap()
                 .execute::<Canonical>(ctx)
                 .unwrap()
@@ -93,7 +96,10 @@ fn bench_compare_varbin(bencher: divan::Bencher, (len, uniqueness): (usize, usiz
         .bench_refs(|(dict, ctx)| {
             dict.clone()
                 .into_array()
-                .binary(ConstantArray::new(value, len).into_array(), Operator::Eq)
+                .compare(
+                    ConstantArray::new(value, len).into_array(),
+                    CompareOperator::Eq,
+                )
                 .unwrap()
                 .execute::<RecursiveCanonical>(ctx)
                 .unwrap()
@@ -114,7 +120,10 @@ fn bench_compare_varbinview(bencher: divan::Bencher, (len, uniqueness): (usize, 
         .bench_refs(|(dict, ctx)| {
             dict.clone()
                 .into_array()
-                .binary(ConstantArray::new(value, len).into_array(), Operator::Eq)
+                .compare(
+                    ConstantArray::new(value, len).into_array(),
+                    CompareOperator::Eq,
+                )
                 .unwrap()
                 .execute::<RecursiveCanonical>(ctx)
                 .unwrap()

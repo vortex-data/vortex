@@ -1,0 +1,17 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+include ../setup.slt.no
+
+query I
+COPY (SELECT * FROM (VALUES (1), (2), (3)) t(number)) TO '${WORK_DIR}/members.vortex';
+----
+3
+
+statement ok
+SET disabled_optimizers = 'in_clause';
+
+query I
+SELECT count(*) FROM '${WORK_DIR}/members.vortex' WHERE number IN (number, 99);
+----
+3

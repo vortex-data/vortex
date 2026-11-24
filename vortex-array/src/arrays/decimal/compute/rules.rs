@@ -18,10 +18,10 @@ use crate::arrays::slice::SliceReduceAdaptor;
 use crate::match_each_decimal_value_type;
 use crate::optimizer::kernels::ArrayKernelsExt;
 use crate::optimizer::rules::ArrayParentReduceRule;
-use crate::scalar_fn::fns::cast::Cast;
-use crate::scalar_fn::fns::cast::CastReduceAdaptor;
-use crate::scalar_fn::fns::mask::Mask as MaskFn;
-use crate::scalar_fn::fns::mask::MaskReduceAdaptor;
+use crate::scalar_fn::builtin::cast::Cast;
+use crate::scalar_fn::builtin::cast::CastReduceAdaptor;
+use crate::scalar_fn::builtin::mask::Mask as MaskFn;
+use crate::scalar_fn::builtin::mask::MaskReduceAdaptor;
 
 pub(crate) fn register_parent_rules(session: &VortexSession) {
     let kernels = session.kernels();
@@ -114,7 +114,6 @@ mod tests {
     use crate::buffer::BufferHandle;
     use crate::buffer::DeviceBuffer;
     use crate::dtype::DecimalDType;
-    use crate::dtype::DecimalType;
     use crate::match_each_decimal_value_type;
     use crate::optimizer::ArrayOptimizer;
     use crate::validity::Validity;
@@ -161,31 +160,19 @@ mod tests {
 
     // Exercise composed byte offsets at every storage width without allowing a host copy.
     #[rstest]
-    fn test_slice_buffer_handle(
-        #[values(
-            DecimalType::I8,
-            DecimalType::I16,
-            DecimalType::I32,
-            DecimalType::I64,
-            DecimalType::I128,
-            DecimalType::I256
-        )]
-        values_type: DecimalType,
-    ) -> VortexResult<()> {
+    fn test_slice_buffer_handle(#[values(2, 4, 9, 18, 38, 76)] precision: u8) -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
+        let dtype = DecimalDType::new(precision, 1);
+        let values_type = dtype.canonical_values_type();
         let bytes = match_each_decimal_value_type!(values_type, |D| {
             Buffer::<D>::from_iter([-12i8, 34, -56, 78, 90, 12].map(|value| value.as_()))
                 .into_byte_buffer()
         });
         let handle = BufferHandle::new_device(Arc::new(TestDeviceBuffer(bytes.clone())));
         let validity = Validity::from_iter([true, false, true, false, true, true]);
-        let array = DecimalArray::try_new_handle(
-            handle,
-            values_type,
-            DecimalDType::new(3, 1),
-            validity.clone(),
-        )?
-        .into_array();
+        let array =
+            DecimalArray::try_new_handle(handle, values_type, dtype, validity.clone(), &mut ctx)?
+                .into_array();
         let sliced = array.slice(1..5)?;
 
         let range = 1..3;

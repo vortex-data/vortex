@@ -35,15 +35,17 @@ use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::memory::MemorySession;
 use vortex_array::optimizer::kernels::KernelSession;
-use vortex_array::scalar_fn::fns::between::BetweenOptions;
-use vortex_array::scalar_fn::fns::between::StrictComparison;
-use vortex_array::scalar_fn::fns::operators::Operator;
+use vortex_array::scalar::NumericOperator;
+use vortex_array::scalar_fn::builtin::operators::CompareOperator;
 use vortex_array::test_harness::mark_optimized;
 use vortex_array::validity::Validity;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::Buffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_functions::between::BetweenOptions;
+use vortex_functions::between::StrictComparison;
+use vortex_functions::builtins::ArrayFunctions;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
 
@@ -66,10 +68,12 @@ fn main() {
 // The session variables are created here, so that no timed case pays for their default
 // constructors. No case serializes, so the session needs no `ArraySession`.
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-    VortexSession::empty()
+    let session = VortexSession::empty()
         .with::<KernelSession>()
         .with::<AggregateFnSession>()
-        .with::<MemorySession>()
+        .with::<MemorySession>();
+    vortex_functions::initialize(&session);
+    session
 });
 
 // The decoded values hold 256 KiB. The inputs are sized so that every case does a few
@@ -197,7 +201,7 @@ fn compare_in_range(bencher: Bencher) {
     bench_case(
         bencher,
         || (values.widen(), constant(0)),
-        |(array, zero), ctx| execute_canonical(array.binary(zero, Operator::Lt), ctx),
+        |(array, zero), ctx| execute_canonical(array.compare(zero, CompareOperator::Lt), ctx),
     );
 }
 
@@ -309,7 +313,7 @@ fn add_constant(bencher: Bencher) {
     bench_case(
         bencher,
         || (values.widen(), constant(1)),
-        |(array, one), ctx| execute_canonical(array.binary(one, Operator::Add), ctx),
+        |(array, one), ctx| execute_canonical(array.numeric(one, NumericOperator::Add), ctx),
     );
 }
 
@@ -320,7 +324,7 @@ fn add_widen(bencher: Bencher) {
     bench_case(
         bencher,
         || (lhs.widen(), rhs.widen()),
-        |(lhs, rhs), ctx| execute_canonical(lhs.binary(rhs, Operator::Add), ctx),
+        |(lhs, rhs), ctx| execute_canonical(lhs.numeric(rhs, NumericOperator::Add), ctx),
     );
 }
 
@@ -332,7 +336,7 @@ fn add_canonical(bencher: Bencher) {
     bench_case(
         bencher,
         || (lhs.widen(), rhs.canonical()),
-        |(lhs, rhs), ctx| execute_canonical(lhs.binary(rhs, Operator::Add), ctx),
+        |(lhs, rhs), ctx| execute_canonical(lhs.numeric(rhs, NumericOperator::Add), ctx),
     );
 }
 

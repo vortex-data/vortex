@@ -13,7 +13,7 @@
 //! stabilize into stable C ABI for use within foreign language bindings.
 //!
 //! If you are looking to scan Vortex files or layouts, the Vortex implementation of the Scan API
-//! can be found in the `vortex-layout` crate.
+//! is lowered by `vortex-layout` into this crate's plans and executor.
 //!
 //! ## Open Issues
 //!
@@ -22,9 +22,14 @@
 //! * We should add a way for the client to negotiate capabilities with the data source, for
 //!   example which encodings it knows about.
 
+pub mod arrays;
+pub mod execution;
+pub mod plan;
 pub mod planning;
+pub mod prepare;
 pub mod row_mask;
 pub mod selection;
+pub mod source;
 pub mod strict_sorted_buffer;
 
 use std::any::Any;
@@ -33,6 +38,8 @@ use std::ops::Range;
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use futures::StreamExt;
+use futures::TryStreamExt;
 use futures::stream::BoxStream;
 use selection::Selection;
 use vortex_array::aggregate_fn::AggregateFnRef;
@@ -43,6 +50,8 @@ use vortex_array::expr::root;
 use vortex_array::expr::stats::Precision;
 use vortex_array::scalar::Scalar;
 use vortex_array::stats::StatsSet;
+use vortex_array::stream::ArrayStream;
+use vortex_array::stream::ArrayStreamAdapter;
 use vortex_array::stream::SendableArrayStream;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -152,7 +161,7 @@ pub struct ScanRequest {
     /// Filter expression, `None` implies no filter.
     pub filter: Option<Expression>,
     /// The per-partition row range to read. Row range will be applied
-    /// over every partition you scan.
+    /// over every partition you scan. A range that starts after it ends selects no rows.
     pub row_range: Option<Range<u64>>,
     /// The per-partition row selection to read. Row selection will be applied
     /// over every partition you scan.
@@ -211,6 +220,18 @@ pub trait DataSourceScan: 'static + Send {
     fn partitions(self: Box<Self>) -> PartitionStream;
 }
 
+impl dyn DataSourceScan {
+    /// Execute partitions lazily, yielding their arrays in the order the partitions are emitted.
+    pub fn into_array_stream(self: Box<Self>) -> impl ArrayStream + Send {
+        let dtype = self.dtype().clone();
+        let arrays = self
+            .partitions()
+            .map(|partition| partition?.execute())
+            .try_flatten();
+        ArrayStreamAdapter::new(dtype, arrays)
+    }
+}
+
 /// A reference-counted partition.
 pub type PartitionRef = Box<dyn Partition>;
 
@@ -243,3 +264,11 @@ pub trait Partition: 'static + Send {
     /// threads.
     fn execute(self: Box<Self>) -> VortexResult<SendableArrayStream>;
 }
+
+/// Expressions referring to the global scan row index.
+pub mod row_idx {
+    pub use crate::plan::builtins::row_idx::expr::*;
+}
+
+#[cfg(test)]
+mod test;

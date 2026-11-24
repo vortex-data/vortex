@@ -19,8 +19,8 @@ use vortex_array::arrays::ConstantArray;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::memory::MemorySession;
 use vortex_array::optimizer::kernels::KernelSession;
+use vortex_array::scalar::NumericOperator;
 use vortex_array::scalar::Scalar;
-use vortex_array::scalar_fn::fns::operators::Operator;
 use vortex_array::test_harness::mark_optimized;
 use vortex_buffer::Buffer;
 use vortex_session::VortexSession;
@@ -65,9 +65,9 @@ fn scalar_subtract(bencher: Bencher) {
         .bench_refs(|(chunked, ctx)| {
             chunked
                 .clone()
-                .binary(
+                .numeric(
                     ConstantArray::new(Scalar::from(to_subtract), chunked.len()).into_array(),
-                    Operator::Sub,
+                    NumericOperator::Sub,
                 )
                 .unwrap()
                 .execute::<RecursiveCanonical>(ctx)

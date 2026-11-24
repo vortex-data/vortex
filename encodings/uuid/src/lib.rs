@@ -46,6 +46,9 @@ pub fn initialize(session: &VortexSession) {
 }
 
 #[cfg(test)]
+mod arrow_properties;
+
+#[cfg(test)]
 mod tests {
     use rstest::rstest;
     use vortex_array::ArrayRef;
@@ -64,11 +67,14 @@ mod tests {
     use vortex_array::arrays::ExtensionArray;
     use vortex_array::arrays::FixedSizeListArray;
     use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::builtins::ArrayBuiltins;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
     use vortex_array::dtype::extension::ExtDType;
     use vortex_array::scalar::Scalar;
+    use vortex_array::test_harness::ExpectedOutcome;
+    use vortex_array::test_harness::assert_execution_paths;
     use vortex_array::validity::Validity;
     use vortex_buffer::Buffer;
     use vortex_error::VortexResult;
@@ -80,6 +86,20 @@ mod tests {
         let session = VortexSession::empty();
         initialize(&session);
         session
+    }
+
+    #[test]
+    fn cast_never_reinterprets_storage() -> VortexResult<()> {
+        let input = uuid_column(&[Some(1), None, Some(2)])?;
+        let target = input.dtype().as_extension().storage_dtype().clone();
+
+        assert_execution_paths(
+            &[input],
+            |inputs| inputs[0].cast(target.clone()),
+            ExpectedOutcome::Error,
+            &mut uuid_session().create_execution_ctx(),
+        );
+        Ok(())
     }
 
     /// A nullable UUID column, with each UUID given by its leading byte.
@@ -99,8 +119,11 @@ mod tests {
             leading_bytes.len(),
         )
         .into_array();
-        let ext_dtype =
-            ExtDType::try_with_vtable(Uuid, UuidMetadata::default(), storage.dtype().clone())?;
+        let ext_dtype = ExtDType::try_with_vtable(
+            Uuid,
+            UuidMetadata::default(),
+            storage.dtype().nullability(),
+        )?;
         Ok(ExtensionArray::new(ext_dtype.erased(), storage).into_array())
     }
 

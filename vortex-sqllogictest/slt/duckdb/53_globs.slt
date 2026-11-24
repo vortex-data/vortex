@@ -1,0 +1,29 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+include ../setup.slt.no
+
+query I
+COPY (SELECT * FROM (VALUES (1), (2), (3)) t(numbers)) TO '${WORK_DIR}/glob-a.vortex';
+----
+3
+
+query I
+COPY (SELECT * FROM (VALUES (4), (5), (6)) t(numbers)) TO '${WORK_DIR}/glob-b.vortex';
+----
+3
+
+query I
+COPY (SELECT * FROM (VALUES (7), (8), (9), (10)) t(numbers)) TO '${WORK_DIR}/other-c.vortex';
+----
+4
+
+query I
+SELECT sum(numbers) FROM '${WORK_DIR}/glob-*.vortex';
+----
+21
+
+query I
+SELECT sum(numbers) FROM read_vortex(['${WORK_DIR}/glob-*.vortex', '${WORK_DIR}/other-*.vortex']);
+----
+55

@@ -1,0 +1,28 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+include ../setup.slt.no
+
+query I
+COPY (SELECT string_lists::VARCHAR[4] AS string_lists FROM (VALUES
+    (['first', 'second', 'third', 'fourth']),
+    (['fifth', 'sixth', 'first', 'second']),
+    (['third', 'fourth', 'fifth', 'sixth'])
+) t(string_lists)) TO '${WORK_DIR}/string-fsl.vortex';
+----
+3
+
+query ?
+SELECT string_lists FROM '${WORK_DIR}/string-fsl.vortex';
+----
+[first, second, third, fourth]
+[fifth, sixth, first, second]
+[third, fourth, fifth, sixth]
+
+query III
+SELECT array_length(string_lists), len(string_lists), length(string_lists)
+FROM '${WORK_DIR}/string-fsl.vortex';
+----
+4 4 4
+4 4 4
+4 4 4

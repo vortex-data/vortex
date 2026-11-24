@@ -7,9 +7,9 @@ use geo::Rect as SpatialRect;
 use vortex_array::expr::BoundExpression;
 use vortex_array::scalar_fn::ScalarFnId;
 use vortex_array::scalar_fn::ScalarFnVTable;
-use vortex_array::scalar_fn::fns::binary::Binary;
-use vortex_array::scalar_fn::fns::literal::Literal;
-use vortex_array::scalar_fn::fns::operators::Operator;
+use vortex_array::scalar_fn::builtin::compare::Compare;
+use vortex_array::scalar_fn::builtin::literal::Literal;
+use vortex_array::scalar_fn::builtin::operators::CompareOperator;
 use vortex_error::VortexResult;
 use vortex_expr::stats::rewrite::StatsRewriteRule;
 use vortex_session::VortexSession;
@@ -36,8 +36,8 @@ pub struct SpatialDistancePrune;
 
 impl StatsRewriteRule for SpatialDistancePrune {
     fn scalar_fn_id(&self) -> ScalarFnId {
-        // The predicate root is the comparison, not `SpatialDistance`, so key on `Binary`.
-        Binary.id()
+        // The predicate root is the comparison, not `SpatialDistance`, so key on `Compare`.
+        Compare.id()
     }
 
     fn falsify(
@@ -49,10 +49,10 @@ impl StatsRewriteRule for SpatialDistancePrune {
         // provably empty when `r` lies outside its box's [min, max] distance interval), it's just
         // not implemented. `!= r` cannot: pruning would need every row's distance to equal `r`,
         // which an AABB can't prove.
-        let op = *expr.as_::<Binary>();
+        let op = *expr.as_::<Compare>();
         if !matches!(
             op,
-            Operator::Lte | Operator::Lt | Operator::Gte | Operator::Gt
+            CompareOperator::Lte | CompareOperator::Lt | CompareOperator::Gte | CompareOperator::Gt
         ) {
             return Ok(None);
         }
@@ -96,17 +96,17 @@ impl StatsRewriteRule for SpatialDistancePrune {
 fn distance_prune_proof(
     geom: &BoundExpression,
     query: SpatialRect<f64>,
-    op: Operator,
+    op: CompareOperator,
     radius: f64,
 ) -> Option<BoundExpression> {
     // A distance is always non-negative, so degenerate radii resolve without touching the box.
     match op {
         // `<= r` / `< r` with a negative radius (or zero, for `<`) match nothing: prune every chunk.
-        Operator::Lte if radius < 0.0 => return Some(lit(true)),
-        Operator::Lt if radius <= 0.0 => return Some(lit(true)),
+        CompareOperator::Lte if radius < 0.0 => return Some(lit(true)),
+        CompareOperator::Lt if radius <= 0.0 => return Some(lit(true)),
         // `>= r` / `> r` with a negative radius (or zero, for `>=`) match all rows: never prune.
-        Operator::Gte if radius <= 0.0 => return None,
-        Operator::Gt if radius < 0.0 => return None,
+        CompareOperator::Gte if radius <= 0.0 => return None,
+        CompareOperator::Gt if radius < 0.0 => return None,
         _ => {}
     }
     // Compared squared to avoid a `sqrt`; all operands are `>= 0`.
@@ -114,11 +114,11 @@ fn distance_prune_proof(
     let r2 = lit(radius * radius);
     Some(match op {
         // Beyond the threshold: even the nearest the box can be exceeds `r`.
-        Operator::Lte => gt(min_dist_sq(&aabb, query), r2),
-        Operator::Lt => gt_eq(min_dist_sq(&aabb, query), r2),
+        CompareOperator::Lte => gt(min_dist_sq(&aabb, query), r2),
+        CompareOperator::Lt => gt_eq(min_dist_sq(&aabb, query), r2),
         // Within the threshold: even the farthest the box can be is below `r`.
-        Operator::Gte => lt(max_dist_sq(&aabb, query), r2),
-        Operator::Gt => lt_eq(max_dist_sq(&aabb, query), r2),
+        CompareOperator::Gte => lt(max_dist_sq(&aabb, query), r2),
+        CompareOperator::Gt => lt_eq(max_dist_sq(&aabb, query), r2),
         _ => return None,
     })
 }
@@ -138,8 +138,8 @@ mod tests {
     use vortex_array::scalar::Scalar;
     use vortex_array::scalar_fn::EmptyOptions;
     use vortex_array::scalar_fn::ScalarFnVTableExt;
-    use vortex_array::scalar_fn::fns::binary::Binary;
-    use vortex_array::scalar_fn::fns::operators::Operator;
+    use vortex_array::scalar_fn::builtin::compare::Compare;
+    use vortex_array::scalar_fn::builtin::operators::CompareOperator;
     use vortex_error::VortexResult;
     use vortex_expr::stats::rewrite::BoundExpressionPruneExt;
     use vortex_expr::stats::rewrite::StatsRewriteRule;
@@ -155,7 +155,7 @@ mod tests {
     /// `geom_first` is false. The radius is any literal scalar, matching the uncoerced filter
     /// expressions the rule sees in production.
     fn falsify_distance(
-        operator: Operator,
+        operator: CompareOperator,
         geom_first: bool,
         radius: impl Into<Scalar>,
     ) -> VortexResult<Option<BoundExpression>> {
@@ -170,7 +170,7 @@ mod tests {
             [lit(origin), root()]
         };
         let distance = SpatialDistance.new_expr(EmptyOptions, operands);
-        let predicate = Binary
+        let predicate = Compare
             .new_expr(operator, [distance, lit(radius.into())])
             .bind(&scope)?;
 
@@ -186,8 +186,8 @@ mod tests {
         let scope = point_column(vec![0.0], vec![0.0])?.dtype().clone();
         let null_query = Scalar::null(scope.as_nullable());
         let distance = SpatialDistance.new_expr(EmptyOptions, [root(), lit(null_query)]);
-        let predicate = Binary
-            .new_expr(Operator::Lte, [distance, lit(0.5f64)])
+        let predicate = Compare
+            .new_expr(CompareOperator::Lte, [distance, lit(0.5f64)])
             .bind(&scope)?;
 
         assert!(
@@ -201,14 +201,14 @@ mod tests {
     /// All four distance comparisons prune (`<=`/`<` via min-distance, `>=`/`>` via max-distance);
     /// `==`/`!=` are left to the scan.
     #[rstest]
-    #[case(Operator::Lte, Some([false, false, true]))]
-    #[case(Operator::Lt, Some([false, true, true]))]
-    #[case(Operator::Gt, Some([true, true, false]))]
-    #[case(Operator::Gte, Some([true, false, false]))]
-    #[case(Operator::Eq, None)]
-    #[case(Operator::NotEq, None)]
+    #[case(CompareOperator::Lte, Some([false, false, true]))]
+    #[case(CompareOperator::Lt, Some([false, true, true]))]
+    #[case(CompareOperator::Gt, Some([true, true, false]))]
+    #[case(CompareOperator::Gte, Some([true, false, false]))]
+    #[case(CompareOperator::Eq, None)]
+    #[case(CompareOperator::NotEq, None)]
     fn prunes_distance_comparisons(
-        #[case] operator: Operator,
+        #[case] operator: CompareOperator,
         #[case] expected: Option<[bool; 3]>,
     ) -> VortexResult<()> {
         let proof = falsify_distance(operator, true, 0.5)?;
@@ -234,7 +234,8 @@ mod tests {
     #[case(true)]
     #[case(false)]
     fn falsifies_either_operand_order(#[case] geom_first: bool) -> VortexResult<()> {
-        let proof = falsify_distance(Operator::Lte, geom_first, 0.5)?.expect("distance proof");
+        let proof =
+            falsify_distance(CompareOperator::Lte, geom_first, 0.5)?.expect("distance proof");
         let dtype = point_column(vec![0.0], vec![0.0])?.dtype().clone();
         let zones = aabb_zone_map(&dtype, &[[0.0, 0.0, 0.0, 0.0], [1.0, 0.0, 1.0, 0.0]])?;
         assert_eq!(
@@ -250,14 +251,15 @@ mod tests {
     /// A NaN radius must not prune - the scan's total-order compare treats `dist <= NaN` as true.
     #[test]
     fn nan_radius_never_prunes() -> VortexResult<()> {
-        assert!(falsify_distance(Operator::Lte, true, f64::NAN)?.is_none());
+        assert!(falsify_distance(CompareOperator::Lte, true, f64::NAN)?.is_none());
         Ok(())
     }
 
     /// A negative radius prunes every zone - vacuously sound: `distance <= r < 0` matches no row.
     #[test]
     fn negative_radius_prunes_vacuously() -> VortexResult<()> {
-        let proof = falsify_distance(Operator::Lte, true, -0.5)?.expect("negative-radius proof");
+        let proof =
+            falsify_distance(CompareOperator::Lte, true, -0.5)?.expect("negative-radius proof");
         let dtype = point_column(vec![0.0], vec![0.0])?.dtype().clone();
         let zones = aabb_zone_map(&dtype, &[[0.0, 0.0, 0.0, 0.0], [1.0, 0.0, 1.0, 0.0]])?;
         assert_eq!(
@@ -273,7 +275,7 @@ mod tests {
     /// An uncoerced integer radius is rejected while binding the comparison.
     #[test]
     fn uncoerced_integer_radius_fails_to_bind() -> VortexResult<()> {
-        assert!(falsify_distance(Operator::Lte, true, 10i64).is_err());
+        assert!(falsify_distance(CompareOperator::Lte, true, 10i64).is_err());
         Ok(())
     }
 
@@ -281,7 +283,7 @@ mod tests {
     #[test]
     fn null_radius_never_prunes() -> VortexResult<()> {
         let radius = Scalar::null(DType::Primitive(PType::F64, Nullability::Nullable));
-        assert!(falsify_distance(Operator::Lte, true, radius)?.is_none());
+        assert!(falsify_distance(CompareOperator::Lte, true, radius)?.is_none());
         Ok(())
     }
 
@@ -294,7 +296,7 @@ mod tests {
         let geometry = point_column(vec![0.0], vec![0.0])?.execute_scalar(0, &mut ctx)?;
         let scope = geometry.dtype().clone();
         let distance = SpatialDistance.new_expr(EmptyOptions, [root(), lit(geometry.clone())]);
-        let predicate = Binary.new_expr(Operator::Lte, [distance, lit(geometry)]);
+        let predicate = Compare.new_expr(CompareOperator::Lte, [distance, lit(geometry)]);
         let error = predicate
             .bind(&scope)
             .expect_err("a geometry scalar cannot be compared with a numeric distance");

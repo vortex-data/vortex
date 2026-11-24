@@ -34,7 +34,7 @@ use vortex_array::dtype::PType;
 use vortex_array::memory::MemorySession;
 use vortex_array::optimizer::kernels::KernelSession;
 use vortex_array::scalar::Scalar;
-use vortex_array::scalar_fn::fns::operators::Operator;
+use vortex_array::scalar_fn::builtin::operators::CompareOperator;
 use vortex_array::session::ArraySession;
 use vortex_array::test_harness::mark_optimized;
 use vortex_buffer::Buffer;
@@ -164,7 +164,9 @@ fn sparse_compare(bencher: Bencher) {
         .with_inputs(|| (array.clone(), SESSION.create_execution_ctx()))
         .bench_values(|(array, mut ctx)| {
             let rhs = ConstantArray::new(Scalar::from(1i32), array.len()).into_array();
-            let result = array.binary(rhs, Operator::Eq).vortex_expect("binary");
+            let result = array
+                .compare(rhs, CompareOperator::Eq)
+                .vortex_expect("binary");
             let sparse = result
                 .execute_until::<Sparse>(&mut ctx)
                 .vortex_expect("execute to sparse");

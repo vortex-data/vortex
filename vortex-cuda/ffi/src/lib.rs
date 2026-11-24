@@ -15,6 +15,7 @@ use std::ptr;
 use arrow_schema::ffi::FFI_ArrowSchema;
 use vortex::array::ArrayRef;
 use vortex::array::stream::ArrayStreamExt;
+use vortex::array::stream::SendableArrayStream;
 use vortex::dtype::FieldName;
 use vortex::dtype::FieldNames;
 use vortex::error::VortexResult;
@@ -54,6 +55,13 @@ use vortex_ffi::vx_session;
 use vortex_ffi::vx_session_new_with;
 use vortex_ffi::vx_session_ref;
 use vortex_ffi::vx_view;
+
+mod device_batches;
+
+pub use device_batches::vx_cuda_device_batches;
+pub use device_batches::vx_cuda_device_batches_free;
+pub use device_batches::vx_cuda_device_batches_next;
+pub use device_batches::vx_cuda_scan_path_device_batches;
 
 const VX_CUDA_OK: c_int = 0;
 const VX_CUDA_ERR: c_int = 1;
@@ -321,15 +329,7 @@ pub unsafe extern "C-unwind" fn vx_cuda_scan_path_arrow_device_stream_projected(
             )
         };
         let session = session_with_cuda(session);
-        let file = ffi_runtime().block_on(
-            session
-                .open_options()
-                .with_cuda()
-                .with_read_at_options(options.read_at_options)
-                .open_path(path),
-        )?;
-        let scan = projected_scan(&file, columns, options.batch_rows)?;
-        let array_stream = scan.into_array_stream()?.boxed();
+        let array_stream = open_cuda_scan(session, path, options, columns)?;
         let ctx = scan_export_ctx(session)?;
         let device_stream = ArrowDeviceArrayStream::new(array_stream, ctx, ffi_runtime());
 
@@ -337,6 +337,24 @@ pub unsafe extern "C-unwind" fn vx_cuda_scan_path_arrow_device_stream_projected(
         unsafe { ptr::write(out_stream, device_stream) };
         Ok(VX_CUDA_OK)
     })
+}
+
+fn open_cuda_scan(
+    session: &VortexSession,
+    path: &str,
+    options: CudaScanOptions,
+    columns: FieldNames,
+) -> VortexResult<SendableArrayStream> {
+    let file = ffi_runtime().block_on(
+        session
+            .open_options()
+            .with_cuda()
+            .with_read_at_options(options.read_at_options)
+            .open_path(path),
+    )?;
+    Ok(projected_scan(&file, columns, options.batch_rows)?
+        .into_array_stream()?
+        .boxed())
 }
 
 /// Copy ordered, literal field names, rejecting invalid views and duplicates. Zero selects all.

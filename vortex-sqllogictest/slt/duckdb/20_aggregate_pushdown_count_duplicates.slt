@@ -1,0 +1,51 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+include ../setup.slt.no
+
+statement ok
+SET disabled_optimizers='statistics_propagation';
+
+statement ok
+COPY (
+WITH cte AS (SELECT generate_series AS i FROM generate_series(100000))
+SELECT (CASE WHEN i > 0 THEN i::INTEGER ELSE NULL END) AS i FROM cte
+)
+TO '${WORK_DIR}/agg-pushdown.vortex';
+
+# Just count() is rejected because not pushing it down is faster:
+# we just set chunk length and don't do any aggregation ourselves
+query TT
+EXPLAIN (FORMAT json) SELECT count(*) FROM '${WORK_DIR}/agg-pushdown.vortex';
+----
+<REGEX>:.*UNGROUPED_AGGREGATE.*
+
+query TT
+EXPLAIN (FORMAT json) SELECT count(), count(), count() FROM '${WORK_DIR}/agg-pushdown.vortex';
+----
+<REGEX>:.*UNGROUPED_AGGREGATE.*
+
+query III
+SELECT count(), count(), count() FROM '${WORK_DIR}/agg-pushdown.vortex';
+----
+100001 100001 100001
+
+query TT
+EXPLAIN (FORMAT json) SELECT min(i), min(i) FROM '${WORK_DIR}/agg-pushdown.vortex';
+----
+<!REGEX>:.*UNGROUPED_AGGREGATE.*
+
+query II
+SELECT min(i), min(i) FROM '${WORK_DIR}/agg-pushdown.vortex';
+----
+1 1
+
+query III
+SELECT min(i), max(i), min(i) FROM '${WORK_DIR}/agg-pushdown.vortex';
+----
+1 100000 1
+
+query IIII
+SELECT sum(i), sum(i), count(i), count(i) FROM '${WORK_DIR}/agg-pushdown.vortex';
+----
+5000050000 5000050000 100000 100000

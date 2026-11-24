@@ -32,5 +32,6 @@ pub static EDITION_DECLARATIONS: &[&EditionDeclaration] = &[
     &core::v2026_08_2::DECLARATION,
     &core::v2026_08_3::DECLARATION,
     &preview::v2026_08::DECLARATION,
+    &preview::v2026_11::DECLARATION,
     &unstable::DECLARATION,
 ];
