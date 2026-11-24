@@ -26,12 +26,13 @@ The [workflow][tag-src] runs these jobs in order:
 
 1. `prepare` checks that the commit is on `develop`.
 2. `checks` runs the [Release Checks][checks-src] at the commit. These are the checks that pull
-   requests do not run: packaging dry runs for Python and crates.io, compatibility with the last
-   release's files, musl, Windows, the CPU feature tiers, the minimum supported Rust version,
-   minimal dependency versions, per-crate builds with all features and with the tokio dispatcher,
-   Clippy without default features, sanitizers and Miri. If any check fails, the workflow stops before
-   it drafts or tags anything. Fix the failure on `develop` and run the workflow for the new commit,
-   or re-run the failed jobs if the failure was not in the code.
+   requests do not run: the workspace Rust tests on Linux ARM64, packaging dry runs for Python and
+   crates.io, compatibility with the last release's files, musl, Windows, the CPU feature tiers,
+   the minimum supported Rust version, minimal dependency versions, per-crate builds with all
+   features and with the tokio dispatcher, Clippy without default features, sanitizers and Miri.
+   If any check fails, the workflow stops before it drafts or tags anything. Fix the failure on
+   `develop` and run the workflow for the new commit, or re-run the failed jobs if the failure was
+   not in the code.
 3. `tag` runs Release Drafter, which drafts the notes for the pull requests merged between the
    last published release and the commit, and resolves the version. It then tags the commit with
    that version. The run summary names the tag and links the draft.
