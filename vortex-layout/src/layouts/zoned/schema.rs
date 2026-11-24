@@ -7,7 +7,6 @@ use std::sync::Arc;
 
 use vortex_array::aggregate_fn::AggregateFnId;
 use vortex_array::aggregate_fn::AggregateFnRef;
-use vortex_array::aggregate_fn::session::AggregateFnSessionExt;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::StructFields;
@@ -17,74 +16,39 @@ use vortex_array::expr::get_item;
 use vortex_array::expr::pack;
 use vortex_array::expr::root;
 use vortex_array::expr::stats::Stat;
+use vortex_array::proto::expr as pb;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_error::vortex_err;
 use vortex_session::VortexSession;
 
 pub const MAX_IS_TRUNCATED: &str = "max_is_truncated";
 pub const MIN_IS_TRUNCATED: &str = "min_is_truncated";
 
-#[derive(Clone, PartialEq, Eq, ::prost::Message)]
-pub(crate) struct AggregateSpecProto {
-    #[prost(string, tag = "1")]
-    id: String,
-    #[prost(bytes, tag = "2")]
-    options: Vec<u8>,
+/// Resolve a stored aggregate spec, returning `Ok(None)` for an unknown aggregate ID when the
+/// session allows unknown plugins.
+///
+/// A `None` result means the zone map cannot be reconstructed for this aggregate, so callers
+/// should disable zoned pruning rather than fail the read.
+fn aggregate_fn_from_spec(
+    spec: &pb::AggregateFn,
+    session: &VortexSession,
+) -> VortexResult<Option<AggregateFnRef>> {
+    #[expect(clippy::disallowed_methods, reason = "interning a dynamic id")]
+    let id = AggregateFnId::new(spec.id.as_str());
+    let aggregate_fn = AggregateFnRef::from_parts(id, spec.metadata(), session)?;
+    if aggregate_fn.is_none() && !session.allows_unknown() {
+        vortex_bail!("unknown aggregate function id: {}", spec.id);
+    }
+    Ok(aggregate_fn)
 }
 
-impl AggregateSpecProto {
-    pub(crate) fn try_from_aggregate_fn(aggregate_fn: &AggregateFnRef) -> VortexResult<Self> {
-        let options = aggregate_fn.options().serialize()?.ok_or_else(|| {
-            vortex_err!(
-                "Aggregate function '{}' is not serializable",
-                aggregate_fn.id()
-            )
-        })?;
-
-        Ok(Self {
-            id: aggregate_fn.id().to_string(),
-            options,
-        })
-    }
-
-    /// Resolve this spec to its aggregate function, returning `Ok(None)` for an unknown aggregate
-    /// ID when the session allows unknown plugins.
-    ///
-    /// A `None` result means the zone map cannot be reconstructed for this aggregate, so callers
-    /// should disable zoned pruning rather than fail the read.
-    fn to_aggregate_fn_opt(&self, session: &VortexSession) -> VortexResult<Option<AggregateFnRef>> {
-        #[expect(clippy::disallowed_methods, reason = "interning a dynamic id")]
-        let aggregate_fn_id = AggregateFnId::new(self.id.as_str());
-
-        let Some(plugin) = session.aggregate_fns().find_plugin(&aggregate_fn_id) else {
-            if session.allows_unknown() {
-                return Ok(None);
-            }
-
-            vortex_bail!("unknown aggregate function id: {}", self.id);
-        };
-
-        let aggregate_fn = plugin.deserialize(&self.options, session)?;
-        if aggregate_fn.id() != aggregate_fn_id {
-            vortex_bail!(
-                "Aggregate function ID mismatch: expected {}, got {}",
-                aggregate_fn_id,
-                aggregate_fn.id()
-            );
-        }
-
-        Ok(Some(aggregate_fn))
-    }
-
-    /// Construct a spec referencing an aggregate ID that no session resolves, for exercising the
-    /// unknown-aggregate read paths.
-    #[cfg(test)]
-    pub(crate) fn new_unknown(id: &str) -> Self {
-        Self {
-            id: id.to_string(),
-            options: vec![],
-        }
+/// Construct a spec referencing an aggregate ID that no session resolves, for exercising the
+/// unknown-aggregate read paths.
+#[cfg(test)]
+pub(crate) fn unknown_aggregate_spec(id: &str) -> pb::AggregateFn {
+    pb::AggregateFn {
+        id: id.to_string(),
+        metadata: None,
     }
 }
 
@@ -137,21 +101,21 @@ pub(crate) fn legacy_stats_table_dtype(column_dtype: &DType, present_stats: &[St
     )
 }
 
-/// Serializes each live [`AggregateFnRef`] into an [`AggregateSpecProto`] for storage in zoned
+/// Serializes each live [`AggregateFnRef`] into a [`pb::AggregateFn`] for storage in zoned
 /// metadata. The inverse of [`try_aggregate_fns_from_specs`].
 ///
 /// Errors if any aggregate is not serializable.
 pub(crate) fn aggregate_specs_from_fns(
     aggregate_fns: &[AggregateFnRef],
-) -> VortexResult<Arc<[AggregateSpecProto]>> {
+) -> VortexResult<Arc<[pb::AggregateFn]>> {
     aggregate_fns
         .iter()
-        .map(AggregateSpecProto::try_from_aggregate_fn)
+        .map(AggregateFnRef::serialize_proto)
         .collect::<VortexResult<Vec<_>>>()
         .map(Into::into)
 }
 
-/// Resolves each [`AggregateSpecProto`] into a live [`AggregateFnRef`], tolerating aggregates this
+/// Resolves each [`pb::AggregateFn`] into a live [`AggregateFnRef`], tolerating aggregates this
 /// session does not recognize. Rebuilding the `zones` child needs every spec resolved, since its
 /// dtype is derived from them.
 ///
@@ -164,12 +128,12 @@ pub(crate) fn aggregate_specs_from_fns(
 /// - `Err(..)`: any other failure (an unknown aggregate while disallowed, or undeserializable
 ///   options).
 pub(crate) fn try_aggregate_fns_from_specs(
-    aggregate_specs: &[AggregateSpecProto],
+    aggregate_specs: &[pb::AggregateFn],
     session: &VortexSession,
 ) -> VortexResult<Option<Arc<[AggregateFnRef]>>> {
     aggregate_specs
         .iter()
-        .map(|aggregate_spec| aggregate_spec.to_aggregate_fn_opt(session))
+        .map(|aggregate_spec| aggregate_fn_from_spec(aggregate_spec, session))
         .collect::<VortexResult<Option<Vec<_>>>>()
         .map(|aggregate_fns| aggregate_fns.map(Arc::from))
 }
@@ -258,7 +222,7 @@ mod tests {
 
     #[test]
     fn unknown_aggregate_errors_without_allow_unknown() {
-        let specs = [AggregateSpecProto::new_unknown("vortex.test.unknown")];
+        let specs = [unknown_aggregate_spec("vortex.test.unknown")];
         assert!(try_aggregate_fns_from_specs(&specs, &SESSION).is_err());
     }
 
@@ -266,7 +230,7 @@ mod tests {
     fn unknown_aggregate_is_none_with_allow_unknown() -> VortexResult<()> {
         let session = VortexSession::empty();
         session.allow_unknown();
-        let specs = [AggregateSpecProto::new_unknown("vortex.test.unknown")];
+        let specs = [unknown_aggregate_spec("vortex.test.unknown")];
         assert!(try_aggregate_fns_from_specs(&specs, &session)?.is_none());
         Ok(())
     }
