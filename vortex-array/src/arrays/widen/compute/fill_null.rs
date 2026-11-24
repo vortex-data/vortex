@@ -13,7 +13,7 @@ use crate::arrays::widen::compute::wrap_values;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::scalar::Scalar;
-use crate::scalar_fn::fns::fill_null::FillNullReduce;
+use crate::scalar_fn::builtin::fill_null::FillNullReduce;
 
 impl FillNullReduce for Widen {
     fn fill_null(

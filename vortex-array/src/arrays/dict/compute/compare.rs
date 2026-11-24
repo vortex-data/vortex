@@ -14,9 +14,8 @@ use crate::arrays::ConstantArray;
 use crate::arrays::dict::DictArrayExt;
 use crate::arrays::dict::DictArraySlotsExt;
 use crate::builtins::ArrayBuiltins;
-use crate::scalar_fn::fns::binary::CompareKernel;
-use crate::scalar_fn::fns::operators::CompareOperator;
-use crate::scalar_fn::fns::operators::Operator;
+use crate::scalar_fn::builtin::compare::CompareKernel;
+use crate::scalar_fn::builtin::operators::CompareOperator;
 
 impl CompareKernel for Dict {
     fn compare(
@@ -32,9 +31,9 @@ impl CompareKernel for Dict {
 
         // If the RHS is constant, then we just need to compare against our encoded values.
         if let Some(rhs) = rhs.as_constant() {
-            let compare_result = lhs.values().clone().binary(
+            let compare_result = lhs.values().clone().compare(
                 ConstantArray::new(rhs.clone(), lhs.values().len()).into_array(),
-                Operator::from(operator),
+                operator,
             )?;
 
             // SAFETY: values len preserved, codes all still point to valid values

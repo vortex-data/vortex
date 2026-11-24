@@ -108,6 +108,7 @@ pub enum vx_scan_selection_include {
 pub struct vx_scan_selection {
     /// Used only when "include" is not VX_SELECTION_INCLUDE_ALL.
     /// If set, must point to an array of len "idx_len" row_indices.
+    /// May be NULL when idx_len is 0.
     pub idx: *const u64,
     /// Used only when "include" is not VX_SELECTION_INCLUDE_ALL
     pub idx_len: usize,
@@ -157,6 +158,15 @@ pub struct vx_estimate {
     pub estimate: u64,
 }
 
+fn selection_indices(selection: &vx_scan_selection) -> VortexResult<StrictSortedBuffer<u64>> {
+    if selection.idx_len == 0 {
+        return StrictSortedBuffer::try_new(Buffer::empty());
+    }
+    vortex_ensure!(!selection.idx.is_null());
+    let buf = unsafe { slice::from_raw_parts(selection.idx, selection.idx_len) };
+    StrictSortedBuffer::try_new(Buffer::copy_from(buf))
+}
+
 fn scan_request(opts: *const vx_scan_options) -> VortexResult<ScanRequest> {
     if opts.is_null() {
         return Ok(ScanRequest::default());
@@ -179,16 +189,10 @@ fn scan_request(opts: *const vx_scan_options) -> VortexResult<ScanRequest> {
     let selection = match selection.include {
         vx_scan_selection_include::VX_SELECTION_INCLUDE_ALL => Selection::All,
         vx_scan_selection_include::VX_SELECTION_INCLUDE_RANGE => {
-            vortex_ensure!(!selection.idx.is_null());
-            let buf = unsafe { slice::from_raw_parts(selection.idx, selection.idx_len) };
-            let buf = Buffer::copy_from(buf);
-            Selection::IncludeByIndex(StrictSortedBuffer::try_new(buf)?)
+            Selection::IncludeByIndex(selection_indices(selection)?)
         }
         vx_scan_selection_include::VX_SELECTION_EXCLUDE_RANGE => {
-            vortex_ensure!(!selection.idx.is_null());
-            let buf = unsafe { slice::from_raw_parts(selection.idx, selection.idx_len) };
-            let buf = Buffer::copy_from(buf);
-            Selection::ExcludeByIndex(StrictSortedBuffer::try_new(buf)?)
+            Selection::ExcludeByIndex(selection_indices(selection)?)
         }
     };
 
@@ -344,15 +348,17 @@ pub unsafe extern "C-unwind" fn vx_partition_row_count(
     })
 }
 
-/// Scan partition to ArrowArrayStream.
-/// Consumes partition fully: subsequent calls to vx_partition_scan_arrow or
-/// vx_partition_next are undefined behaviour.
-/// This call blocks current thread until underlying stream is fully consumed.
+/// Export a partition as an Arrow C Data Interface `ArrowArrayStream`.
 ///
-/// Caller must not free partition after calling this function.
+/// Consumes `partition` unconditionally: subsequent calls to `vx_partition_scan_arrow` or
+/// `vx_partition_next` are undefined behaviour, and the caller must not free `partition` after
+/// calling this function.
 ///
-/// On success, sets "stream" and returns 0.
-/// On error, sets "err" and returns 1, freeing the partition.
+/// The returned stream iterates lazily and retains its own handle to `session`, so the caller may
+/// free `session` after this function returns.
+///
+/// On success, writes `stream` and returns 0.
+/// On error, sets `err` and returns 1, freeing `partition`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_partition_scan_arrow(
     session: *const vx_session,
@@ -370,7 +376,7 @@ pub unsafe extern "C-unwind" fn vx_partition_scan_arrow(
         let array_stream = partition.execute()?;
         let dtype = array_stream.dtype();
 
-        let session = vx_session::as_ref(session);
+        let session = vx_session::as_ref(session).clone();
 
         let schema = session.arrow().to_arrow_schema(dtype)?;
         let schema = Arc::new(schema);
@@ -445,9 +451,15 @@ pub unsafe extern "C-unwind" fn vx_partition_next(
 #[cfg(not(windows))]
 #[cfg(test)]
 mod tests {
+    use std::any::Any;
     use std::ptr;
+    use std::sync::Arc;
     use std::sync::LazyLock;
+    use std::sync::atomic::AtomicUsize;
+    use std::sync::atomic::Ordering;
 
+    use arrow_array::ffi_stream::FFI_ArrowArrayStream;
+    use rstest::rstest;
     use tempfile::NamedTempFile;
     use vortex::VortexSessionDefault;
     use vortex::array::IntoArray;
@@ -456,6 +468,10 @@ mod tests {
     use vortex::array::arrays::VarBinView;
     use vortex::array::arrays::VarBinViewArray;
     use vortex::array::validity::Validity;
+    use vortex::error::VortexResult;
+    use vortex::scan::selection::Selection;
+    use vortex::session::SessionExt;
+    use vortex::session::SessionVar;
     use vortex::session::VortexSession;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::struct_::StructArrayExt;
@@ -483,6 +499,7 @@ mod tests {
     use crate::scan::vx_partition_free;
     use crate::scan::vx_partition_next;
     use crate::scan::vx_partition_row_count;
+    use crate::scan::vx_partition_scan_arrow;
     use crate::scan::vx_scan_free;
     use crate::scan::vx_scan_next_partition;
     use crate::scan::vx_scan_options;
@@ -490,6 +507,7 @@ mod tests {
     use crate::scan::vx_scan_selection_include;
     use crate::session::vx_session_free;
     use crate::session::vx_session_new;
+    use crate::session::vx_session_new_with;
     use crate::sink::vx_array_sink_close;
     use crate::sink::vx_array_sink_open_file;
     use crate::sink::vx_array_sink_push;
@@ -804,6 +822,30 @@ mod tests {
         unsafe { vx_array_free(array) };
     }
 
+    #[rstest]
+    #[case(vx_scan_selection_include::VX_SELECTION_INCLUDE_RANGE, true)]
+    #[case(vx_scan_selection_include::VX_SELECTION_EXCLUDE_RANGE, false)]
+    fn test_empty_selection_with_null_pointer(
+        #[case] include: vx_scan_selection_include,
+        #[case] expect_include: bool,
+    ) -> VortexResult<()> {
+        let opts = vx_scan_options {
+            selection: vx_scan_selection {
+                idx: ptr::null(),
+                idx_len: 0,
+                include,
+            },
+            ..Default::default()
+        };
+        let request = super::scan_request(&raw const opts)?;
+        match (expect_include, request.selection) {
+            (true, Selection::IncludeByIndex(indices))
+            | (false, Selection::ExcludeByIndex(indices)) => assert!(indices.is_empty()),
+            (_, other) => panic!("unexpected selection: {other:?}"),
+        }
+        Ok(())
+    }
+
     #[test]
     #[cfg_attr(miri, ignore)]
     fn test_limit() {
@@ -866,5 +908,93 @@ mod tests {
             vx_data_source_free(ds);
             vx_session_free(session);
         }
+    }
+
+    #[derive(Debug)]
+    struct DropCounter(Arc<AtomicUsize>);
+
+    impl Drop for DropCounter {
+        fn drop(&mut self) {
+            self.0.fetch_sub(1, Ordering::SeqCst);
+        }
+    }
+
+    #[derive(Debug, Clone)]
+    struct SessionLifetimeGuard(#[allow(dead_code)] Arc<DropCounter>);
+
+    impl SessionVar for SessionLifetimeGuard {
+        fn as_any(&self) -> &dyn Any {
+            self
+        }
+
+        fn as_any_mut(&mut self) -> &mut dyn Any {
+            self
+        }
+    }
+
+    fn export_partition_with_tracked_session()
+    -> (FFI_ArrowArrayStream, Arc<AtomicUsize>, NamedTempFile) {
+        unsafe {
+            let source_session = vx_session_new();
+            let (sample, _) = write_sample(source_session);
+            let path = vx_view::from_str(sample.path().to_str().unwrap());
+            let ds_options = vx_data_source_options {
+                paths: &raw const path,
+                paths_len: 1,
+            };
+
+            let mut error = ptr::null_mut();
+            let ds = vx_data_source_new(source_session, &raw const ds_options, &raw mut error);
+            assert_no_error(error);
+
+            let scan_ptr = vx_data_source_scan(ds, ptr::null(), ptr::null_mut(), &raw mut error);
+            assert_no_error(error);
+
+            let partition = vx_scan_next_partition(scan_ptr, &raw mut error);
+            assert_no_error(error);
+            assert!(!partition.is_null());
+
+            // Attach the lifetime guard to a separate session used only for Arrow export, so
+            // freeing it leaves the exported stream as the sole owner.
+            let alive = Arc::new(AtomicUsize::new(1));
+            let alive_ref = Arc::clone(&alive);
+            let export_session =
+                vx_session_new_with(|session| {
+                    drop(session.get_or_insert_with(|| {
+                        SessionLifetimeGuard(Arc::new(DropCounter(alive_ref)))
+                    }));
+                    session
+                });
+
+            let mut stream = FFI_ArrowArrayStream::empty();
+            let rc =
+                vx_partition_scan_arrow(export_session, partition, &raw mut stream, &raw mut error);
+            assert_no_error(error);
+            assert_eq!(rc, 0);
+
+            vx_session_free(export_session);
+            vx_scan_free(scan_ptr);
+            vx_data_source_free(ds);
+            vx_session_free(source_session);
+
+            (stream, alive, sample)
+        }
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore)]
+    fn test_partition_scan_arrow_retains_session_until_early_disposal() {
+        let (stream, alive, _sample) = export_partition_with_tracked_session();
+        assert_eq!(
+            alive.load(Ordering::SeqCst),
+            1,
+            "exported Arrow stream must own a session handle before any poll"
+        );
+        drop(stream);
+        assert_eq!(
+            alive.load(Ordering::SeqCst),
+            0,
+            "disposing the exported Arrow stream must release its session handle"
+        );
     }
 }

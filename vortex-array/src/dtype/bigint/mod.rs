@@ -102,6 +102,12 @@ impl i256 {
         Self(self.0.wrapping_add(other.0))
     }
 
+    /// Wrapping (modular) multiplication. Computes `self * other`, wrapping around at the
+    /// boundary.
+    pub fn wrapping_mul(&self, other: Self) -> Self {
+        Self(self.0.wrapping_mul(other.0))
+    }
+
     /// Return the memory representation of this integer as a byte array in little-endian byte order.
     #[inline]
     pub const fn to_le_bytes(&self) -> [u8; 32] {

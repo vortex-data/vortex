@@ -29,7 +29,6 @@ use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::scalar::NumericOperator;
 use crate::scalar::Scalar;
-use crate::scalar_fn::fns::operators::Operator;
 use crate::validity::Validity;
 
 /// Returns `lhs operator rhs` after one execution step, and asserts that it equals the same
@@ -39,17 +38,17 @@ use crate::validity::Validity;
 fn execute_like_canonical(
     lhs: &ArrayRef,
     rhs: &ArrayRef,
-    operator: Operator,
+    operator: NumericOperator,
 ) -> VortexResult<Option<ArrayRef>> {
     let mut ctx = SESSION.create_execution_ctx();
     let canonical_lhs = canonical(lhs, &mut ctx)?;
     let canonical_rhs = canonical(rhs, &mut ctx)?;
     let expected = canonical_lhs
-        .binary(canonical_rhs, operator)?
+        .numeric(canonical_rhs, operator)?
         .execute::<Canonical>(&mut ctx);
 
     let actual = lhs
-        .binary(rhs.clone(), operator)?
+        .numeric(rhs.clone(), operator)?
         .execute::<ArrayRef>(&mut ctx);
 
     match (actual, expected) {
@@ -79,91 +78,91 @@ fn execute_like_canonical(
 #[case::same_width(
     widen(buffer![1i8, -2], PType::I64).into_array(),
     widen(buffer![2i8, 3], PType::I64).into_array(),
-    Operator::Add,
+    NumericOperator::Add,
     PType::I8,
 )]
 #[case::grow_add(
     widen(buffer![127i8, -128], PType::I64).into_array(),
     widen(buffer![1i8, -1], PType::I64).into_array(),
-    Operator::Add,
+    NumericOperator::Add,
     PType::I16,
 )]
 #[case::grow_sub(
     widen(buffer![-128i8, 127], PType::I64).into_array(),
     widen(buffer![1i8, -1], PType::I64).into_array(),
-    Operator::Sub,
+    NumericOperator::Sub,
     PType::I16,
 )]
 #[case::skip_width(
     widen(buffer![32_767i16, -32_768], PType::I64).into_array(),
     widen(buffer![32_767i16, 2], PType::I64).into_array(),
-    Operator::Mul,
+    NumericOperator::Mul,
     PType::I32,
 )]
 #[case::negative_product(
     widen(buffer![-128i8, -100], PType::I64).into_array(),
     widen(buffer![-2i8, -128], PType::I64).into_array(),
-    Operator::Mul,
+    NumericOperator::Mul,
     PType::I16,
 )]
 #[case::full_width(
     widen(buffer![i32::MIN, 2], PType::I64).into_array(),
     widen(buffer![-1i8, 3], PType::I64).into_array(),
-    Operator::Mul,
+    NumericOperator::Mul,
     PType::I64,
 )]
 #[case::divide_min(
     widen(buffer![-128i8, 127], PType::I64).into_array(),
     widen(buffer![-1i8, 2], PType::I64).into_array(),
-    Operator::Div,
+    NumericOperator::Div,
     PType::I16,
 )]
 #[case::divide_across_zero(
     widen(buffer![-128i8, 127], PType::I64).into_array(),
     widen(buffer![2i8, -2], PType::I64).into_array(),
-    Operator::Div,
+    NumericOperator::Div,
     PType::I16,
 )]
 #[case::overestimated_interval(
     widen(buffer![127i8, 0], PType::I64).into_array(),
     widen(buffer![0i8, 127], PType::I64).into_array(),
-    Operator::Add,
+    NumericOperator::Add,
     PType::I16,
 )]
 #[case::constant(
     widen(buffer![1i8, 2], PType::I32).into_array(),
     ConstantArray::new(1_000i32, 2).into_array(),
-    Operator::Mul,
+    NumericOperator::Mul,
     PType::I16,
 )]
 #[case::unsigned_add(
     widen(buffer![255u8, 0], PType::U64).into_array(),
     widen(buffer![1u8, 2], PType::U64).into_array(),
-    Operator::Add,
+    NumericOperator::Add,
     PType::U16,
 )]
 #[case::unsigned_divide(
     widen(buffer![255u8, 200], PType::U64).into_array(),
     widen(buffer![2u8, 3], PType::U64).into_array(),
-    Operator::Div,
+    NumericOperator::Div,
     PType::U8,
 )]
 #[case::unsigned_negative_interval(
     widen(buffer![0u8, 1], PType::U64).into_array(),
     widen(buffer![0u8, 1], PType::U64).into_array(),
-    Operator::Sub,
+    NumericOperator::Sub,
     PType::U64,
 )]
 #[case::unsigned_full_width(
     widen(buffer![u32::MAX, 2], PType::U64).into_array(),
     widen(buffer![u32::MAX, 3], PType::U64).into_array(),
-    Operator::Mul,
+    NumericOperator::Mul,
     PType::U64,
 )]
 #[case::wide_operand_declines(
     widen(buffer![1i8, 2], PType::I64).into_array(),
     buffer![1i64, 2].into_array(),
-    Operator::Add,
+    NumericOperator::Add,
     PType::I64,
 )]
 #[case::constant_lhs_and_encoded_child(
@@ -174,7 +173,7 @@ fn execute_like_canonical(
         PType::I64,
     )
     .into_array(),
-    Operator::Sub,
+    NumericOperator::Sub,
     PType::I16,
 )]
 #[case::null_payload_outside_width(
@@ -184,7 +183,7 @@ fn execute_like_canonical(
     )
     .into_array(),
     widen(buffer![1i8, 1], PType::I64).into_array(),
-    Operator::Add,
+    NumericOperator::Add,
     PType::I8,
 )]
 #[case::null_payload_overflow(
@@ -194,7 +193,7 @@ fn execute_like_canonical(
     )
     .into_array(),
     ConstantArray::new(-1i64, 2).into_array(),
-    Operator::Div,
+    NumericOperator::Div,
     PType::I8,
 )]
 #[case::zero_divisor_behind_null(
@@ -204,7 +203,7 @@ fn execute_like_canonical(
         PType::I64,
     )
     .into_array(),
-    Operator::Div,
+    NumericOperator::Div,
     PType::I8,
 )]
 #[case::overflow_behind_null(
@@ -214,27 +213,27 @@ fn execute_like_canonical(
     )
     .into_array(),
     ConstantArray::new(i64::MAX, 2).into_array(),
-    Operator::Mul,
+    NumericOperator::Mul,
     PType::I64,
 )]
 #[case::empty(
     widen(PrimitiveArray::new(Buffer::<i8>::empty(), Validity::NonNullable), PType::I64)
         .into_array(),
     ConstantArray::new(-1i64, 0).into_array(),
-    Operator::Div,
+    NumericOperator::Div,
     PType::I64,
 )]
 #[case::null_constant(
     widen(buffer![1i8, 2], PType::I64).into_array(),
     ConstantArray::new(Scalar::null(DType::Primitive(PType::I64, Nullability::Nullable)), 2)
         .into_array(),
-    Operator::Add,
+    NumericOperator::Add,
     PType::I64,
 )]
 fn test_arithmetic_width(
     #[case] lhs: ArrayRef,
     #[case] rhs: ArrayRef,
-    #[case] operator: Operator,
+    #[case] operator: NumericOperator,
     #[case] ptype: PType,
 ) -> VortexResult<()> {
     let result = execute_like_canonical(&lhs, &rhs, operator)?
@@ -248,7 +247,13 @@ fn test_arithmetic_width(
 /// Every `i8` value against small divisors of both signs.
 #[rstest]
 fn test_signed_domain(
-    #[values(Operator::Add, Operator::Sub, Operator::Mul, Operator::Div)] operator: Operator,
+    #[values(
+        NumericOperator::Add,
+        NumericOperator::Sub,
+        NumericOperator::Mul,
+        NumericOperator::Div
+    )]
+    operator: NumericOperator,
 ) -> VortexResult<()> {
     let lhs = (-128i8..=127)
         .flat_map(|value| [value; 4])
@@ -312,57 +317,57 @@ fn test_result_interval_matches_brute_force(
 #[case::add(
     widen(buffer![2i8, 3], PType::I64).into_array(),
     ConstantArray::new(i64::MAX, 2).into_array(),
-    Operator::Add,
+    NumericOperator::Add,
 )]
 #[case::sub(
     widen(buffer![2i8, 3], PType::I64).into_array(),
     ConstantArray::new(i64::MIN, 2).into_array(),
-    Operator::Sub,
+    NumericOperator::Sub,
 )]
 #[case::mul_i16(
     widen(buffer![2i8, 3], PType::I16).into_array(),
     ConstantArray::new(i16::MAX, 2).into_array(),
-    Operator::Mul,
+    NumericOperator::Mul,
 )]
 #[case::mul_i32(
     widen(buffer![2i8, 3], PType::I32).into_array(),
     ConstantArray::new(i32::MAX, 2).into_array(),
-    Operator::Mul,
+    NumericOperator::Mul,
 )]
 #[case::mul_i64(
     widen(buffer![2i8, 3], PType::I64).into_array(),
     ConstantArray::new(i64::MAX, 2).into_array(),
-    Operator::Mul,
+    NumericOperator::Mul,
 )]
 #[case::unsigned_underflow(
     widen(buffer![0u8, 1], PType::U64).into_array(),
     ConstantArray::new(1u64, 2).into_array(),
-    Operator::Sub,
+    NumericOperator::Sub,
 )]
 #[case::zero_divisor(
     widen(buffer![2i8, 3], PType::I64).into_array(),
     ConstantArray::new(0i64, 2).into_array(),
-    Operator::Div,
+    NumericOperator::Div,
 )]
 #[case::all_zero_divisor(
     widen(buffer![2i8, 3], PType::I64).into_array(),
     widen(buffer![0i8, 0], PType::I64).into_array(),
-    Operator::Div,
+    NumericOperator::Div,
 )]
 #[case::zero_divisor_widen(
     widen(buffer![2i8, 3], PType::I64).into_array(),
     widen(buffer![0i8, 2], PType::I64).into_array(),
-    Operator::Div,
+    NumericOperator::Div,
 )]
 #[case::min_by_minus_one(
     ConstantArray::new(i64::MIN, 2).into_array(),
     widen(buffer![-1i8, -1], PType::I64).into_array(),
-    Operator::Div,
+    NumericOperator::Div,
 )]
 fn test_errors_match_canonical(
     #[case] lhs: ArrayRef,
     #[case] rhs: ArrayRef,
-    #[case] operator: Operator,
+    #[case] operator: NumericOperator,
 ) -> VortexResult<()> {
     let result = execute_like_canonical(&lhs, &rhs, operator)?;
 

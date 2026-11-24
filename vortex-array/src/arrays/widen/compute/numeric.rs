@@ -32,9 +32,8 @@ use crate::dtype::PType;
 use crate::kernel::ExecuteParentKernel;
 use crate::scalar::NumericOperator;
 use crate::scalar::Scalar;
-use crate::scalar_fn::fns::binary::Binary;
-use crate::scalar_fn::fns::binary::execute_numeric;
-use crate::scalar_fn::fns::operators::Operator;
+use crate::scalar_fn::builtin::numeric::Numeric;
+use crate::scalar_fn::builtin::numeric::execute_numeric;
 
 /// Runs checked add, subtract, multiply and divide of a [`Widen`] with another `Widen` or a
 /// constant at the smallest integer type that holds both operands and every result.
@@ -54,22 +53,16 @@ use crate::scalar_fn::fns::operators::Operator;
 pub(crate) struct WidenNumericKernel;
 
 impl ExecuteParentKernel<Widen> for WidenNumericKernel {
-    type Parent = ExactScalarFn<Binary>;
+    type Parent = ExactScalarFn<Numeric>;
 
     fn execute_parent(
         &self,
         array: ArrayView<'_, Widen>,
-        parent: ScalarFnArrayView<'_, Binary>,
+        parent: ScalarFnArrayView<'_, Numeric>,
         child_idx: usize,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        let operator = match parent.options {
-            Operator::Add => NumericOperator::Add,
-            Operator::Sub => NumericOperator::Sub,
-            Operator::Mul => NumericOperator::Mul,
-            Operator::Div => NumericOperator::Div,
-            _ => return Ok(None),
-        };
+        let operator = *parent.options;
 
         let DType::Primitive(logical_ptype, _) = array.dtype() else {
             return Ok(None);

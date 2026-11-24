@@ -7,6 +7,11 @@
 //! and length of the [`Widen`]. The child has the same length and nullability. A decimal child
 //! also has the same scale.
 //!
+//! Readers require the first child and ignore any children after it, as well as any node buffers.
+//! A later writer may append a child or buffer under this ID only if decoding without it yields the
+//! same values, such as a statistic or an index. A child, buffer or metadata field that changes the
+//! decoded values needs a new ID.
+//!
 //! A protobuf `oneof` supplies the rest of the child dtype. Tag 1 holds the integer [`PType`].
 //! Tag 2 holds the decimal precision as a `uint32`. The child dtype must meet the requirements
 //! of [`WidenArray::try_new`].
@@ -14,6 +19,7 @@
 use prost::Message as _;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 use vortex_session::VortexSession;
@@ -113,8 +119,12 @@ impl ArrayPlugin for WidenPlugin {
         _session: &VortexSession,
     ) -> VortexResult<ArrayRef> {
         vortex_ensure_eq!(parts.serialized_id, self.id(), "expected the Widen wire ID");
-        vortex_ensure_eq!(parts.buffers.len(), 0, "Widen must carry zero node buffers");
-        vortex_ensure_eq!(parts.children.len(), 1, "Widen must carry one child");
+        // NB: Node buffers and children after the first child are optional extensions, so they
+        // are ignored. See the module documentation.
+        vortex_ensure!(
+            !parts.children.is_empty(),
+            "Widen must carry at least one child"
+        );
 
         let child_type = WidenMetadata::decode(parts.metadata)?
             .child_type

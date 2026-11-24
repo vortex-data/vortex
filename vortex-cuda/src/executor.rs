@@ -6,9 +6,6 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
-use futures::FutureExt;
-use futures::future;
-use futures::future::BoxFuture;
 use tracing::debug;
 use tracing::trace;
 use vortex::array::ArrayRef;
@@ -51,7 +48,7 @@ use crate::hybrid_dispatch;
 use crate::kernel::DefaultLaunchStrategy;
 use crate::kernel::LaunchStrategy;
 use crate::kernel::LaunchStrategyExt;
-use crate::kernel::launch_cuda_kernel_impl;
+use crate::kernel::default_launch_config;
 use crate::kernel::launch_cuda_kernel_with_config;
 use crate::session::CudaSessionExt;
 use crate::stream::VortexCudaStream;
@@ -159,11 +156,11 @@ impl CudaExecutionCtx {
         self
     }
 
-    /// Perform an external kernel launch, with events created and logged via the configured
-    /// [`LaunchStrategy`].
+    /// Perform an external kernel launch, recording events if the configured [`LaunchStrategy`]
+    /// requests them.
     ///
     /// We use CUB and NVCOMP routines, and those don't match the normal launch entrypoints, so
-    /// to inject the configured launch strategy we need to bracket it ourselves.
+    /// we bracket the whole call rather than each kernel the routine launches internally.
     pub fn launch_external<F: FnMut() -> VortexResult<()>>(
         &self,
         len: usize,
@@ -188,12 +185,7 @@ impl CudaExecutionCtx {
     where
         F: FnOnce(&mut LaunchArgs<'a>),
     {
-        let mut launcher = self.launch_builder(function);
-        build_args(&mut launcher);
-
-        let events = launch_cuda_kernel_impl(&mut launcher, self.strategy.event_flags(), len)?;
-        self.strategy.on_complete(&events, len)?;
-        Ok(())
+        self.launch_kernel_config(function, default_launch_config(len)?, len, build_args)
     }
 
     /// Launch a function with args provided by the `build_args` closure, with an explicit
@@ -211,9 +203,10 @@ impl CudaExecutionCtx {
         let mut launcher = self.launch_builder(function);
         build_args(&mut launcher);
 
-        let events =
-            launch_cuda_kernel_with_config(&mut launcher, cfg, self.strategy.event_flags())?;
-        self.strategy.on_complete(&events, len)?;
+        let event_flags = self.strategy.event_flags();
+        if let Some(events) = launch_cuda_kernel_with_config(&mut launcher, cfg, event_flags)? {
+            self.strategy.on_complete(&events, len)?;
+        }
         Ok(())
     }
 
@@ -284,19 +277,14 @@ impl CudaExecutionCtx {
     /// Copies host data to the device.
     ///
     /// The copy is enqueued on this context's stream, so later work on the stream reads the
-    /// copied values, and other streams wait for it through the buffer's access tracking. The
-    /// returned future is ready immediately: waiting for the copy would also wait for all earlier
-    /// work on the stream. The source is no longer read once this returns.
-    pub fn copy_to_device<T, D>(
-        &self,
-        data: D,
-    ) -> VortexResult<BoxFuture<'static, VortexResult<BufferHandle>>>
+    /// copied values, and other streams wait for it through the buffer's access tracking. This
+    /// does not wait for the copy: that would also wait for all earlier work on the stream. The
+    /// source is no longer read once this returns.
+    pub fn copy_to_device<T>(&self, data: &[T]) -> VortexResult<BufferHandle>
     where
         T: DeviceRepr + ValidAsZeroBits + Debug + Send + Sync + 'static,
-        D: AsRef<[T]> + Send + 'static,
     {
-        let buffer = self.stream.copy_to_device_sync(data.as_ref())?;
-        Ok(future::ready(Ok(buffer)).boxed())
+        self.stream.copy_to_device(data)
     }
 
     /// Ensures a buffer is resident on the device, copying from host if necessary.
@@ -309,17 +297,7 @@ impl CudaExecutionCtx {
     ///
     /// Returns an error if the transfer fails or the device allocation cannot satisfy the source
     /// alignment. No additional copy is performed to realign the buffer.
-    pub async fn ensure_on_device(&self, handle: BufferHandle) -> VortexResult<BufferHandle> {
-        self.ensure_on_device_sync(handle)
-    }
-
-    /// Synchronous variant of [`ensure_on_device`](Self::ensure_on_device).
-    ///
-    /// Safe to call from within an async executor (no nested `block_on`).
-    /// The copy is enqueued on the stream and completes before any subsequent
-    /// work on the same stream. Preserves the source alignment without an additional copy,
-    /// returning an error if the device allocation cannot satisfy it.
-    pub fn ensure_on_device_sync(&self, handle: BufferHandle) -> VortexResult<BufferHandle> {
+    pub fn ensure_on_device(&self, handle: BufferHandle) -> VortexResult<BufferHandle> {
         if handle.is_on_device() {
             return Ok(handle);
         }
@@ -327,9 +305,10 @@ impl CudaExecutionCtx {
             .as_host_opt()
             .ok_or_else(|| vortex_err!("Buffer is not on host"))?
             .clone();
+        let alignment = host_buffer.alignment();
         self.stream
-            .copy_to_device_sync(host_buffer.as_ref())?
-            .ensure_aligned(host_buffer.alignment())
+            .copy_to_device(host_buffer.as_ref())?
+            .ensure_aligned(alignment)
     }
 
     /// Returns a reference to the underlying [`VortexCudaStream`].
@@ -433,7 +412,7 @@ pub(crate) async fn execute_validity_cuda(
     };
 
     let BoolDataParts { bits, meta } = bool_array.into_data().into_parts(len);
-    let bits = ctx.ensure_on_device(bits).await?;
+    let bits = ctx.ensure_on_device(bits)?;
     Ok(Validity::Array(
         BoolArray::new_handle(bits, meta.offset(), meta.len(), Validity::NonNullable).into_array(),
     ))
@@ -529,6 +508,8 @@ impl CudaArrayExt for ArrayRef {
 mod tests {
     use std::ops::Range;
     use std::sync::Arc;
+    use std::sync::atomic::AtomicUsize;
+    use std::sync::atomic::Ordering;
 
     use rstest::rstest;
     use vortex::array::Canonical;
@@ -541,11 +522,71 @@ mod tests {
     use vortex::buffer::Buffer;
     use vortex::dtype::DecimalDType;
     use vortex::dtype::DecimalType;
+    use vortex::dtype::PType;
     use vortex::error::VortexResult;
+    use vortex::error::vortex_err;
+    use vortex_cuda_driver::PushKernelArg;
+    use vortex_cuda_driver::sys::CUevent_flags;
 
     use crate::CanonicalCudaExt;
+    use crate::CudaKernelEvents;
     use crate::CudaSession;
+    use crate::LaunchStrategy;
     use crate::cuda_session;
+
+    #[derive(Debug)]
+    struct CountLaunches {
+        record: bool,
+        calls: AtomicUsize,
+    }
+
+    impl LaunchStrategy for CountLaunches {
+        fn event_flags(&self) -> Option<CUevent_flags> {
+            self.record.then_some(CUevent_flags::CU_EVENT_DEFAULT)
+        }
+
+        fn on_complete(&self, events: &CudaKernelEvents, len: usize) -> VortexResult<()> {
+            assert_eq!(len, 1);
+            events.duration()?;
+            self.calls.fetch_add(1, Ordering::Relaxed);
+            Ok(())
+        }
+    }
+
+    #[rstest]
+    #[case::events_disabled(false, 0)]
+    #[case::events_enabled(true, 2)]
+    #[crate::test]
+    async fn optional_launch_events(
+        #[case] record: bool,
+        #[case] expected_callbacks: usize,
+    ) -> VortexResult<()> {
+        let strategy = Arc::new(CountLaunches {
+            record,
+            calls: AtomicUsize::new(0),
+        });
+        let mut ctx = CudaSession::create_execution_ctx(&cuda_session())?
+            .with_launch_strategy(Arc::<CountLaunches>::clone(&strategy));
+        let mut ran_external = false;
+        ctx.launch_external(1, || {
+            ran_external = true;
+            Ok(())
+        })?;
+        assert!(ran_external);
+
+        let kernel = ctx.load_function("constant_numeric", &[PType::U32])?;
+        let mut output = ctx.device_alloc::<u32>(1)?;
+        ctx.launch_kernel(&kernel, 1, |args| {
+            args.arg(&mut output).arg(&42u32).arg(&1u64);
+        })?;
+        let values = ctx
+            .stream()
+            .clone_dtoh(&output)
+            .map_err(|e| vortex_err!("Failed to read kernel output: {e}"))?;
+        assert_eq!(values, [42]);
+        assert_eq!(strategy.calls.load(Ordering::Relaxed), expected_callbacks);
+        Ok(())
+    }
 
     #[rstest]
     #[case::i8(DecimalType::I8, 2)]
@@ -558,7 +599,6 @@ mod tests {
     async fn ensure_on_device_preserves_decimal_alignment(
         #[case] values_type: DecimalType,
         #[case] precision: u8,
-        #[values(false, true)] sync: bool,
         #[values(0..4, 1..3, 0..0)] range: Range<usize>,
     ) -> VortexResult<()> {
         let mut ctx = CudaSession::create_execution_ctx(&cuda_session())?;
@@ -579,20 +619,12 @@ mod tests {
         });
         let parts = expected.clone().into_data_parts();
         let alignment = parts.values.alignment();
-        let values = if sync {
-            ctx.ensure_on_device_sync(parts.values)?
-        } else {
-            ctx.ensure_on_device(parts.values).await?
-        };
+        let values = ctx.ensure_on_device(parts.values)?;
         assert!(values.is_on_device());
         assert_eq!(values.alignment(), alignment);
 
         let allocation = Arc::clone(values.as_device_opt().expect("uploaded to CUDA"));
-        let values = if sync {
-            ctx.ensure_on_device_sync(values)?
-        } else {
-            ctx.ensure_on_device(values).await?
-        };
+        let values = ctx.ensure_on_device(values)?;
         assert!(Arc::ptr_eq(
             &allocation,
             values.as_device_opt().expect("still on CUDA"),

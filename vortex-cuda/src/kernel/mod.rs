@@ -51,10 +51,12 @@ use crate::CudaKernelEvents;
 /// Implementations can add tracing, async callbacks, or other behavior
 /// around kernel launches.
 pub trait LaunchStrategy: Debug + Send + Sync + 'static {
-    /// Returns the event flags to use for this launch.
-    fn event_flags(&self) -> CUevent_flags;
+    /// Return `Some(flags)` to record events around the launch, or `None` to skip both
+    /// the events and the [`Self::on_complete`] callback.
+    fn event_flags(&self) -> Option<CUevent_flags>;
 
-    /// Called after the kernel launch completes with the recorded events.
+    /// Called after both events have been enqueued, not necessarily after the GPU has
+    /// finished the kernel. [`CudaKernelEvents::duration`] waits for both events.
     fn on_complete(&self, events: &CudaKernelEvents, len: usize) -> VortexResult<()>;
 }
 
@@ -71,7 +73,9 @@ impl<S: ?Sized + LaunchStrategy> LaunchStrategyExt for S {
     where
         F: FnMut() -> VortexResult<()>,
     {
-        let flags = self.event_flags();
+        let Some(flags) = self.event_flags() else {
+            return func();
+        };
 
         let before = stream
             .record_event(Some(flags))
@@ -100,8 +104,8 @@ impl<S: ?Sized + LaunchStrategy> LaunchStrategyExt for S {
 pub struct DefaultLaunchStrategy;
 
 impl LaunchStrategy for DefaultLaunchStrategy {
-    fn event_flags(&self) -> CUevent_flags {
-        CUevent_flags::CU_EVENT_DISABLE_TIMING
+    fn event_flags(&self) -> Option<CUevent_flags> {
+        None
     }
 
     fn on_complete(&self, _events: &CudaKernelEvents, _len: usize) -> VortexResult<()> {
@@ -114,8 +118,8 @@ impl LaunchStrategy for DefaultLaunchStrategy {
 pub struct TracingLaunchStrategy;
 
 impl LaunchStrategy for TracingLaunchStrategy {
-    fn event_flags(&self) -> CUevent_flags {
-        CUevent_flags::CU_EVENT_DEFAULT
+    fn event_flags(&self) -> Option<CUevent_flags> {
+        Some(CUevent_flags::CU_EVENT_DEFAULT)
     }
 
     fn on_complete(&self, events: &CudaKernelEvents, len: usize) -> VortexResult<()> {
@@ -128,24 +132,10 @@ impl LaunchStrategy for TracingLaunchStrategy {
     }
 }
 
-/// Launches a CUDA kernel with the passed launch builder.
-///
-/// # Arguments
-///
-/// * `launch_builder` - Configured launch builder
-/// * `array_len` - Length of the array to process
-///
-/// # Returns
-///
-/// A pair of CUDA events submitted before and after the kernel.
-/// Depending on `CUevent_flags` these events can contain timestamps. Use
-/// `CU_EVENT_DISABLE_TIMING` for minimal overhead and `CU_EVENT_DEFAULT` to
-/// enable timestamps.
-pub(crate) fn launch_cuda_kernel_impl(
-    launch_builder: &mut LaunchArgs,
-    event_flags: CUevent_flags,
-    array_len: usize,
-) -> VortexResult<CudaKernelEvents> {
+/// Builds the default launch configuration for `array_len` elements. Each block covers
+/// 2,048 elements (64 threads × 32 elements), with no dynamic shared memory. Kernels
+/// with a different work distribution must supply their own [`LaunchConfig`].
+pub(crate) fn default_launch_config(array_len: usize) -> VortexResult<LaunchConfig> {
     // Kernel launch configuration constants.
     // Must match ELEMENTS_PER_THREAD in CUDA kernels (kernels/*.cu).
     const THREADS_PER_BLOCK: u32 = 64; // 2 warps
@@ -154,48 +144,46 @@ pub(crate) fn launch_cuda_kernel_impl(
 
     let num_blocks = u32::try_from(array_len.div_ceil(ELEMENTS_PER_BLOCK))?;
 
-    let config = LaunchConfig {
+    Ok(LaunchConfig {
         grid_dim: (num_blocks, 1, 1),
         block_dim: (THREADS_PER_BLOCK, 1, 1),
         shared_mem_bytes: 0,
-    };
-
-    launch_cuda_kernel_with_config(launch_builder, config, event_flags)
+    })
 }
 
 /// Launches a CUDA kernel with the passed launch builder and config.
 ///
 /// # Arguments
 ///
-/// * `launch_builder` - Configured launch builder
-/// * `config` - Launch config to use
+/// * `launch_builder` - Builder with the kernel function and its arguments.
+/// * `config` - Grid dimensions, block dimensions, and dynamic shared memory for the launch.
+/// * `event_flags` - `None` skips launch events. `Some(CU_EVENT_DISABLE_TIMING)` records
+///   events that can be waited on but not timed. Use `Some(CU_EVENT_DEFAULT)` for timestamps.
 ///
 /// # Returns
 ///
-/// A pair of CUDA events submitted before and after the kernel.
-/// Depending on `CUevent_flags` these events can contain timestamps. Use
-/// `CU_EVENT_DISABLE_TIMING` for minimal overhead and `CU_EVENT_DEFAULT` to
-/// enable timestamps.
+/// The events recorded before and after the kernel, or `None` if no pair was requested.
+/// This choice does not affect the driver's tracking of buffer accesses across streams.
 pub(crate) fn launch_cuda_kernel_with_config(
     launch_builder: &mut LaunchArgs,
     config: LaunchConfig,
-    event_flags: CUevent_flags,
-) -> VortexResult<CudaKernelEvents> {
-    launch_builder.record_kernel_launch(event_flags);
-
-    unsafe {
-        launch_builder
-            .launch(config)
-            .map_err(|e| vortex_err!("Failed to launch kernel: {}", e))
-            .and_then(|events| {
-                events
-                    .ok_or_else(|| vortex_err!("CUDA events not recorded"))
-                    .map(|(before_launch, after_launch)| CudaKernelEvents {
-                        before_launch,
-                        after_launch,
-                    })
-            })
+    event_flags: Option<CUevent_flags>,
+) -> VortexResult<Option<CudaKernelEvents>> {
+    if let Some(flags) = event_flags {
+        launch_builder.record_kernel_launch(flags);
     }
+    // SAFETY: Each kernel call site supplies the arguments and configuration for its function.
+    let events = unsafe { launch_builder.launch(config) }
+        .map_err(|e| vortex_err!("Failed to launch kernel: {e}"))?;
+    if event_flags.is_none() {
+        return Ok(None);
+    }
+    let (before_launch, after_launch) =
+        events.ok_or_else(|| vortex_err!("CUDA events not recorded"))?;
+    Ok(Some(CudaKernelEvents {
+        before_launch,
+        after_launch,
+    }))
 }
 
 /// Loader for embedded CUDA kernels with module caching.

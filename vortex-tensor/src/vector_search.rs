@@ -40,7 +40,7 @@ use vortex_array::dtype::NativePType;
 use vortex_array::dtype::Nullability;
 use vortex_array::scalar::PValue;
 use vortex_array::scalar::Scalar;
-use vortex_array::scalar_fn::fns::operators::Operator;
+use vortex_array::scalar_fn::builtin::operators::CompareOperator;
 use vortex_error::VortexResult;
 
 use crate::scalar_fns::cosine_similarity::CosineSimilarity;
@@ -84,7 +84,7 @@ pub fn build_similarity_search_tree<T: NativePType + Into<PValue>>(
     let threshold_scalar = Scalar::primitive(threshold, Nullability::NonNullable);
     let threshold_array = ConstantArray::new(threshold_scalar, num_rows).into_array();
 
-    cosine.binary(threshold_array, Operator::Gt)
+    cosine.compare(threshold_array, CompareOperator::Gt)
 }
 
 #[cfg(test)]

@@ -1,0 +1,50 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+include ../setup.slt.no
+
+# aggregate over a scalar fn pushed into the scan
+
+statement ok
+CREATE TABLE t5(s VARCHAR);
+
+statement ok
+INSERT INTO t5 VALUES ('aa'), ('b');
+
+statement ok
+COPY t5 TO '${WORK_DIR}/c5.vortex';
+
+query R
+SELECT avg(strlen(s)) FROM t5;
+----
+1.5
+
+query R
+SELECT avg(strlen(s)) FROM '${WORK_DIR}/c5.vortex';
+----
+1.5
+
+query II
+SELECT max(strlen(s)), count(strlen(s)) FROM t5;
+----
+2 2
+
+query TT
+EXPLAIN SELECT max(strlen(s)), count(strlen(s)) FROM '${WORK_DIR}/c5.vortex';
+----
+<!REGEX>:.*Ungrouped Aggregate.*
+
+query II
+SELECT max(strlen(s)), count(strlen(s)) FROM '${WORK_DIR}/c5.vortex';
+----
+2 2
+
+query IIR
+SELECT sum(strlen(s)::INTEGER), min(strlen(s)::INTEGER), avg(strlen(s)::INTEGER) FROM t5;
+----
+3 1 1.5
+
+query IIR
+SELECT sum(strlen(s)::INTEGER), min(strlen(s)::INTEGER), avg(strlen(s)::INTEGER) FROM '${WORK_DIR}/c5.vortex';
+----
+3 1 1.5

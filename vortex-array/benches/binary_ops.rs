@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Benchmarks for the binary `Operator` path, over primitive, decimal, and boolean inputs.
+//! Benchmarks for the binary operator paths, over primitive, decimal, and boolean inputs.
 //!
 //! The primitive arithmetic and comparison cases carry `#[cpu_features]`, so they are
 //! measured on walltime CPU-feature legs rather than in simulation. Each is written
@@ -36,8 +36,11 @@ use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DecimalDType;
 use vortex_array::memory::MemorySession;
 use vortex_array::optimizer::kernels::KernelSession;
-use vortex_array::scalar_fn::fns::operators::Operator;
+use vortex_array::scalar::NumericOperator;
+use vortex_array::scalar_fn::builtin::operators::BooleanOperator;
+use vortex_array::scalar_fn::builtin::operators::CompareOperator;
 use vortex_array::test_harness::mark_optimized;
+use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 
 #[global_allocator]
@@ -102,28 +105,28 @@ const DECIMAL_MUL_DIV_LEN: usize = 1_024;
 #[vortex_bench_support::cpu_features]
 #[divan::bench(args = BINARY_SHAPE_CASES)]
 fn add_shapes(bencher: Bencher, &(len, shape): &(usize, BinaryShape)) {
-    bench_binary_shape(bencher, len, shape, Operator::Add);
+    bench_binary_shape(bencher, len, shape, NumericOperator::Add);
 }
 
 #[vortex_bench_support::cpu_features]
 #[divan::bench(args = CONSTANT_SHAPE_CASES)]
 fn add_constant_shapes(bencher: Bencher, &(len, shape): &(usize, BinaryShape)) {
-    bench_binary_shape(bencher, len, shape, Operator::Add);
+    bench_binary_shape(bencher, len, shape, NumericOperator::Add);
 }
 
 #[vortex_bench_support::cpu_features]
 #[divan::bench(args = BINARY_SHAPE_CASES)]
 fn subtract_shapes(bencher: Bencher, &(len, shape): &(usize, BinaryShape)) {
-    bench_binary_shape(bencher, len, shape, Operator::Sub);
+    bench_binary_shape(bencher, len, shape, NumericOperator::Sub);
 }
 
 #[vortex_bench_support::cpu_features]
 #[divan::bench(args = BINARY_SHAPE_CASES)]
 fn multiply_shapes(bencher: Bencher, &(len, shape): &(usize, BinaryShape)) {
-    bench_binary_shape(bencher, len, shape, Operator::Mul);
+    bench_binary_shape(bencher, len, shape, NumericOperator::Mul);
 }
 
-fn bench_binary_shape(bencher: Bencher, len: usize, shape: BinaryShape, operator: Operator) {
+fn bench_binary_shape(bencher: Bencher, len: usize, shape: BinaryShape, operator: NumericOperator) {
     let per_row =
         || PrimitiveArray::from_iter((0..len).map(|index| (index % 1_024) as i64 + 1)).into_array();
     let constant = || ConstantArray::new(17_i64, len).into_array();
@@ -145,7 +148,7 @@ fn add_i64_nonnull(bencher: Bencher) {
     let lhs = primitive_nonnull(0, I64_LEN).into_array();
     let rhs = primitive_nonnull(1_000_000, I64_LEN).into_array();
 
-    bench_primitive(bencher, lhs, rhs, Operator::Add);
+    bench_primitive(bencher, lhs, rhs, NumericOperator::Add);
 }
 
 #[vortex_bench_support::cpu_features]
@@ -154,7 +157,7 @@ fn add_i64_nullable(bencher: Bencher) {
     let lhs = primitive_nullable(0, 7, I64_LEN).into_array();
     let rhs = primitive_nullable(1_000_000, 5, I64_LEN).into_array();
 
-    bench_primitive(bencher, lhs, rhs, Operator::Add);
+    bench_primitive(bencher, lhs, rhs, NumericOperator::Add);
 }
 
 #[vortex_bench_support::cpu_features]
@@ -163,7 +166,7 @@ fn add_i32_nonnull(bencher: Bencher) {
     let lhs = primitive_i32_small_nonnull(1, I32_LEN).into_array();
     let rhs = primitive_i32_small_nonnull(17, I32_LEN).into_array();
 
-    bench_primitive(bencher, lhs, rhs, Operator::Add);
+    bench_primitive(bencher, lhs, rhs, NumericOperator::Add);
 }
 
 #[vortex_bench_support::cpu_features]
@@ -172,7 +175,7 @@ fn add_u32_nonnull(bencher: Bencher) {
     let lhs = primitive_u32_small_nonnull(1, I32_LEN).into_array();
     let rhs = primitive_u32_small_nonnull(17, I32_LEN).into_array();
 
-    bench_primitive(bencher, lhs, rhs, Operator::Add);
+    bench_primitive(bencher, lhs, rhs, NumericOperator::Add);
 }
 
 #[vortex_bench_support::cpu_features]
@@ -181,7 +184,7 @@ fn mul_i64_nonnull(bencher: Bencher) {
     let lhs = primitive_small_nonnull(1, I64_LEN).into_array();
     let rhs = primitive_small_nonnull(17, I64_LEN).into_array();
 
-    bench_primitive(bencher, lhs, rhs, Operator::Mul);
+    bench_primitive(bencher, lhs, rhs, NumericOperator::Mul);
 }
 
 #[vortex_bench_support::cpu_features]
@@ -190,7 +193,7 @@ fn mul_i8_nonnull(bencher: Bencher) {
     let lhs = primitive_i8_small_nonnull(1, I8_LEN).into_array();
     let rhs = primitive_i8_small_nonnull(7, I8_LEN).into_array();
 
-    bench_primitive(bencher, lhs, rhs, Operator::Mul);
+    bench_primitive(bencher, lhs, rhs, NumericOperator::Mul);
 }
 
 #[vortex_bench_support::cpu_features]
@@ -199,7 +202,7 @@ fn mul_u8_nonnull(bencher: Bencher) {
     let lhs = primitive_u8_small_nonnull(1, I8_LEN).into_array();
     let rhs = primitive_u8_small_nonnull(7, I8_LEN).into_array();
 
-    bench_primitive(bencher, lhs, rhs, Operator::Mul);
+    bench_primitive(bencher, lhs, rhs, NumericOperator::Mul);
 }
 
 #[vortex_bench_support::cpu_features]
@@ -208,7 +211,7 @@ fn mul_i16_nonnull(bencher: Bencher) {
     let lhs = primitive_i16_small_nonnull(1, I16_LEN).into_array();
     let rhs = primitive_i16_small_nonnull(17, I16_LEN).into_array();
 
-    bench_primitive(bencher, lhs, rhs, Operator::Mul);
+    bench_primitive(bencher, lhs, rhs, NumericOperator::Mul);
 }
 
 #[vortex_bench_support::cpu_features]
@@ -217,7 +220,7 @@ fn mul_u16_nonnull(bencher: Bencher) {
     let lhs = primitive_u16_small_nonnull(1, I16_LEN).into_array();
     let rhs = primitive_u16_small_nonnull(17, I16_LEN).into_array();
 
-    bench_primitive(bencher, lhs, rhs, Operator::Mul);
+    bench_primitive(bencher, lhs, rhs, NumericOperator::Mul);
 }
 
 #[vortex_bench_support::cpu_features]
@@ -226,7 +229,7 @@ fn mul_i32_nonnull(bencher: Bencher) {
     let lhs = primitive_i32_small_nonnull(1, I32_LEN).into_array();
     let rhs = primitive_i32_small_nonnull(17, I32_LEN).into_array();
 
-    bench_primitive(bencher, lhs, rhs, Operator::Mul);
+    bench_primitive(bencher, lhs, rhs, NumericOperator::Mul);
 }
 
 #[vortex_bench_support::cpu_features]
@@ -235,7 +238,7 @@ fn mul_u32_nonnull(bencher: Bencher) {
     let lhs = primitive_u32_small_nonnull(1, I32_LEN).into_array();
     let rhs = primitive_u32_small_nonnull(17, I32_LEN).into_array();
 
-    bench_primitive(bencher, lhs, rhs, Operator::Mul);
+    bench_primitive(bencher, lhs, rhs, NumericOperator::Mul);
 }
 
 // This case varies on unchanged code on the NEON leg. The cause is unknown.
@@ -245,7 +248,7 @@ fn mul_u64_nonnull(bencher: Bencher) {
     let lhs = primitive_u64_small_nonnull(1, I64_LEN).into_array();
     let rhs = primitive_u64_small_nonnull(17, I64_LEN).into_array();
 
-    bench_primitive(bencher, lhs, rhs, Operator::Mul);
+    bench_primitive(bencher, lhs, rhs, NumericOperator::Mul);
 }
 
 #[vortex_bench_support::cpu_features]
@@ -254,7 +257,7 @@ fn mul_i32_nullable(bencher: Bencher) {
     let lhs = primitive_i32_small_nullable(1, 7, I32_LEN).into_array();
     let rhs = primitive_i32_small_nullable(17, 5, I32_LEN).into_array();
 
-    bench_primitive(bencher, lhs, rhs, Operator::Mul);
+    bench_primitive(bencher, lhs, rhs, NumericOperator::Mul);
 }
 
 #[vortex_bench_support::cpu_features]
@@ -263,7 +266,7 @@ fn div_i64_nonnull(bencher: Bencher) {
     let lhs = primitive_nonnull(1_000_000, I64_LEN).into_array();
     let rhs = primitive_nonzero(I64_LEN).into_array();
 
-    bench_primitive(bencher, lhs, rhs, Operator::Div);
+    bench_primitive(bencher, lhs, rhs, NumericOperator::Div);
 }
 
 #[vortex_bench_support::cpu_features]
@@ -272,7 +275,7 @@ fn div_i64_nullable(bencher: Bencher) {
     let lhs = primitive_nullable(1_000_000, 7, I64_LEN).into_array();
     let rhs = primitive_nullable(17, 5, I64_LEN).into_array();
 
-    bench_primitive(bencher, lhs, rhs, Operator::Div);
+    bench_primitive(bencher, lhs, rhs, NumericOperator::Div);
 }
 
 #[divan::bench]
@@ -280,7 +283,7 @@ fn add_decimal_i64_nonnull(bencher: Bencher) {
     let lhs = decimal_i64_nonnull(0, LEN).into_array();
     let rhs = decimal_i64_nonnull(1_000_000, LEN).into_array();
 
-    bench_decimal(bencher, lhs, rhs, Operator::Add);
+    bench_decimal(bencher, lhs, rhs, NumericOperator::Add);
 }
 
 #[divan::bench]
@@ -288,7 +291,7 @@ fn add_decimal_i128_nullable(bencher: Bencher) {
     let lhs = decimal_i128_nullable(0, 7, LEN).into_array();
     let rhs = decimal_i128_nullable(1_000_000, 5, LEN).into_array();
 
-    bench_decimal(bencher, lhs, rhs, Operator::Add);
+    bench_decimal(bencher, lhs, rhs, NumericOperator::Add);
 }
 
 #[divan::bench]
@@ -296,7 +299,7 @@ fn mul_decimal_i64_nonnull(bencher: Bencher) {
     let lhs = decimal_i64_nonnull(0, DECIMAL_MUL_DIV_LEN).into_array();
     let rhs = decimal_i64_nonnull(1_000_000, DECIMAL_MUL_DIV_LEN).into_array();
 
-    bench_decimal(bencher, lhs, rhs, Operator::Mul);
+    bench_decimal(bencher, lhs, rhs, NumericOperator::Mul);
 }
 
 #[divan::bench]
@@ -304,7 +307,7 @@ fn mul_decimal_i128_nullable(bencher: Bencher) {
     let lhs = decimal_i128_nullable(0, 7, DECIMAL_MUL_DIV_LEN).into_array();
     let rhs = decimal_i128_nullable(1_000_000, 5, DECIMAL_MUL_DIV_LEN).into_array();
 
-    bench_decimal(bencher, lhs, rhs, Operator::Mul);
+    bench_decimal(bencher, lhs, rhs, NumericOperator::Mul);
 }
 
 #[divan::bench]
@@ -312,7 +315,7 @@ fn div_decimal_i64_nonnull(bencher: Bencher) {
     let lhs = decimal_i64_nonnull(0, DECIMAL_MUL_DIV_LEN).into_array();
     let rhs = decimal_i64_nonnull(1_000_000, DECIMAL_MUL_DIV_LEN).into_array();
 
-    bench_decimal(bencher, lhs, rhs, Operator::Div);
+    bench_decimal(bencher, lhs, rhs, NumericOperator::Div);
 }
 
 #[divan::bench]
@@ -320,7 +323,7 @@ fn div_decimal_i128_nullable(bencher: Bencher) {
     let lhs = decimal_i128_nullable(0, 7, DECIMAL_MUL_DIV_LEN).into_array();
     let rhs = decimal_i128_nullable(1_000_000, 5, DECIMAL_MUL_DIV_LEN).into_array();
 
-    bench_decimal(bencher, lhs, rhs, Operator::Div);
+    bench_decimal(bencher, lhs, rhs, NumericOperator::Div);
 }
 
 // The AVX-512 minimum varies by more than 10% while the median stays stable on unchanged code.
@@ -330,7 +333,9 @@ fn lt_i64_nullable(bencher: Bencher) {
     let lhs = primitive_nullable(0, 7, I64_LEN).into_array();
     let rhs = primitive_nullable(1_000_000, 5, I64_LEN).into_array();
 
-    bench_bool(bencher, lhs, rhs, Operator::Lt);
+    bench_binary::<BoolArray>(bencher, lhs, rhs, |lhs, rhs| {
+        lhs.compare(rhs, CompareOperator::Lt)
+    });
 }
 
 #[divan::bench]
@@ -338,26 +343,24 @@ fn and_bool_nullable(bencher: Bencher) {
     let lhs = bool_nullable(2, 7).into_array();
     let rhs = bool_nullable(3, 5).into_array();
 
-    bench_bool(bencher, lhs, rhs, Operator::And);
+    bench_binary::<BoolArray>(bencher, lhs, rhs, |lhs, rhs| {
+        lhs.boolean(rhs, BooleanOperator::And)
+    });
 }
 
-fn bench_primitive(bencher: Bencher, lhs: ArrayRef, rhs: ArrayRef, operator: Operator) {
-    bench_binary::<PrimitiveArray>(bencher, lhs, rhs, operator);
+fn bench_primitive(bencher: Bencher, lhs: ArrayRef, rhs: ArrayRef, operator: NumericOperator) {
+    bench_binary::<PrimitiveArray>(bencher, lhs, rhs, |lhs, rhs| lhs.numeric(rhs, operator));
 }
 
-fn bench_decimal(bencher: Bencher, lhs: ArrayRef, rhs: ArrayRef, operator: Operator) {
-    bench_binary::<DecimalArray>(bencher, lhs, rhs, operator);
-}
-
-fn bench_bool(bencher: Bencher, lhs: ArrayRef, rhs: ArrayRef, operator: Operator) {
-    bench_binary::<BoolArray>(bencher, lhs, rhs, operator);
+fn bench_decimal(bencher: Bencher, lhs: ArrayRef, rhs: ArrayRef, operator: NumericOperator) {
+    bench_binary::<DecimalArray>(bencher, lhs, rhs, |lhs, rhs| lhs.numeric(rhs, operator));
 }
 
 fn bench_binary<T: Executable + 'static>(
     bencher: Bencher,
     lhs: ArrayRef,
     rhs: ArrayRef,
-    operator: Operator,
+    binary: impl Fn(ArrayRef, ArrayRef) -> VortexResult<ArrayRef>,
 ) {
     mark_optimized(&lhs, &SESSION).unwrap();
     mark_optimized(&rhs, &SESSION).unwrap();
@@ -366,8 +369,7 @@ fn bench_binary<T: Executable + 'static>(
     let len = lhs.len();
 
     bencher.counter(ItemsCount::new(len)).bench_local(|| {
-        lhs.clone()
-            .binary(rhs.clone(), operator)
+        binary(lhs.clone(), rhs.clone())
             .unwrap()
             .execute::<T>(&mut ctx)
             .unwrap()
