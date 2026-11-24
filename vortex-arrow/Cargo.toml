@@ -19,10 +19,7 @@ all-features = true
 workspace = true
 
 [features]
-_test-harness = [
-    "vortex-array/_test-harness",
-    "dep:arrow-ord",
-]
+_test-harness = ["vortex-array/_test-harness", "dep:arrow-ord"]
 _test-harness-hegel = ["_test-harness", "dep:hegeltest", "dep:half"]
 
 [dependencies]
