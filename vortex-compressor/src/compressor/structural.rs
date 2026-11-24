@@ -54,11 +54,11 @@ impl CascadingCompressor {
     /// when it does not get smaller.
     ///
     /// A scheme that implements only [`Scheme::compress`] and stores a validity it builds itself
-    /// calls this before storing it. The compressor's [`ChildPolicy`] is asked about it with a
+    /// calls this before storing it. The compressor's [`CompressionPolicy`] is asked about it with a
     /// root context.
     ///
     /// [`Scheme::compress`]: crate::scheme::Scheme::compress
-    /// [`ChildPolicy`]: crate::scheme::ChildPolicy
+    /// [`CompressionPolicy`]: crate::scheme::CompressionPolicy
     ///
     /// # Errors
     ///
@@ -76,10 +76,10 @@ impl CascadingCompressor {
     ///
     /// A scheme that implements only [`Scheme::compress`] and stores its input's validity calls
     /// this on its input before encoding it, so that the encoding stores the compressed bitmap.
-    /// The compressor's [`ChildPolicy`] is asked about it with a root context.
+    /// The compressor's [`CompressionPolicy`] is asked about it with a root context.
     ///
     /// [`Scheme::compress`]: crate::scheme::Scheme::compress
-    /// [`ChildPolicy`]: crate::scheme::ChildPolicy
+    /// [`CompressionPolicy`]: crate::scheme::CompressionPolicy
     ///
     /// # Errors
     ///

@@ -45,6 +45,7 @@ divan = { workspace = true }
 enum-iterator = { workspace = true }
 insta = { workspace = true }
 mimalloc = { workspace = true }
+parking_lot = { workspace = true }
 rstest = { workspace = true }
 vortex-array = { workspace = true, features = ["_test-harness"] }
 
