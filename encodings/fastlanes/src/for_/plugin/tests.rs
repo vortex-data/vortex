@@ -10,6 +10,8 @@ use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::assert_arrays_eq;
+use vortex_array::dtype::DType;
+use vortex_array::dtype::PType;
 use vortex_array::optimizer::ArrayOptimizer;
 use vortex_array::scalar::ScalarValue;
 use vortex_array::serde::SerializeOptions;
@@ -19,6 +21,8 @@ use vortex_buffer::ByteBufferMut;
 use vortex_session::registry::ReadContext;
 
 use super::*;
+use crate::BitPackedArrayExt;
+use crate::BitPackedData;
 use crate::FoRArray;
 use crate::for_::array::FoRArraySlotsExt;
 use crate::for_::tests::blocked;
@@ -103,14 +107,14 @@ fn v2_roundtrip(#[case] range: std::ops::Range<usize>) -> VortexResult<()> {
 }
 
 fn deserialize_v2_parts(
+    dtype: &DType,
     metadata: &v2::FoRV2Metadata,
     children: &[ArrayRef],
 ) -> VortexResult<ArrayRef> {
-    let dtype = children[0].dtype().clone();
     FoRPlugin.deserialize(
         ArrayDeserialization::new(
             for_v2_id(),
-            &dtype,
+            dtype,
             children[0].len(),
             &metadata.encode_to_vec(),
             &[],
@@ -121,16 +125,118 @@ fn deserialize_v2_parts(
 }
 
 #[test]
+fn v2_narrowed_bitpacked_roundtrip() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    // i64 values whose per-chunk span fits in u16 (triggers i64 -> u16 narrowing).
+    let raw = PrimitiveArray::from_option_iter((0..3500i64).map(|i| {
+        (i % 17 != 0).then_some(1_000_000_000 + (i / 1024) * 10_000_000 + (i % 500) * 100)
+    }));
+    let encoded_for = FoR::encode_chunked(raw.clone(), &mut ctx)?;
+    assert_eq!(encoded_for.encoded().dtype().as_ptype(), PType::U16);
+    // Bit-width 10 leaves values >= 1024 as u16 patches.
+    let packed = BitPackedData::encode(encoded_for.encoded(), 10, &mut ctx)?;
+    assert!(packed.patches().is_some());
+    let refs = blocked(&encoded_for)?;
+    let array = FoR::try_new_chunked(packed.into_array(), refs, 0)?.into_array();
+
+    // Whole patched array serializes cleanly and round-trips bit-exactly.
+    let serialization = SESSION
+        .array_serialize(&array)?
+        .ok_or_else(|| vortex_err!("FoR must serialize"))?;
+    assert_eq!(serialization.serialized_id, for_v2_id());
+    let meta = v2::FoRV2Metadata::decode(serialization.metadata.as_slice())?;
+    assert_eq!(meta.offset, 0);
+    assert_eq!(meta.encoded_bytes, 2);
+    let read = roundtrip(&array)?;
+    assert_arrays_eq!(read, raw, &mut ctx);
+
+    // Sliced patched arrays decode and probe accurately at non-zero offsets.
+    for range in [100..2600, 1024..2048] {
+        let sliced = array.slice(range.clone())?.optimize_ctx(&SESSION)?;
+        assert_arrays_eq!(sliced, raw.clone().into_array().slice(range)?, &mut ctx);
+    }
+
+    // Sliced unpatched narrowed BitPacked serializes and round-trips at non-zero offsets.
+    let raw_unpatched = PrimitiveArray::from_option_iter((0..3500i64).map(|i| {
+        (i % 17 != 0).then_some(1_000_000_000 + (i / 1024) * 10_000_000 + (i % 500) * 60)
+    }));
+    let encoded_unpatched = FoR::encode_chunked(raw_unpatched.clone(), &mut ctx)?;
+    assert_eq!(encoded_unpatched.encoded().dtype().as_ptype(), PType::U16);
+    let packed_unpatched = BitPackedData::encode(encoded_unpatched.encoded(), 15, &mut ctx)?;
+    assert!(packed_unpatched.patches().is_none());
+    let unpatched_for = FoR::try_new_chunked(
+        packed_unpatched.into_array(),
+        blocked(&encoded_unpatched)?,
+        0,
+    )?
+    .into_array();
+    for range in [0..3500, 100..2600, 1024..2048] {
+        let sliced = unpatched_for.slice(range.clone())?.optimize_ctx(&SESSION)?;
+        let serialization = SESSION
+            .array_serialize(&sliced)?
+            .ok_or_else(|| vortex_err!("FoR must serialize"))?;
+        let meta = v2::FoRV2Metadata::decode(serialization.metadata.as_slice())?;
+        assert_eq!(meta.offset, u32::try_from(range.start % 1024)?);
+        assert_eq!(meta.encoded_bytes, 2);
+        let read = roundtrip(&sliced)?;
+        assert_arrays_eq!(
+            read,
+            raw_unpatched.clone().into_array().slice(range)?,
+            &mut ctx
+        );
+    }
+    Ok(())
+}
+
+#[test]
 fn v2_rejects_malformed_parts() -> VortexResult<()> {
     let array = chunked()?;
+    let dtype = array.dtype().clone();
     let encoded = array.encoded().clone();
     let references = blocked(&array)?;
-    let metadata = v2::FoRV2Metadata { offset: 0 };
+    let valid_bytes = u32::try_from(encoded.dtype().as_ptype().byte_width())?;
+    let metadata = v2::FoRV2Metadata {
+        offset: 0,
+        encoded_bytes: valid_bytes,
+    };
 
-    assert!(deserialize_v2_parts(&metadata, &[encoded.clone(), references.clone()]).is_ok());
-    assert!(deserialize_v2_parts(&metadata, std::slice::from_ref(&encoded)).is_err());
     assert!(
-        deserialize_v2_parts(&v2::FoRV2Metadata { offset: 1024 }, &[encoded, references]).is_err()
+        deserialize_v2_parts(&dtype, &metadata, &[encoded.clone(), references.clone()]).is_ok()
+    );
+    assert!(deserialize_v2_parts(&dtype, &metadata, std::slice::from_ref(&encoded)).is_err());
+    assert!(
+        deserialize_v2_parts(
+            &dtype,
+            &v2::FoRV2Metadata {
+                offset: 1024,
+                encoded_bytes: valid_bytes,
+            },
+            &[encoded.clone(), references.clone()],
+        )
+        .is_err()
+    );
+    // Reject invalid encoded_bytes values and non-narrower widths.
+    assert!(
+        deserialize_v2_parts(
+            &dtype,
+            &v2::FoRV2Metadata {
+                offset: 0,
+                encoded_bytes: 3,
+            },
+            &[encoded.clone(), references.clone()],
+        )
+        .is_err()
+    );
+    assert!(
+        deserialize_v2_parts(
+            &dtype,
+            &v2::FoRV2Metadata {
+                offset: 0,
+                encoded_bytes: 4,
+            },
+            &[encoded, references],
+        )
+        .is_err()
     );
     Ok(())
 }

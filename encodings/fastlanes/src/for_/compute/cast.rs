@@ -20,7 +20,12 @@ impl CastReduce for FoR {
             return Ok(None);
         }
 
-        let casted_child = array.encoded().cast(dtype.clone())?;
+        let casted_child = array.encoded().cast(
+            array
+                .encoded()
+                .dtype()
+                .with_nullability(dtype.nullability()),
+        )?;
         let casted = match array.references() {
             FoRReferences::Global(reference) => FoR::try_new(casted_child, reference.clone())?,
             FoRReferences::Blocked(references) => {

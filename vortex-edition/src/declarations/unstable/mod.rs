@@ -7,6 +7,7 @@ use crate::Edition;
 use crate::EditionDeclaration;
 use crate::EditionFamily;
 use crate::EditionId;
+use crate::EditionMember;
 
 /// The shared family for experimental components, including third-party plugins.
 pub static FAMILY: EditionFamily = EditionFamily {
@@ -30,5 +31,5 @@ pub static DECLARATION: EditionDeclaration = EditionDeclaration {
         immutable: false,
         min_library_version: None,
     },
-    added: &[],
+    added: &[EditionMember::array(&"fastlanes.for.v2")],
 };

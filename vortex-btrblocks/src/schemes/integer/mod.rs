@@ -19,7 +19,9 @@ mod pco;
 pub use bitpacking::BitPackingScheme;
 pub use delta::DeltaScheme;
 pub use elias_fano::EliasFanoScheme;
+#[cfg(test)]
 pub(crate) use for_::FOR_V1;
+pub(crate) use for_::FOR_V2;
 pub use for_::FoRScheme;
 #[cfg(feature = "pco")]
 pub use pco::PcoScheme;
