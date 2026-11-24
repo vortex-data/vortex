@@ -121,6 +121,33 @@ def test_bad_commands_get_help_and_unsnooze_ends_a_snooze():
     assert payload(fake, 1)["snooze_until"] == "0"
 
 
+def test_priority_set_in_the_thread_holds_until_auto():
+    target = item(1, created=ago(days=1), assignees=["alice"])
+    fake = FakeSlack()
+    run(fake, [target])
+    root = fake.root(1)["ts"]
+    fake.say(root, "!priority low", NOW + timedelta(minutes=1))
+    run(fake, [target], NOW + HOUR, pings=True)
+    assert fake.bot_replies(root) == [
+        "⚪ Priority set to Low by <@UALICE>. It stays until someone sends `!priority auto`."
+    ]
+    assert (payload(fake, 1)["priority"], payload(fake, 1)["priority_by"]) == ("low", "UALICE")
+    assert "⚪" in card_text(fake, 1) and "priority set in Slack" in card_text(fake, 1)
+    # A Low item gets no reminder, even though the rules make it High.
+    assert overview_replies(fake) == []
+
+    fake.say(root, "!priority auto", NOW + HOUR + timedelta(minutes=1))
+    fake.say(root, "!priority auto", NOW + HOUR + timedelta(minutes=2))
+    run(fake, [target], NOW + 2 * HOUR, pings=True)
+    assert fake.bot_replies(root)[1:3] == [
+        "🔄 <@UALICE> handed the priority back to the bot.",
+        "🔄 <@UALICE>, the bot already sets this item's priority.",
+    ]
+    assert payload(fake, 1)["priority"] == ""
+    assert "🔴" in card_text(fake, 1)
+    assert len(item_reminders(fake, 1)) == 1
+
+
 def test_commands_in_the_overview_thread_point_to_the_item_thread():
     fake = FakeSlack()
     run(fake, [HIGH])
@@ -442,6 +469,8 @@ def test_state_round_trips_through_metadata():
         seen_external_at=ago(days=1),
         card="abc",
         verdict=verdict,
+        priority=rules.Tier.NORMAL,
+        priority_by="U2",
     )
     assert all(isinstance(v, str) for v in original.payload().values())
     assert state.ItemState.from_payload(original.payload()) == original

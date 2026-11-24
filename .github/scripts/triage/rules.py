@@ -19,7 +19,7 @@ APPROVED = "APPROVED"
 CHANGES_REQUESTED = "CHANGES_REQUESTED"
 
 # Tier thresholds, in calendar days since the latest contributor activity. Bug issues and PRs do
-# not age out of their tier, because a teammate snoozes one that matters less.
+# not age out of their tier, because a teammate snoozes or reprioritizes one that matters less.
 NEW_DAYS = 5
 NORMAL_ISSUE_DAYS = 30
 NORMAL_COMMENT_DAYS = 14
@@ -216,8 +216,13 @@ def verdict_applies(verdict: Verdict | None, last_activity_at: str, now: datetim
     )
 
 
-def assess(item: Item, now: datetime, verdict: Verdict | None = None) -> Assessment | None:
-    """Assess a tracked item, or return None when the bot does not track it."""
+def assess(
+    item: Item, now: datetime, verdict: Verdict | None = None, priority: Tier | None = None
+) -> Assessment | None:
+    """Assess a tracked item, or return None when the bot does not track it.
+
+    `priority` is the tier that a teammate chose in Slack, which replaces the rule's tier.
+    """
     category = categorize(item)
     if category is None:
         return None
@@ -237,6 +242,8 @@ def assess(item: Item, now: datetime, verdict: Verdict | None = None) -> Assessm
             # owed the next move since the contributor last acted.
             owed_since = last_external or parse_time(item.created_at)
     tier, tier_reason = _tier(item, category, last_external, now)
+    if priority is not None:
+        tier, tier_reason = priority, "priority set in Slack"
 
     if owed_since is not None:
         score = working_seconds(owed_since, now)

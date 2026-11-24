@@ -48,7 +48,11 @@ def candidates(items: list[Item], channel: Channel, now: datetime) -> list[tuple
     chosen = []
     for item in items:
         root = channel.roots.get(item.number)
-        assessment = assess(item, now, root.state.verdict if root else None)
+        assessment = (
+            assess(item, now, root.state.verdict, root.state.priority)
+            if root
+            else assess(item, now)
+        )
         if (
             assessment is None
             or assessment.tier is Tier.LOW

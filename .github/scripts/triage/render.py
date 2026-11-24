@@ -429,6 +429,18 @@ def unsnoozed(user: str, was_snoozed: bool) -> Message:
     return Message(text=f"🔔 <@{user}>, this item is not snoozed, so there is nothing to end.")
 
 
+def prioritized(tier: Tier | None, user: str, was_set: bool) -> Message:
+    if tier is not None:
+        section = _BY_TIER[tier]
+        return Message(
+            text=f"{section.marker} Priority set to {section.title} by <@{user}>. "
+            "It stays until someone sends `!priority auto`."
+        )
+    if was_set:
+        return Message(text=f"🔄 <@{user}> handed the priority back to the bot.")
+    return Message(text=f"🔄 <@{user}>, the bot already sets this item's priority.")
+
+
 def invalid(error: str) -> Message:
     return Message(text=f"❓ {error}")
 
@@ -521,6 +533,8 @@ def instructions() -> Message:
             f"hours (at most {MAX_HOURS}).",
             f"`!snooze 2d` does the same for 2 working days (at most {MAX_DAYS}).",
             "`!unsnooze` ends a snooze.",
+            "`!priority high`, `!priority normal`, or `!priority low` sets the item's priority "
+            "until `!priority auto` hands it back to the bot.",
             "New contributor activity ends a snooze early. The bot answers at its next run.",
             "",
             "*Working time*, which snoozes and reminders count, runs on weekdays from 09:00 "

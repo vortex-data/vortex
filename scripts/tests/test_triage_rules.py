@@ -172,6 +172,14 @@ def test_bugs_that_the_team_filed_always_wait_on_vortex():
     assert assess(target, verdict).owes is Owes.VORTEX
 
 
+def test_priority_from_slack_replaces_the_rule_tier():
+    target = item(created=ago(days=1))
+    assert assess(target).tier is Tier.HIGH
+    result = rules.assess(target, NOW, priority=Tier.LOW)
+    assert result is not None
+    assert (result.tier, result.tier_reason) == (Tier.LOW, "priority set in Slack")
+
+
 def test_valid_verdict_replaces_the_rule():
     target = item(created=ago(days=5), events=[event(ago(days=3)), event(ago(days=2), TEAMMATE)])
     assert assess(target).owes is Owes.CONTRIBUTOR

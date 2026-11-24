@@ -9,13 +9,19 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
+from .rules import Tier
+
 MAX_HOURS = 168
 MAX_DAYS = 60
 
 USAGE = (
     f"`!snooze 5h` (working hours, at most {MAX_HOURS}), "
-    f"`!snooze 2d` (working days, at most {MAX_DAYS}), or `!unsnooze`"
+    f"`!snooze 2d` (working days, at most {MAX_DAYS}), `!unsnooze`, "
+    "or `!priority high`, `normal`, `low`, or `auto`"
 )
+# The word that hands the priority back to the bot.
+AUTO = "auto"
+_LEVELS = ", ".join(f"`{level}`" for level in (*(t.value for t in Tier), AUTO))
 
 _MENTIONS = re.compile(r"^(?:<@[A-Z0-9]+>\s*)+")
 _DURATION = re.compile(r"^(\d+)\s*([a-z]*)$")
@@ -45,13 +51,19 @@ class Unsnooze:
 
 
 @dataclass(frozen=True)
+class Priority:
+    # The tier that the item keeps until someone changes it, or None to let the bot decide again.
+    tier: Tier | None
+
+
+@dataclass(frozen=True)
 class Invalid:
     """A reply that starts with `!` but is not a valid command. `error` says what to fix."""
 
     error: str
 
 
-Command = Snooze | Unsnooze | Invalid
+Command = Snooze | Unsnooze | Priority | Invalid
 
 
 def _echo(text: str) -> str:
@@ -77,7 +89,19 @@ def parse(text: str) -> Command | None:
         if args:
             return Invalid(f"`!unsnooze` takes nothing after it, but got {_echo(' '.join(args))}.")
         return Unsnooze()
+    if name == "priority":
+        return _priority(" ".join(args).lower())
     return Invalid(f"{_echo('!' + name)} is not a command. Use {USAGE}.")
+
+
+def _priority(argument: str) -> Command:
+    if not argument:
+        return Invalid(f"`!priority` needs a level: {_LEVELS}, for example `!priority high`.")
+    if argument == AUTO:
+        return Priority(None)
+    if argument not in {t.value for t in Tier}:
+        return Invalid(f"{_echo(argument)} is not a priority. Use {_LEVELS}.")
+    return Priority(Tier(argument))
 
 
 def _snooze(argument: str) -> Command:

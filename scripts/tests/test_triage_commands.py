@@ -23,6 +23,9 @@ commands = support.commands
         ("!snooze 60d", commands.Snooze(60, "d")),
         ("!unsnooze", commands.Unsnooze()),
         ("<@U123> !Unsnooze", commands.Unsnooze()),
+        ("!priority high", commands.Priority(support.rules.Tier.HIGH)),
+        ("<@U123> !Priority LOW", commands.Priority(support.rules.Tier.LOW)),
+        ("!priority auto", commands.Priority(None)),
     ],
 )
 def test_valid_commands(text, expected):
@@ -51,6 +54,9 @@ def test_conversation_is_not_a_command(text):
         ("!snooze 0h", "at least `1h` or `1d`"),
         ("!snooze 169h", "more than the limit of 168 working hours"),
         ("!snooze 61d", "more than the limit of 60 working days"),
+        ("!priority", "needs a level: `high`, `normal`, `low`, `auto`"),
+        ("!priority urgent", "`urgent` is not a priority"),
+        ("!priority high please", "`high please` is not a priority"),
     ],
 )
 def test_each_mistake_gets_a_specific_error(text, fragment):

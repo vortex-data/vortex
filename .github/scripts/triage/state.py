@@ -13,7 +13,7 @@ from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any
 
-from .rules import Owes, Verdict
+from .rules import Owes, Tier, Verdict
 
 ITEM_EVENT = "vortex_triage_item"
 OVERVIEW_EVENT = "vortex_triage_overview"
@@ -57,6 +57,10 @@ class ItemState:
     # A hash of the rendered card, so the bot edits the root only when it changes.
     card: str = ""
     verdict: Verdict | None = None
+    # The tier that a teammate chose with `!priority`, and their Slack user ID. None lets the bot
+    # decide.
+    priority: Tier | None = None
+    priority_by: str = ""
 
     def snoozed(self, now: datetime) -> bool:
         return self.snooze_until > now.timestamp()
@@ -76,6 +80,8 @@ class ItemState:
             "read_until": self.read_until,
             "seen_external_at": self.seen_external_at,
             "card": self.card,
+            "priority": self.priority.value if self.priority else "",
+            "priority_by": self.priority_by,
         }
         if self.verdict is not None:
             out |= {
@@ -111,6 +117,8 @@ class ItemState:
                 seen_external_at=str(payload.get("seen_external_at", "")),
                 card=str(payload.get("card", "")),
                 verdict=verdict,
+                priority=Tier(payload["priority"]) if payload.get("priority") else None,
+                priority_by=str(payload.get("priority_by", "")),
             )
         except (KeyError, TypeError, ValueError):
             return None

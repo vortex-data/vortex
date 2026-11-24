@@ -17,7 +17,7 @@ from functools import partial
 from typing import Any, Protocol
 
 from . import render
-from .commands import Invalid, Snooze, Unsnooze, parse
+from .commands import Invalid, Priority, Snooze, Unsnooze, parse
 from .github import Ended, Item
 from .hours import (
     add_working_days,
@@ -255,7 +255,7 @@ class Run:
         root = self.channel.roots.get(item.number)
         # This run's verdict wins over the cached one, which `assess` drops if it is stale.
         verdict = self.config.verdicts.get(item.number) or (root.state.verdict if root else None)
-        assessment = assess(item, self.now, verdict)
+        assessment = assess(item, self.now, verdict, root.state.priority if root else None)
         if assessment is None:
             if root is not None and root.state.status is Status.OPEN:
                 # A teammate answered the external comment on a team item. Otherwise the item
@@ -296,6 +296,9 @@ class Run:
         for request in requests:
             state = self._command(root.thread, state, request)
         state = replace(state, read_until=read_until)
+        if state.priority != root.state.priority:
+            # The category does not depend on the priority, so the item is still tracked.
+            assessment = assess(item, self.now, verdict, state.priority) or assessment
 
         last_external = assessment.last_external_at
         if last_external and last_external > state.seen_external_at:
@@ -333,6 +336,9 @@ class Run:
         elif isinstance(command, Unsnooze):
             reply = render.unsnoozed(user, state.snoozed(self.now))
             state = state.unsnoozed()
+        elif isinstance(command, Priority):
+            reply = render.prioritized(command.tier, user, state.priority is not None)
+            state = replace(state, priority=command.tier, priority_by=user if command.tier else "")
         else:
             assert isinstance(command, Invalid)
             reply = render.invalid(command.error)
