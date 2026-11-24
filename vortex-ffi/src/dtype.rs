@@ -59,20 +59,20 @@ pub enum vx_dtype_variant {
     DTYPE_DECIMAL = 8,
     /// Nested fixed-size list type.
     DTYPE_FIXED_SIZE_LIST = 9,
+    /// Binary data type whose values all have the same number of bytes.
+    DTYPE_FIXED_SIZE_BINARY = 10,
 }
 
 impl From<&DType> for vx_dtype_variant {
     fn from(value: &DType) -> Self {
         match value {
-            DType::FixedSizeBinary(..) => {
-                vortex_panic!("FixedSizeBinary is not supported in FFI yet")
-            }
             DType::Null => vx_dtype_variant::DTYPE_NULL,
             DType::Bool(_) => vx_dtype_variant::DTYPE_BOOL,
             DType::Primitive(..) => vx_dtype_variant::DTYPE_PRIMITIVE,
             DType::Decimal(..) => vx_dtype_variant::DTYPE_DECIMAL,
             DType::Utf8(_) => vx_dtype_variant::DTYPE_UTF8,
             DType::Binary(_) => vx_dtype_variant::DTYPE_BINARY,
+            DType::FixedSizeBinary(..) => vx_dtype_variant::DTYPE_FIXED_SIZE_BINARY,
             DType::List(..) => vx_dtype_variant::DTYPE_LIST,
             DType::FixedSizeList(..) => vx_dtype_variant::DTYPE_FIXED_SIZE_LIST,
             DType::Struct(..) => vx_dtype_variant::DTYPE_STRUCT,
@@ -123,6 +123,15 @@ pub unsafe extern "C-unwind" fn vx_dtype_new_utf8(is_nullable: bool) -> *const v
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_dtype_new_binary(is_nullable: bool) -> *const vx_dtype {
     vx_dtype::new(DType::Binary(is_nullable.into()))
+}
+
+/// Create a new binary data type whose values all have `byte_width` bytes.
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn vx_dtype_new_fixed_size_binary(
+    byte_width: u32,
+    is_nullable: bool,
+) -> *const vx_dtype {
+    vx_dtype::new(DType::FixedSizeBinary(byte_width, is_nullable.into()))
 }
 
 /// Create a new list data type.
@@ -258,6 +267,15 @@ pub unsafe extern "C-unwind" fn vx_dtype_fixed_size_list_size(dtype: *const vx_d
     match dtype_ref {
         DType::FixedSizeList(_, size, _) => *size,
         _ => vortex_panic!("not a fixed-size list dtype"),
+    }
+}
+
+/// Returns the number of bytes in each value of a fixed-size binary dtype.
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn vx_dtype_fixed_size_binary_width(dtype: *const vx_dtype) -> u32 {
+    match vx_dtype::as_ref(dtype) {
+        DType::FixedSizeBinary(byte_width, _) => *byte_width,
+        _ => vortex_panic!("not a fixed-size binary dtype"),
     }
 }
 
@@ -418,6 +436,25 @@ mod tests {
             // Null dtype is always nullable
             assert!(vx_dtype_is_nullable(null_dtype));
             vx_dtype_free(null_dtype);
+        }
+    }
+
+    #[test]
+    fn test_dtype_fixed_size_binary() {
+        unsafe {
+            let dtype = vx_dtype_new_fixed_size_binary(16, true);
+            assert_eq!(
+                vx_dtype_get_variant(dtype),
+                vx_dtype_variant::DTYPE_FIXED_SIZE_BINARY
+            );
+            assert_eq!(vx_dtype_fixed_size_binary_width(dtype), 16);
+            assert!(vx_dtype_is_nullable(dtype));
+            vx_dtype_free(dtype);
+
+            let non_nullable = vx_dtype_new_fixed_size_binary(0, false);
+            assert_eq!(vx_dtype_fixed_size_binary_width(non_nullable), 0);
+            assert!(!vx_dtype_is_nullable(non_nullable));
+            vx_dtype_free(non_nullable);
         }
     }
 

@@ -25,7 +25,6 @@ use pyo3::prelude::*;
 use vortex::dtype::DType;
 use vortex::error::VortexError;
 use vortex::error::VortexExpect;
-use vortex::error::vortex_panic;
 use vortex::scalar::Scalar;
 
 use crate::PyVortex;
@@ -106,13 +105,14 @@ impl PyScalar {
     pub fn init(py: Python, scalar: Scalar) -> PyResult<Bound<PyScalar>> {
         // TODO(ngates): Bound::as_super would be great, but it's in newer PyO3.
         match scalar.dtype() {
-            DType::FixedSizeBinary(..) => vortex_panic!("FixedSizeBinary is not supported yet"),
             DType::Null => Self::with_subclass(py, scalar, PyNullScalar),
             DType::Bool(_) => Self::with_subclass(py, scalar, PyBoolScalar),
             DType::Primitive(..) => Self::with_subclass(py, scalar, PyPrimitiveScalar),
             DType::Decimal(..) => Self::with_subclass(py, scalar, PyDecimalScalar),
             DType::Utf8(..) => Self::with_subclass(py, scalar, PyUtf8Scalar),
-            DType::Binary(..) => Self::with_subclass(py, scalar, PyBinaryScalar),
+            DType::Binary(..) | DType::FixedSizeBinary(..) => {
+                Self::with_subclass(py, scalar, PyBinaryScalar)
+            }
             DType::List(..) | DType::FixedSizeList(..) => {
                 // We represent both lists and fixed-size lists with `PyListScalar` since the notion
                 // of "fixed-size" only applies to full arrays, not scalars.

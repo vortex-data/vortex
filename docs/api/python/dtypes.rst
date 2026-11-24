@@ -16,6 +16,7 @@ Factory Functions
 .. autofunction:: vortex.decimal
 .. autofunction:: vortex.utf8
 .. autofunction:: vortex.binary
+.. autofunction:: vortex.fixed_size_binary
 .. autofunction:: vortex.struct
 .. autofunction:: vortex.list_
 .. autofunction:: vortex.fixed_size_list
@@ -52,6 +53,10 @@ DType Classes
 
 
 .. autoclass:: vortex.BinaryDType
+     :members:
+
+
+.. autoclass:: vortex.FixedSizeBinaryDType
      :members:
 
 

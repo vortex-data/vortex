@@ -15,6 +15,7 @@ mod byte;
 pub mod byte_view;
 mod decimal;
 mod dictionary;
+mod fixed_size_binary;
 mod fixed_size_list;
 mod list;
 mod list_view;
@@ -487,10 +488,10 @@ pub(crate) fn execute_arrow_naive(
         DataType::Map(entries_field, keys_sorted) => {
             to_arrow_map(array, entries_field, *keys_sorted, options, ctx)
         }
-        DataType::FixedSizeBinary(_)
-        | DataType::Duration(_)
-        | DataType::Interval(_)
-        | DataType::Union(..) => {
+        DataType::FixedSizeBinary(byte_width) => {
+            fixed_size_binary::to_arrow_fixed_size_binary(array, *byte_width, ctx)
+        }
+        DataType::Duration(_) | DataType::Interval(_) | DataType::Union(..) => {
             vortex_bail!("Conversion to Arrow type {resolved_type} is not supported");
         }
     }?;

@@ -94,6 +94,7 @@ pub(crate) fn constant_distinct_count(
         | DType::Primitive(..)
         | DType::Utf8(_)
         | DType::Binary(_)
+        | DType::FixedSizeBinary(..)
         | DType::Decimal(..) => true,
         DType::Extension(ext) => ext.metadata_opt::<AnyTemporal>().is_some(),
         _ => false,

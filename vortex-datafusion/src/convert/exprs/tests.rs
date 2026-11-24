@@ -746,6 +746,7 @@ fn convert_literal(expr: Arc<dyn PhysicalExpr>) -> anyhow::Result<Scalar> {
 #[case::f64(ScalarValue::Float64(Some(2.5)))]
 #[case::utf8(ScalarValue::Utf8(Some("test string".into())))]
 #[case::binary(ScalarValue::Binary(Some(vec![1, 2, 3])))]
+#[case::fixed_size_binary(ScalarValue::FixedSizeBinary(5, Some(vec![1, 2, 3, 4, 5])))]
 #[case::decimal32(ScalarValue::Decimal32(Some(1234), 5, 2))]
 #[case::decimal64(ScalarValue::Decimal64(Some(12345), 10, 2))]
 #[case::decimal128(ScalarValue::Decimal128(Some(12345), 20, 2))]
@@ -1309,7 +1310,6 @@ fn test_can_be_pushed_down_column_supported(test_schema: Schema) -> DFResult<()>
 #[rstest]
 #[case::duration(DataType::Duration(ArrowTimeUnit::Second))]
 #[case::interval(DataType::Interval(IntervalUnit::YearMonth))]
-#[case::fixed_size_binary(DataType::FixedSizeBinary(16))]
 #[case::decimal32(DataType::Decimal32(1, 2))]
 #[case::decimal64(DataType::Decimal64(1, 2))]
 #[case::decimal128(DataType::Decimal128(1, 2))]
@@ -1461,8 +1461,6 @@ fn test_can_be_pushed_down_literal_supported(test_schema: Schema) -> DFResult<()
 #[case::duration(ScalarValue::DurationSecond(Some(42)))]
 #[case::null_duration(ScalarValue::DurationSecond(None))]
 #[case::interval(ScalarValue::IntervalYearMonth(Some(1)))]
-#[case::fixed_size_binary(ScalarValue::FixedSizeBinary(5, Some(vec![1, 2, 3, 4, 5])))]
-#[case::null_fixed_size_binary(ScalarValue::FixedSizeBinary(5, None))]
 fn test_can_be_pushed_down_literal_unsupported(
     test_schema: Schema,
     #[case] value: ScalarValue,

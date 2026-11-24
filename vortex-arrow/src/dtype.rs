@@ -110,6 +110,12 @@ pub(crate) fn from_arrow_data_type(
         DataType::Binary | DataType::LargeBinary | DataType::BinaryView => {
             DType::Binary(nullability)
         }
+        DataType::FixedSizeBinary(byte_width) => DType::FixedSizeBinary(
+            u32::try_from(*byte_width).map_err(|_| {
+                vortex_err!("Arrow FixedSizeBinary width must not be negative, got {byte_width}")
+            })?,
+            nullability,
+        ),
         DataType::Date32 => DType::Extension(Date::new(TimeUnit::Days, nullability).erased()),
         DataType::Date64 => {
             DType::Extension(Date::new(TimeUnit::Milliseconds, nullability).erased())
@@ -205,7 +211,6 @@ pub(crate) fn from_arrow_fields_naive(fields: &Fields) -> VortexResult<StructFie
 /// Naive conversion from a Vortex `DType` to the nearest Arrow physical data type.
 pub(crate) fn to_data_type_naive(dtype: &DType) -> VortexResult<DataType> {
     Ok(match dtype {
-        DType::FixedSizeBinary(..) => vortex_panic!("FixedSizeBinary is not supported yet"),
         DType::Null => DataType::Null,
         DType::Bool(_) => DataType::Boolean,
         DType::Primitive(ptype, _) => match ptype {
@@ -239,6 +244,10 @@ pub(crate) fn to_data_type_naive(dtype: &DType) -> VortexResult<DataType> {
         }
         DType::Utf8(_) => DataType::Utf8View,
         DType::Binary(_) => DataType::BinaryView,
+        DType::FixedSizeBinary(byte_width, _) => DataType::FixedSizeBinary(
+            i32::try_from(*byte_width)
+                .map_err(|_| vortex_err!("{dtype} is too wide for an Arrow FixedSizeBinary"))?,
+        ),
         // There are four kinds of lists: List (32-bit offsets), Large List (64-bit), List View
         // (32-bit), Large List View (64-bit). We cannot both guarantee zero-copy and commit to an
         // Arrow dtype because we do not how large our offsets are.
@@ -622,7 +631,6 @@ mod test {
     #[rstest]
     #[case::duration(DataType::Duration(ArrowTimeUnit::Microsecond))]
     #[case::interval(DataType::Interval(arrow_schema::IntervalUnit::DayTime))]
-    #[case::fixed_size_binary(DataType::FixedSizeBinary(3))]
     fn test_try_from_arrow_unsupported_type_errors(#[case] data_type: DataType) {
         let err = from_arrow_data_type(&data_type, Nullability::NonNullable)
             .expect_err("unsupported Arrow type should not convert")

@@ -6,6 +6,7 @@ mod bool;
 mod decimal;
 mod extension;
 mod factory;
+mod fixed_size_binary;
 mod fixed_size_list;
 mod list;
 mod null;
@@ -42,6 +43,7 @@ use crate::dtype::binary::PyBinaryDType;
 use crate::dtype::bool::PyBoolDType;
 use crate::dtype::decimal::PyDecimalDType;
 use crate::dtype::extension::PyExtensionDType;
+use crate::dtype::fixed_size_binary::PyFixedSizeBinaryDType;
 use crate::dtype::fixed_size_list::PyFixedSizeListDType;
 use crate::dtype::list::PyListDType;
 use crate::dtype::null::PyNullDType;
@@ -68,6 +70,7 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
     m.add_class::<PyDecimalDType>()?;
     m.add_class::<PyUtf8DType>()?;
     m.add_class::<PyBinaryDType>()?;
+    m.add_class::<PyFixedSizeBinaryDType>()?;
     m.add_class::<PyStructDType>()?;
     m.add_class::<PyListDType>()?;
     m.add_class::<PyFixedSizeListDType>()?;
@@ -82,6 +85,7 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(factory::dtype_float, &m)?)?;
     m.add_function(wrap_pyfunction!(factory::dtype_utf8, &m)?)?;
     m.add_function(wrap_pyfunction!(factory::dtype_binary, &m)?)?;
+    m.add_function(wrap_pyfunction!(factory::dtype_fixed_size_binary, &m)?)?;
     m.add_function(wrap_pyfunction!(factory::dtype_struct, &m)?)?;
     m.add_function(wrap_pyfunction!(factory::dtype_list, &m)?)?;
     m.add_function(wrap_pyfunction!(factory::dtype_fixed_size_list, &m)?)?;
@@ -130,9 +134,7 @@ impl PyDType {
             DType::Decimal(..) => Self::with_subclass(py, dtype, PyDecimalDType),
             DType::Utf8(..) => Self::with_subclass(py, dtype, PyUtf8DType),
             DType::Binary(..) => Self::with_subclass(py, dtype, PyBinaryDType),
-            DType::FixedSizeBinary(..) => Err(PyValueError::new_err(
-                "FixedSizeBinary dtypes are not supported in Python yet",
-            )),
+            DType::FixedSizeBinary(..) => Self::with_subclass(py, dtype, PyFixedSizeBinaryDType),
             DType::List(..) => Self::with_subclass(py, dtype, PyListDType),
             DType::FixedSizeList(..) => Self::with_subclass(py, dtype, PyFixedSizeListDType),
             DType::Map(..) => Err(PyValueError::new_err(

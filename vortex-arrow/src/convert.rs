@@ -15,6 +15,7 @@ use arrow_array::ArrayRef as ArrowArrayRef;
 use arrow_array::ArrowPrimitiveType;
 use arrow_array::BooleanArray as ArrowBooleanArray;
 use arrow_array::DictionaryArray;
+use arrow_array::FixedSizeBinaryArray as ArrowFixedSizeBinaryArray;
 use arrow_array::FixedSizeListArray as ArrowFixedSizeListArray;
 use arrow_array::GenericByteArray;
 use arrow_array::GenericByteViewArray;
@@ -72,6 +73,7 @@ use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::DecimalArray;
 use vortex_array::arrays::DictArray;
 use vortex_array::arrays::ExtensionArray;
+use vortex_array::arrays::FixedSizeBinaryArray;
 use vortex_array::arrays::FixedSizeListArray;
 use vortex_array::arrays::ListArray;
 use vortex_array::arrays::ListViewArray;
@@ -491,6 +493,38 @@ pub fn from_arrow_list_view<O: OffsetSizeTrait + NativePType>(
     Ok(unsafe { ListViewArray::new_unchecked(elements, offsets, sizes, validity) }.into_array())
 }
 
+/// Zero-copy conversion of an Arrow fixed-size binary array into a Vortex
+/// [`FixedSizeBinaryArray`].
+///
+/// See the [import nullability rules](crate::ArrowSession::from_arrow_array).
+pub fn from_arrow_fixed_size_binary(
+    array: &ArrowFixedSizeBinaryArray,
+    nullable: bool,
+) -> VortexResult<ArrayRef> {
+    let byte_width = u32::try_from(array.value_length()).map_err(|_| {
+        vortex_err!(
+            "Arrow FixedSizeBinary width must not be negative, got {}",
+            array.value_length()
+        )
+    })?;
+    let values = ByteBuffer::from_arrow_buffer(array.values().clone(), Alignment::of::<u8>());
+    let len = array.len();
+
+    import_leaf(array.nulls(), nullable, |validity| {
+        // SAFETY: Arrow holds exactly `len * byte_width` value bytes, and the validity comes from
+        // the same array.
+        unsafe {
+            FixedSizeBinaryArray::new_unchecked_handle(
+                BufferHandle::new_host(values),
+                byte_width,
+                len,
+                validity,
+            )
+        }
+        .into_array()
+    })
+}
+
 /// Convert an Arrow fixed-size list using its field to import the elements.
 ///
 /// See the [import nullability rules](crate::ArrowSession::from_arrow_array).
@@ -731,6 +765,9 @@ pub fn from_arrow_dyn(array: &dyn ArrowArray, nullable: bool) -> VortexResult<Ar
         DataType::LargeListView(_) => from_arrow_list_view(array.as_list_view::<i64>(), nullable),
         DataType::FixedSizeList(..) => {
             from_arrow_fixed_size_list(array.as_fixed_size_list(), nullable)
+        }
+        DataType::FixedSizeBinary(_) => {
+            from_arrow_fixed_size_binary(array.as_fixed_size_binary(), nullable)
         }
         DataType::Map(..) => from_arrow_map(array.as_map(), nullable),
         DataType::Null => from_arrow_null(as_null_array(array), nullable),

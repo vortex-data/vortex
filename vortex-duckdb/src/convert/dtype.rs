@@ -246,10 +246,8 @@ impl TryFrom<&DType> for LogicalType {
                 );
             }
             DType::Utf8(_) => DUCKDB_TYPE::DUCKDB_TYPE_VARCHAR,
-            DType::Binary(_) => DUCKDB_TYPE::DUCKDB_TYPE_BLOB,
-            DType::FixedSizeBinary(..) => {
-                vortex_bail!("Vortex FixedSizeBinary isn't supported yet")
-            }
+            // DuckDB has no fixed-size binary type, so fixed-size binary values become BLOBs.
+            DType::Binary(_) | DType::FixedSizeBinary(..) => DUCKDB_TYPE::DUCKDB_TYPE_BLOB,
             DType::List(element_dtype, _) => {
                 let element_logical_type = LogicalType::try_from(element_dtype.as_ref())?;
                 return LogicalType::list_type(element_logical_type);

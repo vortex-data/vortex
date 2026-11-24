@@ -29,7 +29,6 @@ use vortex_array::scalar::Utf8Scalar;
 use vortex_error::VortexError;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
-use vortex_error::vortex_panic;
 
 use crate::dtype::to_data_type_naive;
 
@@ -71,13 +70,15 @@ impl ToArrowDatum for Scalar {
     fn to_arrow_datum(&self) -> Result<Arc<dyn Datum>, VortexError> {
         let value = self;
         match value.dtype() {
-            DType::FixedSizeBinary(..) => vortex_panic!("FixedSizeBinary is not supported yet"),
             DType::Null => Ok(Arc::new(NullArray::new(SCALAR_ARRAY_LEN))),
             DType::Bool(_) => bool_to_arrow(value.as_bool()),
             DType::Primitive(..) => primitive_to_arrow(value.as_primitive()),
             DType::Decimal(..) => decimal_to_arrow(value.as_decimal()),
             DType::Utf8(_) => utf8_to_arrow(value.as_utf8()),
             DType::Binary(_) => binary_to_arrow(value.as_binary()),
+            DType::FixedSizeBinary(byte_width, _) => {
+                fixed_size_binary_to_arrow(*byte_width, value.as_binary())
+            }
             DType::List(..) => {
                 vortex_bail!("list scalar conversion is not supported")
             }
@@ -175,6 +176,25 @@ fn utf8_to_arrow(scalar: Utf8Scalar<'_>) -> Result<Arc<dyn Datum>, VortexError> 
 /// Convert a [`BinaryScalar`] to an Arrow [`Datum`].
 fn binary_to_arrow(scalar: BinaryScalar<'_>) -> Result<Arc<dyn Datum>, VortexError> {
     value_to_arrow_scalar!(scalar.value(), BinaryViewArray)
+}
+
+/// Convert a fixed-size binary scalar, viewed as a [`BinaryScalar`], to an Arrow [`Datum`].
+fn fixed_size_binary_to_arrow(
+    byte_width: u32,
+    scalar: BinaryScalar<'_>,
+) -> Result<Arc<dyn Datum>, VortexError> {
+    let byte_width = i32::try_from(byte_width)
+        .map_err(|_| vortex_err!("fixed_size_binary[{byte_width}] is too wide for Arrow"))?;
+    let array = match scalar.value() {
+        Some(value) => FixedSizeBinaryArray::try_new(
+            byte_width,
+            arrow_buffer::Buffer::from(value.as_slice()),
+            // Arrow takes the length of a zero-width array from its null buffer.
+            (byte_width == 0).then(|| NullBuffer::new_valid(SCALAR_ARRAY_LEN)),
+        )?,
+        None => FixedSizeBinaryArray::new_null(byte_width, SCALAR_ARRAY_LEN),
+    };
+    Ok(Arc::new(ArrowScalar::new(array)))
 }
 
 /// Convert a [`MapScalar`] to an Arrow [`Datum`].

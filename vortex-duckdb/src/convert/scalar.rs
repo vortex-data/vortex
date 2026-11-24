@@ -83,9 +83,9 @@ impl ToDuckDBScalar for Scalar {
             DType::Primitive(..) => self.as_primitive().try_to_duckdb_scalar(),
             DType::Decimal(..) => self.as_decimal().try_to_duckdb_scalar(),
             DType::Utf8(_) => self.as_utf8().try_to_duckdb_scalar(),
-            DType::Binary(_) => self.as_binary().try_to_duckdb_scalar(),
-            DType::FixedSizeBinary(..) => {
-                vortex_bail!("Vortex FixedSizeBinary scalars aren't supported yet")
+            // DuckDB has no fixed-size binary type, so fixed-size binary values become BLOBs.
+            DType::Binary(_) | DType::FixedSizeBinary(..) => {
+                self.as_binary().try_to_duckdb_scalar()
             }
             DType::List(..) | DType::FixedSizeList(..) => self.as_list().try_to_duckdb_scalar(),
             DType::Map(..) => self.as_map().try_to_duckdb_scalar(),

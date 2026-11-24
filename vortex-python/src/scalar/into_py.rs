@@ -22,7 +22,6 @@ use vortex::dtype::PType;
 use vortex::dtype::half::f16;
 use vortex::error::VortexExpect;
 use vortex::error::vortex_err;
-use vortex::error::vortex_panic;
 use vortex::scalar::DecimalValue;
 use vortex::scalar::ListScalar;
 use vortex::scalar::Scalar;
@@ -37,7 +36,6 @@ impl<'py> IntoPyObject<'py> for PyVortex<&'_ Scalar> {
     type Error = PyErr;
     fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
         match self.0.dtype() {
-            DType::FixedSizeBinary(..) => vortex_panic!("FixedSizeBinary is not supported yet"),
             DType::Null => Ok(py.None().into_pyobject(py)?),
             DType::Bool(_) => Ok(self.0.as_bool().value().as_ref().into_pyobject(py)?),
             DType::Primitive(ptype, ..) => {
@@ -72,7 +70,7 @@ impl<'py> IntoPyObject<'py> for PyVortex<&'_ Scalar> {
                 .cloned()
                 .map(PyVortex)
                 .into_pyobject(py),
-            DType::Binary(_) => self
+            DType::Binary(_) | DType::FixedSizeBinary(..) => self
                 .0
                 .as_binary()
                 .value()

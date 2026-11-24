@@ -125,6 +125,10 @@ typedef enum {
      * Nested fixed-size list type.
      */
     DTYPE_FIXED_SIZE_LIST = 9,
+    /**
+     * Binary data type whose values all have the same number of bytes.
+     */
+    DTYPE_FIXED_SIZE_BINARY = 10,
 } vx_dtype_variant;
 
 /**
@@ -918,6 +922,11 @@ const vx_dtype *vx_dtype_new_utf8(bool is_nullable);
 const vx_dtype *vx_dtype_new_binary(bool is_nullable);
 
 /**
+ * Create a new binary data type whose values all have `byte_width` bytes.
+ */
+const vx_dtype *vx_dtype_new_fixed_size_binary(uint32_t byte_width, bool is_nullable);
+
+/**
  * Create a new list data type.
  *
  * Takes ownership of "element".
@@ -990,6 +999,11 @@ const vx_dtype *vx_dtype_fixed_size_list_element(const vx_dtype *dtype);
  * Returns the size of a fixed-size list.
  */
 uint32_t vx_dtype_fixed_size_list_size(const vx_dtype *dtype);
+
+/**
+ * Returns the number of bytes in each value of a fixed-size binary dtype.
+ */
+uint32_t vx_dtype_fixed_size_binary_width(const vx_dtype *dtype);
 
 /**
  * Convert a dtype to ArrowSchema, resolving extension types through `session`'s Arrow

@@ -968,6 +968,71 @@ async fn arrow_uuid_extension_roundtrip() -> anyhow::Result<()> {
     Ok(())
 }
 
+/// A plain Arrow `FixedSizeBinary` column is stored with the fixed-size binary dtype, reads back
+/// with its Arrow type, and filters on it compare by byte.
+#[tokio::test]
+async fn fixed_size_binary_roundtrip_and_filter() -> anyhow::Result<()> {
+    use datafusion::arrow::array::FixedSizeBinaryArray;
+    use datafusion::assert_batches_sorted_eq;
+    use vortex::editions::UNSTABLE;
+    use vortex_arrow::ArrowSessionExt;
+
+    let ctx = TestSessionContext::default();
+    let session = VortexSession::default();
+    session.enable_edition(UNSTABLE)?;
+
+    let schema = Arc::new(Schema::new(vec![Field::new(
+        "key",
+        DataType::FixedSizeBinary(2),
+        true,
+    )]));
+    let keys = FixedSizeBinaryArray::try_from_sparse_iter_with_size(
+        [
+            Some(*b"\x00\x01"),
+            None,
+            Some(*b"\x01\x00"),
+            Some(*b"\x00\xff"),
+        ]
+        .into_iter(),
+        2,
+    )?;
+    let batch = RecordBatch::try_new(Arc::clone(&schema), vec![Arc::new(keys)])?;
+    let array = session.arrow().from_arrow_record_batch(batch, &schema)?;
+    assert_eq!(
+        array.dtype().as_struct_fields().field_by_index(0),
+        Some(vortex::dtype::DType::FixedSizeBinary(
+            2,
+            vortex::dtype::Nullability::Nullable
+        ))
+    );
+
+    let mut writer = ObjectStoreWrite::new(Arc::clone(&ctx.store), &"fsb.vortex".into()).await?;
+    session
+        .write_options()
+        .write(&mut writer, array.to_array_stream())
+        .await?;
+    writer.shutdown().await?;
+
+    let result = ctx
+        .session
+        .sql("SELECT * FROM '/fsb.vortex' WHERE key > X'0001'")
+        .await?
+        .collect()
+        .await?;
+    assert_eq!(
+        result[0].schema_ref().field(0).data_type(),
+        &DataType::FixedSizeBinary(2)
+    );
+    assert_batches_sorted_eq!(
+        [
+            "+------+", "| key  |", "+------+", "| 00ff |", "| 0100 |", "+------+",
+        ],
+        &result
+    );
+
+    Ok(())
+}
+
 /// Same as [`arrow_uuid_extension_roundtrip`] but with the `arrow.uuid` field nested inside a
 /// top-level `Struct`, exercising recursive session-aware Field/Schema inference: if any layer
 /// falls back to the non-plugin canonical path, the inner field loses its extension metadata.

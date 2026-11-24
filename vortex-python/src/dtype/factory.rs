@@ -322,6 +322,39 @@ pub(super) fn dtype_binary(py: Python<'_>, nullable: bool) -> PyResult<Bound<'_,
     PyDType::init(py, DType::Binary(nullable.into()))
 }
 
+/// Construct a fixed-size binary data type, whose values all have the same number of bytes.
+///
+/// Parameters
+/// ----------
+/// byte_width : :class:`int`
+///     The number of bytes in each value.
+/// nullable : :class:`bool`
+///     When :obj:`True`, :obj:`None` is a permissible value.
+///
+/// Returns
+/// -------
+/// :class:`vortex.DType`
+///
+/// Examples
+/// --------
+///
+/// A data type permitting 16-byte values but not permitting :obj:`None`.
+///
+/// ```python
+/// >>> import vortex as vx
+/// >>> vx.fixed_size_binary(16, nullable=False)
+/// fixed_size_binary(16, nullable=False)
+/// ```
+#[pyfunction(name = "fixed_size_binary")]
+#[pyo3(signature = (byte_width, *, nullable = false))]
+pub(super) fn dtype_fixed_size_binary(
+    py: Python<'_>,
+    byte_width: u32,
+    nullable: bool,
+) -> PyResult<Bound<'_, PyDType>> {
+    PyDType::init(py, DType::FixedSizeBinary(byte_width, nullable.into()))
+}
+
 /// Construct a struct data type.
 ///
 /// Parameters

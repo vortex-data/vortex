@@ -21,3 +21,22 @@ def test_factories() -> None:
 def test_timestamp_rejects_unknown_timezone():
     with pytest.raises(RuntimeError, match="Not/A/Timezone"):
         vx.timestamp("s", tz="Not/A/Timezone")
+
+
+def test_fixed_size_binary():
+    dtype = vx.fixed_size_binary(16, nullable=True)
+    assert isinstance(dtype, vx.FixedSizeBinaryDType)
+    assert dtype.byte_width == 16
+    assert str(dtype) == "fixed_size_binary[16]?"
+    assert repr(vx.fixed_size_binary(4)) == "fixed_size_binary(4, nullable=False)"
+
+
+def test_fixed_size_binary_arrow_round_trip():
+    import pyarrow as pa
+
+    arrow = pa.array([b"ab", None, b"cd"], type=pa.binary(2))
+    array = vx.array(arrow)
+    assert array.dtype == vx.fixed_size_binary(2, nullable=True)
+    assert array.scalar_at(0).as_py() == b"ab"
+    assert array.scalar_at(1).as_py() is None
+    assert array.to_arrow_array() == arrow

@@ -26,7 +26,6 @@ use vortex::dtype::i256;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::error::vortex_err;
-use vortex::error::vortex_panic;
 use vortex::extension::datetime::AnyTemporal;
 use vortex::extension::datetime::TemporalMetadata;
 use vortex::extension::datetime::TimeUnit;
@@ -40,7 +39,6 @@ use crate::convert::TryToDataFusion;
 impl TryToDataFusion<ScalarValue> for Scalar {
     fn try_to_df(&self) -> VortexResult<ScalarValue> {
         Ok(match self.dtype() {
-            DType::FixedSizeBinary(..) => vortex_panic!("FixedSizeBinary is not supported yet"),
             DType::Null => ScalarValue::Null,
             DType::Bool(_) => ScalarValue::Boolean(self.as_bool().value()),
             DType::Primitive(ptype, _) => {
@@ -121,6 +119,15 @@ impl TryToDataFusion<ScalarValue> for Scalar {
                 String::from_utf8_unchecked(Vec::<u8>::from(s.into_inner().into_bytes()))
             })),
             DType::Binary(_) => ScalarValue::Binary(
+                self.as_binary()
+                    .value()
+                    .cloned()
+                    .map(|b| Vec::<u8>::from(b.into_bytes())),
+            ),
+            DType::FixedSizeBinary(byte_width, _) => ScalarValue::FixedSizeBinary(
+                i32::try_from(*byte_width).map_err(|_| {
+                    vortex_err!("fixed_size_binary[{byte_width}] is too wide for DataFusion")
+                })?,
                 self.as_binary()
                     .value()
                     .cloned()
@@ -236,13 +243,23 @@ pub fn scalar_from_df(value: &ScalarValue, session: &VortexSession) -> VortexRes
             .as_ref()
             .map(|s| Scalar::from(s.as_str()))
             .unwrap_or_else(|| Scalar::null(DType::Utf8(Nullability::Nullable))),
-        ScalarValue::Binary(b)
-        | ScalarValue::BinaryView(b)
-        | ScalarValue::LargeBinary(b)
-        | ScalarValue::FixedSizeBinary(_, b) => b
+        ScalarValue::Binary(b) | ScalarValue::BinaryView(b) | ScalarValue::LargeBinary(b) => b
             .as_ref()
             .map(|b| Scalar::binary(ByteBuffer::from(b.clone()), Nullability::Nullable))
             .unwrap_or_else(|| Scalar::null(DType::Binary(Nullability::Nullable))),
+        ScalarValue::FixedSizeBinary(byte_width, b) => {
+            let dtype = DType::FixedSizeBinary(
+                u32::try_from(*byte_width).map_err(|_| {
+                    vortex_err!("FixedSizeBinary width must not be negative, got {byte_width}")
+                })?,
+                Nullability::Nullable,
+            );
+            Scalar::try_new(
+                dtype,
+                b.as_ref()
+                    .map(|b| vortex::scalar::ScalarValue::Binary(ByteBuffer::from(b.clone()))),
+            )?
+        }
         ScalarValue::Date32(v)
         | ScalarValue::Time32Second(v)
         | ScalarValue::Time32Millisecond(v) => {
@@ -848,7 +865,6 @@ mod tests {
     #[case::binary(ScalarValue::Binary(Some(vec![1u8, 2, 3, 4, 5])))]
     #[case::binary_view(ScalarValue::BinaryView(Some(vec![1u8, 2, 3, 4, 5])))]
     #[case::large_binary(ScalarValue::LargeBinary(Some(vec![1u8, 2, 3, 4, 5])))]
-    #[case::fixed_size_binary(ScalarValue::FixedSizeBinary(5, Some(vec![1u8, 2, 3, 4, 5])))]
     fn test_binary_variants(#[case] variant: ScalarValue) {
         let result = from_df(&variant);
         assert_eq!(result.dtype(), &DType::Binary(Nullability::Nullable));
@@ -860,6 +876,19 @@ mod tests {
             .into_bytes()
             .into();
         assert_eq!(result_bytes, vec![1u8, 2, 3, 4, 5]);
+    }
+
+    #[rstest]
+    #[case::value(ScalarValue::FixedSizeBinary(5, Some(vec![1u8, 2, 3, 4, 5])))]
+    #[case::null(ScalarValue::FixedSizeBinary(5, None))]
+    fn test_fixed_size_binary_round_trip(#[case] value: ScalarValue) -> VortexResult<()> {
+        let scalar = from_df(&value);
+        assert_eq!(
+            scalar.dtype(),
+            &DType::FixedSizeBinary(5, Nullability::Nullable)
+        );
+        assert_eq!(scalar.try_to_df()?, value);
+        Ok(())
     }
 
     /// A DataFusion struct whose child field carries Arrow extension metadata: the struct dtype
