@@ -98,13 +98,33 @@ impl CascadingCompressor {
         array: &ArrayRef,
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
+        self.compress_from(array, CompressorContext::new(), exec_ctx)
+    }
+
+    /// Compresses an array nested inside the one being compressed, such as a struct field, a
+    /// list's elements or a validity bitmap, without consulting the policy.
+    pub(super) fn compress_nested(
+        &self,
+        array: &ArrayRef,
+        exec_ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        self.compress_from(array, CompressorContext::nested(), exec_ctx)
+    }
+
+    /// Canonicalizes `array` and compresses it from the root context `compress_ctx`.
+    fn compress_from(
+        &self,
+        array: &ArrayRef,
+        compress_ctx: CompressorContext,
+        exec_ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
         let before_nbytes = exact_uncompressed_size(array, exec_ctx)?;
         let span = trace::compress_span(array.len(), array.dtype(), before_nbytes);
         let _enter = span.enter();
 
         let canonical = array.clone().execute::<CanonicalValidity>(exec_ctx)?.0;
         let compact = canonical.compact(exec_ctx)?;
-        let compressed = self.compress_canonical(compact, CompressorContext::new(), exec_ctx)?;
+        let compressed = self.compress_canonical(compact, compress_ctx, exec_ctx)?;
 
         trace::record_compress_outcome(&span, before_nbytes, compressed.nbytes());
 
@@ -173,7 +193,7 @@ impl CascadingCompressor {
             Canonical::Struct(struct_array) => {
                 let fields = struct_array
                     .iter_unmasked_fields()
-                    .map(|field| self.compress(field, exec_ctx))
+                    .map(|field| self.compress_nested(field, exec_ctx))
                     .collect::<Result<Vec<_>, _>>()?;
 
                 Ok(StructArray::try_new(
@@ -185,10 +205,10 @@ impl CascadingCompressor {
                 .into_array())
             }
             Canonical::Union(union_array) => {
-                let type_ids = self.compress(union_array.type_ids(), exec_ctx)?;
+                let type_ids = self.compress_nested(union_array.type_ids(), exec_ctx)?;
                 let children = union_array
                     .iter_children()
-                    .map(|child| self.compress(child, exec_ctx))
+                    .map(|child| self.compress_nested(child, exec_ctx))
                     .collect::<Result<Vec<_>, _>>()?;
 
                 Ok(
@@ -232,7 +252,7 @@ impl CascadingCompressor {
                     return Ok(compressed);
                 }
 
-                let compressed_elems = self.compress(fsl_array.elements(), exec_ctx)?;
+                let compressed_elems = self.compress_nested(fsl_array.elements(), exec_ctx)?;
 
                 Ok(FixedSizeListArray::try_new(
                     compressed_elems,
@@ -263,7 +283,8 @@ impl CascadingCompressor {
 
                 // Also compress the underlying storage array. Some extension schemes can beat the
                 // extension storage but still lose to ordinary storage compression.
-                let compressed_storage = self.compress(ext_array.storage_array(), exec_ctx)?;
+                let compressed_storage =
+                    self.compress_nested(ext_array.storage_array(), exec_ctx)?;
                 let storage_compressed =
                     ExtensionArray::new(ext_array.ext_dtype().clone(), compressed_storage)
                         .into_array();
@@ -300,7 +321,7 @@ impl CascadingCompressor {
                         if arr.is::<Variant>() {
                             self.compress_physical_slots(arr, exec_ctx)
                         } else {
-                            self.compress(arr, exec_ctx)
+                            self.compress_nested(arr, exec_ctx)
                         }
                     })
                     .transpose()?;
@@ -409,7 +430,11 @@ impl CascadingCompressor {
         let data = ArrayAndStats::new(array, merged_opts);
 
         // Samples are compressed only to estimate, so the policy neither chooses nor observes them.
-        let policy = self.policy.as_deref().filter(|_| !compress_ctx.is_sample());
+        // Nested sites are left to estimation too, so that a plan covers one leaf's cascade.
+        let policy = self
+            .policy
+            .as_deref()
+            .filter(|_| !compress_ctx.is_sample() && !compress_ctx.is_nested());
 
         if eligible_schemes.is_empty() {
             return Ok(observed(
