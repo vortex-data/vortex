@@ -35,8 +35,10 @@ use vortex_error::vortex_err;
 
 use super::CascadingCompressor;
 use super::constant;
+use crate::scheme::CompressionEstimate;
 use crate::scheme::CompressionPolicy;
 use crate::scheme::CompressorContext;
+use crate::scheme::EstimateVerdict;
 use crate::scheme::Scheme;
 use crate::scheme::SchemeExt;
 use crate::scheme::SchemeId;
@@ -571,6 +573,14 @@ impl CascadingCompressor {
             if !ids.is_empty() && !ids.contains(&scheme.id()) {
                 continue;
             }
+            // An immediate `Skip` encodes a precondition of the scheme (such as Sparse needing a
+            // dominant value), so trying it anyway can fail or panic.
+            if matches!(
+                scheme.expected_compression_ratio(&data, compress_ctx.clone(), exec_ctx),
+                CompressionEstimate::Verdict(EstimateVerdict::Skip)
+            ) {
+                continue;
+            }
             let Some(compressed) =
                 self.try_scheme(scheme, &data, compress_ctx, before_nbytes, exec_ctx)
             else {
@@ -612,7 +622,20 @@ impl CascadingCompressor {
         before_nbytes: u64,
         exec_ctx: &mut ExecutionCtx,
     ) -> Option<ArrayRef> {
-        match self.compress_with_scheme(scheme, data, compress_ctx, exec_ctx) {
+        // A policy may try schemes their estimates would have skipped, on data they were never
+        // meant for, so a panicking candidate is dropped like a failing one.
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            self.compress_with_scheme(scheme, data, compress_ctx, exec_ctx)
+        }))
+        .unwrap_or_else(|payload| {
+            let message = payload
+                .downcast_ref::<String>()
+                .map(String::as_str)
+                .or_else(|| payload.downcast_ref::<&str>().copied())
+                .unwrap_or("unknown panic");
+            Err(vortex_err!("scheme {} panicked: {message}", scheme.id()))
+        });
+        match result {
             Ok(compressed) => (compressed.nbytes() < before_nbytes).then_some(compressed),
             Err(err) => {
                 trace::candidate_failed(scheme.id(), &err);

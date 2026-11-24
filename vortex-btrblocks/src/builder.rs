@@ -10,6 +10,8 @@ use vortex_decimal_byte_parts::decimal_byte_parts_v2_id;
 use vortex_fastlanes::bitpacked_v2_id;
 use vortex_fastlanes::for_v2_id;
 use vortex_session::VortexSession;
+use vortex_compressor::scheme::SchemeSelection;
+use vortex_compressor::scheme::SiteRequest;
 use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::BtrBlocksCompressor;
@@ -247,10 +249,9 @@ impl BtrBlocksCompressorBuilder {
     /// exclude and whose produced serialized IDs are all allowed.
     pub fn build(self) -> BtrBlocksCompressor {
         let compressor = CascadingCompressor::new(self.allowed_schemes());
-        BtrBlocksCompressor(match self.policy {
-            Some(policy) => compressor.with_policy(policy),
-            None => compressor,
-        })
+        // Benchmark experiment: without an explicit policy, compress with the size oracle.
+        let policy = self.policy.unwrap_or_else(|| Arc::new(SizeOracle));
+        BtrBlocksCompressor(compressor.with_policy(policy))
     }
 
     fn allowed_schemes(&self) -> Vec<&'static dyn Scheme> {
@@ -381,5 +382,17 @@ mod tests {
         let has = |id: SchemeId| cuda.allowed_schemes().iter().any(|s| s.id() == id);
         assert!(has(string::StringDictScheme.id()));
         assert!(!has(binary::BinaryDictScheme.id()));
+    }
+}
+
+/// Experimental: compresses every site with every eligible scheme in full, children included,
+/// and keeps the smallest output. Because sizes add up across a cascade, this finds the smallest
+/// encoding the cascade rules allow.
+#[derive(Debug)]
+pub struct SizeOracle;
+
+impl CompressionPolicy for SizeOracle {
+    fn select_scheme(&self, _request: &SiteRequest<'_>) -> SchemeSelection {
+        SchemeSelection::Best(Vec::new())
     }
 }
