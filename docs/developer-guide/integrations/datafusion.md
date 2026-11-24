@@ -85,7 +85,8 @@ efficiently is pushed into the per-file scan for row-level filtering.
 A pushed float predicate keeps the rows that DataFusion keeps, with one exception. DataFusion
 looks up an `IN` list of floats by the bits of each value, so `-0.0` is not in a list that holds
 `+0.0`. In a pushed `IN` list, as in a comparison, `-0.0` and `+0.0` are equal. So
-`x IN (0.0, 1.0)` also keeps the rows where `x` is `-0.0`.
+`x IN (0.0, 1.0)` also keeps the rows where `x` is `-0.0`, and `x NOT IN (0.0, 1.0)` drops them.
+DataFusion keeps those rows for the `NOT IN`, and it cannot get them back after the scan.
 
 Fully supported projections are evaluated in the scan. If any expression is unsupported, the
 complete projection runs in DataFusion over the required raw columns.

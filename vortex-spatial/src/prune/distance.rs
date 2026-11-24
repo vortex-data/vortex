@@ -9,6 +9,7 @@ use vortex_array::scalar_fn::ScalarFnVTable;
 use vortex_array::scalar_fn::builtin::compare::Compare;
 use vortex_array::scalar_fn::builtin::literal::Literal;
 use vortex_array::scalar_fn::builtin::operators::CompareOperator;
+use vortex_array::scalar_fn::builtin::operators::FloatOrder;
 use vortex_error::VortexResult;
 use vortex_expr::BoundExpression;
 use vortex_expr::stats::rewrite::StatsRewriteRule;
@@ -50,7 +51,15 @@ impl StatsRewriteRule for SpatialDistancePrune {
         // not implemented. `!= r` cannot: pruning would need every row's distance to equal `r`,
         // which an AABB can't prove.
         let options = expr.as_::<Compare>();
-        if !options.compare_mode().is_default() {
+
+        // The proof needs an order in which `-0.0 = +0.0`. For a radius that is not `NaN`, these
+        // orders differ only for a `NaN` distance, and a bounding box gives no bound for such a
+        // row in any of them. A total-order comparison separates the zeros, and an order that
+        // this version does not know has no proof.
+        if !matches!(
+            options.compare_mode().float_order(),
+            FloatOrder::ZerosEqual | FloatOrder::Canonical | FloatOrder::Ieee754
+        ) {
             return Ok(None);
         }
 
@@ -138,7 +147,10 @@ mod tests {
     use vortex_array::scalar::Scalar;
     use vortex_array::scalar_fn::EmptyOptions;
     use vortex_array::scalar_fn::builtin::compare::Compare;
+    use vortex_array::scalar_fn::builtin::compare::CompareOptions;
+    use vortex_array::scalar_fn::builtin::operators::CompareMode;
     use vortex_array::scalar_fn::builtin::operators::CompareOperator;
+    use vortex_array::scalar_fn::builtin::operators::FloatOrder;
     use vortex_error::VortexResult;
     use vortex_expr::BoundExpression;
     use vortex_expr::ScalarFnExprExt;
@@ -164,6 +176,15 @@ mod tests {
         geom_first: bool,
         radius: impl Into<Scalar>,
     ) -> VortexResult<Option<BoundExpression>> {
+        falsify_distance_in(operator.into(), geom_first, radius)
+    }
+
+    /// As [`falsify_distance`], with the full options of the comparison.
+    fn falsify_distance_in(
+        options: CompareOptions,
+        geom_first: bool,
+        radius: impl Into<Scalar>,
+    ) -> VortexResult<Option<BoundExpression>> {
         let session = spatial_session();
         let mut ctx = session.create_execution_ctx();
 
@@ -176,10 +197,38 @@ mod tests {
         };
         let distance = SpatialDistance.new_expr(EmptyOptions, operands);
         let predicate = Compare
-            .new_expr(operator.into(), [distance, lit(radius.into())])
+            .new_expr(options, [distance, lit(radius.into())])
             .bind(&scope)?;
 
         SpatialDistancePrune.falsify(&predicate, &session)
+    }
+
+    /// Each order in which the zeros are equal prunes, so a filter from DuckDB or Spark prunes as
+    /// a default comparison does. A total-order comparison does not prune.
+    #[rstest]
+    #[case::zeros_equal(FloatOrder::ZerosEqual, true)]
+    #[case::canonical(FloatOrder::Canonical, true)]
+    #[case::ieee754(FloatOrder::Ieee754, true)]
+    #[case::total_order(FloatOrder::TotalOrder, false)]
+    fn prunes_in_orders_with_equal_zeros(
+        #[case] float_order: FloatOrder,
+        #[case] prunes: bool,
+    ) -> VortexResult<()> {
+        let mode = CompareMode::new().with_float_order(float_order);
+        let options = CompareOptions::new(CompareOperator::Lte, mode);
+
+        let Some(proof) = falsify_distance_in(options, true, 0.5)? else {
+            assert!(!prunes);
+            return Ok(());
+        };
+        assert!(prunes);
+
+        let dtype = point_column(vec![0.0], vec![0.0])?.dtype().clone();
+        let zones = aabb_zone_map(&dtype, &[[0.0, 0.0, 0.0, 0.0], [1.0, 0.0, 1.0, 0.0]])?;
+        let mask = zones.prune(&proof, &spatial_session())?;
+
+        assert_eq!(mask.iter().collect::<Vec<_>>(), [false, true]);
+        Ok(())
     }
 
     /// A null geometry literal (`ST_Distance(geom, NULL) <= r`) declines cleanly instead of

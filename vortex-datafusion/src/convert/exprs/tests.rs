@@ -608,7 +608,8 @@ fn test_native_in_list_float(
     )])?;
     assert_in_list_matches(
         Arc::new(df_expr::Column::new("a", 0)),
-        // A list that holds a float zero stays in DataFusion.
+        // The list has no zero: a pushed list makes `-0.0` equal to `+0.0`, but DataFusion
+        // looks up the bits, so the two results would differ.
         vec![
             Arc::new(df_expr::Literal::new(scalar(Some(f64::INFINITY))?)),
             Arc::new(df_expr::Literal::new(scalar(Some(f64::NAN))?)),
