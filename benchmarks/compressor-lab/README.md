@@ -21,32 +21,50 @@ TPC-H SF1 and synthetic grids, with integers only and default encodings only.
 
    | Stage | Output |
    |---|---|
-   | `chunk` | The canonical chunk, as a blob. |
-   | `features` | Keyed by `FEATURES_VERSION`. |
-   | `candidates` | Every candidate's encoding as a blob, plus its size and tree. Keyed by the candidate set and `CANDIDATES_VERSION`. |
+   | `chunk` | Where the chunk came from, the hash of its logical contents and, for `copy` sources, the chunk itself. |
+   | `features` | One row per feature value, keyed by `FEATURES_VERSION`. |
+   | `candidates` | Per candidate: its recorded plan, the hash of the bytes it produced, size, tree, and whether it decoded back to the chunk. No encoded bytes are kept. Keyed by the candidate set and `CANDIDATES_VERSION`. |
 
-   - Facts are upserted by key, and a done marker in `ledger/` makes re-runs skip them.
-   - `--shard i/n` splits work across processes or machines. A chunk's tasks always share a
-     shard, so no shard waits on another.
+   - Rows are buffered and flushed as Parquet segments, then a ledger segment naming the tasks
+     they hold. Re-runs skip tasks the ledger lists.
+   - `--shard i/n` splits work across processes or machines, all writing to one store at once.
+     A chunk's tasks always share a shard, so no shard waits on another.
    - `--verify` re-runs done tasks and reports any output that changed (nondeterminism).
-3. **Observations.** `vx-lab run --stages time` times every candidate: compression (and checks
-   that re-compressing reproduces the stored encoding byte for byte) and decode. Each run
-   *appends* a file per task under `obs/time/machine=<id>/`. Repeated runs add samples, and
-   machines with a different CPU or architecture get a different `machine_id` and stay separate.
-   The time stage reads only blobs, so a store can be copied to a quiet machine without the
-   source data.
+3. **Timings.** `vx-lab run --stages time`, on any machine, rebuilds each encoding by compressing
+   again (the compression it times), checks the rebuilt bytes against the recorded hash, and
+   times decode once per distinct encoding. Each run appends a segment under
+   `timings/machine=<id>/`, tagged with a `build_id` (commit, profile and compiled-in CPU
+   features), so any number of machines time one store and never mix.
 4. **Materialize.** `vx-lab materialize` joins one plan's facts with one machine's pooled
    timings into `rows-*.csv`, `features-*.csv` and `dataset.json`. That's the layout
    `benchmarks/compressor-feasibility/train.py` reads to fit and export models.
 
+`--store` is a local directory or a URL: `s3://bucket/prefix`, `gs://`, `az://`, `hf://` or
+`file://`, with credentials from the usual environment variables. Every key is
+content-addressed or carries a writer-unique segment id, so writers never coordinate; readers
+keep one row per task key.
+
 ```text
 store/
-  ledger/<kk>/<task key>.json           done markers (written last)
-  facts/<kind>/<kk>/<task key>.json     fact outputs; rewriting = upsert
-  blobs/<hh>/<sha256>                   content-addressed arrays (chunks and encodings)
-  obs/time/machine=<id>/<task key>/<run id>.json
+  plans/<plan id>/{plan.json,tasks.jsonl,RETIRED}
+  chunks/<hh>/<sha256>                        chunks of `copy` sources only
+  facts/{chunks,features,encodings}/v=<version>/<segment>.parquet
+  ledger/kind=<kind>/<segment>.parquet        written after the facts it commits
+  timings/machine=<id>/<segment>.parquet      one row per sample
   machines/<id>.json
+  workers/<id>.json                           heartbeats
 ```
+
+Each source chooses how its rows are held: TPC-H and synthetic sources are regenerated
+(`generate`), and a Parquet source sets `chunks = "copy"` (the default) or `chunks =
+"reference"` (only the file's fingerprint and row range are kept; the rows are re-read and
+checked). A source that no longer matches its hash fails the task instead of measuring other
+data.
+
+`vx-lab store pull` caches a shard's stored chunks locally before timing. `vx-lab store compact`
+merges small segments and is safe while workers run. `vx-lab store gc [--delete]` removes stored
+chunks no live plan uses (`vx-lab store retire --plan-id` retires one) and orphan segments; it
+refuses while a worker heartbeat is under 15 minutes old.
 
 `vx-lab plan show --store` reports progress per stage and timing runs per machine.
 `vx-lab plan tasks --kind candidates --shard 3/16 --pending --store` lists work to hand out.
@@ -118,15 +136,12 @@ No source is worse by more than 0.9% under these policies.
   commit means a new plan; the old store data stays valid for the old plan. To reuse timings
   across commits, add an explicit policy at materialize time (for example, reuse when an
   encoding's hash is unchanged), never by changing keys.
-- **Machines.** Time on quiet, dedicated machines: copy the store there, run
-  `--stages time` one or more times, copy `obs/` back. Materialize with `--machine <id>` per
+- **Machines.** Time on quiet, dedicated machines pointed at the same store: run
+  `store pull`, then `--stages time` one or more times. Materialize with `--machine <id>` per
   machine, and train per machine or architecture.
-- **Storage.** The `int-v1` run (1,582 chunks, 11 candidates) uses about 1.1 GB, mostly blobs.
-  Blobs are shared across plans by content hash. Garbage collection (keep the blobs referenced
-  by the plans you keep) isn't implemented yet.
-- **Scale.** Facts are JSON files, one per task: fine to around 10⁵ chunks on a local
-  filesystem. Beyond that, move facts to Parquet partitions and the store to object storage.
-  The layout is already path-per-key, so that is a storage swap, not a redesign.
+- **Storage.** TPC-H SF1 (167 integer chunks, 11 candidates, two timing runs) is under 1 MB,
+  since generated chunks and encodings are not stored. Copied sources cost about their
+  default-compressed size.
 
 ---
 

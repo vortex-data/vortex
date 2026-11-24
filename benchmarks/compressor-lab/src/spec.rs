@@ -257,6 +257,39 @@ pub enum MeasureOp {
     Take,
 }
 
+/// How the store holds a source's chunks.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ChunkMode {
+    /// Nothing is stored: the rows are regenerated from the generator's parameters.
+    Generate,
+    /// Only the pinned source and row range are stored; rows are re-read from the source.
+    Reference,
+    /// The chunk itself is stored.
+    Copy,
+}
+
+impl ChunkMode {
+    /// The name stored in the chunks table.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Generate => "generate",
+            Self::Reference => "reference",
+            Self::Copy => "copy",
+        }
+    }
+}
+
+impl SourceSpec {
+    /// How the store holds this source's chunks.
+    pub fn chunk_mode(&self) -> ChunkMode {
+        match self {
+            Self::Parquet { chunks, .. } => chunks.unwrap_or(ChunkMode::Copy),
+            Self::Tpch { .. } | Self::Synthetic { .. } => ChunkMode::Generate,
+        }
+    }
+}
+
 /// A source of chunks.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -273,6 +306,10 @@ pub enum SourceSpec {
         /// Column name glob patterns to exclude.
         #[serde(default)]
         exclude_columns: Vec<String>,
+        /// Whether the store keeps a copy of each chunk (`copy`, the default) or only a pinned
+        /// reference to the file (`reference`).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        chunks: Option<ChunkMode>,
     },
     /// TPC-H tables generated in-process, deterministic for a scale factor.
     Tpch {

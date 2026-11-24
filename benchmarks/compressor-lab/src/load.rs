@@ -69,11 +69,7 @@ pub fn arrow(input: &ChunkInput, data_root: &Path) -> anyhow::Result<ArrowArrayR
             let batches = crate::tpch::table(table, *scale_factor)?;
             let first = batches.first().context("empty TPC-H table")?;
             let index = first.schema().index_of(column)?;
-            let all = concat_column(&batches, index)?;
-            Ok(all.slice(
-                usize::try_from(*row_start)?,
-                usize::try_from(row_end - row_start)?,
-            ))
+            slice_column(&batches, index, *row_start, *row_end)
         }
         ChunkInput::Synthetic {
             generator,
@@ -84,6 +80,40 @@ pub fn arrow(input: &ChunkInput, data_root: &Path) -> anyhow::Result<ArrowArrayR
             ..
         } => crate::synthetic::generate(generator, *ptype, params, *seed, *rows),
     }
+}
+
+/// Rows `[start, end)` of column `index`, copying only the batches that overlap the range.
+fn slice_column(
+    batches: &[RecordBatch],
+    index: usize,
+    start: u64,
+    end: u64,
+) -> anyhow::Result<ArrowArrayRef> {
+    let mut parts = Vec::new();
+    let mut offset = 0u64;
+    for batch in batches {
+        let rows = batch.num_rows() as u64;
+        let (lo, hi) = (start.max(offset), end.min(offset + rows));
+        if lo < hi {
+            parts.push(
+                batch
+                    .column(index)
+                    .slice(usize::try_from(lo - offset)?, usize::try_from(hi - lo)?),
+            );
+        }
+        offset += rows;
+        if offset >= end {
+            break;
+        }
+    }
+    let arrays: Vec<&dyn arrow_array::Array> = parts.iter().map(|a| a.as_ref()).collect();
+    if arrays.is_empty() {
+        bail!("rows [{start}, {end}) are past the end of the table ({offset} rows)");
+    }
+    if arrays.len() == 1 {
+        return Ok(std::sync::Arc::clone(&parts[0]));
+    }
+    Ok(arrow_select::concat::concat(&arrays)?)
 }
 
 fn concat_column(batches: &[RecordBatch], index: usize) -> anyhow::Result<ArrowArrayRef> {

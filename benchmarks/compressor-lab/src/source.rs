@@ -218,6 +218,7 @@ pub(crate) fn resolve_source(
             path,
             columns,
             exclude_columns,
+            ..
         } => resolve_parquet(
             name,
             path,

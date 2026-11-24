@@ -8,6 +8,8 @@
 //! chunk), plus `dataset.json` recording exactly what went in. Timings are pooled over every run
 //! on one machine; other machines are never mixed in.
 
+use std::collections::BTreeMap;
+use std::collections::BTreeSet;
 use std::fs;
 use std::fs::File;
 use std::io::BufWriter;
@@ -17,14 +19,17 @@ use std::path::Path;
 use anyhow::Context;
 use serde::Serialize;
 
+use crate::chunks::CHUNKS_VERSION;
+use crate::plan::CANDIDATES_VERSION;
+use crate::plan::FEATURES_VERSION;
 use crate::plan::PlannedRun;
 use crate::plan::TaskInput;
 use crate::plan::TaskKind;
-use crate::runner::CandidatesFact;
-use crate::runner::ChunkFact;
-use crate::runner::FeaturesFact;
-use crate::runner::TimeObservation;
 use crate::store::Store;
+use crate::table::ChunkRow;
+use crate::table::EncodingRow;
+use crate::table::FeatureRow;
+use crate::table::TimingRow;
 
 /// What a materialized dataset contains.
 #[derive(Debug, Serialize)]
@@ -79,7 +84,7 @@ pub fn materialize(
     let machine = match machine {
         Some(m) => Some(m.to_string()),
         None => {
-            let machines = store.machines("time");
+            let machines = store.timing_machines()?;
             if machines.len() > 1 {
                 anyhow::bail!(
                     "timings exist for several machines ({}); pass --machine to pick one, since \
@@ -91,10 +96,54 @@ pub fn materialize(
         }
     };
 
+    let chunks: BTreeMap<String, ChunkRow> = store
+        .read_table::<ChunkRow>(CHUNKS_VERSION)?
+        .into_iter()
+        .map(|r| (r.task_key.clone(), r))
+        .collect();
+    let mut features: BTreeMap<String, BTreeMap<String, Option<f64>>> = BTreeMap::new();
+    for row in store.read_table::<FeatureRow>(FEATURES_VERSION)? {
+        if row.site == "root" && row.window.is_none() {
+            features
+                .entry(row.task_key)
+                .or_default()
+                .insert(row.feature, row.value);
+        }
+    }
+    let mut encodings: BTreeMap<String, Vec<EncodingRow>> = BTreeMap::new();
+    for row in store.read_table::<EncodingRow>(CANDIDATES_VERSION)? {
+        encodings.entry(row.task_key.clone()).or_default().push(row);
+    }
+    // Compression samples by (candidates task, candidate); decode samples by (chunk, encoding).
+    let mut compress: BTreeMap<(String, String), Vec<u64>> = BTreeMap::new();
+    let mut decode: BTreeMap<(String, String), Vec<u64>> = BTreeMap::new();
+    let mut runs: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+    if let Some(m) = &machine {
+        for row in store.read_rows::<TimingRow>(&crate::store::timings_dir(m))? {
+            if !row.replay_matched {
+                continue;
+            }
+            runs.entry(row.task_key.clone())
+                .or_default()
+                .insert(row.run_id.clone());
+            match (row.op.as_str(), row.candidate) {
+                ("compress", Some(candidate)) => compress
+                    .entry((row.task_key, candidate))
+                    .or_default()
+                    .push(row.ns),
+                ("decode", _) => decode
+                    .entry((row.chunk_key, row.encoded_hash))
+                    .or_default()
+                    .push(row.ns),
+                _ => {}
+            }
+        }
+    }
+
     let mut rows = BufWriter::new(File::create(out.join(format!("rows-{tag}.csv")))?);
     writeln!(
         rows,
-        "tag,source,column,chunk,ptype,len,variant,ok,canonical_bytes,bytes,nbytes,root,tree,compress_ns,decode_ns_median,decode_ns_min,error"
+        "tag,source,column,chunk,ptype,len,variant,ok,canonical_bytes,bytes,nbytes,root,tree,compress_ns,decode_ns_median,decode_ns_min,error,plan"
     )?;
     let mut feats = BufWriter::new(File::create(out.join(format!("features-{tag}.csv")))?);
     writeln!(feats, "source,column,chunk,{}", crate::features::header())?;
@@ -103,15 +152,14 @@ pub fn materialize(
         plan_id: plan.plan.plan_id.clone(),
         git_commit: plan.plan.identity.git_commit.clone(),
         vx_version: plan.plan.identity.vx_version.clone(),
-        machine_id: machine.clone(),
+        machine_id: machine,
         chunks: 0,
         incomplete: 0,
         timed_chunks: 0,
         max_runs: 0,
     };
 
-    // Each candidates task names its chunk; the matching features task shares the chunk key.
-    let features_by_chunk: std::collections::BTreeMap<_, _> = plan
+    let features_by_chunk: BTreeMap<_, _> = plan
         .tasks
         .iter()
         .filter_map(|t| match &t.input {
@@ -124,79 +172,81 @@ pub fn materialize(
         let TaskInput::Candidates { chunk, .. } = &task.input else {
             continue;
         };
-        let Some(features_key) = features_by_chunk.get(chunk) else {
-            continue;
-        };
-        if !(store.is_done(chunk) && store.is_done(features_key) && store.is_done(&task.key)) {
+        let feature_values = features_by_chunk
+            .get(chunk)
+            .and_then(|k| features.get(k.as_str()));
+        let (Some(chunk_row), Some(feature_values), Some(candidates)) = (
+            chunks.get(chunk.as_str()),
+            feature_values,
+            encodings.get(task.key.as_str()),
+        ) else {
             manifest.incomplete += 1;
             continue;
-        }
-        let chunk_fact: ChunkFact = store.fact(TaskKind::Chunk, chunk)?;
-        let features: FeaturesFact = store.fact(TaskKind::Features, features_key)?;
-        let candidates: CandidatesFact = store.fact(TaskKind::Candidates, &task.key)?;
-        let observations: Vec<TimeObservation> = match &machine {
-            Some(m) => store.observations("time", m, &task.key)?,
-            None => Vec::new(),
         };
         manifest.chunks += 1;
-        if !observations.is_empty() {
+        let run_count = runs.get(task.key.as_str()).map_or(0, |r| r.len() as u64);
+        if run_count > 0 {
             manifest.timed_chunks += 1;
         }
-        manifest.max_runs = manifest.max_runs.max(observations.len() as u64);
+        manifest.max_runs = manifest.max_runs.max(run_count);
 
-        let source = csv(chunk_fact.input.source());
-        let column = csv(chunk_fact.input.column());
+        let source = csv(&chunk_row.source);
+        let column = csv(&chunk_row.column);
         let id = chunk.as_str();
         writeln!(
             feats,
             "{source},{column},{id},{}",
-            features
-                .values
+            crate::features::NAMES
                 .iter()
-                .map(|v| v.map(|v| v.to_string()).unwrap_or_default())
+                .map(|n| feature_values
+                    .get(*n)
+                    .copied()
+                    .flatten()
+                    .map(|v| v.to_string())
+                    .unwrap_or_default())
                 .collect::<Vec<_>>()
                 .join(",")
         )?;
 
-        let canonical = chunk_fact.blob.bytes;
-        let len = chunk_fact.blob.len;
-        let ptype = &chunk_fact.blob.ptype;
-        for result in &candidates.results {
+        let canonical = chunk_row.canonical_bytes;
+        let len = chunk_row.len;
+        let ptype = &chunk_row.ptype;
+        let show = |v: Option<u64>| v.map(|v| v.to_string()).unwrap_or_default();
+        for result in candidates {
             let prefix = format!(
                 "{tag},{source},{column},{id},{ptype},{len},{}",
-                variant(&result.name)
+                variant(&result.candidate)
             );
-            match &result.blob {
-                Some(blob) => {
-                    let mut compress: Vec<u64> = observations
-                        .iter()
-                        .flat_map(|o| o.timings.iter().filter(|t| t.name == result.name))
-                        .flat_map(|t| t.compress_ns.iter().copied())
-                        .collect();
-                    let mut decode: Vec<u64> = observations
-                        .iter()
-                        .flat_map(|o| o.timings.iter().filter(|t| t.name == result.name))
-                        .flat_map(|t| t.decode_ns.iter().copied())
-                        .collect();
-                    let decode_min = decode.iter().copied().min();
-                    let show = |v: Option<u64>| v.map(|v| v.to_string()).unwrap_or_default();
-                    writeln!(
-                        rows,
-                        "{prefix},1,{canonical},{},{},{},{},{},{},{},",
-                        blob.bytes,
-                        show(result.nbytes),
-                        csv(result.root.as_deref().unwrap_or_default()),
-                        csv(result.tree.as_deref().unwrap_or_default()),
-                        show(median(&mut compress)),
-                        show(median(&mut decode)),
-                        show(decode_min),
-                    )?;
-                }
-                None => writeln!(
+            if result.ok {
+                let mut compress = compress
+                    .get(&(task.key.to_string(), result.candidate.clone()))
+                    .cloned()
+                    .unwrap_or_default();
+                let mut decode = result
+                    .encoded_hash
+                    .as_ref()
+                    .and_then(|h| decode.get(&(chunk.to_string(), h.clone())))
+                    .cloned()
+                    .unwrap_or_default();
+                let decode_min = decode.iter().copied().min();
+                writeln!(
                     rows,
-                    "{prefix},0,{canonical},,,,,,,,{}",
+                    "{prefix},1,{canonical},{},{},{},{},{},{},{},,{}",
+                    show(result.bytes),
+                    show(result.nbytes),
+                    csv(result.root.as_deref().unwrap_or_default()),
+                    csv(result.tree.as_deref().unwrap_or_default()),
+                    show(median(&mut compress)),
+                    show(median(&mut decode)),
+                    show(decode_min),
+                    csv(result.plan.as_deref().unwrap_or_default()),
+                )?;
+            } else {
+                writeln!(
+                    rows,
+                    "{prefix},0,{canonical},,,,,,,,{},",
                     csv(result.error.as_deref().unwrap_or_default())
-                )?,
+                )?;
             }
         }
     }
@@ -205,6 +255,7 @@ pub fn materialize(
     fs::write(
         out.join("dataset.json"),
         serde_json::to_vec_pretty(&manifest)?,
-    )?;
+    )
+    .context("writing dataset.json")?;
     Ok(manifest)
 }

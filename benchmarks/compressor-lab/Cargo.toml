@@ -16,10 +16,14 @@ publish = false
 [dependencies]
 anyhow = { workspace = true }
 arrow-array = { workspace = true }
+arrow-json = { workspace = true }
 arrow-schema = { workspace = true }
 arrow-select = { workspace = true }
+bytes = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
+futures = { workspace = true }
 glob = { workspace = true }
+object_store = { workspace = true, features = ["fs"] }
 parking_lot = { workspace = true }
 parquet = { workspace = true }
 rand = { workspace = true }
@@ -27,12 +31,15 @@ serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 sha2 = { workspace = true }
 toml = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread"] }
 tpchgen = { workspace = true }
 tpchgen-arrow = { workspace = true }
+url = { workspace = true }
 vortex = { workspace = true }
 vortex-array = { workspace = true }
 vortex-arrow = { workspace = true }
 vortex-btrblocks = { workspace = true, features = ["pco"] }
+vortex-cloud = { workspace = true, features = ["registry", "hf"] }
 vortex-compressor = { workspace = true }
 vortex-error = { workspace = true }
 vortex-session = { workspace = true }

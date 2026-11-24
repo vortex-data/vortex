@@ -8,10 +8,11 @@
 //! inputs plus the code identity (Vortex version and git commit). The same spec, data and commit
 //! always produce byte-identical plan files.
 //!
-//! Tasks run against a [`Store`](store::Store). Fact tasks (chunks, features, candidate
-//! encodings) are upserted by key and skipped once done, so runs resume, split into
-//! [`Shard`](shard::Shard)s and spread over machines. Timing observations are appended per
-//! machine and run, so repeated runs add samples and other architectures stay separate.
+//! Tasks run against a [`Store`](store::Store) on local disk or any object store. Fact tasks
+//! (chunks, features, candidate encodings) write Parquet segments plus a ledger and are skipped
+//! once done, so runs resume, split into [`Shard`](shard::Shard)s and spread over machines that
+//! all write to one store. No encoded arrays are kept: the time stage rebuilds them from the
+//! chunk, on any machine, and appends samples to that machine's partition.
 //! [`materialize`](materialize::materialize) turns a store into training tables.
 
 // Measurement code converts between counts, nanoseconds and floats on purpose; every value it
@@ -20,8 +21,10 @@
 
 pub mod blob;
 pub mod candidates;
+pub mod chunks;
 pub mod eval;
 pub mod features;
+pub mod gc;
 pub mod identity;
 pub mod key;
 pub mod load;
@@ -30,11 +33,13 @@ pub mod materialize;
 pub mod model;
 pub mod plan;
 pub mod runner;
+pub mod segment;
 pub mod shard;
 pub mod source;
 pub mod spec;
 pub mod store;
 pub mod synthetic;
+pub mod table;
 pub mod tpch;
 pub mod wrap;
 

@@ -3,14 +3,19 @@
 
 //! Executing a plan's tasks against a store.
 //!
-//! Fact tasks (`chunk`, `features`, `candidates`) are skipped when their done marker exists, so a
-//! run can be interrupted and resumed, split across shards, and spread over machines. With
-//! `verify`, done tasks are re-run and their output compared, which detects nondeterminism.
+//! Fact tasks (`chunk`, `features`, `candidates`) are skipped when the ledger lists them, so a
+//! run can be interrupted and resumed, split across shards, and spread over machines that all
+//! write to one store. With `verify`, done tasks are re-run and their output compared, which
+//! detects nondeterminism.
 //!
-//! The `time` stage writes observations: each run appends new samples for its machine, so timings
-//! accumulate across runs and stay separate per machine.
+//! The candidates stage keeps no encoded bytes: it records each candidate's plan and the hash of
+//! the bytes it produced. The `time` stage, on any machine, rebuilds each encoding by compressing
+//! again (which is the compression it times), checks the hash, then times decoding. Samples go to
+//! that machine's own partition, tagged with its build, so any number of machines can time one
+//! store.
 
 use std::collections::BTreeMap;
+use std::collections::BTreeSet;
 use std::hint::black_box;
 use std::panic::AssertUnwindSafe;
 use std::path::PathBuf;
@@ -20,100 +25,36 @@ use std::time::UNIX_EPOCH;
 
 use anyhow::Context;
 use anyhow::bail;
-use serde::Deserialize;
-use serde::Serialize;
 use vortex::VortexSessionDefault;
 use vortex::session::VortexSession;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
-use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_btrblocks::BtrBlocksCompressor;
 
 use crate::blob;
-use crate::blob::BlobRef;
+use crate::chunks::CHUNKS_VERSION;
+use crate::chunks::ChunkLoader;
 use crate::features;
-use crate::key::TaskKey;
 use crate::machine::MachineInfo;
+use crate::plan::CANDIDATES_VERSION;
 use crate::plan::PlannedRun;
 use crate::plan::Task;
 use crate::plan::TaskInput;
 use crate::plan::TaskKind;
+use crate::segment::SegmentWriter;
+use crate::segment::TimingWriter;
 use crate::shard::Shard;
-use crate::source::ChunkInput;
+use crate::spec::ChunkMode;
 use crate::store::Store;
-
-/// A chunk task's output.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ChunkFact {
-    /// Where the rows came from.
-    pub input: ChunkInput,
-    /// The canonical chunk.
-    pub blob: BlobRef,
-}
-
-/// A features task's output.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct FeaturesFact {
-    /// The feature version.
-    pub version: u32,
-    /// Feature names, in order.
-    pub names: Vec<String>,
-    /// Feature values; `None` where undefined (e.g. all-null chunks).
-    pub values: Vec<Option<f64>>,
-}
-
-/// One candidate's result on one chunk.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct CandidateResult {
-    /// The candidate name.
-    pub name: String,
-    /// The error, if the candidate failed (e.g. a forced scheme that cannot encode the chunk).
-    pub error: Option<String>,
-    /// The encoding.
-    pub blob: Option<BlobRef>,
-    /// In-memory buffer bytes of the encoding.
-    pub nbytes: Option<u64>,
-    /// The root encoding id.
-    pub root: Option<String>,
-    /// The encoding tree.
-    pub tree: Option<String>,
-}
-
-/// A candidates task's output.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct CandidatesFact {
-    /// One result per candidate, in plan order.
-    pub results: Vec<CandidateResult>,
-}
-
-/// One candidate's timings in one run.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CandidateTiming {
-    /// The candidate name.
-    pub name: String,
-    /// Compression times, ns.
-    pub compress_ns: Vec<u64>,
-    /// Decode-to-canonical times, ns.
-    pub decode_ns: Vec<u64>,
-    /// Whether re-compressing reproduced the stored encoding byte for byte.
-    pub deterministic: bool,
-}
-
-/// A time observation: one run of one candidates task on one machine.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TimeObservation {
-    /// The run id.
-    pub run_id: String,
-    /// The machine.
-    pub machine_id: String,
-    /// The code the timings were taken with.
-    pub git_commit: String,
-    /// Per-candidate timings.
-    pub timings: Vec<CandidateTiming>,
-}
+use crate::table::ChunkRow;
+use crate::table::EncodingRow;
+use crate::table::FeatureRow;
+use crate::table::LedgerRow;
+use crate::table::Table;
+use crate::table::TimingRow;
 
 /// What to run.
 #[derive(Debug, Clone)]
@@ -126,6 +67,8 @@ pub struct RunOptions {
     pub verify: bool,
     /// Where Parquet paths in the plan are resolved from.
     pub data_root: PathBuf,
+    /// Where stored chunks of a remote store are cached.
+    pub cache: Option<PathBuf>,
     /// Timing repetitions (from the plan's measurement settings).
     pub decode_reps: u32,
     /// Compression timing repetitions.
@@ -151,10 +94,24 @@ pub struct Runner<'a> {
     store: &'a Store,
     session: VortexSession,
     candidates: BTreeMap<String, BtrBlocksCompressor>,
+    modes: BTreeMap<String, ChunkMode>,
+    worker_id: String,
+}
+
+/// The cost tier of each base feature: 0 free context, 1 compressor stats, 2 distinct counts,
+/// 3 an extra pass.
+fn tier(name: &str) -> u8 {
+    match name {
+        "ptype_bits" | "signed" | "len" => 0,
+        "null_frac" | "bits_bp" | "bits_for" | "bits_zz" | "for_gain" | "avg_run" => 1,
+        "distinct" | "distinct_frac" | "top1_frac" | "top10_cover" => 2,
+        _ => 3,
+    }
 }
 
 impl<'a> Runner<'a> {
-    /// Prepares a runner. The plan's candidates are built once.
+    /// Prepares a runner. The plan's candidates are built once, and the plan's header is recorded
+    /// in the store so GC knows the plan is live.
     pub fn new(plan: &'a PlannedRun, store: &'a Store) -> anyhow::Result<Self> {
         let session = VortexSession::default();
         if crate::wrap::SESSION.get().is_none()
@@ -163,11 +120,25 @@ impl<'a> Runner<'a> {
             bail!("session already set");
         }
         let candidates = crate::candidates::build(&session, &plan.plan.candidates)?;
+        let modes = plan
+            .plan
+            .spec
+            .sources
+            .iter()
+            .map(|s| (s.name().to_string(), s.chunk_mode()))
+            .collect();
+        store.put_create(
+            &format!("plans/{}/plan.json", plan.plan.plan_id),
+            serde_json::to_vec_pretty(&plan.plan)?,
+        )?;
+        crate::gc::record_tasks(store, &plan.plan.plan_id, &plan.tasks)?;
         Ok(Self {
             plan,
             store,
             session,
             candidates,
+            modes,
+            worker_id: crate::segment::new_worker_id(),
         })
     }
 
@@ -182,57 +153,64 @@ impl<'a> Runner<'a> {
     pub fn run(&self, options: &RunOptions) -> anyhow::Result<BTreeMap<String, StageReport>> {
         let mut reports = BTreeMap::new();
         for stage in &options.stages {
+            let start = Instant::now();
             let report = match stage.as_str() {
-                "chunk" => self.run_facts(TaskKind::Chunk, options)?,
-                "features" => self.run_facts(TaskKind::Features, options)?,
-                "candidates" => self.run_facts(TaskKind::Candidates, options)?,
+                "chunk" => self.run_chunks(options)?,
+                "features" => self.run_features(options)?,
+                "candidates" => self.run_candidates(options)?,
                 "time" => self.run_time(options)?,
                 other => {
                     bail!("unknown stage `{other}`; stages are chunk, features, candidates, time")
                 }
             };
             eprintln!(
-                "{stage}: ran {}, already done {}, blocked {}, mismatched {}",
-                report.ran, report.skipped, report.blocked, report.mismatched
+                "{stage}: ran {}, already done {}, blocked {}, mismatched {} in {:.1}s",
+                report.ran,
+                report.skipped,
+                report.blocked,
+                report.mismatched,
+                start.elapsed().as_secs_f64()
             );
             reports.insert(stage.clone(), report);
         }
         Ok(reports)
     }
 
-    fn run_facts(&self, kind: TaskKind, options: &RunOptions) -> anyhow::Result<StageReport> {
+    fn git_commit(&self) -> &str {
+        &self.plan.plan.identity.git_commit
+    }
+
+    /// Runs one fact stage: `make` turns a task into rows, which go to `T`'s table.
+    fn run_facts<T: Table>(
+        &self,
+        kind: TaskKind,
+        version: u32,
+        options: &RunOptions,
+        ready: impl Fn(&Task) -> bool,
+        mut make: impl FnMut(&Task) -> anyhow::Result<Vec<T>>,
+    ) -> anyhow::Result<StageReport> {
+        let done = self.store.ledger(kind)?;
+        let mut writer: SegmentWriter<'_, T> = SegmentWriter::new(
+            self.store,
+            &self.worker_id,
+            kind,
+            T::dir(version),
+            self.git_commit(),
+        );
         let mut report = StageReport::default();
-        let mut ctx = self.session.create_execution_ctx();
         for task in self.tasks(kind, options.shard) {
-            let previous = self.store.ledger(&task.key)?;
+            let previous: Option<&LedgerRow> = done.get(&task.key);
             if previous.is_some() && !options.verify {
                 report.skipped += 1;
                 continue;
             }
-            if !task.deps.iter().all(|d| self.store.is_done(d)) {
+            if !ready(task) {
                 report.blocked += 1;
                 continue;
             }
             let start = Instant::now();
-            let hash = match &task.input {
-                TaskInput::Chunk(input) => {
-                    let fact = self.chunk(input, &options.data_root, &mut ctx)?;
-                    self.store
-                        .put_fact(kind, &task.key, &fact, start.elapsed().as_millis())?
-                }
-                TaskInput::Features { chunk, version } => {
-                    let fact = self.features(chunk, *version, &mut ctx)?;
-                    self.store
-                        .put_fact(kind, &task.key, &fact, start.elapsed().as_millis())?
-                }
-                TaskInput::Candidates {
-                    chunk, candidates, ..
-                } => {
-                    let fact = self.candidates(chunk, candidates, &mut ctx)?;
-                    self.store
-                        .put_fact(kind, &task.key, &fact, start.elapsed().as_millis())?
-                }
-            };
+            let rows = make(task)?;
+            let hash = writer.add(&task.key, rows, start.elapsed().as_millis())?;
             report.ran += 1;
             if let Some(previous) = previous
                 && previous.output_hash != hash
@@ -245,179 +223,267 @@ impl<'a> Runner<'a> {
                 );
             }
         }
+        writer.flush()?;
         Ok(report)
     }
 
-    fn load_chunk(
-        &self,
-        chunk: &TaskKey,
-        ctx: &mut ExecutionCtx,
-    ) -> anyhow::Result<(ChunkFact, ArrayRef)> {
-        let fact: ChunkFact = self.store.fact(TaskKind::Chunk, chunk)?;
-        let array =
-            blob::deserialize(&fact.blob, self.store.blob(&fact.blob.hash)?, &self.session)?;
-        let array = array.execute::<Canonical>(ctx)?.into_array();
-        Ok((fact, array))
+    fn run_chunks(&self, options: &RunOptions) -> anyhow::Result<StageReport> {
+        let mut ctx = self.session.create_execution_ctx();
+        self.run_facts::<ChunkRow>(
+            TaskKind::Chunk,
+            CHUNKS_VERSION,
+            options,
+            |_| true,
+            |task| {
+                let TaskInput::Chunk(input) = &task.input else {
+                    bail!("chunk task {} has a {:?} input", task.key, task.input);
+                };
+                let mode = self
+                    .modes
+                    .get(input.source())
+                    .copied()
+                    .unwrap_or(ChunkMode::Copy);
+                Ok(vec![crate::chunks::make(
+                    self.store,
+                    &task.key,
+                    input,
+                    mode,
+                    &options.data_root,
+                    &self.session,
+                    &mut ctx,
+                )?])
+            },
+        )
     }
 
-    fn chunk(
-        &self,
-        input: &ChunkInput,
-        data_root: &std::path::Path,
-        ctx: &mut ExecutionCtx,
-    ) -> anyhow::Result<ChunkFact> {
-        let arrow = crate::load::arrow(input, data_root)?;
-        let array = crate::load::to_vortex(&arrow, ctx)?;
-        let (blob, bytes) = blob::serialize(&array, &self.session)?;
-        self.store.put_blob(&blob.hash, &bytes)?;
-        Ok(ChunkFact {
-            input: input.clone(),
-            blob,
-        })
+    fn loader(&self, options: &RunOptions) -> anyhow::Result<ChunkLoader<'_>> {
+        ChunkLoader::new(
+            self.store,
+            &self.session,
+            &options.data_root,
+            options.cache.clone(),
+        )
     }
 
-    fn features(
-        &self,
-        chunk: &TaskKey,
-        version: u32,
-        ctx: &mut ExecutionCtx,
-    ) -> anyhow::Result<FeaturesFact> {
-        if version != crate::plan::FEATURES_VERSION {
-            bail!(
-                "this binary computes features version {}, the plan asks for {version}",
-                crate::plan::FEATURES_VERSION
-            );
-        }
-        let (_, array) = self.load_chunk(chunk, ctx)?;
-        let primitive = array.execute::<PrimitiveArray>(ctx)?;
-        let base = features::from_primitive(&primitive, ctx)?;
-        Ok(FeaturesFact {
-            version,
-            names: features::NAMES.iter().map(|n| n.to_string()).collect(),
-            values: base.iter().map(|v| v.is_finite().then_some(*v)).collect(),
-        })
-    }
-
-    fn candidates(
-        &self,
-        chunk: &TaskKey,
-        names: &[String],
-        ctx: &mut ExecutionCtx,
-    ) -> anyhow::Result<CandidatesFact> {
-        let (_, array) = self.load_chunk(chunk, ctx)?;
-        let mut results = Vec::with_capacity(names.len());
-        for name in names {
-            let compressor = self
-                .candidates
-                .get(name)
-                .with_context(|| format!("candidate `{name}` was not built"))?;
-            let outcome =
-                std::panic::catch_unwind(AssertUnwindSafe(|| compressor.compress(&array, ctx)));
-            let result = match outcome {
-                Ok(Ok(encoded)) => {
-                    let (blob, bytes) = blob::serialize(&encoded, &self.session)?;
-                    self.store.put_blob(&blob.hash, &bytes)?;
-                    CandidateResult {
-                        name: name.clone(),
-                        error: None,
-                        nbytes: Some(encoded.nbytes()),
-                        root: Some(encoded.encoding_id().to_string()),
-                        tree: Some(tree(&encoded)),
-                        blob: Some(blob),
-                    }
+    fn run_features(&self, options: &RunOptions) -> anyhow::Result<StageReport> {
+        let loader = self.loader(options)?;
+        let mut ctx = self.session.create_execution_ctx();
+        self.run_facts::<FeatureRow>(
+            TaskKind::Features,
+            crate::plan::FEATURES_VERSION,
+            options,
+            |task| task.deps.iter().all(|d| loader.row(d).is_some()),
+            |task| {
+                let TaskInput::Features { chunk, version } = &task.input else {
+                    bail!("features task {} has a {:?} input", task.key, task.input);
+                };
+                if *version != crate::plan::FEATURES_VERSION {
+                    bail!(
+                        "this binary computes features version {}, the plan asks for {version}",
+                        crate::plan::FEATURES_VERSION
+                    );
                 }
-                Ok(Err(error)) => failed(name, error.to_string()),
-                Err(_) => failed(name, "panic".to_string()),
-            };
-            results.push(result);
-        }
-        Ok(CandidatesFact { results })
+                let (_, array) = loader.load(chunk, &mut ctx)?;
+                let primitive = array.execute::<PrimitiveArray>(&mut ctx)?;
+                let values = features::from_primitive(&primitive, &mut ctx)?;
+                Ok(features::NAMES
+                    .iter()
+                    .zip(values)
+                    .map(|(name, value)| FeatureRow {
+                        task_key: task.key.to_string(),
+                        chunk_key: chunk.to_string(),
+                        site: "root".to_string(),
+                        site_depth: 0,
+                        feature: (*name).to_string(),
+                        tier: Some(tier(name)),
+                        window: None,
+                        value: value.is_finite().then_some(value),
+                    })
+                    .collect())
+            },
+        )
+    }
+
+    fn run_candidates(&self, options: &RunOptions) -> anyhow::Result<StageReport> {
+        let loader = self.loader(options)?;
+        let mut ctx = self.session.create_execution_ctx();
+        self.run_facts::<EncodingRow>(
+            TaskKind::Candidates,
+            CANDIDATES_VERSION,
+            options,
+            |task| task.deps.iter().all(|d| loader.row(d).is_some()),
+            |task| {
+                let TaskInput::Candidates {
+                    chunk, candidates, ..
+                } = &task.input
+                else {
+                    bail!("candidates task {} has a {:?} input", task.key, task.input);
+                };
+                let (row, array) = loader.load(chunk, &mut ctx)?;
+                let mut rows = Vec::with_capacity(candidates.len());
+                for name in candidates {
+                    let compressor = self
+                        .candidates
+                        .get(name)
+                        .with_context(|| format!("candidate `{name}` was not built"))?;
+                    let outcome = std::panic::catch_unwind(AssertUnwindSafe(|| {
+                        compressor.0.compress_recording_plan(&array, &mut ctx)
+                    }));
+                    let mut result = EncodingRow {
+                        task_key: task.key.to_string(),
+                        chunk_key: chunk.to_string(),
+                        candidate: name.clone(),
+                        ok: false,
+                        error: None,
+                        plan: None,
+                        plan_hash: None,
+                        encoded_hash: None,
+                        encoded_ids: Vec::new(),
+                        bytes: None,
+                        nbytes: None,
+                        root: None,
+                        tree: None,
+                        verified: false,
+                    };
+                    match outcome {
+                        Ok(Ok((encoded, plan))) => {
+                            let (blob, _) = blob::serialize(&encoded, &self.session)?;
+                            let decoded = encoded.clone().execute::<Canonical>(&mut ctx)?;
+                            let decoded =
+                                crate::chunks::logical_hash(&decoded.into_array(), &mut ctx)?;
+                            let plan = plan.to_string();
+                            result.ok = true;
+                            result.plan_hash = Some(crate::key::bytes_digest(plan.as_bytes()));
+                            result.plan = Some(plan);
+                            result.encoded_hash = Some(blob.hash);
+                            result.encoded_ids = blob.ids;
+                            result.bytes = Some(blob.bytes);
+                            result.nbytes = Some(encoded.nbytes());
+                            result.root = Some(encoded.encoding_id().to_string());
+                            result.tree = Some(tree(&encoded));
+                            result.verified = decoded == row.canonical_hash;
+                            if !result.verified {
+                                eprintln!(
+                                    "candidate {name} on chunk {chunk} does not decode to the chunk"
+                                );
+                            }
+                        }
+                        Ok(Err(error)) => result.error = Some(first_line(&error.to_string())),
+                        Err(_) => result.error = Some("panic".to_string()),
+                    }
+                    rows.push(result);
+                }
+                Ok(rows)
+            },
+        )
     }
 
     fn run_time(&self, options: &RunOptions) -> anyhow::Result<StageReport> {
         let machine = MachineInfo::current()?;
+        let build_id = crate::machine::build_id()?;
         self.store.put_machine(&machine)?;
         let run_id = format!(
             "{}-{}",
             SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis(),
             std::process::id()
         );
+        let done = self.store.ledger(TaskKind::Candidates)?;
+        let mut encodings: BTreeMap<String, Vec<EncodingRow>> = BTreeMap::new();
+        for row in self.store.read_table::<EncodingRow>(CANDIDATES_VERSION)? {
+            encodings.entry(row.task_key.clone()).or_default().push(row);
+        }
+        let loader = self.loader(options)?;
+        let mut writer = TimingWriter::new(self.store, &self.worker_id, &machine.machine_id);
         let mut report = StageReport::default();
         let mut ctx = self.session.create_execution_ctx();
         for task in self.tasks(TaskKind::Candidates, options.shard) {
-            if !self.store.is_done(&task.key) {
+            let (Some(_), Some(rows)) = (done.get(&task.key), encodings.get(task.key.as_str()))
+            else {
                 report.blocked += 1;
                 continue;
-            }
+            };
             let TaskInput::Candidates { chunk, .. } = &task.input else {
                 continue;
             };
-            let (_, array) = self.load_chunk(chunk, &mut ctx)?;
-            let fact: CandidatesFact = self.store.fact(TaskKind::Candidates, &task.key)?;
-            let mut timings = Vec::new();
-            for result in &fact.results {
-                let Some(stored) = &result.blob else {
+            let (_, array) = loader.load(chunk, &mut ctx)?;
+            let sample = |candidate: Option<&str>, hash: &str, matched: bool, op: &str| {
+                let base = TimingRow {
+                    machine_id: machine.machine_id.clone(),
+                    build_id: build_id.clone(),
+                    run_id: run_id.clone(),
+                    git_commit: self.git_commit().to_string(),
+                    task_key: task.key.to_string(),
+                    chunk_key: chunk.to_string(),
+                    candidate: candidate.map(str::to_string),
+                    encoded_hash: hash.to_string(),
+                    replay_matched: matched,
+                    op: op.to_string(),
+                    rep: 0,
+                    ns: 0,
+                };
+                move |rep: u32, ns: u64| TimingRow {
+                    rep,
+                    ns,
+                    ..base.clone()
+                }
+            };
+            let mut samples = Vec::new();
+            // The rebuilt encoding of each distinct hash, and whether a replay reproduced it.
+            let mut rebuilt: BTreeMap<String, (ArrayRef, bool)> = BTreeMap::new();
+            for row in rows.iter().filter(|r| r.ok) {
+                let Some(hash) = &row.encoded_hash else {
                     continue;
                 };
-                let compressor = &self.candidates[&result.name];
-                let mut compress_ns = Vec::with_capacity(options.compress_reps as usize);
-                let mut deterministic = true;
-                for _ in 0..options.compress_reps {
+                let compressor = self
+                    .candidates
+                    .get(&row.candidate)
+                    .with_context(|| format!("candidate `{}` was not built", row.candidate))?;
+                let mut times = Vec::with_capacity(options.compress_reps as usize);
+                let mut matched = true;
+                let mut last = None;
+                for _ in 0..options.compress_reps.max(1) {
                     let start = Instant::now();
                     let encoded = compressor.compress(&array, &mut ctx)?;
-                    compress_ns.push(u64::try_from(start.elapsed().as_nanos())?);
-                    deterministic &=
-                        blob::serialize(&encoded, &self.session)?.0.hash == stored.hash;
+                    times.push(u64::try_from(start.elapsed().as_nanos())?);
+                    matched &= blob::serialize(&encoded, &self.session)?.0.hash == *hash;
+                    last = Some(encoded);
                 }
-                let encoded =
-                    blob::deserialize(stored, self.store.blob(&stored.hash)?, &self.session)?;
-                black_box(encoded.clone().execute::<Canonical>(&mut ctx)?);
-                let mut decode_ns = Vec::with_capacity(options.decode_reps as usize);
-                for _ in 0..options.decode_reps {
-                    let start = Instant::now();
-                    black_box(encoded.clone().execute::<Canonical>(&mut ctx)?);
-                    decode_ns.push(u64::try_from(start.elapsed().as_nanos())?);
-                }
-                if !deterministic {
+                if !matched {
                     eprintln!(
-                        "nondeterminism: {} re-compressed differently on {}",
-                        result.name, task.key
+                        "nondeterminism: {} rebuilt differently on chunk {chunk}",
+                        row.candidate
                     );
                 }
-                timings.push(CandidateTiming {
-                    name: result.name.clone(),
-                    compress_ns,
-                    decode_ns,
-                    deterministic,
-                });
+                let make = sample(Some(&row.candidate), hash, matched, "compress");
+                samples.extend(times.into_iter().zip(0u32..).map(|(ns, rep)| make(rep, ns)));
+                if let Some(encoded) = last {
+                    let entry = rebuilt.entry(hash.clone()).or_insert((encoded, matched));
+                    entry.1 &= matched;
+                }
             }
-            self.store.put_observation(
-                "time",
-                &machine.machine_id,
-                &task.key,
-                &run_id,
-                &TimeObservation {
-                    run_id: run_id.clone(),
-                    machine_id: machine.machine_id.clone(),
-                    git_commit: self.plan.plan.identity.git_commit.clone(),
-                    timings,
-                },
-            )?;
+            let mut decoded = BTreeSet::new();
+            for (hash, (encoded, matched)) in &rebuilt {
+                if !decoded.insert(hash) {
+                    continue;
+                }
+                black_box(encoded.clone().execute::<Canonical>(&mut ctx)?);
+                let make = sample(None, hash, *matched, "decode");
+                for rep in 0..options.decode_reps {
+                    let start = Instant::now();
+                    black_box(encoded.clone().execute::<Canonical>(&mut ctx)?);
+                    samples.push(make(rep, u64::try_from(start.elapsed().as_nanos())?));
+                }
+            }
+            writer.extend(samples)?;
             report.ran += 1;
         }
+        writer.flush()?;
         Ok(report)
     }
 }
 
-fn failed(name: &str, error: String) -> CandidateResult {
-    CandidateResult {
-        name: name.to_string(),
-        error: Some(error.lines().next().unwrap_or_default().to_string()),
-        blob: None,
-        nbytes: None,
-        root: None,
-        tree: None,
-    }
+fn first_line(error: &str) -> String {
+    error.lines().next().unwrap_or_default().to_string()
 }
 
 fn tree(array: &ArrayRef) -> String {
