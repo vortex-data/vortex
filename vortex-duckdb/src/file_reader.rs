@@ -6,13 +6,11 @@ use std::ops::Range;
 use std::sync::Arc;
 use std::sync::OnceLock;
 use std::sync::atomic::AtomicBool;
-use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 
 use futures::FutureExt;
 use futures::StreamExt;
 use object_store::registry::ObjectStoreRegistry;
-use parking_lot::Mutex;
 use url::Url;
 use vortex::array::ArrayRef;
 use vortex::array::VortexSessionExecute as _;
@@ -44,7 +42,7 @@ use vortex::mask::Mask;
 use vortex::scan::DataSource as _;
 use vortex::scan::ScanRequest;
 use vortex::scan::stream::Claims;
-use vortex::scan::stream::ScanStream;
+use vortex::scan::stream::ScanExec;
 use vortex::session::SessionExt as _;
 
 use crate::REGISTRY;
@@ -139,14 +137,9 @@ pub struct FileScanState {
     /// The file's V2 scan, which every thread scanning the file drives. Set when the file is
     /// initialized for a V2 scan.
     v2: OnceLock<FileScan>,
-    /// The opened stream of the file's V1 scan, which each thread scanning the file polls a clone
-    /// of. Set when the file is initialized for a V1 scan. A stream is `Send` but not `Sync`, so
-    /// threads clone it under the lock.
-    stream: OnceLock<Mutex<ScanStream>>,
-    /// Whether a clone of `stream` has ended, so no split of the file is left to claim.
-    finished: AtomicBool,
-    /// How many threads have joined the file, each with its own clone of `stream`.
-    joined: AtomicUsize,
+    /// The opened V1 scan of the file, which each thread scanning the file reads a stream of. Set
+    /// when the file is initialized for a V1 scan.
+    exec: OnceLock<ScanExec>,
     cache: ConversionCache,
 }
 
@@ -156,24 +149,12 @@ impl FileScanState {
         if let Some(scan) = self.v2.get() {
             return (!scan.is_exhausted()).then_some(Split::V2);
         }
-        // A clone of the file's stream ends only once no split is left to claim and its own
-        // splits are done. So a thread joins the file until the first clone ends, and threads
-        // then move on to the next file while the clones holding the last splits finish them:
-        // no thread waits for the rest of a file to drain.
-        if self.finished.load(Ordering::Acquire) {
-            return None;
-        }
-        let stream = self.stream.get()?.lock();
-        // A clone claims its first split only when its thread first polls it, outside DuckDB's
-        // lock, so without a bound every thread would join before any had claimed. As many
-        // clones as splits drain the file, so a later thread moves on instead.
-        if let Some(Claims { claimed, total }) = stream.claims()
-            && (claimed >= total || self.joined.load(Ordering::Relaxed) >= total)
-        {
-            return None;
-        }
-        self.joined.fetch_add(1, Ordering::Relaxed);
-        Some(Split::V1(stream.clone()))
+        // A thread joins the file until its last split is claimed, then moves on to the next file
+        // while the threads holding the last splits finish them: no thread waits for the rest of
+        // a file to drain. The thread creates its stream on its first scan call, outside DuckDB's
+        // lock.
+        let exec = self.exec.get()?;
+        (!exec.is_exhausted()).then_some(Split::V1(None))
     }
 }
 
@@ -189,9 +170,7 @@ impl OpenFileReader {
                 reader: file.layout_reader()?,
                 scan_file,
                 v2: OnceLock::new(),
-                stream: OnceLock::new(),
-                finished: AtomicBool::new(false),
-                joined: AtomicUsize::new(0),
+                exec: OnceLock::new(),
                 cache: ConversionCache::default(),
             })),
         })
@@ -297,11 +276,11 @@ pub fn reader_initialize(file: &mut OpenFileReader, global: &GlobalState) -> Vor
         split_concurrency: Some(NonZeroUsize::MIN),
         ..ScanRequest::default()
     };
-    // An unordered scan without a limit opens into a stream over a queue of the file's splits,
-    // whose clones each claim the next split once they have finished their last.
+    // An unordered scan without a limit opens onto a queue of the file's splits, whose streams
+    // each claim the next split once they have finished their last.
     let source = LayoutReaderDataSource::new(Arc::clone(&state.reader), SESSION.clone());
-    let stream = RUNTIME.block_on(source.scan(request))?.open()?;
-    if state.stream.set(Mutex::new(stream)).is_err() {
+    let exec = RUNTIME.block_on(source.scan(request))?.open()?;
+    if state.exec.set(exec).is_err() {
         vortex_panic!("file initialized twice");
     }
     Ok(false)
@@ -341,20 +320,25 @@ enum SplitItem {
 fn next_split_item(local: &mut LocalState) -> VortexResult<SplitItem> {
     match local.split.take() {
         None => Ok(SplitItem::Done),
-        Some(Split::V1(mut stream)) => {
-            let Some(array) = RUNTIME.block_on(stream.next()).transpose()? else {
-                local
+        Some(Split::V1(stream)) => {
+            let mut stream = match stream {
+                Some(stream) => stream,
+                None => local
                     .file
                     .as_ref()
                     .vortex_expect("split without a file")
-                    .finished
-                    .store(true, Ordering::Release);
-                // Dropping the last clone drops the file's split queue; do that outside DuckDB's
+                    .exec
+                    .get()
+                    .vortex_expect("V1 split of a file without a V1 scan")
+                    .stream(),
+            };
+            let Some(array) = RUNTIME.block_on(stream.next()).transpose()? else {
+                // Dropping the last stream drops the file's split queue; do that outside DuckDB's
                 // locks.
-                local.retired_splits.push(Split::V1(stream));
+                local.retired_splits.push(Split::V1(Some(stream)));
                 return Ok(SplitItem::Done);
             };
-            local.split = Some(Split::V1(stream));
+            local.split = Some(Split::V1(Some(stream)));
             Ok(if array.is_empty() {
                 SplitItem::Empty
             } else {
@@ -405,8 +389,8 @@ fn next_split_item(local: &mut LocalState) -> VortexResult<SplitItem> {
 /// state, and reader_scan drops the retired ones.
 pub fn reader_try_initialize_scan(file: &mut OpenFileReader, local: &mut LocalState) -> bool {
     // A thread joins a file while its V2 scan has chunks left to spawn or its V1
-    // stream has a split left to claim. Cloning the stream only clones its handles,
-    // so it is cheap under the global lock.
+    // scan has a split left to claim. Either check is one load of a flag that is
+    // written once, so it is cheap under the global lock.
     let split = file
         .scan_state
         .as_ref()
@@ -533,9 +517,9 @@ pub fn reader_get_progress_in_file(file: &OpenFileReader) -> f64 {
         return scan.progress();
     }
     state
-        .stream
+        .exec
         .get()
-        .and_then(|stream| stream.lock().claims())
+        .and_then(ScanExec::progress)
         .map_or(0.0, |Claims { claimed, total }| {
             if total == 0 {
                 100.0
