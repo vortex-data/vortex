@@ -37,6 +37,7 @@ use crate::aggregate_fn::fns::null_count::NullCount;
 use crate::aggregate_fn::fns::sum::PrimitiveGroupedSumEncodingKernel;
 use crate::aggregate_fn::fns::sum::Sum;
 use crate::aggregate_fn::fns::sum_v2::BoolGroupedSumV2EncodingKernel;
+use crate::aggregate_fn::fns::sum_v2::ChunkedGroupedSumV2EncodingKernel;
 use crate::aggregate_fn::fns::sum_v2::PrimitiveGroupedSumV2EncodingKernel;
 use crate::aggregate_fn::fns::sum_v2::SumV2;
 use crate::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes;
@@ -173,6 +174,11 @@ impl Default for AggregateFnSession {
             Bool.id(),
             SumV2.id(),
             &BoolGroupedSumV2EncodingKernel,
+        );
+        this.register_grouped_encoding_kernel(
+            Chunked.id(),
+            SumV2.id(),
+            &ChunkedGroupedSumV2EncodingKernel,
         );
 
         this

@@ -9,6 +9,7 @@
 
 mod grouped;
 pub(crate) use grouped::BoolGroupedSumV2EncodingKernel;
+pub(crate) use grouped::ChunkedGroupedSumV2EncodingKernel;
 pub(crate) use grouped::PrimitiveGroupedSumV2EncodingKernel;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
