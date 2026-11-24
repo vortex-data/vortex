@@ -50,6 +50,7 @@ use crate::LayoutReaderRef;
 use crate::scan::limit::RowLimit;
 use crate::scan::metrics::ScanMetrics;
 use crate::scan::metrics::ScanRecorder;
+use crate::scan::options::LayoutScanOptions;
 use crate::scan::repeated_scan::DEFAULT_SPLITS_PER_THREAD;
 use crate::scan::scan_builder::ScanBuilder;
 use crate::scan::split_queue::SplitQueue;
@@ -165,6 +166,7 @@ pub struct LayoutReaderDataSource {
     reader: LayoutReaderRef,
     session: VortexSession,
     split_max_row_count: u64,
+    split_concurrency: Option<NonZeroUsize>,
     metrics: Option<ScanMetrics>,
 }
 
@@ -176,10 +178,20 @@ impl LayoutReaderDataSource {
     /// I/O pipeline and `SplitBy::Layout` chunking to operate without per-split overhead from
     /// redundant expression resolution and layout tree traversal.
     pub fn new(reader: LayoutReaderRef, session: VortexSession) -> Self {
+        Self::with_options(reader, session, LayoutScanOptions::default())
+    }
+
+    /// Creates a new [`LayoutReaderDataSource`] whose scans run with `options`.
+    pub fn with_options(
+        reader: LayoutReaderRef,
+        session: VortexSession,
+        options: LayoutScanOptions,
+    ) -> Self {
         Self {
             reader,
             session,
             split_max_row_count: u64::MAX,
+            split_concurrency: options.concurrency(),
             metrics: None,
         }
     }
@@ -326,7 +338,7 @@ impl DataSource for LayoutReaderDataSource {
             row_limit,
             selection: scan_request.selection,
             ordered: scan_request.ordered,
-            split_concurrency: scan_request.split_concurrency,
+            split_concurrency: self.split_concurrency,
             metrics: self.metrics.clone(),
             cursor,
         }))
@@ -428,7 +440,7 @@ impl DataSourceScan for LayoutReaderScan {
     fn open(self: Box<Self>) -> VortexResult<ScanExec> {
         let rows = match self.cursor.whole_rows() {
             Some(rows) if self.remaining_limit.is_none() && !self.ordered => rows,
-            _ => return Ok(ScanExec::from_partitions(self)),
+            _ => return Ok(ScanExec::from_partitions(self, NonZeroUsize::MIN)),
         };
         // A cap on the scan's splits in flight also caps each stream's.
         let per_worker = self
@@ -659,7 +671,7 @@ impl DataSourceScan for EmptyScan {
     }
 
     fn open(self: Box<Self>) -> VortexResult<ScanExec> {
-        Ok(ScanExec::from_partitions(self))
+        Ok(ScanExec::from_partitions(self, NonZeroUsize::MIN))
     }
 
     fn partition_count(&self) -> Precision<usize> {
