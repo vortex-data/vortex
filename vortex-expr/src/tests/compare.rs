@@ -18,7 +18,6 @@ use vortex_array::scalar_fn::builtin::compare::Compare;
 use vortex_array::scalar_fn::builtin::operators::CompareMode;
 use vortex_array::scalar_fn::builtin::operators::CompareOperator;
 use vortex_array::scalar_fn::builtin::operators::FloatOrder;
-use vortex_array::scalar_fn::builtin::operators::NullOrder;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
@@ -171,7 +170,6 @@ fn test_struct_comparison() {
 }
 
 const SPARK: CompareMode = CompareMode::new(FloatOrder::Canonical);
-const DUCKDB: CompareMode = SPARK.with_null_order(NullOrder::Last);
 
 /// A comparison with a literal that has no floats keeps the default mode, so rewrites that need
 /// the default mode still apply to it. A float literal keeps the requested mode.
@@ -179,12 +177,12 @@ const DUCKDB: CompareMode = SPARK.with_null_order(NullOrder::Last);
 #[case::integer(Scalar::from(1i32), CompareMode::new(FloatOrder::ZerosEqual))]
 #[case::string(Scalar::from("a"), CompareMode::new(FloatOrder::ZerosEqual))]
 #[case::float(Scalar::from(1.0f64), SPARK)]
-#[case::integer_list(int_list_scalar(), CompareMode::new(FloatOrder::ZerosEqual).with_null_order(NullOrder::Last))]
+#[case::integer_list(int_list_scalar(), CompareMode::new(FloatOrder::ZerosEqual))]
 fn compare_with_mode_keeps_default_mode_without_floats(
     #[case] value: Scalar,
     #[case] expected: CompareMode,
 ) {
-    let expr = compare_with_mode(CompareOperator::Eq, DUCKDB, root(), lit(value));
+    let expr = compare_with_mode(CompareOperator::Eq, SPARK, root(), lit(value));
 
     let options = expr.as_::<Compare>();
     assert_eq!(options.compare_mode(), expected);

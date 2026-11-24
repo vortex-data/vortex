@@ -96,9 +96,6 @@ pub struct CompareOpts {
     /// How a comparison orders float values.
     #[prost(enumeration = "compare_opts::FloatOrder", tag = "2")]
     pub float_order: i32,
-    /// How a comparison orders a null against a value.
-    #[prost(enumeration = "compare_opts::NullOrder", tag = "3")]
-    pub null_order: i32,
 }
 /// Nested message and enum types in `CompareOpts`.
 pub mod compare_opts {
@@ -144,42 +141,6 @@ pub mod compare_opts {
                 "TotalOrder" => Some(Self::TotalOrder),
                 "Canonical" => Some(Self::Canonical),
                 "Ieee754" => Some(Self::Ieee754),
-                _ => None,
-            }
-        }
-    }
-    #[derive(
-        Clone,
-        Copy,
-        Debug,
-        PartialEq,
-        Eq,
-        Hash,
-        PartialOrd,
-        Ord,
-        ::prost::Enumeration
-    )]
-    #[repr(i32)]
-    pub enum NullOrder {
-        First = 0,
-        Last = 1,
-    }
-    impl NullOrder {
-        /// String value of the enum field names used in the ProtoBuf definition.
-        ///
-        /// The values are not transformed in any way and thus are considered stable
-        /// (if the ProtoBuf definition does not change) and safe for programmatic use.
-        pub fn as_str_name(&self) -> &'static str {
-            match self {
-                Self::First => "First",
-                Self::Last => "Last",
-            }
-        }
-        /// Creates an enum from field names used in the ProtoBuf definition.
-        pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
-            match value {
-                "First" => Some(Self::First),
-                "Last" => Some(Self::Last),
                 _ => None,
             }
         }

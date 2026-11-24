@@ -188,7 +188,6 @@ impl ScalarFnVTable for Compare {
             pb::CompareOpts {
                 op: pb::compare_opts::CompareOp::from(options.operator).into(),
                 float_order: pb::compare_opts::FloatOrder::from(mode.float_order()).into(),
-                null_order: pb::compare_opts::NullOrder::from(mode.null_order()).into(),
             }
             .encode_to_vec(),
         ))
@@ -203,8 +202,7 @@ impl ScalarFnVTable for Compare {
         let operator = pb::compare_opts::CompareOp::try_from(opts.op)?.into();
 
         let float_order = pb::compare_opts::FloatOrder::try_from(opts.float_order)?.into();
-        let null_order = pb::compare_opts::NullOrder::try_from(opts.null_order)?.into();
-        let compare_mode = CompareMode::new(float_order).with_null_order(null_order);
+        let compare_mode = CompareMode::new(float_order);
 
         Ok(CompareOptions::new(operator, compare_mode))
     }

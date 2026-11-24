@@ -14,7 +14,6 @@ use crate::match_each_float_ptype;
 use crate::proto::expr::boolean_opts::BooleanOp;
 use crate::proto::expr::compare_opts::CompareOp;
 use crate::proto::expr::compare_opts::FloatOrder as PbFloatOrder;
-use crate::proto::expr::compare_opts::NullOrder as PbNullOrder;
 use crate::scalar::NumericOperator;
 use crate::scalar::PValue;
 use crate::scalar::Scalar;
@@ -164,43 +163,10 @@ impl From<PbFloatOrder> for FloatOrder {
     }
 }
 
-/// How a comparison orders a null against a value. Two nulls are equal.
+/// How a comparison orders floating-point values.
 ///
-/// A comparison with a null operand gives null, so the order applies only where a comparison
-/// must order nulls: inside a nested value, such as a null struct field or a null list element.
-#[derive(Copy, Clone, Debug, Default, Eq, PartialEq, Hash)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub enum NullOrder {
-    /// A null is less than all values. This is the order of [`Scalar`] values.
-    #[default]
-    First,
-    /// A null is greater than all values. DuckDB uses this order.
-    Last,
-}
-
-impl From<NullOrder> for PbNullOrder {
-    fn from(value: NullOrder) -> Self {
-        match value {
-            NullOrder::First => Self::First,
-            NullOrder::Last => Self::Last,
-        }
-    }
-}
-
-impl From<PbNullOrder> for NullOrder {
-    fn from(value: PbNullOrder) -> Self {
-        match value {
-            PbNullOrder::First => Self::First,
-            PbNullOrder::Last => Self::Last,
-        }
-    }
-}
-
-/// How a comparison orders floating-point values and nulls.
-///
-/// The [`FloatOrder`] changes only operands that contain floats, and [`NullOrder`] changes only
-/// nested operands. Integer, decimal, boolean, and byte comparisons give the same result in each
-/// mode. In the default mode, `-0.0 = +0.0` and all other floats compare in total order.
+/// The [`FloatOrder`] changes only operands that contain floats. Integer, decimal, boolean, and
+/// byte comparisons give the same result in each mode. In the default mode, `-0.0 = +0.0` and all other floats compare in total order.
 ///
 /// | Engine                 | [`FloatOrder`] |
 /// |------------------------|----------------|
@@ -208,13 +174,10 @@ impl From<PbNullOrder> for NullOrder {
 /// | DataFusion             | `ZerosEqual`   |
 /// | Spark, DuckDB, Polars  | `Canonical`    |
 /// | PyArrow                | `Ieee754`      |
-///
-/// DuckDB also uses [`NullOrder::Last`].
 #[derive(Copy, Clone, Debug, Default, Eq, PartialEq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct CompareMode {
     float_order: FloatOrder,
-    null_order: NullOrder,
 }
 
 impl CompareMode {
@@ -225,28 +188,13 @@ impl CompareMode {
     pub const TOTAL_ORDER: Self = Self::new(FloatOrder::TotalOrder);
 
     /// Returns the mode with the given order of floats.
-    ///
-    /// Nulls order as in [`NullOrder::First`].
     pub const fn new(float_order: FloatOrder) -> Self {
-        Self {
-            float_order,
-            null_order: NullOrder::First,
-        }
-    }
-
-    /// Returns this mode with the given order of nulls.
-    pub const fn with_null_order(self, null_order: NullOrder) -> Self {
-        Self { null_order, ..self }
+        Self { float_order }
     }
 
     /// Returns how the mode orders floats.
     pub fn float_order(self) -> FloatOrder {
         self.float_order
-    }
-
-    /// Returns how the mode orders nulls.
-    pub fn null_order(self) -> NullOrder {
-        self.null_order
     }
 
     /// Returns whether this mode is [`CompareMode::TOTAL_ORDER`].
@@ -259,20 +207,14 @@ impl CompareMode {
         self == Self::default()
     }
 
-    /// Returns this mode with the default for each setting that cannot change a comparison of
-    /// values of `dtype`.
+    /// Returns the default mode when values of `dtype` contain no floats, because the order of
+    /// floats cannot change their comparison. Otherwise returns this mode.
     pub fn for_dtype(self, dtype: &DType) -> Self {
-        let mut mode = self;
-
-        if !contains_float(dtype) {
-            mode.float_order = FloatOrder::default();
+        if contains_float(dtype) {
+            self
+        } else {
+            Self::default()
         }
-
-        if !is_nested(dtype) {
-            mode.null_order = NullOrder::default();
-        }
-
-        mode
     }
 
     /// Returns whether comparing values of `dtype` with `operator` in this mode always gives the
@@ -281,8 +223,7 @@ impl CompareMode {
     /// `constant` is the right-hand side when it is a known constant. Total-order kernels,
     /// statistics, and indexes can evaluate or prune a comparison that agrees.
     ///
-    /// - Values that contain no floats agree, unless they are nested and the mode is
-    ///   [`NullOrder::Last`].
+    /// - Values that contain no floats agree.
     /// - With an order where `-0.0 = +0.0`, the constant must not be zero, so that both zeros are
     ///   on the same side of it.
     /// - With [`FloatOrder::Canonical`] or [`FloatOrder::Ieee754`], the operator must also be `=`
@@ -294,10 +235,6 @@ impl CompareMode {
         dtype: &DType,
         constant: Option<&Scalar>,
     ) -> bool {
-        if is_nested(dtype) && self.null_order != NullOrder::First {
-            return false;
-        }
-
         if self.float_order == FloatOrder::TotalOrder || !contains_float(dtype) {
             return true;
         }
@@ -377,28 +314,7 @@ impl Display for CompareMode {
             FloatOrder::Ieee754 => "ieee754",
         };
 
-        let null_order = match self.null_order {
-            NullOrder::First => "first",
-            NullOrder::Last => "last",
-        };
-
-        write!(f, "floats={floats}, nulls={null_order}")
-    }
-}
-
-/// Returns whether values of `dtype` are nested, so that they can hold nulls below the top level.
-pub(crate) fn is_nested(dtype: &DType) -> bool {
-    match dtype {
-        DType::Extension(ext) => is_nested(ext.storage_dtype()),
-        DType::List(..) | DType::FixedSizeList(..) | DType::Struct(..) | DType::Map(..) => true,
-        DType::Null
-        | DType::Bool(_)
-        | DType::Primitive(..)
-        | DType::Decimal(..)
-        | DType::Utf8(_)
-        | DType::Binary(_)
-        | DType::Union(..)
-        | DType::Variant(_) => false,
+        write!(f, "floats={floats}")
     }
 }
 

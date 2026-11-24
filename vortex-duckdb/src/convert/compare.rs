@@ -4,9 +4,8 @@
 //! Comparisons with the float semantics of DuckDB.
 //!
 //! DuckDB makes `-0.0` equal to `+0.0`, makes all `NaN` values equal, and orders `NaN` above all
-//! other values. Inside a nested value, it orders a null above all values. By default, Vortex
-//! orders `NaN` values by sign and payload and orders nested nulls first, so each comparison that
-//! DuckDB pushes down uses [`compare_mode`]. DuckDB does not apply a pushed table filter again, so
+//! other values. By default, Vortex orders `NaN` values by sign and payload, so each comparison
+//! that DuckDB pushes down uses [`compare_mode`]. DuckDB does not apply a pushed table filter again, so
 //! a comparison with other semantics would add or drop rows.
 
 use vortex::dtype::DType;
@@ -16,14 +15,12 @@ use vortex::expr::compare_with_mode;
 use vortex::scalar_fn::builtin::operators::CompareMode;
 use vortex::scalar_fn::builtin::operators::CompareOperator;
 use vortex::scalar_fn::builtin::operators::FloatOrder;
-use vortex::scalar_fn::builtin::operators::NullOrder;
 
 /// The comparison semantics of DuckDB.
-const DUCKDB_MODE: CompareMode =
-    CompareMode::new(FloatOrder::Canonical).with_null_order(NullOrder::Last);
+const DUCKDB_MODE: CompareMode = CompareMode::new(FloatOrder::Canonical);
 
 /// Returns the compare mode of DuckDB for operands of `dtype`. It is the default mode when
-/// `dtype` holds no floats and is not nested.
+/// `dtype` holds no floats.
 pub(super) fn compare_mode(dtype: &DType) -> CompareMode {
     DUCKDB_MODE.for_dtype(dtype)
 }

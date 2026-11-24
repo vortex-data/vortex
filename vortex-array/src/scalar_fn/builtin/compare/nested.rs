@@ -7,11 +7,10 @@
 //! comparators, one per nested level. The ordering semantics match [`Scalar`] comparison:
 //! structs compare field-by-field in declaration order, lists compare element-by-element and
 //! then by length, maps compare as the list of their `{key, value}` entries, and a null value
-//! (at any nesting depth) orders before every non-null value by default. Only top-level nulls make the
+//! (at any nesting depth) orders before every non-null value. Only top-level nulls make the
 //! comparison result null.
 //!
-//! A [`CompareMode`] changes how the floats at each level compare, and whether a nested null
-//! orders before or after all values. In a [`FloatOrder::Ieee754`]
+//! A [`CompareMode`] changes how the floats at each level compare. In a [`FloatOrder::Ieee754`]
 //! mode, two floats can be unordered. The first pair of elements that is not equal decides the
 //! order of the rows, so an unordered pair makes the rows unordered: only `!=` is then true.
 //!
@@ -61,7 +60,6 @@ use crate::scalar_fn::builtin::compare::primitive::ZerosEqualOrder;
 use crate::scalar_fn::builtin::operators::CompareMode;
 use crate::scalar_fn::builtin::operators::CompareOperator;
 use crate::scalar_fn::builtin::operators::FloatOrder;
-use crate::scalar_fn::builtin::operators::NullOrder;
 
 /// Compares row `i` of the left operand against row `j` of the right operand.
 type Comparator<O> = Box<dyn Fn(usize, usize) -> O>;
@@ -265,17 +263,11 @@ fn build_mode_comparator<O: RowOrder>(
         return Ok(values);
     }
 
-    // The order of a value against a null.
-    let value_to_null = match mode.null_order() {
-        NullOrder::First => Ordering::Greater,
-        NullOrder::Last => Ordering::Less,
-    };
-
     Ok(Box::new(move |i, j| {
         match (lhs_mask.value(i), rhs_mask.value(j)) {
             (true, true) => values(i, j),
-            (true, false) => O::total(value_to_null),
-            (false, true) => O::total(value_to_null.reverse()),
+            (true, false) => O::total(Ordering::Greater),
+            (false, true) => O::total(Ordering::Less),
             (false, false) => O::EQUAL,
         }
     }))

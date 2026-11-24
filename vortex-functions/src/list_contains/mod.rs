@@ -117,8 +117,7 @@ pub struct ListContainsOptions {
     pub sql_null_semantics: bool,
     /// How the needle and the elements compare floats, at the top level and in nested values.
     ///
-    /// Membership uses only equality, so [`CompareMode::null_order`] has no effect. In the
-    /// default mode, `-0.0 = +0.0`. [`CompareMode::TOTAL_ORDER`] compares the bits of floats.
+    /// In the default mode, `-0.0 = +0.0`. [`CompareMode::TOTAL_ORDER`] compares the bits of floats.
     pub compare_mode: CompareMode,
 }
 
