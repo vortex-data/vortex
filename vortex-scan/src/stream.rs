@@ -91,6 +91,12 @@ impl ScanStream {
         self.claims.as_ref().map(|claims| claims())
     }
 
+    /// The reader behind [`Self::claims`], which a host may keep to read claims without holding
+    /// the stream. Diagnostic, for the join-and-poll bench.
+    pub fn claims_reader(&self) -> Option<Arc<dyn Fn() -> Claims + Send + Sync>> {
+        self.claims.clone()
+    }
+
     /// A stream whose clones take the partitions of `scan` one at a time.
     ///
     /// A source that has no queue of work of its own can open into this one.
