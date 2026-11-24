@@ -7,6 +7,7 @@ use vortex_array::IntoArray;
 use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::dtype::DType;
+use vortex_array::dtype::NativePType;
 use vortex_array::dtype::Nullability::NonNullable;
 use vortex_array::match_each_unsigned_integer_ptype;
 use vortex_array::validity::Validity;
@@ -32,31 +33,39 @@ pub fn elias_fano_encode(array: ArrayView<'_, Primitive>) -> VortexResult<Option
     }
 
     match_each_unsigned_integer_ptype!(ptype, |T| {
-        let values = array.as_slice::<T>();
-        // Checked on the values, because a wrong `IsSorted` statistic would corrupt the output.
-        if !values.is_sorted() {
-            return Ok(None);
-        }
-
-        let max: u64 = values.last().map_or(0, |&max| max.as_());
-        let lower_bits = elias_fano_lower_bits(max, values.len());
-        let mask = (1u64 << lower_bits) - 1;
-
-        let mut upper = BufferMut::<u64>::zeroed(usize::try_from(max >> lower_bits)? + 1);
-        let mut lower = BufferMut::<T>::with_capacity(values.len());
-        for &value in values {
-            let value: u64 = value.as_();
-            upper[AsPrimitive::<usize>::as_(value >> lower_bits)] += 1;
-            lower.push((value & mask).as_());
-        }
-
-        EliasFano::try_new(
-            PrimitiveArray::new(upper, Validity::NonNullable).into_array(),
-            PrimitiveArray::new(lower, Validity::NonNullable).into_array(),
-            u8::try_from(lower_bits)?,
-        )
-        .map(Some)
+        elias_fano_encode_typed(array.as_slice::<T>())
     })
+}
+
+/// [`elias_fano_encode`] for the values of one unsigned type.
+fn elias_fano_encode_typed<T>(values: &[T]) -> VortexResult<Option<EliasFanoArray>>
+where
+    T: NativePType + PartialOrd + AsPrimitive<u64>,
+    u64: AsPrimitive<T>,
+{
+    // Checked on the values, because a wrong `IsSorted` statistic would corrupt the output.
+    if !values.is_sorted() {
+        return Ok(None);
+    }
+
+    let max: u64 = values.last().map_or(0, |&max| max.as_());
+    let lower_bits = elias_fano_lower_bits(max, values.len());
+    let mask = (1u64 << lower_bits) - 1;
+
+    let mut upper = BufferMut::<u64>::zeroed(usize::try_from(max >> lower_bits)? + 1);
+    let mut lower = BufferMut::<T>::with_capacity(values.len());
+    for &value in values {
+        let value: u64 = value.as_();
+        upper[AsPrimitive::<usize>::as_(value >> lower_bits)] += 1;
+        lower.push((value & mask).as_());
+    }
+
+    EliasFano::try_new(
+        PrimitiveArray::new(upper, Validity::NonNullable).into_array(),
+        PrimitiveArray::new(lower, Validity::NonNullable).into_array(),
+        u8::try_from(lower_bits)?,
+    )
+    .map(Some)
 }
 
 /// How many low bits of each value [`elias_fano_encode`] keeps, for `len` sorted values up to

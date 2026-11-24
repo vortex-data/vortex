@@ -56,11 +56,12 @@ pub(super) struct EliasFanoMetadata {
     pub(super) lower_bits: u32,
     /// The number of buckets, which is the length of `upper`.
     ///
-    /// It is stored because the dtype and `lower_bits` only bound it, by `2^(bit width -
-    /// lower_bits)`, and the bound can far exceed what the data needs: `u32` values that fit in 9
-    /// bits, with 5 low bits, would get `2^27` buckets where `2^4` hold them. The encoder makes one
-    /// bucket for each high part up to the largest value's, so the count follows the data, and
-    /// `validate` checks it against the bound.
+    /// It is stored rather than derived, because the dtype and `lower_bits` only give an upper
+    /// bound, `2^(bit width - lower_bits)`. For example, with 5 low bits, values that fit in 8 bits
+    /// need at most `2^3` buckets. That is also the bound for a `u8` array, but a `u16` array
+    /// allows `2^11` and a `u32` array `2^27`. The encoder makes buckets only up to the largest
+    /// value's high part, so the count follows the data, and `validate` checks it against the
+    /// bound.
     #[prost(uint64, tag = "2")]
     pub(super) num_buckets: u64,
 }
