@@ -329,10 +329,10 @@ impl DataSourceScan for LayoutReaderScan {
             .prepare()?
             .execute(Some(self.next_row..self.end_row))?;
         let queue = Arc::new(SplitQueue::new(self.session.handle(), per_worker, splits));
-        let progress = Arc::clone(&queue);
+        let claims = Arc::clone(&queue);
         Ok(
             ScanStream::new(self.dtype, move || Arc::clone(&queue).worker())
-                .with_progress(move || progress.progress()),
+                .with_claims(move || claims.claims()),
         )
     }
 
@@ -760,6 +760,7 @@ mod split_open_tests {
     use vortex_io::runtime::single::SingleThreadRuntime;
     use vortex_scan::DataSource;
     use vortex_scan::ScanRequest;
+    use vortex_scan::stream::Claims;
 
     use super::LayoutReaderDataSource;
     use super::group_contiguous;
@@ -782,12 +783,25 @@ mod split_open_tests {
         let stream = runtime
             .block_on(source(&runtime).scan(ScanRequest::default()))?
             .open()?;
+        assert_eq!(
+            stream.claims(),
+            Some(Claims {
+                claimed: 0,
+                total: 16
+            })
+        );
         let workers = (0..3).map(|_| stream.clone().try_collect::<Vec<_>>());
         let arrays = runtime.block_on(try_join_all(workers))?;
         let mut values = collect_scan_values(arrays.into_iter().flatten().map(Ok))?;
         values.sort_unstable();
         assert_eq!(values, (0..64).collect::<Vec<_>>());
-        assert_eq!(stream.progress(), Some(1.0));
+        assert_eq!(
+            stream.claims(),
+            Some(Claims {
+                claimed: 16,
+                total: 16
+            })
+        );
         Ok(())
     }
 

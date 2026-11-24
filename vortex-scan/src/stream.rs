@@ -21,8 +21,20 @@ use crate::DataSourceScanRef;
 /// Starts a new worker over the shared work of an opened scan.
 type NewWorker = dyn Fn() -> BoxStream<'static, VortexResult<ArrayRef>> + Send + Sync;
 
-/// Reads the fraction of an opened scan's work that its clones have taken.
-type Progress = dyn Fn() -> f64 + Send + Sync;
+/// Reads how many units of an opened scan's work its clones have claimed.
+type ReadClaims = dyn Fn() -> Claims + Send + Sync;
+
+/// How many units of an opened scan's work its clones have claimed, out of how many in all.
+///
+/// A unit is what one clone claims at a time, such as a split of a layout scan. Claims only grow,
+/// and `claimed` never exceeds `total`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Claims {
+    /// The units that clones have claimed so far.
+    pub claimed: usize,
+    /// The units of the scan in all.
+    pub total: usize,
+}
 
 /// The arrays of an opened scan, which host threads read by each polling a clone.
 ///
@@ -37,7 +49,7 @@ type Progress = dyn Fn() -> f64 + Send + Sync;
 pub struct ScanStream {
     dtype: DType,
     new_worker: Arc<NewWorker>,
-    progress: Option<Arc<Progress>>,
+    claims: Option<Arc<ReadClaims>>,
     worker: Option<BoxStream<'static, VortexResult<ArrayRef>>>,
 }
 
@@ -53,22 +65,30 @@ impl ScanStream {
         Self {
             dtype,
             new_worker: Arc::new(new_worker),
-            progress: None,
+            claims: None,
             worker: None,
         }
     }
 
-    /// This stream, reporting its progress through `progress`, which returns the fraction of the
-    /// scan's work that its clones have taken, from 0.0 to 1.0, and must never block.
-    pub fn with_progress(mut self, progress: impl Fn() -> f64 + Send + Sync + 'static) -> Self {
-        self.progress = Some(Arc::new(progress));
+    /// This stream, reporting through `claims` how many units of its work its clones have
+    /// claimed, out of how many in all. `claims` must never block.
+    pub fn with_claims(mut self, claims: impl Fn() -> Claims + Send + Sync + 'static) -> Self {
+        self.claims = Some(Arc::new(claims));
         self
     }
 
-    /// The fraction of the scan's work that its clones have taken, from 0.0 to 1.0, for a host's
-    /// progress bar, or `None` when the scan does not track it. Never blocks.
-    pub fn progress(&self) -> Option<f64> {
-        self.progress.as_ref().map(|progress| progress())
+    /// How many units of the scan's work its clones have claimed, out of how many in all, or
+    /// `None` when the source does not know its total up front, as for a stream from
+    /// [`Self::from_partitions`]. Never blocks.
+    ///
+    /// A host derives its progress from this. It also bounds how many clones a host needs: a
+    /// host that hands out clones under its own lock may stop once it has handed out `total`
+    /// clones, or once `claimed` reaches `total`, because the clones already handed out keep
+    /// claiming units until none is left and so drain the rest. A clone handed out after that
+    /// would find nothing to claim. When this is `None` the host cannot bound its clones this
+    /// way, and learns that no work is left only when a clone ends.
+    pub fn claims(&self) -> Option<Claims> {
+        self.claims.as_ref().map(|claims| claims())
     }
 
     /// A stream whose clones take the partitions of `scan` one at a time.
@@ -99,7 +119,7 @@ impl Clone for ScanStream {
         Self {
             dtype: self.dtype.clone(),
             new_worker: Arc::clone(&self.new_worker),
-            progress: self.progress.clone(),
+            claims: self.claims.clone(),
             worker: None,
         }
     }
