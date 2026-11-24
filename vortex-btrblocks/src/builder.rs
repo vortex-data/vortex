@@ -154,7 +154,7 @@ impl BtrBlocksCompressorBuilder {
     /// in the session and permitted by its enabled editions.
     pub fn from_session(session: &VortexSession) -> Self {
         Self {
-            schemes: session.compression().schemes().to_vec(),
+            schemes: session.compression().schemes(),
             allowed: AllowedIds::from_session(session),
             mode: CompressionMode::Default,
             child_policy: None,

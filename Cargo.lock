@@ -11307,6 +11307,7 @@ dependencies = [
  "insta",
  "itertools 0.14.0",
  "mimalloc",
+ "parking_lot 0.12.5",
  "pco",
  "rand 0.10.3",
  "rstest",
