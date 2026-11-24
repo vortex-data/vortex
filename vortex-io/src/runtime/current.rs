@@ -154,13 +154,6 @@ impl BlockingRuntime for CurrentThreadRuntime {
 }
 
 /// Drives `fut` to completion on the calling thread.
-///
-/// The future is polled once before entering the executor and returned from directly if it is
-/// ready. Each entry into [`smol::Executor::run`] registers the thread with the executor's shared
-/// state, under a write lock that every thread entering the runtime contends on, and a caller that
-/// blocks on many futures which are mostly ready already, such as one batch of a scan after
-/// another, would otherwise pay that for each of them. A future that is not ready is polled again
-/// inside the executor, which runs the runtime's tasks while the thread waits for it.
 fn drive<Fut: Future>(executor: &SmolExecutor, fut: Fut) -> Fut::Output {
     let mut fut = pin!(fut);
     if let Some(output) = fut.as_mut().now_or_never() {
