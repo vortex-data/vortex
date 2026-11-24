@@ -180,6 +180,17 @@ def test_answered_item_leaves_and_returns_on_the_same_root():
     assert "💬" in card_text(fake, 5)
 
 
+def test_item_whose_author_joins_the_team_is_no_longer_tracked():
+    fake = FakeSlack()
+    run(fake, [item(6, author="newcomer", created=ago(days=2))])
+    assert payload(fake, 6)["status"] == "open"
+    # The same pull request, after "newcomer" joined the team list. Nobody answered anything.
+    joined = item(6, author=TEAMMATE, created=ago(days=2))
+    run(fake, [joined], NOW + HOUR)
+    assert payload(fake, 6)["status"] == "untracked"
+    assert "No longer tracked" in card_text(fake, 6)
+
+
 def test_closed_item_gets_a_final_card_and_is_left_alone():
     fake = FakeSlack()
     run(fake, [HIGH])

@@ -246,9 +246,11 @@ class Run:
         assessment = assess(item, self.now, verdict)
         if assessment is None:
             if root is not None and root.state.status is Status.OPEN:
-                # A teammate answered the external comment on a team item, or the item lost the
-                # label that made it qualify.
-                status = Status.ANSWERED if item.author_team else Status.UNTRACKED
+                # A teammate answered the external comment on a team item. Otherwise the item
+                # lost the label that made it qualify, or everyone outside the team who took part
+                # has joined the team list.
+                answered = item.author_team and any(not e.team for e in item.events)
+                status = Status.ANSWERED if answered else Status.UNTRACKED
                 state = root.state = root.saved = replace(root.state, status=status)
                 self.slack.update(
                     root.thread.ts,
