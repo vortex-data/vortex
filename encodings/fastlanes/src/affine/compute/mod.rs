@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Chunk-level compute kernels (`filter`, `take`, `compare`) for [`Affine`](crate::Affine).
+//! Chunk-level compute kernels (`filter`, `take`, `compare`) for [`Affine`].
 
 mod compare;
 mod filter;
@@ -38,7 +38,7 @@ use crate::affine::array::affine_decompress::physical_as_logical;
 
 const _: () = assert!(FL_CHUNK_SIZE == FILTER_CHUNK_LEN);
 
-/// Maximum number of indices for which [`AffineBitPackedChunks::decode_indices`] extracts
+/// Maximum number of indices for which [`AffineNarrowBitPackedChunks::decode_indices`] extracts
 /// individual values instead of unpacking the whole narrow chunk first.
 pub(super) const fn unpack_chunk_threshold<U>() -> usize {
     match size_of::<U>() {

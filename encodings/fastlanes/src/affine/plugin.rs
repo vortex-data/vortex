@@ -119,10 +119,18 @@ impl ArrayPlugin for AffinePlugin {
             "Affine slope shift must be at most {MAX_SLOPE_SHIFT}, got {}",
             metadata.slope_shift
         );
+        let DType::Primitive(logical_ptype, _) = parts.dtype else {
+            vortex_bail!("Affine requires an integer dtype, got {}", parts.dtype);
+        };
+        vortex_ensure!(
+            logical_ptype.is_int(),
+            "Affine requires an integer dtype, got {}",
+            parts.dtype
+        );
         let offset = u16::try_from(metadata.offset)?;
         let chunks = num_chunks(offset, parts.len);
         let param_dtype = parts.dtype.as_nonnullable();
-        let logical_bytes = parts.dtype.as_ptype().byte_width();
+        let logical_bytes = logical_ptype.byte_width();
         let encoded_dtype = match metadata.encoded_bytes {
             0 => parts.dtype.clone(),
             1 if 1 < logical_bytes => DType::Primitive(PType::U8, parts.dtype.nullability()),

@@ -1071,3 +1071,29 @@ fn decompress_handles_signed_dict_codes() -> VortexResult<()> {
     assert_arrays_eq!(affine, expected, &mut ctx);
     Ok(())
 }
+
+#[test]
+fn deserialize_rejects_non_integer_dtype() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let values = PrimitiveArray::from_iter([100i32, 110, 120, 130]);
+    let encoded = Affine::encode(&values, AffineOptions::FOR, &mut ctx)?.into_array();
+    let array_ctx = ArrayContext::empty();
+    let buffers = encoded.serialize(&array_ctx, &SESSION, &SerializeOptions::default())?;
+    let mut flat = ByteBufferMut::empty();
+    for buf in buffers {
+        flat.extend_from_slice(&buf);
+    }
+    let parts = SerializedArray::try_from(flat.freeze())?;
+    let read_ctx = ReadContext::new(array_ctx.to_ids());
+    assert!(
+        parts
+            .decode(
+                &DType::Bool(Nullability::NonNullable),
+                values.len(),
+                &read_ctx,
+                &SESSION
+            )
+            .is_err()
+    );
+    Ok(())
+}
