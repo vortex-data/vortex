@@ -101,6 +101,9 @@ mod tests {
     use wkb::writer::WriteOptions;
 
     use super::SpatialIntersects;
+    use crate::extension::SpatialMetadata;
+    use crate::extension::WellKnownBinary;
+    use crate::extension::native_geometry_scalar_from_wkb;
     use crate::test_harness::nullable_point_column;
     use crate::test_harness::point_column;
 
@@ -142,8 +145,12 @@ mod tests {
         let mut buf = Vec::new();
         wkb::writer::write_geometry(&mut buf, geometry, &WriteOptions::default())
             .map_err(|e| vortex_err!("writing WKB failed: {e}"))?;
+        let wkb = Scalar::extension::<WellKnownBinary>(
+            SpatialMetadata::default(),
+            Scalar::binary(buf, Nullability::NonNullable),
+        );
         let session = VortexSession::empty();
-        let scalar = crate::extension::native_geometry_scalar_from_wkb(&buf, &session)?
+        let scalar = native_geometry_scalar_from_wkb(&wkb, &session)?
             .ok_or_else(|| vortex_err!("unsupported geometry type"))?;
         Ok(ConstantArray::new(scalar, len).into_array())
     }
