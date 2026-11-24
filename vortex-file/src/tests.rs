@@ -2664,10 +2664,7 @@ async fn file_data_source_returns_mergeable_partials() -> VortexResult<()> {
         .with_file_statistics(vec![sum.clone()])
         .write(&mut buf, array.to_array_stream())
         .await?;
-    let source = SESSION
-        .open_options()
-        .open_buffer(buf)?
-        .layout_reader_data_source(LayoutScanOptions::default())?;
+    let source = SESSION.open_options().open_buffer(buf)?.data_source()?;
     let partial = source
         .field_statistic(&field_path!(numbers), &sum)
         .await?

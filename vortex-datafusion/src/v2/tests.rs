@@ -50,7 +50,6 @@ use vortex::editions::EditionInclusion;
 use vortex::editions::EditionSessionExt;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::file::WriteOptionsSessionExt;
-use vortex::layout::scan::options::LayoutScanOptions;
 use vortex::scan::DataSourceRef;
 use vortex::session::VortexSession;
 use vortex_arrow::ArrowSessionExt;
@@ -95,7 +94,7 @@ async fn data_source_from_batch(
         .write(&mut buffer, array.to_array_stream())
         .await?;
     let file = session.open_options().open_buffer(buffer)?;
-    Ok(file.layout_reader_data_source(LayoutScanOptions::default())?)
+    Ok(file.data_source()?)
 }
 
 #[tokio::test]

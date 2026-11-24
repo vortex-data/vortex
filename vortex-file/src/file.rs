@@ -249,12 +249,25 @@ impl VortexFile {
         }
     }
 
+    /// Create a [`DataSource`](vortex_scan::DataSource) from this file for scanning, on the
+    /// default executor with its default options.
+    ///
+    /// The default executor is the V1 [layout reader](Self::layout_reader), as with
+    /// [`layout_reader_data_source`](Self::layout_reader_data_source). A host that configures an
+    /// executor for itself builds that executor's source instead. Stored footer aggregates are
+    /// available through the source statistics methods without reading payloads.
+    pub fn data_source(&self) -> VortexResult<DataSourceRef> {
+        self.layout_reader_data_source(LayoutScanOptions::default())
+    }
+
     /// Create a [`DataSource`](vortex_scan::DataSource) that scans this file on the V1 executor:
     /// its [layout reader](Self::layout_reader), whose scans run with `options`.
     ///
     /// A file has a source for each executor, [this one](Self::layout_reader_data_source) and
-    /// [`plan_data_source`](Self::plan_data_source), and the host picks one. Stored footer
-    /// aggregates are available through the source statistics methods without reading payloads.
+    /// [`plan_data_source`](Self::plan_data_source). A host that configures the V1 executor, such
+    /// as DuckDB running one split per thread, builds this source with its options; otherwise
+    /// [`data_source`](Self::data_source) picks the default. Stored footer aggregates are available
+    /// through the source statistics methods without reading payloads.
     pub fn layout_reader_data_source(
         &self,
         options: LayoutScanOptions,
