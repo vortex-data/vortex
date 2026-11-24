@@ -41,9 +41,9 @@ use futures::stream;
 use futures::stream::BoxStream;
 use parking_lot::Mutex;
 use vortex_array::ArrayRef;
-use vortex_array::scalar_fn::fns::dynamic::DynamicExprUpdates;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_functions::dynamic::DynamicExprUpdates;
 use vortex_io::request::IoService;
 use vortex_io::session::RuntimeSessionExt;
 
