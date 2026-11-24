@@ -35,15 +35,14 @@ use crate::expr::stats::Precision;
 use crate::scalar::DecimalValue;
 use crate::scalar::NumericOperator;
 use crate::scalar::Scalar;
-use crate::scalar_fn::builtin::operators::Operator;
 use crate::validity::Validity;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
 fn sub_scalar(array: &ArrayRef, scalar: impl Into<Scalar>) -> VortexResult<ArrayRef> {
-    array.binary(
+    array.numeric(
         ConstantArray::new(scalar, array.len()).into_array(),
-        Operator::Sub,
+        NumericOperator::Sub,
     )
 }
 
@@ -108,9 +107,9 @@ fn test_float_divide_by_zero_is_ok() {
     let mut ctx = SESSION.create_execution_ctx();
     let values = buffer![1.0f64, -1.0].into_array();
     let result = values
-        .binary(
+        .numeric(
             ConstantArray::new(0.0f64, values.len()).into_array(),
-            Operator::Div,
+            NumericOperator::Div,
         )
         .unwrap();
 
@@ -125,9 +124,9 @@ fn test_float_divide_by_zero_is_ok() {
 fn test_integer_overflow_errors() {
     let values = buffer![u8::MAX].into_array();
     let result = values
-        .binary(
+        .numeric(
             ConstantArray::new(1u8, values.len()).into_array(),
-            Operator::Add,
+            NumericOperator::Add,
         )
         .and_then(|a| a.execute::<PrimitiveArray>(&mut SESSION.create_execution_ctx()));
 
@@ -138,9 +137,9 @@ fn test_integer_overflow_errors() {
 fn test_integer_divide_by_zero_errors() {
     let values = buffer![1i32].into_array();
     let result = values
-        .binary(
+        .numeric(
             ConstantArray::new(0i32, values.len()).into_array(),
-            Operator::Div,
+            NumericOperator::Div,
         )
         .and_then(|a| a.execute::<PrimitiveArray>(&mut SESSION.create_execution_ctx()));
 
@@ -151,9 +150,9 @@ fn test_integer_divide_by_zero_errors() {
 fn test_integer_divide_overflow_errors() {
     let values = buffer![i64::MIN].into_array();
     let result = values
-        .binary(
+        .numeric(
             ConstantArray::new(-1i64, values.len()).into_array(),
-            Operator::Div,
+            NumericOperator::Div,
         )
         .and_then(|a| a.execute::<PrimitiveArray>(&mut SESSION.create_execution_ctx()));
 
@@ -166,7 +165,7 @@ fn test_integer_divide_errors_ignore_null_lanes() {
     let lhs =
         PrimitiveArray::new(buffer![10i32, 10], Validity::from_iter([false, true])).into_array();
     let rhs = buffer![0i32, 2].into_array();
-    let result = lhs.binary(rhs, Operator::Div).unwrap();
+    let result = lhs.numeric(rhs, NumericOperator::Div).unwrap();
 
     assert_arrays_eq!(
         result,
@@ -181,9 +180,9 @@ fn test_integer_errors_ignore_null_lanes() {
     let values =
         PrimitiveArray::new(buffer![u8::MAX, 1], Validity::from_iter([false, true])).into_array();
     let result = values
-        .binary(
+        .numeric(
             ConstantArray::new(1u8, values.len()).into_array(),
-            Operator::Add,
+            NumericOperator::Add,
         )
         .unwrap();
 
@@ -203,7 +202,7 @@ fn test_integer_array_array_errors_on_valid_lanes() {
     .into_array();
     let rhs = buffer![1u8, 1, 1].into_array();
     let result = lhs
-        .binary(rhs, Operator::Add)
+        .numeric(rhs, NumericOperator::Add)
         .and_then(|a| a.execute::<PrimitiveArray>(&mut SESSION.create_execution_ctx()));
 
     assert!(result.is_err());
@@ -215,9 +214,9 @@ fn assert_multiply<T: NativePType>(lhs: T, rhs: T, expected: Option<T>) -> Vorte
     let mut ctx = SESSION.create_execution_ctx();
     let result = PrimitiveArray::from_iter([lhs, lhs])
         .into_array()
-        .binary(
+        .numeric(
             PrimitiveArray::from_iter([rhs, rhs]).into_array(),
-            Operator::Mul,
+            NumericOperator::Mul,
         )?
         .execute::<PrimitiveArray>(&mut ctx);
 
@@ -286,9 +285,9 @@ fn test_multiply_overflow_on_null_lane_ignored<T: NativePType>(
     )
     .into_array();
 
-    let result = lhs.binary(
+    let result = lhs.numeric(
         PrimitiveArray::from_iter([rhs, rhs]).into_array(),
-        Operator::Mul,
+        NumericOperator::Mul,
     )?;
 
     assert_arrays_eq!(
@@ -317,9 +316,9 @@ fn test_multiply_overflow_survives_batch_reduction(
     let validity = Validity::from_iter((0..LEN).map(|i| i != OVERFLOW_AT || lane_is_valid));
     let result = PrimitiveArray::new(Buffer::copy_from(&lhs), validity)
         .into_array()
-        .binary(
+        .numeric(
             PrimitiveArray::from_iter(vec![3u32; LEN as usize]).into_array(),
-            Operator::Mul,
+            NumericOperator::Mul,
         )?
         .execute::<RecursiveCanonical>(&mut ctx);
 
@@ -346,9 +345,9 @@ fn test_present_nullable_constant_preserves_nullable_output() {
     let mut ctx = SESSION.create_execution_ctx();
     let values = buffer![1u8, 2].into_array();
     let result = values
-        .binary(
+        .numeric(
             ConstantArray::new(Some(1u8), values.len()).into_array(),
-            Operator::Add,
+            NumericOperator::Add,
         )
         .unwrap();
 
@@ -365,7 +364,7 @@ fn test_empty_primitive_constants_do_not_evaluate() -> VortexResult<()> {
     let rhs = ConstantArray::new(1u8, 0).into_array();
 
     let result = lhs
-        .binary(rhs, Operator::Add)?
+        .numeric(rhs, NumericOperator::Add)?
         .execute::<RecursiveCanonical>(&mut SESSION.create_execution_ctx())?;
 
     assert!(result.0.is_empty());
@@ -378,8 +377,8 @@ fn test_empty_primitive_constants_do_not_evaluate() -> VortexResult<()> {
 
 // -- Decimal arithmetic --
 
-fn decimal_binary(lhs: ArrayRef, rhs: ArrayRef, op: Operator) -> VortexResult<ArrayRef> {
-    lhs.binary(rhs, op)
+fn decimal_binary(lhs: ArrayRef, rhs: ArrayRef, op: NumericOperator) -> VortexResult<ArrayRef> {
+    lhs.numeric(rhs, op)
         .and_then(|a| a.execute::<RecursiveCanonical>(&mut SESSION.create_execution_ctx()))
         .map(|a| a.0.into_array())
 }
@@ -412,7 +411,7 @@ fn test_decimal_array_array(
     let lhs = DecimalArray::from_iter::<i64, _>([900, 1000], dtype).into_array();
     let rhs = DecimalArray::from_iter::<i64, _>(rhs, dtype).into_array();
 
-    let result = decimal_binary(lhs, rhs, op.into())?;
+    let result = decimal_binary(lhs, rhs, op)?;
     assert_arrays_eq!(
         result,
         DecimalArray::from_iter::<i64, _>(expected, result_dtype),
@@ -429,7 +428,7 @@ fn test_decimal_widened_operand() -> VortexResult<()> {
     let rhs = DecimalArray::from_iter([200i64, 250], dtype).into_array();
     let lhs = WidenArray::try_new(child.into_array(), rhs.dtype().clone())?.into_array();
 
-    let result = decimal_binary(lhs, rhs, Operator::Add)?;
+    let result = decimal_binary(lhs, rhs, NumericOperator::Add)?;
     assert_arrays_eq!(
         result,
         DecimalArray::from_iter::<i64, _>(
@@ -449,7 +448,7 @@ fn test_decimal_nullable_lanes() -> VortexResult<()> {
         DecimalArray::from_option_iter::<i64, _>([Some(100), None, Some(300)], dtype).into_array();
     let rhs = DecimalArray::from_iter::<i64, _>([50, 50, 50], dtype).into_array();
 
-    let result = decimal_binary(lhs, rhs, Operator::Add)?;
+    let result = decimal_binary(lhs, rhs, NumericOperator::Add)?;
     assert_arrays_eq!(
         result,
         DecimalArray::from_option_iter::<i64, _>(
@@ -479,7 +478,7 @@ fn stored_decimal<T: NativeDecimalType>(value: T, precision: u8) -> VortexResult
 fn test_decimal_add_overflows_working_width() -> VortexResult<()> {
     // The result's precision is 2, so addition executes at i8.
     let values = stored_decimal(i8::MAX, 1)?;
-    let error = decimal_binary(values.clone(), values, Operator::Add).unwrap_err();
+    let error = decimal_binary(values.clone(), values, NumericOperator::Add).unwrap_err();
     assert!(
         error
             .to_string()
@@ -498,7 +497,7 @@ fn test_decimal_div_negative_result_scale() -> VortexResult<()> {
     let lhs = DecimalArray::from_iter::<i64, _>([50_000], dtype).into_array();
     let rhs = DecimalArray::from_iter::<i64, _>([2], dtype).into_array();
 
-    let result = decimal_binary(lhs, rhs, Operator::Div)?;
+    let result = decimal_binary(lhs, rhs, NumericOperator::Div)?;
     assert_arrays_eq!(
         result,
         DecimalArray::from_iter::<i32, _>([2], DecimalDType::new(6, -4)),
@@ -511,7 +510,7 @@ fn test_decimal_div_negative_result_scale() -> VortexResult<()> {
 fn test_decimal_mul_value_outside_precision_errors() -> VortexResult<()> {
     // 100 squared fits the i16 working width but exceeds the result precision of 3.
     let values = stored_decimal(100i8, 1)?;
-    let error = decimal_binary(values.clone(), values, Operator::Mul).unwrap_err();
+    let error = decimal_binary(values.clone(), values, NumericOperator::Mul).unwrap_err();
     assert!(
         error
             .to_string()
@@ -523,7 +522,7 @@ fn test_decimal_mul_value_outside_precision_errors() -> VortexResult<()> {
 #[test]
 fn test_decimal_mul_overflows_working_width() -> VortexResult<()> {
     let values = stored_decimal(i256::MAX, 39)?;
-    let error = decimal_binary(values.clone(), values, Operator::Mul).unwrap_err();
+    let error = decimal_binary(values.clone(), values, NumericOperator::Mul).unwrap_err();
     assert!(
         error
             .to_string()
@@ -546,7 +545,7 @@ fn test_decimal_out_of_precision_null_payload_ignored() -> VortexResult<()> {
     .into_array();
     let rhs = decimal_constant(i256::from_i128(1), dtype, 2);
 
-    let result = decimal_binary(lhs, rhs, Operator::Add)?;
+    let result = decimal_binary(lhs, rhs, NumericOperator::Add)?;
     assert_arrays_eq!(
         result,
         DecimalArray::from_option_iter::<i8, _>([None, Some(2)], result_dtype),
@@ -571,7 +570,7 @@ fn test_decimal_overflow_on_null_lane_ignored() {
     .into_array();
     let rhs = decimal_constant(one, dtype, 2);
 
-    let result = decimal_binary(lhs, rhs, Operator::Add).unwrap();
+    let result = decimal_binary(lhs, rhs, NumericOperator::Add).unwrap();
     assert_arrays_eq!(
         result,
         DecimalArray::from_option_iter::<i256, _>([None, Some(i256::from_i128(2))], dtype,),
@@ -592,7 +591,7 @@ fn test_decimal_divide_by_zero_on_null_lane_ignored() -> VortexResult<()> {
     .into_array();
     let rhs = DecimalArray::from_iter::<i64, _>([0, 200], dtype).into_array();
 
-    let result = decimal_binary(lhs, rhs, Operator::Div)?;
+    let result = decimal_binary(lhs, rhs, NumericOperator::Div)?;
     assert_arrays_eq!(
         result,
         DecimalArray::from_option_iter::<i64, _>(
@@ -610,7 +609,7 @@ fn test_decimal_divide_by_zero_on_valid_lane_errors() {
     let lhs = DecimalArray::from_iter::<i64, _>([100], dtype).into_array();
     let rhs = DecimalArray::from_iter::<i64, _>([0], dtype).into_array();
 
-    assert!(decimal_binary(lhs, rhs, Operator::Div).is_err());
+    assert!(decimal_binary(lhs, rhs, NumericOperator::Div).is_err());
 }
 
 #[test]
@@ -620,7 +619,7 @@ fn test_decimal_add_reserves_carry_digit() {
     let lhs = DecimalArray::from_iter::<i8, _>([99], dtype).into_array();
     let rhs = DecimalArray::from_iter::<i8, _>([99], dtype).into_array();
 
-    let result = decimal_binary(lhs, rhs, Operator::Add).unwrap();
+    let result = decimal_binary(lhs, rhs, NumericOperator::Add).unwrap();
     assert_arrays_eq!(
         result,
         DecimalArray::from_iter::<i16, _>([198], DecimalDType::new(3, 0)),
@@ -639,7 +638,7 @@ fn test_decimal_mul_widens_before_multiplying() -> VortexResult<()> {
     let result = decimal_binary(
         DecimalArray::from_iter::<i128, _>([max], dtype).into_array(),
         DecimalArray::from_iter::<i128, _>([max], dtype).into_array(),
-        Operator::Mul,
+        NumericOperator::Mul,
     )?;
     assert_arrays_eq!(
         result,
@@ -663,7 +662,7 @@ fn test_decimal_mul_above_result_precision_errors() {
         decimal_binary(
             DecimalArray::from_iter::<i256, _>([value], dtype).into_array(),
             DecimalArray::from_iter::<i256, _>([value], dtype).into_array(),
-            Operator::Mul,
+            NumericOperator::Mul,
         )
         .is_err()
     );
@@ -702,7 +701,7 @@ fn test_decimal_result_uses_widened_logical_storage_width(
     let result = decimal_binary(
         values.clone().into_array(),
         values.into_array(),
-        Operator::Add,
+        NumericOperator::Add,
     )?
     .execute::<DecimalArray>(&mut SESSION.create_execution_ctx())?;
 
@@ -730,7 +729,7 @@ fn test_decimal_precision_76_boundary() -> VortexResult<()> {
     let result = decimal_binary(
         DecimalArray::from_iter::<i256, _>([max], dtype).into_array(),
         DecimalArray::from_iter::<i256, _>([zero], dtype).into_array(),
-        Operator::Add,
+        NumericOperator::Add,
     )?;
     assert_arrays_eq!(
         result,
@@ -741,7 +740,7 @@ fn test_decimal_precision_76_boundary() -> VortexResult<()> {
     let overflow = decimal_binary(
         DecimalArray::from_iter::<i256, _>([max], dtype).into_array(),
         DecimalArray::from_iter::<i256, _>([one], dtype).into_array(),
-        Operator::Add,
+        NumericOperator::Add,
     );
     assert!(overflow.is_err());
     Ok(())
@@ -754,7 +753,7 @@ fn test_decimal_empty_constants_do_not_evaluate() -> VortexResult<()> {
     let lhs = decimal_constant(max, dtype, 0);
     let rhs = decimal_constant(i256::from_i128(1), dtype, 0);
 
-    let result = decimal_binary(lhs, rhs, Operator::Add)?;
+    let result = decimal_binary(lhs, rhs, NumericOperator::Add)?;
 
     assert!(result.is_empty());
     assert_eq!(
@@ -771,7 +770,7 @@ fn test_decimal_constant_lhs_non_commutative() -> VortexResult<()> {
     let lhs = decimal_constant(1000i64, dtype, 2);
     let rhs = DecimalArray::from_iter::<i64, _>([250, 400], dtype).into_array();
 
-    let result = decimal_binary(lhs, rhs, Operator::Sub)?;
+    let result = decimal_binary(lhs, rhs, NumericOperator::Sub)?;
     assert_arrays_eq!(
         result,
         DecimalArray::from_iter::<i64, _>(
@@ -794,7 +793,7 @@ fn test_decimal_nullable_constant_preserves_nullable_output() -> VortexResult<()
     )
     .into_array();
 
-    let result = decimal_binary(values, constant, Operator::Add)?;
+    let result = decimal_binary(values, constant, NumericOperator::Add)?;
     assert_arrays_eq!(
         result,
         DecimalArray::from_option_iter::<i64, _>(
@@ -831,7 +830,7 @@ fn test_decimal_null_constant_yields_all_null(
         (values, null_constant)
     };
 
-    let result = lhs.binary(rhs, op.into())?.execute::<Columnar>(&mut ctx)?;
+    let result = lhs.numeric(rhs, op)?.execute::<Columnar>(&mut ctx)?;
     assert!(matches!(&result, Columnar::Constant(_)));
     assert_arrays_eq!(
         result.into_array(),
@@ -848,7 +847,7 @@ fn test_decimal_constant_wider_than_array_storage() -> VortexResult<()> {
     let values = DecimalArray::from_iter([1i64, 2], dtype).into_array();
     let constant = decimal_constant(10_000_000_000i128, dtype, 2);
 
-    let result = decimal_binary(values, constant, Operator::Add)?;
+    let result = decimal_binary(values, constant, NumericOperator::Add)?;
     assert_arrays_eq!(
         result,
         DecimalArray::from_iter::<i64, _>(
@@ -870,7 +869,7 @@ fn test_decimal_empty(#[case] op: NumericOperator) -> VortexResult<()> {
     let dtype = DecimalDType::new(10, 2);
     let empty = DecimalArray::from_iter::<i64, _>([], dtype).into_array();
 
-    let result = decimal_binary(empty.clone(), empty, op.into())?;
+    let result = decimal_binary(empty.clone(), empty, op)?;
     assert_arrays_eq!(
         result,
         DecimalArray::from_iter::<i256, _>([], result_decimal_dtype(dtype, op)?,),
@@ -893,7 +892,7 @@ fn test_decimal_constant_constant_folds(
     let lhs = decimal_constant(150i64, dtype, 3);
     let rhs = decimal_constant(50i64, dtype, 3);
 
-    let result = decimal_binary(lhs, rhs, op.into())?;
+    let result = decimal_binary(lhs, rhs, op)?;
     assert_arrays_eq!(
         result,
         DecimalArray::from_iter::<i256, _>(

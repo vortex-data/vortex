@@ -165,16 +165,78 @@ mod common_tests {
     use object_store::memory::InMemory;
     use url::Url;
     use vortex::VortexSessionDefault;
+    use vortex::dtype::DType;
+    use vortex::dtype::extension::ExtDType;
+    use vortex::dtype::extension::ExtDTypeRef;
+    use vortex::dtype::extension::ExtId;
+    use vortex::dtype::extension::ExtVTable;
+    use vortex::error::VortexResult;
     use vortex::file::WriteOptionsSessionExt;
     use vortex::io::VortexWrite;
     use vortex::io::object_store::ObjectStoreWrite;
+    use vortex::scalar::ScalarValue;
     use vortex::session::VortexSession;
+    use vortex::session::registry::CachedId;
     use vortex_arrow::ArrowSessionExt;
 
     use crate::VortexFormatFactory;
     use crate::VortexTableOptions;
 
     static VX_SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::default);
+
+    /// The Vortex ID of [`AnyStorage`], which is also its Arrow extension name.
+    pub static ANY_STORAGE_ID: CachedId = CachedId::new("test.any_storage");
+
+    /// An extension type over any storage dtype, without Arrow plugins.
+    ///
+    /// Its metadata is its storage dtype, which `metadata_from_storage` reads back from the
+    /// storage, so the serialized metadata is empty.
+    #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
+    pub struct AnyStorage;
+
+    impl AnyStorage {
+        /// An [`AnyStorage`] dtype over `storage`.
+        pub fn dtype(storage: DType) -> VortexResult<ExtDTypeRef> {
+            Ok(ExtDType::try_from_storage_with_vtable(Self, (), storage)?.erased())
+        }
+    }
+
+    impl ExtVTable for AnyStorage {
+        type Metadata = DType;
+        type StoredMetadata = ();
+        type NativeValue<'a> = &'a ScalarValue;
+
+        fn id(&self) -> ExtId {
+            *ANY_STORAGE_ID
+        }
+
+        fn serialize_metadata(&self, _metadata: &DType) -> VortexResult<Vec<u8>> {
+            Ok(Vec::new())
+        }
+
+        fn deserialize_metadata(&self, _metadata: &[u8]) -> VortexResult<()> {
+            Ok(())
+        }
+
+        fn metadata_from_storage(
+            &self,
+            _stored_metadata: (),
+            storage_dtype: &DType,
+        ) -> VortexResult<DType> {
+            Ok(storage_dtype.clone())
+        }
+
+        fn storage_dtype(metadata: &DType) -> DType {
+            metadata.clone()
+        }
+
+        fn unpack_native<'a>(
+            _ext_dtype: &'a ExtDType<Self>,
+            storage_value: &'a ScalarValue,
+        ) -> VortexResult<&'a ScalarValue> {
+            Ok(storage_value)
+        }
+    }
 
     pub struct TestSessionContext {
         pub store: Arc<dyn ObjectStore>,

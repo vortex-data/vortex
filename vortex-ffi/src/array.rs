@@ -4,7 +4,6 @@
 //! FFI interface for working with Vortex Arrays.
 use std::ffi::c_void;
 use std::ptr;
-use std::ptr::NonNull;
 
 use arrow_array::array::make_array;
 use arrow_array::ffi::FFI_ArrowArray;
@@ -356,9 +355,10 @@ unsafe fn primitive_from_raw<T: vortex::dtype::NativePType>(
     error: *mut *mut vx_error,
 ) -> *const vx_array {
     try_or_default(error, || {
-        let slice = if ptr.is_null() {
-            unsafe { std::slice::from_raw_parts(NonNull::dangling().as_ptr(), len) }
+        let slice = if len == 0 {
+            &[]
         } else {
+            vortex_ensure!(!ptr.is_null(), "ptr is NULL with len > 0");
             unsafe { std::slice::from_raw_parts(ptr, len) }
         };
         let buffer = Buffer::copy_from(slice);
@@ -1412,5 +1412,23 @@ mod tests {
             assert!(vx_array_get_bool(array, 2));
             vx_array_free(array);
         }
+    }
+
+    #[test]
+    fn test_new_primitive_null_pointer_with_nonzero_len_errors() {
+        let mut error = ptr::null_mut();
+        let validity = vx_validity {
+            r#type: vx_validity_type::VX_VALIDITY_NON_NULLABLE,
+            array: ptr::null(),
+        };
+        let array = vx_array_new_primitive(
+            vx_ptype::PTYPE_U32,
+            ptr::null(),
+            3,
+            &raw const validity,
+            &raw mut error,
+        );
+        assert!(array.is_null());
+        assert_error(error);
     }
 }

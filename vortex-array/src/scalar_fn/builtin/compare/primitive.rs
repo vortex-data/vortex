@@ -3,7 +3,7 @@
 
 //! Primitive comparison execution through [`RowFn`].
 //!
-//! [`Binary`] keeps its existing scalar-function hooks while delegating primitive row execution to
+//! [`Compare`] keeps its existing scalar-function hooks while delegating primitive row execution to
 //! a private [`RowFn`]. The executor owns decoding, constants, validity, and Boolean packing.
 
 use vortex_error::VortexResult;
@@ -17,7 +17,7 @@ use crate::dtype::PType;
 use crate::match_each_native_ptype;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
-use crate::scalar_fn::builtin::binary::Binary;
+use crate::scalar_fn::builtin::compare::Compare;
 use crate::scalar_fn::builtin::operators::CompareOperator;
 use crate::scalar_fn::unstable::row::RowFn;
 use crate::scalar_fn::unstable::row::RowInputs;
@@ -89,7 +89,7 @@ impl RowInputs for CompareArgs<'_> {
     }
 }
 
-/// A private row kernel used by [`Binary`] for primitive comparisons.
+/// A private row kernel used by [`Compare`] for primitive comparisons.
 #[derive(Clone)]
 struct PrimitiveCompare;
 
@@ -101,9 +101,9 @@ impl RowFn for PrimitiveCompare {
     const INFALLIBLE: bool = true;
 
     fn id(&self) -> ScalarFnId {
-        // Errors must name the caller's `Binary` function. This kernel is never registered or
+        // Errors must name the caller's `Compare` function. This kernel is never registered or
         // serialized independently, so it can share that ID. Registering it would require a new ID.
-        ScalarFnVTable::id(&Binary)
+        ScalarFnVTable::id(&Compare)
     }
 
     fn dispatch<V: RowVisitor>(

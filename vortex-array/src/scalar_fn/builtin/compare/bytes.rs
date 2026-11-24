@@ -27,8 +27,8 @@ use crate::arrays::varbinview::ResolvedViews;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::scalar::Scalar;
-use crate::scalar_fn::builtin::binary::compare::compare_validity;
-use crate::scalar_fn::builtin::binary::compare::ordering_predicate;
+use crate::scalar_fn::builtin::compare::compare_validity;
+use crate::scalar_fn::builtin::compare::ordering_predicate;
 use crate::scalar_fn::builtin::operators::CompareOperator;
 use crate::validity::Validity;
 

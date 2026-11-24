@@ -46,7 +46,7 @@ use crate::dtype::Nullability;
 use crate::match_each_decimal_value_type;
 use crate::match_each_integer_ptype;
 use crate::match_each_native_ptype;
-use crate::scalar_fn::builtin::binary::compare::compare_validity;
+use crate::scalar_fn::builtin::compare::compare_validity;
 use crate::scalar_fn::builtin::operators::CompareOperator;
 
 /// A row comparator: compares row `i` of the left operand against row `j` of the right operand.

@@ -124,3 +124,7 @@ harness = false
 name = "write_compression"
 harness = false
 test = false
+
+[[bench]]
+name = "filter_chunked"
+harness = false

@@ -24,16 +24,17 @@ export function EncodingPane({ node }: EncodingPaneProps) {
   const tree = node.arrayEncodingTree ?? fetchedTree;
 
   useEffect(() => {
-    // If already inlined, nothing to fetch.
-    if (node.arrayEncodingTree) return;
+    setError(null);
+    setFetchedTree(null);
 
-    // Need at least one segment to fetch from.
-    if (node.segmentIds.length === 0) return;
+    // If already inlined or there are no segments to fetch from, nothing to load.
+    if (node.arrayEncodingTree || node.segmentIds.length === 0) {
+      setLoading(false);
+      return;
+    }
 
     let cancelled = false;
     setLoading(true);
-    setError(null);
-    setFetchedTree(null);
 
     fetchEncodingTree(node.id)
       .then((result) => {

@@ -114,6 +114,9 @@ pub enum BoundaryMode {
 /// A boundary can also be marked soft: one that only some of a struct's fields have. A split there
 /// lets the fields that chunk across it decode the same chunk in two splits, so the scan may merge
 /// it away (see [`crate::scan::split_by::SplitBy::LayoutSubSplitting`]).
+///
+/// A boundary can also be pinned: one a reader chose to spread work across splits, such as the
+/// grid of a list layout. A pinned boundary is never soft, so the scan never merges it away.
 pub struct RowSplits {
     splits: Vec<u64>,
     /// Start index of the run currently being appended.
@@ -122,6 +125,8 @@ pub struct RowSplits {
     prev_run_start: usize,
     /// Boundaries marked soft, unsorted and possibly repeated.
     soft: Vec<u64>,
+    /// Boundaries marked pinned, unsorted and possibly repeated.
+    pinned: Vec<u64>,
     mode: BoundaryMode,
 }
 
@@ -203,6 +208,12 @@ impl RowSplits {
         self.soft.extend(rows);
     }
 
+    /// Pin boundaries: ones a reader chose to spread work across splits. They must also be
+    /// pushed. A pinned boundary is never soft, even where only some fields of a struct have it.
+    pub(crate) fn mark_pinned(&mut self, rows: impl IntoIterator<Item = u64>) {
+        self.pinned.extend(rows);
+    }
+
     /// Create a new RowSplits with preallocated "capacity"
     pub(crate) fn new_capacity(capacity: usize) -> Self {
         Self {
@@ -210,16 +221,31 @@ impl RowSplits {
             run_start: 0,
             prev_run_start: 0,
             soft: Vec::new(),
+            pinned: Vec::new(),
             mode: BoundaryMode::PositionsOnly,
         }
     }
 
-    /// The sorted, deduplicated boundaries, and the sorted soft ones among them.
-    pub(crate) fn into_sorted_deduped_with_soft(mut self) -> (Vec<u64>, Vec<u64>) {
+    /// The sorted, deduplicated boundaries, and the sorted soft ones among them. A pinned
+    /// boundary is never soft.
+    pub(crate) fn into_sorted_deduped_with_soft(self) -> (Vec<u64>, Vec<u64>) {
+        let (boundaries, mut soft, pinned) = self.into_sorted_deduped_with_marks();
+        soft.retain(|row| pinned.binary_search(row).is_err());
+        (boundaries, soft)
+    }
+
+    /// The sorted, deduplicated boundaries, and the sorted soft and pinned ones among them. A
+    /// boundary can be in both sets; the pinned mark takes precedence.
+    pub(crate) fn into_sorted_deduped_with_marks(mut self) -> (Vec<u64>, Vec<u64>, Vec<u64>) {
         let mut soft = std::mem::take(&mut self.soft);
         soft.sort_unstable();
         soft.dedup();
-        (self.into_sorted_deduped(), soft)
+
+        let mut pinned = std::mem::take(&mut self.pinned);
+        pinned.sort_unstable();
+        pinned.dedup();
+
+        (self.into_sorted_deduped(), soft, pinned)
     }
 
     pub(crate) fn into_sorted_deduped(mut self) -> Vec<u64> {

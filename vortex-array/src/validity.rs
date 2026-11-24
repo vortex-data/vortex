@@ -32,8 +32,8 @@ use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::patches::Patches;
 use crate::scalar::Scalar;
-use crate::scalar_fn::builtin::binary::Binary;
-use crate::scalar_fn::builtin::operators::Operator;
+use crate::scalar_fn::builtin::boolean::Boolean;
+use crate::scalar_fn::builtin::operators::BooleanOperator;
 
 /// Validity information for an array.
 #[derive(Clone)]
@@ -309,7 +309,7 @@ impl Validity {
             | (Validity::AllValid, Validity::AllValid) => Validity::AllValid,
             // Here we actually have to do some work
             (Validity::Array(lhs), Validity::Array(rhs)) => {
-                Validity::Array(Binary::try_new(lhs, rhs, Operator::And)?.into_array())
+                Validity::Array(Boolean::try_new(lhs, rhs, BooleanOperator::And)?.into_array())
             }
         })
     }
