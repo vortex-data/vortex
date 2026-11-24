@@ -689,10 +689,7 @@ jobs:
 
           echo "branch=$branch" >> "$GITHUB_OUTPUT"
 
-      # The App token ensures the PR triggers normal CI. The PR opens ready for
-      # review, not as a draft: only fixes that passed the review skill get here,
-      # and a draft fix PR got no review (a maintainer rewrote #8302's fix in
-      # #8326 the next day).
+      # The App token ensures the PR triggers normal CI.
       - name: Open pull request for fix branch
         if: ${{ !cancelled() && steps.commit.outputs.branch != '' }}
         env:
