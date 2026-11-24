@@ -150,9 +150,19 @@ fn scalar_fn(nested: bool) -> ArrayRef {
         .into_array()
 }
 
-fn indices() -> Vec<usize> {
+/// Reads per iteration. Fixtures with costly reads use fewer, so that each benchmark stays under
+/// 1 ms in the CodSpeed simulation.
+fn accesses(name: &str) -> usize {
+    match name {
+        "map" | "scalar_fn_binary" => 32,
+        "scalar_fn_nested" => 16,
+        _ => ACCESSES,
+    }
+}
+
+fn indices(count: usize) -> Vec<usize> {
     let mut seed = 42u64;
-    (0..ACCESSES)
+    (0..count)
         .map(|_| {
             seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
             (seed >> 32) as usize % LEN
@@ -191,7 +201,7 @@ fn array(name: &str) -> ArrayRef {
 fn once(bencher: Bencher, name: &str) {
     let array = array(name);
     mark_optimized(&array, &SESSION).vortex_expect("optimize the benchmark input");
-    let indices = indices();
+    let indices = indices(accesses(name));
     bencher
         .with_inputs(|| SESSION.create_execution_ctx())
         .bench_refs(|ctx| {
@@ -209,7 +219,7 @@ fn once(bencher: Bencher, name: &str) {
 fn repeated(bencher: Bencher, name: &str) {
     let array = array(name);
     mark_optimized(&array, &SESSION).vortex_expect("optimize the benchmark input");
-    let indices = indices();
+    let indices = indices(accesses(name));
     bencher
         .with_inputs(|| (SESSION.create_execution_ctx(), array.repeated_probe()))
         .bench_refs(|(ctx, probe)| {
@@ -230,7 +240,7 @@ fn scalar_fn_same_row_once(bencher: Bencher, name: &str) {
     bencher
         .with_inputs(|| SESSION.create_execution_ctx())
         .bench_refs(|ctx| {
-            for _ in 0..ACCESSES {
+            for _ in 0..accesses(name) {
                 divan::black_box(
                     array
                         .execute_scalar(LEN / 2, ctx)
@@ -247,7 +257,7 @@ fn scalar_fn_same_row_repeated(bencher: Bencher, name: &str) {
     bencher
         .with_inputs(|| (SESSION.create_execution_ctx(), array.repeated_probe()))
         .bench_refs(|(ctx, probe)| {
-            for _ in 0..ACCESSES {
+            for _ in 0..accesses(name) {
                 divan::black_box(
                     probe
                         .execute_scalar(LEN / 2, ctx)

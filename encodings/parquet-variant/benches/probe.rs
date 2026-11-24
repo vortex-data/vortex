@@ -23,7 +23,7 @@ use vortex_session::VortexSession;
 static GLOBAL: MiMalloc = MiMalloc;
 
 const LEN: usize = 4096;
-const ACCESSES: usize = 256;
+const ACCESSES: usize = 64;
 const CASES: &[(&str, &str)] = &[
     ("typed", "random"),
     ("typed", "same_row"),
