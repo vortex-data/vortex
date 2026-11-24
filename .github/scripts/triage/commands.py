@@ -1,0 +1,112 @@
+"""Parse the commands that people send as replies in an item's Slack thread.
+
+A reply is a command only if it starts with `!`, after any leading mentions, so ordinary
+conversation in a thread never triggers the bot.
+"""
+
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass
+
+MAX_HOURS = 168
+MAX_DAYS = 60
+
+USAGE = (
+    f"`!snooze 5h` (working hours, at most {MAX_HOURS}), "
+    f"`!snooze 2d` (working days, at most {MAX_DAYS}), or `!unsnooze`"
+)
+
+_MENTIONS = re.compile(r"^(?:<@[A-Z0-9]+>\s*)+")
+_DURATION = re.compile(r"^(\d+)\s*([a-z]*)$")
+_UNITS = {
+    "h": "h",
+    "hr": "h",
+    "hrs": "h",
+    "hour": "h",
+    "hours": "h",
+    "d": "d",
+    "day": "d",
+    "days": "d",
+}
+_ECHO_LIMIT = 30
+
+
+@dataclass(frozen=True)
+class Snooze:
+    amount: int
+    # "h" for working hours or "d" for working days.
+    unit: str
+
+
+@dataclass(frozen=True)
+class Unsnooze:
+    pass
+
+
+@dataclass(frozen=True)
+class Invalid:
+    """A reply that starts with `!` but is not a valid command. `error` says what to fix."""
+
+    error: str
+
+
+Command = Snooze | Unsnooze | Invalid
+
+
+def _echo(text: str) -> str:
+    """Quote what the person typed inside a code span, without letting it break the span."""
+    cleaned = " ".join(text.replace("`", "'").split())
+    if len(cleaned) > _ECHO_LIMIT:
+        cleaned = cleaned[: _ECHO_LIMIT - 3] + "..."
+    return f"`{cleaned}`"
+
+
+def parse(text: str) -> Command | None:
+    """Return the command in a reply, or None when the reply is not a command."""
+    body = _MENTIONS.sub("", text.strip()).strip()
+    if not body.startswith("!"):
+        return None
+    words = body[1:].split()
+    if not words:
+        return Invalid(f"A command needs a name after `!`. Use {USAGE}.")
+    name, args = words[0].lower(), words[1:]
+    if name == "snooze":
+        return _snooze(" ".join(args))
+    if name == "unsnooze":
+        if args:
+            return Invalid(f"`!unsnooze` takes nothing after it, but got {_echo(' '.join(args))}.")
+        return Unsnooze()
+    return Invalid(f"{_echo('!' + name)} is not a command. Use {USAGE}.")
+
+
+def _snooze(argument: str) -> Command:
+    if not argument:
+        return Invalid("`!snooze` needs a duration, for example `!snooze 5h` or `!snooze 2d`.")
+    match = _DURATION.match(argument.lower())
+    if match is None:
+        return Invalid(
+            f"{_echo(argument)} is not a duration. Use a whole number and a unit, "
+            "for example `!snooze 5h` or `!snooze 2d`."
+        )
+    amount, unit_text = int(match.group(1)), match.group(2)
+    if not unit_text:
+        return Invalid(
+            f"{_echo(argument)} has no unit. Add `h` for working hours or `d` for working days, "
+            f"for example `!snooze {amount}h`."
+        )
+    unit = _UNITS.get(unit_text)
+    if unit is None:
+        return Invalid(
+            f"{_echo(unit_text)} is not a unit. Use `h` for working hours or `d` for working days."
+        )
+    if amount == 0:
+        return Invalid("A snooze must last at least `1h` or `1d`. Use `!unsnooze` to end a snooze.")
+    if unit == "h" and amount > MAX_HOURS:
+        return Invalid(
+            f"`{amount}h` is more than the limit of {MAX_HOURS} working hours. "
+            f"Use days for longer snoozes, up to `{MAX_DAYS}d`."
+        )
+    if unit == "d" and amount > MAX_DAYS:
+        return Invalid(f"`{amount}d` is more than the limit of {MAX_DAYS} working days.")
+    return Snooze(amount, unit)

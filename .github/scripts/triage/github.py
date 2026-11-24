@@ -1,24 +1,29 @@
-"""Find the open issues and pull requests that involve an external contributor or the fuzzer."""
+"""Read the open issues and pull requests of a repository with GitHub GraphQL."""
 
 from __future__ import annotations
 
 import json
 import subprocess
+import time
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from typing import Any
 
 from .team import TEAM
 
-EXTERNAL_AUTHOR = "external_author"
-EXTERNAL_COMMENT = "external_comment"
-FUZZER = "fuzzer"
+OPENED = "opened"
+COMMENT = "comment"
+REVIEW = "review"
+PUSH = "push"
+READY = "ready"
 
 _BODY_LIMIT = 1000
-_COMMENT_LIMIT = 600
-_RECENT_LIMIT = 8
+_ATTEMPTS = 3
+_TEXT_LIMIT = 600
 
-# A reply to an inline review comment is itself a review, so `reviews` covers those too.
+# Each connection holds its newest 100 nodes, which is enough because the rules only look at recent
+# activity. A pull request page also fetches 300 timeline nodes, so pages hold 50 items to stay well
+# inside GitHub's limit of 500,000 nodes per query.
 _QUERY = """
 query($owner: String!, $name: String!, $cursor: String) {
   repository(owner: $owner, name: $name) {
@@ -29,70 +34,87 @@ query($owner: String!, $name: String!, $cursor: String) {
         author { login __typename }
         labels(first: 50) { nodes { name } }
         assignees(first: 20) { nodes { login } }
-        # GitHub GraphQL caps a single page at 100; more than 100 trailing bot comments
-        # would push older human comments out of this window.
-        comments(last: 100) { nodes { at: createdAt body author { login __typename } } }
+        comments(last: 100) { nodes { createdAt body author { login __typename } } }
         %(extra)s
       }
     }
   }
 }
 """
-_CONNECTIONS = {
-    "issue": {"connection": "issues", "extra": ""},
-    "pr": {
-        "connection": "pullRequests",
-        "extra": (
-            "reviews(last: 100) {"
-            " nodes { at: submittedAt body state author { login __typename } } }"
-        ),
-    },
-}
+_PR_FIELDS = """
+        isDraft additions deletions
+        reviews(last: 100) { nodes { submittedAt state body author { login __typename } } }
+        timelineItems(
+          last: 100
+          itemTypes: [PULL_REQUEST_COMMIT, HEAD_REF_FORCE_PUSHED_EVENT, READY_FOR_REVIEW_EVENT]
+        ) {
+          nodes {
+            __typename
+            ... on PullRequestCommit {
+              commit {
+                committedDate
+                author { user { login __typename } }
+                committer { user { login __typename } }
+              }
+            }
+            ... on HeadRefForcePushedEvent { createdAt actor { login __typename } }
+            ... on ReadyForReviewEvent { createdAt actor { login __typename } }
+          }
+        }
+"""
+_CONNECTIONS = {"issue": ("issues", ""), "pr": ("pullRequests", _PR_FIELDS)}
 
 Query = Callable[[str, dict[str, str | int]], dict[str, Any]]
 
 
 @dataclass(frozen=True)
-class Comment:
-    """One human comment or submitted review on an issue or pull request."""
+class Event:
+    """One action by a person on an issue or pull request. Bots never produce events."""
 
+    # GitHub's ISO 8601 UTC timestamps sort chronologically as strings.
     at: str
-    author: str
+    actor: str
     team: bool
     kind: str
-    body: str = ""
+    # The review state, such as `APPROVED`, for reviews only.
     state: str = ""
+    text: str = ""
 
 
 @dataclass(frozen=True)
 class Item:
-    """An open issue or pull request. An item with no `reasons` needs no tracking."""
+    """An open issue or pull request with the human activity on it, oldest first."""
 
     number: int
     kind: str
     title: str
     url: str
     author: str
+    author_bot: bool
+    author_team: bool
     created_at: str
+    labels: frozenset[str]
     assignees: tuple[str, ...]
-    reasons: tuple[str, ...]
-    # The latest activity by an external contributor, and the latest comment or review by the
-    # team. Timestamps are GitHub's ISO 8601 UTC strings, which sort chronologically.
-    external_at: str | None = None
-    external_by: str | None = None
-    team_at: str | None = None
+    events: tuple[Event, ...]
+    draft: bool = False
+    changed_lines: int = 0
     body: str = ""
-    recent: tuple[Comment, ...] = ()
 
 
 def gh_graphql(query: str, variables: dict[str, str | int]) -> dict[str, Any]:
-    """Run a GraphQL query with the `gh` CLI, which reads its token from `GH_TOKEN`."""
+    """Run a GraphQL query with the `gh` CLI, which reads its token from `GH_TOKEN`.
+
+    A failed query is retried, because GitHub sometimes cuts a large response short, and a failed
+    scan fails the whole run.
+    """
     args = ["gh", "api", "graphql", "-f", f"query={query}"]
     for name, value in variables.items():
-        # `-F` sends a number, which a GraphQL `Int` needs; `-f` keeps the value a string.
+        # `-F` sends a number, which a GraphQL `Int` needs, and `-f` keeps the value a string.
         args += ["-F" if isinstance(value, int) else "-f", f"{name}={value}"]
-    result = subprocess.run(args, capture_output=True, text=True, check=False)
-    if result.returncode != 0:
+    for attempt in range(_ATTEMPTS):
+        result = subprocess.run(args, capture_output=True, text=True, check=False)
+        if result.returncode == 0:
+            return json.loads(result.stdout)["data"]
         # A deleted or transferred issue returns partial `data` with a NOT_FOUND GraphQL error.
         try:
             body = json.loads(result.stdout)
@@ -105,21 +127,24 @@ def gh_graphql(query: str, variables: dict[str, str | int]) -> dict[str, Any]:
             and all(err.get("type") == "NOT_FOUND" for err in body["errors"])
         ):
             return body["data"]
-        raise RuntimeError(f"GitHub query failed: {result.stderr.strip() or result.stdout.strip()}")
-    return json.loads(result.stdout)["data"]
+        if attempt + 1 < _ATTEMPTS:
+            time.sleep(2**attempt)
+    raise RuntimeError(f"GitHub query failed: {result.stderr.strip() or result.stdout.strip()}")
 
 
 def _login(actor: dict[str, Any] | None) -> str:
     # GitHub reports the author of a deleted account as null and shows it as `ghost`.
-    return actor["login"] if actor else "ghost"
+    return str(actor["login"]) if actor else "ghost"
 
 
 def _is_bot(actor: dict[str, Any] | None) -> bool:
-    return actor is not None and (actor["__typename"] == "Bot" or actor["login"].endswith("[bot]"))
+    return actor is not None and (
+        str(actor["__typename"]) == "Bot" or _login(actor).endswith("[bot]")
+    )
 
 
-def _is_team(actor: dict[str, Any] | None) -> bool:
-    return actor is not None and actor["login"].lower() in TEAM
+def _is_team(login: str) -> bool:
+    return login.lower() in TEAM
 
 
 def _trim(text: str | None, limit: int) -> str:
@@ -129,64 +154,81 @@ def _trim(text: str | None, limit: int) -> str:
     return cleaned[: limit - 3].rstrip() + "..."
 
 
-def classify(kind: str, node: dict[str, Any]) -> Item:
+def _event(at: str | None, actor: dict[str, Any] | None, kind: str, **extra: str) -> Event | None:
+    if not at or _is_bot(actor):
+        return None
+    login = _login(actor)
+    return Event(at=at, actor=login, team=_is_team(login), kind=kind, **extra)
+
+
+def _push(node: dict[str, Any], author: dict[str, Any] | None) -> Event | None:
+    if node["__typename"] == "PullRequestCommit":
+        commit = node["commit"]
+        # A teammate who rebases a contributor's commits becomes their committer and gives them a
+        # new `committedDate`, while the contributor stays their author.
+        committer = (commit.get("committer") or {}).get("user")
+        if committer is not None and _is_team(_login(committer)):
+            return None
+        # A commit email with no GitHub account has no user, so credit the pull request's author.
+        user = (commit.get("author") or {}).get("user") or author
+        # GitHub no longer reports when a commit was pushed, so a commit counts from its commit
+        # time. A commit made before a review and pushed after it sorts before the review.
+        event = _event(commit.get("committedDate"), user, PUSH)
+    else:
+        kind = READY if node["__typename"] == "ReadyForReviewEvent" else PUSH
+        event = _event(node.get("createdAt"), node.get("actor"), kind)
+    # A teammate's push is not an answer to the contributor. "Update branch" on a contributor's PR,
+    # or a push to a team PR after an external comment, must not make the contributor owe a reply.
+    return None if event is None or event.team else event
+
+
+def parse(kind: str, node: dict[str, Any]) -> Item:
     """Turn one GraphQL issue or pull request node into an `Item`."""
     author = node["author"]
-    reasons = []
-    external_at = external_by = team_at = None
-    if not _is_bot(author) and not _is_team(author):
-        reasons.append(EXTERNAL_AUTHOR)
-        external_at, external_by = node["createdAt"], _login(author)
-
-    activity = [("comment", entry) for entry in node["comments"]["nodes"]] + [
-        ("review", entry) for entry in node.get("reviews", {}).get("nodes", [])
+    candidates = [
+        _event(node["createdAt"], author, OPENED, text=_trim(node.get("body"), _TEXT_LIMIT))
     ]
-    # A review that is not submitted yet has no timestamp and is not visible to anyone else.
-    people = [(entry_kind, a) for entry_kind, a in activity if a["at"] and not _is_bot(a["author"])]
-    people.sort(key=lambda pair: pair[1]["at"])
-    recent: list[Comment] = []
-    for entry_kind, entry in people:
-        team_member = _is_team(entry["author"])
-        if team_member:
-            team_at = entry["at"]
-        else:
-            external_at, external_by = entry["at"], _login(entry["author"])
-        recent.append(
-            Comment(
-                at=entry["at"],
-                author=_login(entry["author"]),
-                team=team_member,
-                kind=entry_kind,
-                body=_trim(entry.get("body"), _COMMENT_LIMIT),
-                state=str(entry.get("state") or ""),
+    candidates += [
+        _event(c["createdAt"], c["author"], COMMENT, text=_trim(c.get("body"), _TEXT_LIMIT))
+        for c in node["comments"]["nodes"]
+    ]
+    if kind == "pr":
+        # A review that is not submitted yet has no timestamp and is not visible to anyone else.
+        candidates += [
+            _event(
+                r["submittedAt"],
+                r["author"],
+                REVIEW,
+                state=r["state"],
+                text=_trim(r.get("body"), _TEXT_LIMIT),
             )
-        )
-    if people and not _is_team(people[-1][1]["author"]):
-        reasons.append(EXTERNAL_COMMENT)
-
-    if kind == "issue" and any(label["name"] == FUZZER for label in node["labels"]["nodes"]):
-        reasons.append(FUZZER)
-
+            for r in node["reviews"]["nodes"]
+        ]
+        candidates += [_push(t, author) for t in node["timelineItems"]["nodes"]]
+    events = sorted((e for e in candidates if e is not None), key=lambda e: e.at)
+    login = _login(author)
     return Item(
         number=node["number"],
         kind=kind,
         title=node["title"],
         url=node["url"],
-        author=_login(author),
+        author=login,
+        author_bot=_is_bot(author),
+        author_team=_is_team(login),
         created_at=node["createdAt"],
+        labels=frozenset(label["name"] for label in node["labels"]["nodes"]),
         assignees=tuple(sorted(a["login"] for a in node["assignees"]["nodes"])),
-        reasons=tuple(reasons),
-        external_at=external_at,
-        external_by=external_by,
-        team_at=team_at,
+        events=tuple(events),
+        draft=bool(node.get("isDraft")),
+        changed_lines=int(node.get("additions") or 0) + int(node.get("deletions") or 0),
         body=_trim(node.get("body"), _BODY_LIMIT),
-        recent=tuple(recent[-_RECENT_LIMIT:]),
     )
 
 
 def _pages(repo: str, kind: str, query: Query) -> Iterator[dict[str, Any]]:
     owner, name = repo.split("/", 1)
-    text = _QUERY % _CONNECTIONS[kind]
+    connection, extra = _CONNECTIONS[kind]
+    text = _QUERY % {"connection": connection, "extra": extra}
     cursor: str | None = None
     while True:
         variables: dict[str, str | int] = {"owner": owner, "name": name}
@@ -196,28 +238,34 @@ def _pages(repo: str, kind: str, query: Query) -> Iterator[dict[str, Any]]:
         yield from page["nodes"]
         if not page["pageInfo"]["hasNextPage"]:
             return
-        cursor = page["pageInfo"]["endCursor"]
+        cursor = str(page["pageInfo"]["endCursor"])
 
 
 def scan(repo: str, query: Query = gh_graphql) -> list[Item]:
-    """Return every open issue and pull request in `repo`, sorted by number.
-
-    Items with no `reasons` are included so the publisher can tell them apart from closed items.
-    """
-    items = [classify(kind, node) for kind in _CONNECTIONS for node in _pages(repo, kind, query)]
+    """Return every open issue and pull request in `repo`, sorted by number."""
+    items = [parse(kind, node) for kind in _CONNECTIONS for node in _pages(repo, kind, query)]
     return sorted(items, key=lambda item: item.number)
 
 
-def closed_state(repo: str, number: int, query: Query = gh_graphql) -> str | None:
-    """Return `closed`, `merged`, or `deleted` for a non-open item, or None if it is open."""
+@dataclass(frozen=True)
+class Ended:
+    """An item that is no longer open. `state` is `closed`, `merged`, or `deleted`."""
+
+    state: str
+    title: str = ""
+    url: str = ""
+
+
+def closed_state(repo: str, number: int, query: Query = gh_graphql) -> Ended | None:
+    """Return how an item ended, or None if it is still open."""
     owner, name = repo.split("/", 1)
     data = query(
         """
         query($owner: String!, $name: String!, $number: Int!) {
           repository(owner: $owner, name: $name) {
             item: issueOrPullRequest(number: $number) {
-              ... on Issue { state }
-              ... on PullRequest { state }
+              ... on Issue { state title url }
+              ... on PullRequest { state title url }
             }
           }
         }
@@ -226,6 +274,6 @@ def closed_state(repo: str, number: int, query: Query = gh_graphql) -> str | Non
     )
     item = data["repository"]["item"]
     if item is None:
-        return "deleted"
+        return Ended("deleted")
     state = item["state"].lower()
-    return None if state == "open" else state
+    return None if state == "open" else Ended(state, item["title"], item["url"])
