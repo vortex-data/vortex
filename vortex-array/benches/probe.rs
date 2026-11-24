@@ -13,11 +13,21 @@ use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::BoolArray;
+use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::DictArray;
+use vortex_array::arrays::FixedSizeListArray;
+use vortex_array::arrays::InterleaveArray;
+use vortex_array::arrays::ListArray;
+use vortex_array::arrays::ListViewArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
+use vortex_array::arrays::VarBinArray;
+use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldNames;
+use vortex_array::dtype::Nullability;
 use vortex_array::optimizer::kernels::KernelSession;
+use vortex_array::scalar_fn::builtin::boolean::Boolean;
+use vortex_array::scalar_fn::builtin::operators::BooleanOperator;
 use vortex_array::test_harness::mark_optimized;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
@@ -71,9 +81,91 @@ fn nullable_struct() -> ArrayRef {
     .into_array()
 }
 
-fn indices() -> Vec<usize> {
+fn nullable_list() -> ArrayRef {
+    let offsets = (0..=LEN)
+        .map(|i| u32::try_from(i * 3).vortex_expect("list offsets fit u32"))
+        .collect::<Buffer<u32>>()
+        .into_array();
+    ListArray::try_new(
+        nullable_primitive(LEN * 3),
+        offsets,
+        Validity::from_iter((0..LEN).map(|i| i % 11 != 0)),
+        &mut SESSION.create_execution_ctx(),
+    )
+    .vortex_expect("list fixture")
+    .into_array()
+}
+
+fn nullable_listview() -> ArrayRef {
+    let offsets = PrimitiveArray::from_iter(
+        (0..LEN).map(|index| u32::try_from(index * 3).vortex_expect("offset fits u32")),
+    )
+    .into_array();
+    let sizes = ConstantArray::new(3u32, LEN).into_array();
+    ListViewArray::new(
+        nullable_primitive(LEN * 3),
+        offsets,
+        sizes,
+        Validity::from_iter((0..LEN).map(|index| index % 11 != 0)),
+        &mut SESSION.create_execution_ctx(),
+    )
+    .into_array()
+}
+
+fn nullable_fixed_size_list() -> ArrayRef {
+    FixedSizeListArray::new(
+        nullable_primitive(LEN * 3),
+        3,
+        Validity::from_iter((0..LEN).map(|index| index % 11 != 0)),
+        LEN,
+    )
+    .into_array()
+}
+
+fn nullable_interleave() -> ArrayRef {
+    let array_indices = (0..LEN)
+        .map(|i| u8::try_from(i % 2).vortex_expect("branch index fits u8"))
+        .collect::<Buffer<u8>>()
+        .into_array();
+    let row_indices = (0..LEN)
+        .map(|i| u32::try_from((i * 7919) % LEN).vortex_expect("row index fits u32"))
+        .collect::<Buffer<u32>>()
+        .into_array();
+    InterleaveArray::try_new(
+        vec![nullable_primitive(LEN), nullable_primitive(LEN)],
+        array_indices,
+        row_indices,
+    )
+    .vortex_expect("interleave fixture")
+    .into_array()
+}
+
+/// Kleene AND is not strict, so its validity is irreducible and reads through
+/// `ScalarFnValidity`.
+fn kleene_and_validity() -> ArrayRef {
+    let lhs = BoolArray::from_iter((0..LEN).map(|i| (i % 7 != 0).then_some(i % 2 == 0)));
+    let rhs = BoolArray::from_iter((0..LEN).map(|i| (i % 5 != 0).then_some(i % 3 == 0)));
+    Boolean::try_new(lhs.into_array(), rhs.into_array(), BooleanOperator::And)
+        .vortex_expect("Kleene AND fixture")
+        .into_array()
+        .validity()
+        .vortex_expect("scalar function validity")
+        .to_array(LEN)
+}
+
+/// Reads per iteration. Fixtures with costly reads use fewer, so that each benchmark stays under
+/// 1 ms in the CodSpeed simulation.
+fn accesses(name: &str) -> usize {
+    match name {
+        "list" | "listview" | "fixed_size_list" => 64,
+        "scalar_fn_validity" => 128,
+        _ => ACCESSES,
+    }
+}
+
+fn indices(count: usize) -> Vec<usize> {
     let mut seed = 42u64;
-    (0..ACCESSES)
+    (0..count)
         .map(|_| {
             seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
             (seed >> 32) as usize % LEN
@@ -81,16 +173,40 @@ fn indices() -> Vec<usize> {
         .collect()
 }
 
-const ARRAYS: &[&str] = &["primitive", "dict", "struct", "bool"];
+const ARRAYS: &[&str] = &[
+    "primitive",
+    "dict",
+    "struct",
+    "bool",
+    "varbin",
+    "list",
+    "listview",
+    "fixed_size_list",
+    "interleave",
+    "scalar_fn_validity",
+];
 
 fn array(name: &str) -> ArrayRef {
     match name {
         "primitive" => nullable_primitive(LEN),
+        "list" => nullable_list(),
+        "listview" => nullable_listview(),
+        "fixed_size_list" => nullable_fixed_size_list(),
+        "scalar_fn_validity" => kleene_and_validity(),
+        "interleave" => nullable_interleave(),
         "dict" => dict_over_nullable_values(),
         "struct" => nullable_struct(),
         "bool" => {
             BoolArray::from_iter((0..LEN).map(|i| (i % 7 != 0).then_some(i % 2 == 0))).into_array()
         }
+        "varbin" => VarBinArray::from_iter(
+            [Some("short"), None, Some("longer varbin string")]
+                .into_iter()
+                .cycle()
+                .take(LEN),
+            DType::Utf8(Nullability::Nullable),
+        )
+        .into_array(),
         _ => unreachable!("unknown fixture {name}"),
     }
 }
@@ -99,7 +215,7 @@ fn array(name: &str) -> ArrayRef {
 fn once(bencher: Bencher, name: &str) {
     let array = array(name);
     mark_optimized(&array, &SESSION).vortex_expect("optimize the benchmark input");
-    let indices = indices();
+    let indices = indices(accesses(name));
     bencher
         .with_inputs(|| SESSION.create_execution_ctx())
         .bench_refs(|ctx| {
@@ -117,7 +233,7 @@ fn once(bencher: Bencher, name: &str) {
 fn repeated(bencher: Bencher, name: &str) {
     let array = array(name);
     mark_optimized(&array, &SESSION).vortex_expect("optimize the benchmark input");
-    let indices = indices();
+    let indices = indices(accesses(name));
     bencher
         .with_inputs(|| (SESSION.create_execution_ctx(), array.repeated_probe()))
         .bench_refs(|(ctx, probe)| {
