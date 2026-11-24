@@ -14,7 +14,7 @@ use crate::IntoArray;
 use crate::arrays::BoolArray;
 use crate::arrays::Constant;
 use crate::dtype::Nullability;
-use crate::scalar_fn::builtin::binary::compare::compare_validity;
+use crate::scalar_fn::builtin::compare::compare_validity;
 use crate::scalar_fn::builtin::operators::CompareOperator;
 use crate::validity::Validity;
 

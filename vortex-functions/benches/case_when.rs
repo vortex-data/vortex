@@ -30,9 +30,9 @@ use vortex_array::expr::lt;
 use vortex_array::expr::root;
 use vortex_array::memory::MemorySession;
 use vortex_array::optimizer::kernels::KernelSession;
+use vortex_array::scalar::NumericOperator;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar_fn::ScalarFnVTableExt;
-use vortex_array::scalar_fn::builtin::operators::Operator;
 use vortex_array::scalar_fn::session::ScalarFnSession;
 use vortex_array::session::ArraySession;
 use vortex_array::test_harness::mark_optimized;
@@ -70,7 +70,7 @@ fn case_when_decimal_product(bencher: Bencher, run_length: usize) {
     let dtype = DecimalDType::new(15, 2);
     let lhs = DecimalArray::from_iter(0..len as i64, dtype).into_array();
     let rhs = DecimalArray::from_iter((0..len as i64).map(|i| i % 100), dtype).into_array();
-    let product = lhs.binary(rhs, Operator::Mul).unwrap();
+    let product = lhs.numeric(rhs, NumericOperator::Mul).unwrap();
     let otherwise = ConstantArray::new(Scalar::zero_value(product.dtype()), len).into_array();
     bench_branches(bencher, run_length, product, otherwise);
 }

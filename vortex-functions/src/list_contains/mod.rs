@@ -51,9 +51,9 @@ use vortex_array::scalar_fn::ReduceNodeValidity;
 use vortex_array::scalar_fn::ScalarFnId;
 use vortex_array::scalar_fn::ScalarFnVTable;
 use vortex_array::scalar_fn::ScalarFnVTableExt;
-use vortex_array::scalar_fn::builtin::binary::Binary;
+use vortex_array::scalar_fn::builtin::compare::Compare;
 use vortex_array::scalar_fn::builtin::literal::Literal;
-use vortex_array::scalar_fn::builtin::operators::Operator;
+use vortex_array::scalar_fn::builtin::operators::CompareOperator;
 use vortex_array::scalar_fn::is_not_null_node;
 use vortex_array::scalar_fn::session::ScalarFnSessionExt;
 use vortex_array::validity::Validity;
@@ -479,7 +479,7 @@ fn list_contains_scalar(
 
     let rhs = ConstantArray::new(value.clone(), elems.len());
     let matching_elements =
-        Binary::try_new(elems.clone(), rhs.into_array(), Operator::Eq)?.into_array();
+        Compare::try_new(elems.clone(), rhs.into_array(), CompareOperator::Eq)?.into_array();
 
     let mut matches = match matching_elements.execute::<Columnar>(ctx)? {
         Columnar::Constant(constant) => {
@@ -582,7 +582,7 @@ fn lists_contain_needles(
         BitBuffer::collect_bool_in(len, |row| gathered.lens[row] != 0, ctx.allocator().clone());
 
     // `any_null` is only read under SQL null semantics.
-    let comparisons = Binary::try_new(elements, needles, Operator::Eq)?.into_array();
+    let comparisons = Compare::try_new(elements, needles, CompareOperator::Eq)?.into_array();
     let (any_true, any_null) = match comparisons.execute::<Columnar>(ctx)? {
         // One answer for every comparison decides each row from whether it compared anything.
         Columnar::Constant(constant) => match constant.scalar().as_bool().value() {

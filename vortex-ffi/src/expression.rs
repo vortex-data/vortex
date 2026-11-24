@@ -9,6 +9,7 @@ use vortex::dtype::FieldName;
 use vortex::error::VortexExpect;
 use vortex::expr::Expression;
 use vortex::expr::and_collect;
+use vortex::expr::binary;
 use vortex::expr::get_item;
 use vortex::expr::is_null;
 use vortex::expr::list_contains;
@@ -17,9 +18,10 @@ use vortex::expr::not;
 use vortex::expr::or_collect;
 use vortex::expr::root;
 use vortex::expr::select;
-use vortex::scalar_fn::ScalarFnVTableExt;
-use vortex::scalar_fn::builtin::binary::Binary;
-use vortex::scalar_fn::builtin::operators::Operator;
+use vortex::scalar::NumericOperator;
+use vortex::scalar_fn::builtin::operators::BinaryOperator;
+use vortex::scalar_fn::builtin::operators::BooleanOperator;
+use vortex::scalar_fn::builtin::operators::CompareOperator;
 
 use crate::box_wrapper;
 use crate::error::try_or;
@@ -172,6 +174,7 @@ pub unsafe extern "C" fn vx_expression_or(
 /// VX_OPERATOR_KLEENE_AND, VX_OPERATOR_KLEENE_OR obey Kleene (three-valued)
 /// logic
 #[repr(C)]
+#[allow(dead_code, reason = "C callers construct the variants")]
 pub enum vx_binary_operator {
     /// Expressions are equal.
     VX_OPERATOR_EQ = 0,
@@ -202,21 +205,21 @@ pub enum vx_binary_operator {
     VX_OPERATOR_DIV = 11,
 }
 
-impl From<vx_binary_operator> for Operator {
+impl From<vx_binary_operator> for BinaryOperator {
     fn from(operator: vx_binary_operator) -> Self {
         match operator {
-            vx_binary_operator::VX_OPERATOR_EQ => Operator::Eq,
-            vx_binary_operator::VX_OPERATOR_NOT_EQ => Operator::NotEq,
-            vx_binary_operator::VX_OPERATOR_GT => Operator::Gt,
-            vx_binary_operator::VX_OPERATOR_GTE => Operator::Gte,
-            vx_binary_operator::VX_OPERATOR_LT => Operator::Lt,
-            vx_binary_operator::VX_OPERATOR_LTE => Operator::Lte,
-            vx_binary_operator::VX_OPERATOR_KLEENE_AND => Operator::And,
-            vx_binary_operator::VX_OPERATOR_KLEENE_OR => Operator::Or,
-            vx_binary_operator::VX_OPERATOR_ADD => Operator::Add,
-            vx_binary_operator::VX_OPERATOR_SUB => Operator::Sub,
-            vx_binary_operator::VX_OPERATOR_MUL => Operator::Mul,
-            vx_binary_operator::VX_OPERATOR_DIV => Operator::Div,
+            vx_binary_operator::VX_OPERATOR_EQ => Self::Compare(CompareOperator::Eq),
+            vx_binary_operator::VX_OPERATOR_NOT_EQ => Self::Compare(CompareOperator::NotEq),
+            vx_binary_operator::VX_OPERATOR_GT => Self::Compare(CompareOperator::Gt),
+            vx_binary_operator::VX_OPERATOR_GTE => Self::Compare(CompareOperator::Gte),
+            vx_binary_operator::VX_OPERATOR_LT => Self::Compare(CompareOperator::Lt),
+            vx_binary_operator::VX_OPERATOR_LTE => Self::Compare(CompareOperator::Lte),
+            vx_binary_operator::VX_OPERATOR_KLEENE_AND => Self::Boolean(BooleanOperator::And),
+            vx_binary_operator::VX_OPERATOR_KLEENE_OR => Self::Boolean(BooleanOperator::Or),
+            vx_binary_operator::VX_OPERATOR_ADD => Self::Numeric(NumericOperator::Add),
+            vx_binary_operator::VX_OPERATOR_SUB => Self::Numeric(NumericOperator::Sub),
+            vx_binary_operator::VX_OPERATOR_MUL => Self::Numeric(NumericOperator::Mul),
+            vx_binary_operator::VX_OPERATOR_DIV => Self::Numeric(NumericOperator::Div),
         }
     }
 }
@@ -248,7 +251,7 @@ pub unsafe extern "C" fn vx_expression_binary(
 ) -> *mut vx_expression {
     let lhs = vx_expression::as_ref(lhs).clone();
     let rhs = vx_expression::as_ref(rhs).clone();
-    vx_expression::new(Binary.new_expr(operator.into(), [lhs, rhs]))
+    vx_expression::new(binary(BinaryOperator::from(operator), lhs, rhs))
 }
 
 /// Create a logical NOT of the child expression.

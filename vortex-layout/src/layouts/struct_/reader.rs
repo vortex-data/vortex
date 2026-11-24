@@ -25,12 +25,12 @@ use vortex_array::expr::bound::pack;
 use vortex_array::expr::traversal::NodeExt;
 use vortex_array::expr::traversal::Transformed;
 use vortex_array::expr::traversal::TraversalOrder;
-use vortex_array::scalar_fn::builtin::binary::Binary;
+use vortex_array::scalar_fn::builtin::boolean::Boolean;
 use vortex_array::scalar_fn::builtin::get_item::GetItem;
 use vortex_array::scalar_fn::builtin::is_not_null::IsNotNull;
 use vortex_array::scalar_fn::builtin::is_null::IsNull;
 use vortex_array::scalar_fn::builtin::mask::Mask as MaskFn;
-use vortex_array::scalar_fn::builtin::operators::Operator;
+use vortex_array::scalar_fn::builtin::operators::BooleanOperator;
 use vortex_array::scalar_fn::builtin::select::Select;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -578,8 +578,8 @@ impl LayoutReader for StructReader {
                 // Only split after single-field delegation so field readers see whole predicates.
                 // AND/OR compose conservative "may match" masks, even for nullable predicates;
                 // other multi-field operators cannot generally combine these masks (e.g. NOT).
-                let Some(operator @ (Operator::And | Operator::Or)) =
-                    expr.as_opt::<Binary>().copied()
+                let Some(operator @ (BooleanOperator::And | BooleanOperator::Or)) =
+                    expr.as_opt::<Boolean>().copied()
                 else {
                     return Ok(MaskFuture::ready(mask));
                 };
@@ -587,7 +587,7 @@ impl LayoutReader for StructReader {
                 let rhs = self.pruning_evaluation(row_range, &expr.children()[1], mask.clone())?;
                 Ok(MaskFuture::new(mask.len(), async move {
                     let (lhs, rhs) = try_join!(lhs, rhs)?;
-                    let combined = if operator == Operator::And {
+                    let combined = if operator == BooleanOperator::And {
                         &lhs & &rhs
                     } else {
                         &lhs | &rhs

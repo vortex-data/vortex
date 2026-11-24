@@ -33,8 +33,8 @@ use crate::dtype::Nullability;
 use crate::kernel::ExecuteParentKernel;
 use crate::scalar::BoolScalar;
 use crate::scalar::Scalar;
-use crate::scalar_fn::builtin::binary::Binary;
-use crate::scalar_fn::builtin::operators::Operator;
+use crate::scalar_fn::builtin::boolean::Boolean;
+use crate::scalar_fn::builtin::operators::BooleanOperator;
 use crate::validity::Validity;
 
 /// Trait for encoding-specific boolean kernels that operate in encoded space.
@@ -43,7 +43,7 @@ use crate::validity::Validity;
 /// encoding or a constant; implementations should return `Ok(None)` when they cannot handle that
 /// operand without falling back to ordinary execution.
 ///
-/// Vortex's boolean [`Operator::And`] and [`Operator::Or`] variants use Kleene semantics; there is
+/// Vortex's boolean [`BooleanOperator::And`] and [`BooleanOperator::Or`] variants use Kleene semantics; there is
 /// no separate two-valued boolean operator path to dispatch here. Consequently, they are not
 /// strict: `false AND null` is `false`, and `true OR null` is `true`.
 pub trait BooleanKernel: VTable {
@@ -51,14 +51,14 @@ pub trait BooleanKernel: VTable {
     fn boolean(
         lhs: ArrayView<'_, Self>,
         rhs: &ArrayRef,
-        operator: Operator,
+        operator: BooleanOperator,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>>;
 }
 
 /// Adaptor that bridges [`BooleanKernel`] implementations to [`ExecuteParentKernel`].
 ///
-/// When a `ScalarFnArray(Binary, And|Or)` wraps a child implementing [`BooleanKernel`], this
+/// When a `ScalarFnArray(Boolean, And|Or)` wraps a child implementing [`BooleanKernel`], this
 /// adaptor extracts the other operand and delegates to the encoding-specific kernel.
 #[derive(Default, Debug)]
 pub struct BooleanExecuteAdaptor<V>(pub V);
@@ -67,19 +67,16 @@ impl<V> ExecuteParentKernel<V> for BooleanExecuteAdaptor<V>
 where
     V: BooleanKernel,
 {
-    type Parent = ExactScalarFn<Binary>;
+    type Parent = ExactScalarFn<Boolean>;
 
     fn execute_parent(
         &self,
         array: ArrayView<'_, V>,
-        parent: ScalarFnArrayView<'_, Binary>,
+        parent: ScalarFnArrayView<'_, Boolean>,
         child_idx: usize,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         let op = *parent.options;
-        if !is_boolean_operator(op) {
-            return Ok(None);
-        }
 
         let Some(scalar_fn_array) = parent.as_opt::<ScalarFn>() else {
             return Ok(None);
@@ -99,25 +96,25 @@ where
 }
 
 /// Point-wise Kleene logical _and_ between two Boolean arrays.
-#[deprecated(note = "Use `ArrayBuiltins::binary` instead")]
+#[deprecated(note = "Use `ArrayBuiltins::boolean` instead")]
 pub fn and_kleene(lhs: &ArrayRef, rhs: &ArrayRef) -> VortexResult<ArrayRef> {
-    lhs.clone().binary(rhs.clone(), Operator::And)
+    lhs.clone().boolean(rhs.clone(), BooleanOperator::And)
 }
 
 /// Point-wise Kleene logical _or_ between two Boolean arrays.
-#[deprecated(note = "Use `ArrayBuiltins::binary` instead")]
+#[deprecated(note = "Use `ArrayBuiltins::boolean` instead")]
 pub fn or_kleene(lhs: &ArrayRef, rhs: &ArrayRef) -> VortexResult<ArrayRef> {
-    lhs.clone().binary(rhs.clone(), Operator::Or)
+    lhs.clone().boolean(rhs.clone(), BooleanOperator::Or)
 }
 
 /// Execute a Kleene boolean operation between two arrays.
 ///
-/// This is the entry point for boolean operations from the binary expression.
+/// This is the entry point for boolean operations from the [`Boolean`] function.
 /// Handles constants and canonical boolean arrays directly, otherwise falls back to Arrow.
-pub(crate) fn execute_boolean(
+pub(super) fn execute_boolean(
     lhs: ArrayRef,
     rhs: ArrayRef,
-    op: Operator,
+    op: BooleanOperator,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
     let nullable = boolean_nullability(&lhs, &rhs);
@@ -147,7 +144,7 @@ pub(crate) fn execute_boolean(
 fn constant_boolean(
     lhs: &ArrayRef,
     rhs: &ArrayRef,
-    op: Operator,
+    op: BooleanOperator,
 ) -> VortexResult<Option<ArrayRef>> {
     let nullable = boolean_nullability(lhs, rhs);
 
@@ -170,44 +167,42 @@ fn constant_boolean(
 fn constant_array_boolean(
     constant: &Scalar,
     array: &ArrayRef,
-    op: Operator,
+    op: BooleanOperator,
     nullability: Nullability,
 ) -> VortexResult<Option<ArrayRef>> {
     match (op, bool_scalar_value(constant)?) {
-        (Operator::And, Some(false)) => Ok(Some(constant_bool_result(
+        (BooleanOperator::And, Some(false)) => Ok(Some(constant_bool_result(
             Some(false),
             array.len(),
             nullability,
         ))),
-        (Operator::And, Some(true)) => Ok(Some(cast_bool_nullability(array, nullability)?)),
-        (Operator::Or, Some(true)) => Ok(Some(constant_bool_result(
+        (BooleanOperator::And, Some(true)) => Ok(Some(cast_bool_nullability(array, nullability)?)),
+        (BooleanOperator::Or, Some(true)) => Ok(Some(constant_bool_result(
             Some(true),
             array.len(),
             nullability,
         ))),
-        (Operator::Or, Some(false)) => Ok(Some(cast_bool_nullability(array, nullability)?)),
-        (Operator::And | Operator::Or, None) => Ok(None),
-        (other, _) => vortex_bail!("Not a boolean operator: {other}"),
+        (BooleanOperator::Or, Some(false)) => Ok(Some(cast_bool_nullability(array, nullability)?)),
+        (BooleanOperator::And | BooleanOperator::Or, None) => Ok(None),
     }
 }
 
 fn boolean_scalar_scalar(
     lhs: Option<bool>,
     rhs: Option<bool>,
-    op: Operator,
+    op: BooleanOperator,
 ) -> VortexResult<Option<bool>> {
     Ok(match op {
-        Operator::And => match (lhs, rhs) {
+        BooleanOperator::And => match (lhs, rhs) {
             (Some(false), _) | (_, Some(false)) => Some(false),
             (None, _) | (_, None) => None,
             (Some(l), Some(r)) => Some(l & r),
         },
-        Operator::Or => match (lhs, rhs) {
+        BooleanOperator::Or => match (lhs, rhs) {
             (Some(true), _) | (_, Some(true)) => Some(true),
             (None, _) | (_, None) => None,
             (Some(l), Some(r)) => Some(l | r),
         },
-        other => vortex_bail!("Not a boolean operator: {other}"),
     })
 }
 
@@ -224,7 +219,7 @@ pub fn kleene_boolean_buffers(
     lhs_validity: Validity,
     rhs_values: BitBuffer,
     rhs_validity: Validity,
-    operator: Operator,
+    operator: BooleanOperator,
     nullability: Nullability,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
@@ -233,9 +228,8 @@ pub fn kleene_boolean_buffers(
 
     if lhs_validity.definitely_no_nulls() && rhs_validity.definitely_no_nulls() {
         let values = match operator {
-            Operator::And => lhs_values & &rhs_values,
-            Operator::Or => lhs_values | &rhs_values,
-            other => vortex_bail!("Not a boolean operator: {other}"),
+            BooleanOperator::And => lhs_values & &rhs_values,
+            BooleanOperator::Or => lhs_values | &rhs_values,
         };
         return Ok(BoolArray::try_new(values, Validity::from(nullability))?.into_array());
     }
@@ -259,30 +253,30 @@ pub fn kleene_boolean_buffer_scalar(
     values: BitBuffer,
     validity: Validity,
     scalar: &BoolScalar<'_>,
-    operator: Operator,
+    operator: BooleanOperator,
     nullability: Nullability,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
     let scalar_value = scalar.value();
     let len = values.len();
     let result = match (operator, scalar_value) {
-        (Operator::And, Some(false)) => {
+        (BooleanOperator::And, Some(false)) => {
             return Ok(constant_bool_result(Some(false), len, nullability));
         }
-        (Operator::And, Some(true)) => {
+        (BooleanOperator::And, Some(true)) => {
             return Ok(
                 BoolArray::try_new(values, validity.union_nullability(nullability))?.into_array(),
             );
         }
-        (Operator::Or, Some(true)) => {
+        (BooleanOperator::Or, Some(true)) => {
             return Ok(constant_bool_result(Some(true), len, nullability));
         }
-        (Operator::Or, Some(false)) => {
+        (BooleanOperator::Or, Some(false)) => {
             return Ok(
                 BoolArray::try_new(values, validity.union_nullability(nullability))?.into_array(),
             );
         }
-        (Operator::And, None) => {
+        (BooleanOperator::And, None) => {
             let valid = validity
                 .execute_mask(len, ctx)?
                 .bitand_not(&Mask::from_buffer(values));
@@ -291,14 +285,13 @@ pub fn kleene_boolean_buffer_scalar(
                 Validity::from_mask(valid, nullability),
             )?
         }
-        (Operator::Or, None) => {
+        (BooleanOperator::Or, None) => {
             let valid = validity.execute_mask(len, ctx)? & &Mask::from_buffer(values);
             BoolArray::try_new(
                 BitBuffer::new_set_in(len, ctx.allocator().clone()),
                 Validity::from_mask(valid, nullability),
             )?
         }
-        (other, _) => vortex_bail!("Not a boolean operator: {other}"),
     };
 
     Ok(result.into_array())
@@ -314,7 +307,7 @@ fn fused_boolean_buffers(
     lhs_validity: &Mask,
     rhs_values: &BitBuffer,
     rhs_validity: &Mask,
-    operator: Operator,
+    operator: BooleanOperator,
     nullability: Nullability,
     allocator: &BufferAllocatorRef,
 ) -> VortexResult<ArrayRef> {
@@ -408,7 +401,7 @@ fn fused_boolean_buffers_aligned(
     lhs_validity: &Mask,
     rhs_values: &BitBuffer,
     rhs_validity: &Mask,
-    operator: Operator,
+    operator: BooleanOperator,
     nullability: Nullability,
     allocator: &BufferAllocatorRef,
 ) -> VortexResult<Option<ArrayRef>> {
@@ -459,12 +452,12 @@ fn fused_boolean_word_sources(
     rhs_words: WordSource<'_>,
     lhs_valid_words: WordSource<'_>,
     rhs_valid_words: WordSource<'_>,
-    operator: Operator,
+    operator: BooleanOperator,
     nullability: Nullability,
     allocator: &BufferAllocatorRef,
 ) -> VortexResult<ArrayRef> {
     match operator {
-        Operator::And => fused_boolean_and_word_sources(
+        BooleanOperator::And => fused_boolean_and_word_sources(
             len,
             lhs_words,
             rhs_words,
@@ -473,7 +466,7 @@ fn fused_boolean_word_sources(
             nullability,
             allocator,
         ),
-        Operator::Or => fused_boolean_or_word_sources(
+        BooleanOperator::Or => fused_boolean_or_word_sources(
             len,
             lhs_words,
             rhs_words,
@@ -482,7 +475,6 @@ fn fused_boolean_word_sources(
             nullability,
             allocator,
         ),
-        other => vortex_bail!("Not a boolean operator: {other}"),
     }
 }
 
@@ -613,7 +605,7 @@ fn fused_boolean_words<L, R, LV, RV>(
     rhs_words: R,
     lhs_valid_words: LV,
     rhs_valid_words: RV,
-    operator: Operator,
+    operator: BooleanOperator,
     nullability: Nullability,
     allocator: &BufferAllocatorRef,
 ) -> VortexResult<ArrayRef>
@@ -624,7 +616,7 @@ where
     RV: Iterator<Item = u64>,
 {
     match operator {
-        Operator::And => fused_boolean_and_words(
+        BooleanOperator::And => fused_boolean_and_words(
             len,
             lhs_words,
             rhs_words,
@@ -633,7 +625,7 @@ where
             nullability,
             allocator,
         ),
-        Operator::Or => fused_boolean_or_words(
+        BooleanOperator::Or => fused_boolean_or_words(
             len,
             lhs_words,
             rhs_words,
@@ -642,7 +634,6 @@ where
             nullability,
             allocator,
         ),
-        other => vortex_bail!("Not a boolean operator: {other}"),
     }
 }
 
@@ -741,11 +732,6 @@ fn boolean_nullability(lhs: &ArrayRef, rhs: &ArrayRef) -> Nullability {
     lhs.dtype().nullability() | rhs.dtype().nullability()
 }
 
-#[inline]
-fn is_boolean_operator(operator: Operator) -> bool {
-    matches!(operator, Operator::And | Operator::Or)
-}
-
 #[cfg(test)]
 mod tests {
     use std::sync::LazyLock;
@@ -764,7 +750,7 @@ mod tests {
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::scalar::Scalar;
-    use crate::scalar_fn::builtin::operators::Operator;
+    use crate::scalar_fn::builtin::operators::BooleanOperator;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
@@ -797,7 +783,7 @@ mod tests {
         .into_array();
 
         assert_arrays_eq!(
-            lhs.binary(rhs.clone(), Operator::And)?,
+            lhs.boolean(rhs.clone(), BooleanOperator::And)?,
             BoolArray::from_iter([
                 Some(true),
                 Some(false),
@@ -813,7 +799,7 @@ mod tests {
         );
 
         assert_arrays_eq!(
-            lhs.binary(rhs, Operator::Or)?,
+            lhs.boolean(rhs, BooleanOperator::Or)?,
             BoolArray::from_iter([
                 Some(true),
                 Some(true),
@@ -839,12 +825,12 @@ mod tests {
             .into_array();
 
         assert_arrays_eq!(
-            lhs.binary(null.clone(), Operator::And)?,
+            lhs.boolean(null.clone(), BooleanOperator::And)?,
             BoolArray::from_iter([Some(false), None, None]),
             &mut ctx
         );
         assert_arrays_eq!(
-            lhs.binary(null, Operator::Or)?,
+            lhs.boolean(null, BooleanOperator::Or)?,
             BoolArray::from_iter([None, Some(true), None]),
             &mut ctx
         );
@@ -863,7 +849,7 @@ mod tests {
     )]
     fn test_or(#[case] lhs: ArrayRef, #[case] rhs: ArrayRef) {
         let mut ctx = SESSION.create_execution_ctx();
-        let r = lhs.binary(rhs, Operator::Or).unwrap();
+        let r = lhs.boolean(rhs, BooleanOperator::Or).unwrap();
         let r = r.execute::<BoolArray>(&mut ctx).unwrap().into_array();
 
         let v0 = r
@@ -905,7 +891,7 @@ mod tests {
     fn test_and(#[case] lhs: ArrayRef, #[case] rhs: ArrayRef) {
         let mut ctx = SESSION.create_execution_ctx();
         let r = lhs
-            .binary(rhs, Operator::And)
+            .boolean(rhs, BooleanOperator::And)
             .unwrap()
             .execute::<BoolArray>(&mut ctx)
             .unwrap()

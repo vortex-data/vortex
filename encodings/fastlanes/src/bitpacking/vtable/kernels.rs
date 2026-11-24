@@ -10,10 +10,10 @@ use vortex_array::arrays::filter::FilterExecuteAdaptor;
 use vortex_array::arrays::slice::SliceExecuteAdaptor;
 use vortex_array::optimizer::kernels::ArrayKernelsExt;
 use vortex_array::scalar_fn::ScalarFnVTable;
-use vortex_array::scalar_fn::builtin::binary::Binary;
-use vortex_array::scalar_fn::builtin::binary::CompareExecuteAdaptor;
 use vortex_array::scalar_fn::builtin::cast::Cast;
 use vortex_array::scalar_fn::builtin::cast::CastExecuteAdaptor;
+use vortex_array::scalar_fn::builtin::compare::Compare;
+use vortex_array::scalar_fn::builtin::compare::CompareExecuteAdaptor;
 use vortex_functions::between::Between;
 use vortex_functions::between::BetweenExecuteAdaptor;
 use vortex_session::VortexSession;
@@ -29,7 +29,7 @@ pub(crate) fn initialize(session: &VortexSession) {
     );
     kernels.register_execute_parent_kernel(Cast.id(), BitPacked, CastExecuteAdaptor(BitPacked));
     kernels.register_execute_parent_kernel(
-        Binary.id(),
+        Compare.id(),
         BitPacked,
         CompareExecuteAdaptor(BitPacked),
     );

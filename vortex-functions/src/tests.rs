@@ -106,7 +106,7 @@ fn test_display_tree_pack() {
     └── child: vortex.pack(names: [fizz, bar, buzz], nullability: Nullable)
         ├── fizz: vortex.root()
         ├── bar: vortex.literal(5i32)
-        └── buzz: vortex.binary(=)
+        └── buzz: vortex.compare(=)
             ├── lhs: vortex.literal(42i32)
             └── rhs: vortex.get_item(answer)
                 └── input: vortex.root()

@@ -74,7 +74,9 @@ use vortex::functions::between::StrictComparison;
 use vortex::functions::list_contains::ListContains;
 use vortex::scalar::Scalar;
 use vortex::scalar_fn::builtin::cast::Cast;
+use vortex::scalar_fn::builtin::compare::Compare;
 use vortex::scalar_fn::builtin::literal::Literal;
+use vortex::scalar_fn::builtin::numeric::Numeric;
 use vortex::session::registry::CachedId;
 use vortex::session::registry::Id;
 use vortex_array::assert_arrays_eq;
@@ -673,21 +675,21 @@ fn test_in_list_malformed_literal() -> DFResult<()> {
 }
 
 #[rstest]
-#[case::eq(DFOperator::Eq, Operator::Eq)]
-#[case::not_eq(DFOperator::NotEq, Operator::NotEq)]
-#[case::lt(DFOperator::Lt, Operator::Lt)]
-#[case::lte(DFOperator::LtEq, Operator::Lte)]
-#[case::gt(DFOperator::Gt, Operator::Gt)]
-#[case::gte(DFOperator::GtEq, Operator::Gte)]
-#[case::and(DFOperator::And, Operator::And)]
-#[case::or(DFOperator::Or, Operator::Or)]
-#[case::plus(DFOperator::Plus, Operator::Add)]
-#[case::plus(DFOperator::Minus, Operator::Sub)]
-#[case::plus(DFOperator::Multiply, Operator::Mul)]
-#[case::plus(DFOperator::Divide, Operator::Div)]
+#[case::eq(DFOperator::Eq, BinaryOperator::Compare(CompareOperator::Eq))]
+#[case::not_eq(DFOperator::NotEq, BinaryOperator::Compare(CompareOperator::NotEq))]
+#[case::lt(DFOperator::Lt, BinaryOperator::Compare(CompareOperator::Lt))]
+#[case::lte(DFOperator::LtEq, BinaryOperator::Compare(CompareOperator::Lte))]
+#[case::gt(DFOperator::Gt, BinaryOperator::Compare(CompareOperator::Gt))]
+#[case::gte(DFOperator::GtEq, BinaryOperator::Compare(CompareOperator::Gte))]
+#[case::and(DFOperator::And, BinaryOperator::Boolean(BooleanOperator::And))]
+#[case::or(DFOperator::Or, BinaryOperator::Boolean(BooleanOperator::Or))]
+#[case::plus(DFOperator::Plus, BinaryOperator::Numeric(NumericOperator::Add))]
+#[case::plus(DFOperator::Minus, BinaryOperator::Numeric(NumericOperator::Sub))]
+#[case::plus(DFOperator::Multiply, BinaryOperator::Numeric(NumericOperator::Mul))]
+#[case::plus(DFOperator::Divide, BinaryOperator::Numeric(NumericOperator::Div))]
 fn test_operator_conversion_supported(
     #[case] df_op: DFOperator,
-    #[case] expected_vortex_op: Operator,
+    #[case] expected_vortex_op: BinaryOperator,
 ) {
     assert_eq!(try_operator_from_df(&df_op), Some(expected_vortex_op));
 }
@@ -1037,7 +1039,7 @@ fn test_expr_from_df_binary() -> DFResult<()> {
     )?;
 
     assert_snapshot!(result.display_tree().to_string(), @r"
-    vortex.binary(=)
+    vortex.compare(=)
     ├── lhs: vortex.get_item(left)
     │   └── input: vortex.root()
     └── rhs: vortex.literal(42i32)
@@ -1252,7 +1254,7 @@ fn test_unsupported_field_is_declined_only_when_referenced(
         ));
         assert_eq!(
             convert(expr, &schema)?,
-            Binary.new_expr(Operator::Eq, [get_item("id", root()), lit(42i32)]),
+            Compare.new_expr(CompareOperator::Eq, [get_item("id", root()), lit(42i32)]),
         );
     }
     Ok(())
@@ -1306,9 +1308,9 @@ fn test_projection_ignores_unreferenced_unsupported_field() -> DFResult<()> {
         pack(
             [(
                 "sum",
-                Binary.new_expr(
-                    Operator::Add,
-                    [b.clone(), Binary.new_expr(Operator::Add, [a, b])]
+                Numeric.new_expr(
+                    NumericOperator::Add,
+                    [b.clone(), Numeric.new_expr(NumericOperator::Add, [a, b])]
                 )
             )],
             Nullability::NonNullable,
