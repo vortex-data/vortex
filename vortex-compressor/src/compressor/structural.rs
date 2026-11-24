@@ -41,8 +41,8 @@ pub(super) mod root_list_children {
     pub const SIZES: usize = 2;
 }
 
-/// The slot holding the validity of a bool, primitive, decimal or string leaf, or `None` for any
-/// other array.
+/// The slot holding the validity of a bool, primitive, decimal or `VarBinView` leaf, or `None`
+/// for any other array.
 pub(crate) fn leaf_validity_slot(array: &ArrayRef) -> Option<usize> {
     if array.is::<Bool>() {
         Some(BoolSlots::VALIDITY_CHILD)

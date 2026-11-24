@@ -177,7 +177,6 @@ impl Scheme for SparseScheme {
             .execute::<PrimitiveArray>(exec_ctx)?
             .narrow(exec_ctx)?;
 
-        let sparse_len = sparse.len();
         let fill = sparse.fill_scalar().clone();
         Ok(Encoded::new(
             vec![
@@ -187,7 +186,7 @@ impl Scheme for SparseScheme {
             Vec::new(),
             move |children, exec_ctx| {
                 let [values, indices] = children.compressed()?;
-                Sparse::try_new(indices, values, sparse_len, fill, exec_ctx).map(|a| a.into_array())
+                Sparse::try_new(indices, values, len, fill, exec_ctx).map(IntoArray::into_array)
             },
         ))
     }

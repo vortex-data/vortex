@@ -88,7 +88,8 @@ impl Default for BitPackingScheme {
 }
 
 impl BitPackingScheme {
-    /// Bit-packs `data`, or returns `None` when its best bit width is its native width.
+    /// Bit-packs `data`, or returns `None` when it is empty or its best bit width is its native
+    /// width.
     pub(super) fn try_encode(
         &self,
         data: &ArrayAndStats,

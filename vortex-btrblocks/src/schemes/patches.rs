@@ -8,6 +8,7 @@ use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::Patched;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::patched::PatchedArraySlotsExt;
+use vortex_array::arrays::patched::PatchedSlots;
 use vortex_array::arrays::patched::use_experimental_patches;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_array::patches::Patches;
@@ -65,11 +66,11 @@ pub fn compress_patches(patches: Patches, ctx: &mut ExecutionCtx) -> VortexResul
 
 /// Patches a scheme stores as they are, registered as kept children.
 ///
-/// Patches hold the rare values an encoding cannot represent, so they are not compressed.
+/// Patches hold the few values an encoding cannot represent, so they are not compressed further.
 pub(crate) enum KeptPatches {
     /// The encoding has no patches.
     None,
-    /// Patches narrowed by [`compress_patches`] and stored inside the encoding.
+    /// Patches compressed by [`compress_patches`] and stored inside the encoding.
     Interior {
         /// The length of the patched array.
         array_len: usize,
@@ -143,7 +144,8 @@ impl KeptPatches {
     ///
     /// # Errors
     ///
-    /// Returns an error if a kept child is missing, or `build` fails.
+    /// Returns an error if a kept child is missing, `build` fails, or the encoding it builds does
+    /// not match the placeholder in the [`Patched`] array.
     pub(crate) fn build(
         self,
         children: &mut EncodedChildren,
@@ -164,7 +166,7 @@ impl KeptPatches {
                 } else {
                     None
                 };
-                // SAFETY: the arrays are those of patches that were valid, kept as they were.
+                // SAFETY: these are the parts of valid patches, with their arrays kept unchanged.
                 let patches = unsafe {
                     Patches::new_unchecked(
                         array_len,
@@ -179,17 +181,18 @@ impl KeptPatches {
             }
             Self::Patched(patched) => {
                 let inner = build(None)?;
-                let [lane_offsets, indices, values] = children.kept()?;
-                // SAFETY: the placeholder is replaced with the encoding of the same values, and
-                // the patches' arrays are kept as they were.
-                unsafe {
-                    patched.with_slots(
-                        [inner, lane_offsets, indices, values]
-                            .into_iter()
-                            .map(Some)
-                            .collect(),
-                    )
+                let [lane_offsets, patch_indices, patch_values] = children.kept()?;
+                let slots = PatchedSlots {
+                    inner,
+                    lane_offsets,
+                    patch_indices,
+                    patch_values,
                 }
+                .into_slots();
+                // SAFETY: the encoding replaces the placeholder, its input, which it matches except
+                // where the patches override it, so the patched values are unchanged; the array
+                // has no statistics yet. The patches' arrays were kept as they were.
+                unsafe { patched.with_slots(slots) }
             }
         }
     }

@@ -206,14 +206,16 @@ impl Encoded {
         Self::new(Vec::new(), Vec::new(), move |_, _| Ok(array))
     }
 
-    /// An encoding built in one step from `leaf`, a bool, primitive, decimal or string leaf that
-    /// it stores whole, validity included, such as a general-purpose compressor.
+    /// An encoding that stores the whole of `leaf`, a bool, primitive, decimal or `VarBinView`
+    /// array, validity included, as a general-purpose compressor such as Pco does.
     ///
-    /// The leaf's validity is registered, so its bitmap is compressed, and `encode` receives the
-    /// leaf holding the compressed bitmap. Any other array is handed to `encode` as it is.
+    /// The leaf's validity bitmap is registered, so it is compressed, and `encode` receives the
+    /// leaf holding the compressed bitmap. A leaf without a bitmap, and any other array, is handed
+    /// to `encode` as it is.
     ///
-    /// `encode` may store the leaf's validity, but not the leaf itself below an encoding of its
-    /// own: the debug check rejects the canonical leaf there, since it was not registered.
+    /// `encode` may return the leaf, or an array that stores the leaf's validity, but not an array
+    /// that holds the leaf as a child: the debug check rejects the canonical leaf there, since it
+    /// was not registered.
     ///
     /// # Errors
     ///
@@ -236,9 +238,10 @@ impl Encoded {
             Self::new(Vec::new(), Vec::new(), move |children, exec_ctx| {
                 let validity = children.validity()?;
                 let mut slots: ArraySlots = leaf.slots().iter().cloned().collect();
-                // A bitmap that compressed to a constant is a constant slot: the slot stays present.
+                // A bitmap that compressed to a constant comes back as `AllValid` or `AllInvalid`.
+                // Storing it as a constant keeps the slot present, as `with_slots` requires.
                 slots[slot] = Some(validity.to_array(leaf.len()));
-                // SAFETY: the validity bitmap is replaced with a compressed form of itself, which
+                // SAFETY: the validity bitmap is replaced with its compressed form, or kept, so it
                 // holds the same values. The leaf's values, dtype, and other slots are unchanged.
                 let leaf = unsafe { leaf.with_slots(slots) }?;
                 encode(leaf, exec_ctx)
@@ -252,8 +255,11 @@ impl Encoded {
     /// bit-packing.
     ///
     /// The outer children in `compress` and `keep` are registered after this encoding's own. The
-    /// constructor runs this encoding's constructor first, which takes its own children and
-    /// validity, then calls `wrap` with its output and the outer children.
+    /// constructor runs this encoding's constructor first, which must take all of its own
+    /// children, then calls `wrap` with its output and the children that remain: the outer ones.
+    ///
+    /// The outer encoding registers no validity of its own: the result keeps this encoding's,
+    /// which [`with_validity`](Self::with_validity) on the result would replace.
     pub fn wrap(
         self,
         compress: Vec<Child>,
