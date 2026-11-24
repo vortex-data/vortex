@@ -296,9 +296,11 @@ mod tests {
     use vortex_session::VortexSession;
 
     use super::MAX_CHECKPOINTS;
+    use super::locate_once;
     use super::prepare_index;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
+    use crate::arrays::ChunkedArray;
     use crate::arrays::PrimitiveArray;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
@@ -317,6 +319,37 @@ mod tests {
             assert_eq!(piece.start, row);
             assert_eq!(piece.end, row + 1);
         }
+        Ok(())
+    }
+
+    /// With more than one piece between checkpoints, a lookup decodes length blocks that start
+    /// after the first piece. Compare it with a scan of all lengths.
+    #[test]
+    fn checkpoint_lookup_matches_full_scan() -> VortexResult<()> {
+        let count = MAX_CHECKPOINTS * 3 + 1;
+        let primitive = PrimitiveArray::from_iter((0u8..4).cycle().take(count)).into_array();
+        let middle = count / 2;
+        let chunked = ChunkedArray::try_new(
+            vec![primitive.slice(0..middle)?, primitive.slice(middle..count)?],
+            primitive.dtype().clone(),
+        )?
+        .into_array();
+        let output_len = (count / 4) * 6;
+
+        let mut ctx = SESSION.create_execution_ctx();
+        let mut index = prepare_index(&chunked, output_len, &mut ctx)?;
+        assert!(index.checkpoints.len() <= MAX_CHECKPOINTS);
+
+        for row in (0..output_len).rev().step_by(13).chain([0, output_len - 1]) {
+            let actual = index.locate(&chunked, row, output_len, &mut ctx)?;
+            let expected = locate_once(&primitive, row, output_len, &mut ctx)?;
+            assert_eq!(
+                (actual.piece, actual.start, actual.end),
+                (expected.piece, expected.start, expected.end),
+                "row {row}"
+            );
+        }
+
         Ok(())
     }
 }
