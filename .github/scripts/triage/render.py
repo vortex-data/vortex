@@ -1,7 +1,7 @@
 """Build every Slack message that the bot posts, as Block Kit.
 
 Cards and the overview show GitHub logins as plain text and never mention anyone, so editing them
-every hour sends no notifications. Only reminders and command confirmations mention people.
+on every run sends no notifications. Only reminders and command confirmations mention people.
 """
 
 from __future__ import annotations
@@ -387,9 +387,9 @@ def instructions() -> Message:
     text = "\n".join(
         [
             "*How Vortex triage works*",
-            "Every hour, the bot reads GitHub for open external issues, external PRs, "
-            "external comments on team items, and fuzzer issues. "
-            "Each weekday it posts an overview and edits it every hour.",
+            "Every 5 minutes on weekdays, from 08:00 London to 19:00 New York, the bot reads "
+            "GitHub for open external issues, external PRs, external comments on team items, and "
+            "fuzzer issues. Each weekday it posts an overview and keeps it up to date.",
             "",
             "*Sections*",
             f"{HIGH.marker} {HIGH.title}: reminded every working day",
@@ -415,9 +415,10 @@ def instructions() -> Message:
             f"hours (at most {MAX_HOURS}).",
             f"`!snooze 2d` does the same for 2 working days (at most {MAX_DAYS}).",
             "`!unsnooze` ends a snooze.",
-            "New contributor activity ends a snooze early. The bot answers within about an hour.",
+            "New contributor activity ends a snooze early. The bot answers at its next run.",
             "",
-            "*Working time* runs on weekdays from 09:00 London to 18:00 New York.",
+            "*Working time*, which snoozes and reminders count, runs on weekdays from 09:00 "
+            "London to 18:00 New York.",
         ]
     )
     return Message(text="How Vortex triage works", blocks=(_mrkdwn(text),))

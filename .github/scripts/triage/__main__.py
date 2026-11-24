@@ -24,8 +24,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from . import evaluate, render
-from .github import Item, closed_state, scan
-from .hours import london_date
+from .github import Item, closed_state, rate_limit, scan
+from .hours import in_run_hours, london_date
 from .rules import Assessment, assess
 from .slack import Message, Slack, SlackError
 from .sync import Config, Run, load
@@ -136,6 +136,11 @@ def main(argv: list[str] | None = None) -> int:
     sync_cmd.add_argument("--channel", required=True, help="Slack channel ID")
     sync_cmd.add_argument("--pings", action="store_true", help="Send reminders that mention people")
     sync_cmd.add_argument("--claude", action="store_true", help="Ask Claude who owes the next move")
+    sync_cmd.add_argument(
+        "--run-hours-only",
+        action="store_true",
+        help="Do nothing outside the run hours, as a scheduled run",
+    )
 
     purge_cmd = commands.add_parser(
         "purge", help="Delete every message this bot posted in the channel."
@@ -151,6 +156,11 @@ def main(argv: list[str] | None = None) -> int:
             f"Deleted {deleted} bot messages. Kept {kept} messages that people wrote. "
             f"Slack refused to delete {refused}."
         )
+        return 0
+
+    if args.command == "sync" and args.run_hours_only and not in_run_hours(now):
+        # The check comes before the scan, so a skipped run spends no GitHub or Slack requests.
+        print("Outside the run hours, so this run does nothing.")
         return 0
 
     items = scan(args.repo)
@@ -193,6 +203,13 @@ def main(argv: list[str] | None = None) -> int:
     failures = run.execute(items)
     print(f"Synced {len(items)} open items and {len(verdicts)} new verdicts.")
     print(f"{len(failures)} failures.")
+    try:
+        remaining, limit = rate_limit()
+        print(f"GitHub GraphQL budget: {remaining} of {limit} points left this hour.")
+    except Exception as error:
+        # Every workflow in the repository shares this budget. The line only informs, so it must
+        # never fail a run.
+        print(f"Could not read the GitHub GraphQL budget: {type(error).__name__}")
     if failures:
         # Item numbers and Slack error codes only, which are already public.
         print("\n".join(failures), file=sys.stderr)

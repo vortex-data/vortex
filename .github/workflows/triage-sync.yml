@@ -18,8 +18,9 @@ name: Triage sync
 
 on:
   schedule:
-    # Every hour, away from the busy top of the hour. The bot applies the working window itself.
-    - cron: "17 * * * *"
+    # Every 5 minutes on weekdays, off the busy top of the hour. These UTC hours cover 08:00 London
+    # to 19:00 New York in both summer and winter time, and the bot skips the runs outside that span.
+    - cron: "2-59/5 7-23 * * 1-5"
   workflow_dispatch:
     inputs:
       pings:
@@ -76,6 +77,8 @@ jobs:
           # A scheduled run pings and asks Claude. A manual run follows its inputs.
           PINGS: ${{ github.event_name == 'schedule' || inputs.pings }}
           USE_CLAUDE: ${{ (github.event_name == 'schedule' || inputs.use_claude) && vars.ANTHROPIC_FEDERATION_RULE_TRIAGE != '' }}
+          # Only a scheduled run keeps to the run hours, so a manual run always syncs.
+          RUN_HOURS_ONLY: ${{ github.event_name == 'schedule' }}
           PYTHONPATH: ${{ github.workspace }}/.github/scripts
         run: |
           args=(sync --repo "$GITHUB_REPOSITORY" --channel "$CHANNEL_ID")
@@ -84,6 +87,9 @@ jobs:
           fi
           if [ "$USE_CLAUDE" = "true" ]; then
             args+=(--claude)
+          fi
+          if [ "$RUN_HOURS_ONLY" = "true" ]; then
+            args+=(--run-hours-only)
           fi
           uv run --no-project --with 'anthropic==2.6.0' python -m triage "${args[@]}"
 

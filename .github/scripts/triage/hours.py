@@ -33,6 +33,19 @@ def in_window(moment: datetime) -> bool:
     return bounds is not None and bounds[0] <= moment < bounds[1]
 
 
+# Scheduled runs start an hour before the window and stop an hour after it, so the channel is
+# current when the first person starts work and replies from the end of the day are still read.
+# Snoozes and reminders still follow the window itself. The widened end is at latest midnight in
+# London, so a moment in the run hours always has the London date of its window.
+RUN_MARGIN = timedelta(hours=1)
+
+
+def in_run_hours(moment: datetime) -> bool:
+    """Return whether a scheduled run at `moment` does any work."""
+    bounds = window(london_date(moment))
+    return bounds is not None and bounds[0] - RUN_MARGIN <= moment < bounds[1] + RUN_MARGIN
+
+
 def next_window_moment(moment: datetime) -> datetime:
     """Return `moment` if it is inside a window, else the start of the next window."""
     day = london_date(moment)

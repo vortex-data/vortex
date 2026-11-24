@@ -3,7 +3,7 @@
 
 """Tests for one run of the triage bot in `.github/scripts/triage/sync.py`.
 
-Each call to `run` starts from the fake channel alone, as a new hourly job does, so these tests
+Each call to `run` starts from the fake channel alone, as each new scheduled job does, so these tests
 also check that the state in Slack is enough to continue after a crash.
 """
 
@@ -364,6 +364,19 @@ def test_state_round_trips_through_metadata():
     assert state.ItemState.from_payload(original.payload()) == original
     overview = state.OverviewState("2026-11-24", "1.0", "UALICE,oncall", True)
     assert state.OverviewState.from_payload(overview.payload()) == overview
+
+
+def test_scheduled_sync_outside_the_run_hours_does_nothing(monkeypatch):
+    def scan(repo):
+        raise RuntimeError("scanned")
+
+    monkeypatch.setattr(support.cli, "scan", scan)
+    monkeypatch.setattr(support.cli, "in_run_hours", lambda now: False)
+    args = ["sync", "--repo", "o/r", "--channel", "C1"]
+    assert support.cli.main([*args, "--run-hours-only"]) == 0
+    # A manual run does not pass the flag, so it syncs at any hour.
+    with pytest.raises(RuntimeError, match="scanned"):
+        support.cli.main(args)
 
 
 def test_purge_deletes_only_the_bots_messages():

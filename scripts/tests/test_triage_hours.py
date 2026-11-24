@@ -4,7 +4,9 @@
 """Tests for the working-time math in `.github/scripts/triage/hours.py`."""
 
 import importlib
+import re
 from datetime import UTC, date, datetime, timedelta
+from pathlib import Path
 
 import pytest
 
@@ -45,6 +47,33 @@ def test_window_edges():
     # 00:30 UTC on Wednesday is still Tuesday evening in New York, but Wednesday in London, so it
     # falls before Wednesday's window rather than inside Tuesday's.
     assert not hours.in_window(utc(2026, 11, 25, 0, 30))
+
+
+def _field(text: str) -> range:
+    first, last = text.split("-")
+    return range(int(first), int(last) + 1)
+
+
+def test_schedule_covers_the_run_hours_of_every_day():
+    workflow = Path(__file__).resolve().parents[2] / ".github" / "workflows" / "triage-sync.yml"
+    (cron,) = re.findall(r'cron: "([^"]+)"', workflow.read_text())
+    _, hour_field, _, _, day_field = cron.split()
+    scheduled_hours, scheduled_days = _field(hour_field), _field(day_field)
+    # Two years cover each daylight saving change, and the weeks when only one country has changed.
+    day = date(2026, 1, 1)
+    while day < date(2028, 1, 1):
+        bounds = hours.window(day)
+        if bounds is not None:
+            start, end = bounds[0] - hours.RUN_MARGIN, bounds[1] + hours.RUN_MARGIN
+            last = end - timedelta(minutes=1)
+            assert start.date() == last.date() == day
+            assert day.isoweekday() in scheduled_days
+            assert start.hour in scheduled_hours and last.hour in scheduled_hours
+            assert hours.in_run_hours(start) and hours.in_run_hours(last)
+            assert not hours.in_run_hours(start - timedelta(minutes=1))
+            assert not hours.in_run_hours(end)
+        day += timedelta(days=1)
+    assert not hours.in_run_hours(utc(2026, 11, 28, 12))
 
 
 def test_next_window_moment_skips_nights_and_weekends():

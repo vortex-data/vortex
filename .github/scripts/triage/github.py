@@ -247,6 +247,12 @@ def scan(repo: str, query: Query = gh_graphql) -> list[Item]:
     return sorted(items, key=lambda item: item.number)
 
 
+def rate_limit(query: Query = gh_graphql) -> tuple[int, int]:
+    """Return the GraphQL points that the token has left this hour, and its hourly limit."""
+    data = query("query { rateLimit { remaining limit } }", {})["rateLimit"]
+    return data["remaining"], data["limit"]
+
+
 @dataclass(frozen=True)
 class Ended:
     """An item that is no longer open. `state` is `closed`, `merged`, or `deleted`."""
