@@ -64,6 +64,7 @@
 //! with a short `jq` query.
 
 pub mod builtins;
+pub mod plan;
 pub mod scheme;
 pub mod stats;
 

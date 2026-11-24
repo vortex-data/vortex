@@ -194,3 +194,19 @@ pub(super) fn sample_compress_failed(
         );
     }
 }
+
+/// Emits a debug event when a scheme a [`CompressionPolicy`] asked for fails.
+///
+/// Policies try schemes the estimate-based selector would rule out, and the compressor recovers
+/// from their failures, so failures are expected and are not reported as errors.
+///
+/// [`CompressionPolicy`]: crate::scheme::CompressionPolicy
+#[inline]
+pub(super) fn candidate_failed(scheme: SchemeId, err: &impl fmt::Display) {
+    tracing::debug!(
+        target: TARGET_TRACE,
+        scheme = %scheme,
+        error = %err,
+        "candidate.compress_failed",
+    );
+}
