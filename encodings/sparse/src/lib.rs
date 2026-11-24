@@ -550,6 +550,12 @@ impl SparseData {
             fill.cast(array.dtype())?
         } else {
             // TODO(robert): Support other dtypes, only thing missing is getting most common value out of the array
+            if !matches!(array.dtype(), DType::Primitive(..)) {
+                vortex_bail!(
+                    "Sparse encoding without a fill value needs a primitive array, got {}",
+                    array.dtype()
+                );
+            }
             let primitive = array.clone().execute::<PrimitiveArray>(ctx)?;
             let (top_pvalue, _) = primitive
                 .top_value(ctx)?

@@ -587,7 +587,20 @@ impl CascadingCompressor {
         before_nbytes: u64,
         exec_ctx: &mut ExecutionCtx,
     ) -> Option<ArrayRef> {
-        match self.compress_with_scheme(scheme, data, compress_ctx, exec_ctx) {
+        // A policy may try schemes their estimates would have skipped, on data they were never
+        // meant for, so a panicking candidate is dropped like a failing one.
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            self.compress_with_scheme(scheme, data, compress_ctx, exec_ctx)
+        }))
+        .unwrap_or_else(|payload| {
+            let message = payload
+                .downcast_ref::<String>()
+                .map(String::as_str)
+                .or_else(|| payload.downcast_ref::<&str>().copied())
+                .unwrap_or("unknown panic");
+            Err(vortex_err!("scheme {} panicked: {message}", scheme.id()))
+        });
+        match result {
             Ok(compressed) => (compressed.nbytes() < before_nbytes).then_some(compressed),
             Err(err) => {
                 trace::candidate_failed(scheme.id(), &err);
