@@ -11,14 +11,12 @@ use std::sync::Weak;
 use parking_lot::Mutex;
 use rustc_hash::FxHashMap;
 use vortex_array::expr::BoundExpression;
-use vortex_error::VortexResult;
 
 use super::io::SegmentRanges;
 use super::retain::RetainedSegments;
 use super::retain::RetainingSegmentSource;
 use crate::execution::FilterPlans;
 use crate::execution::pipeline::ValueCache;
-use crate::plan::PlanByPtr;
 use crate::plan::PlanRef;
 use crate::source::SegmentSource;
 
@@ -39,10 +37,6 @@ use crate::source::SegmentSource;
 #[derive(Clone, Default)]
 pub struct ScanCache(Arc<Inner>);
 
-/// The rows of a chunk of one scan that reads lists, once found: `None` inside for a scan that
-/// reads none.
-type ListChunkRows = Arc<Mutex<Option<Option<usize>>>>;
-
 #[derive(Default)]
 struct Inner {
     root: Mutex<Option<PlanRef>>,
@@ -54,9 +48,6 @@ struct Inner {
     /// excluded, so sharing the plans prunes a file's zones once for every scan of that filter.
     filters: Mutex<FxHashMap<ExprKey, Arc<FilterPlans>>>,
     values: ValueCache,
-    /// The rows of a chunk of scans that read lists, by the projection plan and the filter plans
-    /// they are for.
-    list_chunk_rows: Mutex<FxHashMap<(PlanByPtr, usize), ListChunkRows>>,
     /// Recently read segments, shared by the chunks of every scan of the file.
     retained: Arc<RetainedSegments>,
 }
@@ -109,30 +100,6 @@ impl ScanCache {
     /// Keeps `ranges`, returning the index already kept if another scan got there first.
     pub(crate) fn insert_ranges(&self, ranges: SegmentRanges) -> SegmentRanges {
         Arc::clone(self.0.ranges.lock().get_or_insert(ranges))
-    }
-
-    /// The rows of a chunk of a scan of `projection` and `filter` that reads lists, worked out by
-    /// `find` once for all the scans of them: scans that ask meanwhile wait for the first.
-    pub(crate) fn list_chunk_rows(
-        &self,
-        projection: &PlanRef,
-        filter: Option<&Arc<FilterPlans>>,
-        find: impl FnOnce() -> VortexResult<Option<usize>>,
-    ) -> VortexResult<Option<usize>> {
-        let key = (
-            PlanByPtr(projection.clone()),
-            filter.map_or(0, |filter| Arc::as_ptr(filter) as usize),
-        );
-        let entry = Arc::clone(self.0.list_chunk_rows.lock().entry(key).or_default());
-        let mut rows = entry.lock();
-        match *rows {
-            Some(rows) => Ok(rows),
-            None => {
-                let found = find()?;
-                *rows = Some(found);
-                Ok(found)
-            }
-        }
     }
 
     /// The plans of `filter` an earlier scan kept.

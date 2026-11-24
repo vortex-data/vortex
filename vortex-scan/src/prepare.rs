@@ -10,7 +10,6 @@ use vortex_array::dtype::DType;
 use vortex_array::expr::BoundExpression;
 use rustc_hash::FxHashSet;
 use vortex_error::VortexResult;
-use vortex_mask::Mask;
 use vortex_expr::analysis::referenced_field_paths;
 use vortex_session::VortexSession;
 
@@ -23,7 +22,6 @@ pub use crate::execution::PruneNext;
 pub use crate::execution::PrunePlanner;
 use crate::execution::ROW_BLOCK_SIZE;
 use crate::execution::list_rows_per_chunk;
-use crate::execution::pipeline::Scan;
 use crate::plan::Eval;
 use crate::plan::ListPack;
 use crate::plan::PlanByPtr;
@@ -183,17 +181,7 @@ impl ScanBuilder {
             }
         };
         let values = cache.values();
-        // Every partition of a scan asks the same of the same plans: the first works it out
-        // while the others wait.
-        let list_chunk_rows = cache.list_chunk_rows(&projection, filter.as_ref(), || {
-            list_chunk_rows(
-                &self.session,
-                &projection,
-                filter.as_deref(),
-                row_count,
-                &file.locations,
-            )
-        })?;
+        let list_chunk_rows = list_chunk_rows(&projection, filter.as_deref(), row_count)?;
         let chunk_rows = if let Some(rows) = list_chunk_rows {
             rows
         } else if let Some(rows) = filtered_chunk_rows {
@@ -224,50 +212,23 @@ impl ScanBuilder {
     }
 }
 
-/// The rows of a chunk of a scan whose projection or filter reads lists, sized by the list
-/// elements and the bytes their plans read over the file. `None` for a scan that reads no list.
+/// The rows of a chunk of a scan whose projection or filter reads lists, sized by the elements
+/// those lists hold over the file. `None` for a scan that reads no list.
 fn list_chunk_rows(
-    session: &VortexSession,
     projection: &PlanRef,
     filter: Option<&FilterPlans>,
     row_count: u64,
-    locations: &[SegmentLocation],
 ) -> VortexResult<Option<usize>> {
-    let plans = || {
-        std::iter::once(projection).chain(filter.into_iter().flat_map(|f| f.predicates().iter()))
-    };
     let mut lists = Vec::new();
     let mut seen = FxHashSet::default();
-    for plan in plans() {
+    let predicates = filter.into_iter().flat_map(|filter| filter.predicates());
+    for plan in std::iter::once(projection).chain(predicates) {
         list_elements(plan, &mut seen, &mut lists)?;
     }
     if row_count == 0 || lists.is_empty() {
         return Ok(None);
     }
-    let elements = lists.iter().sum();
-    let bytes = || -> VortexResult<u64> {
-        let rows = 0..row_count;
-        let mask = Mask::new_true(usize::try_from(row_count)?);
-        let mut segments = Vec::new();
-        for plan in plans() {
-            segments.extend(Scan::segments(session, plan, rows.clone(), &mask)?);
-        }
-        segments.sort_unstable();
-        segments.dedup();
-        Ok(segments
-            .iter()
-            .map(|segment| u64::from(locations[**segment as usize].length))
-            .sum())
-    };
-    let chunk_rows = list_rows_per_chunk(row_count, elements, bytes)?;
-    tracing::debug!(
-        row_count,
-        elements,
-        chunk_rows,
-        lists = lists.len(),
-        "v2 list scan chunk size"
-    );
-    Ok(Some(chunk_rows))
+    Ok(Some(list_rows_per_chunk(row_count, lists.iter().sum())))
 }
 
 /// Collects the elements the lists of every [`ListPack`] under `plan` hold in all, each list
