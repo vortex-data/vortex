@@ -39,7 +39,7 @@ CAP = 800
 
 # Shard slots in the `bench-codspeed` matrix of `.github/workflows/codspeed.yml`. The slots are fixed
 # so that each one can be a required check; slots the plan does not use succeed without running.
-MAX_SHARDS = 5
+MAX_SHARDS = 3
 
 # Benchmarks measured for a target missing from the counts file, until the file is regenerated.
 DEFAULT_COUNT = 100

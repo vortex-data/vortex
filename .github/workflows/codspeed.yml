@@ -70,7 +70,7 @@ jobs:
         # Fixed slots, so that each one can be a required check. The plan fills as many as it
         # needs; an unused slot runs no steps and succeeds. Keep in sync with MAX_SHARDS in
         # scripts/codspeed_shards.py.
-        shard: [1, 2, 3, 4, 5]
+        shard: [1, 2, 3]
     name: "Benchmark with Codspeed (Shard ${{ matrix.shard }})"
     timeout-minutes: 60
     env:

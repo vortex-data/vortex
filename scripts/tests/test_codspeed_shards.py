@@ -82,7 +82,7 @@ def test_spare_slots_go_to_the_slower_allocation_pool():
     durations[("vortex-array", "take_x")] = 10.0
     plan = shards.plan(counts, durations=durations)
     assert len(plan) == shards.MAX_SHARDS
-    assert sum(not s["exclude-allocations"] for s in plan) == 4
+    assert sum(not s["exclude-allocations"] for s in plan) == shards.MAX_SHARDS - 1
     assert [_targets(s) for s in plan if s["exclude-allocations"]] == [{"take_x"}]
 
 
