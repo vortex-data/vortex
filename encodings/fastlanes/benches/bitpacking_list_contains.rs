@@ -37,7 +37,6 @@ use vortex_expr::root;
 use vortex_fastlanes::BitPacked;
 use vortex_fastlanes::BitPackedArray;
 use vortex_fastlanes::BitPackedData;
-use vortex_fastlanes::BitWidths;
 use vortex_fastlanes::FoR;
 use vortex_functions::expr::list_contains;
 use vortex_session::VortexSession;
@@ -67,9 +66,6 @@ const LEN: usize = 65_536;
 fn page_aligned(array: BitPackedArray) -> BitPackedArray {
     let ptype = array.dtype().as_ptype();
     let parts = BitPacked::into_parts(array);
-    let BitWidths::Global(bit_width) = parts.bit_widths else {
-        unreachable!("bitpack_encode packs every block at one bit width")
-    };
     let packed = BufferHandle::new_host(
         parts
             .packed
@@ -83,7 +79,7 @@ fn page_aligned(array: BitPackedArray) -> BitPackedArray {
         ptype,
         parts.validity,
         parts.patches,
-        bit_width,
+        parts.bit_width,
         parts.len,
         parts.offset,
     )
