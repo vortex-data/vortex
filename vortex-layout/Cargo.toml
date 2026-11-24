@@ -109,6 +109,11 @@ harness = false
 name = "pipeline_scan"
 harness = false
 
+[[bench]]
+name = "list_masked_read"
+harness = false
+required-features = ["_test-harness"]
+
 [lints]
 workspace = true
 
