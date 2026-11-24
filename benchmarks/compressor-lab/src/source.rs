@@ -17,10 +17,12 @@ use parquet::file::reader::SerializedFileReader;
 use serde::Deserialize;
 use serde::Serialize;
 
+use crate::fetch::RawData;
 use crate::key::file_digest;
 use crate::spec::DTypeClass;
 use crate::spec::ParamValue;
 use crate::spec::SourceSpec;
+use crate::spec::Storage;
 use crate::spec::SyntheticPType;
 use crate::spec::expand_grid;
 
@@ -33,6 +35,15 @@ pub enum ResolvedSource {
         /// The source name.
         name: String,
         /// The matched files.
+        files: Vec<ResolvedFile>,
+    },
+    /// Parquet files fetched by URL. Each file's `path` is its URL.
+    Remote {
+        /// The source name.
+        name: String,
+        /// Where the raw files are kept.
+        storage: Storage,
+        /// The fetched files, in sorted URL order.
         files: Vec<ResolvedFile>,
     },
     /// Generated TPC-H tables (each recorded as a file named `tpch/<table>`).
@@ -117,6 +128,27 @@ pub enum ChunkInput {
         /// The last row, exclusive.
         row_end: u64,
     },
+    /// A row range of one column of a fetched Parquet file.
+    Remote {
+        /// The source name.
+        source: String,
+        /// Where the file was fetched from.
+        url: String,
+        /// Where the raw file is kept.
+        storage: Storage,
+        /// The SHA-256 of the file's contents.
+        file_fingerprint: String,
+        /// The column name.
+        column: String,
+        /// The Arrow type, as displayed by Arrow.
+        arrow_type: String,
+        /// The dtype class.
+        dtype: DTypeClass,
+        /// The first row, inclusive.
+        row_start: u64,
+        /// The last row, exclusive.
+        row_end: u64,
+    },
     /// A row range of one generated TPC-H column.
     Tpch {
         /// The source name.
@@ -160,6 +192,7 @@ impl ChunkInput {
     pub fn dtype(&self) -> DTypeClass {
         match self {
             Self::Parquet { dtype, .. }
+            | Self::Remote { dtype, .. }
             | Self::Tpch { dtype, .. }
             | Self::Synthetic { dtype, .. } => *dtype,
         }
@@ -168,7 +201,9 @@ impl ChunkInput {
     /// The column name, or the generator name for synthetic chunks.
     pub fn column(&self) -> &str {
         match self {
-            Self::Parquet { column, .. } | Self::Tpch { column, .. } => column,
+            Self::Parquet { column, .. }
+            | Self::Remote { column, .. }
+            | Self::Tpch { column, .. } => column,
             Self::Synthetic { generator, .. } => generator,
         }
     }
@@ -177,6 +212,7 @@ impl ChunkInput {
     pub fn source(&self) -> &str {
         match self {
             Self::Parquet { source, .. }
+            | Self::Remote { source, .. }
             | Self::Tpch { source, .. }
             | Self::Synthetic { source, .. } => source,
         }
@@ -197,6 +233,7 @@ pub(crate) fn resolve_source(
     chunk_rows: u64,
     max_chunks: Option<u64>,
     dtypes: &[DTypeClass],
+    raw: &RawData,
 ) -> anyhow::Result<Resolution> {
     match spec {
         SourceSpec::Tpch {
@@ -204,6 +241,7 @@ pub(crate) fn resolve_source(
             scale_factor,
             tables,
             columns,
+            ..
         } => resolve_tpch(
             name,
             *scale_factor,
@@ -218,6 +256,7 @@ pub(crate) fn resolve_source(
             path,
             columns,
             exclude_columns,
+            ..
         } => resolve_parquet(
             name,
             path,
@@ -228,6 +267,28 @@ pub(crate) fn resolve_source(
             max_chunks,
             dtypes,
         ),
+        SourceSpec::Remote {
+            name,
+            storage,
+            urls,
+            sha256,
+            columns,
+            exclude_columns,
+            ..
+        } => resolve_remote(
+            name,
+            *storage,
+            urls,
+            sha256,
+            &ColumnFilter {
+                include: patterns(columns)?,
+                exclude: patterns(exclude_columns)?,
+                dtypes,
+            },
+            raw,
+            chunk_rows,
+            max_chunks,
+        ),
         SourceSpec::Synthetic {
             name,
             generator,
@@ -235,6 +296,7 @@ pub(crate) fn resolve_source(
             rows,
             seeds,
             params,
+            ..
         } => {
             let grid = expand_grid(params);
             let dtype = ptype.dtype_class();
@@ -408,49 +470,13 @@ fn resolve_parquet(
             .collect::<Vec<_>>()
             .join("/");
 
-        let reader = SerializedFileReader::new(
-            File::open(&path).with_context(|| format!("opening {}", path.display()))?,
-        )
-        .with_context(|| format!("reading Parquet footer of {}", path.display()))?;
-        let file_metadata = reader.metadata().file_metadata();
-        let num_rows = u64::try_from(file_metadata.num_rows())?;
-        let schema = parquet_to_arrow_schema(
-            file_metadata.schema_descr(),
-            file_metadata.key_value_metadata(),
-        )
-        .with_context(|| format!("converting the schema of {}", path.display()))?;
         let fingerprint = file_digest(&path)?;
-
-        let mut columns = Vec::new();
-        for field in schema.fields() {
-            let column = field.name();
-            let selected = (include.is_empty() || include.iter().any(|p| p.matches(column)))
-                && !exclude.iter().any(|p| p.matches(column));
-            if !selected {
-                continue;
-            }
-            let arrow_type = field.data_type().to_string();
-            let reason = match classify(field.data_type()) {
-                Some(dtype) if dtypes.contains(&dtype) => {
-                    columns.push(ResolvedColumn {
-                        name: column.clone(),
-                        arrow_type,
-                        dtype,
-                    });
-                    continue;
-                }
-                Some(dtype) => format!("dtype `{}` is not in the plan", dtype.as_str()),
-                None => "nested or unsupported type".to_string(),
-            };
-            skipped.push(SkippedColumn {
-                source: name.to_string(),
-                file: relative.clone(),
-                column: column.clone(),
-                arrow_type,
-                reason,
-            });
-        }
-
+        let filter = ColumnFilter {
+            include: include.to_vec(),
+            exclude: exclude.to_vec(),
+            dtypes,
+        };
+        let (num_rows, columns) = parquet_columns(&path, name, &relative, &filter, &mut skipped)?;
         for column in &columns {
             for (row_start, row_end) in chunk_ranges(num_rows, chunk_rows, max_chunks) {
                 chunks.push(ChunkInput::Parquet {
@@ -477,6 +503,126 @@ fn resolve_parquet(
     Ok(Resolution {
         source: ResolvedSource::Parquet {
             name: name.to_string(),
+            files,
+        },
+        chunks,
+        skipped,
+    })
+}
+
+/// Which columns of a file are planned.
+struct ColumnFilter<'a> {
+    include: Vec<Pattern>,
+    exclude: Vec<Pattern>,
+    dtypes: &'a [DTypeClass],
+}
+
+/// Reads a Parquet footer: the row count and the columns `filter` selects. Columns that match
+/// the name patterns but not the plan's dtypes go to `skipped`.
+fn parquet_columns(
+    path: &Path,
+    source: &str,
+    display_path: &str,
+    filter: &ColumnFilter<'_>,
+    skipped: &mut Vec<SkippedColumn>,
+) -> anyhow::Result<(u64, Vec<ResolvedColumn>)> {
+    let reader = SerializedFileReader::new(
+        File::open(path).with_context(|| format!("opening {}", path.display()))?,
+    )
+    .with_context(|| format!("reading Parquet footer of {}", path.display()))?;
+    let file_metadata = reader.metadata().file_metadata();
+    let num_rows = u64::try_from(file_metadata.num_rows())?;
+    let schema = parquet_to_arrow_schema(
+        file_metadata.schema_descr(),
+        file_metadata.key_value_metadata(),
+    )
+    .with_context(|| format!("converting the schema of {}", path.display()))?;
+
+    let mut columns = Vec::new();
+    for field in schema.fields() {
+        let column = field.name();
+        let selected = (filter.include.is_empty()
+            || filter.include.iter().any(|p| p.matches(column)))
+            && !filter.exclude.iter().any(|p| p.matches(column));
+        if !selected {
+            continue;
+        }
+        let arrow_type = field.data_type().to_string();
+        let reason = match classify(field.data_type()) {
+            Some(dtype) if filter.dtypes.contains(&dtype) => {
+                columns.push(ResolvedColumn {
+                    name: column.clone(),
+                    arrow_type,
+                    dtype,
+                });
+                continue;
+            }
+            Some(dtype) => format!("dtype `{}` is not in the plan", dtype.as_str()),
+            None => "nested or unsupported type".to_string(),
+        };
+        skipped.push(SkippedColumn {
+            source: source.to_string(),
+            file: display_path.to_string(),
+            column: column.clone(),
+            arrow_type,
+            reason,
+        });
+    }
+    Ok((num_rows, columns))
+}
+
+#[allow(clippy::too_many_arguments)]
+fn resolve_remote(
+    name: &str,
+    storage: Storage,
+    urls: &[String],
+    pins: &BTreeMap<String, String>,
+    filter: &ColumnFilter<'_>,
+    raw: &RawData,
+    chunk_rows: u64,
+    max_chunks: Option<u64>,
+) -> anyhow::Result<Resolution> {
+    let mut expanded = Vec::new();
+    for url in urls {
+        expanded.extend(crate::fetch::expand(url).with_context(|| format!("source `{name}`"))?);
+    }
+    expanded.sort();
+    expanded.dedup();
+
+    let mut files = Vec::with_capacity(expanded.len());
+    let mut chunks = Vec::new();
+    let mut skipped = Vec::new();
+    for url in expanded {
+        let (path, fingerprint) = raw
+            .fetch_new(&url, pins.get(&url).map(String::as_str), storage)
+            .with_context(|| format!("source `{name}`"))?;
+        let (num_rows, columns) = parquet_columns(&path, name, &url, filter, &mut skipped)?;
+        for column in &columns {
+            for (row_start, row_end) in chunk_ranges(num_rows, chunk_rows, max_chunks) {
+                chunks.push(ChunkInput::Remote {
+                    source: name.to_string(),
+                    url: url.clone(),
+                    storage,
+                    file_fingerprint: fingerprint.clone(),
+                    column: column.name.clone(),
+                    arrow_type: column.arrow_type.clone(),
+                    dtype: column.dtype,
+                    row_start,
+                    row_end,
+                });
+            }
+        }
+        files.push(ResolvedFile {
+            path: url,
+            fingerprint,
+            num_rows,
+            columns,
+        });
+    }
+    Ok(Resolution {
+        source: ResolvedSource::Remote {
+            name: name.to_string(),
+            storage,
             files,
         },
         chunks,

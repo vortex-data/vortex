@@ -472,8 +472,8 @@ pub fn host_name() -> String {
 pub struct WorkOptions {
     /// This worker's id.
     pub worker: String,
-    /// Where the plan's relative Parquet paths are resolved from.
-    pub data_root: std::path::PathBuf,
+    /// Where the plan's raw data is found.
+    pub data: crate::load::DataLocation,
     /// Keep polling for shards whose lease may expire, instead of exiting once nothing can be
     /// claimed.
     pub wait: bool,
@@ -744,7 +744,7 @@ fn run_shard(
                 stages: vec![kind.as_str().to_string()],
                 shard: Some(shard),
                 verify: false,
-                data_root: options.data_root.clone(),
+                data: options.data.clone(),
                 decode_reps: 0,
                 compress_reps: 0,
                 keep_going: true,

@@ -51,6 +51,28 @@ store/
 `vx-lab plan show --store` reports progress per stage and timing runs per machine.
 `vx-lab plan tasks --kind candidates --shard 3/16 --pending --store` lists work to hand out.
 
+## Sources and where raw data lives
+
+Each `[[sources]]` entry has a kind, and each kind keeps its raw data in one of these ways:
+
+| Kind | Storage | Raw data |
+|---|---|---|
+| `tpch`, `synthetic` | `generate` | Nothing stored: regenerated from the scale factor or seed. |
+| `parquet` | `local` | Files you keep next to the spec, matched by a glob. |
+| `remote`, `storage = "reference"` | `reference` | Only the URL and SHA-256 are recorded. Files are fetched into the cache (`--cache-dir`, `$VX_LAB_CACHE`, else `~/.cache/vx-lab`) and fetched again if it is deleted. |
+| `remote`, `storage = "copy"` | `copy` | Fetched once and kept in the store under `raw/<hh>/<sha256>`, so the store no longer needs upstream. |
+
+`remote` takes `https://`, `s3://` (AWS credentials from the environment) and `file://` URLs; `s3://`
+and `file://` may glob. A `[sources.sha256]` table pins a URL's bytes. A remote file is keyed by its
+content hash, never its URL, so a mirror on S3 or Hugging Face gives the same chunk keys as upstream
+or a local copy of the same file.
+
+Every source also takes `group`, its cross-validation group (default: the source name), which
+`materialize` writes to `dataset.json`, and every kind except `synthetic` takes `max_chunks`, a cap
+on the whole source. The cap keeps the chunks whose data hashes are lowest, so it does not change
+across commits and raising it only adds chunks. See `specs/corpus-sources-example.toml` and
+`specs/tpch-sf1.toml`.
+
 ## Evaluating policies: `vx-lab eval`
 
 `vx-lab eval` compresses every chunk of a plan with production and with each policy, measuring
@@ -102,7 +124,7 @@ No source is worse by more than 0.9% under these policies.
 
 | To add… | Change | What re-runs |
 |---|---|---|
-| A dataset | A `[[sources]]` entry in a spec (`parquet`, `tpch` or `synthetic`) | Only the new chunks |
+| A dataset | A `[[sources]]` entry in a spec (`parquet`, `remote`, `tpch` or `synthetic`) | Only the new chunks |
 | A synthetic generator | `synthetic.rs` | New chunks only |
 | A source kind (e.g. object store, Vortex files) | `spec::SourceSpec`, `source.rs` (resolve), `load.rs` (rows), `plan::ChunkIdentity` | New chunks only |
 | A feature | `features.rs`, mirrored in `train.py`'s `add_estimates`; bump `FEATURES_VERSION` | `features` only |

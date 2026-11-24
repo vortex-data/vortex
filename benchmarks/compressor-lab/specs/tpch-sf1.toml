@@ -1,0 +1,19 @@
+# TPC-H SF1 generated in-process (storage = "generate": nothing raw is stored). The first test
+# dataset for the corpus plumbing; it needs no downloads.
+name = "tpch-sf1"
+chunk_rows = 65536
+dtypes = ["int"]
+max_chunks_per_column = 4
+
+[schemes]
+exclude = ["vortex.int.pco"]
+
+[search]
+strategy = "forced_root"
+
+[[sources]]
+kind = "tpch"
+name = "tpch-sf1"
+group = "tpch"
+scale_factor = 1.0
+tables = ["lineitem", "orders", "partsupp", "customer", "part", "supplier"]

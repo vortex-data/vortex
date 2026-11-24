@@ -91,6 +91,43 @@ impl PlanSpec {
             if !names.insert(source.name()) {
                 bail!("duplicate source name `{}`", source.name());
             }
+            if let Some(max) = source.max_chunks() {
+                ensure!(max > 0, "source `{}` needs max_chunks > 0", source.name());
+            }
+            if let SourceSpec::Remote {
+                urls,
+                storage,
+                sha256,
+                ..
+            } = source
+            {
+                ensure!(
+                    !urls.is_empty(),
+                    "remote source `{}` needs at least one url",
+                    source.name()
+                );
+                ensure!(
+                    *storage != Storage::Generate,
+                    "remote source `{}` must use storage = \"reference\" or \"copy\"",
+                    source.name()
+                );
+                for url in urls {
+                    crate::fetch::RemoteUrl::parse(url)
+                        .with_context(|| format!("remote source `{}`", source.name()))?;
+                }
+                for (url, digest) in sha256 {
+                    ensure!(
+                        urls.contains(url) || urls.iter().any(|u| u.contains('*')),
+                        "remote source `{}` pins `{url}`, which is not one of its urls",
+                        source.name()
+                    );
+                    ensure!(
+                        digest.len() == 64 && digest.bytes().all(|b| b.is_ascii_hexdigit()),
+                        "remote source `{}`: sha256 for `{url}` is not 64 hex digits",
+                        source.name()
+                    );
+                }
+            }
             if let SourceSpec::Synthetic { rows, seeds, .. } = source {
                 ensure!(
                     *rows > 0,
@@ -273,6 +310,37 @@ pub enum SourceSpec {
         /// Column name glob patterns to exclude.
         #[serde(default)]
         exclude_columns: Vec<String>,
+        /// The cross-validation group. Defaults to the source name.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        group: Option<String>,
+        /// At most this many chunks from the whole source, picked by a seeded hash.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        max_chunks: Option<u64>,
+    },
+    /// Parquet files fetched by URL (`https://`, `s3://` or `file://`), identified by content
+    /// hash. Only `s3://` and `file://` URLs may contain a `*` glob.
+    Remote {
+        /// The source name, used for provenance and dataset splits.
+        name: String,
+        /// Whether the raw files are kept in the store (`copy`) or only referenced (`reference`).
+        storage: Storage,
+        /// The files, or globs over them.
+        urls: Vec<String>,
+        /// Expected SHA-256 per URL. A fetched file that does not match is an error.
+        #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+        sha256: BTreeMap<String, String>,
+        /// Column name glob patterns to include. Empty includes every column.
+        #[serde(default)]
+        columns: Vec<String>,
+        /// Column name glob patterns to exclude.
+        #[serde(default)]
+        exclude_columns: Vec<String>,
+        /// The cross-validation group. Defaults to the source name.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        group: Option<String>,
+        /// At most this many chunks from the whole source, picked by a seeded hash.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        max_chunks: Option<u64>,
     },
     /// TPC-H tables generated in-process, deterministic for a scale factor.
     Tpch {
@@ -285,6 +353,12 @@ pub enum SourceSpec {
         /// Column name glob patterns to include. Empty includes every column.
         #[serde(default)]
         columns: Vec<String>,
+        /// The cross-validation group. Defaults to the source name.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        group: Option<String>,
+        /// At most this many chunks from the whole source, picked by a seeded hash.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        max_chunks: Option<u64>,
     },
     /// Seeded synthetic columns, one chunk per (parameter combination, seed).
     Synthetic {
@@ -301,6 +375,9 @@ pub enum SourceSpec {
         /// Generator parameters. A list expands into a grid over every combination.
         #[serde(default)]
         params: BTreeMap<String, ParamValues>,
+        /// The cross-validation group. Defaults to the source name.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        group: Option<String>,
     },
 }
 
@@ -308,9 +385,68 @@ impl SourceSpec {
     /// The source name.
     pub fn name(&self) -> &str {
         match self {
-            Self::Parquet { name, .. } | Self::Tpch { name, .. } | Self::Synthetic { name, .. } => {
-                name
-            }
+            Self::Parquet { name, .. }
+            | Self::Remote { name, .. }
+            | Self::Tpch { name, .. }
+            | Self::Synthetic { name, .. } => name,
+        }
+    }
+
+    /// The cross-validation group: sources in one group are held out together.
+    pub fn group(&self) -> &str {
+        let group = match self {
+            Self::Parquet { group, .. }
+            | Self::Remote { group, .. }
+            | Self::Tpch { group, .. }
+            | Self::Synthetic { group, .. } => group,
+        };
+        group.as_deref().unwrap_or_else(|| self.name())
+    }
+
+    /// The cap on chunks from the whole source, if any.
+    pub fn max_chunks(&self) -> Option<u64> {
+        match self {
+            Self::Parquet { max_chunks, .. }
+            | Self::Remote { max_chunks, .. }
+            | Self::Tpch { max_chunks, .. } => *max_chunks,
+            Self::Synthetic { .. } => None,
+        }
+    }
+
+    /// How the source's raw data is kept.
+    pub fn storage(&self) -> Storage {
+        match self {
+            Self::Remote { storage, .. } => *storage,
+            Self::Parquet { .. } => Storage::Local,
+            Self::Tpch { .. } | Self::Synthetic { .. } => Storage::Generate,
+        }
+    }
+}
+
+/// How a source's raw data is kept. Only the chunks a plan uses are always kept, as blobs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Storage {
+    /// Nothing is stored: the data is regenerated from a seed or scale factor.
+    Generate,
+    /// Only the URL and content hash are recorded; files are fetched into a local cache that can
+    /// be deleted at any time.
+    Reference,
+    /// Files are fetched once and kept in the store under `raw/`, so the store no longer needs
+    /// the upstream copy.
+    Copy,
+    /// Files the user keeps next to the spec (the `parquet` kind).
+    Local,
+}
+
+impl Storage {
+    /// The lowercase name used in specs.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Generate => "generate",
+            Self::Reference => "reference",
+            Self::Copy => "copy",
+            Self::Local => "local",
         }
     }
 }

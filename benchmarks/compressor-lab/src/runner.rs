@@ -14,7 +14,6 @@ use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 use std::hint::black_box;
 use std::panic::AssertUnwindSafe;
-use std::path::PathBuf;
 use std::time::Instant;
 use std::time::SystemTime;
 use std::time::UNIX_EPOCH;
@@ -125,8 +124,8 @@ pub struct RunOptions {
     pub shard: Option<Shard>,
     /// Re-run done fact tasks and check they reproduce their output.
     pub verify: bool,
-    /// Where Parquet paths in the plan are resolved from.
-    pub data_root: PathBuf,
+    /// Where the plan's raw data is found.
+    pub data: crate::load::DataLocation,
     /// Timing repetitions (from the plan's measurement settings).
     pub decode_reps: u32,
     /// Compression timing repetitions.
@@ -275,7 +274,7 @@ impl<'a> Runner<'a> {
     ) -> anyhow::Result<String> {
         match &task.input {
             TaskInput::Chunk(input) => {
-                let fact = self.chunk(input, &options.data_root, ctx)?;
+                let fact = self.chunk(input, &options.data, ctx)?;
                 self.store
                     .put_fact(kind, &task.key, &fact, start.elapsed().as_millis())
             }
@@ -309,10 +308,10 @@ impl<'a> Runner<'a> {
     fn chunk(
         &self,
         input: &ChunkInput,
-        data_root: &std::path::Path,
+        data: &crate::load::DataLocation,
         ctx: &mut ExecutionCtx,
     ) -> anyhow::Result<ChunkFact> {
-        let arrow = crate::load::arrow(input, data_root)?;
+        let arrow = crate::load::arrow(input, data)?;
         let array = crate::load::to_vortex(&arrow, ctx)?;
         let (blob, bytes) = blob::serialize(&array, &self.session)?;
         self.store.put_blob(&blob.hash, &bytes)?;

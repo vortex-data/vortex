@@ -45,6 +45,8 @@ pub struct DatasetManifest {
     pub timed_chunks: u64,
     /// The largest number of timing runs pooled for one chunk.
     pub max_runs: u64,
+    /// Each source's cross-validation group. Sources in one group are held out together.
+    pub groups: std::collections::BTreeMap<String, String>,
 }
 
 fn median(values: &mut [u64]) -> Option<u64> {
@@ -108,6 +110,13 @@ pub fn materialize(
         incomplete: 0,
         timed_chunks: 0,
         max_runs: 0,
+        groups: plan
+            .plan
+            .spec
+            .sources
+            .iter()
+            .map(|s| (s.name().to_string(), s.group().to_string()))
+            .collect(),
     };
 
     // Each candidates task names its chunk; the matching features task shares the chunk key.

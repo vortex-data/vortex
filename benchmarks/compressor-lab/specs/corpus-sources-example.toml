@@ -1,0 +1,53 @@
+# Examples of every source kind and storage mode. Not a plan to run as is: the S3 bucket and
+# the pinned hash are placeholders.
+#
+#   storage = "generate"   tpch, synthetic: nothing raw is stored, data is regenerated.
+#   storage = "reference"  remote: only the URL and SHA-256 are recorded; files are fetched into
+#                          the cache (--cache-dir, $VX_LAB_CACHE or ~/.cache/vx-lab) on demand.
+#   storage = "copy"       remote: files are kept in the store under raw/, so the store no longer
+#                          needs upstream.
+#
+# `group` names the cross-validation group (default: the source name). Sources in one group are
+# held out together, e.g. all Public BI Redfin workbooks. `max_chunks` caps a whole source with a
+# stable, hash-chosen sample: raising it only adds chunks.
+name = "corpus-sources-example"
+chunk_rows = 65536
+dtypes = ["int", "float", "string", "bool", "decimal"]
+max_chunks_per_column = 16
+
+[[sources]]
+kind = "tpch"
+name = "tpch-sf1"
+group = "tpch"
+scale_factor = 1.0
+tables = ["lineitem", "orders"]
+max_chunks = 400
+
+[[sources]]
+kind = "remote"
+name = "nyc-taxi"
+storage = "reference"
+urls = ["https://d37ci6vzurychx.cloudfront.net/trip-data/yellow_tripdata_2023-11.parquet"]
+max_chunks = 300
+# Optional: pin the bytes; a fetch that does not match fails.
+# [sources.sha256]
+# "https://d37ci6vzurychx.cloudfront.net/trip-data/yellow_tripdata_2023-11.parquet" = "<64 hex digits>"
+
+[[sources]]
+kind = "remote"
+name = "clickbench"
+storage = "reference"
+urls = [
+  "https://pub-3ba949c0f0354ac18db1f0f14f0a2c52.r2.dev/clickbench/parquet_many/hits_0.parquet",
+  "https://pub-3ba949c0f0354ac18db1f0f14f0a2c52.r2.dev/clickbench/parquet_many/hits_50.parquet",
+]
+max_chunks = 1500
+
+[[sources]]
+kind = "remote"
+name = "public-bi-redfin1"
+group = "public-bi-redfin"
+storage = "copy"
+# s3:// urls may glob; credentials and region come from the usual AWS_* environment variables.
+urls = ["s3://example-vx-lab-raw/public-bi/Redfin1/*.parquet"]
+max_chunks = 200
