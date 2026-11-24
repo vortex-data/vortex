@@ -329,8 +329,8 @@ fn max_lane_index_is_exact(#[case] base: u8, #[case] bits: u8, #[case] expected:
     assert_eq!(max_lane_index(&bases, None), usize::from(base));
 }
 
-/// Regression test for <https://github.com/vortex-data/vortex/issues/11888>: the compressor may
-/// store `values_idx_offsets` in any integer encoding, such as FastLanes Delta.
+/// The compressor may store `values_idx_offsets` in any integer encoding, such as FastLanes
+/// Delta.
 #[test]
 fn decode_delta_values_idx_offsets() -> VortexResult<()> {
     let mut ctx = SESSION.create_execution_ctx();

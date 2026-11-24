@@ -307,8 +307,8 @@ mod tests {
         Ok(())
     }
 
-    /// Regression test for <https://github.com/vortex-data/vortex/issues/11888>: the expanded
-    /// answers reuse `values_idx_offsets`, which the compressor may store as FastLanes Delta.
+    /// The expanded answers reuse `values_idx_offsets`, which the compressor may store as
+    /// FastLanes Delta.
     #[test]
     fn compare_with_delta_values_idx_offsets() -> VortexResult<()> {
         let mut ctx = crate::test::SESSION.create_execution_ctx();
