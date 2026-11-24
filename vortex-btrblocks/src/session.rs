@@ -33,6 +33,9 @@ static DELTA_SCHEME: integer::DeltaScheme = integer::DeltaScheme::new(1.25);
 static ONPAIR_SCHEME: string::OnPairScheme =
     string::OnPairScheme::new(DEFAULT_CONFIG.max_dict_bits);
 
+type SchemeRegistration = (SchemeId, &'static dyn Scheme);
+type SchemeRegistry = Arc<RwLock<Vec<SchemeRegistration>>>;
+
 /// The compression schemes registered on a session, in registration order.
 ///
 /// [`BtrBlocksCompressorBuilder::from_session`](crate::BtrBlocksCompressorBuilder::from_session)
@@ -46,7 +49,7 @@ static ONPAIR_SCHEME: string::OnPairScheme =
 /// Zstd schemes. The builder's preset decides which of them a compressor uses.
 #[derive(Clone, Debug)]
 pub struct CompressionSession {
-    schemes: Arc<RwLock<Vec<(SchemeId, &'static dyn Scheme)>>>,
+    schemes: SchemeRegistry,
 }
 
 impl Default for CompressionSession {
@@ -109,7 +112,7 @@ impl Default for CompressionSession {
             // Fixed-size list schemes.
             &fixed_size_list::FixedSizeListSparseScheme,
         ];
-        let schemes: Vec<(SchemeId, &'static dyn Scheme)> = schemes
+        let schemes: Vec<SchemeRegistration> = schemes
             .into_iter()
             .map(|scheme| (scheme.id(), scheme))
             .collect();
@@ -138,12 +141,14 @@ impl CompressionSession {
     ///
     /// # Panics
     ///
-    /// Panics if a scheme with the same [`SchemeId`](crate::SchemeId) is already registered.
+    /// Panics if a scheme with the same [`SchemeId`] is already registered.
     pub fn register(&self, scheme: &'static dyn Scheme) {
         let id = scheme.id();
         let mut schemes = self.schemes.write();
         assert!(
-            !schemes.iter().any(|(registered_id, _)| *registered_id == id),
+            !schemes
+                .iter()
+                .any(|(registered_id, _)| *registered_id == id),
             "scheme {:?} is already registered",
             id,
         );
@@ -152,7 +157,11 @@ impl CompressionSession {
 
     /// Returns a stable snapshot of the registered schemes in registration order.
     pub fn schemes(&self) -> Vec<&'static dyn Scheme> {
-        self.schemes.read().iter().map(|(_, scheme)| *scheme).collect()
+        self.schemes
+            .read()
+            .iter()
+            .map(|(_, scheme)| *scheme)
+            .collect()
     }
 }
 
