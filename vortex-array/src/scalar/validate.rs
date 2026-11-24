@@ -13,6 +13,7 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
+use vortex_error::vortex_panic;
 
 use crate::dtype::DType;
 use crate::dtype::MapDType;
@@ -136,6 +137,7 @@ impl Scalar {
 
         // From here onwards, we know that the value is not null.
         match dtype {
+            DType::FixedSizeBinary(..) => vortex_panic!("FixedSizeBinary is not supported yet"),
             DType::Null => {
                 vortex_bail!("null dtype cannot hold a non-null value {value}");
             }

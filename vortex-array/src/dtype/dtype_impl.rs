@@ -64,6 +64,7 @@ impl DType {
             | Decimal(_, null)
             | Utf8(null)
             | Binary(null)
+            | FixedSizeBinary(_, null)
             | List(_, null)
             | FixedSizeList(_, _, null)
             | Map(_, null)
@@ -98,6 +99,7 @@ impl DType {
             Decimal(ddt, _) => Decimal(*ddt, nullability),
             Utf8(_) => Utf8(nullability),
             Binary(_) => Binary(nullability),
+            FixedSizeBinary(size, _) => FixedSizeBinary(*size, nullability),
             List(edt, _) => List(Arc::clone(edt), nullability),
             FixedSizeList(edt, size, _) => FixedSizeList(Arc::clone(edt), *size, nullability),
             Map(map, _) => Map(map.clone(), nullability),
@@ -123,6 +125,7 @@ impl DType {
             (Decimal(lhs, _), Decimal(rhs, _)) => lhs == rhs,
             (Utf8(_), Utf8(_)) => true,
             (Binary(_), Binary(_)) => true,
+            (FixedSizeBinary(lhs_size, _), FixedSizeBinary(rhs_size, _)) => lhs_size == rhs_size,
             (List(lhs_dtype, _), List(rhs_dtype, _)) => lhs_dtype.eq_ignore_nullability(rhs_dtype),
             (FixedSizeList(lhs_dtype, lhs_size, _), FixedSizeList(rhs_dtype, rhs_size, _)) => {
                 lhs_size == rhs_size && lhs_dtype.eq_ignore_nullability(rhs_dtype)
@@ -148,6 +151,7 @@ impl DType {
             Null | Bool(_) | Utf8(_) | Binary(_) | Variant(_) => {}
             Primitive(ptype, _) => ptype.hash(state),
             Decimal(decimal, _) => decimal.hash(state),
+            FixedSizeBinary(size, _) => size.hash(state),
             List(element, _) => element.hash_ignore_nullability(state),
             FixedSizeList(element, size, _) => {
                 element.hash_ignore_nullability(state);
@@ -260,6 +264,19 @@ impl DType {
         matches!(self, Binary(_))
     }
 
+    /// Check if `self` is a [`DType::FixedSizeBinary`].
+    pub fn is_fixed_size_binary(&self) -> bool {
+        matches!(self, FixedSizeBinary(..))
+    }
+
+    /// Returns the byte width of each value if `self` is a [`DType::FixedSizeBinary`].
+    pub fn as_fixed_size_binary_opt(&self) -> Option<u32> {
+        match self {
+            FixedSizeBinary(size, _) => Some(*size),
+            _ => None,
+        }
+    }
+
     /// Check if `self` is a [`DType::List`].
     pub fn is_list(&self) -> bool {
         matches!(self, List(_, _))
@@ -316,6 +333,7 @@ impl DType {
             Bool(_) => Some(1),
             Primitive(ptype, _) => Some(ptype.byte_width()),
             Decimal(decimal, _) => Some(decimal.canonical_values_type().byte_width()),
+            FixedSizeBinary(size, _) => Some(*size as usize),
             Utf8(_) | Binary(_) | List(..) | Map(..) => None,
             FixedSizeList(elem_dtype, list_size, _) => {
                 elem_dtype.element_size().map(|s| s * *list_size as usize)
@@ -552,6 +570,7 @@ impl Display for DType {
             Decimal(ddt, null) => write!(f, "{ddt}{null}"),
             Utf8(null) => write!(f, "utf8{null}"),
             Binary(null) => write!(f, "binary{null}"),
+            FixedSizeBinary(size, null) => write!(f, "fixed_size_binary[{size}]{null}"),
             List(edt, null) => write!(f, "list({edt}){null}"),
             FixedSizeList(edt, size, null) => write!(f, "fixed_size_list({edt})[{size}]{null}"),
             Map(map, null) => write!(f, "{map}{null}"),
@@ -695,6 +714,29 @@ mod tests {
         let decimal = DecimalDType::new(10, 2);
         // precision 10 -> DecimalType::I64 -> 8 bytes
         assert_eq!(DType::Decimal(decimal, NonNullable).element_size(), Some(8));
+    }
+
+    #[test]
+    fn element_size_fixed_size_binary() {
+        assert_eq!(
+            DType::FixedSizeBinary(16, NonNullable).element_size(),
+            Some(16)
+        );
+        assert_eq!(DType::FixedSizeBinary(0, Nullable).element_size(), Some(0));
+    }
+
+    #[test]
+    fn fixed_size_binary_eq_ignore_nullability() {
+        let a = DType::FixedSizeBinary(4, NonNullable);
+        assert!(a.eq_ignore_nullability(&DType::FixedSizeBinary(4, Nullable)));
+        assert!(!a.eq_ignore_nullability(&DType::FixedSizeBinary(8, NonNullable)));
+        assert!(!a.eq_ignore_nullability(&DType::Binary(NonNullable)));
+        assert_eq!(
+            hash_ignore_nullability(&a),
+            hash_ignore_nullability(&DType::FixedSizeBinary(4, Nullable))
+        );
+        assert_eq!(a.to_string(), "fixed_size_binary[4]");
+        assert_eq!(a.as_nullable().to_string(), "fixed_size_binary[4]?");
     }
 
     #[test]

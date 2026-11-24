@@ -68,6 +68,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 
 use crate::ConstantArray;
@@ -299,6 +300,7 @@ pub(super) fn execute_sparse(parts: SparseParts, ctx: &mut ExecutionCtx) -> Vort
 
     // Patches are already resolved (offset subtracted) by SparseParts::resolve_patches().
     Ok(match &dtype {
+        DType::FixedSizeBinary(..) => vortex_panic!("FixedSizeBinary is not supported yet"),
         DType::Null => {
             assert!(fill_value.is_null());
             NullArray::new(len).into_array()

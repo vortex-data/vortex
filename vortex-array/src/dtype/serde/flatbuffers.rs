@@ -219,6 +219,15 @@ impl TryFrom<ViewedDType> for DType {
                     .nullable()
                     .into(),
             )),
+            fb::Type::FixedSizeBinary => {
+                let fb_fsb = fb.type__as_fixed_size_binary().ok_or_else(|| {
+                    vortex_err!("failed to parse fixed-size binary from flatbuffer")
+                })?;
+                Ok(Self::FixedSizeBinary(
+                    fb_fsb.size(),
+                    fb_fsb.nullable().into(),
+                ))
+            }
             fb::Type::List => {
                 let fb_list = fb
                     .type__as_list()
@@ -376,6 +385,14 @@ impl WriteFlatBuffer for DType {
                 },
             )
             .as_union_value(),
+            Self::FixedSizeBinary(size, n) => fb::FixedSizeBinary::create(
+                fbb,
+                &fb::FixedSizeBinaryArgs {
+                    size: *size,
+                    nullable: (*n).into(),
+                },
+            )
+            .as_union_value(),
             Self::List(edt, n) => {
                 let element_type = Some(edt.as_ref().write_flatbuffer(fbb)?);
                 fb::List::create(
@@ -502,6 +519,7 @@ impl WriteFlatBuffer for DType {
             Self::Decimal(..) => fb::Type::Decimal,
             Self::Utf8(_) => fb::Type::Utf8,
             Self::Binary(_) => fb::Type::Binary,
+            Self::FixedSizeBinary(..) => fb::Type::FixedSizeBinary,
             Self::List(..) => fb::Type::List,
             Self::FixedSizeList(..) => fb::Type::FixedSizeList,
             Self::Map(..) => fb::Type::Map,
@@ -612,6 +630,8 @@ mod test {
         roundtrip_dtype(DType::Primitive(PType::F32, Nullability::NonNullable));
         roundtrip_dtype(DType::Primitive(PType::F64, Nullability::NonNullable));
         roundtrip_dtype(DType::Binary(Nullability::NonNullable));
+        roundtrip_dtype(DType::FixedSizeBinary(16, Nullability::NonNullable));
+        roundtrip_dtype(DType::FixedSizeBinary(0, Nullability::Nullable));
         roundtrip_dtype(DType::Utf8(Nullability::NonNullable));
         roundtrip_dtype(DType::List(
             Arc::new(DType::Primitive(PType::F32, Nullability::Nullable)),

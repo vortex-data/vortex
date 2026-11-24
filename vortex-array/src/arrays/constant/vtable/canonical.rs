@@ -66,6 +66,7 @@ pub(crate) fn constant_canonicalize(
     };
 
     Ok(match array.dtype() {
+        DType::FixedSizeBinary(..) => vortex_panic!("FixedSizeBinary is not supported yet"),
         DType::Null => Canonical::Null(NullArray::new(array.len())),
         DType::Bool(..) => Canonical::Bool(BoolArray::new(
             if scalar.as_bool().value().unwrap_or_default() {

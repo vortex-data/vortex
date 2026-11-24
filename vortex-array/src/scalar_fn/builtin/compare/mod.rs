@@ -27,6 +27,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
+use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
@@ -349,6 +350,7 @@ fn compare_arrays(
     validate_comparison_dtypes(lhs.dtype(), rhs.dtype())?;
 
     match lhs.dtype() {
+        DType::FixedSizeBinary(..) => vortex_panic!("FixedSizeBinary is not supported yet"),
         // Every value of the null dtype is null, so every comparison result is null.
         DType::Null => Ok(ConstantArray::new(
             Scalar::null(DType::Bool(Nullability::Nullable)),

@@ -28,6 +28,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
+use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
@@ -250,6 +251,7 @@ pub(crate) fn constant_uncompressed_size_in_bytes(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<u64> {
     let value_size = match array.dtype() {
+        DType::FixedSizeBinary(..) => vortex_panic!("FixedSizeBinary is not supported yet"),
         DType::Null => return Ok(0),
         DType::Bool(_) => packed_bit_buffer_size_in_bytes(array.len())?,
         DType::Primitive(ptype, _) => {
@@ -323,6 +325,7 @@ fn checked_len_mul(len: usize, width: usize, name: &str) -> VortexResult<u64> {
 
 fn supports_uncompressed_size_in_bytes(dtype: &DType) -> bool {
     match dtype {
+        DType::FixedSizeBinary(..) => false,
         DType::Null
         | DType::Bool(_)
         | DType::Primitive(..)

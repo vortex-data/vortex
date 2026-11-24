@@ -19,6 +19,7 @@ use vortex_buffer::BitBuffer;
 use vortex_buffer::BufferAllocatorRef;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 
 use crate::ArrayRef;
@@ -156,6 +157,7 @@ fn build_values_comparator(
     }
 
     Ok(match lhs.dtype() {
+        DType::FixedSizeBinary(..) => vortex_panic!("FixedSizeBinary is not supported yet"),
         // Null values compare through the validity wrapper; the value comparator is trivial.
         DType::Null => Box::new(|_, _| Ordering::Equal),
         DType::Bool(_) => {

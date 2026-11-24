@@ -130,6 +130,9 @@ impl PyDType {
             DType::Decimal(..) => Self::with_subclass(py, dtype, PyDecimalDType),
             DType::Utf8(..) => Self::with_subclass(py, dtype, PyUtf8DType),
             DType::Binary(..) => Self::with_subclass(py, dtype, PyBinaryDType),
+            DType::FixedSizeBinary(..) => Err(PyValueError::new_err(
+                "FixedSizeBinary dtypes are not supported in Python yet",
+            )),
             DType::List(..) => Self::with_subclass(py, dtype, PyListDType),
             DType::FixedSizeList(..) => Self::with_subclass(py, dtype, PyFixedSizeListDType),
             DType::Map(..) => Err(PyValueError::new_err(
