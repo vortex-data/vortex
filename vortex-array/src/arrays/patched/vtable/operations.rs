@@ -213,8 +213,10 @@ fn lane_range(
 
 #[cfg(test)]
 mod tests {
+    use std::ops::Range;
     use std::sync::LazyLock;
 
+    use rstest::rstest;
     use vortex_buffer::buffer;
     use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
@@ -226,6 +228,7 @@ mod tests {
     use crate::arrays::ChunkedArray;
     use crate::arrays::Patched;
     use crate::arrays::PrimitiveArray;
+    use crate::arrays::patched::PatchedArrayExt;
     use crate::arrays::patched::PatchedArraySlotsExt;
     use crate::arrays::patched::PatchedSlots;
     use crate::dtype::Nullability;
@@ -422,9 +425,7 @@ mod tests {
         .into_array())
     }
 
-    #[test]
-    fn probe_chunked_offsets_and_indices() -> VortexResult<()> {
-        let array = probe_fixture()?;
+    fn with_chunked_children(array: &ArrayRef) -> VortexResult<ArrayRef> {
         let patched = array.as_opt::<Patched>().expect("Patched fixture");
         let slots = PatchedSlots {
             inner: patched.inner().clone(),
@@ -432,10 +433,67 @@ mod tests {
             patch_indices: chunked_child(patched.patch_indices())?,
             patch_values: patched.patch_values().clone(),
         };
+
         // SAFETY: Both replacement children have the same dtype and values as their originals.
-        let array = unsafe { array.with_slots(slots.into_slots()) }?;
+        unsafe { array.clone().with_slots(slots.into_slots()) }
+    }
+
+    #[test]
+    fn probe_chunked_offsets_and_indices() -> VortexResult<()> {
+        let array = with_chunked_children(&probe_fixture()?)?;
         let mut ctx = SESSION.create_execution_ctx();
         check_probe(&array, 0, &mut ctx)?;
         check_probe(&array.slice(30..1100)?, 30, &mut ctx)
+    }
+
+    /// Reads one lane many times in sequence, so that a retained probe uses its lane range cache
+    /// and, for non-Primitive indices, its decoded indices. The sliced cases reduce to a Patched
+    /// array with a non-zero offset, which a lazy slice alone does not do.
+    #[rstest]
+    #[case::primitive_children(false, None)]
+    #[case::chunked_children(true, None)]
+    #[case::primitive_children_sliced(false, Some(1030..2100))]
+    #[case::chunked_children_sliced(true, Some(1030..2100))]
+    fn probe_revisits_one_lane(
+        #[case] chunked: bool,
+        #[case] slice: Option<Range<usize>>,
+    ) -> VortexResult<()> {
+        let mut array = probe_fixture()?;
+        if chunked {
+            array = with_chunked_children(&array)?;
+        }
+
+        let start = slice.as_ref().map_or(0, |range| range.start);
+        if let Some(range) = slice {
+            array = array.slice(range)?.optimize_ctx(&SESSION)?;
+            let patched = array
+                .as_opt::<Patched>()
+                .vortex_expect("the slice reduces to a Patched array");
+            assert_eq!(patched.offset(), start % 1024);
+        }
+
+        let mut ctx = SESSION.create_execution_ctx();
+        let expected = array
+            .clone()
+            .execute::<PrimitiveArray>(&mut ctx)?
+            .into_array();
+        let mut probe = array.repeated_probe();
+
+        // Rows 1024, 1056, 1088 and 1120 are in lane 0 of the second chunk. Row 1024 is a null
+        // with a patch, row 1056 has a patch, and rows 1088 and 1120 have no patch.
+        for absolute in [1088, 1056, 1024, 1056, 1120, 1056, 1088, 1024] {
+            if absolute < start {
+                continue;
+            }
+
+            let index = absolute - start;
+            assert_eq!(
+                probe.execute_scalar(index, &mut ctx)?,
+                expected.execute_scalar(index, &mut ctx)?,
+                "row {absolute}"
+            );
+        }
+
+        Ok(())
     }
 }

@@ -4,6 +4,7 @@
 use std::sync::LazyLock;
 
 use num_traits::AsPrimitive;
+use rstest::rstest;
 use vortex_buffer::buffer;
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
@@ -220,6 +221,54 @@ fn scalar_probe_reads_chunked_lengths() -> VortexResult<()> {
         assert_eq!(array.execute_scalar(index, &mut ctx)?, value.into());
     }
     test_scalar_probe_consistency(&array, &mut ctx);
+    Ok(())
+}
+
+fn variable_lengths() -> ArrayRef {
+    PrimitiveArray::from_iter((0u16..600).map(|piece| piece % 4)).into_array()
+}
+
+fn chunked_variable_lengths() -> VortexResult<ArrayRef> {
+    let lengths = variable_lengths();
+    Ok(ChunkedArray::try_new(
+        vec![lengths.slice(0..300)?, lengths.slice(300..600)?],
+        DType::from(PType::U16),
+    )?
+    .into_array())
+}
+
+/// Compares one-off and retained reads with the executed array. The 600 pieces span three
+/// 256-piece decode blocks of non-Primitive lengths, and pieces 0 and 256 are empty.
+#[rstest]
+#[case::primitive_lengths(variable_lengths())]
+#[case::chunked_lengths(chunked_variable_lengths()?)]
+#[case::constant_lengths(ConstantArray::new(3u16, 600).into_array())]
+fn scalar_probe_matches_execution(#[case] lengths: ArrayRef) -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let len = lengths
+        .clone()
+        .execute::<PrimitiveArray>(&mut ctx)?
+        .as_slice::<u16>()
+        .iter()
+        .map(|&length| usize::from(length))
+        .sum();
+
+    let starts = PrimitiveArray::from_iter((0u32..600).map(|piece| piece * 1000)).into_array();
+    let multipliers = PrimitiveArray::from_iter((0u8..120).flat_map(|_| 0u8..5)).into_array();
+    let array = PiecewiseSequenceArray::try_new(starts, lengths, multipliers, len)?.into_array();
+    let expected = array
+        .clone()
+        .execute::<PrimitiveArray>(&mut ctx)?
+        .into_array();
+
+    let mut probe = array.repeated_probe();
+    let order = (0..len).rev().chain((0..len).step_by(7)).chain(0..len);
+    for index in order {
+        let value = expected.execute_scalar(index, &mut ctx)?;
+        assert_eq!(probe.execute_scalar(index, &mut ctx)?, value, "row {index}");
+        assert_eq!(array.execute_scalar(index, &mut ctx)?, value, "row {index}");
+    }
+
     Ok(())
 }
 
