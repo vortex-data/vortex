@@ -26,6 +26,7 @@ use std::fmt;
 use std::fmt::Debug;
 
 use vortex_array::ArrayRef;
+use vortex_array::ArraySlots;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::NullArray;
@@ -34,6 +35,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 
+use crate::compressor::leaf_validity_slot;
 use crate::scheme::CompressorContext;
 use crate::scheme::Scheme;
 use crate::scheme::SchemeExt;
@@ -202,6 +204,82 @@ impl Encoded {
     /// input unchanged, for the size check to reject, may use it too.
     pub fn leaf(array: ArrayRef) -> Self {
         Self::new(Vec::new(), Vec::new(), move |_, _| Ok(array))
+    }
+
+    /// An encoding built in one step from `leaf`, a bool, primitive, decimal or string leaf that
+    /// it stores whole, validity included, such as a general-purpose compressor.
+    ///
+    /// The leaf's validity is registered, so its bitmap is compressed, and `encode` receives the
+    /// leaf holding the compressed bitmap. Any other array is handed to `encode` as it is.
+    ///
+    /// `encode` may store the leaf's validity, but not the leaf itself below an encoding of its
+    /// own: the debug check rejects the canonical leaf there, since it was not registered.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the leaf's validity cannot be read.
+    pub fn of_leaf(
+        leaf: ArrayRef,
+        encode: impl FnOnce(ArrayRef, &mut ExecutionCtx) -> VortexResult<ArrayRef> + 'static,
+    ) -> VortexResult<Self> {
+        let validity = match leaf_validity_slot(&leaf) {
+            Some(slot) => Some((slot, leaf.validity()?)),
+            None => None,
+        };
+        let Some((slot, validity @ Validity::Array(_))) = validity else {
+            // No bitmap to compress.
+            return Ok(Self::new(Vec::new(), Vec::new(), move |_, exec_ctx| {
+                encode(leaf, exec_ctx)
+            }));
+        };
+        Ok(
+            Self::new(Vec::new(), Vec::new(), move |children, exec_ctx| {
+                let validity = children.validity()?;
+                let mut slots: ArraySlots = leaf.slots().iter().cloned().collect();
+                // A bitmap that compressed to a constant is a constant slot: the slot stays present.
+                slots[slot] = Some(validity.to_array(leaf.len()));
+                // SAFETY: the validity bitmap is replaced with a compressed form of itself, which
+                // holds the same values. The leaf's values, dtype, and other slots are unchanged.
+                let leaf = unsafe { leaf.with_slots(slots) }?;
+                encode(leaf, exec_ctx)
+            })
+            .with_validity(validity),
+        )
+    }
+
+    /// Wraps this encoding in an outer one, for a scheme that encodes its input with another
+    /// scheme's encoding and then wraps the result, such as frame-of-reference around
+    /// bit-packing.
+    ///
+    /// The outer children in `compress` and `keep` are registered after this encoding's own. The
+    /// constructor runs this encoding's constructor first, which takes its own children and
+    /// validity, then calls `wrap` with its output and the outer children.
+    pub fn wrap(
+        self,
+        compress: Vec<Child>,
+        keep: Vec<Child>,
+        wrap: impl FnOnce(ArrayRef, &mut EncodedChildren, &mut ExecutionCtx) -> VortexResult<ArrayRef>
+        + 'static,
+    ) -> Self {
+        let Self {
+            compress: mut inner_compress,
+            keep: mut inner_keep,
+            validity,
+            ctor,
+            uses_compress,
+        } = self;
+        inner_compress.extend(compress);
+        inner_keep.extend(keep);
+        Self {
+            compress: inner_compress,
+            keep: inner_keep,
+            validity,
+            ctor: Box::new(move |children, exec_ctx| {
+                let inner = ctor(children, exec_ctx)?;
+                wrap(inner, children, exec_ctx)
+            }),
+            uses_compress,
+        }
     }
 
     /// Registers the encoding's validity. Its bitmap, if any, is compressed.

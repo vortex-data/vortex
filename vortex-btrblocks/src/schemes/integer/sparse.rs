@@ -28,7 +28,9 @@ use super::IntRLEScheme;
 use super::RunEndScheme;
 use crate::ArrayAndStats;
 use crate::CascadingCompressor;
+use crate::Child;
 use crate::CompressorContext;
+use crate::Encoded;
 use crate::GenerateStatsOptions;
 use crate::Scheme;
 use crate::SchemeExt;
@@ -130,13 +132,13 @@ impl Scheme for SparseScheme {
         ))
     }
 
-    fn compress(
+    /// Children: values=0, indices=1. The values carry the validity of the patched rows.
+    fn encode(
         &self,
-        compressor: &CascadingCompressor,
         data: &ArrayAndStats,
-        compress_ctx: CompressorContext,
+        _compress_ctx: &CompressorContext,
         exec_ctx: &mut ExecutionCtx,
-    ) -> VortexResult<ArrayRef> {
+    ) -> VortexResult<Encoded> {
         let len = data.array_len();
         let stats = data.integer_stats(exec_ctx);
         let array = data.array();
@@ -147,69 +149,57 @@ impl Scheme for SparseScheme {
             .vortex_expect(
                 "this must be present since `SparseScheme` declared that we need distinct values",
             );
+        let fill = Scalar::primitive_value(
+            most_frequent_value,
+            most_frequent_value.ptype(),
+            array.dtype().nullability(),
+        );
 
         if most_frequent_count as usize == len {
             // If the most frequent value is the only value, we should compress as constant instead.
-            return Ok(ConstantArray::new(
-                Scalar::primitive_value(
-                    most_frequent_value,
-                    most_frequent_value.ptype(),
-                    array.dtype().nullability(),
-                ),
-                len,
-            )
-            .into_array());
+            return Ok(Encoded::leaf(ConstantArray::new(fill, len).into_array()));
         }
 
-        let sparse_encoded = Sparse::encode(
-            array,
-            Some(Scalar::primitive_value(
-                most_frequent_value,
-                most_frequent_value.ptype(),
-                array.dtype().nullability(),
-            )),
-            exec_ctx,
-        )?;
+        let sparse_encoded = Sparse::encode(array, Some(fill), exec_ctx)?;
+        let Some(sparse) = sparse_encoded.as_opt::<Sparse>() else {
+            return Ok(Encoded::leaf(sparse_encoded));
+        };
 
-        if let Some(sparse) = sparse_encoded.as_opt::<Sparse>() {
-            let sparse_values_primitive = sparse
-                .patches()
-                .values()
-                .clone()
-                .execute::<PrimitiveArray>(exec_ctx)?;
-            let compressed_values = compressor.compress_child(
-                &sparse_values_primitive.into_array(),
-                &compress_ctx,
-                self.id(),
-                0,
-                exec_ctx,
-            )?;
+        let values = sparse
+            .patches()
+            .values()
+            .clone()
+            .execute::<PrimitiveArray>(exec_ctx)?;
+        let indices = sparse
+            .patches()
+            .indices()
+            .clone()
+            .execute::<PrimitiveArray>(exec_ctx)?
+            .narrow(exec_ctx)?;
 
-            let indices = sparse
-                .patches()
-                .indices()
-                .clone()
-                .execute::<PrimitiveArray>(exec_ctx)?
-                .narrow(exec_ctx)?;
+        let sparse_len = sparse.len();
+        let fill = sparse.fill_scalar().clone();
+        Ok(Encoded::new(
+            vec![
+                Child::new(self, 0, values.into_array()),
+                Child::new(self, 1, indices.into_array()),
+            ],
+            Vec::new(),
+            move |children, exec_ctx| {
+                let [values, indices] = children.compressed()?;
+                Sparse::try_new(indices, values, sparse_len, fill, exec_ctx).map(|a| a.into_array())
+            },
+        ))
+    }
 
-            let compressed_indices = compressor.compress_child(
-                &indices.into_array(),
-                &compress_ctx,
-                self.id(),
-                1,
-                exec_ctx,
-            )?;
-
-            Sparse::try_new(
-                compressed_indices,
-                compressed_values,
-                sparse.len(),
-                sparse.fill_scalar().clone(),
-                exec_ctx,
-            )
-            .map(|a| a.into_array())
-        } else {
-            Ok(sparse_encoded)
-        }
+    #[expect(clippy::unimplemented, reason = "replaced by `encode`")]
+    fn compress(
+        &self,
+        _compressor: &CascadingCompressor,
+        _data: &ArrayAndStats,
+        _compress_ctx: CompressorContext,
+        _exec_ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        unimplemented!("{} compresses through Scheme::encode", self.scheme_name())
     }
 }
