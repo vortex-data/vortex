@@ -18,6 +18,19 @@ CAPTURE_SCRIPT = REPO_ROOT / "scripts" / "capture-file-sizes.py"
 RANDOM_ACCESS_SPLIT_SCRIPT = REPO_ROOT / "scripts" / "random-access-split.py"
 FETCH_BASELINE_SCRIPT = REPO_ROOT / "scripts" / "fetch-benchmark-baseline.py"
 
+# The summary table header of a suite that records cold runs and has Parquet controls.
+SUMMARY_HEADERS_WITH_COLD = [
+    "target",
+    "hot",
+    "hot 🟢",
+    "hot 🔴",
+    "cold",
+    "cold 🟢",
+    "cold 🔴",
+    "vs parquet",
+    "confidence",
+]
+
 
 def load_module(name: str, path: Path) -> ModuleType:
     spec = importlib.util.spec_from_file_location(name, path)
@@ -449,7 +462,7 @@ def test_report_splits_cold_and_hot_runs(tmp_path: Path) -> None:
     assert "<summary>Hot runs</summary>" in report
     assert "<summary>Cold runs (first iteration)</summary>" in report
     # The top table carries the geomean and the change counts over every target.
-    assert markdown_row(report, "target") == ["target", "hot", "hot 🟢", "hot 🔴", "cold", "cold 🟢", "cold 🔴", "vs parquet", "confidence"]
+    assert markdown_row(report, "target") == SUMMARY_HEADERS_WITH_COLD
     all_targets = markdown_row(report, "**all**")
     assert all_targets[:7] == ["**all** (1 query)", "🟢 **0.71**", "1", "0", "🔴 **1.41**", "0", "1"]
     assert "-50.0%" in all_targets[7]
@@ -829,7 +842,7 @@ def test_report_compares_ingest_records(tmp_path: Path) -> None:
     report = render_report(tmp_path, base_records, pr_results, "TPC-H", pr_records)
 
     assert "vs base `base-sha`" in report
-    assert markdown_row(report, "target") == ["target", "hot", "hot 🟢", "hot 🔴", "cold", "cold 🟢", "cold 🔴", "vs parquet", "confidence"]
+    assert markdown_row(report, "target") == SUMMARY_HEADERS_WITH_COLD
     assert markdown_row(report, "datafusion:parquet")[7] == "control"
     assert "random-access " in report
     assert "ignored when records exist" not in report
