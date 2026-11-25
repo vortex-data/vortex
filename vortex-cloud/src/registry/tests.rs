@@ -390,7 +390,7 @@ async fn test_resolved_key_reaches_the_object(
 }
 
 /// Cold resolution of an OpenDAL-backed URL must validate the URL path via `Path::from_url_path`
-/// before caching the store, so invalid UTF-8 escapes (`%FF`) are rejected while valid paths
+/// before caching the store, so empty path segments (`a//b`) are rejected while valid paths
 /// (`a/b`) resolve normally.
 #[cfg(feature = "cos")]
 #[test]
@@ -401,8 +401,8 @@ fn test_cos_cold_lookup_validates_url_path() -> Result<(), Box<dyn std::error::E
     )];
     let reg = Registry::with_vars(vars.clone());
     assert!(
-        reg.resolve(&Url::parse("cos://bucket/a/%FF/b")?).is_err(),
-        "invalid UTF-8 escape in cos://bucket/a/%FF/b must be rejected on cold lookup"
+        reg.resolve(&Url::parse("cos://bucket/a//b")?).is_err(),
+        "empty segment in cos://bucket/a//b must be rejected on cold lookup"
     );
 
     let fresh = Registry::with_vars(vars);
@@ -411,20 +411,22 @@ fn test_cos_cold_lookup_validates_url_path() -> Result<(), Box<dyn std::error::E
     Ok(())
 }
 
-/// Consecutive slashes (`//`) must normalize identically on cold and warm cache lookups.
+/// Empty path segments (`//`) must be rejected on both cold and warm cache lookups.
 #[rstest::rstest]
-#[case("s3://my-bucket/a//b", "s3://my-bucket/x", "a/b")]
-#[case("https://example.com/a//b", "https://example.com/x", "a/b")]
+#[case("s3://my-bucket/a//b", "s3://my-bucket/x")]
+#[case("https://example.com/a//b", "https://example.com/x")]
 #[case(
     "https://acct.blob.core.windows.net/container-a/dir//file.vortex",
-    "https://acct.blob.core.windows.net/container-a/other.vortex",
-    "dir/file.vortex"
+    "https://acct.blob.core.windows.net/container-a/other.vortex"
 )]
-#[cfg_attr(feature = "cos", case("cos://bucket/a//b", "cos://bucket/x", "a/b"))]
-fn test_double_slash_consistent_between_cold_and_warm(
+#[cfg_attr(feature = "cos", case("cos://bucket/a//b", "cos://bucket/x"))]
+#[cfg_attr(
+    feature = "hf",
+    case("hf://datasets/org/name/a//b", "hf://datasets/org/name/x")
+)]
+fn test_double_slash_rejected_on_cold_and_warm(
     #[case] double_slash_url: &str,
     #[case] warm_url: &str,
-    #[case] expected: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let vars = [
         ("AWS_REGION".to_string(), "us-east-3".to_string()),
@@ -441,17 +443,17 @@ fn test_double_slash_consistent_between_cold_and_warm(
     let warm = Url::parse(warm_url)?;
 
     let cold_reg = Registry::with_vars(vars.clone());
-    let (cold_store, cold_path) = cold_reg.resolve(&ds_url)?;
-    assert_eq!(cold_path, Path::from(expected));
-    let (cold_again_store, cold_again_path) = cold_reg.resolve(&ds_url)?;
-    assert!(Arc::ptr_eq(&cold_store, &cold_again_store));
-    assert_eq!(cold_again_path, Path::from(expected));
+    assert!(
+        cold_reg.resolve(&ds_url).is_err(),
+        "cold lookup must reject empty segment in {double_slash_url}"
+    );
 
     let warm_reg = Registry::with_vars(vars);
-    let (warm_store, _) = warm_reg.resolve(&warm)?;
-    let (hit_store, hit_path) = warm_reg.resolve(&ds_url)?;
-    assert!(Arc::ptr_eq(&warm_store, &hit_store));
-    assert_eq!(hit_path, Path::from(expected));
+    warm_reg.resolve(&warm)?;
+    assert!(
+        warm_reg.resolve(&ds_url).is_err(),
+        "warm lookup must reject empty segment in {double_slash_url}"
+    );
     Ok(())
 }
 

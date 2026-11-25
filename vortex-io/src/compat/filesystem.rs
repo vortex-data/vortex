@@ -18,22 +18,19 @@ use crate::filesystem::FileSystem;
 #[async_trait]
 impl<F: FileSystem> FileSystem for Compat<F> {
     fn list(&self, prefix: &str) -> BoxStream<'_, VortexResult<FileListing>> {
-        Compat::new(self.enter(|inner| inner.list(prefix))).boxed()
+        Compat::new(self.inner().list(prefix)).boxed()
     }
 
     async fn head(&self, path: &str) -> VortexResult<Option<FileListing>> {
-        let fut = self.enter(|inner| inner.head(path));
-        Compat::new(fut).await
+        Compat::new(self.inner().head(path)).await
     }
 
     async fn open_read(&self, path: &str) -> VortexResult<Arc<dyn VortexReadAt>> {
-        let fut = self.enter(|inner| inner.open_read(path));
-        let read_at = Compat::new(fut).await?;
+        let read_at = Compat::new(self.inner().open_read(path)).await?;
         Ok(Arc::new(Compat::new(read_at)))
     }
 
     async fn delete(&self, path: &str) -> VortexResult<()> {
-        let fut = self.enter(|inner| inner.delete(path));
-        Compat::new(fut).await
+        Compat::new(self.inner().delete(path)).await
     }
 }

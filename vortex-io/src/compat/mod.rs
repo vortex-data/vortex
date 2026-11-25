@@ -94,18 +94,6 @@ impl<T> Compat<T> {
             .vortex_expect("inner is only None when Compat is about to drop")
     }
 
-    #[inline]
-    fn enter<'a, R>(&'a self, f: impl FnOnce(&'a T) -> R) -> R {
-        let _guard = runtime_handle().enter();
-        f(self.inner())
-    }
-
-    #[inline]
-    fn enter_mut<'a, R>(&'a mut self, f: impl FnOnce(&'a mut T) -> R) -> R {
-        let _guard = runtime_handle().enter();
-        f(self.inner_mut())
-    }
-
     fn get_pin_mut(self: Pin<&mut Self>) -> Pin<&mut T> {
         self.project()
             .inner
@@ -137,6 +125,3 @@ impl<S: Stream> Stream for Compat<S> {
         self.inner().size_hint()
     }
 }
-
-#[cfg(test)]
-mod tests;

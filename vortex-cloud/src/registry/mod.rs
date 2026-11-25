@@ -13,7 +13,6 @@
 //!    `oss://`, and `goosefs://`, and the Hugging Face Hub's `hf://` — are served by the crate's
 //!    `opendal` and `hf` modules under the matching service feature.
 
-use std::borrow::Cow;
 #[cfg(any(feature = "cos", feature = "goosefs", feature = "hf", feature = "oss"))]
 use std::env::VarError;
 use std::sync::Arc;
@@ -160,14 +159,11 @@ impl ObjectStoreRegistry for Registry {
             }
         }
 
-        // 2. Normalize consecutive slashes so cold builds agree with warm cache hits (which
-        //    ignore empty segments via `path_segments`), then build the store and determine how
-        //    many raw URL path segments form its mount prefix.
-        let normalized = normalize_url(to_resolve);
-        let (store, depth) = self.build_store(&normalized)?;
+        // 2. Build the store and determine how many raw URL path segments form its mount prefix.
+        let (store, depth) = self.build_store(to_resolve)?;
 
         // 3. Cache the store and return it alongside the path that lives inside the store.
-        self.cache_and_resolve(&normalized, store, depth)
+        self.cache_and_resolve(to_resolve, store, depth)
     }
 }
 
@@ -270,33 +266,6 @@ fn url_key(url: &Url) -> &str {
     &url[..url::Position::AfterPort]
 }
 
-/// Collapses consecutive `/` characters in `url`'s path so cold store builds normalize `//`
-/// identically to warm cache lookups.
-fn normalize_url(url: &Url) -> Cow<'_, Url> {
-    let path = url.path();
-    if !path.contains("//") {
-        return Cow::Borrowed(url);
-    }
-
-    let mut normalized_path = String::with_capacity(path.len());
-    let mut prev_slash = false;
-    for ch in path.chars() {
-        if ch == '/' {
-            if !prev_slash {
-                normalized_path.push('/');
-                prev_slash = true;
-            }
-        } else {
-            prev_slash = false;
-            normalized_path.push(ch);
-        }
-    }
-
-    let mut normalized = url.clone();
-    normalized.set_path(&normalized_path);
-    Cow::Owned(normalized)
-}
-
 /// Returns the non-empty segments of a path
 ///
 /// Note: We don't use [`Url::path_segments`] as we only want non-empty paths
@@ -311,13 +280,28 @@ fn num_segments(s: &str) -> usize {
 
 /// Returns the path of `url` skipping the first `depth` segments
 fn path_suffix(url: &Url, depth: usize) -> Result<Path, object_store::Error> {
-    // The segments come from a URL, so percent-decode them (one raw segment may decode to
-    // several path parts, e.g. `refs%2Fconvert%2Fparquet`).
-    let suffix = path_segments(url.path())
-        .skip(depth)
-        .collect::<Vec<_>>()
-        .join("/");
-    Path::from_url_path(suffix).map_err(|e| object_store::Error::Generic {
+    // Preserve empty path segments in the URL so warm cache hits reject `a//b` identically to
+    // cold lookups instead of collapsing them to a different object key.
+    let mut remainder = url.path();
+    if depth > 0 {
+        remainder = remainder.strip_prefix('/').unwrap_or(remainder);
+        for _ in 0..depth {
+            let (seg, rest) = match remainder.split_once('/') {
+                Some((seg, rest)) => (seg, rest),
+                None => (remainder, ""),
+            };
+            if seg.is_empty() {
+                return Err(object_store::Error::Generic {
+                    store: "ObjectStoreRegistry",
+                    source: Box::new(object_store::path::Error::EmptySegment {
+                        path: url.path().to_string(),
+                    }),
+                });
+            }
+            remainder = rest;
+        }
+    }
+    Path::from_url_path(remainder).map_err(|e| object_store::Error::Generic {
         store: "ObjectStoreRegistry",
         source: Box::new(e),
     })
