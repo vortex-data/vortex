@@ -468,6 +468,80 @@ mod tests {
         }
     }
 
+    async fn written_file(
+        session: &VortexSession,
+        metadata: ByteBuffer,
+    ) -> VortexResult<VortexFile> {
+        let mut output = ByteBufferMut::empty();
+        session
+            .write_options()
+            .with_metadata_segment("key", metadata)
+            .write(&mut output, buffer![1u32].into_array().to_array_stream())
+            .await?;
+
+        session
+            .open_options()
+            .include_metadata()
+            .open_buffer(ByteBuffer::from(output))
+    }
+
+    fn metadata_session() -> VortexSession {
+        let session = VortexSession::empty()
+            .with::<LayoutSession>()
+            .with::<RuntimeSession>()
+            .with::<MultiFileSession>();
+        crate::register_default_encodings(&session);
+        crate::enable_all_registered_array_encodings(&session);
+        session
+    }
+
+    #[tokio::test]
+    async fn test_entry_without_metadata_keeps_cached_metadata() -> VortexResult<()> {
+        let session = metadata_session();
+        let file = written_file(&session, ByteBuffer::copy_from(b"cached metadata")).await?;
+
+        session.multi_file().put_file(
+            "file",
+            CachedFile {
+                footer: file.footer().clone(),
+                metadata: Some(Arc::clone(file.metadata())),
+            },
+        );
+        session.multi_file().put_file(
+            "file",
+            CachedFile {
+                footer: file.footer().clone(),
+                metadata: None,
+            },
+        );
+
+        let cached = session.multi_file().get_file("file");
+        assert_eq!(
+            cached.and_then(|cached| cached.metadata),
+            Some(Arc::clone(file.metadata()))
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_large_metadata_is_not_cached() -> VortexResult<()> {
+        let session = metadata_session();
+        let large = ByteBuffer::from(vec![0u8; 2 * 1024 * 1024]);
+        let file = written_file(&session, large).await?;
+
+        session.multi_file().put_file(
+            "file",
+            CachedFile {
+                footer: file.footer().clone(),
+                metadata: Some(Arc::clone(file.metadata())),
+            },
+        );
+
+        let cached = session.multi_file().get_file("file");
+        assert!(cached.is_some_and(|cached| cached.metadata.is_none()));
+        Ok(())
+    }
+
     #[tokio::test]
     async fn test_cached_metadata_is_read_once() -> VortexResult<()> {
         let session = VortexSession::empty()

@@ -20,13 +20,19 @@ use crate::footer::Footer;
 ///
 /// Provides a shared, in-memory footer cache so that repeated scans over the same files
 /// avoid redundant footer I/O. A file opened with its user-defined metadata also keeps that
-/// metadata in the cache, so later opens that include metadata do not read it again. The cache is bounded by entry count and lives as long as
-/// the [`VortexSession`](vortex_session::VortexSession).
+/// metadata in the cache, up to [`MAX_CACHED_METADATA_BYTES`] per file, so later opens that
+/// include metadata do not read it again. The cache is bounded by size and lives as long as the
+/// [`VortexSession`](vortex_session::VortexSession).
 ///
 /// # Future Work
 ///
 /// Consider generalizing this cache into [`VortexOpenOptions`](crate::VortexOpenOptions) so
 /// that single-file opens also benefit from session-level footer caching.
+/// The largest user-defined metadata, in bytes, that the cache keeps for one file.
+///
+/// Larger metadata would take the room of many footers, so it is read again on each open.
+const MAX_CACHED_METADATA_BYTES: usize = 1024 * 1024;
+
 #[derive(Clone)]
 pub struct MultiFileSession {
     footer_cache: moka::sync::Cache<String, CachedFile>,
@@ -44,15 +50,17 @@ impl CachedFile {
     /// The approximate size of the entry in KiB, as the cache weigher expects.
     fn weight(&self) -> u32 {
         let footer_bytes = self.footer.approx_byte_size().unwrap_or(10 * 1024);
-        let metadata_bytes: usize = self
-            .metadata
-            .iter()
-            .flat_map(|metadata| metadata.iter())
-            .map(|(key, value)| key.len() + value.len())
-            .sum();
+        let metadata_bytes = self.metadata.as_deref().map_or(0, metadata_size);
 
         u32::try_from((footer_bytes + metadata_bytes) / 1024).unwrap_or(u32::MAX)
     }
+}
+
+fn metadata_size(metadata: &HashMap<String, ByteBuffer>) -> usize {
+    metadata
+        .iter()
+        .map(|(key, value)| key.len() + value.len())
+        .sum()
 }
 
 impl Default for MultiFileSession {
@@ -87,8 +95,26 @@ impl MultiFileSession {
     }
 
     /// Store a footer, and the metadata when it was loaded, under the given file path.
-    pub(crate) fn put_file(&self, path: &str, file: CachedFile) {
-        self.footer_cache.insert(path.to_string(), file);
+    ///
+    /// An entry without metadata keeps the metadata that a concurrent open has already cached.
+    pub(crate) fn put_file(&self, path: &str, mut file: CachedFile) {
+        if file
+            .metadata
+            .as_deref()
+            .is_some_and(|metadata| metadata_size(metadata) > MAX_CACHED_METADATA_BYTES)
+        {
+            file.metadata = None;
+        }
+
+        self.footer_cache
+            .entry(path.to_string())
+            .and_upsert_with(|existing| match existing {
+                Some(existing) if file.metadata.is_none() => CachedFile {
+                    footer: file.footer,
+                    metadata: existing.into_value().metadata,
+                },
+                _ => file,
+            });
     }
 }
 
