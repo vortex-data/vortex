@@ -265,17 +265,13 @@ fn measure_delta_bits(
     sample: &PrimitiveArray,
     compressor: &CascadingCompressor,
     compress_ctx: &CompressorContext,
-    delta_id: SchemeId,
+    _delta_id: SchemeId,
     exec_ctx: &mut ExecutionCtx,
 ) -> VortexResult<f64> {
-    let (bases, deltas) = vortex_fastlanes::delta_compress(sample, exec_ctx)?;
-    let mut bytes = 0u64;
-    for (idx, child) in [bases, deltas].into_iter().enumerate() {
-        bytes += compressor
-            .compress_child(&child.into_array(), compress_ctx, delta_id, idx, exec_ctx)?
-            .nbytes();
-    }
-    Ok(bytes as f64 * 8.0 / sample.len() as f64)
+    let data = ArrayAndStats::new(sample.clone().into_array(), Default::default());
+    let compressed =
+        DeltaScheme::default().compress(compressor, &data, compress_ctx.clone(), exec_ctx)?;
+    Ok(compressed.nbytes() as f64 * 8.0 / sample.len() as f64)
 }
 
 /// Pre-estimate all modes in memory, reject early if estimated savings over per-chunk FoR are

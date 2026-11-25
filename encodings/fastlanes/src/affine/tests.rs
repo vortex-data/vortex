@@ -1163,3 +1163,18 @@ fn test_decompress_rejects_out_of_bounds_dict_codes() -> VortexResult<()> {
     }
     Ok(())
 }
+
+#[test]
+fn test_slope_fits_small_trend_at_large_u64_offset() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let base: u64 = (1u64 << 63) + 4096;
+    let array = PrimitiveArray::from_iter((0..1024u64).map(|j| base + j / 2));
+    let est = Affine::estimate_modes(&array, 1, &mut ctx)?;
+    assert!(
+        est.slope_bits + 4.0 < est.for_bits,
+        "expected fractional slope to beat FoR at large u64 offset: {est:?}"
+    );
+    let encoded = Affine::encode(&array, AffineOptions::SLOPE, &mut ctx)?;
+    assert_arrays_eq!(encoded, array, &mut ctx);
+    Ok(())
+}

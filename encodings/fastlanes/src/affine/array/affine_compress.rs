@@ -866,6 +866,11 @@ where
     )
 }
 
+#[inline]
+fn diff_f64<T: PrimInt>(v: T, origin: i128) -> f64 {
+    (v.to_i128().unwrap_or(0) - origin) as f64
+}
+
 /// Candidate fixed-point slopes for a chunk, starting with zero, then integer slopes, then
 /// fractional ones, so that ties keep the simpler model.
 fn slope_candidates<T: PrimInt>(
@@ -882,11 +887,11 @@ fn slope_candidates<T: PrimInt>(
 
     let (median, endpoint, least_squares) = match valid {
         ValidPositions::All(len) => {
-            let mut prev = chunk[0].to_f64().unwrap_or(0.0);
-            let first = prev;
-            let mut sum_y = first;
+            let origin = chunk[0].to_i128().unwrap_or(0);
+            let mut prev = 0.0;
+            let mut sum_y = 0.0;
             for (k, &v) in chunk[1..len].iter().enumerate() {
-                let y = v.to_f64().unwrap_or(0.0);
+                let y = diff_f64(v, origin);
                 deltas[k] = y - prev;
                 sum_y += y;
                 prev = y;
@@ -895,7 +900,7 @@ fn slope_candidates<T: PrimInt>(
             let mid = delta_count / 2;
             deltas[..delta_count].select_nth_unstable_by(mid, f64::total_cmp);
             let median = deltas[mid];
-            let endpoint = (prev - first) / (delta_count as f64);
+            let endpoint = prev / (delta_count as f64);
 
             let n = len as f64;
             let mean_x = (delta_count as f64) * 0.5;
@@ -903,7 +908,7 @@ fn slope_candidates<T: PrimInt>(
             let (mut sxy, mut sxx) = (0.0, 0.0);
             for (j, &v) in chunk[..len].iter().enumerate() {
                 let dx = j as f64 - mean_x;
-                let dy = v.to_f64().unwrap_or(0.0) - mean_y;
+                let dy = diff_f64(v, origin) - mean_y;
                 sxy += dx * dy;
                 sxx += dx * dx;
             }
@@ -912,14 +917,15 @@ fn slope_candidates<T: PrimInt>(
         }
         ValidPositions::Indices(indices) => {
             let count = indices.len();
+            let origin = chunk[indices[0]].to_i128().unwrap_or(0);
             let mut prev_x = indices[0] as f64;
-            let mut prev_y = chunk[indices[0]].to_f64().unwrap_or(0.0);
-            let (first_x, first_y) = (prev_x, prev_y);
+            let mut prev_y = 0.0;
+            let first_x = prev_x;
             let mut sum_x = prev_x;
-            let mut sum_y = prev_y;
+            let mut sum_y = 0.0;
             for (slot, &pos) in indices[1..].iter().enumerate() {
                 let x_val = pos as f64;
-                let y_val = chunk[pos].to_f64().unwrap_or(0.0);
+                let y_val = diff_f64(chunk[pos], origin);
                 deltas[slot] = (y_val - prev_y) / (x_val - prev_x);
                 sum_x += x_val;
                 sum_y += y_val;
@@ -930,14 +936,14 @@ fn slope_candidates<T: PrimInt>(
             let mid = delta_count / 2;
             deltas[..delta_count].select_nth_unstable_by(mid, f64::total_cmp);
             let median = deltas[mid];
-            let endpoint = (prev_y - first_y) / (prev_x - first_x);
+            let endpoint = prev_y / (prev_x - first_x);
 
             let mean_x = sum_x / (count as f64);
             let mean_y = sum_y / (count as f64);
             let (mut sxy, mut sxx) = (0.0, 0.0);
             for &pos in indices {
                 let dx = pos as f64 - mean_x;
-                let dy = chunk[pos].to_f64().unwrap_or(0.0) - mean_y;
+                let dy = diff_f64(chunk[pos], origin) - mean_y;
                 sxy += dx * dy;
                 sxx += dx * dx;
             }
@@ -987,7 +993,7 @@ fn choose_slope_shift<T: PrimInt>(values: &[T], mask: &Mask) -> u8 {
         if let (Some(first), Some(last)) = (first, last)
             && last > first
         {
-            let rise = chunk[last].to_f64().unwrap_or(0.0) - chunk[first].to_f64().unwrap_or(0.0);
+            let rise = diff_f64(chunk[last], chunk[first].to_i128().unwrap_or(0));
             steepest = steepest.max((rise / (last - first) as f64).abs());
         }
     }
@@ -1023,7 +1029,7 @@ fn choose_slope_shift_sampled<T: PrimInt>(
         if let (Some(first), Some(last)) = (first, last)
             && last > first
         {
-            let rise = chunk[last].to_f64().unwrap_or(0.0) - chunk[first].to_f64().unwrap_or(0.0);
+            let rise = diff_f64(chunk[last], chunk[first].to_i128().unwrap_or(0));
             steepest = steepest.max((rise / (last - first) as f64).abs());
         }
     }
