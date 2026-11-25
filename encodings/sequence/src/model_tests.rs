@@ -5,6 +5,8 @@
 
 use std::sync::LazyLock;
 
+use hegel::TestCase;
+use hegel::generators as gs;
 use num_traits::Bounded;
 use num_traits::ToPrimitive;
 use vortex_array::ArrayRef;
@@ -19,7 +21,11 @@ use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::bool::BoolArrayExt;
 use vortex_array::builtins::ArrayBuiltins;
+use vortex_array::compute::conformance::hegel::EncodingCheckOptions;
+use vortex_array::compute::conformance::hegel::check_encoding_roundtrip_and_ops;
 use vortex_array::dtype::DType;
+use vortex_array::dtype::NativePType;
+use vortex_array::dtype::Nullability;
 use vortex_array::dtype::Nullability::NonNullable;
 use vortex_array::dtype::PType;
 use vortex_array::match_each_integer_ptype;
@@ -27,12 +33,16 @@ use vortex_array::scalar::PValue;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar::ScalarValue;
 use vortex_array::scalar_fn::builtin::operators::CompareOperator;
+use vortex_array::validity::Validity;
+use vortex_buffer::Buffer;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
 
 use crate::Sequence;
+use crate::SequenceArray;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     let session = VortexSession::empty();
@@ -225,4 +235,111 @@ fn sequence_kernels_match_exact_model() -> VortexResult<()> {
 
 fn model_holds(ptype: PType, value: i128) -> bool {
     narrow(value, ptype).is_some()
+}
+
+/// Maximum length for Hegel-generated sequences; stays within `i8::MAX + 1` so all 8 integer
+/// index types can address every row.
+pub(crate) const HEGEL_MAX_LEN: usize = 64;
+
+/// Draws a valid [`SequenceArray`] together with its exact `i128`-computed canonical
+/// [`PrimitiveArray`] without ever rejecting.
+///
+/// Covers all 8 integer ptypes, both nullabilities, edge lengths (`1`, `2`, up to
+/// [`HEGEL_MAX_LEN`]), negative steps on unsigned outputs, and unsigned steps exceeding `i64::MAX`.
+pub(crate) fn draw_sequence(tc: &TestCase) -> VortexResult<(SequenceArray, PrimitiveArray)> {
+    match tc.draw(gs::integers::<u8>().max_value(7)) {
+        0 => draw_sequence_typed::<u8>(tc),
+        1 => draw_sequence_typed::<u16>(tc),
+        2 => draw_sequence_typed::<u32>(tc),
+        3 => draw_sequence_typed::<u64>(tc),
+        4 => draw_sequence_typed::<i8>(tc),
+        5 => draw_sequence_typed::<i16>(tc),
+        6 => draw_sequence_typed::<i32>(tc),
+        _ => draw_sequence_typed::<i64>(tc),
+    }
+}
+
+fn draw_sequence_typed<P>(tc: &TestCase) -> VortexResult<(SequenceArray, PrimitiveArray)>
+where
+    P: NativePType + Bounded + ToPrimitive + gs::Integer + Into<PValue> + 'static,
+{
+    let len = match tc.draw(gs::integers::<u8>().max_value(4)) {
+        0 => 1,
+        1 => 2,
+        _ => tc.draw(
+            gs::integers::<usize>()
+                .min_value(1)
+                .max_value(HEGEL_MAX_LEN),
+        ),
+    };
+    let base: P = tc.draw(gs::integers::<P>());
+    let base_i128 = base.to_i128().vortex_expect("integer fits i128");
+    let min_i128 = <P as Bounded>::min_value()
+        .to_i128()
+        .vortex_expect("min fits i128");
+    let max_i128 = <P as Bounded>::max_value()
+        .to_i128()
+        .vortex_expect("max fits i128");
+
+    let (multiplier, mult_i128): (PValue, i128) = if len == 1 {
+        if tc.draw(gs::booleans()) {
+            let step = tc.draw(gs::integers::<i64>());
+            (PValue::from(step), i128::from(step))
+        } else {
+            let step = tc.draw(gs::integers::<u64>());
+            (PValue::from(step), i128::from(step))
+        }
+    } else {
+        let steps = (len - 1) as i128;
+        let max_pos = u64::try_from((max_i128 - base_i128) / steps)
+            .vortex_expect("positive step bound fits u64");
+        let max_neg = u64::try_from((base_i128 - min_i128) / steps)
+            .vortex_expect("negative step bound fits u64")
+            .min(i64::MIN.unsigned_abs());
+
+        if tc.draw(gs::booleans()) {
+            let step = tc.draw(gs::integers::<u64>().max_value(max_pos));
+            (PValue::from(step), i128::from(step))
+        } else {
+            let mag = tc.draw(gs::integers::<u64>().max_value(max_neg));
+            let step = if mag == i64::MIN.unsigned_abs() {
+                i64::MIN
+            } else {
+                -i64::try_from(mag).vortex_expect("magnitude fits i64")
+            };
+            (PValue::from(step), i128::from(step))
+        }
+    };
+
+    let nullability = if tc.draw(gs::booleans()) {
+        Nullability::Nullable
+    } else {
+        NonNullable
+    };
+
+    let sequence = Sequence::try_new(base.into(), multiplier, P::PTYPE, nullability, len)?;
+    let expected_values: Vec<P> = (0..len)
+        .map(|idx| {
+            let val = base_i128 + (idx as i128) * mult_i128;
+            num_traits::cast::<i128, P>(val).vortex_expect("constructed sequence value fits P")
+        })
+        .collect();
+    let canonical = PrimitiveArray::new(Buffer::from(expected_values), Validity::from(nullability));
+    Ok((sequence, canonical))
+}
+
+/// Generated sequences match an exact `i128` oracle across bulk decode, `scalar_at`, serde,
+/// scalar `compare`, and chained `slice`/`take`/`filter`/`mask` operations.
+#[hegel::test(test_cases = 100, print_blob = true)]
+fn sequence_matches_exact_model_and_ops(tc: TestCase) {
+    let mut ctx = SESSION.create_execution_ctx();
+    let (sequence, canonical) = draw_sequence(&tc).vortex_expect("draw valid sequence");
+    check_encoding_roundtrip_and_ops(
+        &tc,
+        &sequence.into_array(),
+        &canonical.into_array(),
+        &EncodingCheckOptions::default(),
+        &mut ctx,
+    )
+    .vortex_expect("sequence harness check");
 }
