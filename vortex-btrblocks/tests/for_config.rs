@@ -297,15 +297,37 @@ fn v2_selects_zero_buffer_sequence_references() -> VortexResult<()> {
 #[test]
 fn v2_does_not_outbid_runend_on_run_structured_chunks() -> VortexResult<()> {
     let mut ctx = UNSTABLE_SESSION.create_execution_ctx();
-    let compressor = BtrBlocksCompressorBuilder::from_session(&UNSTABLE_SESSION).build();
+    let for_and_runend = for_only()
+        .with_new_scheme(&RunEndScheme)
+        .with_new_scheme(&SequenceScheme)
+        .build();
+    let full = BtrBlocksCompressorBuilder::from_session(&UNSTABLE_SESSION).build();
 
     let i64_chunk = PrimitiveArray::from_iter((0..122_880i64).map(|i| (i / 4) + 1)).into_array();
-    let compressed_i64 = compressor.compress(&i64_chunk, &mut ctx)?;
-    assert_eq!(compressed_i64.encoding_id().as_ref(), "vortex.runend");
+    assert_eq!(
+        for_and_runend
+            .compress(&i64_chunk, &mut ctx)?
+            .encoding_id()
+            .as_ref(),
+        "vortex.runend"
+    );
+    assert_ne!(
+        full.compress(&i64_chunk, &mut ctx)?.encoding_id(),
+        for_v2_id()
+    );
 
     let i32_chunk = PrimitiveArray::from_iter((0..122_880i32).map(|i| (i / 4) + 1)).into_array();
-    let compressed_i32 = compressor.compress(&i32_chunk, &mut ctx)?;
-    assert_eq!(compressed_i32.encoding_id().as_ref(), "vortex.runend");
+    assert_eq!(
+        for_and_runend
+            .compress(&i32_chunk, &mut ctx)?
+            .encoding_id()
+            .as_ref(),
+        "vortex.runend"
+    );
+    assert_ne!(
+        full.compress(&i32_chunk, &mut ctx)?.encoding_id(),
+        for_v2_id()
+    );
     Ok(())
 }
 
