@@ -85,8 +85,8 @@ use crate::scalar::bool;
 /// >>> import datetime
 /// >>> import vortex as vx
 /// >>> vx.scalar(datetime.date(1970, 1, 2)).as_py()
-/// 1
-/// >>> vx.scalar(datetime.time(0, 0, 1), dtype=vx.time("ms")).as_py()
+/// datetime.date(1970, 1, 2)
+/// >>> vx.scalar(datetime.time(0, 0, 1), dtype=vx.time("ms")).storage()
 /// 1000
 /// ```
 #[pyfunction(name = "scalar")]
