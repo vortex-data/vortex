@@ -1,0 +1,74 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+# TIMESTAMPTZ_NS columns round-trip and keep nanosecond precision in pushed filters
+
+include ../setup.slt.no
+
+statement ok
+SET TimeZone = 'UTC';
+
+statement ok
+COPY (SELECT * FROM (VALUES
+    (TIMESTAMPTZ_NS '2020-01-01 10:00:00.000000001+00'),
+    (TIMESTAMPTZ_NS '2020-01-01 10:00:00.123456789+00'),
+    (TIMESTAMPTZ_NS '2021-06-15 12:30:00.987654321+00'),
+    (NULL)
+) AS input(t)) TO '${WORK_DIR}/tzns.vortex' (FORMAT VORTEX);
+
+query T?
+SELECT typeof(t), t FROM '${WORK_DIR}/tzns.vortex' ORDER BY t;
+----
+TIMESTAMPTZ_NS 2020-01-01 10:00:00.000000001+00
+TIMESTAMPTZ_NS 2020-01-01 10:00:00.123456789+00
+TIMESTAMPTZ_NS 2021-06-15 12:30:00.987654321+00
+TIMESTAMPTZ_NS NULL
+
+# The predicate must run inside the Vortex scan, without a residual DuckDB filter.
+query TT
+EXPLAIN SELECT t FROM '${WORK_DIR}/tzns.vortex'
+WHERE t = TIMESTAMPTZ_NS '2020-01-01 10:00:00.123456789+00';
+----
+<REGEX>:Read Vortex
+
+query TT
+EXPLAIN SELECT t FROM '${WORK_DIR}/tzns.vortex'
+WHERE t = TIMESTAMPTZ_NS '2020-01-01 10:00:00.123456789+00';
+----
+<!REGEX>:FILTER
+
+query ?
+SELECT t FROM '${WORK_DIR}/tzns.vortex'
+WHERE t = TIMESTAMPTZ_NS '2020-01-01 10:00:00.123456789+00';
+----
+2020-01-01 10:00:00.123456789+00
+
+# If the literal were truncated to microseconds, the .123456789 row would also be greater.
+query I
+SELECT count(*) FROM '${WORK_DIR}/tzns.vortex'
+WHERE t > TIMESTAMPTZ_NS '2020-01-01 10:00:00.123456789+00';
+----
+1
+
+# min and max come from the file's statistics.
+query TT
+EXPLAIN SELECT min(t), max(t) FROM '${WORK_DIR}/tzns.vortex';
+----
+<REGEX>:.*Column Data Scan.*
+
+query ??
+SELECT min(t), max(t) FROM '${WORK_DIR}/tzns.vortex';
+----
+2020-01-01 10:00:00.000000001+00 2021-06-15 12:30:00.987654321+00
+
+# A filter rules out statistics, so the aggregate is pushed into the scan.
+query ?
+SELECT max(t) FROM '${WORK_DIR}/tzns.vortex'
+WHERE t < TIMESTAMPTZ_NS '2021-01-01 00:00:00+00';
+----
+2020-01-01 10:00:00.123456789+00
+
+query ?
+SELECT t FROM '${WORK_DIR}/tzns.vortex' ORDER BY t DESC NULLS LAST LIMIT 1;
+----
+2021-06-15 12:30:00.987654321+00

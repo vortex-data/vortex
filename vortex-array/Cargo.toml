@@ -307,6 +307,10 @@ name = "run_end_null_count"
 harness = false
 
 [[bench]]
+name = "primitive_majority_candidate"
+harness = false
+
+[[bench]]
 name = "run_end_compress"
 harness = false
 

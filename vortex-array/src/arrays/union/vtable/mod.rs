@@ -36,6 +36,19 @@ pub type UnionArray = Array<Union>;
 /// The canonical Union encoding.
 ///
 /// This is similar to Arrow's "spase" union type.
+///
+/// # Serialized form
+///
+/// `vortex.union` has no buffers, and its metadata is a protobuf message with no fields yet. The
+/// children are `[type_ids, variant_0, ..., variant_{n-1}]`, where `n` is the number of variants
+/// in the union dtype, so every child's position follows from the dtype alone. Outer nulls live in the `type_ids` child, whose
+/// nullability is the union's, so there is no separate validity child.
+///
+/// Readers require at least `1 + n` children and ignore any that follow. A later writer may
+/// append a child under this ID only if decoding without it still yields the same values, such as
+/// a statistic or an index. A child or metadata field that changes the decoded values needs a new
+/// encoding ID. Readers ignore unknown metadata fields and reject malformed metadata and any
+/// buffers.
 #[derive(Clone, Debug)]
 pub struct Union;
 
