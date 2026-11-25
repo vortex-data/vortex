@@ -13,6 +13,8 @@ use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::DecimalArray;
+use vortex_array::arrays::Extension;
+use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::FixedSizeList;
 use vortex_array::arrays::FixedSizeListArray;
 use vortex_array::arrays::ListView;
@@ -24,6 +26,7 @@ use vortex_array::arrays::Struct;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::VarBinView;
 use vortex_array::arrays::VarBinViewArray;
+use vortex_array::arrays::extension::ExtensionArrayExt;
 use vortex_array::arrays::fixed_size_list::FixedSizeListArrayExt;
 use vortex_array::arrays::listview::ListViewArrayExt;
 use vortex_array::arrays::listview::ListViewArraySlotsExt;
@@ -358,10 +361,16 @@ pub(super) fn execute_sparse(parts: SparseParts, ctx: &mut ExecutionCtx) -> Vort
         DType::Variant(_) => {
             vortex_bail!("Sparse canonicalization does not support Variant")
         }
-        DType::Extension(..) => {
-            vortex_bail!("Sparse canonicalization does not support Extension arrays yet")
-        }
+        DType::Extension(..) => execute_sparse_extension(patches, &fill_value)?,
     })
+}
+
+fn execute_sparse_extension(patches: Patches, fill_value: &Scalar) -> VortexResult<ArrayRef> {
+    let fill = fill_value.as_extension();
+    let patches =
+        patches.map_values(|values| Ok(values.as_::<Extension>().storage_array().clone()))?;
+    let storage = Sparse::try_new_from_patches(patches, fill.to_storage_scalar())?.into_array();
+    Ok(ExtensionArray::try_new(fill.ext_dtype().clone(), storage)?.into_array())
 }
 
 fn execute_sparse_lists(
@@ -878,6 +887,7 @@ mod test {
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::Chunked;
     use vortex_array::arrays::DecimalArray;
+    use vortex_array::arrays::ExtensionArray;
     use vortex_array::arrays::FixedSizeListArray;
     use vortex_array::arrays::ListArray;
     use vortex_array::arrays::ListViewArray;
@@ -886,6 +896,7 @@ mod test {
     use vortex_array::arrays::VarBinArray;
     use vortex_array::arrays::VarBinViewArray;
     use vortex_array::arrays::chunked::ChunkedArrayExt;
+    use vortex_array::arrays::extension::ExtensionArrayExt;
     use vortex_array::arrays::listview::ListViewArrayExt;
     use vortex_array::arrays::listview::ListViewArraySlotsExt;
     use vortex_array::assert_arrays_eq;
@@ -898,6 +909,8 @@ mod test {
     use vortex_array::dtype::Nullability::Nullable;
     use vortex_array::dtype::PType;
     use vortex_array::dtype::StructFields;
+    use vortex_array::extension::datetime::TimeUnit;
+    use vortex_array::extension::datetime::Timestamp;
     use vortex_array::scalar::DecimalValue;
     use vortex_array::scalar::Scalar;
     use vortex_array::validity::Validity;
@@ -972,6 +985,31 @@ mod test {
         ]);
 
         assert_arrays_eq!(&sparse_ints, &expected, &mut ctx);
+    }
+
+    #[rstest]
+    #[case(None)]
+    #[case(Some(42))]
+    fn test_sparse_extension(#[case] fill: Option<i64>) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let ext = Timestamp::new(TimeUnit::Milliseconds, Nullable).erased();
+        let patch_indices = buffer![0u64, 2, 3, 5].into_array();
+        let storage = PrimitiveArray::from_option_iter([Some(1i64), Some(-7), None, Some(9)]);
+        let patches = ExtensionArray::try_new(ext.clone(), storage.into_array())?.into_array();
+        let fill_value = Scalar::try_new(
+            DType::Extension(ext.clone()),
+            Scalar::from(fill).into_value(),
+        )?;
+        let sparse = Sparse::try_new(patch_indices, patches, 7, fill_value, &mut ctx)?;
+
+        let expected_storage =
+            PrimitiveArray::from_option_iter([fill, Some(-7), None, fill, Some(9)]);
+        let expected = ExtensionArray::try_new(ext, expected_storage.into_array())?;
+        let sliced = sparse.slice(1..6)?;
+        let canonical = sliced.clone().execute::<ExtensionArray>(&mut ctx)?;
+        assert!(canonical.storage_array().is::<Sparse>());
+        assert_arrays_eq!(sliced, expected, &mut ctx);
+        Ok(())
     }
 
     #[test]
