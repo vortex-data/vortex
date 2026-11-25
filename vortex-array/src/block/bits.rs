@@ -19,6 +19,19 @@ pub(super) fn copy_bits(src: &[u8], src_bit: usize, dst: &mut [u8], dst_bit: usi
         "destination bits out of range"
     );
     let mut done = 0;
+    // Into a byte-aligned destination, such as a block's window or the output at a block's
+    // start, move whole words while the source has a byte past the word to shift in.
+    if dst_bit.is_multiple_of(8) {
+        let dst_byte = dst_bit / 8;
+        while len - done >= 64 {
+            let Some(word) = read_word(src, src_bit + done) else {
+                break;
+            };
+            let at = dst_byte + done / 8;
+            dst[at..at + 8].copy_from_slice(&word.to_le_bytes());
+            done += 64;
+        }
+    }
     while done < len {
         let take = (len - done).min(STEP);
         let bits = read_bits(src, src_bit + done, take);
@@ -27,24 +40,48 @@ pub(super) fn copy_bits(src: &[u8], src_bit: usize, dst: &mut [u8], dst_bit: usi
     }
 }
 
+/// The 64 bits of `bytes` from bit `bit`, if `bytes` has a byte past them to shift in.
+fn read_word(bytes: &[u8], bit: usize) -> Option<u64> {
+    let (byte, shift) = (bit / 8, bit % 8);
+    let (word, next) = bytes.get(byte..byte + 9)?.split_first_chunk::<8>()?;
+    let word = u64::from_le_bytes(*word);
+    Some(if shift == 0 {
+        word
+    } else {
+        (word >> shift) | (u64::from(next[0]) << (64 - shift))
+    })
+}
+
 /// The `take <= STEP` bits of `bytes` from bit `bit`, in the low bits of the result.
 fn read_bits(bytes: &[u8], bit: usize, take: usize) -> u64 {
     let (byte, shift) = (bit / 8, bit % 8);
-    let mut word = [0u8; 8];
-    let end = (byte + 8).min(bytes.len());
-    word[..end - byte].copy_from_slice(&bytes[byte..end]);
+    let word = match bytes[byte..].first_chunk::<8>() {
+        Some(word) => *word,
+        // Within 8 bytes of the end, read the bytes that are there.
+        None => {
+            let mut word = [0u8; 8];
+            word[..bytes.len() - byte].copy_from_slice(&bytes[byte..]);
+            word
+        }
+    };
     (u64::from_le_bytes(word) >> shift) & low_bits(take)
 }
 
 /// Overwrite the `take <= STEP` bits of `bytes` from bit `bit` with the low bits of `bits`.
 fn write_bits(bytes: &mut [u8], bit: usize, take: usize, bits: u64) {
     let (byte, shift) = (bit / 8, bit % 8);
-    let end = (byte + 8).min(bytes.len());
-    let mut word = [0u8; 8];
-    word[..end - byte].copy_from_slice(&bytes[byte..end]);
     let mask = low_bits(take) << shift;
-    let word = (u64::from_le_bytes(word) & !mask) | ((bits << shift) & mask);
-    bytes[byte..end].copy_from_slice(&word.to_le_bytes()[..end - byte]);
+    let merge = |word: u64| (word & !mask) | ((bits << shift) & mask);
+    if let Some(word) = bytes[byte..].first_chunk_mut::<8>() {
+        *word = merge(u64::from_le_bytes(*word)).to_le_bytes();
+        return;
+    }
+    // Within 8 bytes of the end, write back only the bytes that are there.
+    let tail = &mut bytes[byte..];
+    let mut word = [0u8; 8];
+    word[..tail.len()].copy_from_slice(tail);
+    let word = merge(u64::from_le_bytes(word)).to_le_bytes();
+    tail.copy_from_slice(&word[..tail.len()]);
 }
 
 /// A mask of the low `n <= 64` bits.
@@ -68,6 +105,8 @@ mod tests {
     #[case::source_offset(3, 0, 1021)]
     #[case::destination_offset(0, 5, 700)]
     #[case::both_offsets(13, 517, 500)]
+    #[case::byte_aligned_destination(13, 8, 900)]
+    #[case::both_byte_aligned(8, 16, 960)]
     #[case::one_bit(7, 9, 1)]
     #[case::to_the_last_byte(1, 0, 1023)]
     fn copies_any_range(#[case] src_bit: usize, #[case] dst_bit: usize, #[case] len: usize) {
