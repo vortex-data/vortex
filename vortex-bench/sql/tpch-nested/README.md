@@ -53,9 +53,9 @@ flat suite's types, zstd Parquet with 1 Mi-row row groups and the same file spli
 Spark script instead casts money to `DECIMAL(12,2)`, writes 512 MiB row groups and Hive
 partitions the four largest tables by their partition column; none of that is reproduced here.
 Vortex files are written with the list layout, so the struct fields of each `<table>_data`
-list are stored as separate columns. The V2 scan cannot read the list layout yet, so CI runs
-this suite on the V1 scan, like the other list-layout suites (statpopgen, PolarSignals), while
-the flat suite runs on V2.
+list are stored as separate columns. CI still runs this suite on the V1 scan: the V2 scan reads
+the list layout, but this suite has not been measured on it. The other list-layout suites
+(statpopgen, PolarSignals) and the flat suite run on V2.
 
 The `--opt shape=<shape>` option selects the nesting. `list` (the default and only shape so
 far) is Comet's layout; the data directory and query directory are keyed by it.

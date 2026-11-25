@@ -130,15 +130,10 @@ BENCHMARK_ENGINES: dict[Benchmark, frozenset[Engine]] = {
 # format, Lance) are controls and comparisons, with neither axis.
 VORTEX_FORMATS: frozenset[Format] = frozenset({Format.VORTEX, Format.VORTEX_COMPACT, Format.VORTEX_SPATIAL_NATIVE})
 
-# Benchmarks the V2 scan cannot run yet: they write the list layout, which V2 cannot read. This is a
-# constraint, not a selector; a target names its scan engine, and V2 targets are rejected here.
-BENCHMARKS_WITHOUT_SCAN_V2: frozenset[Benchmark] = frozenset(
-    {
-        Benchmark.POLARSIGNALS,
-        Benchmark.STATPOPGEN,
-        Benchmark.TPCH_NESTED,
-    }
-)
+# Benchmarks that do not run on the V2 scan yet. `tpch-nested` writes the list layout, which V2
+# reads, but it has not been measured there. This is a constraint, not a selector; a target names
+# its scan engine, and V2 targets are rejected here.
+BENCHMARKS_WITHOUT_SCAN_V2: frozenset[Benchmark] = frozenset({Benchmark.TPCH_NESTED})
 
 # The integration and scan engine combinations each engine can run on Vortex formats. Adding a
 # combination here, plus its flag in `BenchmarkExecutor`, is all a new one needs.

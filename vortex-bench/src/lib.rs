@@ -150,7 +150,7 @@ pub static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
 
 /// Enables [`UNSTABLE_BENCH`] on [`SESSION`], so it writes lists with the list layout.
 ///
-/// The V2 scan cannot read the list layout yet, so only suites that read through V1 call this.
+/// The suites with list columns call this. Both scans read the list layout.
 fn enable_unstable_bench_edition() {
     SESSION
         .enable_edition(UNSTABLE_BENCH)
