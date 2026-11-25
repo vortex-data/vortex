@@ -213,11 +213,15 @@ fn make_alternate_encoding(tc: &TestCase, canonical: &ArrayRef) -> VortexResult<
             let right = canonical.slice(split..len)?;
             Ok(ChunkedArray::try_new(vec![left, right], canonical.dtype().clone())?.into_array())
         }
-        // Dict-encoded array with reversed values and non-identity codes.
+        // Dict-encoded array with materialized reversed values and non-identity codes.
         _ => {
+            let mut ctx = SESSION.create_execution_ctx();
             let reversed: Vec<u32> = (0..len).rev().map(|i| u32::try_from(i).unwrap()).collect();
             let indices = PrimitiveArray::from_iter(reversed.clone()).into_array();
-            let values = canonical.take(indices)?;
+            let values = canonical
+                .take(indices)?
+                .execute::<Canonical>(&mut ctx)?
+                .into_array();
             let codes = PrimitiveArray::from_iter(reversed).into_array();
             Ok(DictArray::try_new(codes, values)?.into_array())
         }
