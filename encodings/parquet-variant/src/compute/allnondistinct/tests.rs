@@ -13,6 +13,7 @@ use vortex_array::aggregate_fn::DynAccumulator;
 use vortex_array::aggregate_fn::EmptyOptions;
 use vortex_array::aggregate_fn::fns::all_non_distinct::AllNonDistinct;
 use vortex_array::aggregate_fn::fns::all_non_distinct::all_non_distinct;
+use vortex_array::aggregate_fn::fns::all_non_distinct::variant_scalars_equal;
 use vortex_array::aggregate_fn::kernels::DynAggregateKernel;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::VarBinViewArray;
@@ -464,7 +465,12 @@ fn test_all_non_distinct_matches_reordered_shredded_fields_with_raw_only_field()
     .into_array();
 
     let mut ctx = SESSION.create_execution_ctx();
-    assert!(all_non_distinct(&lhs, &rhs, &mut ctx)?);
+    let expected = variant_scalars_equal(
+        &lhs.execute_scalar(0, &mut ctx)?,
+        &rhs.execute_scalar(0, &mut ctx)?,
+    );
+    assert!(expected);
+    assert_eq!(all_non_distinct(&lhs, &rhs, &mut ctx)?, expected);
     Ok(())
 }
 

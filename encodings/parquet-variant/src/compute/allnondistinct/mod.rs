@@ -12,6 +12,7 @@ use vortex_array::RepeatedArrayProbe;
 use vortex_array::aggregate_fn::AggregateFnRef;
 use vortex_array::aggregate_fn::fns::all_non_distinct::AllNonDistinct;
 use vortex_array::aggregate_fn::fns::all_non_distinct::all_non_distinct;
+use vortex_array::aggregate_fn::fns::all_non_distinct::variant_scalars_equal;
 use vortex_array::aggregate_fn::kernels::DynAggregateKernel;
 use vortex_array::arrays::Struct;
 use vortex_array::arrays::struct_::StructArrayExt;
@@ -191,57 +192,4 @@ fn compare_active_scalars(
         }
     }
     Ok(true)
-}
-
-/// Compare two decoded Variant scalars semantically: object fields are matched by name
-/// regardless of shredded schema order, while lists are compared positionally.
-fn variant_scalars_equal(lhs: &Scalar, rhs: &Scalar) -> bool {
-    match (lhs.is_null(), rhs.is_null()) {
-        (true, true) => return true,
-        (true, false) | (false, true) => return false,
-        (false, false) => {}
-    }
-
-    match (lhs.dtype(), rhs.dtype()) {
-        (DType::Variant(_), DType::Variant(_)) => {
-            match (lhs.as_variant().value(), rhs.as_variant().value()) {
-                (Some(l), Some(r)) => variant_scalars_equal(l, r),
-                (None, None) => true,
-                _ => false,
-            }
-        }
-        (DType::Struct(..), DType::Struct(..)) => {
-            let lhs_struct = lhs.as_struct();
-            let rhs_struct = rhs.as_struct();
-            let lhs_names = lhs_struct.names();
-            if lhs_names.len() != rhs_struct.names().len() {
-                return false;
-            }
-            let Some(lhs_fields) = lhs_struct.fields_iter() else {
-                return rhs_struct.is_null();
-            };
-            lhs_names.iter().zip(lhs_fields).all(|(name, lhs_field)| {
-                rhs_struct
-                    .field(name.as_ref())
-                    .is_some_and(|rhs_field| variant_scalars_equal(&lhs_field, &rhs_field))
-            })
-        }
-        (
-            DType::List(..) | DType::FixedSizeList(..),
-            DType::List(..) | DType::FixedSizeList(..),
-        ) => {
-            let lhs_list = lhs.as_list();
-            let rhs_list = rhs.as_list();
-            if lhs_list.len() != rhs_list.len() {
-                return false;
-            }
-            (0..lhs_list.len()).all(|idx| {
-                matches!(
-                    (lhs_list.element(idx), rhs_list.element(idx)),
-                    (Some(l), Some(r)) if variant_scalars_equal(&l, &r)
-                )
-            })
-        }
-        _ => lhs == rhs,
-    }
 }
