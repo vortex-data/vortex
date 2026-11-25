@@ -137,10 +137,11 @@ impl IsCompoundSortedOptions {
         Ok(())
     }
 
-    /// Validates the declared ordering against a struct input dtype.
+    /// Validates the declared ordering against a struct input dtype, and returns the dtype
+    /// of a row's sort key.
     ///
     /// Dtypes must be supported by [`IsSorted`] (not strict).
-    pub fn validate(&self, dtype: &DType) -> VortexResult<()> {
+    fn key_dtype(&self, dtype: &DType) -> VortexResult<DType> {
         // Ideally this should be checked once during new
         self.validate_fields()?;
 
@@ -148,53 +149,32 @@ impl IsCompoundSortedOptions {
             .as_struct_fields_opt()
             .ok_or_else(|| vortex_err!("IsCompoundSorted requires a struct input"))?;
 
-        for (name, _) in &self.fields {
-            let dtype = fields.field(name).ok_or_else(|| {
-                vortex_err!("Sort field {} does not exist in the input dtype", name)
-            })?;
-            vortex_ensure!(
-                IsSorted
-                    .return_dtype(&IsSortedOptions { strict: false }, &dtype)
-                    .is_some(),
-                "Sort field {} has unsupported dtype {}",
-                name,
-                dtype
-            );
-        }
-
-        Ok(())
-    }
-
-    fn key_dtype(&self, dtype: &DType) -> VortexResult<DType> {
-        self.validate(dtype)?;
-
-        let fields = dtype
-            .as_struct_fields_opt()
-            .vortex_expect("validated struct");
-
-        let dtypes = self
+        let (names, dtypes) = self
             .fields
             .iter()
             .map(|(name, _)| {
-                fields
-                    .field(name)
-                    .vortex_expect("validated field")
-                    .as_nullable()
+                let dtype = fields.field(name).ok_or_else(|| {
+                    vortex_err!("Sort field {} does not exist in the input dtype", name)
+                })?;
+                vortex_ensure!(
+                    IsSorted
+                        .return_dtype(&IsSortedOptions { strict: false }, &dtype)
+                        .is_some(),
+                    "Sort field {} has unsupported dtype {}",
+                    name,
+                    dtype
+                );
+                Ok((name.clone(), dtype.as_nullable()))
             })
-            .collect();
+            .collect::<VortexResult<(Vec<_>, Vec<_>)>>()?;
+
         Ok(DType::Struct(
-            StructFields::new(
-                self.fields.iter().map(|(name, _)| name.clone()).collect(),
-                dtypes,
-            ),
+            StructFields::new(names.into(), dtypes),
             Nullability::Nullable,
         ))
     }
 
     /// Compares lexicographically two scalars (rows) in `ASC` order with nulls first.
-    ///
-    /// Used for cross-chunks and cross-partial checks, where only the boundary rows
-    /// are compared. Intra-chunks checks use [`check_chunk_sortedness`] instead.
     fn compare_sort_keys(&self, previous: &Scalar, next: &Scalar) -> VortexResult<Ordering> {
         for index in 0..self.fields.len() {
             let previous = previous
@@ -315,7 +295,6 @@ impl Display for IsCompoundSortedOptions {
 /// whole input.
 fn check_chunk_sortedness(sort_fields: &[ArrayRef], ctx: &mut ExecutionCtx) -> VortexResult<bool> {
     let len = sort_fields[0].len();
-    debug_assert!(len >= 2);
 
     let pair_count = len - 1;
     let mut tied = Mask::new_true(pair_count);
@@ -475,7 +454,7 @@ impl AggregateFnVTable for IsCompoundSorted {
     }
 
     fn return_dtype(&self, options: &Self::Options, input_dtype: &DType) -> Option<DType> {
-        options.validate(input_dtype).ok()?;
+        options.key_dtype(input_dtype).ok()?;
         Some(DType::Bool(Nullability::NonNullable))
     }
 
@@ -1072,7 +1051,7 @@ mod tests {
         let options =
             IsCompoundSortedOptions::new(fields.into_iter().map(|name| (name, SortDirection::Asc)));
 
-        assert!(options.validate(&dtype).is_err());
+        assert!(options.key_dtype(&dtype).is_err());
         assert!(Accumulator::try_new(IsCompoundSorted, options, dtype).is_err());
 
         Ok(())
@@ -1085,8 +1064,8 @@ mod tests {
         let nested_input =
             StructArray::from_fields(&[("order_id", order_lines(&[(1, 2)])?)])?.into_array();
 
-        assert!(options.validate(primitive_input.dtype()).is_err());
-        assert!(options.validate(nested_input.dtype()).is_err());
+        assert!(options.key_dtype(primitive_input.dtype()).is_err());
+        assert!(options.key_dtype(nested_input.dtype()).is_err());
 
         Ok(())
     }
@@ -1099,7 +1078,7 @@ mod tests {
             ("line_item_id", SortDirection::Desc),
         ]);
         let error = options
-            .validate(&dtype)
+            .key_dtype(&dtype)
             .expect_err("DESC is not implemented");
 
         assert_eq!(options.to_string(), "order_id ASC, line_item_id DESC");
