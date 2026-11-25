@@ -128,7 +128,7 @@ that is the form that the published file holds.
 ```
 ┌──────────────────────────────────────────────────┐
 │  Python orchestrator (compat.py)                 │
-│  Version-agnostic: S3, manifests, worktrees      │
+│  Version-agnostic: S3, manifests, tag detection  │
 │                                                  │
 │  Commands: publish, check, generate, list,       │
 │            validate-manifest                     │
@@ -145,8 +145,8 @@ that is the form that the published file holds.
 
 **Why the split?** Only the Rust binary links against Vortex. When Vortex
 APIs change across versions, only this small binary needs to recompile. The
-Python orchestrator handles S3, manifests, git worktrees, and additive-only
-enforcement without touching Vortex code.
+Python orchestrator handles S3, manifests, git tag version detection, and
+additive-only enforcement without touching Vortex code.
 
 ### Rust binary: `vortex-compat`
 
@@ -157,8 +157,10 @@ See [README.md](README.md) for CLI usage.
 The only code that calls Vortex file I/O APIs directly:
 
 ```rust
-pub fn write_file(path: &Path, chunks: Vec<ArrayRef>) -> VortexResult<()>;
-pub fn read_file(bytes: ByteBuffer) -> VortexResult<Vec<ArrayRef>>;
+pub fn write_file(path: &Path, chunk: ArrayRef) -> VortexResult<()>;
+pub fn read_file(bytes: ByteBuffer) -> VortexResult<ArrayRef>;
+pub fn read_projected(bytes: ByteBuffer, fields: &[FieldName]) -> VortexResult<ArrayRef>;
+pub fn read_row_range(bytes: ByteBuffer, row_range: Range<u64>) -> VortexResult<ArrayRef>;
 ```
 
 Uses the Epoch C API (`session.write_options()` /
@@ -236,20 +238,20 @@ Two-phase workflow:
 ### Compat validation (`.github/workflows/compat-validation.yml`)
 
 Validates the current code against previously published fixtures. Runs weekly
-(Monday 6am UTC) and via manual dispatch with a `mode` input:
+(Monday 6am UTC, using `mode: all`), via `workflow_call` (defaults to `all`),
+and via manual dispatch with a `mode` input:
 
 | Mode | Behavior |
 |------|----------|
-| `last` (default) | Compare against the most recent published release only |
-| `all` | Compare against all previously published versions (pre-release check) |
+| `last` | Compare against the most recent published release only |
+| `all` | Compare against all previously published versions (weekly schedule and pre-release check) |
 
 ## Known Limitations
 
 **Does catch:** schema deserialization breaks, encoding algorithm changes
 that corrupt values, null bitmap changes, UTF-8/multibyte handling, chunk
-boundary regressions, struct field ordering, encoding removal.
+boundary regressions, struct field ordering, encoding removal, column
+projection, row-range slicing.
 
-**Does not catch:** predicate pushdown (no filters applied), column
-projection (reads all columns), missing DType coverage (no decimal, temporal,
-list, binary, extension), degenerate cases (empty files, all-null, float
-specials), partial reads / mmap.
+**Does not catch:** predicate pushdown (no filters applied), missing DType
+coverage (no union or variant), partial reads / mmap.

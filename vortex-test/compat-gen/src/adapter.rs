@@ -6,6 +6,7 @@
 // Write: session.write_options(), returns WriteSummary, takes &mut sink
 // Read:  session.open_options().open_buffer(buf) (sync), into_array_stream() (async)
 
+use std::ops::Range;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -14,7 +15,10 @@ use tokio::runtime::Runtime;
 use vortex::VortexSessionDefault;
 use vortex::array::ArrayRef;
 use vortex::array::MaskFuture;
+use vortex::array::dtype::FieldName;
+use vortex::array::dtype::FieldNames;
 use vortex::expr::root;
+use vortex::expr::select;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::file::WriteOptionsSessionExt;
 use vortex::io::session::RuntimeSessionExt;
@@ -117,13 +121,41 @@ pub fn write_compressed_to_bytes_with_session(
     })
 }
 
-/// Read a `.vortex` file from bytes, returning the arrays.
-pub fn read_file(bytes: ByteBuffer) -> VortexResult<ArrayRef> {
+fn scan_buffer(
+    bytes: ByteBuffer,
+    fields: Option<&[FieldName]>,
+    row_range: Option<Range<u64>>,
+) -> VortexResult<ArrayRef> {
     runtime()?.block_on(async {
         let session = VortexSession::default().with_tokio();
         let file = session.open_options().open_buffer(bytes)?;
-        file.scan()?.into_array_stream()?.read_all().await
+        let mut scan = file.scan()?;
+        if let Some(fields) = fields {
+            let projection = select(FieldNames::from(fields), root())
+                .bind(file.dtype())?
+                .optimize_recursive()?;
+            scan = scan.with_projection(projection);
+        }
+        if let Some(row_range) = row_range {
+            scan = scan.with_row_range(row_range);
+        }
+        scan.into_array_stream()?.read_all().await
     })
+}
+
+/// Read a `.vortex` file from bytes, returning the arrays.
+pub fn read_file(bytes: ByteBuffer) -> VortexResult<ArrayRef> {
+    scan_buffer(bytes, None, None)
+}
+
+/// Read a projected subset of struct columns from a `.vortex` file in memory.
+pub fn read_projected(bytes: ByteBuffer, fields: &[FieldName]) -> VortexResult<ArrayRef> {
+    scan_buffer(bytes, Some(fields), None)
+}
+
+/// Read a contiguous row range from a `.vortex` file in memory.
+pub fn read_row_range(bytes: ByteBuffer, row_range: Range<u64>) -> VortexResult<ArrayRef> {
+    scan_buffer(bytes, None, Some(row_range))
 }
 
 /// Open a `.vortex` file and fully decode every array in the layout tree, including

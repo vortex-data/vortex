@@ -47,6 +47,6 @@ jobs:
           enable-sccache: ${{ github.repository == 'vortex-data/vortex' && 'true' || 'false' }}
       - name: Run compat tests
         run: |
-          MODE="${{ inputs.mode || 'last' }}"
-          uv run vortex-test/compat-gen/scripts/compat.py check \
+          MODE="${{ inputs.mode || (github.event_name == 'schedule' && 'all' || 'last') }}"
+          uv run vortex-test/compat-gen/scripts/compat.py --profile ci check \
             --mode "$MODE"

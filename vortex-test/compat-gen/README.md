@@ -21,7 +21,7 @@ python scripts/compat.py publish
 # Check all published versions
 python scripts/compat.py check
 
-# Publish from a historical tag via git worktree
+# Publish current tree using a historical tag for version detection
 python scripts/compat.py publish --git-ref v0.62.0
 
 # Local-only workflow (no S3)
@@ -75,8 +75,12 @@ For each known fixture:
 1. Write a fresh file into a temporary directory with `write_expected()`.
    This builds the expected arrays from the current code. For a synthetic
    fixture, it writes the result of `build()`.
-2. Read the stored file and the fresh file with `adapter::read_file()`.
-3. Compare the two arrays with `assert_arrays_eq!`.
+2. Validate the stored file's full layout tree via `adapter::read_layout_tree()`.
+3. Read both the stored file and the fresh file with `adapter::read_file()`
+   and compare them without panicking so every fixture runs to completion.
+4. For struct and multi-row fixtures, also verify a column-projected scan
+   (`adapter::read_projected()`) and a middle row-range scan
+   (`adapter::read_row_range()`) against the expected array.
 
 JSON result to stdout:
 ```json
@@ -100,25 +104,25 @@ fixtures). Use `exact` for the current version.
 
 ## Python Orchestrator: `compat.py`
 
-### `publish [--git-ref <REF>] [--store <SPEC>] [--dry-run] [--exclude <CSV>]`
+### `publish [--git-ref <REF>] [--profile <PROFILE>] [--store <SPEC>] [--dry-run]`
 
 1. Detect version from nearest git tag at HEAD (or `<REF>`)
-2. Generate fixtures (from current tree, or from a worktree at `<REF>`)
-3. Fetch previous version's manifest, merge `since` values, enforce additive-only
+2. Generate fixtures from the current working tree
+3. Verify against the previous version's manifest (additive-only)
 4. Upload `.vortex` files + `manifest.json` to `v{version}/arrays/`
 5. Update `versions.json`
 
-### `check [--versions <CSV>] [--store <SPEC>] [--exclude <CSV>]`
+### `check [--versions <CSV>] [--mode <MODE>] [--profile <PROFILE>] [--store <SPEC>]`
 
 1. Read `versions.json` from store
 2. For each version, download `arrays/manifest.json` + all `.vortex` files
 3. Run `vortex-compat check --dir <tmpdir> --mode superset`
-4. Aggregate results, exit 1 if any failures
+4. Aggregate results across all versions and fixtures, exit 1 if any failures
 
-### `generate --output <DIR> [--git-ref <REF>] [--exclude <CSV>]`
+### `generate --output <DIR> [--git-ref <REF>] [--profile <PROFILE>]`
 
-Generate fixtures locally without publishing. Writes `.vortex` files and a
-`manifest.json`.
+Generate fixtures locally from the current working tree without publishing. Writes `.vortex` files and a
+`manifest.json` tagged with the version detected from HEAD (or `<REF>`).
 
 ### `list [--store <SPEC>] [--version <VER>]`
 
@@ -137,19 +141,27 @@ consecutive versions (additive-only property).
 | `s3://vortex-compat-fixtures` (default) | S3 | Public reads (HTTPS), AWS creds for writes |
 | `/tmp/compat` | Local directory | None |
 
-### Git worktree workflow
+### Version detection and git worktree workflow
 
-`--git-ref` automates publishing from historical releases:
+`--git-ref` overrides only the git ref used for `git describe --tags --abbrev=0`
+version detection; `compat.py` always builds `vortex-compat` from the current
+working tree (or uses `VORTEX_COMPAT_BIN`):
 
 ```bash
 python compat.py publish --git-ref v0.62.0
 ```
 
-This creates a worktree at the tag, builds the binary against that code,
-generates fixtures, then cleans up.
+To generate and publish fixtures using the code at a historical release itself,
+create a temporary git worktree at that ref and run `compat.py` from inside it:
+
+```bash
+git worktree add /tmp/vortex-compat-v0.62.0 v0.62.0
+(cd /tmp/vortex-compat-v0.62.0 && uv run vortex-test/compat-gen/scripts/compat.py publish)
+git worktree remove /tmp/vortex-compat-v0.62.0
+```
 
 ### Environment variables
 
 | Variable | Description |
 |----------|-------------|
-| `VORTEX_COMPAT_BIN` | Path to pre-built `vortex-compat` binary. Skips `cargo run`. |
+| `VORTEX_COMPAT_BIN` | Path to pre-built `vortex-compat` binary. Skips `cargo build`. |

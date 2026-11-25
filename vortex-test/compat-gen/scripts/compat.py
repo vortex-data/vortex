@@ -17,7 +17,7 @@ Quick start:
     # Generate + publish for HEAD (version auto-detected from latest tag)
     uv run compat.py publish
 
-    # Publish from an older tag
+    # Publish current tree using an older tag for version detection
     uv run compat.py publish --git-ref v0.62.0
 
     # Check all published versions against current code
@@ -50,7 +50,7 @@ CARGO_BIN = "vortex-compat"
 EPILOG = """\
 environment variables:
   VORTEX_COMPAT_BIN    Path to a pre-built vortex-compat binary.
-                       Skips `cargo run` when set.
+                       Skips `cargo build` when set.
 
 store spec:
   Local path           --store /tmp/compat-store
@@ -573,7 +573,14 @@ def cmd_check(args: argparse.Namespace) -> None:
 
     for version in versions:
         _info(f"\n--- v{version} ---")
-        manifest = _read_manifest(store, version)
+        try:
+            manifest = _read_manifest(store, version)
+        except (ValueError, HTTPError, URLError, OSError) as e:
+            _info(f"  v{version}: failed to load manifest: {e}")
+            all_failures.append((version, "(manifest)", str(e)))
+            total_failed += 1
+            continue
+
         if manifest is None:
             _info(f"  v{version}: no manifest found at v{version}/arrays/manifest.json or v{version}/manifest.json")
             all_failures.append((version, "(manifest)", "manifest not found"))
@@ -613,6 +620,9 @@ def cmd_check(args: argparse.Namespace) -> None:
 
     _info(f"\nresult: {total_passed} passed, {total_failed} failed, {total_skipped} skipped")
     if all_failures:
+        _info("\nfailures:")
+        for version, name, error in all_failures:
+            _info(f"  v{version}/{name}: {error}")
         sys.exit(1)
 
 
@@ -779,23 +789,36 @@ def _parallel_download(
     failures: list[tuple[str, str]] = []
     total_bytes = 0
 
-    def _download_one(entry: dict) -> tuple[str, bytes | None]:
+    def _download_one(entry: dict) -> tuple[str, bytes | None, str | None]:
         name = entry["name"]
-        data = store.read(f"{prefix}/{name}")
-        return name, data
+        try:
+            data = store.read(f"{prefix}/{name}")
+        except (HTTPError, URLError, OSError) as e:
+            return name, None, f"download failed: {e}"
+        if data is None:
+            return name, None, f"not found at {prefix}/{name}"
+        return name, data, None
 
     with ThreadPoolExecutor(max_workers=max_workers) as pool:
         futures = {pool.submit(_download_one, entry): entry["name"] for entry in fixtures}
         for future in as_completed(futures):
-            name, data = future.result()
-            if data is None:
-                failures.append((name, f"not found at {prefix}/{name}"))
+            name, data, error = future.result()
+            if error is not None or data is None:
+                failures.append((name, error or f"not found at {prefix}/{name}"))
             else:
                 (dest / name).write_bytes(data)
                 total_bytes += len(data)
 
     _info(f"  downloaded {len(fixtures) - len(failures)} fixtures ({total_bytes} bytes)")
     return failures
+
+
+_BUILT_BINS: dict[tuple[Path, str], str] = {}
+
+
+def _profile_dir_name(profile: str) -> str:
+    """Return Cargo's output subdirectory name for `profile`."""
+    return {"dev": "debug", "test": "debug", "bench": "release"}.get(profile, profile)
 
 
 def _build_compat_bin(profile: str = "release") -> str:
@@ -808,6 +831,11 @@ def _build_compat_bin(profile: str = "release") -> str:
     if bin_path:
         return bin_path
 
+    cache_key = (Path.cwd(), profile)
+    cached = _BUILT_BINS.get(cache_key)
+    if cached:
+        return cached
+
     _info(f"building vortex-compat ({profile})...")
     _run_cmd(["cargo", "build", "-p", CARGO_BIN, "--profile", profile], check=True)
 
@@ -819,9 +847,9 @@ def _build_compat_bin(profile: str = "release") -> str:
         check=True,
     )
     target_dir = json.loads(result.stdout)["target_directory"]
-    # Cargo puts "dev" profile binaries in "debug/", all others in "<profile>/".
-    dir_name = "debug" if profile == "dev" else profile
+    dir_name = _profile_dir_name(profile)
     bin_path = str(Path(target_dir) / dir_name / CARGO_BIN)
+    _BUILT_BINS[cache_key] = bin_path
     return bin_path
 
 
@@ -839,12 +867,35 @@ def _run_rust_check(dir: Path, mode: str = "superset", profile: str = "release")
     result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=None, text=True)  # noqa: UP022
 
     if result.stdout.strip():
-        return json.loads(result.stdout)
+        try:
+            data = json.loads(result.stdout)
+        except json.JSONDecodeError as e:
+            return {
+                "passed": [],
+                "failed": [{"name": "(all)", "error": f"invalid check output (exit {result.returncode}): {e}"}],
+                "skipped": [],
+            }
+        if not isinstance(data, dict):
+            return {
+                "passed": [],
+                "failed": [
+                    {
+                        "name": "(all)",
+                        "error": f"unexpected check output type {type(data).__name__} (exit {result.returncode})",
+                    }
+                ],
+                "skipped": [],
+            }
+        if result.returncode != 0 and not data.get("failed"):
+            data.setdefault("failed", []).append(
+                {"name": "(all)", "error": f"check process exited with code {result.returncode}"}
+            )
+        return data
 
     if result.returncode != 0:
         return {
             "passed": [],
-            "failed": [{"name": "(all)", "error": "check process failed"}],
+            "failed": [{"name": "(all)", "error": f"check process failed (exit {result.returncode})"}],
             "skipped": [],
         }
     return {"passed": [], "failed": [], "skipped": []}
@@ -897,7 +948,7 @@ def main() -> None:
     parser.add_argument(
         "--profile",
         default="release",
-        help="Cargo build profile (default: release). Use 'dev' for faster builds.",
+        help="Cargo build profile (default: release). Use 'ci' or 'dev' for faster builds.",
     )
     sub = parser.add_subparsers(dest="command", metavar="COMMAND")
 
@@ -918,6 +969,11 @@ def main() -> None:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     p.add_argument("--output", required=True, help="Output directory")
+    p.add_argument(
+        "--profile",
+        default=argparse.SUPPRESS,
+        help="Cargo build profile (default: release). Use 'ci' or 'dev' for faster builds.",
+    )
     p.add_argument(
         "--git-ref",
         help="Git ref for version detection (e.g. v0.62.0). "
@@ -944,6 +1000,11 @@ def main() -> None:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     p.add_argument("--store", default=DEFAULT_STORE, help="Store spec (default: %(default)s)")
+    p.add_argument(
+        "--profile",
+        default=argparse.SUPPRESS,
+        help="Cargo build profile (default: release). Use 'ci' or 'dev' for faster builds.",
+    )
     p.add_argument(
         "--git-ref",
         help="Git ref for version detection (e.g. v0.62.0). "
@@ -992,6 +1053,11 @@ def main() -> None:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     p.add_argument("--store", default=DEFAULT_STORE, help="Store spec (default: %(default)s)")
+    p.add_argument(
+        "--profile",
+        default=argparse.SUPPRESS,
+        help="Cargo build profile (default: release). Use 'ci' or 'dev' for faster builds.",
+    )
     p.add_argument(
         "--versions",
         help="Comma-separated versions to check (mutually exclusive with --mode)",
