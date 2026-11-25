@@ -61,16 +61,23 @@ fn geometry_and_constant(
     } else if is_column(rhs) {
         (rhs, lhs)
     } else {
-        return Ok(None);
+        return None;
     };
 
     // A `GeometryAabb` stat reference only binds for dtypes it supports; anything else (e.g. a
     // WKB column) must fall through to the scan.
     if !is_native_geometry(geom.dtype()) {
-        return Ok(None);
+        return None;
     }
 
-    Ok(constant.as_opt::<Literal>().map(|scalar| (geom, scalar)))
+    constant.as_opt::<Literal>().map(|scalar| (geom, scalar))
+}
+
+fn is_column(mut expr: &BoundExpression) -> bool {
+    while expr.is::<GetItem>() {
+        expr = expr.child(0);
+    }
+    expr.is_root()
 }
 
 fn is_column(mut expr: &BoundExpression) -> bool {
