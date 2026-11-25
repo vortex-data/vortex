@@ -70,6 +70,11 @@ impl TemporalCast {
             ) if target_nanos < source_nanos && source_zone == target_zone => {
                 (SourceCount::Timestamp, source_nanos / target_nanos)
             }
+            (TemporalMetadata::Duration(_), TemporalMetadata::Duration(_))
+                if target_nanos < source_nanos =>
+            {
+                (SourceCount::Timestamp, source_nanos / target_nanos)
+            }
             (TemporalMetadata::Time(_), TemporalMetadata::Time(_))
                 if target_nanos < source_nanos =>
             {
@@ -169,6 +174,7 @@ pub(super) fn temporal_cast_hint(source: &DType, target: &DType) -> Option<&'sta
         (TemporalMetadata::Date(from), TemporalMetadata::Date(to))
         | (TemporalMetadata::Time(from), TemporalMetadata::Time(to))
         | (TemporalMetadata::Timestamp(from, _), TemporalMetadata::Timestamp(to, _))
+        | (TemporalMetadata::Duration(from), TemporalMetadata::Duration(to))
             if from.nanos_per_unit() < to.nanos_per_unit() =>
         {
             Some("Use change_time_unit to select an explicit rounding mode.")

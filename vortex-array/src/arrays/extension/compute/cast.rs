@@ -180,9 +180,9 @@ mod tests {
         buffer![1_000i64, 2_000].into_array(),
         duration_dtype(TimeUnit::Milliseconds, Nullability::NonNullable),
     )]
-    #[case::duration_different_unit(
+    #[case::duration_coarser_unit(
         create_duration_array(TimeUnit::Milliseconds, false).into_array(),
-        duration_dtype(TimeUnit::Nanoseconds, Nullability::NonNullable),
+        duration_dtype(TimeUnit::Seconds, Nullability::NonNullable),
     )]
     #[case::duration_to_timestamp(
         create_duration_array(TimeUnit::Milliseconds, false).into_array(),
