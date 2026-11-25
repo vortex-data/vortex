@@ -8,7 +8,6 @@ use vortex_buffer::BufferAllocatorRef;
 use vortex_buffer::BufferMut;
 use vortex_buffer::read_u64_le;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_mask::AllOr;
 use vortex_mask::Mask;
@@ -19,7 +18,6 @@ use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::array::ArrayView;
 use crate::array::VTable;
-use crate::arrays::Bool;
 use crate::arrays::BoolArray;
 use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
@@ -128,16 +126,34 @@ pub(super) fn execute_boolean(
     }
 
     let lhs = lhs.execute::<BoolArray>(ctx)?;
-    if let Some(result) = <Bool as BooleanKernel>::boolean(lhs.as_view(), &rhs, op, ctx)? {
-        return Ok(result);
+    let lhs_validity = lhs.validity()?;
+
+    if let Some(rhs) = rhs.as_opt::<Constant>() {
+        let rhs = rhs
+            .scalar()
+            .as_bool_opt()
+            .ok_or_else(|| vortex_err!("expected boolean scalar"))?;
+        return kleene_boolean_buffer_scalar(
+            lhs.into_bit_buffer(),
+            lhs_validity,
+            &rhs,
+            op,
+            nullable,
+            ctx,
+        );
     }
 
     let rhs = rhs.execute::<BoolArray>(ctx)?;
-    let Some(result) = <Bool as BooleanKernel>::boolean(rhs.as_view(), &lhs.into_array(), op, ctx)?
-    else {
-        vortex_bail!("No boolean kernel for two BoolArrays");
-    };
-    Ok(result)
+    let rhs_validity = rhs.validity()?;
+    kleene_boolean_buffers(
+        lhs.into_bit_buffer(),
+        lhs_validity,
+        rhs.into_bit_buffer(),
+        rhs_validity,
+        op,
+        nullable,
+        ctx,
+    )
 }
 
 /// Handles boolean operations where at least one operand is a constant array.
@@ -228,8 +244,8 @@ pub fn kleene_boolean_buffers(
 
     if lhs_validity.definitely_no_nulls() && rhs_validity.definitely_no_nulls() {
         let values = match operator {
-            BooleanOperator::And => lhs_values & &rhs_values,
-            BooleanOperator::Or => lhs_values | &rhs_values,
+            BooleanOperator::And => lhs_values & rhs_values,
+            BooleanOperator::Or => lhs_values | rhs_values,
         };
         return Ok(BoolArray::try_new(values, Validity::from(nullability))?.into_array());
     }
@@ -740,11 +756,13 @@ mod tests {
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
+    use super::execute_boolean;
     use crate::ArrayRef;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
     use crate::arrays::BoolArray;
     use crate::arrays::ConstantArray;
+    use crate::arrays::bool::BoolArrayExt;
     use crate::assert_arrays_eq;
     use crate::builtins::ArrayBuiltins;
     use crate::dtype::DType;
@@ -832,6 +850,43 @@ mod tests {
         assert_arrays_eq!(
             lhs.boolean(null, BooleanOperator::Or)?,
             BoolArray::from_iter([None, Some(true), None]),
+            &mut ctx
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_buffer_reused() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+
+        let lhs = BoolArray::from_iter([true, true, false, false]);
+        let lhs_ptr = lhs.to_bit_buffer().inner().as_ptr();
+        let rhs = BoolArray::from_iter([true, false, true, false]).into_array();
+        let and = execute_boolean(lhs.into_array(), rhs, BooleanOperator::And, &mut ctx)?
+            .execute::<BoolArray>(&mut ctx)?;
+        assert_eq!(and.to_bit_buffer().inner().as_ptr(), lhs_ptr);
+        assert_arrays_eq!(
+            and,
+            BoolArray::from_iter([true, false, false, false]),
+            &mut ctx
+        );
+
+        let lhs = BoolArray::from_iter([true, true, false, false]);
+        let _lhs_bits = lhs.to_bit_buffer();
+        let rhs = BoolArray::from_iter([true, false, true, false]);
+        let rhs_ptr = rhs.to_bit_buffer().inner().as_ptr();
+        let or = execute_boolean(
+            lhs.into_array(),
+            rhs.into_array(),
+            BooleanOperator::Or,
+            &mut ctx,
+        )?
+        .execute::<BoolArray>(&mut ctx)?;
+        assert_eq!(or.to_bit_buffer().inner().as_ptr(), rhs_ptr);
+        assert_arrays_eq!(
+            or,
+            BoolArray::from_iter([true, true, true, false]),
             &mut ctx
         );
 

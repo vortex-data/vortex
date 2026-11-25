@@ -28,7 +28,7 @@ fn main() {
 static SESSION: LazyLock<VortexSession> =
     LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
 
-/// The smallest length at which `top_value` samples the input before voting.
+/// Values in each benchmark input, few enough that every case runs in microseconds.
 const LEN: usize = 4_096;
 
 /// `(top_fraction, null_fraction)`: each value is the top value with probability
@@ -56,9 +56,9 @@ fn make_array((top_fraction, null_fraction): (f64, f64)) -> PrimitiveArray {
 }
 
 #[divan::bench(args = ARGS)]
-fn top_value(bencher: Bencher, args: (f64, f64)) {
+fn majority_candidate(bencher: Bencher, args: (f64, f64)) {
     let array = make_array(args);
     bencher
         .with_inputs(|| (&array, SESSION.create_execution_ctx()))
-        .bench_refs(|(array, ctx)| array.top_value(ctx).unwrap());
+        .bench_refs(|(array, ctx)| array.majority_candidate(ctx).unwrap());
 }

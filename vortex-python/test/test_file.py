@@ -184,11 +184,11 @@ def test_stream_pyarrow(tmpdir_factory) -> None:
 
 @pytest.mark.parametrize("as_reader", [False, True])
 def test_write_reports_unsupported_arrow_type(tmp_path, as_reader: bool) -> None:
-    table = pa.table({"elapsed": pa.array([1], pa.duration("ms"))})
+    table = pa.table({"elapsed": pa.array([(0, 0, 1)], pa.month_day_nano_interval())})
     source = pa.RecordBatchReader.from_batches(table.schema, table.to_batches()) if as_reader else table
     dest = tmp_path / "x.vortex"
 
-    with pytest.raises(ValueError, match="Duration"):
+    with pytest.raises(ValueError, match="Interval"):
         vx.io.write(source, str(dest))
     assert not dest.exists()
 

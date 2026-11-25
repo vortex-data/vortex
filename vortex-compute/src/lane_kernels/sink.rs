@@ -8,21 +8,21 @@ use crate::lane_kernels::source::IndexedSource;
 /// An [`IndexedSource`] that also supports unchecked indexed writes — the binding
 /// for in-place kernels.
 ///
-/// For `&mut [T]`, both the read and write types are `T`.
+/// A sink writes the type that it reads. Writing another type into the same storage could leave a
+/// bit pattern that is invalid for the element type of that storage, such as `2` in a `bool`. Use
+/// an out-of-place kernel from [`IndexedSourceExt`] to convert between types.
+///
+/// [`IndexedSourceExt`]: crate::lane_kernels::map_into::IndexedSourceExt
 pub trait IndexedSink: IndexedSource {
-    /// The per-lane write type.
-    type Write: Copy;
-
     /// Write `value` into lane `i` without bounds checking.
     ///
     /// # Safety
     ///
     /// `i` must be strictly less than `self.len()`.
-    unsafe fn set_unchecked(&mut self, i: usize, value: Self::Write);
+    unsafe fn set_unchecked(&mut self, i: usize, value: Self::Item);
 }
 
 impl<T: Copy> IndexedSink for &mut [T] {
-    type Write = T;
     #[inline]
     unsafe fn set_unchecked(&mut self, i: usize, value: T) {
         // SAFETY: caller guarantees i < self.len().
