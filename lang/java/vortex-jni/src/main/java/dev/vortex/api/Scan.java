@@ -7,6 +7,7 @@ import dev.vortex.VortexCleaner;
 import dev.vortex.jni.NativePartition;
 import dev.vortex.jni.NativeScan;
 import java.lang.ref.Cleaner;
+import java.lang.ref.Reference;
 import java.util.Iterator;
 import java.util.NoSuchElementException;
 import java.util.concurrent.atomic.AtomicLong;
@@ -67,6 +68,8 @@ public final class Scan implements Iterator<Partition>, AutoCloseable {
         try (ArrowSchema schema = ArrowSchema.allocateNew(allocator)) {
             NativeScan.arrowSchema(session.nativePointer(), pointer, schema.memoryAddress());
             return Data.importSchema(allocator, schema, null);
+        } finally {
+            Reference.reachabilityFence(session);
         }
     }
 

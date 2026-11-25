@@ -24,6 +24,7 @@ import dev.vortex.arrow.ArrowAllocation;
 import dev.vortex.io.NativeWritable;
 import java.io.IOException;
 import java.io.OutputStream;
+import java.lang.ref.WeakReference;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -940,6 +941,75 @@ public final class JNIWriterTest {
                 "error should identify the offending key, got: " + cause.getMessage());
         // Rejected before the sink is touched, so no partial file is left behind.
         assertFalse(Files.exists(outputPath));
+    }
+
+    @Test
+    public void testNullRawAddressesRejected() throws IOException {
+        Path outputPath = tempDir.resolve("test_null_addrs.vortex");
+        String writePath = outputPath.toAbsolutePath().toUri().toString();
+        BufferAllocator allocator = ArrowAllocation.rootAllocator();
+        Session session = Session.create();
+
+        try (VortexWriter writer = VortexWriter.builder(session, writePath, personSchema(), allocator)
+                .build()) {
+            assertThrows(IOException.class, () -> writer.writeBatch(0L, 0L));
+            assertThrows(IllegalArgumentException.class, () -> writer.writeBatch(0L));
+        }
+
+        assertThrows(RuntimeException.class, () -> NativePartition.rowCount(0L, new long[2]));
+        assertThrows(RuntimeException.class, () -> NativePartition.scanArrow(0L, 0L, 0L));
+        assertThrows(RuntimeException.class, () -> NativeSession.enableEdition(0L, "core2025.10.0"));
+    }
+
+    @Test
+    public void testAbortLeavesNoValidFooterAndReleasesBuffers() throws IOException {
+        Path outputPath = tempDir.resolve("test_abort.vortex");
+        String writePath = outputPath.toAbsolutePath().toUri().toString();
+        Session session = Session.create();
+
+        try (RootAllocator allocator = new RootAllocator()) {
+            try (VortexWriter writer = VortexWriter.builder(session, writePath, personSchema(), allocator)
+                    .build()) {
+                writePeopleBatch(writer, allocator);
+                writer.abort();
+                writer.abort();
+                assertThrows(IllegalStateException.class, writer::finish);
+                assertThrows(IllegalStateException.class, () -> writer.writeBatch(0L, 0L));
+            }
+            assertEquals(0L, allocator.getAllocatedMemory());
+        }
+
+        assertThrows(RuntimeException.class, () -> DataSource.open(session, writePath));
+    }
+
+    @Test
+    public void testAbandonedWriterCleanerAbortsWithoutValidFooter() throws Exception {
+        Path outputPath = tempDir.resolve("test_gc_abort.vortex");
+        String writePath = outputPath.toAbsolutePath().toUri().toString();
+        Session session = Session.create();
+
+        try (RootAllocator allocator = new RootAllocator()) {
+            WeakReference<VortexWriter> ref = openAndAbandonWriter(session, writePath, allocator);
+            assertTrue(allocator.getAllocatedMemory() > 0L, "writer should retain batch buffers until aborted");
+            for (int attempt = 0;
+                    attempt < 200 && (!ref.refersTo(null) || allocator.getAllocatedMemory() != 0L);
+                    attempt++) {
+                System.gc();
+                Thread.sleep(10);
+            }
+            assertTrue(ref.refersTo(null), "abandoned writer should be collected");
+            assertEquals(0L, allocator.getAllocatedMemory(), "cleaner should abort writer and release buffers");
+        }
+
+        assertThrows(RuntimeException.class, () -> DataSource.open(session, writePath));
+    }
+
+    private static WeakReference<VortexWriter> openAndAbandonWriter(
+            Session session, String writePath, BufferAllocator allocator) throws IOException {
+        VortexWriter writer = VortexWriter.builder(session, writePath, personSchema(), allocator)
+                .build();
+        writePeopleBatch(writer, allocator);
+        return new WeakReference<>(writer);
     }
 
     @Test

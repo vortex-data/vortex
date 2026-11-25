@@ -20,6 +20,10 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.NoSuchElementException;
+import java.util.OptionalLong;
+import java.util.concurrent.CyclicBarrier;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.apache.arrow.memory.AllocationListener;
 import org.apache.arrow.memory.BufferAllocator;
@@ -183,6 +187,41 @@ final class ReadLifecycleTest {
         assertEquals(3, partition.rowCount().orElseThrow());
         try (ArrowReader reader = partition.scanArrow(allocator)) {
             assertValues(reader);
+        }
+        assertThrows(IllegalStateException.class, partition::rowCount);
+    }
+
+    @Test
+    void partitionRowCountAndScanArrowSerializeOwnership() throws Exception {
+        var executor = Executors.newFixedThreadPool(2);
+        try (DataSource source = DataSource.open(session, uri)) {
+            for (int iteration = 0; iteration < 16; iteration++) {
+                try (Scan scan = source.scan(ScanOptions.of())) {
+                    Partition partition = scan.next();
+                    CyclicBarrier start = new CyclicBarrier(2);
+                    var metadata = executor.submit(() -> {
+                        start.await();
+                        try {
+                            assertEquals(OptionalLong.of(3L), partition.rowCount());
+                        } catch (IllegalStateException consumed) {
+                            assertTrue(consumed.getMessage().contains("consumed"));
+                        }
+                        return null;
+                    });
+                    var transfer = executor.submit(() -> {
+                        start.await();
+                        try (ArrowReader reader = partition.scanArrow(allocator)) {
+                            assertValues(reader);
+                        }
+                        return null;
+                    });
+                    metadata.get(10, TimeUnit.SECONDS);
+                    transfer.get(10, TimeUnit.SECONDS);
+                    assertThrows(IllegalStateException.class, partition::rowCount);
+                }
+            }
+        } finally {
+            executor.shutdownNow();
         }
     }
 

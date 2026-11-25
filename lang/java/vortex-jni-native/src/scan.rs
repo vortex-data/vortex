@@ -194,6 +194,9 @@ pub extern "system" fn Java_dev_vortex_jni_NativeScan_create(
     split_concurrency: jint,
 ) -> jlong {
     try_or_throw(&mut env, |env| {
+        if data_source_ptr == 0 {
+            throw_runtime!("null data source pointer");
+        }
         let ds = unsafe { NativeDataSource::from_ptr(data_source_ptr) };
 
         let selection_idx: Vec<u64> = if selection_indices.is_null() {
@@ -262,6 +265,12 @@ pub extern "system" fn Java_dev_vortex_jni_NativeScan_arrowSchema(
     schema_addr: jlong,
 ) {
     try_or_throw(&mut env, |_| {
+        if session_ptr == 0 {
+            throw_runtime!("null session pointer");
+        }
+        if pointer == 0 {
+            throw_runtime!("null scan pointer");
+        }
         if schema_addr == 0 {
             throw_runtime!("null arrow schema address");
         }
@@ -288,6 +297,9 @@ pub extern "system" fn Java_dev_vortex_jni_NativeScan_partitionCount(
     out: JLongArray,
 ) {
     try_or_throw(&mut env, |env| {
+        if pointer == 0 {
+            throw_runtime!("null scan pointer");
+        }
         let scan = unsafe { &*(pointer as *const NativeScan) };
         let NativeScan::Pending(scan, _) = scan else {
             throw_runtime!("partition count unavailable: scan already started");
@@ -310,6 +322,9 @@ pub extern "system" fn Java_dev_vortex_jni_NativeScan_nextPartition(
     pointer: jlong,
 ) -> jlong {
     try_or_throw(&mut env, |_| unsafe {
+        if pointer == 0 {
+            throw_runtime!("null scan pointer");
+        }
         let slot = pointer as *mut NativeScan;
         let owned = ptr::read(slot);
 
@@ -361,6 +376,9 @@ pub extern "system" fn Java_dev_vortex_jni_NativePartition_rowCount(
     out: JLongArray,
 ) {
     try_or_throw(&mut env, |env| {
+        if pointer == 0 {
+            throw_runtime!("null partition pointer");
+        }
         let partition = unsafe { &*(pointer as *const NativePartition) };
         let NativePartition::Pending(partition, _) = partition else {
             throw_runtime!("row count unavailable: partition already started");
@@ -388,11 +406,17 @@ pub extern "system" fn Java_dev_vortex_jni_NativePartition_scanArrow(
     partition_ptr: jlong,
     stream_addr: jlong,
 ) {
+    if partition_ptr == 0 {
+        try_or_throw::<_, ()>(&mut env, |_| throw_runtime!("null partition pointer"));
+        return;
+    }
     // Take ownership first, so the partition is dropped even if later validation throws.
-    debug_assert!(partition_ptr != 0, "null partition pointer");
     let partition = *unsafe { Box::from_raw(partition_ptr as *mut NativePartition) };
 
     try_or_throw(&mut env, |_| {
+        if session_ptr == 0 {
+            throw_runtime!("null session pointer");
+        }
         if stream_addr == 0 {
             throw_runtime!("null arrow stream address");
         }
