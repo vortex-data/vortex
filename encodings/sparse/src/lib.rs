@@ -551,27 +551,27 @@ impl SparseData {
         } else {
             // TODO(robert): Support other dtypes, only thing missing is getting most common value out of the array
             let primitive = array.clone().execute::<PrimitiveArray>(ctx)?;
-            let (top_pvalue, _) = primitive
+            let (candidate, _) = primitive
                 .majority_candidate(ctx)?
                 .vortex_expect("Non empty or all null array");
 
-            Scalar::primitive_value(top_pvalue, top_pvalue.ptype(), array.dtype().nullability())
+            Scalar::primitive_value(candidate, candidate.ptype(), array.dtype().nullability())
         };
 
         let fill_array = ConstantArray::new(fill.clone(), array.len()).into_array();
-        let non_top_bool = array
+        let non_fill_bool = array
             .compare(fill_array.clone(), CompareOperator::NotEq)?
             .fill_null(Scalar::bool(true, Nullability::NonNullable))?
             .execute::<BoolArray>(ctx)?;
-        let non_top_mask = Mask::from_buffer(non_top_bool.to_bit_buffer());
+        let non_fill_mask = Mask::from_buffer(non_fill_bool.to_bit_buffer());
 
-        let non_top_values = array
-            .filter(non_top_mask.clone())?
+        let non_fill_values = array
+            .filter(non_fill_mask.clone())?
             .execute::<CanonicalValidity>(ctx)?
             .0
             .into_array();
 
-        let indices: Buffer<u64> = match non_top_mask {
+        let indices: Buffer<u64> = match non_fill_mask {
             Mask::AllTrue(count) => {
                 // all true -> complete slice
                 (0u64..count as u64).collect()
@@ -583,8 +583,14 @@ impl SparseData {
             Mask::Values(values) => values.indices().iter().map(|v| *v as u64).collect(),
         };
 
-        Sparse::try_new(indices.into_array(), non_top_values, array.len(), fill, ctx)
-            .map(IntoArray::into_array)
+        Sparse::try_new(
+            indices.into_array(),
+            non_fill_values,
+            array.len(),
+            fill,
+            ctx,
+        )
+        .map(IntoArray::into_array)
     }
 }
 

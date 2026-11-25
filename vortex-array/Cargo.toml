@@ -307,7 +307,7 @@ name = "run_end_null_count"
 harness = false
 
 [[bench]]
-name = "primitive_top_value"
+name = "primitive_majority_candidate"
 harness = false
 
 [[bench]]
