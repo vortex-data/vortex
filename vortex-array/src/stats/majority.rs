@@ -11,7 +11,7 @@
 //! pair holds at most one copy of it.
 //!
 //! The vote is a mergeable summary: votes over disjoint parts of the input combine into a vote
-//! over all of it, with the same guarantee. [`LANES`] independent votes therefore run over
+//! over all of it, with the same guarantee. Sixteen independent votes therefore run over
 //! interleaved elements, which removes the loop-carried dependency of a single vote and lets the
 //! compiler keep the lanes in vector registers. Without a majority the candidate is an arbitrary
 //! valid value, so callers that need to tell the cases apart count it afterwards.
