@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Sparse encoding for null-dominated string arrays.
+//! Sparse encoding for string arrays that nulls or a single short value dominate.
 
 use vortex_array::ArrayId;
 use vortex_array::ArrayRef;
@@ -12,9 +12,11 @@ use vortex_array::VTable;
 use vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::uncompressed_size_in_bytes;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::VarBinView;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_array::arrays::varbinview::BinaryView;
 use vortex_array::dtype::PType;
+use vortex_array::stats::majority::majority_candidate;
 use vortex_compressor::scheme::ChildSelection;
 use vortex_compressor::scheme::CompressionEstimate;
 use vortex_compressor::scheme::DeferredEstimate;
@@ -22,6 +24,8 @@ use vortex_compressor::scheme::DescendantExclusion;
 use vortex_compressor::scheme::EstimateScore;
 use vortex_compressor::scheme::EstimateVerdict;
 use vortex_error::VortexResult;
+use vortex_mask::AllOr;
+use vortex_mask::Mask;
 use vortex_sparse::Sparse;
 use vortex_sparse::SparseExt as _;
 
@@ -194,6 +198,153 @@ impl Scheme for NullDominatedSparseScheme {
             Ok(sparse_encoded)
         }
     }
+}
+
+/// The smallest share of the valid values that the fill must hold for
+/// [`DominantValueSparseScheme`] to apply, as for the integer `SparseScheme`.
+const DOMINANT_FILL_SHARE: f64 = 0.9;
+
+/// Sparse encoding for string arrays that one short value dominates.
+///
+/// `Sparse::encode` only chooses a string fill short enough to be inlined in a view, so the
+/// estimate votes on the views alone and counts the winner by comparing views, which is exact for
+/// inline values. Null-dominated arrays are left to [`NullDominatedSparseScheme`].
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub struct DominantValueSparseScheme;
+
+impl Scheme for DominantValueSparseScheme {
+    fn scheme_name(&self) -> &'static str {
+        "vortex.string.sparse_dominant"
+    }
+
+    fn matches(&self, canonical: &Canonical) -> bool {
+        canonical.dtype().is_utf8()
+    }
+
+    fn produced_encodings(&self) -> Vec<ArrayId> {
+        vec![Sparse.id()]
+    }
+
+    /// Children: values=0, indices=1.
+    fn num_children(&self) -> usize {
+        2
+    }
+
+    /// Sparse indices (child 1) are monotonically increasing positions with all unique values, so
+    /// Sparse and Dict are pointless on them.
+    fn descendant_exclusions(&self) -> Vec<DescendantExclusion> {
+        NullDominatedSparseScheme.descendant_exclusions()
+    }
+
+    fn expected_compression_ratio(
+        &self,
+        data: &ArrayAndStats,
+        _compress_ctx: CompressorContext,
+        exec_ctx: &mut ExecutionCtx,
+    ) -> CompressionEstimate {
+        let len = data.array_len();
+        let stats = data.varbinview_stats(exec_ctx);
+        let value_count = stats.value_count() as usize;
+
+        // All-null arrays compress as constant, and null-dominated ones take the other scheme.
+        if value_count == 0 || stats.null_count() as f64 / len as f64 > 0.9 {
+            return CompressionEstimate::Verdict(EstimateVerdict::Skip);
+        }
+
+        let Ok(mask) = data
+            .array()
+            .validity()
+            .and_then(|validity| validity.execute_mask(len, exec_ctx))
+        else {
+            return CompressionEstimate::Verdict(EstimateVerdict::Skip);
+        };
+        let Some(fill_count) = inline_fill_count(data, &mask) else {
+            return CompressionEstimate::Verdict(EstimateVerdict::Skip);
+        };
+
+        // One value alone compresses as constant instead.
+        if fill_count == len || (fill_count as f64) < DOMINANT_FILL_SHARE * value_count as f64 {
+            return CompressionEstimate::Verdict(EstimateVerdict::Skip);
+        }
+
+        // Every row that is not the fill, nulls included, becomes a patch.
+        let Ok(before) = uncompressed_size_in_bytes(data.array(), exec_ctx) else {
+            return CompressionEstimate::Verdict(EstimateVerdict::Skip);
+        };
+        let patches = len - fill_count;
+        let indices = patches * PType::min_unsigned_ptype_for_value(len as u64).byte_width();
+        let values = before as f64 * patches as f64 / len as f64;
+        CompressionEstimate::Verdict(EstimateVerdict::Ratio(
+            before as f64 / (values + indices as f64),
+        ))
+    }
+
+    fn compress(
+        &self,
+        compressor: &CascadingCompressor,
+        data: &ArrayAndStats,
+        compress_ctx: CompressorContext,
+        exec_ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        let sparse_encoded = Sparse::encode(data.array(), None, exec_ctx)?;
+        let Some(sparse) = sparse_encoded.as_opt::<Sparse>() else {
+            return Ok(sparse_encoded);
+        };
+
+        let compressed_values = compressor.compress_child(
+            sparse.patches().values(),
+            &compress_ctx,
+            self.id(),
+            0,
+            exec_ctx,
+        )?;
+        let indices = sparse
+            .patches()
+            .indices()
+            .clone()
+            .execute::<PrimitiveArray>(exec_ctx)?
+            .narrow(exec_ctx)?;
+        let compressed_indices = compressor.compress_child(
+            &indices.into_array(),
+            &compress_ctx,
+            self.id(),
+            1,
+            exec_ctx,
+        )?;
+
+        Sparse::try_new(
+            compressed_indices,
+            compressed_values,
+            sparse.len(),
+            sparse.fill_scalar().clone(),
+            exec_ctx,
+        )
+        .map(|a| a.into_array())
+    }
+}
+
+/// Returns how many valid rows hold the vote's winner among the views of `data`, or `None` if the
+/// winner is too long to inline, which `Sparse::encode` does not take as a fill.
+fn inline_fill_count(data: &ArrayAndStats, mask: &Mask) -> Option<usize> {
+    let varbinview = data.array().as_opt::<VarBinView>()?.into_owned();
+    let views = varbinview.views();
+    // SAFETY: `BinaryView` is 16 bytes, aligned to 16, and every bit pattern is a valid byte array.
+    let raw: &[[u8; 16]] =
+        unsafe { std::slice::from_raw_parts(views.as_ptr().cast(), views.len()) };
+    let candidate = majority_candidate(raw, mask)?;
+    if !BinaryView::from(u128::from_le_bytes(candidate)).is_inlined() {
+        return None;
+    }
+    let count = match mask.bit_buffer() {
+        AllOr::All => raw.iter().filter(|&&view| view == candidate).count(),
+        AllOr::None => 0,
+        AllOr::Some(validity) => raw
+            .iter()
+            .zip(validity.iter())
+            .filter(|&(&view, valid)| valid && view == candidate)
+            .count(),
+    };
+    Some(count)
 }
 
 /// Returns evenly spaced runs of the valid values of `array`, or all of them if they are few.

@@ -15,6 +15,7 @@ mod onpair;
 
 pub use fsst::FSSTScheme;
 pub use onpair::OnPairScheme;
+pub use sparse::DominantValueSparseScheme;
 pub use sparse::NullDominatedSparseScheme;
 // Re-export builtin schemes from vortex-compressor.
 pub use vortex_compressor::builtins::StringDictScheme;

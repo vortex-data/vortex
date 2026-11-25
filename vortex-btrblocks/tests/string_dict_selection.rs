@@ -19,6 +19,7 @@ use vortex_array::dtype::Nullability;
 use vortex_btrblocks::BtrBlocksCompressorBuilder;
 use vortex_btrblocks::schemes::binary::BinaryDictScheme;
 use vortex_btrblocks::schemes::binary::VarBinScheme;
+use vortex_btrblocks::schemes::string::DominantValueSparseScheme;
 use vortex_btrblocks::schemes::string::FSSTScheme;
 use vortex_btrblocks::schemes::string::NullDominatedSparseScheme;
 use vortex_btrblocks::schemes::string::StringDictScheme;
@@ -235,6 +236,60 @@ fn test_null_dominated_repeated_values_sparse_over_dict() -> VortexResult<()> {
         "{}",
         compressed.display_tree()
     );
+    assert_arrays_eq!(compressed, array, &mut ctx);
+    Ok(())
+}
+
+/// One short value filling nearly every row makes the other rows patches, which beats paying a
+/// dictionary code for every row.
+#[rstest]
+#[case::inline_dominant("ok", true)]
+// A long dominant value is never a sparse fill.
+#[case::long_dominant("a status far too long to inline", false)]
+fn test_dominant_value_sparse(#[case] dominant: &str, #[case] sparse: bool) -> VortexResult<()> {
+    let array = VarBinViewArray::from_iter(
+        (0..65_536).map(|row| {
+            Some(if row % 50 == 0 {
+                format!("rare value number {row}")
+            } else {
+                dominant.to_string()
+            })
+        }),
+        DType::Utf8(Nullability::Nullable),
+    )
+    .into_array();
+    let mut ctx = SESSION.create_execution_ctx();
+    let compressed = BtrBlocksCompressorBuilder::empty()
+        .with_new_scheme(&StringDictScheme)
+        .with_new_scheme(&DominantValueSparseScheme)
+        .build()
+        .compress(&array, &mut ctx)?;
+
+    assert_eq!(
+        compressed.is::<Sparse>(),
+        sparse,
+        "{}",
+        compressed.display_tree()
+    );
+    assert_arrays_eq!(compressed, array, &mut ctx);
+    Ok(())
+}
+
+/// Below the 90% share the scheme steps aside, as the integer one does.
+#[test]
+fn test_dominant_value_sparse_needs_most_rows() -> VortexResult<()> {
+    let array = VarBinViewArray::from_iter(
+        (0..65_536).map(|row| Some(if row % 5 == 0 { "rare" } else { "ok" })),
+        DType::Utf8(Nullability::Nullable),
+    )
+    .into_array();
+    let mut ctx = SESSION.create_execution_ctx();
+    let compressed = BtrBlocksCompressorBuilder::empty()
+        .with_new_scheme(&DominantValueSparseScheme)
+        .build()
+        .compress(&array, &mut ctx)?;
+
+    assert!(!compressed.is::<Sparse>(), "{}", compressed.display_tree());
     assert_arrays_eq!(compressed, array, &mut ctx);
     Ok(())
 }

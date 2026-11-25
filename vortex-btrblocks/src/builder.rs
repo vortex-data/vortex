@@ -79,6 +79,7 @@ impl CompressionMode {
                     float::FloatRLEScheme.id(),
                     float::NullDominatedSparseScheme.id(),
                     string::NullDominatedSparseScheme.id(),
+                    string::DominantValueSparseScheme.id(),
                     fixed_size_list::FixedSizeListSparseScheme.id(),
                     binary::BinaryDictScheme.id(),
                 ]);
