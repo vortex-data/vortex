@@ -22,13 +22,14 @@ use crate::planning::planner::PlannerOutput;
 use crate::planning::planner::State;
 use crate::planning::planner::WorkScope;
 use crate::selection::Selection;
+use crate::split;
 
-/// The row grid every chunk boundary lies on.
-pub(crate) const ROW_BLOCK_SIZE: usize = 8192;
-/// The rows of a projection chunk.
-pub(crate) const MAX_ROWS_PER_CHUNK: usize = 8 * ROW_BLOCK_SIZE;
-/// The rows of a filtered chunk, balancing conjunct setup against parallelism.
-pub(crate) const FILTERED_ROWS_PER_CHUNK: usize = 16 * ROW_BLOCK_SIZE;
+/// The row grid every chunk boundary lies on: [`split::ROW_BLOCK_SIZE`].
+pub(crate) const ROW_BLOCK_SIZE: usize = split::ROW_BLOCK_SIZE;
+/// The rows of a projection chunk: [`split::MAX_ROWS_PER_CHUNK`].
+pub(crate) const MAX_ROWS_PER_CHUNK: usize = split::MAX_ROWS_PER_CHUNK;
+/// The rows of a filtered chunk: [`split::FILTERED_ROWS_PER_CHUNK`].
+pub(crate) const FILTERED_ROWS_PER_CHUNK: usize = split::FILTERED_ROWS_PER_CHUNK;
 const TARGET_BYTES_PER_CHUNK: u64 = 8 * 1024 * 1024;
 
 /// Limit estimated bytes per chunk without changing the writer-aligned row granularity.

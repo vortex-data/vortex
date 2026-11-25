@@ -277,7 +277,7 @@ impl DataSourceScan for PlanScan {
         let state = self.state;
         Ok(self
             .planned
-            .split(n.get())
+            .split(n.get())?
             .into_iter()
             .map(|planned| {
                 Box::new(PlanScan {

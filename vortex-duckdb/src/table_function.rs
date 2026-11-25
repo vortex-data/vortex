@@ -231,8 +231,6 @@ pub struct LocalState {
     /// DuckDB's global multi-file lock; see `OpenFileReader`.
     pub(crate) retired_files: Vec<Arc<FileScanState>>,
     pub(crate) retired_splits: Vec<Split>,
-    /// Chunks of an array that this thread has yet to export, in reverse order.
-    pub(crate) pending: Vec<ArrayRef>,
 
     /// Empty for non-aggregate scan
     pub partials: Partials,
@@ -437,7 +435,6 @@ pub fn init_local(bind_data: &BindState, global: &GlobalState) -> LocalState {
         file: None,
         retired_files: Vec::new(),
         retired_splits: Vec::new(),
-        pending: Vec::new(),
         finished: false,
     }
 }

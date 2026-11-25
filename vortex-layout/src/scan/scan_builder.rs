@@ -31,6 +31,8 @@ use vortex_io::runtime::Task;
 use vortex_io::session::RuntimeSessionExt;
 use vortex_metrics::MetricsRegistry;
 use vortex_scan::selection::Selection;
+use vortex_scan::split::part_rows;
+use vortex_scan::split::split_points;
 use vortex_scan::strict_sorted_buffer::StrictSortedBuffer;
 use vortex_session::VortexSession;
 
@@ -48,6 +50,7 @@ use crate::scan::repeated_scan::RepeatedScan;
 use crate::scan::repeated_scan::ScanTasks;
 use crate::scan::repeated_scan::SplitConcurrency;
 use crate::scan::split_by::SplitBy;
+use crate::scan::split_by::layout_boundaries;
 use crate::scan::splits::Splits;
 use crate::scan::splits::attempt_split_ranges;
 
@@ -225,11 +228,27 @@ impl<A: 'static + Send> ScanBuilder<A> {
     /// them back via [`with_natural_splits`](Self::with_natural_splits) to skip the layout walk
     /// in `prepare`.
     pub fn full_file_splits(&self) -> VortexResult<Vec<u64>> {
-        let field_mask = referenced_field_masks(&self.projection, self.filter.as_ref())?;
-        self.split_by.splits(
+        natural_splits(
+            self.split_by,
             self.layout_reader.as_ref(),
+            &self.projection,
+            self.filter.as_ref(),
             &(0..self.layout_reader.row_count()),
-            &field_mask,
+        )
+    }
+
+    /// Compute the split boundaries [`prepare`](Self::prepare) derives for this scan's row range,
+    /// or for the whole file without one, for the fields its projection and filter reference.
+    pub fn split_points(&self) -> VortexResult<Vec<u64>> {
+        natural_splits(
+            self.split_by,
+            self.layout_reader.as_ref(),
+            &self.projection,
+            self.filter.as_ref(),
+            &self
+                .row_range
+                .clone()
+                .unwrap_or_else(|| 0..self.layout_reader.row_count()),
         )
     }
 
@@ -400,15 +419,19 @@ impl<A: 'static + Send> ScanBuilder<A> {
                 // Caller-supplied full-file boundaries; execution clamps them to the row range.
                 Splits::Natural(boundaries)
             } else {
-                let field_mask = referenced_field_masks(&bound_projection, bound_filter.as_ref())?;
                 let split_range = self
                     .row_range
                     .clone()
                     .unwrap_or_else(|| 0..layout_reader.row_count());
                 Splits::Natural(
-                    self.split_by
-                        .splits(layout_reader.as_ref(), &split_range, &field_mask)?
-                        .into(),
+                    natural_splits(
+                        self.split_by,
+                        layout_reader.as_ref(),
+                        &bound_projection,
+                        bound_filter.as_ref(),
+                        &split_range,
+                    )?
+                    .into(),
                 )
             };
 
@@ -505,6 +528,29 @@ impl<A: 'static + Send> Stream for LazyScanStream<A> {
             }
         }
     }
+}
+
+/// The split boundaries of a scan of `row_range` of `layout_reader` with `projection` and
+/// `filter`, by `split_by`.
+fn natural_splits(
+    split_by: SplitBy,
+    layout_reader: &dyn LayoutReader,
+    projection: &BoundExpression,
+    filter: Option<&BoundExpression>,
+    row_range: &Range<u64>,
+) -> VortexResult<Vec<u64>> {
+    let field_mask = referenced_field_masks(projection, filter)?;
+    let SplitBy::Parts { min_parts } = split_by else {
+        return split_by.splits(layout_reader, row_range, &field_mask);
+    };
+    let boundaries = layout_boundaries(layout_reader, row_range, &field_mask)?;
+    let target = part_rows(layout_reader.dtype(), projection, filter)?;
+    Ok(split_points(
+        row_range.clone(),
+        &boundaries,
+        target,
+        min_parts,
+    ))
 }
 
 /// Compute masks of field paths referenced by the projection and filter in the scan.

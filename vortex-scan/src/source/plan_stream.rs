@@ -4,10 +4,11 @@
 //! An opened [`PlanDataSource`](super::PlanDataSource) scan: V2's planners and [`Run`] driver
 //! behind [`ScanExec`] and its [`ScanStream`](crate::stream::ScanStream)s.
 //!
-//! When a scan is made, it prepares its child once and cuts the child's rows into parts on the
-//! scan's chunk grid. That reads nothing: the child's zone maps are read by the parts, each over
-//! its own rows. [`split`](crate::DataSourceScan::split) deals the parts out to the pieces, cutting
-//! them on smaller grid blocks when a host has more threads than the scan has parts.
+//! When a scan is made, it prepares its child once and cuts the child's rows into parts with
+//! [`split_points`](crate::split::split_points), which the V1 executor shares. That reads nothing:
+//! the child's zone maps are read by the parts, each over its own rows.
+//! [`split`](crate::DataSourceScan::split) deals the parts out to the pieces, cutting the scan
+//! into at least as many parts as pieces when a host has more threads than the scan has parts.
 //!
 //! Every stream of an opened scan takes parts from the one queue, and the scan is exhausted once
 //! the last part is taken. A part is planned when a stream takes it: with a filter, it first
@@ -20,6 +21,9 @@
 //!
 //! A limit is one [`RowLimit`] for the whole scan, shared by its pieces: streams stop taking parts
 //! once it is spent, which also exhausts the scan, and each stream's output is trimmed to it.
+//!
+//! Every batch is cut at the chunk boundaries of its columns, by
+//! [`ScanExec::with_batch_cuts`].
 
 use std::collections::VecDeque;
 use std::future;
@@ -37,15 +41,15 @@ use vortex_error::VortexResult;
 use vortex_io::request::IoService;
 
 use super::plan::ScanState;
-use crate::execution::cut_parts;
 use crate::execution::part_planner;
-use crate::execution::scan_parts;
 use crate::limit::RowLimit;
 use crate::limit::limit_rows;
 use crate::planning::driver::Progress;
 use crate::planning::driver::Run;
 use crate::planning::planner::WorkScope;
 use crate::prepare::PreparedScan;
+use crate::split::group_parts;
+use crate::split::parts_between;
 use crate::stream::Claims;
 use crate::stream::ExhaustedFlag;
 use crate::stream::ScanExec;
@@ -57,6 +61,8 @@ pub(super) struct Planned {
     prepared: Option<Arc<Prepared>>,
     /// The parts, in row order.
     parts: Vec<Range<u64>>,
+    /// Whether the parts cover all of the scan's rows, rather than being a piece of it.
+    whole: bool,
 }
 
 /// A child's prepared scan and the I/O its parts read through.
@@ -66,18 +72,19 @@ struct Prepared {
 }
 
 impl Planned {
-    /// Prepares the scan of `rows` of the child, if it reads any, and cuts them into parts on the
-    /// scan's chunk grid. Reads nothing.
+    /// Prepares the scan of `rows` of the child, if it reads any, and cuts them into parts.
+    /// Reads nothing.
     pub(super) fn new(state: &ScanState, rows: Option<Range<u64>>) -> VortexResult<Self> {
         let Some(rows) = rows.filter(|rows| !rows.is_empty()) else {
             return Ok(Self::empty());
         };
         let scan = Arc::new(state.builder(rows).prepare()?);
-        let parts = scan_parts(&scan);
+        let parts = parts_between(&scan.part_points(1)?);
         let io = scan.io();
         Ok(Self {
             prepared: Some(Arc::new(Prepared { scan, io })),
             parts,
+            whole: true,
         })
     }
 
@@ -85,6 +92,7 @@ impl Planned {
         Self {
             prepared: None,
             parts: Vec::new(),
+            whole: true,
         }
     }
 
@@ -93,25 +101,26 @@ impl Planned {
         self.parts.len()
     }
 
-    /// Deals the parts out to at most `n` pieces of contiguous parts, cutting the parts on grid
-    /// blocks first when there are fewer than `n`. Never empty.
-    pub(super) fn split(self, n: usize) -> Vec<Self> {
+    /// Deals the parts out to at most `n` pieces of contiguous parts. A whole scan with fewer
+    /// than `n` parts is cut again into at least `n` first, where its rows hold enough blocks.
+    /// Never empty.
+    pub(super) fn split(self, n: usize) -> VortexResult<Vec<Self>> {
         let Some(prepared) = self.prepared else {
-            return vec![Self::empty()];
+            return Ok(vec![Self::empty()]);
         };
-        let parts = cut_parts(self.parts, n);
-        let pieces = n.min(parts.len()).max(1);
-        let (per, extra) = (parts.len() / pieces, parts.len() % pieces);
-        let mut parts = parts.into_iter();
-        (0..pieces)
-            .map(|piece| Self {
+        let parts = if self.whole && self.parts.len() < n {
+            parts_between(&prepared.scan.part_points(n)?)
+        } else {
+            self.parts
+        };
+        Ok(group_parts(parts, n)
+            .into_iter()
+            .map(|parts| Self {
                 prepared: Some(Arc::clone(&prepared)),
-                parts: parts
-                    .by_ref()
-                    .take(per + usize::from(piece < extra))
-                    .collect(),
+                parts,
+                whole: false,
             })
-            .collect()
+            .collect())
     }
 }
 
@@ -130,7 +139,8 @@ pub(super) fn open(state: &ScanState, planned: Planned) -> ScanExec {
     let Some(prepared) = planned.prepared.filter(|_| queue.total > 0) else {
         exhausted.set();
         return ScanExec::new(dtype, exhausted, || stream::empty().boxed())
-            .with_progress(move || progress.claims());
+            .with_progress(move || progress.claims())
+            .with_batch_cuts();
     };
     ScanExec::new(dtype, exhausted, move || {
         let worker = Worker {
@@ -151,6 +161,7 @@ pub(super) fn open(state: &ScanState, planned: Planned) -> ScanExec {
         limited(arrays, limit.clone())
     })
     .with_progress(move || progress.claims())
+    .with_batch_cuts()
 }
 
 /// The queue of a scan, which every stream of it takes from.

@@ -102,6 +102,10 @@ struct Args {
     reuse: bool,
 
     /// Use the V1 Vortex scan. Pass `--scan-v1 false` to use the planner-driven V2 scan.
+    ///
+    /// `--opt v1-split=parts` has the V1 scan split its files into the parts the V2 scan cuts, so
+    /// the two compare over the same units of work; `v1-split=layout`, the default, keeps V1's own
+    /// layout splits. The V2 scan always cuts parts, so the option does not change it.
     #[arg(long, default_value_t = true, action = clap::ArgAction::Set)]
     scan_v1: bool,
 }
@@ -115,6 +119,11 @@ fn main() -> anyhow::Result<()> {
     let opts = Opts::from(args.options);
 
     vortex_duckdb::set_scan_v2(!args.scan_v1);
+    vortex_duckdb::set_v1_split_parts(match opts.get("v1-split") {
+        None | Some("layout") => false,
+        Some("parts") => true,
+        Some(other) => anyhow::bail!("unknown v1-split={other}: expected `parts` or `layout`"),
+    });
 
     setup_logging_and_tracing(args.verbose, args.tracing)?;
 

@@ -11,16 +11,12 @@ use vortex_array::expr::BoundExpression;
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 
-use crate::analysis::referenced_field_paths;
 pub use crate::execution::ChunkPlanner;
-use crate::execution::FILTERED_ROWS_PER_CHUNK;
 pub use crate::execution::FilterPlans;
 pub use crate::execution::FilterPrep;
-use crate::execution::MAX_ROWS_PER_CHUNK;
 pub use crate::execution::PreparedScan;
 pub use crate::execution::PruneNext;
 pub use crate::execution::PrunePlanner;
-use crate::execution::ROW_BLOCK_SIZE;
 pub use crate::execution::SegmentLocation;
 pub use crate::execution::SharedFilterPrep;
 pub use crate::execution::cache::ScanCache;
@@ -31,6 +27,7 @@ use crate::plan::optimize;
 use crate::plan::plan_row_idx_expression;
 use crate::selection::Selection;
 use crate::source::ScanInput;
+use crate::split::part_rows;
 use crate::strict_sorted_buffer::StrictSortedBuffer;
 
 /// Prepares a scan on the planner-driven executor.
@@ -142,11 +139,7 @@ impl ScanBuilder {
             None => cache.insert_root(file.root.get()?.clone()),
         };
         let row_count = root.row_count();
-        let filtered_chunk_rows = self
-            .filter
-            .as_ref()
-            .map(|filter| filtered_rows_per_chunk(root.dtype(), &self.projection, filter))
-            .transpose()?;
+        let part_rows = part_rows(root.dtype(), &self.projection, self.filter.as_ref())?;
         let filter = self
             .filter
             .map(|filter| -> VortexResult<_> {
@@ -183,12 +176,12 @@ impl ScanBuilder {
                 cache.insert_projection(self.projection, plan)
             }
         };
-        let chunk_rows = if let Some(rows) = filtered_chunk_rows {
-            rows
-        } else if identity {
+        // A part is one chunk, except that an identity projection's chunks are also bounded by
+        // their bytes, which only this engine knows, so its parts can hold several chunks.
+        let chunk_rows = if identity && filter.is_none() {
             rows_per_chunk(row_count, &file.locations)
         } else {
-            MAX_ROWS_PER_CHUNK
+            usize::try_from(part_rows)?
         };
         let ranges = match cache.ranges() {
             Some(ranges) => ranges,
@@ -208,28 +201,7 @@ impl ScanBuilder {
             row_offset: self.row_offset,
             values,
             chunk_rows,
+            part_rows,
         })
     }
-}
-
-pub(crate) fn filtered_rows_per_chunk(
-    dtype: &DType,
-    projection: &BoundExpression,
-    filter: &BoundExpression,
-) -> VortexResult<usize> {
-    let mut fields = referenced_field_paths(projection)?;
-    fields.extend(referenced_field_paths(filter)?);
-    let mut fields = fields.into_iter();
-    let first = fields.next();
-    // A scan of one fixed-width field is cheap enough that smaller chunks mainly add setup.
-    // Wider and variable-width scans need more chunks to avoid long tails on a few workers.
-    let narrow = fields.next().is_none()
-        && first
-            .and_then(|field| field.resolve(dtype.clone()))
-            .is_some_and(|dtype| matches!(dtype, DType::Primitive(..) | DType::Bool(..)));
-    Ok(if narrow {
-        128 * ROW_BLOCK_SIZE
-    } else {
-        FILTERED_ROWS_PER_CHUNK
-    })
 }

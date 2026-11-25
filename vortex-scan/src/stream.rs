@@ -25,6 +25,7 @@ use vortex_array::stream::ArrayStream;
 use vortex_error::VortexResult;
 
 use crate::DataSourceScanRef;
+use crate::split::batch_pieces;
 
 /// Starts a new worker over the shared work of an opened scan.
 type NewWorker = dyn Fn() -> BoxStream<'static, VortexResult<ArrayRef>> + Send + Sync;
@@ -89,6 +90,7 @@ pub struct ScanExec {
     exhausted: ExhaustedFlag,
     new_worker: Arc<NewWorker>,
     progress: Option<Arc<ReadProgress>>,
+    batch_cuts: bool,
 }
 
 impl ScanExec {
@@ -108,7 +110,16 @@ impl ScanExec {
             exhausted,
             new_worker: Arc::new(new_worker),
             progress: None,
+            batch_cuts: false,
         }
+    }
+
+    /// This scan, with each batch its streams return cut at the chunk boundaries of its columns
+    /// by [`batch_pieces`](crate::split::batch_pieces), so a column of a batch holds one encoding
+    /// where its chunks are not too narrow.
+    pub fn with_batch_cuts(mut self) -> Self {
+        self.batch_cuts = true;
+        self
     }
 
     /// This scan, reporting through `progress` how many units of its work its streams have
@@ -177,9 +188,22 @@ impl ScanExec {
 
     /// A new stream over the scan's remaining work, which one host thread or partition reads.
     pub fn stream(&self) -> ScanStream {
+        let worker = (self.new_worker)();
         ScanStream {
             dtype: self.dtype.clone(),
-            worker: (self.new_worker)(),
+            worker: if self.batch_cuts {
+                worker
+                    .flat_map(|batch| {
+                        let pieces = match batch {
+                            Ok(batch) => batch_pieces(batch).into_iter().map(Ok).collect(),
+                            Err(err) => vec![Err(err)],
+                        };
+                        stream::iter(pieces)
+                    })
+                    .boxed()
+            } else {
+                worker
+            },
         }
     }
 }

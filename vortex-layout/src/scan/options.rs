@@ -5,6 +5,8 @@
 
 use std::num::NonZeroUsize;
 
+use crate::scan::split_by::SplitBy;
+
 /// Options for a scan source that reads layout readers, such as
 /// [`LayoutReaderDataSource`](crate::scan::layout::LayoutReaderDataSource).
 ///
@@ -13,6 +15,7 @@ use std::num::NonZeroUsize;
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct LayoutScanOptions {
     concurrency: Option<NonZeroUsize>,
+    split_by: Option<SplitBy>,
 }
 
 impl LayoutScanOptions {
@@ -33,5 +36,24 @@ impl LayoutScanOptions {
     /// The most splits decoded at once for each partition or stream, if bounded.
     pub fn concurrency(&self) -> Option<NonZeroUsize> {
         self.concurrency
+    }
+
+    /// Splits each scan by `split_by` instead of [`SplitBy::default`].
+    ///
+    /// With [`SplitBy::Parts`], the source cuts its scans into the parts the planner-driven
+    /// executor cuts: [`split`](vortex_scan::DataSourceScan::split) into `n` pieces cuts at least
+    /// `n` parts, as that executor does, and an opened scan cuts its batches at the chunk
+    /// boundaries of their columns, as [`ScanExec::with_batch_cuts`] does. Comparing the two
+    /// executors with it set compares their execution over the same units of work.
+    ///
+    /// [`ScanExec::with_batch_cuts`]: vortex_scan::stream::ScanExec::with_batch_cuts
+    pub fn with_split_by(mut self, split_by: SplitBy) -> Self {
+        self.split_by = Some(split_by);
+        self
+    }
+
+    /// How each scan is split, if not by [`SplitBy::default`].
+    pub fn split_by(&self) -> Option<SplitBy> {
+        self.split_by
     }
 }

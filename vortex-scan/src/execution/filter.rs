@@ -109,6 +109,11 @@ pub struct FilterPlans {
 }
 
 impl FilterPlans {
+    /// The value plan of each conjunct.
+    pub(crate) fn predicates(&self) -> &[PlanRef] {
+        &self.predicates
+    }
+
     /// Plans `prep`'s conjuncts over `root`.
     ///
     /// With `skip_unselective_dynamic`, a dynamic conjunct that kept almost every row on its last

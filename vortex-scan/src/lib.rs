@@ -32,6 +32,7 @@ pub mod prepare;
 pub mod row_mask;
 pub mod selection;
 pub mod source;
+pub mod split;
 pub mod stream;
 pub mod strict_sorted_buffer;
 

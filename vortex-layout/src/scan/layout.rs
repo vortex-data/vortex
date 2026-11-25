@@ -42,6 +42,7 @@ use vortex_scan::PartitionRef;
 use vortex_scan::PartitionStream;
 use vortex_scan::ScanRequest;
 use vortex_scan::selection::Selection;
+use vortex_scan::split::group_parts;
 use vortex_scan::stream::ExhaustedFlag;
 use vortex_scan::stream::ScanExec;
 use vortex_session::VortexSession;
@@ -53,6 +54,7 @@ use crate::scan::metrics::ScanRecorder;
 use crate::scan::options::LayoutScanOptions;
 use crate::scan::repeated_scan::DEFAULT_SPLITS_PER_THREAD;
 use crate::scan::scan_builder::ScanBuilder;
+use crate::scan::split_by::SplitBy;
 use crate::scan::split_queue::SplitQueue;
 
 /// Cursor over absolute split-grid partition indices for a [`LayoutReaderDataSource`].
@@ -167,6 +169,7 @@ pub struct LayoutReaderDataSource {
     session: VortexSession,
     split_max_row_count: u64,
     split_concurrency: Option<NonZeroUsize>,
+    split_by: Option<SplitBy>,
     metrics: Option<ScanMetrics>,
 }
 
@@ -192,6 +195,7 @@ impl LayoutReaderDataSource {
             session,
             split_max_row_count: u64::MAX,
             split_concurrency: options.concurrency(),
+            split_by: options.split_by(),
             metrics: None,
         }
     }
@@ -339,6 +343,8 @@ impl DataSource for LayoutReaderDataSource {
             selection: scan_request.selection,
             ordered: scan_request.ordered,
             split_concurrency: self.split_concurrency,
+            split_by: self.split_by,
+            cuts: None,
             metrics: self.metrics.clone(),
             cursor,
         }))
@@ -364,6 +370,11 @@ struct LayoutReaderScan {
     row_limit: Option<RowLimit>,
     ordered: bool,
     split_concurrency: Option<NonZeroUsize>,
+    /// How the scan is split, if not by [`SplitBy::default`].
+    split_by: Option<SplitBy>,
+    /// The parts of a piece of a scan split by [`SplitBy::Parts`], cut when the whole scan was
+    /// split, as the points between them.
+    cuts: Option<Arc<[u64]>>,
     selection: Selection,
     metrics: Option<ScanMetrics>,
     cursor: PartitionCursor,
@@ -373,17 +384,68 @@ impl LayoutReaderScan {
     /// A scan builder over this scan's reader, with its selection, projection, filter, metrics
     /// and split concurrency. Callers give it the row range to read.
     fn builder(&self) -> ScanBuilder<ArrayRef> {
-        ScanBuilder::new(self.session.clone(), Arc::clone(&self.reader))
+        let builder = ScanBuilder::new(self.session.clone(), Arc::clone(&self.reader))
             .with_selection(self.selection.clone())
             .with_projection(self.projection.clone())
             .with_some_filter(self.filter.clone())
             .with_some_scan_metrics(self.metrics.clone())
-            .with_some_max_splits_in_flight(self.split_concurrency)
+            .with_some_max_splits_in_flight(self.split_concurrency);
+        let builder = match self.split_by {
+            Some(split_by) => builder.with_split_by(split_by),
+            None => builder,
+        };
+        match &self.cuts {
+            Some(cuts) => builder.with_natural_splits(Arc::clone(cuts)),
+            None => builder,
+        }
     }
 
-    /// This scan over `rows` only. Only a scan without a limit is cut into pieces, so a piece
-    /// has no limit to share.
-    fn piece(&self, rows: Range<u64>) -> Self {
+    /// Whether the scan is split into the planner-driven executor's parts.
+    fn splits_into_parts(&self) -> bool {
+        matches!(self.split_by, Some(SplitBy::Parts { .. }))
+    }
+
+    /// Cuts `rows` into at least `min_parts` parts, as the planner-driven executor does, and deals
+    /// them out to at most `min_parts` pieces of contiguous parts. A piece of a scan already split
+    /// keeps its parts.
+    fn split_into_parts(
+        self: Box<Self>,
+        rows: Range<u64>,
+        min_parts: usize,
+    ) -> VortexResult<Vec<DataSourceScanRef>> {
+        let builder = match &self.cuts {
+            Some(_) => self.builder(),
+            None => self
+                .builder()
+                .with_row_range(rows.clone())
+                .with_split_by(SplitBy::Parts { min_parts }),
+        };
+        let parts = builder.prepare()?.split_ranges(Some(rows));
+        let pieces: Vec<Vec<Range<u64>>> = group_parts(parts, min_parts)
+            .into_iter()
+            .filter(|parts| !parts.is_empty())
+            .collect();
+        if pieces.len() <= 1 {
+            return Ok(vec![self]);
+        }
+        Ok(pieces
+            .into_iter()
+            .map(|parts| {
+                let cuts: Arc<[u64]> = parts
+                    .first()
+                    .map(|part| part.start)
+                    .into_iter()
+                    .chain(parts.iter().map(|part| part.end))
+                    .collect();
+                let rows = cuts[0]..cuts[cuts.len() - 1];
+                Box::new(self.piece(rows, Some(cuts))) as DataSourceScanRef
+            })
+            .collect())
+    }
+
+    /// This scan over `rows` only, reading the parts between `cuts` if it is split into parts.
+    /// Only a scan without a limit is cut into pieces, so a piece has no limit to share.
+    fn piece(&self, rows: Range<u64>, cuts: Option<Arc<[u64]>>) -> Self {
         Self {
             reader: Arc::clone(&self.reader),
             session: self.session.clone(),
@@ -394,6 +456,8 @@ impl LayoutReaderScan {
             row_limit: None,
             ordered: self.ordered,
             split_concurrency: self.split_concurrency,
+            split_by: self.split_by,
+            cuts,
             selection: self.selection.clone(),
             metrics: self.metrics.clone(),
             cursor: PartitionCursor::new(rows, self.cursor.split_size, None, Selection::All),
@@ -416,6 +480,9 @@ impl DataSourceScan for LayoutReaderScan {
             Some(rows) if n.get() > 1 && self.remaining_limit.is_none() && !rows.is_empty() => rows,
             _ => return Ok(vec![self]),
         };
+        if let Some(SplitBy::Parts { min_parts }) = self.split_by {
+            return self.split_into_parts(rows, n.get().max(min_parts));
+        }
         let ranges = self.builder().prepare()?.split_ranges(Some(rows));
         let pieces: Vec<Range<u64>> = group_contiguous(ranges, n)
             .into_iter()
@@ -426,7 +493,7 @@ impl DataSourceScan for LayoutReaderScan {
         }
         Ok(pieces
             .into_iter()
-            .map(|rows| Box::new(self.piece(rows)) as DataSourceScanRef)
+            .map(|rows| Box::new(self.piece(rows, None)) as DataSourceScanRef)
             .collect())
     }
 
@@ -448,7 +515,12 @@ impl DataSourceScan for LayoutReaderScan {
             .map_or(DEFAULT_SPLITS_PER_THREAD, |max| {
                 max.get().min(DEFAULT_SPLITS_PER_THREAD)
             });
-        let splits = self.builder().prepare()?.execute(Some(rows))?;
+        let parts = self.splits_into_parts();
+        let builder = match parts {
+            true => self.builder().with_row_range(rows.clone()),
+            false => self.builder(),
+        };
+        let splits = builder.prepare()?.execute(Some(rows))?;
         let exhausted = ExhaustedFlag::new();
         let queue = Arc::new(SplitQueue::new(
             self.session.handle(),
@@ -457,10 +529,12 @@ impl DataSourceScan for LayoutReaderScan {
             exhausted.clone(),
         ));
         let progress = Arc::clone(&queue);
-        Ok(
-            ScanExec::new(self.dtype, exhausted, move || Arc::clone(&queue).worker())
-                .with_progress(move || progress.claims()),
-        )
+        let exec = ScanExec::new(self.dtype, exhausted, move || Arc::clone(&queue).worker())
+            .with_progress(move || progress.claims());
+        Ok(match parts {
+            true => exec.with_batch_cuts(),
+            false => exec,
+        })
     }
 
     fn partition_count(&self) -> Precision<usize> {
@@ -542,6 +616,7 @@ impl Stream for LayoutReaderScan {
             row_limit: this.row_limit.clone(),
             ordered: this.ordered,
             split_concurrency: this.split_concurrency,
+            split_by: this.split_by,
             row_range,
             selection: this.selection.clone(),
             metrics: this.metrics.clone(),
@@ -581,6 +656,7 @@ struct LayoutReaderSplit {
     row_limit: Option<RowLimit>,
     ordered: bool,
     split_concurrency: Option<NonZeroUsize>,
+    split_by: Option<SplitBy>,
     row_range: Range<u64>,
     selection: Selection,
     metrics: Option<ScanMetrics>,
@@ -620,6 +696,10 @@ impl Partition for LayoutReaderSplit {
             .with_some_scan_metrics(self.metrics)
             .with_ordered(self.ordered)
             .with_some_max_splits_in_flight(self.split_concurrency);
+        let builder = match self.split_by {
+            Some(split_by) => builder.with_split_by(split_by),
+            None => builder,
+        };
         let builder = match self.row_limit {
             Some(row_limit) => builder.with_shared_limit(row_limit),
             None => builder.with_some_limit(self.limit),

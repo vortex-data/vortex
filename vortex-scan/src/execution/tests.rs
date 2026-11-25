@@ -52,8 +52,8 @@ use crate::planning::planner::Planner;
 use crate::planning::planner::PlannerOutput;
 use crate::planning::planner::WorkScope;
 use crate::prepare::ScanBuilder;
-use crate::prepare::filtered_rows_per_chunk;
 use crate::source::ScanInput;
+use crate::split::part_rows;
 use crate::strict_sorted_buffer::StrictSortedBuffer;
 use crate::test::SESSION;
 use crate::test::Store;
@@ -268,12 +268,12 @@ async fn collect_scan(dtype: DType, builder: ScanBuilder) -> VortexResult<ArrayR
 fn filtered_chunk_sizing(
     #[case] projection: Expression,
     #[case] filter: Expression,
-    #[case] expected: usize,
+    #[case] expected: u64,
 ) -> VortexResult<()> {
     let array = table_chunk(0)?;
     let dtype = array.dtype();
     assert_eq!(
-        filtered_rows_per_chunk(dtype, &projection.bind(dtype)?, &filter.bind(dtype)?)?,
+        part_rows(dtype, &projection.bind(dtype)?, Some(&filter.bind(dtype)?))?,
         expected,
     );
     Ok(())

@@ -78,6 +78,22 @@ pub fn scan_v2() -> bool {
     SCAN_V2.load(Ordering::Relaxed)
 }
 
+/// Whether V1 scans split their files into the V2 executor's parts.
+static V1_SPLIT_PARTS: AtomicBool = AtomicBool::new(false);
+
+/// Has V1 scans initialized from now on split their files into the parts the V2 executor cuts,
+/// with [`SplitBy::Parts`](vortex::layout::scan::split_by::SplitBy::Parts), and split each file
+/// for DuckDB's threads as V2 scans are, so that the two executors read the same units of work.
+/// V2 scans are unaffected. Off by default.
+pub fn set_v1_split_parts(enabled: bool) {
+    V1_SPLIT_PARTS.store(enabled, Ordering::Relaxed);
+}
+
+/// Whether V1 scans initialized now split their files into the V2 executor's parts.
+pub fn v1_split_parts() -> bool {
+    V1_SPLIT_PARTS.load(Ordering::Relaxed)
+}
+
 // Duckdb's logger requires a *Context as first argument which
 // would be hard to integrate with tracing::. We use logging for
 // debugging only anyway, so that's good enough.
