@@ -14,6 +14,7 @@ use crate::arrays::Bool;
 use crate::arrays::BoolArray;
 use crate::arrays::Decimal;
 use crate::arrays::DecimalArray;
+use crate::arrays::Duration;
 use crate::arrays::DurationArray;
 use crate::arrays::Extension;
 use crate::arrays::ExtensionArray;
@@ -36,8 +37,6 @@ use crate::arrays::VarBinViewArray;
 use crate::arrays::VariantArray;
 use crate::arrays::dict::TakeExecute;
 use crate::arrays::dict::TakeReduce;
-use crate::arrays::duration::DurationArrayExt as _;
-use crate::arrays::duration::DurationArraySlotsExt as _;
 use crate::arrays::variant::VariantArraySlotsExt;
 
 /// Take from a canonical array using indices (codes), returning a new canonical array.
@@ -62,10 +61,7 @@ pub(crate) fn take_canonical(
         }
         CanonicalView::Struct(a) => Canonical::Struct(take_struct(a, codes)),
         CanonicalView::Union(a) => Canonical::Union(take_union(a, codes)),
-        CanonicalView::Duration(a) => Canonical::Duration(DurationArray::try_new(
-            a.unit(),
-            a.values().take(codes.array().clone())?,
-        )?),
+        CanonicalView::Duration(a) => Canonical::Duration(take_duration(a, codes)?),
         CanonicalView::Extension(a) => Canonical::Extension(take_extension(a, codes, ctx)),
         CanonicalView::Variant(a) => {
             let indices = codes.array().clone();
@@ -184,6 +180,15 @@ fn take_union(array: ArrayView<'_, Union>, codes: ArrayView<'_, Primitive>) -> U
         .vortex_expect("take union should not return None")
         .as_::<Union>()
         .into_owned()
+}
+
+fn take_duration(
+    array: ArrayView<'_, Duration>,
+    codes: ArrayView<'_, Primitive>,
+) -> VortexResult<DurationArray> {
+    Ok(<Duration as TakeReduce>::take(array, codes.array())?
+        .vortex_expect("take duration should not return None")
+        .downcast::<Duration>())
 }
 
 fn take_extension(

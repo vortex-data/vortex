@@ -34,7 +34,10 @@ use crate::array::ValidityChild;
 use crate::array::ValidityVTableFromChild;
 use crate::array::with_empty_buffers;
 use crate::array_slots;
+use crate::arrays::Dict;
 use crate::arrays::Slice;
+use crate::arrays::dict::TakeReduce;
+use crate::arrays::dict::TakeReduceAdaptor;
 use crate::arrays::slice::SliceReduce;
 use crate::arrays::slice::SliceReduceAdaptor;
 use crate::buffer::BufferHandle;
@@ -47,11 +50,9 @@ use crate::optimizer::kernels::ArrayKernelsExt;
 use crate::scalar::Scalar;
 
 pub(crate) fn initialize(session: &VortexSession) {
-    session.kernels().register_reduce_parent_rule(
-        Slice,
-        Duration,
-        const { &SliceReduceAdaptor(Duration) },
-    );
+    let kernels = session.kernels();
+    kernels.register_reduce_parent_rule(Slice, Duration, const { &SliceReduceAdaptor(Duration) });
+    kernels.register_reduce_parent_rule(Dict, Duration, const { &TakeReduceAdaptor(Duration) });
 }
 
 /// The canonical encoding for duration arrays.
@@ -208,6 +209,15 @@ impl SliceReduce for Duration {
     }
 }
 
+impl TakeReduce for Duration {
+    fn take(array: ArrayView<'_, Self>, indices: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
+        let values = array.values().take(indices.clone())?;
+        Ok(Some(
+            DurationArray::try_new(array.unit(), values)?.into_array(),
+        ))
+    }
+}
+
 impl ArrayPlugin for Duration {
     fn id(&self) -> ArrayId {
         VTable::id(self)
@@ -242,5 +252,41 @@ impl ArrayPlugin for Duration {
                 .children
                 .get(0, &DType::Primitive(PType::I64, *nullability), parts.len)?;
         Ok(DurationArray::try_new(*unit, values)?.into_array())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
+
+    use super::Duration;
+    use super::DurationArray;
+    use super::DurationArraySlotsExt;
+    use crate::IntoArray;
+    use crate::VortexSessionExecute;
+    use crate::arrays::Dict;
+    use crate::arrays::PrimitiveArray;
+    use crate::assert_arrays_eq;
+    use crate::dtype::DurationUnit;
+    use crate::optimizer::ArrayOptimizer;
+
+    #[test]
+    fn take_pushes_down_to_duration_values() -> VortexResult<()> {
+        let mut ctx = VortexSession::empty().create_execution_ctx();
+        let unit = DurationUnit::Microseconds;
+        let values = PrimitiveArray::from_iter([11i64, 0, -7]).into_array();
+        let duration = DurationArray::try_new(unit, values)?;
+        let indices =
+            PrimitiveArray::from_option_iter([Some(2u64), None, Some(0), Some(2)]).into_array();
+
+        let taken = duration.take(indices)?.optimize_ctx(&ctx)?;
+        assert!(taken.as_::<Duration>().values().is::<Dict>());
+
+        let expected_values =
+            PrimitiveArray::from_option_iter([Some(-7i64), None, Some(11), Some(-7)]).into_array();
+        let expected = DurationArray::try_new(unit, expected_values)?;
+        assert_arrays_eq!(taken, expected, &mut ctx);
+        Ok(())
     }
 }
