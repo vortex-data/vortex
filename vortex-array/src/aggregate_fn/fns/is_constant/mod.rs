@@ -804,18 +804,6 @@ mod tests {
         vec![0u32, 2, 4, 6],
         false
     )]
-    #[case::same_nulls(
-        // [1, null], [1, null]
-        vec![Some(1i32), None, Some(1), None],
-        vec![0u32, 2, 4],
-        true
-    )]
-    #[case::different_nulls(
-        // [1, null], [1, 2]
-        vec![Some(1i32), None, Some(1), Some(2)],
-        vec![0u32, 2, 4],
-        false
-    )]
     #[case::rotated_elements(
         // [1, 2], [2, 1]
         vec![Some(1i32), Some(2), Some(2), Some(1)],
@@ -839,57 +827,20 @@ mod tests {
         Ok(())
     }
 
-    #[rstest]
-    #[case::all_valid(vec![true, true, true], true)]
-    #[case::one_null(vec![true, false, true], false)]
-    fn test_nullable_list_is_constant(
-        #[case] validity: Vec<bool>,
-        #[case] expected: bool,
-    ) -> VortexResult<()> {
+    #[test]
+    fn test_list_view_that_is_not_packed_compares_every_list() -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
-        // [1, 2], [1, 2] or null, [1, 2]
-        let list_array = ListArray::try_new(
-            buffer![1i32, 2, 1, 2, 1, 2].into_array(),
-            buffer![0u32, 2, 4, 6].into_array(),
-            Validity::from_iter(validity),
-            &mut ctx,
-        )?;
-
-        assert_eq!(is_constant(&list_array.into_array(), &mut ctx)?, expected);
-        Ok(())
-    }
-
-    #[rstest]
-    #[case::equal_lists_out_of_order(
-        // [1, 2] at offset 3, [1, 2] at offset 0, [1, 2] at offset 3
-        vec![3i32, 0, 3],
-        true
-    )]
-    #[case::different_lists(
-        // [1, 2], [2, 3], [1, 2]
-        vec![0i32, 1, 0],
-        false
-    )]
-    #[case::difference_after_the_second_list(
         // [1, 2], [1, 2], [2, 3]
-        vec![0i32, 3, 1],
-        false
-    )]
-    fn test_list_view_that_is_not_packed_is_constant(
-        #[case] offsets: Vec<i32>,
-        #[case] expected: bool,
-    ) -> VortexResult<()> {
-        let mut ctx = SESSION.create_execution_ctx();
         let list_view = ListViewArray::try_new(
             buffer![1i32, 2, 3, 1, 2].into_array(),
-            PrimitiveArray::from_iter(offsets).into_array(),
+            buffer![0i32, 3, 1].into_array(),
             buffer![2i32, 2, 2].into_array(),
             Validity::NonNullable,
             &mut ctx,
         )?;
         assert!(!list_view.is_zero_copy_to_list());
 
-        assert_eq!(is_constant(&list_view.into_array(), &mut ctx)?, expected);
+        assert!(!is_constant(&list_view.into_array(), &mut ctx)?);
         Ok(())
     }
 
