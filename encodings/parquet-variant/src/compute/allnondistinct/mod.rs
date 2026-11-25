@@ -237,16 +237,17 @@ fn variant_scalars_equal(lhs: &Scalar, rhs: &Scalar) -> bool {
             DType::List(..) | DType::FixedSizeList(..),
             DType::List(..) | DType::FixedSizeList(..),
         ) => {
-            let (Some(lhs_elems), Some(rhs_elems)) =
-                (lhs.as_list().elements(), rhs.as_list().elements())
-            else {
+            let lhs_list = lhs.as_list();
+            let rhs_list = rhs.as_list();
+            if lhs_list.len() != rhs_list.len() {
                 return false;
-            };
-            lhs_elems.len() == rhs_elems.len()
-                && lhs_elems
-                    .iter()
-                    .zip(rhs_elems.iter())
-                    .all(|(l, r)| variant_scalars_equal(l, r))
+            }
+            (0..lhs_list.len()).all(|idx| {
+                matches!(
+                    (lhs_list.element(idx), rhs_list.element(idx)),
+                    (Some(l), Some(r)) if variant_scalars_equal(&l, &r)
+                )
+            })
         }
         _ => lhs == rhs,
     }

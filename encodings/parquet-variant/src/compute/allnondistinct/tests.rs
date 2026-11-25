@@ -303,20 +303,23 @@ fn test_all_non_distinct_detects_different_raw_only_nested_field_with_differing_
     .into_array();
     assert_ne!(lhs_root.dtype(), rhs_root.dtype());
 
-    // Row 0 matches, row 1 is masked out (shared outer null), row 2 differs in raw-only field `b`.
+    // Row 0 matches, row 1 is masked out (shared outer null) with differing payloads,
+    // and row 2 either matches or differs in raw-only field `b`.
     let lhs = make_shredded_object(lhs_root, [&val_x, &val_masked_lhs, &val_x])?;
-    let rhs = make_shredded_object(rhs_root, [&val_x, &val_masked_rhs, &val_y])?;
+    let rhs_matching = make_shredded_object(rhs_root.clone(), [&val_x, &val_masked_rhs, &val_x])?;
+    let rhs_mismatch = make_shredded_object(rhs_root, [&val_x, &val_masked_rhs, &val_y])?;
 
     let mut ctx = SESSION.create_execution_ctx();
+    assert!(all_non_distinct(&lhs, &rhs_matching, &mut ctx)?);
     assert_eq!(
         lhs.execute_scalar(0, &mut ctx)?,
-        rhs.execute_scalar(0, &mut ctx)?
+        rhs_mismatch.execute_scalar(0, &mut ctx)?
     );
     assert_ne!(
         lhs.execute_scalar(2, &mut ctx)?,
-        rhs.execute_scalar(2, &mut ctx)?
+        rhs_mismatch.execute_scalar(2, &mut ctx)?
     );
-    assert!(!all_non_distinct(&lhs, &rhs, &mut ctx)?);
+    assert!(!all_non_distinct(&lhs, &rhs_mismatch, &mut ctx)?);
     Ok(())
 }
 
