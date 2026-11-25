@@ -247,8 +247,11 @@ fn sort_dict_by_frequency_typed<Code: UnsignedPType>(
 
     let mut new_code_of = vec![Code::default(); dict_len];
     for (new_code, &old_code) in order.iter().enumerate() {
+        if counts[old_code] == 0 {
+            break;
+        }
         new_code_of[old_code] =
-            Code::from_usize(new_code).vortex_expect("new code fits in original code type");
+            Code::from_usize(new_code).vortex_expect("referenced entry fits in original code type");
     }
 
     let mut remapped = BufferMut::<Code>::with_capacity_in(slice.len(), ctx.allocator().clone());
@@ -387,6 +390,25 @@ mod tests {
         assert_eq!(
             sorted.values().as_::<Primitive>().as_slice::<i32>(),
             &[20, 10]
+        );
+        assert_arrays_eq!(sorted, dict, &mut ctx);
+        Ok(())
+    }
+
+    #[test]
+    fn sort_dict_by_frequency_allows_unused_entries_beyond_code_width() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let codes = buffer![0u8, 1, 1, 1].into_array();
+        let values = PrimitiveArray::from_iter(0i32..300).into_array();
+        let dict = DictArray::try_new(codes, values)?;
+        let sorted = sort_dict_by_frequency(dict.clone(), &mut ctx)?;
+        assert_eq!(
+            &sorted.values().as_::<Primitive>().as_slice::<i32>()[..2],
+            &[1, 0]
+        );
+        assert_eq!(
+            sorted.codes().as_::<Primitive>().as_slice::<u8>(),
+            &[1, 0, 0, 0]
         );
         assert_arrays_eq!(sorted, dict, &mut ctx);
         Ok(())
