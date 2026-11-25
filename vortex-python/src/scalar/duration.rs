@@ -13,6 +13,7 @@ use pyo3::exceptions::PyValueError;
 use pyo3::intern;
 use pyo3::prelude::PyAnyMethods;
 use pyo3::sync::PyOnceLock;
+use pyo3::types::IntoPyDict;
 use pyo3::types::PyDelta;
 use pyo3::types::PyType;
 use vortex::dtype::DType;
@@ -47,25 +48,24 @@ pub(super) fn to_py<'py>(
         .as_primitive()
         .cast::<i64>()
         .map_err(|error| PyValueError::new_err(error.to_string()))?;
-    if unit == DurationUnit::Nanoseconds {
-        if value == i64::MIN {
-            return Err(PyOverflowError::new_err(
-                "pandas.Timedelta reserves i64::MIN nanoseconds for NaT",
-            ));
+    let keyword = match unit {
+        DurationUnit::Seconds => intern!(py, "seconds"),
+        DurationUnit::Milliseconds => intern!(py, "milliseconds"),
+        DurationUnit::Microseconds => intern!(py, "microseconds"),
+        DurationUnit::Nanoseconds => {
+            if value == i64::MIN {
+                return Err(PyOverflowError::new_err(
+                    "pandas.Timedelta reserves i64::MIN nanoseconds for NaT",
+                ));
+            }
+            static TIMEDELTA: PyOnceLock<Py<PyType>> = PyOnceLock::new();
+            return TIMEDELTA
+                .import(py, "pandas", "Timedelta")?
+                .call1((value, "ns"));
         }
-        static TIMEDELTA: PyOnceLock<Py<PyType>> = PyOnceLock::new();
-        return TIMEDELTA
-            .import(py, "pandas", "Timedelta")?
-            .call1((value, "ns"));
-    }
-
-    let nanos = i128::from(value) * nanos_per_unit(unit);
-    // Python normalizes the parts of a negative timedelta so only the days can be negative.
-    let days = nanos.div_euclid(NANOS_PER_DAY);
-    let nanos_within_day = nanos.rem_euclid(NANOS_PER_DAY);
-    let seconds = nanos_within_day / NANOS_PER_SECOND;
-    let microseconds = (nanos_within_day % NANOS_PER_SECOND) / NANOS_PER_MICROSECOND;
-    PyDelta::type_object(py).call1((days, seconds, microseconds))
+    };
+    let kwargs = [(keyword, value)].into_py_dict(py)?;
+    PyDelta::type_object(py).call((), Some(&kwargs))
 }
 
 pub(super) fn from_py(value: &Bound<'_, PyDelta>, dtype: Option<&DType>) -> PyVortexResult<Scalar> {
@@ -79,6 +79,7 @@ pub(super) fn from_py(value: &Bound<'_, PyDelta>, dtype: Option<&DType>) -> PyVo
         .map(|part| part.extract())
         .transpose()?
         .unwrap_or(0);
+    // The intermediate nanoseconds can exceed i64 even when the target unit fits.
     let nanos = i128::from(days) * NANOS_PER_DAY
         + i128::from(seconds) * NANOS_PER_SECOND
         + i128::from(microseconds) * NANOS_PER_MICROSECOND
