@@ -17,6 +17,7 @@ HTTP, S3, Google Cloud Storage, and Azure Blob Storage.
    ~vortex.RepeatedScan
    ~vortex.io.read_url
    ~vortex.io.write
+   ~vortex.io.write_to
 
 .. raw:: html
 
