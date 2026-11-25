@@ -59,7 +59,6 @@ CARGO_FUZZ_VALUE_FLAGS = frozenset(
 )
 
 ARCHIVE_SUFFIXES = (".tar.gz", ".tgz", ".tar", ".zip")
-IGNORED_ATTACHMENT_SUFFIXES = (".log", ".txt", ".md", ".json", ".png", ".jpg", ".jpeg", ".gif")
 
 
 @dataclass(frozen=True)
@@ -120,22 +119,22 @@ def select_user_attachment(body: str, crash_file: str) -> str:
 
     crash_kind = crash_file.split("-", 1)[0].lower() if "-" in crash_file else ""
 
-    def score(url: str) -> tuple[int, int]:
+    def score(url: str) -> int:
         name = url.rsplit("/", 1)[-1]
         lower = name.lower()
         if name == crash_file:
-            return (0, 0)
+            return 0
         if lower.endswith(ARCHIVE_SUFFIXES):
-            if crash_file.lower() in lower or (crash_kind and crash_kind in lower):
-                return (1, 0)
-            return (2, 0)
-        if lower.endswith(IGNORED_ATTACHMENT_SUFFIXES):
-            return (4, 0)
-        return (3, 0)
+            if crash_file.lower() in lower:
+                return 1
+            if crash_kind and crash_kind in lower and "log" not in lower:
+                return 2
+            return 3
+        return 4
 
     ranked = sorted(enumerate(urls), key=lambda item: (score(item[1]), item[0]))
     best_url = ranked[0][1]
-    if score(best_url)[0] >= 4:
+    if score(best_url) >= 4:
         return ""
     return best_url
 
