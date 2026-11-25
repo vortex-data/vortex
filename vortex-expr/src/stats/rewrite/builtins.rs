@@ -2,8 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::aggregate_fn::AggregateFnRef;
-use vortex_array::aggregate_fn::AggregateFnVTable;
-use vortex_array::aggregate_fn::NumericalAggregateOpts;
 use vortex_array::aggregate_fn::fns::all_nan::AllNan;
 use vortex_array::aggregate_fn::fns::all_non_nan::AllNonNan;
 use vortex_array::aggregate_fn::fns::all_non_null::AllNonNull;
@@ -13,7 +11,6 @@ use vortex_array::aggregate_fn::fns::min::Min;
 use vortex_array::aggregate_fn::fns::nan_count::NanCount;
 use vortex_array::aggregate_fn::fns::null_count::NullCount;
 use vortex_array::expr::BoundExpression;
-use vortex_array::scalar::Scalar;
 use vortex_array::scalar_fn::ScalarFnId;
 use vortex_array::scalar_fn::ScalarFnVTable;
 use vortex_array::scalar_fn::builtin::boolean::Boolean;
@@ -34,7 +31,6 @@ use crate::bound::gt_eq;
 use crate::bound::lit;
 use crate::bound::lt;
 use crate::bound::lt_eq;
-use crate::bound::mask;
 use crate::bound::or_collect;
 use crate::stats::derive::StatDerivation;
 use crate::stats::derive::stat_expr;
@@ -98,66 +94,35 @@ impl StatDerivation for LiteralStatDerivation {
         aggregate_fn: &AggregateFnRef,
         _session: &VortexSession,
     ) -> Option<BoundExpression> {
-        aggregate_fn.return_dtype(expr.dtype())?;
         let scalar = expr.as_::<Literal>();
-        if let Some(opts) = aggregate_fn
-            .as_opt::<Min>()
-            .or_else(|| aggregate_fn.as_opt::<Max>())
-        {
-            if scalar.is_null() || (opts.skip_nans && scalar_is_nan(scalar)) {
-                return Some(lit(Scalar::null(scalar.dtype().as_nullable())));
-            }
-            return Some(mask(lit(scalar.clone()), gt(row_count(), lit(0u64))));
+        if aggregate_fn.is::<Min>() || aggregate_fn.is::<Max>() {
+            return Some(lit(scalar.clone()));
         }
         if aggregate_fn.is::<NullCount>() {
-            return Some(if scalar.is_null() {
-                row_count()
-            } else {
-                lit(0u64)
-            });
+            return Some(lit(if scalar.is_null() { 1u64 } else { 0u64 }));
         }
         if aggregate_fn.is::<AllNull>() {
-            return Some(if scalar.is_null() {
-                lit(true)
-            } else {
-                eq(row_count(), lit(0u64))
-            });
+            return Some(lit(scalar.is_null()));
         }
         if aggregate_fn.is::<AllNonNull>() {
-            return Some(if scalar.is_null() {
-                eq(row_count(), lit(0u64))
-            } else {
-                lit(true)
-            });
+            return Some(lit(!scalar.is_null()));
         }
         let value = scalar.as_primitive_opt()?;
         if !value.ptype().is_float() {
             return None;
         }
         if aggregate_fn.is::<NanCount>() {
-            return Some(if value.is_nan() {
-                row_count()
-            } else {
-                lit(0u64)
-            });
+            return Some(lit(if value.is_nan() { 1u64 } else { 0u64 }));
         }
         // Whether a null is NaN is unknown, so only a non-null value answers these.
         if scalar.is_null() {
             return None;
         }
         if aggregate_fn.is::<AllNan>() {
-            return Some(if value.is_nan() {
-                lit(true)
-            } else {
-                eq(row_count(), lit(0u64))
-            });
+            return Some(lit(value.is_nan()));
         }
         if aggregate_fn.is::<AllNonNan>() {
-            return Some(if value.is_nan() {
-                eq(row_count(), lit(0u64))
-            } else {
-                lit(true)
-            });
+            return Some(lit(!value.is_nan()));
         }
         None
     }
@@ -267,38 +232,6 @@ impl StatsRewriteRule for BooleanAllNonNanStatsRewrite {
     }
 }
 
-fn scalar_is_nan(scalar: &Scalar) -> bool {
-    if let Some(ext) = scalar.as_extension_opt() {
-        return scalar_is_nan(&ext.to_storage_scalar());
-    }
-    scalar.as_primitive_opt().is_some_and(|p| p.is_nan())
-}
-
-/// A literal compares directly against another side's bound without a `row_count() > 0` mask,
-/// keeping comparison rewrites free of `row_count` placeholders. On empty scopes, falsifying a
-/// comparison is vacuously sound (and comparing against a column's null extremum yields null).
-fn literal_compare_bound(expr: &BoundExpression) -> Option<Option<BoundExpression>> {
-    let scalar = expr.as_opt::<Literal>()?;
-    if Min
-        .return_dtype(&NumericalAggregateOpts::skip_nans(), expr.dtype())
-        .is_none()
-    {
-        return Some(None);
-    }
-    if scalar_is_nan(scalar) {
-        return Some(Some(lit(Scalar::null(scalar.dtype().as_nullable()))));
-    }
-    Some(Some(lit(scalar.clone())))
-}
-
-fn compare_min(expr: &BoundExpression, session: &VortexSession) -> Option<BoundExpression> {
-    literal_compare_bound(expr).unwrap_or_else(|| min(expr, session))
-}
-
-fn compare_max(expr: &BoundExpression, session: &VortexSession) -> Option<BoundExpression> {
-    literal_compare_bound(expr).unwrap_or_else(|| max(expr, session))
-}
-
 fn compare_falsify<P: NonNanProof>(
     expr: &BoundExpression,
     session: &VortexSession,
@@ -309,11 +242,11 @@ fn compare_falsify<P: NonNanProof>(
 
     Ok(match operator {
         CompareOperator::Eq => {
-            let left = compare_min(lhs, session)
-                .zip(compare_max(rhs, session))
+            let left = min(lhs, session)
+                .zip(max(rhs, session))
                 .map(|(a, b)| gt(a, b));
-            let right = compare_min(rhs, session)
-                .zip(compare_max(lhs, session))
+            let right = min(rhs, session)
+                .zip(max(lhs, session))
                 .map(|(a, b)| gt(a, b));
             or_collect(left.into_iter().chain(right))
                 .map(|value_predicate| {
@@ -322,9 +255,9 @@ fn compare_falsify<P: NonNanProof>(
                 .transpose()?
                 .flatten()
         }
-        CompareOperator::NotEq => compare_min(lhs, session)
-            .zip(compare_max(rhs, session))
-            .zip(compare_max(lhs, session).zip(compare_min(rhs, session)))
+        CompareOperator::NotEq => min(lhs, session)
+            .zip(max(rhs, session))
+            .zip(max(lhs, session).zip(min(rhs, session)))
             .map(|((min_lhs, max_rhs), (max_lhs, min_rhs))| {
                 with_non_nan_guards::<P>(
                     [lhs, rhs],
@@ -334,23 +267,23 @@ fn compare_falsify<P: NonNanProof>(
             })
             .transpose()?
             .flatten(),
-        CompareOperator::Gt => compare_max(lhs, session)
-            .zip(compare_min(rhs, session))
+        CompareOperator::Gt => max(lhs, session)
+            .zip(min(rhs, session))
             .map(|(a, b)| with_non_nan_guards::<P>([lhs, rhs], lt_eq(a, b), session))
             .transpose()?
             .flatten(),
-        CompareOperator::Gte => compare_max(lhs, session)
-            .zip(compare_min(rhs, session))
+        CompareOperator::Gte => max(lhs, session)
+            .zip(min(rhs, session))
             .map(|(a, b)| with_non_nan_guards::<P>([lhs, rhs], lt(a, b), session))
             .transpose()?
             .flatten(),
-        CompareOperator::Lt => compare_min(lhs, session)
-            .zip(compare_max(rhs, session))
+        CompareOperator::Lt => min(lhs, session)
+            .zip(max(rhs, session))
             .map(|(a, b)| with_non_nan_guards::<P>([lhs, rhs], gt_eq(a, b), session))
             .transpose()?
             .flatten(),
-        CompareOperator::Lte => compare_min(lhs, session)
-            .zip(compare_max(rhs, session))
+        CompareOperator::Lte => min(lhs, session)
+            .zip(max(rhs, session))
             .map(|(a, b)| with_non_nan_guards::<P>([lhs, rhs], gt(a, b), session))
             .transpose()?
             .flatten(),

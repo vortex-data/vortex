@@ -14,6 +14,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 
+use crate::aggregate_fn::fns::min_max::has_nan_values;
 use crate::dtype::DType;
 use crate::scalar::Scalar;
 use crate::scalar::ScalarValue;
@@ -568,7 +569,7 @@ impl MutTypedStatsSetRef<'_, '_> {
                             other.values.get_usize(Stat::NullCount),
                             Precision::Exact(0) | Precision::Inexact(0)
                         );
-                    let no_nans = !(self.dtype.is_float() || other.dtype.is_float())
+                    let no_nans = !(has_nan_values(self.dtype) || has_nan_values(other.dtype))
                         || (matches!(
                             self.values.get_usize(Stat::NaNCount),
                             Precision::Exact(0) | Precision::Inexact(0)
@@ -624,11 +625,13 @@ mod test {
     use itertools::Itertools;
     use rstest::rstest;
     use smallvec::smallvec;
+    use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
     use crate::ArrayRef;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
+    use crate::aggregate_fn::fns::min_max::has_nan_values;
     use crate::arrays::PrimitiveArray;
     use crate::dtype::DType;
     use crate::dtype::DecimalDType;
@@ -636,6 +639,8 @@ mod test {
     use crate::dtype::NativeDecimalType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
+    use crate::dtype::extension::ExtId;
+    use crate::dtype::extension::ForeignExtDType;
     use crate::dtype::i256;
     use crate::scalar::DecimalValue;
     use crate::scalar::ScalarValue;
@@ -1260,7 +1265,7 @@ mod test {
         #[case] left: ArrayRef,
         #[case] right: ArrayRef,
         #[case] expected: Precision<ScalarValue>,
-    ) {
+    ) -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
         let requested = if left.dtype().is_float() {
             [
@@ -1279,15 +1284,19 @@ mod test {
                 Stat::IsStrictSorted,
             ]
         };
-        let left_stats = left.statistics().compute_all(&requested, &mut ctx).unwrap();
-        let right_stats = right
-            .statistics()
-            .compute_all(&requested, &mut ctx)
-            .unwrap();
+        let left_stats = left.statistics().compute_all(&requested, &mut ctx)?;
+        let right_stats = right.statistics().compute_all(&requested, &mut ctx)?;
         let merged = left_stats.merge_ordered(&right_stats, left.dtype());
 
         assert_eq!(merged.get(Stat::IsSorted), expected);
         assert_eq!(merged.get(Stat::IsStrictSorted), expected);
+        Ok(())
+    }
+
+    fn foreign_ext_dtype(id: &'static str, storage: DType) -> VortexResult<DType> {
+        #[expect(clippy::disallowed_methods, reason = "test-only extension id")]
+        let ext = ForeignExtDType::from_parts(ExtId::new(id), vec![], storage)?;
+        Ok(DType::Extension(ext))
     }
 
     #[rstest]
@@ -1326,14 +1335,28 @@ mod test {
         Some((Stat::NaNCount, Precision::inexact(0u64))),
         Precision::exact(ScalarValue::from(true))
     )]
+    #[case::float_extension_missing_nan_count(
+        foreign_ext_dtype("test.float_ext", DType::Primitive(PType::F64, Nullability::NonNullable))?,
+        foreign_ext_dtype("test.float_ext", DType::Primitive(PType::F64, Nullability::NonNullable))?,
+        None,
+        None,
+        Precision::Absent
+    )]
+    #[case::int_extension_keeps_sortedness(
+        foreign_ext_dtype("test.int_ext", DType::Primitive(PType::I32, Nullability::NonNullable))?,
+        foreign_ext_dtype("test.int_ext", DType::Primitive(PType::I32, Nullability::NonNullable))?,
+        None,
+        None,
+        Precision::exact(ScalarValue::from(true))
+    )]
     fn merge_sortedness_boundary_evidence(
         #[case] left_dtype: DType,
         #[case] right_dtype: DType,
         #[case] left_extra: Option<(Stat, Precision<ScalarValue>)>,
         #[case] right_extra: Option<(Stat, Precision<ScalarValue>)>,
         #[case] expected: Precision<ScalarValue>,
-    ) {
-        let (max, min) = if left_dtype.is_float() {
+    ) -> VortexResult<()> {
+        let (max, min) = if has_nan_values(&left_dtype) {
             (ScalarValue::from(1.0f64), ScalarValue::from(2.0f64))
         } else {
             (ScalarValue::from(2i32), ScalarValue::from(3i32))
@@ -1359,17 +1382,19 @@ mod test {
             .merge_ordered(&right.as_typed_ref(&right_dtype));
         assert_eq!(left.get(Stat::IsSorted), expected);
         assert_eq!(left.get(Stat::IsStrictSorted), expected);
+        Ok(())
     }
 
     #[test]
-    fn test_combine_sets_exact_false_with_inexact_true() {
+    fn test_combine_sets_exact_false_with_inexact_true() -> VortexResult<()> {
         let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
         let mut stats = StatsSet::of(Stat::IsConstant, Precision::exact(false));
         let other = StatsSet::of(Stat::IsConstant, Precision::inexact(true));
-        stats.combine_sets(&other, &dtype).unwrap();
+        stats.combine_sets(&other, &dtype)?;
         assert_eq!(
             stats.as_typed_ref(&dtype).get_as::<bool>(Stat::IsConstant),
             Precision::exact(false)
         );
+        Ok(())
     }
 }

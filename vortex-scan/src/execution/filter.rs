@@ -13,7 +13,6 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure_eq;
 use vortex_expr::BoundExpression;
-use vortex_expr::lambda::row_count::RowCount;
 use vortex_expr::stats::StatsSessionExt;
 use vortex_expr::stats::rewrite::BoundExpressionPruneExt;
 use vortex_functions::between::Between;
@@ -39,7 +38,6 @@ use super::segment_target;
 use crate::execution::filter_expr::FilterExpr;
 use crate::execution::pipeline::Scan;
 use crate::execution::pipeline::Split;
-use crate::plan::Eval;
 use crate::plan::FilterPlan;
 use crate::plan::PlanRef;
 use crate::plan::Zoned;
@@ -153,20 +151,13 @@ impl FilterPlans {
     }
 }
 
-/// A pruning plan must not fetch data when its requested statistics are unavailable, and must not
-/// leave unsubstituted [`RowCount`] placeholders outside a zoned pruning node.
+/// A pruning plan must not fetch data when its requested statistics are unavailable.
 fn metadata_only(plan: &PlanRef) -> VortexResult<bool> {
     if plan
         .as_opt::<Zoned>()
         .is_some_and(|zoned| zoned.is_pruning())
     {
         return Ok(true);
-    }
-    if plan
-        .as_opt::<Eval>()
-        .is_some_and(|eval| contains_row_count_expr(eval.expression()))
-    {
-        return Ok(false);
     }
     if plan.is_data_source() {
         return Ok(false);
@@ -177,10 +168,6 @@ fn metadata_only(plan: &PlanRef) -> VortexResult<bool> {
         }
     }
     Ok(true)
-}
-
-fn contains_row_count_expr(expr: &BoundExpression) -> bool {
-    expr.is::<RowCount>() || expr.children().iter().any(contains_row_count_expr)
 }
 
 /// Evaluates a chunk's conjuncts over its selected rows, then hands the mask to projection.

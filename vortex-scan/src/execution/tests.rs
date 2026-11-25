@@ -32,10 +32,8 @@ use vortex_expr::eq;
 use vortex_expr::get_item;
 use vortex_expr::gt;
 use vortex_expr::lit;
-use vortex_expr::or;
 use vortex_expr::root;
 use vortex_functions::expr::dynamic;
-use vortex_functions::expr::is_nan;
 use vortex_io::session::RuntimeSessionExt;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
@@ -853,31 +851,5 @@ async fn shared_cache_prunes_zones_once() -> VortexResult<()> {
     assert_eq!(plans.pruning().count(), 1);
     // Each scan reads the one chunk pruning keeps; only the first reads the zone map.
     assert_eq!(reads, vec![2, 1]);
-    Ok(())
-}
-
-/// Literal falsifiers can emit `RowCount` placeholders that never fold into a `Zoned` pruning
-/// node; `metadata_only` must reject such plans so `EvalStage` never sees an unsubstituted
-/// `RowCount`.
-#[tokio::test]
-async fn scan_skips_pruning_plan_with_unsubstituted_row_count() -> VortexResult<()> {
-    let session = new_session().with_tokio();
-    let (segments, layout) = source(&session, Strategy::ZonedTable).await?;
-    let projection = get_item("ints", root()).bind(layout.dtype())?;
-
-    for filter in [
-        is_nan(lit(f32::NAN)),
-        or(
-            gt(get_item("ints", root()), lit(2_999i32)),
-            is_nan(lit(f32::NAN)),
-        ),
-    ] {
-        let bound_filter = filter.bind(layout.dtype())?;
-        let scan = builder(&session, &segments, &layout)?
-            .with_projection(projection.clone())
-            .with_some_filter(Some(bound_filter));
-        let actual = collect_scan(projection.dtype().clone(), scan).await?;
-        assert_eq!(actual.len(), CHUNK_ROWS * CHUNKS);
-    }
     Ok(())
 }
