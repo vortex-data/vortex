@@ -3,11 +3,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::mem;
 use std::sync::Arc;
 
 use itertools::Itertools;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
+use vortex_array::aggregate_fn::AccumulatorRef;
 use vortex_array::aggregate_fn::AggregateFnRef;
 use vortex_array::arrays::StructArray;
 use vortex_array::builders::ArrayBuilder;
@@ -17,19 +19,35 @@ use vortex_array::dtype::FieldName;
 use vortex_array::scalar::Scalar;
 use vortex_array::validity::Validity;
 use vortex_error::VortexResult;
+use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
 
 use crate::layouts::file_stats::contains_variant;
 use crate::layouts::zoned::schema::aggregate_state_dtype;
 
 /// Accumulates aggregate-function partials for each logical zone.
+///
+/// The stream arrives as pieces that never cross a zone boundary, each with the partials computed
+/// over its rows. The partials of the pieces of one zone are merged, so no zone is ever held as
+/// an array.
 pub(crate) struct AggregateStatsAccumulator {
     builders: Vec<AggregateStatsArrayBuilder>,
     length: usize,
+    zone_len: usize,
+    /// Merges the partials of two pieces of a zone, one accumulator for each builder. They are
+    /// empty between merges.
+    mergers: Vec<AccumulatorRef>,
+    /// The merged partials of the zone that is still receiving rows, if `open_len` is not zero.
+    open_partials: Vec<Scalar>,
+    open_len: usize,
 }
 
 impl AggregateStatsAccumulator {
-    pub(crate) fn new(dtype: &DType, aggregate_fns: &[AggregateFnRef]) -> Self {
+    pub(crate) fn try_new(
+        dtype: &DType,
+        aggregate_fns: &[AggregateFnRef],
+        zone_len: usize,
+    ) -> VortexResult<Self> {
         let builders = aggregate_fns
             .iter()
             .filter_map(|aggregate_fn| {
@@ -45,11 +63,19 @@ impl AggregateStatsAccumulator {
                     })
             })
             .collect::<Vec<_>>();
+        let mergers = builders
+            .iter()
+            .map(|builder| builder.aggregate_fn.accumulator(dtype))
+            .collect::<VortexResult<Vec<_>>>()?;
 
-        Self {
+        Ok(Self {
             builders,
             length: 0,
-        }
+            zone_len,
+            mergers,
+            open_partials: Vec::new(),
+            open_len: 0,
+        })
     }
 
     pub(crate) fn aggregate_fns(&self) -> Arc<[AggregateFnRef]> {
@@ -60,14 +86,60 @@ impl AggregateStatsAccumulator {
             .into()
     }
 
-    pub(crate) fn push_partials(&mut self, partials: Vec<Scalar>) -> VortexResult<()> {
+    /// Adds the next `len` rows of the stream, given the partials computed over them, one for
+    /// each aggregate in [`Self::aggregate_fns`]. The rows must not cross a zone boundary.
+    pub(crate) fn push_piece(&mut self, len: usize, partials: Vec<Scalar>) -> VortexResult<()> {
+        vortex_ensure!(
+            len > 0 && self.open_len + len <= self.zone_len,
+            "a piece of {len} rows does not fit a zone of {} rows holding {} rows",
+            self.zone_len,
+            self.open_len
+        );
         vortex_ensure_eq!(
             partials.len(),
             self.builders.len(),
             "aggregate partial count must match zone stats builder count"
         );
 
-        for (builder, value) in self.builders.iter_mut().zip_eq(partials) {
+        if self.open_len == 0 {
+            // The first piece of a zone has nothing to merge with, so a zone that arrives as one
+            // piece records exactly the partials computed over it.
+            self.open_partials = partials;
+        } else {
+            for ((merger, open), partial) in self
+                .mergers
+                .iter_mut()
+                .zip_eq(self.open_partials.iter_mut())
+                .zip_eq(partials)
+            {
+                merger.combine_partials(open)?;
+                merger.combine_partials(&partial)?;
+                *open = merger.flush()?;
+            }
+        }
+
+        self.open_len += len;
+        if self.open_len == self.zone_len {
+            self.close_zone()?;
+        }
+        Ok(())
+    }
+
+    /// Closes the final zone, if the stream did not end on a zone boundary.
+    pub(crate) fn finish(&mut self) -> VortexResult<()> {
+        if self.open_len > 0 {
+            self.close_zone()?;
+        }
+        Ok(())
+    }
+
+    fn close_zone(&mut self) -> VortexResult<()> {
+        self.open_len = 0;
+        for (builder, value) in self
+            .builders
+            .iter_mut()
+            .zip_eq(mem::take(&mut self.open_partials))
+        {
             builder.append_scalar(value)?;
         }
         self.length += 1;
