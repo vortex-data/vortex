@@ -285,11 +285,13 @@ impl BitBufferMut {
             "Buffer len {} is too short for offset {offset} and length {len}",
             buffer.len()
         );
-        Self {
+        let mut this = Self {
             buffer,
             offset,
             len,
-        }
+        };
+        this.clear_trailing_bits();
+        this
     }
 
     /// Creates a `BitBufferMut` from a [`BitBuffer`] by copying all of the data over.
@@ -299,11 +301,13 @@ impl BitBufferMut {
 
     /// Copies a bit buffer with the provided allocator.
     pub fn copy_from_in(bit_buffer: &BitBuffer, allocator: BufferAllocatorRef) -> Self {
-        Self {
+        let mut this = Self {
             buffer: ByteBufferMut::copy_from_in(bit_buffer.inner(), allocator),
             offset: bit_buffer.offset(),
             len: bit_buffer.len(),
-        }
+        };
+        this.clear_trailing_bits();
+        this
     }
 
     /// Create a new empty mutable bit buffer with requested capacity (in bits).
@@ -325,8 +329,13 @@ impl BitBufferMut {
     /// Create a new mutable buffer with requested `len` and all bits set to `true`.
     #[inline]
     pub fn new_set(len: usize) -> Self {
+        let mut buffer = buffer_mut![0xFF; len.div_ceil(8)];
+        if !len.is_multiple_of(8) {
+            let keep = (1u8 << (len % 8)) - 1;
+            buffer.as_mut_slice()[len / 8] = keep;
+        }
         Self {
-            buffer: buffer_mut![0xFF; len.div_ceil(8)],
+            buffer,
             offset: 0,
             len,
         }
@@ -630,6 +639,19 @@ impl BitBufferMut {
         self.len = new_len;
     }
 
+    /// Truncates excess trailing bytes and zeroes unused high bits in the final partial byte so
+    /// the "bits beyond `offset + len` are zero" invariant holds.
+    #[inline]
+    fn clear_trailing_bits(&mut self) {
+        let end_bit = self.offset + self.len;
+        let needed_bytes = end_bit.div_ceil(8);
+        self.buffer.truncate(needed_bytes);
+        if !end_bit.is_multiple_of(8) {
+            let keep = (1u8 << (end_bit % 8)) - 1;
+            self.buffer.as_mut_slice()[needed_bytes - 1] &= keep;
+        }
+    }
+
     /// Truncate the buffer to the given length.
     ///
     /// If the given length is greater than the current length, this is a no-op.
@@ -643,17 +665,11 @@ impl BitBufferMut {
             self.offset <= usize::MAX - len,
             "Truncate on BitBufferMut overflowed"
         );
-        let end_bit = self.offset + len;
-        let new_len_bytes = end_bit.div_ceil(8);
-        self.buffer.truncate(new_len_bytes);
         self.len = len;
 
         // Clear stale bits in the final partial byte so the "bits beyond len are zero" invariant
         // holds. `append_false` (and `append_buffer`) rely on it to avoid a read-modify-write.
-        if !end_bit.is_multiple_of(8) {
-            let keep = (1u8 << (end_bit % 8)) - 1;
-            self.buffer.as_mut_slice()[new_len_bytes - 1] &= keep;
-        }
+        self.clear_trailing_bits();
     }
 
     /// Append a new boolean into the bit buffer, incrementing the length.
@@ -688,16 +704,15 @@ impl BitBufferMut {
     pub fn append_false(&mut self) {
         let bit_pos = self.offset + self.len;
         let byte_pos = bit_pos / 8;
-        let bit_in_byte = bit_pos % 8;
 
-        // Ensure buffer has enough bytes.
+        // Ensure buffer has enough bytes (pushed as 0x00, so bit is already unset).
         if byte_pos >= self.buffer.len() {
             self.buffer.push(0u8);
-        } else {
-            // Existing bytes may have stale set bits beyond `offset + len`.
-            self.buffer.as_mut_slice()[byte_pos] &= !(1 << bit_in_byte);
         }
+        debug_assert_eq!(self.buffer.as_slice()[byte_pos] & (1 << (bit_pos % 8)), 0);
 
+        // The bit is guaranteed to be 0: new bytes are zero-initialized, and
+        // existing bytes have this bit unset (it's beyond the current length).
         self.len += 1;
     }
 
@@ -825,6 +840,7 @@ impl Not for BitBufferMut {
     #[inline]
     fn not(mut self) -> Self::Output {
         ops::bitwise_unary_op_mut(&mut self, |b| !b);
+        self.clear_trailing_bits();
         self
     }
 }
@@ -1607,6 +1623,13 @@ mod tests {
         from_try_into_mut.append_false();
         assert_eq!(
             from_try_into_mut.freeze(),
+            bitbuffer![true, true, true, true, true, false]
+        );
+
+        let mut from_copy_from = BitBufferMut::copy_from(&crate::BitBuffer::new_set(5));
+        from_copy_from.append_false();
+        assert_eq!(
+            from_copy_from.freeze(),
             bitbuffer![true, true, true, true, true, false]
         );
     }
