@@ -560,7 +560,8 @@ impl BitBufferMut {
     ///
     /// # Safety
     ///
-    /// The caller must ensure that `index` does not exceed the largest bit index in the backing buffer.
+    /// The caller must ensure that `index < self.len()`. Setting a bit at or past `self.len()`
+    /// violates the invariant that all bits past `offset + len` are zero.
     #[inline]
     pub unsafe fn set_to_unchecked(&mut self, index: usize, value: bool) {
         if value {
