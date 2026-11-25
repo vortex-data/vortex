@@ -148,13 +148,13 @@ pub(super) fn execute_filter(
         Canonical::Struct(a) => Canonical::Struct(struct_::filter_struct(&a, mask)),
         Canonical::Union(a) => Canonical::Union(union::filter_union(&a, mask)),
         Canonical::Duration(a) => {
-            let counts = a
-                .counts()
+            let values = a
+                .values()
                 .filter(Mask::Values(MaskValuesRef::clone(mask)))
-                .vortex_expect("duration counts must support filtering");
+                .vortex_expect("duration values must support filtering");
             Canonical::Duration(
-                DurationArray::try_new(a.unit(), counts)
-                    .vortex_expect("filtering preserves the duration count dtype"),
+                DurationArray::try_new(a.unit(), values)
+                    .vortex_expect("filtering preserves the duration value dtype"),
             )
         }
         Canonical::Extension(a) => {

@@ -541,11 +541,11 @@ impl AggregateFnVTable for IsSorted {
                         check_varbinview_sorted(v, args.options.strict, ctx)?
                     }
                     Canonical::Duration(d) => {
-                        let counts = d
-                            .counts()
+                        let values = d
+                            .values()
                             .clone()
                             .execute::<crate::arrays::PrimitiveArray>(ctx)?;
-                        check_primitive_sorted(&counts, args.options.strict, ctx)?
+                        check_primitive_sorted(&values, args.options.strict, ctx)?
                     }
                     Canonical::Decimal(d) => check_decimal_sorted(d, args.options.strict, ctx)?,
                     Canonical::FixedSizeList(f) => {

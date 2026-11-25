@@ -59,12 +59,12 @@ pub fn fill_null_canonical_array(
             vortex_bail!("TODO(connor)[Union]: support Union arrays in the fill_null fuzzer")
         }
         Canonical::Duration(array) => {
-            let counts = array.counts().clone().execute::<PrimitiveArray>(ctx)?;
-            let fill_count = Scalar::try_new(
+            let values = array.values().clone().execute::<PrimitiveArray>(ctx)?;
+            let primitive_fill = Scalar::try_new(
                 DType::Primitive(PType::I64, result_nullability),
                 fill_value.value().cloned(),
             )?;
-            let filled = fill_primitive_array(counts, &fill_count, result_nullability, ctx);
+            let filled = fill_primitive_array(values, &primitive_fill, result_nullability, ctx);
             DurationArray::try_new(array.unit(), filled)?.into_array()
         }
         Canonical::Variant(_) => unreachable!("Variant arrays are not fuzzed"),

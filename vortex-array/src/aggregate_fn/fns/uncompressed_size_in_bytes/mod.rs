@@ -229,7 +229,7 @@ pub(crate) fn canonical_uncompressed_size_in_bytes(
         Canonical::Null(array) => Ok(null_uncompressed_size_in_bytes(array)),
         Canonical::Bool(array) => bool_uncompressed_size_in_bytes(array, ctx),
         Canonical::Primitive(array) => primitive_uncompressed_size_in_bytes(array, ctx),
-        Canonical::Duration(array) => uncompressed_size_in_bytes_u64(array.counts(), ctx),
+        Canonical::Duration(array) => uncompressed_size_in_bytes_u64(array.values(), ctx),
         Canonical::Decimal(array) => decimal_uncompressed_size_in_bytes(array, ctx),
         Canonical::VarBinView(array) => varbinview_uncompressed_size_in_bytes(array, ctx),
         Canonical::List(array) => list_view_uncompressed_size_in_bytes(array, ctx),

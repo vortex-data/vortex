@@ -48,8 +48,8 @@ pub fn filter_canonical_array(
     match array.dtype() {
         DType::Duration(unit, _) => {
             let array = array.clone().execute::<DurationArray>(ctx)?;
-            let counts = filter_canonical_array(array.counts(), filter, ctx)?;
-            Ok(DurationArray::try_new(*unit, counts)?.into_array())
+            let values = filter_canonical_array(array.values(), filter, ctx)?;
+            Ok(DurationArray::try_new(*unit, values)?.into_array())
         }
         DType::Bool(_) => {
             let bool_array = array.clone().execute::<BoolArray>(ctx)?;

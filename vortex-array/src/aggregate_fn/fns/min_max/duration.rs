@@ -19,7 +19,7 @@ pub(super) fn accumulate_duration(
     array: &DurationArray,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<()> {
-    let Some(MinMaxResult { min, max }) = min_max(array.counts(), ctx, *args.options)? else {
+    let Some(MinMaxResult { min, max }) = min_max(array.values(), ctx, *args.options)? else {
         return Ok(());
     };
 

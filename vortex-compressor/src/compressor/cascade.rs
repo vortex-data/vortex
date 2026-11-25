@@ -242,8 +242,8 @@ impl CascadingCompressor {
                 .into_array())
             }
             Canonical::Duration(duration) => {
-                let counts = self.compress(duration.counts(), exec_ctx)?;
-                Ok(DurationArray::try_new(duration.unit(), counts)?.into_array())
+                let values = self.compress(duration.values(), exec_ctx)?;
+                Ok(DurationArray::try_new(duration.unit(), values)?.into_array())
             }
             Canonical::Extension(ext_array) => {
                 // Try scheme-based compression first.

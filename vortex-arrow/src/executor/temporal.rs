@@ -124,7 +124,7 @@ pub(super) fn to_arrow_duration(
         "Duration unit mismatch"
     );
     let duration = array.execute::<DurationArray>(ctx)?;
-    let array = duration.counts().clone();
+    let array = duration.values().clone();
     Ok(match unit {
         ArrowTimeUnit::Second => Arc::new(to_temporal_primitive::<DurationSecondType>(array, ctx)?),
         ArrowTimeUnit::Millisecond => Arc::new(to_temporal_primitive::<DurationMillisecondType>(

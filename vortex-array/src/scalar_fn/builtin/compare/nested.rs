@@ -171,7 +171,7 @@ fn build_values_comparator(
         DType::Duration(..) => {
             let lhs = lhs.clone().execute::<DurationArray>(ctx)?;
             let rhs = rhs.clone().execute::<DurationArray>(ctx)?;
-            primitive_comparator::<i64>(lhs.counts(), rhs.counts(), ctx)?
+            primitive_comparator::<i64>(lhs.values(), rhs.values(), ctx)?
         }
         DType::Decimal(dtype, _) => {
             let lhs = lhs.clone().execute::<DecimalArray>(ctx)?;

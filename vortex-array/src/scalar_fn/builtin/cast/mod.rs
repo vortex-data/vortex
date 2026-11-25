@@ -283,10 +283,10 @@ fn cast_canonical(
                 vortex_bail!("Cannot cast {} to {dtype}", a.dtype());
             };
             vortex_ensure_eq!(*unit, a.unit(), "Duration cast requires matching units");
-            let counts = a
-                .counts()
+            let values = a
+                .values()
                 .cast(DType::Primitive(PType::I64, *nullability))?;
-            Ok(Some(DurationArray::try_new(*unit, counts)?.into_array()))
+            Ok(Some(DurationArray::try_new(*unit, values)?.into_array()))
         }
         CanonicalView::Decimal(a) => <Decimal as CastKernel>::cast(a, dtype, ctx),
         CanonicalView::VarBinView(a) => <VarBinView as CastKernel>::cast(a, dtype, ctx),

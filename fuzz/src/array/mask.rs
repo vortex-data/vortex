@@ -176,8 +176,8 @@ pub fn mask_canonical_array(
             vortex_bail!("TODO(connor)[Union]: support Union arrays in the mask fuzzer")
         }
         Canonical::Duration(array) => {
-            let counts = array.counts().clone().execute::<Canonical>(ctx)?;
-            let masked = mask_canonical_array(counts, mask, ctx)?;
+            let values = array.values().clone().execute::<Canonical>(ctx)?;
+            let masked = mask_canonical_array(values, mask, ctx)?;
             DurationArray::try_new(array.unit(), masked)?.into_array()
         }
         Canonical::Variant(_) => unreachable!("Variant arrays are not fuzzed"),

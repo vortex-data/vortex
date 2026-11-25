@@ -7,7 +7,7 @@ use num_enum::IntoPrimitive;
 use vortex_error::VortexError;
 use vortex_error::vortex_bail;
 
-/// The unit of an elapsed-time count.
+/// The unit of a duration value.
 #[derive(Clone, Copy, Debug, Eq, Hash, IntoPrimitive, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[repr(u8)]

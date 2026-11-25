@@ -27,7 +27,7 @@ use crate::scalar::Scalar;
 /// Builds an array of durations in a single unit.
 pub struct DurationBuilder {
     dtype: DType,
-    counts: ChildBuilder,
+    values: ChildBuilder,
 }
 
 impl DurationBuilder {
@@ -39,7 +39,7 @@ impl DurationBuilder {
     ) -> Self {
         Self {
             dtype: DType::Duration(unit, nullability),
-            counts: ChildBuilder::with_capacity(
+            values: ChildBuilder::with_capacity(
                 &DType::Primitive(PType::I64, nullability),
                 capacity,
                 allocator,
@@ -52,15 +52,15 @@ impl DurationBuilder {
         array: ArrayView<'_, Duration>,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
-        self.counts.append_array(array.counts(), ctx)
+        self.values.append_array(array.values(), ctx)
     }
 
     fn finish_duration(&mut self) -> DurationArray {
         let DType::Duration(unit, _) = self.dtype else {
             unreachable!("DurationBuilder has a duration dtype");
         };
-        DurationArray::try_new(unit, self.counts.finish())
-            .vortex_expect("DurationBuilder stores i64 counts")
+        DurationArray::try_new(unit, self.values.finish())
+            .vortex_expect("DurationBuilder stores i64 values")
     }
 }
 
@@ -78,15 +78,15 @@ impl ArrayBuilder for DurationBuilder {
     }
 
     fn len(&self) -> usize {
-        self.counts.len()
+        self.values.len()
     }
 
     fn append_zeros(&mut self, n: usize) {
-        self.counts.append_zeros(n)
+        self.values.append_zeros(n)
     }
 
     unsafe fn append_nulls_unchecked(&mut self, n: usize) {
-        self.counts.append_nulls(n)
+        self.values.append_nulls(n)
     }
 
     fn append_scalar(&mut self, scalar: &Scalar) -> VortexResult<()> {
@@ -95,15 +95,15 @@ impl ArrayBuilder for DurationBuilder {
             DType::Primitive(PType::I64, self.dtype().nullability()),
             scalar.value().cloned(),
         )?;
-        self.counts.append_scalar(&scalar)
+        self.values.append_scalar(&scalar)
     }
 
     fn reserve_chunks(&mut self, additional: usize) {
-        self.counts.reserve_chunks(additional)
+        self.values.reserve_chunks(additional)
     }
 
     fn reserve_exact(&mut self, capacity: usize) {
-        self.counts.reserve_exact(capacity)
+        self.values.reserve_exact(capacity)
     }
 
     fn finish(&mut self) -> ArrayRef {

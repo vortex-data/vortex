@@ -133,10 +133,10 @@ pub fn scalar_at_canonical_array(
             Scalar::try_map(array.dtype().clone(), pairs)?
         }
         Canonical::Duration(array) => {
-            let counts = array.counts().clone().execute::<PrimitiveArray>(ctx)?;
-            let count =
-                Scalar::primitive(counts.as_slice::<i64>()[index], array.dtype().nullability());
-            Scalar::try_new(array.dtype().clone(), count.into_value())?
+            let values = array.values().clone().execute::<PrimitiveArray>(ctx)?;
+            let value =
+                Scalar::primitive(values.as_slice::<i64>()[index], array.dtype().nullability());
+            Scalar::try_new(array.dtype().clone(), value.into_value())?
         }
         Canonical::Variant(_) => unreachable!("Variant arrays are not fuzzed"),
     })

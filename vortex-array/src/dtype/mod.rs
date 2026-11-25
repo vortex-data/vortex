@@ -89,7 +89,7 @@ pub enum DType {
     /// See [`DecimalDType`] for more information.
     Decimal(DecimalDType, Nullability),
 
-    /// A signed count of elapsed time in the specified unit.
+    /// A signed integer duration in the specified unit.
     Duration(DurationUnit, Nullability),
 
     /// Logical UTF-8 strings.

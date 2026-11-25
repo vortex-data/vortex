@@ -283,7 +283,7 @@ fn check_canonical_identical(
             check_primitive_identical(lhs, rhs)
         }
         (Canonical::Duration(lhs), Canonical::Duration(rhs)) => {
-            all_non_distinct(lhs.counts(), rhs.counts(), ctx)
+            all_non_distinct(lhs.values(), rhs.values(), ctx)
         }
         (Canonical::Decimal(lhs), Canonical::Decimal(rhs)) => check_decimal_identical(lhs, rhs),
         (Canonical::VarBinView(lhs), Canonical::VarBinView(rhs)) => {

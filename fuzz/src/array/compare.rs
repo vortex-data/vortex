@@ -45,12 +45,12 @@ pub fn compare_canonical_array(
                 .clone()
                 .execute::<DurationArray>(ctx)
                 .vortex_expect("to duration");
-            let count = Scalar::try_new(
+            let scalar = Scalar::try_new(
                 DType::Primitive(PType::I64, value.dtype().nullability()),
                 value.value().cloned(),
             )
-            .vortex_expect("duration values are i64 counts");
-            compare_canonical_array(array.counts(), &count, operator, ctx)
+            .vortex_expect("duration values are signed 64-bit integers");
+            compare_canonical_array(array.values(), &scalar, operator, ctx)
         }
         DType::Bool(_) => {
             let bool = value

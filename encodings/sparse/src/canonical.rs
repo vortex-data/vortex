@@ -733,13 +733,13 @@ fn execute_sparse_duration(
     patches: Patches,
     fill_value: &Scalar,
 ) -> VortexResult<ArrayRef> {
-    let patches = patches.map_values(|values| Ok(values.as_::<Duration>().counts().clone()))?;
-    let fill_count = Scalar::try_new(
+    let patches = patches.map_values(|values| Ok(values.as_::<Duration>().values().clone()))?;
+    let primitive_fill = Scalar::try_new(
         DType::Primitive(PType::I64, fill_value.dtype().nullability()),
         fill_value.value().cloned(),
     )?;
-    let counts = Sparse::try_new_from_patches(patches, fill_count)?;
-    Ok(DurationArray::try_new(unit, counts.into_array())?.into_array())
+    let values = Sparse::try_new_from_patches(patches, primitive_fill)?;
+    Ok(DurationArray::try_new(unit, values.into_array())?.into_array())
 }
 
 fn execute_sparse_struct(
@@ -1004,20 +1004,21 @@ mod test {
         let mut ctx = SESSION.create_execution_ctx();
         let unit = DurationUnit::Milliseconds;
         let patch_indices = buffer![0u64, 2, 3, 5].into_array();
-        let patch_counts = PrimitiveArray::from_option_iter([Some(1i64), Some(-7), None, Some(9)]);
-        let patch_values = DurationArray::try_new(unit, patch_counts.into_array())?.into_array();
+        let patch_integers =
+            PrimitiveArray::from_option_iter([Some(1i64), Some(-7), None, Some(9)]);
+        let patch_values = DurationArray::try_new(unit, patch_integers.into_array())?.into_array();
         let fill_value = Scalar::try_new(
             DType::Duration(unit, Nullable),
             Scalar::from(fill).into_value(),
         )?;
         let sparse = Sparse::try_new(patch_indices, patch_values, 7, fill_value, &mut ctx)?;
 
-        let expected_counts =
+        let expected_integers =
             PrimitiveArray::from_option_iter([fill, Some(-7), None, fill, Some(9)]);
-        let expected = DurationArray::try_new(unit, expected_counts.into_array())?;
+        let expected = DurationArray::try_new(unit, expected_integers.into_array())?;
         let sliced = sparse.slice(1..6)?;
         let canonical = sliced.clone().execute::<DurationArray>(&mut ctx)?;
-        assert!(canonical.counts().is::<Sparse>());
+        assert!(canonical.values().is::<Sparse>());
         assert_arrays_eq!(sliced, expected, &mut ctx);
         Ok(())
     }

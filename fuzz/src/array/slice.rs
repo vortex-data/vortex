@@ -44,8 +44,8 @@ pub fn slice_canonical_array(
     match array.dtype() {
         DType::Duration(unit, _) => {
             let array = array.clone().execute::<DurationArray>(ctx)?;
-            let counts = slice_canonical_array(array.counts(), start, stop, ctx)?;
-            Ok(DurationArray::try_new(*unit, counts)?.into_array())
+            let values = slice_canonical_array(array.values(), start, stop, ctx)?;
+            Ok(DurationArray::try_new(*unit, values)?.into_array())
         }
         DType::Bool(_) => {
             let bool_array = array.clone().execute::<BoolArray>(ctx)?;

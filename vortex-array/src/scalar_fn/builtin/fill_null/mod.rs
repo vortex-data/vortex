@@ -274,7 +274,7 @@ fn fill_null_canonical(
                 DType::Primitive(PType::I64, fill_value.dtype().nullability()),
                 fill_value.value().cloned(),
             )?;
-            Ok(DurationArray::try_new(a.unit(), a.counts().fill_null(fill)?)?.into_array())
+            Ok(DurationArray::try_new(a.unit(), a.values().fill_null(fill)?)?.into_array())
         }
         CanonicalView::Decimal(a) => <Decimal as FillNullKernel>::fill_null(a, fill_value, ctx)?
             .ok_or_else(|| vortex_err!("FillNullKernel for DecimalArray returned None")),

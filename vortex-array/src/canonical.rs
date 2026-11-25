@@ -142,7 +142,7 @@ pub enum Canonical {
     Bool(BoolArray),
     Primitive(PrimitiveArray),
     Decimal(DecimalArray),
-    /// An array of elapsed-time counts.
+    /// An array of signed duration values.
     Duration(DurationArray),
     VarBinView(VarBinViewArray),
     List(ListViewArray),
@@ -653,7 +653,7 @@ impl Executable for CanonicalValidity {
                 DurationArray::try_new(
                     duration.unit(),
                     duration
-                        .counts()
+                        .values()
                         .clone()
                         .execute::<CanonicalValidity>(ctx)?
                         .0
@@ -873,7 +873,7 @@ impl Executable for RecursiveCanonical {
                 DurationArray::try_new(
                     duration.unit(),
                     duration
-                        .counts()
+                        .values()
                         .clone()
                         .execute::<RecursiveCanonical>(ctx)?
                         .0

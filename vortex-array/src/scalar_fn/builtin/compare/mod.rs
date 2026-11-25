@@ -362,7 +362,7 @@ fn compare_arrays(
         DType::Duration(..) => {
             let lhs = lhs.clone().execute::<DurationArray>(ctx)?;
             let rhs = rhs.clone().execute::<DurationArray>(ctx)?;
-            primitive::compare_primitive(lhs.counts(), rhs.counts(), op, ctx)
+            primitive::compare_primitive(lhs.values(), rhs.values(), op, ctx)
         }
         DType::Decimal(..) => decimal::compare_decimal(lhs, rhs, op, nullability, ctx),
         DType::Utf8(_) | DType::Binary(_) => bytes::compare_bytes(lhs, rhs, op, nullability, ctx),

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Canonical arrays of signed elapsed-time counts.
+//! Canonical arrays of elapsed-time values.
 
 use std::ops::Range;
 
@@ -58,34 +58,36 @@ pub(crate) fn initialize(session: &VortexSession) {
 #[derive(Clone, Debug)]
 pub struct Duration;
 
-/// An array of elapsed-time counts in a shared unit.
+/// An array of elapsed-time values in a shared unit.
+///
+/// [`DurationArraySlotsExt::values`] returns signed integers in [`DurationArrayExt::unit`].
 pub type DurationArray = Array<Duration>;
 
 #[array_slots(Duration)]
 pub struct DurationSlots {
-    /// The signed counts.
+    /// Signed integer values in the array's duration unit.
     #[slot(0)]
-    pub counts: ArrayRef,
+    pub values: ArrayRef,
 }
 
 impl Array<Duration> {
-    /// Wraps an `i64` array of counts without copying its values.
-    pub fn try_new(unit: DurationUnit, counts: ArrayRef) -> VortexResult<Self> {
-        let len = counts.len();
-        let dtype = DType::Duration(unit, counts.dtype().nullability());
+    /// Wraps an `i64` array of duration values without copying the array data.
+    pub fn try_new(unit: DurationUnit, values: ArrayRef) -> VortexResult<Self> {
+        let len = values.len();
+        let dtype = DType::Duration(unit, values.dtype().nullability());
         Self::try_from_parts(ArrayParts::new(
             Duration,
             dtype,
             len,
             EmptyArrayData,
-            DurationSlots { counts }.into_slots(),
+            DurationSlots { values }.into_slots(),
         ))
     }
 }
 
 /// Typed access to duration arrays.
 pub trait DurationArrayExt: TypedArrayRef<Duration> {
-    /// The unit of the stored counts.
+    /// The unit of the stored values.
     fn unit(&self) -> DurationUnit {
         let DType::Duration(unit, _) = self.dtype() else {
             unreachable!("Duration arrays have a duration dtype");
@@ -116,13 +118,13 @@ impl VTable for Duration {
         let DType::Duration(_, nullability) = dtype else {
             vortex_bail!("Expected duration dtype, got {dtype}");
         };
-        let counts = slots
-            .get(DurationSlots::COUNTS)
+        let values = slots
+            .get(DurationSlots::VALUES)
             .and_then(Option::as_ref)
-            .ok_or_else(|| vortex_err!("Duration count array is missing"))?;
+            .ok_or_else(|| vortex_err!("Duration values slot is missing"))?;
         vortex_ensure_eq!(slots.len(), 1);
-        vortex_ensure_eq!(counts.len(), len);
-        vortex_ensure_eq!(counts.dtype(), &DType::Primitive(PType::I64, *nullability));
+        vortex_ensure_eq!(values.len(), len);
+        vortex_ensure_eq!(values.dtype(), &DType::Primitive(PType::I64, *nullability));
         Ok(())
     }
 
@@ -168,7 +170,7 @@ impl VTable for Duration {
 
 impl ValidityChild<Duration> for Duration {
     fn validity_child(array: ArrayView<'_, Duration>) -> ArrayRef {
-        array.counts().clone()
+        array.values().clone()
     }
 }
 
@@ -181,11 +183,11 @@ impl OperationsVTable<Duration> for Duration {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
         let dtype = state.array().dtype().clone();
-        let count = state
-            .slot(DurationSlots::COUNTS)?
-            .vortex_expect("Duration count array is present")
+        let value = state
+            .slot(DurationSlots::VALUES)?
+            .vortex_expect("Duration values slot is present")
             .execute_scalar(index, ctx)?;
-        Scalar::try_new(dtype, count.into_value())
+        Scalar::try_new(dtype, value.into_value())
     }
 
     fn scalar_at(
@@ -199,9 +201,9 @@ impl OperationsVTable<Duration> for Duration {
 
 impl SliceReduce for Duration {
     fn slice(array: ArrayView<'_, Self>, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
-        let counts = array.counts().slice(range)?;
+        let values = array.values().slice(range)?;
         Ok(Some(
-            DurationArray::try_new(array.unit(), counts)?.into_array(),
+            DurationArray::try_new(array.unit(), values)?.into_array(),
         ))
     }
 }
@@ -235,10 +237,10 @@ impl ArrayPlugin for Duration {
         vortex_ensure_eq!(parts.serialized_id, ArrayPlugin::id(self));
         vortex_ensure_eq!(parts.children.len(), 1);
         vortex_ensure_eq!(parts.metadata.len(), 0);
-        let counts =
+        let values =
             parts
                 .children
                 .get(0, &DType::Primitive(PType::I64, *nullability), parts.len)?;
-        Ok(DurationArray::try_new(*unit, counts)?.into_array())
+        Ok(DurationArray::try_new(*unit, values)?.into_array())
     }
 }

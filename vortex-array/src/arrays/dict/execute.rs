@@ -64,7 +64,7 @@ pub(crate) fn take_canonical(
         CanonicalView::Union(a) => Canonical::Union(take_union(a, codes)),
         CanonicalView::Duration(a) => Canonical::Duration(DurationArray::try_new(
             a.unit(),
-            a.counts().take(codes.array().clone())?,
+            a.values().take(codes.array().clone())?,
         )?),
         CanonicalView::Extension(a) => Canonical::Extension(take_extension(a, codes, ctx)),
         CanonicalView::Variant(a) => {

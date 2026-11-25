@@ -56,7 +56,7 @@ pub fn mask_validity_canonical(
         Canonical::Primitive(a) => Canonical::Primitive(mask_validity_primitive(a, validity)?),
         Canonical::Duration(a) => Canonical::Duration(DurationArray::try_new(
             a.unit(),
-            a.counts().clone().mask(validity.to_array(a.len()))?,
+            a.values().clone().mask(validity.to_array(a.len()))?,
         )?),
         Canonical::Decimal(a) => Canonical::Decimal(mask_validity_decimal(a, validity)?),
         Canonical::VarBinView(a) => Canonical::VarBinView(mask_validity_varbinview(a, validity)?),
