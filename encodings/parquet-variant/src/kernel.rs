@@ -7,6 +7,7 @@ use std::sync::Arc;
 
 use arrow_array::ArrayRef as ArrowArrayRef;
 use arrow_schema::FieldRef;
+use parquet_variant::EMPTY_VARIANT_METADATA_BYTES;
 use parquet_variant::VariantPath as PqVariantPath;
 use parquet_variant::VariantPathElement as PqVariantPathElement;
 use parquet_variant_compute::GetOptions;
@@ -36,9 +37,12 @@ use vortex_array::arrays::scalar_fn::ExactScalarFn;
 use vortex_array::arrays::scalar_fn::ScalarFnArrayView;
 use vortex_array::arrays::slice::SliceExecuteAdaptor;
 use vortex_array::arrays::slice::SliceKernel;
+use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
+use vortex_array::dtype::Nullability;
 use vortex_array::kernel::ExecuteParentKernel;
 use vortex_array::optimizer::kernels::ArrayKernelsExt;
+use vortex_array::scalar::Scalar;
 use vortex_array::scalar_fn::ScalarFnVTable;
 use vortex_arrow::ArrowExportOptions;
 use vortex_arrow::ArrowSession;
@@ -278,7 +282,16 @@ impl TakeExecute for ParquetVariant {
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         let validity = array.validity()?.take(indices)?;
-        let metadata = array.metadata().take(indices.clone())?;
+        let mut metadata = array.metadata().take(indices.clone())?;
+        // Parquet Variant requires `metadata` to be non-nullable binary. Taking with nullable
+        // indices turns `metadata` nullable; fill null rows (which `validity` already masks out)
+        // with minimal valid empty metadata (`[1, 0, 0]`) so the storage contract holds.
+        if metadata.dtype().is_nullable() {
+            metadata = metadata.fill_null(Scalar::binary(
+                EMPTY_VARIANT_METADATA_BYTES.to_vec(),
+                Nullability::NonNullable,
+            ))?;
+        }
         let value = array.value().map(|v| v.take(indices.clone())).transpose()?;
         let typed_value = array
             .typed_value()
@@ -306,6 +319,7 @@ mod tests {
     use arrow_schema::Field;
     use parquet_variant::Variant as PqVariant;
     use parquet_variant::VariantBuilder;
+    use parquet_variant::VariantMetadata;
     use parquet_variant_compute::VariantArray as ArrowVariantArray;
     use parquet_variant_compute::VariantArrayBuilder;
     use parquet_variant_compute::json_to_variant;
@@ -323,6 +337,8 @@ mod tests {
     use vortex_array::arrays::variant::VariantArraySlotsExt;
     use vortex_array::assert_arrays_eq;
     use vortex_array::assert_nth_scalar_is_null;
+    use vortex_array::compute::conformance::filter::test_filter_conformance;
+    use vortex_array::compute::conformance::take::test_take_conformance;
     use vortex_array::dtype::DType as VortexDType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
@@ -341,6 +357,7 @@ mod tests {
     use vortex_mask::Mask;
     use vortex_session::VortexSession;
 
+    use super::TakeExecute;
     use super::to_arrow_as_type;
     use crate::ParquetVariant;
     use crate::ParquetVariantArraySlotsExt;
@@ -1194,6 +1211,75 @@ mod tests {
         assert!(core_storage.typed_value().is_none());
         assert!(core_storage.value().is_some());
 
+        Ok(())
+    }
+
+    fn make_large_unshredded_array() -> VortexResult<ArrayRef> {
+        let mut builder = VariantArrayBuilder::new(16);
+        for i in 0..16i32 {
+            match i % 4 {
+                0 => builder.append_variant(PqVariant::from(i)),
+                1 => builder.append_variant(PqVariant::from(format!("row_{i}").as_str())),
+                2 => builder.append_variant(PqVariant::from(i % 2 == 0)),
+                _ => builder.append_variant(PqVariant::from(i64::from(i) * 100)),
+            }
+        }
+        ParquetVariant::from_arrow_variant(&builder.build(), &SESSION.arrow())
+    }
+
+    #[test]
+    fn test_take_with_nullable_indices_fills_valid_metadata() -> VortexResult<()> {
+        let arr = make_unshredded_array()?;
+        let indices = PrimitiveArray::from_option_iter([Some(0u64), None, Some(2)]).into_array();
+        let mut ctx = SESSION.create_execution_ctx();
+        let taken =
+            <ParquetVariant as TakeExecute>::take(arr.as_::<ParquetVariant>(), &indices, &mut ctx)?
+                .ok_or_else(|| vortex_err!("ParquetVariant take must return Some"))?;
+
+        let pv = taken.as_::<ParquetVariant>();
+        assert_eq!(
+            pv.metadata().dtype(),
+            &VortexDType::Binary(Nullability::NonNullable)
+        );
+        for row in 0..pv.len() {
+            let meta_scalar = pv.metadata().execute_scalar(row, &mut ctx)?;
+            let meta_bytes = meta_scalar
+                .as_binary()
+                .value()
+                .ok_or_else(|| vortex_err!("metadata row {row} must be non-null"))?;
+            VariantMetadata::try_new(meta_bytes.as_slice())?;
+        }
+        assert_nulls!(&taken, [false, true, false]);
+        assert_eq!(
+            taken.execute_scalar(0, &mut ctx)?,
+            arr.execute_scalar(0, &mut ctx)?.into_nullable()
+        );
+        assert_eq!(
+            taken.execute_scalar(2, &mut ctx)?,
+            arr.execute_scalar(2, &mut ctx)?.into_nullable()
+        );
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::unshredded(make_unshredded_array()?)]
+    #[case::nullable(make_nullable_array()?)]
+    #[case::unshredded_json(make_unshredded_json_array(vec![
+        Some(r#"{"a": 1}"#),
+        None,
+        Some(r#"{"a": null}"#),
+        Some(r#"{"b": "two"}"#),
+        Some("42"),
+    ])?)]
+    #[case::partially_shredded(make_partially_shredded_parquet_array()?)]
+    #[case::shredded_typed(make_shredded_typed_array()?)]
+    #[case::large_unshredded(make_large_unshredded_array()?)]
+    fn test_parquet_variant_filter_and_take_conformance(
+        #[case] array: ArrayRef,
+    ) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        test_filter_conformance(&array, &mut ctx);
+        test_take_conformance(&array, &mut ctx);
         Ok(())
     }
 }

@@ -11,6 +11,8 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::dict::TakeExecute;
 use vortex_array::arrays::filter::FilterKernel;
 use vortex_array::assert_arrays_eq;
+use vortex_array::compute::conformance::filter::test_filter_conformance;
+use vortex_array::compute::conformance::take::test_take_conformance;
 use vortex_array::optimizer::ArrayOptimizer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -157,5 +159,41 @@ fn take_out_of_bounds_errors() -> VortexResult<()> {
     let (delta, _) = fixture(Deltas::Primitive, false)?;
     let indices = PrimitiveArray::from_iter([1u32, 5000]).into_array();
     assert!(<Delta as TakeExecute>::take(delta.as_view(), &indices, &mut ctx).is_err());
+    Ok(())
+}
+
+#[rstest]
+fn test_delta_filter_conformance(
+    #[values(Deltas::Primitive, Deltas::BitPacked, Deltas::Patched)] deltas: Deltas,
+    #[values(false, true)] signed: bool,
+    #[values(None, Some(777..3000))] range: Option<std::ops::Range<usize>>,
+) -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let (delta, _) = fixture(deltas, signed)?;
+    let array = sliced(delta, range)?;
+    test_filter_conformance(&array, &mut ctx);
+    Ok(())
+}
+
+#[rstest]
+fn test_delta_take_conformance(
+    #[values(Deltas::Primitive, Deltas::BitPacked, Deltas::Patched)] deltas: Deltas,
+    #[values(false, true)] signed: bool,
+    #[values(None, Some(777..3000))] range: Option<std::ops::Range<usize>>,
+) -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let (delta, _) = fixture(deltas, signed)?;
+    let array = sliced(delta, range)?;
+    test_take_conformance(&array, &mut ctx);
+    Ok(())
+}
+
+#[test]
+fn test_delta_non_nullable_conformance() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let input = PrimitiveArray::from_iter((0..1500u32).map(|i| i * 3 + 10));
+    let delta = Delta::try_from_primitive_array(&input, &mut ctx)?.into_array();
+    test_filter_conformance(&delta, &mut ctx);
+    test_take_conformance(&delta, &mut ctx);
     Ok(())
 }

@@ -255,6 +255,7 @@ mod test {
     #[rstest]
     #[case::seconds(TimeUnit::Seconds)]
     #[case::milliseconds(TimeUnit::Milliseconds)]
+    #[case::microseconds(TimeUnit::Microseconds)]
     #[case::nanoseconds(TimeUnit::Nanoseconds)]
     fn decode_round_trips_many_rows(#[case] unit: TimeUnit) -> VortexResult<()> {
         let divisor: i64 = match unit {
