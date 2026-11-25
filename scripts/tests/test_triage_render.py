@@ -243,6 +243,33 @@ def test_summary_mentions_each_person_once_and_links_their_item_threads():
     assert "+975 more" in json.dumps(many.blocks)
 
 
+def test_summary_limits_long_reminder_links_to_the_section_character_budget():
+    rows = [
+        replace(
+            row(number),
+            thread_url=(
+                "https://vortex.slack.com/archives/C0123456789/"
+                f"p1795560668{number:06d}?thread_ts=1795560640.808899&cid=C0123456789"
+            ),
+            direct_reminder=True,
+        )
+        for number in range(1, 31)
+    ]
+    message = render.reminder_summary({"UALICE": rows})
+    section = next(
+        block["text"]["text"]
+        for block in message.blocks
+        if block["type"] == "section" and "<@UALICE>" in block["text"]["text"]
+    )
+    shown = section.count("|#")
+
+    assert message.text == "Due today: <@UALICE> 30 items"
+    assert len(section) <= render.MAX_SECTION_CHARS
+    assert section.startswith("<@UALICE> · 30 items:")
+    assert 0 < shown < render._SUMMARY_LINKS
+    assert section.endswith(f"+{30 - shown} more")
+
+
 def test_item_reminder_mentions_its_owners_and_marks_on_call():
     text = render.item_reminder(row(1), ["UALICE", "UBOB"], False, False, NOW).text
     assert text.startswith("⏰ <@UALICE>, <@UBOB>, this item waits on you · 🔴 High · waiting 2d")

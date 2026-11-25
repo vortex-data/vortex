@@ -35,8 +35,7 @@ _MIN_TITLE_CHARS = 20
 # normal spaces wide. A blank line keeps the entries apart.
 _INDENT = "\u2003\u2003"
 _ENTRY_GAP = "\n\n"
-# The most item links that the daily summary lists for one person. A link to a Slack thread is about
-# 80 characters, so this keeps one person's line well below the section limit.
+# Bound the number of links; long reminder permalinks also use the section character limit below.
 _SUMMARY_LINKS = 25
 
 
@@ -528,10 +527,21 @@ def reminder_summary(due: Mapping[str | None, Sequence[Row]]) -> Message:
                 if row.thread_url
                 else f"#{row.item.number} card"
             )
-        # One person's line is one section, which cannot be split, so a long list is cut short.
-        if len(links) > _SUMMARY_LINKS:
-            links = [*links[:_SUMMARY_LINKS], f"+{len(links) - _SUMMARY_LINKS} more"]
-        lines.append(f"{_mention(user)} · {_count(len(rows), 'item', 'items')}: {', '.join(links)}")
+        prefix = f"{_mention(user)} · {_count(len(rows), 'item', 'items')}: "
+        visible: list[str] = []
+        for link in links[:_SUMMARY_LINKS]:
+            more = len(rows) - len(visible) - 1
+            candidate = f"{prefix}{', '.join([*visible, link])}"
+            if more:
+                candidate += f", +{more} more"
+            if len(candidate) > MAX_SECTION_CHARS:
+                break
+            visible.append(link)
+        more = len(rows) - len(visible)
+        line = f"{prefix}{', '.join(visible)}"
+        if more:
+            line += f"{', ' if visible else ''}+{more} more"
+        lines.append(line)
     header = (
         "⏰ *Due today.* Reminder links open the reminder reply; card links open the item card."
     )
