@@ -12,10 +12,6 @@ use std::sync::atomic::Ordering;
 
 #[cfg(unix)]
 use custom_labels::CURRENT_LABELSET;
-use futures::FutureExt as _;
-use futures::StreamExt as _;
-use futures::future;
-use futures::stream;
 use itertools::Itertools;
 use num_traits::AsPrimitive;
 use parking_lot::Mutex;
@@ -41,7 +37,6 @@ use vortex::error::vortex_err;
 use vortex::expr::Expression;
 use vortex::expr::col;
 use vortex::expr::proto::ExprSerializeProtoExt;
-use vortex::io::runtime::BlockingRuntime as _;
 #[cfg(unix)]
 use vortex::metrics::tracing::get_global_labels;
 use vortex::proto::expr as expr_pb;
@@ -50,7 +45,6 @@ use vortex::scan::source::BindCache;
 use vortex::scan::stream::ScanStream;
 use vortex_utils::aliases::hash_map::HashMap;
 
-use crate::RUNTIME;
 use crate::SESSION;
 use crate::convert::PushedAggregate;
 use crate::convert::try_from_bound_expression;
@@ -70,7 +64,6 @@ use crate::duckdb::TableInitInput;
 use crate::duckdb::Value;
 use crate::exporter::ArrayExporter;
 use crate::file_reader::FileScanState;
-use crate::file_reader::open_file;
 use crate::projection::DuckdbField;
 use crate::projection::Filter;
 use crate::projection::Projection;
@@ -314,39 +307,15 @@ pub fn finish_reading(global: &GlobalState, local: &mut LocalState) {
 }
 
 /// The pieces, and so the fewest parts, each file's scan is cut into, given DuckDB's `threads`
-/// and the scan's `files` that its filter's statistics do not rule out: at least two, and four
-/// for each thread shared out over the files.
+/// and the scan's `files`: at least two, and two for each thread shared out over the files.
 ///
-/// Four parts per thread let threads that finish early take parts from the others, which matters
-/// most when a few files hold all of a selective filter's rows. Counting only the files that
-/// survive gives those files the parts that the pruned files would have had.
-fn file_pieces(threads: NonZeroUsize, files: usize) -> NonZeroUsize {
-    let pieces = (4 * threads.get()).div_ceil(files.max(1)).max(2);
+/// Two parts per thread let threads that finish early take parts from the others. A file whose
+/// work is concentrated in a few parts is shared out further while it runs: a thread with no part
+/// left splits the unclaimed rest of a running part at a column chunk boundary.
+fn file_pieces(threads: NonZeroUsize, files: NonZeroUsize) -> NonZeroUsize {
+    let pieces = (2 * threads.get()).div_ceil(files.get()).max(2);
     NonZeroUsize::new(pieces).vortex_expect("at least two pieces")
 }
-
-/// How many of the files at `paths` the statistics in their footers do not rule out for
-/// `filter`. Opening a file here keeps it in the cache of opened files, so reading it later opens
-/// it again for free. A file that fails to open counts as surviving: its scan reports the error.
-fn surviving_files(paths: &[&str], filter: Option<&Expression>) -> VortexResult<usize> {
-    let Some(filter) = filter else {
-        return Ok(paths.len());
-    };
-    RUNTIME.block_on(
-        stream::iter(paths)
-            .map(|path| async move {
-                let file = open_file(path).await.ok()?;
-                file.can_prune(filter).ok()
-            })
-            .buffer_unordered(SURVIVING_FILES_CONCURRENCY)
-            .filter(|pruned| future::ready(*pruned != Some(true)))
-            .count()
-            .map(Ok),
-    )
-}
-
-/// How many files [`surviving_files`] opens at once.
-const SURVIVING_FILES_CONCURRENCY: usize = 64;
 
 pub fn init_global(init_input: &TableInitInput) -> VortexResult<GlobalState> {
     let bind_data = init_input.bind_data();
@@ -397,13 +366,7 @@ pub fn init_global(init_input: &TableInitInput) -> VortexResult<GlobalState> {
         "table function scan input"
     );
 
-    // Only scans cut into parts are split, so only they need the files that survive.
-    let files = if crate::scan_v2() || crate::v1_split_parts() {
-        surviving_files(&init_input.file_paths()?, filter.expr.as_ref())?
-    } else {
-        init_input.file_count().get()
-    };
-    let file_pieces = file_pieces(init_input.max_threads(), files);
+    let file_pieces = file_pieces(init_input.max_threads(), init_input.file_count());
 
     Ok(GlobalState {
         projection_expr: projection,

@@ -37,6 +37,7 @@ pub struct ScanInput {
 mod bind;
 mod plan;
 mod plan_stream;
+mod work;
 
 pub use bind::BindCache;
 pub use plan::FilePruner;

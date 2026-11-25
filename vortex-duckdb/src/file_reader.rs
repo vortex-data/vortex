@@ -20,7 +20,6 @@ use vortex::error::VortexResult;
 use vortex::error::vortex_err;
 use vortex::error::vortex_panic;
 use vortex::file::Footer;
-use vortex::file::VortexFile;
 use vortex::file::multi::MultiFileSession;
 use vortex::file::multi::open_cached;
 use vortex::file::multi::parse_uri_or_path;
@@ -137,9 +136,10 @@ pub struct FileScanState {
 impl FileScanState {
     /// The scan work a thread joining the file would take, or `None` once the file has none.
     fn next_split(&self) -> Option<Split> {
-        // A thread joins the file until its last unit of work, a V1 split or a V2 part, is taken,
-        // then moves on to the next file while the threads holding the last work finish it: no
-        // thread waits for the rest of a file to drain. Threads joining the file start at
+        // A thread joins the file until its last unit of work, a V1 split or a V2 part, is taken
+        // and, for V2, until no running part is left with rows to steal, then moves on to the
+        // next file while the threads holding the last work finish it: no thread waits for the
+        // rest of a file to drain. Threads joining the file start at
         // successive pieces, so they spread over its rows. The thread creates its stream on its
         // first scan call, outside DuckDB's lock.
         let pieces = self.pieces.get()?;
@@ -154,17 +154,11 @@ impl FileScanState {
     }
 }
 
-/// Opens the file at `path`, from the cache of opened files where an earlier open of it is
-/// still held.
-pub(crate) async fn open_file(path: &str) -> VortexResult<VortexFile> {
-    let (fs, fs_path) = resolve_filesystem(&parse_uri_or_path(path)?)?;
-    let source = fs.open_read(&fs_path).await?;
-    open_cached(&SESSION, Some(path), source, None, &|options| options).await
-}
-
 impl OpenFileReader {
     async fn open(path: String) -> VortexResult<Self> {
-        let file = open_file(&path).await?;
+        let (fs, fs_path) = resolve_filesystem(&parse_uri_or_path(&path)?)?;
+        let source = fs.open_read(&fs_path).await?;
+        let file = open_cached(&SESSION, Some(&path), source, None, &|options| options).await?;
         // The engine is chosen here, once per file. Everything after reads the file through the
         // Scan API, the same way for either executor.
         let (source, split) = if crate::scan_v2() {

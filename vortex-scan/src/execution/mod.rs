@@ -54,6 +54,7 @@ use self::filter::FilterPlanner;
 pub use self::filter::FilterPlans;
 pub use self::filter::FilterPrep;
 pub use self::filter::SharedFilterPrep;
+pub(crate) use self::parts::chunk_boundaries;
 pub(crate) use self::parts::part_planner;
 pub(crate) use self::parts::static_kept;
 use self::projection::ProjectionPlanner;
@@ -133,7 +134,7 @@ impl PreparedScan {
         let surviving = kept.map(|kept| crate::split::kept_ranges(&self.rows, kept));
         Ok(crate::split::split_points(
             self.rows.clone(),
-            &parts::chunk_boundaries(self)?,
+            &chunk_boundaries(self)?,
             surviving.as_deref(),
             min_parts,
         ))
