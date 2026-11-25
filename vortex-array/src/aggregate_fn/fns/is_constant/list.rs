@@ -39,21 +39,17 @@ pub(super) fn check_listview_constant(
         return Ok(true);
     }
 
-    // Lists that are not all equal are usually different already in the first two lists.
+    // Lists that differ usually differ in the first two.
     let first_elements = l.list_elements_at(0, ctx)?;
     if !arrays_value_equal(&first_elements, &l.list_elements_at(1, ctx)?, ctx)? {
         return Ok(false);
     }
 
     if l.is_zero_copy_to_list() {
-        // The lists follow each other in the elements without gaps, and all of them have
-        // `first_size` elements. So list `i` starts at `start + i * first_size`, and the lists
-        // are equal if and only if the elements repeat with a period of `first_size`. One
-        // comparison of the elements with the same elements shifted by one list checks this.
+        // Packed lists of equal size are equal iff the elements repeat every `first_size` values.
         let start = l.offset_at(0, ctx);
         let end = start + l.len() * first_size;
-        // Make the elements canonical one time. Otherwise the comparison makes each of the two
-        // slices canonical, for example a conversion of the same strings to views two times.
+        // Canonicalize once so the two overlapping slices do not decode the same elements twice.
         let elements = l
             .elements()
             .slice(start..end)?
