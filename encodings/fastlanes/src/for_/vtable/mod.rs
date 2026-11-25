@@ -20,6 +20,7 @@ use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
+use vortex_array::dtype::PType;
 use vortex_array::require_child;
 use vortex_array::require_opt_child;
 use vortex_array::scalar::Scalar;
@@ -164,15 +165,19 @@ impl FoR {
 
     /// Construct a FoR array with one reference per 1024-element chunk.
     ///
-    /// `references` must be a non-nullable integer array of the encoded array's type, with one
+    /// `references` must be a non-nullable integer array of the logical array's type, with one
     /// entry for each chunk spanned by `offset + encoded.len()` elements. `offset` is the position
-    /// of the first element within the first chunk. Constant references become a global reference.
+    /// of the first element within the first chunk. `encoded` may have the same integer type as
+    /// `references`, or a strictly narrower unsigned integer type with the array's nullability.
+    /// Constant references become a global reference when `encoded` is not narrowed.
     pub fn try_new_chunked(
         encoded: ArrayRef,
         references: ArrayRef,
         offset: u16,
     ) -> VortexResult<FoRArray> {
-        if let Some(reference) = references.as_constant() {
+        if let Some(reference) = references.as_constant()
+            && encoded.dtype().eq_ignore_nullability(references.dtype())
+        {
             vortex_ensure_eq!(
                 references.len(),
                 num_chunks(offset, encoded.len()),
@@ -189,7 +194,15 @@ impl FoR {
         blocked_references: Option<ArrayRef>,
         offset: u16,
     ) -> VortexResult<FoRArray> {
-        let dtype = encoded.dtype().clone();
+        let dtype = match (&global_reference, &blocked_references) {
+            (Some(reference), None) => reference
+                .dtype()
+                .with_nullability(encoded.dtype().nullability()),
+            (None, Some(references)) => references
+                .dtype()
+                .with_nullability(encoded.dtype().nullability()),
+            _ => encoded.dtype().clone(),
+        };
         let len = encoded.len();
         let data = FoRData::try_new(offset, global_reference)?;
         let slots = smallvec![Some(encoded), blocked_references];
@@ -207,6 +220,13 @@ impl FoR {
     }
 }
 
+pub(crate) fn is_valid_encoded_ptype(logical: PType, encoded: PType, is_blocked: bool) -> bool {
+    if encoded == logical {
+        return true;
+    }
+    is_blocked && encoded.is_unsigned_int() && encoded.byte_width() < logical.byte_width()
+}
+
 fn validate_parts(
     encoded: &ArrayRef,
     references: FoRReferences<'_>,
@@ -215,7 +235,26 @@ fn validate_parts(
     len: usize,
 ) -> VortexResult<()> {
     vortex_ensure!(dtype.is_int(), "FoR requires an integer dtype, got {dtype}");
-    vortex_ensure_eq!(encoded.dtype(), dtype, "FoR encoded dtype mismatch");
+    vortex_ensure!(
+        encoded.dtype().is_int(),
+        "FoR encoded child must have an integer dtype, got {}",
+        encoded.dtype()
+    );
+    vortex_ensure_eq!(
+        encoded.dtype().nullability(),
+        dtype.nullability(),
+        "FoR encoded nullability mismatch"
+    );
+    vortex_ensure!(
+        is_valid_encoded_ptype(
+            dtype.as_ptype(),
+            encoded.dtype().as_ptype(),
+            !references.is_global(),
+        ),
+        "FoR encoded dtype {} is invalid for logical dtype {}",
+        encoded.dtype(),
+        dtype
+    );
     vortex_ensure_eq!(encoded.len(), len, "FoR encoded length mismatch");
     let references_dtype = dtype.as_nonnullable();
     match references {

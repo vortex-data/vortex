@@ -18,15 +18,21 @@ use vortex_array::assert_arrays_eq;
 use vortex_array::serde::SerializeOptions;
 use vortex_array::serde::SerializedArray;
 use vortex_btrblocks::BtrBlocksCompressorBuilder;
+use vortex_btrblocks::CompressionSession;
 use vortex_btrblocks::schemes::integer::BitPackingScheme;
 use vortex_btrblocks::schemes::integer::FoRScheme;
+use vortex_btrblocks::schemes::integer::IntDictScheme;
+use vortex_btrblocks::schemes::integer::RunEndScheme;
+use vortex_btrblocks::schemes::integer::SequenceScheme;
 use vortex_buffer::ByteBufferMut;
 use vortex_edition::EDITION_DECLARATIONS;
 use vortex_edition::EDITION_FAMILIES;
 use vortex_edition::EditionSession;
 use vortex_edition::EditionSessionExt;
 use vortex_edition::declarations::core::CORE_2026_08_3;
+use vortex_edition::declarations::unstable::UNSTABLE;
 use vortex_error::VortexResult;
+use vortex_fastlanes::FoR;
 use vortex_fastlanes::for_v1_id;
 use vortex_fastlanes::for_v2_id;
 use vortex_session::VortexSession;
@@ -36,15 +42,18 @@ static FOR_V1: FoRScheme = FoRScheme::v1();
 
 /// Registers the fastlanes encodings, and enables no editions.
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-    let session = VortexSession::empty();
+    let session = VortexSession::empty().with::<CompressionSession>();
     vortex_fastlanes::initialize(&session);
+    vortex_sequence::initialize(&session);
     session
 });
 
 /// Like [`SESSION`], with the latest core edition enabled: it allows `fastlanes.for` but not
 /// `fastlanes.for.v2`.
 static CORE_SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-    let session = VortexSession::empty().with::<EditionSession>();
+    let session = VortexSession::empty()
+        .with::<EditionSession>()
+        .with::<CompressionSession>();
     for family in EDITION_FAMILIES {
         session
             .editions()
@@ -59,6 +68,32 @@ static CORE_SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     session
         .enable_edition(CORE_2026_08_3)
         .expect("core edition is registered");
+    vortex_fastlanes::initialize(&session);
+    session
+});
+
+/// Core + UNSTABLE editions enabled: allows `fastlanes.for.v2`.
+static UNSTABLE_SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+    let session = VortexSession::empty()
+        .with::<EditionSession>()
+        .with::<CompressionSession>();
+    for family in EDITION_FAMILIES {
+        session
+            .editions()
+            .declare_family(family)
+            .expect("first-party edition family");
+    }
+    for declaration in EDITION_DECLARATIONS {
+        session
+            .register_edition(declaration)
+            .expect("first-party edition");
+    }
+    session
+        .enable_edition(CORE_2026_08_3)
+        .expect("core edition is registered");
+    session
+        .enable_edition(UNSTABLE)
+        .expect("unstable edition is registered");
     vortex_fastlanes::initialize(&session);
     session
 });
@@ -122,17 +157,49 @@ fn v2_serializes_varying_references_as_v2(
     Ok(())
 }
 
-/// FoR is estimated as single-reference FoR, which is conservative for v2. Here one reference needs
-/// 23 bits, as many as plain BitPacking, so FoR is skipped even though per-chunk references would
-/// pack to 7.
-#[test]
-fn estimate_skips_arrays_only_chunk_references_narrow() -> VortexResult<()> {
-    let array = PrimitiveArray::from_iter(
-        (0..8192u32).map(|i| 1_000_000 + (i / 1024) * 1_000_000 + i % 100),
-    )
-    .into_array();
+/// With the 8x1024 locality selector, FoR v2 catches drifting arrays whose single-reference width
+/// ties plain BitPacking as well as drifting arrays whose global minimum is zero.
+#[rstest]
+#[case::global_tie(1_000_000u32)]
+#[case::min_zero(0u32)]
+fn estimate_catches_drifting_arrays_only_chunk_references_narrow(
+    #[case] base: u32,
+) -> VortexResult<()> {
+    let array =
+        PrimitiveArray::from_iter((0..8192u32).map(|i| base + (i / 1024) * 1_000_000 + i % 100))
+            .into_array();
     let ids = compress_roundtrip(for_only(), &array)?;
     assert!(!ids.contains(&for_v1_id()));
+    assert!(ids.contains(&for_v2_id()));
+    Ok(())
+}
+
+/// When per-chunk references do not beat FoR v1 by the required margin, FoR v2 falls back to
+/// FoR v1 and preserves the v1 estimate floor so Dict does not displace it on ties.
+#[test]
+fn v2_falls_back_to_v1_and_preserves_v1_floor() -> VortexResult<()> {
+    // Values in [10_000, 14_000] uniformly spread in every chunk: global min = 10_000,
+    // chunk mins are nearly identical so v2 saves < 5%, while v1 needs 12 bits (2.67x).
+    let array = PrimitiveArray::from_iter(
+        (0..16_384i32).map(|i| 10_000 + (i / 1024) * 3 + ((i * 37) % 3_500)),
+    )
+    .into_array();
+    let builder = for_only().with_new_scheme(&IntDictScheme);
+    let ids = compress_roundtrip(builder, &array)?;
+    assert!(ids.contains(&for_v1_id()));
+    assert!(!ids.contains(&for_v2_id()));
+    Ok(())
+}
+
+/// `RunEnd.ends` is excluded from `FoR.v2` so binary-search `scalar_at` probes do not incur
+/// extra blocked-reference indirection.
+#[test]
+fn runend_ends_excludes_for_v2() -> VortexResult<()> {
+    // 12,000 runs of length 16 -> `ends` has 12,000 monotonically increasing u32 values starting
+    // at 16, where blocked FoR.v2 would otherwise beat BitPacked.
+    let array = PrimitiveArray::from_iter((0..192_000i32).map(|i| (i / 16) % 50)).into_array();
+    let builder = for_only().with_new_scheme(&RunEndScheme);
+    let ids = compress_roundtrip(builder, &array)?;
     assert!(!ids.contains(&for_v2_id()));
     Ok(())
 }
@@ -145,6 +212,16 @@ fn core_edition_keeps_single_reference() -> VortexResult<()> {
     )?;
     assert!(ids.contains(&for_v1_id()));
     assert!(!ids.contains(&for_v2_id()));
+    Ok(())
+}
+
+#[test]
+fn unstable_edition_enables_for_v2() -> VortexResult<()> {
+    let ids = compress_roundtrip(
+        BtrBlocksCompressorBuilder::from_session(&UNSTABLE_SESSION),
+        &drifting(),
+    )?;
+    assert!(ids.contains(&for_v2_id()));
     Ok(())
 }
 
@@ -164,5 +241,141 @@ fn cuda_preset_keeps_single_reference() -> VortexResult<()> {
     let ids = compress_roundtrip(for_only().only_cuda_compatible(), &drifting())?;
     assert!(ids.contains(&for_v1_id()));
     assert!(!ids.contains(&for_v2_id()));
+    Ok(())
+}
+
+
+#[test]
+fn v2_handles_wide_global_span_with_narrow_blocks() -> VortexResult<()> {
+    let array = PrimitiveArray::from_iter((0..2048i64).map(|i| {
+        if i < 1024 {
+            -6_000_000_000_000_000_000 + (i % 100)
+        } else {
+            6_000_000_000_000_000_000 + (i % 100)
+        }
+    }))
+    .into_array();
+    let ids = compress_roundtrip(for_only(), &array)?;
+    assert!(ids.contains(&for_v2_id()));
+    Ok(())
+}
+
+#[test]
+fn test_v2_handles_wide_span_inside_block() -> VortexResult<()> {
+    // 16 chunks: aligned 8-block sampling picks even chunks (0, 2, ..., 14) which all have narrow
+    // local span so the selector picks v2, while unsampled chunk 1 spans > i64::MAX so full-array
+    // signed wrapping subtraction produces negative residuals and exercises the compress fallback.
+    let array = PrimitiveArray::from_iter((0..16_384i64).map(|i| {
+        let chunk = i / 1024;
+        if chunk == 1 {
+            if i % 2 == 0 {
+                -6_000_000_000_000_000_000
+            } else {
+                6_000_000_000_000_000_000
+            }
+        } else {
+            chunk * 1_000_000 + (i % 50)
+        }
+    }))
+    .into_array();
+    let ids = compress_roundtrip(for_only(), &array)?;
+    assert!(!ids.contains(&for_v2_id()));
+    assert!(!ids.contains(&for_v1_id()));
+    Ok(())
+}
+
+#[test]
+fn test_v2_selects_zero_buffer_sequence_references() -> VortexResult<()> {
+    let array = PrimitiveArray::from_iter((0..2049i64).map(|i| {
+        let block = i / 1024;
+        1_000_000_000 + block * 1_000_000 + (i % 16)
+    }))
+    .into_array();
+    let builder = for_only().with_new_scheme(&SequenceScheme);
+    let ids = compress_roundtrip(builder, &array)?;
+    assert!(ids.contains(&for_v2_id()));
+    Ok(())
+}
+
+#[test]
+fn test_v2_does_not_outbid_runend_on_run_structured_chunks() -> VortexResult<()> {
+    let mut ctx = UNSTABLE_SESSION.create_execution_ctx();
+    let for_and_runend = for_only()
+        .with_new_scheme(&RunEndScheme)
+        .with_new_scheme(&SequenceScheme)
+        .build();
+    let full = BtrBlocksCompressorBuilder::from_session(&UNSTABLE_SESSION).build();
+
+    let i64_chunk = PrimitiveArray::from_iter((0..122_880i64).map(|i| (i / 4) + 1)).into_array();
+    assert_eq!(
+        for_and_runend
+            .compress(&i64_chunk, &mut ctx)?
+            .encoding_id()
+            .as_ref(),
+        "vortex.runend"
+    );
+    assert!(!full.compress(&i64_chunk, &mut ctx)?.is::<FoR>());
+
+    let i32_chunk = PrimitiveArray::from_iter((0..122_880i32).map(|i| (i / 4) + 1)).into_array();
+    assert_eq!(
+        for_and_runend
+            .compress(&i32_chunk, &mut ctx)?
+            .encoding_id()
+            .as_ref(),
+        "vortex.runend"
+    );
+    assert!(!full.compress(&i32_chunk, &mut ctx)?.is::<FoR>());
+    Ok(())
+}
+
+#[test]
+fn test_v2_rejects_all_constant_block_sample() -> VortexResult<()> {
+    // Every sampled 1,024-element block is constant (zero residual bytes), while unsampled blocks
+    // vary; FoR.v2 must not win with an inflated sample ratio over Dict/RunEnd even without RunEnd.
+    let array = PrimitiveArray::from_iter((0..524_288i32).map(|i| {
+        let block = i / 1024;
+        if (1..=16).contains(&block) {
+            block + (i % 8)
+        } else {
+            block
+        }
+    }))
+    .into_array();
+    let without_runend_ids = compress_roundtrip(
+        for_only()
+            .with_new_scheme(&IntDictScheme)
+            .with_new_scheme(&SequenceScheme),
+        &array,
+    )?;
+    assert!(!without_runend_ids.contains(&for_v2_id()));
+
+    let full_ids = compress_roundtrip(
+        BtrBlocksCompressorBuilder::from_session(&UNSTABLE_SESSION),
+        &array,
+    )?;
+    assert!(!full_ids.contains(&for_v2_id()));
+
+    // Same constant-block sample with a null in every block so every sampled chunk has a
+    // non-empty validity bitmap.
+    let nullable_array = PrimitiveArray::from_option_iter((0..524_288i32).map(|i| {
+        if i % 1024 == 0 {
+            None
+        } else {
+            let block = i / 1024;
+            Some(if (1..=16).contains(&block) {
+                block + (i % 8)
+            } else {
+                block
+            })
+        }
+    }))
+    .into_array();
+    let nullable_ids = compress_roundtrip(
+        for_only()
+            .with_new_scheme(&IntDictScheme)
+            .with_new_scheme(&SequenceScheme),
+        &nullable_array,
+    )?;
+    assert!(!nullable_ids.contains(&for_v2_id()));
     Ok(())
 }

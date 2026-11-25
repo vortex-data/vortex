@@ -24,6 +24,7 @@ use vortex_array::VortexSessionExecute;
 use vortex_array::aggregate_fn::session::AggregateFnSession;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::dtype::NativePType;
+use vortex_array::match_each_integer_ptype;
 use vortex_array::memory::MemorySession;
 use vortex_array::optimizer::kernels::KernelSession;
 use vortex_array::session::ArraySession;
@@ -102,8 +103,15 @@ fn run<T: NativePType + TryFrom<usize>>(bencher: Bencher, bytes: usize) {
         .bench_refs(|(array, ctx)| (*array).clone().execute::<PrimitiveArray>(ctx).unwrap());
 }
 
-/// Each iteration decodes a uniquely owned FoR array over a uniquely owned buffer, so the
-/// references are added in place instead of into a copy.
+fn copy_primitive<E: NativePType>(encoded: &PrimitiveArray) -> PrimitiveArray {
+    PrimitiveArray::new(
+        Buffer::<E>::copy_from(encoded.as_slice::<E>()),
+        Validity::NonNullable,
+    )
+}
+
+/// Each iteration decodes a uniquely owned blocked FoR array (narrowed to unsigned residuals when
+/// chunk spans fit, otherwise same-width in place).
 #[vortex_bench_support::cpu_features]
 #[divan::bench(types = [i64], args = INPUT_BYTES)]
 fn decode_chunked<T: NativePType + TryFrom<usize>>(bencher: Bencher, bytes: usize) {
@@ -121,10 +129,8 @@ fn decode_chunked<T: NativePType + TryFrom<usize>>(bencher: Bencher, bytes: usiz
     bencher
         .counter(ItemsCount::new(len))
         .with_inputs(|| {
-            let encoded = PrimitiveArray::new(
-                Buffer::<T>::copy_from(encoded.as_slice::<T>()),
-                Validity::NonNullable,
-            );
+            let encoded =
+                match_each_integer_ptype!(encoded.ptype(), |E| { copy_primitive::<E>(&encoded) });
             let array = FoR::try_new_chunked(encoded.into_array(), references.clone(), 0)
                 .unwrap()
                 .into_array();
