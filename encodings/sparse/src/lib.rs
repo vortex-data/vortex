@@ -255,16 +255,8 @@ impl VTable for Sparse {
         // reassemble with offset=0. Uses slot children (not data) since the executor
         // may have updated slots via reduce_parent/execute_parent.
         let array = if array.patches().offset() != 0 {
-            let offset = array.patches().offset();
-            let indices = array.patch_indices();
-            let values = array.patch_values().clone();
-            let len = array.len();
-            let offset_scalar = Scalar::from(offset).cast(indices.dtype())?;
-            let resolved_indices = indices.numeric(
-                ConstantArray::new(offset_scalar, indices.len()).into_array(),
-                NumericOperator::Sub,
-            )?;
-            let patches = Patches::new(len, 0, resolved_indices.clone(), values, None, ctx)?;
+            let patches = array.resolved_patches()?;
+            let resolved_indices = patches.indices().clone();
             // Decompose, update in place, and reassemble without re-validation.
             match array.try_into_parts() {
                 Ok(mut parts) => {
