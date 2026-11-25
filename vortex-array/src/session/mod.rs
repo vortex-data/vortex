@@ -29,7 +29,6 @@ use crate::arrays::Chunked;
 use crate::arrays::Constant;
 use crate::arrays::Decimal;
 use crate::arrays::Dict;
-use crate::arrays::Duration;
 use crate::arrays::Extension;
 use crate::arrays::FixedSizeList;
 use crate::arrays::List;
@@ -98,7 +97,6 @@ impl Default for ArraySession {
         this.register(Bool);
         this.register(Primitive);
         this.register(Decimal);
-        this.register(Duration);
         this.register(VarBinView);
         this.register(ListView);
         this.register(Map);

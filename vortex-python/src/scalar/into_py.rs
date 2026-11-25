@@ -22,6 +22,7 @@ use vortex::dtype::PType;
 use vortex::dtype::half::f16;
 use vortex::error::VortexExpect;
 use vortex::error::vortex_err;
+use vortex::extension::datetime::Duration;
 use vortex::scalar::DecimalValue;
 use vortex::scalar::ListScalar;
 use vortex::scalar::Scalar;
@@ -57,7 +58,6 @@ impl<'py> IntoPyObject<'py> for PyVortex<&'_ Scalar> {
 
                 primitive_py.map_err(PyErr::from)
             }
-            DType::Duration(unit, _) => duration::to_py(py, self.0, *unit),
             DType::Decimal(decimal_type, ..) => {
                 let decimal = self.0.as_decimal();
                 match decimal.decimal_value() {
@@ -92,7 +92,10 @@ impl<'py> IntoPyObject<'py> for PyVortex<&'_ Scalar> {
             DType::Variant(_) => Err(PyValueError::new_err(
                 "Variant scalars are not supported in Python yet",
             )),
-            DType::Extension(_) => {
+            DType::Extension(ext) => {
+                if let Some(unit) = ext.metadata_opt::<Duration>() {
+                    return duration::to_py(py, self.0, *unit);
+                }
                 PyVortex(&self.0.as_extension().to_storage_scalar()).into_pyobject(py)
             }
         }

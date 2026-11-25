@@ -7,14 +7,13 @@ use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::DecimalArray;
-use vortex_array::arrays::DurationArray;
+use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::bool::BoolArrayExt;
-use vortex_array::arrays::duration::DurationArraySlotsExt;
+use vortex_array::arrays::extension::ExtensionArrayExt;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::NativePType;
-use vortex_array::dtype::PType;
 use vortex_array::match_each_decimal_value_type;
 use vortex_array::match_each_native_ptype;
 use vortex_array::scalar::Scalar;
@@ -60,6 +59,11 @@ pub fn search_sorted_canonical_array(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<SearchResult> {
     match array.dtype() {
+        DType::Extension(_) => {
+            let extension = array.clone().execute::<ExtensionArray>(ctx)?;
+            let scalar = scalar.as_extension().to_storage_scalar();
+            search_sorted_canonical_array(extension.storage_array(), &scalar, side, ctx)
+        }
         DType::Bool(_) => {
             let bool_array = array.clone().execute::<BoolArray>(ctx)?;
             let validity = bool_array
@@ -103,14 +107,6 @@ pub fn search_sorted_canonical_array(
                     side,
                 ))
             })
-        }
-        DType::Duration(..) => {
-            let duration = array.clone().execute::<DurationArray>(ctx)?;
-            let needle = Scalar::try_new(
-                DType::Primitive(PType::I64, scalar.dtype().nullability()),
-                scalar.value().cloned(),
-            )?;
-            search_sorted_canonical_array(duration.values(), &needle, side, ctx)
         }
         DType::Decimal(d, _) => {
             let decimal_array = array.clone().execute::<DecimalArray>(ctx)?;
@@ -167,11 +163,7 @@ pub fn search_sorted_canonical_array(
                 .collect::<VortexResult<Vec<_>>>()?;
             scalar_vals.search_sorted(&scalar.cast(array.dtype())?, side)
         }
-        d @ (DType::Null
-        | DType::Map(..)
-        | DType::Union(..)
-        | DType::Variant(_)
-        | DType::Extension(_)) => {
+        d @ (DType::Null | DType::Map(..) | DType::Union(..) | DType::Variant(_)) => {
             unreachable!("DType {d} not supported for fuzzing")
         }
     }

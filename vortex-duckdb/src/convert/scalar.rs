@@ -86,7 +86,6 @@ impl ToDuckDBScalar for Scalar {
             DType::Binary(_) => self.as_binary().try_to_duckdb_scalar(),
             DType::List(..) | DType::FixedSizeList(..) => self.as_list().try_to_duckdb_scalar(),
             DType::Map(..) => self.as_map().try_to_duckdb_scalar(),
-            DType::Duration(..) => vortex_bail!("Vortex Duration is not supported in DuckDB"),
             DType::Variant(_) => {
                 vortex_bail!("Vortex Variant scalars aren't supported")
             }
@@ -266,6 +265,9 @@ impl ToDuckDBScalar for ExtScalar<'_> {
         };
 
         Ok(match temporal {
+            TemporalMetadata::Duration(_) => {
+                vortex_bail!("DuckDB has no lossless representation for Vortex Duration")
+            }
             TemporalMetadata::Timestamp(unit, tz) => {
                 if tz.is_some() {
                     // TIMESTAMP_TZ stores time in UTC microseconds and

@@ -264,7 +264,6 @@ impl TryFrom<&DType> for LogicalType {
                 return LogicalType::map_type(&key_logical_type, &value_logical_type);
             }
             // TODO(connor): Union
-            DType::Duration(..) => vortex_bail!("Vortex Duration is not supported in DuckDB"),
             DType::Union(..) => vortex_bail!("Vortex Union isn't supported"),
             DType::Variant(_) => {
                 vortex_bail!("Vortex Variant array aren't supported")
@@ -302,6 +301,9 @@ impl TryFrom<&DType> for LogicalType {
 
 fn temporal_to_duckdb(temporal: TemporalMetadata) -> VortexResult<LogicalType> {
     let duckdb_type = match temporal {
+        TemporalMetadata::Duration(_) => {
+            vortex_bail!("DuckDB has no lossless representation for Vortex Duration")
+        }
         TemporalMetadata::Timestamp(unit, None) => match unit {
             TimeUnit::Nanoseconds => DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_NS,
             TimeUnit::Microseconds => DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP,

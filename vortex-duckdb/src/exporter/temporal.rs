@@ -5,6 +5,8 @@ use vortex::array::Canonical;
 use vortex::array::ExecutionCtx;
 use vortex::array::arrays::TemporalArray;
 use vortex::error::VortexResult;
+use vortex::error::vortex_ensure;
+use vortex::extension::datetime::TemporalMetadata;
 
 use crate::duckdb::VectorRef;
 use crate::exporter::ColumnExporter;
@@ -31,6 +33,10 @@ pub(crate) fn new_exporter(
     array: TemporalArray,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Box<dyn ColumnExporter>> {
+    vortex_ensure!(
+        !matches!(array.temporal_metadata(), TemporalMetadata::Duration(_)),
+        "DuckDB has no lossless representation for Vortex Duration"
+    );
     Ok(Box::new(TemporalExporter {
         storage_type_exporter: primitive::new_exporter(
             array

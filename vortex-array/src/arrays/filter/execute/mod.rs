@@ -49,7 +49,6 @@ use crate::validity::Validity;
 mod bitbuffer;
 mod bool;
 pub(crate) mod buffer;
-mod duration;
 mod fixed_size_list;
 mod listview;
 mod struct_;
@@ -145,7 +144,6 @@ pub(super) fn execute_filter(
         }
         Canonical::Struct(a) => Canonical::Struct(struct_::filter_struct(&a, mask)),
         Canonical::Union(a) => Canonical::Union(union::filter_union(&a, mask)),
-        Canonical::Duration(a) => Canonical::Duration(duration::filter_duration(&a, mask)),
         Canonical::Extension(a) => {
             let filtered_storage = a
                 .storage_array()

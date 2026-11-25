@@ -4,7 +4,6 @@
 mod bool;
 mod decimal;
 pub use decimal::valid_range;
-mod duration;
 mod extension;
 mod fixed_size_list;
 mod primitive;
@@ -20,7 +19,6 @@ use vortex_session::registry::CachedId;
 
 use self::bool::accumulate_bool;
 use self::decimal::accumulate_decimal;
-use self::duration::accumulate_duration;
 use self::extension::accumulate_extension;
 use self::fixed_size_list::accumulate_fixed_size_bytes;
 use self::primitive::accumulate_primitive;
@@ -318,7 +316,6 @@ fn minmax_supported_dtype(input_dtype: &DType) -> bool {
         DType::Bool(_)
         | DType::Primitive(..)
         | DType::Decimal(..)
-        | DType::Duration(..)
         | DType::Utf8(..)
         | DType::Binary(..)
         | DType::Extension(..) => true,
@@ -340,7 +337,6 @@ fn minmax_compute_supported_dtype(input_dtype: &DType) -> bool {
         DType::Bool(_)
             | DType::Primitive(..)
             | DType::Decimal(..)
-            | DType::Duration(..)
             | DType::Utf8(..)
             | DType::Binary(..)
             | DType::Extension(..)
@@ -505,7 +501,6 @@ impl AggregateFnVTable for MinMax {
                 Canonical::Primitive(p) => accumulate_primitive(args, partial, p, ctx),
                 Canonical::Bool(b) => accumulate_bool(args, partial, b, ctx),
                 Canonical::VarBinView(v) => accumulate_varbinview(args, partial, v, ctx),
-                Canonical::Duration(d) => accumulate_duration(args, partial, d, ctx),
                 Canonical::Decimal(d) => accumulate_decimal(args, partial, d, ctx),
                 Canonical::Extension(e) => accumulate_extension(args, partial, e, ctx),
                 Canonical::FixedSizeList(f) if is_fixed_size_bytes(f.dtype()) => {

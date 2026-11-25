@@ -99,18 +99,11 @@ pub struct Map {
     #[prost(bool, tag = "4")]
     pub nullable: bool,
 }
-#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
-pub struct Duration {
-    #[prost(uint32, tag = "1")]
-    pub unit: u32,
-    #[prost(bool, tag = "2")]
-    pub nullable: bool,
-}
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct DType {
     #[prost(
         oneof = "d_type::DtypeType",
-        tags = "1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14"
+        tags = "1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13"
     )]
     pub dtype_type: ::core::option::Option<d_type::DtypeType>,
 }
@@ -145,8 +138,6 @@ pub mod d_type {
         Union(super::Union),
         #[prost(message, tag = "13")]
         Map(::prost::alloc::boxed::Box<super::Map>),
-        #[prost(message, tag = "14")]
-        Duration(super::Duration),
     }
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]

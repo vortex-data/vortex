@@ -96,7 +96,6 @@ impl DType {
             | Self::Bool(_)
             | Self::Primitive(..)
             | Self::Decimal(..)
-            | Self::Duration(..)
             | Self::Utf8(_)
             | Self::Binary(_) => match claim {
                 Claim::Eq | Claim::Ord => true,

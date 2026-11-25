@@ -59,7 +59,6 @@ mod bool;
 mod child;
 mod decimal;
 pub mod dict;
-mod duration;
 mod extension;
 mod fixed_size_list;
 mod list;
@@ -75,7 +74,6 @@ mod variant;
 pub use bool::*;
 pub(crate) use child::ChildBuilder;
 pub use decimal::*;
-pub use duration::*;
 pub use extension::*;
 pub use fixed_size_list::*;
 pub use list::*;
@@ -467,9 +465,6 @@ pub fn builder_with_capacity_in(
             *n,
             capacity,
             allocator,
-        )),
-        DType::Duration(unit, nullable) => Box::new(DurationBuilder::with_capacity_in(
-            *unit, *nullable, capacity, allocator,
         )),
         DType::Union(..) => vortex_panic!("TODO(connor)[Union]: unimplemented"),
         DType::Variant(n) => Box::new(VariantBuilder::new(*n)),

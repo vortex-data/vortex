@@ -306,9 +306,6 @@ fn bool_from_proto(v: bool, dtype: &DType) -> VortexResult<ScalarValue> {
 /// Protobuf consolidates all signed integers into `i64`, so we narrow back to the original
 /// type using the provided [`DType`].
 fn int64_from_proto(v: i64, dtype: &DType) -> VortexResult<ScalarValue> {
-    if matches!(dtype, DType::Duration(..)) {
-        return Ok(ScalarValue::Primitive(PValue::I64(v)));
-    }
     vortex_ensure!(
         dtype.is_primitive(),
         "expected Primitive dtype for Int64Value, got {dtype}"

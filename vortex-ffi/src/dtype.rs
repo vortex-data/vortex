@@ -9,10 +9,11 @@ use arrow_array::ffi::FFI_ArrowSchema;
 use arrow_schema::Schema;
 use vortex::dtype::DType;
 use vortex::dtype::DecimalDType;
-use vortex::dtype::DurationUnit;
 use vortex::error::VortexExpect;
 use vortex::error::vortex_ensure;
 use vortex::error::vortex_panic;
+use vortex::extension::datetime::Duration;
+use vortex::extension::datetime::TimeUnit;
 use vortex_arrow::ArrowSessionExt;
 
 use crate::box_wrapper;
@@ -76,7 +77,7 @@ impl From<&DType> for vx_dtype_variant {
             DType::List(..) => vx_dtype_variant::DTYPE_LIST,
             DType::FixedSizeList(..) => vx_dtype_variant::DTYPE_FIXED_SIZE_LIST,
             DType::Struct(..) => vx_dtype_variant::DTYPE_STRUCT,
-            DType::Duration(..) => vx_dtype_variant::DTYPE_DURATION,
+            DType::Extension(ext) if ext.is::<Duration>() => vx_dtype_variant::DTYPE_DURATION,
             DType::Map(..) => vortex_panic!("Map is not supported in FFI yet"),
             DType::Union(..) => vortex_panic!("Union is not supported in FFI yet"),
             DType::Variant(_) => {
@@ -102,24 +103,13 @@ pub enum vx_duration_unit {
     DURATION_SECONDS = 3,
 }
 
-impl From<vx_duration_unit> for DurationUnit {
+impl From<vx_duration_unit> for TimeUnit {
     fn from(unit: vx_duration_unit) -> Self {
         match unit {
             vx_duration_unit::DURATION_NANOSECONDS => Self::Nanoseconds,
             vx_duration_unit::DURATION_MICROSECONDS => Self::Microseconds,
             vx_duration_unit::DURATION_MILLISECONDS => Self::Milliseconds,
             vx_duration_unit::DURATION_SECONDS => Self::Seconds,
-        }
-    }
-}
-
-impl From<DurationUnit> for vx_duration_unit {
-    fn from(unit: DurationUnit) -> Self {
-        match unit {
-            DurationUnit::Nanoseconds => Self::DURATION_NANOSECONDS,
-            DurationUnit::Microseconds => Self::DURATION_MICROSECONDS,
-            DurationUnit::Milliseconds => Self::DURATION_MILLISECONDS,
-            DurationUnit::Seconds => Self::DURATION_SECONDS,
         }
     }
 }
@@ -223,7 +213,9 @@ pub unsafe extern "C-unwind" fn vx_dtype_new_duration(
     unit: vx_duration_unit,
     is_nullable: bool,
 ) -> *const vx_dtype {
-    vx_dtype::new(DType::Duration(unit.into(), is_nullable.into()))
+    vx_dtype::new(DType::Extension(
+        Duration::new(unit.into(), is_nullable.into()).erased(),
+    ))
 }
 
 /// Get the variant of a [`vx_dtype`].
@@ -271,10 +263,20 @@ pub unsafe extern "C-unwind" fn vx_dtype_duration_unit(
     dtype: *const vx_dtype,
     unit: *mut vx_duration_unit,
 ) -> bool {
-    let DType::Duration(duration_unit, _) = vx_dtype::as_ref(dtype) else {
+    let Some(duration_unit) = vx_dtype::as_ref(dtype)
+        .as_extension_opt()
+        .and_then(|ext| ext.metadata_opt::<Duration>())
+    else {
         return false;
     };
-    unsafe { unit.write((*duration_unit).into()) };
+    let duration_unit = match duration_unit {
+        TimeUnit::Nanoseconds => vx_duration_unit::DURATION_NANOSECONDS,
+        TimeUnit::Microseconds => vx_duration_unit::DURATION_MICROSECONDS,
+        TimeUnit::Milliseconds => vx_duration_unit::DURATION_MILLISECONDS,
+        TimeUnit::Seconds => vx_duration_unit::DURATION_SECONDS,
+        TimeUnit::Days => return false,
+    };
+    unsafe { unit.write(duration_unit) };
     true
 }
 

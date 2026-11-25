@@ -9,7 +9,6 @@ use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::DecimalArray;
-use vortex_array::arrays::DurationArray;
 use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::FixedSizeListArray;
 use vortex_array::arrays::ListViewArray;
@@ -17,8 +16,6 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::bool::BoolArrayExt;
-use vortex_array::arrays::duration::DurationArrayExt;
-use vortex_array::arrays::duration::DurationArraySlotsExt;
 use vortex_array::arrays::extension::ExtensionArrayExt;
 use vortex_array::arrays::fixed_size_list::FixedSizeListArrayExt;
 use vortex_array::arrays::fixed_size_list::FixedSizeListArraySlotsExt;
@@ -174,11 +171,6 @@ pub fn mask_canonical_array(
         }
         Canonical::Union(_) => {
             vortex_bail!("TODO(connor)[Union]: support Union arrays in the mask fuzzer")
-        }
-        Canonical::Duration(array) => {
-            let values = array.values().clone().execute::<Canonical>(ctx)?;
-            let masked = mask_canonical_array(values, mask, ctx)?;
-            DurationArray::try_new(array.unit(), masked)?.into_array()
         }
         Canonical::Variant(_) => unreachable!("Variant arrays are not fuzzed"),
     })

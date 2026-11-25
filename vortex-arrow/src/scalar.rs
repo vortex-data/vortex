@@ -13,7 +13,6 @@ use arrow_data::transform::MutableArrayData;
 use arrow_schema::Field;
 use arrow_schema::Fields;
 use vortex_array::dtype::DType;
-use vortex_array::dtype::DurationUnit;
 use vortex_array::dtype::PType;
 use vortex_array::dtype::i256;
 use vortex_array::extension::datetime::AnyTemporal;
@@ -75,7 +74,6 @@ impl ToArrowDatum for Scalar {
             DType::Bool(_) => bool_to_arrow(value.as_bool()),
             DType::Primitive(..) => primitive_to_arrow(value.as_primitive()),
             DType::Decimal(..) => decimal_to_arrow(value.as_decimal()),
-            DType::Duration(unit, _) => duration_to_arrow(*unit, value),
             DType::Utf8(_) => utf8_to_arrow(value.as_utf8()),
             DType::Binary(_) => binary_to_arrow(value.as_binary()),
             DType::List(..) => {
@@ -250,19 +248,6 @@ fn concat_scalar_arrays(
     Ok(make_array(builder.freeze()))
 }
 
-fn duration_to_arrow(unit: DurationUnit, scalar: &Scalar) -> Result<Arc<dyn Datum>, VortexError> {
-    let value = scalar
-        .value()
-        .map(|value| value.as_primitive().cast::<i64>())
-        .transpose()?;
-    match unit {
-        DurationUnit::Seconds => value_to_arrow_scalar!(value, DurationSecondArray),
-        DurationUnit::Milliseconds => value_to_arrow_scalar!(value, DurationMillisecondArray),
-        DurationUnit::Microseconds => value_to_arrow_scalar!(value, DurationMicrosecondArray),
-        DurationUnit::Nanoseconds => value_to_arrow_scalar!(value, DurationNanosecondArray),
-    }
-}
-
 /// Convert an [`ExtScalar`] to an Arrow [`Datum`].
 ///
 /// Currently only temporal extension types are supported.
@@ -281,6 +266,18 @@ fn extension_to_arrow(scalar: ExtScalar<'_>) -> Result<Arc<dyn Datum>, VortexErr
         .ok_or_else(|| vortex_err!("Expected primitive scalar"))?;
 
     match temporal {
+        TemporalMetadata::Duration(unit) => {
+            let value = primitive.as_::<i64>();
+            match unit {
+                TimeUnit::Seconds => value_to_arrow_scalar!(value, DurationSecondArray),
+                TimeUnit::Milliseconds => value_to_arrow_scalar!(value, DurationMillisecondArray),
+                TimeUnit::Microseconds => value_to_arrow_scalar!(value, DurationMicrosecondArray),
+                TimeUnit::Nanoseconds => value_to_arrow_scalar!(value, DurationNanosecondArray),
+                TimeUnit::Days => {
+                    vortex_bail!("Unsupported TimeUnit {unit} for {}", ext_dtype.id())
+                }
+            }
+        }
         TemporalMetadata::Timestamp(unit, tz) => {
             let value = primitive.as_::<i64>();
             match unit {

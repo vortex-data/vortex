@@ -21,7 +21,6 @@ use crate::IntoArray;
 use crate::arrays::Bool;
 use crate::arrays::Constant;
 use crate::arrays::Decimal;
-use crate::arrays::Duration;
 use crate::arrays::Extension;
 use crate::arrays::Primitive;
 use crate::arrays::ScalarFnArray;
@@ -237,7 +236,6 @@ fn contains_union_or_variant(dtype: &DType) -> bool {
         | DType::Bool(_)
         | DType::Primitive(..)
         | DType::Decimal(..)
-        | DType::Duration(..)
         | DType::Utf8(_)
         | DType::Binary(_) => false,
     }
@@ -265,8 +263,6 @@ fn fill_null_canonical(
             <Primitive as FillNullKernel>::fill_null(a, fill_value, ctx)?
                 .ok_or_else(|| vortex_err!("FillNullKernel for PrimitiveArray returned None"))
         }
-        CanonicalView::Duration(a) => <Duration as FillNullReduce>::fill_null(a, fill_value)?
-            .ok_or_else(|| vortex_err!("FillNullReduce for DurationArray returned None")),
         CanonicalView::Decimal(a) => <Decimal as FillNullKernel>::fill_null(a, fill_value, ctx)?
             .ok_or_else(|| vortex_err!("FillNullKernel for DecimalArray returned None")),
         CanonicalView::VarBinView(a) => {

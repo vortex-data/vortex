@@ -10,6 +10,7 @@ use crate::dtype::extension::ExtDTypeRef;
 use crate::dtype::extension::ExtVTable;
 use crate::dtype::extension::Matcher;
 use crate::extension::datetime::Date;
+use crate::extension::datetime::Duration;
 use crate::extension::datetime::Time;
 use crate::extension::datetime::TimeUnit;
 use crate::extension::datetime::Timestamp;
@@ -30,7 +31,8 @@ impl Matcher for AnyTemporal {
         if let Some(opts) = item.metadata_opt::<Time>() {
             return Some(TemporalMetadata::Time(opts));
         }
-        None
+        item.metadata_opt::<Duration>()
+            .map(TemporalMetadata::Duration)
     }
 }
 
@@ -43,6 +45,8 @@ pub enum TemporalMetadata<'a> {
     Date(&'a <Date as ExtVTable>::Metadata),
     /// Metadata for Time dtypes
     Time(&'a <Time as ExtVTable>::Metadata),
+    /// Metadata for Duration dtypes.
+    Duration(&'a <Duration as ExtVTable>::Metadata),
 }
 
 // TODO(ngates): remove this logic in favor of having an ExtScalarVTable in vortex_array::scalar.
@@ -54,10 +58,11 @@ impl TemporalMetadata<'_> {
             TemporalMetadata::Time(unit) => **unit,
             TemporalMetadata::Date(unit) => **unit,
             TemporalMetadata::Timestamp(unit, _tz) => **unit,
+            TemporalMetadata::Duration(unit) => **unit,
         }
     }
 
-    /// Convert a timestamp value to a Jiff value.
+    /// Convert a temporal value to a Jiff value.
     pub fn to_jiff(&self, v: i64) -> VortexResult<TemporalJiff> {
         match self {
             TemporalMetadata::Time(unit) => Ok(TemporalJiff::Time(
@@ -66,6 +71,9 @@ impl TemporalMetadata<'_> {
             TemporalMetadata::Date(unit) => Ok(TemporalJiff::Date(
                 jiff::civil::Date::new(1970, 1, 1)?.checked_add(unit.to_jiff_span(v)?)?,
             )),
+            TemporalMetadata::Duration(unit) => {
+                Ok(TemporalJiff::Duration(Duration::to_jiff(**unit, v)?))
+            }
             TemporalMetadata::Timestamp(unit, tz) => match tz {
                 None => Ok(TemporalJiff::Unzoned(
                     jiff::civil::DateTime::new(1970, 1, 1, 0, 0, 0, 0)?
@@ -87,6 +95,8 @@ pub enum TemporalJiff {
     Time(jiff::civil::Time),
     /// A date value.
     Date(jiff::civil::Date),
+    /// An elapsed-time value.
+    Duration(jiff::SignedDuration),
     /// A zone-naive timestamp value.
     Unzoned(jiff::civil::DateTime),
     /// A zoned timestamp value.
@@ -98,6 +108,7 @@ impl Display for TemporalJiff {
         match self {
             TemporalJiff::Time(t) => write!(f, "{t}"),
             TemporalJiff::Date(d) => write!(f, "{d}"),
+            TemporalJiff::Duration(d) => write!(f, "{d}"),
             TemporalJiff::Unzoned(dt) => write!(f, "{dt}"),
             TemporalJiff::Zoned(z) => write!(f, "{z}"),
         }

@@ -18,7 +18,6 @@ use vortex::array::VortexSessionExecute;
 use vortex::buffer::ByteBuffer;
 use vortex::dtype::DType;
 use vortex::dtype::DecimalDType;
-use vortex::dtype::DurationUnit;
 use vortex::dtype::NativeDecimalType;
 use vortex::dtype::Nullability;
 use vortex::dtype::PType;
@@ -28,6 +27,7 @@ use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::error::vortex_err;
 use vortex::extension::datetime::AnyTemporal;
+use vortex::extension::datetime::Duration;
 use vortex::extension::datetime::TemporalMetadata;
 use vortex::extension::datetime::TimeUnit;
 use vortex::scalar::DecimalValue;
@@ -115,18 +115,6 @@ impl TryToDataFusion<ScalarValue> for Scalar {
                     }
                 }
             }
-            DType::Duration(unit, _) => {
-                let value = self
-                    .value()
-                    .map(|v| v.as_primitive().cast::<i64>())
-                    .transpose()?;
-                match unit {
-                    DurationUnit::Seconds => ScalarValue::DurationSecond(value),
-                    DurationUnit::Milliseconds => ScalarValue::DurationMillisecond(value),
-                    DurationUnit::Microseconds => ScalarValue::DurationMicrosecond(value),
-                    DurationUnit::Nanoseconds => ScalarValue::DurationNanosecond(value),
-                }
-            }
             // SAFETY: By construction Utf8 scalar values are utf8
             DType::Utf8(_) => ScalarValue::Utf8(self.as_utf8().value().cloned().map(|s| unsafe {
                 String::from_utf8_unchecked(Vec::<u8>::from(s.into_inner().into_bytes()))
@@ -165,6 +153,18 @@ impl TryToDataFusion<ScalarValue> for Scalar {
                 let storage_scalar = self.as_extension().to_storage_scalar();
                 let pv = storage_scalar.as_primitive();
                 match temporal {
+                    TemporalMetadata::Duration(unit) => {
+                        let value = pv.as_::<i64>();
+                        match unit {
+                            TimeUnit::Seconds => ScalarValue::DurationSecond(value),
+                            TimeUnit::Milliseconds => ScalarValue::DurationMillisecond(value),
+                            TimeUnit::Microseconds => ScalarValue::DurationMicrosecond(value),
+                            TimeUnit::Nanoseconds => ScalarValue::DurationNanosecond(value),
+                            TimeUnit::Days => {
+                                unreachable!("Unsupported TimeUnit {unit} for {}", ext.id())
+                            }
+                        }
+                    }
                     TemporalMetadata::Timestamp(unit, tz) => match unit {
                         TimeUnit::Nanoseconds => {
                             ScalarValue::TimestampNanosecond(pv.as_::<i64>(), tz.clone())
@@ -326,10 +326,10 @@ pub fn scalar_from_df(value: &ScalarValue, session: &VortexSession) -> VortexRes
                 Scalar::null(DType::Decimal(decimal_dtype, nullable))
             }
         }
-        ScalarValue::DurationSecond(v) => duration_from_df(DurationUnit::Seconds, *v)?,
-        ScalarValue::DurationMillisecond(v) => duration_from_df(DurationUnit::Milliseconds, *v)?,
-        ScalarValue::DurationMicrosecond(v) => duration_from_df(DurationUnit::Microseconds, *v)?,
-        ScalarValue::DurationNanosecond(v) => duration_from_df(DurationUnit::Nanoseconds, *v)?,
+        ScalarValue::DurationSecond(v) => duration_from_df(TimeUnit::Seconds, *v)?,
+        ScalarValue::DurationMillisecond(v) => duration_from_df(TimeUnit::Milliseconds, *v)?,
+        ScalarValue::DurationMicrosecond(v) => duration_from_df(TimeUnit::Microseconds, *v)?,
+        ScalarValue::DurationNanosecond(v) => duration_from_df(TimeUnit::Nanoseconds, *v)?,
         ScalarValue::Dictionary(_, v) => scalar_from_df(v.as_ref(), session)?,
         ScalarValue::Struct(array) => struct_from_df(array, session)?,
         ScalarValue::RunEndEncoded(_, _, v) => scalar_from_df(v.as_ref(), session)?,
@@ -337,9 +337,9 @@ pub fn scalar_from_df(value: &ScalarValue, session: &VortexSession) -> VortexRes
     })
 }
 
-fn duration_from_df(unit: DurationUnit, value: Option<i64>) -> VortexResult<Scalar> {
+fn duration_from_df(unit: TimeUnit, value: Option<i64>) -> VortexResult<Scalar> {
     Scalar::try_new(
-        DType::Duration(unit, Nullability::Nullable),
+        DType::Extension(Duration::try_new(unit, Nullability::Nullable)?.erased()),
         value.map(Into::into),
     )
 }

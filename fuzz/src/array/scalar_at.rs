@@ -6,10 +6,8 @@ use std::sync::Arc;
 use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
-use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::bool::BoolArrayExt;
-use vortex_array::arrays::duration::DurationArraySlotsExt;
 use vortex_array::arrays::extension::ExtensionArrayExt;
 use vortex_array::arrays::fixed_size_list::FixedSizeListArrayExt;
 use vortex_array::arrays::listview::ListViewArrayExt;
@@ -131,12 +129,6 @@ pub fn scalar_at_canonical_array(
                 })
                 .collect::<VortexResult<Vec<_>>>()?;
             Scalar::try_map(array.dtype().clone(), pairs)?
-        }
-        Canonical::Duration(array) => {
-            let values = array.values().clone().execute::<PrimitiveArray>(ctx)?;
-            let value =
-                Scalar::primitive(values.as_slice::<i64>()[index], array.dtype().nullability());
-            Scalar::try_new(array.dtype().clone(), value.into_value())?
         }
         Canonical::Variant(_) => unreachable!("Variant arrays are not fuzzed"),
     })

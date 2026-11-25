@@ -3,7 +3,6 @@
 
 mod bool;
 mod decimal;
-mod duration;
 mod fixed_size_list;
 mod primitive;
 mod varbin;
@@ -20,7 +19,6 @@ use vortex_session::registry::CachedId;
 
 use self::bool::check_bool_sorted;
 use self::decimal::check_decimal_sorted;
-use self::duration::check_duration_sorted;
 use self::fixed_size_list::check_fixed_size_bytes_sorted;
 use self::primitive::check_primitive_sorted;
 use self::varbin::check_varbinview_sorted;
@@ -287,7 +285,6 @@ impl AggregateFnVTable for IsSorted {
             DType::Bool(_)
             | DType::Primitive(..)
             | DType::Decimal(..)
-            | DType::Duration(..)
             | DType::Utf8(_)
             | DType::Binary(_) => Some(DType::Bool(Nullability::NonNullable)),
         }
@@ -309,7 +306,6 @@ impl AggregateFnVTable for IsSorted {
             DType::Bool(_)
             | DType::Primitive(..)
             | DType::Decimal(..)
-            | DType::Duration(..)
             | DType::Utf8(_)
             | DType::Binary(_) => Some(make_is_sorted_partial_dtype(input_dtype)),
         }
@@ -541,7 +537,6 @@ impl AggregateFnVTable for IsSorted {
                     Canonical::VarBinView(v) => {
                         check_varbinview_sorted(v, args.options.strict, ctx)?
                     }
-                    Canonical::Duration(d) => check_duration_sorted(d, args.options.strict, ctx)?,
                     Canonical::Decimal(d) => check_decimal_sorted(d, args.options.strict, ctx)?,
                     Canonical::FixedSizeList(f) => {
                         check_fixed_size_bytes_sorted(f, args.options.strict, ctx)?

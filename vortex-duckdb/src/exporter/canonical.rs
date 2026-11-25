@@ -36,7 +36,6 @@ pub(crate) fn new_exporter(
         Canonical::Union(_) => {
             vortex_bail!("TODO(connor)[Union]: implement DuckDB export for Union arrays")
         }
-        Canonical::Duration(_) => vortex_bail!("Duration arrays cannot be exported to DuckDB"),
         Canonical::Extension(ext) => extension::new_exporter(ext, ctx),
         Canonical::Variant(_) => {
             vortex_bail!("Variant arrays can't be exported to DuckDB")

@@ -20,6 +20,7 @@ use crate::dtype::DecimalDType;
 use crate::dtype::NativeDecimalType;
 use crate::dtype::PType;
 use crate::dtype::half::f16;
+use crate::extension::datetime::Duration;
 use crate::match_each_decimal_value_type;
 use crate::scalar::DecimalValue;
 use crate::scalar::PValue;
@@ -47,11 +48,6 @@ pub fn random_scalar(u: &mut Unstructured, dtype: &DType) -> Result<Scalar> {
             Some(ScalarValue::Primitive(random_pvalue(u, p)?)),
         )
         .vortex_expect("unable to construct random `Scalar`_"),
-        DType::Duration(..) => Scalar::try_new(
-            dtype.clone(),
-            Some(ScalarValue::Primitive(PValue::I64(u.arbitrary()?))),
-        )
-        .vortex_expect("arbitrary duration has i64 storage"),
         DType::Decimal(decimal_type, _) => {
             Scalar::try_new(dtype.clone(), Some(random_decimal(u, decimal_type)?))
                 .vortex_expect("unable to construct random `Scalar`_")
@@ -135,9 +131,12 @@ pub fn random_scalar(u: &mut Unstructured, dtype: &DType) -> Result<Scalar> {
             .vortex_expect("generated union scalar must be valid")
         }
         DType::Variant(_) => return Err(IncorrectFormat),
-        DType::Extension(..) => {
-            unreachable!("Can't yet generate arbitrary scalars for ext dtype")
+        DType::Extension(ext) if ext.is::<Duration>() => {
+            let storage = random_scalar(u, &ext.storage_dtype().as_nonnullable())?;
+            Scalar::try_new(dtype.clone(), storage.into_value())
+                .vortex_expect("generated duration scalar must be valid")
         }
+        DType::Extension(..) => return Err(IncorrectFormat),
     })
 }
 

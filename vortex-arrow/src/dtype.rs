@@ -24,13 +24,13 @@ use arrow_schema::Fields;
 use arrow_schema::TimeUnit as ArrowTimeUnit;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::DecimalDType;
-use vortex_array::dtype::DurationUnit;
 use vortex_array::dtype::FieldName;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::dtype::StructFields;
 use vortex_array::extension::datetime::AnyTemporal;
 use vortex_array::extension::datetime::Date;
+use vortex_array::extension::datetime::Duration;
 use vortex_array::extension::datetime::TemporalMetadata;
 use vortex_array::extension::datetime::Time;
 use vortex_array::extension::datetime::TimeUnit;
@@ -65,24 +65,6 @@ pub(crate) fn to_arrow_time_unit(value: TimeUnit) -> VortexResult<ArrowTimeUnit>
         TimeUnit::Nanoseconds => ArrowTimeUnit::Nanosecond,
         _ => vortex_bail!("Cannot convert {value} to Arrow TimeUnit"),
     })
-}
-
-pub(crate) fn from_arrow_duration_unit(unit: ArrowTimeUnit) -> DurationUnit {
-    match unit {
-        ArrowTimeUnit::Second => DurationUnit::Seconds,
-        ArrowTimeUnit::Millisecond => DurationUnit::Milliseconds,
-        ArrowTimeUnit::Microsecond => DurationUnit::Microseconds,
-        ArrowTimeUnit::Nanosecond => DurationUnit::Nanoseconds,
-    }
-}
-
-pub(crate) fn to_arrow_duration_unit(unit: DurationUnit) -> ArrowTimeUnit {
-    match unit {
-        DurationUnit::Seconds => ArrowTimeUnit::Second,
-        DurationUnit::Milliseconds => ArrowTimeUnit::Millisecond,
-        DurationUnit::Microseconds => ArrowTimeUnit::Microsecond,
-        DurationUnit::Nanoseconds => ArrowTimeUnit::Nanosecond,
-    }
 }
 
 /// Naive conversion of an Arrow [`DataType`] to the Vortex [`PType`] it stores.
@@ -143,7 +125,9 @@ pub(crate) fn from_arrow_data_type(
             Timestamp::try_new_with_tz(from_arrow_time_unit(*unit), tz.clone(), nullability)?
                 .erased(),
         ),
-        DataType::Duration(unit) => DType::Duration(from_arrow_duration_unit(*unit), nullability),
+        DataType::Duration(unit) => {
+            DType::Extension(Duration::try_new(from_arrow_time_unit(*unit), nullability)?.erased())
+        }
         DataType::List(e)
         | DataType::LargeList(e)
         | DataType::ListView(e)
@@ -256,7 +240,6 @@ pub(crate) fn to_data_type_naive(dtype: &DType) -> VortexResult<DataType> {
                 39.. => DataType::Decimal256(precision, scale),
             }
         }
-        DType::Duration(unit, _) => DataType::Duration(to_arrow_duration_unit(*unit)),
         DType::Utf8(_) => DataType::Utf8View,
         DType::Binary(_) => DataType::BinaryView,
         // There are four kinds of lists: List (32-bit offsets), Large List (64-bit), List View
@@ -307,6 +290,9 @@ pub(crate) fn to_data_type_naive(dtype: &DType) -> VortexResult<DataType> {
             // as an import/export VTable.
             if let Some(temporal) = ext_dtype.metadata_opt::<AnyTemporal>() {
                 return Ok(match temporal {
+                    TemporalMetadata::Duration(unit) => {
+                        DataType::Duration(to_arrow_time_unit(*unit)?)
+                    }
                     TemporalMetadata::Timestamp(unit, tz) => {
                         DataType::Timestamp(to_arrow_time_unit(*unit)?, tz.clone())
                     }

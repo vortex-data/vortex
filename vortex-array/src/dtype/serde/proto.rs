@@ -10,7 +10,6 @@ use vortex_session::VortexSession;
 
 use crate::dtype::DType;
 use crate::dtype::DecimalDType;
-use crate::dtype::DurationUnit;
 use crate::dtype::MapDType;
 use crate::dtype::PType;
 use crate::dtype::StructFields;
@@ -134,14 +133,6 @@ impl DType {
                 let variants = UnionVariants::try_new(names, dtypes, type_ids)?;
                 Ok(Self::Union(variants, u.nullable.into()))
             }
-            DtypeType::Duration(d) => {
-                let unit = u8::try_from(d.unit)
-                    .map_err(|_| vortex_err!("invalid duration unit {}", d.unit))?;
-                Ok(Self::Duration(
-                    DurationUnit::try_from(unit)?,
-                    d.nullable.into(),
-                ))
-            }
             DtypeType::Variant(v) => Ok(Self::Variant(v.nullable.into())),
             DtypeType::Extension(e) => {
                 #[expect(clippy::disallowed_methods, reason = "interning a dynamic id")]
@@ -226,10 +217,6 @@ impl TryFrom<&DType> for pb::DType {
                         .map(|d| Self::try_from(&d))
                         .collect::<VortexResult<Vec<_>>>()?,
                     type_ids: uv.type_ids().iter().map(|t| *t as i32).collect(),
-                    nullable: (*null).into(),
-                }),
-                DType::Duration(unit, null) => DtypeType::Duration(pb::Duration {
-                    unit: u32::from(u8::from(*unit)),
                     nullable: (*null).into(),
                 }),
                 DType::Variant(null) => DtypeType::Variant(pb::Variant {

@@ -3,7 +3,6 @@
 
 mod bool;
 mod decimal;
-mod duration;
 mod extension;
 mod filter;
 mod fixed_size_list;
@@ -25,7 +24,6 @@ use vortex_session::registry::CachedId;
 
 use self::bool::check_bool_identical;
 use self::decimal::check_decimal_identical;
-use self::duration::check_duration_identical;
 use self::extension::check_extension_identical;
 use self::filter::shared_validity_mask;
 use self::fixed_size_list::check_fixed_size_list_identical;
@@ -282,9 +280,6 @@ fn check_canonical_identical(
         (Canonical::Bool(lhs), Canonical::Bool(rhs)) => check_bool_identical(lhs, rhs),
         (Canonical::Primitive(lhs), Canonical::Primitive(rhs)) => {
             check_primitive_identical(lhs, rhs)
-        }
-        (Canonical::Duration(lhs), Canonical::Duration(rhs)) => {
-            check_duration_identical(lhs, rhs, ctx)
         }
         (Canonical::Decimal(lhs), Canonical::Decimal(rhs)) => check_decimal_identical(lhs, rhs),
         (Canonical::VarBinView(lhs), Canonical::VarBinView(rhs)) => {

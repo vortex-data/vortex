@@ -17,7 +17,7 @@ use crate::ArrayRef;
 use crate::IntoArray;
 use crate::arrays::BoolArray;
 use crate::arrays::ChunkedArray;
-use crate::arrays::DurationArray;
+use crate::arrays::ExtensionArray;
 use crate::arrays::NullArray;
 use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
@@ -37,6 +37,7 @@ use crate::dtype::NativePType;
 use crate::dtype::Nullability;
 use crate::dtype::OffsetBuilderPType;
 use crate::dtype::PType;
+use crate::extension::datetime::Duration;
 use crate::scalar::Scalar;
 use crate::scalar::arbitrary::random_scalar;
 use crate::validity::Validity;
@@ -141,12 +142,6 @@ fn random_array_chunk(
             PType::F32 => random_primitive::<f32>(u, *n, chunk_len),
             PType::F64 => random_primitive::<f64>(u, *n, chunk_len),
         },
-        DType::Duration(unit, n) => {
-            let values = random_primitive::<i64>(u, *n, chunk_len)?;
-            Ok(DurationArray::try_new(*unit, values)
-                .vortex_expect("arbitrary duration has i64 storage")
-                .into_array())
-        }
         d @ DType::Decimal(decimal, n) => {
             let elem_len = chunk_len.unwrap_or(u.int_in_range(0..=20)?);
             let mut builder = DecimalBuilder::new_in(
@@ -200,6 +195,12 @@ fn random_array_chunk(
             )
             .vortex_expect("operation should succeed in arbitrary impl")
             .into_array())
+        }
+        DType::Extension(ext) if ext.is::<Duration>() => {
+            let storage = random_array_chunk(u, ext.storage_dtype(), chunk_len)?;
+            Ok(ExtensionArray::try_new(ext.clone(), storage)
+                .vortex_expect("generated duration storage must be valid")
+                .into_array())
         }
         DType::Union(..) | DType::Variant(_) | DType::Extension(..) => Err(IncorrectFormat),
     }

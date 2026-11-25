@@ -40,7 +40,6 @@ use crate::aggregate_fn::DynAccumulator;
 use crate::aggregate_fn::EmptyOptions;
 use crate::arrays::Constant;
 use crate::arrays::Null;
-use crate::arrays::duration::DurationArraySlotsExt as _;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::FieldNames;
@@ -429,7 +428,6 @@ impl AggregateFnVTable for IsConstant {
                     Canonical::Primitive(p) => check_primitive_constant(p),
                     Canonical::Bool(b) => check_bool_constant(b),
                     Canonical::VarBinView(v) => check_varbinview_constant(v),
-                    Canonical::Duration(d) => is_constant(d.values(), ctx)?,
                     Canonical::Decimal(d) => check_decimal_constant(d),
                     Canonical::Struct(s) => check_struct_constant(s, ctx)?,
                     Canonical::Extension(e) => check_extension_constant(e, ctx)?,

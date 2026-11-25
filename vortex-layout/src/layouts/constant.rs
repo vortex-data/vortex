@@ -175,7 +175,6 @@ fn supports_constant_detection(dtype: &DType) -> bool {
         | DType::Bool(_)
         | DType::Primitive(..)
         | DType::Decimal(..)
-        | DType::Duration(..)
         | DType::Utf8(_)
         | DType::Binary(_) => true,
         DType::List(element, _) | DType::FixedSizeList(element, ..) => {

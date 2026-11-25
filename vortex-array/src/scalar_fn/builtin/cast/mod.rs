@@ -25,7 +25,6 @@ use crate::IntoArray;
 use crate::arrays::Bool;
 use crate::arrays::Constant;
 use crate::arrays::Decimal;
-use crate::arrays::Duration;
 use crate::arrays::Extension;
 use crate::arrays::FixedSizeList;
 use crate::arrays::ListView;
@@ -274,7 +273,6 @@ fn cast_canonical(
         CanonicalView::Null(a) => <Null as CastReduce>::cast(a, dtype),
         CanonicalView::Bool(a) => <Bool as CastKernel>::cast(a, dtype, ctx),
         CanonicalView::Primitive(a) => <Primitive as CastKernel>::cast(a, dtype, ctx),
-        CanonicalView::Duration(a) => <Duration as CastReduce>::cast(a, dtype),
         CanonicalView::Decimal(a) => <Decimal as CastKernel>::cast(a, dtype, ctx),
         CanonicalView::VarBinView(a) => <VarBinView as CastKernel>::cast(a, dtype, ctx),
         CanonicalView::List(a) => <ListView as CastKernel>::cast(a, dtype, ctx),

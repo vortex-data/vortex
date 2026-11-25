@@ -11,7 +11,6 @@ use vortex_error::VortexExpect;
 
 use crate::dtype::DType;
 use crate::dtype::DecimalDType;
-use crate::dtype::DurationUnit;
 use crate::dtype::FieldName;
 use crate::dtype::FieldNames;
 use crate::dtype::NativeDecimalType;
@@ -20,6 +19,8 @@ use crate::dtype::PType;
 use crate::dtype::RESERVED_VALIDITY_FIELD_NAME;
 use crate::dtype::StructFields;
 use crate::dtype::i256;
+use crate::extension::datetime::Duration;
+use crate::extension::datetime::TimeUnit;
 
 mod decimal;
 
@@ -51,7 +52,7 @@ fn random_dtype(u: &mut Unstructured<'_>, depth: u8) -> Result<DType> {
         3 => DType::Decimal(u.arbitrary()?, u.arbitrary()?),
         4 => DType::Utf8(u.arbitrary()?),
         5 => DType::Binary(u.arbitrary()?),
-        6 => DType::Duration(u.arbitrary()?, u.arbitrary()?),
+        6 => DType::Extension(Duration::new(random_duration_unit(u)?, u.arbitrary()?).erased()),
 
         // container types
         7 => DType::Struct(random_struct_dtype(u, depth - 1)?, u.arbitrary()?),
@@ -108,16 +109,14 @@ impl<'a> Arbitrary<'a> for PType {
     }
 }
 
-impl<'a> Arbitrary<'a> for DurationUnit {
-    fn arbitrary(u: &mut Unstructured<'a>) -> Result<Self> {
-        u.choose(&[
-            Self::Seconds,
-            Self::Milliseconds,
-            Self::Microseconds,
-            Self::Nanoseconds,
-        ])
-        .copied()
-    }
+fn random_duration_unit(u: &mut Unstructured<'_>) -> Result<TimeUnit> {
+    u.choose(&[
+        TimeUnit::Seconds,
+        TimeUnit::Milliseconds,
+        TimeUnit::Microseconds,
+        TimeUnit::Nanoseconds,
+    ])
+    .copied()
 }
 
 impl<'a> Arbitrary<'a> for DecimalDType {

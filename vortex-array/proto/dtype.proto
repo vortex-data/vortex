@@ -88,11 +88,6 @@ message Map {
   bool nullable = 4;
 }
 
-message Duration {
-  uint32 unit = 1;
-  bool nullable = 2;
-}
-
 message DType {
   oneof dtype_type {
     Null null = 1;
@@ -108,7 +103,6 @@ message DType {
     Variant variant = 11;
     Union union = 12;
     Map map = 13;
-    Duration duration = 14;
   }
 }
 

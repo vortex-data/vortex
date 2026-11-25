@@ -49,10 +49,6 @@ pub mod decimal;
 pub use decimal::Decimal;
 pub use decimal::DecimalArray;
 
-pub mod duration;
-pub use duration::Duration;
-pub use duration::DurationArray;
-
 pub mod dict;
 pub use dict::Dict;
 pub use dict::DictArray;
@@ -154,7 +150,6 @@ pub(crate) fn initialize(session: &VortexSession) {
     constant::initialize(session);
     decimal::initialize(session);
     dict::initialize(session);
-    duration::initialize(session);
     extension::initialize(session);
     filter::initialize(session);
     fixed_size_list::initialize(session);

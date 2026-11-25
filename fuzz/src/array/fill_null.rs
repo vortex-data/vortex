@@ -10,16 +10,14 @@ use vortex_array::IntoArray;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::DecimalArray;
-use vortex_array::arrays::DurationArray;
+use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::bool::BoolArrayExt;
-use vortex_array::arrays::duration::DurationArrayExt;
-use vortex_array::arrays::duration::DurationArraySlotsExt;
+use vortex_array::arrays::extension::ExtensionArrayExt;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
-use vortex_array::dtype::PType;
 use vortex_array::match_each_decimal_value_type;
 use vortex_array::match_each_native_ptype;
 use vortex_array::scalar::Scalar;
@@ -46,9 +44,6 @@ pub fn fill_null_canonical_array(
         Canonical::Primitive(array) => {
             fill_primitive_array(array, fill_value, result_nullability, ctx)
         }
-        Canonical::Duration(array) => {
-            fill_duration_array(array, fill_value, result_nullability, ctx)?
-        }
         Canonical::Decimal(array) => fill_decimal_array(array, fill_value, result_nullability, ctx),
         Canonical::VarBinView(array) => {
             fill_varbinview_array(array, fill_value, result_nullability, ctx)
@@ -56,28 +51,21 @@ pub fn fill_null_canonical_array(
         Canonical::Struct(_)
         | Canonical::List(_)
         | Canonical::Map(_)
-        | Canonical::FixedSizeList(_)
-        | Canonical::Extension(_) => canonical.into_array().fill_null(fill_value.clone())?,
+        | Canonical::FixedSizeList(_) => canonical.into_array().fill_null(fill_value.clone())?,
+        Canonical::Extension(array) => {
+            let storage = array.storage_array().clone().execute::<Canonical>(ctx)?;
+            let fill = fill_value.as_extension().to_storage_scalar();
+            let storage = fill_null_canonical_array(storage, &fill, ctx)?;
+            let ext = array
+                .ext_dtype()
+                .with_nullability(storage.dtype().nullability());
+            ExtensionArray::try_new(ext, storage)?.into_array()
+        }
         Canonical::Union(_) => {
             vortex_bail!("TODO(connor)[Union]: support Union arrays in the fill_null fuzzer")
         }
         Canonical::Variant(_) => unreachable!("Variant arrays are not fuzzed"),
     })
-}
-
-fn fill_duration_array(
-    array: DurationArray,
-    fill_value: &Scalar,
-    result_nullability: Nullability,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<ArrayRef> {
-    let values = array.values().clone().execute::<PrimitiveArray>(ctx)?;
-    let primitive_fill = Scalar::try_new(
-        DType::Primitive(PType::I64, result_nullability),
-        fill_value.value().cloned(),
-    )?;
-    let filled = fill_primitive_array(values, &primitive_fill, result_nullability, ctx);
-    Ok(DurationArray::try_new(array.unit(), filled)?.into_array())
 }
 
 fn fill_bool_array(
@@ -336,6 +324,7 @@ mod tests {
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::DecimalArray;
+    use vortex_array::arrays::ExtensionArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::VarBinViewArray;
     use vortex_array::assert_arrays_eq;

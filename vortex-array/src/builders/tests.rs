@@ -54,7 +54,6 @@ use crate::builders::ListBuilder;
 use crate::builders::builder_with_capacity_in;
 use crate::dtype::DType;
 use crate::dtype::DecimalDType;
-use crate::dtype::DurationUnit;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::dtype::StructFields;
@@ -696,7 +695,6 @@ fn test_to_canonical_f32() {
     Nullability::NonNullable
 ))]
 #[case::decimal128_nullable(DType::Decimal(DecimalDType::new(10, 2), Nullability::Nullable))]
-#[case::duration(DType::Duration(DurationUnit::Milliseconds, Nullability::Nullable))]
 #[case::struct_simple(DType::Struct(
     StructFields::from_iter([
         ("a", DType::Primitive(PType::I32, Nullability::NonNullable)),
@@ -807,10 +805,6 @@ fn create_test_scalars_for_dtype(dtype: &DType, count: usize) -> Vec<Scalar> {
                 PType::F32 => Scalar::primitive(i as f32 * 1.5, *n),
                 PType::F64 => Scalar::primitive(i as f64 * 1.5, *n),
             },
-            DType::Duration(..) => {
-                Scalar::try_new(dtype.clone(), Scalar::from(i as i64).into_value())
-                    .vortex_expect("valid duration scalar")
-            }
             DType::Decimal(dec_dtype, n) => {
                 // Create decimal scalars based on the decimal dtype.
                 use crate::scalar::DecimalValue;

@@ -131,10 +131,10 @@ impl ::flatbuffers::SimpleToVerifyInSlice for PType {}
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
 pub const ENUM_MIN_TYPE: u8 = 0;
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
-pub const ENUM_MAX_TYPE: u8 = 14;
+pub const ENUM_MAX_TYPE: u8 = 13;
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_TYPE: [Type; 15] = [
+pub const ENUM_VALUES_TYPE: [Type; 14] = [
   Type::NONE,
   Type::Null,
   Type::Bool,
@@ -149,7 +149,6 @@ pub const ENUM_VALUES_TYPE: [Type; 15] = [
   Type::Variant,
   Type::Union,
   Type::Map,
-  Type::Duration,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -171,10 +170,9 @@ impl Type {
   pub const Variant: Self = Self(11);
   pub const Union: Self = Self(12);
   pub const Map: Self = Self(13);
-  pub const Duration: Self = Self(14);
 
   pub const ENUM_MIN: u8 = 0;
-  pub const ENUM_MAX: u8 = 14;
+  pub const ENUM_MAX: u8 = 13;
   pub const ENUM_VALUES: &'static [Self] = &[
     Self::NONE,
     Self::Null,
@@ -190,7 +188,6 @@ impl Type {
     Self::Variant,
     Self::Union,
     Self::Map,
-    Self::Duration,
   ];
   /// Returns the variant's name or "" if unknown.
   pub fn variant_name(self) -> Option<&'static str> {
@@ -209,7 +206,6 @@ impl Type {
       Self::Variant => Some("Variant"),
       Self::Union => Some("Union"),
       Self::Map => Some("Map"),
-      Self::Duration => Some("Duration"),
       _ => None,
     }
   }
@@ -1768,119 +1764,6 @@ impl ::core::fmt::Debug for Map<'_> {
       ds.finish()
   }
 }
-pub enum DurationOffset {}
-#[derive(Copy, Clone, PartialEq)]
-
-pub struct Duration<'a> {
-  pub _tab: ::flatbuffers::Table<'a>,
-}
-
-impl<'a> ::flatbuffers::Follow<'a> for Duration<'a> {
-  type Inner = Duration<'a>;
-  #[inline]
-  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
-    Self { _tab: unsafe { ::flatbuffers::Table::new(buf, loc) } }
-  }
-}
-
-impl<'a> Duration<'a> {
-  pub const VT_UNIT: ::flatbuffers::VOffsetT = 4;
-  pub const VT_NULLABLE: ::flatbuffers::VOffsetT = 6;
-
-  #[inline]
-  pub unsafe fn init_from_table(table: ::flatbuffers::Table<'a>) -> Self {
-    Duration { _tab: table }
-  }
-  #[allow(unused_mut)]
-  pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: ::flatbuffers::Allocator + 'bldr>(
-    _fbb: &'mut_bldr mut ::flatbuffers::FlatBufferBuilder<'bldr, A>,
-    args: &'args DurationArgs
-  ) -> ::flatbuffers::WIPOffset<Duration<'bldr>> {
-    let mut builder = DurationBuilder::new(_fbb);
-    builder.add_nullable(args.nullable);
-    builder.add_unit(args.unit);
-    builder.finish()
-  }
-
-
-  #[inline]
-  pub fn unit(&self) -> u8 {
-    // Safety:
-    // Created from valid Table for this object
-    // which contains a valid value in this slot
-    unsafe { self._tab.get::<u8>(Duration::VT_UNIT, Some(0)).unwrap()}
-  }
-  #[inline]
-  pub fn nullable(&self) -> bool {
-    // Safety:
-    // Created from valid Table for this object
-    // which contains a valid value in this slot
-    unsafe { self._tab.get::<bool>(Duration::VT_NULLABLE, Some(false)).unwrap()}
-  }
-}
-
-impl ::flatbuffers::Verifiable for Duration<'_> {
-  #[inline]
-  fn run_verifier(
-    v: &mut ::flatbuffers::Verifier, pos: usize
-  ) -> Result<(), ::flatbuffers::InvalidFlatbuffer> {
-    v.visit_table(pos)?
-     .visit_field::<u8>("unit", Self::VT_UNIT, false)?
-     .visit_field::<bool>("nullable", Self::VT_NULLABLE, false)?
-     .finish();
-    Ok(())
-  }
-}
-pub struct DurationArgs {
-    pub unit: u8,
-    pub nullable: bool,
-}
-impl<'a> Default for DurationArgs {
-  #[inline]
-  fn default() -> Self {
-    DurationArgs {
-      unit: 0,
-      nullable: false,
-    }
-  }
-}
-
-pub struct DurationBuilder<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> {
-  fbb_: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>,
-  start_: ::flatbuffers::WIPOffset<::flatbuffers::TableUnfinishedWIPOffset>,
-}
-impl<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> DurationBuilder<'a, 'b, A> {
-  #[inline]
-  pub fn add_unit(&mut self, unit: u8) {
-    self.fbb_.push_slot::<u8>(Duration::VT_UNIT, unit, 0);
-  }
-  #[inline]
-  pub fn add_nullable(&mut self, nullable: bool) {
-    self.fbb_.push_slot::<bool>(Duration::VT_NULLABLE, nullable, false);
-  }
-  #[inline]
-  pub fn new(_fbb: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>) -> DurationBuilder<'a, 'b, A> {
-    let start = _fbb.start_table();
-    DurationBuilder {
-      fbb_: _fbb,
-      start_: start,
-    }
-  }
-  #[inline]
-  pub fn finish(self) -> ::flatbuffers::WIPOffset<Duration<'a>> {
-    let o = self.fbb_.end_table(self.start_);
-    ::flatbuffers::WIPOffset::new(o.value())
-  }
-}
-
-impl ::core::fmt::Debug for Duration<'_> {
-  fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
-    let mut ds = f.debug_struct("Duration");
-      ds.field("unit", &self.unit());
-      ds.field("nullable", &self.nullable());
-      ds.finish()
-  }
-}
 pub enum DTypeOffset {}
 #[derive(Copy, Clone, PartialEq)]
 
@@ -2125,21 +2008,6 @@ impl<'a> DType<'a> {
     }
   }
 
-  #[inline]
-  #[allow(non_snake_case)]
-  pub fn type__as_duration(&self) -> Option<Duration<'a>> {
-    if self.type_type() == Type::Duration {
-      self.type_().map(|t| {
-       // Safety:
-       // Created from a valid Table for this object
-       // Which contains a valid union in this slot
-       unsafe { Duration::init_from_table(t) }
-     })
-    } else {
-      None
-    }
-  }
-
 }
 
 impl ::flatbuffers::Verifiable for DType<'_> {
@@ -2163,7 +2031,6 @@ impl ::flatbuffers::Verifiable for DType<'_> {
           Type::Variant => v.verify_union_variant::<::flatbuffers::ForwardsUOffset<Variant>>("Type::Variant", pos),
           Type::Union => v.verify_union_variant::<::flatbuffers::ForwardsUOffset<Union>>("Type::Union", pos),
           Type::Map => v.verify_union_variant::<::flatbuffers::ForwardsUOffset<Map>>("Type::Map", pos),
-          Type::Duration => v.verify_union_variant::<::flatbuffers::ForwardsUOffset<Duration>>("Type::Duration", pos),
           _ => Ok(()),
         }
      })?
@@ -2304,13 +2171,6 @@ impl ::core::fmt::Debug for DType<'_> {
         },
         Type::Map => {
           if let Some(x) = self.type__as_map() {
-            ds.field("type_", &x)
-          } else {
-            ds.field("type_", &"InvalidFlatbuffer: Union discriminant does not match value.")
-          }
-        },
-        Type::Duration => {
-          if let Some(x) = self.type__as_duration() {
             ds.field("type_", &x)
           } else {
             ds.field("type_", &"InvalidFlatbuffer: Union discriminant does not match value.")

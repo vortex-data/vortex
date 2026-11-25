@@ -109,7 +109,6 @@ impl PyScalar {
             DType::Null => Self::with_subclass(py, scalar, PyNullScalar),
             DType::Bool(_) => Self::with_subclass(py, scalar, PyBoolScalar),
             DType::Primitive(..) => Self::with_subclass(py, scalar, PyPrimitiveScalar),
-            DType::Duration(..) => Bound::new(py, PyScalar(scalar)),
             DType::Decimal(..) => Self::with_subclass(py, scalar, PyDecimalScalar),
             DType::Utf8(..) => Self::with_subclass(py, scalar, PyUtf8Scalar),
             DType::Binary(..) => Self::with_subclass(py, scalar, PyBinaryScalar),

@@ -134,7 +134,7 @@ def test_write_rejects_duration_when_edition_disallows_it(tmp_path, as_reader: b
     table = pa.table({"elapsed": pa.array([1], pa.duration("ms"))})
     source = pa.RecordBatchReader.from_batches(table.schema, table.to_batches()) if as_reader else table
 
-    with pytest.raises(RuntimeError, match="Duration dtype not permitted"):
+    with pytest.raises(RuntimeError, match=r"Extension DType vortex\.duration not permitted"):
         vx.io.write(source, str(tmp_path / "x.vortex"), edition="core2025.10.0")
 
 

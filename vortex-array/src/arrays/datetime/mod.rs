@@ -3,7 +3,7 @@
 
 //! Typed wrappers for temporal extension arrays.
 //!
-//! [`TemporalData`] gives date, time, and timestamp arrays a shared storage interface. The extension
+//! [`TemporalData`] gives date, time, timestamp, and duration arrays a shared storage interface. The extension
 //! dtype retains each type's unit and metadata while the underlying array stores numeric values.
 
 use std::sync::Arc;
@@ -21,6 +21,7 @@ use crate::dtype::DType;
 use crate::dtype::extension::ExtDTypeRef;
 use crate::extension::datetime::AnyTemporal;
 use crate::extension::datetime::Date;
+use crate::extension::datetime::Duration;
 use crate::extension::datetime::TemporalMetadata;
 use crate::extension::datetime::Time;
 use crate::extension::datetime::TimeUnit;
@@ -28,8 +29,8 @@ use crate::extension::datetime::Timestamp;
 
 /// An array wrapper for primitive values that have an associated temporal meaning.
 ///
-/// This is a wrapper around ExtensionArrays containing numeric types, each of which corresponds to
-/// either a timestamp or julian date (both referenced to UNIX epoch), OR a time since midnight.
+/// The underlying ExtensionArray stores a date or timestamp relative to the Unix epoch,
+/// a time since midnight, or a signed elapsed duration.
 ///
 /// ## Arrow compatibility
 ///
@@ -39,6 +40,7 @@ use crate::extension::datetime::Timestamp;
 /// * `Timestamp`
 /// * `Date32`
 /// * `Date64`
+/// * `Duration`
 ///
 /// Anything that can be constructed and held in a `TemporalData` can also be zero-copy converted
 /// back to the relevant Arrow datatype.
@@ -97,6 +99,20 @@ impl TemporalData {
         Self {
             ext: ExtensionArray::new(
                 Time::new(time_unit, array.dtype().nullability()).erased(),
+                array,
+            ),
+        }
+    }
+
+    /// Creates a duration array in seconds, milliseconds, microseconds, or nanoseconds.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the array does not have primitive i64 storage or if the unit is days.
+    pub fn new_duration(array: ArrayRef, unit: TimeUnit) -> Self {
+        Self {
+            ext: ExtensionArray::new(
+                Duration::new(unit, array.dtype().nullability()).erased(),
                 array,
             ),
         }

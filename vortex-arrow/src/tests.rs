@@ -26,8 +26,9 @@ use vortex_array::arrays::listview::ListViewArraySlotsExt;
 use vortex_array::arrays::map::MapArraySlotsExt;
 use vortex_array::assert_arrays_eq;
 use vortex_array::dtype::DType;
-use vortex_array::dtype::DurationUnit;
 use vortex_array::dtype::Nullability;
+use vortex_array::extension::datetime::Duration;
+use vortex_array::extension::datetime::TimeUnit;
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 
@@ -89,29 +90,40 @@ fn test_sliced_map_imports_only_its_entries(
     Ok(())
 }
 
-const DURATION_VALUES: [Option<i64>; 4] = [Some(i64::MIN), None, Some(42), Some(i64::MAX)];
+const DURATION_VALUES: [Option<i64>; 4] = [Some(i64::MIN), Some(42), Some(i64::MAX), None];
 
 #[rstest]
-#[case::seconds(DurationUnit::Seconds, Arc::new(DurationSecondArray::from(DURATION_VALUES.to_vec())))]
-#[case::milliseconds(DurationUnit::Milliseconds, Arc::new(DurationMillisecondArray::from(DURATION_VALUES.to_vec())))]
-#[case::microseconds(DurationUnit::Microseconds, Arc::new(DurationMicrosecondArray::from(DURATION_VALUES.to_vec())))]
-#[case::nanoseconds(DurationUnit::Nanoseconds, Arc::new(DurationNanosecondArray::from(DURATION_VALUES.to_vec())))]
+#[case::seconds(TimeUnit::Seconds, Arc::new(DurationSecondArray::from(DURATION_VALUES.to_vec())))]
+#[case::milliseconds(TimeUnit::Milliseconds, Arc::new(DurationMillisecondArray::from(DURATION_VALUES.to_vec())))]
+#[case::microseconds(TimeUnit::Microseconds, Arc::new(DurationMicrosecondArray::from(DURATION_VALUES.to_vec())))]
+#[case::nanoseconds(TimeUnit::Nanoseconds, Arc::new(DurationNanosecondArray::from(DURATION_VALUES.to_vec())))]
 fn test_native_duration_round_trip(
-    #[case] unit: DurationUnit,
+    #[case] unit: TimeUnit,
     #[case] input: ArrowArrayRef,
+    #[values(false, true)] nullable: bool,
 ) -> VortexResult<()> {
     let session = VortexSession::empty();
     let arrow = session.arrow();
     let mut ctx = session.create_execution_ctx();
-    let field = Field::new("elapsed", input.data_type().clone(), true);
-    let expected = DType::Duration(unit, Nullability::Nullable);
+    let input = if nullable {
+        input
+    } else {
+        input.slice(0, input.len() - 1)
+    };
+    let field = Field::new("elapsed", input.data_type().clone(), nullable);
+    let expected = DType::Extension(Duration::try_new(unit, Nullability::from(nullable))?.erased());
+    assert_eq!(expected.as_extension().id().as_str(), "vortex.duration");
 
     assert_eq!(arrow.from_arrow_field(&field)?, expected);
     let imported = arrow.from_arrow_array(Arc::clone(&input), &field)?;
     assert_eq!(imported.dtype(), &expected);
     assert_eq!(arrow.to_arrow_field("elapsed", imported.dtype())?, field);
     assert_eq!(
-        imported.execute_arrow(None, &mut ctx)?.as_ref(),
+        imported.clone().execute_arrow(None, &mut ctx)?.as_ref(),
+        input.as_ref()
+    );
+    assert_eq!(
+        imported.execute_arrow(Some(&field), &mut ctx)?.as_ref(),
         input.as_ref()
     );
 

@@ -6,15 +6,14 @@ use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::DecimalArray;
-use vortex_array::arrays::DurationArray;
+use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::bool::BoolArrayExt;
-use vortex_array::arrays::duration::DurationArraySlotsExt;
+use vortex_array::arrays::extension::ExtensionArrayExt;
 use vortex_array::arrays::primitive::NativeValue;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
-use vortex_array::dtype::PType;
 use vortex_array::match_each_decimal_value_type;
 use vortex_array::match_each_native_ptype;
 use vortex_array::scalar::Scalar;
@@ -40,17 +39,13 @@ pub fn compare_canonical_array(
     let result_nullability = array.dtype().nullability() | value.dtype().nullability();
 
     match array.dtype() {
-        DType::Duration(..) => {
-            let array = array
+        DType::Extension(_) => {
+            let extension = array
                 .clone()
-                .execute::<DurationArray>(ctx)
-                .vortex_expect("to duration");
-            let scalar = Scalar::try_new(
-                DType::Primitive(PType::I64, value.dtype().nullability()),
-                value.value().cloned(),
-            )
-            .vortex_expect("duration values are signed 64-bit integers");
-            compare_canonical_array(array.values(), &scalar, operator, ctx)
+                .execute::<ExtensionArray>(ctx)
+                .vortex_expect("extension must execute");
+            let scalar = value.as_extension().to_storage_scalar();
+            compare_canonical_array(extension.storage_array(), &scalar, operator, ctx)
         }
         DType::Bool(_) => {
             let bool = value
@@ -201,11 +196,7 @@ pub fn compare_canonical_array(
             }))
             .into_array()
         }
-        d @ (DType::Null
-        | DType::Map(..)
-        | DType::Union(..)
-        | DType::Variant(_)
-        | DType::Extension(_)) => {
+        d @ (DType::Null | DType::Map(..) | DType::Union(..) | DType::Variant(_)) => {
             unreachable!("DType {d} not supported for fuzzing")
         }
     }
