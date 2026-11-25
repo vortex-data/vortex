@@ -12,6 +12,8 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldNames;
 use vortex_array::dtype::Nullability;
 use vortex_array::expr::BoundExpression;
+use vortex_array::extension::datetime::TemporalRounding;
+use vortex_array::extension::datetime::TimeUnit;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar::ScalarValue;
 use vortex_array::scalar_fn::EmptyOptions;
@@ -31,6 +33,10 @@ use crate::between::StrictComparison;
 use crate::byte_length::ByteLength;
 use crate::case_when::CaseWhen;
 use crate::case_when::CaseWhenOptions;
+use crate::change_time_unit::ChangeTimeUnit;
+use crate::change_time_unit::ChangeTimeUnitOptions;
+use crate::convert_time_zone::ConvertTimeZone;
+use crate::convert_time_zone::ConvertTimeZoneOptions;
 use crate::dynamic::DynamicComparison;
 use crate::dynamic::DynamicComparisonExpr;
 use crate::dynamic::Rhs;
@@ -56,10 +62,71 @@ use crate::replace_time_zone::ReplaceTimeZoneOptions;
 use crate::select::FieldSelection;
 use crate::select::Select;
 use crate::strpos::Strpos;
+use crate::timestamp_to_date::TimestampToDate;
+use crate::timestamp_to_time::TimestampToTime;
 use crate::variant_get::VariantGet;
 use crate::variant_get::VariantGetOptions;
 use crate::variant_get::VariantPath;
 use crate::zip::Zip;
+
+/// Convert a [`Date`], [`Time`], or [`Timestamp`] to a coarser `unit` with an explicit
+/// [`TemporalRounding`].
+///
+/// `unit` **must** be coarser than the input unit and valid for the input type (a [`Date`]
+/// supports only days and milliseconds), or binding fails. At execution,
+/// [`TemporalRounding::Exact`] fails on a count with a remainder, and a [`Time`] fails when it
+/// rounds up to midnight, because the result must stay within the same day. A [`Timestamp`] keeps
+/// its time zone, and nulls stay null.
+///
+/// [`Date`]: vortex_array::extension::datetime::Date
+/// [`Time`]: vortex_array::extension::datetime::Time
+/// [`Timestamp`]: vortex_array::extension::datetime::Timestamp
+pub fn change_time_unit(
+    input: Expression,
+    unit: TimeUnit,
+    rounding: TemporalRounding,
+) -> Expression {
+    ChangeTimeUnit.new_expr(ChangeTimeUnitOptions { unit, rounding }, [input])
+}
+
+/// Change the time zone of a [`Timestamp`] and keep its instant, so the stored count does not
+/// change.
+///
+/// The input **must** be a [`Timestamp`] with a time zone, or binding fails. Use
+/// [`replace_time_zone`] to keep the local clock time in another zone instead.
+///
+/// [`Timestamp`]: vortex_array::extension::datetime::Timestamp
+pub fn convert_time_zone(input: Expression, time_zone: impl Into<Arc<str>>) -> Expression {
+    ConvertTimeZone.new_expr(
+        ConvertTimeZoneOptions {
+            time_zone: time_zone.into(),
+        },
+        [input],
+    )
+}
+
+/// Extract the local calendar date of a [`Timestamp`] as a [`Date`] in days.
+///
+/// A timestamp with a time zone uses the offset of that zone at its instant, and a timestamp
+/// without a time zone already counts local time. The input **must** be a [`Timestamp`], or
+/// binding fails. A date outside the `i32` range of days fails at execution.
+///
+/// [`Date`]: vortex_array::extension::datetime::Date
+/// [`Timestamp`]: vortex_array::extension::datetime::Timestamp
+pub fn timestamp_to_date(input: Expression) -> Expression {
+    TimestampToDate.new_expr(EmptyOptions, [input])
+}
+
+/// Extract the local time of day of a [`Timestamp`] as a [`Time`] in the same unit.
+///
+/// The time zone applies as in [`timestamp_to_date`]. The input **must** be a [`Timestamp`], or
+/// binding fails.
+///
+/// [`Time`]: vortex_array::extension::datetime::Time
+/// [`Timestamp`]: vortex_array::extension::datetime::Timestamp
+pub fn timestamp_to_time(input: Expression) -> Expression {
+    TimestampToTime.new_expr(EmptyOptions, [input])
+}
 
 /// Creates a CASE WHEN expression with one WHEN/THEN pair and an ELSE value.
 pub fn case_when(
