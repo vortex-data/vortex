@@ -140,6 +140,11 @@ impl LayoutStrategy for RepartitionStrategy {
         // segments.
         let block_len = options.effective_block_len(&dtype);
         let block_size_minimum = options.block_size_minimum;
+        // Variable-width dtypes have no element size to derive a block length from up front, so
+        // the buffer measures their bytes per row instead.
+        let adaptive_target = options
+            .block_size_target
+            .filter(|_| dtype.element_size().is_none());
         let repartition_session = session.clone();
         let ctx = ctx.with_child_size_scope();
         let size_scope = ctx.size_scope().clone();
@@ -149,7 +154,8 @@ impl LayoutStrategy for RepartitionStrategy {
             pin_mut!(canonical_stream);
 
             let mut ctx = repartition_session.create_execution_ctx();
-            let mut chunks = ChunksBuffer::new(block_size_minimum, block_len, size_scope);
+            let mut chunks = ChunksBuffer::new(block_size_minimum, block_len, size_scope)
+                .with_adaptive_target(adaptive_target);
             while let Some(chunk) = canonical_stream.as_mut().next().await {
                 let (sequence_id, chunk) = chunk?;
                 let mut sequence_pointer = sequence_id.descend();
@@ -160,7 +166,8 @@ impl LayoutStrategy for RepartitionStrategy {
                     chunks.push_back(sliced, &mut ctx)?;
                     offset = end;
 
-                    if chunks.have_enough() {
+                    // One pushed slice of wide rows can hold several blocks.
+                    while chunks.have_enough() {
                         let (output_chunks, reservations) = chunks.collect_exact_blocks(&mut ctx)?;
                         assert!(!output_chunks.is_empty());
                         let chunked =
@@ -219,7 +226,13 @@ struct ChunksBuffer {
     row_count: usize,
     nbytes: u64,
     block_size_minimum: u64,
+    /// The largest block length. Blocks are a multiple of it unless `adaptive_target` shortens
+    /// them.
     block_len_multiple: usize,
+    /// When set, a block whose rows average enough bytes to reach this target before
+    /// `block_len_multiple` rows is cut short, at the smallest power-of-two divisor of
+    /// `block_len_multiple` that reaches it.
+    adaptive_target: Option<u64>,
     size_scope: SizeScope,
 }
 
@@ -231,12 +244,42 @@ impl ChunksBuffer {
             nbytes: 0,
             block_size_minimum,
             block_len_multiple,
+            adaptive_target: None,
             size_scope,
         }
     }
 
+    fn with_adaptive_target(mut self, adaptive_target: Option<u64>) -> Self {
+        self.adaptive_target = adaptive_target;
+        self
+    }
+
+    /// The number of rows in the next block.
+    ///
+    /// Power-of-two divisors of `block_len_multiple` keep block boundaries on the boundaries of
+    /// full-length blocks, so they still line up with zones of `block_len_multiple` rows.
+    fn block_len(&self) -> usize {
+        let Some(target) = self.adaptive_target else {
+            return self.block_len_multiple;
+        };
+        if self.row_count == 0 {
+            return self.block_len_multiple;
+        }
+        let row_count = u64::try_from(self.row_count).vortex_expect("row count fits in u64");
+        let bytes_per_row = (self.nbytes / row_count).max(1);
+        let mut len = usize::try_from(target.div_ceil(bytes_per_row))
+            .ok()
+            .and_then(usize::checked_next_power_of_two)
+            .unwrap_or(usize::MAX)
+            .min(self.block_len_multiple);
+        while !self.block_len_multiple.is_multiple_of(len) {
+            len /= 2;
+        }
+        len
+    }
+
     fn have_enough(&self) -> bool {
-        self.nbytes >= self.block_size_minimum && self.row_count >= self.block_len_multiple
+        self.nbytes >= self.block_size_minimum && self.row_count >= self.block_len()
     }
 
     /// Removes the leading whole blocks, and returns them with the reservations of their bytes.
@@ -248,10 +291,16 @@ impl ChunksBuffer {
         &mut self,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<(Vec<ArrayRef>, Vec<BufferedBytesReservation>)> {
-        let nblocks = self.row_count / self.block_len_multiple;
+        let block_len = self.block_len();
+        // A shortened block already reaches the byte target, so it is emitted alone.
+        let nblocks = if block_len < self.block_len_multiple {
+            1
+        } else {
+            self.row_count / block_len
+        };
         let mut res = Vec::with_capacity(self.data.len());
         let mut reservations = Vec::with_capacity(self.data.len());
-        let mut remaining = nblocks * self.block_len_multiple;
+        let mut remaining = nblocks * block_len;
         while remaining > 0 {
             let (chunk, reservation) = self
                 .pop_front()
@@ -333,6 +382,7 @@ mod tests {
     use vortex_error::VortexResult;
     use vortex_io::runtime::single::block_on;
     use vortex_io::session::RuntimeSessionExt;
+    use rstest::rstest;
     use vortex_session::VortexSession;
 
     use super::*;
@@ -515,9 +565,14 @@ mod tests {
     }
 
     /// View blocks sharing a buffer far larger than the bytes they reference must still coalesce
-    /// up to `block_size_minimum`.
-    #[test]
-    fn repartition_coalesces_view_blocks_sharing_a_large_buffer() -> VortexResult<()> {
+    /// up to `block_size_minimum`. Short rows reach no byte target before a full block, so a
+    /// target leaves the blocks unchanged.
+    #[rstest]
+    #[case::no_target(None)]
+    #[case::target(Some(ONE_MEG))]
+    fn repartition_coalesces_view_blocks_sharing_a_large_buffer(
+        #[case] block_size_target: Option<u64>,
+    ) -> VortexResult<()> {
         const VALUE_LEN: usize = 27;
         const ROWS_PER_CHUNK: usize = 8192;
         const NUM_CHUNKS: usize = 10;
@@ -555,7 +610,7 @@ mod tests {
             RepartitionWriterOptions {
                 block_size_minimum: ONE_MEG,
                 block_len_multiple: ROWS_PER_CHUNK,
-                block_size_target: None,
+                block_size_target,
                 canonicalize: false,
             },
         );
@@ -582,6 +637,80 @@ mod tests {
             let child = layout.slot(i)?.vortex_expect("chunk slot present");
             assert_eq!(child.row_count(), (3 * ROWS_PER_CHUNK) as u64);
         }
+        Ok(())
+    }
+
+    /// Regression test for <https://github.com/vortex-data/vortex/issues/3853>: rows wide enough
+    /// to reach the byte target in fewer than `block_len_multiple` rows must not be written as
+    /// one block of `block_len_multiple` rows.
+    #[test]
+    fn repartition_wide_binary_rows_meet_block_size_target() -> VortexResult<()> {
+        const ROW_BYTES: usize = 64 << 10;
+        const NUM_ROWS: usize = 64;
+
+        let value = vec![b'x'; ROW_BYTES];
+        let array = VarBinViewArray::from_iter_bin((0..NUM_ROWS).map(|_| &value)).into_array();
+
+        let ctx = ArrayContext::empty();
+        let segments = Arc::new(TestSegments::default());
+        let (ptr, eof) = SequenceId::root().split();
+        let strategy = RepartitionStrategy::new(
+            ChunkedLayoutStrategy::new(FlatLayoutStrategy::default()),
+            RepartitionWriterOptions {
+                block_size_minimum: ONE_MEG,
+                block_len_multiple: 8192,
+                block_size_target: Some(ONE_MEG),
+                canonicalize: false,
+            },
+        );
+
+        let stream = array.to_array_stream().sequenced(ptr);
+        let layout = block_on(|handle| async move {
+            let session = new_session().with_handle(handle);
+            strategy
+                .write_stream(
+                    ctx.into(),
+                    Arc::<TestSegments>::clone(&segments),
+                    stream,
+                    eof,
+                    &session,
+                )
+                .await
+        })?;
+
+        // Each row references a 16-byte view plus 64 KiB, so 16 rows are the smallest
+        // power-of-two block that reaches 1 MiB: four blocks of 16 rows.
+        assert_eq!(layout.row_count(), NUM_ROWS as u64);
+        assert_eq!(layout.nchildren(), 4);
+        for i in 0..4 {
+            let child = layout.slot(i)?.vortex_expect("chunk slot present");
+            assert_eq!(child.row_count(), 16);
+        }
+        Ok(())
+    }
+
+    /// A shortened block length must divide `block_len_multiple`, so it halves past a power of
+    /// two that does not.
+    #[rstest]
+    #[case::divides(16, 64, 8)]
+    #[case::rounds_down_to_divisor(12, 64, 4)]
+    #[case::reaches_full_block(12, 1 << 20, 12)]
+    #[case::no_target(12, 0, 12)]
+    fn chunks_buffer_block_len(
+        #[case] block_len_multiple: usize,
+        #[case] target: u64,
+        #[case] expected: usize,
+    ) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let adaptive_target = (target > 0).then_some(target);
+        let mut buf = ChunksBuffer::new(0, block_len_multiple, SizeScope::new())
+            .with_adaptive_target(adaptive_target);
+        // 8 bytes per row.
+        buf.push_back(
+            PrimitiveArray::from_iter(0..block_len_multiple as u64).into_array(),
+            &mut ctx,
+        )?;
+        assert_eq!(buf.block_len(), expected);
         Ok(())
     }
 
