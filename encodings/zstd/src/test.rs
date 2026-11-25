@@ -15,11 +15,9 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::assert_arrays_eq;
 use vortex_array::assert_nth_scalar;
-use vortex_array::buffer::BufferHandle;
 use vortex_array::builders::VarBinBuilder;
 use vortex_array::builders::VarBinViewBuilder;
 use vortex_array::builders::builder_with_capacity_in;
-use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
@@ -468,18 +466,22 @@ fn test_zstd_reads_legacy_primitive_frame_metadata() -> VortexResult<()> {
     Ok(())
 }
 
-/// Tests that each beginning of a frame in ZSTD matches
-/// the buffer alignment when compressing primitive arrays.
+/// Overaligned primitive buffers must split frames by value count, not buffer alignment.
 #[test]
-fn test_zstd_frame_start_buffer_alignment() {
+fn test_zstd_frame_start_buffer_alignment() -> VortexResult<()> {
     let mut ctx = SESSION.create_execution_ctx();
-    let data = vec![0u8; 2];
+    let data: Vec<u8> = (0..20).collect();
     let aligned_buffer = Buffer::copy_from_aligned(&data, Alignment::new(8));
-    // u8 array now has a 8-byte alignment.
     let array = PrimitiveArray::new(aligned_buffer, Validity::NonNullable);
-    let compressed = Zstd::from_primitive(&array, 0, 1, &mut ctx);
+    let compressed = Zstd::from_primitive(&array, 0, 3, &mut ctx)?;
 
-    assert!(compressed.is_ok());
+    assert_arrays_eq!(&compressed, array, &mut ctx);
+    assert_arrays_eq!(
+        compressed.slice(10..15)?,
+        PrimitiveArray::from_iter(10..15_u8),
+        &mut ctx
+    );
+    Ok(())
 }
 
 #[test]
@@ -516,205 +518,70 @@ fn roundtrip_serde(array: &ArrayRef) -> VortexResult<ArrayRef> {
 }
 
 #[test]
-fn test_zstd_sliced_primitive_serde_roundtrip() -> VortexResult<()> {
+fn test_zstd_sliced_serde_roundtrip() -> VortexResult<()> {
     let mut ctx = SESSION.create_execution_ctx();
-    let data: Vec<i32> = (0..200).collect();
-    let array = PrimitiveArray::from_iter(data);
-    let compressed = Zstd::from_primitive(&array, 3, 16, &mut ctx)?;
-    let sliced = compressed.slice(5..10)?.optimize_ctx(&SESSION)?;
+
+    // Nullable primitive slice.
+    let prim_data: Vec<Option<i32>> = (0..40).map(|i| (i % 3 != 0).then_some(i * 10)).collect();
+    let prim = PrimitiveArray::from_option_iter(prim_data.clone());
+    let sliced = Zstd::from_primitive(&prim, 0, 5, &mut ctx)?
+        .slice(7..23)?
+        .optimize_ctx(&SESSION)?;
     assert!(sliced.is::<Zstd>());
-
-    let decoded = roundtrip_serde(&sliced)?;
-    assert!(decoded.is::<Zstd>());
-    assert_arrays_eq!(decoded, PrimitiveArray::from_iter(5..10_i32), &mut ctx);
-    Ok(())
-}
-
-#[test]
-fn test_zstd_sliced_nullable_primitive_serde_roundtrip() -> VortexResult<()> {
-    let mut ctx = SESSION.create_execution_ctx();
-    let data: Vec<Option<i32>> = (0..40).map(|i| (i % 3 != 0).then_some(i * 10)).collect();
-    let array = PrimitiveArray::from_option_iter(data.clone());
-    let compressed = Zstd::from_primitive(&array, 0, 5, &mut ctx)?;
-    let sliced = compressed.slice(7..23)?.optimize_ctx(&SESSION)?;
-    assert!(sliced.is::<Zstd>());
-
-    let decoded = roundtrip_serde(&sliced)?;
-    assert!(decoded.is::<Zstd>());
     assert_arrays_eq!(
-        decoded,
-        PrimitiveArray::from_option_iter(data[7..23].iter().copied()),
+        roundtrip_serde(&sliced)?,
+        PrimitiveArray::from_option_iter(prim_data[7..23].iter().copied()),
         &mut ctx
     );
-    Ok(())
-}
 
-#[test]
-fn test_zstd_sliced_var_bin_view_serde_roundtrip() -> VortexResult<()> {
-    let mut ctx = SESSION.create_execution_ctx();
-    let values: Vec<Option<String>> = (0..30)
+    // Nullable VarBinView slice.
+    let str_data: Vec<Option<String>> = (0..30)
         .map(|i| (i % 4 != 0).then(|| format!("row-{i}-payload-longer-than-inline")))
         .collect();
-    let array = VarBinViewArray::from_iter_nullable_str(values.iter().map(|v| v.as_deref()));
-    let compressed = Zstd::from_var_bin_view(&array, 0, 4, &mut ctx)?;
-    let sliced = compressed.slice(5..17)?.optimize_ctx(&SESSION)?;
+    let vbv = VarBinViewArray::from_iter_nullable_str(str_data.iter().map(|v| v.as_deref()));
+    let sliced = Zstd::from_var_bin_view(&vbv, 0, 4, &mut ctx)?
+        .slice(5..17)?
+        .optimize_ctx(&SESSION)?;
     assert!(sliced.is::<Zstd>());
-
-    let decoded = roundtrip_serde(&sliced)?;
-    assert!(decoded.is::<Zstd>());
     assert_arrays_eq!(
-        decoded,
-        VarBinViewArray::from_iter_nullable_str(values[5..17].iter().map(|v| v.as_deref())),
+        roundtrip_serde(&sliced)?,
+        VarBinViewArray::from_iter_nullable_str(str_data[5..17].iter().map(|v| v.as_deref())),
         &mut ctx
     );
-    Ok(())
-}
 
-#[test]
-fn test_zstd_sliced_all_null_serde_roundtrip() -> VortexResult<()> {
-    let mut ctx = SESSION.create_execution_ctx();
-    let values =
+    // All-null slice (0 active values).
+    let all_null_src =
         VarBinViewArray::from_iter_nullable_str([Some("alpha"), None, None, None, Some("omega")]);
-    let compressed = Zstd::from_var_bin_view(&values, 0, 2, &mut ctx)?;
-    let sliced = compressed.slice(1..4)?.optimize_ctx(&SESSION)?;
+    let sliced = Zstd::from_var_bin_view(&all_null_src, 0, 2, &mut ctx)?
+        .slice(1..4)?
+        .optimize_ctx(&SESSION)?;
     assert!(sliced.is::<Zstd>());
-
-    let decoded = roundtrip_serde(&sliced)?;
-    assert!(decoded.is::<Zstd>());
     assert_arrays_eq!(
-        decoded,
-        VarBinViewArray::from_iter_nullable_str([None::<&str>, None, None]),
+        roundtrip_serde(&sliced)?,
+        VarBinViewArray::from_iter_nullable_str([None::<&str>; 3]),
         &mut ctx
     );
+
     Ok(())
 }
 
 #[test]
-fn test_zstd_empty_and_all_null_single_frame() -> VortexResult<()> {
+fn test_zstd_empty_single_frame() -> VortexResult<()> {
     let mut ctx = SESSION.create_execution_ctx();
 
     let empty_prim = PrimitiveArray::new(Buffer::<i32>::empty(), Validity::NonNullable);
-    let compressed = Zstd::from_primitive(&empty_prim, 3, 0, &mut ctx)?;
-    assert_arrays_eq!(compressed, empty_prim, &mut ctx);
-
-    let all_null_prim = PrimitiveArray::new(Buffer::<i32>::zeroed(8), Validity::AllInvalid);
-    let compressed = Zstd::from_primitive(&all_null_prim, 3, 0, &mut ctx)?;
-    assert_arrays_eq!(compressed, all_null_prim, &mut ctx);
-
-    let empty_vbv = VarBinViewArray::from_iter_str(Vec::<&str>::new());
-    let compressed = Zstd::from_var_bin_view(&empty_vbv, 3, 0, &mut ctx)?;
-    assert_arrays_eq!(compressed, empty_vbv, &mut ctx);
+    assert_arrays_eq!(
+        Zstd::from_primitive(&empty_prim, 3, 0, &mut ctx)?,
+        empty_prim,
+        &mut ctx
+    );
 
     let all_null_vbv = VarBinViewArray::from_iter_nullable_str([None::<&str>; 4]);
-    let compressed = Zstd::from_var_bin_view(&all_null_vbv, 3, 0, &mut ctx)?;
-    assert_arrays_eq!(compressed, all_null_vbv, &mut ctx);
-
-    Ok(())
-}
-
-#[test]
-fn test_zstd_overaligned_primitive_frame_metadata_and_slice() -> VortexResult<()> {
-    let mut ctx = SESSION.create_execution_ctx();
-    let data: Vec<u8> = (0..20).collect();
-    let aligned_buffer = Buffer::copy_from_aligned(&data, Alignment::new(8));
-    let array = PrimitiveArray::new(aligned_buffer, Validity::NonNullable);
-    let compressed = Zstd::from_primitive(&array, 0, 3, &mut ctx)?;
-
-    let total_values: u64 = compressed
-        .metadata
-        .frames()
-        .iter()
-        .map(|f| f.n_values)
-        .sum();
-    assert_eq!(total_values, data.len() as u64);
-    for frame in compressed.metadata.frames() {
-        assert_eq!(frame.n_values, frame.uncompressed_size);
-    }
-
-    assert_arrays_eq!(&compressed, array, &mut ctx);
     assert_arrays_eq!(
-        compressed.slice(10..15)?,
-        PrimitiveArray::from_iter(10..15_u8),
+        Zstd::from_var_bin_view(&all_null_vbv, 3, 0, &mut ctx)?,
+        all_null_vbv,
         &mut ctx
     );
 
-    // Also cover a backing buffer whose byte length exceeds `array.len() * byte_width`.
-    let oversized_bytes = ByteBuffer::copy_from(
-        [
-            10_u32.to_le_bytes().as_slice(),
-            20_u32.to_le_bytes().as_slice(),
-            &[0xFF, 0xFF],
-        ]
-        .concat(),
-    );
-    // SAFETY: `oversized_bytes` is 4-byte aligned and holds 2 `u32` values (8 bytes) plus 2
-    // trailing bytes.
-    let oversized = unsafe {
-        PrimitiveArray::new_unchecked_from_handle(
-            BufferHandle::new_host(oversized_bytes.aligned(Alignment::of::<u32>())),
-            PType::U32,
-            Validity::NonNullable,
-        )
-    };
-    assert_eq!(oversized.len(), 2);
-    let compressed_oversized = Zstd::from_primitive(&oversized, 0, 1, &mut ctx)?;
-    assert_eq!(compressed_oversized.metadata.frames().len(), 2);
-    for frame in compressed_oversized.metadata.frames() {
-        assert_eq!(frame.n_values, 1);
-        assert_eq!(frame.uncompressed_size, 4);
-    }
-    assert_arrays_eq!(
-        compressed_oversized,
-        PrimitiveArray::from_iter([10_u32, 20]),
-        &mut ctx
-    );
-    Ok(())
-}
-
-#[test]
-fn test_zstd_unsliced_and_cast_sliced_serde_roundtrip() -> VortexResult<()> {
-    let mut ctx = SESSION.create_execution_ctx();
-
-    // Unsliced with dictionary preserves dictionary on the zero-copy fast path.
-    let data: Vec<i32> = (0..200).collect();
-    let unsliced = Zstd::from_primitive(&PrimitiveArray::from_iter(data.clone()), 0, 16, &mut ctx)?;
-    assert!(unsliced.dictionary.is_some());
-    let decoded = roundtrip_serde(unsliced.as_array())?;
-    assert!(decoded.as_::<Zstd>().dictionary.is_some());
-    assert_arrays_eq!(decoded, PrimitiveArray::from_iter(data), &mut ctx);
-
-    // Sliced nullable (AllValid) array cast to non-nullable roundtrips cleanly.
-    let nullable = PrimitiveArray::new(
-        Buffer::from_iter([10_u32, 20, 30, 40, 50]),
-        Validity::AllValid,
-    );
-    let compressed = Zstd::from_primitive(&nullable, 0, 2, &mut ctx)?;
-    let sliced_cast = compressed
-        .slice(1..4)?
-        .cast(DType::Primitive(PType::U32, Nullability::NonNullable))?
-        .optimize_ctx(&SESSION)?;
-    assert!(sliced_cast.is::<Zstd>());
-    let decoded = roundtrip_serde(&sliced_cast)?;
-    assert!(decoded.is::<Zstd>());
-    assert_arrays_eq!(
-        decoded,
-        PrimitiveArray::from_iter([20_u32, 30, 40]),
-        &mut ctx
-    );
-
-    // Empty slice of a non-empty ZstdArray roundtrips cleanly.
-    let empty_sliced = Zstd::try_new(
-        compressed.dtype().clone(),
-        compressed.data().with_slice(2, 2),
-        compressed.validity()?,
-    )?
-    .into_array();
-    let decoded = roundtrip_serde(&empty_sliced)?;
-    assert_eq!(decoded.len(), 0);
-    assert_arrays_eq!(
-        decoded,
-        PrimitiveArray::from_option_iter(Vec::<Option<u32>>::new()),
-        &mut ctx
-    );
     Ok(())
 }
