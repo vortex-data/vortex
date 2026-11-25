@@ -465,9 +465,9 @@ mod tests {
     }
 
     #[test]
-    fn scroll_offset_clamps_after_viewport_expansion() {
+    fn scroll_offset_clamps_after_viewport_expansion() -> anyhow::Result<()> {
         let mut grid = SegmentGridState {
-            segment_tree: Some(to_display_segment_tree(sample_segment_tree(3, 6)).unwrap()),
+            segment_tree: Some(to_display_segment_tree(sample_segment_tree(3, 6))?),
             ..Default::default()
         };
         let mut frame_size = ratatui::prelude::Size::new(0, 0);
@@ -494,5 +494,6 @@ mod tests {
         assert_eq!(grid.vertical_scroll, 0);
         assert_eq!(grid.max_horizontal_scroll, 0);
         assert_eq!(grid.horizontal_scroll, 0);
+        Ok(())
     }
 }

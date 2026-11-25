@@ -427,6 +427,30 @@ impl QueryState {
             .unwrap_or(0)
     }
 
+    /// Format the results panel title for the current query state.
+    fn results_title(&self) -> String {
+        if self.running {
+            "Results (running...)".to_string()
+        } else if let Some(error) = &self.error {
+            format!("Results (error: {})", truncate_str(error, 50))
+        } else if let Some(results) = &self.results {
+            if self.base_query.is_empty() {
+                format!("Results ({} rows) [hjkl navigate]", results.total_rows)
+            } else {
+                let total_rows = self.total_row_count.unwrap_or(results.total_rows);
+                let total_pages = self.total_pages();
+                format!(
+                    "Results ({} rows, page {}/{}) [hjkl navigate, [/] pages, s sort]",
+                    total_rows,
+                    self.current_page + 1,
+                    total_pages,
+                )
+            }
+        } else {
+            "Results (press Enter to execute query)".to_string()
+        }
+    }
+
     /// Prepare sort on a column by modifying the ORDER BY clause and setting execution flag.
     pub fn prepare_sort(&mut self, column: usize) {
         if self.needs_row_count || self.base_query.is_empty() {
@@ -621,22 +645,7 @@ fn render_results_table(app: &mut AppState, area: Rect, buf: &mut Buffer) {
     };
 
     // Show status in title
-    let title = if app.query_state.running {
-        "Results (running...)".to_string()
-    } else if let Some(error) = &app.query_state.error {
-        format!("Results (error: {})", truncate_str(error, 50))
-    } else if let Some(_results) = &app.query_state.results {
-        let total_rows = app.query_state.total_row_count.unwrap_or(0);
-        let total_pages = app.query_state.total_pages();
-        format!(
-            "Results ({} rows, page {}/{}) [hjkl navigate, [/] pages, s sort]",
-            total_rows,
-            app.query_state.current_page + 1,
-            total_pages,
-        )
-    } else {
-        "Results (press Enter to execute query)".to_string()
-    };
+    let title = app.query_state.results_title();
 
     let block = Block::default()
         .title(title)
@@ -965,7 +974,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn early_navigation_and_sort_preserve_pending_row_count() {
+    async fn early_navigation_and_sort_preserve_pending_row_count()
+    -> vortex::error::VortexResult<()> {
         let prev_results = QueryResults {
             batches: vec![],
             total_rows: 100,
@@ -1008,7 +1018,10 @@ mod tests {
             })
             .is_ok()
         );
-        let pending_rx = state.pending_rx.take().unwrap();
+        let pending_rx = state
+            .pending_rx
+            .take()
+            .ok_or_else(|| vortex::error::vortex_err!("missing pending receiver"))?;
         state.apply_pending_result(pending_rx.await);
 
         assert_eq!(state.total_row_count, Some(1));
@@ -1021,6 +1034,56 @@ mod tests {
         assert!(state.pending_execution);
         assert!(!state.needs_row_count);
         assert_eq!(state.order_clause.as_deref(), Some("ORDER BY \"val\" ASC"));
+        Ok(())
+    }
+
+    #[test]
+    fn results_title_reports_verbatim_row_count_without_paging_hints() {
+        let mut state = QueryState {
+            sql_input: "DESCRIBE data".to_string(),
+            ..Default::default()
+        };
+        state.prepare_initial_query();
+        state.apply_query_result(PendingQueryResult {
+            row_count: None,
+            query_result: Ok(QueryResults {
+                batches: vec![],
+                total_rows: 4,
+                column_names: vec!["column_name".to_string()],
+            }),
+        });
+        assert_eq!(state.results_title(), "Results (4 rows) [hjkl navigate]");
+
+        let mut paginated = QueryState {
+            sql_input: "SELECT val FROM data".to_string(),
+            ..Default::default()
+        };
+        paginated.prepare_initial_query();
+        paginated.apply_query_result(PendingQueryResult {
+            row_count: Some(Ok(45)),
+            query_result: Ok(QueryResults {
+                batches: vec![],
+                total_rows: 20,
+                column_names: vec!["val".to_string()],
+            }),
+        });
+        assert_eq!(
+            paginated.results_title(),
+            "Results (45 rows, page 1/3) [hjkl navigate, [/] pages, s sort]"
+        );
+
+        paginated.apply_query_result(PendingQueryResult {
+            row_count: Some(Err("count failed".to_string())),
+            query_result: Ok(QueryResults {
+                batches: vec![],
+                total_rows: 12,
+                column_names: vec!["val".to_string()],
+            }),
+        });
+        assert_eq!(
+            paginated.results_title(),
+            "Results (12 rows, page 1/1) [hjkl navigate, [/] pages, s sort]"
+        );
     }
 
     #[test]
