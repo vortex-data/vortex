@@ -73,6 +73,7 @@ jobs:
       - name: Rust Tests
         if: ${{ matrix.suite == 'tests' }}
         run: |
+          status=0
           cargo nextest run --locked --workspace --all-features --no-fail-fast \
             --exclude vortex-bench \
             --exclude xtask \
@@ -95,8 +96,9 @@ jobs:
             --exclude duckdb-bench \
             --exclude lance-bench \
             --exclude random-access-bench \
-            --exclude string-bench
-          cargo nextest run --locked --no-fail-fast -p vortex-fuzz
+            --exclude string-bench || status=$?
+          cargo nextest run --locked --no-fail-fast -p vortex-fuzz || status=$?
+          exit "$status"
       - name: Generate coverage report
         run: |
           RUST_SYSROOT="$(rustc --print sysroot)"
