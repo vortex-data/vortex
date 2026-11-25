@@ -18,12 +18,16 @@ use crate::scalar_fn::builtin::operators::CompareOperator;
 use crate::stats::majority::majority_candidate;
 
 impl PrimitiveArray {
-    /// Returns a dominant present value of this array and the exact number of times it occurs.
+    /// Returns the majority candidate of this array's present values and the exact number of
+    /// times it occurs.
     ///
     /// The value is found by a Boyer–Moore majority vote, so it is the most common present value
     /// whenever that value fills more than half of the present positions. Otherwise it is some
     /// present value, which callers can judge by its count. Returns `None` if no value is present.
-    pub fn top_value(&self, ctx: &mut ExecutionCtx) -> VortexResult<Option<(PValue, usize)>> {
+    pub fn majority_candidate(
+        &self,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<(PValue, usize)>> {
         if self.is_empty() || self.validity()?.definitely_all_null() {
             return Ok(None);
         }
@@ -68,8 +72,8 @@ mod tests {
     use crate::VortexSessionExecute;
     use crate::validity::Validity;
 
-    fn top_value(array: &PrimitiveArray) -> VortexResult<Option<(PValue, usize)>> {
-        array.top_value(&mut VortexSession::empty().create_execution_ctx())
+    fn candidate(array: &PrimitiveArray) -> VortexResult<Option<(PValue, usize)>> {
+        array.majority_candidate(&mut VortexSession::empty().create_execution_ctx())
     }
 
     /// The majority sits at the end of a sorted array, so a prefix of the input never sees it.
@@ -89,7 +93,7 @@ mod tests {
             })
             .collect();
         let array = PrimitiveArray::new(values, Validity::NonNullable);
-        assert_eq!(top_value(&array)?, Some((u32::MAX.into(), len - minority)));
+        assert_eq!(candidate(&array)?, Some((u32::MAX.into(), len - minority)));
         Ok(())
     }
 
@@ -101,7 +105,7 @@ mod tests {
             values.iter().copied().collect::<Buffer<i64>>(),
             Validity::NonNullable,
         );
-        let (top, count) = top_value(&array)?.vortex_expect("array has valid values");
+        let (top, count) = candidate(&array)?.vortex_expect("array has valid values");
         let top = i64::try_from(top)?;
         assert_eq!(count, values.iter().filter(|&&value| value == top).count());
         Ok(())
@@ -117,7 +121,7 @@ mod tests {
             .collect();
         let validity = Validity::from_iter((0..len).map(|index| index % 8 < 4));
         let array = PrimitiveArray::new(values, validity);
-        assert_eq!(top_value(&array)?, Some((9u16.into(), len / 8 * 3)));
+        assert_eq!(candidate(&array)?, Some((9u16.into(), len / 8 * 3)));
         Ok(())
     }
 
@@ -128,13 +132,13 @@ mod tests {
             .into_iter()
             .collect();
         let array = PrimitiveArray::new(values, Validity::NonNullable);
-        let (top, count) = top_value(&array)?.vortex_expect("array has valid values");
+        let (top, count) = candidate(&array)?.vortex_expect("array has valid values");
         assert!(f64::try_from(top)?.is_nan());
         assert_eq!(count, 4);
 
         let values: Buffer<f64> = [0.0, -0.0, -0.0].into_iter().collect();
         let array = PrimitiveArray::new(values, Validity::NonNullable);
-        let (top, count) = top_value(&array)?.vortex_expect("array has valid values");
+        let (top, count) = candidate(&array)?.vortex_expect("array has valid values");
         assert_eq!(f64::try_from(top)?.to_bits(), (-0.0f64).to_bits());
         assert_eq!(count, 2);
         Ok(())
@@ -155,14 +159,14 @@ mod tests {
             .collect();
         // Every `-5` is valid in both cases.
         let array = PrimitiveArray::new(values, validity);
-        assert_eq!(top_value(&array)?, Some(((-5i8).into(), 666)));
+        assert_eq!(candidate(&array)?, Some(((-5i8).into(), 666)));
         Ok(())
     }
 
     #[test]
     fn all_null() -> VortexResult<()> {
         let array = PrimitiveArray::new(Buffer::<u32>::zeroed(10), Validity::AllInvalid);
-        assert_eq!(top_value(&array)?, None);
+        assert_eq!(candidate(&array)?, None);
         Ok(())
     }
 }

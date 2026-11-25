@@ -40,7 +40,7 @@ pub(crate) fn dominant_value(
     match array.dtype() {
         DType::Primitive(..) => {
             // `Sparse::encode` compares the array against the fill anyway, so the fill is not
-            // counted here as `PrimitiveArray::top_value` would.
+            // counted here as `PrimitiveArray::majority_candidate` would.
             let primitive = array.clone().execute::<PrimitiveArray>(ctx)?;
             let top: PValue = match_each_native_ptype!(primitive.ptype(), |P| {
                 majority_candidate(primitive.as_slice::<P>(), mask)
