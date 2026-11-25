@@ -381,7 +381,7 @@ fn test_geometry() {
     });
 
     let conn = database_connection();
-    conn.query("INSTALL spatial; LOAD spatial;").unwrap();
+    super::load_spatial(&conn);
     let file_path = file.path().to_string_lossy();
     let result = conn
         .query(&format!("SELECT SUM(ST_Area(geometry)) FROM '{file_path}'"))
@@ -468,5 +468,167 @@ fn test_vortex_scan_v2_matches_v1(#[case] query: &str) -> Result<()> {
     crate::set_scan_v2(false);
 
     assert_eq!(v2?, v1);
+    Ok(())
+}
+
+/// Runs `EXPLAIN {query}` and returns the physical plan text.
+fn explain_plan(conn: &Connection, query: &str) -> Result<String> {
+    let explain = conn.query(&format!("EXPLAIN {query}"))?;
+    let mut plan = String::new();
+    for mut chunk in explain {
+        let len: usize = chunk.len().as_();
+        let vec = chunk.get_vector_mut(1);
+        for value in unsafe { vec.as_slice_mut::<duckdb_string_t>(len) } {
+            plan.push_str(&String::from_duckdb_value(value));
+        }
+    }
+    Ok(plan)
+}
+
+#[test]
+fn test_hash_join_dynamic_table_filter_v1_and_v2() -> Result<()> {
+    let rows = 50_000i64;
+    let fact_file = RUNTIME.block_on(write_vortex_file(
+        [
+            ("id", (0..rows).collect::<PrimitiveArray>().into_array()),
+            (
+                "val",
+                (0..rows)
+                    .map(|i| i * 3)
+                    .collect::<PrimitiveArray>()
+                    .into_array(),
+            ),
+        ]
+        .into_iter(),
+    ));
+    let dim_file = RUNTIME.block_on(write_vortex_file(
+        [
+            (
+                "id",
+                buffer![10_000i64, 20_000, 30_000, 40_000].into_array(),
+            ),
+            ("label", buffer![1i64, 2, 3, 4].into_array()),
+        ]
+        .into_iter(),
+    ));
+
+    let fact = fact_file.path().to_string_lossy();
+    let dim = dim_file.path().to_string_lossy();
+    // Filter the build side at runtime so DuckDB pushes an Optional(Dynamic(...)) join filter
+    // into the probe-side Vortex scan rather than folding build-side file stats statically.
+    let query = format!(
+        "SELECT f.val + d.label FROM '{fact}' f \
+         JOIN (SELECT id, label FROM '{dim}' WHERE (label * 7) % 2 = 0 OR label = 1) d \
+         ON f.id = d.id \
+         ORDER BY f.id"
+    );
+
+    let expected = vec![30_001i64, 60_002, 120_004];
+
+    crate::set_scan_v2(false);
+    let v1 = query_i64_column(&fact, &query)?;
+    assert_eq!(v1, expected);
+
+    crate::set_scan_v2(true);
+    let v2 = query_i64_column(&fact, &query);
+    crate::set_scan_v2(false);
+    assert_eq!(v2?, expected);
+    Ok(())
+}
+
+#[test]
+fn test_top_n_late_materialization_file_row_number() -> Result<()> {
+    // Wide payload columns encourage DuckDB's late materialization pass to split the scan into a
+    // Top-N scan over `(sort_key, file_row_number)` followed by a row-id fetch with a
+    // `file_row_number` table filter.
+    let rows = 10_000i64;
+    let payload: Vec<String> = (0..rows)
+        .map(|i| format!("payload_{i:06}_padding_data"))
+        .collect();
+    let payload_refs: Vec<&str> = payload.iter().map(String::as_str).collect();
+    let file = RUNTIME.block_on(write_vortex_file(
+        [
+            (
+                "k",
+                (0..rows)
+                    .map(|i| (i * 7919) % rows)
+                    .collect::<PrimitiveArray>()
+                    .into_array(),
+            ),
+            ("p1", VarBinArray::from(payload_refs.clone()).into_array()),
+            ("p2", VarBinArray::from(payload_refs.clone()).into_array()),
+            ("p3", VarBinArray::from(payload_refs.clone()).into_array()),
+            ("p4", VarBinArray::from(payload_refs).into_array()),
+        ]
+        .into_iter(),
+    ));
+    let path = file.path().to_string_lossy();
+    let query = format!("SELECT k, p1, p2, p3, p4 FROM '{path}' ORDER BY k ASC LIMIT 5");
+
+    let conn = database_connection();
+    let plan = explain_plan(&conn, &query)?;
+    assert!(
+        plan.contains("file_row_number"),
+        "expected late materialization over file_row_number:\n{plan}"
+    );
+
+    let mut ks = Vec::new();
+    for chunk in conn.query(&query)? {
+        let len: usize = chunk.len().as_();
+        ks.extend_from_slice(chunk.get_vector(0).as_slice_with_len::<i64>(len));
+    }
+    assert_eq!(ks, vec![0, 1, 2, 3, 4]);
+    Ok(())
+}
+
+#[test]
+fn test_in_conjunction_and_struct_extract_filters() -> Result<()> {
+    let ids = buffer![1i32, 2, 3, 4, 5, 6].into_array();
+    let nullable_vals =
+        PrimitiveArray::from_option_iter([Some(10i32), None, Some(30), Some(40), None, Some(60)])
+            .into_array();
+    let nested = StructArray::try_from_iter([
+        ("x", buffer![100i32, 200, 300, 400, 500, 600].into_array()),
+        (
+            "y",
+            VarBinArray::from(vec!["a", "b", "c", "d", "e", "f"]).into_array(),
+        ),
+    ])?
+    .into_array();
+
+    let file = RUNTIME.block_on(write_vortex_file(
+        [("id", ids), ("v", nullable_vals), ("s", nested)].into_iter(),
+    ));
+    let path = file.path().to_string_lossy();
+    let conn = database_connection();
+
+    let run = |sql: &str| -> Result<Vec<i32>> {
+        let mut out = Vec::new();
+        for chunk in conn.query(sql)? {
+            let len: usize = chunk.len().as_();
+            out.extend_from_slice(chunk.get_vector(0).as_slice_with_len::<i32>(len));
+        }
+        Ok(out)
+    };
+
+    // IN filter + conjunction AND/OR + IS NULL / IS NOT NULL + struct field filter.
+    assert_eq!(
+        run(&format!(
+            "SELECT id FROM '{path}' WHERE id IN (1, 3, 5, 6) AND v IS NOT NULL ORDER BY id"
+        ))?,
+        vec![1, 3, 6]
+    );
+    assert_eq!(
+        run(&format!(
+            "SELECT id FROM '{path}' WHERE v IS NULL OR (id >= 5 AND s.x >= 600) ORDER BY id"
+        ))?,
+        vec![2, 5, 6]
+    );
+    assert_eq!(
+        run(&format!(
+            "SELECT id FROM '{path}' WHERE s.x IN (200, 400) AND s.y = 'd' ORDER BY id"
+        ))?,
+        vec![4]
+    );
     Ok(())
 }

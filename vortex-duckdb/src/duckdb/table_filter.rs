@@ -96,8 +96,10 @@ impl TableFilterRef {
                 };
 
                 TableFilterClass::ConjunctionOr(Conjunction {
-                    children: unsafe {
-                        std::slice::from_raw_parts(out.children, out.children_count)
+                    children: if out.children_count == 0 {
+                        &[]
+                    } else {
+                        unsafe { std::slice::from_raw_parts(out.children, out.children_count) }
                     },
                 })
             }
@@ -111,8 +113,10 @@ impl TableFilterRef {
                 };
 
                 TableFilterClass::ConjunctionAnd(Conjunction {
-                    children: unsafe {
-                        std::slice::from_raw_parts(out.children, out.children_count)
+                    children: if out.children_count == 0 {
+                        &[]
+                    } else {
+                        unsafe { std::slice::from_raw_parts(out.children, out.children_count) }
                     },
                 })
             }
@@ -284,5 +288,290 @@ impl DynamicFilterDataRef {
             return None;
         }
         Some(unsafe { Value::own(ptr) })
+    }
+}
+
+#[cfg(all(test, table_filter_test_support))]
+pub(crate) mod test_support {
+    use std::ffi::CString;
+    use std::ffi::c_char;
+    use std::ffi::c_void;
+    use std::ptr;
+
+    use vortex::error::VortexExpect;
+
+    use crate::cpp;
+    use crate::cpp::DUCKDB_VX_EXPR_TYPE;
+    use crate::cpp::idx_t;
+    use crate::duckdb::LogicalTypeRef;
+    use crate::duckdb::TableFilter;
+    use crate::duckdb::TableFilterRef;
+    use crate::duckdb::Value;
+
+    type TestDynamicFilterDataPtr = *mut c_void;
+
+    unsafe extern "C-unwind" {
+        fn duckdb_vx_test_table_filter_destroy(filter: *mut cpp::duckdb_vx_table_filter);
+        fn duckdb_vx_test_dynamic_filter_data_destroy(data: *mut TestDynamicFilterDataPtr);
+        fn duckdb_vx_test_dynamic_filter_data_set_value(
+            data: TestDynamicFilterDataPtr,
+            value: cpp::duckdb_value,
+        );
+        fn duckdb_vx_test_table_filter_create_constant(
+            comparison_type: DUCKDB_VX_EXPR_TYPE,
+            value: cpp::duckdb_value,
+        ) -> cpp::duckdb_vx_table_filter;
+        fn duckdb_vx_test_table_filter_create_is_null() -> cpp::duckdb_vx_table_filter;
+        fn duckdb_vx_test_table_filter_create_is_not_null() -> cpp::duckdb_vx_table_filter;
+        fn duckdb_vx_test_table_filter_create_conjunction_and(
+            children: *mut cpp::duckdb_vx_table_filter,
+            count: usize,
+        ) -> cpp::duckdb_vx_table_filter;
+        fn duckdb_vx_test_table_filter_create_conjunction_or(
+            children: *mut cpp::duckdb_vx_table_filter,
+            count: usize,
+        ) -> cpp::duckdb_vx_table_filter;
+        fn duckdb_vx_test_table_filter_create_struct_extract(
+            child_idx: idx_t,
+            child_name: *const c_char,
+            child_filter: cpp::duckdb_vx_table_filter,
+        ) -> cpp::duckdb_vx_table_filter;
+        fn duckdb_vx_test_table_filter_create_optional(
+            child_filter: cpp::duckdb_vx_table_filter,
+        ) -> cpp::duckdb_vx_table_filter;
+        fn duckdb_vx_test_table_filter_create_in(
+            values: *mut cpp::duckdb_value,
+            count: usize,
+        ) -> cpp::duckdb_vx_table_filter;
+        fn duckdb_vx_test_table_filter_create_dynamic(
+            comparison_type: DUCKDB_VX_EXPR_TYPE,
+            initial_value: cpp::duckdb_value,
+            data_out: *mut TestDynamicFilterDataPtr,
+        ) -> cpp::duckdb_vx_table_filter;
+        fn duckdb_vx_test_table_filter_create_bloom() -> cpp::duckdb_vx_table_filter;
+        fn duckdb_vx_test_table_filter_create_expr_comparison(
+            comparison_type: DUCKDB_VX_EXPR_TYPE,
+            value: cpp::duckdb_value,
+            wrap_optional: bool,
+        ) -> cpp::duckdb_vx_table_filter;
+        fn duckdb_vx_test_table_filter_create_expr_in(
+            col_type: cpp::duckdb_logical_type,
+            values: *mut cpp::duckdb_value,
+            count: usize,
+            wrap_optional: bool,
+        ) -> cpp::duckdb_vx_table_filter;
+        fn duckdb_vx_test_table_filter_create_expr_dynamic(
+            comparison_type: DUCKDB_VX_EXPR_TYPE,
+            initial_value: cpp::duckdb_value,
+            wrap_optional: bool,
+            data_out: *mut TestDynamicFilterDataPtr,
+        ) -> cpp::duckdb_vx_table_filter;
+        fn duckdb_vx_test_table_filter_create_expr_unsupported() -> cpp::duckdb_vx_table_filter;
+    }
+
+    /// Owned handle to a test-created DuckDB `DynamicFilterData`, allowing tests to push values
+    /// into a live dynamic filter.
+    pub(crate) struct TestDynamicFilterData(TestDynamicFilterDataPtr);
+
+    impl TestDynamicFilterData {
+        pub(crate) fn set_value(&self, value: &Value) {
+            unsafe {
+                duckdb_vx_test_dynamic_filter_data_set_value(self.0, value.as_ptr());
+            }
+        }
+    }
+
+    impl Drop for TestDynamicFilterData {
+        fn drop(&mut self) {
+            if !self.0.is_null() {
+                unsafe { duckdb_vx_test_dynamic_filter_data_destroy(&raw mut self.0) };
+            }
+        }
+    }
+
+    /// Owned DuckDB `TableFilter` handle for unit tests (frees on drop unless transferred).
+    pub(crate) struct OwnedTableFilter(cpp::duckdb_vx_table_filter);
+
+    impl OwnedTableFilter {
+        pub(crate) fn as_ref(&self) -> &TableFilterRef {
+            unsafe { TableFilter::borrow(self.0) }
+        }
+
+        fn into_raw(mut self) -> cpp::duckdb_vx_table_filter {
+            let ptr = self.0;
+            self.0 = ptr::null_mut();
+            ptr
+        }
+
+        pub(crate) fn constant(op: DUCKDB_VX_EXPR_TYPE, value: &Value) -> Self {
+            Self(unsafe { duckdb_vx_test_table_filter_create_constant(op, value.as_ptr()) })
+        }
+
+        pub(crate) fn is_null() -> Self {
+            Self(unsafe { duckdb_vx_test_table_filter_create_is_null() })
+        }
+
+        pub(crate) fn is_not_null() -> Self {
+            Self(unsafe { duckdb_vx_test_table_filter_create_is_not_null() })
+        }
+
+        pub(crate) fn conjunction_and(children: Vec<Self>) -> Self {
+            let mut raw: Vec<_> = children.into_iter().map(Self::into_raw).collect();
+            Self(unsafe {
+                duckdb_vx_test_table_filter_create_conjunction_and(raw.as_mut_ptr(), raw.len())
+            })
+        }
+
+        pub(crate) fn conjunction_or(children: Vec<Self>) -> Self {
+            let mut raw: Vec<_> = children.into_iter().map(Self::into_raw).collect();
+            Self(unsafe {
+                duckdb_vx_test_table_filter_create_conjunction_or(raw.as_mut_ptr(), raw.len())
+            })
+        }
+
+        pub(crate) fn struct_extract(child_idx: idx_t, child_name: &str, child: Self) -> Self {
+            let name = CString::new(child_name)
+                .ok()
+                .vortex_expect("valid C string");
+            Self(unsafe {
+                duckdb_vx_test_table_filter_create_struct_extract(
+                    child_idx,
+                    name.as_ptr(),
+                    child.into_raw(),
+                )
+            })
+        }
+
+        pub(crate) fn optional(child: Self) -> Self {
+            Self(unsafe { duckdb_vx_test_table_filter_create_optional(child.into_raw()) })
+        }
+
+        pub(crate) fn in_filter(values: &[Value]) -> Self {
+            let mut ptrs: Vec<_> = values.iter().map(|v| v.as_ptr()).collect();
+            Self(unsafe { duckdb_vx_test_table_filter_create_in(ptrs.as_mut_ptr(), ptrs.len()) })
+        }
+
+        pub(crate) fn dynamic(
+            op: DUCKDB_VX_EXPR_TYPE,
+            initial: &Value,
+        ) -> (Self, TestDynamicFilterData) {
+            let mut data: TestDynamicFilterDataPtr = ptr::null_mut();
+            let filter = Self(unsafe {
+                duckdb_vx_test_table_filter_create_dynamic(op, initial.as_ptr(), &raw mut data)
+            });
+            (filter, TestDynamicFilterData(data))
+        }
+
+        pub(crate) fn bloom() -> Self {
+            Self(unsafe { duckdb_vx_test_table_filter_create_bloom() })
+        }
+
+        pub(crate) fn expr_comparison(
+            op: DUCKDB_VX_EXPR_TYPE,
+            value: &Value,
+            wrap_optional: bool,
+        ) -> Self {
+            Self(unsafe {
+                duckdb_vx_test_table_filter_create_expr_comparison(
+                    op,
+                    value.as_ptr(),
+                    wrap_optional,
+                )
+            })
+        }
+
+        pub(crate) fn expr_in(
+            col_type: &LogicalTypeRef,
+            values: &[Value],
+            wrap_optional: bool,
+        ) -> Self {
+            let mut ptrs: Vec<_> = values.iter().map(|v| v.as_ptr()).collect();
+            Self(unsafe {
+                duckdb_vx_test_table_filter_create_expr_in(
+                    col_type.as_ptr(),
+                    ptrs.as_mut_ptr(),
+                    ptrs.len(),
+                    wrap_optional,
+                )
+            })
+        }
+
+        pub(crate) fn expr_dynamic(
+            op: DUCKDB_VX_EXPR_TYPE,
+            initial: &Value,
+            wrap_optional: bool,
+        ) -> (Self, TestDynamicFilterData) {
+            let mut data: TestDynamicFilterDataPtr = ptr::null_mut();
+            let filter = Self(unsafe {
+                duckdb_vx_test_table_filter_create_expr_dynamic(
+                    op,
+                    initial.as_ptr(),
+                    wrap_optional,
+                    &raw mut data,
+                )
+            });
+            (filter, TestDynamicFilterData(data))
+        }
+
+        pub(crate) fn expr_unsupported() -> Self {
+            Self(unsafe { duckdb_vx_test_table_filter_create_expr_unsupported() })
+        }
+    }
+
+    impl Drop for OwnedTableFilter {
+        fn drop(&mut self) {
+            if !self.0.is_null() {
+                unsafe { duckdb_vx_test_table_filter_destroy(&raw mut self.0) };
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[cfg(table_filter_test_support)]
+    mod table_filter_tests {
+        use super::super::TableFilterClass;
+        use super::super::test_support::OwnedTableFilter;
+        use crate::cpp::DUCKDB_VX_EXPR_TYPE;
+        use crate::duckdb::ExtractedValue;
+        use crate::duckdb::Value;
+
+        #[test]
+        fn empty_conjunctions_yield_empty_children() {
+            let empty_and = OwnedTableFilter::conjunction_and(vec![]);
+            assert!(matches!(
+                empty_and.as_ref().as_class(),
+                TableFilterClass::ConjunctionAnd(conj) if conj.children().count() == 0
+            ));
+
+            let empty_or = OwnedTableFilter::conjunction_or(vec![]);
+            assert!(matches!(
+                empty_or.as_ref().as_class(),
+                TableFilterClass::ConjunctionOr(conj) if conj.children().count() == 0
+            ));
+        }
+
+        #[test]
+        fn dynamic_filter_data_latest_updates_on_set_value() {
+            let (dyn_filter, dyn_data) = OwnedTableFilter::dynamic(
+                DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_COMPARE_LESSTHAN,
+                &Value::from(100i32),
+            );
+            let TableFilterClass::Dynamic(dynamic) = dyn_filter.as_ref().as_class() else {
+                panic!("expected Dynamic");
+            };
+            assert_eq!(
+                dynamic.operator,
+                DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_COMPARE_LESSTHAN
+            );
+            assert!(dynamic.data.latest().is_none());
+
+            dyn_data.set_value(&Value::from(55i32));
+            assert!(matches!(
+                dynamic.data.latest().map(|v| v.extract()),
+                Some(ExtractedValue::Integer(55))
+            ));
+        }
     }
 }

@@ -1,0 +1,77 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+include ../setup.slt.no
+
+# Synthetic multi-file Vortex tables exercising Top-N late materialization (file_row_number +
+# file_index) and multi-file hash-join dynamic filters without external data downloads.
+
+query I
+COPY (
+    SELECT
+        i::BIGINT AS id,
+        (i * 7919) % 10000 AS sort_key,
+        {'a': (i % 10)::INTEGER, 'b': 'tag_' || (i % 5)::VARCHAR} AS meta,
+        'payload_1_' || lpad(i::VARCHAR, 12, '0') AS p1,
+        'payload_2_' || lpad(i::VARCHAR, 12, '0') AS p2,
+        'payload_3_' || lpad(i::VARCHAR, 12, '0') AS p3,
+        'payload_4_' || lpad(i::VARCHAR, 12, '0') AS p4
+    FROM range(10000) t(i)
+) TO '${WORK_DIR}/fact_a.vortex';
+----
+10000
+
+query I
+COPY (
+    SELECT
+        (10000 + i)::BIGINT AS id,
+        ((10000 + i) * 7919) % 10000 AS sort_key,
+        {'a': (i % 10)::INTEGER, 'b': 'tag_' || (i % 5)::VARCHAR} AS meta,
+        'payload_1_' || lpad((10000 + i)::VARCHAR, 12, '0') AS p1,
+        'payload_2_' || lpad((10000 + i)::VARCHAR, 12, '0') AS p2,
+        'payload_3_' || lpad((10000 + i)::VARCHAR, 12, '0') AS p3,
+        'payload_4_' || lpad((10000 + i)::VARCHAR, 12, '0') AS p4
+    FROM range(10000) t(i)
+) TO '${WORK_DIR}/fact_b.vortex';
+----
+10000
+
+query I
+COPY (
+    SELECT * FROM (VALUES (100::BIGINT, 'x'), (5000::BIGINT, 'y'), (15000::BIGINT, 'z')) AS d(id, lbl)
+) TO '${WORK_DIR}/dim.vortex';
+----
+3
+
+# Top-N over wide rows triggers late materialization with a file_row_number virtual column filter.
+query TT
+EXPLAIN (FORMAT json) SELECT id, sort_key, p1, p2, p3, p4
+FROM '${WORK_DIR}/fact_a.vortex'
+ORDER BY sort_key ASC
+LIMIT 4;
+----
+<REGEX>:file_row_number
+
+# Multi-file Top-N late materialization uses both file_index and file_row_number.
+query IIT
+SELECT id, sort_key, p1
+FROM '${WORK_DIR}/fact_*.vortex'
+ORDER BY sort_key ASC, id ASC
+LIMIT 4;
+----
+0 0 payload_1_000000000000
+10000 0 payload_1_000000010000
+7679 1 payload_1_000000007679
+17679 1 payload_1_000000017679
+
+# Multi-file hash join combined with struct field and IN filters.
+query IIT
+SELECT f.id, f.meta.a, d.lbl
+FROM '${WORK_DIR}/fact_*.vortex' f
+JOIN (SELECT id, lbl FROM '${WORK_DIR}/dim.vortex' WHERE len(lbl) = 1) d ON f.id = d.id
+WHERE f.meta.a IN (0, 1) AND f.meta.b = 'tag_0'
+ORDER BY f.id;
+----
+100 0 x
+5000 0 y
+15000 0 z

@@ -47,6 +47,8 @@ const SOURCE_FILES: [&str; 9] = [
     "cpp/vector.cpp",
 ];
 
+const TEST_SUPPORT_SOURCE: &str = "cpp/table_filter_test_support.cpp";
+
 // Duckdb C API function we use.
 // This lowers codegen'd src/cpp.rs by four times.
 const DUCKDB_C_API_FUNCTIONS: [&str; 141] = [
@@ -589,7 +591,7 @@ fn bindgen_c2rust(crate_dir: &Path, duckdb_include_dir: &Path) {
 }
 
 /// Generate libvortex_duckdb.*
-fn compile_cpp(duckdb_include_dir: &Path) {
+fn compile_cpp(duckdb_include_dir: &Path, include_test_support: bool) {
     let mut build = cc::Build::new();
 
     let has_debuginfo = env::var("DEBUG")
@@ -629,12 +631,17 @@ fn compile_cpp(duckdb_include_dir: &Path) {
         }
     }
 
+    let mut sources: Vec<&str> = SOURCE_FILES.to_vec();
+    if include_test_support {
+        sources.push(TEST_SUPPORT_SOURCE);
+    }
+
     build
         .include("include")
         .include("cpp/include")
-        .files(SOURCE_FILES)
+        .files(&sources)
         .compile("vortex-duckdb-extras");
-    for e in SOURCE_FILES {
+    for e in sources {
         println!("cargo:rerun-if-changed={e}");
     }
 }
@@ -705,6 +712,12 @@ fn main() {
     println!("cargo:rerun-if-env-changed=TARGET");
 
     println!("cargo:rustc-check-cfg=cfg(duckdb_release)");
+    println!("cargo:rustc-check-cfg=cfg(table_filter_test_support)");
+
+    let include_test_support = env::var("PROFILE").as_deref() != Ok("release");
+    if include_test_support {
+        println!("cargo:rustc-cfg=table_filter_test_support");
+    }
 
     // These two variables are set in duckdb-vortex's CI. Don't download
     // duckdb if they are present
@@ -730,7 +743,7 @@ fn main() {
         );
         bindgen_c2rust(&crate_dir, &duckdb_include_dir);
         cbindgen_rust2c(&crate_dir);
-        compile_cpp(&duckdb_include_dir);
+        compile_cpp(&duckdb_include_dir, include_test_support);
         return;
     }
 
@@ -859,5 +872,5 @@ fn main() {
     let duckdb_include_dir = inner_dir.join("src").join("include");
     bindgen_c2rust(&crate_dir, &duckdb_include_dir);
     cbindgen_rust2c(&crate_dir);
-    compile_cpp(&duckdb_include_dir);
+    compile_cpp(&duckdb_include_dir, include_test_support);
 }

@@ -86,7 +86,7 @@ fn spatial_database() -> (Database, Connection) {
     db.register_vortex_scan_replacement().unwrap();
     crate::initialize(&db).unwrap();
     let conn = db.connect().unwrap();
-    conn.query("INSTALL spatial; LOAD spatial;").unwrap();
+    super::load_spatial(&conn);
     // Must follow `LOAD spatial`: the overrides copy spatial's catalog entries.
     db.register_spatial_overrides().unwrap();
     (db, conn)
