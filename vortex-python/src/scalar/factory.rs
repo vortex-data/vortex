@@ -10,11 +10,20 @@ use pyo3::intern;
 use pyo3::prelude::*;
 use pyo3::types::PyBool;
 use pyo3::types::PyBytes;
+use pyo3::types::PyDate;
+use pyo3::types::PyDateAccess;
+use pyo3::types::PyDateTime;
+use pyo3::types::PyDelta;
+use pyo3::types::PyDeltaAccess;
 use pyo3::types::PyDict;
 use pyo3::types::PyFloat;
 use pyo3::types::PyInt;
 use pyo3::types::PyList;
 use pyo3::types::PyString;
+use pyo3::types::PyTime;
+use pyo3::types::PyTimeAccess;
+use pyo3::types::PyTzInfo;
+use pyo3::types::PyTzInfoAccess;
 use vortex::dtype::BigCast;
 use vortex::dtype::DType;
 use vortex::dtype::DecimalDType;
@@ -38,6 +47,8 @@ use vortex::scalar::DecimalValue;
 use vortex::scalar::Scalar;
 use vortex::scalar::ScalarValue;
 
+use crate::classes::decimal_class;
+use crate::classes::uuid_class;
 use crate::dtype::PyDType;
 use crate::error::PyVortexError;
 use crate::error::PyVortexResult;
@@ -143,20 +154,22 @@ fn scalar_helper_inner(value: &Bound<'_, PyAny>, dtype: Option<&DType>) -> PyRes
         if is_decimal(value)? {
             return Ok(decimal_scalar(value, Some(decimal_dtype))?);
         }
-        let value = if let Ok(v) = value.extract::<i8>() {
-            DecimalValue::I8(v)
-        } else if let Ok(v) = value.extract::<i16>() {
-            DecimalValue::I16(v)
-        } else if let Ok(v) = value.extract::<i32>() {
-            DecimalValue::I32(v)
-        } else if let Ok(v) = value.extract::<i64>() {
-            DecimalValue::I64(v)
-        } else if let Ok(v) = value.extract::<i128>() {
-            DecimalValue::I128(v)
-        } else {
+        // Extract once and narrow in Rust: each failed `extract` would raise a Python exception.
+        let Ok(v) = value.extract::<i128>() else {
             return Err(PyValueError::new_err(
                 "Value can't be represented as decimal",
             ));
+        };
+        let value = if let Ok(v) = i8::try_from(v) {
+            DecimalValue::I8(v)
+        } else if let Ok(v) = i16::try_from(v) {
+            DecimalValue::I16(v)
+        } else if let Ok(v) = i32::try_from(v) {
+            DecimalValue::I32(v)
+        } else if let Ok(v) = i64::try_from(v) {
+            DecimalValue::I64(v)
+        } else {
+            DecimalValue::I128(v)
         };
         return Scalar::try_decimal(value, *decimal_dtype, Nullability::NonNullable)
             .map_err(|e| PyValueError::new_err(e.to_string()));
@@ -303,31 +316,27 @@ fn scalar_helper_inner(value: &Bound<'_, PyAny>, dtype: Option<&DType>) -> PyRes
     }
 
     // datetime.datetime, checked before datetime.date because it is a subclass of it.
-    let datetime_module = py.import(intern!(py, "datetime"))?;
-    if value.is_instance(&datetime_module.getattr(intern!(py, "datetime"))?)? {
-        return Ok(timestamp_scalar(value, dtype)?);
+    if let Ok(datetime) = value.cast::<PyDateTime>() {
+        return Ok(timestamp_scalar(datetime, dtype)?);
     }
 
     // datetime.date
-    if value.is_instance(&datetime_module.getattr(intern!(py, "date"))?)? {
-        return Ok(date_scalar(value, dtype)?);
+    if let Ok(date) = value.cast::<PyDate>() {
+        return Ok(date_scalar(date, dtype)?);
     }
 
     // datetime.time
-    if value.is_instance(&datetime_module.getattr(intern!(py, "time"))?)? {
-        return Ok(time_scalar(value, dtype)?);
+    if let Ok(time) = value.cast::<PyTime>() {
+        return Ok(time_scalar(time, dtype)?);
     }
 
     // datetime.timedelta
-    if value.is_instance(&datetime_module.getattr(intern!(py, "timedelta"))?)? {
-        return Ok(duration_scalar(value, dtype)?);
+    if let Ok(delta) = value.cast::<PyDelta>() {
+        return Ok(duration_scalar(delta, dtype)?);
     }
 
     // uuid.UUID
-    let uuid_type = py
-        .import(intern!(py, "uuid"))?
-        .getattr(intern!(py, "UUID"))?;
-    if value.is_instance(&uuid_type)? {
+    if value.is_instance(uuid_class(py)?)? {
         let bytes: Vec<u8> = value.getattr(intern!(py, "bytes"))?.extract()?;
         return Ok(uuid_scalar(&bytes)?);
     }
@@ -338,19 +347,13 @@ fn scalar_helper_inner(value: &Bound<'_, PyAny>, dtype: Option<&DType>) -> PyRes
     )))
 }
 
-/// Proleptic Gregorian ordinal of 1970-01-01, as returned by `date.toordinal()`.
-const UNIX_EPOCH_ORDINAL: i64 = 719_163;
 const MICROS_PER_SECOND: i64 = 1_000_000;
 const MICROS_PER_DAY: i64 = 86_400 * MICROS_PER_SECOND;
 /// Number of bytes in a UUID.
 const UUID_BYTE_LEN: usize = 16;
 
 fn is_decimal(value: &Bound<'_, PyAny>) -> PyResult<bool> {
-    let py = value.py();
-    let decimal_type = py
-        .import(intern!(py, "decimal"))?
-        .getattr(intern!(py, "Decimal"))?;
-    value.is_instance(&decimal_type)
+    value.is_instance(decimal_class(value.py())?)
 }
 
 /// Convert a count of microseconds into `unit`, failing rather than silently truncating.
@@ -375,21 +378,33 @@ fn micros_to_unit(micros: i64, unit: TimeUnit) -> PyResult<i64> {
 }
 
 /// Microseconds since midnight of a `datetime.time` or `datetime.datetime`.
-fn time_of_day_micros(value: &Bound<'_, PyAny>) -> PyResult<i64> {
-    let py = value.py();
-    let hour: i64 = value.getattr(intern!(py, "hour"))?.extract()?;
-    let minute: i64 = value.getattr(intern!(py, "minute"))?.extract()?;
-    let second: i64 = value.getattr(intern!(py, "second"))?.extract()?;
-    let microsecond: i64 = value.getattr(intern!(py, "microsecond"))?.extract()?;
-    Ok(((hour * 60 + minute) * 60 + second) * MICROS_PER_SECOND + microsecond)
+fn time_of_day_micros(value: &impl PyTimeAccess) -> i64 {
+    let hour: i64 = value.get_hour().into();
+    let minute: i64 = value.get_minute().into();
+    let second: i64 = value.get_second().into();
+    let microsecond: i64 = value.get_microsecond().into();
+    ((hour * 60 + minute) * 60 + second) * MICROS_PER_SECOND + microsecond
 }
 
 /// Days since the Unix epoch of a `datetime.date` or `datetime.datetime`.
-fn epoch_days(value: &Bound<'_, PyAny>) -> PyResult<i64> {
-    let ordinal: i64 = value
-        .call_method0(intern!(value.py(), "toordinal"))?
-        .extract()?;
-    Ok(ordinal - UNIX_EPOCH_ORDINAL)
+fn epoch_days(value: &impl PyDateAccess) -> i64 {
+    days_from_civil(
+        value.get_year().into(),
+        value.get_month().into(),
+        value.get_day().into(),
+    )
+}
+
+/// Days since 1970-01-01 of a proleptic Gregorian date, after Howard Hinnant's
+/// `days_from_civil`: <https://howardhinnant.github.io/date_algorithms.html#days_from_civil>.
+fn days_from_civil(year: i64, month: i64, day: i64) -> i64 {
+    // Count years from March, so that the leap day falls at the end of the year.
+    let year = if month <= 2 { year - 1 } else { year };
+    let era = year.div_euclid(400);
+    let year_of_era = year - era * 400;
+    let day_of_year = (153 * ((month + 9) % 12) + 2) / 5 + day - 1;
+    let day_of_era = year_of_era * 365 + year_of_era / 4 - year_of_era / 100 + day_of_year;
+    era * 146_097 + day_of_era - 719_468
 }
 
 /// The Vortex timezone name of a `tzinfo`.
@@ -406,11 +421,7 @@ fn timezone_name(tzinfo: &Bound<'_, PyAny>) -> PyResult<String> {
             return Ok(name);
         }
     }
-    let utc = py
-        .import(intern!(py, "datetime"))?
-        .getattr(intern!(py, "timezone"))?
-        .getattr(intern!(py, "utc"))?;
-    if tzinfo.eq(utc)? {
+    if tzinfo.eq(PyTzInfo::utc(py)?)? {
         return Ok("UTC".to_string());
     }
     Err(PyValueError::new_err(format!(
@@ -422,14 +433,14 @@ fn timezone_name(tzinfo: &Bound<'_, PyAny>) -> PyResult<String> {
 /// Convert a `datetime.date` into a Vortex `Date` scalar.
 ///
 /// The unit is taken from `dtype` when it is a `Date` dtype, and otherwise defaults to days.
-fn date_scalar(value: &Bound<'_, PyAny>, dtype: Option<&DType>) -> PyVortexResult<Scalar> {
+fn date_scalar(value: &Bound<'_, PyDate>, dtype: Option<&DType>) -> PyVortexResult<Scalar> {
     let unit = dtype
         .and_then(DType::as_extension_opt)
         .and_then(|ext| ext.metadata_opt::<Date>())
         .copied()
         .unwrap_or(TimeUnit::Days);
     let ext = Date::try_new(unit, Nullability::NonNullable)?;
-    let days = epoch_days(value)?;
+    let days = epoch_days(value);
     let storage = match unit {
         TimeUnit::Days => ScalarValue::from(
             i32::try_from(days)
@@ -449,17 +460,21 @@ fn date_scalar(value: &Bound<'_, PyAny>, dtype: Option<&DType>) -> PyVortexResul
 /// default to microseconds and the value's own timezone. Naive values are stored as their
 /// wall-clock time; timezone-aware values are stored as the UTC instant. A naive value cannot
 /// be converted to a timezone-aware dtype, nor an aware value to a naive dtype.
-fn timestamp_scalar(value: &Bound<'_, PyAny>, dtype: Option<&DType>) -> PyVortexResult<Scalar> {
+fn timestamp_scalar(
+    value: &Bound<'_, PyDateTime>,
+    dtype: Option<&DType>,
+) -> PyVortexResult<Scalar> {
     let py = value.py();
-    let tzinfo = value.getattr(intern!(py, "tzinfo"))?;
-    let aware = !tzinfo.is_none();
+    let tzinfo = value.get_tzinfo();
+    let aware = tzinfo.is_some();
 
-    let mut micros = epoch_days(value)? * MICROS_PER_DAY + time_of_day_micros(value)?;
+    let mut micros = epoch_days(value) * MICROS_PER_DAY + time_of_day_micros(value);
     if aware {
         let offset = value.call_method0(intern!(py, "utcoffset"))?;
-        let days: i64 = offset.getattr(intern!(py, "days"))?.extract()?;
-        let seconds: i64 = offset.getattr(intern!(py, "seconds"))?.extract()?;
-        let microseconds: i64 = offset.getattr(intern!(py, "microseconds"))?.extract()?;
+        let offset = offset.cast::<PyDelta>()?;
+        let days: i64 = offset.get_days().into();
+        let seconds: i64 = offset.get_seconds().into();
+        let microseconds: i64 = offset.get_microseconds().into();
         micros -= days * MICROS_PER_DAY + seconds * MICROS_PER_SECOND + microseconds;
     }
 
@@ -479,10 +494,9 @@ fn timestamp_scalar(value: &Bound<'_, PyAny>, dtype: Option<&DType>) -> PyVortex
             (options.unit, options.tz.clone())
         }
         None => {
-            let tz = if aware {
-                Some(Arc::from(timezone_name(&tzinfo)?.as_str()))
-            } else {
-                None
+            let tz = match &tzinfo {
+                Some(tzinfo) => Some(Arc::from(timezone_name(tzinfo.as_any())?.as_str())),
+                None => None,
             };
             (TimeUnit::Microseconds, tz)
         }
@@ -659,9 +673,8 @@ fn uuid_scalar(bytes: &[u8]) -> PyVortexResult<Scalar> {
 /// The unit is taken from `dtype` when it is a `Time` dtype, and otherwise defaults to
 /// microseconds, the resolution of `datetime.time`. Converting to a coarser unit that would drop
 /// a non-zero fraction of a second is an error rather than a silent truncation.
-fn time_scalar(value: &Bound<'_, PyAny>, dtype: Option<&DType>) -> PyVortexResult<Scalar> {
-    let py = value.py();
-    if !value.getattr(intern!(py, "tzinfo"))?.is_none() {
+fn time_scalar(value: &Bound<'_, PyTime>, dtype: Option<&DType>) -> PyVortexResult<Scalar> {
+    if value.get_tzinfo().is_some() {
         return Err(PyValueError::new_err(
             "Timezone-aware datetime.time values cannot be converted to a Vortex time scalar",
         )
@@ -673,7 +686,7 @@ fn time_scalar(value: &Bound<'_, PyAny>, dtype: Option<&DType>) -> PyVortexResul
         .copied()
         .unwrap_or(TimeUnit::Microseconds);
     let ext = Time::try_new(unit, Nullability::NonNullable)?;
-    let value = micros_to_unit(time_of_day_micros(value)?, unit)?;
+    let value = micros_to_unit(time_of_day_micros(value), unit)?;
     let storage = match unit {
         TimeUnit::Seconds | TimeUnit::Milliseconds => {
             ScalarValue::from(i32::try_from(value).map_err(|_| {
@@ -693,7 +706,7 @@ fn time_scalar(value: &Bound<'_, PyAny>, dtype: Option<&DType>) -> PyVortexResul
 /// The unit is taken from `dtype` when it is a `Duration` dtype, and otherwise defaults to
 /// microseconds, the resolution of `datetime.timedelta`. Converting to a coarser unit that would
 /// drop a non-zero sub-unit remainder is an error rather than a silent truncation.
-fn duration_scalar(value: &Bound<'_, PyAny>, dtype: Option<&DType>) -> PyVortexResult<Scalar> {
+fn duration_scalar(value: &Bound<'_, PyDelta>, dtype: Option<&DType>) -> PyVortexResult<Scalar> {
     let unit = dtype
         .and_then(DType::as_extension_opt)
         .and_then(|ext| ext.metadata_opt::<Duration>())
@@ -726,17 +739,11 @@ fn duration_scalar(value: &Bound<'_, PyAny>, dtype: Option<&DType>) -> PyVortexR
 }
 
 /// Total nanoseconds of a `datetime.timedelta` or `pandas.Timedelta`.
-fn timedelta_nanos(value: &Bound<'_, PyAny>) -> PyResult<i128> {
+fn timedelta_nanos(value: &Bound<'_, PyDelta>) -> PyResult<i128> {
     let py = value.py();
-    let days: i128 = value.getattr(intern!(py, "days"))?.extract::<i64>()?.into();
-    let seconds: i128 = value
-        .getattr(intern!(py, "seconds"))?
-        .extract::<i64>()?
-        .into();
-    let microseconds: i128 = value
-        .getattr(intern!(py, "microseconds"))?
-        .extract::<i64>()?
-        .into();
+    let days: i128 = value.get_days().into();
+    let seconds: i128 = value.get_seconds().into();
+    let microseconds: i128 = value.get_microseconds().into();
     let nanoseconds: i128 = match value.getattr(intern!(py, "nanoseconds")) {
         Ok(ns) => ns.extract::<i64>()?.into(),
         Err(err) if err.is_instance_of::<PyAttributeError>(py) => 0,

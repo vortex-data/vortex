@@ -104,7 +104,6 @@ impl PyScalar {
     /// Initialize a [`PyScalar`] from a Vortex [`Scalar`], ensuring the correct subclass is
     /// returned.
     pub fn init(py: Python, scalar: Scalar) -> PyResult<Bound<PyScalar>> {
-        // TODO(ngates): Bound::as_super would be great, but it's in newer PyO3.
         match scalar.dtype() {
             DType::Null => Self::with_subclass(py, scalar, PyNullScalar),
             DType::Bool(_) => Self::with_subclass(py, scalar, PyBoolScalar),
@@ -142,8 +141,7 @@ impl PyScalar {
             py,
             PyClassInitializer::from(PyScalar(scalar)).add_subclass(subclass),
         )?
-        .into_any()
-        .cast_into::<PyScalar>()?)
+        .into_super())
     }
 
     /// Return the inner [`Scalar`] value.

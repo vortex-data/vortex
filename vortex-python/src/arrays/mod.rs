@@ -25,9 +25,9 @@ use pyo3::exceptions::PyTypeError;
 use pyo3::exceptions::PyValueError;
 use pyo3::intern;
 use pyo3::prelude::*;
+use pyo3::types::IntoPyDict;
 use pyo3::types::PyBytes;
 use pyo3::types::PyCapsule;
-use pyo3::types::PyDict;
 use pyo3::types::PyList;
 use pyo3::types::PyRange;
 use pyo3::types::PyRangeMethods;
@@ -69,6 +69,7 @@ use crate::arrays::py::PythonArray;
 use crate::arrays::py::PythonVTable;
 use crate::arrow::FromPyArrow;
 use crate::arrow::ToPyArrow;
+use crate::classes::chunked_array_fn;
 use crate::dtype::PyDType;
 use crate::error::PyVortexError;
 use crate::error::PyVortexResult;
@@ -262,16 +263,10 @@ impl ArrowExport {
                     .map(|arrow_array| arrow_array.into_data().to_pyarrow(py))
                     .collect::<Result<Vec<_>, _>>()?;
 
-                let kwargs = PyDict::from_sequence(
-                    &PyList::new(py, vec![("type", pa_data_type)])?.into_any(),
-                )?;
+                let kwargs = [(intern!(py, "type"), pa_data_type)].into_py_dict(py)?;
 
                 // Combine into a chunked array
-                PyModule::import(py, "pyarrow")?.call_method(
-                    "chunked_array",
-                    (PyList::new(py, chunks)?,),
-                    Some(&kwargs),
-                )
+                chunked_array_fn(py)?.call((PyList::new(py, chunks)?,), Some(&kwargs))
             }
             Self::Single(arrow_array) => Ok(arrow_array.into_data().to_pyarrow(py)?.into_bound(py)),
         }
@@ -590,7 +585,7 @@ impl PyArray {
         combine_chunks: bool,
     ) -> PyVortexResult<Bound<'py, PyAny>> {
         // NOTE(ngates): for struct arrays, we could also return a RecordBatchStreamReader.
-        let array = PyArrayRef::extract(self_.as_any().as_borrowed())?.into_inner();
+        let array = self_.as_any().extract::<PyArrayRef>()?.into_inner();
         let py = self_.py();
         let target_field = arrow_target_field(arrow_type, array.dtype())?;
 
@@ -605,7 +600,7 @@ impl PyArray {
     fn __vortex_array_metadata__<'py>(
         self_: &'py Bound<'py, Self>,
     ) -> PyVortexResult<Bound<'py, PyTuple>> {
-        let array = PyArrayRef::extract(self_.as_any().as_borrowed())?.into_inner();
+        let array = self_.as_any().extract::<PyArrayRef>()?.into_inner();
         array_metadata_tuple(self_.py(), &array)
     }
 
@@ -620,7 +615,9 @@ impl PyArray {
     /// Returns the encoding ID of this array.
     #[getter]
     fn id(slf: &Bound<Self>) -> PyResult<String> {
-        Ok(PyArrayRef::extract(slf.as_any().as_borrowed())?
+        Ok(slf
+            .as_any()
+            .extract::<PyArrayRef>()?
             .encoding_id()
             .to_string())
     }
@@ -628,7 +625,7 @@ impl PyArray {
     /// Returns the number of bytes used by this array.
     #[getter]
     fn nbytes(slf: &Bound<Self>) -> PyResult<u64> {
-        Ok(PyArrayRef::extract(slf.as_any().as_borrowed())?.nbytes())
+        Ok(slf.as_any().extract::<PyArrayRef>()?.nbytes())
     }
 
     /// Returns the data type of this array.
@@ -665,9 +662,7 @@ impl PyArray {
     fn dtype<'py>(slf: &'py Bound<'py, Self>) -> PyResult<Bound<'py, PyDType>> {
         PyDType::init(
             slf.py(),
-            PyArrayRef::extract(slf.as_any().as_borrowed())?
-                .dtype()
-                .clone(),
+            slf.as_any().extract::<PyArrayRef>()?.dtype().clone(),
         )
     }
 
@@ -694,7 +689,7 @@ impl PyArray {
     /// vortex.VortexFile : An on-disk Vortex array ready to scan with an expression.
     /// vortex.VortexFile.scan : Scan an on-disk Vortex array with an expression.
     pub fn apply(slf: Bound<Self>, expr: PyExpr) -> PyVortexResult<PyArrayRef> {
-        let slf = PyArrayRef::extract(slf.as_any().as_borrowed())?.into_inner();
+        let slf = slf.as_any().extract::<PyArrayRef>()?.into_inner();
 
         let inner = slf.apply(&expr)?;
 
@@ -703,7 +698,7 @@ impl PyArray {
 
     /// Rust docs are *not* copied into Python for __lt__: https://github.com/PyO3/pyo3/issues/4326
     fn __lt__(slf: Bound<Self>, other: PyArrayRef) -> PyVortexResult<PyArrayRef> {
-        let slf = PyArrayRef::extract(slf.as_any().as_borrowed())?.into_inner();
+        let slf = slf.as_any().extract::<PyArrayRef>()?.into_inner();
         let inner = slf
             .compare(other.into_inner(), CompareOperator::Lt)?
             .optimize_ctx(session())?;
@@ -712,7 +707,7 @@ impl PyArray {
 
     /// Rust docs are *not* copied into Python for __le__: https://github.com/PyO3/pyo3/issues/4326
     fn __le__(slf: Bound<Self>, other: PyArrayRef) -> PyVortexResult<PyArrayRef> {
-        let slf = PyArrayRef::extract(slf.as_any().as_borrowed())?.into_inner();
+        let slf = slf.as_any().extract::<PyArrayRef>()?.into_inner();
         let inner = slf
             .compare(other.into_inner(), CompareOperator::Lte)?
             .optimize_ctx(session())?;
@@ -721,7 +716,7 @@ impl PyArray {
 
     /// Rust docs are *not* copied into Python for __eq__: https://github.com/PyO3/pyo3/issues/4326
     fn __eq__(slf: Bound<Self>, other: PyArrayRef) -> PyVortexResult<PyArrayRef> {
-        let slf = PyArrayRef::extract(slf.as_any().as_borrowed())?.into_inner();
+        let slf = slf.as_any().extract::<PyArrayRef>()?.into_inner();
         let inner = slf
             .compare(other.into_inner(), CompareOperator::Eq)?
             .optimize_ctx(session())?;
@@ -730,7 +725,7 @@ impl PyArray {
 
     /// Rust docs are *not* copied into Python for __ne__: https://github.com/PyO3/pyo3/issues/4326
     fn __ne__(slf: Bound<Self>, other: PyArrayRef) -> PyVortexResult<PyArrayRef> {
-        let slf = PyArrayRef::extract(slf.as_any().as_borrowed())?.into_inner();
+        let slf = slf.as_any().extract::<PyArrayRef>()?.into_inner();
         let inner = slf
             .compare(other.into_inner(), CompareOperator::NotEq)?
             .optimize_ctx(session())?;
@@ -739,7 +734,7 @@ impl PyArray {
 
     /// Rust docs are *not* copied into Python for __ge__: https://github.com/PyO3/pyo3/issues/4326
     fn __ge__(slf: Bound<Self>, other: PyArrayRef) -> PyVortexResult<PyArrayRef> {
-        let slf = PyArrayRef::extract(slf.as_any().as_borrowed())?.into_inner();
+        let slf = slf.as_any().extract::<PyArrayRef>()?.into_inner();
         let inner = slf
             .compare(other.into_inner(), CompareOperator::Gte)?
             .optimize_ctx(session())?;
@@ -748,7 +743,7 @@ impl PyArray {
 
     /// Rust docs are *not* copied into Python for __gt__: https://github.com/PyO3/pyo3/issues/4326
     fn __gt__(slf: Bound<Self>, other: PyArrayRef) -> PyVortexResult<PyArrayRef> {
-        let slf = PyArrayRef::extract(slf.as_any().as_borrowed())?.into_inner();
+        let slf = slf.as_any().extract::<PyArrayRef>()?.into_inner();
         let inner = slf
             .compare(other.into_inner(), CompareOperator::Gt)?
             .optimize_ctx(session())?;
@@ -788,7 +783,7 @@ impl PyArray {
         // through would change the FromPyObject contract. Use the crate session
         // until the wrappers are refactored.
         let py = slf.py();
-        let slf = PyArrayRef::extract(slf.as_any().as_borrowed())?.into_inner();
+        let slf = slf.as_any().extract::<PyArrayRef>()?.into_inner();
         let mask = mask.into_inner();
         let inner = py.detach(move || -> VortexResult<ArrayRef> {
             let mut ctx = session().create_execution_ctx();
@@ -879,7 +874,7 @@ impl PyArray {
         // until the wrappers are refactored.
         let mut ctx = session().create_execution_ctx();
         let py = slf.py();
-        let slf = PyArrayRef::extract(slf.as_any().as_borrowed())?.into_inner();
+        let slf = slf.as_any().extract::<PyArrayRef>()?.into_inner();
         if index >= slf.len() {
             return Err(PyIndexError::new_err(format!(
                 "Index {index} out of bounds from 0 to {}",
@@ -933,7 +928,7 @@ impl PyArray {
     /// ]
     /// ```
     fn take(slf: Bound<Self>, indices: PyArrayRef) -> PyVortexResult<PyArrayRef> {
-        let slf = PyArrayRef::extract(slf.as_any().as_borrowed())?.into_inner();
+        let slf = slf.as_any().extract::<PyArrayRef>()?.into_inner();
 
         if !indices.dtype().is_int() {
             return Err(PyValueError::new_err(format!(
@@ -950,7 +945,7 @@ impl PyArray {
 
     #[pyo3(signature = (start, end))]
     fn slice(slf: Bound<Self>, start: usize, end: usize) -> PyVortexResult<PyArrayRef> {
-        let slf = PyArrayRef::extract(slf.as_any().as_borrowed())?.into_inner();
+        let slf = slf.as_any().extract::<PyArrayRef>()?.into_inner();
         let inner = slf.slice(start..end)?.optimize_ctx(session())?;
         Ok(PyArrayRef::from(inner))
     }
@@ -985,14 +980,16 @@ impl PyArray {
     ///
     /// Compressed arrays often have more complex, deeply nested encoding trees.
     fn display_tree(slf: &Bound<Self>) -> PyResult<String> {
-        Ok(PyArrayRef::extract(slf.as_any().as_borrowed())?
+        Ok(slf
+            .as_any()
+            .extract::<PyArrayRef>()?
             .display_tree()
             .to_string())
     }
 
     fn serialize(slf: &Bound<Self>, ctx: &PyArrayContext) -> PyVortexResult<Vec<Vec<u8>>> {
         // FIXME(ngates): do not copy to vec, use buffer protocol
-        let array = PyArrayRef::extract(slf.as_any().as_borrowed())?.into_inner();
+        let array = slf.as_any().extract::<PyArrayRef>()?.into_inner();
         Ok(slf.py().detach(|| -> VortexResult<_> {
             Ok(array
                 .serialize(ctx, session(), &Default::default())?
@@ -1010,7 +1007,7 @@ impl PyArray {
         slf: &'py Bound<'py, Self>,
     ) -> PyVortexResult<(Bound<'py, PyAny>, Bound<'py, PyAny>)> {
         let py = slf.py();
-        let array = PyArrayRef::extract(slf.as_any().as_borrowed())?.into_inner();
+        let array = slf.as_any().extract::<PyArrayRef>()?.into_inner();
 
         // Encoding and copying every buffer is O(bytes), so release the GIL for it.
         let (array_buffers, dtype_buffers) = py.detach(|| -> VortexResult<_> {
@@ -1050,7 +1047,7 @@ impl PyArray {
             return Self::__reduce__(slf);
         }
 
-        let array = PyArrayRef::extract(slf.as_any().as_borrowed())?.into_inner();
+        let array = slf.as_any().extract::<PyArrayRef>()?.into_inner();
 
         let mut encoder = MessageEncoder::new(session().clone());
         let array_buffers = encoder.encode(EncoderMessage::Array(&array))?;

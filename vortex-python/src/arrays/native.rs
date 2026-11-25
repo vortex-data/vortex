@@ -179,12 +179,10 @@ impl PyNativeArray {
             return Self::with_subclass(py, array, PySequenceArray);
         }
 
-        Ok(Bound::new(
+        Bound::new(
             py,
             PyClassInitializer::from(PyArray).add_subclass(PyNativeArray { array }),
-        )?
-        .into_any()
-        .cast_into::<PyNativeArray>()?)
+        )
     }
 
     fn with_subclass<S: PyClass<BaseType = PyNativeArray>>(
@@ -198,8 +196,7 @@ impl PyNativeArray {
                 .add_subclass(PyNativeArray { array })
                 .add_subclass(subclass),
         )?
-        .into_any()
-        .cast_into::<PyNativeArray>()?)
+        .into_super())
     }
 
     pub fn inner(&self) -> &ArrayRef {

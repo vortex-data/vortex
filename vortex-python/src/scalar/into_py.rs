@@ -37,7 +37,7 @@ impl<'py> IntoPyObject<'py> for PyVortex<&'_ Scalar> {
     type Error = PyErr;
     fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
         match self.0.dtype() {
-            DType::Null => Ok(py.None().into_pyobject(py)?),
+            DType::Null => Ok(py.None().into_bound(py)),
             DType::Bool(_) => Ok(self.0.as_bool().value().as_ref().into_pyobject(py)?),
             DType::Primitive(ptype, ..) => {
                 let p = self.0.as_primitive();
@@ -60,7 +60,7 @@ impl<'py> IntoPyObject<'py> for PyVortex<&'_ Scalar> {
             DType::Decimal(decimal_type, ..) => {
                 let decimal = self.0.as_decimal();
                 match decimal.decimal_value() {
-                    None => Ok(py.None().into_pyobject(py)?),
+                    None => Ok(py.None().into_bound(py)),
                     Some(value) => decimal_value_to_py(py, decimal_type.scale(), value),
                 }
             }
@@ -128,7 +128,7 @@ impl<'py> IntoPyObject<'py> for PyVortex<StructScalar<'_>> {
 
     fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
         let Some(fields) = self.0.fields_iter() else {
-            return Ok(py.None().into_pyobject(py)?);
+            return Ok(py.None().into_bound(py));
         };
 
         let dict = PyDict::new(py);
@@ -148,7 +148,7 @@ impl<'py> IntoPyObject<'py> for PyVortex<ListScalar<'_>> {
 
     fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
         let Some(elements) = self.0.elements() else {
-            return Ok(py.None().into_pyobject(py)?);
+            return Ok(py.None().into_bound(py));
         };
 
         PyList::new(py, elements.iter().map(PyVortex)).map(|l| l.into_any())
