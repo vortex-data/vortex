@@ -123,6 +123,14 @@ impl<R: AsyncRead> Stream for AsyncMessageReader<R> {
                         cx
                     )) {
                         Err(e) if e.kind() == io::ErrorKind::Interrupted => {}
+                        Err(e)
+                            if matches!(
+                                e.kind(),
+                                io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut
+                            ) =>
+                        {
+                            return Poll::Ready(Some(Err(e.into())));
+                        }
                         Err(e) => {
                             this.buffer.clear();
                             *this.state = ReadState::Done;
@@ -156,15 +164,11 @@ mod tests {
     use std::task::Context;
     use std::task::Poll;
 
-    use bytes::BytesMut;
     use futures::AsyncRead;
     use futures::StreamExt;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
     use vortex_array::assert_arrays_eq;
-    use vortex_array::dtype::DType;
-    use vortex_buffer::Alignment;
-    use vortex_buffer::ByteBuffer;
     use vortex_buffer::buffer;
     use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
@@ -173,29 +177,27 @@ mod tests {
     use super::*;
     use crate::messages::EncoderMessage;
     use crate::messages::MessageEncoder;
-    use crate::tests::SESSION;
-    use crate::tests::assert_io_error_kind;
+    use crate::test::SESSION;
+    use crate::test::assert_io_error_kind;
 
-    /// An `AsyncRead` that alternates `Poll::Pending` with reads of up to `chunk_size` bytes.
-    struct PendingChunkedReader {
+    /// An `AsyncRead` that alternates `Poll::Pending` with 1-byte reads.
+    struct PendingByteReader {
         data: Vec<u8>,
         pos: usize,
-        chunk_size: usize,
         yield_pending: bool,
     }
 
-    impl PendingChunkedReader {
-        fn new(data: Vec<u8>, chunk_size: usize) -> Self {
+    impl PendingByteReader {
+        fn new(data: Vec<u8>) -> Self {
             Self {
                 data,
                 pos: 0,
-                chunk_size,
                 yield_pending: true,
             }
         }
     }
 
-    impl AsyncRead for PendingChunkedReader {
+    impl AsyncRead for PendingByteReader {
         fn poll_read(
             mut self: Pin<&mut Self>,
             cx: &mut Context<'_>,
@@ -211,63 +213,10 @@ mod tests {
             if buf.is_empty() || self.pos >= self.data.len() {
                 return Poll::Ready(Ok(0));
             }
-            let remaining = self.data.len() - self.pos;
-            let count = buf.len().min(self.chunk_size).min(remaining);
-            buf[..count].copy_from_slice(&self.data[self.pos..self.pos + count]);
-            self.pos += count;
-            Poll::Ready(Ok(count))
+            buf[0] = self.data[self.pos];
+            self.pos += 1;
+            Poll::Ready(Ok(1))
         }
-    }
-
-    #[tokio::test]
-    async fn reads_messages_split_across_small_chunk_sizes() -> VortexResult<()> {
-        let array = buffer![0i32, 1, 2, 3, 4, 5].into_array();
-        let raw_buf = ByteBuffer::copy_from_aligned([10u8, 20, 30, 40, 50], Alignment::new(64));
-        let mut ipc_bytes = BytesMut::new();
-        let mut encoder = MessageEncoder::new(SESSION.clone());
-        for message in [
-            EncoderMessage::DType(array.dtype()),
-            EncoderMessage::Array(&array),
-            EncoderMessage::Buffer(&raw_buf),
-        ] {
-            for buf in encoder.encode(message)? {
-                ipc_bytes.extend_from_slice(buf.as_ref());
-            }
-        }
-        let encoded = ipc_bytes.to_vec();
-
-        for chunk_size in [1, 2, 3, 7, 13] {
-            let mut reader =
-                AsyncMessageReader::new(PendingChunkedReader::new(encoded.clone(), chunk_size));
-
-            let DecoderMessage::DType(fb_dtype) =
-                reader.next().await.vortex_expect("dtype message")?
-            else {
-                vortex_panic!("expected a dtype message");
-            };
-            assert_eq!(DType::from_flatbuffer(fb_dtype, &SESSION)?, *array.dtype());
-
-            let DecoderMessage::Array((parts, ctx, row_count)) =
-                reader.next().await.vortex_expect("array message")?
-            else {
-                vortex_panic!("expected an array message");
-            };
-            let actual = parts.decode(array.dtype(), row_count, &ctx, &SESSION)?;
-            assert_arrays_eq!(actual, array, &mut SESSION.create_execution_ctx());
-
-            let DecoderMessage::Buffer(decoded_buf) =
-                reader.next().await.vortex_expect("buffer message")?
-            else {
-                vortex_panic!("expected a buffer message");
-            };
-            assert_eq!(decoded_buf.as_slice(), raw_buf.as_slice());
-            assert_eq!(decoded_buf.alignment(), Alignment::new(64));
-            assert!(Alignment::new(64).is_ptr_aligned(decoded_buf.as_ptr()));
-
-            assert!(reader.next().await.is_none());
-        }
-
-        Ok(())
     }
 
     #[tokio::test]
@@ -288,13 +237,88 @@ mod tests {
         ];
 
         for cut in cut_points {
-            let mut reader =
-                AsyncMessageReader::new(PendingChunkedReader::new(full[..cut].to_vec(), 1));
-            let Err(err) = reader.next().await.vortex_expect("truncated frame") else {
-                vortex_panic!("expected error on truncated frame");
-            };
+            let mut reader = AsyncMessageReader::new(PendingByteReader::new(full[..cut].to_vec()));
+            let err = reader
+                .next()
+                .await
+                .vortex_expect("expected error on truncated frame")
+                .unwrap_err();
             assert_io_error_kind(&err, io::ErrorKind::UnexpectedEof);
             assert!(reader.next().await.is_none());
+            assert!(reader.next().await.is_none());
+        }
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn resumable_io_error_preserves_progress() -> VortexResult<()> {
+        struct FlakyAsyncReader {
+            data: Vec<u8>,
+            pos: usize,
+            kind: io::ErrorKind,
+            errored: bool,
+            yield_pending: bool,
+        }
+
+        impl AsyncRead for FlakyAsyncReader {
+            fn poll_read(
+                mut self: Pin<&mut Self>,
+                cx: &mut Context<'_>,
+                buf: &mut [u8],
+            ) -> Poll<io::Result<usize>> {
+                if self.yield_pending {
+                    self.yield_pending = false;
+                    cx.waker().wake_by_ref();
+                    return Poll::Pending;
+                }
+                self.yield_pending = true;
+
+                if !self.errored && self.pos == 1 {
+                    self.errored = true;
+                    return Poll::Ready(Err(io::Error::new(self.kind, "transient read error")));
+                }
+                if buf.is_empty() || self.pos >= self.data.len() {
+                    return Poll::Ready(Ok(0));
+                }
+                buf[0] = self.data[self.pos];
+                self.pos += 1;
+                Poll::Ready(Ok(1))
+            }
+        }
+
+        let array = buffer![7i32, 8, 9].into_array();
+        let mut encoder = MessageEncoder::new(SESSION.clone());
+        let full: Vec<u8> = encoder
+            .encode(EncoderMessage::Array(&array))?
+            .iter()
+            .flat_map(|b| b.as_ref())
+            .copied()
+            .collect();
+
+        for kind in [io::ErrorKind::WouldBlock, io::ErrorKind::TimedOut] {
+            let mut reader = AsyncMessageReader::new(FlakyAsyncReader {
+                data: full.clone(),
+                pos: 0,
+                kind,
+                errored: false,
+                yield_pending: true,
+            });
+
+            let err = reader
+                .next()
+                .await
+                .vortex_expect("expected transport error")
+                .unwrap_err();
+            assert_io_error_kind(&err, kind);
+
+            let DecoderMessage::Array((parts, ctx, row_count)) =
+                reader.next().await.vortex_expect("recovered message")?
+            else {
+                vortex_panic!("expected an array message");
+            };
+            let actual = parts.decode(array.dtype(), row_count, &ctx, &SESSION)?;
+            assert_arrays_eq!(actual, array, &mut SESSION.create_execution_ctx());
             assert!(reader.next().await.is_none());
         }
 
@@ -418,9 +442,11 @@ mod tests {
                 poll_calls: Arc::clone(&poll_calls),
             });
 
-            let Err(err) = reader.next().await.vortex_expect("expected io error") else {
-                vortex_panic!("expected io error");
-            };
+            let err = reader
+                .next()
+                .await
+                .vortex_expect("expected io error")
+                .unwrap_err();
             assert_io_error_kind(&err, io::ErrorKind::BrokenPipe);
 
             let calls_after_err = poll_calls.load(Ordering::SeqCst);

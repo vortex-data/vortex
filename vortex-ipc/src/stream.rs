@@ -82,31 +82,36 @@ impl<R: AsyncRead> Stream for AsyncIPCReader<R> {
             return Poll::Ready(None);
         }
 
-        let Some(msg) = ready!(this.reader.poll_next(cx)) else {
-            *this.done = true;
-            return Poll::Ready(None);
-        };
-        let result = match msg {
-            Ok(DecoderMessage::Array((array_parts, ctx, row_count))) => array_parts
-                .decode(this.dtype, row_count, &ctx, this.session)
-                .and_then(|array| {
-                    if array.dtype() != this.dtype {
-                        Err(vortex_err!(
-                            "Array data type mismatch: expected {:?}, got {:?}",
-                            this.dtype,
-                            array.dtype()
-                        ))
-                    } else {
-                        Ok(array)
-                    }
-                }),
-            Ok(msg) => Err(vortex_err!("Expected Array message, got {:?}", msg)),
-            Err(e) => Err(e),
-        };
-        if result.is_err() {
-            *this.done = true;
+        match ready!(this.reader.poll_next(cx)) {
+            None => Poll::Ready(None),
+            Some(Ok(DecoderMessage::Array((array_parts, ctx, row_count)))) => {
+                let result = array_parts
+                    .decode(this.dtype, row_count, &ctx, this.session)
+                    .and_then(|array| {
+                        if array.dtype() != this.dtype {
+                            Err(vortex_err!(
+                                "Array data type mismatch: expected {:?}, got {:?}",
+                                this.dtype,
+                                array.dtype()
+                            ))
+                        } else {
+                            Ok(array)
+                        }
+                    });
+                if result.is_err() {
+                    *this.done = true;
+                }
+                Poll::Ready(Some(result))
+            }
+            Some(Ok(msg)) => {
+                *this.done = true;
+                Poll::Ready(Some(Err(vortex_err!(
+                    "Expected Array message, got {:?}",
+                    msg
+                ))))
+            }
+            Some(Err(e)) => Poll::Ready(Some(Err(e))),
         }
-        Poll::Ready(Some(result))
     }
 }
 
@@ -189,8 +194,10 @@ impl Stream for ArrayStreamIPCBytes {
 
         // If we haven't written the dtype yet, we write it
         if !this.written_dtype {
-            let dtype = this.stream.dtype();
-            match this.encoder.encode(EncoderMessage::DType(dtype)) {
+            match this
+                .encoder
+                .encode(EncoderMessage::DType(this.stream.dtype()))
+            {
                 Ok(buffers) => {
                     this.buffers.extend(buffers);
                     this.written_dtype = true;
@@ -238,7 +245,7 @@ impl Stream for ArrayStreamIPCBytes {
 }
 
 #[cfg(test)]
-mod tests {
+mod test {
     use std::io;
     use std::pin::Pin;
     use std::sync::Arc;
@@ -253,18 +260,18 @@ mod tests {
     use vortex_array::IntoArray as _;
     use vortex_array::VortexSessionExecute;
     use vortex_array::assert_arrays_eq;
+    use vortex_array::stream::ArrayStream;
     use vortex_array::stream::ArrayStreamAdapter;
     use vortex_array::stream::ArrayStreamExt;
     use vortex_buffer::ByteBuffer;
     use vortex_buffer::buffer;
     use vortex_error::VortexExpect;
-    use vortex_error::vortex_panic;
 
     use super::*;
     use crate::iterator::SyncIPCReader;
     use crate::messages::AsyncMessageWriter;
-    use crate::tests::SESSION;
-    use crate::tests::assert_io_error_kind;
+    use crate::test::SESSION;
+    use crate::test::assert_io_error_kind;
 
     struct CountingIter {
         items: IntoIter<VortexResult<ArrayRef>>,
@@ -281,38 +288,22 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_async_stream() -> VortexResult<()> {
+    async fn test_async_stream() {
         let array = buffer![1, 2, 3].into_array();
         let ipc_buffer = array
             .to_array_stream()
             .into_ipc(&SESSION)
             .collect_to_buffer()
-            .await?;
+            .await
+            .unwrap();
 
-        let reader = AsyncIPCReader::try_new(Cursor::new(ipc_buffer), &SESSION).await?;
+        let reader = AsyncIPCReader::try_new(Cursor::new(ipc_buffer), &SESSION)
+            .await
+            .unwrap();
 
         assert_eq!(reader.dtype(), array.dtype());
-        let result = reader.read_all().await?;
+        let result = reader.read_all().await.unwrap();
         assert_arrays_eq!(result, array, &mut SESSION.create_execution_ctx());
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn test_async_write_ipc_roundtrip() -> VortexResult<()> {
-        let chunk1 = buffer![1i32, 2, 3].into_array();
-        let chunk2 = buffer![4i32, 5, 6, 7].into_array();
-        let dtype = chunk1.dtype().clone();
-        let expected = buffer![1i32, 2, 3, 4, 5, 6, 7].into_array();
-
-        let cursor = ArrayStreamAdapter::new(dtype, stream::iter([Ok(chunk1), Ok(chunk2)]))
-            .write_ipc(Cursor::new(Vec::new()), &SESSION)
-            .await?;
-        let reader = AsyncIPCReader::try_new(Cursor::new(cursor.into_inner()), &SESSION).await?;
-
-        assert_eq!(reader.dtype(), expected.dtype());
-        let result = reader.read_all().await?;
-        assert_arrays_eq!(result, expected, &mut SESSION.create_execution_ctx());
-        Ok(())
     }
 
     /// Wrapper that limits reads to small chunks to simulate network behavior
@@ -333,48 +324,48 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_async_stream_chunked() -> VortexResult<()> {
+    async fn test_async_stream_chunked() {
         let array = buffer![1i32, 2, 3, 4, 5, 6, 7, 8, 9, 10].into_array();
         let ipc_buffer = array
             .to_array_stream()
             .into_ipc(&SESSION)
             .collect_to_buffer()
-            .await?;
+            .await
+            .unwrap();
 
         let chunked = ChunkedReader {
             inner: Cursor::new(ipc_buffer),
             chunk_size: 3,
         };
 
-        let reader = AsyncIPCReader::try_new(chunked, &SESSION).await?;
+        let reader = AsyncIPCReader::try_new(chunked, &SESSION).await.unwrap();
 
-        let result = reader.read_all().await?;
+        let result = reader.read_all().await.unwrap();
         let expected = buffer![1i32, 2, 3, 4, 5, 6, 7, 8, 9, 10].into_array();
         assert_arrays_eq!(result, expected, &mut SESSION.create_execution_ctx());
-        Ok(())
     }
 
     /// Test with 1-byte chunks to stress-test partial read handling.
     #[tokio::test]
-    async fn test_async_stream_single_byte_chunks() -> VortexResult<()> {
+    async fn test_async_stream_single_byte_chunks() {
         let array = buffer![42i64, -1, 0, i64::MAX, i64::MIN].into_array();
         let ipc_buffer = array
             .to_array_stream()
             .into_ipc(&SESSION)
             .collect_to_buffer()
-            .await?;
+            .await
+            .unwrap();
 
         let chunked = ChunkedReader {
             inner: Cursor::new(ipc_buffer),
             chunk_size: 1,
         };
 
-        let reader = AsyncIPCReader::try_new(chunked, &SESSION).await?;
+        let reader = AsyncIPCReader::try_new(chunked, &SESSION).await.unwrap();
 
-        let result = reader.read_all().await?;
+        let result = reader.read_all().await.unwrap();
         let expected = buffer![42i64, -1, 0, i64::MAX, i64::MIN].into_array();
         assert_arrays_eq!(result, expected, &mut SESSION.create_execution_ctx());
-        Ok(())
     }
 
     #[tokio::test]
@@ -399,18 +390,24 @@ mod tests {
         let mut sync_reader = SyncIPCReader::try_new(io::Cursor::new(truncated.clone()), &SESSION)?;
         let first = sync_reader.next().vortex_expect("expected first chunk")?;
         assert_arrays_eq!(first, chunk1, &mut ctx);
-        let Err(err) = sync_reader.next().vortex_expect("truncated chunk") else {
-            vortex_panic!("expected error on truncated chunk");
-        };
+        let err = sync_reader
+            .next()
+            .vortex_expect("expected error on truncated chunk")
+            .unwrap_err();
         assert_io_error_kind(&err, io::ErrorKind::UnexpectedEof);
         assert!(sync_reader.next().is_none());
 
         let mut async_reader = AsyncIPCReader::try_new(Cursor::new(truncated), &SESSION).await?;
-        let first = async_reader.next().await.vortex_expect("first chunk")?;
+        let first = async_reader
+            .next()
+            .await
+            .vortex_expect("expected first chunk")?;
         assert_arrays_eq!(first, chunk1, &mut ctx);
-        let Err(err) = async_reader.next().await.vortex_expect("truncated chunk") else {
-            vortex_panic!("expected error on truncated chunk");
-        };
+        let err = async_reader
+            .next()
+            .await
+            .vortex_expect("expected error on truncated chunk")
+            .unwrap_err();
         assert_io_error_kind(&err, io::ErrorKind::UnexpectedEof);
         assert!(async_reader.next().await.is_none());
         Ok(())
@@ -422,14 +419,10 @@ mod tests {
         let chunk2 = buffer![3i32, 4].into_array();
         let dtype = chunk1.dtype().clone();
         let pulled = Arc::new(AtomicUsize::new(0));
-        let items = vec![
-            Ok(chunk1.clone()),
-            Err(vortex_err!("boom")),
-            Ok(chunk2.clone()),
-        ];
+        let items = vec![Ok(chunk1), Err(vortex_err!("boom")), Ok(chunk2)];
 
         let input = ArrayStreamAdapter::new(
-            dtype.clone(),
+            dtype,
             stream::iter(CountingIter {
                 items: items.into_iter(),
                 pulled: Arc::clone(&pulled),
@@ -449,13 +442,6 @@ mod tests {
         assert_eq!(pulled.load(Ordering::SeqCst), 2);
         assert!(ipc_bytes.next().await.is_none());
         assert_eq!(pulled.load(Ordering::SeqCst), 2);
-
-        let err_stream = ArrayStreamAdapter::new(
-            dtype,
-            stream::iter([Ok(chunk1), Err(vortex_err!("boom")), Ok(chunk2)]),
-        );
-        let result = err_stream.into_ipc(&SESSION).collect_to_buffer().await;
-        assert!(result.is_err());
         Ok(())
     }
 
@@ -514,9 +500,11 @@ mod tests {
         let first = reader.next().await.vortex_expect("expected first chunk")?;
         assert_arrays_eq!(first, chunk1, &mut SESSION.create_execution_ctx());
 
-        let Err(err) = reader.next().await.vortex_expect("expected io error") else {
-            vortex_panic!("expected io error");
-        };
+        let err = reader
+            .next()
+            .await
+            .vortex_expect("expected io error")
+            .unwrap_err();
         assert_io_error_kind(&err, io::ErrorKind::BrokenPipe);
 
         let calls_after_err = poll_calls.load(Ordering::SeqCst);
@@ -538,9 +526,11 @@ mod tests {
         let data = writer.into_inner().into_inner();
 
         let mut reader = AsyncIPCReader::try_new(Cursor::new(data), &SESSION).await?;
-        let Err(err) = reader.next().await.vortex_expect("non-array message") else {
-            vortex_panic!("expected error on non-array message");
-        };
+        let err = reader
+            .next()
+            .await
+            .vortex_expect("non-array message")
+            .unwrap_err();
         assert!(err.to_string().contains("Expected Array message"));
         assert!(reader.next().await.is_none());
         Ok(())

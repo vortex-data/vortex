@@ -17,7 +17,7 @@ pub mod messages;
 pub mod stream;
 
 #[cfg(test)]
-mod tests {
+mod test {
     use std::error::Error as _;
     use std::io;
     use std::sync::LazyLock;
