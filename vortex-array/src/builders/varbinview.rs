@@ -817,7 +817,7 @@ impl VarBinViewBuilder {
     /// Finishes the builder directly into a [`VarBinViewArray`].
     pub fn finish_into_varbinview(&mut self) -> VarBinViewArray {
         self.flush_in_progress();
-        let buffers = std::mem::take(&mut self.completed);
+        let buffers = self.completed.take();
 
         assert_eq!(
             self.views_builder.len(),
@@ -1109,6 +1109,13 @@ impl CompletedBuffers {
                 let buffer_lookup = completed_buffers.extend_from_option_slice(&buffers);
                 ViewAdjustment::rewriting(buffer_lookup, offsets)
             }
+        }
+    }
+
+    fn take(&mut self) -> Self {
+        match self {
+            Self::Default(buffers) => Self::Default(std::mem::take(buffers)),
+            Self::Deduplicated(buffers) => Self::Deduplicated(std::mem::take(buffers)),
         }
     }
 
@@ -2215,5 +2222,39 @@ mod tests {
             .unwrap();
         assert_eq!(retrieved.len(), 8192);
         assert_eq!(retrieved.as_slice(), &large_value);
+    }
+
+    #[test]
+    fn test_buffer_deduplication_preserved_across_finish_reuse() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let array = {
+            let mut builder = VarBinViewBuilder::with_capacity_in(
+                DType::Utf8(Nullability::Nullable),
+                4,
+                BufferAllocatorRef::statically_allocated(),
+            );
+            builder.append_value(LONG);
+            builder.finish_into_varbinview()
+        };
+
+        let mut builder = VarBinViewBuilder::with_buffer_deduplication_in(
+            DType::Utf8(Nullability::Nullable),
+            4,
+            BufferAllocatorRef::statically_allocated(),
+        );
+        array.append_to_builder(&mut builder, &mut ctx)?;
+        let first = builder.finish_into_varbinview();
+        assert_eq!(first.data_buffers().len(), 1);
+
+        // Reuse the finished builder; deduplication mode must still be active.
+        array.append_to_builder(&mut builder, &mut ctx)?;
+        array.append_to_builder(&mut builder, &mut ctx)?;
+        assert_eq!(builder.completed_block_count(), 1);
+
+        let second = builder.finish_into_varbinview();
+        assert_eq!(second.data_buffers().len(), 1);
+        let expected = <VarBinViewArray as FromIterator<_>>::from_iter([Some(LONG), Some(LONG)]);
+        assert_arrays_eq!(second, expected, &mut ctx);
+        Ok(())
     }
 }

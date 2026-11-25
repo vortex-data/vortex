@@ -6,7 +6,6 @@ use std::mem::MaybeUninit;
 
 use vortex_buffer::BufferAllocatorRef;
 use vortex_buffer::BufferMut;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure_eq;
 use vortex_mask::Mask;
@@ -130,23 +129,33 @@ impl<T: NativePType> PrimitiveBuilder<T> {
             current_len,
             self.values.capacity()
         );
+        debug_assert_eq!(
+            self.nulls.len(),
+            current_len,
+            "validity length must match values length before creating an uninit range"
+        );
 
-        UninitRange { len, builder: self }
+        UninitRange {
+            len,
+            builder: self,
+            validity_written: false,
+        }
     }
 
     /// Finishes the builder directly into a [`PrimitiveArray`].
     pub fn finish_into_primitive(&mut self) -> PrimitiveArray {
+        assert_eq!(
+            self.nulls.len(),
+            self.values.len(),
+            "validity of length {} does not cover the {} values appended",
+            self.nulls.len(),
+            self.values.len()
+        );
+
         let values = self.values.take().freeze();
         let validity = self
             .nulls
             .finish_with_nullability(self.dtype().nullability());
-
-        assert!(
-            validity.maybe_len().is_none_or(|len| len == values.len()),
-            "validity of length {:?} does not cover the {} values appended",
-            validity.maybe_len(),
-            values.len()
-        );
 
         // SAFETY: the assert above establishes the only invariant, that an array-backed validity
         // covers exactly the values appended. The other validities carry no length at all.
@@ -170,14 +179,9 @@ impl<T: NativePType> PrimitiveBuilder<T> {
             "Cannot append primitive array with different ptype"
         );
 
+        let mask = array.as_ref().validity()?.execute_mask(array.len(), ctx)?;
         self.values.extend_from_slice(array.as_slice::<T>());
-        self.nulls.append_validity_mask(
-            &array
-                .as_ref()
-                .validity()
-                .vortex_expect("validity_mask")
-                .execute_mask(array.as_ref().len(), ctx)?,
-        );
+        self.nulls.append_validity_mask(&mask);
         Ok(())
     }
 }
@@ -251,6 +255,13 @@ pub struct UninitRange<'a, T> {
     /// Since this is a mutable reference, we can guarantee that nothing else can modify the builder
     /// while this `UninitRange` exists.
     builder: &'a mut PrimitiveBuilder<T>,
+
+    /// Whether validity entries for this range have been written into `builder.nulls`.
+    ///
+    /// If the range is dropped without calling [`finish`](Self::finish), [`Drop`] truncates
+    /// `builder.nulls` back to `builder.values.len()` so abandoned ranges never leave values and
+    /// validity out of sync.
+    validity_written: bool,
 }
 
 impl<T> UninitRange<'_, T> {
@@ -296,11 +307,11 @@ impl<T> UninitRange<'_, T> {
             "Tried to append a mask to an `UninitRange` that was beyond the allowed range"
         );
 
-        // TODO(connor): Ideally, we would call this function `set_mask` and directly set all of the
-        // bits (so that we can call this multiple times), but the underlying `BooleanBuffer` does
-        // not have an easy way to do this correctly.
-
+        if self.validity_written {
+            self.builder.nulls.truncate(self.builder.values.len());
+        }
         self.builder.nulls.append_validity_mask(mask);
+        self.validity_written = true;
     }
 
     /// Set a validity bit at the given index.
@@ -311,8 +322,13 @@ impl<T> UninitRange<'_, T> {
     /// Note that this will have no effect if the builder is non-nullable.
     pub fn set_validity_bit(&mut self, index: usize, v: bool) {
         assert!(index < self.len, "set_bit index out of bounds");
-        // Note that this won't panic because we can only create an `UninitRange` within the
-        // capacity of the builder (it will not automatically resize).
+        if !self.builder.dtype.is_nullable() {
+            return;
+        }
+        if !self.validity_written {
+            self.builder.nulls.append_n_non_nulls(self.len);
+            self.validity_written = true;
+        }
         let absolute_index = self.builder.values.len() + index;
         self.builder.nulls.set_bit(absolute_index, v);
     }
@@ -374,10 +390,22 @@ impl<T> UninitRange<'_, T> {
     /// [`set_value()`]: UninitRange::set_value
     /// [`set_validity_bit()`]: UninitRange::set_validity_bit
     /// [`append_mask()`]: UninitRange::append_mask
-    pub unsafe fn finish(self) {
+    pub unsafe fn finish(mut self) {
+        if !self.validity_written {
+            self.builder.nulls.append_n_non_nulls(self.len);
+        }
         // SAFETY: constructor enforces that current length + len does not exceed the capacity of the array.
         let new_len = self.builder.values.len() + self.len;
         unsafe { self.builder.values.set_len(new_len) };
+        self.validity_written = false;
+    }
+}
+
+impl<T> Drop for UninitRange<'_, T> {
+    fn drop(&mut self) {
+        if self.validity_written {
+            self.builder.nulls.truncate(self.builder.values.len());
+        }
     }
 }
 
@@ -385,14 +413,130 @@ impl<T> UninitRange<'_, T> {
 mod tests {
     use std::sync::LazyLock;
 
+    use rstest::rstest;
+    use vortex_buffer::buffer;
     use vortex_error::VortexExpect;
     use vortex_session::VortexSession;
 
     use super::*;
     use crate::VortexSessionExecute;
+    use crate::arrays::BoolArray;
     use crate::assert_arrays_eq;
+    use crate::builtins::ArrayBuiltins;
+    use crate::validity::Validity;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
+    #[rstest]
+    #[case::append_mask(true)]
+    #[case::set_validity_bit(false)]
+    fn test_abandoned_uninit_range_preserves_committed_nulls(
+        #[case] use_append_mask: bool,
+    ) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let mut builder = PrimitiveBuilder::<i32>::new_in(
+            Nullability::Nullable,
+            BufferAllocatorRef::static_ref(),
+        );
+        builder.append_value(12);
+        {
+            let mut range = builder.uninit_range(2);
+            range.copy_from_slice(0, &[13, 14]);
+            if use_append_mask {
+                // SAFETY: Mask matches range length and is appended once.
+                unsafe {
+                    range.append_mask(&Mask::AllFalse(2));
+                }
+            } else {
+                range.set_validity_bit(0, false);
+            }
+        }
+        builder.append_value(15);
+
+        assert_eq!(builder.len(), 2);
+        let result = builder.finish_into_primitive();
+        assert_arrays_eq!(
+            result,
+            PrimitiveArray::from_option_iter([Some(12i32), Some(15)]),
+            &mut ctx
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_fresh_uninit_range_set_validity_bit() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let mut builder = PrimitiveBuilder::<i32>::new_in(
+            Nullability::Nullable,
+            BufferAllocatorRef::static_ref(),
+        );
+        let mut range = builder.uninit_range(1);
+        range.copy_from_slice(0, &[17]);
+        range.set_validity_bit(0, false);
+        // SAFETY: All values and validity bits in the range are initialized.
+        unsafe {
+            range.finish();
+        }
+
+        let result = builder.finish_into_primitive();
+        assert_arrays_eq!(
+            result,
+            PrimitiveArray::from_option_iter([None::<i32>]),
+            &mut ctx
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_non_nullable_uninit_range_set_validity_bit_is_noop() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let mut builder = PrimitiveBuilder::<i32>::new_in(
+            Nullability::NonNullable,
+            BufferAllocatorRef::static_ref(),
+        );
+        let mut range = builder.uninit_range(2);
+        range.copy_from_slice(0, &[1, 2]);
+        range.set_validity_bit(0, false);
+        // SAFETY: All values in the range are initialized.
+        unsafe {
+            range.finish();
+        }
+
+        let result = builder.finish_into_primitive();
+        assert_arrays_eq!(result, PrimitiveArray::from_iter([1i32, 2]), &mut ctx);
+        Ok(())
+    }
+
+    #[test]
+    fn test_append_primitive_array_error_does_not_mutate_builder() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let mut builder = PrimitiveBuilder::<i32>::with_capacity_in(
+            Nullability::Nullable,
+            4,
+            BufferAllocatorRef::static_ref(),
+        );
+        builder.append_value(10);
+
+        let failing_validity = BoolArray::from_iter([Some(true), None])
+            .into_array()
+            .cast(DType::Bool(Nullability::NonNullable))?;
+        let failing = PrimitiveArray::new(buffer![20i32, 30], Validity::Array(failing_validity));
+
+        assert!(
+            failing
+                .into_array()
+                .append_to_builder(&mut builder, &mut ctx)
+                .is_err()
+        );
+        assert_eq!(builder.len(), 1);
+        let result = builder.finish_into_primitive();
+        assert_arrays_eq!(
+            result,
+            PrimitiveArray::from_option_iter([Some(10i32)]),
+            &mut ctx
+        );
+        Ok(())
+    }
 
     /// REGRESSION TEST: This test verifies that multiple sequential ranges have correct offsets.
     ///
