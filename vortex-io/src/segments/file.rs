@@ -854,6 +854,10 @@ mod tests {
             assert_eq!(result?.len(), 4);
         }
         assert_eq!(request_metrics.read_ranges_num_ranges.total(), 1.0);
+
+        // Every waiter of that read has dropped, so a new request starts a new read.
+        assert_eq!(source.request(SegmentId::from(0)).await?.len(), 4);
+        assert_eq!(request_metrics.read_ranges_num_ranges.total(), 2.0);
         Ok(())
     }
 
