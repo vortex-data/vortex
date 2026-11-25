@@ -134,8 +134,8 @@ async fn external_format_requires_opt_in_and_round_trips_with_its_original_id() 
 #[tokio::test]
 async fn duration_file_round_trip() -> VortexResult<()> {
     let session = VortexSession::default();
-    let counts = buffer![i64::MIN, -9i64, 42i64, i64::MAX].into_array();
-    let duration = DurationArray::try_new(DurationUnit::Microseconds, counts)?.into_array();
+    let values = buffer![i64::MIN, -9i64, 42i64, i64::MAX].into_array();
+    let duration = DurationArray::try_new(DurationUnit::Microseconds, values)?.into_array();
     let mut bytes = ByteBufferMut::empty();
 
     let error = session

@@ -187,12 +187,12 @@ pub(crate) fn constant_canonicalize(
             None,
         )?),
         DType::Duration(unit, nullability) => {
-            let count = Scalar::try_new(
+            let value = Scalar::try_new(
                 DType::Primitive(PType::I64, *nullability),
                 scalar.value().cloned(),
             )?;
-            let counts = ConstantArray::new(count, array.len()).into_array();
-            Canonical::Duration(DurationArray::try_new(*unit, counts)?)
+            let values = ConstantArray::new(value, array.len()).into_array();
+            Canonical::Duration(DurationArray::try_new(*unit, values)?)
         }
         DType::Extension(ext_dtype) => {
             let s = scalar.as_extension();

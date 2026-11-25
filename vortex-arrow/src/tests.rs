@@ -89,13 +89,13 @@ fn test_sliced_map_imports_only_its_entries(
     Ok(())
 }
 
-const DURATION_COUNTS: [Option<i64>; 4] = [Some(i64::MIN), None, Some(42), Some(i64::MAX)];
+const DURATION_VALUES: [Option<i64>; 4] = [Some(i64::MIN), None, Some(42), Some(i64::MAX)];
 
 #[rstest]
-#[case::seconds(DurationUnit::Seconds, Arc::new(DurationSecondArray::from(DURATION_COUNTS.to_vec())))]
-#[case::milliseconds(DurationUnit::Milliseconds, Arc::new(DurationMillisecondArray::from(DURATION_COUNTS.to_vec())))]
-#[case::microseconds(DurationUnit::Microseconds, Arc::new(DurationMicrosecondArray::from(DURATION_COUNTS.to_vec())))]
-#[case::nanoseconds(DurationUnit::Nanoseconds, Arc::new(DurationNanosecondArray::from(DURATION_COUNTS.to_vec())))]
+#[case::seconds(DurationUnit::Seconds, Arc::new(DurationSecondArray::from(DURATION_VALUES.to_vec())))]
+#[case::milliseconds(DurationUnit::Milliseconds, Arc::new(DurationMillisecondArray::from(DURATION_VALUES.to_vec())))]
+#[case::microseconds(DurationUnit::Microseconds, Arc::new(DurationMicrosecondArray::from(DURATION_VALUES.to_vec())))]
+#[case::nanoseconds(DurationUnit::Nanoseconds, Arc::new(DurationNanosecondArray::from(DURATION_VALUES.to_vec())))]
 fn test_native_duration_round_trip(
     #[case] unit: DurationUnit,
     #[case] input: ArrowArrayRef,

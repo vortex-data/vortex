@@ -57,13 +57,13 @@ impl<'py> IntoPyObject<'py> for PyVortex<&'_ Scalar> {
                 primitive_py.map_err(PyErr::from)
             }
             DType::Duration(..) => {
-                let count = self
+                let value = self
                     .0
                     .value()
                     .map(|value| value.as_primitive().cast::<i64>())
                     .transpose()
                     .map_err(|error| PyValueError::new_err(error.to_string()))?;
-                Ok(count.into_pyobject(py)?)
+                Ok(value.into_pyobject(py)?)
             }
             DType::Decimal(decimal_type, ..) => {
                 let decimal = self.0.as_decimal();
