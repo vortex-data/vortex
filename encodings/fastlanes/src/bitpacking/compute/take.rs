@@ -546,9 +546,11 @@ impl<T: Copy> ChunkPatches<'_, T> {
             let first = self.indices.get(range.start);
             let last = self.indices.get(range.end - 1);
             vortex_ensure!(
-                first >= patch_chunk_base && last < patch_chunk_base + FL_CHUNK_SIZE,
-                "patch indices [{first}..={last}] out of bounds for chunk {chunk} ([{patch_chunk_base}..{}))",
-                patch_chunk_base + FL_CHUNK_SIZE
+                first >= patch_chunk_base
+                    && last
+                        .checked_sub(patch_chunk_base)
+                        .is_some_and(|offset| offset < FL_CHUNK_SIZE),
+                "patch indices [{first}..={last}] out of bounds for chunk {chunk} starting at {patch_chunk_base} with size {FL_CHUNK_SIZE}"
             );
         }
         Ok(range)
@@ -1971,17 +1973,14 @@ mod tests {
             .as_slice::<u64>()
             .to_vec();
         corrupt_offsets[2] = corrupt_offsets[1];
-        // SAFETY: intentionally constructing corrupt chunk_offsets to verify error handling.
-        let corrupt_patches = unsafe {
-            Patches::new_unchecked(
-                orig_patches.array_len(),
-                orig_patches.offset(),
-                orig_patches.indices().clone(),
-                orig_patches.values().clone(),
-                Some(PrimitiveArray::from_iter(corrupt_offsets).into_array()),
-                orig_patches.offset_within_chunk(),
-            )
-        };
+        let corrupt_patches = Patches::new(
+            orig_patches.array_len(),
+            orig_patches.offset(),
+            orig_patches.indices().clone(),
+            orig_patches.values().clone(),
+            Some(PrimitiveArray::from_iter(corrupt_offsets).into_array()),
+            &mut ctx,
+        )?;
         let packed = BitPacked::try_new(
             parts.packed,
             PType::I16,
