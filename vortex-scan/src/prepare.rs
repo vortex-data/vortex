@@ -6,6 +6,7 @@
 use std::ops::Range;
 use std::sync::Arc;
 
+use rustc_hash::FxHashSet;
 use vortex_array::dtype::DType;
 use vortex_array::expr::BoundExpression;
 use vortex_error::VortexResult;
@@ -24,7 +25,12 @@ pub use crate::execution::SegmentLocation;
 pub use crate::execution::cache::ScanCache;
 pub use crate::execution::cache::WeakScanCache;
 use crate::execution::io::segment_ranges;
+use crate::execution::list_rows_per_chunk;
 use crate::execution::rows_per_chunk;
+use crate::plan::Eval;
+use crate::plan::ListPack;
+use crate::plan::PlanByPtr;
+use crate::plan::PlanRef;
 use crate::plan::optimize;
 use crate::plan::plan_row_idx_expression;
 use crate::selection::Selection;
@@ -174,7 +180,11 @@ impl ScanBuilder {
                 cache.insert_projection(self.projection, plan)
             }
         };
-        let chunk_rows = if let Some(rows) = filtered_chunk_rows {
+        let values = cache.values();
+        let list_chunk_rows = list_chunk_rows(&projection, filter.as_deref(), row_count)?;
+        let chunk_rows = if let Some(rows) = list_chunk_rows {
+            rows
+        } else if let Some(rows) = filtered_chunk_rows {
             rows
         } else if identity {
             rows_per_chunk(row_count, &file.locations)
@@ -185,7 +195,6 @@ impl ScanBuilder {
             Some(ranges) => ranges,
             None => cache.insert_ranges(segment_ranges(&file.locations)),
         };
-        let values = cache.values();
         Ok(PreparedScan {
             session: self.session,
             rows: self.row_range.unwrap_or(0..row_count),
@@ -200,6 +209,74 @@ impl ScanBuilder {
             values,
             chunk_rows,
         })
+    }
+}
+
+/// The rows of a chunk of a scan whose projection or filter reads lists, sized by the elements
+/// those lists hold over the file. `None` for a scan that reads no list.
+#[expect(
+    clippy::mutable_key_type,
+    reason = "plans hash by address, which building their lazy children never changes"
+)]
+fn list_chunk_rows(
+    projection: &PlanRef,
+    filter: Option<&FilterPlans>,
+    row_count: u64,
+) -> VortexResult<Option<usize>> {
+    let mut lists = Vec::new();
+    let mut seen = FxHashSet::default();
+    let predicates = filter.into_iter().flat_map(|filter| filter.predicates());
+    for plan in std::iter::once(projection).chain(predicates) {
+        list_elements(plan, &mut seen, &mut lists)?;
+    }
+    if row_count == 0 || lists.is_empty() {
+        return Ok(None);
+    }
+    Ok(Some(list_rows_per_chunk(row_count, lists.iter().sum())))
+}
+
+/// Collects the elements the lists of every [`ListPack`] under `plan` hold in all, each list
+/// once, outer lists first.
+#[expect(
+    clippy::mutable_key_type,
+    reason = "plans hash by address, which building their lazy children never changes"
+)]
+fn list_elements(
+    plan: &PlanRef,
+    seen: &mut FxHashSet<PlanByPtr>,
+    found: &mut Vec<u64>,
+) -> VortexResult<()> {
+    if plan.is_data_source() || !seen.insert(PlanByPtr(plan.clone())) {
+        return Ok(());
+    }
+    // Walking a plan builds its children, the chunks of every column among them. Only an
+    // expression produces a dtype without lists from a child with them, so nothing else whose
+    // dtype holds no list is walked.
+    if !plan.is::<Eval>() && !holds_list(plan.dtype()) {
+        return Ok(());
+    }
+    if let Some(list) = plan.as_opt::<ListPack>() {
+        // Several assemblies may share one list's offsets: they read its elements once.
+        let elements = list.elements()?;
+        if seen.insert(PlanByPtr(list.offsets()?)) {
+            found.push(elements.row_count());
+        }
+        // Lists nest through the elements; offsets and validity hold none.
+        return list_elements(&elements, seen, found);
+    }
+    for child in plan.children() {
+        list_elements(child?, seen, found)?;
+    }
+    Ok(())
+}
+
+/// Whether a value of `dtype` holds a list at any depth.
+fn holds_list(dtype: &DType) -> bool {
+    match dtype {
+        DType::List(..) | DType::FixedSizeList(..) => true,
+        DType::Struct(fields, _) => fields.fields().any(|field| holds_list(&field)),
+        DType::Extension(extension) => holds_list(extension.storage_dtype()),
+        _ => false,
     }
 }
 

@@ -45,6 +45,26 @@ pub(crate) fn rows_per_chunk(row_count: u64, locations: &[SegmentLocation]) -> u
     blocks.clamp(1, 8) as usize * ROW_BLOCK_SIZE
 }
 
+/// The rows of a chunk's grid for scans that read lists.
+const LIST_ROW_BLOCK_SIZE: u64 = 1024;
+/// The list elements of a chunk of a scan that reads lists.
+const TARGET_LIST_ELEMENTS_PER_CHUNK: u64 = 1 << 19;
+
+/// The rows of a chunk of a scan that reads lists holding `elements` elements over `row_count`
+/// rows.
+///
+/// A row of lists holds as many elements as its lists are long, so a row count says little about
+/// the work in a chunk, and stored bytes say little more: the elements of long lists can compress
+/// to almost nothing and still have to be decoded, evaluated and exported. Chunks hold about
+/// [`TARGET_LIST_ELEMENTS_PER_CHUNK`] elements, on a finer grid than [`ROW_BLOCK_SIZE`], since a
+/// block of long lists can be many times that.
+pub(crate) fn list_rows_per_chunk(row_count: u64, elements: u64) -> usize {
+    let elements_per_row = elements.div_ceil(row_count.max(1)).max(1);
+    let blocks = TARGET_LIST_ELEMENTS_PER_CHUNK / elements_per_row / LIST_ROW_BLOCK_SIZE;
+    let most = MAX_ROWS_PER_CHUNK as u64 / LIST_ROW_BLOCK_SIZE;
+    usize::try_from(blocks.clamp(1, most) * LIST_ROW_BLOCK_SIZE).unwrap_or(MAX_ROWS_PER_CHUNK)
+}
+
 /// Fixed boundaries in the file's row domain, clipped to the requested range.
 pub(crate) fn row_chunks(rows: Range<u64>, rows_per_chunk: usize) -> Vec<Range<u64>> {
     if rows.is_empty() {
@@ -135,5 +155,29 @@ impl Planner for ChunkPlanner {
             }
         }
         Ok(PlannerOutput::Done)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+
+    use super::MAX_ROWS_PER_CHUNK;
+    use super::list_rows_per_chunk;
+
+    /// Chunks of list scans hold about half a million elements, in whole blocks of 1,024 rows
+    /// and never more rows than any other chunk.
+    #[rstest]
+    #[case::short_lists(1_000_000, 94_552_535, 5 * 1024)]
+    #[case::long_lists(100_000, 415_100_000, 1024)]
+    #[case::single_elements(1_000_000, 1_000_000, MAX_ROWS_PER_CHUNK)]
+    #[case::empty_lists(1_000_000, 0, MAX_ROWS_PER_CHUNK)]
+    #[case::no_rows(0, 0, MAX_ROWS_PER_CHUNK)]
+    fn list_chunks_are_sized_by_their_elements(
+        #[case] row_count: u64,
+        #[case] elements: u64,
+        #[case] expected: usize,
+    ) {
+        assert_eq!(list_rows_per_chunk(row_count, elements), expected);
     }
 }
