@@ -15,6 +15,7 @@ use vortex_session::VortexSession;
 use super::pipeline::Arena;
 use super::pipeline::Inlet;
 use super::pipeline::PortId;
+use super::pipeline::ValueCache;
 use crate::source::SegmentId;
 
 /// The output of one non-blocking compute call.
@@ -154,6 +155,7 @@ pub struct Cx<'a> {
     pub(crate) bytes: &'a mut VecDeque<(SegmentId, BufferHandle)>,
     pub(crate) reads: &'a mut SmallVec<[SegmentId; 1]>,
     pub(crate) session: &'a VortexSession,
+    pub(crate) values: &'a ValueCache,
     pub(crate) exec: &'a mut ExecutionCtx,
     pub(crate) touched: &'a mut InletSet,
     pub(crate) changed: &'a mut InletSet,
@@ -194,6 +196,18 @@ impl Cx<'_> {
     /// The session used for decoding and evaluation.
     pub fn session(&self) -> &VortexSession {
         self.session
+    }
+
+    /// The whole of `segment`, of `rows` rows, for a source that reads `read` of them: decoded
+    /// by `decode`, or shared with the other sources of the scan that read the rest of it.
+    pub fn decoded_segment(
+        &self,
+        segment: SegmentId,
+        rows: usize,
+        read: usize,
+        decode: impl FnOnce() -> VortexResult<ArrayRef>,
+    ) -> VortexResult<ArrayRef> {
+        self.values.segment(segment, rows, read, decode)
     }
 
     /// The execution context for executing arrays.

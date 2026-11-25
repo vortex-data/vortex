@@ -16,6 +16,7 @@ use vortex_error::vortex_err;
 use super::execute::PackSource;
 use crate::execution::operator::*;
 use crate::execution::pipeline::Arena;
+use crate::execution::pipeline::ValueCache;
 use crate::execution::pipeline::port::SourceEnd;
 use crate::execution::pipeline::synthetic::row_dtype;
 use crate::test::SESSION;
@@ -32,6 +33,7 @@ fn pack_readiness_tracks_changes_and_consumption(
     let mut bytes = VecDeque::new();
     let mut reads = Default::default();
     let mut exec = SESSION.create_execution_ctx();
+    let values = ValueCache::default();
     let mut touched = InletSet::new(2);
     let mut changed = InletSet::all(2);
     let mut cx = Cx {
@@ -40,6 +42,7 @@ fn pack_readiness_tracks_changes_and_consumption(
         bytes: &mut bytes,
         reads: &mut reads,
         session: &SESSION,
+        values: &values,
         exec: &mut exec,
         touched: &mut touched,
         changed: &mut changed,

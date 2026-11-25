@@ -139,6 +139,7 @@ fn drive(
     pipe: &mut Pipeline,
     arena: &mut Arena,
     session: &VortexSession,
+    values: &ValueCache,
     exec: &mut ExecutionCtx,
     reads: &mut SmallVec<[SegmentId; 1]>,
 ) -> VortexResult<Progress> {
@@ -161,6 +162,7 @@ fn drive(
         bytes,
         reads,
         session,
+        values,
         exec,
         touched,
         changed,
@@ -403,6 +405,7 @@ impl Core {
             pipe,
             &mut self.arena,
             &self.session,
+            &self.values,
             &mut self.exec,
             &mut reads,
         )?;
