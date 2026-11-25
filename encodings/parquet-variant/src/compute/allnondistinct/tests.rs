@@ -15,6 +15,7 @@ use vortex_array::aggregate_fn::fns::all_non_distinct::AllNonDistinct;
 use vortex_array::aggregate_fn::fns::all_non_distinct::all_non_distinct;
 use vortex_array::aggregate_fn::fns::all_non_distinct::variant_scalars_equal;
 use vortex_array::aggregate_fn::kernels::DynAggregateKernel;
+use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::dtype::FieldNames;
@@ -36,7 +37,7 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
 
 /// Non-nullable, minimally-valid metadata column of `len` rows.
 fn metadata(len: usize) -> ArrayRef {
-    VarBinViewArray::from_iter_bin(vec![b"\x01\x00"; len]).into_array()
+    VarBinViewArray::from_iter_bin(vec![b"\x01\x00\x00"; len]).into_array()
 }
 
 /// Non-nullable binary `value` column.
@@ -57,8 +58,10 @@ fn parquet_variant(
 
 #[test]
 fn all_non_distinct_matches_equal_unshredded() -> VortexResult<()> {
-    let lhs = parquet_variant(2, Some(binary([b"\x10", b"\x11"])), None)?;
-    let rhs = parquet_variant(2, Some(binary([b"\x10", b"\x11"])), None)?;
+    let (_, v1) = VariantBuilder::new().with_value(1i32).finish();
+    let (_, v2) = VariantBuilder::new().with_value(2i32).finish();
+    let lhs = parquet_variant(2, Some(binary([v1.as_slice(), v2.as_slice()])), None)?;
+    let rhs = parquet_variant(2, Some(binary([v1.as_slice(), v2.as_slice()])), None)?;
     let mut ctx = SESSION.create_execution_ctx();
     assert!(all_non_distinct(&lhs, &rhs, &mut ctx)?);
     Ok(())
@@ -66,8 +69,11 @@ fn all_non_distinct_matches_equal_unshredded() -> VortexResult<()> {
 
 #[test]
 fn all_non_distinct_detects_distinct_unshredded() -> VortexResult<()> {
-    let lhs = parquet_variant(2, Some(binary([b"\x10", b"\x11"])), None)?;
-    let rhs = parquet_variant(2, Some(binary([b"\x10", b"\x12"])), None)?;
+    let (_, v1) = VariantBuilder::new().with_value(1i32).finish();
+    let (_, v2) = VariantBuilder::new().with_value(2i32).finish();
+    let (_, v3) = VariantBuilder::new().with_value(3i32).finish();
+    let lhs = parquet_variant(2, Some(binary([v1.as_slice(), v2.as_slice()])), None)?;
+    let rhs = parquet_variant(2, Some(binary([v1.as_slice(), v3.as_slice()])), None)?;
     let mut ctx = SESSION.create_execution_ctx();
     assert!(!all_non_distinct(&lhs, &rhs, &mut ctx)?);
     Ok(())
@@ -75,9 +81,19 @@ fn all_non_distinct_detects_distinct_unshredded() -> VortexResult<()> {
 
 #[test]
 fn all_non_distinct_matches_equal_value_and_typed() -> VortexResult<()> {
+    let (_, v1) = VariantBuilder::new().with_value(1i32).finish();
+    let (_, v2) = VariantBuilder::new().with_value(2i32).finish();
     let typed = || buffer![1i32, 2].into_array();
-    let lhs = parquet_variant(2, Some(binary([b"\x10", b"\x11"])), Some(typed()))?;
-    let rhs = parquet_variant(2, Some(binary([b"\x10", b"\x11"])), Some(typed()))?;
+    let lhs = parquet_variant(
+        2,
+        Some(binary([v1.as_slice(), v2.as_slice()])),
+        Some(typed()),
+    )?;
+    let rhs = parquet_variant(
+        2,
+        Some(binary([v1.as_slice(), v2.as_slice()])),
+        Some(typed()),
+    )?;
     let mut ctx = SESSION.create_execution_ctx();
     assert!(all_non_distinct(&lhs, &rhs, &mut ctx)?);
     Ok(())
@@ -471,6 +487,79 @@ fn test_all_non_distinct_matches_reordered_shredded_fields_with_raw_only_field()
     );
     assert!(expected);
     assert_eq!(all_non_distinct(&lhs, &rhs, &mut ctx)?, expected);
+    Ok(())
+}
+
+#[test]
+fn test_all_non_distinct_matches_typed_vs_raw_value_with_same_metadata() -> VortexResult<()> {
+    let (meta, val_42) = VariantBuilder::new().with_value(42i32).finish();
+    let (_, val_43) = VariantBuilder::new().with_value(43i32).finish();
+
+    let lhs = ParquetVariant::try_new(
+        Validity::NonNullable,
+        binary([meta.as_slice()]),
+        Some(VarBinViewArray::from_iter_nullable_bin([None::<&[u8]>]).into_array()),
+        Some(PrimitiveArray::from_option_iter([Some(42i32)]).into_array()),
+    )?
+    .into_array();
+    let rhs_equal = ParquetVariant::try_new(
+        Validity::NonNullable,
+        binary([meta.as_slice()]),
+        Some(VarBinViewArray::from_iter_nullable_bin([Some(val_42.as_slice())]).into_array()),
+        Some(PrimitiveArray::from_option_iter([None::<i32>]).into_array()),
+    )?
+    .into_array();
+    let rhs_distinct = ParquetVariant::try_new(
+        Validity::NonNullable,
+        binary([meta.as_slice()]),
+        Some(VarBinViewArray::from_iter_nullable_bin([Some(val_43.as_slice())]).into_array()),
+        Some(PrimitiveArray::from_option_iter([None::<i32>]).into_array()),
+    )?
+    .into_array();
+
+    let mut ctx = SESSION.create_execution_ctx();
+    assert!(variant_scalars_equal(
+        &lhs.execute_scalar(0, &mut ctx)?,
+        &rhs_equal.execute_scalar(0, &mut ctx)?,
+    ));
+    assert!(all_non_distinct(&lhs, &rhs_equal, &mut ctx)?);
+    assert!(!variant_scalars_equal(
+        &lhs.execute_scalar(0, &mut ctx)?,
+        &rhs_distinct.execute_scalar(0, &mut ctx)?,
+    ));
+    assert!(!all_non_distinct(&lhs, &rhs_distinct, &mut ctx)?);
+    Ok(())
+}
+
+#[test]
+fn test_all_non_distinct_matches_short_vs_long_string_with_same_metadata() -> VortexResult<()> {
+    let metadata: &[u8] = &[0x01, 0x00, 0x00];
+    // Short string "x": basic_type=1, len=1 -> (1 << 2) | 1 = 0x05.
+    let short_str: &[u8] = &[0x05, b'x'];
+    // Long string "x": basic_type=0, primitive_type=16 (String) -> 0x40, u32 LE len=1, b'x'.
+    let long_str: &[u8] = &[0x40, 0x01, 0x00, 0x00, 0x00, b'x'];
+
+    let lhs = ParquetVariant::try_new(
+        Validity::NonNullable,
+        binary([metadata]),
+        Some(binary([short_str])),
+        None,
+    )?
+    .into_array();
+    let rhs = ParquetVariant::try_new(
+        Validity::NonNullable,
+        binary([metadata]),
+        Some(binary([long_str])),
+        None,
+    )?
+    .into_array();
+
+    let mut ctx = SESSION.create_execution_ctx();
+    assert!(variant_scalars_equal(
+        &lhs.execute_scalar(0, &mut ctx)?,
+        &rhs.execute_scalar(0, &mut ctx)?,
+    ));
+    assert!(all_non_distinct(&lhs, &rhs, &mut ctx)?);
     Ok(())
 }
 

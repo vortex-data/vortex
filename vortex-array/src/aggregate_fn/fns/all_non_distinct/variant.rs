@@ -39,7 +39,7 @@ pub fn variant_scalars_equal(lhs: &Scalar, rhs: &Scalar) -> bool {
             let (Some(lhs_fields), Some(rhs_fields)) =
                 (lhs_struct.fields_iter(), rhs_struct.fields_iter())
             else {
-                return lhs_struct.is_null() && rhs_struct.is_null();
+                return false;
             };
             if lhs_names == rhs_names {
                 return lhs_fields

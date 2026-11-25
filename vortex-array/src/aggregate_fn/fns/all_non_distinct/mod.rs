@@ -45,6 +45,7 @@ use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::AggregateFnVTable;
 use crate::aggregate_fn::DynAccumulator;
 use crate::aggregate_fn::EmptyOptions;
+use crate::arrays::ConstantArray;
 use crate::arrays::StructArray;
 use crate::arrays::struct_::StructArrayExt;
 use crate::dtype::DType;
@@ -236,7 +237,9 @@ impl AggregateFnVTable for AllNonDistinct {
                     );
                 };
 
-                partial.all_non_distinct = scalars_non_distinct(&lhs, &rhs);
+                let lhs = ConstantArray::new(lhs, 1).into_array();
+                let rhs = ConstantArray::new(rhs, 1).into_array();
+                partial.all_non_distinct = all_non_distinct(&lhs, &rhs, ctx)?;
                 Ok(())
             }
             Columnar::Canonical(c) => {
@@ -327,61 +330,5 @@ fn check_canonical_identical(
             lhs.dtype(),
             rhs.dtype()
         )),
-    }
-}
-
-/// Compare two scalars for non-distinctness, delegating `Variant` values (including those nested
-/// inside constant structs, lists, maps, or extensions) to [`variant_scalars_equal`].
-fn scalars_non_distinct(lhs: &Scalar, rhs: &Scalar) -> bool {
-    match (lhs.is_null(), rhs.is_null()) {
-        (true, true) => return true,
-        (true, false) | (false, true) => return false,
-        (false, false) => {}
-    }
-
-    match (lhs.dtype(), rhs.dtype()) {
-        (DType::Variant(_), DType::Variant(_)) => variant_scalars_equal(lhs, rhs),
-        (DType::Struct(..), DType::Struct(..)) => {
-            let lhs_struct = lhs.as_struct();
-            let rhs_struct = rhs.as_struct();
-            lhs_struct.names() == rhs_struct.names()
-                && match (lhs_struct.fields_iter(), rhs_struct.fields_iter()) {
-                    (Some(l), Some(r)) => l.zip(r).all(|(lf, rf)| scalars_non_distinct(&lf, &rf)),
-                    (None, None) => true,
-                    _ => false,
-                }
-        }
-        (DType::List(..), DType::List(..))
-        | (DType::FixedSizeList(..), DType::FixedSizeList(..)) => {
-            let lhs_list = lhs.as_list();
-            let rhs_list = rhs.as_list();
-            lhs_list.len() == rhs_list.len()
-                && (0..lhs_list.len()).all(|idx| {
-                    matches!(
-                        (lhs_list.element(idx), rhs_list.element(idx)),
-                        (Some(l), Some(r)) if scalars_non_distinct(&l, &r)
-                    )
-                })
-        }
-        (DType::Map(..), DType::Map(..)) => {
-            let lhs_map = lhs.as_map();
-            let rhs_map = rhs.as_map();
-            lhs_map.map_dtype() == rhs_map.map_dtype()
-                && lhs_map.len() == rhs_map.len()
-                && lhs_map
-                    .entries()
-                    .zip(rhs_map.entries())
-                    .all(|((lk, lv), (rk, rv))| {
-                        scalars_non_distinct(&lk, &rk) && scalars_non_distinct(&lv, &rv)
-                    })
-        }
-        (DType::Extension(lhs_ext), DType::Extension(rhs_ext)) => {
-            lhs_ext.eq_ignore_nullability(rhs_ext)
-                && scalars_non_distinct(
-                    &lhs.as_extension().to_storage_scalar(),
-                    &rhs.as_extension().to_storage_scalar(),
-                )
-        }
-        _ => lhs == rhs,
     }
 }

@@ -934,8 +934,14 @@ fn constant_struct_outer_null_is_true() -> VortexResult<()> {
     Ok(())
 }
 
-#[test]
-fn constant_struct_nan_is_non_distinct() -> VortexResult<()> {
+#[rstest]
+#[case::nan(f64::NAN, f64::NAN, true)]
+#[case::signed_zeros(-0.0, 0.0, false)]
+fn constant_struct_float_bit_equality(
+    #[case] lhs: f64,
+    #[case] rhs: f64,
+    #[case] expected: bool,
+) -> VortexResult<()> {
     let field_dtype = DType::Primitive(PType::F64, Nullability::NonNullable);
     let struct_dtype = DType::Struct(
         StructFields::new(
@@ -944,13 +950,90 @@ fn constant_struct_nan_is_non_distinct() -> VortexResult<()> {
         ),
         Nullability::NonNullable,
     );
-    let scalar = Scalar::struct_(
-        struct_dtype,
-        [Scalar::from(f64::NAN), Scalar::from(f64::NAN)],
-    );
+    let scalar = Scalar::struct_(struct_dtype, [Scalar::from(lhs), Scalar::from(rhs)]);
     let batch = ConstantArray::new(scalar, 3).into_array();
 
-    assert!(accumulate_all_non_distinct(&[batch])?);
+    assert_eq!(accumulate_all_non_distinct(&[batch])?, expected);
+    Ok(())
+}
+
+#[test]
+fn constant_struct_null_nested_struct_distinct_from_null_fields() -> VortexResult<()> {
+    let inner_field_dtype = DType::Primitive(PType::I32, Nullability::Nullable);
+    let inner_dtype = DType::Struct(
+        StructFields::new(FieldNames::from(["x"]), vec![inner_field_dtype.clone()]),
+        Nullability::Nullable,
+    );
+    let pair_dtype = DType::Struct(
+        StructFields::new(
+            FieldNames::from(["lhs", "rhs"]),
+            vec![inner_dtype.clone(), inner_dtype.clone()],
+        ),
+        Nullability::NonNullable,
+    );
+
+    let null_struct = Scalar::null(inner_dtype.clone());
+    let struct_of_null = Scalar::struct_(inner_dtype, [Scalar::null(inner_field_dtype)]);
+
+    let distinct = ConstantArray::new(
+        Scalar::struct_(
+            pair_dtype.clone(),
+            [null_struct.clone(), struct_of_null.clone()],
+        ),
+        3,
+    )
+    .into_array();
+    let equal_nulls = ConstantArray::new(
+        Scalar::struct_(pair_dtype.clone(), [null_struct.clone(), null_struct]),
+        3,
+    )
+    .into_array();
+    let equal_inner = ConstantArray::new(
+        Scalar::struct_(pair_dtype, [struct_of_null.clone(), struct_of_null]),
+        3,
+    )
+    .into_array();
+
+    assert!(!accumulate_all_non_distinct(&[distinct])?);
+    assert!(accumulate_all_non_distinct(&[equal_nulls])?);
+    assert!(accumulate_all_non_distinct(&[equal_inner])?);
+    Ok(())
+}
+
+#[rstest]
+#[case::equal_with_null(vec![Some(1i32), None], vec![Some(1i32), None], true)]
+#[case::distinct_null_vs_val(vec![Some(1i32), None], vec![Some(1i32), Some(2i32)], false)]
+fn constant_struct_list_with_null_elements(
+    #[case] lhs_elems: Vec<Option<i32>>,
+    #[case] rhs_elems: Vec<Option<i32>>,
+    #[case] expected: bool,
+) -> VortexResult<()> {
+    let elem_dtype = DType::Primitive(PType::I32, Nullability::Nullable);
+    let list_dtype = DType::list(elem_dtype.clone(), Nullability::NonNullable);
+    let pair_dtype = DType::Struct(
+        StructFields::new(
+            FieldNames::from(["lhs", "rhs"]),
+            vec![list_dtype.clone(), list_dtype],
+        ),
+        Nullability::NonNullable,
+    );
+    let to_list = |elems: Vec<Option<i32>>| {
+        let scalars: Vec<Scalar> = elems
+            .into_iter()
+            .map(|v| match v {
+                Some(n) => Scalar::primitive(n, Nullability::Nullable),
+                None => Scalar::null(elem_dtype.clone()),
+            })
+            .collect();
+        Scalar::list(elem_dtype.clone(), scalars, Nullability::NonNullable)
+    };
+    let batch = ConstantArray::new(
+        Scalar::struct_(pair_dtype, [to_list(lhs_elems), to_list(rhs_elems)]),
+        3,
+    )
+    .into_array();
+
+    assert_eq!(accumulate_all_non_distinct(&[batch])?, expected);
     Ok(())
 }
 

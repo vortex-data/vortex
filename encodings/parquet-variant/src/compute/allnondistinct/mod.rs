@@ -147,7 +147,12 @@ impl DynAggregateKernel for AllNonDistinctParquetVariant {
             let lhs_typed = filter_child(lhs_typed)?;
             let rhs_typed = filter_child(rhs_typed)?;
             if !all_non_distinct(&lhs_typed, &rhs_typed, ctx)? {
-                return Ok(Some(Scalar::bool(false, Nullability::NonNullable)));
+                let equal = if needs_metadata {
+                    compare_active_scalars(lhs_arr, rhs_arr, active_mask.as_ref(), ctx)?
+                } else {
+                    false
+                };
+                return Ok(Some(Scalar::bool(equal, Nullability::NonNullable)));
             }
         }
 
@@ -155,7 +160,8 @@ impl DynAggregateKernel for AllNonDistinctParquetVariant {
             let lhs_value = filter_child(lhs_value)?;
             let rhs_value = filter_child(rhs_value)?;
             if !all_non_distinct(&lhs_value, &rhs_value, ctx)? {
-                return Ok(Some(Scalar::bool(false, Nullability::NonNullable)));
+                let equal = compare_active_scalars(lhs_arr, rhs_arr, active_mask.as_ref(), ctx)?;
+                return Ok(Some(Scalar::bool(equal, Nullability::NonNullable)));
             }
         }
 
