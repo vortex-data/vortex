@@ -297,8 +297,9 @@ Benchmarks run automatically on `develop` and can be run on-demand for PRs:
   results uploaded for historical tracking. One run covers every commit since the previous one.
 - **Post-commit for one PR** -- `action/bench-on-merge` runs the post-commit benchmarks on the
   PR's own merge commit once it merges, so its effect is not mixed with other commits'. Unlike the
-  other labels, it stays on the PR, and it can also be added after the merge. `action/bench-sql`,
-  `action/bench-sql-compact`, and `action/bench-sql-extended` add it to PRs from this repository.
+  other labels, it stays on the PR, and it can also be added after the merge. `action/bench-all`,
+  `action/bench-sql`, `action/bench-sql-compact`, and `action/bench-sql-extended` add it to PRs
+  from this repository.
 - **Random access** -- `action/bench-random-access` runs only the random-access benchmark.
 - **Random access (S3)** -- `action/bench-random-access-s3` runs the random-access benchmark
   against data uploaded to S3 instead of local disk.
