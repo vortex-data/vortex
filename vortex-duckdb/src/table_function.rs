@@ -122,13 +122,13 @@ impl Clone for BindState {
         Self {
             dtype: self.dtype.clone(),
             first_file_row_count: self.first_file_row_count,
-            filters: vec![],
+            filters: self.filters.clone(),
             columns: self.columns.clone(),
             has_non_optional_filter: AtomicBool::new(
                 self.has_non_optional_filter.load(Ordering::Relaxed),
             ),
             aggregates: self.aggregates.clone(),
-            no_footer_caches: false,
+            no_footer_caches: self.no_footer_caches,
         }
     }
 }
@@ -234,6 +234,7 @@ pub struct LocalState {
 }
 
 #[derive(Clone)]
+#[cfg_attr(test, derive(Debug, PartialEq, Eq))]
 pub(crate) enum ColumnAggregate {
     Real {
         projection_id: u64,
@@ -823,4 +824,155 @@ pub fn deserialize(
         field.projection_expr = Some(expr);
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::atomic::AtomicBool;
+    use std::sync::atomic::Ordering;
+
+    use vortex::dtype::DType;
+    use vortex::dtype::Nullability;
+    use vortex::dtype::PType;
+    use vortex::dtype::StructFields;
+    use vortex::error::VortexResult;
+    use vortex::expr::col;
+    use vortex::expr::eq;
+    use vortex::expr::gt;
+    use vortex::expr::lit;
+
+    use super::BindState;
+    use super::ColumnAggregate;
+    use crate::convert::PushedAggregate;
+    use crate::duckdb::LogicalType;
+    use crate::file_reader::can_get_partition_stats;
+    use crate::projection::DuckdbField;
+    use crate::projection::Filter;
+
+    fn sample_dtype() -> DType {
+        DType::Struct(
+            StructFields::new(
+                ["a", "b"].into(),
+                vec![
+                    DType::Primitive(PType::I32, Nullability::NonNullable),
+                    DType::Utf8(Nullability::Nullable),
+                ],
+            ),
+            Nullability::NonNullable,
+        )
+    }
+
+    fn sample_columns() -> Vec<DuckdbField> {
+        vec![
+            DuckdbField {
+                name: "a".to_owned(),
+                logical_type: LogicalType::int32(),
+                dtype: DType::Primitive(PType::I32, Nullability::NonNullable),
+                projection_expr: Some(col("a")),
+            },
+            DuckdbField {
+                name: "b".to_owned(),
+                logical_type: LogicalType::varchar(),
+                dtype: DType::Utf8(Nullability::Nullable),
+                projection_expr: None,
+            },
+        ]
+    }
+
+    #[test]
+    fn test_bind_state_clone_preserves_fields() -> VortexResult<()> {
+        let filters = vec![gt(col("a"), lit(10i32)), eq(col("b"), lit("keep"))];
+        let bind_state = BindState {
+            dtype: sample_dtype(),
+            first_file_row_count: 123,
+            filters: filters.clone(),
+            columns: sample_columns(),
+            has_non_optional_filter: AtomicBool::new(true),
+            aggregates: vec![
+                ColumnAggregate::Real {
+                    projection_id: 0,
+                    aggregate: PushedAggregate::Max,
+                },
+                ColumnAggregate::CountStar,
+            ],
+            no_footer_caches: true,
+        };
+
+        let mut cloned = bind_state.clone();
+
+        assert_eq!(cloned.dtype, bind_state.dtype);
+        assert_eq!(cloned.first_file_row_count, bind_state.first_file_row_count);
+        assert_eq!(cloned.filters, filters);
+        assert_eq!(cloned.columns.len(), bind_state.columns.len());
+        for (cloned_col, orig_col) in cloned.columns.iter().zip(&bind_state.columns) {
+            assert_eq!(cloned_col.name, orig_col.name);
+            assert_eq!(
+                cloned_col.logical_type.as_type_id(),
+                orig_col.logical_type.as_type_id()
+            );
+            assert_eq!(cloned_col.dtype, orig_col.dtype);
+            assert_eq!(cloned_col.projection_expr, orig_col.projection_expr);
+        }
+        assert!(cloned.has_non_optional_filter.load(Ordering::Relaxed));
+        assert_eq!(cloned.aggregates, bind_state.aggregates);
+        assert!(cloned.no_footer_caches);
+
+        let orig_filter = Filter::new(
+            None,
+            &[0, 1],
+            &bind_state.columns,
+            &bind_state.filters,
+            &bind_state.dtype,
+        )?;
+        let cloned_filter = Filter::new(
+            None,
+            &[0, 1],
+            &cloned.columns,
+            &cloned.filters,
+            &cloned.dtype,
+        )?;
+        assert!(cloned_filter.filter.is_some());
+        assert_eq!(cloned_filter.filter, orig_filter.filter);
+
+        // Mutating the clone must not affect the original.
+        cloned.filters.clear();
+        cloned
+            .has_non_optional_filter
+            .store(false, Ordering::Relaxed);
+        cloned.no_footer_caches = false;
+        assert_eq!(bind_state.filters, filters);
+        assert!(bind_state.has_non_optional_filter.load(Ordering::Relaxed));
+        assert!(bind_state.no_footer_caches);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_bind_state_clone_preserves_partition_stats_eligibility() {
+        let no_cache_state = BindState {
+            dtype: sample_dtype(),
+            first_file_row_count: 10,
+            filters: vec![],
+            columns: sample_columns(),
+            has_non_optional_filter: AtomicBool::new(false),
+            aggregates: vec![],
+            no_footer_caches: true,
+        };
+        let cloned_no_cache = no_cache_state.clone();
+        assert!(!can_get_partition_stats(&no_cache_state));
+        assert!(!can_get_partition_stats(&cloned_no_cache));
+
+        let filtered_state = BindState {
+            dtype: sample_dtype(),
+            first_file_row_count: 10,
+            filters: vec![gt(col("a"), lit(5i32))],
+            columns: sample_columns(),
+            has_non_optional_filter: AtomicBool::new(true),
+            aggregates: vec![],
+            no_footer_caches: false,
+        };
+        let cloned_filtered = filtered_state.clone();
+        assert!(!can_get_partition_stats(&filtered_state));
+        assert!(!can_get_partition_stats(&cloned_filtered));
+    }
 }
