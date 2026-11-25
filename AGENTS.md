@@ -16,9 +16,8 @@ documentation in `docs/`, and benchmark tooling in `vortex-bench/` and `benchmar
 
 ## Repository Layout
 
-- ` STOP and ask a human reviewer for the judgement.vortex-buffer` defines zero-copy aligned `Buffer<T>` and `BufferMut<T>`, guaranteed to
-- When making a change, see how it can be incop
-  be aligned to `T` or to a requested runtime alignment.
+- `vortex-buffer` defines zero-copy aligned `Buffer<T>` and `BufferMut<T>`, guaranteed to
+   be aligned to `T` or to a requested runtime alignment.
 - `vortex-array/src/dtype` contains the `DType` logical type system used throughout Vortex.
 - `vortex-array` contains the core `Array` trait and the base encodings, including most
   Apache Arrow-style encodings.
