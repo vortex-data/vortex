@@ -6,6 +6,7 @@
 mod file;
 mod read;
 mod shared;
+mod slot;
 
 use std::fmt;
 use std::fmt::Display;
@@ -66,24 +67,11 @@ pub type SegmentFuture = BoxFuture<'static, VortexResult<BufferHandle>>;
 pub trait SegmentSource: 'static + Send + Sync {
     /// Request a segment, returning a future that will eventually resolve to the segment data.
     fn request(&self, id: SegmentId) -> SegmentFuture;
-
-    /// Request a segment as a read that any number of waiters can share.
-    ///
-    /// The default shares the future from [`request`](Self::request). A source that completes
-    /// reads elsewhere, such as [`FileSegmentSource`], overrides it to complete the shared read
-    /// directly, so that its waiters are woken as soon as the read finishes.
-    fn request_shared(&self, id: SegmentId) -> SharedSegment {
-        SharedSegment::new(self.request(id))
-    }
 }
 
 impl SegmentSource for Arc<dyn SegmentSource> {
     fn request(&self, id: SegmentId) -> SegmentFuture {
         self.as_ref().request(id)
-    }
-
-    fn request_shared(&self, id: SegmentId) -> SharedSegment {
-        self.as_ref().request_shared(id)
     }
 }
 

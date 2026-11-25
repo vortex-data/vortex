@@ -21,7 +21,6 @@ use vortex_layout::segments::SegmentCache;
 use vortex_layout::segments::SegmentCacheSourceAdapter;
 use vortex_layout::segments::SegmentId;
 use vortex_layout::segments::SegmentSource;
-use vortex_layout::segments::SharedSegmentSource;
 use vortex_layout::session::LayoutSessionExt;
 use vortex_metrics::DefaultMetricsRegistry;
 use vortex_metrics::Label;
@@ -328,12 +327,12 @@ impl VortexOpenOptions {
         let metrics = RequestMetrics::new(metrics_registry.as_ref(), self.labels);
 
         // Create a segment source backed by the VortexRead implementation.
-        let segment_source = Arc::new(SharedSegmentSource::new(FileSegmentSource::open(
+        let segment_source = Arc::new(FileSegmentSource::open(
             footer.segment_locations(),
             reader,
             self.session.handle(),
             metrics,
-        )));
+        ));
 
         // Wrap up the segment source to first resolve segments from the initial read cache.
         let segment_source: Arc<dyn SegmentSource> = Arc::new(SegmentCacheSourceAdapter::new(

@@ -35,17 +35,20 @@ use vortex_metrics::Histogram;
 use vortex_metrics::Label;
 use vortex_metrics::MetricBuilder;
 use vortex_metrics::MetricsRegistry;
+use vortex_utils::aliases::dash_map::DashMap;
+use vortex_utils::aliases::dash_map::Entry;
 
 use super::SegmentFuture;
 use super::SegmentId;
 use super::SegmentLocation;
 use super::SegmentSource;
-use super::SharedSegment;
 use super::read::IoRequest;
 use super::read::IoRequestStream;
 use super::read::ReadRequest;
 use super::read::RequestId;
-use super::shared::FillHooks;
+use super::slot::FillHooks;
+use super::slot::SharedRead;
+use super::slot::WeakSharedRead;
 use crate::ReadAtRequest;
 use crate::ReadAtStream;
 use crate::VortexReadAt;
@@ -288,6 +291,9 @@ pub struct FileSegmentSource {
     driver_panic: DriverPanic,
     /// The next read request ID.
     next_id: Arc<AtomicUsize>,
+    /// Reads requested and not yet dropped by every waiter, so that each request for a segment
+    /// already being read waits on that read.
+    in_flight: DashMap<SegmentId, WeakSharedRead>,
 }
 
 impl FileSegmentSource {
@@ -359,29 +365,40 @@ impl FileSegmentSource {
             driver,
             driver_panic,
             next_id: Arc::new(AtomicUsize::new(0)),
+            in_flight: DashMap::with_hasher_and_shard_amount(Default::default(), 64),
         }
     }
 }
 
 impl SegmentSource for FileSegmentSource {
     fn request(&self, id: SegmentId) -> SegmentFuture {
-        self.request_shared(id).map_err(VortexError::from).boxed()
-    }
-
-    fn request_shared(&self, id: SegmentId) -> SharedSegment {
         // We eagerly register the read request here assuming the behaviour of [`FileSegmentSource`], where
         // coalescing becomes effective prior to the future being polled.
-        let Some(&SegmentLocation {
-            offset,
-            length,
-            alignment,
-        }) = self.segments.get(*id as usize)
-        else {
-            return failed(vortex_err!("Missing segment: {}", id));
+        let Some(&location) = self.segments.get(*id as usize) else {
+            return future::ready(Err(vortex_err!("Missing segment: {}", id))).boxed();
         };
+        let read = loop {
+            match self.in_flight.entry(id) {
+                Entry::Occupied(e) => match e.get().upgrade() {
+                    Some(read) => break read,
+                    // Every waiter has gone, so the read was cancelled. Start another.
+                    None => drop(e.remove()),
+                },
+                Entry::Vacant(e) => {
+                    let read = self.start_read(location);
+                    e.insert(read.downgrade());
+                    break read;
+                }
+            }
+        };
+        read.map_err(VortexError::from).boxed()
+    }
+}
 
+impl FileSegmentSource {
+    fn start_read(&self, location: SegmentLocation) -> SharedRead {
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
-        let (shared, completer) = SharedSegment::filled(Some(Box::new(ReadHooks {
+        let (read, completer) = SharedRead::new(Some(Box::new(ReadHooks {
             id,
             events: self.events.clone(),
             driver: self.driver.clone(),
@@ -389,9 +406,9 @@ impl SegmentSource for FileSegmentSource {
         })));
         let event = ReadEvent::Request(ReadRequest {
             id,
-            offset,
-            length: length as usize,
-            alignment,
+            offset: location.offset,
+            length: location.length as usize,
+            alignment: location.alignment,
             callback: completer,
         });
 
@@ -405,12 +422,8 @@ impl SegmentSource for FileSegmentSource {
                 "Failed to submit read request: read driver stopped"
             )));
         }
-        shared
+        read
     }
-}
-
-fn failed(err: VortexError) -> SharedSegment {
-    SharedSegment::new(future::ready(Err(err)).boxed())
 }
 
 /// Tells the read driver about the waiters of a read from a [`FileSegmentSource`].
@@ -563,7 +576,7 @@ mod tests {
     use crate::runtime::tokio::TokioRuntime;
 
     fn io_request(id: RequestId, offset: u64, length: usize) -> IoRequest {
-        let (_receiver, callback) = SharedSegment::filled(None);
+        let (_receiver, callback) = SharedRead::new(None);
         IoRequest::new_single(ReadRequest {
             id,
             offset,
@@ -813,6 +826,34 @@ mod tests {
         assert_eq!(request_metrics.read_ranges_multi.value(), 1);
         assert_eq!(request_metrics.read_ranges_num_ranges.count(), 1);
         assert_eq!(request_metrics.read_ranges_num_ranges.total(), 4.0);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn requests_for_a_segment_in_flight_share_its_read() -> VortexResult<()> {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let segments: Arc<[SegmentLocation]> = Arc::from([SegmentLocation {
+            offset: 0,
+            length: 4,
+            alignment: Alignment::none(),
+        }]);
+        let metrics = DefaultMetricsRegistry::default();
+        let request_metrics = RequestMetrics::new(&metrics, vec![]);
+        let source = FileSegmentSource::open(
+            segments,
+            ReadRangesOnly {
+                calls: Arc::clone(&calls),
+            },
+            TokioRuntime::current(),
+            request_metrics.clone(),
+        );
+
+        let results = future::join_all((0..4).map(|_| source.request(SegmentId::from(0)))).await;
+
+        for result in results {
+            assert_eq!(result?.len(), 4);
+        }
+        assert_eq!(request_metrics.read_ranges_num_ranges.total(), 1.0);
         Ok(())
     }
 

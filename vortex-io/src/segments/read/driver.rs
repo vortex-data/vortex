@@ -345,17 +345,17 @@ mod tests {
     use vortex_metrics::MetricsRegistry;
 
     use super::*;
-    use crate::segments::SharedSegment;
     use crate::segments::read::request::IoRequestInner;
-    use crate::segments::shared::Completer;
+    use crate::segments::slot::Completer;
+    use crate::segments::slot::SharedRead;
 
     /// A completer and the read it fills, which the request is canceled without.
-    fn channel() -> (Completer, SharedSegment) {
-        let (shared, completer) = SharedSegment::filled(None);
+    fn channel() -> (Completer, SharedRead) {
+        let (shared, completer) = SharedRead::new(None);
         (completer, shared)
     }
 
-    fn create_request(id: usize, offset: u64, length: usize) -> (ReadRequest, SharedSegment) {
+    fn create_request(id: usize, offset: u64, length: usize) -> (ReadRequest, SharedRead) {
         let (tx, rx) = channel();
         (
             ReadRequest {

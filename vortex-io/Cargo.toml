@@ -55,15 +55,10 @@ wasm-bindgen-futures = { workspace = true, optional = true }
 
 [dev-dependencies]
 anyhow = { workspace = true }
-divan = { workspace = true }
 itertools = { workspace = true }
 rstest = { workspace = true }
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
-
-[[bench]]
-name = "shared_segment"
-harness = false
 
 [features]
 object_store = ["dep:object_store", "vortex-error/object_store"]

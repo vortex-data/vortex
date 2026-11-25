@@ -15,7 +15,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 
-use crate::segments::shared::Completer;
+use crate::segments::slot::Completer;
 
 /// An I/O request, either a single read or a coalesced set of reads.
 #[derive(Debug)]
