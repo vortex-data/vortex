@@ -31,6 +31,7 @@ use vortex_array::dtype::FieldName;
 use vortex_array::dtype::FieldNames;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::StructFields;
+use vortex_array::scalar_fn::builtin::get_item::GetItem;
 use vortex_array::validity::Validity;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -231,6 +232,54 @@ impl BoundLambda {
         infallible
     }
 
+    /// How many times the body reads a parameter.
+    pub fn param_reads(&self) -> usize {
+        let mut reads = 0;
+        pre_order_visit_down(&self.body, |node: &BoundExpression| {
+            Ok(if is_param_read(node) {
+                reads += 1;
+                TraversalOrder::Skip
+            } else {
+                TraversalOrder::Continue
+            })
+        })
+        .vortex_expect("bound expression traversal cannot fail");
+        reads
+    }
+
+    /// This lambda after `inner`: `(x) -> self(inner(x))`, with `inner`'s parameters.
+    ///
+    /// Returns `None` when this lambda reads its inputs in any other way than a parameter at a
+    /// time, and an error unless it has one parameter, bound to `inner`'s dtype.
+    pub fn compose(&self, inner: &BoundLambda) -> VortexResult<Option<BoundLambda>> {
+        vortex_ensure!(
+            self.is_bound_to(std::slice::from_ref(inner.dtype())),
+            "lambda {self} is bound to ({}), so it can't take the result of {inner}, a {}",
+            self.params.fields().format(", "),
+            inner.dtype()
+        );
+        let mut reads_inputs_whole = false;
+        let body = self
+            .body
+            .clone()
+            .transform_down(|node| {
+                if is_param_read(&node) {
+                    return Ok(Transformed {
+                        value: inner.body.clone(),
+                        changed: true,
+                        order: TraversalOrder::Skip,
+                    });
+                }
+                reads_inputs_whole |= node.is_root();
+                Ok(Transformed::no(node))
+            })?
+            .into_inner();
+        Ok((!reads_inputs_whole).then(|| BoundLambda {
+            params: inner.params.clone(),
+            body,
+        }))
+    }
+
     /// Evaluate the body over `len` rows of `args`, one array per parameter, with the dtypes the
     /// lambda is bound to. They become the fields of the struct the body is applied to.
     ///
@@ -275,6 +324,12 @@ impl Display for BoundLambda {
             self.body
         )
     }
+}
+
+/// Whether `node`, in the bound body of a lambda, reads one parameter: a field of the struct of
+/// the lambda's inputs.
+fn is_param_read(node: &BoundExpression) -> bool {
+    node.is::<GetItem>() && node.child(0).is_root()
 }
 
 /// Whether `node`, in the body of a lambda with these parameters, reads a value from outside the
