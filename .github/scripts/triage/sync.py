@@ -714,7 +714,6 @@ class Run:
             and state.day == london_date(self.now).isoformat()
         )
         shown = []
-        still_due = False
         for row in rows:
             root = self.channel.roots.get(row.item.number)
             if root is None:
@@ -724,12 +723,8 @@ class Run:
                 reply = root.state.reminder or root.thread.keys.get(key, "")
                 link = self._reply_link(reply, root.thread.ts) if reply else row.thread_url
                 shown.append(replace(row, thread_url=link, direct_reminder=bool(reply)))
-            elif self._due(row):
-                still_due = True
-                if reminding:
-                    shown.append(replace(row, direct_reminder=False))
-        if not shown and still_due:
-            return replace(state, summary=ts)
+            elif reminding and self._due(row):
+                shown.append(replace(row, direct_reminder=False))
         message = render.reminder_summary(self._by_owner(shown))
         card = _hash(message)
         if card != state.summary_card:
