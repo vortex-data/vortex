@@ -136,6 +136,12 @@ def main(argv: list[str] | None = None) -> int:
     sync_cmd.add_argument("--channel", required=True, help="Slack channel ID")
     sync_cmd.add_argument("--pings", action="store_true", help="Send reminders that mention people")
     sync_cmd.add_argument(
+        "--max-new",
+        type=int,
+        default=0,
+        help="Maximum new item roots to create in one run (0 for unlimited)",
+    )
+    sync_cmd.add_argument(
         "--claude",
         action="store_true",
         help="Ask Claude who owes the next move and how urgent each item is",
@@ -195,11 +201,12 @@ def main(argv: list[str] | None = None) -> int:
         from . import claude
 
         ask = claude.ask
-    judgment = evaluate.judge(items, channel, now, ask)
+    judgment = evaluate.judge(items, channel, now, ask, args.max_new)
     config = Config(
         oncall=os.environ.get("ONCALL_SLACK_ID", "").strip() or None,
         users=evaluate.parse_slack_users(os.environ.get("SLACK_USERS_JSON", "")),
         pings=args.pings,
+        max_new=args.max_new,
         claude=judgment,
     )
     run = Run(slack, config, now, lambda number: closed_state(args.repo, number), channel)

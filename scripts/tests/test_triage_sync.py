@@ -70,6 +70,59 @@ def test_first_run_posts_roots_and_a_quiet_rerun_reads_nothing():
     assert fake.calls == ["history", "update"]
 
 
+def test_max_new_defers_roots_but_syncs_existing_threads_and_overview():
+    fake = FakeSlack()
+    existing = item(99, created=ago(days=1))
+    run(fake, [existing])
+    existing_root = fake.root(99)["ts"]
+    fake.say(existing_root, "!priority low", NOW + timedelta(minutes=1))
+
+    new = item(10, created=ago(days=1))
+    deferred = item(20, created=ago(days=1))
+    assert run(fake, [deferred, new, existing], NOW + HOUR, pings=True, max_new=1) == []
+
+    roots = {int(m["metadata"]["event_payload"]["number"]) for m in fake.top(state.ITEM_EVENT)}
+    assert roots == {10, 99}
+    assert payload(fake, 99)["priority"] == "low"
+    assert fake.bot_replies(existing_root) == [
+        "⚪ Priority set to Low by <@UALICE>. It stays until someone sends `!priority auto`."
+    ]
+    overview = json.dumps(fake.messages[overview_ts(fake)], ensure_ascii=False)
+    assert "issues/20|" in overview
+    assert any("1 item" in reply for reply in overview_replies(fake))
+
+    assert run(fake, [deferred, new, existing], NOW + 2 * HOUR, pings=True, max_new=1) == []
+    roots = {int(m["metadata"]["event_payload"]["number"]) for m in fake.top(state.ITEM_EVENT)}
+    assert roots == {10, 20, 99}
+
+
+def test_max_new_zero_keeps_root_creation_unlimited():
+    fake = FakeSlack()
+    run(fake, [item(2, created=ago(days=1)), item(1, created=ago(days=1))], max_new=0)
+    assert {int(m["metadata"]["event_payload"]["number"]) for m in fake.top(state.ITEM_EVENT)} == {
+        1,
+        2,
+    }
+
+
+def test_max_new_counts_ambiguous_posts_and_creates_the_deferred_root_next_run():
+    fake = FakeSlack()
+    run(fake, [])
+    fake.faults.append(("post", "after"))
+    first, deferred = item(10, created=ago(days=1)), item(20, created=ago(days=1))
+
+    assert run(fake, [first, deferred], NOW + HOUR, max_new=1) == ["#10: post: timed out"]
+    assert {int(m["metadata"]["event_payload"]["number"]) for m in fake.top(state.ITEM_EVENT)} == {
+        10
+    }
+
+    assert run(fake, [first, deferred], NOW + 2 * HOUR, max_new=1) == []
+    assert {int(m["metadata"]["event_payload"]["number"]) for m in fake.top(state.ITEM_EVENT)} == {
+        10,
+        20,
+    }
+
+
 def test_items_that_wait_on_the_contributor_are_listed_in_the_overview_thread():
     fake = FakeSlack()
     run(fake, [HIGH, WAITING])

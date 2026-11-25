@@ -44,6 +44,12 @@ def test_candidates_are_capped():
     assert len(evaluate.candidates(items, EMPTY, NOW)) == evaluate.MAX_CANDIDATES
 
 
+def test_deferred_new_roots_are_not_claude_candidates():
+    items = [item(20, created=ago(days=1)), item(10, created=ago(days=1))]
+    chosen = evaluate.candidates(items, EMPTY, NOW, max_new=1)
+    assert [target.number for target, _ in chosen] == [10]
+
+
 def test_claude_looks_again_after_new_activity_but_at_most_once_an_hour():
     target = item(1, created=ago(days=1))
     seen = rules.Verdict(rules.Owes.VORTEX, "new", target.events[-1].at, NOW - HOUR)

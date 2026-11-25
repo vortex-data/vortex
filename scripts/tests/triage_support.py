@@ -201,6 +201,7 @@ def run(
     now: datetime = NOW,
     *,
     pings: bool = False,
+    max_new: int = 0,
     claude: Any = None,
     users: dict[str, str] | None = None,
     ended: Callable[[int], Any] | None = None,
@@ -211,6 +212,7 @@ def run(
         oncall=ONCALL,
         users={"alice": "UALICE"} if users is None else users,
         pings=pings,
+        max_new=max_new,
         claude=claude or sync.Judgment(),
     )
     channel = sync.load(fake.history())

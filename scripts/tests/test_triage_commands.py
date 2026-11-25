@@ -35,6 +35,12 @@ def test_valid_commands(text, expected):
     assert commands.parse(text) == expected
 
 
+def test_oversized_snooze_duration_is_rejected_without_raising():
+    command = commands.parse("!snooze " + "9" * 5000 + "d")
+    assert isinstance(command, commands.Invalid)
+    assert "too large" in command.error
+
+
 @pytest.mark.parametrize(
     "text",
     ["snooze 5h", "Thanks! I will look at this", "", "<@U123> can you snooze this?", "the !snooze command"],

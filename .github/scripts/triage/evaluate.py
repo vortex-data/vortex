@@ -20,7 +20,7 @@ from .github import Item
 from .hours import working_days_between
 from .rules import Assessment, Owes, Tier, Verdict, assess, verdict_applies
 from .state import ItemState
-from .sync import Channel, Judgment
+from .sync import Channel, Judgment, new_root_numbers
 
 MAX_CANDIDATES = 30
 COOLDOWN = timedelta(hours=1)
@@ -66,17 +66,22 @@ def _wants_look(state: ItemState | None, assessment: Assessment, now: datetime) 
     return unreminded and working_days_between(asked, now) >= RECHECK_WORKING_DAYS
 
 
-def candidates(items: list[Item], channel: Channel, now: datetime) -> list[tuple[Item, Assessment]]:
+def candidates(
+    items: list[Item], channel: Channel, now: datetime, max_new: int = 0
+) -> list[tuple[Item, Assessment]]:
     """Return the items that Claude looks at in this run, the most urgent first.
 
     Each item comes with the rules' assessment alone, which Claude sees and may correct.
     """
     chosen = []
+    allowed_new = new_root_numbers(items, channel, now, max_new)
     for item in items:
         rules = assess(item, now)
         if rules is None:
             continue
         root = channel.roots.get(item.number)
+        if root is None and item.number not in allowed_new:
+            continue
         state = root.state if root else None
         if state is not None:
             if state.snoozed(now) or now.timestamp() - state.asked_at < COOLDOWN.total_seconds():
@@ -222,7 +227,9 @@ class ClaudeError(Exception):
 Ask = Callable[[dict[str, Any]], str]
 
 
-def judge(items: list[Item], channel: Channel, now: datetime, ask: Ask | None) -> Judgment:
+def judge(
+    items: list[Item], channel: Channel, now: datetime, ask: Ask | None, max_new: int = 0
+) -> Judgment:
     """Ask Claude about this run's candidates.
 
     The result includes the status that the overview shows, so a broken setup is visible in Slack.
@@ -231,7 +238,7 @@ def judge(items: list[Item], channel: Channel, now: datetime, ask: Ask | None) -
     """
     if ask is None:
         return Judgment(on=False)
-    chosen = candidates(items, channel, now)
+    chosen = candidates(items, channel, now, max_new)
     asked = frozenset(item.number for item, _ in chosen)
     waiting = held(items, channel, now, asked)
     if waiting:

@@ -27,6 +27,10 @@ on:
         description: Send reminders that mention people
         type: boolean
         default: false
+      max_new:
+        description: Maximum new item roots to create in one run (0 for unlimited)
+        type: number
+        default: 5
       use_claude:
         description: Ask Claude who owes the next move and how urgent each item is
         type: boolean
@@ -76,12 +80,14 @@ jobs:
           ANTHROPIC_SERVICE_ACCOUNT_ID: ${{ vars.ANTHROPIC_SERVICE_ACCOUNT_ID }}
           # A scheduled run pings and asks Claude. A manual run follows its inputs.
           PINGS: ${{ github.event_name == 'schedule' || inputs.pings }}
+          MAX_NEW: ${{ github.event_name == 'schedule' && 10 || inputs.max_new }}
           USE_CLAUDE: ${{ (github.event_name == 'schedule' || inputs.use_claude) && vars.ANTHROPIC_FEDERATION_RULE_TRIAGE != '' }}
           # Only a scheduled run keeps to the run hours, so a manual run always syncs.
           RUN_HOURS_ONLY: ${{ github.event_name == 'schedule' }}
           PYTHONPATH: ${{ github.workspace }}/.github/scripts
         run: |
           args=(sync --repo "$GITHUB_REPOSITORY" --channel "$CHANNEL_ID")
+          args+=(--max-new "$MAX_NEW")
           if [ "$PINGS" = "true" ]; then
             args+=(--pings)
           fi

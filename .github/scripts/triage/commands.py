@@ -131,7 +131,11 @@ def _snooze(argument: str) -> Command:
             f"{_echo(argument)} is not a duration or a date. Use a whole number and a unit, "
             "for example `!snooze 5h` or `!snooze 2d`, or a date as `YYYY-MM-DD`."
         )
-    amount, unit_text = int(match.group(1)), match.group(2)
+    try:
+        amount = int(match.group(1))
+    except ValueError:
+        return Invalid(f"{_echo(argument)} is too large to use as a snooze duration.")
+    unit_text = match.group(2)
     if not unit_text:
         return Invalid(
             f"{_echo(argument)} has no unit. Add `h` for working hours or `d` for working days, "

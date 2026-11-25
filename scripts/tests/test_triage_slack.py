@@ -78,6 +78,32 @@ def test_rate_limit_retries_then_gives_up(client, monkeypatch):
     assert error.value.code == "rate_limited"
 
 
+def test_posts_and_rate_limit_retries_are_paced(client, monkeypatch):
+    now = [0.0]
+    sleeps = []
+
+    def monotonic() -> float:
+        return now[0]
+
+    def sleep(seconds: float) -> None:
+        sleeps.append(seconds)
+        now[0] += seconds
+
+    monkeypatch.setattr(slack.time, "monotonic", monotonic)
+    monkeypatch.setattr(slack.time, "sleep", sleep)
+    sent = serve(
+        monkeypatch,
+        http_error(429, "0"),
+        Response({"ok": True, "ts": "1.0"}),
+        Response({"ok": True, "ts": "2.0"}),
+    )
+
+    assert client.post(HELLO, {}) == "1.0"
+    assert client.post(HELLO, {}, "1.0") == "2.0"
+    assert len(sent) == 3
+    assert sleeps == [0, 1, 1]
+
+
 @pytest.mark.parametrize(
     "outcome",
     [

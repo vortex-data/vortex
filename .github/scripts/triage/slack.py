@@ -61,6 +61,15 @@ class Slack:
         self.token = token
         self.channel = channel
         self.attempts = attempts
+        self._last_post_at: float | None = None
+
+    def _pace_post(self) -> None:
+        now = time.monotonic()
+        if self._last_post_at is not None:
+            delay = self._last_post_at + 1 - now
+            if delay > 0:
+                time.sleep(delay)
+        self._last_post_at = time.monotonic()
 
     def _call(self, method: str, params: dict[str, Any], post: bool) -> dict[str, Any]:
         url = f"https://slack.com/api/{method}"
@@ -75,6 +84,8 @@ class Slack:
         for attempt in range(attempts):
             request = urllib.request.Request(url, data=data, headers=headers)
             try:
+                if method == "chat.postMessage":
+                    self._pace_post()
                 with urllib.request.urlopen(request, timeout=30) as response:
                     body = json.load(response)
             except urllib.error.HTTPError as error:

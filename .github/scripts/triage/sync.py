@@ -84,6 +84,7 @@ class Config:
     # Lowercase GitHub login to Slack user ID, for the people the bot may mention.
     users: dict[str, str]
     pings: bool
+    max_new: int = 0
     claude: Judgment = field(default_factory=Judgment)
 
 
@@ -151,6 +152,20 @@ def load(messages: Iterable[dict[str, Any]]) -> Channel:
     overviews.sort(key=lambda o: float(o.thread.ts))
     stale = [o for o in overviews[:-1] if not o.state.replaced]
     return Channel(roots, overviews[-1] if overviews else None, help_message, stale)
+
+
+def new_root_numbers(
+    items: list[Item], channel: Channel, now: datetime, max_new: int
+) -> frozenset[int]:
+    """Return the new, tracked roots eligible for this run, in number order."""
+    numbers = sorted(
+        {
+            item.number
+            for item in items
+            if item.number not in channel.roots and assess(item, now) is not None
+        }
+    )
+    return frozenset(numbers[:max_new] if max_new > 0 else numbers)
 
 
 def _hash(message: Message) -> str:
@@ -235,8 +250,20 @@ class Run:
         self._attempt("instructions", self._instructions)
         rows: dict[int, render.Row] = {}
         open_numbers = {item.number for item in items}
-        for item in items:
-            self._attempt(f"#{item.number}", lambda: self._item(item, rows))
+        roots_started = 0
+
+        def root_started() -> None:
+            nonlocal roots_started
+            roots_started += 1
+
+        for item in sorted(items, key=lambda item: item.number):
+            can_create = self.config.max_new <= 0 or roots_started < self.config.max_new
+            self._attempt(
+                f"#{item.number}",
+                lambda item=item, can_create=can_create: self._item(
+                    item, rows, can_create, root_started
+                ),
+            )
         for number, root in self.channel.roots.items():
             if number not in open_numbers and not root.state.status.final:
                 self._attempt(f"#{number}", lambda: self._end(number, root))
@@ -267,7 +294,13 @@ class Run:
         elif self.channel.help[1] != payload["card"]:
             self.slack.update(self.channel.help[0], message, metadata(HELP_EVENT, payload))
 
-    def _item(self, item: Item, rows: dict[int, render.Row]) -> None:
+    def _item(
+        self,
+        item: Item,
+        rows: dict[int, render.Row],
+        can_create: bool,
+        root_started: Callable[[], None],
+    ) -> None:
         root = self.channel.roots.get(item.number)
         previous = root.state.verdict if root else None
         # This run's verdict wins over the cached one, which `assess` drops if it is stale.
@@ -293,7 +326,9 @@ class Run:
         if root is None:
             # The row goes in first, so that a failed post leaves the item in the overview.
             row = rows[item.number] = render.Row(item, assessment, None, None)
-            # Every item gets a root, so that people can snooze or reprioritize it in its thread.
+            if not can_create:
+                return
+            # A root lets people snooze or reprioritize the item in its thread.
             state = ItemState(
                 item.number,
                 seen_external_at=assessment.last_external_at or "",
@@ -303,7 +338,12 @@ class Run:
             # `_save` edits the mentions in later in this run.
             message = render.card(replace(row, state=state), self.now, self.quiet)
             state = replace(state, card=_hash(message))
-            ts = self.slack.post(message, metadata(ITEM_EVENT, state.payload()))
+            try:
+                ts = self.slack.post(message, metadata(ITEM_EVENT, state.payload()))
+            except SlackUnknown:
+                root_started()
+                raise
+            root_started()
             root = Root(Thread(ts, ""), state, state)
             self.channel.roots[item.number] = root
             rows[item.number] = render.Row(item, assessment, state, self._link(ts))
