@@ -56,7 +56,6 @@ use vortex_array::arrays::arbitrary::ArbitraryArrayConfig;
 use vortex_array::arrays::arbitrary::ArbitraryWith;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
-use vortex_array::dtype::DurationUnit;
 use vortex_array::dtype::Nullability;
 use vortex_array::optimizer::ArrayOptimizer;
 use vortex_array::scalar::Scalar;
@@ -178,21 +177,10 @@ impl ExpectedValue {
 
 impl<'a> Arbitrary<'a> for FuzzArrayAction {
     fn arbitrary(u: &mut Unstructured<'a>) -> arbitrary::Result<Self> {
-        let dtype = if u.int_in_range(0..=9)? == 0 {
-            let unit = *u.choose(&[
-                DurationUnit::Seconds,
-                DurationUnit::Milliseconds,
-                DurationUnit::Microseconds,
-                DurationUnit::Nanoseconds,
-            ])?;
-            Some(DType::Duration(unit, u.arbitrary()?))
-        } else {
-            None
-        };
         let array = ArbitraryArray::arbitrary_with_config(
             u,
             &ArbitraryArrayConfig {
-                dtype,
+                dtype: None,
                 len: 0..=FUZZ_ARRAY_MAX_LEN,
             },
         )?

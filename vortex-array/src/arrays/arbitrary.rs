@@ -142,8 +142,8 @@ fn random_array_chunk(
             PType::F64 => random_primitive::<f64>(u, *n, chunk_len),
         },
         DType::Duration(unit, n) => {
-            let counts = random_primitive::<i64>(u, *n, chunk_len)?;
-            Ok(DurationArray::try_new(*unit, counts)
+            let values = random_primitive::<i64>(u, *n, chunk_len)?;
+            Ok(DurationArray::try_new(*unit, values)
                 .vortex_expect("arbitrary duration has i64 storage")
                 .into_array())
         }
