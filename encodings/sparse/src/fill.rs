@@ -17,6 +17,8 @@ use vortex_array::arrays::bool::BoolArrayExt;
 use vortex_array::dtype::DType;
 use vortex_array::match_each_decimal_value_type;
 use vortex_array::scalar::Scalar;
+use vortex_array::stats::majority::MajorityKey;
+use vortex_array::stats::majority::sampled_majority;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -55,7 +57,10 @@ pub(crate) fn most_common_value(
             let decimal = array.clone().execute::<DecimalArray>(ctx)?;
             let index = match_each_decimal_value_type!(decimal.values_type(), |D| {
                 let values = decimal.buffer::<D>();
-                top_index(mask, |index| values[index])
+                match sampled_majority(&values, mask) {
+                    Some((top, _)) => first_valid_index_of(&values, mask, top),
+                    None => top_index(mask, |index| values[index]),
+                }
             });
             decimal.into_array().execute_scalar(index, ctx)
         }
@@ -70,11 +75,21 @@ pub(crate) fn most_common_value(
     }
 }
 
+/// Returns the first valid index holding `value`, which must occur at one.
+fn first_valid_index_of<T: MajorityKey>(values: &[T], mask: &Mask, value: T) -> usize {
+    values
+        .iter()
+        .enumerate()
+        .position(|(index, &candidate)| candidate.key_eq(value) && mask.value(index))
+        .vortex_expect("the majority occurs at a valid index")
+}
+
 /// Returns the first index of the most common key among the valid indices.
 ///
-/// A Boyer–Moore majority vote finds a value filling more than half of the valid indices with
-/// comparisons alone, which is the common case for a sparse array. Without one, the keys are
-/// counted in a hash map.
+/// This is the scalar form of the vote in [`vortex_array::stats::majority`], for keys that do not
+/// fit in a vector lane, such as byte strings: a Boyer–Moore vote finds a value filling more than
+/// half of the valid indices with comparisons alone, which is the common case for a sparse array.
+/// Without one, the keys are counted in a hash map.
 fn top_index<K: Eq + Hash>(mask: &Mask, key: impl Fn(usize) -> K) -> usize {
     let valid_indices = || -> Box<dyn Iterator<Item = usize> + '_> {
         match mask.indices() {
