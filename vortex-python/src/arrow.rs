@@ -26,6 +26,7 @@ use arrow_schema::ArrowError;
 use arrow_schema::DataType;
 use arrow_schema::Field;
 use arrow_schema::Schema;
+use arrow_schema::SchemaRef;
 use pyo3::exceptions::PyTypeError;
 use pyo3::exceptions::PyValueError;
 use pyo3::ffi::Py_uintptr_t;
@@ -329,12 +330,48 @@ impl<'py> FromPyArrow<'_, 'py> for RecordBatchStreamReader {
     }
 }
 
+/// Drops the underlying [`RecordBatchReader`] on the first error or end-of-stream so polling the
+/// exported C stream again returns EOF instead of advancing a failed or completed reader.
+struct FusedRecordBatchReader {
+    schema: SchemaRef,
+    inner: Option<Box<dyn RecordBatchReader + Send>>,
+}
+
+impl FusedRecordBatchReader {
+    fn new(inner: Box<dyn RecordBatchReader + Send>) -> Self {
+        let schema = inner.schema();
+        Self {
+            schema,
+            inner: Some(inner),
+        }
+    }
+}
+
+impl Iterator for FusedRecordBatchReader {
+    type Item = Result<RecordBatch, ArrowError>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let item = self.inner.as_mut()?.next();
+        if !matches!(item, Some(Ok(_))) {
+            self.inner = None;
+        }
+        item
+    }
+}
+
+impl RecordBatchReader for FusedRecordBatchReader {
+    fn schema(&self) -> SchemaRef {
+        Arc::clone(&self.schema)
+    }
+}
+
 /// Convert a [`RecordBatchReader`] into a `pyarrow.RecordBatchReader`.
 impl IntoPyArrow for Box<dyn RecordBatchReader + Send> {
     // We can't implement `ToPyArrow` for `T: RecordBatchReader + Send` because
     // there is already a blanket implementation for `T: ToPyArrow`.
     fn into_pyarrow(self, py: Python) -> PyResult<Py<PyAny>> {
-        let mut stream = FFI_ArrowArrayStream::new(self);
+        let reader: Box<dyn RecordBatchReader + Send> = Box::new(FusedRecordBatchReader::new(self));
+        let mut stream = FFI_ArrowArrayStream::new(reader);
 
         let args = PyTuple::new(py, [&raw mut stream as Py_uintptr_t])?;
         let reader =

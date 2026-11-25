@@ -148,8 +148,15 @@ def _read_task(
         raise ValueError("no paths specified")
 
     dataset = _open_exact_files(paths)
+    if per_task_row_limit == 0:
+        num_rows: int | None = 0
+    elif filter is not None:
+        num_rows = None
+    else:
+        count = dataset.count_rows()
+        num_rows = count if per_task_row_limit is None else min(count, per_task_row_limit)
     metadata = BlockMetadata(
-        num_rows=None if filter is not None else dataset.count_rows(),
+        num_rows=num_rows,
         size_bytes=None,
         exec_stats=None,
         input_files=tuple(paths),
