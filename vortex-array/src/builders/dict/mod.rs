@@ -1,26 +1,37 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::cmp::Reverse;
+
 use bytes::bytes_dict_builder;
 use decimal::decimal_dict_builder;
 use primitive::primitive_dict_builder;
+use vortex_buffer::Buffer;
 use vortex_buffer::BufferAllocatorRef;
+use vortex_buffer::BufferMut;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_panic;
+use vortex_mask::AllOr;
 
 use crate::ArrayRef;
+use crate::Canonical;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::DictArray;
 use crate::arrays::PrimitiveArray;
+use crate::arrays::dict::DictArrayExt;
+use crate::arrays::dict::DictArraySlotsExt;
 use crate::arrays::primitive::PrimitiveArrayExt;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
+use crate::dtype::UnsignedPType;
 use crate::match_each_decimal_value_type;
 use crate::match_each_native_ptype;
+use crate::validity::Validity;
 
 mod bytes;
 mod decimal;
@@ -165,20 +176,128 @@ pub fn dict_encode(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Dic
     Ok(dict_array)
 }
 
+/// Reorders a [`DictArray`]'s dictionary values by descending code occurrence count and remaps
+/// its codes accordingly, so the hottest entries receive codes `0, 1, ...`.
+///
+/// Ties are broken stably by original code index (preserving first-seen order when `dict` came
+/// from [`dict_encode`] or [`dict_encode_with_constraints`]).
+pub fn sort_dict_by_frequency(dict: DictArray, ctx: &mut ExecutionCtx) -> VortexResult<DictArray> {
+    if dict.values().len() <= 1 || dict.is_empty() {
+        return Ok(dict);
+    }
+    let codes = dict.codes().clone().execute::<PrimitiveArray>(ctx)?;
+    match codes.ptype() {
+        PType::U8 => sort_dict_by_frequency_typed::<u8>(dict, codes, ctx),
+        PType::U16 => sort_dict_by_frequency_typed::<u16>(dict, codes, ctx),
+        PType::U32 => sort_dict_by_frequency_typed::<u32>(dict, codes, ctx),
+        PType::U64 => sort_dict_by_frequency_typed::<u64>(dict, codes, ctx),
+        ptype => vortex_bail!("expected unsigned dictionary codes, got {ptype}"),
+    }
+}
+
+fn sort_dict_by_frequency_typed<Code: UnsignedPType>(
+    dict: DictArray,
+    codes: PrimitiveArray,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<DictArray> {
+    let dict_len = dict.values().len();
+    let slice = codes.as_slice::<Code>();
+    let mut counts = vec![0u64; dict_len];
+
+    match codes.validity()? {
+        Validity::NonNullable | Validity::AllValid => {
+            for &code in slice {
+                if let Some(count) = counts.get_mut(code.as_()) {
+                    *count += 1;
+                }
+            }
+        }
+        Validity::AllInvalid => return Ok(dict),
+        validity => {
+            let mask = validity.execute_mask(codes.len(), ctx)?;
+            match mask.bit_buffer() {
+                AllOr::All => {
+                    for &code in slice {
+                        if let Some(count) = counts.get_mut(code.as_()) {
+                            *count += 1;
+                        }
+                    }
+                }
+                AllOr::None => return Ok(dict),
+                AllOr::Some(bits) => {
+                    for idx in bits.set_indices() {
+                        if let Some(count) = counts.get_mut(slice[idx].as_()) {
+                            *count += 1;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    let mut order: Vec<usize> = (0..dict_len).collect();
+    order.sort_by_key(|&old_code| Reverse(counts[old_code]));
+    if order
+        .iter()
+        .enumerate()
+        .all(|(new_code, &old_code)| new_code == old_code)
+    {
+        return Ok(dict);
+    }
+
+    let mut new_code_of = vec![Code::default(); dict_len];
+    for (new_code, &old_code) in order.iter().enumerate() {
+        new_code_of[old_code] =
+            Code::from_usize(new_code).vortex_expect("new code fits in original code type");
+    }
+
+    let mut remapped = BufferMut::<Code>::with_capacity_in(slice.len(), ctx.allocator().clone());
+    for &old_code in slice {
+        let mapped = new_code_of.get(old_code.as_()).copied().unwrap_or_default();
+        // SAFETY: `remapped` was allocated with capacity `slice.len()`.
+        unsafe { remapped.push_unchecked(mapped) };
+    }
+    let new_codes = PrimitiveArray::new(remapped.freeze(), codes.validity()?).into_array();
+
+    let take_indices = Buffer::<u64>::from_iter(order.into_iter().map(|i| i as u64)).into_array();
+    let new_values = DictArray::try_new(take_indices, dict.values().clone())?
+        .into_array()
+        .execute::<Canonical>(ctx)?
+        .into_array();
+
+    let all_referenced = dict.has_all_values_referenced();
+    // SAFETY: `order` is a bijection on `0..dict_len`, and every valid code in `new_codes`
+    // was mapped through its inverse `new_code_of`, preserving logical values and `all_values_referenced`.
+    Ok(unsafe {
+        DictArray::new_unchecked(new_codes, new_values).set_all_values_referenced(all_referenced)
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::LazyLock;
 
     use rstest::rstest;
+    use vortex_buffer::buffer;
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
     use super::dict_encode;
+    use super::sort_dict_by_frequency;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
+    use crate::arrays::BoolArray;
+    use crate::arrays::DictArray;
+    use crate::arrays::Primitive;
     use crate::arrays::PrimitiveArray;
+    use crate::arrays::VarBinViewArray;
+    use crate::arrays::dict::DictArrayExt;
     use crate::arrays::dict::DictArraySlotsExt;
     use crate::arrays::primitive::PrimitiveArrayExt;
+    use crate::assert_arrays_eq;
+    use crate::dtype::DType;
+    use crate::dtype::Nullability;
+    use crate::validity::Validity;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
@@ -201,6 +320,75 @@ mod tests {
             .execute::<PrimitiveArray>(&mut ctx)?;
 
         assert_eq!(codes.ptype(), codes.narrow(&mut ctx)?.ptype());
+        Ok(())
+    }
+
+    #[test]
+    fn sort_dict_by_frequency_orders_descending_with_stable_ties() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        // "rare_b" (1), "tie_first" (2), "hot" (4), "tie_second" (2)
+        let array = VarBinViewArray::from_iter_str([
+            "rare_b",
+            "tie_first",
+            "tie_second",
+            "hot",
+            "tie_first",
+            "hot",
+            "tie_second",
+            "hot",
+            "hot",
+        ])
+        .into_array();
+
+        let dict = dict_encode(&array, &mut ctx)?;
+        let sorted = sort_dict_by_frequency(dict, &mut ctx)?;
+        assert!(sorted.has_all_values_referenced());
+        assert_arrays_eq!(
+            sorted.values(),
+            VarBinViewArray::from_iter_str(["hot", "tie_first", "tie_second", "rare_b"]),
+            &mut ctx
+        );
+        assert_eq!(
+            sorted.codes().as_::<Primitive>().as_slice::<u8>(),
+            &[3, 1, 2, 0, 1, 0, 2, 0, 0]
+        );
+        assert_arrays_eq!(sorted, array, &mut ctx);
+        Ok(())
+    }
+
+    #[test]
+    fn sort_dict_by_frequency_handles_nullable_values_and_nullable_codes() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        // Nullable values via `dict_encode`: null occurs 4 times, "a" twice, "b" once -> null gets code 0.
+        let nullable_str = VarBinViewArray::from_iter(
+            [Some("b"), Some("a"), None, None, Some("a"), None, None],
+            DType::Utf8(Nullability::Nullable),
+        )
+        .into_array();
+        let sorted_str = sort_dict_by_frequency(dict_encode(&nullable_str, &mut ctx)?, &mut ctx)?;
+        assert_eq!(
+            sorted_str.codes().as_::<Primitive>().as_slice::<u8>(),
+            &[2, 1, 0, 0, 1, 0, 0]
+        );
+        assert_arrays_eq!(sorted_str, nullable_str, &mut ctx);
+
+        // Nullable codes where invalid slots carry an out-of-bounds payload (`255`) or a rare valid code (`0`):
+        // valid counts: code 0 -> 1, code 1 -> 3. Invalid slots must not inflate code 0 or panic on 255.
+        let codes = PrimitiveArray::new(
+            buffer![0u8, 0, 255, 1, 1, 1],
+            Validity::Array(
+                BoolArray::from_iter([true, false, false, true, true, true]).into_array(),
+            ),
+        )
+        .into_array();
+        let values = buffer![10i32, 20].into_array();
+        let dict = DictArray::try_new(codes, values)?;
+        let sorted = sort_dict_by_frequency(dict.clone(), &mut ctx)?;
+        assert_eq!(
+            sorted.values().as_::<Primitive>().as_slice::<i32>(),
+            &[20, 10]
+        );
+        assert_arrays_eq!(sorted, dict, &mut ctx);
         Ok(())
     }
 }

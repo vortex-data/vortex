@@ -18,6 +18,7 @@ use vortex_array::arrays::decimal::DecimalArrayExt;
 use vortex_array::arrays::dict::DictArrayExt;
 use vortex_array::arrays::dict::DictArraySlotsExt;
 use vortex_array::builders::dict::dict_encode;
+use vortex_array::builders::dict::sort_dict_by_frequency;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
@@ -137,7 +138,7 @@ impl Scheme for DecimalDictScheme {
         compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        let dict = dict_encode(data.array(), exec_ctx)?;
+        let dict = sort_dict_by_frequency(dict_encode(data.array(), exec_ctx)?, exec_ctx)?;
         let has_all_values_referenced = dict.has_all_values_referenced();
 
         // Values = child 0.
@@ -161,6 +162,7 @@ impl Scheme for DecimalDictScheme {
 
 #[cfg(test)]
 mod tests {
+    use std::iter;
     use std::sync::LazyLock;
 
     use rstest::rstest;
@@ -168,6 +170,8 @@ mod tests {
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::DecimalArray;
     use vortex_array::arrays::Dict;
+    use vortex_array::arrays::Primitive;
+    use vortex_array::arrays::dict::DictArraySlotsExt;
     use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::DecimalDType;
     use vortex_array::validity::Validity;
@@ -201,6 +205,34 @@ mod tests {
             CascadingCompressor::new(vec![&DecimalDictScheme]).compress(&array, &mut ctx)?;
 
         assert!(compressed.is::<Dict>(), "{}", compressed.display_tree());
+        assert_arrays_eq!(compressed, array, &mut ctx);
+        Ok(())
+    }
+
+    #[test]
+    fn orders_decimal_dictionary_codes_by_frequency() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let mut raw = Vec::with_capacity(76);
+        raw.push(9999i128);
+        raw.extend(iter::repeat_n(-500i128, 5));
+        raw.extend(iter::repeat_n(250i128, 20));
+        raw.extend(iter::repeat_n(1000i128, 50));
+        let array = decimal(raw, Validity::NonNullable).into_array();
+
+        let compressed =
+            CascadingCompressor::new(vec![&DecimalDictScheme]).compress(&array, &mut ctx)?;
+        let dict = compressed.as_opt::<Dict>().expect("expected Dict");
+        assert_arrays_eq!(
+            dict.values(),
+            decimal([1000, 250, -500, 9999], Validity::NonNullable),
+            &mut ctx
+        );
+        let codes = dict.codes().as_::<Primitive>();
+        let slice = codes.as_slice::<u8>();
+        assert_eq!(slice[0], 3);
+        assert!(slice[1..6].iter().all(|&c| c == 2));
+        assert!(slice[6..26].iter().all(|&c| c == 1));
+        assert!(slice[26..76].iter().all(|&c| c == 0));
         assert_arrays_eq!(compressed, array, &mut ctx);
         Ok(())
     }
