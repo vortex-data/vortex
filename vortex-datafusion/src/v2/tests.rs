@@ -738,3 +738,163 @@ async fn test_get_field_through_extension_storage_is_pushed_down() -> anyhow::Re
 
     Ok(())
 }
+
+#[tokio::test]
+async fn test_double_projection_swap_composes_against_current_output() -> anyhow::Result<()> {
+    let source = vortex_source().await?;
+
+    // First swap reverses and renames the columns so column 0 is now original `b` named `a`.
+    let first = ProjectionExprs::from(vec![
+        ProjectionExpr::new(Arc::new(df_expr::Column::new("b", 1)), "a"),
+        ProjectionExpr::new(Arc::new(df_expr::Column::new("a", 0)), "b"),
+    ]);
+    let after_first = source
+        .try_swapping_with_projection(&first)?
+        .ok_or_else(|| anyhow!("first projection was not swapped"))?;
+
+    // Second swap selects `a@0` (which must read original `b`, not original `a`).
+    let second = ProjectionExprs::from(vec![ProjectionExpr::new(
+        Arc::new(df_expr::Column::new("a", 0)),
+        "out",
+    )]);
+    let after_second = after_first
+        .try_swapping_with_projection(&second)?
+        .ok_or_else(|| anyhow!("second projection was not swapped"))?;
+    let plan = Arc::new(DataSourceExec::new(after_second)) as Arc<dyn ExecutionPlan>;
+    let batches = datafusion_physical_plan::collect(plan, SessionContext::new().task_ctx()).await?;
+    assert_batches_eq!(
+        [
+            "+-----+", //
+            "| out |", //
+            "+-----+", //
+            "| 30  |", //
+            "| 10  |", //
+            "| 20  |", //
+            "+-----+", //
+        ],
+        &batches
+    );
+
+    // First swap uses an unsupported expression (leftover projection); second swap builds on it.
+    let leftover_first = ProjectionExprs::from(vec![
+        ProjectionExpr::new(Arc::new(df_expr::Column::new("b", 1)), "b_val"),
+        ProjectionExpr::new(
+            Arc::new(df_expr::BinaryExpr::new(
+                Arc::new(df_expr::Column::new("a", 0)),
+                Operator::Modulo,
+                df_expr::lit(2_i32),
+            )),
+            "odd",
+        ),
+    ]);
+    let after_leftover = source
+        .try_swapping_with_projection(&leftover_first)?
+        .ok_or_else(|| anyhow!("leftover projection was not swapped"))?;
+
+    let compose_over_leftover = ProjectionExprs::from(vec![
+        ProjectionExpr::new(
+            Arc::new(df_expr::BinaryExpr::new(
+                Arc::new(df_expr::Column::new("odd", 1)),
+                Operator::Plus,
+                df_expr::lit(10_i32),
+            )),
+            "odd_plus_10",
+        ),
+        ProjectionExpr::new(Arc::new(df_expr::Column::new("b_val", 0)), "b_out"),
+    ]);
+    let composed = after_leftover
+        .try_swapping_with_projection(&compose_over_leftover)?
+        .ok_or_else(|| anyhow!("composed projection was not swapped"))?;
+    let filter = Arc::new(df_expr::BinaryExpr::new(
+        Arc::new(df_expr::Column::new("b_out", 1)),
+        Operator::Gt,
+        df_expr::lit(15_i32),
+    )) as Arc<dyn PhysicalExpr>;
+    let pushed = composed.try_pushdown_filters(vec![filter], &ConfigOptions::new())?;
+    assert!(matches!(pushed.filters.as_slice(), [PushedDown::Yes]));
+    let filtered = pushed
+        .updated_node
+        .ok_or_else(|| anyhow!("filter was not pushed"))?;
+    let plan = Arc::new(DataSourceExec::new(filtered)) as Arc<dyn ExecutionPlan>;
+    let batches = datafusion_physical_plan::collect(plan, SessionContext::new().task_ctx()).await?;
+    assert_batches_eq!(
+        [
+            "+-------------+-------+",
+            "| odd_plus_10 | b_out |",
+            "+-------------+-------+",
+            "| 11          | 30    |",
+            "| 11          | 20    |",
+            "+-------------+-------+",
+        ],
+        &batches
+    );
+
+    // Dropping the unsupported column in the second swap still produces the remaining column.
+    let drop_unsupported = ProjectionExprs::from(vec![ProjectionExpr::new(
+        Arc::new(df_expr::Column::new("b_val", 0)),
+        "b_only",
+    )]);
+    let dropped = after_leftover
+        .try_swapping_with_projection(&drop_unsupported)?
+        .ok_or_else(|| anyhow!("second projection dropping unsupported expr was not swapped"))?;
+    let plan = Arc::new(DataSourceExec::new(dropped)) as Arc<dyn ExecutionPlan>;
+    let batches = datafusion_physical_plan::collect(plan, SessionContext::new().task_ctx()).await?;
+    assert_batches_eq!(
+        [
+            "+--------+",
+            "| b_only |",
+            "+--------+",
+            "| 30     |",
+            "| 10     |",
+            "| 20     |",
+            "+--------+",
+        ],
+        &batches
+    );
+
+    // Supported first swap followed by an unsupported second swap computes both cleanly.
+    let pushed_first = ProjectionExprs::from(vec![
+        ProjectionExpr::new(
+            Arc::new(df_expr::BinaryExpr::new(
+                Arc::new(df_expr::Column::new("a", 0)),
+                Operator::Plus,
+                df_expr::lit(1_i32),
+            )),
+            "a1",
+        ),
+        ProjectionExpr::new(Arc::new(df_expr::Column::new("b", 1)), "b1"),
+    ]);
+    let after_pushed = source
+        .try_swapping_with_projection(&pushed_first)?
+        .ok_or_else(|| anyhow!("pushed first projection was not swapped"))?;
+    let unsupported_second = ProjectionExprs::from(vec![
+        ProjectionExpr::new(
+            Arc::new(df_expr::BinaryExpr::new(
+                Arc::new(df_expr::Column::new("a1", 0)),
+                Operator::Modulo,
+                df_expr::lit(2_i32),
+            )),
+            "a1_odd",
+        ),
+        ProjectionExpr::new(Arc::new(df_expr::Column::new("b1", 1)), "b2"),
+    ]);
+    let after_unsupported_second = after_pushed
+        .try_swapping_with_projection(&unsupported_second)?
+        .ok_or_else(|| anyhow!("unsupported second projection was not swapped"))?;
+    let plan = Arc::new(DataSourceExec::new(after_unsupported_second)) as Arc<dyn ExecutionPlan>;
+    let batches = datafusion_physical_plan::collect(plan, SessionContext::new().task_ctx()).await?;
+    assert_batches_eq!(
+        [
+            "+--------+----+",
+            "| a1_odd | b2 |",
+            "+--------+----+",
+            "| 0      | 30 |",
+            "| 1      | 10 |",
+            "| 0      | 20 |",
+            "+--------+----+",
+        ],
+        &batches
+    );
+
+    Ok(())
+}
