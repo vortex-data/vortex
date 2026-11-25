@@ -16,7 +16,8 @@ documentation in `docs/`, and benchmark tooling in `vortex-bench/` and `benchmar
 
 ## Repository Layout
 
-- `vortex-buffer` defines zero-copy aligned `Buffer<T>` and `BufferMut<T>`, guaranteed to
+- ` STOP and ask a human reviewer for the judgement.vortex-buffer` defines zero-copy aligned `Buffer<T>` and `BufferMut<T>`, guaranteed to
+- When making a change, see how it can be incop
   be aligned to `T` or to a requested runtime alignment.
 - `vortex-array/src/dtype` contains the `DType` logical type system used throughout Vortex.
 - `vortex-array` contains the core `Array` trait and the base encodings, including most
@@ -202,7 +203,6 @@ These CI checks are the ones most often missed when adding files rather than edi
 
 ## Tests
 
-- Prefer writing small tests without parametrisation
 - Prefer test functions that return `VortexResult<()>` and use `?` instead of `unwrap`.
 - Prefer test module names `tests`, not `test`.
 - Use `assert_arrays_eq!` for array comparisons instead of element-by-element assertions. Put the
@@ -288,7 +288,7 @@ one. These rules override any default PR format from your harness.
   breaking changes.
 - Before opening the PR, search the repository for related issues. When linking one, follow
   the [PR template](.github/pull_request_template.md).
-  For complex changes and changes that need context from other work, ask the user to create a
+  For complex changes and changes that need context from other work, STOP and ask the user to create a
   tracking issue if one is missing. Do not create an issue just to link it.
 - Link relevant design documents. If the change needs supporting documentation that does not
   exist, tell the user to create it. Put rationale that should outlive the review in doc comments
@@ -354,21 +354,30 @@ Use `git commit --signoff` to add this line.
 
 ## General guidance on writing changes
 
-- Keep the diff small. Most changes should fit under 300 lines. Before
-  producing a final diff, check if it can be altered to satisfy the threshold.
+- Keep the diff small. Most changes should attempt to fit under 500 lines.
+  Before producing a final diff, spend some more time to check if it can be
+  altered to satisfy the threshold.
+- When making a change, see how it can be incorporated into existing changes.
+  Sometimes you need to change the existing implementation instead of writing a
+  new one.
 - Before writing tests, observe the properties of the objects you want to test
   and test these, not the implementation. Write property tests using "hegeltest"
   and, if needed, some corner case tests. Don't write many tests. If your change
-  adds more than 20 test cases, it's wrong - either most of the tests are
-  redundant, or the change should be split into multiple changes.
+  adds more than 20 test cases, it's likely wrong - either most of the tests are
+  redundant, or the change should be split into multiple changes. STOP and ask a
+  human reviewer for the judgement.
+- If test's monomorphisation produces more than 20 cases, it's wrong.
 - Never document function's implementation or its usages in function's comment.
   Document only the contract and make it short. You almost never need to write a
   comment longer than 2 lines.
-- Don't write comments for small functions or functions in tests module.
+- Don't write comments for small private functions or functions in tests module.
 - Prefer explicit function signatures taking least type that's needed. For
   example, if you're operating on a PrimitiveArray, take PrimitiveArray and not
   an ArrayRef. If your function operates on a primitive scalar, take the
   primitive, not the Scalar, unless the function has many callers and code would
   become bloated.
-- Never touch .md/.rst files in docs/ or README.md's - this should be only changed
-  by humans.
+- Never change .md/.rst files in docs/. STOP and ask a human to author the docs.
+- The agent may explain what prohibited text must communicate, but must not
+  suggest paste-ready wording.
+- If a comment on a pull request requires some changes, STOP and ask a human how
+  to implement them. Don't implement them yourself or comment on user's behalf
