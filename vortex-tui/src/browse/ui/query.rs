@@ -1175,7 +1175,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_parse_sql_parts_preserves_escaped_quotes() -> vortex::error::VortexResult<()> {
+    async fn test_parse_sql_parts_preserves_escaped_quotes() -> anyhow::Result<()> {
         let ctx = datafusion::prelude::SessionContext::new();
 
         for (sql, expected) in [
@@ -1188,28 +1188,18 @@ mod tests {
                 ..Default::default()
             };
             state.prepare_initial_query();
+            assert!(!state.base_query.is_empty(), "sql: {sql}");
+            assert!(state.needs_row_count, "sql: {sql}");
 
-            let orig_batches = ctx
-                .sql(sql)
-                .await
-                .map_err(|e| vortex::error::vortex_err!("{e}"))?
-                .collect()
-                .await
-                .map_err(|e| vortex::error::vortex_err!("{e}"))?;
-            let rewritten_batches = ctx
-                .sql(&state.sql_input)
-                .await
-                .map_err(|e| vortex::error::vortex_err!("{e}"))?
-                .collect()
-                .await
-                .map_err(|e| vortex::error::vortex_err!("{e}"))?;
+            let orig_batches = ctx.sql(sql).await?.collect().await?;
+            let rewritten_batches = ctx.sql(&state.sql_input).await?.collect().await?;
 
             assert_eq!(orig_batches, rewritten_batches, "sql: {sql}");
             let col = rewritten_batches[0]
                 .column(0)
                 .as_any()
                 .downcast_ref::<arrow_array::StringArray>()
-                .ok_or_else(|| vortex::error::vortex_err!("expected StringArray"))?;
+                .ok_or_else(|| anyhow::anyhow!("expected StringArray"))?;
             assert_eq!(col.value(0), expected, "sql: {sql}");
         }
         Ok(())

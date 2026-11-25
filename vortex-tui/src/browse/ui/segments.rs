@@ -465,7 +465,7 @@ mod tests {
     }
 
     #[test]
-    fn test_scroll_offset_clamps_after_viewport_expansion() -> anyhow::Result<()> {
+    fn test_sync_layout_to_area_clamps_scroll_after_viewport_expansion() -> anyhow::Result<()> {
         let mut grid = SegmentGridState {
             segment_tree: Some(to_display_segment_tree(sample_segment_tree(3, 6))?),
             ..Default::default()
