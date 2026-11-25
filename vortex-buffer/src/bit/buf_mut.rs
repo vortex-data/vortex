@@ -688,14 +688,16 @@ impl BitBufferMut {
     pub fn append_false(&mut self) {
         let bit_pos = self.offset + self.len;
         let byte_pos = bit_pos / 8;
+        let bit_in_byte = bit_pos % 8;
 
-        // Ensure buffer has enough bytes (pushed as 0x00, so bit is already unset).
+        // Ensure buffer has enough bytes.
         if byte_pos >= self.buffer.len() {
             self.buffer.push(0u8);
+        } else {
+            // Existing bytes may have stale set bits beyond `offset + len`.
+            self.buffer.as_mut_slice()[byte_pos] &= !(1 << bit_in_byte);
         }
 
-        // The bit is guaranteed to be 0: new bytes are zero-initialized, and
-        // existing bytes have this bit unset (it's beyond the current length).
         self.len += 1;
     }
 
@@ -1567,5 +1569,59 @@ mod tests {
     #[should_panic(expected = "is too short for offset")]
     fn from_buffer_does_not_wrap_on_a_huge_offset() {
         BitBufferMut::from_buffer(buffer_mut![0u8; 1], usize::MAX, 8);
+    }
+
+    #[test]
+    fn append_false_clears_dirty_trailing_bits() {
+        let mut from_new_set = BitBufferMut::new_set(5);
+        from_new_set.append_false();
+        from_new_set.append_true();
+        from_new_set.append_false();
+        assert_eq!(
+            from_new_set.freeze(),
+            bitbuffer![true, true, true, true, true, false, true, false]
+        );
+
+        let mut from_not = !BitBufferMut::new_unset(5);
+        from_not.append_false();
+        assert_eq!(
+            from_not.freeze(),
+            bitbuffer![true, true, true, true, true, false]
+        );
+
+        let mut from_buf_unaligned = BitBufferMut::from_buffer(buffer_mut![0xFF, 0xFF], 0, 5);
+        from_buf_unaligned.append_false();
+        assert_eq!(
+            from_buf_unaligned.freeze(),
+            bitbuffer![true, true, true, true, true, false]
+        );
+
+        let mut from_buf_aligned = BitBufferMut::from_buffer(buffer_mut![0xFF, 0xFF], 0, 8);
+        from_buf_aligned.append_false();
+        assert_eq!(
+            from_buf_aligned.freeze(),
+            bitbuffer![true, true, true, true, true, true, true, true, false]
+        );
+
+        let mut from_try_into_mut = crate::BitBuffer::new_set(5).try_into_mut().unwrap();
+        from_try_into_mut.append_false();
+        assert_eq!(
+            from_try_into_mut.freeze(),
+            bitbuffer![true, true, true, true, true, false]
+        );
+    }
+
+    #[test]
+    fn append_buffer_overwrites_dirty_tail_byte() {
+        // Byte-aligned destination with an existing dirty trailing byte hits the `dst_bit_offset == 0`
+        // fast path in `append_buffer`.
+        let mut buf = BitBufferMut::from_buffer(buffer_mut![0xFF, 0xFF], 0, 8);
+        buf.append_buffer(&crate::BitBuffer::new_unset(3));
+        assert_eq!(
+            buf.freeze(),
+            bitbuffer![
+                true, true, true, true, true, true, true, true, false, false, false
+            ]
+        );
     }
 }

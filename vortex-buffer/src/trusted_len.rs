@@ -21,8 +21,6 @@ pub unsafe trait TrustedLen: Iterator {}
 pub struct TrustedLenAdapter<I> {
     inner: I,
     len: usize,
-    #[cfg(debug_assertions)]
-    count: usize,
 }
 
 impl<I: Iterator> Iterator for TrustedLenAdapter<I> {
@@ -31,20 +29,15 @@ impl<I: Iterator> Iterator for TrustedLenAdapter<I> {
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
         let item = self.inner.next();
-        #[cfg(debug_assertions)]
-        {
-            if item.is_some() {
-                self.count += 1;
-                assert!(
-                    self.count <= self.len,
-                    "TrustedLenAdapter: iterator yielded more items than promised"
-                );
-            } else {
-                assert_eq!(
-                    self.len, self.count,
-                    "TrustedLenAdapter: iterator ended early"
-                );
-            }
+        if item.is_some() {
+            debug_assert!(
+                self.len > 0,
+                "TrustedLenAdapter: iterator yielded more items than promised"
+            );
+            self.len = self.len.saturating_sub(1);
+        } else {
+            debug_assert_eq!(self.len, 0, "TrustedLenAdapter: iterator ended early");
+            self.len = 0;
         }
         item
     }
@@ -76,8 +69,6 @@ pub trait TrustedLenExt: Iterator + Sized {
         TrustedLenAdapter {
             inner: self,
             len: lower_bound,
-            #[cfg(debug_assertions)]
-            count: 0,
         }
     }
 }
@@ -184,3 +175,74 @@ unsafe impl<T: Clone> TrustedLen for std::iter::RepeatN<T> {}
 unsafe impl<'a> TrustedLen for crate::bit::BitIterator<'a> {}
 unsafe impl<'a> TrustedLen for crate::bit::BitChunkIterator<'a> {}
 unsafe impl<'a> TrustedLen for crate::bit::UnalignedBitChunkIterator<'a> {}
+
+#[cfg(test)]
+mod tests {
+    use super::TrustedLenExt;
+    use crate::BufferMut;
+
+    #[test]
+    fn trusted_len_adapter_tracks_remaining_len() {
+        // SAFETY: `[10u32, 20, 30, 40].into_iter()` has an exact size hint.
+        let mut iter = unsafe { [10u32, 20, 30, 40].into_iter().trusted_len() };
+        assert_eq!(iter.size_hint(), (4, Some(4)));
+
+        assert_eq!(iter.next(), Some(10));
+        assert_eq!(iter.size_hint(), (3, Some(3)));
+
+        let buf = BufferMut::from_trusted_len_iter(iter);
+        assert_eq!(buf.as_slice(), &[20, 30, 40]);
+
+        // Exhausting the adapter leaves its size hint at 0.
+        // SAFETY: `[1u32].into_iter()` has an exact size hint.
+        let mut single = unsafe { [1u32].into_iter().trusted_len() };
+        assert_eq!(single.next(), Some(1));
+        assert_eq!(single.size_hint(), (0, Some(0)));
+        assert_eq!(single.next(), None);
+        assert_eq!(single.size_hint(), (0, Some(0)));
+    }
+
+    #[cfg(debug_assertions)]
+    #[test]
+    #[should_panic(expected = "TrustedLenAdapter: iterator ended early")]
+    fn trusted_len_adapter_detects_early_end() {
+        struct ShortIter(usize);
+        impl Iterator for ShortIter {
+            type Item = u32;
+            fn next(&mut self) -> Option<Self::Item> {
+                None
+            }
+            fn size_hint(&self) -> (usize, Option<usize>) {
+                (self.0, Some(self.0))
+            }
+        }
+
+        // SAFETY: intentionally invalid iterator to test the debug assertion.
+        let mut iter = unsafe { ShortIter(2).trusted_len() };
+        let _ = iter.next();
+    }
+
+    #[cfg(debug_assertions)]
+    #[test]
+    #[should_panic(expected = "TrustedLenAdapter: iterator yielded more items than promised")]
+    fn trusted_len_adapter_detects_overrun() {
+        struct LongIter(usize);
+        impl Iterator for LongIter {
+            type Item = u32;
+            fn next(&mut self) -> Option<Self::Item> {
+                (self.0 > 0).then(|| {
+                    self.0 -= 1;
+                    1
+                })
+            }
+            fn size_hint(&self) -> (usize, Option<usize>) {
+                (1, Some(1))
+            }
+        }
+
+        // SAFETY: intentionally invalid iterator to test the debug assertion.
+        let mut iter = unsafe { LongIter(2).trusted_len() };
+        assert_eq!(iter.next(), Some(1));
+        let _ = iter.next();
+    }
+}
