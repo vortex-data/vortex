@@ -52,6 +52,7 @@ use vortex::scalar_fn::ScalarFnVTable;
 use vortex::scalar_fn::builtin::cast::Cast;
 use vortex::session::VortexSession;
 
+use super::BLOCK_SIZE;
 use super::CudaDispatchPlan;
 use super::MAX_PLAN_BYTES;
 use super::MaterializedStage;
@@ -61,6 +62,7 @@ use super::PTypeTag_PTYPE_F64;
 use super::SMEM_TILE_SIZE;
 use super::ScalarOp;
 use super::SourceOp;
+use super::SourceOp_SourceOpCode_BITUNPACK;
 use super::packed_plan_size;
 use super::ptype_to_tag;
 use super::tag_to_ptype;
@@ -473,6 +475,34 @@ impl FusedPlan {
             return true;
         }
         false
+    }
+
+    /// Extra dynamic shared memory the delta kernel variant needs for `elem_bytes`-wide values:
+    /// one staged FastLanes chunk and one partial sum per thread.
+    pub(crate) fn delta_tile_bytes(elem_bytes: u32) -> u32 {
+        (SMEM_TILE_SIZE + BLOCK_SIZE) * elem_bytes
+    }
+
+    /// Whether [`MaterializedPlan::execute_delta`] can undelta this plan's output in-kernel.
+    ///
+    /// The output stage must tile at FastLanes chunk boundaries, so a bit-unpacked source may not
+    /// start mid-chunk. Its scalar ops may not carry patches, which the kernel scatters into the
+    /// output after a stage rather than into the deltas. The staged chunk must fit in shared
+    /// memory alongside the plan.
+    pub(crate) fn supports_delta_output(&self) -> bool {
+        let Some((output, ..)) = self.stages.last() else {
+            return false;
+        };
+        // SAFETY: `bitunpack` is the active union field for BITUNPACK sources.
+        let chunk_aligned = output.source.op_code != SourceOp_SourceOpCode_BITUNPACK
+            || unsafe { output.source.params.bitunpack.element_offset } == 0;
+        let unpatched = output
+            .scalar_ops
+            .iter()
+            .all(|(_, patches)| patches.is_none());
+        let required =
+            self.total_shared_mem_bytes() + Self::delta_tile_bytes(self.output_elem_bytes);
+        chunk_aligned && unpatched && required <= Self::MAX_SHARED_MEM_BYTES
     }
 
     /// Copy source buffers to the device, producing a [`MaterializedPlan`].
