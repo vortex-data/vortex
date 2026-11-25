@@ -388,27 +388,12 @@ impl<T> UninitRange<'_, T> {
         // SAFETY: constructor enforces that current length + len does not exceed the capacity of the array.
         unsafe { self.builder.values.set_len(base_len + self.len) };
     }
-    #[cold]
-    #[inline(never)]
-    fn rollback_nulls(&mut self) {
-        self.builder.nulls.truncate(self.builder.values.len());
-    }
-}
-
-impl<T> Drop for UninitRange<'_, T> {
-    #[inline]
-    fn drop(&mut self) {
-        if self.builder.nulls.len() != self.builder.values.len() {
-            self.rollback_nulls();
-        }
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use std::sync::LazyLock;
 
-    use rstest::rstest;
     use vortex_buffer::buffer;
     use vortex_error::VortexExpect;
     use vortex_session::VortexSession;
@@ -421,42 +406,6 @@ mod tests {
     use crate::validity::Validity;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
-
-    #[rstest]
-    #[case::append_mask(true)]
-    #[case::set_validity_bit(false)]
-    fn test_abandoned_uninit_range_preserves_committed_nulls(
-        #[case] use_append_mask: bool,
-    ) -> VortexResult<()> {
-        let mut ctx = SESSION.create_execution_ctx();
-        let mut builder = PrimitiveBuilder::<i32>::new_in(
-            Nullability::Nullable,
-            BufferAllocatorRef::static_ref(),
-        );
-        builder.append_value(12);
-        {
-            let mut range = builder.uninit_range(2);
-            range.copy_from_slice(0, &[13, 14]);
-            if use_append_mask {
-                // SAFETY: Mask matches range length and is appended once.
-                unsafe {
-                    range.append_mask(&Mask::AllFalse(2));
-                }
-            } else {
-                range.set_validity_bit(0, false);
-            }
-        }
-        builder.append_value(15);
-
-        assert_eq!(builder.len(), 2);
-        let result = builder.finish_into_primitive();
-        assert_arrays_eq!(
-            result,
-            PrimitiveArray::from_option_iter([Some(12i32), Some(15)]),
-            &mut ctx
-        );
-        Ok(())
-    }
 
     #[test]
     fn test_fresh_uninit_range_set_validity_bit() -> VortexResult<()> {
