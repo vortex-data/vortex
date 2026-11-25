@@ -125,10 +125,6 @@ typedef enum {
      * Nested fixed-size list type.
      */
     DTYPE_FIXED_SIZE_LIST = 9,
-    /**
-     * Fixed-unit elapsed time.
-     */
-    DTYPE_DURATION = 10,
 } vx_dtype_variant;
 
 /**
@@ -218,28 +214,6 @@ typedef enum {
      */
     VX_ESTIMATE_INEXACT = 2,
 } vx_estimate_type;
-
-/**
- * Unit of a Duration data type.
- */
-typedef enum {
-    /**
-     * Nanoseconds.
-     */
-    DURATION_NANOSECONDS = 0,
-    /**
-     * Microseconds.
-     */
-    DURATION_MICROSECONDS = 1,
-    /**
-     * Milliseconds.
-     */
-    DURATION_MILLISECONDS = 2,
-    /**
-     * Seconds.
-     */
-    DURATION_SECONDS = 3,
-} vx_duration_unit;
 
 /**
  * Error category for vx_error.
@@ -970,11 +944,6 @@ const vx_dtype *vx_dtype_new_struct(vx_struct_fields *struct_dtype, bool is_null
 const vx_dtype *vx_dtype_new_decimal(uint8_t precision, int8_t scale, bool is_nullable);
 
 /**
- * Create a new duration data type with the given unit.
- */
-const vx_dtype *vx_dtype_new_duration(vx_duration_unit unit, bool is_nullable);
-
-/**
  * Get the variant of a [`vx_dtype`].
  */
 vx_dtype_variant vx_dtype_get_variant(const vx_dtype *dtype);
@@ -998,12 +967,6 @@ uint8_t vx_dtype_decimal_precision(const vx_dtype *dtype);
  * Returns the scale of a decimal.
  */
 int8_t vx_dtype_decimal_scale(const vx_dtype *dtype);
-
-/**
- * Write the duration unit to `unit` and return true for a duration type.
- * For other types, return false and leave `unit` untouched.
- */
-bool vx_dtype_duration_unit(const vx_dtype *dtype, vx_duration_unit *unit);
 
 /**
  * If "dtype" is DTYPE_STRUCT, return owned vx_struct_fields for this struct,

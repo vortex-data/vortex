@@ -86,27 +86,6 @@ void print_decimal_dtype(const vx_dtype *dtype) {
     printf("decimal(precision=%u, scale=%d)", precision, scale);
 }
 
-void print_duration_dtype(const vx_dtype *dtype) {
-    vx_duration_unit unit;
-    if (!vx_dtype_duration_unit(dtype, &unit)) {
-        return;
-    }
-    switch (unit) {
-    case DURATION_NANOSECONDS:
-        printf("duration[ns]");
-        break;
-    case DURATION_MICROSECONDS:
-        printf("duration[us]");
-        break;
-    case DURATION_MILLISECONDS:
-        printf("duration[ms]");
-        break;
-    case DURATION_SECONDS:
-        printf("duration[s]");
-        break;
-    }
-}
-
 void print_dtype(const vx_dtype *dtype) {
     switch (vx_dtype_get_variant(dtype)) {
     case DTYPE_NULL:
@@ -138,9 +117,6 @@ void print_dtype(const vx_dtype *dtype) {
         break;
     case DTYPE_DECIMAL:
         print_decimal_dtype(dtype);
-        break;
-    case DTYPE_DURATION:
-        print_duration_dtype(dtype);
         break;
     }
     printf("%c\n", vx_dtype_is_nullable(dtype) ? '?' : ' ');

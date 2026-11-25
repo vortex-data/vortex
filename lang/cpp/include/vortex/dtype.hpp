@@ -38,15 +38,6 @@ enum class DataTypeVariant {
     Decimal = DTYPE_DECIMAL,
     // Nested fixed-size list
     FixedSizeList = DTYPE_FIXED_SIZE_LIST,
-    // Fixed-unit elapsed time
-    Duration = DTYPE_DURATION,
-};
-
-enum class DurationUnit {
-    Nanoseconds = DURATION_NANOSECONDS,
-    Microseconds = DURATION_MICROSECONDS,
-    Milliseconds = DURATION_MILLISECONDS,
-    Seconds = DURATION_SECONDS,
 };
 
 // Primitive type
@@ -95,8 +86,6 @@ public:
     PType primitive_type() const;
     uint8_t decimal_precision() const;
     int8_t decimal_scale() const;
-    /** Return the duration unit. Throws if DataType is not Duration. */
-    DurationUnit duration_unit() const;
 
     /**
      * For a Struct dtype, return its fields in order.
@@ -150,7 +139,6 @@ DataType float64(bool nullable = false);
 DataType utf8(bool nullable = false);
 DataType binary(bool nullable = false);
 DataType decimal(uint8_t precision, int8_t scale, bool nullable = false);
-DataType duration(DurationUnit unit, bool nullable = false);
 DataType list(DataType element, bool nullable = false);
 DataType fixed_size_list(DataType element, uint32_t size, bool nullable = false);
 
