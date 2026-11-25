@@ -430,4 +430,5 @@ def test_datetime_scalar_rejects_unknown_timezone():
 def test_temporal_as_py_matches_pyarrow(arrow_type: pa.DataType) -> None:
     expected = pa.array([1, None, 1_001], type=arrow_type)
     array = vx.array(expected)
-    assert [array.scalar_at(i).as_py() for i in range(len(array))] == expected.to_pylist()
+    # The pyarrow stubs type `to_pylist` only for concrete Arrow types, not a generic `DataType`.
+    assert [array.scalar_at(i).as_py() for i in range(len(array))] == expected.to_pylist()  # ty: ignore[invalid-argument-type]
