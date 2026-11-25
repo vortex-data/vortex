@@ -12,11 +12,11 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::dtype::StructFields;
-use vortex_array::expr::gt;
-use vortex_array::expr::lit;
-use vortex_array::expr::root;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
+use vortex_expr::gt;
+use vortex_expr::lit;
+use vortex_expr::root;
 use vortex_expr::stats::rewrite::BoundExpressionPruneExt;
 use vortex_mask::Mask;
 

@@ -28,8 +28,8 @@ use crate::aggregate_fn::kernels::DynAggregateKernel;
 use crate::arrays::Widen;
 use crate::arrays::widen::WidenArraySlotsExt;
 use crate::dtype::DType;
-use crate::expr::stats::Stat;
 use crate::scalar::Scalar;
+use crate::stats::Stat;
 
 /// Computes aggregate partials from a [`Widen`]'s child without materializing widened values.
 #[derive(Debug)]

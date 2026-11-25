@@ -10,6 +10,11 @@ on:
         required: true
         default: "all"
         type: string
+      ref:
+        description: "Commit to check; empty checks the commit the run started from"
+        required: false
+        type: string
+        default: ""
   workflow_dispatch:
     inputs:
       mode:
@@ -35,6 +40,8 @@ jobs:
             with:
               sccache: s3
           - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+            with:
+              ref: ${{ inputs.ref }}
       - uses: ./.github/actions/setup-prebuild
         with:
           enable-sccache: ${{ github.repository == 'vortex-data/vortex' && 'true' || 'false' }}

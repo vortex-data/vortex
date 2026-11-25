@@ -36,7 +36,7 @@ It is the fastest and most extensible format for building data systems backed by
   - Apache-2.0 Licensed
 
 - **Integrations**
-  - Arrow, DataFusion, DuckDB, Spark, Pandas, Polars, & more
+  - Arrow, ClickHouse, DataFusion, DuckDB, Spark, Pandas, Polars, & more
   - Apache Iceberg (coming soon)
 
 > 🟢 **Development Status**: Library APIs may change from version to version, but we now consider
@@ -185,10 +185,10 @@ How the policy is applied:
   crate in the workspace. That value, not this document, is the source of truth.
 - The toolchain pinned in `rust-toolchain.toml` tracks the latest stable release and is independent
   of the MSRV. It is what contributors and most CI jobs build with.
-- CI enforces the declared MSRV in the `Rust (MSRV)` job, which builds the publishable crates with
-  exactly that toolchain. When it fails, the first choices are to express the code without the
-  newer Rust feature, or to hold back the dependency update that raised the requirement. Raising
-  `rust-version` is a last resort.
+- The `Rust (MSRV)` job of the release checks enforces the declared MSRV before each release. It
+  builds the publishable crates with exactly that toolchain. When it fails, the first choices are
+  to express the code without the newer Rust feature, or to hold back the dependency update that
+  raised the requirement. Raising `rust-version` is a last resort.
 
 ### License
 

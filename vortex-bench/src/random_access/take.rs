@@ -164,14 +164,14 @@ impl VortexRandomAccessor {
     /// Open a Vortex file stored in an object store and return a ready-to-use accessor.
     pub async fn open_object_store(
         remote: &RemoteDataDir,
-        path: &Path,
+        relative_path: &str,
         name: impl Into<String>,
         format: Format,
     ) -> anyhow::Result<Self> {
         let file = SESSION
             .open_options()
             .with_layout_reader_cache()
-            .open_object_store(remote.store(), remote.key(path)?)
+            .open_object_store(remote.store(), remote.key(relative_path))
             .await?;
         Ok(Self {
             name: name.into(),
@@ -257,11 +257,11 @@ impl ParquetRandomAccessor {
     /// Open a Parquet file stored in an object store and return a ready-to-use accessor.
     pub async fn open_object_store(
         remote: &RemoteDataDir,
-        path: &Path,
+        relative_path: &str,
         name: impl Into<String>,
     ) -> anyhow::Result<Self> {
         Self::open_reader(
-            ObjectReader::new(Arc::clone(remote.store()), remote.key(path)?),
+            ObjectReader::new(Arc::clone(remote.store()), remote.key(relative_path)),
             name,
         )
         .await

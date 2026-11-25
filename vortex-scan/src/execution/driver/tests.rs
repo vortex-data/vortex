@@ -16,13 +16,13 @@ use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::assert_arrays_eq;
-use vortex_array::expr::checked_add;
-use vortex_array::expr::gt;
-use vortex_array::expr::lit;
-use vortex_array::expr::root;
 use vortex_buffer::Buffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_expr::checked_add;
+use vortex_expr::gt;
+use vortex_expr::lit;
+use vortex_expr::root;
 use vortex_io::session::RuntimeSessionExt;
 use vortex_session::VortexSession;
 

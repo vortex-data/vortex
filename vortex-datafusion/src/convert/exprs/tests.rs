@@ -68,6 +68,7 @@ use vortex::dtype::session::DTypeSessionExt;
 use vortex::encodings::uuid::Uuid;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
+use vortex::expr::ArrayExprExt;
 use vortex::expr::between;
 use vortex::expr::proto::ExprSerializeProtoExt;
 use vortex::functions::between::BetweenOptions;
