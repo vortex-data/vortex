@@ -30,8 +30,7 @@ on:
         default: ""
       remote_data_dir:
         description: >-
-          When set, the benchmark data is uploaded to this S3 prefix and read back from there
-          instead of local disk. Only supported by random-access-bench.
+          Public S3 fixture prefix for Random Access. An empty value uses local disk.
         required: false
         type: string
         default: ""
@@ -132,6 +131,19 @@ jobs:
               # which reaches only the tip of a shallow clone.
               fetch-depth: 0
 
+      # Older PR heads may still need local files or emit unversioned S3 measurements.
+      - name: Check S3 benchmark capabilities
+        id: remote-data
+        if: inputs.remote_data_dir != ''
+        shell: bash
+        run: |
+          if git grep -q -F 'fn relative_path(&self, format: Format) -> String;' -- vortex-bench/src/random_access/mod.rs; then
+            echo "skip-local=true" >> "$GITHUB_OUTPUT"
+          fi
+          if git grep -q -F 'const S3_TIMING_VERSION:' -- benchmarks/random-access-bench/src/lib.rs; then
+            echo "versioned-records=true" >> "$GITHUB_OUTPUT"
+          fi
+
       # Every install and download below is independent of the others.
       - parallel:
           - name: Install DuckDB
@@ -156,7 +168,7 @@ jobs:
               extra_args: "--debuginfo-strip=false"
               parca_agent_version: "0.49.0"
           - name: Setup AWS CLI
-            if: github.event.pull_request.head.repo.fork == false
+            if: inputs.remote_data_dir == '' && github.event.pull_request.head.repo.fork == false
             uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd  # v6
             with:
               role-to-assume: arn:aws:iam::245040174862:role/GitHubBenchmarkRole
@@ -171,7 +183,7 @@ jobs:
           # and the LitData conversion. Keep the litdata version in sync with the Install LitData step.
           - name: Compute benchmark data cache key
             id: data-cache-key
-            if: inputs.benchmark_id == 'random-access-bench'
+            if: inputs.benchmark_id == 'random-access-bench' && steps.remote-data.outputs.skip-local != 'true'
             shell: bash
             run: |
               set -Eeu -o pipefail
@@ -202,7 +214,7 @@ jobs:
               echo "LITDATA_PYTHON=$PWD/.venv-litdata/bin/python" >> "$GITHUB_ENV"
           - name: Restore benchmark data
             id: data-cache
-            if: inputs.benchmark_id == 'random-access-bench'
+            if: inputs.benchmark_id == 'random-access-bench' && steps.remote-data.outputs.skip-local != 'true'
             uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
             with:
               path: |
@@ -217,10 +229,24 @@ jobs:
                     'vortex-bench/src/utils/parquet.rs',
                     'scripts/litdata-random-access.py',
                     'benchmarks/random-access-bench/src/litdata.rs') }}
+          # string-bench reads most of its columns from Hugging Face, which rate limits
+          # unauthenticated downloads. The key covers the sources and row caps in lib.rs and the
+          # shared Parquet writer settings, whose layout version decides when a file is stale.
+          - name: Restore string-bench data
+            id: string-data-cache
+            if: inputs.benchmark_id == 'string-bench'
+            uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+            with:
+              path: vortex-bench/data/string-bench/*.parquet
+              key: >-
+                string-bench-data-v1-${{ hashFiles(
+                  'benchmarks/string-bench/src/lib.rs',
+                  'vortex-bench/src/utils/parquet.rs') }}
 
       # Download and convert all benchmark data up front, so the benchmark step below only
       # contains timed runs. The data is written with the same settings the benchmark uses.
       - name: Generate ${{ inputs.benchmark_name }} data
+        if: steps.remote-data.outputs.skip-local != 'true'
         shell: bash
         env:
           RUST_BACKTRACE: full
@@ -231,11 +257,12 @@ jobs:
           python3 "scripts/${bench%-bench}-split.py" --prepare-data \
             ${{ inputs.remote_data_dir != '' && format('--remote-data-dir {0}', inputs.remote_data_dir) || '' }}
 
-      # setup-benchmark.sh pins every running process to the housekeeping CPUs, so it waits for
-      # the cache save and upload rather than throttling them.
+      # Save the data cache before setup-benchmark.sh pins processes to the housekeeping CPUs.
       - parallel:
           - name: Save benchmark data
-            if: inputs.benchmark_id == 'random-access-bench' && steps.data-cache.outputs.cache-hit != 'true'
+            if: >-
+              inputs.benchmark_id == 'random-access-bench' && steps.remote-data.outputs.skip-local != 'true'
+              && steps.data-cache.outputs.cache-hit != 'true'
             uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
             with:
               path: |
@@ -243,16 +270,12 @@ jobs:
                 vortex-bench/data/random_access/*/*.parquet
                 vortex-bench/data/random_access/*/*.litdata
               key: ${{ steps.data-cache.outputs.cache-primary-key }}
-          - name: Upload benchmark data to S3
-            if: inputs.remote_data_dir != '' && github.event.pull_request.head.repo.fork == false
-            shell: bash
-            env:
-              AWS_REGION: "us-east-1"
-            run: |
-              set -Eeu -o pipefail -x
-
-              aws s3 rm --recursive "${{ inputs.remote_data_dir }}"
-              aws s3 cp --recursive vortex-bench/data "${{ inputs.remote_data_dir }}"
+          - name: Save string-bench data
+            if: inputs.benchmark_id == 'string-bench' && steps.string-data-cache.outputs.cache-hit != 'true'
+            uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+            with:
+              path: vortex-bench/data/string-bench/*.parquet
+              key: ${{ steps.string-data-cache.outputs.cache-primary-key }}
 
       - name: Setup benchmark environment
         run: sudo bash scripts/setup-benchmark.sh
@@ -264,9 +287,20 @@ jobs:
           RUST_BACKTRACE: full
           FLAT_LAYOUT_INLINE_ARRAY_NODE: "1"
           AWS_REGION: "us-east-1"
+          AWS_SKIP_SIGNATURE: ${{ inputs.remote_data_dir != '' }}
+          REMOTE_DATA_DIR: ${{ inputs.remote_data_dir }}
+          VERSIONED_RECORDS: ${{ steps.remote-data.outputs.versioned-records }}
         run: |
           python3 scripts/random-access-split.py --emit-ingest-records \
             ${{ inputs.remote_data_dir != '' && format('--remote-data-dir {0}', inputs.remote_data_dir) || '' }}
+
+          # Keep legacy PR timings visible without matching historical or current baselines.
+          if [[ -n "$REMOTE_DATA_DIR" && "$VERSIONED_RECORDS" != "true" ]]; then
+            jq -c --arg fixture "$REMOTE_DATA_DIR" \
+              '.dataset |= ("legacy-" + ($fixture | rtrimstr("/") | @uri) + "-" + .)' \
+              results.ingest.jsonl > results.legacy.ingest.jsonl
+            mv results.legacy.ingest.jsonl results.ingest.jsonl
+          fi
 
       - name: Run ${{ inputs.benchmark_name }} benchmark (per-dataset)
         if: inputs.benchmark_id == 'compress-bench'
@@ -330,10 +364,3 @@ jobs:
 
             Benchmark `${{ inputs.benchmark_name }}` failed! Check the [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) for details.
           comment-tag: bench-pr-comment-${{ inputs.benchmark_id }}${{ inputs.variant_id }}
-
-      - name: Delete benchmark data from S3
-        if: always() && inputs.remote_data_dir != '' && github.event.pull_request.head.repo.fork == false
-        shell: bash
-        env:
-          AWS_REGION: "us-east-1"
-        run: aws s3 rm --recursive "${{ inputs.remote_data_dir }}"

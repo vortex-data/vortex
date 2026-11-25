@@ -32,11 +32,12 @@ use vortex_array::dtype::Field;
 use vortex_array::dtype::FieldName;
 use vortex_array::dtype::FieldPath;
 use vortex_array::dtype::Nullability;
-use vortex_array::expr::stats::Precision;
-use vortex_array::expr::stats::Stat;
 use vortex_array::scalar::Scalar;
+use vortex_array::stats::Precision;
+use vortex_array::stats::Stat;
 use vortex_array::stats::StatsSet;
 use vortex_error::VortexError;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_io::session::RuntimeSessionExt;
@@ -507,16 +508,29 @@ fn default_aggregate_fns(dtype: &DType) -> Vec<AggregateFnRef> {
 /// both when accumulating stats at write time and when reconstructing them from the footer at
 /// read time, so no paths or dtypes need to be persisted in the flatbuffer itself.
 pub fn postorder_stats_layout(dtype: &DType) -> Vec<(FieldPath, DType)> {
-    let mut out = Vec::new();
-    postorder_stats_layout_into(dtype, FieldPath::root(), &mut out);
-    out
+    try_postorder_stats_layout(dtype).vortex_expect("field DType must be valid")
 }
 
-fn postorder_stats_layout_into(dtype: &DType, path: FieldPath, out: &mut Vec<(FieldPath, DType)>) {
+/// Like [`postorder_stats_layout`], but returns an error if a field [`DType`] can't be decoded.
+pub fn try_postorder_stats_layout(dtype: &DType) -> VortexResult<Vec<(FieldPath, DType)>> {
+    let mut out = Vec::new();
+    postorder_stats_layout_into(dtype, FieldPath::root(), &mut out)?;
+    Ok(out)
+}
+
+fn postorder_stats_layout_into(
+    dtype: &DType,
+    path: FieldPath,
+    out: &mut Vec<(FieldPath, DType)>,
+) -> VortexResult<()> {
     match dtype.as_struct_fields_opt() {
         Some(struct_fields) => {
-            for (name, field_dtype) in struct_fields.names().iter().zip(struct_fields.fields()) {
-                postorder_stats_layout_into(&field_dtype, path.clone().push(name.clone()), out);
+            for (name, field_dtype) in struct_fields
+                .names()
+                .iter()
+                .zip(struct_fields.try_fields()?)
+            {
+                postorder_stats_layout_into(&field_dtype, path.clone().push(name.clone()), out)?;
             }
             if dtype.nullability() == Nullability::Nullable {
                 out.push((path, dtype.clone()));
@@ -525,6 +539,7 @@ fn postorder_stats_layout_into(dtype: &DType, path: FieldPath, out: &mut Vec<(Fi
         None if !supports_file_stats(dtype) => {}
         None => out.push((path, dtype.clone())),
     }
+    Ok(())
 }
 
 /// A node in the tree of accumulators mirroring [`postorder_stats_layout`]'s walk of a `DType`.

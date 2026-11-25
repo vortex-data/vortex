@@ -30,8 +30,8 @@ from Parquet, compress your data, and query it.
 :::{container} card
 [**Use with a query engine**](user-guide/index.md)
 
-Integrate Vortex with **DataFusion**, **DuckDB**, **Spark**, **Trino**, or **Ray** for
-accelerated queries over compressed data.
+Integrate Vortex with **ClickHouse**, **DataFusion**, **DuckDB**, **Spark**, **Trino**, or **Ray**
+for accelerated queries over compressed data.
 :::
 
 :::{container} card

@@ -21,14 +21,14 @@ use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::dict::DictArraySlotsExt;
 use vortex_array::assert_arrays_eq;
 use vortex_array::dtype::DType;
-use vortex_array::expr::get_item;
-use vortex_array::expr::gt;
-use vortex_array::expr::lit;
-use vortex_array::expr::root;
 use vortex_array::validity::Validity;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
+use vortex_expr::get_item;
+use vortex_expr::gt;
+use vortex_expr::lit;
+use vortex_expr::root;
 use vortex_mask::Mask;
 
 use crate::execution::pipeline::*;
