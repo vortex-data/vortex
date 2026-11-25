@@ -28,8 +28,8 @@ use crate::arrays::VarBinViewArray;
 use crate::arrays::bool::BoolArrayExt;
 use crate::arrays::decimal::DecimalArrayExt;
 use crate::arrays::primitive::PrimitiveArrayExt;
+use crate::arrays::runend::iter::slice_relative_ends;
 use crate::buffer::BufferHandle;
-use crate::dtype::IntegerPType;
 use crate::dtype::NativePType;
 use crate::dtype::Nullability;
 use crate::expr::stats::Precision;
@@ -286,16 +286,15 @@ pub fn runend_decode_primitive(
     }
     Ok(match_each_native_ptype!(values.ptype(), |P| {
         match_each_unsigned_integer_ptype!(ends.ptype(), |E| {
-            let (decoded, validity) = runend_decode_ends(
-                ends.as_slice::<E>(),
-                offset,
+            runend_decode_typed_primitive(
+                slice_relative_ends(ends.as_slice::<E>(), offset, length),
                 values.as_slice::<P>(),
                 validity_mask,
                 values.dtype().nullability(),
                 length,
                 ctx.allocator(),
-            );
-            PrimitiveArray::new(decoded, validity).into_array()
+            )
+            .into_array()
         })
     }))
 }
@@ -304,13 +303,20 @@ pub fn runend_decode_primitive(
 ///
 /// This is the core decode loop shared by primitive and varbinview run-end decoding.
 fn runend_decode_slice<T: Copy + Default>(
-    run_ends: impl Iterator<Item = usize>,
+    run_ends: impl ExactSizeIterator<Item = usize>,
     values: &[T],
     values_validity: Mask,
     values_nullability: Nullability,
     length: usize,
     allocator: &BufferAllocatorRef,
 ) -> (Buffer<T>, Validity) {
+    // Checked once here so the loops can use `zip`, which unlike `zip_eq` compiles to a single
+    // counted loop over the slices instead of checking both iterators for their end on every run.
+    assert_eq!(
+        run_ends.len(),
+        values.len(),
+        "run ends and values must have the same length"
+    );
     match values_validity {
         Mask::AllTrue(_) => {
             let mut decoded = RunWriter::new(length, allocator);
@@ -352,41 +358,6 @@ fn runend_decode_slice<T: Copy + Default>(
     }
 }
 
-/// Decode run ends read straight from a slice into a flat `Buffer<T>` and `Validity`.
-///
-/// This is [`runend_decode_slice`] without the per-run checks of [`slice_relative_ends`]: each
-/// end is shifted by `offset` and the [`RunWriter`] clamps it into bounds, both without branches,
-/// so the loop costs only the stores.
-///
-/// [`slice_relative_ends`]: crate::arrays::runend::slice_relative_ends
-fn runend_decode_ends<T: Copy + Default, E: IntegerPType>(
-    ends: &[E],
-    offset: usize,
-    values: &[T],
-    values_validity: Mask,
-    values_nullability: Nullability,
-    length: usize,
-    allocator: &BufferAllocatorRef,
-) -> (Buffer<T>, Validity) {
-    assert_eq!(
-        ends.len(),
-        values.len(),
-        "run ends and values must have the same length"
-    );
-    let run_ends = ends.iter().map(move |&end| {
-        let end: usize = end.as_();
-        end.saturating_sub(offset)
-    });
-    runend_decode_slice(
-        run_ends,
-        values,
-        values_validity,
-        values_nullability,
-        length,
-        allocator,
-    )
-}
-
 /// Minimum bytes in a [`RunWriter`] block.
 const BLOCK_BYTES: usize = 32;
 
@@ -424,18 +395,17 @@ impl<T: Copy> RunWriter<T> {
     }
 
     /// Fill `self.len()..end` with `value`.
-    ///
-    /// `end` is clamped to `self.len()..=length`, so an end past the slice writes up to its end
-    /// and an end before the previous one writes nothing. The clamp is two branch-free
-    /// comparisons, which is cheaper per run than checking the ends.
     #[inline]
     fn write_run(&mut self, value: T, end: usize) {
-        debug_assert!(
+        assert!(
             end >= self.len,
             "Runend ends must be monotonic, got {end} after {}",
             self.len
         );
-        let end = end.min(self.length).max(self.len);
+        assert!(
+            end <= self.length,
+            "Runend end must be less than overall length"
+        );
         // SAFETY: `self.len <= end <= length`, and the buffer holds `length + BLOCK` elements, so
         // both the block and the remainder of the run are in bounds.
         unsafe {
@@ -462,31 +432,21 @@ impl<T: Copy> RunWriter<T> {
 }
 
 pub fn runend_decode_typed_primitive<T: NativePType>(
-    run_ends: impl Iterator<Item = usize>,
+    run_ends: impl ExactSizeIterator<Item = usize>,
     values: &[T],
     values_validity: Mask,
     values_nullability: Nullability,
     length: usize,
     allocator: &BufferAllocatorRef,
 ) -> PrimitiveArray {
-    // An all-null decode never reads the run ends, so only the other paths are checked.
-    let checked = !values_validity.all_false();
-    let mut run_count = 0;
     let (decoded, validity) = runend_decode_slice(
-        run_ends.inspect(|_| run_count += 1),
+        run_ends,
         values,
         values_validity,
         values_nullability,
         length,
         allocator,
     );
-    if checked {
-        assert_eq!(
-            run_count,
-            values.len(),
-            "run ends and values must have the same length"
-        );
-    }
     PrimitiveArray::new(decoded, validity)
 }
 
@@ -510,9 +470,8 @@ pub fn runend_decode_decimal(
 
     Ok(match_each_decimal_value_type!(values.values_type(), |D| {
         let (decoded, validity) = match_each_unsigned_integer_ptype!(ends.ptype(), |E| {
-            runend_decode_ends(
-                ends.as_slice::<E>(),
-                offset,
+            runend_decode_slice(
+                slice_relative_ends(ends.as_slice::<E>(), offset, length),
                 values.buffer::<D>().as_slice(),
                 validity_mask,
                 values.dtype().nullability(),
@@ -546,9 +505,8 @@ pub fn runend_decode_varbinview(
     let views = values.views();
 
     let (decoded_views, validity) = match_each_unsigned_integer_ptype!(ends.ptype(), |E| {
-        runend_decode_ends(
-            ends.as_slice::<E>(),
-            offset,
+        runend_decode_slice(
+            slice_relative_ends(ends.as_slice::<E>(), offset, length),
             views,
             validity_mask,
             values.dtype().nullability(),
@@ -720,22 +678,6 @@ mod tests {
             length,
             &mut ctx,
         )?;
-        assert_arrays_eq!(decoded, expected, &mut ctx);
-        Ok(())
-    }
-
-    #[test]
-    fn typed_primitive_decodes_all_null_values() -> VortexResult<()> {
-        let mut ctx = SESSION.create_execution_ctx();
-        let decoded = runend_decode_typed_primitive(
-            [1, 3].into_iter(),
-            &[1i32, 2],
-            Mask::AllFalse(2),
-            Nullability::Nullable,
-            3,
-            ctx.allocator(),
-        );
-        let expected = PrimitiveArray::from_option_iter([None::<i32>, None, None]);
         assert_arrays_eq!(decoded, expected, &mut ctx);
         Ok(())
     }
