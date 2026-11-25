@@ -35,16 +35,15 @@ class BenchmarkBuilder:
         self.workspace_root = workspace_root or get_workspace_root()
         self.config = config or BuildConfig()
         self.verbose = verbose
-        self._target_dir_cache: tuple[tuple[str | None, str | None], Path] | None = None
+        self._target_dir: Path | None = None
 
     def _profile_dir(self) -> str:
         return _PROFILE_DIRS.get(self.config.profile, self.config.profile)
 
     def get_target_dir(self) -> Path:
         """Resolve the Cargo target directory for this workspace, honoring Cargo env and config."""
-        env_key = (os.environ.get("CARGO_TARGET_DIR"), os.environ.get("CARGO_BUILD_TARGET_DIR"))
-        if self._target_dir_cache is not None and self._target_dir_cache[0] == env_key:
-            return self._target_dir_cache[1]
+        if self._target_dir is not None:
+            return self._target_dir
 
         target_dir = self.workspace_root / "target"
         try:
@@ -62,7 +61,7 @@ class BenchmarkBuilder:
         except (OSError, subprocess.CalledProcessError, json.JSONDecodeError):
             pass
 
-        self._target_dir_cache = (env_key, target_dir)
+        self._target_dir = target_dir
         return target_dir
 
     def get_binary_path(self, backend: Engine) -> Path:

@@ -559,13 +559,12 @@ async fn retry_get(
         }
         match single_attempt(client, url, tmp_path, &progress).await {
             Ok(()) => {
-                progress.finalize();
-                drop(progress);
                 if attempt == 0
                     && let Some(b) = batch
                 {
                     b.report_clean_success();
                 }
+                progress.finalize();
                 return Ok(());
             }
             Err(e) => {
