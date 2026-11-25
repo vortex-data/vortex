@@ -141,6 +141,25 @@ impl SizeScopeNode {
 struct SizeScopeRegistry {
     scopes: Mutex<Vec<Arc<SizeScopeNode>>>,
     overall: CompressionRatio,
+    /// The uncompressed bytes of the chunks that were written as constants, which take no space.
+    constant: AtomicU64,
+}
+
+impl SizeScopeRegistry {
+    /// Returns the ratio over all the samples, or `None` if no chunk was compressed yet.
+    ///
+    /// The constant bytes are included only after the first compressed sample. Thus a write that
+    /// starts with constant columns does not estimate its other data at zero bytes.
+    fn ratio(&self) -> Option<f64> {
+        let uncompressed = self.overall.0.uncompressed.load(Ordering::Relaxed);
+        if uncompressed == 0 {
+            return None;
+        }
+
+        let constant = self.constant.load(Ordering::Relaxed);
+        let compressed = self.overall.0.compressed.load(Ordering::Relaxed);
+        Some(compressed as f64 / (uncompressed + constant) as f64)
+    }
 }
 
 /// The accounting of the bytes that a write accepted but did not compress yet.
@@ -229,6 +248,14 @@ impl SizeScope {
         self.record(uncompressed, compressed);
     }
 
+    /// Records that `uncompressed` bytes of a chunk were written as a constant, which takes no
+    /// space in the file.
+    pub fn record_constant(&self, uncompressed: u64) {
+        self.registry
+            .constant
+            .fetch_add(uncompressed, Ordering::Relaxed);
+    }
+
     /// Returns the uncompressed bytes in all the scopes of the tree.
     pub fn uncompressed_bytes(&self) -> u64 {
         self.registry
@@ -242,10 +269,7 @@ impl SizeScope {
     /// Returns the compressed bytes divided by the uncompressed bytes over all the samples of the
     /// tree, or one if there is no sample.
     pub fn compression_ratio(&self) -> f64 {
-        self.registry
-            .overall
-            .measured()
-            .unwrap_or(DEFAULT_COMPRESSION_RATIO)
+        self.registry.ratio().unwrap_or(DEFAULT_COMPRESSION_RATIO)
     }
 
     /// Returns the estimated compressed size of the uncompressed bytes in all the scopes of the
@@ -549,6 +573,20 @@ mod tests {
         assert_eq!(root.estimated_compressed_bytes(), 100 + 500 + 300);
         assert_eq!(root.compression_ratio(), 0.3);
         assert_eq!(root.uncompressed_bytes(), 3000);
+    }
+
+    #[test]
+    fn constant_bytes_count_only_after_a_compressed_sample() {
+        let root = SizeScope::new();
+        let _bytes = root.reserve(1000);
+
+        root.record_constant(300);
+        assert_eq!(root.compression_ratio(), 1.0);
+        assert_eq!(root.estimated_compressed_bytes(), 1000);
+
+        root.child().record(100, 40);
+        assert_eq!(root.compression_ratio(), 0.1);
+        assert_eq!(root.estimated_compressed_bytes(), 100);
     }
 
     #[test]
