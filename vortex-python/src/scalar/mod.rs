@@ -10,6 +10,7 @@
 mod binary;
 mod bool;
 mod decimal;
+mod duration;
 mod extension;
 pub mod factory;
 mod into_py;
@@ -163,6 +164,11 @@ impl PyScalar {
     }
 
     /// Return the scalar value as a Python object.
+    ///
+    /// A nanosecond duration returns a :class:`pandas.Timedelta`, or raises
+    /// :class:`ModuleNotFoundError` if pandas is missing. Durations in other units return
+    /// a :class:`datetime.timedelta`.
+    /// A duration that is out of range for the Python type raises :class:`OverflowError`.
     pub fn as_py(&self, py: Python) -> PyResult<Py<PyAny>> {
         PyVortex(&self.0).into_pyobject(py).map(|v| v.into())
     }

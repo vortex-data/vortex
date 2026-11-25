@@ -9,6 +9,7 @@ use pyo3::intern;
 use pyo3::prelude::*;
 use pyo3::types::PyBool;
 use pyo3::types::PyBytes;
+use pyo3::types::PyDelta;
 use pyo3::types::PyDict;
 use pyo3::types::PyFloat;
 use pyo3::types::PyInt;
@@ -41,6 +42,7 @@ use crate::error::PyVortexError;
 use crate::error::PyVortexResult;
 use crate::scalar::PyScalar;
 use crate::scalar::bool;
+use crate::scalar::duration;
 
 /// Construct a Vortex scalar from a Python value.
 ///
@@ -50,13 +52,15 @@ use crate::scalar::bool;
 ///     The value to convert. Supported types are :obj:`None`, :class:`bool`, :class:`int`,
 ///     :class:`float`, :class:`str`, :class:`bytes`, :class:`list`, :class:`dict` (as a struct),
 ///     :class:`decimal.Decimal`, :class:`datetime.date`, :class:`datetime.datetime`,
-///     :class:`datetime.time`, :class:`uuid.UUID`, and :class:`vortex.Scalar`.
+///     :class:`datetime.time`, :class:`datetime.timedelta`, :class:`pandas.Timedelta`,
+///     :class:`uuid.UUID`, and :class:`vortex.Scalar`.
 /// dtype : :class:`vortex.DType`, optional
 ///     The data type of the result. When given, it also guides the conversion: the unit of a
-///     date, time or timestamp type, the scale of a decimal type, and the element and field types
-///     of list and struct types. Without it, :class:`int` becomes a 64-bit integer,
+///     date, time, timestamp or duration type, the scale of a decimal type, and the element and
+///     field types of list and struct types. Without it, :class:`int` becomes a 64-bit integer,
 ///     :class:`float` a 64-bit float, :class:`decimal.Decimal` a decimal with the value's own
-///     precision and scale, dates use days, and times and timestamps use microseconds.
+///     precision and scale, dates use days, and times, timestamps and plain timedeltas use
+///     microseconds. A :class:`pandas.Timedelta` uses its own unit.
 ///
 /// Returns
 /// -------
@@ -65,9 +69,11 @@ use crate::scalar::bool;
 /// Raises
 /// ------
 /// ValueError
-///     If the value cannot be represented exactly, for example a decimal or timestamp that
+///     If the value cannot be represented exactly, for example a decimal, timestamp or duration that
 ///     would lose precision in the requested scale or unit, a non-finite decimal, or a
 ///     timezone that has no IANA name.
+/// OverflowError
+///     If a timedelta does not fit in the duration unit.
 ///
 /// Notes
 /// -----
@@ -124,7 +130,8 @@ fn scalar_helper_inner(value: &Bound<'_, PyAny>, dtype: Option<&DType>) -> PyRes
 
     // None
     if value.is_none() {
-        return Ok(Scalar::null(dtype.cloned().unwrap_or(DType::Null)));
+        return Scalar::try_new(dtype.cloned().unwrap_or(DType::Null), None)
+            .map_err(|error| PyValueError::new_err(error.to_string()));
     }
 
     // bool
@@ -297,6 +304,10 @@ fn scalar_helper_inner(value: &Bound<'_, PyAny>, dtype: Option<&DType>) -> PyRes
     // decimal.Decimal without a decimal dtype hint
     if is_decimal(value)? {
         return Ok(decimal_scalar(value, None)?);
+    }
+
+    if let Ok(value) = value.cast::<PyDelta>() {
+        return Ok(duration::from_py(value, dtype)?);
     }
 
     // datetime.datetime, checked before datetime.date because it is a subclass of it.

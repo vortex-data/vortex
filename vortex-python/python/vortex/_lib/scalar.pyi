@@ -1,12 +1,15 @@
 #  SPDX-License-Identifier: Apache-2.0
 #  SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+from datetime import timedelta
 from decimal import Decimal
 from typing import TypeAlias, final
 
 from .dtype import DType
 
-ScalarPyType: TypeAlias = None | int | float | str | Decimal | bytes | list[ScalarPyType] | dict[str, ScalarPyType]
+ScalarPyType: TypeAlias = (
+    None | int | float | str | Decimal | timedelta | bytes | list[ScalarPyType] | dict[str, ScalarPyType]
+)
 
 def scalar(value: object, *, dtype: DType | None = None) -> Scalar: ...
 

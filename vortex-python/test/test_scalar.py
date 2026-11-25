@@ -7,6 +7,7 @@ import uuid
 import zoneinfo
 from typing import Literal
 
+import pyarrow as pa
 import pytest
 
 import vortex as vx
@@ -103,6 +104,71 @@ def test_decimal_ignores_context_precision() -> None:
     assert isinstance(value, decimal.Decimal)
     assert len(value.as_tuple().digits) == 38
     assert str(value) == f"{digits[:19]}.{digits[19:]}"
+
+
+@pytest.mark.parametrize(
+    "unit,stored,expected",
+    [
+        ("s", 999_999_999 * 86_400, datetime.timedelta(days=999_999_999)),
+        ("ms", -1_501, datetime.timedelta(milliseconds=-1_501)),
+        ("us", -(2**63), datetime.timedelta(microseconds=-(2**63))),
+    ],
+)
+def test_duration_scalar_round_trip(unit: Literal["s", "ms", "us"], stored: int, expected: datetime.timedelta) -> None:
+    array = vx.array(pa.array([stored, None], type=pa.duration(unit)))
+    scalar = array.scalar_at(0)
+
+    value = scalar.as_py()
+    assert isinstance(value, datetime.timedelta)
+    assert value == expected
+    assert vx.scalar(value, dtype=scalar.dtype) == scalar
+
+    null = array.scalar_at(1)
+    assert null.as_py() is None
+    assert vx.scalar(None, dtype=null.dtype) == null
+
+
+def test_duration_scalar_infers_microseconds() -> None:
+    value = datetime.timedelta(microseconds=-42)
+    scalar = vx.scalar(value)
+    assert scalar.dtype == vx.DType.from_arrow(pa.duration("us"), non_nullable=True)
+    assert scalar.as_py() == value
+
+
+@pytest.mark.parametrize("stored", [-1_001, 1_000])
+def test_duration_scalar_preserves_pandas_nanoseconds(stored: int) -> None:
+    pd = pytest.importorskip("pandas")
+    array = vx.array(pa.array([stored, None], type=pa.duration("ns")))
+    scalar = array.scalar_at(0)
+
+    value = scalar.as_py()
+    assert isinstance(value, pd.Timedelta)
+    assert value.unit == "ns"
+    assert value.value == stored
+    assert vx.scalar(value, dtype=scalar.dtype) == scalar
+    assert vx.scalar(value).dtype == vx.DType.from_arrow(pa.duration("ns"), non_nullable=True)
+    assert array.scalar_at(1).as_py() is None
+
+
+def test_duration_scalar_rejects_precision_loss_and_overflow() -> None:
+    scalar = vx.array(pa.array([-(2**63)], type=pa.duration("ns"))).scalar_at(0)
+    with pytest.raises(OverflowError, match="NaT"):
+        scalar.as_py()
+
+    dtype = vx.DType.from_arrow(pa.duration("ms"))
+    with pytest.raises(ValueError, match="without losing precision"):
+        vx.scalar(datetime.timedelta(microseconds=-1), dtype=dtype)
+
+    scalar = vx.array(pa.array([2**63 - 1], type=pa.duration("s"))).scalar_at(0)
+    with pytest.raises(OverflowError):
+        scalar.as_py()
+
+    with pytest.raises(OverflowError, match=r"overflows duration\[us\]"):
+        vx.scalar(datetime.timedelta.max)
+
+    non_nullable = vx.DType.from_arrow(pa.duration("us"), non_nullable=True)
+    with pytest.raises(ValueError, match="non-nullable"):
+        vx.scalar(None, dtype=non_nullable)
 
 
 @pytest.mark.parametrize(
