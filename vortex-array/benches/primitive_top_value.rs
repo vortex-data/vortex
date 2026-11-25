@@ -60,5 +60,5 @@ fn top_value(bencher: Bencher, args: (f64, f64)) {
     let array = make_array(args);
     bencher
         .with_inputs(|| (&array, SESSION.create_execution_ctx()))
-        .bench_refs(|(array, ctx)| array.top_value(ctx).unwrap());
+        .bench_refs(|(array, ctx)| array.majority_candidate(ctx).unwrap());
 }
