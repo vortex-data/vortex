@@ -4,6 +4,7 @@
 use std::sync::Arc;
 
 use itertools::Itertools;
+use pyo3::exceptions::PyAttributeError;
 use pyo3::exceptions::PyValueError;
 use pyo3::intern;
 use pyo3::prelude::*;
@@ -687,7 +688,7 @@ fn time_scalar(value: &Bound<'_, PyAny>, dtype: Option<&DType>) -> PyVortexResul
     )?)
 }
 
-/// Convert a `datetime.timedelta` into a Vortex `Duration` scalar.
+/// Convert a `datetime.timedelta` (or `pandas.Timedelta`) into a Vortex `Duration` scalar.
 ///
 /// The unit is taken from `dtype` when it is a `Duration` dtype, and otherwise defaults to
 /// microseconds, the resolution of `datetime.timedelta`. Converting to a coarser unit that would
@@ -700,8 +701,23 @@ fn duration_scalar(value: &Bound<'_, PyAny>, dtype: Option<&DType>) -> PyVortexR
         .unwrap_or(TimeUnit::Microseconds);
     let ext = Duration::try_new(unit, Nullability::NonNullable)?;
 
-    let total_micros = timedelta_micros(value)?;
-    let raw = micros_to_unit(total_micros, unit)?;
+    let total_nanos = timedelta_nanos(value)?;
+    let scale = match unit {
+        TimeUnit::Nanoseconds => 1i128,
+        TimeUnit::Microseconds => 1_000,
+        TimeUnit::Milliseconds => 1_000_000,
+        TimeUnit::Seconds => 1_000_000_000,
+        TimeUnit::Days => unreachable!("Duration::try_new rejects Days"),
+    };
+    if total_nanos % scale != 0 {
+        return Err(PyValueError::new_err(format!(
+            "timedelta cannot be represented in {unit} without losing precision"
+        ))
+        .into());
+    }
+
+    let raw = i64::try_from(total_nanos / scale)
+        .map_err(|_| PyValueError::new_err(format!("timedelta overflows i64 {unit}")))?;
 
     Ok(Scalar::try_new(
         DType::Extension(ext.erased()),
@@ -709,15 +725,23 @@ fn duration_scalar(value: &Bound<'_, PyAny>, dtype: Option<&DType>) -> PyVortexR
     )?)
 }
 
-/// Total microseconds of a `datetime.timedelta`.
-fn timedelta_micros(value: &Bound<'_, PyAny>) -> PyResult<i64> {
+/// Total nanoseconds of a `datetime.timedelta` or `pandas.Timedelta`.
+fn timedelta_nanos(value: &Bound<'_, PyAny>) -> PyResult<i128> {
     let py = value.py();
-    let days: i64 = value.getattr(intern!(py, "days"))?.extract()?;
-    let seconds: i64 = value.getattr(intern!(py, "seconds"))?.extract()?;
-    let microseconds: i64 = value.getattr(intern!(py, "microseconds"))?.extract()?;
+    let days: i128 = value.getattr(intern!(py, "days"))?.extract::<i64>()?.into();
+    let seconds: i128 = value
+        .getattr(intern!(py, "seconds"))?
+        .extract::<i64>()?
+        .into();
+    let microseconds: i128 = value
+        .getattr(intern!(py, "microseconds"))?
+        .extract::<i64>()?
+        .into();
+    let nanoseconds: i128 = match value.getattr(intern!(py, "nanoseconds")) {
+        Ok(ns) => ns.extract::<i64>()?.into(),
+        Err(err) if err.is_instance_of::<PyAttributeError>(py) => 0,
+        Err(err) => return Err(err),
+    };
 
-    days.checked_mul(MICROS_PER_DAY)
-        .and_then(|d| d.checked_add(seconds.checked_mul(MICROS_PER_SECOND)?))
-        .and_then(|d| d.checked_add(microseconds))
-        .ok_or_else(|| PyValueError::new_err("timedelta overflows i64 microseconds"))
+    Ok(days * 86_400_000_000_000 + seconds * 1_000_000_000 + microseconds * 1_000 + nanoseconds)
 }
