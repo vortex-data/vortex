@@ -7,14 +7,12 @@ use std::num::NonZeroUsize;
 use std::ops::Range;
 use std::sync::Arc;
 
-use async_channel::Receiver;
 use async_channel::bounded;
 use async_stream::try_stream;
 use async_trait::async_trait;
 use futures::StreamExt as _;
 use futures::future::try_join;
-use vortex_array::ArrayRef;
-use vortex_array::ExecutionCtx;
+use parking_lot::Mutex;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::aggregate_fn::AggregateFnRef;
@@ -30,11 +28,10 @@ use vortex_array::aggregate_fn::fns::min::Min;
 use vortex_array::aggregate_fn::fns::nan_count::NanCount;
 use vortex_array::aggregate_fn::fns::null_count::NullCount;
 use vortex_array::aggregate_fn::session::AggregateFnSessionExt;
-use vortex_array::arrays::ChunkedArray;
 use vortex_array::dtype::DType;
+use vortex_error::VortexError;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_io::runtime::Task;
 use vortex_io::session::RuntimeSessionExt;
 use vortex_session::VortexSession;
 use vortex_utils::parallelism::get_available_parallelism;
@@ -62,7 +59,9 @@ use crate::sequence::SequentialStreamExt;
 /// Configuration for building zoned layouts.
 ///
 /// The input chunks need not line up with the zones: the writer cuts the stream into zones of
-/// `block_size` rows itself, and only the final zone may be shorter.
+/// `block_size` rows itself, and only the final zone may be shorter. The legacy `vortex.stats`
+/// writer is the exception. It writes one zone per input chunk, so its input must already be
+/// partitioned into chunks of `block_size` rows.
 pub struct ZonedLayoutOptions {
     /// The number of rows in each zone.
     pub block_size: NonZeroUsize,
@@ -167,48 +166,62 @@ impl LayoutStrategy for ZonedStrategy {
             }
         }
 
-        // Each chunk is aggregated in pieces that end at the zone boundaries inside it, and the
-        // accumulator merges the pieces of a zone that spans chunks.
-        let mut boundaries = ZoneBoundaries::new(block_size);
-        let (stream, stats_tasks) = tee_stats(
-            stream,
-            session,
-            self.options.concurrency,
-            move |chunk: Option<&ArrayRef>| {
-                let Some(chunk) = chunk else {
-                    return Ok(None);
-                };
-                let pieces = boundaries.split(chunk.len());
-                Ok((!pieces.is_empty()).then(|| (chunk.clone(), pieces)))
-            },
-            move |(chunk, pieces): (ArrayRef, Vec<Range<usize>>), exec_ctx: &mut ExecutionCtx| {
-                pieces
-                    .into_iter()
-                    .map(|piece| {
-                        let len = piece.len();
-                        let partials = if len == chunk.len() {
+        // The stats are computed beside the data write. Each chunk goes to a CPU task that
+        // aggregates it in pieces ending at the zone boundaries inside it, and the data stream
+        // yields the chunk without waiting for that task. The channel holds the tasks in stream
+        // order, and the data write only waits when `concurrency` of them are unfinished.
+        let (tasks, stats_tasks) = bounded(self.options.concurrency.get());
+        let stream_dtype = stream.dtype().clone();
+        let zone_len = block_size.get();
+        let compute_session = session.clone();
+        let mut stream = stream;
+        let data_stream = try_stream! {
+            let mut open_len = 0;
+            while let Some(item) = stream.next().await {
+                let (sequence_id, chunk) = item?;
+                let pieces = zone_pieces(zone_len, open_len, chunk.len());
+                open_len = (open_len + chunk.len()) % zone_len;
+
+                let stats_chunk = chunk.clone();
+                let aggregate_fns = Arc::clone(&aggregate_fns);
+                let session = compute_session.clone();
+                let task = compute_session.handle().spawn_cpu(move || {
+                    let mut exec_ctx = session.create_execution_ctx();
+                    pieces
+                        .into_iter()
+                        .map(|piece| {
+                            let len = piece.len();
                             // The whole chunk keeps the stats that the aggregates cache on it for
                             // the data child.
-                            aggregate_partials(&chunk, &aggregate_fns, exec_ctx)?
-                        } else {
-                            aggregate_partials(&chunk.slice(piece)?, &aggregate_fns, exec_ctx)?
-                        };
-                        Ok((len, partials))
-                    })
-                    .collect::<VortexResult<Vec<_>>>()
-            },
-        );
-        let stats_accumulator = collect_stats(
-            session,
-            stats_tasks,
-            stats_accumulator,
-            |stats_accumulator, pieces| {
-                for (len, partials) in pieces {
+                            let piece = if len == stats_chunk.len() {
+                                stats_chunk.clone()
+                            } else {
+                                stats_chunk.slice(piece)?
+                            };
+                            Ok((len, aggregate_partials(&piece, &aggregate_fns, &mut exec_ctx)?))
+                        })
+                        .collect::<VortexResult<Vec<_>>>()
+                });
+                // The channel is closed only if the stats side has failed, and that error fails
+                // the write.
+                drop(tasks.send(task).await);
+                yield (sequence_id, chunk);
+            }
+        };
+        let stream = SequentialStreamAdapter::new(stream_dtype, data_stream).sendable();
+
+        // Merge the pieces of each zone in stream order, so that the zone table stays aligned
+        // with the data child.
+        let mut stats_accumulator = stats_accumulator;
+        let stats_accumulator = session.handle().spawn(async move {
+            while let Ok(task) = stats_tasks.recv().await {
+                for (len, partials) in task.await? {
                     stats_accumulator.push_piece(len, partials)?;
                 }
-                Ok(())
-            },
-        );
+            }
+            stats_accumulator.finish()?;
+            Ok::<_, VortexError>(stats_accumulator)
+        });
 
         // The eof used for the data child should appear _before_ our own stats tables.
         let data_eof = eof.split_off();
@@ -223,7 +236,6 @@ impl LayoutStrategy for ZonedStrategy {
             ),
         )
         .await?;
-        stats_accumulator.finish()?;
 
         let mut exec_ctx = session.create_execution_ctx();
         let Some((stats_array, aggregate_fns)) =
@@ -263,58 +275,53 @@ impl ZonedStrategy {
         mut eof: SequencePointer,
         session: &VortexSession,
     ) -> VortexResult<LayoutRef> {
-        let stats_accumulator = LegacyStatsAccumulator::new(stream.dtype());
-        let stats = stats_accumulator.stats();
+        let stats_accumulator = Arc::new(Mutex::new(LegacyStatsAccumulator::new(stream.dtype())));
+        let stats = stats_accumulator.lock().stats();
 
-        // Legacy stats have no merge, so each zone is computed whole, from the slices of the
-        // chunks it spans.
-        let mut cutter = ZoneCutter::new(self.options.block_size);
-        let (stream, stats_tasks) = tee_stats(
-            stream,
-            session,
-            self.options.concurrency,
-            move |chunk: Option<&ArrayRef>| {
-                let zones = match chunk {
-                    Some(chunk) => cutter.push(chunk)?,
-                    None => Vec::from_iter(cutter.finish()?),
-                };
-                Ok((!zones.is_empty()).then_some(zones))
-            },
-            move |zones: Vec<ArrayRef>, exec_ctx: &mut ExecutionCtx| {
-                zones
-                    .iter()
-                    .map(|zone| legacy_stat_values(zone, &stats, exec_ctx))
-                    .collect::<VortexResult<Vec<_>>>()
-            },
-        );
-        let stats_accumulator = collect_stats(
-            session,
-            stats_tasks,
-            stats_accumulator,
-            |stats_accumulator, zones| {
-                for zone_values in zones {
-                    stats_accumulator.push_values(zone_values)?;
-                }
-                Ok(())
-            },
-        );
+        let compute_session = session.clone();
+        let stream_dtype = stream.dtype().clone();
+        let concurrency = self.options.concurrency.get();
+        let stream = stream
+            .map(move |item| {
+                let stats = Arc::clone(&stats);
+                let session = compute_session.clone();
+                session.handle().spawn_cpu(move || {
+                    let (sequence_id, chunk) = item?;
+                    let values =
+                        legacy_stat_values(&chunk, &stats, &mut session.create_execution_ctx())?;
+                    Ok::<_, VortexError>((sequence_id, chunk, values))
+                })
+            })
+            .buffered(concurrency);
+
+        // Add the zone stats in stream order, so that the zone table rows align with the data
+        // child.
+        let stats_accumulator2 = Arc::clone(&stats_accumulator);
+        let stream = SequentialStreamAdapter::new(
+            stream_dtype,
+            stream.map(move |item| {
+                let (sequence_id, chunk, values) = item?;
+                stats_accumulator2.lock().push_values(values)?;
+                Ok((sequence_id, chunk))
+            }),
+        )
+        .sendable();
 
         // The data child must come before the zone table in the file.
         let data_eof = eof.split_off();
-        let (mut stats_accumulator, data_layout) = try_join(
-            stats_accumulator,
-            self.child.write_stream(
+        let data_layout = self
+            .child
+            .write_stream(
                 ctx.clone(),
                 Arc::clone(&segment_sink),
                 stream,
                 data_eof,
                 session,
-            ),
-        )
-        .await?;
+            )
+            .await?;
 
         let mut exec_ctx = session.create_execution_ctx();
-        let Some((stats_array, stats)) = stats_accumulator.as_array(&mut exec_ctx)? else {
+        let Some((stats_array, stats)) = stats_accumulator.lock().as_array(&mut exec_ctx)? else {
             return Ok(data_layout);
         };
 
@@ -334,171 +341,18 @@ impl ZonedStrategy {
     }
 }
 
-/// The stats tasks of a stream, in stream order.
-type StatsTasks<T> = Receiver<Task<VortexResult<T>>>;
-
-/// Splits the stats work off `stream`, so that the data write never waits for a stat.
-///
-/// `plan` sees each chunk in stream order, then `None` once the stream has ended, and returns the
-/// stats job that it yields, if any. Each job runs `compute` on the CPU pool. The returned stream
-/// yields the chunks of `stream` unchanged and does not wait for their jobs. It only waits to hand
-/// over a job when `concurrency` earlier jobs are still unfinished, which bounds the chunks that
-/// the stats side holds.
-fn tee_stats<J, T>(
-    mut stream: SendableSequentialStream,
-    session: &VortexSession,
-    concurrency: NonZeroUsize,
-    mut plan: impl FnMut(Option<&ArrayRef>) -> VortexResult<Option<J>> + Send + 'static,
-    compute: impl Fn(J, &mut ExecutionCtx) -> VortexResult<T> + Send + Sync + 'static,
-) -> (SendableSequentialStream, StatsTasks<T>)
-where
-    J: Send + 'static,
-    T: Send + 'static,
-{
-    let (tasks, stats_tasks) = bounded(concurrency.get());
-    let dtype = stream.dtype().clone();
-    let session = session.clone();
-    let compute = Arc::new(compute);
-    let spawn = move |job: J| {
-        let compute = Arc::clone(&compute);
-        let compute_session = session.clone();
-        session
-            .handle()
-            .spawn_cpu(move || compute(job, &mut compute_session.create_execution_ctx()))
-    };
-
-    let data_stream = try_stream! {
-        while let Some(item) = stream.next().await {
-            let (sequence_id, chunk) = item?;
-            if let Some(job) = plan(Some(&chunk))? {
-                // The channel is closed only if the stats side has failed. That error fails the
-                // write, so there is nothing to report here.
-                drop(tasks.send(spawn(job)).await);
-            }
-            yield (sequence_id, chunk);
-        }
-        if let Some(job) = plan(None)? {
-            drop(tasks.send(spawn(job)).await);
-        }
-    };
-
-    (
-        SequentialStreamAdapter::new(dtype, data_stream).sendable(),
-        stats_tasks,
-    )
-}
-
-/// Folds the results of `stats_tasks` into `accumulator`, in stream order, on a task of its own.
-///
-/// The task ends when the stream of [`tee_stats`] has ended and all its jobs are done, or with
-/// the first error of a job or of `push`.
-fn collect_stats<T, A>(
-    session: &VortexSession,
-    stats_tasks: StatsTasks<T>,
-    mut accumulator: A,
-    mut push: impl FnMut(&mut A, T) -> VortexResult<()> + Send + 'static,
-) -> Task<VortexResult<A>>
-where
-    T: Send + 'static,
-    A: Send + 'static,
-{
-    session.handle().spawn(async move {
-        while let Ok(task) = stats_tasks.recv().await {
-            push(&mut accumulator, task.await?)?;
-        }
-        Ok(accumulator)
-    })
-}
-
-/// Splits the chunks of a stream at the zone boundaries that fall inside them.
-struct ZoneBoundaries {
-    zone_len: usize,
-    /// The rows that the zone still receiving rows already holds.
-    open_len: usize,
-}
-
-impl ZoneBoundaries {
-    fn new(zone_len: NonZeroUsize) -> Self {
-        Self {
-            zone_len: zone_len.get(),
-            open_len: 0,
-        }
+/// Returns the row ranges of a chunk of `chunk_len` rows that each lie within one zone, when the
+/// zone still receiving rows already holds `open_len` rows.
+fn zone_pieces(zone_len: usize, mut open_len: usize, chunk_len: usize) -> Vec<Range<usize>> {
+    let mut pieces = Vec::new();
+    let mut offset = 0;
+    while offset < chunk_len {
+        let end = (offset + zone_len - open_len).min(chunk_len);
+        pieces.push(offset..end);
+        open_len = 0;
+        offset = end;
     }
-
-    /// Returns the row ranges of the next chunk of the stream that each lie within one zone.
-    fn split(&mut self, chunk_len: usize) -> Vec<Range<usize>> {
-        let mut pieces = Vec::new();
-        let mut offset = 0;
-        while offset < chunk_len {
-            let end = (offset + self.zone_len - self.open_len).min(chunk_len);
-            pieces.push(offset..end);
-            self.open_len = (self.open_len + end - offset) % self.zone_len;
-            offset = end;
-        }
-        pieces
-    }
-}
-
-/// Cuts a stream of chunks into zones of `zone_len` rows, whatever the chunk boundaries.
-///
-/// Only the legacy stats writer holds zones as arrays, because its stats cannot be merged.
-///
-/// A zone within one chunk is a slice of it, and a zone spanning chunks is a [`ChunkedArray`] of
-/// their slices. A chunk that is exactly one zone is returned as is.
-struct ZoneCutter {
-    zone_len: usize,
-    /// Slices of the zone that is still receiving rows.
-    open_zone: Vec<ArrayRef>,
-    open_len: usize,
-}
-
-impl ZoneCutter {
-    fn new(zone_len: NonZeroUsize) -> Self {
-        Self {
-            zone_len: zone_len.get(),
-            open_zone: Vec::new(),
-            open_len: 0,
-        }
-    }
-
-    /// Adds the next chunk of the stream, returning the zones it completes.
-    fn push(&mut self, chunk: &ArrayRef) -> VortexResult<Vec<ArrayRef>> {
-        let mut zones = Vec::new();
-        let mut offset = 0;
-        while offset < chunk.len() {
-            let piece_len = (self.zone_len - self.open_len).min(chunk.len() - offset);
-            let piece = if piece_len == chunk.len() {
-                chunk.clone()
-            } else {
-                chunk.slice(offset..offset + piece_len)?
-            };
-            self.open_zone.push(piece);
-            self.open_len += piece_len;
-            offset += piece_len;
-            if self.open_len == self.zone_len {
-                zones.push(self.take_open_zone()?);
-            }
-        }
-        Ok(zones)
-    }
-
-    /// Returns the final, short zone, if the stream did not end on a zone boundary.
-    fn finish(&mut self) -> VortexResult<Option<ArrayRef>> {
-        if self.open_zone.is_empty() {
-            return Ok(None);
-        }
-        self.take_open_zone().map(Some)
-    }
-
-    fn take_open_zone(&mut self) -> VortexResult<ArrayRef> {
-        let mut pieces = std::mem::take(&mut self.open_zone);
-        self.open_len = 0;
-        if pieces.len() == 1 {
-            return Ok(pieces.remove(0));
-        }
-        let dtype = pieces[0].dtype().clone();
-        Ok(ChunkedArray::try_new(pieces, dtype)?.into_array())
-    }
+    pieces
 }
 
 fn default_zoned_aggregate_fns(dtype: &DType, session: &VortexSession) -> Arc<[AggregateFnRef]> {
@@ -541,6 +395,7 @@ mod tests {
 
     use rstest::rstest;
     use vortex_array::ArrayContext;
+    use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
     use vortex_array::MaskFuture;
     use vortex_array::aggregate_fn::AggregateFnVTable;
@@ -570,7 +425,6 @@ mod tests {
     use crate::layouts::chunked::writer::ChunkedLayoutStrategy;
     use crate::layouts::file_stats::contains_variant;
     use crate::layouts::flat::writer::FlatLayoutStrategy;
-    use crate::layouts::zoned::LegacyStats;
     use crate::layouts::zoned::Zoned;
     use crate::layouts::zoned::schema::aggregate_state_dtype;
     use crate::segments::SegmentSource;
@@ -768,7 +622,7 @@ mod tests {
         Ok((segments, layout))
     }
 
-    /// Reads the zone table, the second child of a zoned or legacy stats layout.
+    /// Reads the zone table, the second child of a zoned layout.
     fn zone_table(
         layout: &LayoutRef,
         segments: Arc<dyn SegmentSource>,
@@ -788,22 +642,13 @@ mod tests {
         })
     }
 
-    /// The zone table is the same however the input is chunked, for both the zoned layout and
-    /// the legacy stats layout.
+    /// The zone table is the same however the input is chunked.
     #[rstest]
     fn zones_need_not_line_up_with_chunks(
         #[values(1, 3, 7, 16, 50)] chunk_len: usize,
-        #[values(false, true)] legacy: bool,
     ) -> VortexResult<()> {
         const ZONE_LEN: usize = 5;
-        let ctx = || {
-            let ctx = LayoutWriterContext::new(ArrayContext::empty());
-            if legacy {
-                ctx.with_allowed_layouts(HashSet::from_iter([LegacyStats.id()]))
-            } else {
-                ctx
-            }
-        };
+        let ctx = || LayoutWriterContext::new(ArrayContext::empty());
         // 48 rows, so the final zone is short.
         let values: Vec<i32> = (0..48).map(|i| (i * 37) % 23).collect();
 
@@ -811,42 +656,11 @@ mod tests {
         // Chunks of exactly one zone each are the input the writer used to require.
         let (aligned_segments, aligned) = write_chunked(ctx(), &values, ZONE_LEN, ZONE_LEN)?;
 
-        assert_eq!(layout.is::<LegacyStats>(), legacy);
         let table = zone_table(&layout, segments)?;
         assert_eq!(table.len(), values.len().div_ceil(ZONE_LEN));
         assert_arrays_eq!(
             table,
             zone_table(&aligned, aligned_segments)?,
-            &mut SESSION.create_execution_ctx()
-        );
-        Ok(())
-    }
-
-    #[rstest]
-    #[case::one_chunk_per_zone(&[3, 3, 3], &[3, 3, 3])]
-    #[case::chunks_smaller_than_zones(&[1, 1, 1, 1, 1, 1, 1], &[3, 3, 1])]
-    #[case::chunks_larger_than_zones(&[8], &[3, 3, 2])]
-    #[case::chunks_unaligned(&[2, 4, 0, 5], &[3, 3, 3, 2])]
-    fn zone_cutter_cuts_at_zone_boundaries(
-        #[case] chunk_lens: &[usize],
-        #[case] zone_lens: &[usize],
-    ) -> VortexResult<()> {
-        let mut cutter = ZoneCutter::new(NonZeroUsize::new(3).vortex_expect("non zero"));
-        let mut zones = Vec::new();
-        let mut next = 0i32;
-        for &chunk_len in chunk_lens {
-            let chunk = (next..next + i32::try_from(chunk_len)?)
-                .collect::<Buffer<i32>>()
-                .into_array();
-            next += i32::try_from(chunk_len)?;
-            zones.extend(cutter.push(&chunk)?);
-        }
-        zones.extend(cutter.finish()?);
-
-        assert_eq!(zones.iter().map(|zone| zone.len()).collect::<Vec<_>>(), zone_lens);
-        assert_arrays_eq!(
-            ChunkedArray::from_iter(zones).into_array(),
-            (0..next).collect::<Buffer<i32>>().into_array(),
             &mut SESSION.create_execution_ctx()
         );
         Ok(())
