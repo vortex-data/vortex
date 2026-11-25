@@ -866,17 +866,29 @@ mod tests {
         let and = execute_boolean(lhs.into_array(), rhs, BooleanOperator::And, &mut ctx)?
             .execute::<BoolArray>(&mut ctx)?;
         assert_eq!(and.to_bit_buffer().inner().as_ptr(), lhs_ptr);
-        assert_arrays_eq!(and, BoolArray::from_iter([true, false, false, false]), &mut ctx);
+        assert_arrays_eq!(
+            and,
+            BoolArray::from_iter([true, false, false, false]),
+            &mut ctx
+        );
 
         let lhs = BoolArray::from_iter([true, true, false, false]);
         let _lhs_bits = lhs.to_bit_buffer();
         let rhs = BoolArray::from_iter([true, false, true, false]);
         let rhs_ptr = rhs.to_bit_buffer().inner().as_ptr();
-        let or =
-            execute_boolean(lhs.into_array(), rhs.into_array(), BooleanOperator::Or, &mut ctx)?
-                .execute::<BoolArray>(&mut ctx)?;
+        let or = execute_boolean(
+            lhs.into_array(),
+            rhs.into_array(),
+            BooleanOperator::Or,
+            &mut ctx,
+        )?
+        .execute::<BoolArray>(&mut ctx)?;
         assert_eq!(or.to_bit_buffer().inner().as_ptr(), rhs_ptr);
-        assert_arrays_eq!(or, BoolArray::from_iter([true, true, true, false]), &mut ctx);
+        assert_arrays_eq!(
+            or,
+            BoolArray::from_iter([true, true, true, false]),
+            &mut ctx
+        );
 
         Ok(())
     }
