@@ -33,6 +33,7 @@ use crate::LazyReaderChildren;
 use crate::VTable;
 use crate::expr_cache::WeakExprCache;
 use crate::layouts::SharedFutureSlot;
+use crate::layouts::is_shared_future_usable;
 use crate::layouts::zoned::ZonedData;
 use crate::layouts::zoned::zone_map::ZoneMap;
 
@@ -85,7 +86,7 @@ impl PruningState {
     ) -> Option<SharedPruningResult> {
         self.pruning_result.get_or_insert_valid_with(
             expr,
-            |entry| !matches!(entry.as_ref().and_then(Shared::peek), Some(Err(_))),
+            |entry| entry.as_ref().is_none_or(is_shared_future_usable),
             || {
                 let dynamic_updates = DynamicExprUpdates::new(expr);
                 match self.pruning_predicate(expr) {

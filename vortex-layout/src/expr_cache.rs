@@ -78,7 +78,7 @@ impl<V> WeakExprCache<V> {
 
     /// Returns the cached value for `expr` if present and accepted by `is_valid`, otherwise
     /// inserts or replaces the entry with `init()`.
-    pub fn get_or_insert_valid_with(
+    pub(crate) fn get_or_insert_valid_with(
         &self,
         expr: &BoundExpression,
         is_valid: impl Fn(&V) -> bool,

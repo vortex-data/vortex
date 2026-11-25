@@ -43,6 +43,7 @@ use crate::arrays::shared::Shared;
 use crate::expr_cache::WeakExprCache;
 use crate::layouts::SharedArrayFuture;
 use crate::layouts::SharedFutureSlot;
+use crate::layouts::is_shared_future_usable;
 use crate::segments::SegmentSource;
 
 pub struct DictReader {
@@ -151,10 +152,8 @@ impl DictReader {
         // shouldn't.
         // TODO(joe): fixme
 
-        self.values_evals.get_or_insert_valid_with(
-            expr,
-            |fut| !matches!(fut.peek(), Some(Err(_))),
-            || {
+        self.values_evals
+            .get_or_insert_valid_with(expr, is_shared_future_usable, || {
                 let expr = expr.detach_identity();
                 self.values_array_uncanonical()
                     .map(move |array| {
@@ -163,8 +162,7 @@ impl DictReader {
                     })
                     .boxed()
                     .shared()
-            },
-        )
+            })
     }
 }
 

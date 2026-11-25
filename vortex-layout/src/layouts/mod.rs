@@ -29,6 +29,13 @@ pub mod zoned;
 
 pub type SharedArrayFuture = Shared<BoxFuture<'static, SharedVortexResult<ArrayRef>>>;
 
+/// Returns `true` if a shared future is still in-flight or resolved to `Ok`.
+pub(crate) fn is_shared_future_usable<T: Clone>(
+    fut: &Shared<BoxFuture<'static, SharedVortexResult<T>>>,
+) -> bool {
+    !matches!(fut.peek(), Some(Err(_)))
+}
+
 /// A shared future slot that caches in-flight and successful results while allowing retries
 /// after a transient error.
 ///
@@ -59,7 +66,7 @@ impl<T: Clone> SharedFutureSlot<T> {
         let guard = self.slot.read();
         guard
             .as_ref()
-            .filter(|fut| !matches!(fut.peek(), Some(Err(_))))
+            .filter(|fut| is_shared_future_usable(fut))
             .cloned()
     }
 
@@ -72,7 +79,7 @@ impl<T: Clone> SharedFutureSlot<T> {
         {
             let guard = self.slot.read();
             if let Some(fut) = guard.as_ref()
-                && !matches!(fut.peek(), Some(Err(_)))
+                && is_shared_future_usable(fut)
             {
                 return fut.clone();
             }
@@ -80,7 +87,7 @@ impl<T: Clone> SharedFutureSlot<T> {
 
         let mut guard = self.slot.write();
         if let Some(fut) = guard.as_ref()
-            && !matches!(fut.peek(), Some(Err(_)))
+            && is_shared_future_usable(fut)
         {
             return fut.clone();
         }
