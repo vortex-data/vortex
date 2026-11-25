@@ -1608,19 +1608,24 @@ mod tests {
     const IEEE754: CompareMode = CompareMode::new().with_float_order(FloatOrder::Ieee754);
 
     #[rstest]
-    #[case::total_order(CompareMode::TOTAL_ORDER, [false, true, true, false, false])]
-    #[case::zeros_equal(ZEROS_EQUAL, [true, true, true, false, false])]
-    #[case::canonical(CANONICAL, [true, true, true, true, false])]
-    #[case::ieee754(IEEE754, [true, true, false, false, false])]
+    #[case::total_order(CompareMode::TOTAL_ORDER, [false, true, true, false, false, false])]
+    #[case::zeros_equal(ZEROS_EQUAL, [true, true, true, false, false, false])]
+    #[case::canonical(CANONICAL, [true, true, true, true, true, false])]
+    #[case::ieee754(IEEE754, [true, true, false, false, false, false])]
     fn float_membership_in_compare_mode(
         #[case] mode: CompareMode,
-        #[case] expected: [bool; 5],
+        #[case] expected: [bool; 6],
     ) -> VortexResult<()> {
+        // A signaling NaN with a payload: its bits differ from those of `f64::NAN` in more than
+        // the sign.
+        let payload_nan = f64::from_bits(0x7ff0_0000_0000_0001);
+
         let needles = PrimitiveArray::from_option_iter([
             Some(-0.0f64),
             Some(0.0),
             Some(f64::NAN),
             Some(-f64::NAN),
+            Some(payload_nan),
             Some(1.0),
             None,
         ])

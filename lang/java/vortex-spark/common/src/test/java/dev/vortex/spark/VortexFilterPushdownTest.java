@@ -139,6 +139,54 @@ public final class VortexFilterPushdownTest {
         }
     }
 
+    /**
+     * Spark makes all NaN values equal, whatever their bits. A pushed filter must keep the rows that hold a NaN with a
+     * payload, a signaling NaN, or a negative NaN.
+     */
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void floatFiltersMatchSparkSemanticsForNanPayloads(boolean v1) {
+        SparkSession session = spark.newSession();
+        SparkSession.setActiveSession(session);
+        session.conf().set("spark.sql.sources.useV1SourceList", v1 ? "vortex" : "");
+        Dataset<Row> source = session.createDataFrame(
+                List.of(
+                        RowFactory.create(0, Double.NaN, Float.NaN),
+                        RowFactory.create(
+                                1, Double.longBitsToDouble(0x7ff8_0000_0000_0001L), Float.intBitsToFloat(0x7fc0_0001)),
+                        RowFactory.create(
+                                2, Double.longBitsToDouble(0x7ff0_0000_0000_0001L), Float.intBitsToFloat(0x7f80_0001)),
+                        RowFactory.create(
+                                3, Double.longBitsToDouble(0xfff8_0000_dead_beefL), Float.intBitsToFloat(0xffc0_0001)),
+                        RowFactory.create(4, Double.POSITIVE_INFINITY, Float.POSITIVE_INFINITY),
+                        RowFactory.create(5, 1.0, 1.0f)),
+                DataTypes.createStructType(Arrays.asList(
+                        DataTypes.createStructField("id", DataTypes.IntegerType, false),
+                        DataTypes.createStructField("value", DataTypes.DoubleType, false),
+                        DataTypes.createStructField("f", DataTypes.FloatType, false))));
+        Path output = tempDir.resolve("float_nan_payloads_" + v1);
+        source.coalesce(1).write().format("vortex").save(output.toString());
+        Dataset<Row> data = session.read().format("vortex").load(output.toString());
+
+        for (String predicate : List.of(
+                "value = double('NaN')",
+                "value <> double('NaN')",
+                "value < double('NaN')",
+                "value >= double('NaN')",
+                "value > double('Infinity')",
+                "value <=> double('NaN')",
+                "value IN (double('NaN'), 1.0D)",
+                "NOT (value IN (double('NaN')))",
+                "f = CAST('NaN' AS FLOAT)",
+                "f > CAST('Infinity' AS FLOAT)",
+                "f IN (CAST('NaN' AS FLOAT), CAST(1.0 AS FLOAT))")) {
+            assertEquals(
+                    source.where(predicate).orderBy("id").select("id").collectAsList(),
+                    data.where(predicate).orderBy("id").select("id").collectAsList(),
+                    predicate);
+        }
+    }
+
     @Test
     @DisplayName("Equality, comparison, IS NULL, IN, AND/OR/NOT all return correct rows after pushdown")
     public void testFilterPushdownCorrectness() throws IOException {

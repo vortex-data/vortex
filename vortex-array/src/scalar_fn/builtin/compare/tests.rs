@@ -1267,6 +1267,63 @@ fn float_compare_modes(
     Ok(())
 }
 
+/// NaNs whose bits differ in more than the sign: a quiet NaN with a payload, a signaling NaN, and
+/// a negative NaN with a payload. Spark makes all of them equal to each other and greater than
+/// all other values.
+const NAN_PAYLOADS: [f64; 4] = [
+    f64::from_bits(0x7ff8_0000_0000_0001),
+    f64::from_bits(0x7ff0_0000_0000_0001),
+    f64::from_bits(0xfff8_0000_dead_beef),
+    f64::INFINITY,
+];
+
+#[rstest]
+#[case::spark_eq(SPARK, CompareOperator::Eq, [true, true, true, false])]
+#[case::spark_not_eq(SPARK, CompareOperator::NotEq, [false, false, false, true])]
+#[case::spark_lt(SPARK, CompareOperator::Lt, [false, false, false, true])]
+#[case::spark_lte(SPARK, CompareOperator::Lte, [true, true, true, true])]
+#[case::spark_gt(SPARK, CompareOperator::Gt, [false, false, false, false])]
+#[case::spark_gte(SPARK, CompareOperator::Gte, [true, true, true, false])]
+#[case::datafusion_eq(DATAFUSION, CompareOperator::Eq, [false, false, false, false])]
+#[case::pyarrow_eq(PYARROW, CompareOperator::Eq, [false, false, false, false])]
+#[case::pyarrow_not_eq(PYARROW, CompareOperator::NotEq, [true, true, true, true])]
+fn float_compare_nan_payloads(
+    #[case] mode: CompareMode,
+    #[case] op: CompareOperator,
+    #[case] expected: [bool; 4],
+) -> VortexResult<()> {
+    let ctx = &mut SESSION.create_execution_ctx();
+    let values = PrimitiveArray::from_iter(NAN_PAYLOADS).into_array();
+    let expected = BoolArray::from_iter(expected);
+    let len = NAN_PAYLOADS.len();
+
+    let with_constant = compare_with(
+        values.clone(),
+        ConstantArray::new(f64::NAN, len).into_array(),
+        op,
+        mode,
+    )?;
+    assert_arrays_eq!(with_constant, expected, ctx);
+
+    let with_array = compare_with(
+        values.clone(),
+        PrimitiveArray::from_iter([f64::NAN; 4]).into_array(),
+        op,
+        mode,
+    )?;
+    assert_arrays_eq!(with_array, expected, ctx);
+
+    let constant_on_left = compare_with(
+        ConstantArray::new(f64::NAN, len).into_array(),
+        values,
+        op.swap(),
+        mode,
+    )?;
+    assert_arrays_eq!(constant_on_left, expected, ctx);
+
+    Ok(())
+}
+
 #[rstest]
 #[case::f16(PrimitiveArray::from_iter([half::f16::NEG_ZERO, half::f16::ZERO, half::f16::NAN]).into_array(), Scalar::from(half::f16::ZERO))]
 #[case::f32(PrimitiveArray::from_iter([-0.0f32, 0.0, f32::NAN]).into_array(), Scalar::from(0.0f32))]
