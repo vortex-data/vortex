@@ -9,7 +9,7 @@ use std::sync::atomic::AtomicBool;
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
 
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 use custom_labels::CURRENT_LABELSET;
 use futures::future::BoxFuture;
 use itertools::Itertools;
@@ -38,7 +38,7 @@ use vortex::expr::BoundExpression;
 use vortex::expr::Expression;
 use vortex::expr::col;
 use vortex::expr::proto::ExprSerializeProtoExt;
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 use vortex::metrics::tracing::get_global_labels;
 use vortex::proto::expr as expr_pb;
 use vortex::scalar::Scalar;
@@ -398,7 +398,7 @@ fn build_partials(
 }
 
 pub fn init_local(bind_data: &BindState, global: &GlobalState) -> LocalState {
-    #[cfg(unix)]
+    #[cfg(target_os = "linux")]
     {
         unsafe {
             use custom_labels::sys;
