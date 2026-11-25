@@ -7,6 +7,7 @@
 //! null counts, and other statistical information that can be used for query optimization
 //! and data exploration.
 use std::hash::Hash;
+use std::mem::size_of;
 use std::sync::Arc;
 
 use flatbuffers::FlatBufferBuilder;
@@ -67,6 +68,55 @@ pub struct FileStatistics {
 }
 
 impl FileStatistics {
+    /// Estimates heap-backed contents; Footer accounts for the inline FileStatistics wrapper.
+    pub(crate) fn approx_resident_bytes(&self) -> usize {
+        let mut bytes = self.aggregates.len().saturating_mul(size_of::<AggregateStats>());
+        bytes = bytes
+            .saturating_add(
+                self.aggregates
+                    .iter()
+                    .map(AggregateStats::approx_resident_bytes)
+                    .fold(0usize, usize::saturating_add),
+            )
+            .saturating_add(self.dtypes.len().saturating_mul(size_of::<DType>()))
+            .saturating_add(
+                self.dtypes
+                    .iter()
+                    .map(DType::approx_resident_bytes)
+                    .fold(0usize, usize::saturating_add),
+            )
+            .saturating_add(self.paths.len().saturating_mul(size_of::<FieldPath>()))
+            .saturating_add(
+                self.paths
+                    .iter()
+                    .map(FieldPath::approx_resident_bytes)
+                    .fold(0usize, usize::saturating_add),
+            )
+            .saturating_add(
+                self.path_index
+                    .capacity()
+                    .saturating_mul(size_of::<(FieldPath, usize)>()),
+            )
+            .saturating_add(
+                self.path_index
+                    .keys()
+                    .map(FieldPath::approx_resident_bytes)
+                    .fold(0usize, usize::saturating_add),
+            )
+            .saturating_add(
+                self.legacy_aggregates
+                    .len()
+                    .saturating_mul(size_of::<AggregateStats>()),
+            )
+            .saturating_add(
+                self.legacy_aggregates
+                    .iter()
+                    .map(AggregateStats::approx_resident_bytes)
+                    .fold(0usize, usize::saturating_add),
+            );
+        bytes
+    }
+
     /// Builds `path_index` from `paths` and assembles the final struct. The single place that
     /// constructs a [`FileStatistics`], so `path_index` can't drift out of sync with `paths`.
     fn from_parts(
@@ -601,6 +651,17 @@ mod tests {
     use vortex_array::stats::Stat;
 
     use super::*;
+
+    #[test]
+    fn field_path_projection_includes_nested_name_bytes() {
+        let path = FieldPath::from_name("a_long_top_level_name").push("nested_field");
+        let expected_names = "a_long_top_level_name".len() + "nested_field".len();
+
+        assert!(
+            path.approx_resident_bytes()
+                >= path.parts().len() * size_of::<vortex_array::dtype::Field>() + expected_names
+        );
+    }
 
     fn i32_dtype() -> DType {
         DType::Primitive(PType::I32, Nullability::NonNullable)

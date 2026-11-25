@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::iter;
+use std::mem::size_of;
 use std::sync::Arc;
 
 use futures::StreamExt;
@@ -33,6 +34,7 @@ use vortex_array::dtype::FieldName;
 use vortex_array::dtype::FieldPath;
 use vortex_array::dtype::Nullability;
 use vortex_array::scalar::Scalar;
+use vortex_array::scalar::ScalarValue;
 use vortex_array::stats::Precision;
 use vortex_array::stats::Stat;
 use vortex_array::stats::StatsSet;
@@ -272,6 +274,15 @@ impl AggregateStat {
     pub fn value(&self) -> &Precision<Scalar> {
         &self.value
     }
+
+    fn approx_resident_bytes(&self) -> usize {
+        self.aggregate_fn.approx_resident_bytes()
+            .saturating_add(self.partial.as_ref().map_or(0, scalar_approx_bytes))
+            .saturating_add(match &self.value {
+                Precision::Exact(value) | Precision::Inexact(value) => scalar_approx_bytes(value),
+                Precision::Absent => 0,
+            })
+    }
 }
 
 /// The aggregates recorded for one file statistics entry.
@@ -291,6 +302,19 @@ impl AggregateStats {
 
     pub fn iter(&self) -> impl Iterator<Item = &AggregateStat> {
         self.aggregates.iter()
+    }
+
+    /// Estimates the aggregate entries and scalar storage owned by this collection.
+    pub fn approx_resident_bytes(&self) -> usize {
+        self.aggregates
+            .capacity()
+            .saturating_mul(size_of::<AggregateStat>())
+            .saturating_add(
+                self.aggregates
+                    .iter()
+                    .map(AggregateStat::approx_resident_bytes)
+                    .fold(0usize, usize::saturating_add),
+            )
     }
 
     /// Returns the value of `requested`, from the recorded aggregate that best satisfies it, the
@@ -325,6 +349,35 @@ impl AggregateStats {
             }
         }
         stats_set
+    }
+}
+
+fn scalar_approx_bytes(scalar: &Scalar) -> usize {
+    scalar
+        .dtype()
+        .approx_resident_bytes()
+        .saturating_add(scalar.value().map_or(0, scalar_value_approx_bytes))
+}
+
+fn scalar_value_approx_bytes(value: &ScalarValue) -> usize {
+    match value {
+        ScalarValue::Utf8(value) => value.len(),
+        ScalarValue::Binary(value) => value.len(),
+        ScalarValue::Tuple(values) => values
+            .capacity()
+            .saturating_mul(size_of::<Option<ScalarValue>>())
+            .saturating_add(
+                values
+                    .iter()
+                    .flatten()
+                    .map(scalar_value_approx_bytes)
+                    .fold(0usize, usize::saturating_add),
+            ),
+        ScalarValue::Union(value) => value.child_value().map_or(0, scalar_value_approx_bytes),
+        ScalarValue::Variant(value) => {
+            size_of::<Scalar>().saturating_add(scalar_approx_bytes(value))
+        }
+        _ => 0,
     }
 }
 
@@ -994,6 +1047,17 @@ mod tests {
     use vortex_utils::aliases::hash_set::HashSet;
 
     use super::*;
+
+    #[test]
+    fn scalar_projection_counts_nested_slots_and_variable_payload() {
+        let value = ScalarValue::Tuple(vec![
+            Some(ScalarValue::Utf8("variable payload".into())),
+            None,
+        ]);
+        let expected = 2 * size_of::<Option<ScalarValue>>() + "variable payload".len();
+
+        assert!(scalar_value_approx_bytes(&value) >= expected);
+    }
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 

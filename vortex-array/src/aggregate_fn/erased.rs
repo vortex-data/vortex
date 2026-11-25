@@ -8,6 +8,7 @@ use std::fmt::Display;
 use std::fmt::Formatter;
 use std::hash::Hash;
 use std::hash::Hasher;
+use std::mem::size_of_val;
 use std::sync::Arc;
 
 use vortex_error::VortexExpect;
@@ -35,6 +36,13 @@ use crate::dtype::DType;
 pub struct AggregateFnRef(pub(super) Arc<dyn DynAggregateFn>);
 
 impl AggregateFnRef {
+    /// Estimates the inline bytes in the erased aggregate and its options.
+    ///
+    /// Allocations owned indirectly by plugin options are not included.
+    pub fn approx_resident_bytes(&self) -> usize {
+        size_of_val(self.0.as_ref())
+    }
+
     /// Returns the ID of this aggregate function.
     pub fn id(&self) -> AggregateFnId {
         self.0.id()

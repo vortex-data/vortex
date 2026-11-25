@@ -61,6 +61,8 @@ use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::dtype::PType::I32;
 use vortex_array::dtype::StructFields;
+use vortex_array::dtype::extension::ExtId;
+use vortex_array::dtype::extension::ForeignExtDType;
 use vortex_array::dtype::i256;
 use vortex_array::extension::datetime::TimeUnit;
 use vortex_array::extension::datetime::Timestamp;
@@ -80,6 +82,7 @@ use vortex_array::validity::Validity;
 use vortex_btrblocks::BtrBlocksCompressorBuilder;
 use vortex_btrblocks::SchemeExt;
 use vortex_btrblocks::schemes::string::StringDictScheme;
+use vortex_buffer::Alignment;
 use vortex_buffer::Buffer;
 use vortex_buffer::ByteBuffer;
 use vortex_buffer::ByteBufferMut;
@@ -121,6 +124,7 @@ use vortex_layout::LayoutStrategy;
 use vortex_layout::layouts::buffered::BufferedStrategy;
 use vortex_layout::layouts::chunked::writer::ChunkedLayoutStrategy;
 use vortex_layout::layouts::file_stats::AggregateStats;
+use vortex_layout::layouts::flat::FlatLayout;
 use vortex_layout::layouts::flat::writer::FlatLayoutStrategy;
 use vortex_layout::layouts::struct_::StructStrategy;
 use vortex_layout::layouts::table::TableStrategy;
@@ -129,9 +133,11 @@ use vortex_layout::layouts::zoned::Zoned;
 use vortex_layout::scan::scan_builder::ScanBuilder;
 use vortex_layout::scan::split_by::DEFAULT_MAX_SPLIT_ROWS;
 use vortex_layout::scan::split_by::SplitBy;
+use vortex_layout::segments::SegmentId;
 use vortex_layout::session::LayoutSession;
 use vortex_scan::strict_sorted_buffer::StrictSortedBuffer;
 use vortex_session::VortexSession;
+use vortex_session::registry::ReadContext;
 use vortex_zigzag::ZigZag;
 
 use crate::MAX_METADATA_SEGMENTS;
@@ -142,6 +148,7 @@ use crate::VERSION;
 use crate::VortexFile;
 use crate::WriteOptionsSessionExt;
 use crate::flatbuffers::footer as fb;
+use crate::footer::Footer;
 use crate::footer::SegmentSpec;
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     let session = VortexSession::empty()
@@ -186,6 +193,61 @@ async fn test_eof_values() {
     // when we change the footer
     assert_eq!(VERSION, 1);
     assert_eq!(V1_FOOTER_FBS_SIZE, 32);
+}
+
+#[test]
+fn opens_file_with_unregistered_extension_in_unread_field() -> VortexResult<()> {
+    #[expect(clippy::disallowed_methods, reason = "constructing a test extension ID")]
+    let id = ExtId::new("test.unregistered-unread-field");
+    let extension = ForeignExtDType::from_parts(id, vec![1; 4096], DType::Null)?;
+    let dtype = DType::Struct(
+        StructFields::from_iter([
+            ("projected", DType::Primitive(PType::I32, Nullability::NonNullable)),
+            ("unread", DType::Extension(extension)),
+        ]),
+        Nullability::NonNullable,
+    );
+    let layout = FlatLayout::new(
+        1,
+        dtype,
+        SegmentId::from(0),
+        ReadContext::new([]),
+    )
+    .into_layout();
+    let footer = Footer::new(
+        layout,
+        Arc::from([SegmentSpec {
+            offset: 0,
+            length: 1,
+            alignment: Alignment::none(),
+        }]),
+        None,
+        ReadContext::new([]),
+    );
+    let parts = footer.into_serializer(&SESSION).serialize()?;
+    let total_len = parts.iter().map(ByteBuffer::len).sum();
+    let mut buffer = ByteBufferMut::with_capacity(total_len);
+    for part in parts {
+        buffer.extend_from_slice(part.as_ref());
+    }
+
+    let file = SESSION.open_options().open_buffer(buffer.freeze())?;
+    let fields = match file.dtype() {
+        DType::Struct(fields, _) => fields,
+        _ => {
+            return Err(vortex_error::vortex_err!(
+                "file should preserve its struct dtype"
+            ));
+        }
+    };
+    let projected = fields.project(&["projected".into()])?;
+
+    assert_eq!(projected.nfields(), 1);
+    assert_eq!(
+        projected.field("projected"),
+        Some(DType::Primitive(PType::I32, Nullability::NonNullable))
+    );
+    Ok(())
 }
 
 // Optional encodings can change compression choices. The footer lists every permitted wire ID,

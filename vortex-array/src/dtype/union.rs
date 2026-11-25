@@ -4,6 +4,7 @@
 use std::fmt;
 use std::hash::Hash;
 use std::hash::Hasher;
+use std::mem::size_of;
 use std::sync::Arc;
 
 use itertools::Itertools;
@@ -14,6 +15,7 @@ use vortex_error::vortex_ensure_eq;
 
 use crate::dtype::DType;
 use crate::dtype::FieldDType;
+use crate::dtype::FieldName;
 use crate::dtype::FieldNames;
 
 /// Type information for a union array.
@@ -143,6 +145,25 @@ impl Hash for UnionVariantsInner {
 }
 
 impl UnionVariants {
+    pub(crate) fn raw_variants(&self) -> &[FieldDType] {
+        &self.0.dtypes
+    }
+
+    pub(crate) fn footprint_id(&self) -> *const () {
+        Arc::as_ptr(&self.0).cast()
+    }
+
+    pub(crate) fn footprint_bytes(&self) -> usize {
+        Self::projected_footprint_bytes(self.0.dtypes.len())
+    }
+
+    pub(crate) fn projected_footprint_bytes(nvariants: usize) -> usize {
+        size_of::<UnionVariantsInner>()
+            .saturating_add(nvariants.saturating_mul(size_of::<FieldDType>()))
+            .saturating_add(nvariants.saturating_mul(size_of::<FieldName>()))
+            .saturating_add(nvariants.saturating_mul(size_of::<u8>()))
+    }
+
     /// Check if these union variants are equal, ignoring variant dtype nullability recursively.
     pub fn eq_ignore_nullability(&self, other: &Self) -> bool {
         Arc::ptr_eq(&self.0, &other.0)

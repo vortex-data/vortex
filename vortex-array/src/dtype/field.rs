@@ -10,6 +10,7 @@
 use core::fmt;
 use std::fmt::Display;
 use std::fmt::Formatter;
+use std::mem::size_of;
 use std::sync::Arc;
 
 use itertools::Itertools;
@@ -117,6 +118,22 @@ impl FieldPath {
     /// Returns the sequence of field selectors that make up this path
     pub fn parts(&self) -> &[Field] {
         &self.0
+    }
+
+    /// Estimates field slots and visible name bytes, excluding allocator and Arc overhead.
+    pub fn approx_resident_bytes(&self) -> usize {
+        self.0
+            .capacity()
+            .saturating_mul(size_of::<Field>())
+            .saturating_add(
+                self.0
+                    .iter()
+                    .filter_map(|part| match part {
+                        Field::Name(name) => Some(name.as_ref().len()),
+                        Field::ElementType => None,
+                    })
+                    .fold(0usize, usize::saturating_add),
+            )
     }
 
     /// Returns whether this path is a root path.

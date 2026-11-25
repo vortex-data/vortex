@@ -5,6 +5,7 @@ use std::any::Any;
 use std::fmt::Debug;
 use std::fmt::Display;
 use std::fmt::Formatter;
+use std::mem::size_of;
 use std::ops::Deref;
 use std::sync::Arc;
 
@@ -85,6 +86,30 @@ struct LayoutInner<V: VTable> {
     segment_ids: Vec<SegmentId>,
     children: Arc<dyn LayoutChildren>,
     data: V::LayoutData,
+}
+
+pub(crate) fn max_core_layout_allocation_size() -> usize {
+    [
+        size_of::<Layout<crate::layouts::chunked::Chunked>>()
+            .saturating_add(size_of::<LayoutInner<crate::layouts::chunked::Chunked>>()),
+        size_of::<Layout<crate::layouts::dict::Dict>>()
+            .saturating_add(size_of::<LayoutInner<crate::layouts::dict::Dict>>()),
+        size_of::<Layout<crate::layouts::flat::Flat>>()
+            .saturating_add(size_of::<LayoutInner<crate::layouts::flat::Flat>>()),
+        size_of::<Layout<crate::layouts::indexed::Indexed>>()
+            .saturating_add(size_of::<LayoutInner<crate::layouts::indexed::Indexed>>()),
+        size_of::<Layout<crate::layouts::list::List>>()
+            .saturating_add(size_of::<LayoutInner<crate::layouts::list::List>>()),
+        size_of::<Layout<crate::layouts::struct_::Struct>>()
+            .saturating_add(size_of::<LayoutInner<crate::layouts::struct_::Struct>>()),
+        size_of::<Layout<crate::layouts::zoned::LegacyStats>>()
+            .saturating_add(size_of::<LayoutInner<crate::layouts::zoned::LegacyStats>>()),
+        size_of::<Layout<crate::layouts::zoned::Zoned>>()
+            .saturating_add(size_of::<LayoutInner<crate::layouts::zoned::Zoned>>()),
+    ]
+    .into_iter()
+    .max()
+    .unwrap_or_default()
 }
 
 impl<V: VTable> Layout<V> {

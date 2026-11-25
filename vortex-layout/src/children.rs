@@ -3,6 +3,7 @@
 
 use std::fmt::Debug;
 use std::fmt::Formatter;
+use std::mem::size_of;
 use std::sync::Arc;
 
 use flatbuffers::Follow;
@@ -136,6 +137,12 @@ pub(crate) struct ViewedLayoutChildren {
     /// Per-child answers to [`LayoutChildren::child_is_indivisible`], precomputed at
     /// construction from the flatbuffer encoding tags alone.
     indivisible: Arc<[bool]>,
+}
+
+pub(crate) fn approx_viewed_children_bytes(nchildren: usize) -> usize {
+    size_of::<ViewedLayoutChildren>()
+        .saturating_add(nchildren.saturating_mul(size_of::<OnceCell<LayoutRef>>()))
+        .saturating_add(nchildren.saturating_mul(size_of::<bool>()))
 }
 
 impl ViewedLayoutChildren {

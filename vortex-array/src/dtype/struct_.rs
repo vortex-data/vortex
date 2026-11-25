@@ -5,6 +5,7 @@ use std::fmt::Display;
 use std::fmt::Formatter;
 use std::hash::Hash;
 use std::hash::Hasher;
+use std::mem::size_of;
 use std::sync::Arc;
 use std::sync::OnceLock;
 
@@ -116,6 +117,27 @@ impl FieldDType {
     #[inline]
     pub fn value(&self) -> VortexResult<DType> {
         self.inner.value()
+    }
+
+    pub(crate) fn parsed(&self) -> Option<&DType> {
+        match &self.inner {
+            FieldDTypeInner::Owned(dtype) => Some(dtype),
+            FieldDTypeInner::View(_, parsed) => parsed.get(),
+        }
+    }
+
+    pub(crate) fn view(&self) -> Option<&ViewedDType> {
+        match &self.inner {
+            FieldDTypeInner::Owned(_) => None,
+            FieldDTypeInner::View(view, _) => Some(view),
+        }
+    }
+
+    pub(crate) fn footprint_id(&self) -> *const () {
+        match &self.inner {
+            FieldDTypeInner::Owned(dtype) => std::ptr::from_ref(dtype).cast(),
+            FieldDTypeInner::View(_, parsed) => Arc::as_ptr(parsed).cast(),
+        }
     }
 }
 
@@ -361,6 +383,36 @@ impl StructFields {
     /// Get the names of the fields in the struct
     pub fn names(&self) -> &FieldNames {
         &self.0.names
+    }
+
+    pub(crate) fn raw_fields(&self) -> &[FieldDType] {
+        &self.0.dtypes
+    }
+
+    pub(crate) fn footprint_id(&self) -> *const () {
+        Arc::as_ptr(&self.0).cast()
+    }
+
+    pub(crate) fn footprint_bytes(&self) -> usize {
+        size_of::<StructFieldsInner>()
+            .saturating_add(self.0.dtypes.len().saturating_mul(size_of::<FieldDType>()))
+            .saturating_add(self.0.names.len().saturating_mul(size_of::<FieldName>()))
+            .saturating_add(
+                self.0
+                    .indices
+                    .get()
+                    .map_or(self.0.dtypes.len(), |indices| {
+                        self.0.dtypes.len().max(indices.capacity())
+                    })
+                    .saturating_mul(size_of::<(FieldName, usize)>()),
+            )
+    }
+
+    pub(crate) fn projected_footprint_bytes(nfields: usize) -> usize {
+        size_of::<StructFieldsInner>()
+            .saturating_add(nfields.saturating_mul(size_of::<FieldDType>()))
+            .saturating_add(nfields.saturating_mul(size_of::<FieldName>()))
+            .saturating_add(nfields.saturating_mul(size_of::<(FieldName, usize)>()))
     }
 
     /// Returns the number of fields in the struct
