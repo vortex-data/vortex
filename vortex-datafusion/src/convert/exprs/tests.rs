@@ -608,9 +608,10 @@ fn test_native_in_list_float(
     )])?;
     assert_in_list_matches(
         Arc::new(df_expr::Column::new("a", 0)),
-        // The list has no zero: a pushed list makes `-0.0` equal to `+0.0`, but DataFusion
-        // looks up the bits, so the two results would differ.
+        // The list holds one zero and the values hold both: DataFusion makes the zeros equal,
+        // and so must the pushed list.
         vec![
+            Arc::new(df_expr::Literal::new(scalar(Some(0.0))?)),
             Arc::new(df_expr::Literal::new(scalar(Some(f64::INFINITY))?)),
             Arc::new(df_expr::Literal::new(scalar(Some(f64::NAN))?)),
         ],
@@ -1248,8 +1249,7 @@ fn test_float_in_list_matches_datafusion(
     assert_native_matches(expr, batch)
 }
 
-/// DataFusion looks up the bits of a float, so `-0.0` is not in a list that holds `+0.0`. A pushed
-/// list makes the zeros equal, as a DataFusion comparison does.
+/// A pushed list that holds one float zero matches both zeros, as DataFusion's `IN` does.
 #[rstest]
 fn test_float_in_list_makes_zeros_equal(#[values(0.0, -0.0)] zero: f64) -> anyhow::Result<()> {
     let schema = Schema::new(vec![Field::new("value", DataType::Float64, false)]);

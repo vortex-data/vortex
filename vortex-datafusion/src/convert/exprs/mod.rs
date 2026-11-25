@@ -19,7 +19,6 @@ use datafusion_common::Result as DFResult;
 use datafusion_common::ScalarValue;
 use datafusion_common::exec_datafusion_err;
 use datafusion_common::format::DEFAULT_FORMAT_OPTIONS;
-use datafusion_common::metadata::FieldMetadata;
 use datafusion_common::tree_node::Transformed as DFTransformed;
 use datafusion_common::tree_node::TreeNode;
 use datafusion_expr::Operator as DFOperator;
@@ -410,6 +409,7 @@ impl DefaultExpressionConverter {
         Ok(converted)
     }
 
+    #[allow(deprecated)]
     fn convert_expr(
         &self,
         expr: &Arc<dyn PhysicalExpr>,
@@ -467,7 +467,7 @@ impl DefaultExpressionConverter {
                     .as_opt::<Literal>()
                     .or_else(|| left.as_opt::<Literal>());
 
-                if !CompareMode::default().agrees_with_total_order(operator, &dtype, constant) {
+                if !CompareMode::new().agrees_with_total_order(operator, &dtype, constant) {
                     return Err(Unconverted::Unsupported);
                 }
             }
@@ -745,29 +745,15 @@ impl DefaultExpressionConverter {
                     .ok_or(Unconverted::Unsupported)
             })
             .collect::<Conversion<Vec<_>>>()?;
-        let signed_zero_partners = literals
-            .iter()
-            .filter_map(|literal| {
-                let partner = signed_zero_partner(literal.value())?;
-                Some(literal.return_field(schema).map(|field| {
-                    df_expr::Literal::new_with_metadata(
-                        partner,
-                        Some(FieldMetadata::new_from_field(&field)),
-                    )
-                }))
-            })
-            .collect::<DFResult<Vec<_>>>()?;
         let elements = literals
             .into_iter()
-            .chain(signed_zero_partners)
             .unique()
             .map(|literal| self.import_literal_for_operand(&literal, &value_field, schema))
             .collect::<Conversion<Vec<_>>>()?;
 
-        // DataFusion looks up the bits of a float, so `-0.0` is not in a list that holds `+0.0`.
-        // In Vortex the zeros are equal, as they are in a DataFusion comparison. So a pushed
-        // list that holds one float zero also matches the other zero. This difference is
-        // intended, and the integration guide in `docs/` states it.
+        // DataFusion's `IN` makes `-0.0` equal to `+0.0` and otherwise compares the bits of
+        // floats, so a `NaN` matches only the same `NaN`. That is `FloatOrder::ZerosEqual`, the
+        // order of `in_list_of`.
         //
         // An element of another type than the value declines the pushdown: no implicit casts.
         let membership =
@@ -1073,26 +1059,6 @@ impl ExpressionConverter for DefaultExpressionConverter {
             Err(Unconverted::Unsupported) => Ok(None),
             Err(Unconverted::Failed(error)) => Err(error),
         }
-    }
-}
-
-/// The other signed zero, for a float zero.
-///
-/// DataFusion's `IN` treats `0.0` and `-0.0` as equal but otherwise compares floats by their bits,
-/// so a NaN matches only the same NaN. Vortex's set lookup compares bits, so a converted list holds
-/// both zeros whenever DataFusion's list holds either.
-fn signed_zero_partner(value: &ScalarValue) -> Option<ScalarValue> {
-    match value {
-        ScalarValue::Float16(Some(zero)) if zero.to_f32() == 0.0 => {
-            Some(ScalarValue::Float16(Some(-*zero)))
-        }
-        ScalarValue::Float32(Some(zero)) if *zero == 0.0 => {
-            Some(ScalarValue::Float32(Some(-*zero)))
-        }
-        ScalarValue::Float64(Some(zero)) if *zero == 0.0 => {
-            Some(ScalarValue::Float64(Some(-*zero)))
-        }
-        _ => None,
     }
 }
 
