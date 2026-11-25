@@ -25,6 +25,7 @@ use crate::arrays::BoolArray;
 use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
 use crate::arrays::Dict;
+use crate::arrays::DictArray;
 use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::Widen;
@@ -111,6 +112,30 @@ fn test_take_keeps_constant_values() -> VortexResult<()> {
     assert!(taken.is::<Widen>());
     assert!(taken.as_::<Widen>().values().is::<Constant>());
     assert_arrays_eq!(selected, PrimitiveArray::from_iter([5i64, 5, 5]), &mut ctx);
+
+    Ok(())
+}
+
+/// When `indices.len() > array.len()` (as in `Dict(codes, Widen(values))`), `Widen::take` defers
+/// to `Dict` so the small values table is widened once rather than widening every gathered row.
+#[test]
+fn test_take_defers_when_expanding_dict_values() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let values = widen(buffer![-0.0_f32, 1.5_f32, 2.5_f32], PType::F64).into_array();
+    let codes = buffer![0u8, 1, 2, 1, 0, 2, 1, 0].into_array();
+    let dict = DictArray::try_new(codes, values)?.into_array();
+
+    let executed = dict.execute::<ArrayRef>(&mut ctx)?;
+    assert!(executed.is::<Dict>());
+    let dict_values = executed.as_::<Dict>().values();
+    assert!(!dict_values.is::<Widen>());
+    assert_eq!(dict_values.len(), 3);
+    assert_eq!(dict_values.dtype(), &DType::from(PType::F64));
+    assert_arrays_eq!(
+        executed,
+        PrimitiveArray::from_iter([-0.0_f64, 1.5, 2.5, 1.5, -0.0, 2.5, 1.5, -0.0]),
+        &mut ctx
+    );
 
     Ok(())
 }
