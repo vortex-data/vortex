@@ -28,7 +28,7 @@ fn main() {
 static SESSION: LazyLock<VortexSession> =
     LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
 
-/// The smallest length at which `top_value` samples the input before voting.
+/// Values in each benchmark input, few enough that every case runs in microseconds.
 const LEN: usize = 4_096;
 
 /// `(top_fraction, null_fraction)`: each value is the top value with probability
