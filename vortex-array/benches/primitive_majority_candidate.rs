@@ -56,7 +56,7 @@ fn make_array((top_fraction, null_fraction): (f64, f64)) -> PrimitiveArray {
 }
 
 #[divan::bench(args = ARGS)]
-fn top_value(bencher: Bencher, args: (f64, f64)) {
+fn majority_candidate(bencher: Bencher, args: (f64, f64)) {
     let array = make_array(args);
     bencher
         .with_inputs(|| (&array, SESSION.create_execution_ctx()))
