@@ -142,6 +142,44 @@ mod tests {
         Ok(())
     }
 
+    /// Roots that share a dtype are compared once, and a root that does not share it is still
+    /// compared.
+    #[test]
+    fn roots_are_compared_whether_or_not_they_share_a_dtype() -> VortexResult<()> {
+        let dtype = struct_dtype();
+        let other = DType::Bool(Nullability::NonNullable);
+        let node = |lhs: &DType, rhs: &DType| -> VortexResult<BoundExpression> {
+            let bound = eq(col("a"), col("a")).bind(&dtype)?;
+            let BoundExpression::Scalar { scalar_fn, .. } = &bound else {
+                unreachable!("eq is a scalar node")
+            };
+            Ok(BoundExpression::Scalar {
+                dtype: bound.dtype().clone(),
+                scalar_fn: scalar_fn.clone(),
+                children: Arc::new(vec![
+                    BoundExpression::new_root(lhs.clone()),
+                    BoundExpression::new_root(rhs.clone()),
+                ]),
+            })
+        };
+
+        let shared = node(&dtype, &dtype)?;
+        // The same dtype built again shares nothing with `dtype`.
+        let rebuilt = node(&struct_dtype(), &struct_dtype())?;
+        let mixed = node(&dtype, &other)?;
+
+        assert_eq!(shared, rebuilt);
+        assert_ne!(shared, mixed);
+        assert_ne!(mixed, shared);
+        assert_ne!(mixed, node(&other, &dtype)?);
+
+        assert!(shared.is_root_bound_to(&dtype));
+        assert!(rebuilt.is_root_bound_to(&dtype));
+        assert!(!mixed.is_root_bound_to(&dtype));
+        assert!(!mixed.is_root_bound_to(&other));
+        Ok(())
+    }
+
     #[test]
     fn bound_display_matches_unbound() -> VortexResult<()> {
         for expr in [root(), col("a"), eq(col("a"), lit(1_i32)), lit(true)] {

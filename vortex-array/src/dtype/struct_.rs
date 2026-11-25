@@ -176,6 +176,14 @@ impl PartialEq for StructFields {
     }
 }
 
+impl StructFields {
+    /// Whether `self` and `other` are clones of one another, which are equal without their
+    /// fields being compared. Equal fields built separately are not.
+    pub(crate) fn is_shared_with(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
+}
+
 impl std::fmt::Debug for StructFields {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("StructFields")
