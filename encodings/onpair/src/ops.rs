@@ -20,9 +20,25 @@ use crate::array::dict_view;
 use crate::decode::code_boundary;
 use crate::decode::collect_widened_range;
 
+/// What a repeated probe keeps between reads of an [`OnPair`] array.
+///
+/// The dictionary is memoized in `OnPairData`, and the children keep their own probes. The probe
+/// keeps the code range of the last row, because the end of one row is the start of the next.
+#[derive(Default)]
+pub struct OnPairProbeState {
+    last_row: Option<RowBounds>,
+}
+
+/// The code range of one row.
+#[derive(Clone, Copy)]
+struct RowBounds {
+    index: usize,
+    start: usize,
+    end: usize,
+}
+
 impl OperationsVTable<OnPair> for OnPair {
-    // The dictionary is memoized in `OnPairData`, and the children keep their own probes.
-    type ProbeState = ();
+    type ProbeState = OnPairProbeState;
 
     fn probe_scalar(
         state: &mut ProbeState<'_, OnPair>,
@@ -38,11 +54,28 @@ impl OperationsVTable<OnPair> for OnPair {
         // per-row `codes_offsets` boundaries map the row index to that run.
         // Read just this row's two boundaries and decode only that run — never
         // the whole column.
-        let mut codes_offsets = state
+        let (retained, mut children) = state.split();
+        let mut codes_offsets = children
             .slot(OnPairSlots::CODES_OFFSETS)?
             .ok_or_else(|| vortex_err!("OnPair has no codes_offsets child"))?;
-        let row_start = code_boundary(&codes_offsets.execute_scalar(index, ctx)?, index)?;
-        let row_end = code_boundary(&codes_offsets.execute_scalar(index + 1, ctx)?, index + 1)?;
+        let mut boundary =
+            |row: usize| code_boundary(&codes_offsets.execute_scalar(row, ctx)?, row);
+
+        // A repeated read of the same row needs no boundary, and a read of the next row starts
+        // where the last row ended.
+        let (row_start, row_end) = match retained.as_ref().and_then(|state| state.last_row) {
+            Some(last) if last.index == index => (last.start, last.end),
+            Some(last) if last.index + 1 == index => (last.end, boundary(index + 1)?),
+            _ => (boundary(index)?, boundary(index + 1)?),
+        };
+
+        if let Some(state) = retained {
+            state.last_row = Some(RowBounds {
+                index,
+                start: row_start,
+                end: row_end,
+            });
+        }
 
         // The per-row decoded length is recorded in the `uncompressed_lengths`
         // child, so read it directly instead of asking the decoder to compute it.
