@@ -2,12 +2,20 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_error::VortexResult;
+use vortex_mask::AllOr;
 
 use crate::ExecutionCtx;
+use crate::IntoArray;
+use crate::arrays::BoolArray;
+use crate::arrays::ConstantArray;
 use crate::arrays::PrimitiveArray;
+use crate::arrays::bool::BoolArrayExt;
+use crate::builtins::ArrayBuiltins;
 use crate::match_each_native_ptype;
 use crate::scalar::PValue;
-use crate::stats::majority::majority_vote;
+use crate::scalar::Scalar;
+use crate::scalar_fn::builtin::operators::CompareOperator;
+use crate::stats::majority::majority_candidate;
 
 impl PrimitiveArray {
     /// Returns a dominant present value of this array and the exact number of times it occurs.
@@ -21,9 +29,29 @@ impl PrimitiveArray {
         }
 
         let mask = self.as_ref().validity()?.execute_mask(self.len(), ctx)?;
-        match_each_native_ptype!(self.ptype(), |P| {
-            Ok(majority_vote(self.as_slice::<P>(), &mask).map(|(top, count)| (top.into(), count)))
-        })
+        let top: Option<PValue> = match_each_native_ptype!(self.ptype(), |P| {
+            majority_candidate(self.as_slice::<P>(), &mask).map(PValue::from)
+        });
+        let Some(top) = top else {
+            return Ok(None);
+        };
+
+        let top_array = ConstantArray::new(
+            Scalar::primitive_value(top, top.ptype(), self.dtype().nullability()),
+            self.len(),
+        );
+        let equal = self
+            .clone()
+            .into_array()
+            .compare(top_array.into_array(), CompareOperator::Eq)?
+            .execute::<BoolArray>(ctx)?
+            .to_bit_buffer();
+        let count = match mask.bit_buffer() {
+            AllOr::All => equal.true_count(),
+            AllOr::None => 0,
+            AllOr::Some(validity) => (&equal & validity).true_count(),
+        };
+        Ok(Some((top, count)))
     }
 }
 

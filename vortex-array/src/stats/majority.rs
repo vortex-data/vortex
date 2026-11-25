@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! The majority of a slice: the value filling more than half of its valid positions.
+//! The majority candidate of a slice: the value filling more than half of its valid positions,
+//! if there is one.
 //!
 //! A [Boyer–Moore majority vote] finds such a value with comparisons alone. It keeps one
 //! candidate and a counter, increments the counter on a match, decrements it otherwise, and
@@ -12,9 +13,8 @@
 //! The vote is a mergeable summary: votes over disjoint parts of the input combine into a vote
 //! over all of it, with the same guarantee. [`LANES`] independent votes therefore run over
 //! interleaved elements, which removes the loop-carried dependency of a single vote and lets the
-//! compiler keep the lanes in vector registers. A second pass counts the merged candidate exactly.
-//! Without a majority the candidate is an arbitrary valid value, which callers can judge by its
-//! count.
+//! compiler keep the lanes in vector registers. Without a majority the candidate is an arbitrary
+//! valid value, so callers that need to tell the cases apart count it afterwards.
 //!
 //! [`fearless_simd`] compiles the loops once per instruction set level, such as AVX2 or NEON,
 //! and selects one for the current CPU at runtime. LLVM vectorizes each of them.
@@ -26,7 +26,6 @@ use fearless_simd::Simd;
 use fearless_simd::dispatch;
 use fearless_simd_macros::simd;
 use vortex_buffer::BitBuffer;
-use vortex_error::VortexExpect;
 use vortex_mask::Mask;
 
 use crate::dtype::NativePType;
@@ -89,75 +88,55 @@ impl MajorityKey for i256 {
     }
 }
 
-/// Runs a Boyer–Moore vote over the valid `values` and returns its candidate and exact count.
+/// Runs a Boyer–Moore vote over the valid `values` and returns its candidate.
 ///
 /// The candidate is the value filling more than half of the valid positions whenever there is
-/// one. Otherwise it is some valid value, which callers can judge by its count. `validity` must
-/// have the same length as `values`. Returns `None` only when no position is valid.
-pub fn majority_vote<T: MajorityKey>(values: &[T], validity: &Mask) -> Option<(T, usize)> {
-    dispatch!(Level::new(), simd => majority_vote_simd(simd, values, validity))
+/// one. Otherwise it is some valid value; callers that need to know which case they have count it,
+/// for example with an equality comparison. `validity` must have the same length as `values`.
+/// Returns `None` only when no position is valid.
+pub fn majority_candidate<T: MajorityKey>(values: &[T], validity: &Mask) -> Option<T> {
+    dispatch!(Level::new(), simd => majority_candidate_simd(simd, values, validity))
 }
 
-/// Returns the value filling more than half of the valid positions of `values`, and its count.
-///
-/// Returns `None` when no value is a strict majority, including when no position is valid.
-pub fn majority<T: MajorityKey>(values: &[T], validity: &Mask) -> Option<(T, usize)> {
-    majority_vote(values, validity).filter(|&(_, count)| count > validity.true_count() / 2)
-}
-
-/// The vote and count, compiled with the target features of `simd`.
+/// The vote, compiled with the target features of `simd`.
 ///
 /// The loops below are plain Rust, inlined here so that each level's instantiation compiles them
 /// with its features. The x86-64 baseline has no 64-bit vector compare, so without a higher level
 /// LLVM keeps 64-bit keys in scalar code.
 #[simd]
-fn majority_vote_simd<S: Simd, T: MajorityKey>(
+fn majority_candidate_simd<S: Simd, T: MajorityKey>(
     _: S,
     values: &[T],
     validity: &Mask,
-) -> Option<(T, usize)> {
-    if validity.true_count() == 0 {
-        return None;
-    }
+) -> Option<T> {
+    let first_valid = match validity {
+        Mask::AllTrue(len) => (*len > 0).then_some(0)?,
+        Mask::AllFalse(_) => return None,
+        Mask::Values(mask_values) => mask_values.bit_buffer().set_indices().next()?,
+    };
     let mut merged = (T::default(), 0usize);
     for (index, chunk) in values.chunks(CHUNK_LEN).enumerate() {
         let start = index * CHUNK_LEN;
         let vote = match validity {
-            Mask::AllTrue(_) => lane_vote(chunk),
-            Mask::AllFalse(_) => unreachable!("some position is valid"),
             Mask::Values(mask_values) => masked_lane_vote(
                 chunk,
                 &mask_values.bit_buffer().slice(start..start + chunk.len()),
             ),
+            _ => lane_vote(chunk),
         };
         merged = merge_vote(merged, (vote.0, vote.1 as usize));
     }
-    let count_of = |candidate| match validity {
-        Mask::AllTrue(_) => count_equal(values, candidate),
-        Mask::AllFalse(_) => unreachable!("some position is valid"),
-        Mask::Values(mask_values) => {
-            masked_count_equal(values, mask_values.bit_buffer(), candidate)
-        }
-    };
-    let count = count_of(merged.0);
-    if count > 0 {
-        return Some((merged.0, count));
-    }
-    // When every vote cancels out, the merged candidate is the fold's default, which may not occur
-    // at all. There is no majority then, so any valid value will do.
-    let first = match validity {
-        Mask::Values(mask_values) => mask_values
-            .bit_buffer()
-            .set_indices()
-            .next()
-            .vortex_expect("some position is valid"),
-        _ => 0,
-    };
-    Some((values[first], count_of(values[first])))
+    // A majority keeps a positive surplus. Without one, every vote may cancel out and leave the
+    // fold's default, which need not occur at all, so any valid value will do.
+    Some(if merged.1 > 0 {
+        merged.0
+    } else {
+        values[first_valid]
+    })
 }
 
 /// One step of a vote over a valid value, written without branches so the lanes vectorize.
-#[expect(clippy::inline_always, reason = "see `majority_vote_simd`")]
+#[expect(clippy::inline_always, reason = "see `majority_candidate_simd`")]
 #[inline(always)]
 fn vote<T: MajorityKey>(candidate: &mut T, count: &mut u32, value: T) {
     let empty = *count == 0;
@@ -172,7 +151,7 @@ fn vote<T: MajorityKey>(candidate: &mut T, count: &mut u32, value: T) {
 
 /// One step of a vote that skips invalid values. Arithmetic rather than selects on the count
 /// vectorizes better once validity is involved.
-#[expect(clippy::inline_always, reason = "see `majority_vote_simd`")]
+#[expect(clippy::inline_always, reason = "see `majority_candidate_simd`")]
 #[inline(always)]
 fn masked_vote<T: MajorityKey>(candidate: &mut T, count: &mut u32, value: T, valid: bool) {
     let empty = *count == 0;
@@ -188,7 +167,7 @@ fn masked_vote<T: MajorityKey>(candidate: &mut T, count: &mut u32, value: T, val
 /// Merging votes for different candidates pairs off the smaller surplus against the larger, so a
 /// value filling more than half of the input still cannot be paired off entirely. A vote that saw
 /// no value has a zero surplus and merges as a no-op.
-#[expect(clippy::inline_always, reason = "see `majority_vote_simd`")]
+#[expect(clippy::inline_always, reason = "see `majority_candidate_simd`")]
 #[inline(always)]
 fn merge_vote<
     T: MajorityKey,
@@ -214,7 +193,7 @@ fn merge_lanes<T: MajorityKey>(candidates: [T; LANES], counts: [u32; LANES]) -> 
         .fold((T::default(), 0), merge_vote)
 }
 
-#[expect(clippy::inline_always, reason = "see `majority_vote_simd`")]
+#[expect(clippy::inline_always, reason = "see `majority_candidate_simd`")]
 #[inline(always)]
 fn lane_vote<T: MajorityKey>(values: &[T]) -> (T, u32) {
     let mut candidates = [T::default(); LANES];
@@ -231,7 +210,7 @@ fn lane_vote<T: MajorityKey>(values: &[T]) -> (T, u32) {
     merge_lanes(candidates, counts)
 }
 
-#[expect(clippy::inline_always, reason = "see `majority_vote_simd`")]
+#[expect(clippy::inline_always, reason = "see `majority_candidate_simd`")]
 #[inline(always)]
 fn masked_lane_vote<T: MajorityKey>(values: &[T], validity: &BitBuffer) -> (T, u32) {
     let mut candidates = [T::default(); LANES];
@@ -265,33 +244,6 @@ fn masked_lane_vote<T: MajorityKey>(values: &[T], validity: &BitBuffer) -> (T, u
     merge_lanes(candidates, counts)
 }
 
-#[expect(clippy::inline_always, reason = "see `majority_vote_simd`")]
-#[inline(always)]
-fn count_equal<T: MajorityKey>(values: &[T], candidate: T) -> usize {
-    values
-        .iter()
-        .map(|&value| usize::from(value.key_eq(candidate)))
-        .sum()
-}
-
-#[expect(clippy::inline_always, reason = "see `majority_vote_simd`")]
-#[inline(always)]
-fn masked_count_equal<T: MajorityKey>(values: &[T], validity: &BitBuffer, candidate: T) -> usize {
-    values
-        .chunks(64)
-        .zip(validity.chunks().iter_padded())
-        .map(|(chunk, bits)| {
-            let equal = chunk
-                .iter()
-                .enumerate()
-                .fold(0u64, |equal, (index, &value)| {
-                    equal | (u64::from(value.key_eq(candidate)) << index)
-                });
-            (equal & bits).count_ones() as usize
-        })
-        .sum()
-}
-
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
@@ -311,10 +263,9 @@ mod tests {
                 }
             })
             .collect();
-        let expected = values.iter().filter(|&&value| value == i256::MAX).count();
         assert_eq!(
-            majority(&values, &Mask::new_true(len)),
-            Some((i256::MAX, expected))
+            majority_candidate(&values, &Mask::new_true(len)),
+            Some(i256::MAX)
         );
     }
 
@@ -330,48 +281,26 @@ mod tests {
             })
             .collect();
         assert_eq!(
-            majority(&values, &Mask::new_true(values.len())),
-            Some((*b"0123456789abcdef", 75))
-        );
-    }
-
-    #[test]
-    fn exactly_half_is_not_a_majority() {
-        let values = [1i128, 2, 1, 2];
-        assert_eq!(majority(&values, &Mask::new_true(4)), None);
-    }
-
-    /// Without a majority the candidate is still a valid value, reported with its exact count.
-    #[test]
-    fn candidate_without_majority_has_exact_count() {
-        let values = [1u32, 2, 3, 1, 2, 3, 4];
-        let (candidate, count) =
-            majority_vote(&values, &Mask::new_true(values.len())).expect("values are valid");
-        assert_eq!(
-            count,
-            values.iter().filter(|&&value| value == candidate).count()
+            majority_candidate(&values, &Mask::new_true(values.len())),
+            Some(*b"0123456789abcdef")
         );
     }
 
     /// Every lane's vote cancels out, which leaves the fold's default, absent from the input.
-    #[test]
-    fn cancelled_votes_return_a_present_value() {
+    #[rstest]
+    #[case::all_valid(Mask::new_true(32))]
+    #[case::nullable(Mask::from_iter((0..32).map(|index| index % 2 == 1)))]
+    fn cancelled_votes_return_a_valid_value(#[case] validity: Mask) {
         let values: Vec<u32> = (1..=32).collect();
-        for validity in [
-            Mask::new_true(32),
-            Mask::from_iter((0..32).map(|index| index % 2 == 1)),
-        ] {
-            let (candidate, count) = majority_vote(&values, &validity).expect("values are valid");
-            assert_eq!(count, 1);
-            assert!(values.contains(&candidate));
-        }
+        let candidate = majority_candidate(&values, &validity).expect("values are valid");
+        let index = values.iter().position(|&value| value == candidate);
+        assert!(index.is_some_and(|index| validity.value(index)));
     }
 
     #[test]
     fn nothing_valid() {
-        assert_eq!(majority::<u32>(&[], &Mask::new_true(0)), None);
-        assert_eq!(majority(&[5u32; 10], &Mask::new_false(10)), None);
-        assert_eq!(majority_vote(&[5u32; 10], &Mask::new_false(10)), None);
+        assert_eq!(majority_candidate::<u32>(&[], &Mask::new_true(0)), None);
+        assert_eq!(majority_candidate(&[5u32; 10], &Mask::new_false(10)), None);
     }
 
     /// Zero fills most positions, but most zeros are invalid, so nine is the majority.
@@ -383,6 +312,6 @@ mod tests {
             .map(|index| if index % 8 < 3 { 9 } else { 0 })
             .collect();
         let validity = Mask::from_iter((0..len).map(|index| index % 8 < 4));
-        assert_eq!(majority(&values, &validity), Some((9, len / 8 * 3)));
+        assert_eq!(majority_candidate(&values, &validity), Some(9));
     }
 }
