@@ -19,7 +19,7 @@ use vortex_array::expr::get_item;
 use vortex_array::expr::gt;
 use vortex_array::expr::lit;
 use vortex_array::expr::root;
-use vortex_array::expr::stats::Precision;
+use vortex_array::stats::Precision;
 use vortex_arrow::ArrowScanExt;
 use vortex_arrow::ArrowSessionExt;
 use vortex_arrow::ExecuteArrowExt;
