@@ -167,8 +167,6 @@ impl<R: AsyncRead> Stream for AsyncMessageReader<R> {
 mod tests {
     use std::io;
     use std::pin::Pin;
-    use std::sync::Arc;
-    use std::sync::atomic::AtomicUsize;
     use std::sync::atomic::Ordering;
     use std::task::Context;
     use std::task::Poll;
@@ -186,6 +184,7 @@ mod tests {
     use super::*;
     use crate::messages::EncoderMessage;
     use crate::messages::MessageEncoder;
+    use crate::test::FaultyReader;
     use crate::test::SESSION;
     use crate::test::assert_io_error_kind;
 
@@ -262,40 +261,6 @@ mod tests {
 
     #[tokio::test]
     async fn resumable_io_error_preserves_progress() -> VortexResult<()> {
-        struct FlakyAsyncReader {
-            data: Vec<u8>,
-            pos: usize,
-            kind: io::ErrorKind,
-            errored: bool,
-            yield_pending: bool,
-        }
-
-        impl AsyncRead for FlakyAsyncReader {
-            fn poll_read(
-                mut self: Pin<&mut Self>,
-                cx: &mut Context<'_>,
-                buf: &mut [u8],
-            ) -> Poll<io::Result<usize>> {
-                if self.yield_pending {
-                    self.yield_pending = false;
-                    cx.waker().wake_by_ref();
-                    return Poll::Pending;
-                }
-                self.yield_pending = true;
-
-                if !self.errored && self.pos == 1 {
-                    self.errored = true;
-                    return Poll::Ready(Err(io::Error::new(self.kind, "transient read error")));
-                }
-                if buf.is_empty() || self.pos >= self.data.len() {
-                    return Poll::Ready(Ok(0));
-                }
-                buf[0] = self.data[self.pos];
-                self.pos += 1;
-                Poll::Ready(Ok(1))
-            }
-        }
-
         let array = buffer![7i32, 8, 9].into_array();
         let mut encoder = MessageEncoder::new(SESSION.clone());
         let full: Vec<u8> = encoder
@@ -306,13 +271,8 @@ mod tests {
             .collect();
 
         for kind in [io::ErrorKind::WouldBlock, io::ErrorKind::TimedOut] {
-            let mut reader = AsyncMessageReader::new(FlakyAsyncReader {
-                data: full.clone(),
-                pos: 0,
-                kind,
-                errored: false,
-                yield_pending: true,
-            });
+            let mut reader =
+                AsyncMessageReader::new(FaultyReader::new(full.clone(), vec![(1, kind)]));
 
             let err = reader
                 .next()
@@ -336,54 +296,20 @@ mod tests {
 
     #[tokio::test]
     async fn interrupted_read_retries_and_preserves_progress() -> VortexResult<()> {
-        struct InterruptedAsyncReader {
-            data: Vec<u8>,
-            pos: usize,
-            interrupt_positions: Vec<usize>,
-            yield_pending: bool,
-        }
-
-        impl AsyncRead for InterruptedAsyncReader {
-            fn poll_read(
-                mut self: Pin<&mut Self>,
-                cx: &mut Context<'_>,
-                buf: &mut [u8],
-            ) -> Poll<io::Result<usize>> {
-                if self.yield_pending {
-                    self.yield_pending = false;
-                    cx.waker().wake_by_ref();
-                    return Poll::Pending;
-                }
-                self.yield_pending = true;
-
-                if let Some(idx) = self.interrupt_positions.iter().position(|p| *p == self.pos) {
-                    self.interrupt_positions.remove(idx);
-                    return Poll::Ready(Err(io::Error::new(
-                        io::ErrorKind::Interrupted,
-                        "transient interrupt",
-                    )));
-                }
-                if buf.is_empty() || self.pos >= self.data.len() {
-                    return Poll::Ready(Ok(0));
-                }
-                buf[0] = self.data[self.pos];
-                self.pos += 1;
-                Poll::Ready(Ok(1))
-            }
-        }
-
         let array = buffer![7i32, 8, 9].into_array();
         let mut encoder = MessageEncoder::new(SESSION.clone());
         let parts = encoder.encode(EncoderMessage::Array(&array))?;
         let header_len = parts[1].len();
         let full: Vec<u8> = parts.iter().flat_map(|b| b.as_ref()).copied().collect();
 
-        let mut reader = AsyncMessageReader::new(InterruptedAsyncReader {
-            data: full,
-            pos: 0,
-            interrupt_positions: vec![1, 4 + header_len / 2, 4 + header_len + 1],
-            yield_pending: true,
-        });
+        let mut reader = AsyncMessageReader::new(FaultyReader::new(
+            full,
+            vec![
+                (1, io::ErrorKind::Interrupted),
+                (4 + header_len / 2, io::ErrorKind::Interrupted),
+                (4 + header_len + 1, io::ErrorKind::Interrupted),
+            ],
+        ));
 
         let DecoderMessage::Array((parts, ctx, row_count)) =
             reader.next().await.vortex_expect("recovered message")?
@@ -398,43 +324,6 @@ mod tests {
 
     #[tokio::test]
     async fn io_error_during_fill_is_terminal() -> VortexResult<()> {
-        struct FailingAsyncReader {
-            data: Vec<u8>,
-            pos: usize,
-            fail_at: usize,
-            yield_pending: bool,
-            poll_calls: Arc<AtomicUsize>,
-        }
-
-        impl AsyncRead for FailingAsyncReader {
-            fn poll_read(
-                mut self: Pin<&mut Self>,
-                cx: &mut Context<'_>,
-                buf: &mut [u8],
-            ) -> Poll<io::Result<usize>> {
-                self.poll_calls.fetch_add(1, Ordering::SeqCst);
-                if self.yield_pending {
-                    self.yield_pending = false;
-                    cx.waker().wake_by_ref();
-                    return Poll::Pending;
-                }
-                self.yield_pending = true;
-
-                if self.pos >= self.fail_at {
-                    return Poll::Ready(Err(io::Error::new(
-                        io::ErrorKind::BrokenPipe,
-                        "broken transport",
-                    )));
-                }
-                if buf.is_empty() || self.pos >= self.data.len() {
-                    return Poll::Ready(Ok(0));
-                }
-                buf[0] = self.data[self.pos];
-                self.pos += 1;
-                Poll::Ready(Ok(1))
-            }
-        }
-
         let array = buffer![7i32, 8, 9].into_array();
         let mut encoder = MessageEncoder::new(SESSION.clone());
         let parts = encoder.encode(EncoderMessage::Array(&array))?;
@@ -442,14 +331,9 @@ mod tests {
         let full: Vec<u8> = parts.iter().flat_map(|b| b.as_ref()).copied().collect();
 
         for fail_at in [1, 4 + header_len / 2, 4 + header_len + 1] {
-            let poll_calls = Arc::new(AtomicUsize::new(0));
-            let mut reader = AsyncMessageReader::new(FailingAsyncReader {
-                data: full.clone(),
-                pos: 0,
-                fail_at,
-                yield_pending: true,
-                poll_calls: Arc::clone(&poll_calls),
-            });
+            let inner = FaultyReader::new(full.clone(), vec![(fail_at, io::ErrorKind::BrokenPipe)]);
+            let poll_calls = inner.calls();
+            let mut reader = AsyncMessageReader::new(inner);
 
             let err = reader
                 .next()
