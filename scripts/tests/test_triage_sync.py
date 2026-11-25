@@ -670,6 +670,44 @@ def test_summary_is_kept_up_to_date_without_new_posts():
     assert len(fake.posted) == posts + 2
 
 
+def test_summary_updates_when_items_are_snoozed_answered_downgraded_reassigned_or_closed():
+    users = {"alice": "UALICE", "bob": "UBOB"}
+    first = item(1, created=ago(days=1), assignees=["alice"])
+    second = item(2, created=ago(days=1), assignees=["alice"])
+    third = item(3, created=ago(days=1))
+    fake = FakeSlack()
+    run(fake, [first, second, third], pings=True, users=users)
+    posts = len(fake.posted)
+    assert overview_replies(fake) == ["Due today: <@UALICE> 2 items, <@UONCALL> 1 item"]
+
+    # Snoozing #1, downgrading #2 to Low, and reassigning #3 to bob update the summary in place.
+    fake.say(fake.root(1)["ts"], "!snooze 2d", NOW + timedelta(minutes=10))
+    fake.say(fake.root(2)["ts"], "!priority low", NOW + timedelta(minutes=11))
+    reassigned = item(3, created=ago(days=1), assignees=["bob"])
+    run(fake, [first, second, reassigned], NOW + HOUR, users=users)
+    assert overview_replies(fake) == ["Due today: <@UBOB> 1 item"]
+    assert "#1 " not in summary_blocks(fake)
+    assert "#2 " not in summary_blocks(fake)
+    assert reminder_link(fake, 3) in summary_blocks(fake)
+    # Only the two command acknowledgements were posted; the summary was edited in place.
+    assert len(fake.posted) == posts + 2
+
+    # Answering #3 on GitHub so it waits on the contributor clears the summary.
+    answered = item(
+        3,
+        created=ago(days=1),
+        assignees=["bob"],
+        events=[event(iso(NOW + timedelta(hours=1, minutes=30)), TEAMMATE)],
+    )
+    run(fake, [first, second, answered], NOW + 2 * HOUR, users=users)
+    assert overview_replies(fake) == ["Due today: all clear"]
+
+    # Closing all remaining items keeps the summary clear without posting again.
+    run(fake, [], NOW + 3 * HOUR, users=users)
+    assert overview_replies(fake) == ["Due today: all clear"]
+    assert len(fake.posted) == posts + 2
+
+
 def test_every_assignee_with_a_slack_id_is_reminded():
     shared = item(1, created=ago(days=1), assignees=["Bob", "alice", "carol"])
     fake = FakeSlack()
