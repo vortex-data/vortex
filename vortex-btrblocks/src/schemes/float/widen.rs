@@ -277,6 +277,7 @@ mod tests {
     use vortex_array::ExecutionCtx;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
+    use vortex_array::arrays::Primitive;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::Widen;
     use vortex_array::arrays::widen::WidenArraySlotsExt;
@@ -524,8 +525,9 @@ mod tests {
             .into_iter()
             .map(f16::to_f64)
             .collect();
-        // Place an f32-exact, non-f16 value outside the first sampled chunk.
-        values[15_000] = f64::from(100_000.25_f32);
+        // Append an f32-exact, non-f16 outlier in the partial trailing chunk, which
+        // `sample_aligned_chunks` never samples.
+        values.push(f64::from(100_000.25_f32));
         let input = PrimitiveArray::from_iter(values);
 
         let compressed =
@@ -571,12 +573,29 @@ mod tests {
         let compressed =
             unrestricted_compressor().compress(&input.clone().into_array(), &mut ctx)?;
         assert!(
-            !compressed.is::<Widen>(),
+            !compressed.is::<Widen>() && !compressed.is::<Primitive>(),
             "expected Sparse/RLE/Dict to beat Widen when sampled chunks are all null, got {} ({} bytes)",
             compressed.encoding_id(),
             compressed.nbytes(),
         );
         assert_arrays_eq!(compressed, input, &mut ctx);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_short_column_uses_cached_full_widen() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let input = PrimitiveArray::from_iter(pseudo_random_f32_in_f64(512));
+
+        let compressed =
+            unrestricted_compressor().compress(&input.clone().into_array(), &mut ctx)?;
+        assert!(compressed.is::<Widen>());
+        assert_eq!(
+            compressed.as_::<Widen>().values().dtype().as_ptype(),
+            PType::F32
+        );
+        assert_bit_exact_f64(&compressed, &input, &mut ctx)?;
 
         Ok(())
     }
