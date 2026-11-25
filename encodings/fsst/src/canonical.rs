@@ -732,4 +732,52 @@ mod tests {
         assert_arrays_eq!(bin_builder.finish_into_varbin(), expected, &mut ctx);
         Ok(())
     }
+
+    #[rstest]
+    #[case::invalid_bytes_in_live_row(
+        &[b"ok".as_slice(), &[0xFF, 0xFE], "héllo".as_bytes()],
+        [false, true, true],
+        &[2u32, 2, 6],
+    )]
+    #[case::split_multibyte_in_live_row(
+        &[&[0xC3u8], &[0xA9u8], b"ok".as_slice()],
+        [true, true, false],
+        &[1u32, 1, 2],
+    )]
+    fn test_utf8_rejects_invalid_live_row_in_nullable_batch(
+        #[case] rows: &[&[u8]],
+        #[case] validity: [bool; 3],
+        #[case] uncompressed_lengths: &[u32],
+    ) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let mut code_bytes = Vec::new();
+        let mut offsets = vec![0u32];
+        for row in rows {
+            for &b in *row {
+                code_bytes.push(0xFF);
+                code_bytes.push(b);
+            }
+            offsets.push(u32::try_from(code_bytes.len())?);
+        }
+
+        let codes = VarBinArray::new(
+            PrimitiveArray::from_iter(offsets).into_array(),
+            ByteBuffer::from(code_bytes),
+            DType::Binary(Nullability::Nullable),
+            Validity::from_iter(validity),
+            &mut ctx,
+        );
+        let array = FSST::try_new(
+            DType::Utf8(Nullability::Nullable),
+            Buffer::empty(),
+            Buffer::empty(),
+            codes,
+            PrimitiveArray::from_iter(uncompressed_lengths.iter().copied()).into_array(),
+            &mut ctx,
+        )?
+        .into_array();
+
+        assert_decode_rejects_invalid_utf8(&array, &mut ctx);
+        Ok(())
+    }
 }
