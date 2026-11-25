@@ -241,7 +241,7 @@ mod tests {
 
     #[test]
     fn test_with_buffers_rejects_misaligned_host_buffer() {
-        let array = PrimitiveArray::from_iter([1i32]).into_array();
+        let array = PrimitiveArray::from_iter([0i32]).into_array();
         let bytes = ByteBuffer::copy_from_aligned([0u8; 8], Alignment::of::<i32>());
         let misaligned = bytes.slice_unaligned(1..5);
         assert!(!misaligned.is_aligned(Alignment::of::<i32>()));

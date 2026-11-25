@@ -17,6 +17,7 @@ use vortex_error::VortexExpect as _;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
+use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 use vortex_mask::MaskValues;
 
@@ -573,13 +574,12 @@ impl Validity {
         }
 
         let chunks = validities.into_iter().map(|(v, len)| {
-            if let Validity::Array(a) = &v {
-                assert_eq!(
+            if let Validity::Array(a) = &v
+                && a.len() != len
+            {
+                vortex_panic!(
+                    "Validity::Array length must equal chunk length: {} != {len}",
                     a.len(),
-                    len,
-                    "Validity::Array length must equal chunk length: {}, {}",
-                    a.len(),
-                    len,
                 );
             }
             v.to_array(len)
