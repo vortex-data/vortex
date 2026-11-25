@@ -203,6 +203,9 @@ jobs:
     # The PR-only mirror is a skipped ancestor on develop; override implicit success().
     if: github.event.pull_request.draft != true && !cancelled() && (needs.duckdb-mirror.result == 'success' || needs.duckdb-mirror.result == 'skipped')
     timeout-minutes: 30
+    env:
+      # The commit of our nextest fork to run doctests with. See the install step below.
+      NEXTEST_DOCTESTS_REV: 31f8df296f560c6a932dabd34096019c81cd782e
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
           && format('runs-on={0}/runner=amd64-ci-docs/image=ubuntu26-full-x64-pre-v2/extras=s3-cache/tag=rust-docs', format('{0}/region={1}', github.run_id, vars.CI_REGION || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T1') && 'ap-northeast-1') || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T2') && 'eu-west-2') || 'us-east-1'))
@@ -217,16 +220,29 @@ jobs:
       - uses: ./.github/actions/setup-prebuild
         with:
           enable-sccache: "true"
+      # Upstream nextest can't run doctests. Our fork adds `--doc`, which compiles the doctests of
+      # every crate in parallel and runs each doctest as its own test, where `cargo test --doc`
+      # handles one crate at a time. It's installed outside of CARGO_HOME so that it doesn't
+      # replace the nextest in the runner image, and the build is cached per fork commit. See
+      # https://github.com/vortex-data/nextest/blob/main/site/src/docs/design/architecture/doctests.md
+      - name: Restore nextest with doctest support
+        id: nextest-doctests
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: ${{ runner.temp }}/nextest-doctests
+          key: nextest-doctests-v1-${{ runner.os }}-${{ runner.arch }}-${{ env.NEXTEST_DOCTESTS_REV }}
       - name: Install nextest with doctest support
-        # Upstream nextest can't run doctests. Our fork adds `--doc`, which compiles the doctests of
-        # every crate in parallel and runs each doctest as its own test, where `cargo test --doc`
-        # handles one crate at a time. It's installed outside of CARGO_HOME so that it doesn't
-        # replace the nextest in the runner image. See
-        # https://github.com/vortex-data/nextest/blob/main/site/src/docs/design/architecture/doctests.md
+        if: steps.nextest-doctests.outputs.cache-hit != 'true'
         run: |
           cargo install --locked --root "${RUNNER_TEMP}/nextest-doctests" \
-            --git https://github.com/vortex-data/nextest \
-            --rev 31f8df296f560c6a932dabd34096019c81cd782e cargo-nextest
+            --git https://github.com/vortex-data/nextest --rev "${NEXTEST_DOCTESTS_REV}" cargo-nextest
+      # Save before running doctests so that a failing run still caches a good install.
+      - name: Save nextest with doctest support
+        if: steps.nextest-doctests.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: ${{ runner.temp }}/nextest-doctests
+          key: ${{ steps.nextest-doctests.outputs.cache-primary-key }}
       - name: Docs
         env:
           # required to make sure docs build for features
