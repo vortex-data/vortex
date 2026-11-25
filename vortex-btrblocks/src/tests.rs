@@ -662,6 +662,56 @@ fn run_model_size_only_picks_sparse_for_dominant_value() -> VortexResult<()> {
     Ok(())
 }
 
+fn dominant_value_with_nulls(null_fraction: f64) -> ArrayRef {
+    let mut rng = StdRng::seed_from_u64(19);
+    PrimitiveArray::from_option_iter((0..65_536).map(|_| {
+        if rng.random_bool(null_fraction) {
+            None
+        } else if rng.random_bool(0.75) {
+            Some(7i64)
+        } else {
+            Some(rng.random_range(0..1i64 << 31))
+        }
+    }))
+    .into_array()
+}
+
+#[test]
+fn run_model_size_only_picks_sparse_for_nullable_dominant_value() -> VortexResult<()> {
+    let input = dominant_value_with_nulls(0.2);
+    let modeled = BtrBlocksCompressorBuilder::from_session(&SESSION)
+        .unrestricted()
+        .with_run_model(RunModel::size_only())
+        .build();
+    let compressed = assert_roundtrip(&modeled, &input)?;
+    assert!(compressed.is::<Sparse>(), "{}", compressed.display_tree());
+    Ok(())
+}
+
+#[test]
+fn run_model_keeps_default_estimate_for_mostly_null_values() -> VortexResult<()> {
+    let input = dominant_value_with_nulls(0.95);
+    let default = BtrBlocksCompressorBuilder::from_session(&SESSION)
+        .unrestricted()
+        .build();
+    let default = assert_roundtrip(&default, &input)?;
+    let modeled = BtrBlocksCompressorBuilder::from_session(&SESSION)
+        .unrestricted()
+        .with_run_model(RunModel::size_only())
+        .build();
+    let compressed = assert_roundtrip(&modeled, &input)?;
+    // The root keeps the default null-filled Sparse; its non-null patch values can still use the
+    // model.
+    assert!(default.is::<Sparse>(), "{}", default.display_tree());
+    assert!(compressed.is::<Sparse>(), "{}", compressed.display_tree());
+    assert!(
+        compressed.nbytes() <= default.nbytes(),
+        "{}",
+        compressed.display_tree()
+    );
+    Ok(())
+}
+
 #[test]
 fn run_model_reuses_schemes_for_equal_models() {
     let a = modeled_schemes(RunModel::for_bandwidth(2e9));
