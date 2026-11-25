@@ -1,12 +1,28 @@
 #  SPDX-License-Identifier: Apache-2.0
 #  SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 from typing import TypeAlias, final
+from uuid import UUID
 
 from .dtype import DType
 
-ScalarPyType: TypeAlias = None | int | float | str | Decimal | bytes | list[ScalarPyType] | dict[str, ScalarPyType]
+ScalarPyType: TypeAlias = (
+    None
+    | int
+    | float
+    | str
+    | Decimal
+    | bytes
+    | date
+    | time
+    | datetime
+    | timedelta
+    | UUID
+    | list[ScalarPyType]
+    | dict[str, ScalarPyType]
+)
 
 def scalar(value: object, *, dtype: DType | None = None) -> Scalar: ...
 
@@ -41,15 +57,15 @@ class BinaryScalar:
 
 @final
 class StructScalar:
-    def as_py(self) -> bool | None: ...
+    def as_py(self) -> dict[str, ScalarPyType] | None: ...
     def field(self, name: str) -> Scalar: ...
 
 @final
 class ListScalar:
-    def as_py(self) -> bool | None: ...
+    def as_py(self) -> list[ScalarPyType] | None: ...
     def element(self, idx: int) -> Scalar: ...
 
 @final
 class ExtensionScalar:
     def as_py(self) -> ScalarPyType: ...
-    def storage(self) -> Scalar: ...
+    def storage(self) -> ScalarPyType: ...

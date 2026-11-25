@@ -7,6 +7,7 @@ import uuid
 import zoneinfo
 from typing import Literal
 
+import pyarrow as pa
 import pytest
 
 import vortex as vx
@@ -117,13 +118,16 @@ def test_time_scalar(unit: Literal["ns", "us", "ms"], expected: int) -> None:
     scalar = vx.scalar(datetime.time(1, 2, 3, 500_000), dtype=vx.time(unit))
     assert isinstance(scalar, vx.ExtensionScalar)
     assert scalar.dtype == vx.time(unit)
-    assert scalar.as_py() == expected
+    assert scalar.storage() == expected
+    assert scalar.as_py() == datetime.time(1, 2, 3, 500_000)
 
 
 def test_time_scalar_defaults_to_microseconds() -> None:
     scalar = vx.scalar(datetime.time(0, 0, 1, 7))
+    assert isinstance(scalar, vx.ExtensionScalar)
     assert scalar.dtype == vx.time("us")
-    assert scalar.as_py() == 1_000_007
+    assert scalar.storage() == 1_000_007
+    assert scalar.as_py() == datetime.time(0, 0, 1, 7)
 
 
 def test_time_scalar_rejects_precision_loss() -> None:
@@ -147,13 +151,16 @@ def test_date_scalar(unit: Literal["days", "ms"], expected: int) -> None:
     scalar = vx.scalar(datetime.date(1970, 1, 2), dtype=vx.date(unit))
     assert isinstance(scalar, vx.ExtensionScalar)
     assert scalar.dtype == vx.date(unit)
-    assert scalar.as_py() == expected
+    assert scalar.storage() == expected
+    assert scalar.as_py() == datetime.date(1970, 1, 2)
 
 
 def test_date_scalar_defaults_to_days() -> None:
     scalar = vx.scalar(datetime.date(1969, 12, 31))
+    assert isinstance(scalar, vx.ExtensionScalar)
     assert scalar.dtype == vx.date("days")
-    assert scalar.as_py() == -1
+    assert scalar.storage() == -1
+    assert scalar.as_py() == datetime.date(1969, 12, 31)
 
 
 @pytest.mark.parametrize(
@@ -166,15 +173,21 @@ def test_date_scalar_defaults_to_days() -> None:
     ],
 )
 def test_timestamp_scalar(unit: Literal["s", "ms", "us", "ns"], expected: int) -> None:
-    scalar = vx.scalar(datetime.datetime(1970, 1, 2, 0, 0, 1), dtype=vx.timestamp(unit))
+    value = datetime.datetime(1970, 1, 2, 0, 0, 1)
+    scalar = vx.scalar(value, dtype=vx.timestamp(unit))
+    assert isinstance(scalar, vx.ExtensionScalar)
     assert scalar.dtype == vx.timestamp(unit)
-    assert scalar.as_py() == expected
+    assert scalar.storage() == expected
+    assert scalar.as_py() == value
 
 
 def test_timestamp_scalar_defaults_to_microseconds() -> None:
-    scalar = vx.scalar(datetime.datetime(1970, 1, 1, 0, 0, 0, 5))
+    value = datetime.datetime(1970, 1, 1, 0, 0, 0, 5)
+    scalar = vx.scalar(value)
+    assert isinstance(scalar, vx.ExtensionScalar)
     assert scalar.dtype == vx.timestamp("us")
-    assert scalar.as_py() == 5
+    assert scalar.storage() == 5
+    assert scalar.as_py() == value
 
 
 def test_timestamp_scalar_stores_aware_values_as_utc() -> None:
@@ -183,15 +196,25 @@ def test_timestamp_scalar_stores_aware_values_as_utc() -> None:
     except zoneinfo.ZoneInfoNotFoundError:
         pytest.skip("tz database unavailable")
     # 1970-01-01 is EST, five hours behind UTC.
-    scalar = vx.scalar(datetime.datetime(1970, 1, 1, tzinfo=zone))
+    value = datetime.datetime(1970, 1, 1, tzinfo=zone)
+    scalar = vx.scalar(value)
+    assert isinstance(scalar, vx.ExtensionScalar)
     assert scalar.dtype == vx.timestamp("us", tz="America/New_York")
-    assert scalar.as_py() == 5 * 3_600_000_000
+    assert scalar.storage() == 5 * 3_600_000_000
+
+    result = scalar.as_py()
+    assert isinstance(result, datetime.datetime)
+    assert result == value
+    assert result.utcoffset() == value.utcoffset()
 
 
 def test_timestamp_scalar_utc() -> None:
-    scalar = vx.scalar(datetime.datetime(1970, 1, 1, 0, 0, 1, tzinfo=datetime.UTC))
+    value = datetime.datetime(1970, 1, 1, 0, 0, 1, tzinfo=datetime.UTC)
+    scalar = vx.scalar(value)
+    assert isinstance(scalar, vx.ExtensionScalar)
     assert scalar.dtype == vx.timestamp("us", tz="UTC")
-    assert scalar.as_py() == 1_000_000
+    assert scalar.storage() == 1_000_000
+    assert scalar.as_py() == value
 
 
 def test_timestamp_scalar_rejects_fixed_offset_timezone() -> None:
@@ -213,9 +236,12 @@ def test_timestamp_scalar_rejects_precision_loss() -> None:
 
 
 def test_duration_scalar_defaults_to_microseconds() -> None:
-    scalar = vx.scalar(datetime.timedelta(seconds=1, microseconds=500))
+    value = datetime.timedelta(seconds=1, microseconds=500)
+    scalar = vx.scalar(value)
+    assert isinstance(scalar, vx.ExtensionScalar)
     assert scalar.dtype == vx.duration("us")
-    assert scalar.as_py() == 1_000_500
+    assert scalar.storage() == 1_000_500
+    assert scalar.as_py() == value
 
 
 @pytest.mark.parametrize(
@@ -228,9 +254,12 @@ def test_duration_scalar_defaults_to_microseconds() -> None:
     ],
 )
 def test_duration_scalar_respects_dtype_unit(unit: str, expected: int) -> None:
-    scalar = vx.scalar(datetime.timedelta(seconds=-2), dtype=vx.duration(unit))  # ty: ignore[invalid-argument-type]
+    value = datetime.timedelta(seconds=-2)
+    scalar = vx.scalar(value, dtype=vx.duration(unit))  # ty: ignore[invalid-argument-type]
+    assert isinstance(scalar, vx.ExtensionScalar)
     assert scalar.dtype == vx.duration(unit)  # ty: ignore[invalid-argument-type]
-    assert scalar.as_py() == expected
+    assert scalar.storage() == expected
+    assert scalar.as_py() == value
 
 
 def test_duration_scalar_rejects_precision_loss() -> None:
@@ -240,16 +269,28 @@ def test_duration_scalar_rejects_precision_loss() -> None:
 
 def test_duration_scalar_handles_large_and_min_timedelta() -> None:
     large = datetime.timedelta(days=999_999_999)
-    assert vx.scalar(large, dtype=vx.duration("s")).as_py() == 999_999_999 * 86_400
+    scalar = vx.scalar(large, dtype=vx.duration("s"))
+    assert isinstance(scalar, vx.ExtensionScalar)
+    assert scalar.storage() == 999_999_999 * 86_400
+    assert scalar.as_py() == large
 
     min_i64_us = datetime.timedelta(days=-106_751_992, seconds=71_945, microseconds=224_192)
-    assert vx.scalar(min_i64_us, dtype=vx.duration("us")).as_py() == -(2**63)
+    scalar = vx.scalar(min_i64_us, dtype=vx.duration("us"))
+    assert isinstance(scalar, vx.ExtensionScalar)
+    assert scalar.storage() == -(2**63)
+    assert scalar.as_py() == min_i64_us
 
 
 def test_duration_scalar_keeps_pandas_nanoseconds() -> None:
     pd = pytest.importorskip("pandas")
     value = pd.Timedelta(microseconds=1, nanoseconds=1)
-    assert vx.scalar(value, dtype=vx.duration("ns")).as_py() == 1_001
+    scalar = vx.scalar(value, dtype=vx.duration("ns"))
+    assert isinstance(scalar, vx.ExtensionScalar)
+    assert scalar.storage() == 1_001
+
+    result = scalar.as_py()
+    assert isinstance(result, pd.Timedelta)
+    assert result == value
     with pytest.raises(ValueError, match="without losing precision"):
         _ = vx.scalar(value)
 
@@ -302,7 +343,8 @@ def test_uuid_scalar() -> None:
     scalar = vx.scalar(value)
     assert isinstance(scalar, vx.ExtensionScalar)
     assert "vortex.uuid" in repr(scalar.dtype)
-    assert scalar.as_py() == list(value.bytes)
+    assert scalar.storage() == list(value.bytes)
+    assert scalar.as_py() == value
 
 
 def test_list_scalar_with_dtype() -> None:
@@ -323,14 +365,22 @@ def test_timestamp_scalar_pytz_zone() -> None:
     pytz = pytest.importorskip("pytz")
     value = pytz.timezone("America/New_York").localize(datetime.datetime(1970, 1, 1))
     scalar = vx.scalar(value)
+    assert isinstance(scalar, vx.ExtensionScalar)
     assert scalar.dtype == vx.timestamp("us", tz="America/New_York")
-    assert scalar.as_py() == 5 * 3_600_000_000
+    assert scalar.storage() == 5 * 3_600_000_000
+    assert scalar.as_py() == value
 
 
 def test_timestamp_scalar_keeps_pandas_nanoseconds() -> None:
     pd = pytest.importorskip("pandas")
     value = pd.Timestamp("1970-01-01 00:00:00.000001001")
-    assert vx.scalar(value, dtype=vx.timestamp("ns")).as_py() == 1_001
+    scalar = vx.scalar(value, dtype=vx.timestamp("ns"))
+    assert isinstance(scalar, vx.ExtensionScalar)
+    assert scalar.storage() == 1_001
+
+    result = scalar.as_py()
+    assert isinstance(result, pd.Timestamp)
+    assert result == value
     with pytest.raises(ValueError, match="without losing precision"):
         _ = vx.scalar(value)
 
@@ -356,3 +406,28 @@ def test_datetime_scalar_rejects_unknown_timezone():
     value = datetime.datetime(1970, 1, 1, tzinfo=InvalidTimezone())
     with pytest.raises(RuntimeError, match="Not/A/Timezone"):
         vx.scalar(value)
+
+
+@pytest.mark.parametrize(
+    "arrow_type",
+    [
+        pa.date32(),
+        pa.date64(),
+        pa.time32("s"),
+        pa.time32("ms"),
+        pa.time64("us"),
+        pa.time64("ns"),
+        pa.timestamp("s"),
+        pa.timestamp("ms", tz="UTC"),
+        pa.timestamp("us", tz="+07:30"),
+        pa.timestamp("ns"),
+        pa.duration("s"),
+        pa.duration("ms"),
+        pa.duration("us"),
+        pa.duration("ns"),
+    ],
+)
+def test_temporal_as_py_matches_pyarrow(arrow_type: pa.DataType) -> None:
+    expected = pa.array([1, None, 1_001], type=arrow_type)
+    array = vx.array(expected)
+    assert [array.scalar_at(i).as_py() for i in range(len(array))] == expected.to_pylist()
