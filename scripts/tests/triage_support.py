@@ -215,5 +215,6 @@ def run(
         max_new=max_new,
         claude=claude or sync.Judgment(),
     )
-    channel = sync.load(fake.history())
-    return sync.Run(fake, config, now, ended or (lambda _number: None), channel).execute(items)
+    identity = fake.identity()
+    channel = sync.load(fake.history(), identity)
+    return sync.Run(fake, config, now, ended or (lambda _number: None), channel, identity).execute(items)

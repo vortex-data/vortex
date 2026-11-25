@@ -18,7 +18,7 @@ from typing import Any, NamedTuple
 
 from .github import Item
 from .hours import working_days_between
-from .rules import Assessment, Owes, Tier, Verdict, assess, verdict_applies
+from .rules import Assessment, Owes, Tier, Verdict, assess, verdict_applies, verdict_context
 from .state import ItemState
 from .sync import Channel, Judgment, new_root_numbers
 
@@ -74,7 +74,7 @@ def candidates(
     Each item comes with the rules' assessment alone, which Claude sees and may correct.
     """
     chosen = []
-    allowed_new = new_root_numbers(items, channel, now, max_new)
+    allowed_new = frozenset(new_root_numbers(items, channel, now, max_new))
     for item in items:
         rules = assess(item, now)
         if rules is None:
@@ -83,16 +83,30 @@ def candidates(
         if root is None and item.number not in allowed_new:
             continue
         state = root.state if root else None
+        context_matches = state is not None and state.verdict_context == verdict_context(item)
         if state is not None:
-            if state.snoozed(now) or now.timestamp() - state.asked_at < COOLDOWN.total_seconds():
+            if (
+                state.snoozed(now)
+                or (context_matches and state.pending_claude_note)
+                or (context_matches and now.timestamp() - state.asked_at < COOLDOWN.total_seconds())
+            ):
                 continue
-            current = assess(item, now, state.verdict, state.priority) or rules
+            current = (
+                assess(
+                    item,
+                    now,
+                    state.verdict if context_matches else None,
+                    state.priority,
+                    state.verdict_context,
+                )
+                or rules
+            )
         else:
             current = rules
-        if _wants_look(state, current, now):
+        if not context_matches or _wants_look(state, current, now):
             chosen.append((item, rules, current))
     tiers = list(Tier)
-    chosen.sort(key=lambda entry: (tiers.index(entry[2].tier), -entry[2].score))
+    chosen.sort(key=lambda entry: (tiers.index(entry[2].tier), -entry[2].score, entry[0].number))
     return [(item, rules) for item, rules, _ in chosen[:MAX_CANDIDATES]]
 
 
@@ -115,6 +129,7 @@ def held(
         verdict = root.state.verdict
         if (
             verdict is not None
+            and root.state.verdict_context == verdict_context(item)
             and verdict.checked_at.timestamp() >= root.state.asked_at
             and not verdict_applies(verdict, rules.last_activity_at)
         ):

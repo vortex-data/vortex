@@ -110,6 +110,19 @@ def test_draft_pushes_are_work_in_progress():
     assert assess(asked).owes is Owes.VORTEX
 
 
+def test_approval_does_not_make_a_draft_pr_merge_ready():
+    approved = item(
+        kind="pr",
+        draft=True,
+        created=ago(days=3),
+        events=[event(ago(hours=2), TEAMMATE, "review", "APPROVED")],
+    )
+    assessment = assess(approved)
+    assert assessment is not None
+    assert assessment.owes is Owes.CONTRIBUTOR
+    assert assessment.tier is Tier.NORMAL
+
+
 def test_wait_on_a_former_draft_starts_when_it_was_marked_ready():
     events = [event(ago(days=20), kind="push"), event(ago(days=2), kind="ready")]
     result = assess(item(kind="pr", created=ago(days=21), events=events))

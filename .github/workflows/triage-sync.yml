@@ -117,16 +117,39 @@ jobs:
           CHANNEL_ID: ${{ vars.SLACK_TRIAGE_CHANNEL_ID }}
         run: python3 -m triage purge --channel "$CHANNEL_ID"
 
-  # Posts every failure in the channel and mentions on-call. It uses curl, not the Python code, so
-  # it still works when that code is broken.
+  # It uses curl, not the Python code, so it still works when that code is broken.
   notify-failure:
     needs: [sync, purge]
     if: failure()
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    permissions: { }
+    permissions:
+      actions: read
     steps:
+      - name: Check the previous scheduled run
+        id: repeat
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+          BRANCH: ${{ github.ref_name }}
+        run: |
+          notify=true
+          if [ "$EVENT_NAME" = "schedule" ]; then
+            response=$(curl -fsSL -H "Authorization: Bearer ${GH_TOKEN}" \
+              -H "Accept: application/vnd.github+json" --get \
+              --data-urlencode "branch=${BRANCH}" \
+              --data-urlencode "event=schedule" \
+              --data-urlencode "status=completed" \
+              --data-urlencode "per_page=100" \
+              "${GITHUB_API_URL%/}/repos/${GITHUB_REPOSITORY}/actions/workflows/triage-sync.yml/runs" || true)
+            previous=$(jq -r '.workflow_runs[0].conclusion // ""' <<< "$response" 2>/dev/null || true)
+            if [ "$previous" = "failure" ]; then
+              notify=false
+            fi
+          fi
+          echo "notify=$notify" >> "$GITHUB_OUTPUT"
       - name: Post a failure note
+        if: steps.repeat.outputs.notify == 'true'
         env:
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_TRIAGE_BOT_TOKEN }}
           CHANNEL_ID: ${{ vars.SLACK_TRIAGE_CHANNEL_ID }}

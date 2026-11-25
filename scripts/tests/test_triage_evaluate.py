@@ -20,6 +20,7 @@ HOUR = timedelta(hours=1)
 
 
 def channel_with(number, verdict=None, **fields: Any) -> Any:
+    fields.setdefault("verdict_context", rules.verdict_context(item(number)))
     item_state = state.ItemState(number, verdict=verdict, **fields)
     thread = sync.Thread("1.0", "")
     return sync.Channel({number: sync.Root(thread, item_state, item_state)}, None, None)
@@ -48,6 +49,32 @@ def test_deferred_new_roots_are_not_claude_candidates():
     items = [item(20, created=ago(days=1)), item(10, created=ago(days=1))]
     chosen = evaluate.candidates(items, EMPTY, NOW, max_new=1)
     assert [target.number for target, _ in chosen] == [10]
+
+
+def test_new_root_cap_uses_overview_urgency_order():
+    low = item(1, created=ago(days=60))
+    high = item(99, created=ago(days=1))
+    chosen = evaluate.candidates([low, high], EMPTY, NOW, max_new=1)
+    assert [target.number for target, _ in chosen] == [99]
+
+
+def test_draft_and_normalized_label_changes_invalidate_cached_verdict():
+    original = item(1, kind="pr", labels=["bug"])
+    verdict = rules.Verdict(rules.Owes.VORTEX, "ready", original.events[-1].at, NOW, Tier.LOW, "duplicate")
+    channel = channel_with(
+        1,
+        verdict,
+        asked_at=NOW.timestamp(),
+        verdict_context=rules.verdict_context(original),
+    )
+    changed = item(1, kind="pr", draft=True, labels=["security"])
+
+    assert chosen_numbers([changed], channel) == [1]
+    assert evaluate.held([changed], channel, NOW, frozenset()) == set()
+    assessment = rules.assess(changed, NOW, verdict, cached_context=channel.roots[1].state.verdict_context)
+    assert assessment is not None
+    assert assessment.owes is rules.Owes.CONTRIBUTOR
+    assert assessment.tier is Tier.NORMAL
 
 
 def test_claude_looks_again_after_new_activity_but_at_most_once_an_hour():

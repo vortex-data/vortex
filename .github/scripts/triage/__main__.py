@@ -77,6 +77,13 @@ def _slack(channel: str) -> Slack:
     return Slack(token, channel)
 
 
+def _non_negative_int(value: str) -> int:
+    number = int(value)
+    if number < 0:
+        raise argparse.ArgumentTypeError("must be zero or greater")
+    return number
+
+
 def purge(slack: Slack) -> tuple[int, int, int]:
     """Delete every message that this bot posted in the channel, including thread replies.
 
@@ -137,7 +144,7 @@ def main(argv: list[str] | None = None) -> int:
     sync_cmd.add_argument("--pings", action="store_true", help="Send reminders that mention people")
     sync_cmd.add_argument(
         "--max-new",
-        type=int,
+        type=_non_negative_int,
         default=0,
         help="Maximum new item roots to create in one run (0 for unlimited)",
     )
@@ -193,7 +200,8 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     slack = _slack(args.channel)
-    channel = load(slack.history())
+    identity = slack.identity()
+    channel = load(slack.history(), identity)
     ask = None
     if args.claude:
         # Only this path needs the `anthropic` package, so `scan`, `render`, and `purge` run
@@ -209,7 +217,7 @@ def main(argv: list[str] | None = None) -> int:
         max_new=args.max_new,
         claude=judgment,
     )
-    run = Run(slack, config, now, lambda number: closed_state(args.repo, number), channel)
+    run = Run(slack, config, now, lambda number: closed_state(args.repo, number), channel, identity)
     failures = run.execute(items)
     print(f"Synced {len(items)} open items and {len(judgment.verdicts)} new verdicts.")
     print(f"{len(failures)} failures.")

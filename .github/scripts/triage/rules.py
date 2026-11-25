@@ -138,7 +138,7 @@ def _owes(item: Item, category: Category, now: datetime) -> tuple[Owes, str, dat
         return Owes.VORTEX, "open bug", parse_time(item.created_at)
     events = _relevant(item)
     # Events are compared by position, not by time, because two events can share a timestamp.
-    if item.kind == "pr":
+    if item.kind == "pr" and not item.draft:
         decisive = [
             i
             for i, e in enumerate(events)
@@ -210,6 +210,12 @@ def _tier(
 ALWAYS_VORTEX = (Category.FUZZER, Category.INTERNAL_BUG)
 
 
+def verdict_context(item: Item) -> str:
+    """Return the normalized PR/label context in which a verdict remains valid."""
+    labels = tuple(sorted(" ".join(label.casefold().split()) for label in item.labels))
+    return repr((item.draft, labels))
+
+
 def verdict_applies(verdict: Verdict | None, last_activity_at: str) -> bool:
     """Return True if a cached verdict still applies, because nothing happened after Claude's look.
 
@@ -220,7 +226,11 @@ def verdict_applies(verdict: Verdict | None, last_activity_at: str) -> bool:
 
 
 def assess(
-    item: Item, now: datetime, verdict: Verdict | None = None, priority: Tier | None = None
+    item: Item,
+    now: datetime,
+    verdict: Verdict | None = None,
+    priority: Tier | None = None,
+    cached_context: str | None = None,
 ) -> Assessment | None:
     """Assess a tracked item, or return None when the bot does not track it.
 
@@ -235,7 +245,12 @@ def assess(
     last_activity_at = item.events[-1].at if item.events else item.created_at
 
     owes, owes_reason, owed_since = _owes(item, category, now)
-    valid = verdict if verdict_applies(verdict, last_activity_at) else None
+    valid = (
+        verdict
+        if verdict_applies(verdict, last_activity_at)
+        and (cached_context is None or cached_context == verdict_context(item))
+        else None
+    )
     # A fuzzer issue or a team's bug always waits on Vortex, so Claude only judges its tier.
     from_claude = valid is not None and category not in ALWAYS_VORTEX
     if from_claude and valid is not None:

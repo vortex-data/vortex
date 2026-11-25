@@ -23,6 +23,7 @@ from .state import ItemState, Status
 # Slack allows 50 blocks in a message and 3,000 characters in a section. Keep a margin below both.
 MAX_BLOCKS = 48
 MAX_SECTION_CHARS = 2900
+MAX_ATTACHMENT_TEXT_CHARS = 8000
 TITLE_LIMIT = 60
 # Slack wraps text at the width of the reader's window, and its font gives letters different widths,
 # so no character count fits every screen. In live tests, overview rows of about 75 characters fit
@@ -55,7 +56,7 @@ SECTIONS = (HIGH, NORMAL, LOW, WAITING)
 _BY_TIER = {Tier.HIGH: HIGH, Tier.NORMAL: NORMAL, Tier.LOW: LOW}
 # The overview lists these sections. Items that wait on the contributor go in a reply in its thread.
 _OVERVIEW_SECTIONS = (HIGH, NORMAL, LOW)
-# When the overview does not fit, rows are cut from these sections first. High is never cut.
+# When a block-based message does not fit, cut rows from the least urgent sections first.
 _CUT_ORDER = (LOW, NORMAL)
 
 
@@ -217,19 +218,21 @@ def ordered(rows: Sequence[Row]) -> dict[Section, list[Row]]:
         grouped[row.section].append(row)
     for section, members in grouped.items():
         if section is WAITING:
-            members.sort(key=lambda r: (tiers.index(r.assessment.tier), -r.assessment.score))
+            members.sort(
+                key=lambda r: (tiers.index(r.assessment.tier), -r.assessment.score, r.item.number)
+            )
         else:
-            members.sort(key=lambda r: -r.assessment.score)
+            members.sort(key=lambda r: (-r.assessment.score, r.item.number))
     return grouped
 
 
-def _chunks(parts: list[str], separator: str = "\n") -> list[str]:
+def _chunks(parts: list[str], separator: str = "\n", limit: int = MAX_SECTION_CHARS) -> list[str]:
     """Join parts into section texts that each fit Slack's character limit."""
     chunks: list[str] = []
     current: list[str] = []
     size = 0
     for part in parts:
-        if current and size + len(part) + len(separator) > MAX_SECTION_CHARS:
+        if current and size + len(part) + len(separator) > limit:
             chunks.append(separator.join(current))
             current = []
             size = 0
@@ -289,6 +292,29 @@ def _attachments(
     return attachments
 
 
+def _overview_attachments(
+    sections: Sequence[Section], lines: dict[Section, list[str]]
+) -> list[dict[str, Any]]:
+    """Render each overview section as collapsible legacy attachment text."""
+    attachments = []
+    for section in sections:
+        for index, text in enumerate(
+            _chunks(lines[section], _ENTRY_GAP, MAX_ATTACHMENT_TEXT_CHARS)
+        ):
+            title = f"{section.marker} {section.title} · {len(lines[section])}"
+            if index:
+                title += " · continued"
+            attachments.append(
+                {
+                    "color": section.color,
+                    "title": title,
+                    "text": text,
+                    "mrkdwn_in": ["text"],
+                }
+            )
+    return attachments
+
+
 def _shown(rows: Sequence[Row], now: datetime) -> dict[Section, list[Row]]:
     # A snoozed item leaves the overview until its snooze ends, as a closed item does, so that the
     # overview lists only what needs attention. The summary still counts snoozed items.
@@ -320,11 +346,17 @@ def overview(rows: Sequence[Row], day: date, now: datetime, people: People, clau
         _context(summary),
     ]
     lines = {s: [_entry(row, now, people) for row in grouped[s]] for s in _OVERVIEW_SECTIONS}
-    attachments = _attachments(_OVERVIEW_SECTIONS, lines, len(head), _CUT_ORDER)
+    attachments = _overview_attachments(_OVERVIEW_SECTIONS, lines)
     text = f"Vortex triage for {label}: " + ", ".join(
         f"{counts[s]} {s.title if s is not WAITING else 'waiting on contributor'}" for s in SECTIONS
     )
     return Message(text=text, blocks=tuple(head), attachments=tuple(attachments))
+
+
+def overview_order(rows: Sequence[Row], now: datetime) -> list[Row]:
+    """Return rows in the same section and urgency order as the overview."""
+    grouped = _shown(rows, now)
+    return [row for section in (*_OVERVIEW_SECTIONS, WAITING) for row in grouped[section]]
 
 
 def waiting(rows: Sequence[Row], now: datetime, people: People) -> Message:
@@ -485,15 +517,17 @@ def reminder_summary(due: Mapping[str | None, Sequence[Row]]) -> Message:
     lines = []
     for user, rows in due.items():
         links = [
-            f"<{row.thread_url}|#{row.item.number}>" if row.thread_url else f"#{row.item.number}"
+            f"<{row.thread_url}|#{row.item.number} card>"
+            if row.thread_url
+            else f"#{row.item.number} card"
             for row in rows
         ]
         # One person's line is one section, which cannot be split, so a long list is cut short.
         if len(links) > _SUMMARY_LINKS:
             links = [*links[:_SUMMARY_LINKS], f"+{len(links) - _SUMMARY_LINKS} more"]
         lines.append(f"{_mention(user)} · {_count(len(rows), 'item', 'items')}: {', '.join(links)}")
-    header = "⏰ *Due today.* Each item's reminder is in its own thread."
-    footer = "Reply `!snooze 2d` in an item's thread to pause its reminders."
+    header = "⏰ *Due today.* Open each card, then use its thread for the reminder."
+    footer = "Reply `!snooze 2d` in a card's thread to pause its reminders."
     # One line per person keeps the message far below the block limit for any team size.
     blocks = [_mrkdwn(header), *(_list(chunk) for chunk in _chunks(lines)), _context(footer)]
     text = "Due today: " + ", ".join(

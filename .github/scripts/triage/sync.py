@@ -25,7 +25,7 @@ from .hours import (
     window,
     working_days_between,
 )
-from .rules import Owes, Tier, Verdict, assess, parse_time
+from .rules import Owes, Tier, Verdict, assess, parse_time, verdict_context
 from .slack import Identity, Message, SlackError, SlackUnknown
 from .state import (
     HELP_EVENT,
@@ -127,12 +127,14 @@ def _newer(a: str, b: str) -> bool:
     return float(a or 0) > float(b or 0)
 
 
-def load(messages: Iterable[dict[str, Any]]) -> Channel:
+def load(messages: Iterable[dict[str, Any]], identity: Identity) -> Channel:
     """Rebuild the bot's state from the channel's top-level messages."""
     roots: dict[int, Root] = {}
     overviews: list[Overview] = []
     help_message: tuple[str, str] | None = None
     for message in messages:
+        if message.get("bot_id") != identity.bot_id or message.get("user") != identity.user_id:
+            continue
         ts, latest = str(message["ts"]), str(message.get("latest_reply") or "")
         if (payload := read_metadata(message, ITEM_EVENT)) is not None:
             state = ItemState.from_payload(payload)
@@ -156,16 +158,17 @@ def load(messages: Iterable[dict[str, Any]]) -> Channel:
 
 def new_root_numbers(
     items: list[Item], channel: Channel, now: datetime, max_new: int
-) -> frozenset[int]:
-    """Return the new, tracked roots eligible for this run, in number order."""
-    numbers = sorted(
-        {
-            item.number
-            for item in items
-            if item.number not in channel.roots and assess(item, now) is not None
-        }
-    )
-    return frozenset(numbers[:max_new] if max_new > 0 else numbers)
+) -> tuple[int, ...]:
+    """Return new roots in the overview's urgency order, limited to this run's cap."""
+    rows = []
+    for item in items:
+        if item.number in channel.roots:
+            continue
+        assessment = assess(item, now)
+        if assessment is not None:
+            rows.append(render.Row(item, assessment, None, None))
+    numbers = [row.item.number for row in render.overview_order(rows, now)]
+    return tuple(numbers[:max_new] if max_new > 0 else numbers)
 
 
 def _hash(message: Message) -> str:
@@ -181,6 +184,7 @@ class Run:
         now: datetime,
         ended: Callable[[int], Ended | None],
         channel: Channel,
+        identity: Identity | None = None,
     ) -> None:
         self.slack = slack
         self.config = config
@@ -188,7 +192,7 @@ class Run:
         self.ended = ended
         self.channel = channel
         self.failures: list[str] = []
-        self.identity = slack.identity()
+        self.identity = identity or slack.identity()
         # Posts use `quiet`, and the edits after them use `people`. See the `render` module.
         self.people = render.People(config.users, config.oncall, mention=True)
         self.quiet = self.people.plain()
@@ -214,7 +218,7 @@ class Run:
             ts = str(reply["ts"])
             if ts == thread.ts:
                 continue
-            if (payload := read_metadata(reply, REPLY_EVENT)) is not None:
+            if self._is_bot(reply) and (payload := read_metadata(reply, REPLY_EVENT)) is not None:
                 thread.keys[str(payload.get("key", ""))] = ts
             elif _newer(ts, read_until) and self._human(reply):
                 requests.append(reply)
@@ -222,6 +226,23 @@ class Run:
                 newest = ts
         thread.read = True
         return sorted(requests, key=lambda r: float(r["ts"])), newest
+
+    def _is_bot(self, message: Mapping[str, Any]) -> bool:
+        return bool(
+            message.get("bot_id") == self.identity.bot_id
+            and message.get("user") == self.identity.user_id
+        )
+
+    def _ensure_reply_keys(self, thread: Thread) -> None:
+        if thread.read:
+            return
+        for reply in self.slack.replies(thread.ts):
+            ts = str(reply["ts"])
+            if ts == thread.ts or not self._is_bot(reply):
+                continue
+            if (payload := read_metadata(reply, REPLY_EVENT)) is not None:
+                thread.keys[str(payload.get("key", ""))] = ts
+        thread.read = True
 
     def _human(self, message: dict[str, Any]) -> bool:
         # A reply that is also sent to the channel has the `thread_broadcast` subtype. Other
@@ -250,19 +271,15 @@ class Run:
         self._attempt("instructions", self._instructions)
         rows: dict[int, render.Row] = {}
         open_numbers = {item.number for item in items}
-        roots_started = 0
-
-        def root_started() -> None:
-            nonlocal roots_started
-            roots_started += 1
-
-        for item in sorted(items, key=lambda item: item.number):
-            can_create = self.config.max_new <= 0 or roots_started < self.config.max_new
+        selected = new_root_numbers(items, self.channel, self.now, self.config.max_new)
+        selected_set = set(selected)
+        by_number = {item.number: item for item in items}
+        ordered = [by_number[number] for number in selected]
+        ordered.extend(item for item in items if item.number not in selected_set)
+        for item in ordered:
             self._attempt(
                 f"#{item.number}",
-                lambda item=item, can_create=can_create: self._item(
-                    item, rows, can_create, root_started
-                ),
+                lambda item=item: self._item(item, rows, item.number in selected_set),
             )
         for number, root in self.channel.roots.items():
             if number not in open_numbers and not root.state.status.final:
@@ -299,16 +316,33 @@ class Run:
         item: Item,
         rows: dict[int, render.Row],
         can_create: bool,
-        root_started: Callable[[], None],
     ) -> None:
         root = self.channel.roots.get(item.number)
-        previous = root.state.verdict if root else None
-        # This run's verdict wins over the cached one, which `assess` drops if it is stale.
+        context = verdict_context(item)
+        context_matches = root is not None and root.state.verdict_context == context
+        previous = root.state.verdict if context_matches and root else None
         verdict = self.config.claude.verdicts.get(item.number) or previous
-        assessment = assess(item, self.now, verdict, root.state.priority if root else None)
-        asked_at = root.state.asked_at if root else 0.0
+        assessment = assess(
+            item,
+            self.now,
+            verdict,
+            root.state.priority if root else None,
+            context if context_matches or item.number in self.config.claude.verdicts else "",
+        )
+        asked_at = root.state.asked_at if context_matches and root else 0.0
         if item.number in self.config.claude.asked:
             asked_at = self.now.timestamp()
+        priority = root.state.priority if root else None
+        pending_note = root.state.pending_claude_note if context_matches and root else ""
+        if item.number in self.config.claude.verdicts:
+            pending_note = self._claude_note(item, previous, verdict, priority)
+        saved_context = (
+            context
+            if context_matches
+            or item.number in self.config.claude.asked
+            or item.number in self.config.claude.verdicts
+            else ""
+        )
         if assessment is None:
             if root is not None and root.state.status is Status.OPEN:
                 # A teammate answered the external comment on a team item. Otherwise the item
@@ -334,28 +368,36 @@ class Run:
                 seen_external_at=assessment.last_external_at or "",
                 verdict=verdict,
                 asked_at=asked_at,
+                verdict_context=saved_context,
+                pending_claude_note=pending_note,
             )
             # `_save` edits the mentions in later in this run.
             message = render.card(replace(row, state=state), self.now, self.quiet)
             state = replace(state, card=_hash(message))
-            try:
-                ts = self.slack.post(message, metadata(ITEM_EVENT, state.payload()))
-            except SlackUnknown:
-                root_started()
-                raise
-            root_started()
+            ts = self.slack.post(message, metadata(ITEM_EVENT, state.payload()))
             root = Root(Thread(ts, ""), state, state)
             self.channel.roots[item.number] = root
             rows[item.number] = render.Row(item, assessment, state, self._link(ts))
-            self._claude_moved(root.thread, item, None, verdict, None)
+            self._deliver_claude_note(root)
+            rows[item.number] = render.Row(item, assessment, root.state, self._link(ts))
             return
 
-        state = replace(root.state, status=Status.OPEN, verdict=verdict, asked_at=asked_at)
+        state = replace(
+            root.state,
+            status=Status.OPEN,
+            verdict=verdict,
+            asked_at=asked_at,
+            verdict_context=saved_context,
+            pending_claude_note=pending_note,
+        )
         link = self._link(root.thread.ts)
         # A failed Slack call below must cost only this item's thread work, not its place in the
         # overview and the reminders. A retry on the next run cannot post twice, because every
         # reply carries a key.
         rows[item.number] = render.Row(item, assessment, state, link)
+        root.state = state
+        if state != root.saved:
+            self._save(rows[item.number])
         requests, read_until = self._requests(root.thread, state.read_until)
         for request in requests:
             state = self._command(root.thread, state, request)
@@ -376,38 +418,54 @@ class Run:
             if wake:
                 state = state.unsnoozed()
             state = replace(state, seen_external_at=last_external)
-        # A failed note leaves the old verdict and ask time in Slack, so a later run asks Claude
-        # again and retries the note.
-        self._claude_moved(root.thread, item, previous, verdict, state.priority)
         root.state = state
+        self._deliver_claude_note(root)
+        state = root.state
         rows[item.number] = render.Row(item, assessment, state, link)
 
-    def _claude_moved(
+    def _claude_note(
         self,
-        thread: Thread,
         item: Item,
         previous: Verdict | None,
         verdict: Verdict | None,
         priority: Tier | None,
-    ) -> None:
-        """Say in the item's thread when a new verdict changes Claude's choice of tier.
-
-        Each change gets a note, so that the thread shows every tier that Claude chose and why.
-        """
+    ) -> str:
+        """Serialize a pending tier-change note with a key stable across repeated evaluations."""
         if verdict is None or item.number not in self.config.claude.verdicts:
-            return
+            return ""
         rules = assess(item, self.now)
         old = previous.tier if previous is not None else None
         if rules is None or verdict.tier is old:
-            return
+            return ""
         before, after = old or rules.tier, verdict.tier or rules.tier
         if before is after:
-            return
+            return ""
         note = render.claude_moved(
             before, after, verdict.tier is None, verdict.tier_reason, priority
         )
-        key = f"claude:{verdict.checked_at.timestamp():.0f}"
-        self._reply(thread, key, lambda _people: note)
+        previous_check = f"{previous.checked_at.timestamp():.6f}" if previous else "initial"
+        key = f"claude:{verdict.activity_at}:{previous_check}:{before.value}->{after.value}"
+        return json.dumps(
+            {
+                "key": key,
+                "text": note.text,
+                "blocks": note.blocks,
+                "attachments": note.attachments,
+            },
+            separators=(",", ":"),
+        )
+
+    def _deliver_claude_note(self, root: Root) -> None:
+        if not root.state.pending_claude_note:
+            return
+        pending = json.loads(root.state.pending_claude_note)
+        note = Message(
+            text=pending["text"],
+            blocks=tuple(pending.get("blocks", ())),
+            attachments=tuple(pending.get("attachments", ())),
+        )
+        self._reply(root.thread, pending["key"], lambda _people: note)
+        root.state = replace(root.state, pending_claude_note="")
 
     def _command(self, thread: Thread, state: ItemState, request: dict[str, Any]) -> ItemState:
         command = parse(str(request.get("text") or ""))
@@ -530,12 +588,14 @@ class Run:
         self, thread: Thread, state: OverviewState, rows: list[render.Row]
     ) -> OverviewState:
         """Post or edit the reply in the overview's thread that lists what waits on contributors."""
+        if state.waiting:
+            self._ensure_reply_keys(thread)
         key = f"waiting:{state.day}"
         data = metadata(REPLY_EVENT, {"key": key})
         message = render.waiting(rows, self.now, self.people)
         # A run that posted the reply but stopped before it saved the overview finds the reply by
         # its key, so it never posts a second list.
-        ts = state.waiting or thread.keys.get(key, "")
+        ts = thread.keys.get(key, "")
         card = _hash(message)
         if not ts:
             ts = self.slack.post(message, data, thread.ts)

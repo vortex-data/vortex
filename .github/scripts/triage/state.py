@@ -62,6 +62,10 @@ class ItemState:
     # When the bot last asked Claude about the item, whether or not Claude answered. It spaces out
     # Claude's looks at a busy item.
     asked_at: float = 0.0
+    # The draft/label context in which the cached verdict was evaluated.
+    verdict_context: str = ""
+    # A serialized tier-change reply that remains pending until its keyed post is found.
+    pending_claude_note: str = ""
     # The tier that a teammate chose with `!priority`, and their Slack user ID. None lets the bot
     # decide.
     priority: Tier | None = None
@@ -87,6 +91,8 @@ class ItemState:
             "seen_external_at": self.seen_external_at,
             "card": self.card,
             "asked_at": _num(self.asked_at),
+            "verdict_context": self.verdict_context,
+            "pending_claude_note": self.pending_claude_note,
             "priority": self.priority.value if self.priority else "",
             "priority_by": self.priority_by,
         }
@@ -130,6 +136,8 @@ class ItemState:
                 card=str(payload.get("card", "")),
                 verdict=verdict,
                 asked_at=float(payload.get("asked_at") or 0),
+                verdict_context=str(payload.get("verdict_context", "")),
+                pending_claude_note=str(payload.get("pending_claude_note", "")),
                 priority=Tier(payload["priority"]) if payload.get("priority") else None,
                 priority_by=str(payload.get("priority_by", "")),
             )

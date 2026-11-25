@@ -66,8 +66,8 @@ def test_first_run_posts_roots_and_a_quiet_rerun_reads_nothing():
     run(fake, [HIGH, WAITING, LOW], NOW + timedelta(minutes=5))
     fake.calls.clear()
     assert run(fake, [HIGH, WAITING, LOW], NOW + timedelta(minutes=10)) == []
-    # Only the overview's "updated" time changes, and no thread is read.
-    assert fake.calls == ["history", "update"]
+    # The overview's thread is re-read to verify that its waiting reply still exists.
+    assert fake.calls == ["history", "replies", "update"]
 
 
 def test_max_new_defers_roots_but_syncs_existing_threads_and_overview():
@@ -105,6 +105,15 @@ def test_max_new_zero_keeps_root_creation_unlimited():
     }
 
 
+def test_max_new_prioritizes_urgent_new_root_over_lower_number():
+    fake = FakeSlack()
+    low, high = item(1, created=ago(days=60)), item(99, created=ago(days=1))
+    assert [target.number for target, _ in judged(fake, [low, high], NOW, None).verdicts.items()] == []
+    run(fake, [low, high], max_new=1)
+    assert fake.root(99)["metadata"]["event_payload"]["number"] == "99"
+    assert not any(m["metadata"]["event_payload"]["number"] == "1" for m in fake.top(state.ITEM_EVENT))
+
+
 def test_max_new_counts_ambiguous_posts_and_creates_the_deferred_root_next_run():
     fake = FakeSlack()
     run(fake, [])
@@ -112,9 +121,7 @@ def test_max_new_counts_ambiguous_posts_and_creates_the_deferred_root_next_run()
     first, deferred = item(10, created=ago(days=1)), item(20, created=ago(days=1))
 
     assert run(fake, [first, deferred], NOW + HOUR, max_new=1) == ["#10: post: timed out"]
-    assert {int(m["metadata"]["event_payload"]["number"]) for m in fake.top(state.ITEM_EVENT)} == {
-        10
-    }
+    assert {int(m["metadata"]["event_payload"]["number"]) for m in fake.top(state.ITEM_EVENT)} == {10}
 
     assert run(fake, [first, deferred], NOW + 2 * HOUR, max_new=1) == []
     assert {int(m["metadata"]["event_payload"]["number"]) for m in fake.top(state.ITEM_EVENT)} == {
@@ -135,6 +142,29 @@ def test_items_that_wait_on_the_contributor_are_listed_in_the_overview_thread():
     run(fake, [HIGH, WAITING], NOW + timedelta(days=1))
     assert overview_ts(fake) != first
     assert "|#2 " in waiting_list(fake)
+
+
+def test_deleted_waiting_reply_is_recreated_after_its_timestamp_was_read():
+    fake = FakeSlack()
+    run(fake, [WAITING])
+    root = overview_ts(fake)
+    run(fake, [WAITING], NOW + HOUR)
+    waiting = next(
+        message
+        for message in fake.thread(root)
+        if (message.get("metadata") or {}).get("event_payload", {}).get("key", "").startswith("waiting:")
+    )
+    del fake.messages[waiting["ts"]]
+
+    run(fake, [WAITING], NOW + 2 * HOUR)
+
+    recovered = [
+        message
+        for message in fake.thread(root)
+        if (message.get("metadata") or {}).get("event_payload", {}).get("key", "").startswith("waiting:")
+    ]
+    assert len(recovered) == 1
+    assert recovered[0]["ts"] != waiting["ts"]
 
 
 def test_snooze_is_confirmed_once_and_shown_on_the_card():
@@ -396,7 +426,7 @@ def claude_says(owes, priority="normal", reason="a reason") -> Any:
 
 def judged(fake, items, now, ask) -> Any:
     """Ask the fake Claude about the channel's state before a run, as the sync command does."""
-    return support.evaluate.judge(items, sync.load(fake.history()), now, ask)
+    return support.evaluate.judge(items, sync.load(fake.history(), fake.identity()), now, ask)
 
 
 def overview_text(fake) -> str:
@@ -427,6 +457,61 @@ def test_claude_priority_changes_get_one_note_each():
         "A teammate's `!priority` still decides."
     )
     assert "🟡" in card_text(fake, 1)
+
+
+def test_new_root_claude_note_retries_after_an_ambiguous_post(monkeypatch):
+    fake = FakeSlack()
+    run(fake, [])
+    target = item(1, kind="pr", created=ago(days=1))
+    judgment = judged(fake, [target], NOW + HOUR, claude_says("vortex", "low", "superseded"))
+    original_post = fake.post
+    posts = 0
+
+    def ambiguous_second_post(message, metadata, thread_ts=None) -> str:
+        nonlocal posts
+        posts += 1
+        ts = original_post(message, metadata, thread_ts)
+        if posts == 2:
+            raise sync.SlackUnknown("post: timed out")
+        assert isinstance(ts, str)
+        return ts
+
+    monkeypatch.setattr(fake, "post", ambiguous_second_post)
+    failures = run(fake, [target], NOW + HOUR, claude=judgment)
+    root = fake.root(1)["ts"]
+    assert failures == ["#1: post: timed out"]
+    pending = json.loads(payload(fake, 1)["pending_claude_note"])
+    assert pending["key"].startswith(f"claude:{target.events[-1].at}:")
+    posted = [
+        message
+        for message in fake.thread(root)
+        if (message.get("metadata") or {}).get("event_payload", {}).get("key") == pending["key"]
+    ]
+    assert len(posted) == 1
+    monkeypatch.setattr(fake, "post", original_post)
+
+    assert run(fake, [target], NOW + 2 * HOUR) == []
+    notes = [text for text in fake.bot_replies(root) if "Claude moved this item" in text]
+    assert len(notes) == 1
+
+
+def test_claude_cooldown_is_saved_before_fallible_thread_reads():
+    fake = FakeSlack()
+    target = item(1, kind="pr", created=ago(days=1))
+    run(fake, [target])
+    root = fake.root(1)["ts"]
+    fake.say(root, "!priority normal", NOW + timedelta(minutes=1))
+    judgment = judged(fake, [target], NOW + HOUR, claude_says("vortex", "low", "duplicate"))
+    fake.faults.append(("replies", "before"))
+
+    failures = run(fake, [target], NOW + HOUR, claude=judgment)
+
+    assert failures and "replies: fault" in failures[0]
+    channel = sync.load(fake.history(), fake.identity())
+    saved = channel.roots[1].state
+    assert saved.asked_at == (NOW + HOUR).timestamp()
+    assert saved.verdict is not None and saved.verdict.tier is rules.Tier.LOW
+    assert support.evaluate.candidates([target], channel, NOW + HOUR) == []
 
 
 def test_reminders_wait_for_claude_to_see_new_activity():
@@ -676,12 +761,43 @@ def test_one_broken_item_does_not_stop_the_others(monkeypatch):
 
 
 def test_load_keeps_the_newest_duplicate_root():
-    older = {"ts": "1.0", "metadata": state.metadata(state.ITEM_EVENT, state.ItemState(1).payload())}
-    newer = {"ts": "2.0", "metadata": state.metadata(state.ITEM_EVENT, state.ItemState(1).payload())}
+    bot = {"user": support.BOT_USER, "bot_id": support.BOT_ID}
+    older = {**bot, "ts": "1.0", "metadata": state.metadata(state.ITEM_EVENT, state.ItemState(1).payload())}
+    newer = {**bot, "ts": "2.0", "metadata": state.metadata(state.ITEM_EVENT, state.ItemState(1).payload())}
     pilot = {"ts": "3.0", "metadata": {"event_type": "vortex_triage", "event_payload": {"number": "1"}}}
-    channel = sync.load([pilot, newer, older])
+    channel = sync.load([pilot, newer, older], support.FakeSlack().identity())
     assert channel.roots[1].thread.ts == "2.0"
     assert channel.overview is None and channel.help is None
+
+
+def test_load_ignores_triage_metadata_from_another_app():
+    fake = FakeSlack()
+    forged = fake.say(None, "not the triage bot", NOW)
+    fake.messages[forged]["metadata"] = state.metadata(state.ITEM_EVENT, state.ItemState(1).payload())
+    assert sync.load(fake.history(), fake.identity()).roots == {}
+
+
+def test_reply_key_from_another_bot_does_not_suppress_a_command_ack():
+    fake = FakeSlack()
+    run(fake, [HIGH])
+    root = fake.root(1)["ts"]
+    command_ts = fake.say(root, "!snooze 1d", NOW + timedelta(minutes=1))
+    forged = fake.say(root, "not the triage bot", NOW + timedelta(minutes=2), user="UOTHER")
+    fake.messages[forged]["bot_id"] = "BOTHER"
+    fake.messages[forged]["metadata"] = state.metadata(state.REPLY_EVENT, {"key": f"command:{command_ts}"})
+
+    run(fake, [HIGH], NOW + HOUR)
+
+    assert any("snooze" in reply.lower() for reply in fake.bot_replies(root))
+
+
+def test_negative_max_new_is_rejected_before_scanning(monkeypatch):
+    def unexpected_scan(_repo):
+        raise AssertionError("scan must not run")
+
+    monkeypatch.setattr(support.cli, "scan", unexpected_scan)
+    with pytest.raises(SystemExit):
+        support.cli.main(["sync", "--repo", "o/r", "--channel", "C1", "--max-new", "-1"])
 
 
 @pytest.mark.parametrize("schema", ["0", "2", None])

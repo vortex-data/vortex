@@ -39,11 +39,15 @@ def row(number, tier=Tier.HIGH, owes=Owes.VORTEX, score=0.0, title="A title", re
 
 
 def blocks_of(message) -> int:
-    return len(message.blocks) + sum(len(a["blocks"]) for a in message.attachments)
+    return len(message.blocks) + sum(len(a.get("blocks", ())) for a in message.attachments)
 
 
 def texts_of(message) -> list[str]:
-    return [block["text"]["text"] for a in message.attachments for block in a["blocks"]]
+    return [
+        a["text"] if "text" in a else block["text"]["text"]
+        for a in message.attachments
+        for block in (a.get("blocks") or ({"text": {"text": a["text"]}},))
+    ]
 
 
 def test_overview_groups_sections_in_order_with_colors():
@@ -62,7 +66,13 @@ def test_overview_groups_sections_in_order_with_colors():
     )
     # Items that wait on the contributor are only counted, because a reply in the thread lists them.
     assert [a["color"] for a in message.attachments] == [s.color for s in (render.HIGH, render.NORMAL, render.LOW)]
-    high = texts_of(message)[1]
+    high = texts_of(message)[0]
+    assert [a["title"] for a in message.attachments] == [
+        "🔴 High · 2",
+        "🟡 Normal · 1",
+        "⚪ Low · 1",
+    ]
+    assert all(a["mrkdwn_in"] == ["text"] for a in message.attachments)
     # The highest score comes first.
     assert high.index("|#3 ") < high.index("|#2 ")
     # Each item takes two lines, and a blank line separates the items.
@@ -109,24 +119,26 @@ def test_overview_hides_snoozed_items_and_counts_them():
 
 # Mentions are longer than logins, so the limits must hold for the edited overview as well.
 @pytest.mark.parametrize("people", [PLAIN, MENTIONS], ids=["plain", "mentions"])
-def test_overview_fits_slack_limits_and_cuts_low_first(people):
+def test_overview_uses_collapsible_attachments_and_keeps_all_rows(people):
     long = "x" * 200
     rows = [row(n, Tier.HIGH, title=long) for n in range(1, 41)]
     rows += [row(n, Tier.NORMAL, title=long) for n in range(100, 200)]
     rows += [row(n, Tier.LOW, title=long) for n in range(1000, 3000)]
     rows += [row(n, Tier.NORMAL, owes=Owes.CONTRIBUTOR, title=long) for n in range(5000, 5100)]
     message = render.overview(rows, NOW.date(), NOW, people, "")
-    assert blocks_of(message) <= 50
-    assert all(len(text) <= 3000 for text in texts_of(message))
+    assert len(message.blocks) == 2
+    assert len(message.attachments) <= 100
+    assert all(len(attachment["text"]) <= render.MAX_ATTACHMENT_TEXT_CHARS for attachment in message.attachments)
     body = "\n".join(texts_of(message))
-    # Every High row survives, and Low is cut before anything else.
-    assert all(f"|#{n} " in body for n in range(1, 41))
-    assert "_+" in body
-    # Every list block asks Slack to show its whole text, without a "see more" link.
-    assert all(b.get("expand") for a in message.attachments for b in a["blocks"][1:])
-    low = next(a for a in message.attachments if a["color"] == render.LOW.color)
-    assert "more_" in json.dumps(low)
+    assert all(f"|#{n} " in body for n in [*range(1, 41), *range(100, 200), *range(1000, 3000)])
+    assert "_+" not in body
+    titles = [attachment["title"] for attachment in message.attachments]
+    assert "🔴 High · 40" in titles
+    assert "🟡 Normal · 100" in titles
+    assert "⚪ Low · 2000" in titles
     assert "⚪ 2000 Low" in message.blocks[1]["elements"][0]["text"]
+    if people is MENTIONS:
+        assert "<@UGATESN>" in body
 
 
 def test_long_waiting_list_fits_slack_limits():
@@ -139,7 +151,7 @@ def test_long_waiting_list_fits_slack_limits():
 
 def first_line(target) -> str:
     """Return the first line of an overview entry as Slack shows it, without link targets."""
-    text = render.overview([target], NOW.date(), NOW, PLAIN, "").attachments[0]["blocks"][1]["text"]["text"]
+    text = render.overview([target], NOW.date(), NOW, PLAIN, "").attachments[0]["text"]
     return re.sub(r"<[^|>]*\|([^>]*)>", r"\1", text.split("\n")[0])
 
 
@@ -158,7 +170,7 @@ def test_overview_entry_cuts_the_title_to_fit_one_line_and_names_the_commenter()
     comment = replace(
         comment, item=team_item, assessment=replace(comment.assessment, category=Category.EXTERNAL_COMMENT)
     )
-    text = render.overview([comment], NOW.date(), NOW, PLAIN, "").attachments[0]["blocks"][1]["text"]["text"]
+    text = render.overview([comment], NOW.date(), NOW, PLAIN, "").attachments[0]["text"]
     assert "> · bob\n\u2003\u2003unassigned · waiting 2d · <" in text
     # A bug that the team filed names nobody, because nobody outside the team is involved.
     bug = row(3)
@@ -212,9 +224,11 @@ def test_summary_mentions_each_person_once_and_links_their_item_threads():
     message = render.reminder_summary({"UALICE": [row(1), row(2)], None: [row(3)]})
     assert message.text == "Due today: <@UALICE> 2 items, On-call (not set) 1 item"
     assert (
-        "<@UALICE> · 2 items: <https://example.slack.com/archives/C1/p1|#1>, "
-        "<https://example.slack.com/archives/C1/p2|#2>"
+        "<@UALICE> · 2 items: <https://example.slack.com/archives/C1/p1|#1 card>, "
+        "<https://example.slack.com/archives/C1/p2|#2 card>"
     ) in json.dumps(message.blocks, ensure_ascii=False)
+    assert "Open each card" in message.blocks[0]["text"]["text"]
+    assert "Reply `!snooze 2d` in a card's thread" in message.blocks[-1]["elements"][0]["text"]
     # One person's line cannot be split across sections, so a long list is cut short.
     many = render.reminder_summary({"UALICE": [row(n) for n in range(1, 1001)]})
     assert all(len(b["text"]["text"]) <= 3000 for b in many.blocks if b["type"] == "section")
