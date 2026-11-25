@@ -47,7 +47,9 @@ use crate::scan::repeated_scan::RepeatedScan;
 use crate::scan::repeated_scan::ScanTasks;
 use crate::scan::repeated_scan::SplitConcurrency;
 use crate::scan::split_by::SplitBy;
+use crate::scan::splits::NaturalSplits;
 use crate::scan::splits::Splits;
+use crate::scan::splits::Subdivision;
 use crate::scan::splits::attempt_split_ranges;
 
 /// Builder for scanning a [`LayoutReader`] into arrays, streams, iterators, or mapped outputs.
@@ -399,18 +401,18 @@ impl<A: 'static + Send> ScanBuilder<A> {
                 Splits::Ranges(ranges)
             } else if let Some(boundaries) = self.natural_splits {
                 // Caller-supplied full-file boundaries; execution clamps them to the row range.
-                Splits::Natural(boundaries)
+                Splits::Natural(NaturalSplits::new(boundaries, Subdivision::Whole))
             } else {
                 let field_mask = referenced_field_masks(&bound_projection, bound_filter.as_ref())?;
                 let split_range = self
                     .row_range
                     .clone()
                     .unwrap_or_else(|| 0..layout_reader.row_count());
-                Splits::Natural(
-                    self.split_by
-                        .splits(layout_reader.as_ref(), &split_range, &field_mask)?
-                        .into(),
-                )
+                Splits::Natural(self.split_by.natural_splits(
+                    layout_reader.as_ref(),
+                    &split_range,
+                    &field_mask,
+                )?)
             };
 
         Ok(RepeatedScan::new(
@@ -490,7 +492,7 @@ impl<A: 'static + Send> Stream for LazyScanStream<A> {
                     let builder = builder.take().vortex_expect("polled after completion");
                     let handle = builder.session.handle();
                     // IMPORTANT: Building the stream can synchronously walk the layout and
-                    // register I/O for every split. Keep it with preparation in this CPU
+                    // register I/O for the first splits. Keep it with preparation in this CPU
                     // task: poll_next must only wait for and poll an already-constructed stream.
                     // This also keeps construction errors on the Preparing -> Error path rather
                     // than running construction on the caller's executor.

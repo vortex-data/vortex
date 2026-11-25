@@ -18,7 +18,7 @@ use futures::ready;
 use futures::stream;
 use futures::stream::BoxStream;
 use itertools::Either;
-use itertools::Itertools;
+use itertools::peek_nth;
 use vortex_array::ArrayRef;
 use vortex_array::dtype::DType;
 use vortex_array::iter::ArrayIterator;
@@ -115,6 +115,9 @@ impl<A: 'static + Send> RepeatedScan<A> {
     /// No tasks are spawned. Each future returns the mapped split, or `None` when its split is
     /// filtered out. The futures may be polled independently in any order.
     ///
+    /// The result holds one future for each split, so its size follows the row count of the file.
+    /// [`Self::execute_stream`] prepares its splits as it advances instead.
+    ///
     /// Scans with row limits must use [`Self::execute_stream`] so the scan can coordinate the
     /// limit across splits.
     pub fn execute(&self, row_range: Option<Range<u64>>) -> VortexResult<ScanTasks<A>> {
@@ -200,7 +203,13 @@ impl<A: 'static + Send> RepeatedScan<A> {
         })
     }
 
-    fn split_ranges(&self, row_range: Option<Range<u64>>) -> Vec<Range<u64>> {
+    /// The row ranges of the splits within `row_range`, in split order.
+    ///
+    /// The number of natural splits follows the row count of the file, so they are not collected.
+    fn split_ranges(
+        &self,
+        row_range: Option<Range<u64>>,
+    ) -> impl Iterator<Item = Range<u64>> + Send + use<A> {
         let selection_range: Option<Range<u64>> = match &self.selection {
             Selection::IncludeByIndex(buf) if !buf.is_empty() => {
                 Some(buf[0]..buf[buf.len() - 1] + 1)
@@ -214,52 +223,27 @@ impl<A: 'static + Send> RepeatedScan<A> {
         let row_range = intersect_ranges(row_range.as_ref(), selection_range);
 
         match &self.splits {
-            Splits::Natural(vec) => {
-                debug_assert!(vec.is_sorted());
-                let splits_iter = match row_range {
-                    None => Either::Left(vec.iter().copied()),
-                    Some(range) => {
-                        if range.is_empty() {
-                            return Vec::new();
-                        }
-                        let lo = vec.partition_point(|&x| x <= range.start);
-                        let hi = vec.partition_point(|&x| x < range.end);
-                        Either::Right(
-                            iter::once(range.start)
-                                .chain(vec[lo..hi].iter().copied())
-                                .chain(iter::once(range.end)),
-                        )
-                    }
-                };
-
-                splits_iter
-                    .tuple_windows()
-                    .map(|(start, end)| start..end)
-                    .collect()
-            }
-            Splits::Ranges(ranges) => match row_range {
-                None => ranges.to_vec(),
-                Some(range) => {
-                    if range.is_empty() {
-                        return Vec::new();
-                    }
-                    ranges
+            Splits::Natural(splits) => Either::Left(splits.ranges(row_range)),
+            Splits::Ranges(ranges) => Either::Right(
+                match row_range {
+                    None => ranges.clone(),
+                    Some(range) => ranges
                         .iter()
-                        .filter_map(move |r| {
+                        .filter_map(|r| {
                             let start = cmp::max(r.start, range.start);
                             let end = cmp::min(r.end, range.end);
                             (start < end).then_some(start..end)
                         })
-                        .collect()
+                        .collect(),
                 }
-            },
+                .into_iter(),
+            ),
         }
     }
 
     /// The non-empty row masks of the splits within `row_range`, in split order.
     fn split_masks(&self, row_range: Option<Range<u64>>) -> impl Iterator<Item = RowMask> + '_ {
         self.split_ranges(row_range)
-            .into_iter()
             .filter_map(|range| selected_mask(&self.selection, &range))
     }
 
@@ -279,7 +263,7 @@ impl<A: 'static + Send> RepeatedScan<A> {
             return Ok(stream::empty().boxed());
         }
         let ctx = self.task_context();
-        let mut ranges = self.split_ranges(row_range).into_iter();
+        let mut ranges = self.split_ranges(row_range);
         let first_mask = ranges
             .by_ref()
             .find_map(|range| selected_mask(&self.selection, &range));
@@ -339,24 +323,36 @@ impl<A: 'static + Send> RepeatedScan<A> {
                 buffer(mapped, ordered, concurrency)
             }
             limit => {
-                // Build eagerly to register I/O up front. Without a filter, selected row counts
-                // are exact, so a limit can also be reserved here in split order.
-                let mut tasks = Vec::new();
-                for row_mask in iter::once(first_mask)
-                    .chain(ranges.filter_map(|range| selected_mask(&self.selection, &range)))
-                {
-                    let row_mask = match &limit {
-                        Some(limit) if limit.is_exhausted() => break,
-                        Some(limit) => RowMask::new(
-                            row_mask.row_range().start,
-                            limit.limit(row_mask.mask().clone()),
-                        ),
-                        None => row_mask,
-                    };
-                    tasks.push(map_split(split_exec(&ctx, row_mask)?, map_fn));
-                }
+                // Without a filter, selected row counts are exact, so each task reserves its
+                // rows from a limit as it is prepared, in split order.
+                let selection = self.selection.clone();
+                let map_fn = Arc::clone(map_fn);
+                let mut failed = false;
+                let tasks = iter::once(first_mask)
+                    .chain(ranges.filter_map(move |range| selected_mask(&selection, &range)))
+                    .map_while(move |row_mask| {
+                        if failed {
+                            return None;
+                        }
+                        let row_mask = match &limit {
+                            Some(limit) if limit.is_exhausted() => return None,
+                            Some(limit) => RowMask::new(
+                                row_mask.row_range().start,
+                                limit.limit(row_mask.mask().clone()),
+                            ),
+                            None => row_mask,
+                        };
+                        // An error ends the stream, so no later split needs a task.
+                        Some(match split_exec(&ctx, row_mask) {
+                            Ok(task) => map_split(task, &map_fn),
+                            Err(error) => {
+                                failed = true;
+                                future::ready(Err(error)).boxed()
+                            }
+                        })
+                    });
                 buffer(
-                    stream::iter(tasks).map(move |task| handle.spawn(task)),
+                    stream::iter(prepare_ahead(tasks)).map(move |task| handle.spawn(task)),
                     ordered,
                     concurrency,
                 )
@@ -367,6 +363,31 @@ impl<A: 'static + Send> RepeatedScan<A> {
 
         Ok(stop_on_error(arrays))
     }
+}
+
+/// The number of split tasks that a scan prepares ahead of the ones it has started.
+///
+/// Preparing a task registers its I/O, and the reads of a started split coalesce with registered
+/// reads that are close to them. The window keeps that read-ahead while it bounds the memory of a
+/// scan: the number of splits follows the row count, and a file can declare any row count (see
+/// [`NaturalSplits`](crate::scan::splits::NaturalSplits)).
+///
+/// At the default split size the window covers about 100 million rows, so a scan of a smaller
+/// file still prepares every split before it starts. A smaller window lets fewer reads coalesce.
+/// A larger window holds more prepared tasks in memory.
+const SPLIT_LOOKAHEAD: usize = 1024;
+
+/// Iterate `tasks` with up to [`SPLIT_LOOKAHEAD`] of them prepared ahead of the one taken.
+///
+/// The first tasks are prepared before this function returns.
+fn prepare_ahead<T>(tasks: impl Iterator<Item = T>) -> impl Iterator<Item = T> {
+    let mut tasks = peek_nth(tasks);
+    tasks.peek_nth(SPLIT_LOOKAHEAD - 1);
+    iter::from_fn(move || {
+        let task = tasks.next();
+        tasks.peek_nth(SPLIT_LOOKAHEAD - 1);
+        task
+    })
 }
 
 /// This function returns `None` if the selection excludes every row in `range`.
@@ -501,6 +522,7 @@ fn can_prune_conjuncts(filter: &FilterExpr, reader: &dyn LayoutReader) -> Vortex
 
 #[cfg(test)]
 mod tests {
+    use std::cell::Cell;
     use std::num::NonZeroUsize;
     use std::sync::Arc;
     use std::task::Poll;
@@ -514,10 +536,28 @@ mod tests {
     use vortex_error::VortexResult;
     use vortex_error::vortex_err;
 
+    use super::SPLIT_LOOKAHEAD;
     use super::SplitConcurrency;
     use super::limit_rows;
+    use super::prepare_ahead;
     use super::stop_on_error;
     use crate::scan::limit::RowLimit;
+
+    #[test]
+    fn prepare_ahead_keeps_a_bounded_window() {
+        let prepared = Cell::new(0);
+        let mut tasks = prepare_ahead((0..).inspect(|_| prepared.set(prepared.get() + 1)));
+        assert_eq!(prepared.get(), SPLIT_LOOKAHEAD);
+
+        assert_eq!(tasks.next(), Some(0));
+        assert_eq!(tasks.next(), Some(1));
+        assert_eq!(prepared.get(), SPLIT_LOOKAHEAD + 2);
+    }
+
+    #[test]
+    fn prepare_ahead_yields_every_task_in_order() {
+        assert_eq!(prepare_ahead(0..3).collect::<Vec<_>>(), [0, 1, 2]);
+    }
 
     #[test]
     fn split_cap_handles_oversized_per_worker_concurrency() {
