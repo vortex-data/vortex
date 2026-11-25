@@ -12239,6 +12239,7 @@ dependencies = [
  "arrow-array 60.2.0",
  "arrow-row 60.1.0",
  "codspeed-divan-compat",
+ "hegeltest",
  "mimalloc",
  "num-traits",
  "rand 0.10.3",
