@@ -266,7 +266,7 @@ mod tests {
         Ok(())
     }
 
-    /// A batch of a table with a column of random floats and a constant string column.
+    /// Random floats and a constant string column.
     fn constant_column_batch(index: usize) -> VortexResult<ArrayRef> {
         let mut state = (index as u64 + 1).wrapping_mul(0x9E37_79B9_7F4A_7C15);
         let mut next = move || {
@@ -289,9 +289,6 @@ mod tests {
         .into_array())
     }
 
-    /// A constant column compresses to almost nothing. The input that the write did not split into
-    /// columns yet holds the values of the constant column too, so the ratio for that input must
-    /// include the constant column.
     #[rstest]
     #[case::before_the_first_block(8)]
     #[case::after_the_first_block(24)]

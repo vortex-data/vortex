@@ -92,9 +92,7 @@ impl LayoutStrategy for ConstantStrategy {
                 .await;
         }
 
-        // A constant column compresses to almost nothing. Record this, so that the compression
-        // ratio of the write includes the column. The write uses that ratio for the input that it
-        // did not split into columns yet, which also holds the values of this column.
+        // Record constant chunks as zero bytes so the compression ratio includes them.
         let size_scope = ctx.size_scope().child();
 
         let mut exec_ctx = session.create_execution_ctx();
