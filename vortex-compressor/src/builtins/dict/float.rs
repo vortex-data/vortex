@@ -391,17 +391,16 @@ mod tests {
             0.0f64,
             f64::INFINITY,
         ];
-        let array = PrimitiveArray::from_iter(input.iter().copied());
-        let stats = FloatStats::generate_opts(
-            &array,
-            GenerateStatsOptions {
-                count_distinct_values: true,
-            },
-            &mut ctx,
-        );
+        let array_a = PrimitiveArray::from_iter(input.iter().copied());
+        let array_b = PrimitiveArray::from_iter(input.iter().rev().copied());
+        let opts = GenerateStatsOptions {
+            count_distinct_values: true,
+        };
+        let stats_a = FloatStats::generate_opts(&array_a, opts, &mut ctx);
+        let stats_b = FloatStats::generate_opts(&array_b, opts, &mut ctx);
 
-        let dict_a = dictionary_encode(array.as_view(), &stats)?;
-        let dict_b = dictionary_encode(array.as_view(), &stats)?;
+        let dict_a = dictionary_encode(array_a.as_view(), &stats_a)?;
+        let dict_b = dictionary_encode(array_b.as_view(), &stats_b)?;
         let bits_a: Vec<u64> = dict_a
             .values()
             .as_::<Primitive>()
