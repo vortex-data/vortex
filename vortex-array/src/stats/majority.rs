@@ -15,11 +15,15 @@
 //! compiler keep the lanes in vector registers. A second pass counts the merged candidate, since
 //! the vote alone cannot tell a majority from the last survivor of an input without one.
 //!
-//! On x86-64 the loops are also compiled for AVX2 and chosen at runtime. The baseline target has
-//! no 64-bit vector compare, which leaves 64-bit keys to scalar code in some instantiations.
+//! [`fearless_simd`] compiles the loops once per instruction set level, such as AVX2 or NEON,
+//! and selects one for the current CPU at runtime. LLVM vectorizes each of them.
 //!
 //! [Boyer–Moore majority vote]: https://en.wikipedia.org/wiki/Boyer%E2%80%93Moore_majority_vote_algorithm
 
+use fearless_simd::Level;
+use fearless_simd::Simd;
+use fearless_simd::dispatch;
+use fearless_simd_macros::simd;
 use vortex_buffer::BitBuffer;
 use vortex_mask::Mask;
 
@@ -120,26 +124,20 @@ pub fn sampled_majority<T: MajorityKey>(values: &[T], validity: &Mask) -> Option
 /// Returns the merged candidate of a lane vote over the valid values and its exact count, or
 /// `None` when no value is valid.
 fn vote_and_count<T: MajorityKey>(values: &[T], validity: &Mask) -> Option<(T, usize)> {
-    #[cfg(target_arch = "x86_64")]
-    if std::arch::is_x86_feature_detected!("avx2") {
-        // SAFETY: the CPU supports AVX2, which is the only feature the kernel enables.
-        return unsafe { vote_and_count_avx2(values, validity) };
-    }
-    vote_and_count_portable(values, validity)
+    dispatch!(Level::new(), simd => vote_and_count_simd(simd, values, validity))
 }
 
-#[cfg(target_arch = "x86_64")]
-#[target_feature(enable = "avx2")]
-fn vote_and_count_avx2<T: MajorityKey>(values: &[T], validity: &Mask) -> Option<(T, usize)> {
-    vote_and_count_portable(values, validity)
-}
-
-#[expect(
-    clippy::inline_always,
-    reason = "the loops must inline into the AVX2 kernel to be compiled for it"
-)]
-#[inline(always)]
-fn vote_and_count_portable<T: MajorityKey>(values: &[T], validity: &Mask) -> Option<(T, usize)> {
+/// The vote and count, compiled with the target features of `simd`.
+///
+/// The loops below are plain Rust, inlined here so that each level's instantiation compiles them
+/// with its features. The x86-64 baseline has no 64-bit vector compare, so without a higher level
+/// LLVM keeps 64-bit keys in scalar code.
+#[simd]
+fn vote_and_count_simd<S: Simd, T: MajorityKey>(
+    _: S,
+    values: &[T],
+    validity: &Mask,
+) -> Option<(T, usize)> {
     match validity {
         _ if validity.true_count() == 0 => None,
         Mask::AllTrue(_) => {
@@ -156,7 +154,7 @@ fn vote_and_count_portable<T: MajorityKey>(values: &[T], validity: &Mask) -> Opt
 }
 
 /// One step of a vote over a valid value, written without branches so the lanes vectorize.
-#[expect(clippy::inline_always, reason = "see `vote_and_count_portable`")]
+#[expect(clippy::inline_always, reason = "see `vote_and_count_simd`")]
 #[inline(always)]
 fn vote<T: MajorityKey>(candidate: &mut T, count: &mut u32, value: T) {
     let empty = *count == 0;
@@ -171,7 +169,7 @@ fn vote<T: MajorityKey>(candidate: &mut T, count: &mut u32, value: T) {
 
 /// One step of a vote that skips invalid values. Arithmetic rather than selects on the count
 /// vectorizes better once validity is involved.
-#[expect(clippy::inline_always, reason = "see `vote_and_count_portable`")]
+#[expect(clippy::inline_always, reason = "see `vote_and_count_simd`")]
 #[inline(always)]
 fn masked_vote<T: MajorityKey>(candidate: &mut T, count: &mut u32, value: T, valid: bool) {
     let empty = *count == 0;
@@ -206,7 +204,7 @@ fn merge<T: MajorityKey>(candidates: [T; LANES], counts: [u32; LANES]) -> T {
         .0
 }
 
-#[expect(clippy::inline_always, reason = "see `vote_and_count_portable`")]
+#[expect(clippy::inline_always, reason = "see `vote_and_count_simd`")]
 #[inline(always)]
 fn lane_vote<T: MajorityKey>(values: &[T]) -> T {
     let mut candidates = [T::default(); LANES];
@@ -223,7 +221,7 @@ fn lane_vote<T: MajorityKey>(values: &[T]) -> T {
     merge(candidates, counts)
 }
 
-#[expect(clippy::inline_always, reason = "see `vote_and_count_portable`")]
+#[expect(clippy::inline_always, reason = "see `vote_and_count_simd`")]
 #[inline(always)]
 fn masked_lane_vote<T: MajorityKey>(values: &[T], validity: &BitBuffer) -> T {
     let mut candidates = [T::default(); LANES];
@@ -257,7 +255,7 @@ fn masked_lane_vote<T: MajorityKey>(values: &[T], validity: &BitBuffer) -> T {
     merge(candidates, counts)
 }
 
-#[expect(clippy::inline_always, reason = "see `vote_and_count_portable`")]
+#[expect(clippy::inline_always, reason = "see `vote_and_count_simd`")]
 #[inline(always)]
 fn count_equal<T: MajorityKey>(values: &[T], candidate: T) -> usize {
     values
@@ -266,7 +264,7 @@ fn count_equal<T: MajorityKey>(values: &[T], candidate: T) -> usize {
         .sum()
 }
 
-#[expect(clippy::inline_always, reason = "see `vote_and_count_portable`")]
+#[expect(clippy::inline_always, reason = "see `vote_and_count_simd`")]
 #[inline(always)]
 fn masked_count_equal<T: MajorityKey>(values: &[T], validity: &BitBuffer, candidate: T) -> usize {
     values
