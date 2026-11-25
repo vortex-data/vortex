@@ -102,6 +102,7 @@ use datafusion_physical_expr::PhysicalExpr;
 use datafusion_physical_expr::expressions::Column;
 use datafusion_physical_expr::projection::ProjectionExprs;
 use datafusion_physical_expr::utils::reassign_expr_columns;
+use datafusion_physical_expr_common::physical_expr::is_volatile;
 use datafusion_physical_expr_common::sort_expr::LexOrdering;
 use datafusion_physical_expr_common::sort_expr::PhysicalSortExpr;
 use datafusion_physical_plan::DisplayFormatType;
@@ -1061,11 +1062,8 @@ fn can_merge_projection(existing: &ProjectionExprs, incoming: &ProjectionExprs) 
         })?;
     }
     Ok(!ref_counts.into_iter().enumerate().any(|(index, count)| {
-        count > 1
-            && !existing_exprs[index]
-                .expr
-                .placement()
-                .should_push_to_leaves()
+        let expr = &existing_exprs[index].expr;
+        count > 1 && (is_volatile(expr) || !expr.placement().should_push_to_leaves())
     }))
 }
 
@@ -1117,6 +1115,7 @@ mod tests {
     use arrow_array::types::Int32Type;
     use arrow_schema::DataType;
     use async_trait::async_trait;
+    use datafusion::assert_batches_eq;
     use datafusion::prelude::SessionContext;
     use datafusion_datasource::source::DataSourceExec;
     use datafusion_expr::Operator;
@@ -1126,7 +1125,6 @@ mod tests {
     use datafusion_physical_plan::expressions::BinaryExpr;
     use datafusion_physical_plan::expressions::lit;
     use datafusion_physical_plan::limit::LocalLimitExec;
-    use datafusion_physical_plan::projection::ProjectionExec;
     use futures::TryStreamExt;
     use futures::task::ArcWake;
     use futures::task::noop_waker_ref;
@@ -1477,10 +1475,28 @@ mod tests {
         // Dropping one output partition early leaves sibling partitions readable.
         let partial = Arc::clone(&plan).reset_state()?;
         let mut output = partial.execute(0, Arc::new(TaskContext::default()))?;
-        assert!(output.try_next().await?.is_some());
+        let first = output
+            .try_next()
+            .await?
+            .expect("first partition yields a batch");
         drop(output);
         let sibling = partial.execute(1, Arc::new(TaskContext::default()))?;
-        sibling.try_collect::<Vec<_>>().await?;
+        let sibling_batches = sibling.try_collect::<Vec<_>>().await?;
+        let first_values = values(vec![first]);
+        assert!(
+            first_values == [0, 1] || first_values == [100, 101],
+            "unexpected first batch values: {first_values:?}"
+        );
+        // `SCAN_PARTITION_READ_AHEAD` may already have prefetched the second split into `output`,
+        // so `sibling` either finishes cleanly with no remaining splits or yields the other split.
+        if !sibling_batches.is_empty() {
+            let expected = if first_values == [0, 1] {
+                [100, 101]
+            } else {
+                [0, 1]
+            };
+            assert_eq!(values(sibling_batches), expected);
+        }
 
         // Dropping one output partition early does not wake or fail a pending sibling.
         let execution = Arc::new(ScanExecution::new(2));
@@ -1694,6 +1710,8 @@ mod tests {
         .expect("repartitioning supported");
 
         let plan = Arc::new(DataSourceExec::new(source)) as Arc<dyn ExecutionPlan>;
+        let total_rows =
+            |batches: &[RecordBatch]| -> usize { batches.iter().map(RecordBatch::num_rows).sum() };
 
         // Coalesced collection over two LocalLimitExec partitions must succeed and drop the scan
         // once both partitions finish, even while the plan remains alive.
@@ -1703,7 +1721,7 @@ mod tests {
             Arc::new(TaskContext::default()),
         )
         .await?;
-        assert_eq!(batches.iter().map(RecordBatch::num_rows).sum::<usize>(), 2);
+        assert_eq!(total_rows(&batches), 2);
         assert!(dropped.load(Ordering::Acquire));
 
         // Direct consumption: dropping partition 0 early keeps partition 1 readable; dropping
@@ -1713,22 +1731,10 @@ mod tests {
         let first = local.execute(0, Arc::clone(&context))?;
         let second = local.execute(1, Arc::clone(&context))?;
         let first_batches = first.try_collect::<Vec<_>>().await?;
-        assert_eq!(
-            first_batches
-                .iter()
-                .map(RecordBatch::num_rows)
-                .sum::<usize>(),
-            1
-        );
+        assert_eq!(total_rows(&first_batches), 1);
         assert!(!dropped.load(Ordering::Acquire));
         let second_batches = second.try_collect::<Vec<_>>().await?;
-        assert_eq!(
-            second_batches
-                .iter()
-                .map(RecordBatch::num_rows)
-                .sum::<usize>(),
-            1
-        );
+        assert_eq!(total_rows(&second_batches), 1);
         assert!(dropped.load(Ordering::Acquire));
 
         // Sequential consumption: dropping partition 0 before partition 1 is even opened must not
@@ -1736,30 +1742,18 @@ mod tests {
         let sequential = LocalLimitExec::new(plan, 1);
         let first = sequential.execute(0, Arc::clone(&context))?;
         let first_batches = first.try_collect::<Vec<_>>().await?;
-        assert_eq!(
-            first_batches
-                .iter()
-                .map(RecordBatch::num_rows)
-                .sum::<usize>(),
-            1
-        );
+        assert_eq!(total_rows(&first_batches), 1);
         assert!(!dropped.load(Ordering::Acquire));
         let second = sequential.execute(1, context)?;
         let second_batches = second.try_collect::<Vec<_>>().await?;
-        assert_eq!(
-            second_batches
-                .iter()
-                .map(RecordBatch::num_rows)
-                .sum::<usize>(),
-            1
-        );
+        assert_eq!(total_rows(&second_batches), 1);
         assert!(dropped.load(Ordering::Acquire));
 
         Ok(())
     }
 
     #[tokio::test]
-    async fn repeated_projection_swap_with_literal_falls_back_cleanly() -> anyhow::Result<()> {
+    async fn repeated_projection_swap_composes_literal() -> anyhow::Result<()> {
         let session = VortexSession::default();
         let array = StructArray::from_fields(&[
             ("a", buffer![1i32, 2, 3].into_array()),
@@ -1788,40 +1782,24 @@ mod tests {
             ProjectionExpr::new(lit(1_i32), "one"),
             ProjectionExpr::new(Arc::new(Column::new("x", 0)), "y"),
         ]);
-        let plan: Arc<dyn ExecutionPlan> =
-            match after_first.try_swapping_with_projection(&second)? {
-                Some(swapped) => Arc::new(DataSourceExec::new(swapped)),
-                None => Arc::new(ProjectionExec::try_new(
-                    second.iter().cloned(),
-                    Arc::new(DataSourceExec::new(after_first)),
-                )?),
-            };
+        let swapped = after_first
+            .try_swapping_with_projection(&second)?
+            .expect("second projection with literal should compose");
+        let plan: Arc<dyn ExecutionPlan> = Arc::new(DataSourceExec::new(swapped));
 
         let batches = collect(plan, Arc::new(TaskContext::default())).await?;
-        let ones = batches
-            .iter()
-            .flat_map(|batch| {
-                batch
-                    .column(0)
-                    .as_primitive::<Int32Type>()
-                    .values()
-                    .iter()
-                    .copied()
-            })
-            .collect::<Vec<_>>();
-        let ys = batches
-            .iter()
-            .flat_map(|batch| {
-                batch
-                    .column(1)
-                    .as_primitive::<Int32Type>()
-                    .values()
-                    .iter()
-                    .copied()
-            })
-            .collect::<Vec<_>>();
-        assert_eq!(ones, [1, 1, 1]);
-        assert_eq!(ys, [30, 10, 20]);
+        assert_batches_eq!(
+            [
+                "+-----+----+",
+                "| one | y  |",
+                "+-----+----+",
+                "| 1   | 30 |",
+                "| 1   | 10 |",
+                "| 1   | 20 |",
+                "+-----+----+",
+            ],
+            &batches
+        );
         Ok(())
     }
 }
