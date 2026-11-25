@@ -3,6 +3,7 @@
 
 //! [`ArrayPlugin`] implementation for [`Union`].
 
+use prost::Message;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
@@ -23,6 +24,13 @@ use crate::arrays::union::array::make_union_parts;
 use crate::arrays::union::union_type_ids_dtype;
 use crate::dtype::DType;
 
+/// Serialized metadata for `vortex.union`, which has no fields yet and encodes to zero bytes.
+///
+/// Readers decode it as a protobuf message, so a later writer can add a field describing an
+/// appended child that old readers may safely ignore.
+#[derive(Clone, prost::Message)]
+struct UnionMetadata {}
+
 impl ArrayPlugin for Union {
     fn id(&self) -> ArrayId {
         VTable::id(self)
@@ -41,7 +49,7 @@ impl ArrayPlugin for Union {
         Ok(Some(ArraySerialization::from_array(
             ArrayPlugin::id(self),
             array,
-            vec![],
+            UnionMetadata {}.encode_to_vec(),
         )))
     }
 
@@ -63,12 +71,17 @@ impl ArrayPlugin for Union {
             children,
             ..
         } = parts;
-        vortex_ensure!(metadata.is_empty(), "UnionArray expects empty metadata");
+        UnionMetadata::decode(metadata)?;
         vortex_ensure!(buffers.is_empty(), "UnionArray expects no buffers");
         let DType::Union(variants, nullability) = dtype else {
             vortex_bail!("Expected union dtype, found {dtype}")
         };
-        vortex_ensure_eq!(children.len(), UnionSlots::CHILDREN_OFFSET + variants.len());
+        let required_children = UnionSlots::CHILDREN_OFFSET + variants.len();
+        vortex_ensure!(
+            children.len() >= required_children,
+            "UnionArray expects at least {required_children} children, got {}",
+            children.len()
+        );
 
         let type_ids = children.get(
             UnionSlots::TYPE_IDS,

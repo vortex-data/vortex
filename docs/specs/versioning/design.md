@@ -254,7 +254,8 @@ indefinitely. Drafts have no recorded minimum version or frozen guarantee, and t
 change or be removed. A format intended for `core` can progress to `preview` for broader testing,
 then to `core` for default use. Promotion preserves its wire ID and interpretation. The
 [registry instructions](editions.md#format-testing-and-promotion) cover promotion, freezing, and
-recording the minimum version.
+recording the minimum version. Before a format is promoted, its contract should follow the
+[wire contract guidelines](wire-contracts.md) so later versions can extend it safely.
 
 ## Compression
 

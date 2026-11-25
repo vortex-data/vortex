@@ -14,6 +14,7 @@ pub use stats_set::*;
 mod array;
 mod bound;
 pub mod flatbuffers;
+pub mod majority;
 mod precision;
 mod provider;
 mod stat;

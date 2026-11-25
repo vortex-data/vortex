@@ -43,7 +43,8 @@ FORK_FLAGS=("-fork=$FUZZ_JOBS" -ignore_crashes=1 -ignore_timeouts=1 -ignore_ooms
 set +e
 env "${FUZZ_ENV[@]}" RUST_BACKTRACE=1 \
   "$GITHUB_WORKSPACE/fuzz-binaries/$FUZZ_TARGET" "$CORPUS_DIR" \
-  "${FORK_FLAGS[@]}" "-max_total_time=$MAX_TIME" -rss_limit_mb=0 -print_final_stats=1 \
+  "${FORK_FLAGS[@]}" "-max_total_time=$MAX_TIME" "-rss_limit_mb=${RSS_LIMIT_MB:-0}" \
+  -print_final_stats=1 \
   -artifact_prefix="fuzz/artifacts/${FUZZ_NAME}/" \
   2>&1 | tee fuzz_output.log
 FUZZ_STATUS=${PIPESTATUS[0]}
