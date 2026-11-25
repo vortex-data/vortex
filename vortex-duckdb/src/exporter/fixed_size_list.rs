@@ -77,14 +77,23 @@ impl ColumnExporter for FixedSizeListExporter {
 
         // Get the child vector for array elements and export the elements directly.
         let elements_vector = vector.array_vector_get_child_mut();
+        let num_elements = len * list_size;
         self.elements_exporter
-            .export(offset * list_size, len * list_size, elements_vector, ctx)?;
+            .export(offset * list_size, num_elements, elements_vector, ctx)?;
 
         // We must flatten the child vector to ensure any child dictionary views (namely UTF-8
-        // string views in dictionaries) are materialized.
+        // string views in dictionaries) are materialized, and pass the explicit element count so
+        // constant vectors (whose C API default size is STANDARD_VECTOR_SIZE) flatten across all
+        // `len * list_size` elements instead of truncating at 2048.
         // See https://github.com/vortex-data/vortex/pull/4610#issuecomment-3286676825 for a
         // detailed explanation on why we need this for now.
-        elements_vector.flatten();
+        //
+        // SAFETY: `elements_vector` is the child of a DuckDB ARRAY vector with capacity for at
+        // least `len * list_size` (`num_elements`) entries, and `elements_exporter` populated
+        // `num_elements` entries (so flat children have capacity >= `num_elements`, dictionary and
+        // sequence children already have size `num_elements`, and constant vectors/children can be
+        // resized to `num_elements`).
+        unsafe { elements_vector.flatten_with_count(num_elements) };
 
         Ok(())
     }
@@ -94,16 +103,31 @@ impl ColumnExporter for FixedSizeListExporter {
 mod tests {
     use vortex::array::IntoArray as _;
     use vortex::array::VortexSessionExecute;
+    use vortex::array::arrays::ConstantArray;
+    use vortex::array::arrays::DictArray;
+    use vortex::array::arrays::PrimitiveArray;
+    use vortex::array::arrays::StructArray;
+    use vortex::array::arrays::VarBinViewArray;
+    use vortex::array::assert_arrays_eq;
     use vortex::array::validity::Validity;
     use vortex::buffer::buffer;
+    use vortex::dtype::DType;
+    use vortex::dtype::FieldNames;
+    use vortex::dtype::Nullability;
+    use vortex::dtype::PType;
+    use vortex::encodings::runend::RunEnd;
+    use vortex::encodings::sequence::Sequence;
     use vortex::error::VortexExpect;
+    use vortex::scalar::Scalar;
 
     use super::*;
     use crate::SESSION;
+    use crate::convert::data_chunk_to_vortex;
     use crate::cpp;
     use crate::duckdb::DataChunk;
     use crate::duckdb::LogicalType;
     use crate::duckdb::VectorRef;
+    use crate::exporter::ArrayExporter;
 
     /// Sets up a DataChunk, exports the array to it, and returns the chunk.
     fn export_to_chunk(
@@ -350,5 +374,172 @@ mod tests {
                 "[[13, 14], NULL, [17, 18]]",
             ],
         );
+    }
+
+    fn export_and_roundtrip_single_chunk(
+        fsl: FixedSizeListArray,
+        expected_len: usize,
+    ) -> VortexResult<vortex::array::ArrayRef> {
+        let dtype = fsl.dtype().clone();
+        let struct_array = StructArray::from_fields(&[("col", fsl.into_array())])?;
+        let mut exporter = ArrayExporter::try_new(
+            &struct_array,
+            &ConversionCache::default(),
+            SESSION.create_execution_ctx(),
+        )?;
+        let mut chunk = DataChunk::new([LogicalType::try_from(&dtype)?]);
+
+        assert!(exporter.export(&mut chunk, None)?);
+        assert_eq!(chunk.len(), expected_len as u64);
+        // Runs DuckDB's chunk verification in debug builds and exercises formatting all rows.
+        let _formatted = String::try_from(&*chunk)?;
+
+        let names = FieldNames::from(["col"]);
+        data_chunk_to_vortex(&names, &chunk)
+    }
+
+    #[test]
+    fn test_export_fixed_size_list_all_null_constant_exceeding_vector_size() -> VortexResult<()> {
+        let len = 2048usize;
+        let list_size = 4u32;
+        let total = len * list_size as usize;
+
+        let elements = ConstantArray::new(
+            Scalar::null(DType::Primitive(PType::I32, Nullability::Nullable)),
+            total,
+        )
+        .into_array();
+        let fsl = FixedSizeListArray::new(elements, list_size, Validity::AllValid, len);
+
+        let expected = StructArray::from_fields(&[("col", fsl.clone().into_array())])?;
+        let roundtripped = export_and_roundtrip_single_chunk(fsl, len)?;
+        assert_arrays_eq!(roundtripped, expected, &mut SESSION.create_execution_ctx());
+        Ok(())
+    }
+
+    #[test]
+    fn test_export_fixed_size_list_all_null_slice_exceeding_vector_size() -> VortexResult<()> {
+        let len = 1024usize;
+        let list_size = 4u32;
+        let total = len * list_size as usize;
+
+        // Export the leading all-null batch while trailing valid elements keep the array mixed.
+        let mut values = vec![None; total];
+        values.extend(std::iter::repeat_n(Some(99i32), list_size as usize));
+        let elements = PrimitiveArray::from_option_iter(values).into_array();
+        let full = FixedSizeListArray::new(elements, list_size, Validity::AllValid, len + 1);
+        let mut chunk = DataChunk::new([LogicalType::try_from(full.dtype())?]);
+        let mut ctx = SESSION.create_execution_ctx();
+        chunk.set_len(len);
+        new_exporter(full.clone(), &ConversionCache::default(), &mut ctx)?.export(
+            0,
+            len,
+            chunk.get_vector_mut(0),
+            &mut ctx,
+        )?;
+        let _formatted = String::try_from(&*chunk)?;
+
+        let roundtripped = data_chunk_to_vortex(&FieldNames::from(["col"]), &chunk)?;
+        let expected = StructArray::from_fields(&[("col", full.slice(0..len)?)])?;
+        assert_arrays_eq!(roundtripped, expected, &mut ctx);
+        Ok(())
+    }
+
+    #[test]
+    fn test_export_fixed_size_list_struct_non_flat_children_exceeding_vector_size()
+    -> VortexResult<()> {
+        let len = 1024usize;
+        let list_size = 4u32;
+        let total = len * list_size as usize;
+        let mut ctx = SESSION.create_execution_ctx();
+
+        let const_int =
+            ConstantArray::new(Scalar::primitive(7i32, Nullability::Nullable), total).into_array();
+        let const_str = ConstantArray::new(
+            Scalar::utf8("longer than twelve bytes", Nullability::Nullable),
+            total,
+        )
+        .into_array();
+        let const_null = ConstantArray::new(
+            Scalar::null(DType::Primitive(PType::I32, Nullability::Nullable)),
+            total,
+        )
+        .into_array();
+        #[expect(clippy::cast_possible_truncation, reason = "dict codes fit in u8")]
+        let dict_codes = PrimitiveArray::from_iter((0..total).map(|i| (i % 3) as u8)).into_array();
+        let dict_values = VarBinViewArray::from_iter_nullable_str([
+            Some("alpha"),
+            Some("beta-longer-than-12"),
+            Some("gamma"),
+        ])
+        .into_array();
+        let dict_str = DictArray::try_new(dict_codes, dict_values)?.into_array();
+        let seq = Sequence::try_new_typed(10i32, 3i32, Nullability::Nullable, total)?.into_array();
+        let total_u32 = u32::try_from(total)?;
+        let ree_single = RunEnd::try_new(
+            buffer![total_u32].into_array(),
+            PrimitiveArray::new(buffer![123i32], Validity::AllValid).into_array(),
+            &mut ctx,
+        )?
+        .into_array();
+        let ree_multi = RunEnd::try_new(
+            buffer![total_u32 / 2, total_u32].into_array(),
+            PrimitiveArray::new(buffer![1i32, 2i32], Validity::AllValid).into_array(),
+            &mut ctx,
+        )?
+        .into_array();
+
+        let elements = StructArray::try_new(
+            FieldNames::from([
+                "const_int",
+                "const_str",
+                "const_null",
+                "dict_str",
+                "seq",
+                "ree_single",
+                "ree_multi",
+            ]),
+            vec![
+                const_int, const_str, const_null, dict_str, seq, ree_single, ree_multi,
+            ],
+            total,
+            Validity::AllValid,
+        )?
+        .into_array();
+        let fsl = FixedSizeListArray::new(elements, list_size, Validity::AllValid, len);
+
+        let expected = StructArray::from_fields(&[("col", fsl.clone().into_array())])?;
+        let roundtripped = export_and_roundtrip_single_chunk(fsl, len)?;
+        assert_arrays_eq!(roundtripped, expected, &mut ctx);
+        Ok(())
+    }
+
+    #[test]
+    fn test_export_nested_fixed_size_list_all_null_inner_exceeding_vector_size() -> VortexResult<()>
+    {
+        let len = 1024usize;
+        let outer_list_size = 4u32;
+        let inner_list_size = 4u32;
+        let inner_len = len * outer_list_size as usize;
+        let total_ints = inner_len * inner_list_size as usize;
+
+        let inner_fsl = FixedSizeListArray::new(
+            ConstantArray::new(Scalar::primitive(0i32, Nullability::Nullable), total_ints)
+                .into_array(),
+            inner_list_size,
+            Validity::AllInvalid,
+            inner_len,
+        );
+        let outer_fsl = FixedSizeListArray::new(
+            inner_fsl.into_array(),
+            outer_list_size,
+            Validity::AllValid,
+            len,
+        );
+
+        let expected = StructArray::from_fields(&[("col", outer_fsl.clone().into_array())])?;
+        let roundtripped = export_and_roundtrip_single_chunk(outer_fsl, len)?;
+        assert_arrays_eq!(roundtripped, expected, &mut SESSION.create_execution_ctx());
+        Ok(())
     }
 }

@@ -101,6 +101,12 @@ void duckdb_vector_flatten(duckdb_vector vector) {
     reinterpret_cast<Vector *>(vector)->Flatten();
 }
 
+extern "C" void duckdb_vx_vector_flatten_with_count(duckdb_vector ffi_vector, idx_t count) {
+    Vector &vector = *reinterpret_cast<Vector *>(ffi_vector);
+    FlatVector::SetSize(vector, count);
+    vector.Flatten();
+}
+
 void duckdb_vx_vector_set_all_valid(duckdb_vector ffi_vector) {
     using enum VectorType;
     Vector &vector = *reinterpret_cast<Vector *>(ffi_vector);
