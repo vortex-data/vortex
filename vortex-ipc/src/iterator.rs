@@ -168,7 +168,16 @@ impl Iterator for ArrayIteratorIPCBytes {
             self.done = true;
             return None;
         };
-        match chunk.and_then(|c| self.encoder.encode(EncoderMessage::Array(&c))) {
+        let chunk = match chunk {
+            Ok(chunk) => chunk,
+            Err(e) => {
+                if !crate::is_retryable_io_error(&e) {
+                    self.done = true;
+                }
+                return Some(Err(e));
+            }
+        };
+        match self.encoder.encode(EncoderMessage::Array(&chunk)) {
             Ok(buffers) => self.buffers.extend(buffers),
             Err(e) => {
                 self.done = true;
@@ -338,36 +347,36 @@ mod test {
         Ok(())
     }
 
+    struct WouldBlockOnceReader {
+        data: Vec<u8>,
+        pos: usize,
+        block_at: usize,
+        blocked: bool,
+    }
+
+    impl Read for WouldBlockOnceReader {
+        fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+            if !self.blocked && self.pos == self.block_at {
+                self.blocked = true;
+                return Err(io::Error::new(io::ErrorKind::WouldBlock, "try again"));
+            }
+            if self.pos >= self.data.len() {
+                return Ok(0);
+            }
+            let limit = if !self.blocked && self.pos < self.block_at {
+                self.block_at - self.pos
+            } else {
+                self.data.len() - self.pos
+            };
+            let count = buf.len().min(limit);
+            buf[..count].copy_from_slice(&self.data[self.pos..self.pos + count]);
+            self.pos += count;
+            Ok(count)
+        }
+    }
+
     #[test]
     fn test_sync_ipc_reader_resumes_after_would_block() -> VortexResult<()> {
-        struct WouldBlockOnceReader {
-            data: Vec<u8>,
-            pos: usize,
-            block_at: usize,
-            blocked: bool,
-        }
-
-        impl Read for WouldBlockOnceReader {
-            fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-                if !self.blocked && self.pos == self.block_at {
-                    self.blocked = true;
-                    return Err(io::Error::new(io::ErrorKind::WouldBlock, "try again"));
-                }
-                if self.pos >= self.data.len() {
-                    return Ok(0);
-                }
-                let limit = if !self.blocked && self.pos < self.block_at {
-                    self.block_at - self.pos
-                } else {
-                    self.data.len() - self.pos
-                };
-                let count = buf.len().min(limit);
-                buf[..count].copy_from_slice(&self.data[self.pos..self.pos + count]);
-                self.pos += count;
-                Ok(count)
-            }
-        }
-
         let chunk1 = buffer![1i32, 2, 3].into_array();
         let chunk2 = buffer![4i32, 5, 6].into_array();
         let mut data = Vec::new();
@@ -403,6 +412,55 @@ mod test {
         let second = reader.next().vortex_expect("expected resumed chunk")?;
         assert_arrays_eq!(second, chunk2, &mut ctx);
         assert!(reader.next().is_none());
+        Ok(())
+    }
+
+    #[test]
+    fn test_sync_ipc_bytes_resumes_after_would_block() -> VortexResult<()> {
+        let chunk1 = buffer![1i32, 2, 3].into_array();
+        let chunk2 = buffer![4i32, 5, 6].into_array();
+        let mut data = Vec::new();
+        {
+            let mut writer = SyncMessageWriter::new(&mut data, &SESSION);
+            writer.write_message(EncoderMessage::DType(chunk1.dtype()))?;
+            writer.write_message(EncoderMessage::Array(&chunk1))?;
+        }
+        let chunk1_end = data.len();
+        SyncMessageWriter::new(&mut data, &SESSION)
+            .write_message(EncoderMessage::Array(&chunk2))?;
+
+        let reader = SyncIPCReader::try_new(
+            WouldBlockOnceReader {
+                data,
+                pos: 0,
+                block_at: chunk1_end + 2,
+                blocked: false,
+            },
+            &SESSION,
+        )?;
+
+        let mut ipc_bytes = reader.into_ipc(&SESSION)?;
+        let mut encoded = Vec::new();
+        let mut saw_would_block = false;
+        for item in &mut ipc_bytes {
+            match item {
+                Ok(buf) => encoded.extend_from_slice(&buf),
+                Err(err) => {
+                    assert!(!saw_would_block, "expected only one WouldBlock error");
+                    assert_io_error_kind(&err, io::ErrorKind::WouldBlock);
+                    saw_would_block = true;
+                }
+            }
+        }
+        assert!(saw_would_block);
+
+        let mut decoded = SyncIPCReader::try_new(Cursor::new(encoded), &SESSION)?;
+        let mut ctx = SESSION.create_execution_ctx();
+        let first = decoded.next().vortex_expect("expected first chunk")?;
+        assert_arrays_eq!(first, chunk1, &mut ctx);
+        let second = decoded.next().vortex_expect("expected second chunk")?;
+        assert_arrays_eq!(second, chunk2, &mut ctx);
+        assert!(decoded.next().is_none());
         Ok(())
     }
 

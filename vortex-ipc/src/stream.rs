@@ -216,21 +216,27 @@ impl Stream for ArrayStreamIPCBytes {
         }
 
         // Or else try to serialize the next array
-        match ready!(this.stream.poll_next_unpin(cx)) {
+        let chunk = match ready!(this.stream.poll_next_unpin(cx)) {
             None => {
                 this.done = true;
                 return Poll::Ready(None);
             }
-            Some(chunk) => match chunk.and_then(|c| this.encoder.encode(EncoderMessage::Array(&c)))
-            {
-                Ok(buffers) => {
-                    this.buffers.extend(buffers);
-                }
-                Err(e) => {
+            Some(Ok(chunk)) => chunk,
+            Some(Err(e)) => {
+                if !crate::is_retryable_io_error(&e) {
                     this.done = true;
-                    return Poll::Ready(Some(Err(e)));
                 }
-            },
+                return Poll::Ready(Some(Err(e)));
+            }
+        };
+        match this.encoder.encode(EncoderMessage::Array(&chunk)) {
+            Ok(buffers) => {
+                this.buffers.extend(buffers);
+            }
+            Err(e) => {
+                this.done = true;
+                return Poll::Ready(Some(Err(e)));
+            }
         }
 
         // Try to flush any buffers we have again
@@ -513,43 +519,40 @@ mod test {
         Ok(())
     }
 
+    struct WouldBlockOnceAsyncReader {
+        data: Vec<u8>,
+        pos: usize,
+        block_at: usize,
+        blocked: bool,
+    }
+
+    impl AsyncRead for WouldBlockOnceAsyncReader {
+        fn poll_read(
+            mut self: Pin<&mut Self>,
+            _cx: &mut Context<'_>,
+            buf: &mut [u8],
+        ) -> Poll<io::Result<usize>> {
+            if !self.blocked && self.pos == self.block_at {
+                self.blocked = true;
+                return Poll::Ready(Err(io::Error::new(io::ErrorKind::WouldBlock, "try again")));
+            }
+            if self.pos >= self.data.len() {
+                return Poll::Ready(Ok(0));
+            }
+            let limit = if !self.blocked && self.pos < self.block_at {
+                self.block_at - self.pos
+            } else {
+                self.data.len() - self.pos
+            };
+            let count = buf.len().min(limit);
+            buf[..count].copy_from_slice(&self.data[self.pos..self.pos + count]);
+            self.pos += count;
+            Poll::Ready(Ok(count))
+        }
+    }
+
     #[tokio::test]
     async fn test_async_ipc_reader_resumes_after_would_block() -> VortexResult<()> {
-        struct WouldBlockOnceAsyncReader {
-            data: Vec<u8>,
-            pos: usize,
-            block_at: usize,
-            blocked: bool,
-        }
-
-        impl AsyncRead for WouldBlockOnceAsyncReader {
-            fn poll_read(
-                mut self: Pin<&mut Self>,
-                _cx: &mut Context<'_>,
-                buf: &mut [u8],
-            ) -> Poll<io::Result<usize>> {
-                if !self.blocked && self.pos == self.block_at {
-                    self.blocked = true;
-                    return Poll::Ready(Err(io::Error::new(
-                        io::ErrorKind::WouldBlock,
-                        "try again",
-                    )));
-                }
-                if self.pos >= self.data.len() {
-                    return Poll::Ready(Ok(0));
-                }
-                let limit = if !self.blocked && self.pos < self.block_at {
-                    self.block_at - self.pos
-                } else {
-                    self.data.len() - self.pos
-                };
-                let count = buf.len().min(limit);
-                buf[..count].copy_from_slice(&self.data[self.pos..self.pos + count]);
-                self.pos += count;
-                Poll::Ready(Ok(count))
-            }
-        }
-
         let chunk1 = buffer![1i32, 2, 3].into_array();
         let chunk2 = buffer![4i32, 5, 6].into_array();
         let dtype_msg = EncoderMessage::DType(chunk1.dtype());
@@ -588,6 +591,57 @@ mod test {
             .vortex_expect("expected resumed chunk")?;
         assert_arrays_eq!(second, chunk2, &mut ctx);
         assert!(reader.next().await.is_none());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_async_ipc_bytes_resumes_after_would_block() -> VortexResult<()> {
+        let chunk1 = buffer![1i32, 2, 3].into_array();
+        let chunk2 = buffer![4i32, 5, 6].into_array();
+        let dtype_msg = EncoderMessage::DType(chunk1.dtype());
+        let mut writer = AsyncMessageWriter::new(Cursor::new(Vec::new()), &SESSION);
+        writer.write_message(dtype_msg).await?;
+        writer.write_message(EncoderMessage::Array(&chunk1)).await?;
+        let chunk1_end = writer.inner().get_ref().len();
+        writer.write_message(EncoderMessage::Array(&chunk2)).await?;
+        let data = writer.into_inner().into_inner();
+
+        let reader = AsyncIPCReader::try_new(
+            WouldBlockOnceAsyncReader {
+                data,
+                pos: 0,
+                block_at: chunk1_end + 2,
+                blocked: false,
+            },
+            &SESSION,
+        )
+        .await?;
+
+        let mut ipc_bytes = reader.into_ipc(&SESSION);
+        let mut encoded = Vec::new();
+        let mut saw_would_block = false;
+        while let Some(item) = ipc_bytes.next().await {
+            match item {
+                Ok(buf) => encoded.extend_from_slice(&buf),
+                Err(err) => {
+                    assert!(!saw_would_block, "expected only one WouldBlock error");
+                    assert_io_error_kind(&err, io::ErrorKind::WouldBlock);
+                    saw_would_block = true;
+                }
+            }
+        }
+        assert!(saw_would_block);
+
+        let mut decoded = AsyncIPCReader::try_new(Cursor::new(encoded), &SESSION).await?;
+        let mut ctx = SESSION.create_execution_ctx();
+        let first = decoded.next().await.vortex_expect("expected first chunk")?;
+        assert_arrays_eq!(first, chunk1, &mut ctx);
+        let second = decoded
+            .next()
+            .await
+            .vortex_expect("expected second chunk")?;
+        assert_arrays_eq!(second, chunk2, &mut ctx);
+        assert!(decoded.next().await.is_none());
         Ok(())
     }
 

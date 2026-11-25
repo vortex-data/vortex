@@ -11,10 +11,26 @@
 //! before/after serialization, and streaming readers and writers that sit on top
 //! of any type implementing `VortexRead` or `VortexWrite` respectively.
 
+use std::error::Error as _;
+use std::io;
+
+use vortex_error::VortexError;
+
 pub mod flatbuffers;
 pub mod iterator;
 pub mod messages;
 pub mod stream;
+
+pub(crate) fn is_retryable_io_error(err: &VortexError) -> bool {
+    err.source()
+        .and_then(|s| s.downcast_ref::<io::Error>())
+        .is_some_and(|e| {
+            matches!(
+                e.kind(),
+                io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut
+            )
+        })
+}
 
 #[cfg(test)]
 mod test {
