@@ -12,7 +12,7 @@ import json
 import traceback
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field, replace
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from functools import partial
 from typing import Any, Protocol
 
@@ -677,33 +677,55 @@ class Run:
                     people.setdefault(person, []).append(row)
         return people
 
+    def _summary_includes(self, row: render.Row, root: Root, day: date) -> bool:
+        at = root.state.reminded_at
+        if not at or london_date(datetime.fromtimestamp(at, UTC)) != day:
+            return False
+        if root.state.snoozed(self.now):
+            return False
+        if row.assessment.owes is Owes.VORTEX and row.assessment.tier is not Tier.LOW:
+            return True
+        # Keep an item reminded when its snooze ended until new GitHub activity or a Low override.
+        return (
+            0 < root.state.snooze_until <= at
+            and root.state.priority is not Tier.LOW
+            and parse_time(row.assessment.last_activity_at).timestamp() <= at
+        )
+
     def _summary(
         self, thread: Thread, state: OverviewState, rows: list[render.Row]
     ) -> OverviewState:
-        """Keep the day's summary in line with the day's reminders.
+        """Keep the day's summary in line with the day's active reminders.
 
-        The summary links to each posted reminder reply when available, otherwise to its card. An
-        item that becomes due later in the day gets a reminder too, so the bot edits the summary
-        when its content changes. An edit notifies nobody, so only the first post mentions people.
+        The summary links to each posted reminder reply when available, otherwise to its card. It
+        updates in place when items are added, reassigned, snoozed, downgraded, answered, or
+        closed. An edit notifies nobody, so only the first post mentions people.
         """
+        if state.summary or state.reminded:
+            self._ensure_reply_keys(thread)
         key = f"remind:{state.day}"
-        ts = state.summary or thread.keys.get(key, "")
+        ts = thread.keys.get(key, "")
         if not ts:
-            return state
+            return replace(state, summary="", summary_card="")
         day = datetime.fromisoformat(state.day).date()
-        reminded = []
+        reminding = (
+            self.config.pings
+            and in_window(self.now)
+            and state.day == london_date(self.now).isoformat()
+        )
+        shown = []
         for row in rows:
             root = self.channel.roots.get(row.item.number)
-            at = root.state.reminded_at if root else 0.0
-            if root is None or not at or london_date(datetime.fromtimestamp(at, UTC)) != day:
+            if root is None:
                 continue
-            # A summary from before the bot stored each reminder finds it among the thread's keys.
-            reply = root.state.reminder or root.thread.keys.get(key, "")
-            link = self._reply_link(reply, root.thread.ts) if reply else row.thread_url
-            reminded.append(replace(row, thread_url=link, direct_reminder=bool(reply)))
-        if not reminded:
-            return replace(state, summary=ts)
-        message = render.reminder_summary(self._by_owner(reminded))
+            if self._summary_includes(row, root, day):
+                # A summary from before the bot stored each reminder finds it in the thread keys.
+                reply = root.state.reminder or root.thread.keys.get(key, "")
+                link = self._reply_link(reply, root.thread.ts) if reply else row.thread_url
+                shown.append(replace(row, thread_url=link, direct_reminder=bool(reply)))
+            elif reminding and self._due(row):
+                shown.append(replace(row, direct_reminder=False))
+        message = render.reminder_summary(self._by_owner(shown))
         card = _hash(message)
         if card != state.summary_card:
             self.slack.update(ts, message, metadata(REPLY_EVENT, {"key": key}))

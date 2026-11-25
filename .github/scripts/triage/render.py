@@ -517,6 +517,9 @@ def reminder_summary(due: Mapping[str | None, Sequence[Row]]) -> Message:
     otherwise to its card. An item without a thread is named without a link, because a link to
     GitHub would look like a link to the thread.
     """
+    if not due:
+        header = "⏰ *Due today.* All reminded items have been handled or snoozed."
+        return Message(text="Due today: all clear", blocks=(_mrkdwn(header),))
     lines = []
     for user, rows in due.items():
         links = []
