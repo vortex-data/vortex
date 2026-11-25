@@ -8,6 +8,7 @@ use std::fmt::Formatter;
 use num_traits::Float;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 
 use crate::dtype::DType;
@@ -17,6 +18,8 @@ use crate::match_each_float_ptype;
 use crate::proto::expr::CompareMode as PbCompareMode;
 use crate::proto::expr::boolean_opts::BooleanOp;
 use crate::proto::expr::compare_mode::FloatOrder as PbFloatOrder;
+use crate::proto::expr::compare_mode::TypeOrder as PbTypeOrder;
+use crate::proto::expr::compare_mode::type_order::Order as PbOrder;
 use crate::proto::expr::compare_opts::CompareOp;
 use crate::scalar::NumericOperator;
 use crate::scalar::PValue;
@@ -122,8 +125,8 @@ impl CompareOperator {
 
 /// How a comparison orders the signed zeros and the `NaN` values of a float.
 ///
-/// The enum is open: a later version can add an order. It has no default: the default order of
-/// floats is a property of [`CompareMode`].
+/// The enum is open: a later version can add an order. It has no default: each [`CompareMode`]
+/// names its order of floats.
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[non_exhaustive]
@@ -188,20 +191,22 @@ impl Display for FloatOrder {
 /// A mode has one order for each type whose values have more than one useful order. A type
 /// without an order in the mode has only one order, and compares the same in each mode.
 ///
-/// | Type   | Order          | Default                    |
-/// |--------|----------------|----------------------------|
-/// | Floats | [`FloatOrder`] | [`FloatOrder::ZerosEqual`] |
+/// | Type   | Order          |
+/// |--------|----------------|
+/// | Floats | [`FloatOrder`] |
 ///
-/// Integer, decimal, boolean, and byte comparisons give the same result in each mode. In the
-/// default mode, `-0.0 = +0.0` and all other floats compare in total order.
+/// Integer, decimal, boolean, and byte comparisons give the same result in each mode.
 ///
-/// To add the order of another type, add a field with its default, a `with_*` function, and its
-/// part of [`CompareMode::for_dtype`] and [`CompareMode::agrees_with_total_order`]. Callers that
-/// set only the order of floats then keep the default order of the new type.
+/// A mode has no default: [`CompareMode::from_float_order`] takes the order of floats.
+/// [`CompareMode::new`], which selects [`FloatOrder::ZerosEqual`], is deprecated. The functions
+/// that take no mode, such as `eq` and `ArrayBuiltins::compare`, still use it.
+///
+/// To add the order of another type, add a field, a `with_*` function, and its part of
+/// [`CompareMode::for_dtype`] and [`CompareMode::agrees_with_total_order`].
 ///
 /// | Engine                 | [`FloatOrder`] |
 /// |------------------------|----------------|
-/// | Vortex (default)       | `ZerosEqual`   |
+/// | Functions without mode | `ZerosEqual`   |
 /// | DataFusion             | `ZerosEqual`   |
 /// | Spark, DuckDB, Polars  | `Canonical`    |
 /// | PyArrow                | `Ieee754`      |
@@ -216,25 +221,28 @@ pub struct CompareMode {
     float_order: FloatOrder,
 }
 
-impl Default for CompareMode {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl CompareMode {
     /// The total order of each type. For floats, this is the order over the bit patterns, as in
     /// [`f64::total_cmp`].
     ///
-    /// This is the order of [`Scalar`] values and of Vortex statistics. It is not the default:
-    /// use it when the comparison must keep `-0.0` and `+0.0` distinct.
-    pub const TOTAL_ORDER: Self = Self::new().with_float_order(FloatOrder::TotalOrder);
+    /// This is the order of [`Scalar`] values and of Vortex statistics. Use it when the
+    /// comparison must keep `-0.0` and `+0.0` distinct.
+    pub const TOTAL_ORDER: Self = Self::from_float_order(FloatOrder::TotalOrder);
 
-    /// Returns the default mode, in which each type has its default order.
+    /// Returns the mode that orders floats in `float_order`.
+    pub const fn from_float_order(float_order: FloatOrder) -> Self {
+        Self { float_order }
+    }
+
+    /// Returns the mode that orders floats in [`FloatOrder::ZerosEqual`]: `-0.0 = +0.0`, and all
+    /// other floats compare in total order.
+    ///
+    /// The functions that take no mode compare in this mode.
+    #[deprecated(note = "name the order of floats: use `CompareMode::from_float_order`")]
+    // A mode has no default, so there is no `Default` implementation.
+    #[allow(clippy::new_without_default)]
     pub const fn new() -> Self {
-        Self {
-            float_order: FloatOrder::ZerosEqual,
-        }
+        Self::from_float_order(FloatOrder::ZerosEqual)
     }
 
     /// Returns this mode with the given order of floats.
@@ -253,20 +261,23 @@ impl CompareMode {
         self == Self::TOTAL_ORDER
     }
 
-    /// Returns whether this mode is the default mode.
-    pub fn is_default(self) -> bool {
-        self == Self::default()
+    /// Returns whether this mode orders floats in [`FloatOrder::ZerosEqual`], as the functions
+    /// that take no mode do. A display of the comparison then leaves the mode out.
+    pub fn is_zeros_equal(self) -> bool {
+        self.float_order == FloatOrder::ZerosEqual
     }
 
-    /// Returns this mode with the default order of each type that values of `dtype` do not
-    /// contain, because that order cannot change their comparison.
+    /// Returns this mode with one fixed order for each type that values of `dtype` do not
+    /// contain, because that order cannot change their comparison. Equal comparisons are then
+    /// equal expressions.
     ///
-    /// For example, the result is the default mode when `dtype` contains no floats.
+    /// For example, the order of floats is [`FloatOrder::ZerosEqual`] when `dtype` contains no
+    /// floats.
     pub fn for_dtype(self, dtype: &DType) -> Self {
         let mut mode = self;
 
         if !contains_float(dtype) {
-            mode.float_order = Self::new().float_order;
+            mode.float_order = FloatOrder::ZerosEqual;
         }
 
         mode
@@ -374,8 +385,12 @@ fn signed_zero<T: NativePType + Float + Into<PValue>>(
 
 impl From<CompareMode> for PbCompareMode {
     fn from(value: CompareMode) -> Self {
+        let float_order = PbTypeOrder {
+            order: Some(PbOrder::Float(PbFloatOrder::from(value.float_order).into())),
+        };
+
         Self {
-            float_order: PbFloatOrder::from(value.float_order).into(),
+            orders: vec![float_order],
         }
     }
 }
@@ -383,15 +398,33 @@ impl From<CompareMode> for PbCompareMode {
 impl TryFrom<PbCompareMode> for CompareMode {
     type Error = VortexError;
 
-    /// Fails when a field has an order that this version does not know.
+    /// Fails when the mode has an order that this version does not know, two orders of one type,
+    /// or no order of floats.
     ///
-    /// A field that a later version adds for another type is not an error: the decoder drops an
-    /// unknown field, and the comparison then uses the default order of that type.
+    /// A later version can add the order of another type. This version decodes that order as an
+    /// entry without a value and fails, because a comparison in another order gives wrong rows.
     fn try_from(value: PbCompareMode) -> VortexResult<Self> {
-        let float_order = PbFloatOrder::try_from(value.float_order)
-            .map_err(|_| vortex_err!("unknown float order code: {}", value.float_order))?;
+        let mut float_order = None;
 
-        Ok(Self::new().with_float_order(float_order.into()))
+        for type_order in value.orders {
+            match type_order.order {
+                Some(PbOrder::Float(code)) => {
+                    let order = PbFloatOrder::try_from(code)
+                        .map_err(|_| vortex_err!("unknown float order code: {code}"))?;
+
+                    if float_order.replace(FloatOrder::from(order)).is_some() {
+                        vortex_bail!("compare mode has more than one float order");
+                    }
+                }
+                None => vortex_bail!("compare mode has the order of an unknown type"),
+            }
+        }
+
+        let Some(float_order) = float_order else {
+            vortex_bail!("compare mode has no float order");
+        };
+
+        Ok(Self::from_float_order(float_order))
     }
 }
 

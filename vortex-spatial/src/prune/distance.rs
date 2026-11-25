@@ -215,7 +215,7 @@ mod tests {
         #[case] float_order: FloatOrder,
         #[case] prunes: bool,
     ) -> VortexResult<()> {
-        let mode = CompareMode::new().with_float_order(float_order);
+        let mode = CompareMode::from_float_order(float_order);
         let options = CompareOptions::new(CompareOperator::Lte, mode);
 
         let Some(proof) = falsify_distance_in(options, true, 0.5)? else {
@@ -249,8 +249,12 @@ mod tests {
             _ => (0.5, [1.0, 0.0, 1.0, 0.0]),
         };
 
-        for float_order in [FloatOrder::ZerosEqual, FloatOrder::Canonical, FloatOrder::Ieee754] {
-            let mode = CompareMode::new().with_float_order(float_order);
+        for float_order in [
+            FloatOrder::ZerosEqual,
+            FloatOrder::Canonical,
+            FloatOrder::Ieee754,
+        ] {
+            let mode = CompareMode::from_float_order(float_order);
             let proof = falsify_distance_in(CompareOptions::new(operator, mode), true, radius)?
                 .expect("an order with equal zeros prunes");
 

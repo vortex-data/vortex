@@ -1210,7 +1210,8 @@ mod exact_value {
             _options: &(),
         ) -> VortexResult<Option<IndexQueryPlan<String>>> {
             // Only `<column> == <utf8 literal>`.
-            if !expr.is::<Compare>() || *expr.as_::<Compare>() != CompareOperator::Eq {
+            // Strings compare the same in each compare mode, so only the operator matters.
+            if !expr.is::<Compare>() || expr.as_::<Compare>().operator() != CompareOperator::Eq {
                 return Ok(None);
             }
             if !expr.child(0).is_root() || !expr.child(1).is::<Literal>() {

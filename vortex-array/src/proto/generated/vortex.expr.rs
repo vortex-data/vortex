@@ -90,16 +90,35 @@ pub struct ShreddingSpecField {
 }
 /// How a type-specific comparison orders the values in its domain.
 ///
-/// Each type with more than one useful order has one field. To add the order of another type, add
-/// a field whose zero value is the default order of that type.
-#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+/// The mode holds one order for each type with more than one useful order. A reader fails when the
+/// order of a type that it knows is absent, and when it finds an order that it does not know. So
+/// an older reader never compares in another order than the writer asked for.
+///
+/// To add the order of another type, add a variant to `TypeOrder.order`. An older reader decodes
+/// that variant as an empty `TypeOrder` and fails.
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct CompareMode {
-    /// How a comparison orders float values.
-    #[prost(enumeration = "compare_mode::FloatOrder", tag = "1")]
-    pub float_order: i32,
+    /// One entry for each type. A type has at most one entry.
+    #[prost(message, repeated, tag = "1")]
+    pub orders: ::prost::alloc::vec::Vec<compare_mode::TypeOrder>,
 }
 /// Nested message and enum types in `CompareMode`.
 pub mod compare_mode {
+    /// The order of the values of one type.
+    #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+    pub struct TypeOrder {
+        #[prost(oneof = "type_order::Order", tags = "1")]
+        pub order: ::core::option::Option<type_order::Order>,
+    }
+    /// Nested message and enum types in `TypeOrder`.
+    pub mod type_order {
+        #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Oneof)]
+        pub enum Order {
+            /// How a comparison orders float values.
+            #[prost(enumeration = "super::FloatOrder", tag = "1")]
+            Float(i32),
+        }
+    }
     #[derive(
         Clone,
         Copy,
@@ -148,11 +167,12 @@ pub mod compare_mode {
     }
 }
 /// Options for `vortex.compare`
-#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct CompareOpts {
     #[prost(enumeration = "compare_opts::CompareOp", tag = "1")]
     pub op: i32,
-    /// How the comparison orders values. When absent, the comparison uses the default mode.
+    /// How the comparison orders values. Options written before the mode existed have none, and
+    /// compare floats with `ZerosEqual`.
     #[prost(message, optional, tag = "2")]
     pub mode: ::core::option::Option<CompareMode>,
 }
@@ -393,11 +413,12 @@ pub struct LikeOpts {
     #[prost(bool, tag = "2")]
     pub case_insensitive: bool,
 }
-#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ListContainsOpts {
     #[prost(bool, tag = "1")]
     pub sql_null_semantics: bool,
-    /// How the needle and the elements compare. When absent, they compare in the default mode.
+    /// How the needle and the elements compare. Options written before the mode existed have none,
+    /// and compare floats with `ZerosEqual`.
     #[prost(message, optional, tag = "2")]
     pub compare_mode: ::core::option::Option<CompareMode>,
 }

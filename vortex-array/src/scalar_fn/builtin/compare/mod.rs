@@ -65,6 +65,7 @@ use crate::scalar_fn::builtin::binary::execute_strict_step;
 use crate::scalar_fn::builtin::binary::fmt_infix;
 use crate::scalar_fn::builtin::operators::CompareMode;
 use crate::scalar_fn::builtin::operators::CompareOperator;
+use crate::scalar_fn::builtin::operators::FloatOrder;
 use crate::scalar_fn::display::ExprDisplay;
 use crate::validity::Validity;
 
@@ -113,20 +114,15 @@ impl CompareOptions {
 }
 
 impl From<CompareOperator> for CompareOptions {
+    #[allow(deprecated)]
     fn from(operator: CompareOperator) -> Self {
-        Self::new(operator, CompareMode::default())
-    }
-}
-
-impl PartialEq<CompareOperator> for CompareOptions {
-    fn eq(&self, other: &CompareOperator) -> bool {
-        self.compare_mode.is_default() && self.operator == *other
+        Self::new(operator, CompareMode::new())
     }
 }
 
 impl Display for CompareOptions {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        if self.compare_mode.is_default() {
+        if self.compare_mode.is_zeros_equal() {
             return Display::fmt(&self.operator, f);
         }
 
@@ -199,11 +195,13 @@ impl ScalarFnVTable for Compare {
         let opts = pb::CompareOpts::decode(metadata)?;
         let operator = pb::compare_opts::CompareOp::try_from(opts.op)?.into();
 
+        // Options written before the mode existed have no mode. They order floats in
+        // `ZerosEqual`.
         let compare_mode = opts
             .mode
             .map(CompareMode::try_from)
             .transpose()?
-            .unwrap_or_default();
+            .unwrap_or(CompareMode::from_float_order(FloatOrder::ZerosEqual));
 
         Ok(CompareOptions::new(operator, compare_mode))
     }
@@ -288,8 +286,8 @@ impl ScalarFnVTable for Compare {
 /// the left-hand side, swapping the operator when necessary.
 ///
 /// A kernel can compare floats in [`CompareMode::TOTAL_ORDER`], and can compare its children in
-/// the default mode. The adaptor calls a kernel only when the requested mode, the total order,
-/// and the default mode all give the same result (see [`CompareMode::agrees_with_total_order`]
+/// the `ZerosEqual` mode. The adaptor calls a kernel only when the requested mode, the total order,
+/// and the `ZerosEqual` mode all give the same result (see [`CompareMode::agrees_with_total_order`]
 /// and [`CompareMode::total_order_zero`]). Thus a kernel never gets an equality with a float
 /// zero.
 pub trait CompareKernel: VTable {
@@ -322,6 +320,7 @@ where
 {
     type Parent = ExactScalarFn<Compare>;
 
+    #[allow(deprecated)]
     fn execute_parent(
         &self,
         array: ArrayView<'_, V>,
@@ -365,11 +364,11 @@ where
 
         // Kernels compare in total order. Other modes use the canonical kernels, unless the
         // results agree.
-        // A kernel can compare its children in the default mode, so call it only when the mode,
-        // the total order, and the default mode all give the same result.
+        // A kernel can compare its children in the `ZerosEqual` mode, so call it only when the mode,
+        // the total order, and the `ZerosEqual` mode all give the same result.
         let constant = other.as_constant();
         if mode.agrees_with_total_order(cmp_op, array.dtype(), constant)
-            && CompareMode::default().agrees_with_total_order(cmp_op, array.dtype(), constant)
+            && CompareMode::new().agrees_with_total_order(cmp_op, array.dtype(), constant)
         {
             return V::compare(array, other, cmp_op, ctx);
         }

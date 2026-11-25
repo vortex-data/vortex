@@ -132,6 +132,7 @@ impl StrictComparison {
 /// **must** execute it.
 ///
 /// [`ScalarFn`]: vortex_array::arrays::ScalarFn
+#[allow(deprecated)]
 pub(super) fn short_circuit(
     arr: &ArrayRef,
     lower: &ArrayRef,
@@ -173,7 +174,7 @@ pub(super) fn short_circuit(
 
     // Every kernel compares floats in total order, where `-0.0 < +0.0`. `Between` makes the zeros
     // equal, as the two compares do, so the kernels apply only when no bound can be a zero.
-    let mode = CompareMode::default();
+    let mode = CompareMode::new();
     let agrees = |bound: &ArrayRef| {
         mode.agrees_with_total_order(CompareOperator::Gte, arr.dtype(), bound.as_constant())
     };

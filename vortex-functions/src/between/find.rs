@@ -161,8 +161,8 @@ impl<'a> RangeComparison<'a> {
     fn try_new(expr: &'a BoundExpression) -> Option<Self> {
         let options = expr.as_opt::<Compare>()?;
 
-        // `Between` compares in the default mode.
-        if !options.compare_mode().is_default() {
+        // `Between` compares in the `ZerosEqual` mode.
+        if !options.compare_mode().is_zeros_equal() {
             return None;
         }
 

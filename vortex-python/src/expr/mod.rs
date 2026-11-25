@@ -851,7 +851,7 @@ fn compare_mode(float_order: &str) -> PyResult<CompareMode> {
         }
     };
 
-    Ok(CompareMode::new().with_float_order(float_order))
+    Ok(CompareMode::from_float_order(float_order))
 }
 
 /// True where `child` lies between `lower` and `upper`.

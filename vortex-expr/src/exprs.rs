@@ -214,11 +214,11 @@ pub fn binary(operator: impl Into<BinaryOperator>, lhs: Expression, rhs: Express
 
 /// Creates a comparison that orders floats in the given [`CompareMode`].
 ///
-/// [`eq`] and the other comparison builders use the default mode, where `-0.0 = +0.0`.
+/// [`eq`] and the other comparison builders use the `ZerosEqual` mode, where `-0.0 = +0.0`.
 ///
 /// A comparison with a literal uses the default for each setting of the mode that cannot change
 /// a comparison of the literal's dtype, such as the float order for an integer literal. The
-/// result is the same, and rewrites that need the default mode still apply to it.
+/// result is the same, and rewrites that need the `ZerosEqual` mode still apply to it.
 pub fn compare_with_mode(
     operator: CompareOperator,
     compare_mode: CompareMode,

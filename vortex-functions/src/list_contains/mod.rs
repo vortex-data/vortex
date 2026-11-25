@@ -57,6 +57,7 @@ use vortex_array::scalar_fn::builtin::compare::Compare;
 use vortex_array::scalar_fn::builtin::literal::Literal;
 use vortex_array::scalar_fn::builtin::operators::CompareMode;
 use vortex_array::scalar_fn::builtin::operators::CompareOperator;
+use vortex_array::scalar_fn::builtin::operators::FloatOrder;
 use vortex_array::scalar_fn::is_not_null_node;
 use vortex_array::scalar_fn::session::ScalarFnSessionExt;
 use vortex_array::validity::Validity;
@@ -101,7 +102,7 @@ pub(crate) fn initialize(session: &VortexSession) {
 pub struct ListContains;
 
 /// Options for [`ListContains`].
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct ListContainsOptions {
     /// Whether a null list element is SQL's unknown value.
     ///
@@ -117,8 +118,19 @@ pub struct ListContainsOptions {
     pub sql_null_semantics: bool,
     /// How the needle and the elements compare floats, at the top level and in nested values.
     ///
-    /// In the default mode, `-0.0 = +0.0`. [`CompareMode::TOTAL_ORDER`] compares the bits of floats.
+    /// The default options order floats in [`FloatOrder::ZerosEqual`], where `-0.0 = +0.0`.
+    /// [`CompareMode::TOTAL_ORDER`] compares the bits of floats.
     pub compare_mode: CompareMode,
+}
+
+impl Default for ListContainsOptions {
+    #[allow(deprecated)]
+    fn default() -> Self {
+        Self {
+            sql_null_semantics: false,
+            compare_mode: CompareMode::new(),
+        }
+    }
 }
 
 impl Display for ListContainsOptions {
@@ -126,7 +138,7 @@ impl Display for ListContainsOptions {
         if self.sql_null_semantics {
             write!(f, "sql_null_semantics")?;
         }
-        if !self.compare_mode.is_default() {
+        if !self.compare_mode.is_zeros_equal() {
             if self.sql_null_semantics {
                 write!(f, ", ")?;
             }
@@ -262,11 +274,13 @@ impl ScalarFnVTable for ListContains {
     ) -> VortexResult<Self::Options> {
         let opts = pb::ListContainsOpts::decode(metadata)?;
 
+        // Options written before the mode existed have no mode. They order floats in
+        // `ZerosEqual`.
         let compare_mode = opts
             .compare_mode
             .map(CompareMode::try_from)
             .transpose()?
-            .unwrap_or_default();
+            .unwrap_or(CompareMode::from_float_order(FloatOrder::ZerosEqual));
 
         Ok(ListContainsOptions {
             sql_null_semantics: opts.sql_null_semantics,
@@ -1603,9 +1617,9 @@ mod tests {
         Ok(())
     }
 
-    const ZEROS_EQUAL: CompareMode = CompareMode::new().with_float_order(FloatOrder::ZerosEqual);
-    const CANONICAL: CompareMode = CompareMode::new().with_float_order(FloatOrder::Canonical);
-    const IEEE754: CompareMode = CompareMode::new().with_float_order(FloatOrder::Ieee754);
+    const ZEROS_EQUAL: CompareMode = CompareMode::from_float_order(FloatOrder::ZerosEqual);
+    const CANONICAL: CompareMode = CompareMode::from_float_order(FloatOrder::Canonical);
+    const IEEE754: CompareMode = CompareMode::from_float_order(FloatOrder::Ieee754);
 
     #[rstest]
     #[case::total_order(CompareMode::TOTAL_ORDER, [false, true, true, false, false, false])]

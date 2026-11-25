@@ -17,9 +17,9 @@ use vortex::scalar_fn::builtin::operators::CompareOperator;
 use vortex::scalar_fn::builtin::operators::FloatOrder;
 
 /// The comparison semantics of DuckDB.
-const DUCKDB_MODE: CompareMode = CompareMode::new().with_float_order(FloatOrder::Canonical);
+const DUCKDB_MODE: CompareMode = CompareMode::from_float_order(FloatOrder::Canonical);
 
-/// Returns the compare mode of DuckDB for operands of `dtype`. It is the default mode when
+/// Returns the compare mode of DuckDB for operands of `dtype`. It is the `ZerosEqual` mode when
 /// `dtype` holds no floats.
 pub(super) fn compare_mode(dtype: &DType) -> CompareMode {
     DUCKDB_MODE.for_dtype(dtype)
@@ -38,7 +38,7 @@ pub(super) fn compare(
 /// Returns `lower <(=) input <(=) upper` for operands of `dtype`, as a conjunction of comparisons
 /// in `mode`.
 ///
-/// The `Between` scalar function compares in the default mode. Use this function when the compare
+/// The `Between` scalar function compares in the `ZerosEqual` mode. Use this function when the compare
 /// mode of `dtype` is a different mode.
 pub(super) fn between_with_mode(
     mode: CompareMode,

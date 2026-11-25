@@ -475,6 +475,7 @@ pub fn bound_dynamic_with_options(
 }
 
 /// Creates a dynamic comparison expression that compares floats in the default [`CompareMode`].
+#[allow(deprecated)]
 pub fn dynamic(
     operator: CompareOperator,
     rhs_value: impl Fn() -> Option<ScalarValue> + Send + Sync + 'static,
@@ -484,7 +485,7 @@ pub fn dynamic(
 ) -> Expression {
     dynamic_with_mode(
         operator,
-        CompareMode::default(),
+        CompareMode::new(),
         rhs_value,
         rhs_dtype,
         default,
@@ -516,6 +517,7 @@ pub fn dynamic_with_mode(
 }
 
 /// Creates a bound dynamic comparison expression.
+#[allow(deprecated)]
 pub fn bound_dynamic(
     operator: CompareOperator,
     rhs_value: impl Fn() -> Option<ScalarValue> + Send + Sync + 'static,
@@ -526,7 +528,7 @@ pub fn bound_dynamic(
     bound_dynamic_with_options(
         DynamicComparisonExpr {
             operator,
-            compare_mode: CompareMode::default(),
+            compare_mode: CompareMode::new(),
             rhs: Arc::new(Rhs {
                 value: Arc::new(rhs_value),
                 dtype: rhs_dtype,
@@ -620,8 +622,9 @@ pub fn list_contains_opts(
 /// # use vortex_functions::expr::in_list;
 /// let expr = in_list(root(), lit(vec![1, 2, 3]));
 /// ```
+#[allow(deprecated)]
 pub fn in_list(needle: Expression, list: Expression) -> Expression {
-    in_list_with_mode(needle, list, CompareMode::default())
+    in_list_with_mode(needle, list, CompareMode::new())
 }
 
 /// Creates `needle IN (list)` with SQL null semantics, where the needle and the elements compare
@@ -664,12 +667,13 @@ pub fn in_list_with_mode(
 /// assert_eq!(expr.to_string(), "(1i32 <= $ <= 3i32)");
 /// # Ok::<(), vortex_error::VortexError>(())
 /// ```
+#[allow(deprecated)]
 pub fn in_list_of(
     needle: Expression,
     element_dtype: DType,
     elements: Vec<Scalar>,
 ) -> VortexResult<Expression> {
-    in_list_of_with_mode(needle, element_dtype, elements, CompareMode::default())
+    in_list_of_with_mode(needle, element_dtype, elements, CompareMode::new())
 }
 
 /// Creates `needle IN (elements)` like [`in_list_of`], where the needle and the elements compare
@@ -762,12 +766,13 @@ pub fn bound_list_contains(list: BoundExpression, value: BoundExpression) -> Bou
 }
 
 /// Creates a bound `needle IN (list)` with SQL null semantics. See [`in_list`].
+#[allow(deprecated)]
 pub fn bound_in_list(needle: BoundExpression, list: BoundExpression) -> BoundExpression {
     ListContains
         .try_new_bound_expr(
             ListContainsOptions {
                 sql_null_semantics: true,
-                compare_mode: CompareMode::default(),
+                compare_mode: CompareMode::new(),
             },
             [list, needle],
         )

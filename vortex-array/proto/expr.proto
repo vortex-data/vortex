@@ -74,11 +74,23 @@ message ShreddingSpecField {
 
 // How a type-specific comparison orders the values in its domain.
 //
-// Each type with more than one useful order has one field. To add the order of another type, add
-// a field whose zero value is the default order of that type.
+// The mode holds one order for each type with more than one useful order. A reader fails when the
+// order of a type that it knows is absent, and when it finds an order that it does not know. So
+// an older reader never compares in another order than the writer asked for.
+//
+// To add the order of another type, add a variant to `TypeOrder.order`. An older reader decodes
+// that variant as an empty `TypeOrder` and fails.
 message CompareMode {
-  // How a comparison orders float values.
-  FloatOrder float_order = 1;
+  // One entry for each type. A type has at most one entry.
+  repeated TypeOrder orders = 1;
+
+  // The order of the values of one type.
+  message TypeOrder {
+    oneof order {
+      // How a comparison orders float values.
+      FloatOrder float = 1;
+    }
+  }
 
   enum FloatOrder {
     // `-0.0 = +0.0`, and NaN values order by sign and payload.
@@ -95,7 +107,8 @@ message CompareMode {
 // Options for `vortex.compare`
 message CompareOpts {
   CompareOp op = 1;
-  // How the comparison orders values. When absent, the comparison uses the default mode.
+  // How the comparison orders values. Options written before the mode existed have none, and
+  // compare floats with `ZerosEqual`.
   CompareMode mode = 2;
 
   enum CompareOp {
@@ -163,7 +176,8 @@ message LikeOpts {
 
 message ListContainsOpts {
   bool sql_null_semantics = 1;
-  // How the needle and the elements compare. When absent, they compare in the default mode.
+  // How the needle and the elements compare. Options written before the mode existed have none,
+  // and compare floats with `ZerosEqual`.
   CompareMode compare_mode = 2;
 }
 

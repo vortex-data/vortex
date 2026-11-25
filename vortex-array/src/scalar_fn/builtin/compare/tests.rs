@@ -1196,9 +1196,9 @@ const MODE_VALUES: [f64; 8] = [
     f64::NAN,
 ];
 
-const DATAFUSION: CompareMode = CompareMode::new().with_float_order(FloatOrder::ZerosEqual);
-const SPARK: CompareMode = CompareMode::new().with_float_order(FloatOrder::Canonical);
-const PYARROW: CompareMode = CompareMode::new().with_float_order(FloatOrder::Ieee754);
+const DATAFUSION: CompareMode = CompareMode::from_float_order(FloatOrder::ZerosEqual);
+const SPARK: CompareMode = CompareMode::from_float_order(FloatOrder::Canonical);
+const PYARROW: CompareMode = CompareMode::from_float_order(FloatOrder::Ieee754);
 
 fn compare_with(
     lhs: ArrayRef,
@@ -1499,9 +1499,9 @@ fn compare_options_round_trip(#[case] options: CompareOptions) -> VortexResult<(
     Ok(())
 }
 
-/// Options written before the mode existed have no mode. They read as the default mode.
+/// Options written before the mode existed have no mode. They order floats in `ZerosEqual`.
 #[test]
-fn compare_options_without_mode_use_default_mode() -> VortexResult<()> {
+fn compare_options_without_mode_use_zeros_equal() -> VortexResult<()> {
     let bytes = pb::CompareOpts {
         op: pb::compare_opts::CompareOp::Lt.into(),
         mode: None,
@@ -1510,22 +1510,47 @@ fn compare_options_without_mode_use_default_mode() -> VortexResult<()> {
 
     assert_eq!(
         Compare.deserialize(&bytes, &SESSION)?,
-        CompareOptions::from(CompareOperator::Lt)
+        CompareOptions::new(
+            CompareOperator::Lt,
+            CompareMode::from_float_order(FloatOrder::ZerosEqual)
+        )
     );
     Ok(())
 }
 
-/// A later version can write an order that this version does not know. The read must fail: a
-/// comparison in another order gives wrong rows.
-#[test]
-fn compare_options_reject_unknown_float_order() {
+/// A later version can write an order that this version does not know: a new float order, or the
+/// order of another type, which decodes as an entry without a value. The read must fail, because
+/// a comparison in another order gives wrong rows. A mode without a float order, or with two,
+/// is also not valid.
+#[rstest]
+#[case::unknown_float_order(vec![float_order(99)], "unknown float order code: 99")]
+#[case::unknown_type(
+    vec![float_order(0), pb::compare_mode::TypeOrder { order: None }],
+    "compare mode has the order of an unknown type"
+)]
+#[case::no_float_order(vec![], "compare mode has no float order")]
+#[case::two_float_orders(
+    vec![float_order(0), float_order(2)],
+    "compare mode has more than one float order"
+)]
+fn compare_options_reject_invalid_mode(
+    #[case] orders: Vec<pb::compare_mode::TypeOrder>,
+    #[case] message: &str,
+) {
     let bytes = pb::CompareOpts {
         op: pb::compare_opts::CompareOp::Eq.into(),
-        mode: Some(pb::CompareMode { float_order: 99 }),
+        mode: Some(pb::CompareMode { orders }),
     }
     .encode_to_vec();
 
     let error = Compare.deserialize(&bytes, &SESSION).unwrap_err();
 
-    assert!(error.to_string().contains("unknown float order code: 99"));
+    assert!(error.to_string().contains(message), "{error}");
+}
+
+/// The entry of a compare mode that holds the float order with the proto code `code`.
+fn float_order(code: i32) -> pb::compare_mode::TypeOrder {
+    pb::compare_mode::TypeOrder {
+        order: Some(pb::compare_mode::type_order::Order::Float(code)),
+    }
 }
