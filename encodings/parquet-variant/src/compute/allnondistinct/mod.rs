@@ -8,6 +8,7 @@ use std::fmt::Debug;
 
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
+use vortex_array::RepeatedArrayProbe;
 use vortex_array::aggregate_fn::AggregateFnRef;
 use vortex_array::aggregate_fn::fns::all_non_distinct::AllNonDistinct;
 use vortex_array::aggregate_fn::fns::all_non_distinct::all_non_distinct;
@@ -61,26 +62,13 @@ impl DynAggregateKernel for AllNonDistinctParquetVariant {
             return Ok(None);
         };
 
-        // Check cheap layout and dtype compatibility before comparing metadata or children.
-        let typed_pair = match (lhs.typed_value(), rhs.typed_value()) {
-            (Some(lhs_typed), Some(rhs_typed)) if lhs_typed.dtype() == rhs_typed.dtype() => {
-                Some((lhs_typed, rhs_typed))
-            }
-            (None, None) => None,
-            // Mixed shredding layouts or differing typed_value dtypes: let the generic canonical
-            // path handle it.
-            _ => return Ok(None),
-        };
-
-        let value_pair = match (lhs.value(), rhs.value()) {
-            (Some(lhs_value), Some(rhs_value)) if lhs_value.dtype() == rhs_value.dtype() => {
-                Some((lhs_value, rhs_value))
-            }
-            (None, None) => None,
-            // Mixed shredding layouts or value children that differ in nullability: let the
-            // generic canonical path handle it.
-            _ => return Ok(None),
-        };
+        // Mixed shredding layouts (only one side has `typed_value` or `value`): let the generic
+        // canonical path handle it.
+        if lhs.typed_value().is_some() != rhs.typed_value().is_some()
+            || lhs.value().is_some() != rhs.value().is_some()
+        {
+            return Ok(None);
+        }
 
         // Respect both the batch struct mask (rows masked out by the caller) and each side's
         // outer variant validity. A valid batch row where only one side is null is distinct, and
@@ -108,6 +96,31 @@ impl DynAggregateKernel for AllNonDistinctParquetVariant {
                 return Ok(Some(Scalar::bool(true, Nullability::NonNullable)));
             }
             (lhs_mask.true_count() < batch.len()).then_some(lhs_mask)
+        };
+
+        // Check child dtype compatibility before comparing metadata or children. When child dtypes
+        // differ (e.g. root `value` nullability), compare via `ParquetVariant` scalars rather than
+        // declining to `Canonical::Variant`, which omits raw-only nested field wrappers.
+        let typed_pair = match (lhs.typed_value(), rhs.typed_value()) {
+            (Some(lhs_typed), Some(rhs_typed)) if lhs_typed.dtype() == rhs_typed.dtype() => {
+                Some((lhs_typed, rhs_typed))
+            }
+            (None, None) => None,
+            _ => {
+                let equal = compare_active_scalars(lhs_arr, rhs_arr, active_mask.as_ref(), ctx)?;
+                return Ok(Some(Scalar::bool(equal, Nullability::NonNullable)));
+            }
+        };
+
+        let value_pair = match (lhs.value(), rhs.value()) {
+            (Some(lhs_value), Some(rhs_value)) if lhs_value.dtype() == rhs_value.dtype() => {
+                Some((lhs_value, rhs_value))
+            }
+            (None, None) => None,
+            _ => {
+                let equal = compare_active_scalars(lhs_arr, rhs_arr, active_mask.as_ref(), ctx)?;
+                return Ok(Some(Scalar::bool(equal, Nullability::NonNullable)));
+            }
         };
 
         let filter_child = |child: &ArrayRef| -> VortexResult<ArrayRef> {
@@ -162,17 +175,19 @@ fn compare_active_scalars(
     active_mask: Option<&Mask>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<bool> {
+    let mut lhs_probe = RepeatedArrayProbe::new(lhs.clone());
+    let mut rhs_probe = RepeatedArrayProbe::new(rhs.clone());
     match active_mask {
         Some(mask) => {
             for idx in mask.to_bit_buffer().set_indices() {
-                if lhs.execute_scalar(idx, ctx)? != rhs.execute_scalar(idx, ctx)? {
+                if lhs_probe.execute_scalar(idx, ctx)? != rhs_probe.execute_scalar(idx, ctx)? {
                     return Ok(false);
                 }
             }
         }
         None => {
             for idx in 0..lhs.len() {
-                if lhs.execute_scalar(idx, ctx)? != rhs.execute_scalar(idx, ctx)? {
+                if lhs_probe.execute_scalar(idx, ctx)? != rhs_probe.execute_scalar(idx, ctx)? {
                     return Ok(false);
                 }
             }

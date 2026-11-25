@@ -203,7 +203,7 @@ fn all_non_distinct_matches_logically_equal_with_different_metadata() -> VortexR
 }
 
 #[test]
-fn all_non_distinct_detects_different_raw_only_nested_field_with_different_metadata()
+fn test_all_non_distinct_detects_different_raw_only_nested_field_with_different_metadata()
 -> VortexResult<()> {
     let (meta_empty, val_x) = VariantBuilder::new().with_value("x").finish();
     let (_, val_y) = VariantBuilder::new().with_value("y").finish();
@@ -254,7 +254,62 @@ fn all_non_distinct_detects_different_raw_only_nested_field_with_different_metad
 }
 
 #[test]
-fn all_non_distinct_compares_fully_shredded_leaf_despite_different_metadata() -> VortexResult<()> {
+fn test_all_non_distinct_detects_different_raw_only_nested_field_with_differing_value_nullability()
+-> VortexResult<()> {
+    let (meta_c, val_c) = single_field_object("c", 3);
+    let (_, val_x) = VariantBuilder::new().with_value("x").finish();
+    let (_, val_y) = VariantBuilder::new().with_value("y").finish();
+
+    let make_shredded_object = |root_value: ArrayRef, raw_b: &[u8]| -> VortexResult<ArrayRef> {
+        let field_a = StructArray::try_new(
+            FieldNames::from(["typed_value"]),
+            vec![buffer![1i32].into_array()],
+            1,
+            Validity::NonNullable,
+        )?
+        .into_array();
+        let field_b = StructArray::try_new(
+            FieldNames::from(["value"]),
+            vec![binary([raw_b])],
+            1,
+            Validity::NonNullable,
+        )?
+        .into_array();
+        let typed_value = StructArray::try_new(
+            FieldNames::from(["a", "b"]),
+            vec![field_a, field_b],
+            1,
+            Validity::NonNullable,
+        )?
+        .into_array();
+        Ok(ParquetVariant::try_new(
+            Validity::NonNullable,
+            binary([meta_c.as_slice()]),
+            Some(root_value),
+            Some(typed_value),
+        )?
+        .into_array())
+    };
+
+    let lhs_root = binary([val_c.as_slice()]);
+    let rhs_root = VarBinViewArray::from_iter_nullable_bin([Some(val_c.as_slice())]).into_array();
+    assert_ne!(lhs_root.dtype(), rhs_root.dtype());
+
+    let lhs = make_shredded_object(lhs_root, &val_x)?;
+    let rhs = make_shredded_object(rhs_root, &val_y)?;
+
+    let mut ctx = SESSION.create_execution_ctx();
+    assert_ne!(
+        lhs.execute_scalar(0, &mut ctx)?,
+        rhs.execute_scalar(0, &mut ctx)?
+    );
+    assert!(!all_non_distinct(&lhs, &rhs, &mut ctx)?);
+    Ok(())
+}
+
+#[test]
+fn test_all_non_distinct_compares_fully_shredded_leaf_despite_different_metadata()
+-> VortexResult<()> {
     let (meta_a, _) = single_field_object("a", 1);
     let (meta_b, _) = single_field_object("b", 1);
 
