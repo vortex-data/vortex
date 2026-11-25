@@ -159,11 +159,12 @@ aggregations on the bucket columns can skip the shuffle. Spark's session catalog
 `years`, `months`, `days`, and `hours` transforms for every file format. To partition by time,
 derive the column and partition by it, for example `withColumn("year", year(col("ts")))`.
 
-| Option                    | Default | Description                                                              |
-|---------------------------|---------|--------------------------------------------------------------------------|
-| `batch.size`              | `2048`  | Rows buffered per write batch; range 1–65536.                            |
-| `vortex.write.batch.size` | —       | Rows buffered per write batch for Vortex alone, overriding `batch.size`. |
-| `vortex.write.compact`    | `false` | Write with the compact strategy: smaller files, slower reads.            |
+| Option                     | Default | Description                                                                                                            |
+|----------------------------|---------|------------------------------------------------------------------------------------------------------------------------|
+| `batch.size`               | `2048`  | Rows buffered per write batch; range 1–65536.                                                                          |
+| `vortex.write.batch.size`  | —       | Rows buffered per write batch for Vortex alone, overriding `batch.size`.                                               |
+| `vortex.write.batch.bytes` | —       | Also end a write batch once its Arrow buffers hold this many bytes. A single row larger than this is still one batch. |
+| `vortex.write.compact`     | `false` | Write with the compact strategy: smaller files, slower reads.                                                          |
 
 ## Spark SQL
 

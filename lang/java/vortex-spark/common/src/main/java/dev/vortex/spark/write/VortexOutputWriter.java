@@ -4,6 +4,7 @@
 package dev.vortex.spark.write;
 
 import dev.vortex.api.Session;
+import dev.vortex.api.VortexWriteSummary;
 import dev.vortex.api.VortexWriter;
 import dev.vortex.io.NativeWritable;
 import dev.vortex.relocated.org.apache.arrow.memory.BufferAllocator;
@@ -14,7 +15,9 @@ import dev.vortex.spark.VortexOptions;
 import dev.vortex.spark.VortexSparkSession;
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import org.apache.spark.TaskContext;
 import org.apache.spark.sql.catalyst.InternalRow;
 import org.apache.spark.sql.execution.datasources.OutputWriter;
@@ -27,7 +30,10 @@ import org.slf4j.LoggerFactory;
  * Writes Spark InternalRow data to a Vortex file.
  *
  * <p>Each row is appended straight into a batch of Arrow vectors as it arrives, and a full batch is handed to the
- * Vortex writer.
+ * Vortex writer. A batch is full at {@value #BATCH_SIZE_OPTION} rows or, when {@value #BATCH_BYTES_OPTION} is set, once
+ * its Arrow buffers hold that many bytes, whichever comes first.
+ *
+ * <p>After a successful {@link #close()}, {@link #summary()} describes the file and the memory the writer used.
  */
 public final class VortexOutputWriter extends OutputWriter {
     private static final Logger logger = LoggerFactory.getLogger(VortexOutputWriter.class);
@@ -44,6 +50,13 @@ public final class VortexOutputWriter extends OutputWriter {
      */
     public static final String COMPACT_OPTION = "vortex.write.compact";
 
+    /**
+     * Option capping the Arrow bytes of one batch. After each row, the batch is handed to Vortex once its buffers,
+     * nested ones included, hold at least this many bytes. Unset by default, which leaves only the row limit. A single
+     * row larger than the cap still makes a batch of its own.
+     */
+    public static final String BATCH_BYTES_OPTION = "vortex.write.batch.bytes";
+
     private static final int DEFAULT_BATCH_SIZE = 2048;
     private static final int MIN_BATCH_SIZE = 1;
     private static final int MAX_BATCH_SIZE = 65536; // 64K rows max per batch
@@ -52,6 +65,7 @@ public final class VortexOutputWriter extends OutputWriter {
     private final String filePath;
     private final VortexOptions options;
     private final int batchSize;
+    private final long batchBytes;
     private NativeWritable writable;
 
     private Session session;
@@ -59,7 +73,12 @@ public final class VortexOutputWriter extends OutputWriter {
     private BufferAllocator allocator;
     private VectorSchemaRoot vectorSchemaRoot;
     private ArrowFieldWriter<?>[] fieldWriters;
+    private ArrowBatchBytes batchBytesProbe;
     private int batchRowCount = 0;
+    private long batchCount = 0;
+    private long peakBatchBytes = 0;
+    private long peakBufferedBytes = 0;
+    private VortexOutputWriteSummary summary;
     private Exception writeFailure;
     private boolean closed = false;
 
@@ -106,6 +125,8 @@ public final class VortexOutputWriter extends OutputWriter {
             }
         }
 
+        this.batchBytes = configuredBatchBytes(options);
+
         try {
             this.allocator = new RootAllocator();
             var arrowSchema = SparkToArrowSchema.convert(schema);
@@ -127,6 +148,7 @@ public final class VortexOutputWriter extends OutputWriter {
             for (int i = 0; i < fields.length; i++) {
                 fieldWriters[i] = ArrowFieldWriter.create(vectorSchemaRoot.getVector(i), fields[i].dataType());
             }
+            this.batchBytesProbe = new ArrowBatchBytes(vectorSchemaRoot);
 
             logger.debug("Initialized VortexOutputWriter for {}", filePath);
 
@@ -153,6 +175,20 @@ public final class VortexOutputWriter extends OutputWriter {
     }
 
     /**
+     * The byte cap per batch from {@value #BATCH_BYTES_OPTION}, or 0 when it is not set.
+     *
+     * @throws IllegalArgumentException if the value is not a positive integer
+     */
+    static long configuredBatchBytes(VortexOptions options) {
+        long bytes = options.getLong(BATCH_BYTES_OPTION, 0);
+        if (bytes < 0 || (bytes == 0 && options.get(BATCH_BYTES_OPTION).isPresent())) {
+            throw new IllegalArgumentException(String.format(
+                    Locale.ROOT, "%s must be a positive number of bytes, got %d", BATCH_BYTES_OPTION, bytes));
+        }
+        return bytes;
+    }
+
+    /**
      * Writes a single row to the Vortex file.
      *
      * <p>The row is consumed before this method returns: Spark reuses the row object for the next call.
@@ -175,7 +211,7 @@ public final class VortexOutputWriter extends OutputWriter {
                 fieldWriters[i].write(row, i);
             }
             batchRowCount++;
-            if (batchRowCount >= batchSize) {
+            if (batchRowCount >= batchSize || (batchBytes > 0 && batchBytesProbe.measure() >= batchBytes)) {
                 writeBatch();
             }
         } catch (IOException e) {
@@ -194,8 +230,11 @@ public final class VortexOutputWriter extends OutputWriter {
             return;
         }
         vectorSchemaRoot.setRowCount(batchRowCount);
+        peakBatchBytes = Math.max(peakBatchBytes, batchBytesProbe.measure());
 
         vortexWriter.writeBatch(vectorSchemaRoot, allocator);
+        batchCount++;
+        peakBufferedBytes = Math.max(peakBufferedBytes, vortexWriter.bufferedBytes());
 
         vectorSchemaRoot.clear();
         for (ArrowFieldWriter<?> writer : fieldWriters) {
@@ -219,6 +258,7 @@ public final class VortexOutputWriter extends OutputWriter {
 
         boolean aborting = writeFailure != null || taskFailed();
         IOException failure = null;
+        VortexWriteSummary fileSummary = null;
 
         if (!aborting) {
             try {
@@ -232,7 +272,7 @@ public final class VortexOutputWriter extends OutputWriter {
 
         if (vortexWriter != null) {
             try {
-                vortexWriter.finish();
+                fileSummary = vortexWriter.finish();
             } catch (IOException e) {
                 failure = addFailure(failure, e);
             } finally {
@@ -263,6 +303,19 @@ public final class VortexOutputWriter extends OutputWriter {
         if (failure != null) {
             throw new UncheckedIOException("Failed to close Vortex output " + filePath, failure);
         }
+
+        if (!aborting && fileSummary != null) {
+            summary = new VortexOutputWriteSummary(fileSummary, batchCount, peakBatchBytes, peakBufferedBytes);
+            logger.debug("Closed the writer for {}: {}", filePath, summary);
+        }
+    }
+
+    /**
+     * What this writer wrote, once {@link #close()} has finished the file. Empty before then, and after a close that
+     * failed or dropped the file because the write or the task had failed.
+     */
+    public Optional<VortexOutputWriteSummary> summary() {
+        return Optional.ofNullable(summary);
     }
 
     @Override
