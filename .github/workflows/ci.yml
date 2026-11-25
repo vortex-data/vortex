@@ -356,6 +356,9 @@ jobs:
               - "vortex-ffi/**"
               - "Cargo.toml"
               - "Cargo.lock"
+              - "rust-toolchain.toml"
+              - ".cargo/**"
+              - ".github/actions/setup-prebuild/**"
               - ".github/workflows/ci.yml"
 
   java-tests:

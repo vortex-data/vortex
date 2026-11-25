@@ -26,5 +26,6 @@ pub fn main() {
 
     let decompressed = compressed.execute::<PrimitiveArray>(&mut ctx).unwrap();
     assert_eq!(decompressed.dtype(), array.dtype());
+    assert!(decompressed.all_valid(&mut ctx).unwrap());
     assert_eq!(decompressed.as_slice::<i32>(), &[1i32; 1024]);
 }
