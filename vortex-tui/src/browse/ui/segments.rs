@@ -99,6 +99,31 @@ impl SegmentGridState {
             .horizontal_scroll_state
             .position(self.horizontal_scroll);
     }
+
+    /// Update scroll bounds after a viewport resize and clamp active scroll offsets.
+    fn update_scroll_bounds(
+        &mut self,
+        max_horizontal: usize,
+        max_vertical: usize,
+        viewport_width: usize,
+        viewport_height: usize,
+    ) {
+        self.max_horizontal_scroll = max_horizontal;
+        self.max_vertical_scroll = max_vertical;
+        self.horizontal_scroll = self.horizontal_scroll.min(max_horizontal);
+        self.vertical_scroll = self.vertical_scroll.min(max_vertical);
+
+        self.horizontal_scroll_state = self
+            .horizontal_scroll_state
+            .content_length(max_horizontal)
+            .viewport_content_length(viewport_width)
+            .position(self.horizontal_scroll);
+        self.vertical_scroll_state = self
+            .vertical_scroll_state
+            .content_length(max_vertical)
+            .viewport_content_length(viewport_height)
+            .position(self.vertical_scroll);
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -111,6 +136,35 @@ pub struct NodeContents {
     clippy::cast_possible_truncation,
     reason = "UI coordinates are small enough"
 )]
+fn sync_layout_to_area(
+    grid: &mut SegmentGridState,
+    frame_size: &mut ratatui::prelude::Size,
+    area: Rect,
+) {
+    let Some((tree, root_node, _)) = &mut grid.segment_tree else {
+        unreachable!("uninitialized state")
+    };
+
+    if *frame_size != area.as_size() {
+        let viewport_size = Size {
+            width: AvailableSpace::Definite(area.width as f32),
+            height: AvailableSpace::Definite(area.height as f32),
+        };
+        tree.compute_layout(*root_node, viewport_size)
+            .map_err(|e| vortex_err!("Fail to compute layout {e}"))
+            .vortex_expect("operation should succeed in TUI");
+        *frame_size = area.as_size();
+
+        let root_layout = tree.get_final_layout(*root_node);
+        grid.update_scroll_bounds(
+            root_layout.scroll_width() as usize,
+            root_layout.scroll_height() as usize,
+            frame_size.width as usize,
+            frame_size.height as usize,
+        );
+    }
+}
+
 pub fn segments_ui(app_state: &mut AppState, area: Rect, buf: &mut Buffer) {
     if app_state.segment_grid_state.segment_tree.is_none() {
         let segment_tree = collect_segment_tree(
@@ -124,38 +178,15 @@ pub fn segments_ui(app_state: &mut AppState, area: Rect, buf: &mut Buffer) {
         );
     }
 
-    let Some((tree, root_node, contents)) = &mut app_state.segment_grid_state.segment_tree else {
+    sync_layout_to_area(
+        &mut app_state.segment_grid_state,
+        &mut app_state.frame_size,
+        area,
+    );
+
+    let Some((tree, root_node, contents)) = &app_state.segment_grid_state.segment_tree else {
         unreachable!("uninitialized state")
     };
-
-    if app_state.frame_size != area.as_size() {
-        let viewport_size = Size {
-            width: AvailableSpace::Definite(area.width as f32),
-            height: AvailableSpace::Definite(area.height as f32),
-        };
-        tree.compute_layout(*root_node, viewport_size)
-            .map_err(|e| vortex_err!("Fail to compute layout {e}"))
-            .vortex_expect("operation should succeed in TUI");
-        app_state.frame_size = area.as_size();
-
-        let root_layout = tree.get_final_layout(*root_node);
-
-        app_state.segment_grid_state.max_horizontal_scroll = root_layout.scroll_width() as usize;
-        app_state.segment_grid_state.max_vertical_scroll = root_layout.scroll_height() as usize;
-
-        app_state.segment_grid_state.horizontal_scroll_state = app_state
-            .segment_grid_state
-            .horizontal_scroll_state
-            .content_length(root_layout.scroll_width() as usize)
-            .viewport_content_length(app_state.frame_size.width as usize)
-            .position(app_state.segment_grid_state.horizontal_scroll);
-        app_state.segment_grid_state.vertical_scroll_state = app_state
-            .segment_grid_state
-            .vertical_scroll_state
-            .content_length(root_layout.scroll_height() as usize)
-            .viewport_content_length(app_state.frame_size.height as usize)
-            .position(app_state.segment_grid_state.vertical_scroll);
-    }
 
     render_tree(
         tree,
@@ -392,4 +423,76 @@ fn to_display_segment_tree(
         &children,
     )?;
     Ok((tree, root, node_contents))
+}
+
+#[cfg(test)]
+mod tests {
+    use vortex::buffer::Alignment;
+    use vortex::file::SegmentSpec;
+
+    use super::*;
+    use crate::segment_tree::SegmentDisplay;
+
+    fn sample_segment_tree(num_cols: usize, chunks_per_col: usize) -> SegmentTree {
+        let mut segments = HashMap::new();
+        let mut segment_ordering = Vec::with_capacity(num_cols);
+        let mut offset = 0u64;
+
+        for col in 0..num_cols {
+            let col_name = FieldName::from(format!("col_{col}"));
+            segment_ordering.push(col_name.clone());
+            let mut chunks = Vec::with_capacity(chunks_per_col);
+            for chunk in 0..chunks_per_col {
+                chunks.push(SegmentDisplay {
+                    name: FieldName::from(format!("[{chunk}]")),
+                    spec: SegmentSpec {
+                        offset,
+                        length: 64,
+                        alignment: Alignment::none(),
+                    },
+                    row_offset: (chunk as u64) * 100,
+                    row_count: 100,
+                });
+                offset += 64;
+            }
+            segments.insert(col_name, chunks);
+        }
+
+        SegmentTree {
+            segments,
+            segment_ordering,
+        }
+    }
+
+    #[test]
+    fn scroll_offset_clamps_after_viewport_expansion() {
+        let mut grid = SegmentGridState {
+            segment_tree: Some(to_display_segment_tree(sample_segment_tree(3, 6)).unwrap()),
+            ..Default::default()
+        };
+        let mut frame_size = ratatui::prelude::Size::new(0, 0);
+
+        // Initial small viewport forces both vertical and horizontal scroll bounds > 0.
+        sync_layout_to_area(&mut grid, &mut frame_size, Rect::new(0, 0, 50, 20));
+        assert!(grid.max_vertical_scroll > 0);
+        assert!(grid.max_horizontal_scroll > 0);
+
+        grid.scroll_down(1000);
+        grid.scroll_right(1000);
+        assert_eq!(grid.vertical_scroll, grid.max_vertical_scroll);
+        assert_eq!(grid.horizontal_scroll, grid.max_horizontal_scroll);
+
+        // Partial height expansion shrinks max_vertical_scroll and must clamp vertical_scroll.
+        let prev_max_v = grid.max_vertical_scroll;
+        sync_layout_to_area(&mut grid, &mut frame_size, Rect::new(0, 0, 50, 50));
+        assert!(grid.max_vertical_scroll < prev_max_v);
+        assert_eq!(grid.vertical_scroll, grid.max_vertical_scroll);
+
+        // Expanding beyond full content clamps both offsets to 0.
+        sync_layout_to_area(&mut grid, &mut frame_size, Rect::new(0, 0, 200, 200));
+        assert_eq!(grid.max_vertical_scroll, 0);
+        assert_eq!(grid.vertical_scroll, 0);
+        assert_eq!(grid.max_horizontal_scroll, 0);
+        assert_eq!(grid.horizontal_scroll, 0);
+    }
 }
