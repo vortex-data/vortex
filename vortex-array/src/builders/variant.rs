@@ -10,10 +10,12 @@ use vortex_error::vortex_ensure;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::arrays::Chunked;
 use crate::arrays::ChunkedArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::MaskedArray;
 use crate::arrays::VariantArray;
+use crate::arrays::chunked::ChunkedArrayExt;
 use crate::arrays::variant::VariantArraySlotsExt;
 use crate::builders::ArrayBuilder;
 use crate::builtins::ArrayBuiltins;
@@ -158,18 +160,8 @@ impl VariantBuilder {
         }
 
         let start_len = self.len();
-        let core_storage = if array.core_storage().dtype() == &self.dtype {
-            array.core_storage().clone()
-        } else if let Some(scalar) = array.core_storage().as_constant() {
-            ConstantArray::new(scalar.cast(&self.dtype)?, array.len()).into_array()
-        } else {
-            // Variant arrays do not implement Cast; wrapping in an all-valid MaskedArray promotes
-            // NonNullable core storage to Nullable in O(1) while keeping `self.dtype()` stable.
-            MaskedArray::try_new(array.core_storage().clone(), Validity::AllValid, ctx)?
-                .into_array()
-        };
         self.in_core = true;
-        let appended = core_storage.append_to_builder(self, ctx);
+        let appended = self.append_core_storage(array.core_storage(), ctx);
         self.in_core = false;
         appended?;
 
@@ -241,6 +233,33 @@ impl VariantBuilder {
             _ => ChunkedArray::try_new(chunks, self.dtype.clone())?.into_array(),
         };
         VariantArray::try_new(core, shredded)
+    }
+
+    /// Appends core storage into `self`, promoting non-nullable storage to nullable without
+    /// altering [`ArrayBuilder::dtype`].
+    fn append_core_storage(
+        &mut self,
+        core_storage: &ArrayRef,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
+        if core_storage.dtype() == &self.dtype {
+            return core_storage.append_to_builder(self, ctx);
+        }
+        if let Some(chunked) = core_storage.as_opt::<Chunked>() {
+            self.reserve_chunks(chunked.nchunks());
+            for chunk in chunked.iter_chunks() {
+                self.append_core_storage(chunk, ctx)?;
+            }
+            return Ok(());
+        }
+        if let Some(scalar) = core_storage.as_constant() {
+            return self.append_n_scalars(scalar, core_storage.len());
+        }
+        // Variant arrays do not implement Cast; wrapping in an all-valid MaskedArray promotes
+        // NonNullable core storage to Nullable in O(1) while keeping `self.dtype()` stable.
+        let promoted =
+            MaskedArray::try_new(core_storage.clone(), Validity::AllValid, ctx)?.into_array();
+        promoted.append_to_builder(self, ctx)
     }
 
     /// Variants of the builder's nullability, and non-nullable Variants for a nullable builder,
@@ -567,6 +586,27 @@ mod tests {
             values(&built)?,
             [None, Some(7), Some(7), Some(10), Some(20), Some(30)]
         );
+
+        // Chunked non-nullable core storage whose chunks have different shredded dtypes must
+        // keep each chunk separate rather than forcing swizzle_variant to merge them.
+        let chunk_i32 = VariantArray::try_new(
+            ConstantArray::new(variant(1), 1).into_array(),
+            Some(PrimitiveArray::from_iter([41i32]).into_array()),
+        )?;
+        let chunk_i64 = VariantArray::try_new(
+            ConstantArray::new(variant(2), 1).into_array(),
+            Some(PrimitiveArray::from_iter([42i64]).into_array()),
+        )?;
+        let chunked_core = ChunkedArray::try_new(
+            vec![chunk_i32.into_array(), chunk_i64.into_array()],
+            DType::Variant(Nullability::NonNullable),
+        )?;
+        let chunked_variant = VariantArray::try_new(chunked_core.into_array(), None)?;
+        let mut from_chunked = VariantBuilder::new(Nullability::Nullable);
+        from_chunked.append_variant_array(&chunked_variant, &mut ctx)?;
+        let built = from_chunked.finish_into_variant()?;
+        assert_eq!(built.dtype(), &DType::Variant(Nullability::Nullable));
+        assert_eq!(values(&built)?, [Some(41), Some(42)]);
         Ok(())
     }
 }

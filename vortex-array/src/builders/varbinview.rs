@@ -651,8 +651,8 @@ impl VarBinViewBuilder {
     ///
     /// # Panics
     ///
-    /// Panics if `lengths` and `validity` disagree in length, if the lengths do not describe
-    /// `bytes` exactly, or if this builder deduplicates buffers and already holds `bytes`.
+    /// Panics if `lengths` and `validity` disagree in length or if the lengths do not describe
+    /// `bytes` exactly.
     pub fn append_buffer_with_lengths<P: NativePType + AsPrimitive<usize>>(
         &mut self,
         bytes: ByteBuffer,
