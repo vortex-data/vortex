@@ -604,6 +604,40 @@ def test_closed_state_handles_open_closed_merged_and_deleted(monkeypatch):
     assert github.closed_state("o/r", 99999999) == "deleted"
 
 
+def test_slack_blocks_collapse_each_line_separately():
+    long_reason = "x" * 4000
+    result = slack.blocks(f"*PR #1*\n\n{long_reason}")
+    assert [block["text"]["text"] for block in result] == ["*PR #1*", "x" * 2999 + "…"]
+    assert all(block["type"] == "section" and block["expand"] is False for block in result)
+
+    many = slack.blocks("\n".join(str(i) for i in range(60)))
+    assert len(many) == 50
+    assert many[-1]["text"]["text"] == "\n".join(str(i) for i in range(49, 60))
+
+
+def test_slack_post_and_update_send_collapsed_blocks(monkeypatch):
+    client = slack.Slack("xoxb-test", "C123")
+    sent: list[dict[str, object]] = []
+
+    class Resp:
+        def __enter__(self) -> io.BytesIO:
+            return io.BytesIO(json.dumps({"ok": True, "ts": "1.0"}).encode())
+
+        def __exit__(self, *_args: object) -> bool:
+            return False
+
+    def fake_urlopen(req, timeout=30) -> object:
+        sent.append(json.loads(req.data))
+        return Resp()
+
+    monkeypatch.setattr(slack.urllib.request, "urlopen", fake_urlopen)
+    client.post("a\nb", "1:root", {"status": "Open"}, None)
+    client.update("1.0", "c", "1:root", {"status": "Open"})
+    assert [sent[0]["text"], sent[1]["text"]] == ["a\nb", "c"]
+    assert sent[0]["blocks"] == slack.blocks("a\nb")
+    assert sent[1]["blocks"] == slack.blocks("c")
+
+
 def test_slack_client_errors_retries_and_find(monkeypatch):
     client = slack.Slack("xoxb-test", "C123", attempts=2)
     monkeypatch.setattr(slack.time, "sleep", lambda _s: None)

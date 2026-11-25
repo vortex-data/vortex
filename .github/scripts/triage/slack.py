@@ -23,6 +23,35 @@ _AMBIGUOUS_ERRORS = frozenset(
 )
 
 
+# Slack's limits on a section block's text and on the blocks in one message.
+_SECTION_LIMIT = 3000
+_MAX_BLOCKS = 50
+
+
+def blocks(text: str) -> list[dict[str, object]]:
+    """Put each line of `text` in its own collapsed section block.
+
+    Slack shows a section with `expand: false` behind "See more" once its text is long, so a long
+    title or reminder is hidden on its own without hiding the short lines around it. The message's
+    `text` remains the fallback for notifications.
+    """
+    lines = [line for line in text.split("\n") if line.strip()]
+    if len(lines) > _MAX_BLOCKS:
+        lines = [*lines[: _MAX_BLOCKS - 1], "\n".join(lines[_MAX_BLOCKS - 1 :])]
+    return [
+        {
+            "type": "section",
+            "text": {"type": "mrkdwn", "text": _truncate(line)},
+            "expand": False,
+        }
+        for line in lines
+    ]
+
+
+def _truncate(text: str) -> str:
+    return text if len(text) <= _SECTION_LIMIT else text[: _SECTION_LIMIT - 1] + "…"
+
+
 class SlackError(Exception):
     """Slack rejected a call, so nothing was posted."""
 
@@ -81,6 +110,7 @@ class Slack:
         params: dict[str, object] = {
             "channel": self.channel,
             "text": text,
+            "blocks": blocks(text),
             "unfurl_links": False,
             "metadata": {"event_type": EVENT_TYPE, "event_payload": {"key": key, **payload}},
         }
@@ -94,6 +124,7 @@ class Slack:
             "channel": self.channel,
             "ts": ts,
             "text": text,
+            "blocks": blocks(text),
             "metadata": {"event_type": EVENT_TYPE, "event_payload": {"key": key, **payload}},
         }
         self._call("chat.update", params, post=True)
