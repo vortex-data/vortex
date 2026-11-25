@@ -26,6 +26,7 @@ use fearless_simd::Simd;
 use fearless_simd::dispatch;
 use fearless_simd_macros::simd;
 use vortex_buffer::BitBuffer;
+use vortex_error::VortexExpect;
 use vortex_mask::Mask;
 
 use crate::dtype::NativePType;
@@ -131,15 +132,28 @@ fn majority_vote_simd<S: Simd, T: MajorityKey>(
         };
         merged = merge_vote(merged, (vote.0, vote.1 as usize));
     }
-    let candidate = merged.0;
-    let count = match validity {
+    let count_of = |candidate| match validity {
         Mask::AllTrue(_) => count_equal(values, candidate),
         Mask::AllFalse(_) => unreachable!("some position is valid"),
         Mask::Values(mask_values) => {
             masked_count_equal(values, mask_values.bit_buffer(), candidate)
         }
     };
-    Some((candidate, count))
+    let count = count_of(merged.0);
+    if count > 0 {
+        return Some((merged.0, count));
+    }
+    // When every vote cancels out, the merged candidate is the fold's default, which may not occur
+    // at all. There is no majority then, so any valid value will do.
+    let first = match validity {
+        Mask::Values(mask_values) => mask_values
+            .bit_buffer()
+            .set_indices()
+            .next()
+            .vortex_expect("some position is valid"),
+        _ => 0,
+    };
+    Some((values[first], count_of(values[first])))
 }
 
 /// One step of a vote over a valid value, written without branches so the lanes vectorize.
@@ -337,6 +351,20 @@ mod tests {
             count,
             values.iter().filter(|&&value| value == candidate).count()
         );
+    }
+
+    /// Every lane's vote cancels out, which leaves the fold's default, absent from the input.
+    #[test]
+    fn cancelled_votes_return_a_present_value() {
+        let values: Vec<u32> = (1..=32).collect();
+        for validity in [
+            Mask::new_true(32),
+            Mask::from_iter((0..32).map(|index| index % 2 == 1)),
+        ] {
+            let (candidate, count) = majority_vote(&values, &validity).expect("values are valid");
+            assert_eq!(count, 1);
+            assert!(values.contains(&candidate));
+        }
     }
 
     #[test]
