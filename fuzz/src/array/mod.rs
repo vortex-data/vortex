@@ -57,7 +57,6 @@ use vortex_array::arrays::arbitrary::ArbitraryWith;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
-use vortex_array::extension::datetime::Duration;
 use vortex_array::optimizer::ArrayOptimizer;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar::arbitrary::random_scalar;
@@ -518,19 +517,6 @@ fn actions_for_dtype(dtype: &DType) -> HashSet<ActionType> {
         }
         DType::Map(..) => [Compress, Slice, Take, Filter, Mask, ScalarAt].into(),
         DType::Union(..) => vortex_panic!("TODO(connor)[Union]: unimplemented"),
-        DType::Extension(ext) if ext.is::<Duration>() => [
-            Compress,
-            Slice,
-            Take,
-            SearchSorted,
-            Filter,
-            Compare,
-            MinMax,
-            FillNull,
-            Mask,
-            ScalarAt,
-        ]
-        .into(),
         // Currently, no support at all
         DType::Variant(_) => unreachable!("Variant dtype shouldn't be fuzzed"),
         DType::Extension(_) => {

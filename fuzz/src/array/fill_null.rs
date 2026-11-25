@@ -10,11 +10,9 @@ use vortex_array::IntoArray;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::DecimalArray;
-use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::bool::BoolArrayExt;
-use vortex_array::arrays::extension::ExtensionArrayExt;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
@@ -51,16 +49,8 @@ pub fn fill_null_canonical_array(
         Canonical::Struct(_)
         | Canonical::List(_)
         | Canonical::Map(_)
-        | Canonical::FixedSizeList(_) => canonical.into_array().fill_null(fill_value.clone())?,
-        Canonical::Extension(array) => {
-            let storage = array.storage_array().clone().execute::<Canonical>(ctx)?;
-            let fill = fill_value.as_extension().to_storage_scalar();
-            let storage = fill_null_canonical_array(storage, &fill, ctx)?;
-            let ext = array
-                .ext_dtype()
-                .with_nullability(storage.dtype().nullability());
-            ExtensionArray::try_new(ext, storage)?.into_array()
-        }
+        | Canonical::FixedSizeList(_)
+        | Canonical::Extension(_) => canonical.into_array().fill_null(fill_value.clone())?,
         Canonical::Union(_) => {
             vortex_bail!("TODO(connor)[Union]: support Union arrays in the fill_null fuzzer")
         }
@@ -324,7 +314,6 @@ mod tests {
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::DecimalArray;
-    use vortex_array::arrays::ExtensionArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::VarBinViewArray;
     use vortex_array::assert_arrays_eq;

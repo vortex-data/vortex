@@ -19,8 +19,6 @@ use crate::dtype::PType;
 use crate::dtype::RESERVED_VALIDITY_FIELD_NAME;
 use crate::dtype::StructFields;
 use crate::dtype::i256;
-use crate::extension::datetime::Duration;
-use crate::extension::datetime::TimeUnit;
 
 mod decimal;
 
@@ -38,7 +36,7 @@ impl<'a> Arbitrary<'a> for FieldName {
 }
 
 fn random_dtype(u: &mut Unstructured<'_>, depth: u8) -> Result<DType> {
-    const BASE_TYPE_COUNT: i32 = 6;
+    const BASE_TYPE_COUNT: i32 = 5;
     const CONTAINER_TYPE_COUNT: i32 = 4;
     let max_dtype_kind = if depth == 0 {
         BASE_TYPE_COUNT
@@ -52,18 +50,17 @@ fn random_dtype(u: &mut Unstructured<'_>, depth: u8) -> Result<DType> {
         3 => DType::Decimal(u.arbitrary()?, u.arbitrary()?),
         4 => DType::Utf8(u.arbitrary()?),
         5 => DType::Binary(u.arbitrary()?),
-        6 => DType::Extension(Duration::new(random_duration_unit(u)?, u.arbitrary()?).erased()),
 
         // container types
-        7 => DType::Struct(random_struct_dtype(u, depth - 1)?, u.arbitrary()?),
-        8 => DType::List(Arc::new(random_dtype(u, depth - 1)?), u.arbitrary()?),
-        9 => DType::FixedSizeList(
+        6 => DType::Struct(random_struct_dtype(u, depth - 1)?, u.arbitrary()?),
+        7 => DType::List(Arc::new(random_dtype(u, depth - 1)?), u.arbitrary()?),
+        8 => DType::FixedSizeList(
             Arc::new(random_dtype(u, depth - 1)?),
             // We limit the list size to 3 rather (following random struct fields).
             u.choose_index(3)?.try_into().vortex_expect("impossible"),
             u.arbitrary()?,
         ),
-        10 => random_map_dtype(u, depth - 1)?,
+        9 => random_map_dtype(u, depth - 1)?,
         // Null,
         // Extension(ExtDType, Nullability),
         _ => unreachable!("Number out of range"),
@@ -107,16 +104,6 @@ impl<'a> Arbitrary<'a> for PType {
             _ => unreachable!("Number out of range"),
         })
     }
-}
-
-fn random_duration_unit(u: &mut Unstructured<'_>) -> Result<TimeUnit> {
-    u.choose(&[
-        TimeUnit::Seconds,
-        TimeUnit::Milliseconds,
-        TimeUnit::Microseconds,
-        TimeUnit::Nanoseconds,
-    ])
-    .copied()
 }
 
 impl<'a> Arbitrary<'a> for DecimalDType {

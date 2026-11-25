@@ -8,12 +8,9 @@ use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::DecimalArray;
-use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::bool::BoolArrayExt;
-use vortex_array::arrays::extension::ExtensionArrayExt;
-use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::NativePType;
 use vortex_array::match_each_decimal_value_type;
@@ -25,12 +22,6 @@ use crate::array::take_canonical_array_non_nullable_indices;
 
 pub fn sort_canonical_array(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
     match array.dtype() {
-        DType::Extension(ext) => {
-            let extension = array.clone().execute::<ExtensionArray>(ctx)?;
-            let storage = extension.storage_array();
-            let sorted = sort_canonical_array(storage, ctx)?.cast(storage.dtype().clone())?;
-            Ok(ExtensionArray::try_new(ext.clone(), sorted)?.into_array())
-        }
         DType::Bool(_) => {
             let bool_array = array.clone().execute::<BoolArray>(ctx)?;
             let mut opt_values = bool_array
@@ -111,7 +102,11 @@ pub fn sort_canonical_array(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexR
             });
             take_canonical_array_non_nullable_indices(array, &sort_indices, ctx)
         }
-        d @ (DType::Null | DType::Map(..) | DType::Union(..) | DType::Variant(_)) => {
+        d @ (DType::Null
+        | DType::Map(..)
+        | DType::Union(..)
+        | DType::Variant(_)
+        | DType::Extension(_)) => {
             unreachable!("DType {d} not supported for fuzzing")
         }
     }

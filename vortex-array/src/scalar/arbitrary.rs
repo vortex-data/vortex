@@ -20,7 +20,6 @@ use crate::dtype::DecimalDType;
 use crate::dtype::NativeDecimalType;
 use crate::dtype::PType;
 use crate::dtype::half::f16;
-use crate::extension::datetime::Duration;
 use crate::match_each_decimal_value_type;
 use crate::scalar::DecimalValue;
 use crate::scalar::PValue;
@@ -131,12 +130,9 @@ pub fn random_scalar(u: &mut Unstructured, dtype: &DType) -> Result<Scalar> {
             .vortex_expect("generated union scalar must be valid")
         }
         DType::Variant(_) => return Err(IncorrectFormat),
-        DType::Extension(ext) if ext.is::<Duration>() => {
-            let storage = random_scalar(u, &ext.storage_dtype().as_nonnullable())?;
-            Scalar::try_new(dtype.clone(), storage.into_value())
-                .vortex_expect("generated duration scalar must be valid")
+        DType::Extension(..) => {
+            unreachable!("Can't yet generate arbitrary scalars for ext dtype")
         }
-        DType::Extension(..) => return Err(IncorrectFormat),
     })
 }
 

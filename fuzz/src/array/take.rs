@@ -6,12 +6,10 @@ use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::DecimalArray;
-use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::bool::BoolArrayExt;
-use vortex_array::arrays::extension::ExtensionArrayExt;
 use vortex_array::arrays::struct_::StructArrayExt;
 use vortex_array::builders::builder_with_capacity_in;
 use vortex_array::dtype::DType;
@@ -68,12 +66,6 @@ pub fn take_canonical_array(
     let indices_slice_non_opt = indices_non_opt.as_slice();
 
     match array.dtype() {
-        DType::Extension(ext) => {
-            let extension = array.clone().execute::<ExtensionArray>(ctx)?;
-            let storage = take_canonical_array(extension.storage_array(), indices, ctx)?;
-            let ext = ext.with_nullability(storage.dtype().nullability());
-            Ok(ExtensionArray::try_new(ext, storage)?.into_array())
-        }
         DType::Bool(_) => {
             let bool_array = array.clone().execute::<BoolArray>(ctx)?;
             let vec_values = bool_array.to_bit_buffer().iter().collect::<Vec<_>>();
@@ -172,7 +164,7 @@ pub fn take_canonical_array(
             }
             Ok(builder.finish())
         }
-        d @ (DType::Null | DType::Union(..) | DType::Variant(_)) => {
+        d @ (DType::Null | DType::Union(..) | DType::Variant(_) | DType::Extension(_)) => {
             unreachable!("DType {d} not supported for fuzzing")
         }
     }
