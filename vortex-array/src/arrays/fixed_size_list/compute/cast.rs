@@ -81,6 +81,7 @@ mod tests {
 
     use crate::IntoArray;
     use crate::VortexSessionExecute;
+    use crate::arrays::BoolArray;
     use crate::arrays::FixedSizeListArray;
     use crate::arrays::PrimitiveArray;
     use crate::assert_arrays_eq;
@@ -170,7 +171,7 @@ mod tests {
         let nullable_fsl = FixedSizeListArray::new(
             PrimitiveArray::from_option_iter([Some(1i32), None, Some(3), Some(4)]).into_array(),
             2,
-            Validity::from_iter([true, true]),
+            Validity::Array(BoolArray::from_iter([true, true]).into_array()),
             2,
         )
         .into_array();
