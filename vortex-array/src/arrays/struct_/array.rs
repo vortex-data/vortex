@@ -550,7 +550,7 @@ impl Array<Struct> {
             })
             .collect::<Vec<_>>();
         let len = validities.iter().map(|(_v, len)| len).sum();
-        let validity = Validity::concat(validities).vortex_expect("verified non-empty above");
+        let validity = Validity::concat(validities)?.vortex_expect("verified non-empty above");
 
         // SAFETY:
         //

@@ -103,7 +103,7 @@ fn test_filter_primitive_array() {
 }
 
 #[test]
-#[should_panic(expected = "PrimitiveArray host buffer is not aligned")]
+#[should_panic(expected = "PrimitiveArray buffer is not aligned")]
 fn test_from_buffer_handle_rejects_misaligned_host_buffer() {
     let bytes = ByteBuffer::copy_from_aligned([0u8; 8], Alignment::of::<i32>());
     let misaligned = bytes.slice_unaligned(1..5);
@@ -113,6 +113,33 @@ fn test_from_buffer_handle_rejects_misaligned_host_buffer() {
         BufferHandle::new_host(misaligned),
         PType::I32,
         Validity::NonNullable,
+    );
+}
+
+#[test]
+fn test_try_from_buffer_handle_rejects_misaligned_and_odd_length_host_buffers() {
+    let bytes = ByteBuffer::copy_from_aligned([0u8; 8], Alignment::of::<i32>());
+    let misaligned = bytes.slice_unaligned(1..5);
+    assert!(!misaligned.is_aligned(Alignment::of::<i32>()));
+
+    let err = PrimitiveArray::try_from_buffer_handle(
+        BufferHandle::new_host(misaligned),
+        PType::I32,
+        Validity::NonNullable,
+    )
+    .unwrap_err();
+    assert!(err.to_string().contains("not aligned"), "{err}");
+
+    let odd_len = ByteBuffer::copy_from_aligned([0u8; 5], Alignment::of::<i32>());
+    let err = PrimitiveArray::try_from_buffer_handle(
+        BufferHandle::new_host(odd_len),
+        PType::I32,
+        Validity::NonNullable,
+    )
+    .unwrap_err();
+    assert!(
+        err.to_string().contains("not a multiple of element width"),
+        "{err}"
     );
 }
 
