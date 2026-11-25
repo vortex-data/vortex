@@ -22,6 +22,7 @@ use vortex_expr::root;
 use vortex_io::session::RuntimeSessionExt;
 use vortex_session::VortexSession;
 
+use super::PlanChild;
 use super::PlanDataSource;
 use super::ScanInput;
 use super::SegmentFuture;
@@ -55,7 +56,10 @@ fn source_of(row_count: u64) -> PlanDataSource {
         segments: Arc::new(NoSegments),
         cache: None,
     };
-    PlanDataSource::new(VortexSession::empty().with_tokio(), input).with_row_count(row_count)
+    PlanDataSource::from_child(
+        VortexSession::empty().with_tokio(),
+        PlanChild::new(input).with_row_count(row_count),
+    )
 }
 
 async fn partitions(request: ScanRequest) -> VortexResult<Vec<PartitionRef>> {

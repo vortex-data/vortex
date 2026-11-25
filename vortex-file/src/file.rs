@@ -16,14 +16,12 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldMask;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
-use vortex_expr::BoundExpression;
 use vortex_expr::Expression;
 use vortex_layout::LayoutReader;
 use vortex_layout::scan::layout::LayoutReaderDataSource;
 use vortex_layout::scan::metrics::ScanUsage;
 use vortex_layout::scan::options::LayoutScanOptions;
 use vortex_layout::scan::scan_builder::ScanBuilder;
-use vortex_layout::scan::scan_builder::referenced_field_masks;
 use vortex_layout::scan::split_by::SplitBy;
 use vortex_layout::scan::v2::ScanFile;
 use vortex_layout::segments::SegmentSource;
@@ -294,36 +292,8 @@ impl VortexFile {
 
     /// This file as a child of a [`PlanDataSource`]: its V2 scan input, row count, and a pruner
     /// that skips scans whose filter the file-level statistics prove false.
-    ///
-    /// A scan of the child cuts its work on the file's layout splits over the fields it reads, as
-    /// a V1 scan of the same fields does, so that no batch joins chunks of several layout chunks
-    /// whose dictionaries a host would then have to decode. The child builds the file's layout
-    /// reader to find those splits on its first scan, once.
     pub fn plan_child(&self) -> PlanChild {
-        let splitter = {
-            let file = self.clone();
-            let reader = Arc::new(OnceLock::<Arc<dyn LayoutReader>>::new());
-            Arc::new(
-                move |projection: &BoundExpression, filter: Option<&BoundExpression>| {
-                    // get_or_try_init is unstable
-                    let reader = match reader.get() {
-                        Some(reader) => Arc::clone(reader),
-                        None => {
-                            let built = file.layout_reader()?;
-                            Arc::clone(reader.get_or_init(|| built))
-                        }
-                    };
-                    SplitBy::default().splits(
-                        reader.as_ref(),
-                        &(0..file.row_count()),
-                        &referenced_field_masks(projection, filter)?,
-                    )
-                },
-            )
-        };
-        let file = PlanChild::new(self.scan_file().into())
-            .with_row_count(self.row_count())
-            .with_splitter(splitter);
+        let file = PlanChild::new(self.scan_file().into()).with_row_count(self.row_count());
         let Some(statistics) = self.file_stats().cloned() else {
             return file;
         };

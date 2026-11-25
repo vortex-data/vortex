@@ -65,6 +65,26 @@ impl PrunePlanner {
             .iter()
             .flat_map(|filter| filter.pruning_over(rows.end - rows.start).cloned())
             .collect();
+        Self::with_plans(scan, rows, pruning, next)
+    }
+
+    /// The planner of one part of `scan` over its `rows`, which runs every conjunct's pruning
+    /// plan whatever the part's size; see [`FilterPlans::pruning_for_part`](super::FilterPlans::pruning_for_part).
+    pub(crate) fn for_part(scan: Arc<PreparedScan>, rows: Range<u64>, next: PruneNext) -> Self {
+        let pruning: Vec<_> = scan
+            .filter
+            .iter()
+            .flat_map(|filter| filter.pruning_for_part().cloned())
+            .collect();
+        Self::with_plans(scan, rows, pruning, next)
+    }
+
+    fn with_plans(
+        scan: Arc<PreparedScan>,
+        rows: Range<u64>,
+        pruning: Vec<PlanRef>,
+        next: PruneNext,
+    ) -> Self {
         let len = usize::try_from(rows.end - rows.start).unwrap_or(usize::MAX);
         Self {
             scan,
@@ -141,9 +161,18 @@ impl Planner for PrunePlanner {
                 });
             }
             let input = self.mask.true_count();
-            let excluded = Mask::concat(self.pieces.iter())?;
+            let excluded = match self.pieces.as_slice() {
+                [piece] => piece.clone(),
+                pieces => Mask::concat(pieces.iter())?,
+            };
             vortex_ensure_eq!(excluded.len(), input);
-            self.mask = self.mask.intersect_by_rank(&!excluded);
+            self.mask = if excluded.all_false() {
+                std::mem::replace(&mut self.mask, Mask::new_true(0))
+            } else if self.mask.all_true() {
+                !excluded
+            } else {
+                self.mask.intersect_by_rank(&!excluded)
+            };
             tracing::debug!(
                 row_start = self.rows.start,
                 row_end = self.rows.end,

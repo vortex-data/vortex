@@ -149,6 +149,17 @@ impl FilterPlans {
             .filter(|(idx, _)| !self.expression.is_switched_off(*idx))
             .filter_map(|(_, plan)| plan.as_ref())
     }
+
+    /// The pruning plans a part of a scan runs over its own rows: every conjunct's, dynamic ones
+    /// included whatever the part's size, so a part taken after a dynamic filter tightens skips
+    /// the zones it now rules out.
+    pub(crate) fn pruning_for_part(&self) -> impl Iterator<Item = &PlanRef> {
+        self.pruning
+            .iter()
+            .enumerate()
+            .filter(|(idx, _)| !self.expression.is_switched_off(*idx))
+            .filter_map(|(_, plan)| plan.as_ref())
+    }
 }
 
 /// A pruning plan must not fetch data when its requested statistics are unavailable.

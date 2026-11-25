@@ -4,30 +4,25 @@
 //! An opened [`PlanDataSource`](super::PlanDataSource) scan: V2's planners and [`Run`] driver
 //! behind [`ScanExec`] and its [`ScanStream`](crate::stream::ScanStream)s.
 //!
-//! When a scan is made, it prepares its child once and runs its [`part_root`], which cuts the
-//! child into parts: the rows between the child's splits for the fields the scan reads,
-//! such as a file's layout splits, or the scan's chunks for a child without splits. With a filter,
-//! the root first prunes the child as a whole, which reads its zone maps, and queues only the parts
-//! the zones leave rows in. Those are the reads the scan needs to know its units of work, so they
-//! run in the async [`scan`](crate::DataSource::scan), which the host awaits: a host gives no
-//! thread to a part the zones rule out, and its threads do not race each other to read the same
-//! zone maps. Opening the scan reads nothing: it only queues the parts, so no stream waits on
-//! another for its work. Each part prunes again when a stream takes it, against a dynamic filter's
-//! bound as it stands then, such as the bound a top-N pushes down.
+//! When a scan is made, it prepares its child once and cuts the child's rows into parts on the
+//! scan's chunk grid. That reads nothing: the child's zone maps are read by the parts, each over
+//! its own rows. [`split`](crate::DataSourceScan::split) deals the parts out to the pieces, cutting
+//! them on smaller grid blocks when a host has more threads than the scan has parts.
 //!
-//! Every stream of the scan takes parts from the one queue, and the scan is exhausted once the
-//! last part is taken. Each stream owns a [`Run`], driven on the task that polls the stream, and
-//! runs one part on it at a time: the part's chunks run side by side, so one chunk's reads overlap
-//! another's compute, batches are returned as they are produced, and reads are awaited with
-//! [`Run::poll_completion`]. Nothing is spawned, so a host that polls a stream with `block_on`
-//! runs the scan's compute on its own thread.
+//! Every stream of an opened scan takes parts from the one queue, and the scan is exhausted once
+//! the last part is taken. A part is planned when a stream takes it: with a filter, it first
+//! prunes its rows against the zone maps, applying each dynamic conjunct as it stands then, such
+//! as the bound a top-N pushes down. Each stream owns a [`Run`], driven on the task that polls the
+//! stream, and runs one part on it at a time: the part's chunks run side by side, so one chunk's
+//! reads overlap another's compute, batches are returned as they are produced, and reads are
+//! awaited with [`Run::poll_completion`]. Nothing is spawned, so a host that polls a stream with
+//! `block_on` runs the scan's compute on its own thread.
 //!
-//! A limit is one [`RowLimit`] for the whole scan: streams stop taking parts once it is spent,
-//! which also exhausts the scan, and each stream's output is trimmed to it.
+//! A limit is one [`RowLimit`] for the whole scan, shared by its pieces: streams stop taking parts
+//! once it is spent, which also exhausts the scan, and each stream's output is trimmed to it.
 
 use std::collections::VecDeque;
 use std::future;
-use std::iter;
 use std::ops::Range;
 use std::sync::Arc;
 use std::sync::atomic::AtomicUsize;
@@ -38,65 +33,111 @@ use futures::stream;
 use futures::stream::BoxStream;
 use parking_lot::Mutex;
 use vortex_array::ArrayRef;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_io::request::IoService;
 
 use super::plan::ScanState;
-use super::plan::Unit;
-use crate::execution::scan_chunks;
+use crate::execution::cut_parts;
+use crate::execution::part_planner;
+use crate::execution::scan_parts;
 use crate::limit::RowLimit;
 use crate::limit::limit_rows;
 use crate::planning::driver::Progress;
 use crate::planning::driver::Run;
-use crate::planning::planner::Planner;
 use crate::planning::planner::WorkScope;
 use crate::prepare::PreparedScan;
-use crate::prepare::part_root;
 use crate::stream::Claims;
 use crate::stream::ExhaustedFlag;
 use crate::stream::ScanExec;
 
-/// The parts of a scan, cut when the scan is made.
+/// The parts of a scan, or of a piece of one, cut when the scan was made.
 pub(super) struct Planned {
-    work: Vec<Work>,
+    /// The child's prepared scan, which every part plans over, or `None` for a scan that reads
+    /// nothing.
+    prepared: Option<Arc<Prepared>>,
+    /// The parts, in row order.
+    parts: Vec<Range<u64>>,
 }
 
-/// Prepares the scan's `unit`, if it reads one, and runs its root, awaiting the zone maps its
-/// filter's pruning reads, and returns the work the root produces, in row order.
-pub(super) async fn plan(state: &ScanState, unit: Option<&Unit>) -> VortexResult<Planned> {
-    let mut work = Vec::new();
-    if let Some(unit) = unit {
-        let rows = state.unit_rows(unit)?;
-        if !rows.is_empty() {
-            let (child, root) = prepare(state, rows)?;
-            work = run_root(child, root).await?;
+/// A child's prepared scan and the I/O its parts read through.
+struct Prepared {
+    scan: Arc<PreparedScan>,
+    io: Arc<dyn IoService>,
+}
+
+impl Planned {
+    /// Prepares the scan of `rows` of the child, if it reads any, and cuts them into parts on the
+    /// scan's chunk grid. Reads nothing.
+    pub(super) fn new(state: &ScanState, rows: Option<Range<u64>>) -> VortexResult<Self> {
+        let Some(rows) = rows.filter(|rows| !rows.is_empty()) else {
+            return Ok(Self::empty());
+        };
+        let scan = Arc::new(state.builder(rows).prepare()?);
+        let parts = scan_parts(&scan);
+        let io = scan.io();
+        Ok(Self {
+            prepared: Some(Arc::new(Prepared { scan, io })),
+            parts,
+        })
+    }
+
+    fn empty() -> Self {
+        Self {
+            prepared: None,
+            parts: Vec::new(),
         }
     }
-    Ok(Planned { work })
+
+    /// The number of parts.
+    pub(super) fn len(&self) -> usize {
+        self.parts.len()
+    }
+
+    /// Deals the parts out to at most `n` pieces of contiguous parts, cutting the parts on grid
+    /// blocks first when there are fewer than `n`. Never empty.
+    pub(super) fn split(self, n: usize) -> Vec<Self> {
+        let Some(prepared) = self.prepared else {
+            return vec![Self::empty()];
+        };
+        let parts = cut_parts(self.parts, n);
+        let pieces = n.min(parts.len()).max(1);
+        let (per, extra) = (parts.len() / pieces, parts.len() % pieces);
+        let mut parts = parts.into_iter();
+        (0..pieces)
+            .map(|piece| Self {
+                prepared: Some(Arc::clone(&prepared)),
+                parts: parts
+                    .by_ref()
+                    .take(per + usize::from(piece < extra))
+                    .collect(),
+            })
+            .collect()
+    }
 }
 
 /// Opens a scan onto the parts it `planned`. A scan with no parts opens exhausted.
-pub(super) fn open(state: Arc<ScanState>, planned: Planned) -> ScanExec {
+pub(super) fn open(state: &ScanState, planned: Planned) -> ScanExec {
     let dtype = state.dtype.clone();
-    let limit = state.limit.map(RowLimit::new);
+    let limit = state.limit.clone();
     let exhausted = ExhaustedFlag::new();
-    if planned.work.is_empty() {
-        exhausted.set();
-    }
     let queue = Arc::new(Queue {
-        total: planned.work.len(),
-        work: Mutex::new(planned.work.into()),
+        total: planned.parts.len(),
+        parts: Mutex::new(planned.parts.into()),
         taken: AtomicUsize::new(0),
         exhausted: exhausted.clone(),
     });
     let progress = Arc::clone(&queue);
+    let Some(prepared) = planned.prepared.filter(|_| queue.total > 0) else {
+        exhausted.set();
+        return ScanExec::new(dtype, exhausted, || stream::empty().boxed())
+            .with_progress(move || progress.claims());
+    };
     ScanExec::new(dtype, exhausted, move || {
         let worker = Worker {
+            prepared: Arc::clone(&prepared),
             queue: Arc::clone(&queue),
             limit: limit.clone(),
             run: Run::new(),
-            child: None,
         };
         let arrays = stream::unfold(Some(worker), |worker| async move {
             let mut worker = worker?;
@@ -112,106 +153,33 @@ pub(super) fn open(state: Arc<ScanState>, planned: Planned) -> ScanExec {
     .with_progress(move || progress.claims())
 }
 
-/// One child's prepared scan, shared by the parts of it that streams run.
-struct PreparedChild {
-    rows: Range<u64>,
-    io: Arc<dyn IoService>,
-}
-
-/// A part of a child: the planner its root spawned for some of its rows.
-struct Part {
-    child: Arc<PreparedChild>,
-    scope: WorkScope,
-    planner: Box<dyn Planner>,
-}
-
-/// Prepares the scan of `rows` of the child once and composes its root.
-fn prepare(
-    state: &ScanState,
-    rows: Range<u64>,
-) -> VortexResult<(Arc<PreparedChild>, Box<dyn Planner>)> {
-    let splits = state
-        .child
-        .splits(&state.projection, state.filter.as_ref())?;
-    let scan = Arc::new(state.builder(rows).prepare()?);
-    let splits = splits.unwrap_or_else(|| chunk_bounds(&scan));
-    let root = part_root(&scan, &splits, true);
-    let prepared = PreparedChild {
-        rows: scan.rows().clone(),
-        io: scan.io(),
-    };
-    Ok((Arc::new(prepared), root))
-}
-
-/// The boundaries of `scan`'s chunks, which cut the work of a child without splits of its own.
-fn chunk_bounds(scan: &PreparedScan) -> Vec<u64> {
-    let rows = scan.rows().clone();
-    let chunks = scan_chunks(rows.clone(), scan.chunk_rows);
-    iter::once(rows.start)
-        .chain(chunks.iter().map(|chunk| chunk.end))
-        .collect()
-}
-
-/// Runs a child's root on a run of its own, awaiting only its reads, and returns the work it
-/// produces, in row order: the parts it spawns, and any batch it returns itself.
-async fn run_root(child: Arc<PreparedChild>, root: Box<dyn Planner>) -> VortexResult<Vec<Work>> {
-    let mut run = Run::new();
-    let scope = WorkScope {
-        file_ordinal: 0,
-        rows: child.rows.clone(),
-    };
-    run.admit(root, scope, child.io.session());
-    let mut work = Vec::new();
-    loop {
-        match run.advance()? {
-            Progress::Spawn(scope, planner) => work.push(Work::Part(Part {
-                child: Arc::clone(&child),
-                scope,
-                planner,
-            })),
-            Progress::Batch(batch) => work.push(Work::Batch(batch.array)),
-            Progress::RootDone(_) if run.live_roots() > 0 => {}
-            Progress::RootDone(_) | Progress::Idle => break,
-            Progress::Waiting => future::poll_fn(|cx| run.poll_completion(cx)).await?,
-        }
-    }
-    Ok(work)
-}
-
-/// A unit of work in the queue of a scan.
-enum Work {
-    Part(Part),
-    /// A batch a root returned itself.
-    Batch(ArrayRef),
-}
-
 /// The queue of a scan, which every stream of it takes from.
 struct Queue {
-    /// The work no stream has taken yet, in row order.
-    work: Mutex<VecDeque<Work>>,
-    /// The work the queue started with.
+    /// The parts no stream has taken yet, in row order.
+    parts: Mutex<VecDeque<Range<u64>>>,
+    /// The parts the queue started with.
     total: usize,
-    /// The work streams have taken.
+    /// The parts streams have taken.
     taken: AtomicUsize,
-    /// Set once the last work is taken, or the scan's limit is spent.
+    /// Set once the last part is taken, or the scan's limit is spent.
     exhausted: ExhaustedFlag,
 }
 
 impl Queue {
-    /// Takes the next work, or `None` once every one has been taken, and marks the scan exhausted
+    /// Takes the next part, or `None` once every one has been taken, and marks the scan exhausted
     /// when it takes the last.
-    fn take(&self) -> Option<Work> {
-        let mut work = self.work.lock();
-        let next = work.pop_front()?;
-        if work.is_empty() {
+    fn take(&self) -> Option<Range<u64>> {
+        let mut parts = self.parts.lock();
+        let next = parts.pop_front()?;
+        if parts.is_empty() {
             self.exhausted.set();
         }
-        drop(work);
+        drop(parts);
         self.taken.fetch_add(1, Ordering::Relaxed);
         Some(next)
     }
 
-    /// How much of the queue's work streams have taken, out of how much in all.
+    /// How many of the queue's parts streams have taken, out of how many in all.
     fn claims(&self) -> Claims {
         Claims {
             claimed: self.taken.load(Ordering::Relaxed).min(self.total),
@@ -223,11 +191,10 @@ impl Queue {
 /// One stream's worker: a run of its own, fed one part at a time from the scan's queue, and driven
 /// on the task that polls the stream.
 struct Worker {
+    prepared: Arc<Prepared>,
     queue: Arc<Queue>,
     limit: Option<RowLimit>,
     run: Run,
-    /// The child of the part live on the run, whose I/O the planners that part spawns read through.
-    child: Option<Arc<PreparedChild>>,
 }
 
 impl Worker {
@@ -239,24 +206,20 @@ impl Worker {
                     self.queue.exhausted.set();
                     return Ok(None);
                 }
-                match self.queue.take() {
-                    None => return Ok(None),
-                    Some(Work::Batch(array)) => return Ok(Some(array)),
-                    Some(Work::Part(part)) => {
-                        self.run
-                            .admit(part.planner, part.scope, part.child.io.session());
-                        self.child = Some(part.child);
-                    }
-                }
+                let Some(part) = self.queue.take() else {
+                    return Ok(None);
+                };
+                let planner = part_planner(&self.prepared.scan, part.clone());
+                let scope = WorkScope {
+                    file_ordinal: 0,
+                    rows: part,
+                };
+                self.run.admit(planner, scope, self.prepared.io.session());
             }
             match self.run.advance()? {
                 Progress::Batch(batch) => return Ok(Some(batch.array)),
                 Progress::Spawn(scope, planner) => {
-                    let child = self
-                        .child
-                        .as_ref()
-                        .vortex_expect("a planner is spawned by a live part");
-                    self.run.admit(planner, scope, child.io.session());
+                    self.run.admit(planner, scope, self.prepared.io.session());
                 }
                 Progress::RootDone(_) | Progress::Idle => {}
                 Progress::Waiting => {
