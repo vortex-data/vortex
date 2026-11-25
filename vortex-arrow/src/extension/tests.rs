@@ -206,7 +206,8 @@ impl<const PRESERVE_VORTEX: bool> ArrowExtVTable for Tagged<PRESERVE_VORTEX> {
     }
 }
 
-/// Bypasses the typed adapter and deliberately drops the extension when importing arrays.
+/// Bypasses the typed adapter and deliberately imports the values as plain storage to test
+/// rejection of the wrong dtype.
 #[derive(Debug)]
 struct RawTagged;
 
@@ -262,14 +263,14 @@ impl ArrowImportVTable for RawTagged {
 
     fn from_arrow_array(
         &self,
-        _array: ArrowArrayRef,
-        _field: &Field,
+        array: ArrowArrayRef,
+        field: &Field,
         _dtype: &DType,
-        _session: &ArrowSession,
+        session: &ArrowSession,
     ) -> VortexResult<ArrowImport> {
-        Ok(ArrowImport::Imported(
-            PrimitiveArray::from_iter([1i64]).into_array(),
-        ))
+        let storage = session.from_arrow_array(array, field.is_nullable())?;
+
+        Ok(ArrowImport::Imported(storage))
     }
 }
 

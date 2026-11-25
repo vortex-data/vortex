@@ -922,9 +922,16 @@ impl PType {
     }
 
     /// Returns the wider of two unsigned integer [`PType`]s based on byte width.
+    ///
+    /// # Panics
+    ///
+    /// Panics if either type is not an unsigned integer.
     #[inline]
     pub const fn max_unsigned_ptype(self, other: Self) -> Self {
-        debug_assert!(self.is_unsigned_int() && other.is_unsigned_int());
+        assert!(
+            self.is_unsigned_int() && other.is_unsigned_int(),
+            "max_unsigned_ptype requires two unsigned integer types"
+        );
         if self.byte_width() >= other.byte_width() {
             self
         } else {
@@ -933,9 +940,16 @@ impl PType {
     }
 
     /// Returns the wider of two signed integer [`PType`]s based on byte width.
+    ///
+    /// # Panics
+    ///
+    /// Panics if either type is not a signed integer.
     #[inline]
     pub const fn max_signed_ptype(self, other: Self) -> Self {
-        debug_assert!(self.is_signed_int() && other.is_signed_int());
+        assert!(
+            self.is_signed_int() && other.is_signed_int(),
+            "max_signed_ptype requires two signed integer types"
+        );
         if self.byte_width() >= other.byte_width() {
             self
         } else {
@@ -1070,20 +1084,55 @@ physical_ptype!(u64, u64);
 
 #[cfg(test)]
 mod tests {
+    use std::panic::catch_unwind;
+
     use super::*;
 
     #[test]
-    fn try_from_bytes() {
-        assert_eq!(u8::try_from_le_bytes(&[0x01]).unwrap(), 0x01);
-        assert_eq!(u16::try_from_le_bytes(&[0x01, 0x02]).unwrap(), 0x0201);
-        assert_eq!(
-            u32::try_from_le_bytes(&[0x01, 0x02, 0x03, 0x04]).unwrap(),
-            0x04030201
-        );
-        assert_eq!(
-            u64::try_from_le_bytes(&[0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08]).unwrap(),
-            0x0807060504030201
-        );
+    fn max_unsigned_ptype_rejects_invalid_types() {
+        for (lhs, rhs) in [(PType::F32, PType::U8), (PType::U8, PType::I64)] {
+            let panic = catch_unwind(|| lhs.max_unsigned_ptype(rhs))
+                .expect_err("both arguments must be unsigned integers");
+            assert_eq!(
+                panic.downcast_ref::<&str>().copied(),
+                Some("max_unsigned_ptype requires two unsigned integer types")
+            );
+        }
+    }
+
+    #[test]
+    fn max_signed_ptype_rejects_invalid_types() {
+        for (lhs, rhs) in [(PType::U64, PType::I8), (PType::I8, PType::F32)] {
+            let panic = catch_unwind(|| lhs.max_signed_ptype(rhs))
+                .expect_err("both arguments must be signed integers");
+            assert_eq!(
+                panic.downcast_ref::<&str>().copied(),
+                Some("max_signed_ptype requires two signed integer types")
+            );
+        }
+    }
+
+    #[test]
+    fn try_from_bytes() -> VortexResult<()> {
+        let bytes = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09];
+
+        assert_eq!(u8::try_from_le_bytes(&bytes[..1])?, 0x01);
+        assert!(u8::try_from_le_bytes(&[]).is_err());
+        assert!(u8::try_from_le_bytes(&bytes[..2]).is_err());
+
+        assert_eq!(u16::try_from_le_bytes(&bytes[..2])?, 0x0201);
+        assert!(u16::try_from_le_bytes(&bytes[..1]).is_err());
+        assert!(u16::try_from_le_bytes(&bytes[..3]).is_err());
+
+        assert_eq!(u32::try_from_le_bytes(&bytes[..4])?, 0x0403_0201);
+        assert!(u32::try_from_le_bytes(&bytes[..3]).is_err());
+        assert!(u32::try_from_le_bytes(&bytes[..5]).is_err());
+
+        assert_eq!(u64::try_from_le_bytes(&bytes[..8])?, 0x0807_0605_0403_0201);
+        assert!(u64::try_from_le_bytes(&bytes[..7]).is_err());
+        assert!(u64::try_from_le_bytes(&bytes[..9]).is_err());
+
+        Ok(())
     }
 
     #[test]
@@ -1188,6 +1237,19 @@ mod tests {
         assert!(<f32 as NativePType>::is_nan(b));
         assert!(<f32 as NativePType>::is_eq(a, b));
         assert!(<f32 as NativePType>::total_compare(a, b) == Ordering::Equal);
+    }
+
+    #[test]
+    fn native_ptype_is_eq_distinguishes_float_bit_patterns() {
+        let nan = f32::NAN;
+        // The lowest bit is part of the NaN payload. Flipping it gives another NaN
+        // with the same sign but a different bit pattern.
+        let nan_with_different_payload = f32::from_bits(nan.to_bits() ^ 1);
+        assert!(!<f32 as NativePType>::is_eq(
+            nan,
+            nan_with_different_payload
+        ));
+        assert!(!<f32 as NativePType>::is_eq(0.0, -0.0));
     }
 
     #[test]

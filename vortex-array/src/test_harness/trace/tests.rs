@@ -54,8 +54,8 @@ use crate::matcher::Matcher;
 use crate::optimizer::ArrayOptimizer;
 use crate::optimizer::kernels::ArrayKernelsExt;
 use crate::scalar::Scalar;
-use crate::scalar_fn::builtin::binary::Binary;
-use crate::scalar_fn::builtin::operators::Operator;
+use crate::scalar_fn::builtin::compare::Compare;
+use crate::scalar_fn::builtin::operators::CompareOperator;
 use crate::session::ArraySession;
 use crate::test_harness::trace::TraceOptions;
 use crate::test_harness::trace::TraceResolution;
@@ -681,12 +681,12 @@ fn trace_compare_on_dict() -> VortexResult<()> {
     .into_array();
     let rhs = ConstantArray::new(Scalar::from(20i32), dict.len()).into_array();
 
-    let compared = Binary::try_new(dict, rhs, Operator::Eq)?.into_array();
+    let compared = Compare::try_new(dict, rhs, CompareOperator::Eq)?.into_array();
 
     let traced = trace_op(|| compared.optimize_ctx(&SESSION))?;
     insta::assert_snapshot!(traced.trace.to_string(), @"
-    optimize root=vortex.binary(bool, len=5)
-      reduce_parent session[0]:DictionaryScalarFnValuesPushDownRule slot=0 parent=vortex.binary(bool, len=5) child=vortex.dict(i32, len=5) -> vortex.dict(bool, len=5)
+    optimize root=vortex.compare(bool, len=5)
+      reduce_parent session[0]:DictionaryScalarFnValuesPushDownRule slot=0 parent=vortex.compare(bool, len=5) child=vortex.dict(i32, len=5) -> vortex.dict(bool, len=5)
       done output=vortex.dict(bool, len=5)
     ");
 
@@ -705,8 +705,8 @@ fn trace_compare_on_dict() -> VortexResult<()> {
     insta::assert_snapshot!(traced.trace.to_string(), @"
     execute_until target=AnyCanonical root=vortex.dict(bool, len=5)
       iter 0 current=vortex.dict(bool, len=5) builder_active=false
-        ExecuteSlot slot=1 parent=vortex.dict(bool, len=5) child=vortex.binary(bool, len=3)
-      iter 1 current=vortex.binary(bool, len=3) stack_parent=vortex.dict(bool, len=5) slot=1 builder_active=false
+        ExecuteSlot slot=1 parent=vortex.dict(bool, len=5) child=vortex.compare(bool, len=3)
+      iter 1 current=vortex.compare(bool, len=3) stack_parent=vortex.dict(bool, len=5) slot=1 builder_active=false
         Done array=vortex.bool(bool, len=3)
       iter 2 current=vortex.bool(bool, len=3) stack_parent=vortex.dict(bool, len=5) slot=1 builder_active=false
         pop_frame slot=1 output=vortex.dict(bool, len=5)

@@ -53,6 +53,7 @@ use vortex_arrow::to_arrow_null_buffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_functions::builtins::ArrayFunctions;
 use vortex_session::registry::CachedId;
 use vortex_session::registry::Id;
 
@@ -801,13 +802,10 @@ mod tests {
     }
 
     fn arrow_variant_field(storage: &StructArray) -> Field {
-        Field::new("variant", storage.data_type().clone(), false).with_metadata(
-            [(
-                EXTENSION_TYPE_NAME_KEY.to_string(),
-                PARQUET_VARIANT_ARROW_EXTENSION_NAME.to_string(),
-            )]
-            .into(),
-        )
+        Field::new("variant", storage.data_type().clone(), false).with_metadata([(
+            EXTENSION_TYPE_NAME_KEY.to_string(),
+            PARQUET_VARIANT_ARROW_EXTENSION_NAME.to_string(),
+        )])
     }
 
     fn assert_struct_arrays_eq(actual: &StructArray, expected: &StructArray) {
@@ -931,13 +929,10 @@ mod tests {
             ),
             false,
         )
-        .with_metadata(
-            [(
-                EXTENSION_TYPE_NAME_KEY.to_string(),
-                PARQUET_VARIANT_ARROW_EXTENSION_NAME.to_string(),
-            )]
-            .into(),
-        );
+        .with_metadata([(
+            EXTENSION_TYPE_NAME_KEY.to_string(),
+            PARQUET_VARIANT_ARROW_EXTENSION_NAME.to_string(),
+        )]);
 
         let exported = canonical.execute_arrow(Some(&field), &mut ctx)?;
         assert_eq!(exported.data_type(), field.data_type());
@@ -1013,13 +1008,10 @@ mod tests {
             exported.data_type().clone(),
             array.dtype().is_nullable(),
         )
-        .with_metadata(
-            [(
-                EXTENSION_TYPE_NAME_KEY.to_string(),
-                PARQUET_VARIANT_ARROW_EXTENSION_NAME.to_string(),
-            )]
-            .into(),
-        );
+        .with_metadata([(
+            EXTENSION_TYPE_NAME_KEY.to_string(),
+            PARQUET_VARIANT_ARROW_EXTENSION_NAME.to_string(),
+        )]);
 
         let actual = session
             .arrow()
@@ -1060,13 +1052,10 @@ mod tests {
             )
         );
 
-        let field = Field::new("", exported.data_type().clone(), false).with_metadata(
-            [(
-                EXTENSION_TYPE_NAME_KEY.to_string(),
-                PARQUET_VARIANT_ARROW_EXTENSION_NAME.to_string(),
-            )]
-            .into(),
-        );
+        let field = Field::new("", exported.data_type().clone(), false).with_metadata([(
+            EXTENSION_TYPE_NAME_KEY.to_string(),
+            PARQUET_VARIANT_ARROW_EXTENSION_NAME.to_string(),
+        )]);
         let actual = session.arrow().from_arrow_array(exported, &field)?;
         assert_variant_scalars_eq(&actual, &expected, &session)
     }
@@ -1109,13 +1098,10 @@ mod tests {
             ),
             false,
         )
-        .with_metadata(
-            [(
-                EXTENSION_TYPE_NAME_KEY.to_string(),
-                PARQUET_VARIANT_ARROW_EXTENSION_NAME.to_string(),
-            )]
-            .into(),
-        );
+        .with_metadata([(
+            EXTENSION_TYPE_NAME_KEY.to_string(),
+            PARQUET_VARIANT_ARROW_EXTENSION_NAME.to_string(),
+        )]);
 
         let mut ctx = session.create_execution_ctx();
         let exported = expected.clone().execute_arrow(Some(&field), &mut ctx)?;
@@ -1152,13 +1138,10 @@ mod tests {
             ),
             false,
         )
-        .with_metadata(
-            [(
-                EXTENSION_TYPE_NAME_KEY.to_string(),
-                PARQUET_VARIANT_ARROW_EXTENSION_NAME.to_string(),
-            )]
-            .into(),
-        );
+        .with_metadata([(
+            EXTENSION_TYPE_NAME_KEY.to_string(),
+            PARQUET_VARIANT_ARROW_EXTENSION_NAME.to_string(),
+        )]);
 
         let mut ctx = session.create_execution_ctx();
         let err = array
@@ -1202,13 +1185,10 @@ mod tests {
             ),
             false,
         )
-        .with_metadata(
-            [(
-                EXTENSION_TYPE_NAME_KEY.to_string(),
-                PARQUET_VARIANT_ARROW_EXTENSION_NAME.to_string(),
-            )]
-            .into(),
-        );
+        .with_metadata([(
+            EXTENSION_TYPE_NAME_KEY.to_string(),
+            PARQUET_VARIANT_ARROW_EXTENSION_NAME.to_string(),
+        )]);
         let mut ctx = session.create_execution_ctx();
         let exported = array.execute_arrow(Some(&field), &mut ctx)?;
         assert_eq!(

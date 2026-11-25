@@ -9,9 +9,9 @@ use std::sync::Arc;
 use vortex_array::dtype::DType;
 use vortex_array::expr::BoundExpression;
 use vortex_error::VortexResult;
-use vortex_expr::analysis::referenced_field_paths;
 use vortex_session::VortexSession;
 
+use crate::analysis::referenced_field_paths;
 pub use crate::execution::ChunkPlanner;
 use crate::execution::FILTERED_ROWS_PER_CHUNK;
 pub use crate::execution::FilterPlans;
@@ -96,9 +96,10 @@ impl ScanBuilder {
         self
     }
 
-    /// Restricts scanning to a contiguous source-local row range.
+    /// Restricts scanning to a contiguous source-local row range. A range that starts after it
+    /// ends selects no rows.
     pub fn with_row_range(mut self, row_range: Range<u64>) -> Self {
-        self.row_range = Some(row_range);
+        self.row_range = Some(row_range.start..row_range.end.max(row_range.start));
         self
     }
 

@@ -500,7 +500,8 @@ pub fn create_benchmark(b: BenchmarkArg, opts: &Opts) -> anyhow::Result<Box<dyn 
         BenchmarkArg::StatPopGen => {
             enable_unstable_bench_edition();
             let scale_factor = opts.get_as::<u64>(SCALE_FACTOR_KEY).unwrap_or(1);
-            let benchmark = StatPopGenBenchmark::new(scale_factor)?;
+            let remote_data_dir = opts.get_as::<String>(REMOTE_DATA_KEY);
+            let benchmark = StatPopGenBenchmark::new(scale_factor, remote_data_dir)?;
             Ok(Box::new(benchmark) as _)
         }
         BenchmarkArg::Fineweb => {

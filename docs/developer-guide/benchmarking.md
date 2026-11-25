@@ -246,7 +246,7 @@ Lance, DuckDB native).
 Before running SQL benchmarks, test data must be generated:
 
 ```bash
-uv run --project bench-orchestrator vx-bench prepare-data <benchmark> --format parquet,vortex
+uv run --project benchmarks/bench-orchestrator vx-bench prepare-data <benchmark> --format parquet,vortex
 ```
 
 The data generator creates base Parquet data and converts it to each requested format. Scale
@@ -254,10 +254,9 @@ factors are configurable per suite (e.g. `--opt scale-factor=10.0` for TPC-H SF=
 
 ### Unstable Encodings
 
-Benchmark sessions enable the newest `preview` edition and the `unstable` edition, so every
-benchmark measures Vortex files whose compressor may also choose their encodings. `preview`
-currently holds `fastlanes.delta`, and `unstable` holds `vortex.decimal_byte_parts.v2` and
-`vortex.widen`. `vortex_bench::enable_unstable_encodings` enables both on a session.
+`vortex_bench::enable_unstable_encodings` enables the newest `preview` edition and the
+`unstable` edition on benchmark sessions. The compressor can then use preview formats such as
+`fastlanes.delta` and `vortex.decimal_byte_parts.v2`.
 
 ### Running SQL Benchmarks
 
@@ -273,17 +272,17 @@ cargo run --release --bin duckdb-bench -- <benchmark>
 The `bench-orchestrator` is a Python CLI tool (`vx-bench`) that coordinates running SQL
 benchmarks across multiple engines, stores results, and provides comparison tooling.
 
-See [`bench-orchestrator/README.md`](https://github.com/vortex-data/vortex/blob/develop/bench-orchestrator/README.md) for installation,
+See [`benchmarks/bench-orchestrator/README.md`](https://github.com/vortex-data/vortex/blob/develop/benchmarks/bench-orchestrator/README.md) for installation,
 commands, and example workflows.
 
 For CI, the reusable SQL workflow now drives `vx-bench` directly:
 
 ```bash
-uv run --project bench-orchestrator vx-bench prepare-data tpch \
+uv run --project benchmarks/bench-orchestrator vx-bench prepare-data tpch \
   --formats-json '["parquet","vortex","vortex-compact"]' \
   --opt scale-factor=1.0
 
-uv run --project bench-orchestrator vx-bench run tpch \
+uv run --project benchmarks/bench-orchestrator vx-bench run tpch \
   --targets-json '[{"engine":"datafusion","format":"parquet"},{"engine":"duckdb","format":"vortex"}]' \
   --output results.json \
   --no-build
@@ -319,6 +318,15 @@ Benchmarks run automatically on all commits to `develop` and can be run on-deman
   and the `pr-all` SQL preset, the union of the `pr`, `pr-compact`, and `pr-full` coverage, without
   repeating shared jobs. Do not combine it with other benchmark labels;
   GPU compression is the only exception.
+
+To benchmark some SQL benchmarks or queries, run the `PR SQL Benchmarks` workflow by hand on the
+PR's branch, from the Actions tab or with
+`gh workflow run pr-bench-sql.yml --ref <branch> -f benchmarks='polarsignals tpch-nvme:q1-4'`.
+`benchmarks` lists benchmarks separated by spaces, each a `group` printed by
+`vx-bench matrix pr-all` and optionally followed by queries: `polarsignals` runs all its queries,
+`tpch-nvme:q1,2` runs queries 1 and 2, and `tpch-nvme:q1-4` runs queries 1 to 4. They run at the
+coverage of `matrix_preset`, `pr-all` by default, and the results are posted on the branch's open
+PR, in a comment of their own when they cover only some queries.
 
 All CI benchmarks run on dedicated instances with the `release_debug` profile and
 `-C target-cpu=native` to produce representative numbers.

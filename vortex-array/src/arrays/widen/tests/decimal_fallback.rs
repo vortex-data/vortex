@@ -29,7 +29,7 @@ use crate::compute::conformance::mask::test_mask_conformance;
 use crate::compute::conformance::take::test_take_conformance;
 use crate::dtype::DType;
 use crate::dtype::DecimalDType;
-use crate::scalar_fn::builtin::operators::Operator;
+use crate::scalar::NumericOperator;
 use crate::validity::Validity;
 
 fn decimal_widen(validity: Validity) -> VortexResult<ArrayRef> {
@@ -64,7 +64,13 @@ fn test_decimal_conformance(#[case] validity: Validity) -> VortexResult<()> {
 
 #[rstest]
 fn test_decimal_arithmetic_falls_back_to_canonical(
-    #[values(Operator::Add, Operator::Sub, Operator::Mul, Operator::Div)] operator: Operator,
+    #[values(
+        NumericOperator::Add,
+        NumericOperator::Sub,
+        NumericOperator::Mul,
+        NumericOperator::Div
+    )]
+    operator: NumericOperator,
     #[values(false, true)] widen_on_right: bool,
 ) -> VortexResult<()> {
     let mut ctx = SESSION.create_execution_ctx();
@@ -77,10 +83,10 @@ fn test_decimal_arithmetic_falls_back_to_canonical(
         (array, other)
     };
     let expected = canonical(&lhs, &mut ctx)?
-        .binary(canonical(&rhs, &mut ctx)?, operator)?
+        .numeric(canonical(&rhs, &mut ctx)?, operator)?
         .execute::<Canonical>(&mut ctx)?;
 
-    let actual = lhs.binary(rhs, operator)?.execute::<Canonical>(&mut ctx)?;
+    let actual = lhs.numeric(rhs, operator)?.execute::<Canonical>(&mut ctx)?;
 
     assert_arrays_eq!(actual, expected, &mut ctx);
 

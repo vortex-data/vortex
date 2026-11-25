@@ -21,18 +21,18 @@ use vortex_array::arrays::VarBinArray;
 use vortex_array::arrays::struct_::StructArrayExt;
 use vortex_array::assert_arrays_eq;
 use vortex_array::dtype::DType;
-use vortex_array::expr::Expression;
-use vortex_array::expr::eq;
-use vortex_array::expr::get_item;
-use vortex_array::expr::gt;
-use vortex_array::expr::lit;
-use vortex_array::expr::root;
 use vortex_array::scalar_fn::builtin::operators::CompareOperator;
 use vortex_array::validity::Validity;
 use vortex_buffer::Alignment;
 use vortex_buffer::Buffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_expr::Expression;
+use vortex_expr::eq;
+use vortex_expr::get_item;
+use vortex_expr::gt;
+use vortex_expr::lit;
+use vortex_expr::root;
 use vortex_functions::expr::dynamic;
 use vortex_io::session::RuntimeSessionExt;
 use vortex_mask::Mask;
@@ -64,7 +64,9 @@ const CHUNK_ROWS: usize = 1000;
 const CHUNKS: usize = 4;
 
 fn new_session() -> VortexSession {
-    VortexSession::empty()
+    let session = VortexSession::empty();
+    vortex_functions::initialize(&session);
+    session
 }
 
 #[derive(Clone, Copy, Debug)]

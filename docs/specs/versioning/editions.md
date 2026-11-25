@@ -79,7 +79,12 @@ members through ordinary edition inclusions.
 
 ### `preview2026.08.0`
 
-This edition currently adds no components.
+- `array`: `fastlanes.delta`
+- `aggregate`: `vortex.uncompressed_size_in_bytes`
+
+### `preview2026.11.0`
+
+- `array`: `vortex.decimal_byte_parts.v2`, `vortex.widen`
 
 ### `tensor2026.04.0`
 

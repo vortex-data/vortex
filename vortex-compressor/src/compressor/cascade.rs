@@ -60,15 +60,23 @@ pub(crate) struct TrialOutput {
 enum Selection {
     /// A scheme, or the compressor's own empty, null or constant handling, produced a new array.
     Compressed(ArrayRef),
-    /// Nothing beat the input, which is handed back as it was.
-    Unchanged(ArrayRef),
+    /// Nothing beat the input, which is handed back as it was, with its null count when the
+    /// statistics generated while choosing a scheme already hold it.
+    Unchanged(ArrayRef, Option<u32>),
 }
 
 impl Selection {
+    /// Hands back the input of an evaluation that nothing beat, keeping the null count its
+    /// statistics found.
+    fn unchanged(data: ArrayAndStats) -> Self {
+        let null_count = data.cached_null_count();
+        Selection::Unchanged(data.into_array(), null_count)
+    }
+
     /// Returns the array, compressed or not.
     fn into_array(self) -> ArrayRef {
         match self {
-            Selection::Compressed(array) | Selection::Unchanged(array) => array,
+            Selection::Compressed(array) | Selection::Unchanged(array, _) => array,
         }
     }
 }
@@ -99,7 +107,11 @@ impl CascadingCompressor {
         Ok(compressed)
     }
 
-    /// Compresses a child array produced by a cascading scheme.
+    /// Compresses a child array of a cascading scheme.
+    ///
+    /// The compressor calls this for the children a scheme registers in its
+    /// [`Encoded`](crate::scheme::Encoded). A scheme that implements only
+    /// [`Scheme::compress`] calls it for its own children.
     ///
     /// If the cascade budget is exhausted, the child is returned as-is, apart from the validity of
     /// a canonical leaf, which is still compressed. Otherwise, the child context is created by
@@ -119,7 +131,13 @@ impl CascadingCompressor {
     ) -> VortexResult<ArrayRef> {
         if parent_ctx.finished_cascading() {
             trace::cascade_exhausted(parent_id, child_index);
-            return self.with_compressed_validity(child, exec_ctx);
+            if !child.is_canonical() {
+                return Ok(child.clone());
+            }
+            let canonical = child.clone().execute::<Canonical>(exec_ctx)?;
+            return Ok(self
+                .compress_leaf_validity(canonical, None, parent_ctx, exec_ctx)?
+                .into_array());
         }
 
         let canonical = child.clone().execute::<CanonicalValidity>(exec_ctx)?.0;
@@ -158,7 +176,7 @@ impl CascadingCompressor {
                     struct_array.names().clone(),
                     fields,
                     struct_array.len(),
-                    self.compress_validity(struct_array.validity()?, exec_ctx)?,
+                    self.resolve_validity(struct_array.validity()?, &compress_ctx, exec_ctx)?,
                 )?
                 .into_array())
             }
@@ -204,7 +222,7 @@ impl CascadingCompressor {
                 // compressing the elements alone has to keep.
                 if let Selection::Compressed(compressed) = self.choose_and_compress(
                     Canonical::FixedSizeList(fsl_array.clone()),
-                    compress_ctx,
+                    compress_ctx.clone(),
                     exec_ctx,
                 )? {
                     return Ok(compressed);
@@ -215,7 +233,7 @@ impl CascadingCompressor {
                 Ok(FixedSizeListArray::try_new(
                     compressed_elems,
                     fsl_array.list_size(),
-                    self.compress_validity(fsl_array.validity()?, exec_ctx)?,
+                    self.resolve_validity(fsl_array.validity()?, &compress_ctx, exec_ctx)?,
                     fsl_array.len(),
                 )?
                 .into_array())
@@ -254,7 +272,7 @@ impl CascadingCompressor {
                     }
                     // A canonical extension array's storage is only canonical at its top level,
                     // so an unchanged input can still hold lazy, unserializable arrays.
-                    Selection::Compressed(_) | Selection::Unchanged(_) => Ok(storage_compressed),
+                    Selection::Compressed(_) | Selection::Unchanged(..) => Ok(storage_compressed),
                 }
             }
             Canonical::Variant(variant_array) => {
@@ -290,17 +308,22 @@ impl CascadingCompressor {
 
     /// Compresses a bool, primitive, decimal or string leaf with the best scheme.
     ///
-    /// A scheme that stores the leaf's validity compresses it itself. A leaf no scheme compresses
-    /// keeps its values, and its validity bitmap is compressed on its own.
+    /// The winning scheme registers the leaf's validity itself. A leaf no scheme compresses keeps
+    /// its values, and its validity bitmap is compressed on its own.
     fn compress_leaf(
         &self,
         leaf: Canonical,
         compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        match self.choose_and_compress(leaf, compress_ctx, exec_ctx)? {
+        match self.choose_and_compress(leaf, compress_ctx.clone(), exec_ctx)? {
             Selection::Compressed(compressed) => Ok(compressed),
-            Selection::Unchanged(array) => self.with_compressed_validity(&array, exec_ctx),
+            Selection::Unchanged(array, null_count) => {
+                let canonical = array.execute::<Canonical>(exec_ctx)?;
+                Ok(self
+                    .compress_leaf_validity(canonical, null_count, &compress_ctx, exec_ctx)?
+                    .into_array())
+            }
         }
     }
 
@@ -309,6 +332,9 @@ impl CascadingCompressor {
     /// Filters allowed schemes by [`matches`] and exclusion rules, merges their [`stats_options`]
     /// into a single [`GenerateStatsOptions`], and picks the winner by estimated compression
     /// ratio.
+    ///
+    /// The winner's [`encode`] output has its registered children compressed by
+    /// [`compress_encoded`](Self::compress_encoded).
     ///
     /// If a winner is found and its compressed output is actually smaller than the exact
     /// uncompressed size, that output is returned as [`Selection::Compressed`]. Otherwise, the
@@ -321,6 +347,7 @@ impl CascadingCompressor {
     ///
     /// [`matches`]: Scheme::matches
     /// [`stats_options`]: Scheme::stats_options
+    /// [`encode`]: Scheme::encode
     fn choose_and_compress(
         &self,
         canonical: Canonical,
@@ -337,7 +364,7 @@ impl CascadingCompressor {
         let array: ArrayRef = canonical.into();
 
         if array.is_empty() {
-            return Ok(Selection::Unchanged(array));
+            return Ok(Selection::Unchanged(array, None));
         }
 
         if array.all_invalid(exec_ctx)? {
@@ -354,12 +381,12 @@ impl CascadingCompressor {
         if !compress_ctx.is_sample() && constant::is_constant_for_compression(&array, exec_ctx)? {
             let compressed = constant::compress_as_constant(
                 array.clone(),
-                |validity, exec_ctx| self.compress_validity(validity, exec_ctx),
+                |validity, exec_ctx| self.resolve_validity(validity, &compress_ctx, exec_ctx),
                 exec_ctx,
             )?;
             // The constant encoding hands the array back when it is not smaller.
             return Ok(if ArrayRef::ptr_eq(&compressed, &array) {
-                Selection::Unchanged(array)
+                Selection::Unchanged(array, None)
             } else {
                 Selection::Compressed(compressed)
             });
@@ -378,21 +405,22 @@ impl CascadingCompressor {
         let data = ArrayAndStats::new(array, merged_opts);
 
         if eligible_schemes.is_empty() {
-            return Ok(Selection::Unchanged(data.into_array()));
+            return Ok(Selection::unchanged(data));
         }
 
         let Some((winner, winner_estimate)) =
             self.choose_best_scheme(&eligible_schemes, &data, compress_ctx.clone(), exec_ctx)?
         else {
-            return Ok(Selection::Unchanged(data.into_array()));
+            return Ok(Selection::unchanged(data));
         };
 
-        // Run the winning scheme's `compress`. On failure, emit an ERROR event carrying the
-        // scheme name and cascade history before propagating.
+        // Run the winning scheme's `encode` and compress the children it registers, unless an
+        // estimate already produced its complete output. On failure, emit an ERROR event carrying
+        // the scheme name and cascade history before propagating.
         let error_ctx = trace::enabled_error_context(&compress_ctx);
         let _winner_span = trace::winner_compress_span(winner.id(), before_nbytes).entered();
-        let compressed = winner
-            .compress(self, &data, compress_ctx, exec_ctx)
+        let compressed = self
+            .compress_with_scheme(winner, &data, &compress_ctx, exec_ctx)
             .inspect_err(|err| {
                 // NB: this is the only way we can tell which scheme panicked / bailed on their
                 // data, especially for third-party schemes where the error site may not carry any
@@ -421,8 +449,38 @@ impl CascadingCompressor {
         if accepted {
             Ok(Selection::Compressed(compressed))
         } else {
-            Ok(Selection::Unchanged(data.into_array()))
+            Ok(Selection::unchanged(data))
         }
+    }
+}
+
+impl CascadingCompressor {
+    /// Compresses `data` with `scheme`: runs its [`encode`](Scheme::encode) and compresses the
+    /// children it registers, or calls its [`compress`](Scheme::compress) when `encode` falls back
+    /// to it. An estimate that already stored the scheme's complete output as a [`TrialOutput`]
+    /// is reused.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if encoding or compressing a child fails.
+    pub(crate) fn compress_with_scheme(
+        &self,
+        scheme: &dyn Scheme,
+        data: &ArrayAndStats,
+        compress_ctx: &CompressorContext,
+        exec_ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        if let Some(trial) = data.get::<TrialOutput>()
+            && trial.scheme == scheme.id()
+        {
+            return Ok(trial.array.clone());
+        }
+        let encoded = scheme.encode(data, compress_ctx, exec_ctx)?;
+        if encoded.is_uses_compress() {
+            // The scheme compresses its children, and any validity it stores, itself.
+            return scheme.compress(self, data, compress_ctx.clone(), exec_ctx);
+        }
+        self.compress_encoded(scheme.id(), encoded, compress_ctx, exec_ctx)
     }
 }
 

@@ -15,6 +15,7 @@ use divan::counter::ItemsCount;
 use itertools::iproduct;
 use mimalloc::MiMalloc;
 use vortex_array::ArrayRef;
+use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
@@ -38,6 +39,7 @@ use vortex_array::memory::MemorySession;
 use vortex_array::optimizer::kernels::KernelSession;
 use vortex_array::session::ArraySession;
 use vortex_array::session::ArraySessionExt;
+use vortex_array::test_harness::mark_decoded;
 use vortex_array::test_harness::mark_optimized;
 use vortex_array::validity::Validity;
 use vortex_arrow::ArrowSessionExt;
@@ -262,9 +264,7 @@ const STRING_VALIDITIES: &[StringValidity] =
 const ARROW_STRING_LAYOUTS: &[ArrowStringLayout] =
     &[ArrowStringLayout::Offset, ArrowStringLayout::View];
 
-// CPU simulation charges each instrumented 100,000-row case far more than the 1 ms per-iteration
-// budget. 32,768 rows still span four zstd frames when flat and fill four 8,192-row chunks.
-const STRING_ROWS: usize = if cfg!(codspeed) { 32_768 } else { 100_000 };
+const STRING_ROWS: usize = 32_768;
 const STRING_CHUNKS: usize = 4;
 const DICTIONARY_SIZE: usize = 2_048;
 const SPARSE_DICTIONARY_ROWS: usize = 1_024;
@@ -497,6 +497,118 @@ fn append_to_view_builder(bencher: Bencher, case: StringCase) {
             array.append_to_builder(&mut builder, &mut ctx).unwrap();
             builder.finish_into_varbinview()
         });
+}
+
+#[derive(Clone, Copy)]
+enum DictStructure {
+    Dict,
+    Chunked,
+    Flat,
+}
+
+impl Display for DictStructure {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::Dict => "dict",
+            Self::Chunked => "chunked",
+            Self::Flat => "flat",
+        })
+    }
+}
+
+#[derive(Clone, Copy)]
+struct DictExportCase {
+    structure: DictStructure,
+    validity: StringValidity,
+}
+
+impl Display for DictExportCase {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}/{}", self.structure, self.validity)
+    }
+}
+
+const DICT_EXPORT_CASES: &[DictExportCase] = &[
+    DictExportCase {
+        structure: DictStructure::Dict,
+        validity: StringValidity::NonNullable,
+    },
+    DictExportCase {
+        structure: DictStructure::Chunked,
+        validity: StringValidity::NonNullable,
+    },
+    DictExportCase {
+        structure: DictStructure::Chunked,
+        validity: StringValidity::Nullable,
+    },
+    DictExportCase {
+        structure: DictStructure::Flat,
+        validity: StringValidity::NonNullable,
+    },
+];
+const DICT_ROWS: usize = 2048;
+const DICT_CHUNKS: usize = 4;
+const DICT_VALUES: usize = 64;
+
+fn dict_chunk(len: usize, validity: StringValidity) -> ArrayRef {
+    let code = |index: usize| u8::try_from(index % DICT_VALUES).unwrap();
+    let codes = match validity {
+        StringValidity::NonNullable => PrimitiveArray::from_iter((0..len).map(code)).into_array(),
+        StringValidity::Nullable => PrimitiveArray::from_option_iter(
+            (0..len).map(|index| (!index.is_multiple_of(7)).then(|| code(index))),
+        )
+        .into_array(),
+    };
+    let values = structured_strings(DICT_VALUES, StringValidity::NonNullable);
+    DictArray::try_new(codes, values.into_array())
+        .unwrap()
+        .into_array()
+}
+
+fn dict_array(case: DictExportCase) -> ArrayRef {
+    let dtype = DType::Utf8(case.validity.nullability());
+    let chunk_len = DICT_ROWS / DICT_CHUNKS;
+    let array = match case.structure {
+        DictStructure::Dict => dict_chunk(DICT_ROWS, case.validity),
+        DictStructure::Chunked => ChunkedArray::try_new(
+            (0..DICT_CHUNKS).map(|_| dict_chunk(chunk_len, case.validity)),
+            dtype,
+        )
+        .unwrap()
+        .into_array(),
+        DictStructure::Flat => {
+            let mut ctx = SESSION.create_execution_ctx();
+            ChunkedArray::try_new(
+                (0..DICT_CHUNKS).map(|_| {
+                    dict_chunk(chunk_len, case.validity)
+                        .execute::<Canonical>(&mut ctx)
+                        .unwrap()
+                        .into_array()
+                }),
+                dtype,
+            )
+            .unwrap()
+            .into_array()
+        }
+    };
+    // Marked as a reader marks what it returns, so the export sees the chunks a scan hands it.
+    mark_decoded(&array);
+
+    array
+}
+
+#[divan::bench(args = DICT_EXPORT_CASES)]
+fn dictionary_export(bencher: Bencher, case: DictExportCase) {
+    let array = dict_array(case);
+    let field = Field::new(
+        "value",
+        DataType::Dictionary(Box::new(DataType::Int32), Box::new(DataType::Utf8)),
+        array.dtype().is_nullable(),
+    );
+    bencher
+        .with_inputs(|| (array.clone(), SESSION.create_execution_ctx()))
+        .input_counter(|(array, _)| ItemsCount::new(array.len()))
+        .bench_values(|(array, mut ctx)| array.execute_arrow(Some(&field), &mut ctx).unwrap());
 }
 
 #[derive(Clone, Copy)]

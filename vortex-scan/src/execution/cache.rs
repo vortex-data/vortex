@@ -12,8 +12,8 @@ use std::sync::Weak;
 use once_cell::sync::OnceCell;
 use parking_lot::Mutex;
 use rustc_hash::FxHashMap;
-use vortex_array::expr::BoundExpression;
 use vortex_error::VortexResult;
+use vortex_expr::BoundExpression;
 
 use super::io::SegmentRanges;
 use super::retain::RetainedSegments;

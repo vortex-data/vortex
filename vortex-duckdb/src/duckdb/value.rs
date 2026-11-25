@@ -138,6 +138,9 @@ impl ValueRef {
             DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_TZ => ExtractedValue::TimestampTz(unsafe {
                 cpp::duckdb_get_timestamp_tz(self.as_ptr()).micros
             }),
+            DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_TZ_NS => ExtractedValue::TimestampTzNs(unsafe {
+                cpp::duckdb_get_timestamp_tz_ns(self.as_ptr()).nanos
+            }),
             DUCKDB_TYPE::DUCKDB_TYPE_DECIMAL => {
                 let decimal = unsafe { cpp::duckdb_get_decimal(self.as_ptr()) };
                 let value = i128_from_parts(decimal.value.upper, decimal.value.lower);
@@ -244,6 +247,14 @@ impl Value {
             Self::own(cpp::duckdb_create_timestamp_tz(cpp::duckdb_timestamp {
                 micros,
             }))
+        }
+    }
+
+    pub fn new_timestamp_tz_ns(nanos: i64) -> Self {
+        unsafe {
+            Self::own(cpp::duckdb_create_timestamp_tz_ns(
+                cpp::duckdb_timestamp_ns { nanos },
+            ))
         }
     }
 
@@ -565,6 +576,8 @@ pub enum ExtractedValue {
     TimestampS(i64),
     /// UTC microseconds
     TimestampTz(i64),
+    /// UTC nanoseconds
+    TimestampTzNs(i64),
     Decimal(u8, i8, i128),
     List(Vec<Value>),
     Unsupported(DUCKDB_TYPE),

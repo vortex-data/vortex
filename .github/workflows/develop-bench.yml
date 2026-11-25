@@ -1,4 +1,4 @@
-# Runs benchmarks on `develop`, dispatched every 10 minutes by `develop-bench-trigger.yml`
+# Runs benchmarks on `develop`, dispatched every hour by `develop-bench-trigger.yml`
 # whenever new commits have landed on `develop` (or manually via `workflow_dispatch` on `develop`).
 
 name: Develop Benchmarks
@@ -102,6 +102,9 @@ jobs:
           || 'ubuntu-latest' }}
     strategy:
       fail-fast: false
+      # With the SQL hosts below, a run holds at most six metal hosts at once by default. See
+      # `max-parallel` in sql-bench-matrix.yml.
+      max-parallel: 2
       matrix:
         benchmark:
           - id: random-access-bench
@@ -114,8 +117,7 @@ jobs:
             name: Random Access (S3)
             build_args: "--features lance"
             v4_ingest: true
-            remote_data_dir: >-
-              s3://vortex-ci-benchmark-datasets/develop/random-access/
+            remote_data_dir: s3://vortex-public-benchmark-fixtures/random-access/v1/
           - id: compress-bench
             name: Compression
             build_args: "--features lance"
@@ -154,6 +156,7 @@ jobs:
               extra_args: "--debuginfo-strip=false"
               parca_agent_version: "0.49.0"
           - name: Setup AWS CLI
+            if: matrix.benchmark.remote_data_dir == null
             uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd  # v6
             with:
               role-to-assume: arn:aws:iam::245040174862:role/GitHubBenchmarkRole
@@ -169,7 +172,7 @@ jobs:
           # and the LitData conversion. Keep the litdata version in sync with the Install LitData step.
           - name: Compute benchmark data cache key
             id: data-cache-key
-            if: matrix.benchmark.id == 'random-access-bench'
+            if: matrix.benchmark.id == 'random-access-bench' && matrix.benchmark.remote_data_dir == null
             shell: bash
             run: |
               set -Eeu -o pipefail
@@ -200,7 +203,7 @@ jobs:
               echo "LITDATA_PYTHON=$PWD/.venv-litdata/bin/python" >> "$GITHUB_ENV"
           - name: Restore benchmark data
             id: data-cache
-            if: matrix.benchmark.id == 'random-access-bench'
+            if: matrix.benchmark.id == 'random-access-bench' && matrix.benchmark.remote_data_dir == null
             uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
             with:
               path: |
@@ -208,17 +211,31 @@ jobs:
                 vortex-bench/data/random_access/*/*.parquet
                 vortex-bench/data/random_access/*/*.litdata
               key: >-
-                random-access-data-v1-${{ matrix.benchmark.remote_data_dir && 's3' || 'local' }}-litdata0.2.76-${{ steps.data-cache-key.outputs.crates }}-${{
+                random-access-data-v1-local-litdata0.2.76-${{ steps.data-cache-key.outputs.crates }}-${{
                   hashFiles(
                     'vortex-bench/src/datasets/**',
                     'vortex-bench/src/random_access/**',
                     'vortex-bench/src/utils/parquet.rs',
                     'scripts/litdata-random-access.py',
                     'benchmarks/random-access-bench/src/litdata.rs') }}
+          # string-bench reads most of its columns from Hugging Face, which rate limits
+          # unauthenticated downloads. The key covers the sources and row caps in lib.rs and the
+          # shared Parquet writer settings, whose layout version decides when a file is stale.
+          - name: Restore string-bench data
+            id: string-data-cache
+            if: matrix.benchmark.id == 'string-bench'
+            uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+            with:
+              path: vortex-bench/data/string-bench/*.parquet
+              key: >-
+                string-bench-data-v1-${{ hashFiles(
+                  'benchmarks/string-bench/src/lib.rs',
+                  'vortex-bench/src/utils/parquet.rs') }}
 
       # Download and convert all benchmark data up front, so the benchmark step below only
       # contains timed runs. The data is written with the same settings the benchmark uses.
       - name: Generate ${{ matrix.benchmark.name }} data
+        if: matrix.benchmark.remote_data_dir == null
         shell: bash
         env:
           RUST_BACKTRACE: full
@@ -226,14 +243,14 @@ jobs:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
           bench="${{ matrix.benchmark.id }}"
-          python3 "scripts/${bench%-bench}-split.py" --prepare-data \
-            ${{ matrix.benchmark.remote_data_dir && format('--remote-data-dir {0}', matrix.benchmark.remote_data_dir) || '' }}
+          python3 "scripts/${bench%-bench}-split.py" --prepare-data
 
-      # setup-benchmark.sh pins every running process to the housekeeping CPUs, so it waits for
-      # the cache save and upload rather than throttling them.
+      # Save the data cache before setup-benchmark.sh pins processes to the housekeeping CPUs.
       - parallel:
           - name: Save benchmark data
-            if: matrix.benchmark.id == 'random-access-bench' && steps.data-cache.outputs.cache-hit != 'true'
+            if: >-
+              matrix.benchmark.id == 'random-access-bench' && matrix.benchmark.remote_data_dir == null
+              && steps.data-cache.outputs.cache-hit != 'true'
             uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
             with:
               path: |
@@ -241,16 +258,12 @@ jobs:
                 vortex-bench/data/random_access/*/*.parquet
                 vortex-bench/data/random_access/*/*.litdata
               key: ${{ steps.data-cache.outputs.cache-primary-key }}
-          - name: Upload benchmark data to S3
-            if: matrix.benchmark.remote_data_dir != null
-            shell: bash
-            env:
-              AWS_REGION: "us-east-1"
-            run: |
-              set -Eeu -o pipefail -x
-
-              aws s3 rm --recursive "${{ matrix.benchmark.remote_data_dir }}"
-              aws s3 cp --recursive vortex-bench/data "${{ matrix.benchmark.remote_data_dir }}"
+          - name: Save string-bench data
+            if: matrix.benchmark.id == 'string-bench' && steps.string-data-cache.outputs.cache-hit != 'true'
+            uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+            with:
+              path: vortex-bench/data/string-bench/*.parquet
+              key: ${{ steps.string-data-cache.outputs.cache-primary-key }}
 
       - name: Setup benchmark environment
         run: sudo bash scripts/setup-benchmark.sh
@@ -262,6 +275,7 @@ jobs:
           RUST_BACKTRACE: full
           FLAT_LAYOUT_INLINE_ARRAY_NODE: "1"
           AWS_REGION: "us-east-1"
+          AWS_SKIP_SIGNATURE: ${{ matrix.benchmark.remote_data_dir != null }}
         run: |
           python3 scripts/random-access-split.py --emit-ingest-records \
             ${{ matrix.benchmark.remote_data_dir && format('--remote-data-dir {0}', matrix.benchmark.remote_data_dir) || '' }}
@@ -339,6 +353,7 @@ jobs:
     with:
       mode: "develop"
       matrix_preset: "develop"
+      max_parallel: ${{ fromJSON(vars.BENCH_MAX_PARALLEL || '4') }}
 
   # Tell the benchmarks website that new results exist, once per run, after every benchmark job
   # of the run has ingested its results. `always()` runs it even when a benchmark job failed, so

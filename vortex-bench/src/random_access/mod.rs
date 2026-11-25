@@ -1,6 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! Dataset layout and readers for the random-access benchmarks.
+//!
+//! Local benchmarks can prepare files through [`BenchDataset`]. S3 benchmarks use the same
+//! relative paths to open fixtures from a [`RemoteDataDir`].
+
 use std::fs::File;
 use std::path::Path;
 use std::path::PathBuf;
@@ -22,7 +27,6 @@ use url::Url;
 use vortex::array::ArrayRef;
 
 use crate::Format;
-use crate::data_dir;
 use crate::idempotent;
 use crate::utils::parquet::S3_ROW_GROUP_ROWS;
 use crate::utils::parquet::parquet_writer_properties;
@@ -86,8 +90,8 @@ pub fn parquet_to_arrow_file(parquet_path: PathBuf, arrow_path: String) -> Resul
 
 /// Writer properties for every random-access dataset, the taxi data included: the shared
 /// [`parquet_writer_properties`], whose page index and small pages let a lookup read only the
-/// pages that hold its rows, in row groups of [`S3_ROW_GROUP_ROWS`]. The row groups are the S3
-/// size on local disk too, because the S3 job reads the files that the local job prepares.
+/// pages that hold its rows, in row groups of [`S3_ROW_GROUP_ROWS`]. Both local files and S3
+/// fixtures use this row-group size to keep the Parquet layout settings consistent.
 pub fn random_access_writer_properties() -> WriterProperties {
     parquet_writer_properties()
         .set_max_row_group_row_count(Some(S3_ROW_GROUP_ROWS))
@@ -114,8 +118,8 @@ pub fn write_random_access_parquet(input: &Path, output: &Path) -> Result<()> {
 
 /// A remote directory holding the same layout as the local benchmark data directory.
 ///
-/// Random access datasets are always materialized locally first, then uploaded verbatim, so a
-/// remote object key is just the local path relative to [`data_dir`] appended to the URL path.
+/// A remote object key appends the dataset's path relative to the benchmark data directory to
+/// the URL path.
 #[derive(Clone, Debug)]
 pub struct RemoteDataDir {
     url: Url,
@@ -146,32 +150,21 @@ impl RemoteDataDir {
         &self.store
     }
 
-    /// The object key of `local_path`, mirroring its location under the local data directory.
-    pub fn key(&self, local_path: &Path) -> Result<ObjectStorePath> {
-        let relative = local_path.strip_prefix(data_dir()).map_err(|_| {
-            anyhow!(
-                "{} is not inside the benchmark data directory",
-                local_path.display()
-            )
-        })?;
-        let relative = relative
-            .to_str()
-            .ok_or_else(|| anyhow!("non-UTF-8 data path: {}", local_path.display()))?;
+    /// The object key of a dataset path relative to the benchmark data directory.
+    pub fn key(&self, relative_path: &str) -> ObjectStorePath {
         // `ObjectStorePath` drops the empty segments left by leading or trailing slashes.
-        Ok(ObjectStorePath::from(format!(
-            "{}/{relative}",
-            self.url.path()
-        )))
+        ObjectStorePath::from(format!("{}/{relative_path}", self.url.path()))
     }
 
-    /// The fully qualified URL of `local_path` in this remote directory.
-    pub fn uri(&self, local_path: &Path) -> Result<String> {
+    /// The fully qualified URL of a dataset path relative to the benchmark data directory. An
+    /// empty path returns the directory URL.
+    pub fn uri(&self, relative_path: &str) -> Result<String> {
         let scheme = self.url.scheme();
         let host = self
             .url
             .host_str()
             .ok_or_else(|| anyhow!("remote data dir has no bucket: {}", self.url))?;
-        Ok(format!("{scheme}://{host}/{}", self.key(local_path)?))
+        Ok(format!("{scheme}://{host}/{}", self.key(relative_path)))
     }
 }
 
@@ -183,6 +176,10 @@ pub trait BenchDataset: Send + Sync {
 
     /// The total number of rows in this dataset.
     fn row_count(&self) -> u64;
+
+    /// The data file's path relative to the benchmark data directory. This must match the path
+    /// used by the local writer so an uploaded snapshot can be read from S3.
+    fn relative_path(&self, format: Format) -> String;
 
     /// Prepare the data file for the given format and return its path.
     ///
@@ -222,6 +219,10 @@ mod tests {
     use parquet::file::properties::EnabledStatistics;
 
     use super::*;
+    use crate::datasets::feature_vectors::FeatureVectorsData;
+    use crate::datasets::nested_lists::NestedListsData;
+    use crate::datasets::nested_structs::NestedStructsData;
+    use crate::datasets::taxi_data::TaxiData;
 
     #[test]
     fn rewritten_parquet_has_a_page_index_and_small_pages() -> Result<()> {
@@ -244,18 +245,25 @@ mod tests {
         let published = ParquetMetaDataReader::new()
             .with_page_index_policy(PageIndexPolicy::Optional)
             .parse_and_finish(&File::open(&input)?)?;
-        assert!(published.offset_index().is_none());
+        assert!(
+            !published
+                .page_index()
+                .is_some_and(|index| index.has_offset_indexes())
+        );
 
         write_random_access_parquet(&input, &output)?;
 
         let metadata = ParquetMetaDataReader::new()
             .with_page_index_policy(PageIndexPolicy::Required)
             .parse_and_finish(&File::open(&output)?)?;
-        assert!(metadata.column_index().is_some());
-        let offset_index = metadata
-            .offset_index()
-            .ok_or_else(|| anyhow!("no offset index"))?;
-        let pages = offset_index[0][0].page_locations();
+        let page_index = metadata
+            .page_index()
+            .ok_or_else(|| anyhow!("no page index"))?;
+        assert!(page_index.column_index(0, 0).is_some());
+        let pages = page_index
+            .offset_index(0, 0)
+            .ok_or_else(|| anyhow!("no offset index"))?
+            .page_locations();
         assert!(pages.len() >= 5);
         for pair in pages.windows(2) {
             // parquet-rs checks the 20,000-row limit after every 1,024 rows.
@@ -271,33 +279,69 @@ mod tests {
 
     #[test]
     fn key_mirrors_the_local_data_dir_layout() -> Result<()> {
-        let local = data_dir().join("random_access/taxi/taxi.vortex");
+        let relative_path = "random_access/taxi/taxi.parquet";
 
         assert_eq!(
-            remote("s3://bucket/prefix/")?.key(&local)?.as_ref(),
-            "prefix/random_access/taxi/taxi.vortex"
+            remote("s3://bucket/prefix/")?.key(relative_path).as_ref(),
+            "prefix/random_access/taxi/taxi.parquet"
         );
         assert_eq!(
-            remote("s3://bucket/")?.key(&local)?.as_ref(),
-            "random_access/taxi/taxi.vortex"
+            remote("s3://bucket/")?.key(relative_path).as_ref(),
+            relative_path
         );
         assert_eq!(
-            remote("s3://bucket/prefix/")?.uri(&local)?,
-            "s3://bucket/prefix/random_access/taxi/taxi.vortex"
+            remote("s3://bucket/prefix/")?.uri(relative_path)?,
+            "s3://bucket/prefix/random_access/taxi/taxi.parquet"
         );
         Ok(())
     }
 
     #[test]
-    fn key_rejects_paths_outside_the_data_dir() -> Result<()> {
-        let err = remote("s3://bucket/prefix/")?
-            .key(Path::new("/tmp/taxi.vortex"))
-            .unwrap_err();
-        assert_eq!(
-            err.to_string(),
-            "/tmp/taxi.vortex is not inside the benchmark data directory"
-        );
-        Ok(())
+    fn dataset_paths_match_the_published_fixtures() {
+        let formats = [Format::Parquet, Format::OnDiskVortex, Format::Lance];
+        let cases: [(&dyn BenchDataset, [&str; 3]); 4] = [
+            (
+                &TaxiData,
+                [
+                    "random_access/taxi/taxi.parquet",
+                    "taxi/taxi.vortex",
+                    "random_access/taxi/taxi.lance",
+                ],
+            ),
+            (
+                &FeatureVectorsData,
+                [
+                    "random_access/feature_vectors/feature_vectors.parquet",
+                    "random_access/feature_vectors/feature_vectors.vortex",
+                    "random_access/feature_vectors/feature_vectors.lance",
+                ],
+            ),
+            (
+                &NestedListsData,
+                [
+                    "random_access/nested_lists/nested_lists.parquet",
+                    "random_access/nested_lists/nested_lists.vortex",
+                    "random_access/nested_lists/nested_lists.lance",
+                ],
+            ),
+            (
+                &NestedStructsData,
+                [
+                    "random_access/nested_structs/nested_structs.parquet",
+                    "random_access/nested_structs/nested_structs.vortex",
+                    "random_access/nested_structs/nested_structs.lance",
+                ],
+            ),
+        ];
+
+        for (dataset, expected) in cases {
+            assert_eq!(
+                formats.map(|format| dataset.relative_path(format)),
+                expected,
+                "{} fixture paths",
+                dataset.name()
+            );
+        }
     }
 
     #[test]

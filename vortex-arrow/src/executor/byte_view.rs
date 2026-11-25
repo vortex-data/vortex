@@ -39,7 +39,7 @@ pub fn canonical_varbinview_to_arrow<T: ByteViewType>(
 
     // SAFETY: our own VarBinView array is considered safe.
     Ok(Arc::new(unsafe {
-        GenericByteViewArray::<T>::new_unchecked(views, buffers, nulls)
+        GenericByteViewArray::<T>::new_unchecked(views, buffers.into(), nulls)
     }))
 }
 

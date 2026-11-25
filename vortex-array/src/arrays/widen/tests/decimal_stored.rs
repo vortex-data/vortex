@@ -31,12 +31,12 @@ use crate::dtype::BigCast;
 use crate::dtype::DecimalDType;
 use crate::dtype::DecimalType;
 use crate::dtype::i256;
-use crate::expr::stats::Precision;
-use crate::expr::stats::Stat;
-use crate::expr::stats::StatsProvider;
 use crate::match_each_decimal_value_type;
 use crate::scalar::DecimalValue;
 use crate::scalar::Scalar;
+use crate::stats::Precision;
+use crate::stats::Stat;
+use crate::stats::StatsProvider;
 use crate::validity::Validity;
 
 /// Returns `values` as a buffer of `values_type`, with zero in each null slot.

@@ -118,19 +118,20 @@ mod tests {
     use vortex_array::dtype::PType;
     use vortex_array::dtype::extension::ExtDTypeRef;
     use vortex_array::dtype::extension::ForeignExtDType;
-    use vortex_array::expr::get_item;
-    use vortex_array::expr::root;
-    use vortex_array::expr::select;
     use vortex_array::extension::datetime::TimeUnit;
     use vortex_array::extension::datetime::Timestamp;
     use vortex_array::optimizer::ArrayOptimizer;
     use vortex_array::scalar::Scalar;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
+    use vortex_expr::ArrayExprExt;
+    use vortex_expr::get_item;
+    use vortex_expr::root;
     use vortex_session::VortexSession;
     use vortex_session::registry::CachedId;
 
     use crate::expr::ext_storage;
+    use crate::expr::select;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
         let session = VortexSession::empty();

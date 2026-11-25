@@ -26,15 +26,15 @@ use vortex_array::arrays::VarBinViewArray;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
-use vortex_array::expr::BoundExpression;
-use vortex_array::expr::eq;
-use vortex_array::expr::lit;
-use vortex_array::expr::root;
 use vortex_array::stream::ArrayStreamExt;
 use vortex_array::test_harness::check_metadata;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
+use vortex_expr::BoundExpression;
+use vortex_expr::eq;
+use vortex_expr::lit;
+use vortex_expr::root;
 use vortex_functions::expr::like;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
@@ -1088,17 +1088,17 @@ mod exact_value {
     use vortex_array::dtype::FieldNames;
     use vortex_array::dtype::Nullability::NonNullable;
     use vortex_array::dtype::StructFields;
-    use vortex_array::expr::BoundExpression;
-    use vortex_array::expr::col;
-    use vortex_array::expr::eq;
-    use vortex_array::expr::lit;
-    use vortex_array::scalar_fn::builtin::binary::Binary;
+    use vortex_array::scalar_fn::builtin::compare::Compare;
     use vortex_array::scalar_fn::builtin::literal::Literal;
-    use vortex_array::scalar_fn::builtin::operators::Operator;
+    use vortex_array::scalar_fn::builtin::operators::CompareOperator;
     use vortex_array::validity::Validity;
     use vortex_error::VortexResult;
     use vortex_error::vortex_bail;
     use vortex_error::vortex_err;
+    use vortex_expr::BoundExpression;
+    use vortex_expr::col;
+    use vortex_expr::eq;
+    use vortex_expr::lit;
     use vortex_session::VortexSession;
     use vortex_session::registry::CachedId;
 
@@ -1210,7 +1210,7 @@ mod exact_value {
             _options: &(),
         ) -> VortexResult<Option<IndexQueryPlan<String>>> {
             // Only `<column> == <utf8 literal>`.
-            if !expr.is::<Binary>() || *expr.as_::<Binary>() != Operator::Eq {
+            if !expr.is::<Compare>() || *expr.as_::<Compare>() != CompareOperator::Eq {
                 return Ok(None);
             }
             if !expr.child(0).is_root() || !expr.child(1).is::<Literal>() {
@@ -1485,11 +1485,11 @@ mod fixed_superset {
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
-    use vortex_array::expr::BoundExpression;
-    use vortex_array::expr::eq;
-    use vortex_array::expr::lit;
-    use vortex_array::expr::root;
     use vortex_error::VortexResult;
+    use vortex_expr::BoundExpression;
+    use vortex_expr::eq;
+    use vortex_expr::lit;
+    use vortex_expr::root;
     use vortex_session::VortexSession;
 
     use crate::layouts::indexed::IndexBuilder;
