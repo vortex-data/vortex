@@ -17,9 +17,15 @@ pub fn main() {
     let array = PrimitiveArray::new(buffer![1i32; 1024], Validity::AllValid).into_array();
 
     let session = VortexSession::default();
+    let mut ctx = session.create_execution_ctx();
     let compressed = BtrBlocksCompressor::from_session(&session)
-        .compress(&array, &mut session.create_execution_ctx())
+        .compress(&array, &mut ctx)
         .unwrap();
     println!("Compressed size: {}", compressed.len());
     println!("Tree view: {}", compressed.display_tree());
+
+    let decompressed = compressed.execute::<PrimitiveArray>(&mut ctx).unwrap();
+    assert_eq!(decompressed.dtype(), array.dtype());
+    assert!(decompressed.all_valid(&mut ctx).unwrap());
+    assert_eq!(decompressed.as_slice::<i32>(), &[1i32; 1024]);
 }

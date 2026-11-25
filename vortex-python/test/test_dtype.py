@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+import pyarrow as pa
 import pytest
 
 import vortex as vx
@@ -21,3 +22,19 @@ def test_factories() -> None:
 def test_timestamp_rejects_unknown_timezone():
     with pytest.raises(RuntimeError, match="Not/A/Timezone"):
         vx.timestamp("s", tz="Not/A/Timezone")
+
+
+@pytest.mark.parametrize("unit", ["s", "ms", "us", "ns"])
+@pytest.mark.parametrize("nullable", [False, True])
+def test_duration_dtype(unit, nullable):
+    dtype = vx.duration(unit, nullable=nullable)
+    assert isinstance(dtype, vx.ExtensionDType)
+    assert "vortex.duration" in repr(dtype)
+    assert dtype.is_nullable() is nullable
+    assert dtype.to_arrow_type() == pa.duration(unit)
+    assert vx.DType.from_arrow(pa.duration(unit), non_nullable=not nullable) == dtype
+
+
+def test_duration_rejects_days():
+    with pytest.raises(RuntimeError, match="days"):
+        vx.duration("days")  # ty: ignore[invalid-argument-type]
