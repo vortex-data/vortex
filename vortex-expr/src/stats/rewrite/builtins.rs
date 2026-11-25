@@ -813,8 +813,10 @@ mod tests {
         Ok(())
     }
 
-    /// Statistics are total-order bounds, so `max = -0.0` must not falsify `f > -0.0` when signed
-    /// zeros are equal. The stat comparison uses the mode of the predicate.
+    /// The stat comparison uses the mode of the predicate. When signed zeros are equal,
+    /// `f > -0.0` is `f > 0`, so `max = +0.0` falsifies it, but in total order it does not:
+    /// `+0.0 <= -0.0` is false there. Total-order bounds are also valid bounds in the coarser
+    /// order of the predicate.
     #[test]
     fn comparison_falsifier_keeps_compare_mode() -> VortexResult<()> {
         let mode = CompareMode::new().with_float_order(FloatOrder::Canonical);
