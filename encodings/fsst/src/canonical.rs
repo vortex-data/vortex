@@ -21,6 +21,7 @@ use vortex_array::match_each_integer_ptype;
 use vortex_buffer::ByteBuffer;
 use vortex_buffer::ByteBufferMut;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
@@ -41,8 +42,11 @@ pub(super) fn canonicalize_fsst(
     let lengths = array.uncompressed_lengths().clone().downcast::<Primitive>();
     let plan = FsstDecodePlan::new(array.codes_bytes(), offsets, lengths)?;
     let (uncompressed_bytes, uncompressed_lens) = decode_bytes(&array.decompressor(), plan)?;
-    let needs_utf8_validation =
-        matches!(array.dtype(), DType::Utf8(_)) && !uncompressed_bytes.is_ascii();
+    let validity = array.validity()?;
+    if matches!(array.dtype(), DType::Utf8(_)) {
+        let mask = validity.execute_mask(array.len(), ctx)?;
+        validate_utf8_rows(uncompressed_bytes.as_slice(), &uncompressed_lens, &mask)?;
+    }
     let (buffers, views) = match_each_integer_ptype!(uncompressed_lens.ptype(), |P| {
         build_views(
             0,
@@ -52,27 +56,11 @@ pub(super) fn canonicalize_fsst(
         )
     });
 
-    if needs_utf8_validation {
-        return Ok(VarBinViewArray::try_new(
-            views,
-            Arc::from(buffers),
-            array.dtype().clone(),
-            array.validity()?,
-            ctx,
-        )?
-        .into_array());
-    }
-
-    // SAFETY: `build_views` produces valid views over `buffers`. If `dtype` is `Utf8`, every
-    // decoded byte was checked to be ASCII above, so every view slice is valid UTF-8.
+    // SAFETY: `build_views` produces valid views over `buffers`, and for `DType::Utf8` every
+    // valid row was validated above.
     Ok(unsafe {
-        VarBinViewArray::new_unchecked(
-            views,
-            Arc::from(buffers),
-            array.dtype().clone(),
-            array.validity()?,
-        )
-        .into_array()
+        VarBinViewArray::new_unchecked(views, Arc::from(buffers), array.dtype().clone(), validity)
+            .into_array()
     })
 }
 
@@ -84,7 +72,7 @@ pub(crate) fn validate_utf8_rows(
     lengths: &PrimitiveArray,
     validity: &Mask,
 ) -> VortexResult<()> {
-    if bytes.is_ascii() {
+    if validity.all_false() || bytes.is_ascii() {
         return Ok(());
     }
     match_each_integer_ptype!(lengths.ptype(), |P| {
@@ -102,52 +90,51 @@ fn validate_utf8_rows_typed<P: AsPrimitive<usize>>(
     lengths: &[P],
     validity: &Mask,
 ) -> VortexResult<()> {
-    if std::str::from_utf8(bytes).is_ok() {
-        check_valid_rows(lengths, validity, |start, end| {
-            if start < end {
-                vortex_ensure!(
-                    is_char_boundary(bytes[start])
-                        && (end == bytes.len() || is_char_boundary(bytes[end])),
-                    "FSST decoded UTF-8 row does not fall on a UTF-8 character boundary"
-                );
+    if simdutf8::basic::from_utf8(bytes).is_ok() {
+        let mut offset = 0usize;
+        match validity.bit_buffer() {
+            AllOr::All => {
+                for len in lengths {
+                    offset += len.as_();
+                    vortex_ensure!(
+                        offset == bytes.len() || is_char_boundary(bytes[offset]),
+                        "FSST decoded UTF-8 row does not fall on a UTF-8 character boundary"
+                    );
+                }
             }
-            Ok(())
-        })
-    } else {
-        check_valid_rows(lengths, validity, |start, end| {
-            std::str::from_utf8(&bytes[start..end])
-                .map_err(|e| vortex_err!("FSST decoded bytes are not valid UTF-8: {e}"))?;
-            Ok(())
-        })
-    }
-}
-
-fn check_valid_rows<P: AsPrimitive<usize>>(
-    lengths: &[P],
-    validity: &Mask,
-    mut check: impl FnMut(usize, usize) -> VortexResult<()>,
-) -> VortexResult<()> {
-    let mut offset = 0usize;
-    match validity.bit_buffer() {
-        AllOr::All => {
-            for len in lengths {
-                let end = offset + len.as_();
-                check(offset, end)?;
-                offset = end;
+            AllOr::None => {}
+            AllOr::Some(bits) => {
+                for (len, valid) in lengths.iter().zip(bits.iter()) {
+                    let end = offset + len.as_();
+                    if valid && offset < end {
+                        vortex_ensure!(
+                            is_char_boundary(bytes[offset])
+                                && (end == bytes.len() || is_char_boundary(bytes[end])),
+                            "FSST decoded UTF-8 row does not fall on a UTF-8 character boundary"
+                        );
+                    }
+                    offset = end;
+                }
             }
         }
-        AllOr::None => {}
+        return Ok(());
+    }
+
+    match validity.bit_buffer() {
+        AllOr::All => vortex_bail!("FSST decoded bytes are not valid UTF-8"),
+        AllOr::None => Ok(()),
         AllOr::Some(bits) => {
+            let mut offset = 0usize;
             for (len, valid) in lengths.iter().zip(bits.iter()) {
                 let end = offset + len.as_();
-                if valid {
-                    check(offset, end)?;
+                if valid && simdutf8::basic::from_utf8(&bytes[offset..end]).is_err() {
+                    vortex_bail!("FSST decoded bytes are not valid UTF-8");
                 }
                 offset = end;
             }
+            Ok(())
         }
     }
-    Ok(())
 }
 
 /// Extra headroom that keeps [`Decompressor::decompress_into`] on its fast path.
