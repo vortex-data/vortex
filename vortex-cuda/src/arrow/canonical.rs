@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use futures::future::BoxFuture;
-use futures::future::join;
+
 use futures::future::join_all;
 use tracing::error;
 use vortex::array::ArrayRef;
@@ -81,6 +81,7 @@ use crate::arrow::arrow_device_export_dictionary_codes_dtype;
 use crate::arrow::arrow_schema_for_array;
 use crate::arrow::cuda_decimal_value_type;
 use crate::arrow::list_view::export_device_list_view;
+use crate::arrow::offsets::read_offset_summary;
 use crate::cub::exclusive_sum_i32;
 use crate::device_buffer::CUDF_VALIDITY_BUFFER_PADDING;
 use crate::device_buffer::cuda_aligned_bitmap_view;
@@ -607,9 +608,9 @@ async fn export_binary_buffers(
     }
     let data_buffer_ptrs = device_buffer_from(ptr_values, ctx).await?;
     let data_buffer_lens = device_buffer_from(len_values, ctx).await?;
-    let mut status = ctx.device_alloc::<u32>(1)?;
+    let mut summary = ctx.device_alloc::<u32>(2)?;
     ctx.stream()
-        .memset_zeros(&mut status)
+        .memset_zeros(&mut summary)
         .map_err(|err| vortex_err!("Failed to zero Arrow Binary status buffer: {err}"))?;
 
     let scan_input = init_binary_scan(
@@ -617,27 +618,16 @@ async fn export_binary_buffers(
         validity,
         &data_buffer_lens,
         device_data_buffers.len(),
-        &mut status,
+        &mut summary,
         len,
         ctx,
     )?;
-    let output_offsets = BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(
-        exclusive_sum_i32(&scan_input, len + 1, ctx)?,
-    )?));
-    validate_binary_offsets(&output_offsets, len, &mut status, ctx)?;
-    let status = BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(status)?));
-
-    // One status read covers init_scan and offset validation. Both must pass before gather may
-    // dereference view payloads through the scanned offsets. Enqueue both copies up front so the
-    // readbacks share one stream round-trip; await both so an error cannot drop a copy mid-flight.
-    let status_copy = status.try_to_host()?;
-    let total_copy = output_offsets
-        .slice_typed::<i32>(len..len + 1)
-        .try_to_host()?;
-    let (status_value, total_value) = join(status_copy, total_copy).await;
-
-    check_binary_status(Buffer::<u32>::from_byte_buffer(status_value?)[0])?;
-    let total_bytes = usize::try_from(Buffer::<i32>::from_byte_buffer(total_value?)[0])?;
+    let offsets = exclusive_sum_i32(&scan_input, len + 1, ctx)?;
+    let [status, total] = read_offset_summary(&offsets, summary, ctx).await?;
+    // Both view references and offsets must be valid before gather dereferences them.
+    check_binary_status(status)?;
+    let total_bytes = usize::try_from(total)?;
+    let output_offsets = BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(offsets)?));
     let output_values = gather_binary_values(
         views,
         &data_buffer_ptrs,
@@ -709,25 +699,6 @@ fn init_binary_scan(
     })?;
 
     Ok(scan_input)
-}
-
-/// Flag scanned offsets that overflowed i32. A negative offset is proof of overflow because
-/// init_scan caps every row size at `i32::MAX`, so the first overflowing prefix sum always wraps
-/// into the negative range.
-fn validate_binary_offsets(
-    offsets: &BufferHandle,
-    len: usize,
-    status: &mut CudaSlice<u32>,
-    ctx: &mut CudaExecutionCtx,
-) -> VortexResult<()> {
-    let scan_len = len + 1;
-    let offsets_view = offsets.cuda_view::<i32>()?;
-    let scan_len_u64 = scan_len as u64;
-    let kernel = ctx.load_function_with_suffixes("arrow_binary", &["validate_offsets"])?;
-
-    ctx.launch_kernel(&kernel, scan_len, |args| {
-        args.arg(&offsets_view).arg(&mut *status).arg(&scan_len_u64);
-    })
 }
 
 fn gather_binary_values(

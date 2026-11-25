@@ -76,22 +76,6 @@ __device__ void init_scan_device(const BinaryView *const __restrict views,
     }
 }
 
-// Detect i32 overflow of the CUB exclusive-sum offsets by checking signs. init_scan rejects
-// per-row sizes above i32::MAX, so consecutive true prefix sums differ by less than 2^31 and the
-// first overflowing prefix lands in [2^31, 2^32), which wraps to a negative offset in the scan
-// output. No negative offset therefore proves no prefix overflowed.
-__device__ void
-validate_offsets_device(const int32_t *const __restrict offsets, uint32_t *const status, uint64_t scan_len) {
-    const uint64_t elements_per_block = blockDim.x * ELEMENTS_PER_THREAD;
-    const uint64_t block_start = blockIdx.x * elements_per_block;
-    const uint64_t block_stop = min(block_start + elements_per_block, scan_len);
-
-    for (uint64_t idx = block_start + threadIdx.x; idx < block_stop; idx += blockDim.x) {
-        if (offsets[idx] < 0) {
-            atomicMax(status, 2u);
-        }
-    }
-}
 
 __device__ uint64_t upper_bound_offsets(const int32_t *const offsets, uint64_t len, uint64_t value) {
     uint64_t first = 0;
@@ -205,11 +189,6 @@ extern "C" __global__ void arrow_binary_init_scan(const BinaryView *const views,
     init_scan_device(views, validity, data_buffer_lens, scan, status, data_buffer_count, len);
 }
 
-// Check that the scanned Arrow Binary offsets never overflowed the i32 range.
-extern "C" __global__ void
-arrow_binary_validate_offsets(const int32_t *const offsets, uint32_t *const status, uint64_t scan_len) {
-    validate_offsets_device(offsets, status, scan_len);
-}
 
 // Gather inline and referenced BinaryView payloads into Arrow Binary's contiguous values buffer.
 extern "C" __global__ void arrow_binary_gather(const BinaryView *const views,
