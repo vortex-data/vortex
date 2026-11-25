@@ -72,6 +72,14 @@ int8_t DataType::decimal_scale() const {
     return vx_dtype_decimal_scale(handle_.get());
 }
 
+DurationUnit DataType::duration_unit() const {
+    vx_duration_unit unit;
+    if (!vx_dtype_duration_unit(handle_.get(), &unit)) {
+        throw VortexException("dtype is not a duration");
+    }
+    return static_cast<DurationUnit>(unit);
+}
+
 namespace {
 const vx_struct_fields *struct_fields_or_throw(const vx_dtype *dtype) {
     const vx_struct_fields *fields = vx_dtype_struct_dtype(dtype);
@@ -175,6 +183,9 @@ DataType binary(bool nullable) {
 }
 DataType decimal(uint8_t precision, int8_t scale, bool nullable) {
     return Access::adopt<DataType>(vx_dtype_new_decimal(precision, scale, nullable));
+}
+DataType duration(DurationUnit unit, bool nullable) {
+    return Access::adopt<DataType>(vx_dtype_new_duration(static_cast<vx_duration_unit>(unit), nullable));
 }
 DataType list(DataType element, bool nullable) {
     return Access::adopt<DataType>(vx_dtype_new_list(Access::release(std::move(element)), nullable));

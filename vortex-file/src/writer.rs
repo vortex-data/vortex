@@ -23,9 +23,11 @@ use parking_lot::Mutex;
 use vortex_array::ArrayContext;
 use vortex_array::ArrayId;
 use vortex_array::ArrayRef;
+use vortex_array::ArrayVTable;
 use vortex_array::aggregate_fn::AggregateFnRef;
 use vortex_array::aggregate_fn::AggregateFnVTable;
 use vortex_array::aggregate_fn::fns::min::Min;
+use vortex_array::arrays::Duration;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldPath;
 use vortex_array::iter::ArrayIterator;
@@ -591,31 +593,24 @@ fn edition_filter(session: &VortexSession, kind: ComponentKind) -> HashSet<Id> {
 
 /// Validate edition-gated dtypes nested in the file schema.
 fn validate_dtype_editions(session: &VortexSession, dtype: &DType) -> VortexResult<()> {
-    let allowed = edition_filter(session, ComponentKind::DType);
-    let duration_enabled = session
-        .enabled_component_ids(ComponentKind::Array)
-        .contains(&vortex_array::ArrayPlugin::id(
-            &vortex_array::arrays::Duration,
-        ));
-
-    fn validate(dtype: &DType, allowed: &HashSet<Id>, duration_enabled: bool) -> VortexResult<()> {
+    fn validate(session: &VortexSession, dtype: &DType, allowed: &HashSet<Id>) -> VortexResult<()> {
         match dtype {
             DType::List(element, _) | DType::FixedSizeList(element, ..) => {
-                validate(element, allowed, duration_enabled)
+                validate(session, element, allowed)
             }
             DType::Map(map, _) => {
-                validate(&map.key_dtype(), allowed, duration_enabled)?;
-                validate(&map.value_dtype(), allowed, duration_enabled)
+                validate(session, &map.key_dtype(), allowed)?;
+                validate(session, &map.value_dtype(), allowed)
             }
             DType::Struct(fields, _) => {
                 for field in fields.fields() {
-                    validate(&field, allowed, duration_enabled)?;
+                    validate(session, &field, allowed)?;
                 }
                 Ok(())
             }
             DType::Union(variants, _) => {
                 for variant in variants.variants() {
-                    validate(&variant, allowed, duration_enabled)?;
+                    validate(session, &variant, allowed)?;
                 }
                 Ok(())
             }
@@ -626,10 +621,13 @@ fn validate_dtype_editions(session: &VortexSession, dtype: &DType) -> VortexResu
                         extension.id()
                     );
                 }
-                validate(extension.storage_dtype(), allowed, duration_enabled)
+                validate(session, extension.storage_dtype(), allowed)
             }
             DType::Duration(..) => {
-                if !duration_enabled {
+                if !session
+                    .enabled_component_ids(ComponentKind::Array)
+                    .contains(&Duration.id())
+                {
                     vortex_bail!("Duration dtype not permitted by enabled editions");
                 }
                 Ok(())
@@ -644,7 +642,8 @@ fn validate_dtype_editions(session: &VortexSession, dtype: &DType) -> VortexResu
         }
     }
 
-    validate(dtype, &allowed, duration_enabled)
+    let allowed = edition_filter(session, ComponentKind::DType);
+    validate(session, dtype, &allowed)
 }
 
 /// The context every layout in the file is interned through.

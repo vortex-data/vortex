@@ -9,6 +9,7 @@ use arrow_array::ffi::FFI_ArrowSchema;
 use arrow_schema::Schema;
 use vortex::dtype::DType;
 use vortex::dtype::DecimalDType;
+use vortex::dtype::DurationUnit;
 use vortex::error::VortexExpect;
 use vortex::error::vortex_ensure;
 use vortex::error::vortex_panic;
@@ -59,6 +60,8 @@ pub enum vx_dtype_variant {
     DTYPE_DECIMAL = 8,
     /// Nested fixed-size list type.
     DTYPE_FIXED_SIZE_LIST = 9,
+    /// Fixed-unit elapsed time.
+    DTYPE_DURATION = 10,
 }
 
 impl From<&DType> for vx_dtype_variant {
@@ -73,13 +76,50 @@ impl From<&DType> for vx_dtype_variant {
             DType::List(..) => vx_dtype_variant::DTYPE_LIST,
             DType::FixedSizeList(..) => vx_dtype_variant::DTYPE_FIXED_SIZE_LIST,
             DType::Struct(..) => vx_dtype_variant::DTYPE_STRUCT,
-            DType::Duration(..) => vortex_panic!("Duration is not supported in FFI yet"),
+            DType::Duration(..) => vx_dtype_variant::DTYPE_DURATION,
             DType::Map(..) => vortex_panic!("Map is not supported in FFI yet"),
             DType::Union(..) => vortex_panic!("Union is not supported in FFI yet"),
             DType::Variant(_) => {
                 vortex_panic!("Variant is not supported in FFI yet")
             }
             DType::Extension(_) => vx_dtype_variant::DTYPE_EXTENSION,
+        }
+    }
+}
+
+/// Unit of a Duration data type.
+#[non_exhaustive]
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum vx_duration_unit {
+    /// Nanoseconds.
+    DURATION_NANOSECONDS = 0,
+    /// Microseconds.
+    DURATION_MICROSECONDS = 1,
+    /// Milliseconds.
+    DURATION_MILLISECONDS = 2,
+    /// Seconds.
+    DURATION_SECONDS = 3,
+}
+
+impl From<vx_duration_unit> for DurationUnit {
+    fn from(unit: vx_duration_unit) -> Self {
+        match unit {
+            vx_duration_unit::DURATION_NANOSECONDS => Self::Nanoseconds,
+            vx_duration_unit::DURATION_MICROSECONDS => Self::Microseconds,
+            vx_duration_unit::DURATION_MILLISECONDS => Self::Milliseconds,
+            vx_duration_unit::DURATION_SECONDS => Self::Seconds,
+        }
+    }
+}
+
+impl From<DurationUnit> for vx_duration_unit {
+    fn from(unit: DurationUnit) -> Self {
+        match unit {
+            DurationUnit::Nanoseconds => Self::DURATION_NANOSECONDS,
+            DurationUnit::Microseconds => Self::DURATION_MICROSECONDS,
+            DurationUnit::Milliseconds => Self::DURATION_MILLISECONDS,
+            DurationUnit::Seconds => Self::DURATION_SECONDS,
         }
     }
 }
@@ -177,6 +217,15 @@ pub unsafe extern "C-unwind" fn vx_dtype_new_decimal(
     ))
 }
 
+/// Create a new duration data type with the given unit.
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn vx_dtype_new_duration(
+    unit: vx_duration_unit,
+    is_nullable: bool,
+) -> *const vx_dtype {
+    vx_dtype::new(DType::Duration(unit.into(), is_nullable.into()))
+}
+
 /// Get the variant of a [`vx_dtype`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_dtype_get_variant(dtype: *const vx_dtype) -> vx_dtype_variant {
@@ -213,6 +262,20 @@ pub unsafe extern "C-unwind" fn vx_dtype_decimal_scale(dtype: *const vx_dtype) -
         .as_decimal_opt()
         .vortex_expect("not a decimal dtype")
         .scale()
+}
+
+/// Write the duration unit to `unit` and return true for a duration type.
+/// For other types, return false and leave `unit` untouched.
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn vx_dtype_duration_unit(
+    dtype: *const vx_dtype,
+    unit: *mut vx_duration_unit,
+) -> bool {
+    let DType::Duration(duration_unit, _) = vx_dtype::as_ref(dtype) else {
+        return false;
+    };
+    unsafe { unit.write((*duration_unit).into()) };
+    true
 }
 
 /// If "dtype" is DTYPE_STRUCT, return owned vx_struct_fields for this struct,
@@ -311,6 +374,9 @@ pub unsafe extern "C-unwind" fn vx_dtype_from_arrow_schema(
 #[expect(clippy::cast_possible_truncation)]
 mod tests {
 
+    use arrow_schema::DataType;
+    use arrow_schema::Field;
+    use arrow_schema::TimeUnit;
     use vortex::array::ArrayRef;
     use vortex::array::IntoArray;
     use vortex::array::arrays::StructArray;
@@ -668,12 +734,10 @@ mod tests {
     #[cfg_attr(miri, ignore)]
     #[test]
     fn test_dtype_from_arrow_schema() {
-        use arrow_schema::DataType;
-        use arrow_schema::Field;
-
         let arrow_schema = Schema::new(vec![
             Field::new("a", DataType::Int64, false),
             Field::new("b", DataType::Utf8, true),
+            Field::new("elapsed", DataType::Duration(TimeUnit::Nanosecond), true),
         ]);
         let mut ffi_schema = FFI_ArrowSchema::try_from(&arrow_schema).unwrap();
 
@@ -688,7 +752,7 @@ mod tests {
             assert_eq!(vx_dtype_get_variant(dtype), vx_dtype_variant::DTYPE_STRUCT);
             assert!(!vx_dtype_is_nullable(dtype));
             let fields = vx_dtype_struct_dtype(dtype);
-            assert_eq!(vx_struct_fields_nfields(fields), 2);
+            assert_eq!(vx_struct_fields_nfields(fields), 3);
             assert_eq!(
                 vx_struct_fields_field_name(fields, 0).as_str().unwrap(),
                 "a"
@@ -705,7 +769,32 @@ mod tests {
             let f1 = vx_struct_fields_field_dtype(fields, 1);
             assert_eq!(vx_dtype_get_variant(f1), vx_dtype_variant::DTYPE_UTF8);
             assert!(vx_dtype_is_nullable(f1));
+            let duration = vx_struct_fields_field_dtype(fields, 2);
+            assert_eq!(
+                vx_dtype_get_variant(duration),
+                vx_dtype_variant::DTYPE_DURATION
+            );
+            assert!(vx_dtype_is_nullable(duration));
+            let mut unit = vx_duration_unit::DURATION_SECONDS;
+            assert!(!vx_dtype_duration_unit(f1, &raw mut unit));
+            assert_eq!(unit, vx_duration_unit::DURATION_SECONDS);
+            assert!(vx_dtype_duration_unit(duration, &raw mut unit));
+            assert_eq!(unit, vx_duration_unit::DURATION_NANOSECONDS);
+            let constructed = vx_dtype_new_duration(unit, true);
+            assert_eq!(vx_dtype::as_ref(constructed), vx_dtype::as_ref(duration));
+            vx_dtype_free(constructed);
+
+            let mut exported = FFI_ArrowSchema::empty();
+            assert_eq!(
+                vx_dtype_to_arrow_schema(session, dtype, &raw mut exported, &raw mut error),
+                0
+            );
+            assert!(error.is_null());
+            let exported_schema = Schema::try_from(&exported).unwrap();
+            assert_eq!(exported_schema.field(2), arrow_schema.field(2));
+
             vx_struct_fields_free(fields);
+            vx_dtype_free(duration);
             vx_dtype_free(f1);
             vx_dtype_free(dtype);
             vx_session_free(session);
