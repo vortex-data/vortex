@@ -236,13 +236,14 @@ Two-phase workflow:
 ### Compat validation (`.github/workflows/compat-validation.yml`)
 
 Validates the current code against previously published fixtures. Runs weekly
-(Monday 6am UTC, using `mode: all`), via `workflow_call` (defaults to `all`),
-and via manual dispatch with a `mode` input:
+(Monday 6am UTC, using `mode: all`), via `workflow_call` (callers pass a
+required `mode`), and via manual dispatch with a `mode` input (defaults to
+`last`):
 
 | Mode | Behavior |
 |------|----------|
 | `last` | Compare against the most recent published release only |
-| `all` | Compare against all previously published versions (weekly schedule and pre-release check) |
+| `all` | Compare against all previously published versions (weekly schedule, or when passed explicitly) |
 
 ## Known Limitations
 
