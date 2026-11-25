@@ -8,6 +8,7 @@ use vortex_expr::BoundExpression;
 use vortex_expr::ExactKey;
 use vortex_expr::WeakBoundExprKey;
 use vortex_utils::aliases::dash_map::DashMap;
+use vortex_utils::aliases::dash_map::Entry;
 
 /// Concurrent cache keyed by [`BoundExpression`] identity whose entries do not keep expressions
 /// alive.
@@ -73,6 +74,35 @@ impl<V> WeakExprCache<V> {
             .or_insert_with(init)
             .value()
             .clone()
+    }
+
+    /// Returns the cached value for `expr` if present and accepted by `is_valid`, otherwise
+    /// inserts or replaces the entry with `init()`.
+    pub fn get_or_insert_valid_with(
+        &self,
+        expr: &BoundExpression,
+        is_valid: impl Fn(&V) -> bool,
+        init: impl FnOnce() -> V,
+    ) -> V
+    where
+        V: Clone,
+    {
+        if let Some(entry) = self.map.get(expr as &dyn ExactKey)
+            && is_valid(entry.value())
+        {
+            return entry.value().clone();
+        }
+
+        self.maybe_evict();
+        match self.map.entry(WeakBoundExprKey::new(expr)) {
+            Entry::Occupied(mut occupied) => {
+                if !is_valid(occupied.get()) {
+                    *occupied.get_mut() = init();
+                }
+                occupied.get().clone()
+            }
+            Entry::Vacant(vacant) => vacant.insert(init()).clone(),
+        }
     }
 
     /// Runs `f` on the cached entry for `expr`, inserting `init()` on a miss.
@@ -151,6 +181,29 @@ mod tests {
         assert_eq!(cache.len(), 2);
         assert_eq!(cache.get_cloned(&live), Some(1));
         assert_eq!(cache.get_cloned(&trigger), Some(999));
+
+        Ok(())
+    }
+
+    #[test]
+    fn get_or_insert_valid_with_replaces_invalid_entries() -> VortexResult<()> {
+        let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
+        let cache = WeakExprCache::<Result<usize, &'static str>>::new();
+        let expr = gt(root(), lit(0i32)).bind(&dtype)?;
+
+        assert_eq!(
+            cache.get_or_insert_valid_with(&expr, Result::is_ok, || Err("transient")),
+            Err("transient")
+        );
+        assert_eq!(
+            cache.get_or_insert_valid_with(&expr, Result::is_ok, || Ok(42)),
+            Ok(42)
+        );
+        // Once valid, subsequent calls reuse the cached value without calling `init`.
+        assert_eq!(
+            cache.get_or_insert_valid_with(&expr, Result::is_ok, || Ok(99)),
+            Ok(42)
+        );
 
         Ok(())
     }

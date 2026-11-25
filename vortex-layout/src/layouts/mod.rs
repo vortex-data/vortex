@@ -5,6 +5,7 @@
 
 use futures::future::BoxFuture;
 use futures::future::Shared;
+use parking_lot::RwLock;
 use vortex_array::ArrayRef;
 use vortex_error::SharedVortexResult;
 
@@ -27,3 +28,65 @@ pub mod table;
 pub mod zoned;
 
 pub type SharedArrayFuture = Shared<BoxFuture<'static, SharedVortexResult<ArrayRef>>>;
+
+/// A shared future slot that caches in-flight and successful results while allowing retries
+/// after a transient error.
+///
+/// Concurrent callers share the same in-flight future, and once a future resolves to `Ok`,
+/// it is retained for subsequent callers. If a future resolves to `Err`, the next caller
+/// replaces it with a fresh attempt without discarding a newer attempt installed concurrently.
+pub(crate) struct SharedFutureSlot<T> {
+    slot: RwLock<Option<Shared<BoxFuture<'static, SharedVortexResult<T>>>>>,
+}
+
+impl<T> Default for SharedFutureSlot<T> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<T> SharedFutureSlot<T> {
+    pub(crate) fn new() -> Self {
+        Self {
+            slot: RwLock::new(None),
+        }
+    }
+}
+
+impl<T: Clone> SharedFutureSlot<T> {
+    /// Returns the cached future if it is in-flight or resolved to `Ok`.
+    pub(crate) fn get(&self) -> Option<Shared<BoxFuture<'static, SharedVortexResult<T>>>> {
+        let guard = self.slot.read();
+        guard
+            .as_ref()
+            .filter(|fut| !matches!(fut.peek(), Some(Err(_))))
+            .cloned()
+    }
+
+    /// Returns the cached future if it is in-flight or resolved to `Ok`, otherwise initializes
+    /// and caches a new future using `init`.
+    pub(crate) fn get_or_init(
+        &self,
+        init: impl FnOnce() -> Shared<BoxFuture<'static, SharedVortexResult<T>>>,
+    ) -> Shared<BoxFuture<'static, SharedVortexResult<T>>> {
+        {
+            let guard = self.slot.read();
+            if let Some(fut) = guard.as_ref()
+                && !matches!(fut.peek(), Some(Err(_)))
+            {
+                return fut.clone();
+            }
+        }
+
+        let mut guard = self.slot.write();
+        if let Some(fut) = guard.as_ref()
+            && !matches!(fut.peek(), Some(Err(_)))
+        {
+            return fut.clone();
+        }
+
+        let fut = init();
+        *guard = Some(fut.clone());
+        fut
+    }
+}
