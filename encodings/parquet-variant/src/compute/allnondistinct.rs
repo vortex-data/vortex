@@ -309,26 +309,26 @@ mod tests {
 
     #[test]
     fn all_non_distinct_matches_logically_equal_with_different_metadata() -> VortexResult<()> {
-        let (meta_a, val_a) = single_field_object("a", 1);
-        // Same logical object `{"a": 1}` with dictionary `["b", "a"]` (version=1, unsorted,
-        // dict_size=2, offsets=[0, 1, 2], strings="ba"), so `"a"` is field ID 1 instead of 0.
-        let meta_ba: &[u8] = b"\x01\x02\x00\x01\x02ba";
-        let mut val_a_id1 = val_a.clone();
+        let (meta_x, val_x) = single_field_object("x", 1);
+        // Same logical object `{"x": 1}` with dictionary `["y", "x"]` (version=1, unsorted,
+        // dict_size=2, offsets=[0, 1, 2], strings="yx"), so `"x"` is field ID 1 instead of 0.
+        let meta_reordered: &[u8] = b"\x01\x02\x00\x01\x02yx";
+        let mut val_x_id1 = val_x.clone();
         // Single-field object layout: [header, num_elements=1, field_id, offset_0, offset_1, ...].
-        assert_eq!(val_a_id1[2], 0);
-        val_a_id1[2] = 1;
+        assert_eq!(val_x_id1[2], 0);
+        val_x_id1[2] = 1;
 
         let lhs = ParquetVariant::try_new(
             Validity::NonNullable,
-            binary([meta_a.as_slice()]),
-            Some(binary([val_a.as_slice()])),
+            binary([meta_x.as_slice()]),
+            Some(binary([val_x.as_slice()])),
             None,
         )?
         .into_array();
         let rhs = ParquetVariant::try_new(
             Validity::NonNullable,
-            binary([meta_ba]),
-            Some(binary([val_a_id1.as_slice()])),
+            binary([meta_reordered]),
+            Some(binary([val_x_id1.as_slice()])),
             None,
         )?
         .into_array();
