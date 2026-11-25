@@ -20,6 +20,7 @@ use vortex::array::arrays::DictArray;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::StructArray;
 use vortex::array::arrays::VarBinViewArray;
+use vortex::array::arrays::struct_::StructArrayExt;
 use vortex::array::assert_arrays_eq;
 use vortex::array::builtins::ArrayBuiltins;
 use vortex::array::stream::ArrayStreamAdapter;
@@ -29,6 +30,7 @@ use vortex::buffer::ByteBufferMut;
 use vortex::dtype::NativePType;
 use vortex::error::VortexError;
 use vortex::error::vortex_err;
+use vortex::file::OpenOptionsSessionExt;
 use vortex::file::WriteOptionsSessionExt;
 use vortex::io::session::RuntimeSessionExt;
 use vortex::layout::layouts::flat::writer::FlatLayoutStrategy;
@@ -45,10 +47,13 @@ use vortex_cuda_driver::sys::CUevent;
 use vortex_cuda_macros::test as cuda_test;
 use vortex_ffi::vx_error_free;
 use vortex_ffi::vx_error_message;
+use vortex_ffi::vx_ptype;
 use vortex_ffi::vx_session_free;
 
 use super::destinations::vx_cuda_column_destination;
+use super::destinations::vx_cuda_device_batches_primitive;
 use super::destinations::vx_cuda_device_batches_set_destinations;
+use super::destinations::vx_cuda_device_batches_shape;
 use super::*;
 use crate::scan_export_ctx;
 
@@ -682,9 +687,16 @@ fn test_registered_output_rejects_long_and_short_streams() -> VortexResult<()> {
         }
         // When declared short the second batch cannot fit. When declared long the error is at EOS.
         let mut output = Output::empty();
-        assert!(next_into(&mut handle, &mut output).is_err());
-        assert!(output.is_eos());
-        assert!(next_into(&mut handle, &mut output).is_err());
+        let reason = if declared == 4 {
+            "incomplete CUDA scan"
+        } else {
+            "exceeds declared row count"
+        };
+        for expected in [reason, "terminal"] {
+            let error = next_into(&mut handle, &mut output).expect_err("row count mismatch");
+            assert!(error.to_string().contains(expected), "{error}");
+            assert!(output.is_eos());
+        }
         drop(handle);
         let expected = [1, 2, if declared == 4 { 3 } else { -1 }, -1, -1];
         assert_eq!(
@@ -923,18 +935,7 @@ fn test_open_rejects_invalid_inputs_before_cuda() {
     }
 }
 
-#[cuda_test]
-fn test_path_projection_batch_rows_and_session_lifetime() -> VortexResult<()> {
-    let session = session()?.with_handle(ffi_runtime().handle());
-    let input = StructArray::new(
-        ["unused", "ids"].into(),
-        vec![
-            primitive([90i32, 91, 92, 93, 94]),
-            primitive([0i32, 1, 2, 3, 4]),
-        ],
-        5,
-        Validity::NonNullable,
-    );
+fn write_flat_file(session: &VortexSession, input: StructArray) -> VortexResult<NamedTempFile> {
     let mut bytes = ByteBufferMut::empty();
     ffi_runtime().block_on(
         session
@@ -944,13 +945,21 @@ fn test_path_projection_batch_rows_and_session_lifetime() -> VortexResult<()> {
     )?;
     let mut file = NamedTempFile::new()?;
     file.write_all(&bytes)?;
+    Ok(file)
+}
+
+fn open_path_batches(
+    session: VortexSession,
+    file: &NamedTempFile,
+    columns: &[vx_view],
+    batch_rows: usize,
+) -> VortexResult<Box<vx_cuda_device_batches>> {
     let path = file
         .path()
         .to_str()
         .ok_or_else(|| vortex_err!("non-UTF-8 test path"))?;
-    let columns = [view("ids")];
     let options = vx_cuda_scan_options {
-        batch_rows: 2,
+        batch_rows,
         ..Default::default()
     };
     let session_handle = Box::into_raw(Box::new(session)).cast::<vx_session>();
@@ -971,7 +980,23 @@ fn test_path_projection_batch_rows_and_session_lifetime() -> VortexResult<()> {
     assert!(take_error(error).is_none());
     assert!(!handle.is_null());
     // SAFETY: Take ownership of the returned handle on its creating thread.
-    let mut handle = unsafe { Box::from_raw(handle) };
+    Ok(unsafe { Box::from_raw(handle) })
+}
+
+#[cuda_test]
+fn test_path_projection_batch_rows_and_session_lifetime() -> VortexResult<()> {
+    let session = session()?.with_handle(ffi_runtime().handle());
+    let input = StructArray::new(
+        ["unused", "ids"].into(),
+        vec![
+            primitive([90i32, 91, 92, 93, 94]),
+            primitive([0i32, 1, 2, 3, 4]),
+        ],
+        5,
+        Validity::NonNullable,
+    );
+    let file = write_flat_file(&session, input)?;
+    let mut handle = open_path_batches(session, &file, &[view("ids")], 2)?;
     let mut ids = Vec::new();
     for rows in [2, 2, 1] {
         let output = next(&mut handle)?;
@@ -993,6 +1018,99 @@ fn test_path_projection_batch_rows_and_session_lifetime() -> VortexResult<()> {
     }
     assert_eq!(ids, vec![0, 1, 2, 3, 4]);
     assert!(next(&mut handle)?.is_eos());
+    Ok(())
+}
+
+fn assert_plan_locked(handle: &mut vx_cuda_device_batches) {
+    let mut error = ptr::null_mut();
+    let (mut rows, mut columns) = (-1, usize::MAX);
+    let mut eligible = false;
+    let mut ty = vx_ptype::PTYPE_F64;
+    let rejected = |status, error| {
+        let message = take_error(error).expect("expected an owned error after polling");
+        assert_eq!(status, VX_CUDA_ERR);
+        assert!(message.contains("already started"), "{message}");
+    };
+    // SAFETY: The handle is live, all outputs are disjoint, and the empty plan borrows no buffers.
+    unsafe {
+        let status = vx_cuda_device_batches_shape(handle, &mut rows, &mut columns, &mut error);
+        rejected(status, error);
+        let status =
+            vx_cuda_device_batches_primitive(handle, 1, &mut eligible, &mut ty, &mut error);
+        rejected(status, error);
+        let status = vx_cuda_device_batches_set_destinations(
+            handle,
+            ptr::null(),
+            0,
+            false,
+            ptr::null_mut(),
+            &mut error,
+        );
+        rejected(status, error);
+    }
+    assert_eq!((rows, columns), (-1, usize::MAX));
+    assert!(!eligible);
+    assert_eq!(ty, vx_ptype::PTYPE_F64);
+}
+
+#[cuda_test]
+fn test_projected_destination_decode_matches_host_scan() -> VortexResult<()> {
+    let session = session()?.with_handle(ffi_runtime().handle());
+    let labels = [Some("first"), None, Some("last")];
+    let ids = DictArray::try_new(primitive([1u8, 0, 1]), primitive([-17i32, 42]))?;
+    let input = StructArray::new(
+        ["id", "label"].into(),
+        vec![ids.into_array(), strings(&labels)],
+        labels.len(),
+        Validity::NonNullable,
+    );
+    let file = write_flat_file(&session, input)?;
+    let host_file = ffi_runtime().block_on(session.open_options().open_path(file.path()))?;
+    let mut ctx = session.create_execution_ctx();
+    let host = ffi_runtime()
+        .block_on(host_file.scan()?.into_array_stream()?.read_all())?
+        .execute::<StructArray>(&mut ctx)?;
+
+    let stream = CudaSession::create_execution_ctx(&session)?
+        .stream()
+        .clone();
+    let dst = stream
+        .clone_htod(&[-1i32; 3])
+        .map_err(VortexError::external)?;
+    // The registered id is column 1 in the projection, but column 0 in the file.
+    let mut handle = open_path_batches(session, &file, &[view("label"), view("id")], 2)?;
+    let (mut rows, mut columns) = (-1, 0);
+    let mut eligible = false;
+    let mut ty = vx_ptype::PTYPE_F64;
+    let mut error = ptr::null_mut();
+    // SAFETY: Both queries borrow the unpolled handle and disjoint writable outputs.
+    unsafe {
+        let status =
+            vx_cuda_device_batches_shape(&mut *handle, &mut rows, &mut columns, &mut error);
+        assert_eq!((status, take_error(error)), (VX_CUDA_OK, None));
+        let status =
+            vx_cuda_device_batches_primitive(&mut *handle, 1, &mut eligible, &mut ty, &mut error);
+        assert_eq!((status, take_error(error)), (VX_CUDA_OK, None));
+    }
+    assert_eq!((rows, columns), (3, 2));
+    assert!(eligible);
+    assert_eq!(ty, vx_ptype::PTYPE_I32);
+    // SAFETY: The destination belongs to this stream and is retained until after the scan.
+    unsafe {
+        register_ids(
+            &mut handle,
+            dst.device_address() as *mut c_void,
+            dst.num_bytes(),
+            stream.cu_stream().cast(),
+        )
+    }?;
+    assert_destination_batch(&next(&mut handle)?, &labels[..2])?;
+    assert_plan_locked(&mut handle);
+    assert_destination_batch(&next(&mut handle)?, &labels[2..])?;
+    assert!(next(&mut handle)?.is_eos());
+    drop(handle);
+    let actual = stream.clone_dtoh(&dst).map_err(VortexError::external)?;
+    assert_arrays_eq!(primitive(actual), host.unmasked_field(0), &mut ctx);
     Ok(())
 }
 
