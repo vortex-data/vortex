@@ -45,9 +45,17 @@ pub mod file;
 #[cfg(feature = "cuda")]
 pub mod gpu;
 pub use array::Action;
+#[cfg(feature = "ephyra")]
+pub use array::ActionPlan;
+#[cfg(feature = "ephyra")]
+pub use array::ActionType;
+#[cfg(feature = "ephyra")]
+pub use array::ArrayOpsPlan;
 pub use array::CompressorStrategy;
 pub use array::ExpectedValue;
 pub use array::FuzzArrayAction;
+#[cfg(feature = "ephyra")]
+pub use array::ScalarPlan;
 pub use array::run_fuzz_action;
 pub use array::sort_canonical_array;
 pub use compress::FuzzCompressRoundtrip;

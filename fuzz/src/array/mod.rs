@@ -7,6 +7,8 @@ pub(crate) use fill_null::*;
 pub(crate) use filter::*;
 pub(crate) use mask::*;
 pub(crate) use min_max::*;
+#[cfg(feature = "ephyra")]
+pub use plan::*;
 pub(crate) use scalar_at::*;
 pub(crate) use search_sorted::*;
 pub(crate) use slice::*;
@@ -20,6 +22,8 @@ mod fill_null;
 mod filter;
 mod mask;
 mod min_max;
+#[cfg(feature = "ephyra")]
+mod plan;
 mod scalar_at;
 mod search_sorted;
 mod slice;

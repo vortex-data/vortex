@@ -248,3 +248,6 @@ vortex-python/.benchmarks/
 # For local benchmarks website server and things like the WAL
 **.duckdb*
 .bench-env
+
+# ephyra property-test artifacts and regressions
+.ephyra/

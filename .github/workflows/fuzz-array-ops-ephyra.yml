@@ -1,0 +1,127 @@
+name: Fuzz array_ops (ephyra)
+
+# Runs the `array_ops` fuzz target as an ephyra property (`fuzz/tests/array_ops_ephyra.rs`).
+# Pull requests that touch the array fuzzer get a short smoke run; the daily run searches longer.
+# Failures shrink to a small plan and print an `EPHYRA_REPLAY=seed:iteration` line to rerun them.
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+on:
+  pull_request:
+    paths:
+      - "fuzz/src/array/**"
+      - "fuzz/tests/array_ops_ephyra.rs"
+      - "fuzz/Cargo.toml"
+      - ".github/workflows/fuzz-array-ops-ephyra.yml"
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+    inputs:
+      budget_minutes:
+        description: "Search budget in minutes"
+        required: false
+        type: number
+        default: 45
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+  # Optimized code with the assertions and overflow checks that a debug build has.
+  CARGO_PROFILE_RELEASE_DEBUG_ASSERTIONS: "true"
+  CARGO_PROFILE_RELEASE_OVERFLOW_CHECKS: "true"
+
+jobs:
+  ephyra:
+    name: "Array Operations (ephyra)"
+    if: github.event.pull_request.draft != true
+    timeout-minutes: 90
+    runs-on: >-
+      ${{ github.repository == 'vortex-data/vortex'
+          && format('runs-on={0}/runner=amd64-ci-large/image=ubuntu26-full-x64-pre-v2/extras=s3-cache/tag=fuzz-array-ops-ephyra', format('{0}/region={1}', github.run_id, vars.CI_REGION || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T1') && 'ap-northeast-1') || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T2') && 'eu-west-2') || 'us-east-1'))
+          || 'ubuntu-latest' }}
+    env:
+      BUDGET_MINUTES: ${{ github.event_name == 'pull_request' && 3 || inputs.budget_minutes || 45 }}
+      EPHYRA_FAILURES: "5"
+      EPHYRA_REPORT_JSON: ${{ github.workspace }}/ephyra-report.jsonl
+    steps:
+      - parallel:
+          - uses: runs-on/action@v2
+            if: github.repository == 'vortex-data/vortex'
+            with:
+              sccache: s3
+          - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+
+      - uses: ./.github/actions/setup-prebuild
+        with:
+          enable-sccache: "true"
+
+      # Failures from earlier runs are replayed before the new search.
+      - name: Restore regressions
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: fuzz/.ephyra/regressions
+          key: ephyra-array-ops-${{ github.run_id }}
+          restore-keys: ephyra-array-ops-
+
+      - name: Build
+        run: cargo test --locked --release -p vortex-fuzz --features ephyra --test array_ops_ephyra --no-run
+
+      - name: Run property
+        id: run
+        run: |
+          EPHYRA_BUDGET_MS=$((BUDGET_MINUTES * 60 * 1000)) \
+          EPHYRA_TESTS=100000000 \
+          cargo test --locked --release -p vortex-fuzz --features ephyra --test array_ops_ephyra \
+            -- --nocapture 2>&1 | tee ephyra-output.log
+          exit "${PIPESTATUS[0]}"
+
+      - name: Summarize
+        if: always() && hashFiles('ephyra-report.jsonl') != ''
+        run: |
+          python3 - <<'EOF' >> "$GITHUB_STEP_SUMMARY"
+          import json
+          for line in open("ephyra-report.jsonl"):
+              r = json.loads(line)
+              print(f"### `{r['name']}`: {r['status']}")
+              print(f"{r['tests']} tests, {r['discarded']} discarded, "
+                    f"{r['duration']['secs']} s, seed `{r['seed']}`")
+              for f in r.get("failures") or []:
+                  failure = f.get("failure") or {}
+                  print(f"- {f.get('count', 1)}x `{f.get('signature', '')}`")
+                  replay = failure.get("replay")
+                  if replay:
+                      print(f"  - replay: `EPHYRA_REPLAY={replay['seed']}:{replay['iteration']}`")
+                  example = failure.get("shrunk") or failure.get("original") or {}
+                  if example.get("debug"):
+                      print(f"  - counterexample: `{example['debug'][:2000]}`")
+              labels = r.get("labels") or {}
+              if labels:
+                  print("\n| label | count |\n|---|---|")
+                  for k, v in sorted(labels.items()):
+                      print(f"| {k} | {v} |")
+          EOF
+
+      - name: Save regressions
+        if: always() && github.event_name != 'pull_request'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: fuzz/.ephyra/regressions
+          key: ephyra-array-ops-${{ github.run_id }}
+
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
+        with:
+          name: ephyra-array-ops
+          path: |
+            ephyra-output.log
+            ephyra-report.jsonl
+            fuzz/.ephyra/
+          include-hidden-files: true
+          if-no-files-found: ignore
+          retention-days: ${{ steps.run.outcome == 'failure' && 90 || 7 }}
