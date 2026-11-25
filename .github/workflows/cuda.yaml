@@ -41,9 +41,12 @@ jobs:
           filters: |
             cuda:
               - "vortex-cuda/**"
+              - "vortex-python/Cargo.toml"
               - "vortex-python/python/vortex/__init__.py"
               - "vortex-python/pyproject.toml"
+              - "vortex-python/src/**"
               - "vortex-python/test/test_cuda.py"
+              - "vortex-python-abi/**"
               - "vortex-python-cuda/**"
               - "vortex-test/**"
               - "pyproject.toml"
@@ -59,7 +62,7 @@ jobs:
       needs.changes.outputs.run-cuda-san == 'true'
     name: "CUDA build & lint"
     timeout-minutes: 30
-    runs-on: runs-on=${{ github.run_id }}/region=${{ vars.CI_REGION || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T1') && 'ap-northeast-1') || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T2') && 'eu-west-2') || 'us-east-1' }}/runner=gpu/extras=s3-cache/tag=cuda-build
+    runs-on: runs-on=${{ github.run_id }}/region=${{ vars.CI_REGION || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T1') && 'ap-northeast-1') || 'us-east-1' }}/runner=gpu/extras=s3-cache/tag=cuda-build
     steps:
       - parallel:
           - uses: runs-on/action@v2
@@ -97,7 +100,7 @@ jobs:
       needs.changes.outputs.run-cuda-san == 'true'
     name: "CUDA tests"
     timeout-minutes: 30
-    runs-on: runs-on=${{ github.run_id }}/region=${{ vars.CI_REGION || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T1') && 'ap-northeast-1') || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T2') && 'eu-west-2') || 'us-east-1' }}/runner=gpu/extras=s3-cache/tag=cuda-tests
+    runs-on: runs-on=${{ github.run_id }}/region=${{ vars.CI_REGION || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T1') && 'ap-northeast-1') || 'us-east-1' }}/runner=gpu/extras=s3-cache/tag=cuda-tests
     steps:
       - parallel:
           - uses: runs-on/action@v2

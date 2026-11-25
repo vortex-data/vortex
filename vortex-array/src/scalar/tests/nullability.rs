@@ -13,12 +13,20 @@ mod tests {
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
+    use crate::dtype::extension::ExtDTypeRef;
     use crate::extension::datetime::Date;
     use crate::extension::datetime::TimeUnit;
     use crate::extension::datetime::Timestamp;
     use crate::scalar::PValue;
     use crate::scalar::Scalar;
     use crate::scalar::ScalarValue;
+
+    /// A zoned timestamp, so that `cast` converts no pair of the extension dtypes below. A date
+    /// converts only to a timestamp without a time zone.
+    fn utc_timestamp() -> ExtDTypeRef {
+        Timestamp::new_with_tz(TimeUnit::Seconds, Some("UTC".into()), Nullability::Nullable)
+            .erased()
+    }
 
     #[rstest]
     fn null_cast_to_nullable_dtype(
@@ -27,7 +35,7 @@ mod tests {
             DType::Bool(Nullability::Nullable),
             DType::Primitive(PType::I32, Nullability::Nullable),
             DType::Extension(Date::new(TimeUnit::Days, Nullability::Nullable).erased()),
-            DType::Extension(Timestamp::new(TimeUnit::Seconds, Nullability::Nullable).erased()),
+            DType::Extension(utc_timestamp()),
         )]
         source_dtype: DType,
         #[values(
@@ -35,7 +43,7 @@ mod tests {
             DType::Bool(Nullability::Nullable),
             DType::Primitive(PType::I32, Nullability::Nullable),
             DType::Extension(Date::new(TimeUnit::Days, Nullability::Nullable).erased()),
-            DType::Extension(Timestamp::new(TimeUnit::Seconds, Nullability::Nullable).erased()),
+            DType::Extension(utc_timestamp()),
         )]
         target_dtype: DType,
     ) -> VortexResult<()> {
