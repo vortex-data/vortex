@@ -22,7 +22,10 @@ use crate::runtime::AbortHandleRef;
 const DEFAULT_MAX_THREADS: usize = 500;
 const MIN_MAX_THREADS: usize = 1;
 const MAX_MAX_THREADS: usize = 10_000;
-const KEEP_ALIVE: Duration = Duration::from_millis(500);
+// An idle worker exits after this time. Keep it long: a new worker can have a high start cost. For
+// example, the JNI bindings attach each worker that does a Java upcall to the JVM, and a short
+// time makes a worker attach again after each pause between reads. Tokio uses the same time.
+const KEEP_ALIVE: Duration = Duration::from_secs(10);
 
 /// A dynamically sized pool for blocking I/O owned by a single Vortex runtime.
 pub(crate) struct BlockingPool {
