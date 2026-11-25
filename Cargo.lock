@@ -12399,6 +12399,7 @@ dependencies = [
  "vortex-array",
  "vortex-buffer",
  "vortex-error",
+ "vortex-expr",
  "vortex-file",
  "vortex-io",
  "vortex-layout",
