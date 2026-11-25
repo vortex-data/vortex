@@ -118,10 +118,14 @@ use vortex_layout::layouts::struct_::StructStrategy;
 use vortex_layout::layouts::table::TableStrategy;
 use vortex_layout::layouts::zoned::LegacyStats;
 use vortex_layout::layouts::zoned::Zoned;
+use vortex_layout::scan::options::LayoutScanOptions;
 use vortex_layout::scan::scan_builder::ScanBuilder;
 use vortex_layout::scan::split_by::DEFAULT_MAX_SPLIT_ROWS;
 use vortex_layout::scan::split_by::SplitBy;
 use vortex_layout::session::LayoutSession;
+use vortex_scan::DataSourceRef;
+use vortex_scan::PartitionRef;
+use vortex_scan::ScanRequest;
 use vortex_scan::strict_sorted_buffer::StrictSortedBuffer;
 use vortex_session::VortexSession;
 use vortex_zigzag::ZigZag;
@@ -2733,6 +2737,64 @@ async fn file_data_source_returns_mergeable_partials() -> VortexResult<()> {
     assert_eq!(
         accumulator.final_scalar()?,
         Scalar::primitive(12_i64, Nullability::Nullable)
+    );
+    Ok(())
+}
+
+/// Scans `source` and concatenates the rows of all its partitions, returning how many partitions
+/// the scan had.
+async fn scan_source(
+    source: &DataSourceRef,
+    request: ScanRequest,
+) -> VortexResult<(usize, ArrayRef)> {
+    let scan = source.scan(request).await?;
+    let dtype = scan.dtype().clone();
+    let partitions: Vec<PartitionRef> = scan.partitions().try_collect().await?;
+    let partition_count = partitions.len();
+    let mut chunks = Vec::new();
+    for partition in partitions {
+        chunks.push(partition.execute()?.read_all().await?);
+    }
+    Ok((
+        partition_count,
+        ChunkedArray::try_new(chunks, dtype)?.into_array(),
+    ))
+}
+
+/// Both of a file's executors are reachable through the Scan API and read the same rows.
+#[rstest]
+#[case::plan(false)]
+#[case::layout_reader(true)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[cfg_attr(miri, ignore)]
+async fn file_sources_scan_with_either_executor(#[case] layout_reader: bool) -> VortexResult<()> {
+    let array = StructArray::from_fields(&[("numbers", buffer![1u32, 2, 3, 4, 5].into_array())])?
+        .into_array();
+    let mut buf = ByteBufferMut::empty();
+    SESSION
+        .write_options()
+        .write(&mut buf, array.to_array_stream())
+        .await?;
+    let file = SESSION.open_options().open_buffer(buf)?;
+    let source = if layout_reader {
+        file.layout_reader_data_source(LayoutScanOptions::default())?
+    } else {
+        file.plan_data_source()
+    };
+
+    let (_, actual) = scan_source(
+        &source,
+        ScanRequest {
+            projection: get_item("numbers", root()),
+            filter: Some(gt(get_item("numbers", root()), lit(3u32))),
+            ..Default::default()
+        },
+    )
+    .await?;
+    assert_arrays_eq!(
+        actual,
+        buffer![4u32, 5].into_array(),
+        &mut SESSION.create_execution_ctx()
     );
     Ok(())
 }

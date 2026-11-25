@@ -109,6 +109,8 @@ pub mod flatbuffers;
 mod footer;
 pub mod multi;
 mod open;
+#[cfg(test)]
+mod plan_tests;
 mod pruning;
 /// Segment sources, caches, and sinks used by file readers and writers.
 pub mod segments;

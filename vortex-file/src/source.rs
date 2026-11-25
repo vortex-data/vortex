@@ -9,7 +9,6 @@ use vortex_array::scalar::Scalar;
 use vortex_array::stats::Precision;
 use vortex_array::stats::StatsSet;
 use vortex_error::VortexResult;
-use vortex_layout::scan::layout::LayoutReaderDataSource;
 use vortex_scan::DataSource;
 use vortex_scan::DataSourceScanRef;
 use vortex_scan::PartitionRef;
@@ -18,19 +17,20 @@ use vortex_session::VortexSession;
 
 use crate::FileStatistics;
 
-pub(crate) struct FileDataSource {
-    source: LayoutReaderDataSource,
+/// A file's scans with the statistics of its footer.
+pub(crate) struct FileDataSource<S> {
+    source: S,
     statistics: Option<FileStatistics>,
 }
 
-impl FileDataSource {
-    pub(crate) fn new(source: LayoutReaderDataSource, statistics: Option<FileStatistics>) -> Self {
+impl<S: DataSource> FileDataSource<S> {
+    pub(crate) fn new(source: S, statistics: Option<FileStatistics>) -> Self {
         Self { source, statistics }
     }
 }
 
 #[async_trait]
-impl DataSource for FileDataSource {
+impl<S: DataSource> DataSource for FileDataSource<S> {
     fn dtype(&self) -> &DType {
         self.source.dtype()
     }
