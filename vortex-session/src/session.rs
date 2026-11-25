@@ -36,7 +36,6 @@ use std::fmt::Formatter;
 use std::hash::BuildHasherDefault;
 use std::marker::PhantomData;
 use std::ops::Deref;
-use std::ops::DerefMut;
 use std::sync::Arc;
 
 use arc_swap::Guard;
@@ -52,16 +51,12 @@ use crate::UnknownPluginPolicy;
 
 /// A [`SessionVar`] that can be stored in a [`VortexSession`].
 ///
-/// This trait is implemented automatically for every [`SessionVar`] that is also [`Clone`], so
-/// types opt in by implementing [`Clone`] rather than implementing this trait directly. The trait
-/// itself stays object-safe (so it can be stored as `Arc<dyn VortexSessionVar>`); the [`Clone`]
-/// bound lives on the blanket impl rather than the trait.
-///
-/// Requiring [`Clone`] lets the configuration `with_*` helpers read a variable, modify a copy, and
-/// re-insert the result.
+/// This trait is implemented automatically for every [`SessionVar`]. Snapshots store shared
+/// references to variables, so their types do not need to implement [`Clone`]. A variable that
+/// exposes shared mutable state must synchronize that state in its own API.
 pub trait VortexSessionVar: SessionVar {}
 
-impl<V: SessionVar + Clone> VortexSessionVar for V {}
+impl<V: SessionVar> VortexSessionVar for V {}
 
 /// The hasher for the session type-map; [`TypeId`]s are already hashes.
 type IdHashBuilder = BuildHasherDefault<IdHasher>;
@@ -106,52 +101,6 @@ impl<V: VortexSessionVar> Debug for SessionGuard<'_, V> {
     }
 }
 
-/// A copy-on-write mutable handle to a session variable of type `V`, returned by
-/// [`SessionExt::get_mut`].
-///
-/// It holds a private clone of the variable and exposes it through [`DerefMut`]. When the handle is
-/// dropped, the (possibly mutated) value is re-inserted into the
-/// session, replacing the previous one. Because the session stores each variable behind a shared
-/// [`Arc`] observed by every clone, handing out a plain `&mut` to the stored value would be unsound;
-/// this guard provides mutable access by cloning on read and publishing on drop instead.
-pub struct SessionMut<'a, V: VortexSessionVar> {
-    session: &'a VortexSession,
-    // `Some` for the whole lifetime of the guard; taken in `drop` to move it back into the session.
-    value: Option<V>,
-}
-
-impl<V: VortexSessionVar> Deref for SessionMut<'_, V> {
-    type Target = V;
-
-    fn deref(&self) -> &V {
-        self.value
-            .as_ref()
-            .vortex_expect("SessionMut invariant: value present until drop")
-    }
-}
-
-impl<V: VortexSessionVar> DerefMut for SessionMut<'_, V> {
-    fn deref_mut(&mut self) -> &mut V {
-        self.value
-            .as_mut()
-            .vortex_expect("SessionMut invariant: value present until drop")
-    }
-}
-
-impl<V: VortexSessionVar> Drop for SessionMut<'_, V> {
-    fn drop(&mut self) {
-        if let Some(value) = self.value.take() {
-            self.session.register(value);
-        }
-    }
-}
-
-impl<V: VortexSessionVar> Debug for SessionMut<'_, V> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        Debug::fmt(&**self, f)
-    }
-}
-
 /// A Vortex session encapsulates the set of extensible arrays, layouts, compute functions,
 /// dtypes, etc. that are available for use in a given context.
 ///
@@ -179,11 +128,13 @@ impl VortexSession {
     /// Inserts a session variable of type `V`, unconditionally replacing any existing variable of
     /// that type.
     ///
-    /// [`SessionMut`] uses this copy-on-write primitive on drop, while
+    /// This replaces the whole value; it does not merge changes into the previous value. Existing
+    /// [`SessionGuard`]s keep observing their pinned snapshot, while new reads see the replacement.
+    /// Variables that expose shared mutable state must synchronize it in their own API.
+    ///
     /// [`with_some`](Self::with_some) and [`get_or_insert_with`](SessionExt::get_or_insert_with)
     /// use [`ArcSwapMap::insert_if_absent`](crate::arc_swap_map::ArcSwapMap::insert_if_absent) so
-    /// that a first registration cannot overwrite another. The mutation is applied in place to the
-    /// shared backing store, so it is visible through every clone.
+    /// that a first registration cannot overwrite another.
     pub fn register<V: VortexSessionVar>(&self, var: V) {
         self.0.insert(TypeId::of::<V>(), Arc::new(var));
     }
@@ -228,9 +179,11 @@ impl VortexSession {
 
     /// Allow deserializing unknown plugin IDs as non-executable foreign placeholders.
     ///
-    /// Mutates this session in place and returns it for chaining.
+    /// Sets the policy to allow unknown plugin IDs.
     pub fn allow_unknown(&self) {
-        self.get_mut::<UnknownPluginPolicy>().allow_unknown = true;
+        self.register(UnknownPluginPolicy {
+            allow_unknown: true,
+        });
     }
 }
 
@@ -270,14 +223,6 @@ impl SessionExt for VortexSession {
                 _marker: PhantomData,
             })
     }
-
-    fn get_mut<V: VortexSessionVar + Default + Clone>(&self) -> SessionMut<'_, V> {
-        let value = (*self.get::<V>()).clone();
-        SessionMut {
-            session: self,
-            value: Some(value),
-        }
-    }
 }
 
 #[cfg(test)]
@@ -298,6 +243,21 @@ mod tests {
     }
 
     impl SessionVar for Counter {
+        fn as_any(&self) -> &dyn Any {
+            self
+        }
+
+        fn as_any_mut(&mut self) -> &mut dyn Any {
+            self
+        }
+    }
+
+    #[derive(Debug, Default)]
+    struct NonClone {
+        count: u32,
+    }
+
+    impl SessionVar for NonClone {
         fn as_any(&self) -> &dyn Any {
             self
         }
@@ -362,6 +322,13 @@ mod tests {
 
         assert_eq!(*session.get::<Counter>(), Counter { count: 1 });
         assert!(session.get_opt::<Other>().is_none());
+    }
+
+    #[test]
+    fn test_non_clone_session_var_can_be_registered_and_read() {
+        let session = VortexSession::empty().with_some(NonClone { count: 3 });
+
+        assert_eq!(session.get::<NonClone>().count, 3);
     }
 
     #[test]
@@ -498,27 +465,6 @@ mod tests {
         assert!(session.get_opt::<Counter>().is_some());
 
         REENTRANT_SESSION.with(|s| *s.borrow_mut() = None);
-    }
-
-    #[test]
-    fn get_mut_inserts_default_then_mutates() {
-        let session = VortexSession::empty();
-        assert!(session.get_opt::<Counter>().is_none());
-
-        session.get_mut::<Counter>().count += 5;
-
-        assert_eq!(session.get::<Counter>().count, 5);
-    }
-
-    #[test]
-    fn get_mut_mutation_is_visible_through_clones() {
-        let session = VortexSession::empty().with_some(Counter { count: 1 });
-        let clone = session.clone();
-
-        session.get_mut::<Counter>().count = 9;
-
-        // The mutated value is published copy-on-write to the shared backing store.
-        assert_eq!(clone.get::<Counter>().count, 9);
     }
 
     #[test]

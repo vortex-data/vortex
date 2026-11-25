@@ -56,10 +56,10 @@ use crate::dtype::Nullability;
 use crate::dtype::Nullability::NonNullable;
 use crate::dtype::Nullability::Nullable;
 use crate::dtype::PType;
-use crate::expr::stats::Precision;
-use crate::expr::stats::Stat;
 use crate::scalar::DecimalValue;
 use crate::scalar::Scalar;
+use crate::stats::Precision;
+use crate::stats::Stat;
 
 /// Every aggregate that applies to integers, and whether the `Widen` aggregate kernel serves it.
 fn aggregates() -> Vec<(AggregateFnRef, bool)> {

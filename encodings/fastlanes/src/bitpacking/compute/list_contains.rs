@@ -272,11 +272,12 @@ mod tests {
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
-    use vortex_array::expr::lit;
-    use vortex_array::expr::root;
     use vortex_array::optimizer::ArrayOptimizer;
     use vortex_array::scalar::Scalar;
     use vortex_error::VortexResult;
+    use vortex_expr::ArrayExprExt;
+    use vortex_expr::lit;
+    use vortex_expr::root;
     use vortex_functions::expr::list_contains_opts;
     use vortex_functions::list_contains::ListContains;
     use vortex_functions::list_contains::ListContainsOptions;

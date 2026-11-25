@@ -24,6 +24,18 @@ on:
         required: false
         type: string
         default: c8gd.metal-24xl
+      nvme_regions:
+        required: false
+        type: string
+        default: ""
+        description: >-
+          JSON list of the AWS regions to spread the NVMe benchmarks over; empty uses the
+          BENCH_NVME_REGIONS repository variable, or us-east-1 without it
+      max_parallel:
+        required: false
+        type: number
+        default: 256
+        description: "Most bench jobs to run at once; each one launches its own host"
 
 jobs:
   resolve-matrix:
@@ -49,10 +61,27 @@ jobs:
         env:
           MATRIX_PRESET: ${{ inputs.matrix_preset }}
           BENCHMARKS: ${{ inputs.benchmarks }}
+          NVME_REGIONS: ${{ inputs.nvme_regions || vars.BENCH_NVME_REGIONS || '["us-east-1"]' }}
         run: |
           set -Eeuo pipefail
 
           matrix="$(uv run --project benchmarks/bench-orchestrator vx-bench matrix "$MATRIX_PRESET" --only "$BENCHMARKS")"
+          if ! jq -e 'type == "array" and length > 0 and all(type == "string")' <<<"$NVME_REGIONS" >/dev/null; then
+            echo "::error::NVMe regions must be a JSON list of region names, got: $NVME_REGIONS"
+            exit 1
+          fi
+          # Each entry launches its own metal host, and one region's spot pool for that instance
+          # type is only a few hosts deep, so the NVMe entries spread over several regions. The S3
+          # entries stay in us-east-1, next to their bucket. The hash key puts every entry of one
+          # benchmark and scale in one region, so that their results compare on equal hardware
+          # and a PR run uses the region of its develop baseline. The seed 226 spreads the develop
+          # matrix evenly over two or three regions.
+          matrix="$(jq -c --argjson regions "$NVME_REGIONS" 'map(. + {region: (
+            if .remote_key != null then "us-east-1"
+            else $regions[
+              ("\(.subcommand)-\(.scale_factor // "")" | reduce explode[] as $c (226; (. * 31 + $c) % 1000003))
+              % ($regions | length)]
+            end)})' <<<"$matrix")"
           echo "benchmark_matrix=$matrix" >> "$GITHUB_OUTPUT"
           # A case runs as one entry per scan when it covers every scan; its PR comment collects
           # the entries of its `group` into one table. A run of some queries comments separately.
@@ -172,12 +201,19 @@ jobs:
       COLUMNS: 120
     strategy:
       fail-fast: false
+      # Requests beyond the depth of a spot pool fall back to on-demand, at about 3.4 times the
+      # spot price.
+      max-parallel: ${{ inputs.max_parallel }}
       matrix:
         include: ${{ fromJSON(needs.resolve-matrix.outputs.benchmark_matrix) }}
 
+    # Artifacts cross regions. GitHub holds the files: since RunsOn v3.4.0 the runner agent forwards
+    # artifact requests to GitHub, so this job can download what the us-east-1 build uploaded, and
+    # the us-east-1 jobs can read its results. Only the `s3-cache` cache belongs to one region's
+    # stack.
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/region=us-east-1/runner=bench-dedicated/family={1}/image=ubuntu26-full-arm64-pre-v2/tag={2}{3}', github.run_id, inputs.machine_type, matrix.id, (inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false) && '/extras=s3-cache' || '')
+          && format('runs-on={0}/region={4}/runner=bench-dedicated/family={1}/image=ubuntu26-full-arm64-pre-v2/tag={2}{3}', github.run_id, inputs.machine_type, matrix.id, (inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false) && '/extras=s3-cache' || '', matrix.region)
           || 'ubuntu-latest' }}
     steps:
       - parallel:
