@@ -38,7 +38,7 @@ USER_ATTACHMENT_RE = re.compile(
 BOT_TARGET_RE = re.compile(r"\*\*Target\*\*:\s*`([^`\r\n]+)`")
 BOT_CRASH_FILE_RE = re.compile(r"\*\*Crash File\*\*:\s*`([^`\r\n]+)`")
 CARGO_FUZZ_RUN_RE = re.compile(
-    r"cargo\b[^\r\n]*?\bfuzz\s+run\b(?:[^\r\n\\]|\\[^\r\n]|\\[ \t]*\r?\n)*",
+    r"cargo\b[^\r\n`]*?\bfuzz\s+run\b(?:[^\r\n\\`]|\\[^\r\n]|\\[ \t]*\r?\n)*",
 )
 
 # cargo-fuzz run options that consume a separate following argument.
@@ -102,9 +102,11 @@ def parse_cargo_fuzz_run(body: str, fuzz_targets_dir: Path) -> tuple[str, str]:
         if not positionals:
             continue
 
-        target = positionals[0]
+        target = positionals[0].strip("`'\".,;:")
         if TARGET_RE.match(target) and (fuzz_targets_dir / f"{target}.rs").is_file():
-            crash_file = Path(positionals[1]).name if len(positionals) >= 2 else ""
+            raw_crash = positionals[1].strip("`'\".,;:") if len(positionals) >= 2 else ""
+            candidate = Path(raw_crash).name if raw_crash else ""
+            crash_file = candidate if CRASH_FILE_RE.match(candidate) else ""
             return target, crash_file
 
     return "", ""
