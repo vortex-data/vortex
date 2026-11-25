@@ -33,6 +33,7 @@ pub static DECLARATION: EditionDeclaration = EditionDeclaration {
     },
     added: &[
         EditionMember::array(&"fastlanes.for.v2"),
+        EditionMember::array(&"fastlanes.for.v3"),
         EditionMember::dtype(&"vortex.duration"),
     ],
 };

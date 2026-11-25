@@ -35,8 +35,13 @@ use vortex_error::VortexResult;
 use vortex_fastlanes::FoR;
 use vortex_fastlanes::for_v1_id;
 use vortex_fastlanes::for_v2_id;
+use vortex_fastlanes::for_v3_id;
 use vortex_session::VortexSession;
 use vortex_session::registry::ReadContext;
+
+fn has_blocked_for(ids: &[ArrayId]) -> bool {
+    ids.contains(&for_v2_id()) || ids.contains(&for_v3_id())
+}
 
 static FOR_V1: FoRScheme = FoRScheme::v1();
 
@@ -153,7 +158,7 @@ fn v2_serializes_varying_references_as_v2(
 ) -> VortexResult<()> {
     let ids = compress_roundtrip(for_only(), &array)?;
     assert!(ids.contains(&for_v1_id()) != expect_v2);
-    assert_eq!(ids.contains(&for_v2_id()), expect_v2);
+    assert_eq!(has_blocked_for(&ids), expect_v2);
     Ok(())
 }
 
@@ -170,7 +175,7 @@ fn estimate_catches_drifting_arrays_only_chunk_references_narrow(
             .into_array();
     let ids = compress_roundtrip(for_only(), &array)?;
     assert!(!ids.contains(&for_v1_id()));
-    assert!(ids.contains(&for_v2_id()));
+    assert!(has_blocked_for(&ids));
     Ok(())
 }
 
@@ -187,7 +192,7 @@ fn v2_falls_back_to_v1_and_preserves_v1_floor() -> VortexResult<()> {
     let builder = for_only().with_new_scheme(&IntDictScheme);
     let ids = compress_roundtrip(builder, &array)?;
     assert!(ids.contains(&for_v1_id()));
-    assert!(!ids.contains(&for_v2_id()));
+    assert!(!has_blocked_for(&ids));
     Ok(())
 }
 
@@ -200,7 +205,7 @@ fn runend_ends_excludes_for_v2() -> VortexResult<()> {
     let array = PrimitiveArray::from_iter((0..192_000i32).map(|i| (i / 16) % 50)).into_array();
     let builder = for_only().with_new_scheme(&RunEndScheme);
     let ids = compress_roundtrip(builder, &array)?;
-    assert!(!ids.contains(&for_v2_id()));
+    assert!(!has_blocked_for(&ids));
     Ok(())
 }
 
@@ -211,7 +216,7 @@ fn core_edition_keeps_single_reference() -> VortexResult<()> {
         &drifting(),
     )?;
     assert!(ids.contains(&for_v1_id()));
-    assert!(!ids.contains(&for_v2_id()));
+    assert!(!has_blocked_for(&ids));
     Ok(())
 }
 
@@ -221,7 +226,7 @@ fn unstable_edition_enables_for_v2() -> VortexResult<()> {
         BtrBlocksCompressorBuilder::from_session(&UNSTABLE_SESSION),
         &drifting(),
     )?;
-    assert!(ids.contains(&for_v2_id()));
+    assert!(has_blocked_for(&ids));
     Ok(())
 }
 
@@ -232,7 +237,7 @@ fn nullable_drifting_roundtrip() -> VortexResult<()> {
     )
     .into_array();
     let ids = compress_roundtrip(for_only(), &array)?;
-    assert!(ids.contains(&for_v2_id()));
+    assert!(has_blocked_for(&ids));
     Ok(())
 }
 
@@ -240,7 +245,7 @@ fn nullable_drifting_roundtrip() -> VortexResult<()> {
 fn cuda_preset_keeps_single_reference() -> VortexResult<()> {
     let ids = compress_roundtrip(for_only().only_cuda_compatible(), &drifting())?;
     assert!(ids.contains(&for_v1_id()));
-    assert!(!ids.contains(&for_v2_id()));
+    assert!(!has_blocked_for(&ids));
     Ok(())
 }
 
@@ -256,7 +261,7 @@ fn v2_handles_wide_global_span_with_narrow_blocks() -> VortexResult<()> {
     }))
     .into_array();
     let ids = compress_roundtrip(for_only(), &array)?;
-    assert!(ids.contains(&for_v2_id()));
+    assert!(has_blocked_for(&ids));
     Ok(())
 }
 
@@ -279,7 +284,7 @@ fn test_v2_handles_wide_span_inside_block() -> VortexResult<()> {
     }))
     .into_array();
     let ids = compress_roundtrip(for_only(), &array)?;
-    assert!(!ids.contains(&for_v2_id()));
+    assert!(!has_blocked_for(&ids));
     assert!(!ids.contains(&for_v1_id()));
     Ok(())
 }
@@ -293,7 +298,7 @@ fn test_v2_selects_zero_buffer_sequence_references() -> VortexResult<()> {
     .into_array();
     let builder = for_only().with_new_scheme(&SequenceScheme);
     let ids = compress_roundtrip(builder, &array)?;
-    assert!(ids.contains(&for_v2_id()));
+    assert!(has_blocked_for(&ids));
     Ok(())
 }
 
@@ -347,13 +352,13 @@ fn test_v2_rejects_all_constant_block_sample() -> VortexResult<()> {
             .with_new_scheme(&SequenceScheme),
         &array,
     )?;
-    assert!(!without_runend_ids.contains(&for_v2_id()));
+    assert!(!has_blocked_for(&without_runend_ids));
 
     let full_ids = compress_roundtrip(
         BtrBlocksCompressorBuilder::from_session(&UNSTABLE_SESSION),
         &array,
     )?;
-    assert!(!full_ids.contains(&for_v2_id()));
+    assert!(!has_blocked_for(&full_ids));
 
     // Same constant-block sample with a null in every block so every sampled chunk has a
     // non-empty validity bitmap.
@@ -376,6 +381,6 @@ fn test_v2_rejects_all_constant_block_sample() -> VortexResult<()> {
             .with_new_scheme(&SequenceScheme),
         &nullable_array,
     )?;
-    assert!(!nullable_ids.contains(&for_v2_id()));
+    assert!(!has_blocked_for(&nullable_ids));
     Ok(())
 }
