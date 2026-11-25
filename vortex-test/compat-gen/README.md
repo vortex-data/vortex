@@ -77,10 +77,8 @@ For each known fixture:
    fixture, it writes the result of `build()`.
 2. Validate the stored file's full layout tree via `adapter::read_layout_tree()`.
 3. Read both the stored file and the fresh file with `adapter::read_file()`
-   and compare them without panicking so every fixture runs to completion.
-4. For struct and multi-row fixtures, also verify a column-projected scan
-   (`adapter::read_projected()`) and a middle row-range scan
-   (`adapter::read_row_range()`) against the expected array.
+   and compare them with `assert_arrays_eq!`, catching errors and panics per
+   fixture so every fixture runs to completion.
 
 JSON result to stdout:
 ```json

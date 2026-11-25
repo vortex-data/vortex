@@ -159,8 +159,6 @@ The only code that calls Vortex file I/O APIs directly:
 ```rust
 pub fn write_file(path: &Path, chunk: ArrayRef) -> VortexResult<()>;
 pub fn read_file(bytes: ByteBuffer) -> VortexResult<ArrayRef>;
-pub fn read_projected(bytes: ByteBuffer, fields: &[FieldName]) -> VortexResult<ArrayRef>;
-pub fn read_row_range(bytes: ByteBuffer, row_range: Range<u64>) -> VortexResult<ArrayRef>;
 ```
 
 Uses the Epoch C API (`session.write_options()` /
@@ -250,8 +248,9 @@ and via manual dispatch with a `mode` input:
 
 **Does catch:** schema deserialization breaks, encoding algorithm changes
 that corrupt values, null bitmap changes, UTF-8/multibyte handling, chunk
-boundary regressions, struct field ordering, encoding removal, column
-projection, row-range slicing.
+boundary regressions, struct field ordering, encoding removal.
 
-**Does not catch:** predicate pushdown (no filters applied), missing DType
-coverage (no union or variant), partial reads / mmap.
+**Does not catch:** predicate pushdown (no filters applied), column
+projection (reads all columns), missing DType coverage (no decimal, temporal,
+list, binary, extension), degenerate cases (empty files, all-null, float
+specials), partial reads / mmap.
