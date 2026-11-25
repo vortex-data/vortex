@@ -1,19 +1,29 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::cell::Cell;
 use std::sync::Arc;
 use std::sync::LazyLock;
 
 use rand::RngExt;
 use rand::SeedableRng;
 use rand::prelude::StdRng;
+use rstest::rstest;
 use vortex_buffer::Buffer;
+use vortex_buffer::ByteBufferMut;
 use vortex_buffer::buffer;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_session::VortexSession;
+use vortex_session::registry::ReadContext;
 
 use crate::AnyCanonical;
+use crate::ArrayContext;
+use crate::ArrayDeserialization;
+use crate::ArrayParts;
+use crate::ArrayPlugin;
 use crate::ArrayRef;
+use crate::ArraySlots;
 use crate::Canonical;
 use crate::IntoArray;
 use crate::VortexSessionExecute;
@@ -27,6 +37,7 @@ use crate::arrays::PrimitiveArray;
 use crate::arrays::StructArray;
 use crate::arrays::VarBinViewArray;
 use crate::arrays::chunked::ChunkedArrayExt;
+use crate::arrays::chunked::ChunkedData;
 use crate::arrays::chunked::array::ChunkedArraySlotsExt;
 use crate::arrays::listview::ListViewArraySlotsExt;
 use crate::arrays::struct_::StructArrayExt;
@@ -37,9 +48,113 @@ use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::dtype::PType::I32;
 use crate::executor::execute_into_builder;
+use crate::serde::ArrayChildren;
+use crate::serde::SerializeOptions;
+use crate::serde::SerializedArray;
 use crate::validity::Validity;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
+struct OffsetChildren {
+    offsets: ArrayRef,
+    nchunks: usize,
+    chunk_requests: Cell<usize>,
+}
+
+impl ArrayChildren for OffsetChildren {
+    fn get(&self, index: usize, _dtype: &DType, _len: usize) -> VortexResult<ArrayRef> {
+        if index == 0 {
+            // Return the actual offset count so the test can exercise a count mismatch.
+            return Ok(self.offsets.clone());
+        }
+
+        self.chunk_requests.set(self.chunk_requests.get() + 1);
+        vortex_bail!("Unexpected request to decode chunk {index}")
+    }
+
+    fn len(&self) -> usize {
+        self.nchunks + 1
+    }
+}
+
+#[rstest]
+#[case::empty(&[], 0, 0, "must have one more chunk offset than chunks")]
+#[case::nonzero_start(&[1, 3], 1, 3, "must start at zero")]
+#[case::decreasing(&[0, 2, 1, 3], 3, 3, "must be nondecreasing")]
+#[case::wrong_end(&[0, usize::MAX], 1, 3, "must end at the array length")]
+#[case::too_few(&[0, 3], 2, 3, "must have one more chunk offset than chunks")]
+#[case::too_many(&[0, 1, 3], 1, 3, "must have one more chunk offset than chunks")]
+fn invalid_chunk_offsets(
+    #[case] offsets: &[usize],
+    #[case] nchunks: usize,
+    #[case] len: usize,
+    #[case] expected_error: &str,
+) {
+    let dtype = DType::from(PType::U64);
+    let children = OffsetChildren {
+        offsets: ChunkedData::make_chunk_offsets_array(offsets),
+        nchunks,
+        chunk_requests: Cell::new(0),
+    };
+
+    let err = Chunked
+        .deserialize(
+            ArrayDeserialization::new(Chunked.id(), &dtype, len, &[], &[], &children),
+            &SESSION,
+        )
+        .unwrap_err();
+    assert_eq!(children.chunk_requests.get(), 0);
+    assert!(err.to_string().contains(expected_error), "{err}");
+
+    let slots: ArraySlots = std::iter::once(Some(children.offsets))
+        .chain(std::iter::repeat_n(
+            Some(buffer![0u64, 0].into_array()),
+            nchunks,
+        ))
+        .collect();
+    let err = ChunkedArray::try_from_parts(ArrayParts::new(
+        Chunked,
+        dtype,
+        len,
+        ChunkedData::new(offsets.to_vec()),
+        slots,
+    ))
+    .unwrap_err();
+    assert!(err.to_string().contains(expected_error), "{err}");
+}
+
+#[rstest]
+#[case::zero_chunks(&[], &[0])]
+#[case::empty_chunk(&[2, 0, 1], &[0, 2, 2, 3])]
+fn chunk_offsets_roundtrip(
+    #[case] chunk_lengths: &[u64],
+    #[case] expected_offsets: &[usize],
+) -> VortexResult<()> {
+    let dtype = DType::from(PType::U64);
+    let chunks = chunk_lengths
+        .iter()
+        .map(|&len| PrimitiveArray::from_iter(0..len).into_array());
+    let array = ChunkedArray::try_new(chunks, dtype.clone())?.into_array();
+    let context = ArrayContext::empty();
+    let mut bytes = ByteBufferMut::empty();
+    for buffer in array.serialize(&context, &SESSION, &SerializeOptions::default())? {
+        bytes.extend_from_slice(buffer.as_slice());
+    }
+    let decoded = SerializedArray::try_from(bytes.freeze())?.decode(
+        &dtype,
+        array.len(),
+        &ReadContext::new(context.to_ids()),
+        &SESSION,
+    )?;
+
+    assert!(decoded.is::<Chunked>());
+    assert_eq!(
+        decoded.as_::<Chunked>().chunk_offset_values(),
+        expected_offsets
+    );
+    assert_arrays_eq!(decoded, array, &mut SESSION.create_execution_ctx());
+    Ok(())
+}
 
 fn chunked_array() -> ChunkedArray {
     ChunkedArray::try_new(
