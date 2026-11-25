@@ -131,7 +131,9 @@ val libExt =
 // bundled resources always use the `lib` prefix so that NativeLoader can build one name.
 val bundledLibraryName = "libvortex_jni$libExt"
 val cargoLibraryName = if (osShortName == "win") "vortex_jni$libExt" else bundledLibraryName
-val nativeLibrary = rustWorkspaceDir.resolve("target/ci/$cargoLibraryName")
+val useCiProfile = System.getenv("CI") == "true"
+val cargoProfileDir = if (useCiProfile) "ci" else "debug"
+val nativeLibrary = rustWorkspaceDir.resolve("target/$cargoProfileDir/$cargoLibraryName")
 val nativeLibraryDir = "src/main/resources/native/$osShortName-$osArch"
 
 val buildJniLibrary =
@@ -140,13 +142,19 @@ val buildJniLibrary =
         group = "verification"
 
         // The publish workflow places release, cross-compiled libs for every supported
-        // architecture before invoking shadowJar; rebuilding the host-arch ci-profile lib
+        // architecture before invoking shadowJar; rebuilding the host-arch lib
         // here would overwrite them (linux-aarch64 ends up holding a linux-amd64 .so).
         onlyIf { System.getenv("VORTEX_SKIP_MAKE_TEST_FILES") != "true" }
 
         workingDir = rustWorkspaceDir
         executable = "cargo"
-        args("build", "--profile", "ci", "--package", "vortex-jni")
+        args(
+            if (useCiProfile) {
+                listOf("build", "--profile", "ci", "--package", "vortex-jni")
+            } else {
+                listOf("build", "--package", "vortex-jni")
+            },
+        )
     }
 
 tasks.register<Copy>("makeTestFiles") {
