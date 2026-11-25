@@ -1178,3 +1178,18 @@ fn test_slope_fits_small_trend_at_large_u64_offset() -> VortexResult<()> {
     assert_arrays_eq!(encoded, array, &mut ctx);
     Ok(())
 }
+
+#[test]
+fn test_slope_fits_trend_with_leading_outlier() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let array =
+        PrimitiveArray::from_iter((0..1024i64).map(|j| if j == 0 { i64::MAX } else { 512 - j }));
+    let est = Affine::estimate_modes(&array, 1, &mut ctx)?;
+    assert!(
+        est.slope_bits + 4.0 < est.for_bits,
+        "expected slope to beat FoR despite leading i64::MAX outlier: {est:?}"
+    );
+    let encoded = Affine::encode(&array, AffineOptions::SLOPE, &mut ctx)?;
+    assert_arrays_eq!(encoded, array, &mut ctx);
+    Ok(())
+}

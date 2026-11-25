@@ -888,19 +888,19 @@ fn slope_candidates<T: PrimInt>(
     let (median, endpoint, least_squares) = match valid {
         ValidPositions::All(len) => {
             let origin = chunk[0].to_i128().unwrap_or(0);
-            let mut prev = 0.0;
+            let mut prev = origin;
             let mut sum_y = 0.0;
             for (k, &v) in chunk[1..len].iter().enumerate() {
-                let y = diff_f64(v, origin);
-                deltas[k] = y - prev;
-                sum_y += y;
-                prev = y;
+                let cur = v.to_i128().unwrap_or(0);
+                deltas[k] = (cur - prev) as f64;
+                sum_y += (cur - origin) as f64;
+                prev = cur;
             }
             let delta_count = len - 1;
             let mid = delta_count / 2;
             deltas[..delta_count].select_nth_unstable_by(mid, f64::total_cmp);
             let median = deltas[mid];
-            let endpoint = prev / (delta_count as f64);
+            let endpoint = (prev - origin) as f64 / (delta_count as f64);
 
             let n = len as f64;
             let mean_x = (delta_count as f64) * 0.5;
@@ -919,24 +919,24 @@ fn slope_candidates<T: PrimInt>(
             let count = indices.len();
             let origin = chunk[indices[0]].to_i128().unwrap_or(0);
             let mut prev_x = indices[0] as f64;
-            let mut prev_y = 0.0;
+            let mut prev_val = origin;
             let first_x = prev_x;
             let mut sum_x = prev_x;
             let mut sum_y = 0.0;
             for (slot, &pos) in indices[1..].iter().enumerate() {
                 let x_val = pos as f64;
-                let y_val = diff_f64(chunk[pos], origin);
-                deltas[slot] = (y_val - prev_y) / (x_val - prev_x);
+                let cur = chunk[pos].to_i128().unwrap_or(0);
+                deltas[slot] = (cur - prev_val) as f64 / (x_val - prev_x);
                 sum_x += x_val;
-                sum_y += y_val;
+                sum_y += (cur - origin) as f64;
                 prev_x = x_val;
-                prev_y = y_val;
+                prev_val = cur;
             }
             let delta_count = count - 1;
             let mid = delta_count / 2;
             deltas[..delta_count].select_nth_unstable_by(mid, f64::total_cmp);
             let median = deltas[mid];
-            let endpoint = prev_y / (prev_x - first_x);
+            let endpoint = (prev_val - origin) as f64 / (prev_x - first_x);
 
             let mean_x = sum_x / (count as f64);
             let mean_y = sum_y / (count as f64);
