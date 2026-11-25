@@ -425,6 +425,7 @@ impl From<u64> for VariantPathElement {
 mod tests {
     use std::sync::LazyLock;
 
+    use rstest::rstest;
     use vortex_array::ArrayRef;
     use vortex_array::Canonical;
     use vortex_array::IntoArray;
@@ -432,8 +433,11 @@ mod tests {
     use vortex_array::arrays::Chunked;
     use vortex_array::arrays::ChunkedArray;
     use vortex_array::arrays::ConstantArray;
+    use vortex_array::arrays::FixedSizeListArray;
+    use vortex_array::arrays::ListArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::StructArray;
+    use vortex_array::arrays::VarBinViewArray;
     use vortex_array::arrays::VariantArray;
     use vortex_array::arrays::variant::VariantArraySlotsExt;
     use vortex_array::assert_arrays_eq;
@@ -448,6 +452,8 @@ mod tests {
     use vortex_array::scalar::Scalar;
     use vortex_array::scalar::ScalarValue;
     use vortex_array::scalar_fn::ScalarFnVTable;
+    use vortex_array::validity::Validity;
+    use vortex_buffer::buffer;
     use vortex_error::VortexResult;
     use vortex_error::vortex_bail;
     use vortex_error::vortex_ensure;
@@ -951,6 +957,432 @@ mod tests {
         assert_arrays_eq!(
             typed_value_result,
             PrimitiveArray::from_option_iter([Some(40i32), Some(50), Some(60)]),
+            &mut ctx
+        );
+        Ok(())
+    }
+
+    fn obj(name: &'static str, value: Scalar) -> Scalar {
+        Scalar::variant(variant_object([(name, value)]))
+    }
+
+    fn obj_a(value: i32) -> Scalar {
+        obj("a", Scalar::primitive(value, Nullability::NonNullable))
+    }
+
+    fn assert_variant_rows_eq(
+        result: ArrayRef,
+        expected: &[Scalar],
+        ctx: &mut vortex_array::ExecutionCtx,
+    ) -> VortexResult<()> {
+        let dtype = DType::Variant(Nullability::Nullable);
+        assert_eq!(result.dtype(), &dtype);
+        assert_eq!(result.len(), expected.len());
+
+        let executed = result.execute::<VariantArray>(ctx)?.into_array();
+        assert_eq!(executed.dtype(), &dtype);
+        assert_eq!(executed.len(), expected.len());
+
+        for (idx, expected_scalar) in expected.iter().enumerate() {
+            let expected_scalar = expected_scalar.cast(&dtype)?;
+            assert_eq!(
+                executed.execute_scalar(idx, ctx)?,
+                expected_scalar,
+                "row {idx} mismatch"
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn variant_get_propagates_null_nested_shredded_struct() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let core_storage = variant_rows([
+            obj(
+                "nested",
+                variant_object([("a", Scalar::primitive(100i32, Nullability::NonNullable))]),
+            ),
+            obj(
+                "nested",
+                variant_object([("a", Scalar::primitive(200i32, Nullability::NonNullable))]),
+            ),
+            Scalar::null(DType::Variant(Nullability::Nullable)),
+        ])?;
+        let nested = StructArray::try_new(
+            FieldNames::from(["a"]),
+            vec![PrimitiveArray::from_iter([10i32, 20, 30]).into_array()],
+            3,
+            Validity::from_iter([true, false, true]),
+        )?
+        .into_array();
+        let shredded = StructArray::try_from_iter([("nested", nested)])?.into_array();
+        let variant = VariantArray::try_new(core_storage, Some(shredded))?.into_array();
+
+        let expr = variant_get(
+            root(),
+            parse_path("$.nested.a")?,
+            Some(DType::Primitive(PType::I32, Nullability::NonNullable)),
+        );
+        let result = variant.apply(&expr)?;
+
+        assert_arrays_eq!(
+            result,
+            PrimitiveArray::from_option_iter([Some(10i32), Some(200), None]),
+            &mut ctx
+        );
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::missing_struct_field("$.missing", true, [Some(100i32), Some(200), None])]
+    #[case::list_index_path("$.items[1]", true, [Some(20i32), None, None])]
+    #[case::field_through_non_struct("$.a.b", true, [None, None, None])]
+    #[case::no_shredded_child("$.missing", false, [Some(100i32), Some(200), None])]
+    fn variant_get_shredded_none_path_falls_back_to_core(
+        #[case] path: &str,
+        #[case] with_shredded: bool,
+        #[case] expected: [Option<i32>; 3],
+    ) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let list_two = Scalar::list(
+            DType::Variant(Nullability::NonNullable),
+            vec![
+                Scalar::variant(Scalar::primitive(10i32, Nullability::NonNullable)),
+                Scalar::variant(Scalar::primitive(20i32, Nullability::NonNullable)),
+            ],
+            Nullability::NonNullable,
+        );
+        let list_one = Scalar::list(
+            DType::Variant(Nullability::NonNullable),
+            vec![Scalar::variant(Scalar::primitive(
+                30i32,
+                Nullability::NonNullable,
+            ))],
+            Nullability::NonNullable,
+        );
+        let core_storage = variant_rows([
+            Scalar::variant(variant_object([
+                ("a", Scalar::primitive(1i32, Nullability::NonNullable)),
+                (
+                    "missing",
+                    Scalar::primitive(100i32, Nullability::NonNullable),
+                ),
+                ("items", list_two),
+            ])),
+            Scalar::variant(variant_object([
+                ("a", Scalar::primitive(2i32, Nullability::NonNullable)),
+                (
+                    "missing",
+                    Scalar::primitive(200i32, Nullability::NonNullable),
+                ),
+                ("items", list_one),
+            ])),
+            Scalar::null(DType::Variant(Nullability::Nullable)),
+        ])?;
+        let shredded = with_shredded
+            .then(|| {
+                let items = ListArray::try_new(
+                    buffer![10i32, 20, 30].into_array(),
+                    buffer![0u32, 2, 3, 3].into_array(),
+                    Validity::NonNullable,
+                    &mut ctx,
+                )?
+                .into_array();
+                Ok::<_, vortex_error::VortexError>(
+                    StructArray::try_from_iter([
+                        ("a", buffer![1i32, 2, 3].into_array()),
+                        ("items", items),
+                    ])?
+                    .into_array(),
+                )
+            })
+            .transpose()?;
+        let variant = VariantArray::try_new(core_storage, shredded)?.into_array();
+
+        let expr = variant_get(
+            root(),
+            parse_path(path)?,
+            Some(DType::Primitive(PType::I32, Nullability::NonNullable)),
+        );
+        let result = variant.apply(&expr)?;
+
+        assert_arrays_eq!(result, PrimitiveArray::from_option_iter(expected), &mut ctx);
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::all_valid_variant_child(
+        vec![
+            Scalar::variant(Scalar::primitive(10i32, Nullability::NonNullable)),
+            Scalar::variant(Scalar::utf8("not_an_int", Nullability::NonNullable)),
+            Scalar::variant(Scalar::primitive(30i32, Nullability::NonNullable)),
+        ],
+        [Some(10i32), None, Some(30)],
+    )]
+    #[case::null_variant_child_falls_back_to_core(
+        vec![
+            Scalar::variant(Scalar::primitive(10i32, Nullability::NonNullable)),
+            Scalar::null(DType::Variant(Nullability::Nullable)),
+            Scalar::variant(Scalar::primitive(30i32, Nullability::NonNullable)),
+        ],
+        [Some(10i32), Some(200), Some(30)],
+    )]
+    #[case::all_null_variant_child_falls_back_to_core(
+        vec![
+            Scalar::null(DType::Variant(Nullability::Nullable)),
+            Scalar::null(DType::Variant(Nullability::Nullable)),
+            Scalar::null(DType::Variant(Nullability::Nullable)),
+        ],
+        [Some(100i32), Some(200), Some(300)],
+    )]
+    fn variant_get_shredded_variant_child_casts_to_concrete_dtype(
+        #[case] shredded_rows: Vec<Scalar>,
+        #[case] expected: [Option<i32>; 3],
+    ) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let core_storage = variant_rows([obj_a(100), obj_a(200), obj_a(300)])?;
+        let shredded_variant = VariantArray::try_new(variant_rows(shredded_rows)?, None)?;
+        let shredded =
+            StructArray::try_from_iter([("a", shredded_variant.into_array())])?.into_array();
+        let variant = VariantArray::try_new(core_storage, Some(shredded))?.into_array();
+
+        let expr = variant_get(
+            root(),
+            VariantPath::field("a"),
+            Some(DType::Primitive(PType::I32, Nullability::NonNullable)),
+        );
+        let result = variant.apply(&expr)?;
+
+        assert_arrays_eq!(result, PrimitiveArray::from_option_iter(expected), &mut ctx);
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::none_dtype(None)]
+    #[case::explicit_variant_dtype(Some(DType::Variant(Nullability::NonNullable)))]
+    fn variant_get_untyped_merges_shredded_struct_with_fallback(
+        #[case] requested_dtype: Option<DType>,
+    ) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let core_storage = variant_rows([
+            obj(
+                "obj",
+                variant_object([
+                    ("a", Scalar::primitive(1i32, Nullability::NonNullable)),
+                    ("b", Scalar::utf8("raw0", Nullability::NonNullable)),
+                ]),
+            ),
+            obj(
+                "obj",
+                variant_object([("b", Scalar::utf8("raw1", Nullability::NonNullable))]),
+            ),
+            Scalar::null(DType::Variant(Nullability::Nullable)),
+        ])?;
+        let shredded_obj = StructArray::try_from_iter([(
+            "a",
+            PrimitiveArray::from_option_iter([Some(10i32), None, Some(30)]).into_array(),
+        )])?
+        .into_array();
+        let shredded = StructArray::try_from_iter([("obj", shredded_obj)])?.into_array();
+        let variant = VariantArray::try_new(core_storage, Some(shredded))?.into_array();
+
+        let expr = variant_get(root(), VariantPath::field("obj"), requested_dtype);
+        let result = variant.apply(&expr)?;
+
+        assert_variant_rows_eq(
+            result,
+            &[
+                Scalar::variant(variant_object([
+                    ("a", Scalar::primitive(10i32, Nullability::NonNullable)),
+                    ("b", Scalar::utf8("raw0", Nullability::NonNullable)),
+                ])),
+                obj("b", Scalar::utf8("raw1", Nullability::NonNullable)),
+                Scalar::null(DType::Variant(Nullability::Nullable)),
+            ],
+            &mut ctx,
+        )
+    }
+
+    #[rstest]
+    #[case::all_valid_primitive(
+        PrimitiveArray::from_iter([10i32, 20, 30]).into_array(),
+        vec![obj_a(1), obj_a(2), obj_a(3)],
+        vec![
+            Scalar::variant(Scalar::primitive(10i32, Nullability::NonNullable)),
+            Scalar::variant(Scalar::primitive(20i32, Nullability::NonNullable)),
+            Scalar::variant(Scalar::primitive(30i32, Nullability::NonNullable)),
+        ],
+    )]
+    #[case::partial_null_primitive(
+        PrimitiveArray::from_option_iter([Some(10i32), None, Some(30)]).into_array(),
+        vec![
+            obj_a(1),
+            obj("a", Scalar::utf8("fallback", Nullability::NonNullable)),
+            Scalar::null(DType::Variant(Nullability::Nullable)),
+        ],
+        vec![
+            Scalar::variant(Scalar::primitive(10i32, Nullability::NonNullable)),
+            Scalar::variant(Scalar::utf8("fallback", Nullability::NonNullable)),
+            Scalar::null(DType::Variant(Nullability::Nullable)),
+        ],
+    )]
+    fn variant_get_untyped_merges_shredded_leaf_values(
+        #[case] shredded_a: ArrayRef,
+        #[case] core_rows: Vec<Scalar>,
+        #[case] expected: Vec<Scalar>,
+    ) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let core_storage = variant_rows(core_rows)?;
+        let shredded = StructArray::try_from_iter([("a", shredded_a)])?.into_array();
+        let variant = VariantArray::try_new(core_storage, Some(shredded))?.into_array();
+
+        let expr = variant_get(root(), VariantPath::field("a"), None);
+        let result = variant.apply(&expr)?;
+
+        assert_variant_rows_eq(result, &expected, &mut ctx)
+    }
+
+    #[rstest]
+    #[case::list(false)]
+    #[case::fixed_size_list(true)]
+    fn variant_get_untyped_list_falls_back_to_core(#[case] fixed_size: bool) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let row0_list = Scalar::list(
+            DType::Variant(Nullability::NonNullable),
+            vec![
+                Scalar::variant(Scalar::primitive(1i32, Nullability::NonNullable)),
+                Scalar::variant(Scalar::primitive(2i32, Nullability::NonNullable)),
+            ],
+            Nullability::NonNullable,
+        );
+        let row1_list = Scalar::list(
+            DType::Variant(Nullability::NonNullable),
+            vec![
+                Scalar::variant(Scalar::primitive(3i32, Nullability::NonNullable)),
+                Scalar::variant(Scalar::primitive(4i32, Nullability::NonNullable)),
+            ],
+            Nullability::NonNullable,
+        );
+        let core_storage = variant_rows([
+            Scalar::variant(row0_list.clone()),
+            Scalar::variant(row1_list.clone()),
+        ])?;
+        let shredded_items = if fixed_size {
+            FixedSizeListArray::try_new(
+                buffer![1i32, 2, 3, 4].into_array(),
+                2,
+                Validity::NonNullable,
+                2,
+            )?
+            .into_array()
+        } else {
+            ListArray::try_new(
+                buffer![1i32, 2, 3, 4].into_array(),
+                buffer![0u32, 2, 4].into_array(),
+                Validity::NonNullable,
+                &mut ctx,
+            )?
+            .into_array()
+        };
+        let variant = VariantArray::try_new(core_storage, Some(shredded_items))?.into_array();
+
+        let expr = variant_get(root(), VariantPath::root(), None);
+        let result = variant.apply(&expr)?;
+
+        assert_variant_rows_eq(
+            result,
+            &[Scalar::variant(row0_list), Scalar::variant(row1_list)],
+            &mut ctx,
+        )
+    }
+
+    #[test]
+    fn variant_get_dtype_mismatch_falls_back_to_core() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let core_storage = variant_rows([
+            obj_a(10),
+            obj_a(20),
+            Scalar::null(DType::Variant(Nullability::Nullable)),
+        ])?;
+        let shredded = StructArray::try_from_iter([(
+            "a",
+            PrimitiveArray::from_iter([10i32, 20, 30]).into_array(),
+        )])?
+        .into_array();
+        let variant = VariantArray::try_new(core_storage, Some(shredded))?.into_array();
+
+        let widened = variant.clone().apply(&variant_get(
+            root(),
+            VariantPath::field("a"),
+            Some(DType::Primitive(PType::I64, Nullability::NonNullable)),
+        ))?;
+        assert_arrays_eq!(
+            widened,
+            PrimitiveArray::from_option_iter([Some(10i64), Some(20), None]),
+            &mut ctx
+        );
+
+        let incompatible = variant.apply(&variant_get(
+            root(),
+            VariantPath::field("a"),
+            Some(DType::Utf8(Nullability::NonNullable)),
+        ))?;
+        assert_arrays_eq!(
+            incompatible,
+            VarBinViewArray::from_iter_nullable_str([None::<&str>, None, None]),
+            &mut ctx
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn variant_get_partial_null_shredded_rows_zip_with_fallback() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let core_storage = variant_rows([
+            obj_a(100),
+            obj_a(200),
+            obj("a", Scalar::utf8("not_int", Nullability::NonNullable)),
+            Scalar::null(DType::Variant(Nullability::Nullable)),
+        ])?;
+        let shredded = StructArray::try_from_iter([(
+            "a",
+            PrimitiveArray::from_option_iter([Some(10i32), None, None, Some(40)]).into_array(),
+        )])?
+        .into_array();
+        let variant = VariantArray::try_new(core_storage, Some(shredded))?.into_array();
+
+        let expr = variant_get(
+            root(),
+            VariantPath::field("a"),
+            Some(DType::Primitive(PType::I32, Nullability::NonNullable)),
+        );
+        let result = variant.apply(&expr)?;
+
+        assert_arrays_eq!(
+            result,
+            PrimitiveArray::from_option_iter([Some(10i32), Some(200), None, None]),
+            &mut ctx
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn variant_get_unwraps_nested_variant_core_storage() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let inner_core = variant_rows([obj_a(10), obj_a(20)])?;
+        let inner_variant = VariantArray::try_new(inner_core, None)?.into_array();
+        let outer_variant = VariantArray::try_new(inner_variant, None)?.into_array();
+
+        let expr = variant_get(
+            root(),
+            VariantPath::field("a"),
+            Some(DType::Primitive(PType::I32, Nullability::NonNullable)),
+        );
+        let result = outer_variant.apply(&expr)?;
+
+        assert_arrays_eq!(
+            result,
+            PrimitiveArray::from_option_iter([Some(10i32), Some(20)]),
             &mut ctx
         );
         Ok(())
