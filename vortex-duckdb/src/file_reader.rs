@@ -5,6 +5,7 @@ use std::num::NonZeroUsize;
 use std::sync::Arc;
 use std::sync::OnceLock;
 use std::sync::atomic::AtomicBool;
+use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 
 use futures::StreamExt;
@@ -13,6 +14,7 @@ use url::Url;
 use vortex::array::ArrayRef;
 use vortex::array::VortexSessionExecute as _;
 use vortex::array::arrays::Chunked;
+use vortex::array::arrays::Struct;
 use vortex::array::arrays::chunked::ChunkedArrayExt as _;
 use vortex::array::arrays::struct_::StructArrayExt as _;
 use vortex::dtype::FieldPath;
@@ -43,6 +45,7 @@ use crate::column_statistics::ColumnStatistics;
 use crate::column_statistics::ColumnStatisticsAggregate;
 use crate::duckdb::BindResultRef;
 use crate::duckdb::DataChunkRef;
+use crate::duckdb::duckdb_vector_size;
 use crate::exporter::ArrayExporter;
 use crate::exporter::ConversionCache;
 use crate::projection::extract_schema_from_dtype;
@@ -123,9 +126,13 @@ pub struct FileScanState {
     /// The file as a Scan API source on the executor the scan runs on. After opening the file the
     /// reader uses nothing else of it.
     source: DataSourceRef,
-    /// The opened scan of the file, which each thread scanning the file reads a stream of. Set
-    /// when the file is initialized.
-    scan: OnceLock<ScanExec>,
+    /// Whether the file's scan is split for DuckDB's threads.
+    split: bool,
+    /// The opened pieces of the file's scan, each of which threads scanning the file read streams
+    /// of. Set when the file is initialized.
+    pieces: OnceLock<Vec<ScanExec>>,
+    /// The piece the next thread to join the file starts looking for work at.
+    next_piece: AtomicUsize,
     cache: ConversionCache,
 }
 
@@ -134,10 +141,18 @@ impl FileScanState {
     fn next_split(&self) -> Option<Split> {
         // A thread joins the file until its last unit of work, a V1 split or a V2 part, is taken,
         // then moves on to the next file while the threads holding the last work finish it: no
-        // thread waits for the rest of a file to drain. The thread creates its stream on its first
-        // scan call, outside DuckDB's lock.
-        let exec = self.scan.get()?;
-        (!exec.is_exhausted()).then_some(Split(None))
+        // thread waits for the rest of a file to drain. Threads joining the file start at
+        // successive pieces, so they spread over its rows. The thread creates its stream on its
+        // first scan call, outside DuckDB's lock.
+        let pieces = self.pieces.get()?;
+        let start = self.next_piece.fetch_add(1, Ordering::Relaxed);
+        (0..pieces.len())
+            .map(|offset| (start + offset) % pieces.len())
+            .find(|&piece| !pieces[piece].is_exhausted())
+            .map(|piece| Split {
+                piece,
+                stream: None,
+            })
     }
 }
 
@@ -148,7 +163,8 @@ impl OpenFileReader {
         let file = open_cached(&SESSION, Some(&path), source, None, &|options| options).await?;
         // The engine is chosen here, once per file. Everything after reads the file through the
         // Scan API, the same way for either executor.
-        let source = if crate::scan_v2() {
+        let split = crate::scan_v2();
+        let source = if split {
             file.plan_data_source()
         } else {
             // DuckDB runs one thread per core, so its threads are the scan's parallelism: each
@@ -160,7 +176,9 @@ impl OpenFileReader {
         Ok(OpenFileReader {
             scan_state: Some(Arc::new(FileScanState {
                 source,
-                scan: OnceLock::new(),
+                split,
+                pieces: OnceLock::new(),
+                next_piece: AtomicUsize::new(0),
                 cache: ConversionCache::default(),
             })),
         })
@@ -176,12 +194,12 @@ impl OpenFileReader {
         &self.scan_state().source
     }
 
-    /// The file's rows, which a Vortex file's source always knows exactly.
-    pub(crate) fn row_count(&self) -> u64 {
+    /// The file's rows, which a Vortex file's source knows exactly.
+    pub(crate) fn row_count(&self) -> VortexResult<u64> {
         self.source()
             .row_count()
             .as_exact()
-            .vortex_expect("a Vortex file source knows its row count")
+            .ok_or_else(|| vortex_err!("a Vortex file source must know its exact row count"))
     }
 }
 
@@ -205,7 +223,7 @@ pub fn reader_bind(file: &OpenFileReader, result: &mut BindResultRef) -> VortexR
 
     Ok(BindState {
         dtype,
-        first_file_row_count: file.row_count(),
+        first_file_row_count: file.row_count()?,
         filters: vec![],
         columns,
         has_non_optional_filter: AtomicBool::new(false),
@@ -231,16 +249,28 @@ pub fn reader_initialize(file: &mut OpenFileReader, global: &GlobalState) -> Vor
         ..ScanRequest::default()
     };
     // An unordered scan without a limit opens onto a queue of the file's work, whose streams each
-    // take the next once they have finished their last. A scan the file's statistics reject opens
-    // exhausted.
-    let exec = RUNTIME.block_on(state.source.scan(request))?.open()?;
-    if exec.is_exhausted() {
+    // take the next once they have finished their last. A V2 scan is first split for DuckDB's
+    // threads, so that a file of fewer parts than threads is cut on smaller blocks rather than
+    // leaving threads idle. A V1 scan's work is its layout splits already, which splitting would
+    // only regroup. A scan, or a piece, the file's statistics reject opens exhausted.
+    let scan = RUNTIME.block_on(state.source.scan(request))?;
+    let pieces = if state.split {
+        scan.split(global.threads)?
+    } else {
+        vec![scan]
+    };
+    let pieces = pieces
+        .into_iter()
+        .map(|piece| piece.open())
+        .filter(|exec| !exec.as_ref().is_ok_and(ScanExec::is_exhausted))
+        .collect::<VortexResult<Vec<_>>>()?;
+    if pieces.is_empty() {
         // DuckDB releases a skipped file under the global lock. Here only the file-local lock is
         // held, so drop the scan state now.
         file.scan_state = None;
         return Ok(true);
     }
-    if state.scan.set(exec).is_err() {
+    if state.pieces.set(pieces).is_err() {
         vortex_panic!("file initialized twice");
     }
     Ok(false)
@@ -260,31 +290,35 @@ fn next_split_item(local: &mut LocalState) -> VortexResult<SplitItem> {
     let array = match local.pending.pop() {
         Some(array) => array,
         None => {
-            let Some(Split(stream)) = local.split.take() else {
+            let Some(Split { piece, stream }) = local.split.take() else {
                 return Ok(SplitItem::Done);
             };
             let file = local.file.as_ref().vortex_expect("split without a file");
-            let exec = file
-                .scan
+            let exec = &file
+                .pieces
                 .get()
-                .vortex_expect("split of a file without an opened scan");
+                .vortex_expect("split of a file without an opened scan")[piece];
             let mut stream = stream.unwrap_or_else(|| exec.stream());
             let Some(array) = RUNTIME.block_on(stream.next()).transpose()? else {
-                // Dropping the last stream drops the file's queue of work; do that outside
+                // Dropping the last stream drops the piece's queue of work; do that outside
                 // DuckDB's locks.
-                local.retired_splits.push(Split(Some(stream)));
+                local.retired_splits.push(Split {
+                    piece,
+                    stream: Some(stream),
+                });
                 return Ok(SplitItem::Done);
             };
-            local.split = Some(Split(Some(stream)));
-            // A batch can join chunks of several layout chunks. Canonicalizing it would decode
-            // their dictionaries, so export each chunk on its own.
-            match array.as_opt::<Chunked>() {
-                Some(chunked) => {
-                    local.pending.extend(chunked.chunks().into_iter().rev());
-                    local.pending.pop().unwrap_or(array)
-                }
-                None => array,
-            }
+            local.split = Some(Split {
+                piece,
+                stream: Some(stream),
+            });
+            let mut pieces = export_pieces(array, duckdb_vector_size());
+            pieces.reverse();
+            local.pending.extend(pieces);
+            local
+                .pending
+                .pop()
+                .vortex_expect("a batch has at least one piece")
         }
     };
     Ok(if array.is_empty() {
@@ -292,6 +326,62 @@ fn next_split_item(local: &mut LocalState) -> VortexResult<SplitItem> {
     } else {
         SplitItem::Array(array)
     })
+}
+
+/// The pieces of a scan batch that the reader exports one at a time: the batch's chunks, each
+/// struct chunk cut at the chunk boundaries of its fields that a DuckDB vector of `vector` rows
+/// would otherwise straddle. A vector over two chunks of a field whose dictionaries differ is
+/// canonicalized, which decodes them and gives DuckDB a dictionary it cannot cache.
+fn export_pieces(array: ArrayRef, vector: usize) -> Vec<ArrayRef> {
+    let chunks = match array.as_opt::<Chunked>() {
+        Some(chunked) => chunked.chunks(),
+        None => vec![array],
+    };
+    let mut pieces = Vec::with_capacity(chunks.len());
+    for chunk in chunks {
+        let cuts = chunk
+            .as_opt::<Struct>()
+            .map(|array| {
+                let bounds = array
+                    .iter_unmasked_fields()
+                    .filter_map(|field| field.as_opt::<Chunked>())
+                    .flat_map(|field| field.chunk_offset_values().to_vec())
+                    .collect();
+                vector_cuts(bounds, chunk.len(), vector)
+            })
+            .unwrap_or_default();
+        if cuts.is_empty() {
+            pieces.push(chunk);
+            continue;
+        }
+        let mut start = 0;
+        for end in cuts.into_iter().chain([chunk.len()]) {
+            pieces.push(
+                chunk
+                    .slice(start..end)
+                    .vortex_expect("a cut lies inside its chunk"),
+            );
+            start = end;
+        }
+    }
+    pieces
+}
+
+/// The rows at which to cut a batch of `len` rows so that no vector of `vector` rows, counted
+/// from the start of its piece, straddles one of `bounds`. A bound a whole number of vectors after
+/// the last cut needs no cut of its own.
+fn vector_cuts(mut bounds: Vec<usize>, len: usize, vector: usize) -> Vec<usize> {
+    bounds.sort_unstable();
+    bounds.dedup();
+    let mut cuts = Vec::new();
+    let mut start = 0;
+    for bound in bounds {
+        if bound > start && bound < len && (bound - start) % vector != 0 {
+            cuts.push(bound);
+            start = bound;
+        }
+    }
+    cuts
 }
 
 /// Called by all threads under global lock. If this function returns true,
@@ -427,17 +517,20 @@ pub fn reader_get_progress_in_file(file: &OpenFileReader) -> f64 {
     let Some(state) = file.scan_state.as_ref() else {
         return 100.0;
     };
-    state
-        .scan
-        .get()
-        .and_then(ScanExec::progress)
-        .map_or(0.0, |Claims { claimed, total }| {
-            if total == 0 {
-                100.0
-            } else {
-                100.0 * claimed as f64 / total as f64
-            }
-        })
+    let Some(pieces) = state.pieces.get() else {
+        return 0.0;
+    };
+    let (claimed, total) = pieces
+        .iter()
+        .filter_map(ScanExec::progress)
+        .fold((0, 0), |(claimed, total), progress: Claims| {
+            (claimed + progress.claimed, total + progress.total)
+        });
+    if total == 0 {
+        100.0
+    } else {
+        100.0 * claimed as f64 / total as f64
+    }
 }
 
 /// Called by one thread in planning phase
@@ -473,5 +566,66 @@ pub fn footer_get_statistics(footer: &Footer, column: &str) -> Option<ColumnStat
     match ColumnStatistics::try_from(stats, dtype.clone()) {
         Ok(stats) => Some(stats),
         Err(e) => vortex_panic!(e),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+    use vortex::array::IntoArray;
+    use vortex::array::arrays::ChunkedArray;
+    use vortex::array::arrays::DictArray;
+    use vortex::array::arrays::StructArray;
+    use vortex::array::arrays::VarBinViewArray;
+    use vortex::buffer::Buffer;
+    use vortex::error::VortexResult;
+
+    use super::export_pieces;
+    use super::vector_cuts;
+
+    #[rstest]
+    #[case::aligned(vec![0, 2048, 4096, 8192], 8192, vec![])]
+    #[case::unaligned(vec![0, 3000, 8192], 8192, vec![3000])]
+    #[case::realigned_after_a_cut(vec![0, 3000, 5048, 6000], 8192, vec![3000, 6000])]
+    #[case::two_fields(vec![0, 3000, 4096, 8000], 8000, vec![3000, 4096])]
+    fn cuts_where_vectors_would_straddle(
+        #[case] bounds: Vec<usize>,
+        #[case] len: usize,
+        #[case] expected: Vec<usize>,
+    ) {
+        assert_eq!(vector_cuts(bounds, len, 2048), expected);
+    }
+
+    /// A chunked field of `lens` chunks, each a dictionary over values of its own.
+    fn dict_chunks(lens: &[usize]) -> VortexResult<ChunkedArray> {
+        let chunks = lens
+            .iter()
+            .enumerate()
+            .map(|(chunk, &len)| {
+                let values =
+                    VarBinViewArray::from_iter_str([format!("{chunk}a"), format!("{chunk}b")])
+                        .into_array();
+                let codes = Buffer::from_iter((0..len).map(|row| u8::from(row % 2 == 1))).into_array();
+                Ok(DictArray::try_new(codes, values)?.into_array())
+            })
+            .collect::<VortexResult<Vec<_>>>()?;
+        let dtype = chunks[0].dtype().clone();
+        ChunkedArray::try_new(chunks, dtype)
+    }
+
+    /// No vector of an exported piece straddles two dictionaries of any field.
+    #[test]
+    fn pieces_keep_vectors_within_one_dictionary() -> VortexResult<()> {
+        let batch = StructArray::from_fields(&[
+            ("a", dict_chunks(&[3000, 5000])?.into_array()),
+            ("b", dict_chunks(&[4096, 3904])?.into_array()),
+        ])?
+        .into_array();
+        let lens: Vec<usize> = export_pieces(batch, 2048)
+            .iter()
+            .map(|piece| piece.len())
+            .collect();
+        assert_eq!(lens, vec![3000, 1096, 3904]);
+        Ok(())
     }
 }

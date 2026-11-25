@@ -4,6 +4,7 @@
 use std::cmp::max;
 use std::fmt::Formatter;
 use std::fmt::{self};
+use std::num::NonZeroUsize;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::AtomicU64;
@@ -183,6 +184,8 @@ pub struct GlobalState {
     /// The projection before binding, which each file's scan binds against the file.
     pub projection_expr: Expression,
     pub filter: Filter,
+    /// The threads DuckDB runs, which a file's scan is split for.
+    pub threads: NonZeroUsize,
     pub file_row_number_column_pos: Option<usize>,
 
     // Following fields are used only in aggregate scans.
@@ -200,11 +203,15 @@ pub struct AggregateState {
 }
 assert_impl_all!(GlobalState: Send, Sync);
 
-/// The scan work that one thread does on a file: a stream of the file's opened scan, which the
-/// thread polls inline. It takes the file's work as it has room for it until none is left, and
-/// yields only the work it took. `None` until the thread's first scan call creates it, outside
-/// DuckDB's lock.
-pub struct Split(pub Option<ScanStream>);
+/// The scan work that one thread does on a file: a stream of one piece of the file's scan, which
+/// the thread polls inline. It takes the piece's work as it has room for it until none is left,
+/// and yields only the work it took.
+pub struct Split {
+    /// The piece of the file's scan the stream reads.
+    pub piece: usize,
+    /// The stream, `None` until the thread's first scan call creates it, outside DuckDB's lock.
+    pub stream: Option<ScanStream>,
+}
 
 /// field position, accumulator
 pub type Partials = Vec<(usize, Box<dyn DynAccumulator>)>;
@@ -349,6 +356,7 @@ pub fn init_global(init_input: &TableInitInput) -> VortexResult<GlobalState> {
     Ok(GlobalState {
         projection_expr: projection,
         filter,
+        threads: init_input.max_threads(),
         aggregates: bind_data.aggregates.clone(),
         has_count_star,
         aggregate_state: Mutex::new(AggregateState::default()),
