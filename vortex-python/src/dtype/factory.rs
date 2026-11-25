@@ -17,6 +17,7 @@ use vortex::dtype::FieldNames;
 use vortex::dtype::PType;
 use vortex::dtype::StructFields;
 use vortex::extension::datetime::Date;
+use vortex::extension::datetime::Duration;
 use vortex::extension::datetime::Time;
 use vortex::extension::datetime::TimeUnit;
 use vortex::extension::datetime::Timestamp;
@@ -588,5 +589,41 @@ pub(super) fn dtype_timestamp<'py>(
 ) -> PyVortexResult<Bound<'py, PyDType>> {
     let time_unit = parse_time_unit(unit)?;
     let ext = Timestamp::try_new_with_tz(time_unit, tz.map(Arc::from), nullable.into())?;
+    Ok(PyDType::init(py, DType::Extension(ext.erased()))?)
+}
+
+/// Construct a duration data type.
+///
+/// Parameters
+/// ----------
+/// unit : :class:`str`
+///     The time unit for the duration. Must be one of ``'s'``, ``'ms'``, ``'us'``, or ``'ns'``.
+///
+/// nullable : :class:`bool`
+///     When :obj:`True`, :obj:`None` is a permissible value.
+///
+/// Returns
+/// -------
+/// :class:`vortex.DType`
+///
+/// Examples
+/// --------
+///
+/// A non-nullable duration in microseconds.
+///
+/// ```python
+/// >>> import vortex as vx
+/// >>> vx.duration("us")
+/// ext("vortex.duration", int(64, nullable=False), µs)
+/// ```
+#[pyfunction(name = "duration")]
+#[pyo3(signature = (unit, *, nullable = false))]
+pub(super) fn dtype_duration<'py>(
+    py: Python<'py>,
+    unit: &str,
+    nullable: bool,
+) -> PyVortexResult<Bound<'py, PyDType>> {
+    let time_unit = parse_time_unit(unit)?;
+    let ext = Duration::try_new(time_unit, nullable.into())?;
     Ok(PyDType::init(py, DType::Extension(ext.erased()))?)
 }

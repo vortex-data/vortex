@@ -4,6 +4,7 @@
 use std::sync::Arc;
 
 use itertools::Itertools;
+use pyo3::exceptions::PyAttributeError;
 use pyo3::exceptions::PyValueError;
 use pyo3::intern;
 use pyo3::prelude::*;
@@ -29,6 +30,7 @@ use vortex::dtype::i256;
 use vortex::encodings::uuid::Uuid;
 use vortex::encodings::uuid::UuidMetadata;
 use vortex::extension::datetime::Date;
+use vortex::extension::datetime::Duration;
 use vortex::extension::datetime::Time;
 use vortex::extension::datetime::TimeUnit;
 use vortex::extension::datetime::Timestamp;
@@ -50,13 +52,14 @@ use crate::scalar::bool;
 ///     The value to convert. Supported types are :obj:`None`, :class:`bool`, :class:`int`,
 ///     :class:`float`, :class:`str`, :class:`bytes`, :class:`list`, :class:`dict` (as a struct),
 ///     :class:`decimal.Decimal`, :class:`datetime.date`, :class:`datetime.datetime`,
-///     :class:`datetime.time`, :class:`uuid.UUID`, and :class:`vortex.Scalar`.
+///     :class:`datetime.time`, :class:`datetime.timedelta`, :class:`uuid.UUID`, and
+///     :class:`vortex.Scalar`.
 /// dtype : :class:`vortex.DType`, optional
 ///     The data type of the result. When given, it also guides the conversion: the unit of a
-///     date, time or timestamp type, the scale of a decimal type, and the element and field types
-///     of list and struct types. Without it, :class:`int` becomes a 64-bit integer,
+///     date, time, timestamp, or duration type, the scale of a decimal type, and the element and
+///     field types of list and struct types. Without it, :class:`int` becomes a 64-bit integer,
 ///     :class:`float` a 64-bit float, :class:`decimal.Decimal` a decimal with the value's own
-///     precision and scale, dates use days, and times and timestamps use microseconds.
+///     precision and scale, dates use days, and times, timestamps, and durations use microseconds.
 ///
 /// Returns
 /// -------
@@ -313,6 +316,11 @@ fn scalar_helper_inner(value: &Bound<'_, PyAny>, dtype: Option<&DType>) -> PyRes
     // datetime.time
     if value.is_instance(&datetime_module.getattr(intern!(py, "time"))?)? {
         return Ok(time_scalar(value, dtype)?);
+    }
+
+    // datetime.timedelta
+    if value.is_instance(&datetime_module.getattr(intern!(py, "timedelta"))?)? {
+        return Ok(duration_scalar(value, dtype)?);
     }
 
     // uuid.UUID
@@ -678,4 +686,62 @@ fn time_scalar(value: &Bound<'_, PyAny>, dtype: Option<&DType>) -> PyVortexResul
         DType::Extension(ext.erased()),
         Some(storage),
     )?)
+}
+
+/// Convert a `datetime.timedelta` (or `pandas.Timedelta`) into a Vortex `Duration` scalar.
+///
+/// The unit is taken from `dtype` when it is a `Duration` dtype, and otherwise defaults to
+/// microseconds, the resolution of `datetime.timedelta`. Converting to a coarser unit that would
+/// drop a non-zero sub-unit remainder is an error rather than a silent truncation.
+fn duration_scalar(value: &Bound<'_, PyAny>, dtype: Option<&DType>) -> PyVortexResult<Scalar> {
+    let unit = dtype
+        .and_then(DType::as_extension_opt)
+        .and_then(|ext| ext.metadata_opt::<Duration>())
+        .copied()
+        .unwrap_or(TimeUnit::Microseconds);
+    let ext = Duration::try_new(unit, Nullability::NonNullable)?;
+
+    let total_nanos = timedelta_nanos(value)?;
+    let scale = match unit {
+        TimeUnit::Nanoseconds => 1i128,
+        TimeUnit::Microseconds => 1_000,
+        TimeUnit::Milliseconds => 1_000_000,
+        TimeUnit::Seconds => 1_000_000_000,
+        TimeUnit::Days => unreachable!("Duration::try_new rejects Days"),
+    };
+    if total_nanos % scale != 0 {
+        return Err(PyValueError::new_err(format!(
+            "timedelta cannot be represented in {unit} without losing precision"
+        ))
+        .into());
+    }
+
+    let raw = i64::try_from(total_nanos / scale)
+        .map_err(|_| PyValueError::new_err(format!("timedelta overflows i64 {unit}")))?;
+
+    Ok(Scalar::try_new(
+        DType::Extension(ext.erased()),
+        Some(ScalarValue::from(raw)),
+    )?)
+}
+
+/// Total nanoseconds of a `datetime.timedelta` or `pandas.Timedelta`.
+fn timedelta_nanos(value: &Bound<'_, PyAny>) -> PyResult<i128> {
+    let py = value.py();
+    let days: i128 = value.getattr(intern!(py, "days"))?.extract::<i64>()?.into();
+    let seconds: i128 = value
+        .getattr(intern!(py, "seconds"))?
+        .extract::<i64>()?
+        .into();
+    let microseconds: i128 = value
+        .getattr(intern!(py, "microseconds"))?
+        .extract::<i64>()?
+        .into();
+    let nanoseconds: i128 = match value.getattr(intern!(py, "nanoseconds")) {
+        Ok(ns) => ns.extract::<i64>()?.into(),
+        Err(err) if err.is_instance_of::<PyAttributeError>(py) => 0,
+        Err(err) => return Err(err),
+    };
+
+    Ok(days * 86_400_000_000_000 + seconds * 1_000_000_000 + microseconds * 1_000 + nanoseconds)
 }
