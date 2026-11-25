@@ -99,7 +99,7 @@ mod test {
     use vortex_session::VortexSession;
 
     use super::*;
-    use crate::ZigZag;
+    use crate::array::ZigZagArraySlotsExt;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
         let session = VortexSession::empty();
@@ -108,14 +108,34 @@ mod test {
     });
 
     #[rstest]
-    #[case::i8(PrimitiveArray::from_iter([i8::MIN, i8::MAX].into_iter().chain(-100..100)))]
-    #[case::i16(PrimitiveArray::from_iter([i16::MIN, i16::MAX].into_iter().chain(-100..100)))]
-    #[case::i32(PrimitiveArray::from_iter([i32::MIN, i32::MAX].into_iter().chain(-100..100)))]
-    #[case::i64(PrimitiveArray::from_iter([i64::MIN, i64::MAX].into_iter().chain(-100..100)))]
-    fn test_compress(#[case] input: PrimitiveArray) {
+    #[case::i8(
+        PrimitiveArray::from_iter([i8::MIN, i8::MAX].into_iter().chain(-100..100)),
+        PrimitiveArray::from_iter([u8::MAX, u8::MAX - 1]),
+    )]
+    #[case::i16(
+        PrimitiveArray::from_iter([i16::MIN, i16::MAX].into_iter().chain(-100..100)),
+        PrimitiveArray::from_iter([u16::MAX, u16::MAX - 1]),
+    )]
+    #[case::i32(
+        PrimitiveArray::from_iter([i32::MIN, i32::MAX].into_iter().chain(-100..100)),
+        PrimitiveArray::from_iter([u32::MAX, u32::MAX - 1]),
+    )]
+    #[case::i64(
+        PrimitiveArray::from_iter([i64::MIN, i64::MAX].into_iter().chain(-100..100)),
+        PrimitiveArray::from_iter([u64::MAX, u64::MAX - 1]),
+    )]
+    fn test_compress(
+        #[case] input: PrimitiveArray,
+        #[case] encoded_prefix: PrimitiveArray,
+    ) -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
-        let compressed = zigzag_encode(input.as_view()).unwrap().into_array();
-        assert!(compressed.is::<ZigZag>());
-        assert_arrays_eq!(compressed, input, &mut ctx);
+        let compressed = zigzag_encode(input.as_view())?;
+        assert_arrays_eq!(
+            compressed.encoded().slice(0..encoded_prefix.len())?,
+            encoded_prefix,
+            &mut ctx
+        );
+        assert_arrays_eq!(compressed.into_array(), input, &mut ctx);
+        Ok(())
     }
 }
