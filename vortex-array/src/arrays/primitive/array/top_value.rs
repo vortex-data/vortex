@@ -4,24 +4,13 @@
 //! The most common value of a primitive array.
 //!
 //! Most callers ask for the top value of arrays that one value dominates, such as the fill value
-//! of a sparse array. For those, a [Boyer–Moore majority vote] finds the value without hashing:
-//! it keeps one candidate and a counter, increments the counter on a match, decrements it
-//! otherwise, and replaces the candidate when the counter is zero. Any value that fills more than
-//! half of the input survives as the candidate.
-//!
-//! The vote is a mergeable summary: votes over disjoint parts of the input combine into a vote
-//! over all of it, with the same guarantee. [`LANES`] independent votes therefore run over
-//! interleaved elements, which removes the loop-carried dependency of a single vote and lets the
-//! compiler keep the lanes in vector registers. A second, branchless pass counts the merged
-//! candidate. When it is not a strict majority, the vote says nothing about the mode, so the
-//! values are counted in a hash map instead.
-//!
-//! [Boyer–Moore majority vote]: https://en.wikipedia.org/wiki/Boyer%E2%80%93Moore_majority_vote_algorithm
+//! of a sparse array. For those, a vectorized majority vote ([`sampled_majority`]) finds the value
+//! without hashing. Otherwise the values are counted in a hash map, except for one-byte types,
+//! which are counted in a histogram over all 256 values.
 
 use std::hash::Hash;
 
 use rustc_hash::FxBuildHasher;
-use vortex_buffer::BitBuffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_mask::AllOr;
@@ -34,9 +23,8 @@ use crate::arrays::primitive::NativeValue;
 use crate::dtype::NativePType;
 use crate::match_each_native_ptype;
 use crate::scalar::PValue;
-
-/// The number of independent votes run over interleaved elements.
-const LANES: usize = 16;
+use crate::stats::majority::MajorityKey;
+use crate::stats::majority::sampled_majority;
 
 impl PrimitiveArray {
     /// Compute most common present value of this array
@@ -64,183 +52,13 @@ impl PrimitiveArray {
 /// Returns the most common valid value and its count. At least one value must be valid.
 fn typed_top_value<T>(values: &[T], mask: &Mask) -> (T, usize)
 where
-    T: NativePType,
+    T: NativePType + MajorityKey,
     NativeValue<T>: Eq + Hash,
 {
     if size_of::<T>() == 1 {
         return byte_top_value(values, mask);
     }
-
-    // The per-lane vote counters are `u32`, which cannot overflow below this length.
-    if values.len() > u32::MAX as usize {
-        return hash_top_value(values, mask);
-    }
-
-    if !sample_has_near_majority(values, mask) {
-        return hash_top_value(values, mask);
-    }
-
-    let (candidate, count) = match mask {
-        Mask::AllTrue(_) => {
-            let candidate = majority_candidate(values);
-            (candidate, count_equal(values, candidate))
-        }
-        Mask::AllFalse(_) => unreachable!("all-invalid arrays are handled by the caller"),
-        Mask::Values(mask_values) => {
-            let validity = mask_values.bit_buffer();
-            let candidate = masked_majority_candidate(values, validity);
-            (candidate, masked_count_equal(values, validity, candidate))
-        }
-    };
-
-    if count > mask.true_count() / 2 {
-        return (candidate, count);
-    }
-    hash_top_value(values, mask)
-}
-
-/// The number of values [`sample_has_near_majority`] looks at.
-const SAMPLE_LEN: usize = 1024;
-
-/// Returns whether some value fills more than 40% of a strided sample of the valid values.
-///
-/// Without one, the input almost certainly has no majority, and the vote would only add two passes
-/// before the hash map. The sample decides which exact method runs, so it never changes the result.
-/// It is strided rather than a prefix so that sorted or clustered inputs are sampled evenly.
-fn sample_has_near_majority<T: NativePType>(values: &[T], mask: &Mask) -> bool {
-    if values.len() < 4 * SAMPLE_LEN {
-        return true;
-    }
-    let stride = values.len() / SAMPLE_LEN;
-    let sample: Vec<T> = (0..SAMPLE_LEN)
-        .map(|index| index * stride)
-        .filter(|&index| mask.value(index))
-        .map(|index| values[index])
-        .collect();
-    if sample.is_empty() {
-        return true;
-    }
-    let candidate = majority_candidate(&sample);
-    count_equal(&sample, candidate) * 5 > sample.len() * 2
-}
-
-/// One step of a Boyer–Moore vote over a valid value, written without branches so the lanes
-/// vectorize.
-#[inline]
-fn vote_valid<T: NativePType>(candidate: &mut T, count: &mut u32, value: T) {
-    let empty = *count == 0;
-    let agrees = candidate.is_eq(value);
-    *candidate = if empty { value } else { *candidate };
-    *count = if empty | agrees {
-        *count + 1
-    } else {
-        *count - 1
-    };
-}
-
-/// One step of a Boyer–Moore vote that skips invalid values. Arithmetic rather than selects on
-/// the count vectorizes better once validity is involved.
-#[inline]
-fn vote<T: NativePType>(candidate: &mut T, count: &mut u32, value: T, valid: bool) {
-    let empty = *count == 0;
-    let agrees = candidate.is_eq(value);
-    *candidate = if valid & empty { value } else { *candidate };
-    let up = valid & (empty | agrees);
-    let down = valid & !(empty | agrees);
-    *count = *count + u32::from(up) - u32::from(down);
-}
-
-/// Merges the per-lane votes into one, preserving the majority guarantee.
-///
-/// Each lane's vote pairs off its elements into pairs of different values plus `count` copies of
-/// its candidate. Merging two votes for different candidates pairs off the smaller surplus against
-/// the larger, so a value filling more than half of the input still cannot be paired off entirely.
-fn merge_votes<T: NativePType>(candidates: [T; LANES], counts: [u32; LANES]) -> (T, u32) {
-    candidates.into_iter().zip(counts).fold(
-        (T::default(), 0),
-        |(candidate, count), (lane, lane_count)| {
-            if candidate.is_eq(lane) {
-                (candidate, count + lane_count)
-            } else if count >= lane_count {
-                (candidate, count - lane_count)
-            } else {
-                (lane, lane_count - count)
-            }
-        },
-    )
-}
-
-/// Returns the strict majority of `values` if it has one, and an arbitrary value otherwise.
-fn majority_candidate<T: NativePType>(values: &[T]) -> T {
-    let mut candidates = [T::default(); LANES];
-    let mut counts = [0u32; LANES];
-    let (chunks, remainder) = values.as_chunks::<LANES>();
-    for chunk in chunks {
-        for lane in 0..LANES {
-            vote_valid(&mut candidates[lane], &mut counts[lane], chunk[lane]);
-        }
-    }
-    for (lane, &value) in remainder.iter().enumerate() {
-        vote_valid(&mut candidates[lane], &mut counts[lane], value);
-    }
-    merge_votes(candidates, counts).0
-}
-
-/// Returns the strict majority of the valid `values` if they have one, and an arbitrary value
-/// otherwise.
-fn masked_majority_candidate<T: NativePType>(values: &[T], validity: &BitBuffer) -> T {
-    let mut candidates = [T::default(); LANES];
-    let mut counts = [0u32; LANES];
-    let mut words = validity.chunks().iter_padded();
-    let (chunks, remainder) = values.as_chunks::<64>();
-    for (chunk, bits) in chunks.iter().zip(&mut words) {
-        for block in 0..64 / LANES {
-            for lane in 0..LANES {
-                let index = block * LANES + lane;
-                let valid = (bits >> index) & 1 == 1;
-                vote(
-                    &mut candidates[lane],
-                    &mut counts[lane],
-                    chunk[index],
-                    valid,
-                );
-            }
-        }
-    }
-    let bits = words.next().unwrap_or(0);
-    for (index, &value) in remainder.iter().enumerate() {
-        let lane = index % LANES;
-        vote(
-            &mut candidates[lane],
-            &mut counts[lane],
-            value,
-            (bits >> index) & 1 == 1,
-        );
-    }
-    merge_votes(candidates, counts).0
-}
-
-fn count_equal<T: NativePType>(values: &[T], candidate: T) -> usize {
-    values
-        .iter()
-        .map(|&value| usize::from(value.is_eq(candidate)))
-        .sum()
-}
-
-fn masked_count_equal<T: NativePType>(values: &[T], validity: &BitBuffer, candidate: T) -> usize {
-    values
-        .chunks(64)
-        .zip(validity.chunks().iter_padded())
-        .map(|(chunk, bits)| {
-            let equal = chunk
-                .iter()
-                .enumerate()
-                .fold(0u64, |equal, (index, &value)| {
-                    equal | (u64::from(value.is_eq(candidate)) << index)
-                });
-            (equal & bits).count_ones() as usize
-        })
-        .sum()
+    sampled_majority(values, mask).unwrap_or_else(|| hash_top_value(values, mask))
 }
 
 /// Counts every valid value in a hash map and returns the most common one.
