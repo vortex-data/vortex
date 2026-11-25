@@ -259,51 +259,124 @@ fn test_all_non_distinct_detects_different_raw_only_nested_field_with_differing_
     let (meta_c, val_c) = single_field_object("c", 3);
     let (_, val_x) = VariantBuilder::new().with_value("x").finish();
     let (_, val_y) = VariantBuilder::new().with_value("y").finish();
+    let (_, val_masked_lhs) = VariantBuilder::new().with_value("ignored_lhs").finish();
+    let (_, val_masked_rhs) = VariantBuilder::new().with_value("ignored_rhs").finish();
 
-    let make_shredded_object = |root_value: ArrayRef, raw_b: &[u8]| -> VortexResult<ArrayRef> {
-        let field_a = StructArray::try_new(
+    let make_shredded_object =
+        |root_value: ArrayRef, raw_b_rows: [&[u8]; 3]| -> VortexResult<ArrayRef> {
+            let field_a = StructArray::try_new(
+                FieldNames::from(["typed_value"]),
+                vec![buffer![1i32, 99i32, 2i32].into_array()],
+                3,
+                Validity::NonNullable,
+            )?
+            .into_array();
+            let field_b = StructArray::try_new(
+                FieldNames::from(["value"]),
+                vec![binary(raw_b_rows)],
+                3,
+                Validity::NonNullable,
+            )?
+            .into_array();
+            let typed_value = StructArray::try_new(
+                FieldNames::from(["a", "b"]),
+                vec![field_a, field_b],
+                3,
+                Validity::NonNullable,
+            )?
+            .into_array();
+            Ok(ParquetVariant::try_new(
+                Validity::from_iter([true, false, true]),
+                binary([meta_c.as_slice(), meta_c.as_slice(), meta_c.as_slice()]),
+                Some(root_value),
+                Some(typed_value),
+            )?
+            .into_array())
+        };
+
+    let lhs_root = binary([val_c.as_slice(), val_c.as_slice(), val_c.as_slice()]);
+    let rhs_root = VarBinViewArray::from_iter_nullable_bin([
+        Some(val_c.as_slice()),
+        Some(val_c.as_slice()),
+        Some(val_c.as_slice()),
+    ])
+    .into_array();
+    assert_ne!(lhs_root.dtype(), rhs_root.dtype());
+
+    // Row 0 matches, row 1 is masked out (shared outer null), row 2 differs in raw-only field `b`.
+    let lhs = make_shredded_object(lhs_root, [&val_x, &val_masked_lhs, &val_x])?;
+    let rhs = make_shredded_object(rhs_root, [&val_x, &val_masked_rhs, &val_y])?;
+
+    let mut ctx = SESSION.create_execution_ctx();
+    assert_eq!(
+        lhs.execute_scalar(0, &mut ctx)?,
+        rhs.execute_scalar(0, &mut ctx)?
+    );
+    assert_ne!(
+        lhs.execute_scalar(2, &mut ctx)?,
+        rhs.execute_scalar(2, &mut ctx)?
+    );
+    assert!(!all_non_distinct(&lhs, &rhs, &mut ctx)?);
+    Ok(())
+}
+
+#[test]
+fn test_all_non_distinct_matches_reordered_shredded_fields_with_raw_only_field() -> VortexResult<()>
+{
+    let (meta_c, val_c) = single_field_object("c", 3);
+    let (_, val_x) = VariantBuilder::new().with_value("x").finish();
+
+    let make_field_a = || -> VortexResult<ArrayRef> {
+        Ok(StructArray::try_new(
             FieldNames::from(["typed_value"]),
             vec![buffer![1i32].into_array()],
             1,
             Validity::NonNullable,
         )?
-        .into_array();
-        let field_b = StructArray::try_new(
+        .into_array())
+    };
+    let make_field_b = || -> VortexResult<ArrayRef> {
+        Ok(StructArray::try_new(
             FieldNames::from(["value"]),
-            vec![binary([raw_b])],
+            vec![binary([val_x.as_slice()])],
             1,
             Validity::NonNullable,
-        )?
-        .into_array();
-        let typed_value = StructArray::try_new(
-            FieldNames::from(["a", "b"]),
-            vec![field_a, field_b],
-            1,
-            Validity::NonNullable,
-        )?
-        .into_array();
-        Ok(ParquetVariant::try_new(
-            Validity::NonNullable,
-            binary([meta_c.as_slice()]),
-            Some(root_value),
-            Some(typed_value),
         )?
         .into_array())
     };
 
-    let lhs_root = binary([val_c.as_slice()]);
-    let rhs_root = VarBinViewArray::from_iter_nullable_bin([Some(val_c.as_slice())]).into_array();
-    assert_ne!(lhs_root.dtype(), rhs_root.dtype());
+    let lhs_typed = StructArray::try_new(
+        FieldNames::from(["a", "b"]),
+        vec![make_field_a()?, make_field_b()?],
+        1,
+        Validity::NonNullable,
+    )?
+    .into_array();
+    let rhs_typed = StructArray::try_new(
+        FieldNames::from(["b", "a"]),
+        vec![make_field_b()?, make_field_a()?],
+        1,
+        Validity::NonNullable,
+    )?
+    .into_array();
 
-    let lhs = make_shredded_object(lhs_root, &val_x)?;
-    let rhs = make_shredded_object(rhs_root, &val_y)?;
+    let lhs = ParquetVariant::try_new(
+        Validity::NonNullable,
+        binary([meta_c.as_slice()]),
+        Some(binary([val_c.as_slice()])),
+        Some(lhs_typed),
+    )?
+    .into_array();
+    let rhs = ParquetVariant::try_new(
+        Validity::NonNullable,
+        binary([meta_c.as_slice()]),
+        Some(binary([val_c.as_slice()])),
+        Some(rhs_typed),
+    )?
+    .into_array();
 
     let mut ctx = SESSION.create_execution_ctx();
-    assert_ne!(
-        lhs.execute_scalar(0, &mut ctx)?,
-        rhs.execute_scalar(0, &mut ctx)?
-    );
-    assert!(!all_non_distinct(&lhs, &rhs, &mut ctx)?);
+    assert!(all_non_distinct(&lhs, &rhs, &mut ctx)?);
     Ok(())
 }
 

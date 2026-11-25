@@ -180,18 +180,74 @@ fn compare_active_scalars(
     match active_mask {
         Some(mask) => {
             for idx in mask.to_bit_buffer().set_indices() {
-                if lhs_probe.execute_scalar(idx, ctx)? != rhs_probe.execute_scalar(idx, ctx)? {
+                let lhs_scalar = lhs_probe.execute_scalar(idx, ctx)?;
+                let rhs_scalar = rhs_probe.execute_scalar(idx, ctx)?;
+                if !variant_scalars_equal(&lhs_scalar, &rhs_scalar) {
                     return Ok(false);
                 }
             }
         }
         None => {
             for idx in 0..lhs.len() {
-                if lhs_probe.execute_scalar(idx, ctx)? != rhs_probe.execute_scalar(idx, ctx)? {
+                let lhs_scalar = lhs_probe.execute_scalar(idx, ctx)?;
+                let rhs_scalar = rhs_probe.execute_scalar(idx, ctx)?;
+                if !variant_scalars_equal(&lhs_scalar, &rhs_scalar) {
                     return Ok(false);
                 }
             }
         }
     }
     Ok(true)
+}
+
+/// Compare two decoded Variant scalars semantically: object fields are matched by name
+/// regardless of shredded schema order, while lists are compared positionally.
+fn variant_scalars_equal(lhs: &Scalar, rhs: &Scalar) -> bool {
+    match (lhs.is_null(), rhs.is_null()) {
+        (true, true) => return true,
+        (true, false) | (false, true) => return false,
+        (false, false) => {}
+    }
+
+    match (lhs.dtype(), rhs.dtype()) {
+        (DType::Variant(_), DType::Variant(_)) => {
+            match (lhs.as_variant().value(), rhs.as_variant().value()) {
+                (Some(l), Some(r)) => variant_scalars_equal(l, r),
+                (None, None) => true,
+                _ => false,
+            }
+        }
+        (DType::Struct(..), DType::Struct(..)) => {
+            let lhs_struct = lhs.as_struct();
+            let rhs_struct = rhs.as_struct();
+            let lhs_names = lhs_struct.names();
+            if lhs_names.len() != rhs_struct.names().len() {
+                return false;
+            }
+            let Some(lhs_fields) = lhs_struct.fields_iter() else {
+                return rhs_struct.is_null();
+            };
+            lhs_names.iter().zip(lhs_fields).all(|(name, lhs_field)| {
+                rhs_struct
+                    .field(name.as_ref())
+                    .is_some_and(|rhs_field| variant_scalars_equal(&lhs_field, &rhs_field))
+            })
+        }
+        (
+            DType::List(..) | DType::FixedSizeList(..),
+            DType::List(..) | DType::FixedSizeList(..),
+        ) => {
+            let (Some(lhs_elems), Some(rhs_elems)) =
+                (lhs.as_list().elements(), rhs.as_list().elements())
+            else {
+                return false;
+            };
+            lhs_elems.len() == rhs_elems.len()
+                && lhs_elems
+                    .iter()
+                    .zip(rhs_elems.iter())
+                    .all(|(l, r)| variant_scalars_equal(l, r))
+        }
+        _ => lhs == rhs,
+    }
 }
