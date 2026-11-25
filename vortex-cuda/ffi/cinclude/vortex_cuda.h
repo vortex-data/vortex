@@ -68,7 +68,8 @@ struct ArrowDeviceArrayStream {
  * Dictionary-preserving CUDA scan with an owned Arrow schema per batch.
  *
  * Logical dtype and CUDA device are fixed; physical schemas, dictionary values, and index widths
- * may vary. Uses `DictionaryExport::Preserve`; plain batches remain plain.
+ * may vary. Uses `DictionaryExport::Preserve`; plain batches remain plain. Each call starts
+ * exporting the following batch, so up to two batches are in flight on the device.
  * Retains runtime/session resources. Use and free only on the creating thread, without concurrent
  * or reentrant calls. Free with `vx_cuda_device_batches_free`.
  */

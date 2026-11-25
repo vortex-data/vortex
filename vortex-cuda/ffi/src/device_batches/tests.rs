@@ -492,6 +492,7 @@ fn assert_terminal(
     handle: &mut vx_cuda_device_batches,
     expected_error: &str,
     polls: &AtomicUsize,
+    expected_polls: usize,
 ) -> VortexResult<()> {
     let mut output = next(handle)?;
     let schema = Field::try_from(&output.schema)?;
@@ -503,7 +504,7 @@ fn assert_terminal(
         assert_eq!(output.array.array.private_data, private_data);
         assert_eq!(
             polls.load(Ordering::Relaxed),
-            2,
+            expected_polls,
             "retry consumed more input"
         );
     }
@@ -526,7 +527,7 @@ fn test_scan_dtype_export_errors_and_panics_are_terminal() -> VortexResult<()> {
         let polls = Arc::new(AtomicUsize::new(0));
         let counter = Arc::clone(&polls);
         // Deliberately bypass ArrayStreamAdapter's debug dtype assertion to reach the handle's
-        // own guard in both debug and release builds. The trailing batch must never be consumed.
+        // own guard in both debug and release builds. No batch past the lookahead is consumed.
         handle.array_iter = Box::new(vec![Ok(seed.clone()), bad, Ok(seed)].into_iter().inspect(
             move |_| {
                 let index = counter.fetch_add(1, Ordering::Relaxed);
@@ -544,7 +545,10 @@ fn test_scan_dtype_export_errors_and_panics_are_terminal() -> VortexResult<()> {
             "panic" => "injected polling panic",
             _ => unreachable!(),
         };
-        assert_terminal(&mut handle, message, &polls)?;
+        // Polling fails while exporting ahead of the first batch. An export failure surfaces
+        // only when its batch is due, after the lookahead has polled the trailing batch.
+        let expected_polls = if failure == "export" { 3 } else { 2 };
+        assert_terminal(&mut handle, message, &polls, expected_polls)?;
     }
     Ok(())
 }
