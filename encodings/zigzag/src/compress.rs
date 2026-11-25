@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use num_traits::AsPrimitive;
 use vortex_array::ArrayView;
 use vortex_array::IntoArray;
 use vortex_array::arrays::Primitive;
@@ -10,7 +11,6 @@ use vortex_array::dtype::PType;
 use vortex_array::validity::Validity;
 use vortex_buffer::BufferMut;
 use vortex_compute::lane_kernels::IndexedSinkExt;
-use vortex_compute::lane_kernels::ReinterpretSink;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -19,6 +19,7 @@ use zigzag::ZigZag as ExternalZigZag;
 
 use crate::ZigZag;
 use crate::ZigZagArray;
+
 pub fn zigzag_encode(parray: ArrayView<'_, Primitive>) -> VortexResult<ZigZagArray> {
     let parray = parray.into_owned();
     let validity = parray.validity()?;
@@ -42,10 +43,12 @@ fn zigzag_encode_primitive<T: ExternalZigZag + NativePType>(
 where
     <T as ExternalZigZag>::UInt: NativePType,
 {
-    ReinterpretSink::<T, T::UInt>::new(values.as_mut_slice()).map_into_in_place(T::encode);
+    values
+        .as_mut_slice()
+        .map_into_in_place(|value| T::encode(value).as_());
 
-    // SAFETY: `ReinterpretSink::new` checks that both types have the same size and alignment,
-    // and `map_into_in_place` writes a valid value into every lane.
+    // SAFETY: `T` and `T::UInt` are same-width integers with identical alignment.
+    // Every bit pattern is valid for both types.
     let encoded = unsafe { values.transmute::<T::UInt>() };
 
     PrimitiveArray::new(encoded.freeze(), validity)
@@ -74,10 +77,12 @@ fn zigzag_decode_primitive<T: ExternalZigZag + NativePType>(
 where
     <T as ExternalZigZag>::UInt: NativePType,
 {
-    ReinterpretSink::<T::UInt, T>::new(values.as_mut_slice()).map_into_in_place(T::decode);
+    values
+        .as_mut_slice()
+        .map_into_in_place(|value| T::decode(value).as_());
 
-    // SAFETY: `ReinterpretSink::new` checks that both types have the same size and alignment,
-    // and `map_into_in_place` writes a valid value into every lane.
+    // SAFETY: `T` and `T::UInt` are same-width integers with identical alignment.
+    // Every bit pattern is valid for both types.
     let decoded = unsafe { values.transmute::<T>() };
 
     PrimitiveArray::new(decoded.freeze(), validity)
@@ -103,10 +108,10 @@ mod test {
     });
 
     #[rstest]
-    #[case::i8(PrimitiveArray::from_iter(-100_i8..100))]
-    #[case::i16(PrimitiveArray::from_iter(-100_i16..100))]
-    #[case::i32(PrimitiveArray::from_iter(-100_i32..100))]
-    #[case::i64(PrimitiveArray::from_iter(-100_i64..100))]
+    #[case::i8(PrimitiveArray::from_iter([i8::MIN, i8::MAX].into_iter().chain(-100..100)))]
+    #[case::i16(PrimitiveArray::from_iter([i16::MIN, i16::MAX].into_iter().chain(-100..100)))]
+    #[case::i32(PrimitiveArray::from_iter([i32::MIN, i32::MAX].into_iter().chain(-100..100)))]
+    #[case::i64(PrimitiveArray::from_iter([i64::MIN, i64::MAX].into_iter().chain(-100..100)))]
     fn test_compress(#[case] input: PrimitiveArray) {
         let mut ctx = SESSION.create_execution_ctx();
         let compressed = zigzag_encode(input.as_view()).unwrap().into_array();

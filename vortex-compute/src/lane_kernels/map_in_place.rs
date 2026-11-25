@@ -24,10 +24,8 @@ pub trait IndexedSinkExt: IndexedSink + Sized {
     /// In-place counterpart of [`IndexedSourceExt::map_into`]. Each lane
     /// is replaced with `f(self[i])`.
     ///
-    /// The closure reads `Self::Item` and returns `Self::Write`. For the common
-    /// case `Self = &mut [T]` both are `T`; for `ReinterpretSink` the read and
-    /// write types can differ (e.g. read `f32`, write `u32`) over the same
-    /// backing memory when sizes and alignments match.
+    /// The closure reads `Self::Item` and returns `Self::Write`. For `&mut [T]`
+    /// both are `T`.
     ///
     /// As with [`IndexedSourceExt::map_into`], use this only when the
     /// input is known non-nullable.
@@ -217,7 +215,6 @@ mod tests {
     use vortex_buffer::BitBufferMut;
 
     use super::*;
-    use crate::lane_kernels::sink::ReinterpretSink;
 
     #[test]
     fn try_map_masked_in_place_all_ok() {
@@ -308,39 +305,6 @@ mod tests {
             .as_mut_slice()
             .try_map_masked_in_place(&mask, |v| v.checked_mul(2));
         assert_eq!(res, Err(77));
-    }
-
-    #[test]
-    fn reinterpret_sink_same_width_f32_u32() {
-        let mut buf: Vec<f32> = (0..130).map(|i| i as f32).collect();
-        let mask = BitBuffer::new_set(130);
-        ReinterpretSink::<f32, u32>::new(buf.as_mut_slice())
-            .try_map_masked_in_place(&mask, |f| Some(f.to_bits().wrapping_add(1)))
-            .unwrap();
-        // SAFETY: same size + alignment for f32 and u32; every slot now holds a u32 written by
-        // the closure.
-        let as_u32: &[u32] =
-            unsafe { std::slice::from_raw_parts(buf.as_ptr() as *const u32, buf.len()) };
-        for (i, &got) in as_u32.iter().enumerate() {
-            assert_eq!(got, (i as f32).to_bits().wrapping_add(1), "lane {i}");
-        }
-    }
-
-    #[test]
-    fn reinterpret_sink_failure_reports_lane() {
-        let mut buf: Vec<f32> = (0..200).map(|i| i as f32).collect();
-        let mask = BitBuffer::new_set(200);
-        let res = ReinterpretSink::<f32, u32>::new(buf.as_mut_slice()).try_map_masked_in_place(
-            &mask,
-            |f| {
-                if f as u32 == 137 {
-                    None
-                } else {
-                    Some(f as u32)
-                }
-            },
-        );
-        assert_eq!(res, Err(137));
     }
 
     #[test]
