@@ -1131,6 +1131,48 @@ mod test {
         assert_arrays_eq!(sparse_struct, expected, &mut ctx);
     }
 
+    // Regression test for https://github.com/vortex-data/vortex/issues/12035.
+    #[rstest]
+    #[case::valid_fill(true)]
+    #[case::null_fill(false)]
+    fn test_sparse_struct_no_fields(#[case] fill_valid: bool) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let struct_fields = StructFields::empty();
+        let struct_dtype = DType::Struct(struct_fields.clone(), Nullable);
+
+        let indices = buffer![0u64, 1, 7].into_array();
+        let patch_values = StructArray::try_new_with_dtype(
+            Vec::new(),
+            struct_fields.clone(),
+            3,
+            Validity::from_iter([true, false, true]),
+        )?
+        .into_array();
+
+        let fill_scalar = if fill_valid {
+            Scalar::struct_(struct_dtype, Vec::new())
+        } else {
+            Scalar::null(struct_dtype)
+        };
+        let len = 10;
+        let sparse_struct = Sparse::try_new(indices, patch_values, len, fill_scalar, &mut ctx)?;
+
+        let valid = (0..len).map(|i| match i {
+            0 | 7 => true,
+            1 => false,
+            _ => fill_valid,
+        });
+        let expected = StructArray::try_new_with_dtype(
+            Vec::new(),
+            struct_fields,
+            len,
+            Validity::from_iter(valid),
+        )?;
+
+        assert_arrays_eq!(sparse_struct, expected, &mut ctx);
+        Ok(())
+    }
+
     #[test]
     fn test_sparse_decimal() -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
