@@ -68,6 +68,56 @@ jobs:
       issue_number: ${{ needs.report-io-fuzz-failures.outputs.issue_number }}
     secrets: inherit
 
+  # File Corruption Fuzzer
+  file_corruption_fuzz:
+    name: "File corruption fuzz"
+    needs: build_cpu_fuzzers
+    uses: ./.github/workflows/run-fuzzer.yml
+    with:
+      fuzz_target: file_corruption
+      jobs: 4
+      fuzzer_artifact: ${{ needs.build_cpu_fuzzers.outputs.artifact_name }}
+    secrets:
+      R2_FUZZ_ACCESS_KEY_ID: ${{ secrets.R2_FUZZ_ACCESS_KEY_ID }}
+      R2_FUZZ_SECRET_ACCESS_KEY: ${{ secrets.R2_FUZZ_SECRET_ACCESS_KEY }}
+
+  report-file-corruption-fuzz-failures:
+    name: "Report file corruption fuzz failures"
+    needs: file_corruption_fuzz
+    if: always() && needs.file_corruption_fuzz.outputs.crashes_found == 'true'
+    permissions:
+      issues: write
+      contents: read
+      id-token: write
+      pull-requests: read
+    uses: ./.github/workflows/report-fuzz-crash.yml
+    with:
+      fuzz_target: file_corruption
+      crash_file: ${{ needs.file_corruption_fuzz.outputs.first_crash_name }}
+      artifact_url: ${{ needs.file_corruption_fuzz.outputs.artifact_url }}
+      artifact_name: file_corruption-crash-artifacts
+      logs_artifact_name: file_corruption-logs
+      branch: ${{ github.ref_name }}
+      commit: ${{ github.sha }}
+    secrets:
+      gh_token: ${{ secrets.GITHUB_TOKEN }}
+      incident_io_alert_token: ${{ secrets.INCIDENT_IO_ALERT_TOKEN }}
+
+  attempt-fix-file-corruption:
+    name: "Attempt fix for file corruption fuzz crash"
+    needs: report-file-corruption-fuzz-failures
+    if: ${{ !cancelled() && needs.report-file-corruption-fuzz-failures.outputs.issue_created == 'true' }}
+    permissions:
+      actions: read
+      contents: read
+      issues: write
+      pull-requests: read
+      id-token: write
+    uses: ./.github/workflows/fuzzer-fix-automation.yml
+    with:
+      issue_number: ${{ needs.report-file-corruption-fuzz-failures.outputs.issue_number }}
+    secrets: inherit
+
   # ============================================================================
   # Array Operations Fuzzer
   # ============================================================================
