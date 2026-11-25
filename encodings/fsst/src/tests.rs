@@ -157,7 +157,7 @@ fn test_fsst_array_ops() {
 /// milliseconds without allocating gigabytes. With an empty symbol table every input byte is
 /// escape-coded to two output bytes, deterministically crossing the threshold.
 #[test]
-fn fsst_compress_offsets_overflow_i32() -> VortexResult<()> {
+fn fsst_compress_offset_width_rollover() -> VortexResult<()> {
     const MAX_I32_BYTES: usize = 4 * 1024;
     const ROW_LEN: usize = 256;
     const ROWS_FITTING: usize = (MAX_I32_BYTES / 2) / ROW_LEN; // 8 rows -> 2048 input -> 4096 compressed
@@ -200,4 +200,60 @@ fn fsst_compress_offsets_overflow_i32() -> VortexResult<()> {
     }
 
     Ok(())
+}
+
+// TODO(someone): ideally CI would run this in release mode as well since debug builds make the
+// allocation and compression loop substantially slower.
+/// Regression for #7833: [`fsst_compress`] must accept inputs whose cumulative compressed
+/// bytes exceed [`i32::MAX`]. Before the fix, the compress path hardcoded
+/// [`VarBinBuilder<i32>`] for the FSST output and panicked in
+/// [`VarBinBuilder::append_value`] once cumulative compressed bytes crossed the boundary.
+///
+/// The compressor is built with an empty symbol table, so every input byte misses the table
+/// and is escape-coded at exactly two output bytes per input byte. This makes the output
+/// size deterministic and crosses the i32 boundary with roughly half the input bytes that
+/// an incompressible-input construction would need. The input is built with
+/// [`VarBinBuilder<i64>`] so the input itself does not panic, which confirms the overflow
+/// is on the FSST output side. After the fix the test must succeed with the row count
+/// preserved.
+///
+/// Allocates ~1.1 GiB for the input and ~2.1 GiB for the FSST output (~3.2 GiB total), so
+/// it is gated to CI runs and skipped when `VORTEX_SKIP_SLOW_TESTS` is set. To run it
+/// locally:
+///
+/// ```text
+/// CI=1 cargo test --release -p vortex-fsst fsst_compress_offsets
+/// ```
+///
+/// [`fsst_compress`]: crate::compress::fsst_compress
+#[test_with::env(CI)]
+#[test_with::no_env(VORTEX_SKIP_SLOW_TESTS)]
+fn fsst_compress_offsets_overflow_i32() {
+    const STRING_LEN: usize = 64 * 1024;
+    // Escape coding doubles every byte, so ~1.06 GiB of input compresses to ~2.13 GiB,
+    // comfortably past i32::MAX.
+    const TOTAL_BYTES: usize = (1usize << 30) + (64 << 20);
+    const N: usize = TOTAL_BYTES / STRING_LEN;
+
+    println!("building large VarBinArray");
+    let string = vec![b'a'; STRING_LEN];
+    let mut builder = VarBinBuilder::<i64>::with_capacity_in(
+        DType::Utf8(Nullability::NonNullable),
+        N,
+        BufferAllocatorRef::static_ref(),
+    );
+    for _ in 0..N {
+        builder.append_value(&string);
+    }
+    let array = builder.finish_into_varbin().into_array();
+
+    let compressor = CompressorBuilder::default().build();
+    let len = array.len();
+    let mut ctx = SESSION.create_execution_ctx();
+
+    println!("compressing to FSST");
+    let compressed = fsst_compress(&array, &compressor, &mut ctx).unwrap();
+    assert_eq!(compressed.len(), len);
+    // Prove the regression condition was exercised: compressed bytes crossed i32::MAX.
+    assert!(compressed.codes_bytes().len() > i32::MAX as usize);
 }

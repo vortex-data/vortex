@@ -15,13 +15,12 @@ use crate::rle::RLE;
 use crate::rle::RLEArrayExt;
 use crate::rle::RLEArraySlotsExt;
 
-/// Returns `true` if every value of `src` is representable in `dst` without error.
+/// Returns `true` if `Primitive` cast from `src` to `dst` can never fail for any value.
 fn is_infallible_primitive_cast(src: PType, dst: PType) -> bool {
-    if src == dst {
+    if src == dst || dst.is_float() {
         return true;
     }
     match (src, dst) {
-        (PType::F16, PType::F32 | PType::F64) | (PType::F32, PType::F64) => true,
         (s, d) if s.is_unsigned_int() && d.is_int() => d.byte_width() > s.byte_width(),
         (s, d) if s.is_signed_int() && d.is_signed_int() => d.byte_width() > s.byte_width(),
         _ => false,
@@ -41,17 +40,10 @@ impl CastReduce for RLE {
             return Ok(None);
         }
 
-        // Fallible ptype casts cannot be pushed down to `values` when the array does not cover
-        // its full chunk storage, because out-of-slice run values could trigger spurious overflow
-        // or sign errors. Note: because `indices` is padded to a multiple of `FL_CHUNK_SIZE`
-        // (1024), `covers_all_indices` is false whenever `array.len()` is not a multiple of 1024
-        // even if unsliced, so fallible narrowing casts decompress in that case (a future
-        // optimization could check cached `values` min/max stats to push down safely).
-        let src_ptype = array.dtype().as_ptype();
-        let covers_all_indices = array.offset() == 0 && array.len() == array.indices().len();
-        if !is_infallible_primitive_cast(src_ptype, target_ptype)
-            && (!covers_all_indices || array.dtype().is_nullable())
-        {
+        // Fallible integer casts cannot be pushed down to `values`: `values` may contain
+        // unreferenced entries (from slicing, chunk padding, nulls, or direct construction)
+        // that would trigger spurious overflow or sign errors.
+        if !is_infallible_primitive_cast(array.dtype().as_ptype(), target_ptype) {
             return Ok(None);
         }
 
@@ -95,11 +87,14 @@ mod tests {
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
+    use vortex_array::scalar_fn::builtin::cast::CastReduce;
     use vortex_array::validity::Validity;
     use vortex_buffer::Buffer;
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
+    use crate::FL_CHUNK_SIZE;
+    use crate::RLE;
     use crate::RLEData;
     use crate::rle::RLEArray;
 
@@ -238,6 +233,56 @@ mod tests {
         assert_arrays_eq!(
             casted,
             PrimitiveArray::from_iter([0u32, 5, 5, 5, 20]),
+            &mut ctx
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_cast_rle_float_target_pushes_down() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let int_arr = PrimitiveArray::from_option_iter([Some(-5i32), None, Some(10), Some(10)]);
+        let rle_int = rle(&int_arr, &mut ctx);
+        let reduced_int = <RLE as CastReduce>::cast(
+            rle_int.as_view(),
+            &DType::Primitive(PType::F32, Nullability::Nullable),
+        )?
+        .expect("int-to-float cast should push down to RLE values");
+        assert!(reduced_int.is::<RLE>());
+        assert_arrays_eq!(
+            reduced_int,
+            PrimitiveArray::from_option_iter([Some(-5.0f32), None, Some(10.0), Some(10.0)]),
+            &mut ctx
+        );
+
+        let f64_arr = PrimitiveArray::from_iter([1.5f64, 1.5, -2.25, 3.0]);
+        let rle_f64 = rle(&f64_arr, &mut ctx);
+        let reduced_f64 = <RLE as CastReduce>::cast(
+            rle_f64.as_view(),
+            &DType::Primitive(PType::F32, Nullability::NonNullable),
+        )?
+        .expect("float narrowing cast should push down to RLE values");
+        assert!(reduced_f64.is::<RLE>());
+        assert_arrays_eq!(
+            reduced_f64,
+            PrimitiveArray::from_iter([1.5f32, 1.5, -2.25, 3.0]),
+            &mut ctx
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_cast_rle_full_chunk_unused_value_fallible_cast() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let values = PrimitiveArray::from_iter([-5i32, 7]).into_array();
+        let indices = PrimitiveArray::from_iter(vec![1u8; FL_CHUNK_SIZE]).into_array();
+        let offsets = PrimitiveArray::from_iter([0u32]).into_array();
+        let encoded = RLE::try_new(values, indices, offsets, 0, FL_CHUNK_SIZE)?.into_array();
+
+        let casted = encoded.cast(DType::Primitive(PType::U32, Nullability::NonNullable))?;
+        assert_arrays_eq!(
+            casted,
+            PrimitiveArray::from_iter(vec![7u32; FL_CHUNK_SIZE]),
             &mut ctx
         );
         Ok(())
