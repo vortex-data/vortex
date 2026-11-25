@@ -108,7 +108,7 @@ impl VTable for Primitive {
             *ptype,
             "PrimitiveArray data ptype does not match dtype",
         );
-        PrimitiveData::validate_buffer_alignment(data.buffer_handle(), *ptype)?;
+        PrimitiveData::validate_buffer_layout(data.buffer_handle(), *ptype)?;
         vortex_ensure_eq!(
             data.len(),
             len,
@@ -249,5 +249,15 @@ mod tests {
         // SAFETY: this call is expected to fail the checked host buffer alignment invariant before
         // any rewritten array is returned or observed.
         assert!(unsafe { array.with_buffers([BufferHandle::new_host(misaligned)]) }.is_err());
+    }
+
+    #[test]
+    fn test_with_buffers_rejects_buffer_length_not_multiple_of_ptype_width() {
+        let array = PrimitiveArray::from_iter([0i32]).into_array();
+        let bytes = ByteBuffer::copy_from_aligned([0u8; 5], Alignment::of::<i32>());
+
+        // SAFETY: this call is expected to fail the checked buffer length divisibility invariant
+        // before any rewritten array is returned or observed.
+        assert!(unsafe { array.with_buffers([BufferHandle::new_host(bytes)]) }.is_err());
     }
 }

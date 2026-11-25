@@ -115,3 +115,15 @@ fn test_from_buffer_handle_rejects_misaligned_host_buffer() {
         Validity::NonNullable,
     );
 }
+
+#[test]
+#[should_panic(expected = "not a multiple of element width")]
+fn test_from_buffer_handle_rejects_length_not_multiple_of_ptype_width() {
+    let bytes = ByteBuffer::copy_from_aligned([0u8; 5], Alignment::of::<i32>());
+
+    PrimitiveArray::from_buffer_handle(
+        BufferHandle::new_host(bytes),
+        PType::I32,
+        Validity::NonNullable,
+    );
+}

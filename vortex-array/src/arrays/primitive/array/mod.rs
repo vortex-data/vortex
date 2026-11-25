@@ -500,12 +500,15 @@ impl PrimitiveData {
         &self.buffer
     }
 
-    pub(super) fn validate_buffer_alignment(
-        handle: &BufferHandle,
-        ptype: PType,
-    ) -> VortexResult<()> {
+    pub(super) fn validate_buffer_layout(handle: &BufferHandle, ptype: PType) -> VortexResult<()> {
+        let byte_width = ptype.byte_width();
+        vortex_ensure!(
+            handle.len().is_multiple_of(byte_width),
+            "PrimitiveArray buffer length {} is not a multiple of element width {byte_width} for {ptype}",
+            handle.len(),
+        );
         if let Some(byte_buffer) = handle.as_host_opt() {
-            let required = Alignment::new(ptype.byte_width());
+            let required = Alignment::new(byte_width);
             vortex_ensure!(
                 byte_buffer.is_aligned(required),
                 "PrimitiveArray host buffer is not aligned to {required} for {ptype}",
@@ -515,8 +518,8 @@ impl PrimitiveData {
     }
 
     pub fn from_buffer_handle(handle: BufferHandle, ptype: PType, _validity: Validity) -> Self {
-        Self::validate_buffer_alignment(&handle, ptype)
-            .vortex_expect("PrimitiveData host buffer must be aligned for ptype");
+        Self::validate_buffer_layout(&handle, ptype)
+            .vortex_expect("PrimitiveData buffer layout must be valid for ptype");
         Self {
             ptype,
             buffer: handle,
