@@ -205,7 +205,7 @@ jobs:
     timeout-minutes: 30
     env:
       # The commit of our nextest fork to run doctests with. See the install step below.
-      NEXTEST_DOCTESTS_REV: 31f8df296f560c6a932dabd34096019c81cd782e
+      NEXTEST_DOCTESTS_REV: d680b84ad20fe1e8299e78087e8fe0f4d6880b43
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
           && format('runs-on={0}/runner=amd64-ci-docs/image=ubuntu26-full-x64-pre-v2/extras=s3-cache/tag=rust-docs', format('{0}/region={1}', github.run_id, vars.CI_REGION || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T1') && 'ap-northeast-1') || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T2') && 'eu-west-2') || 'us-east-1'))
@@ -234,7 +234,7 @@ jobs:
       - name: Install nextest with doctest support
         if: steps.nextest-doctests.outputs.cache-hit != 'true'
         run: |
-          cargo install --locked --root "${RUNNER_TEMP}/nextest-doctests" \
+          cargo install --locked --quiet --root "${RUNNER_TEMP}/nextest-doctests" \
             --git https://github.com/vortex-data/nextest --rev "${NEXTEST_DOCTESTS_REV}" cargo-nextest
       # Save before running doctests so that a failing run still caches a good install.
       - name: Save nextest with doctest support
@@ -251,7 +251,11 @@ jobs:
           # Build docs for the whole workspace (aside from vortex-python that is having hard time with the python-docs syntax),
           # including all private docs.
           cargo doc --profile ci --no-deps --document-private-items --workspace --exclude vortex-python --exclude vortex-python-cuda
-          # Run doctests in parallel with the nextest fork installed above.
+      - name: Doctests
+        env:
+          RUSTDOCFLAGS: "-D warnings --cfg docsrs"
+        # Run doctests in parallel with the nextest fork installed above.
+        run: |
           "${RUNNER_TEMP}/nextest-doctests/bin/cargo-nextest" nextest run --cargo-profile ci --doc --workspace --all-features \
             --exclude vortex-jni --exclude vortex-ffi --exclude xtask --exclude vortex-python-cuda --no-fail-fast
 
