@@ -970,30 +970,6 @@ mod tests {
         obj("a", Scalar::primitive(value, Nullability::NonNullable))
     }
 
-    fn assert_variant_rows_eq(
-        result: ArrayRef,
-        expected: &[Scalar],
-        ctx: &mut vortex_array::ExecutionCtx,
-    ) -> VortexResult<()> {
-        let dtype = DType::Variant(Nullability::Nullable);
-        assert_eq!(result.dtype(), &dtype);
-        assert_eq!(result.len(), expected.len());
-
-        let executed = result.execute::<VariantArray>(ctx)?.into_array();
-        assert_eq!(executed.dtype(), &dtype);
-        assert_eq!(executed.len(), expected.len());
-
-        for (idx, expected_scalar) in expected.iter().enumerate() {
-            let expected_scalar = expected_scalar.cast(&dtype)?;
-            assert_eq!(
-                executed.execute_scalar(idx, ctx)?,
-                expected_scalar,
-                "row {idx} mismatch"
-            );
-        }
-        Ok(())
-    }
-
     #[test]
     fn variant_get_propagates_null_nested_shredded_struct() -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
@@ -1189,18 +1165,19 @@ mod tests {
         let expr = variant_get(root(), VariantPath::field("obj"), requested_dtype);
         let result = variant.apply(&expr)?;
 
-        assert_variant_rows_eq(
+        assert_arrays_eq!(
             result,
-            &[
+            variant_rows([
                 Scalar::variant(variant_object([
                     ("a", Scalar::primitive(10i32, Nullability::NonNullable)),
                     ("b", Scalar::utf8("raw0", Nullability::NonNullable)),
                 ])),
                 obj("b", Scalar::utf8("raw1", Nullability::NonNullable)),
                 Scalar::null(DType::Variant(Nullability::Nullable)),
-            ],
-            &mut ctx,
-        )
+            ])?,
+            &mut ctx
+        );
+        Ok(())
     }
 
     #[rstest]
@@ -1239,7 +1216,8 @@ mod tests {
         let expr = variant_get(root(), VariantPath::field("a"), None);
         let result = variant.apply(&expr)?;
 
-        assert_variant_rows_eq(result, &expected, &mut ctx)
+        assert_arrays_eq!(result, variant_rows(expected)?, &mut ctx);
+        Ok(())
     }
 
     #[rstest]
@@ -1250,16 +1228,16 @@ mod tests {
         let row0_list = Scalar::list(
             DType::Variant(Nullability::NonNullable),
             vec![
-                Scalar::variant(Scalar::primitive(1i32, Nullability::NonNullable)),
-                Scalar::variant(Scalar::primitive(2i32, Nullability::NonNullable)),
+                Scalar::variant(Scalar::primitive(10i32, Nullability::NonNullable)),
+                Scalar::variant(Scalar::primitive(20i32, Nullability::NonNullable)),
             ],
             Nullability::NonNullable,
         );
         let row1_list = Scalar::list(
             DType::Variant(Nullability::NonNullable),
             vec![
-                Scalar::variant(Scalar::primitive(3i32, Nullability::NonNullable)),
-                Scalar::variant(Scalar::primitive(4i32, Nullability::NonNullable)),
+                Scalar::variant(Scalar::primitive(30i32, Nullability::NonNullable)),
+                Scalar::variant(Scalar::primitive(40i32, Nullability::NonNullable)),
             ],
             Nullability::NonNullable,
         );
@@ -1289,11 +1267,12 @@ mod tests {
         let expr = variant_get(root(), VariantPath::root(), None);
         let result = variant.apply(&expr)?;
 
-        assert_variant_rows_eq(
+        assert_arrays_eq!(
             result,
-            &[Scalar::variant(row0_list), Scalar::variant(row1_list)],
-            &mut ctx,
-        )
+            variant_rows([Scalar::variant(row0_list), Scalar::variant(row1_list)])?,
+            &mut ctx
+        );
+        Ok(())
     }
 
     #[test]
