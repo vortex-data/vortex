@@ -7,8 +7,9 @@
 //! When a scan is made, it prepares its child once, prunes the child's rows by the zone maps of
 //! its filter's static conjuncts, and cuts the rows into [`units`](crate::split::units) at the
 //! chunk boundaries of the columns it reads, leaving out the units pruning rules out entirely.
-//! [`split`](crate::DataSourceScan::split) deals the same units out to the pieces in contiguous
-//! groups.
+//! [`split`](crate::DataSourceScan::split) deals the units out to the pieces in contiguous
+//! groups, first cutting them on the block grid where they are fewer than the pieces, as a small
+//! table's are.
 //!
 //! Every stream of an opened scan shares one [`Work`]: a stream claims one unit at a time from
 //! the front of the units it runs, and once it has none left it steals the back half of another
@@ -52,6 +53,7 @@ use crate::planning::driver::Progress;
 use crate::planning::driver::Run;
 use crate::planning::planner::WorkScope;
 use crate::prepare::PreparedScan;
+use crate::split::at_least_units;
 use crate::split::group_parts;
 use crate::split::kept_ranges;
 use crate::split::units;
@@ -123,12 +125,17 @@ impl Planned {
         self.units.len()
     }
 
-    /// Deals the units out to at most `n` pieces of contiguous units. Never empty.
+    /// Deals the units out to at most `n` pieces of contiguous units, cutting them on the block
+    /// grid first where they are fewer than `n`, as [`at_least_units`] does. Never empty.
     pub(super) fn split(self, n: usize) -> Vec<Self> {
         let Some(prepared) = self.prepared else {
             return vec![Self::empty()];
         };
-        group_parts(self.units, n)
+        let surviving = prepared
+            .kept
+            .as_ref()
+            .map(|kept| kept_ranges(prepared.scan.rows(), kept));
+        group_parts(at_least_units(self.units, surviving.as_deref(), n), n)
             .into_iter()
             .map(|units| Self {
                 prepared: Some(Arc::clone(&prepared)),

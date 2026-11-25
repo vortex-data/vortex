@@ -341,6 +341,38 @@ pub fn units(
         .collect()
 }
 
+/// `units`, sorted and disjoint, cut further where they are fewer than `min_units`, so that a host
+/// asking for `min_units` pieces gets one for each where the rows hold the blocks: the units'
+/// edges are cut by [`split_points`] into at least `min_units` parts of even weight in
+/// `surviving`, leaving out the parts of which no row survives.
+///
+/// Where the units are at least `min_units`, they are returned as they are, so a chunk is cut
+/// inside only for a scan, such as a small table's, that has fewer chunks than the host has
+/// threads to give it.
+pub fn at_least_units(
+    units: Vec<Range<u64>>,
+    surviving: Option<&[Range<u64>]>,
+    min_units: usize,
+) -> Vec<Range<u64>> {
+    let (Some(first), Some(last)) = (units.first(), units.last()) else {
+        return units;
+    };
+    if units.len() >= min_units {
+        return units;
+    }
+    let rows = first.start..last.end;
+    let edges: Vec<u64> = units
+        .iter()
+        .flat_map(|unit| [unit.start, unit.end])
+        .collect();
+    parts_between(&split_points(rows, &edges, surviving, min_units))
+        .into_iter()
+        .filter(|part| {
+            surviving.is_none_or(|surviving| surviving_rows(surviving, part.clone()) > 0)
+        })
+        .collect()
+}
+
 /// The conjuncts of `filter` that hold no dynamic expression, such as the bound a top-N or a
 /// join pushes down. The rows their zone pruning keeps when a scan is made hold for the whole
 /// scan, so both engines measure the scan's parts by them.
@@ -557,6 +589,26 @@ mod tests {
         #[case] expected: Vec<Range<u64>>,
     ) {
         assert_eq!(units(rows, boundaries, surviving), expected);
+    }
+
+    #[rstest]
+    #[case::enough_units_stay(vec![0..B, B..2 * B], None, 2, vec![0..B, B..2 * B])]
+    #[case::few_units_are_cut_on_the_block_grid(
+        vec![0..4 * B], None, 4, vec![0..B, B..2 * B, 2 * B..3 * B, 3 * B..4 * B]
+    )]
+    #[case::no_more_units_than_blocks(vec![0..B, B..2 * B], None, 8, vec![0..B, B..2 * B])]
+    #[allow(clippy::single_range_in_vec_init, reason = "one surviving range")]
+    #[case::cuts_follow_the_surviving_rows(
+        vec![0..2 * B, 4 * B..8 * B], Some(&[6 * B..8 * B][..]), 3,
+        vec![0..7 * B, 7 * B..8 * B]
+    )]
+    fn units_for_a_host(
+        #[case] units: Vec<Range<u64>>,
+        #[case] surviving: Option<&[Range<u64>]>,
+        #[case] min_units: usize,
+        #[case] expected: Vec<Range<u64>>,
+    ) {
+        assert_eq!(at_least_units(units, surviving, min_units), expected);
     }
 
     /// Without pruning, the units cover the rows in order, each non-empty and ending at a chunk
