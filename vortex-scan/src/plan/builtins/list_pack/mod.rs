@@ -32,6 +32,8 @@ use crate::plan::PlanVTable;
 
 mod element_index;
 pub(crate) mod execute;
+pub(crate) mod lengths;
+pub(crate) mod pushdown;
 
 const ELEMENTS: usize = 0;
 const OFFSETS: usize = 1;
