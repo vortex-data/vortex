@@ -235,22 +235,25 @@ def _extract_from_zip(archive_path: Path, target: str, crash_file: str, dst_path
 
 
 def _extract_from_tar(archive_path: Path, target: str, crash_file: str, dst_path: Path) -> None:
-    preferred = {f"{target}/{crash_file}", crash_file}
+    target_path = f"{target}/{crash_file}"
     with tarfile.open(archive_path, "r:*") as tf:
+        root_match: tarfile.TarInfo | None = None
         fallback: tarfile.TarInfo | None = None
         chosen: tarfile.TarInfo | None = None
         for count, member in enumerate(tf, start=1):
             if count > MAX_ARCHIVE_MEMBERS:
                 raise ValueError(f"Tar archive exceeds {MAX_ARCHIVE_MEMBERS} entries")
             normalized = member.name.lstrip("./")
-            if normalized in preferred:
+            if normalized == target_path:
                 chosen = member
                 break
-            if fallback is None and Path(member.name).name == crash_file:
+            if root_match is None and normalized == crash_file:
+                root_match = member
+            elif fallback is None and Path(member.name).name == crash_file:
                 fallback = member
 
         if chosen is None:
-            chosen = fallback
+            chosen = root_match or fallback
         if chosen is None:
             raise ValueError(f"Crash file {crash_file} not found in tar archive")
         if not chosen.isfile():
