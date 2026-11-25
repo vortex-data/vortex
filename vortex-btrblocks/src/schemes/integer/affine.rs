@@ -240,12 +240,9 @@ fn delta_allowed(
     compress_ctx: &CompressorContext,
 ) -> Option<SchemeId> {
     let delta_id = DeltaScheme::default().id();
-    let active = compressor.has_scheme(delta_id)
-        && !compress_ctx
-            .cascade_history()
-            .iter()
-            .any(|&(id, _)| id == delta_id);
-    active.then_some(delta_id)
+    compressor
+        .is_scheme_allowed(delta_id, compress_ctx)
+        .then_some(delta_id)
 }
 
 fn measure_affine_bits(

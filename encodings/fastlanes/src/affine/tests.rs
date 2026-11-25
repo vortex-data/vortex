@@ -1045,7 +1045,7 @@ fn compute_kernels_edge_cases() -> VortexResult<()> {
 }
 
 #[test]
-fn rejects_equal_width_unsigned_residuals_for_signed_dtype() {
+fn test_rejects_equal_width_unsigned_residuals_for_signed_dtype() {
     let encoded = PrimitiveArray::from_iter([0u32, 1]).into_array();
     let references = ConstantArray::new(100i32, 1).into_array();
     let scales = ConstantArray::new(1i32, 1).into_array();
@@ -1054,7 +1054,7 @@ fn rejects_equal_width_unsigned_residuals_for_signed_dtype() {
 }
 
 #[test]
-fn decompress_handles_signed_dict_codes() -> VortexResult<()> {
+fn test_decompress_handles_signed_dict_codes() -> VortexResult<()> {
     let mut ctx = SESSION.create_execution_ctx();
     let codes = PrimitiveArray::from_iter([0i16, 1, 2, 1, 0]).into_array();
     let values = PrimitiveArray::from_iter([0u8, 3, 7]).into_array();
@@ -1073,7 +1073,45 @@ fn decompress_handles_signed_dict_codes() -> VortexResult<()> {
 }
 
 #[test]
-fn deserialize_rejects_non_integer_dtype() -> VortexResult<()> {
+fn test_decompress_handles_nullable_dict_residuals() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+
+    // Nullable codes, non-nullable values.
+    let null_codes = PrimitiveArray::from_option_iter([Some(0u8), None, Some(2), Some(1)]);
+    let values = PrimitiveArray::from_iter([0u8, 3, 7]).into_array();
+    let dict_null_codes = DictArray::try_new(null_codes.into_array(), values)?.into_array();
+    let affine_null_codes = Affine::try_new(
+        dict_null_codes,
+        ConstantArray::new(100i32, 1).into_array(),
+        ConstantArray::new(10i32, 1).into_array(),
+        ConstantArray::new(0i64, 1).into_array(),
+        0,
+        0,
+    )?;
+    let expected_null_codes =
+        PrimitiveArray::from_option_iter([Some(100i32), None, Some(170), Some(130)]);
+    assert_arrays_eq!(affine_null_codes, expected_null_codes, &mut ctx);
+
+    // Non-nullable codes referencing a nullable value.
+    let codes = PrimitiveArray::from_iter([0u8, 1, 2, 1]).into_array();
+    let null_values = PrimitiveArray::from_option_iter([Some(0u8), None, Some(7)]).into_array();
+    let dict_null_values = DictArray::try_new(codes, null_values)?.into_array();
+    let affine_null_values = Affine::try_new(
+        dict_null_values,
+        ConstantArray::new(100i32, 1).into_array(),
+        ConstantArray::new(10i32, 1).into_array(),
+        ConstantArray::new(0i64, 1).into_array(),
+        0,
+        0,
+    )?;
+    let expected_null_values =
+        PrimitiveArray::from_option_iter([Some(100i32), None, Some(170), None]);
+    assert_arrays_eq!(affine_null_values, expected_null_values, &mut ctx);
+    Ok(())
+}
+
+#[test]
+fn test_deserialize_rejects_non_integer_dtype() -> VortexResult<()> {
     let mut ctx = SESSION.create_execution_ctx();
     let values = PrimitiveArray::from_iter([100i32, 110, 120, 130]);
     let encoded = Affine::encode(&values, AffineOptions::FOR, &mut ctx)?.into_array();
@@ -1085,21 +1123,21 @@ fn deserialize_rejects_non_integer_dtype() -> VortexResult<()> {
     }
     let parts = SerializedArray::try_from(flat.freeze())?;
     let read_ctx = ReadContext::new(array_ctx.to_ids());
-    assert!(
-        parts
-            .decode(
-                &DType::Bool(Nullability::NonNullable),
-                values.len(),
-                &read_ctx,
-                &SESSION
-            )
-            .is_err()
-    );
+    for bad_dtype in [
+        DType::Bool(Nullability::NonNullable),
+        DType::Primitive(PType::F32, Nullability::NonNullable),
+    ] {
+        assert!(
+            parts
+                .decode(&bad_dtype, values.len(), &read_ctx, &SESSION)
+                .is_err()
+        );
+    }
     Ok(())
 }
 
 #[test]
-fn decompress_rejects_out_of_bounds_dict_codes() -> VortexResult<()> {
+fn test_decompress_rejects_out_of_bounds_dict_codes() -> VortexResult<()> {
     let mut ctx = SESSION.create_execution_ctx();
     let values = PrimitiveArray::from_iter([0u8, 3, 7]).into_array();
 
