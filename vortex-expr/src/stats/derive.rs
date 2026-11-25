@@ -71,3 +71,148 @@ pub fn stat_expr(
         .is_some()
         .then(|| bound::stat(expr.clone(), aggregate_fn.clone()))
 }
+
+#[cfg(test)]
+mod tests {
+    use std::fmt;
+
+    use vortex_array::IntoArray;
+    use vortex_array::VortexSessionExecute;
+    use vortex_array::aggregate_fn::AggregateFnVTableExt;
+    use vortex_array::aggregate_fn::EmptyOptions;
+    use vortex_array::aggregate_fn::NumericalAggregateOpts;
+    use vortex_array::aggregate_fn::fns::all_nan::AllNan;
+    use vortex_array::aggregate_fn::fns::all_non_nan::AllNonNan;
+    use vortex_array::aggregate_fn::fns::all_non_null::AllNonNull;
+    use vortex_array::aggregate_fn::fns::all_null::AllNull;
+    use vortex_array::aggregate_fn::fns::max::Max;
+    use vortex_array::aggregate_fn::fns::min::Min;
+    use vortex_array::aggregate_fn::fns::nan_count::NanCount;
+    use vortex_array::aggregate_fn::fns::null_count::NullCount;
+    use vortex_array::arrays::ConstantArray;
+    use vortex_array::dtype::DType;
+    use vortex_array::dtype::Nullability;
+    use vortex_array::dtype::PType;
+    use vortex_array::dtype::extension::ExtDType;
+    use vortex_array::dtype::extension::ExtId;
+    use vortex_array::dtype::extension::ExtVTable;
+    use vortex_array::scalar::Scalar;
+    use vortex_array::scalar::ScalarValue;
+    use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
+
+    use crate::ArrayExprExt;
+    use crate::bound::lit;
+    use crate::lambda::row_count::substitute_row_count;
+    use crate::stats::derive::stat_expr;
+
+    #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
+    struct EmptyMeta;
+
+    impl fmt::Display for EmptyMeta {
+        fn fmt(&self, _f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            Ok(())
+        }
+    }
+
+    #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
+    struct FloatExt;
+
+    impl ExtVTable for FloatExt {
+        type Metadata = EmptyMeta;
+        type StoredMetadata = Self::Metadata;
+        type NativeValue<'a> = &'a ScalarValue;
+
+        #[expect(clippy::disallowed_methods, reason = "test-only id")]
+        fn id(&self) -> ExtId {
+            ExtId::new("test.float_ext")
+        }
+
+        fn serialize_metadata(&self, _metadata: &Self::Metadata) -> VortexResult<Vec<u8>> {
+            Ok(vec![])
+        }
+
+        fn deserialize_metadata(&self, _data: &[u8]) -> VortexResult<Self::StoredMetadata> {
+            Ok(EmptyMeta)
+        }
+
+        fn metadata_from_storage(
+            &self,
+            stored_metadata: Self::StoredMetadata,
+            _storage_dtype: &DType,
+        ) -> VortexResult<Self::Metadata> {
+            Ok(stored_metadata)
+        }
+
+        fn storage_dtype(_metadata: &Self::Metadata) -> DType {
+            DType::Primitive(PType::F64, Nullability::NonNullable)
+        }
+
+        fn unpack_native<'a>(
+            _extension_dtype: &'a ExtDType<Self>,
+            storage_value: &'a ScalarValue,
+        ) -> VortexResult<Self::NativeValue<'a>> {
+            Ok(storage_value)
+        }
+    }
+
+    #[test]
+    fn literal_stat_derivation_matches_direct_aggregation() -> VortexResult<()> {
+        let session = VortexSession::empty();
+        let mut ctx = session.create_execution_ctx();
+        let float_ext =
+            ExtDType::<FloatExt>::try_new(EmptyMeta, Nullability::NonNullable)?.erased();
+
+        let literals = [
+            Scalar::from(5.0f64),
+            Scalar::from(f64::NAN),
+            Scalar::null(DType::Primitive(PType::F64, Nullability::Nullable)),
+            Scalar::extension_ref(float_ext, Scalar::from(f64::NAN)),
+        ];
+        let aggregates = [
+            ("null_count", NullCount.bind(EmptyOptions)),
+            ("nan_count", NanCount.bind(EmptyOptions)),
+            ("all_null", AllNull.bind(EmptyOptions)),
+            ("all_non_null", AllNonNull.bind(EmptyOptions)),
+            ("all_nan", AllNan.bind(EmptyOptions)),
+            ("all_non_nan", AllNonNan.bind(EmptyOptions)),
+            ("min_skip", Min.bind(NumericalAggregateOpts::skip_nans())),
+            ("max_skip", Max.bind(NumericalAggregateOpts::skip_nans())),
+            (
+                "min_include",
+                Min.bind(NumericalAggregateOpts::include_nans()),
+            ),
+            (
+                "max_include",
+                Max.bind(NumericalAggregateOpts::include_nans()),
+            ),
+        ];
+
+        for n in [0usize, 1, 3] {
+            for value in &literals {
+                for (label, aggregate) in &aggregates {
+                    let Some(expr) = stat_expr(&lit(value.clone()), aggregate, &session) else {
+                        continue;
+                    };
+
+                    let values = ConstantArray::new(value.clone(), n).into_array();
+                    let mut acc = aggregate.accumulator(values.dtype())?;
+                    acc.accumulate(&values, &mut ctx)?;
+                    let direct = acc.finish()?;
+
+                    let group_len = ConstantArray::new(Scalar::from(n as u64), 1).into_array();
+                    let projected = group_len.clone().apply_bound(&expr)?;
+                    let derived =
+                        substitute_row_count(projected, &group_len)?.execute_scalar(0, &mut ctx)?;
+
+                    assert_eq!(
+                        direct.value(),
+                        derived.value(),
+                        "mismatch for rows={n}, literal={value}, agg={label}: direct={direct}, derived={derived}"
+                    );
+                }
+            }
+        }
+        Ok(())
+    }
+}

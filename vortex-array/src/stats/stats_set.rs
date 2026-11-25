@@ -558,11 +558,32 @@ impl MutTypedStatsSetRef<'_, '_> {
                 self.get_scalar_bound::<Max>().and_then(|v| v.max_value()),
                 other.get_scalar_bound::<Min>().and_then(|v| v.min_value()),
             ) {
-                return if cmp(&self_max, &other_min) {
-                    // keep value
+                if cmp(&self_max, &other_min) {
+                    // Min and Max skip nulls and NaNs, so boundary order only proves sortedness
+                    // when `other` cannot start with a null (nulls sort first) and neither chunk
+                    // can hide a NaN (+NaN sorts after max, -NaN sorts before min under total
+                    // float ordering).
+                    let other_no_nulls = !other.dtype.is_nullable()
+                        || matches!(
+                            other.values.get_usize(Stat::NullCount),
+                            Precision::Exact(0) | Precision::Inexact(0)
+                        );
+                    let no_nans = !(self.dtype.is_float() || other.dtype.is_float())
+                        || (matches!(
+                            self.values.get_usize(Stat::NaNCount),
+                            Precision::Exact(0) | Precision::Inexact(0)
+                        ) && matches!(
+                            other.values.get_usize(Stat::NaNCount),
+                            Precision::Exact(0) | Precision::Inexact(0)
+                        ));
+                    if other_no_nulls && no_nans {
+                        // keep value
+                        return;
+                    }
                 } else {
                     self.set(stat, Precision::inexact(false));
-                };
+                    return;
+                }
             }
         }
         self.clear(stat);
@@ -605,6 +626,8 @@ mod test {
     use smallvec::smallvec;
     use vortex_session::VortexSession;
 
+    use crate::ArrayRef;
+    use crate::IntoArray;
     use crate::VortexSessionExecute;
     use crate::arrays::PrimitiveArray;
     use crate::dtype::DType;
@@ -1204,6 +1227,149 @@ mod test {
         assert_eq!(
             stats_ref.get_as::<bool>(Stat::IsSorted),
             Precision::exact(true)
+        );
+    }
+
+    #[rstest]
+    #[case::leading_null_in_right(
+        PrimitiveArray::from_option_iter([Some(1i32), Some(2)]).into_array(),
+        PrimitiveArray::from_option_iter([None, Some(3i32)]).into_array(),
+        Precision::Absent
+    )]
+    #[case::nullable_right_proven_non_null(
+        PrimitiveArray::from_option_iter([None, Some(1i32), Some(2)]).into_array(),
+        PrimitiveArray::from_option_iter([Some(3i32), Some(4)]).into_array(),
+        Precision::exact(ScalarValue::from(true))
+    )]
+    #[case::trailing_pos_nan_in_left(
+        PrimitiveArray::from_iter([1.0f64, f64::NAN]).into_array(),
+        PrimitiveArray::from_iter([2.0f64]).into_array(),
+        Precision::Absent
+    )]
+    #[case::leading_neg_nan_in_right(
+        PrimitiveArray::from_iter([1.0f64]).into_array(),
+        PrimitiveArray::from_iter([-f64::NAN, 2.0f64]).into_array(),
+        Precision::Absent
+    )]
+    #[case::nan_free_floats(
+        PrimitiveArray::from_iter([1.0f64, 2.0]).into_array(),
+        PrimitiveArray::from_iter([3.0f64, 4.0]).into_array(),
+        Precision::exact(ScalarValue::from(true))
+    )]
+    fn merge_sortedness_computed_chunks(
+        #[case] left: ArrayRef,
+        #[case] right: ArrayRef,
+        #[case] expected: Precision<ScalarValue>,
+    ) {
+        let mut ctx = SESSION.create_execution_ctx();
+        let requested = if left.dtype().is_float() {
+            [
+                Stat::Min,
+                Stat::Max,
+                Stat::NaNCount,
+                Stat::IsSorted,
+                Stat::IsStrictSorted,
+            ]
+        } else {
+            [
+                Stat::Min,
+                Stat::Max,
+                Stat::NullCount,
+                Stat::IsSorted,
+                Stat::IsStrictSorted,
+            ]
+        };
+        let left_stats = left.statistics().compute_all(&requested, &mut ctx).unwrap();
+        let right_stats = right
+            .statistics()
+            .compute_all(&requested, &mut ctx)
+            .unwrap();
+        let merged = left_stats.merge_ordered(&right_stats, left.dtype());
+
+        assert_eq!(merged.get(Stat::IsSorted), expected);
+        assert_eq!(merged.get(Stat::IsStrictSorted), expected);
+    }
+
+    #[rstest]
+    #[case::nullable_missing_null_count(
+        DType::Primitive(PType::I32, Nullability::Nullable),
+        DType::Primitive(PType::I32, Nullability::Nullable),
+        None,
+        None,
+        Precision::Absent
+    )]
+    #[case::non_nullable_left_nullable_right_missing_null_count(
+        DType::Primitive(PType::I32, Nullability::NonNullable),
+        DType::Primitive(PType::I32, Nullability::Nullable),
+        None,
+        None,
+        Precision::Absent
+    )]
+    #[case::nullable_inexact_zero_null_count(
+        DType::Primitive(PType::I32, Nullability::Nullable),
+        DType::Primitive(PType::I32, Nullability::Nullable),
+        None,
+        Some((Stat::NullCount, Precision::inexact(0u64))),
+        Precision::exact(ScalarValue::from(true))
+    )]
+    #[case::float_missing_nan_count(
+        DType::Primitive(PType::F64, Nullability::NonNullable),
+        DType::Primitive(PType::F64, Nullability::NonNullable),
+        None,
+        None,
+        Precision::Absent
+    )]
+    #[case::float_inexact_zero_nan_count(
+        DType::Primitive(PType::F64, Nullability::NonNullable),
+        DType::Primitive(PType::F64, Nullability::NonNullable),
+        Some((Stat::NaNCount, Precision::inexact(0u64))),
+        Some((Stat::NaNCount, Precision::inexact(0u64))),
+        Precision::exact(ScalarValue::from(true))
+    )]
+    fn merge_sortedness_boundary_evidence(
+        #[case] left_dtype: DType,
+        #[case] right_dtype: DType,
+        #[case] left_extra: Option<(Stat, Precision<ScalarValue>)>,
+        #[case] right_extra: Option<(Stat, Precision<ScalarValue>)>,
+        #[case] expected: Precision<ScalarValue>,
+    ) {
+        let (max, min) = if left_dtype.is_float() {
+            (ScalarValue::from(1.0f64), ScalarValue::from(2.0f64))
+        } else {
+            (ScalarValue::from(2i32), ScalarValue::from(3i32))
+        };
+        let mut left = StatsSet::from_iter([
+            (Stat::Max, Precision::Exact(max)),
+            (Stat::IsSorted, Precision::exact(true)),
+            (Stat::IsStrictSorted, Precision::exact(true)),
+        ]);
+        let mut right = StatsSet::from_iter([
+            (Stat::Min, Precision::Exact(min)),
+            (Stat::IsSorted, Precision::exact(true)),
+            (Stat::IsStrictSorted, Precision::exact(true)),
+        ]);
+        if let Some((stat, value)) = left_extra {
+            left.set(stat, value);
+        }
+        if let Some((stat, value)) = right_extra {
+            right.set(stat, value);
+        }
+
+        left.as_mut_typed_ref(&left_dtype)
+            .merge_ordered(&right.as_typed_ref(&right_dtype));
+        assert_eq!(left.get(Stat::IsSorted), expected);
+        assert_eq!(left.get(Stat::IsStrictSorted), expected);
+    }
+
+    #[test]
+    fn test_combine_sets_exact_false_with_inexact_true() {
+        let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
+        let mut stats = StatsSet::of(Stat::IsConstant, Precision::exact(false));
+        let other = StatsSet::of(Stat::IsConstant, Precision::inexact(true));
+        stats.combine_sets(&other, &dtype).unwrap();
+        assert_eq!(
+            stats.as_typed_ref(&dtype).get_as::<bool>(Stat::IsConstant),
+            Precision::exact(false)
         );
     }
 }

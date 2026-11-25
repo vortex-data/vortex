@@ -568,7 +568,10 @@ mod tests {
         // NaN literals fold through the nan_count and all_non_nan stats.
         assert_rewrite_eq!(
             falsify(&is_nan(lit(f32::NAN)))?,
-            Some(or(eq(lit(1u64), lit(0u64)), lit(false)))
+            Some(or(
+                eq(RowCount.new_expr(EmptyOptions, []), lit(0u64)),
+                eq(RowCount.new_expr(EmptyOptions, []), lit(0u64)),
+            ))
         );
         Ok(())
     }
@@ -589,7 +592,10 @@ mod tests {
         assert_rewrite_eq!(
             satisfy(&is_nan(lit(f32::NAN)))?,
             Some(or(
-                eq(lit(1u64), RowCount.new_expr(EmptyOptions, [])),
+                eq(
+                    RowCount.new_expr(EmptyOptions, []),
+                    RowCount.new_expr(EmptyOptions, []),
+                ),
                 lit(true),
             ))
         );
