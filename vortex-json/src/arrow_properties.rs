@@ -92,8 +92,13 @@ mod tests {
             }
         }
 
-        let array = ExtensionArray::try_new_from_vtable(Json, EmptyMetadata, builder.finish())?
-            .into_array();
+        let array = ExtensionArray::try_new_from_vtable(
+            Json,
+            EmptyMetadata,
+            builder.finish(),
+            &mut VortexSession::empty().create_execution_ctx(),
+        )?
+        .into_array();
 
         Ok(JsonCase {
             array,

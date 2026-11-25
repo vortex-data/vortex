@@ -69,6 +69,7 @@ mod tests {
             Vector,
             VectorMetadata::try_new(ptype, size)?,
             storage.array,
+            &mut ctx,
         )?
         .into_array();
 
@@ -180,9 +181,13 @@ mod tests {
             ("ARROW:extension:metadata".to_owned(), arrow_metadata),
         ]);
         let expected = storage.arrow;
-        let tensor =
-            ExtensionArray::try_new_from_vtable(FixedShapeTensor, metadata, storage.array)?
-                .into_array();
+        let tensor = ExtensionArray::try_new_from_vtable(
+            FixedShapeTensor,
+            metadata,
+            storage.array,
+            &mut ctx,
+        )?
+        .into_array();
 
         assert_eq!(tensor.dtype().as_extension().serialize_metadata()?, wire);
         check_generated(tc, tensor, &field, expected, &mut ctx)
@@ -205,6 +210,7 @@ mod tests {
             Vector,
             VectorMetadata::try_new(PType::F32, 0)?,
             storage,
+            &mut ctx,
         )?
         .into_array();
         let child = Arc::new(Field::new("item", DataType::Float32, false));

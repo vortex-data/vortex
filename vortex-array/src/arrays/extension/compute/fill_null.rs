@@ -31,8 +31,9 @@ impl FillNullKernel for Extension {
             .ext_dtype()
             .with_nullability(storage.dtype().nullability());
 
+        // Each value comes from the input extension array or the checked fill scalar.
         Ok(Some(
-            ExtensionArray::try_new(ext_dtype, storage)?.into_array(),
+            ExtensionArray::try_new_structural(ext_dtype, storage)?.into_array(),
         ))
     }
 }
@@ -70,24 +71,26 @@ mod tests {
     #[case::non_nullable_fill(Nullability::NonNullable)]
     #[case::nullable_fill(Nullability::Nullable)]
     fn fill_null_timestamps(#[case] nullability: Nullability) -> VortexResult<()> {
-        let input = ExtensionArray::new(
+        let mut ctx = SESSION.create_execution_ctx();
+        let input = ExtensionArray::try_new(
             timestamp(Nullability::Nullable),
             PrimitiveArray::from_option_iter([Some(10i64), None, Some(30), None]).into_array(),
-        )
+            &mut ctx,
+        )?
         .into_array();
         let fill = Scalar::extension_ref(
             timestamp(nullability),
             Scalar::primitive(99i64, nullability),
         );
 
-        let mut ctx = SESSION.create_execution_ctx();
         let result = input.fill_null(fill)?;
 
-        let expected = ExtensionArray::new(
+        let expected = ExtensionArray::try_new(
             timestamp(nullability),
             PrimitiveArray::new(buffer![10i64, 99, 30, 99], Validity::from(nullability))
                 .into_array(),
-        );
+            &mut ctx,
+        )?;
         assert_arrays_eq!(result, expected, &mut ctx);
         Ok(())
     }

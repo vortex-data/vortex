@@ -196,7 +196,7 @@ fn collect_list_rows(
     // running sum over the same elements, so the flag still holds. Forwarding it matters:
     // `list_from_list_view` re-gathers the whole payload when it reads `false`.
     let storage = unsafe { storage.with_zero_copy_to_list(zero_copy_to_list) }.into_array();
-    Ok(ExtensionArray::try_new(output_dtype.clone(), storage)?.into_array())
+    Ok(ExtensionArray::try_new(output_dtype.clone(), storage, ctx)?.into_array())
 }
 
 /// Apply [`collect_list_rows`] to a constant or column, after shared unary null dispatch.

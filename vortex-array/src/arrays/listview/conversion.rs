@@ -288,7 +288,12 @@ pub fn recursive_list_from_list_view(
 
             // Avoid cloning if elements didn't change.
             if !ArrayRef::ptr_eq(&converted_storage, ext_array.storage_array()) {
-                ExtensionArray::new(ext_array.ext_dtype().clone(), converted_storage).into_array()
+                // SAFETY: list and list-view storage have the same dtype. Conversion keeps
+                // the values of ext_array, including its nulls.
+                let result = unsafe {
+                    ExtensionArray::new_unchecked(ext_array.ext_dtype().clone(), converted_storage)
+                };
+                result.into_array()
             } else {
                 ext_array.into_array()
             }

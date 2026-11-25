@@ -82,6 +82,7 @@ pub struct ScanBuilder {
     selection: Selection,
     row_offset: u64,
     skip_unselective_dynamic: bool,
+    validate_extension_values: bool,
 }
 
 impl ScanBuilder {
@@ -96,6 +97,7 @@ impl ScanBuilder {
             selection: Selection::default(),
             row_offset: 0,
             skip_unselective_dynamic: false,
+            validate_extension_values: false,
         }
     }
 
@@ -133,6 +135,14 @@ impl ScanBuilder {
         self
     }
 
+    /// Checks visible extension values in each output batch when enabled. Off by default.
+    ///
+    /// Validation applies to the selected rows and projected columns.
+    pub fn with_validate_extension_values(mut self, validate: bool) -> Self {
+        self.validate_extension_values = validate;
+        self
+    }
+
     /// Restricts scanning to a contiguous file-local row range.
     pub fn with_row_range(mut self, row_range: Range<u64>) -> Self {
         self.row_range = Some(row_range);
@@ -167,7 +177,8 @@ impl ScanBuilder {
             .with_some_filter(self.filter)
             .with_selection(self.selection)
             .with_row_offset(self.row_offset)
-            .with_skip_unselective_dynamic(self.skip_unselective_dynamic);
+            .with_skip_unselective_dynamic(self.skip_unselective_dynamic)
+            .with_validate_extension_values(self.validate_extension_values);
         if let Some(rows) = self.row_range {
             builder = builder.with_row_range(rows);
         }

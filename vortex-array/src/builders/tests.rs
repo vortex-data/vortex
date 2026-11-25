@@ -1075,14 +1075,15 @@ fn test_append_scalar_repeated_same_instance() {
     |array: &ArrayRef| array.as_::<FixedSizeList>().elements().clone()
 )]
 #[case::extension_storage(
-    ExtensionArray::new(
+    ExtensionArray::try_new(
         Timestamp::new(TimeUnit::Milliseconds, Nullability::NonNullable).erased(),
         ConstantArray::new(
             Scalar::primitive(0i64, Nullability::NonNullable),
             CHUNK_LEN,
         )
         .into_array(),
-    )
+        &mut SESSION.create_execution_ctx(),
+    ).vortex_expect("test storage is valid")
     .into_array(),
     |array: &ArrayRef| array.as_::<Extension>().storage().clone()
 )]

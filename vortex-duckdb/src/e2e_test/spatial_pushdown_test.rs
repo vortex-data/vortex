@@ -65,7 +65,13 @@ fn native_point_file() -> NamedTempFile {
             storage.dtype().nullability(),
         )
         .unwrap();
-        let points = ExtensionArray::new(dtype.erased(), storage).into_array();
+        let points = ExtensionArray::try_new(
+            dtype.erased(),
+            storage,
+            &mut vortex::array::ExecutionCtx::new(vortex::session::VortexSession::empty()),
+        )
+        .expect("test storage is valid")
+        .into_array();
 
         let file = NamedTempFile::with_suffix(".vortex").unwrap();
         let table = StructArray::from_fields(&[("geometry", points)]).unwrap();

@@ -53,7 +53,7 @@ impl RowFnExecutionArgs<'_> {
                 let values =
                     self.validate_kernel_output(values, self.batch.probe.row_count, ctx)?;
 
-                return self.finalize_output(values, self.batch.probe.row_count);
+                return self.finalize_output(values, self.batch.probe.row_count, ctx);
             }
             Mask::AllFalse(_) => return Ok(self.all_null()),
             Mask::Values(valid_rows) => valid_rows,
@@ -88,7 +88,7 @@ impl RowFnExecutionArgs<'_> {
         let values = self.validate_kernel_output(values, valid.len(), ctx)?;
 
         let mask = valid.as_ref().into_array();
-        self.finalize_output(values.mask(mask)?, valid.len())
+        self.finalize_output(values.mask(mask)?, valid.len(), ctx)
             .map(Some)
     }
 }

@@ -1,9 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::sync::Arc;
+
 use num_traits::AsPrimitive;
 use vortex::array::ArrayRef;
 use vortex::array::IntoArray;
+use vortex::array::VortexSessionExecute;
 use vortex::array::arrays::BoolArray;
 use vortex::array::arrays::DecimalArray;
 use vortex::array::arrays::ExtensionArray;
@@ -11,9 +14,9 @@ use vortex::array::arrays::FixedSizeListArray;
 use vortex::array::arrays::ListViewArray;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::StructArray;
-use vortex::array::arrays::TemporalArray;
 use vortex::array::arrays::decimal::check_precision;
 use vortex::array::arrays::decimal::copy_to_canonical_width;
+use vortex::array::arrays::extension::validate_extension_values;
 use vortex::array::buffer::BufferHandle;
 use vortex::array::builders::ArrayBuilder;
 use vortex::array::builders::VarBinViewBuilder;
@@ -36,7 +39,10 @@ use vortex::encodings::uuid::UuidMetadata;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
+use vortex::extension::datetime::Date;
+use vortex::extension::datetime::Time;
 use vortex::extension::datetime::TimeUnit;
+use vortex::extension::datetime::Timestamp;
 use vortex::mask::Mask;
 use vortex_spatial::extension::SpatialMetadata;
 use vortex_spatial::extension::WellKnownBinary;
@@ -242,32 +248,37 @@ fn process_duckdb_lists(
     }
 }
 
-/// Converts flat vector to a vortex array
-pub fn flat_vector_to_vortex(vector: &VectorRef, len: usize) -> VortexResult<ArrayRef> {
+fn timestamp_from_storage(
+    storage: ArrayRef,
+    unit: TimeUnit,
+    time_zone: Option<Arc<str>>,
+) -> VortexResult<ArrayRef> {
+    let dtype = Timestamp::try_new_with_tz(unit, time_zone, storage.dtype().nullability())?;
+    Ok(ExtensionArray::try_new_structural(dtype.erased(), storage)?.into_array())
+}
+
+fn flat_vector_to_vortex(vector: &VectorRef, len: usize) -> VortexResult<ArrayRef> {
     let logical_type = vector.logical_type();
     match logical_type.as_type_id() {
         DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP => {
             let arr = vector_mapped(vector, len, |duckdb_timestamp { micros }| *micros);
-            Ok(TemporalArray::new_timestamp(arr, TimeUnit::Microseconds, None).into_array())
+            timestamp_from_storage(arr, TimeUnit::Microseconds, None)
         }
         DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_S => {
             let arr = vector_mapped(vector, len, |duckdb_timestamp_s { seconds }| *seconds);
-            Ok(TemporalArray::new_timestamp(arr, TimeUnit::Seconds, None).into_array())
+            timestamp_from_storage(arr, TimeUnit::Seconds, None)
         }
         DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_MS => {
             let arr = vector_mapped(vector, len, |duckdb_timestamp_ms { millis }| *millis);
-            Ok(TemporalArray::new_timestamp(arr, TimeUnit::Milliseconds, None).into_array())
+            timestamp_from_storage(arr, TimeUnit::Milliseconds, None)
         }
         DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_NS => {
             let arr = vector_mapped(vector, len, |duckdb_timestamp_ns { nanos }| *nanos);
-            Ok(TemporalArray::new_timestamp(arr, TimeUnit::Nanoseconds, None).into_array())
+            timestamp_from_storage(arr, TimeUnit::Nanoseconds, None)
         }
         DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_TZ => {
             let arr = vector_mapped(vector, len, |duckdb_timestamp { micros }| *micros);
-            Ok(
-                TemporalArray::new_timestamp(arr, TimeUnit::Microseconds, Some("UTC".into()))
-                    .into_array(),
-            )
+            timestamp_from_storage(arr, TimeUnit::Microseconds, Some("UTC".into()))
         }
         DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_TZ_NS => {
             let arr = vector_mapped(vector, len, |duckdb_timestamp_ns { nanos }| *nanos);
@@ -278,15 +289,18 @@ pub fn flat_vector_to_vortex(vector: &VectorRef, len: usize) -> VortexResult<Arr
         }
         DUCKDB_TYPE::DUCKDB_TYPE_DATE => {
             let arr = vector_mapped(vector, len, |duckdb_date { days }| *days);
-            Ok(TemporalArray::new_date(arr, TimeUnit::Days).into_array())
+            let dtype = Date::try_new(TimeUnit::Days, arr.dtype().nullability())?.erased();
+            Ok(ExtensionArray::try_new_structural(dtype, arr)?.into_array())
         }
         DUCKDB_TYPE::DUCKDB_TYPE_TIME => {
             let arr = vector_mapped(vector, len, |duckdb_time { micros }| *micros);
-            Ok(TemporalArray::new_time(arr, TimeUnit::Microseconds).into_array())
+            let dtype = Time::try_new(TimeUnit::Microseconds, arr.dtype().nullability())?.erased();
+            Ok(ExtensionArray::try_new_structural(dtype, arr)?.into_array())
         }
         DUCKDB_TYPE::DUCKDB_TYPE_TIME_NS => {
             let arr = vector_mapped(vector, len, |duckdb_time_ns { nanos }| *nanos);
-            Ok(TemporalArray::new_time(arr, TimeUnit::Nanoseconds).into_array())
+            let dtype = Time::try_new(TimeUnit::Nanoseconds, arr.dtype().nullability())?.erased();
+            Ok(ExtensionArray::try_new_structural(dtype, arr)?.into_array())
         }
         DUCKDB_TYPE::DUCKDB_TYPE_VARCHAR => Ok(vector_as_string_blob(
             vector,
@@ -308,7 +322,7 @@ pub fn flat_vector_to_vortex(vector: &VectorRef, len: usize) -> VortexResult<Arr
             )?
             .erased();
 
-            Ok(ExtensionArray::try_new(wkb_type, wkb_values.into_array())?.into_array())
+            Ok(ExtensionArray::try_new_structural(wkb_type, wkb_values)?.into_array())
         }
         DUCKDB_TYPE::DUCKDB_TYPE_BOOLEAN => {
             let data = vector.as_slice_with_len::<bool>(len);
@@ -395,7 +409,7 @@ pub fn flat_vector_to_vortex(vector: &VectorRef, len: usize) -> VortexResult<Arr
             )?
             .erased();
 
-            Ok(ExtensionArray::try_new(ext_dtype, storage.into_array())?.into_array())
+            Ok(ExtensionArray::try_new_structural(ext_dtype, storage.into_array())?.into_array())
         }
         DUCKDB_TYPE::DUCKDB_TYPE_ARRAY => {
             let array_elem_size = vector.logical_type().array_type_array_size();
@@ -464,13 +478,15 @@ pub fn data_chunk_to_vortex(
             flat_vector_to_vortex(vector, len.as_())
         })
         .collect::<VortexResult<Vec<_>>>()?;
-    StructArray::try_new(
+    let array = StructArray::try_new(
         field_names.clone(),
         columns,
         len.as_(),
         Validity::NonNullable,
-    )
-    .map(|a| a.into_array())
+    )?
+    .into_array();
+    validate_extension_values(&array, &mut crate::SESSION.create_execution_ctx())?;
+    Ok(array)
 }
 
 #[cfg(test)]
@@ -480,10 +496,10 @@ mod tests {
 
     use geo_types::point;
     use rstest::rstest;
-    use vortex::array::VortexSessionExecute;
     use vortex::array::arrays::BoolArray;
     use vortex::array::arrays::Decimal;
     use vortex::array::arrays::Extension;
+    use vortex::array::arrays::TemporalArray;
     use vortex::array::arrays::VarBinViewArray;
     use vortex::array::arrays::fixed_size_list::FixedSizeListArrayExt;
     use vortex::array::arrays::listview::ListViewArrayExt;
@@ -501,6 +517,7 @@ mod tests {
     use super::*;
     use crate::cpp;
     use crate::cpp::DUCKDB_TYPE;
+    use crate::duckdb::DataChunk;
     use crate::duckdb::LogicalType;
     use crate::duckdb::Vector;
 
@@ -537,6 +554,21 @@ mod tests {
             *storage = <T as BigCast>::from(slot)
                 .vortex_expect("test slot must fit the DuckDB storage width");
         }
+    }
+
+    #[test]
+    fn import_rejects_time_over_one_day() {
+        let mut chunk = DataChunk::new([LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_TIME)]);
+        chunk.set_len(1);
+        let vector = chunk.get_vector_mut(0);
+        // SAFETY: The vector has one initialized slot of type duckdb_time.
+        let slots = unsafe { vector.as_slice_mut::<duckdb_time>(1) };
+        slots[0].micros = 86_400_000_001;
+
+        let names = FieldNames::from_iter(["time"]);
+        let err = data_chunk_to_vortex(&names, &chunk)
+            .expect_err("a visible time beyond one day must fail import");
+        assert!(err.to_string().contains("Invalid time scalar"), "{err}");
     }
 
     #[test]

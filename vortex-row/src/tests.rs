@@ -115,7 +115,8 @@ fn reject_temporal_extension_dtype_early() -> VortexResult<()> {
     let mut ctx = SESSION.create_execution_ctx();
     let storage = PrimitiveArray::from_iter([2i32, -1, 0, 7]).into_array();
     let ext_dtype = Date::new(TimeUnit::Days, Nullability::NonNullable).erased();
-    let col = ExtensionArray::new(ext_dtype, storage).into_array();
+    let col = ExtensionArray::try_new(ext_dtype, storage, &mut SESSION.create_execution_ctx())?
+        .into_array();
 
     let err = convert_columns(&[col], &[RowSortField::ascending()], &mut ctx)
         .expect_err("temporal extensions should be rejected");
@@ -131,7 +132,9 @@ fn reject_nested_temporal_extension_dtype_early() -> VortexResult<()> {
     let mut ctx = SESSION.create_execution_ctx();
     let storage = PrimitiveArray::from_iter([2i32, -1, 0, 7]).into_array();
     let ext_dtype = Date::new(TimeUnit::Days, Nullability::NonNullable).erased();
-    let date_col = ExtensionArray::new(ext_dtype, storage).into_array();
+    let date_col =
+        ExtensionArray::try_new(ext_dtype, storage, &mut SESSION.create_execution_ctx())?
+            .into_array();
     let tag_col = VarBinViewArray::from_iter_str(["d", "b", "c", "a"]).into_array();
     let struct_col =
         StructArray::from_fields(&[("date", date_col), ("tag", tag_col)])?.into_array();

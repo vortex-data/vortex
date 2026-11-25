@@ -37,14 +37,24 @@ mod test {
 
         // Create storage array
         let storage = buffer![1i32, 2, 3, 4, 5].into_array();
-        let array = ExtensionArray::new(ext_dtype.clone(), storage);
+        let array = ExtensionArray::try_new(
+            ext_dtype.clone(),
+            storage,
+            &mut SESSION.create_execution_ctx(),
+        )
+        .expect("test storage is valid");
         test_filter_conformance(&array.into_array(), &mut SESSION.create_execution_ctx());
 
         // Test with nullable extension type
         let ext_dtype_nullable = ext_dtype.with_nullability(Nullability::Nullable);
         let storage = PrimitiveArray::from_option_iter([Some(1i32), None, Some(3), Some(4), None])
             .into_array();
-        let array = ExtensionArray::new(ext_dtype_nullable, storage);
+        let array = ExtensionArray::try_new(
+            ext_dtype_nullable,
+            storage,
+            &mut SESSION.create_execution_ctx(),
+        )
+        .expect("test storage is valid");
         test_filter_conformance(&array.into_array(), &mut SESSION.create_execution_ctx());
     }
 
@@ -53,7 +63,7 @@ mod test {
         // Simple extension type (non-nullable i64)
         let storage = buffer![1i64, 2, 3, 4, 5].into_array();
         let ext_dtype = Timestamp::new(TimeUnit::Milliseconds, Nullability::NonNullable).erased();
-        ExtensionArray::new(ext_dtype, storage)
+        ExtensionArray::try_new(ext_dtype, storage, &mut SESSION.create_execution_ctx()).expect("test storage is valid")
     })]
     #[case({
         // Nullable extension type
@@ -63,7 +73,7 @@ mod test {
             TimeUnit::Milliseconds,
             Nullability::Nullable,
         ).erased();
-        ExtensionArray::new(ext_dtype_nullable, storage)
+        ExtensionArray::try_new(ext_dtype_nullable, storage, &mut SESSION.create_execution_ctx()).expect("test storage is valid")
     })]
     #[case({
         // Single element
@@ -72,7 +82,7 @@ mod test {
             TimeUnit::Milliseconds,
             Nullability::NonNullable,
         ).erased();
-        ExtensionArray::new(ext_dtype_single, storage)
+        ExtensionArray::try_new(ext_dtype_single, storage, &mut SESSION.create_execution_ctx()).expect("test storage is valid")
     })]
     #[case({
         // Larger array for edge cases
@@ -81,7 +91,7 @@ mod test {
             TimeUnit::Milliseconds,
             Nullability::NonNullable,
         ).erased();
-        ExtensionArray::new(ext_dtype_large, storage)
+        ExtensionArray::try_new(ext_dtype_large, storage, &mut SESSION.create_execution_ctx()).expect("test storage is valid")
     })]
     fn test_take_extension_array_conformance(#[case] array: ExtensionArray) {
         test_take_conformance(&array.into_array(), &mut SESSION.create_execution_ctx());
@@ -113,18 +123,18 @@ mod tests {
     #[case::extension_simple({
         let storage = buffer![1i64, 2, 3, 4, 5].into_array();
         let ext_dtype = Timestamp::new(TimeUnit::Milliseconds, Nullability::NonNullable).erased();
-        ExtensionArray::new(ext_dtype, storage)
+        ExtensionArray::try_new(ext_dtype, storage, &mut SESSION.create_execution_ctx()).expect("test storage is valid")
     })]
     #[case::extension_nullable({
         let storage = PrimitiveArray::from_option_iter([Some(1i64), None, Some(3), Some(4), None])
             .into_array();
         let ext_dtype = Timestamp::new(TimeUnit::Milliseconds, Nullability::Nullable).erased();
-        ExtensionArray::new(ext_dtype, storage)
+        ExtensionArray::try_new(ext_dtype, storage, &mut SESSION.create_execution_ctx()).expect("test storage is valid")
     })]
     #[case::extension_large({
         let storage = buffer![0..100i64].into_array();
         let ext_dtype = Timestamp::new(TimeUnit::Milliseconds, Nullability::NonNullable).erased();
-        ExtensionArray::new(ext_dtype, storage)
+        ExtensionArray::try_new(ext_dtype, storage, &mut SESSION.create_execution_ctx()).expect("test storage is valid")
     })]
     fn test_extension_consistency(#[case] array: ExtensionArray) {
         test_array_consistency(&array.into_array(), &mut SESSION.create_execution_ctx());

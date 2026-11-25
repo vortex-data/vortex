@@ -288,9 +288,15 @@ fn spatial_ext_scalar<V: ExtVTable<StoredMetadata = SpatialStoredMetadata>>(
     storage: ArrayRef,
     session: &VortexSession,
 ) -> VortexResult<Scalar> {
-    ExtensionArray::try_from_storage_with_vtable(vtable, SpatialStoredMetadata::default(), storage)?
-        .into_array()
-        .execute_scalar(0, &mut session.create_execution_ctx())
+    let mut ctx = session.create_execution_ctx();
+    ExtensionArray::try_from_storage_with_vtable(
+        vtable,
+        SpatialStoredMetadata::default(),
+        storage,
+        &mut ctx,
+    )?
+    .into_array()
+    .execute_scalar(0, &mut ctx)
 }
 
 /// Coordinate reference system stored alongside a spatial storage dtype.

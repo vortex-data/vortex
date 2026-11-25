@@ -9,6 +9,7 @@ use std::fmt::Formatter;
 use std::hash::BuildHasher;
 use std::hash::Hash;
 use std::sync::Arc;
+use std::sync::Weak;
 
 use arc_swap::ArcSwap;
 use arc_swap::Guard;
@@ -60,6 +61,14 @@ impl<K: Debug, V: Debug, S> Debug for ArcSwapMap<K, V, S> {
 }
 
 impl<K, V, S> ArcSwapMap<K, V, S> {
+    pub(crate) fn downgrade(&self) -> Weak<ArcSwap<HashMap<K, V, S>>> {
+        Arc::downgrade(&self.inner)
+    }
+
+    pub(crate) fn from_inner(inner: Arc<ArcSwap<HashMap<K, V, S>>>) -> Self {
+        Self { inner }
+    }
+
     /// Return the currently published map snapshot.
     pub fn snapshot(&self) -> Arc<HashMap<K, V, S>> {
         self.inner.load_full()

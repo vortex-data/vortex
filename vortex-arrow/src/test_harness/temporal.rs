@@ -151,7 +151,7 @@ mod tests {
                 .build()?,
         );
         let field = Field::new("value", arrow_dtype, dtype.is_nullable());
-        let array = ExtensionArray::try_new(dtype, storage.array)?.into_array();
+        let array = ExtensionArray::try_new(dtype, storage.array, &mut ctx)?.into_array();
         check_generated(tc, array, &field, expected, &mut ctx)
     }
 

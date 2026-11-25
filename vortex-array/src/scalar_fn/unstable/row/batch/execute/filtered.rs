@@ -59,6 +59,6 @@ impl RowFnExecutionArgs<'_> {
         let values = self.validate_kernel_output(values, self.batch.probe.row_count, ctx)?;
 
         let mask = valid.as_ref().into_array();
-        self.finalize_output(values.mask(mask)?, self.batch.probe.row_count)
+        self.finalize_output(values.mask(mask)?, self.batch.probe.row_count, ctx)
     }
 }

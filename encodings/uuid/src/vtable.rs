@@ -5,6 +5,14 @@
 
 use std::sync::Arc;
 
+use uuid::Version;
+use vortex_array::ArrayRef;
+use vortex_array::Canonical;
+use vortex_array::Columnar;
+use vortex_array::ExecutionCtx;
+use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::fixed_size_list::FixedSizeListArrayExt;
+use vortex_array::arrays::fixed_size_list::FixedSizeListArraySlotsExt;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
@@ -15,6 +23,7 @@ use vortex_array::scalar::PValue;
 use vortex_array::scalar::ScalarValue;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 use vortex_session::registry::CachedId;
@@ -75,6 +84,57 @@ impl ExtVTable for Uuid {
         )
     }
 
+    fn validate_array(
+        ext_dtype: &ExtDType<Self>,
+        storage: &ArrayRef,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
+        vortex_ensure_eq!(storage.dtype(), ext_dtype.storage_dtype());
+        let Some(expected) = ext_dtype.metadata().version else {
+            return Ok(());
+        };
+
+        let list = match storage.clone().execute::<Columnar>(ctx)? {
+            Columnar::Constant(array) => {
+                if !array.is_empty()
+                    && let Some(value) = array.scalar().value()
+                {
+                    Self::validate_scalar_value(ext_dtype, value)?;
+                }
+                return Ok(());
+            }
+            Columnar::Canonical(Canonical::FixedSizeList(list)) => list,
+            Columnar::Canonical(_) => vortex_bail!("UUID storage must be a fixed-size list"),
+        };
+        let valid = list
+            .fixed_size_list_validity()
+            .execute_mask(list.len(), ctx)?;
+        if valid.all_false() {
+            return Ok(());
+        }
+        let bytes = list.elements().clone().execute::<PrimitiveArray>(ctx)?;
+        let bytes = bytes.buffer_handle().try_to_host_sync()?;
+
+        let (values, _) = bytes.as_chunks::<UUID_BYTE_LEN>();
+        for (row, (bytes, valid)) in values.iter().zip(valid.iter()).enumerate() {
+            if !valid {
+                continue;
+            }
+            // Nil and Max are defined by all 16 bytes. Other versions use only the nibble.
+            let matches = match expected {
+                Version::Nil => *bytes == [0; UUID_BYTE_LEN],
+                Version::Max => *bytes == [u8::MAX; UUID_BYTE_LEN],
+                _ => bytes[6] >> 4 == expected as u8,
+            };
+            vortex_ensure!(
+                matches,
+                "UUID version mismatch at row {row}: expected {expected:?}"
+            );
+        }
+
+        Ok(())
+    }
+
     fn unpack_native<'a>(
         ext_dtype: &ExtDType<Self>,
         storage_value: &'a ScalarValue,
@@ -124,6 +184,11 @@ mod tests {
 
     use rstest::rstest;
     use uuid::Version;
+    use vortex_array::IntoArray;
+    use vortex_array::VortexSessionExecute;
+    use vortex_array::arrays::FixedSizeListArray;
+    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::compute::conformance::extension::test_ext_vtable_conformance;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
@@ -131,11 +196,48 @@ mod tests {
     use vortex_array::dtype::extension::ExtDTypePlugin;
     use vortex_array::dtype::extension::ExtVTable;
     use vortex_array::scalar::Scalar;
+    use vortex_array::validity::Validity;
     use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
 
     use crate::Uuid;
     use crate::UuidMetadata;
     use crate::vtable::UUID_BYTE_LEN;
+
+    #[rstest]
+    #[case::v4(Version::Random, *uuid::uuid!("550e8400-e29b-41d4-a716-446655440000").as_bytes(), true, true)]
+    #[case::wrong_version(Version::SortRand, *uuid::uuid!("550e8400-e29b-41d4-a716-446655440000").as_bytes(), true, false)]
+    #[case::masked(Version::Random, [0; UUID_BYTE_LEN], false, true)]
+    #[case::nil(Version::Nil, [0; UUID_BYTE_LEN], true, true)]
+    #[case::not_nil(Version::Nil, *uuid::uuid!("01000000-0000-0000-0000-000000000000").as_bytes(), true, false)]
+    #[case::max(Version::Max, [u8::MAX; UUID_BYTE_LEN], true, true)]
+    #[case::not_max(Version::Max, *uuid::uuid!("efffffff-ffff-ffff-ffff-ffffffffffff").as_bytes(), true, false)]
+    fn validate_uuid_array(
+        #[case] version: Version,
+        #[case] bytes: [u8; UUID_BYTE_LEN],
+        #[case] valid: bool,
+        #[case] accepted: bool,
+    ) -> VortexResult<()> {
+        let storage = FixedSizeListArray::try_new(
+            PrimitiveArray::from_iter(bytes).into_array(),
+            UUID_BYTE_LEN as u32,
+            Validity::from_iter([valid]),
+            1,
+        )?
+        .into_array();
+        let dtype = ExtDType::<Uuid>::try_new(
+            UuidMetadata {
+                version: Some(version),
+            },
+            Nullability::Nullable,
+        )?;
+        let mut ctx = VortexSession::empty().create_execution_ctx();
+        let result = Uuid::validate_array(&dtype, &storage, &mut ctx);
+        assert_eq!(result.is_ok(), accepted, "{result:?}");
+        test_ext_vtable_conformance(&dtype, &storage, &mut ctx);
+
+        Ok(())
+    }
 
     #[rstest]
     #[case::no_version(None, &[])]

@@ -15,6 +15,9 @@ pub use vtable::ExtensionArray;
 
 pub(crate) mod compute;
 
+mod validate;
+pub use validate::validate_extension_values;
+
 mod vtable;
 pub use vtable::Extension;
 

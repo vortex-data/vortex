@@ -7,11 +7,13 @@ use std::sync::Arc;
 
 use num_traits::AsPrimitive;
 use vortex_buffer::BitBufferMut;
+use vortex_buffer::Buffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
+use vortex_mask::AllOr;
 use vortex_mask::Mask;
 
 use crate::ArrayRef;
@@ -328,29 +330,68 @@ impl Default for ListViewData {
     }
 }
 
-/// Walks parallel `(offset, size)` slices and sets each range `[offset, offset + size]` in `buf`.
-///
-/// **Preconditions**
-///
-/// `offsets` and `sizes` must be the same length (which is always the case in valid `ListViewArray`s).
-fn fill_referenced_mask<O: IntegerPType, S: IntegerPType>(
-    buf: &mut BitBufferMut,
+/// Returns the union of element ranges referenced by the selected rows.
+pub(crate) fn referenced_elements_mask(
+    list: &(impl ListViewArrayExt + ?Sized),
+    rows: &Mask,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Mask> {
+    let offsets = list.offsets().clone().execute::<PrimitiveArray>(ctx)?;
+    let sizes = list.sizes().clone().execute::<PrimitiveArray>(ctx)?;
+    let offset_bytes = offsets.buffer_handle().try_to_host_sync()?;
+    let size_bytes = sizes.buffer_handle().try_to_host_sync()?;
+    let mut elements = BitBufferMut::new_unset(list.elements().len());
+
+    // Offsets and sizes are non-negative, so the signedness does not affect the bit pattern.
+    match_each_unsigned_integer_ptype!(offsets.ptype().to_unsigned(), |O| {
+        match_each_unsigned_integer_ptype!(sizes.ptype().to_unsigned(), |S| {
+            fill_referenced_mask(
+                &mut elements,
+                &Buffer::<O>::from_byte_buffer(offset_bytes),
+                &Buffer::<S>::from_byte_buffer(size_bytes),
+                rows,
+            )?;
+        })
+    });
+
+    Ok(Mask::from_buffer(elements.freeze()))
+}
+
+fn fill_referenced_mask<O: Copy + Into<u64>, S: Copy + Into<u64>>(
+    elements: &mut BitBufferMut,
     offsets: &[O],
     sizes: &[S],
-) {
-    let len = offsets.len();
-
-    assert_eq!(
-        len,
-        sizes.len(),
-        "offsets and sizes must be the same length"
-    );
-
-    for i in 0..len {
-        let start: usize = offsets[i].as_();
-        let size: usize = sizes[i].as_();
-        buf.fill_range(start, start + size, true);
+    rows: &Mask,
+) -> VortexResult<()> {
+    match rows.slices() {
+        AllOr::All => fill_referenced_ranges(elements, offsets, sizes),
+        AllOr::None => Ok(()),
+        AllOr::Some(ranges) => {
+            for &(start, end) in ranges {
+                fill_referenced_ranges(elements, &offsets[start..end], &sizes[start..end])?;
+            }
+            Ok(())
+        }
     }
+}
+
+fn fill_referenced_ranges<O: Copy + Into<u64>, S: Copy + Into<u64>>(
+    elements: &mut BitBufferMut,
+    offsets: &[O],
+    sizes: &[S],
+) -> VortexResult<()> {
+    let len = elements.len() as u64;
+    for (&offset, &size) in offsets.iter().zip(sizes) {
+        let start: u64 = offset.into();
+        let size: u64 = size.into();
+        // Check the range before narrowing its bounds to host indices.
+        let end = start.checked_add(size).filter(|end| *end <= len);
+        let end = end.ok_or_else(|| {
+            vortex_err!("List view at offset {start} with size {size} exceeds its elements")
+        })?;
+        elements.fill_range(start.as_(), end.as_(), true);
+    }
+    Ok(())
 }
 
 pub trait ListViewArrayExt: TypedArrayRef<ListView> {
@@ -424,29 +465,7 @@ pub trait ListViewArrayExt: TypedArrayRef<ListView> {
     /// `self.elements()` must be non-empty.
     fn compute_referenced_elements_mask(&self, ctx: &mut ExecutionCtx) -> VortexResult<Mask> {
         assert!(!self.elements().is_empty());
-        let len = self.elements().len();
-
-        let offsets_primitive = self.offsets().clone().execute::<PrimitiveArray>(ctx)?;
-        let sizes_primitive = self.sizes().clone().execute::<PrimitiveArray>(ctx)?;
-
-        let mut buf = BitBufferMut::new_unset(len);
-
-        // Offsets/sizes are non-negative; reinterpret to unsigned (4x4 instead of 8x8).
-        let offsets_primitive =
-            offsets_primitive.reinterpret_cast(offsets_primitive.ptype().to_unsigned());
-        let sizes_primitive =
-            sizes_primitive.reinterpret_cast(sizes_primitive.ptype().to_unsigned());
-        match_each_unsigned_integer_ptype!(offsets_primitive.ptype(), |O| {
-            match_each_unsigned_integer_ptype!(sizes_primitive.ptype(), |S| {
-                fill_referenced_mask::<O, S>(
-                    &mut buf,
-                    offsets_primitive.as_slice::<O>(),
-                    sizes_primitive.as_slice::<S>(),
-                );
-            })
-        });
-
-        Ok(Mask::from_buffer(buf.freeze()))
+        referenced_elements_mask(self, &Mask::new_true(self.len()), ctx)
     }
 
     /// Exact fraction of `elements` referenced by some view, in `[0.0, 1.0]`. Extremely costly.
@@ -825,4 +844,21 @@ fn validate_zctl(
     vortex_ensure!(element_references.iter().all(|&references| references <= 1));
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+
+    use super::*;
+
+    #[rstest]
+    #[case::outside_elements(3, 1)]
+    #[case::overflow(u64::MAX, 2)]
+    fn referenced_mask_rejects_out_of_bounds_ranges(#[case] offset: u64, #[case] size: u64) {
+        let mut elements = BitBufferMut::new_unset(3);
+        let err = fill_referenced_mask(&mut elements, &[offset], &[size], &Mask::new_true(1))
+            .expect_err("a view outside the elements must return an error");
+        assert!(err.to_string().contains("exceeds its elements"), "{err}");
+    }
 }

@@ -118,8 +118,13 @@ mod tests {
         )?
         .into_array();
 
-        let array = ExtensionArray::try_new_from_vtable(Uuid, UuidMetadata { version }, storage)?
-            .into_array();
+        let array = ExtensionArray::try_new_from_vtable(
+            Uuid,
+            UuidMetadata { version },
+            storage,
+            &mut VortexSession::empty().create_execution_ctx(),
+        )?
+        .into_array();
 
         Ok(UuidCase {
             array,
