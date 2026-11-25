@@ -189,7 +189,7 @@ logical_opt [
                                         "name": "READ_VORTEX",
                                         "children": [],
                                         "extra_info": {
-                                            "Filters": "",
+                                            "Filters": "($.SearchPhrase != \"\")",
                                             "Function": "Vortex Scan"
                                         }
                                     },
@@ -284,6 +284,7 @@ physical_plan [
                                 "children": [],
                                 "extra_info": {
                                     "Function": "Vortex Scan",
+                                    "Filters": "($.SearchPhrase != \"\")",
                                     "Projections": [
                                         "EventTime",
                                         "SearchPhrase"

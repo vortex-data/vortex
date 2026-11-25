@@ -270,6 +270,12 @@ def test_summary_limits_long_reminder_links_to_the_section_character_budget():
     assert section.endswith(f"+{30 - shown} more")
 
 
+def test_empty_summary_reports_all_clear():
+    message = render.reminder_summary({})
+    assert message.text == "Due today: all clear"
+    assert "All reminded items have been handled or snoozed." in json.dumps(message.blocks)
+
+
 def test_item_reminder_mentions_its_owners_and_marks_on_call():
     text = render.item_reminder(row(1), ["UALICE", "UBOB"], False, False, NOW).text
     assert text.startswith("⏰ <@UALICE>, <@UBOB>, this item waits on you · 🔴 High · waiting 2d")
