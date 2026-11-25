@@ -9,7 +9,6 @@ use vortex::dtype::PType;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
-use vortex::expr::BoundExpression;
 use vortex::expr::Expression;
 use vortex::expr::and_collect;
 use vortex::expr::col;
@@ -18,8 +17,8 @@ use vortex::expr::lit;
 use vortex::expr::pack;
 use vortex::expr::root;
 use vortex::expr::select;
-use vortex::layout::layouts::row_idx::row_idx;
 use vortex::scalar::Scalar;
+use vortex::scan::row_idx::row_idx;
 use vortex::scan::selection::Selection;
 use vortex_utils::aliases::hash_set::HashSet;
 
@@ -190,8 +189,7 @@ impl Projection {
 }
 
 pub struct Filter {
-    pub filter: Option<BoundExpression>,
-    /// `filter` before binding, for scans that bind it against each file.
+    /// The scan's filter, which each file's source binds against the file.
     pub expr: Option<Expression>,
     pub row_selection: Selection,
     pub row_range: Option<Range<u64>>,
@@ -260,13 +258,8 @@ impl Filter {
         };
 
         let expr = and_collect(table_filter_exprs);
-        let filter = expr
-            .as_ref()
-            .map(|expr| expr.bind(dtype)?.optimize_recursive())
-            .transpose()?;
 
         let out = Self {
-            filter,
             expr,
             row_selection,
             row_range,
@@ -302,7 +295,7 @@ mod tests {
     use vortex::expr::lit;
     use vortex::expr::pack;
     use vortex::expr::root;
-    use vortex::layout::layouts::row_idx::row_idx;
+    use vortex::scan::row_idx::row_idx;
 
     use super::*;
 

@@ -18,17 +18,17 @@ use rstest::rstest;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
+use vortex_array::arrays::Chunked;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::Struct;
 use vortex_array::arrays::StructArray;
+use vortex_array::arrays::VarBinViewArray;
+use vortex_array::arrays::chunked::ChunkedArrayExt as _;
+use vortex_array::arrays::struct_::StructArrayExt as _;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
-use vortex_array::expr::Expression;
-use vortex_array::expr::get_item;
-use vortex_array::expr::gt;
-use vortex_array::expr::lit;
-use vortex_array::expr::root;
 use vortex_array::scalar_fn::builtin::operators::CompareOperator;
 use vortex_buffer::Alignment;
 use vortex_buffer::Buffer;
@@ -36,14 +36,22 @@ use vortex_buffer::ByteBuffer;
 use vortex_buffer::ByteBufferMut;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
+use vortex_expr::Expression;
+use vortex_expr::get_item;
+use vortex_expr::gt;
+use vortex_expr::lit;
+use vortex_expr::root;
 use vortex_functions::expr::dynamic;
 use vortex_io::VortexReadAt;
 use vortex_io::session::RuntimeSession;
-use vortex_layout::scan::scan_builder::ScanBuilder;
+use vortex_layout::scan::options::LayoutScanOptions;
+use vortex_layout::scan::split_by::SplitBy;
 use vortex_layout::session::LayoutSession;
 use vortex_scan::DataSourceRef;
 use vortex_scan::ScanRequest;
-use vortex_scan::source::PlanDataSource;
+use vortex_scan::prepare::ScanBuilder as PreparedScanBuilder;
+use vortex_scan::split::MAX_PART_ROWS;
+use vortex_scan::split::MIN_BATCH_ROWS;
 use vortex_scan::stream::ScanExec;
 use vortex_scan::stream::ScanStream;
 use vortex_session::VortexSession;
@@ -200,42 +208,42 @@ async fn open_reads_every_row_once(#[case] filtered: bool) -> VortexResult<()> {
     Ok(())
 }
 
-/// A child's splits are its parts, each of several chunks, and the workers read every row of them once.
+/// The pieces of a split scan together read every selected row once, whether the scan has units
+/// enough for every piece or fewer, when it makes as many pieces as units.
 #[rstest]
-#[case::projection(false)]
-#[case::filter(true)]
+#[case::projection_few_pieces(false, 4)]
+#[case::filter_few_pieces(true, 4)]
+#[case::projection_many_pieces(false, 32)]
+#[case::filter_many_pieces(true, 32)]
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[cfg_attr(miri, ignore)]
-async fn open_cuts_parts_on_file_splits(#[case] filtered: bool) -> VortexResult<()> {
-    let file = open_one_file().await?;
-    let splits = [0, 150_000, 400_000, u64::from(ROWS)];
-    let source: DataSourceRef = Arc::new(PlanDataSource::from_child(
-        SESSION.clone(),
-        file.plan_child()
-            .with_splitter(Arc::new(move |_, _| Ok(splits.to_vec()))),
-    ));
-    let scan = source
+async fn split_pieces_read_every_row_once(
+    #[case] filtered: bool,
+    #[case] n: usize,
+) -> VortexResult<()> {
+    let scan = one_file()
+        .await?
         .scan(ScanRequest {
             filter: filtered.then(m_filter),
             ..request()
         })
         .await?;
-    let workers = read_stream(scan.open()?, 3).await?;
+    let pieces = scan.split(NonZeroUsize::new(n).unwrap_or(NonZeroUsize::MIN))?;
+    assert!(!pieces.is_empty() && pieces.len() <= n);
+    let mut workers = Vec::new();
+    for piece in pieces {
+        workers.extend(read_stream(piece.open()?, 2).await?);
+    }
     assert_eq!(sorted(workers), expected(0..ROWS, filtered));
     Ok(())
 }
 
-/// A file's parts are its layout splits over the fields the scan reads, as a V1 scan of the same
-/// fields cuts it: no batch of an unordered scan crosses one.
+/// No batch of an unordered scan crosses from one of its parts to the next.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[cfg_attr(miri, ignore)]
-async fn open_cuts_parts_on_layout_splits() -> VortexResult<()> {
+async fn open_returns_batches_within_parts() -> VortexResult<()> {
     let file = open_one_file().await?;
-    let splits = ScanBuilder::new(SESSION.clone(), file.layout_reader()?)
-        .with_projection(n().bind(file.dtype())?)
-        .full_file_splits()?;
-    assert!(splits.len() > 2, "the file has several layout splits");
-
+    let (_, parts) = part_points(&file, &n(), None, None, 1).await?;
     // One worker takes the parts in row order and finishes each before the next.
     let scan = file.plan_data_source().scan(request()).await?;
     let arrays: Vec<ArrayRef> = scan.open()?.stream().try_collect().await?;
@@ -244,21 +252,22 @@ async fn open_cuts_parts_on_layout_splits() -> VortexResult<()> {
         let end = boundaries.last().copied().unwrap_or(0) + array.len() as u64;
         boundaries.push(end);
     }
-    for split in splits {
+    assert_eq!(boundaries.last().copied(), Some(u64::from(ROWS)));
+    for cut in parts {
         assert!(
-            boundaries.contains(&split),
-            "a batch crosses layout split {split}"
+            boundaries.contains(&cut),
+            "a batch crosses the part boundary at row {cut}"
         );
     }
     Ok(())
 }
 
-/// A dynamic filter, such as a top-N's bound, prunes a file as a whole when the scan is made,
-/// before its parts are cut. The rows follow the bound as it stands when the streams read, not as
-/// it stood when the scan was made.
+/// A dynamic filter, such as a top-N's bound, prunes each part as it stands when a stream takes
+/// the part, whatever the part's size. The rows follow the bound as it stands when the streams
+/// read, not as it stood when the scan was made.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[cfg_attr(miri, ignore)]
-async fn scan_prunes_the_file_first_for_a_dynamic_filter() -> VortexResult<()> {
+async fn parts_prune_on_the_dynamic_filter_as_it_stands() -> VortexResult<()> {
     let bound = Arc::new(AtomicU32::new(0));
     let value = Arc::clone(&bound);
     let filter = dynamic(
@@ -312,5 +321,256 @@ async fn open_applies_the_limit(#[case] filtered: bool) -> VortexResult<()> {
     assert_eq!(all.len(), LIMIT);
     all.windows(2).for_each(|w| assert!(w[0] < w[1]));
     assert!(all.iter().all(|value| rows.binary_search(value).is_ok()));
+    Ok(())
+}
+
+/// The rows of [`chunked_strings`].
+const STRING_ROWS: u64 = 400_000;
+
+/// A file of an `s` column of strings, whose many distinct values the writer cuts into chunks off
+/// the 8192-row grid, beside an `n` column of row numbers.
+async fn chunked_strings() -> VortexResult<VortexFile> {
+    let s = VarBinViewArray::from_iter_str(
+        (0..STRING_ROWS).map(|row| format!("{:0>40}", (row / 30_000) * 5000 + row % 5000)),
+    )
+    .into_array();
+    let n = Buffer::from_iter(0..STRING_ROWS).into_array();
+    let array = StructArray::from_fields(&[("s", s), ("n", n)])?.into_array();
+    let mut buf = ByteBufferMut::empty();
+    SESSION
+        .write_options()
+        .write(&mut buf, array.to_array_stream())
+        .await?;
+    SESSION.open_options().open_buffer(buf.freeze())
+}
+
+/// The points at which each executor cuts a scan of `file` into at least `min_parts` parts, each
+/// measuring the parts by the rows its own zone pruning of the filter's static conjuncts keeps.
+async fn part_points(
+    file: &VortexFile,
+    projection: &Expression,
+    filter: Option<&Expression>,
+    rows: Option<Range<u64>>,
+    min_parts: usize,
+) -> VortexResult<(Vec<u64>, Vec<u64>)> {
+    let dtype = file.dtype();
+    let projection = projection.bind(dtype)?.optimize_recursive()?;
+    let filter = filter
+        .map(|filter| filter.bind(dtype)?.optimize_recursive())
+        .transpose()?;
+    let v1 = file
+        .scan()?
+        .with_projection(projection.clone())
+        .with_some_filter(filter.clone())
+        .with_split_by(SplitBy::Parts { min_parts });
+    let v2 = PreparedScanBuilder::new(SESSION.clone(), file.scan_file())
+        .with_projection(projection)
+        .with_some_filter(filter);
+    let (v1, v2) = match rows {
+        Some(rows) => (v1.with_row_range(rows.clone()), v2.with_row_range(rows)),
+        None => (v1, v2),
+    };
+    let v1 = v1.with_static_pruning().await?;
+    let v2 = Arc::new(v2.prepare()?);
+    let kept = v2.static_kept().await?;
+    Ok((
+        v1.split_points()?,
+        v2.part_points(min_parts, kept.as_ref())?,
+    ))
+}
+
+/// Both executors cut a scan into the same parts, so comparing them compares their execution.
+/// A scan whose zones prune few rows has at least as many parts as its floor asks for, where its
+/// rows hold the blocks; [`parts_share_a_selective_filters_rows`] covers the selective filter's.
+#[rstest]
+#[case::projection(get_item("s", root()), None, true)]
+#[case::identity(root(), None, true)]
+#[case::filter_on_two_fields(
+    get_item("n", root()),
+    Some(gt(get_item("s", root()), lit(format!("{:0>40}", 2500)))),
+    true
+)]
+#[case::filter_on_one_narrow_field(
+    get_item("n", root()),
+    Some(gt(get_item("n", root()), lit(10u64))),
+    true
+)]
+#[case::selective_filter(
+    get_item("s", root()),
+    Some(gt(get_item("n", root()), lit(SELECTED_FROM))),
+    false
+)]
+#[tokio::test]
+#[cfg_attr(miri, ignore)]
+async fn executors_cut_the_same_parts(
+    #[case] projection: Expression,
+    #[case] filter: Option<Expression>,
+    #[case] keeps_most_rows: bool,
+    #[values(None, Some(1000..350_123))] rows: Option<Range<u64>>,
+    #[values(1, 18, 64)] min_parts: usize,
+) -> VortexResult<()> {
+    let file = chunked_strings().await?;
+    let (v1, v2) =
+        part_points(&file, &projection, filter.as_ref(), rows.clone(), min_parts).await?;
+    assert_eq!(v1, v2);
+    let rows = rows.unwrap_or(0..STRING_ROWS);
+    assert_eq!(v2.first(), Some(&rows.start));
+    assert_eq!(v2.last(), Some(&rows.end));
+    if keeps_most_rows {
+        let blocks = usize::try_from((rows.end - rows.start).div_ceil(8192))?;
+        assert!(v2.len() > min_parts.min(blocks));
+    }
+    Ok(())
+}
+
+/// The first row a selective filter on [`chunked_strings`] keeps: its zones prune all rows before
+/// it, about nine tenths of the file.
+const SELECTED_FROM: u64 = 360_000;
+
+/// A scan of fewer rows than [`MAX_PART_ROWS`] with no floor on its parts is one part: its chunks
+/// are joined rather than cut on the row grid.
+#[tokio::test]
+#[cfg_attr(miri, ignore)]
+async fn small_scans_are_one_part() -> VortexResult<()> {
+    let file = chunked_strings().await?;
+    const { assert!(STRING_ROWS < MAX_PART_ROWS) };
+    for projection in [get_item("s", root()), root()] {
+        let (v1, v2) = part_points(&file, &projection, None, None, 1).await?;
+        assert_eq!(v1, vec![0, STRING_ROWS]);
+        assert_eq!(v2, vec![0, STRING_ROWS]);
+    }
+    Ok(())
+}
+
+/// A selective filter's parts hold about equal surviving rows, so the rows its zones keep are
+/// spread over a host's threads rather than left in the last part, and the rows its zones prune
+/// are not cut at all.
+#[rstest]
+#[tokio::test]
+#[cfg_attr(miri, ignore)]
+async fn parts_share_a_selective_filters_rows(
+    #[values(4, 8)] min_parts: usize,
+) -> VortexResult<()> {
+    let file = chunked_strings().await?;
+    let filter = gt(get_item("n", root()), lit(SELECTED_FROM));
+    let (_, points) = part_points(
+        &file,
+        &get_item("s", root()),
+        Some(&filter),
+        None,
+        min_parts,
+    )
+    .await?;
+    // The zones of `n` hold 8192 rows, so the first kept zone is the one that holds the first
+    // selected row.
+    let kept_from = SELECTED_FROM / 8192 * 8192;
+    let kept_blocks = usize::try_from((STRING_ROWS - kept_from).div_ceil(8192))?;
+    assert!(
+        points[1..points.len() - 1]
+            .iter()
+            .all(|&point| point > kept_from),
+        "{points:?}"
+    );
+    assert!(points.len() > min_parts.min(kept_blocks), "{points:?}");
+    let surviving: Vec<u64> = points
+        .windows(2)
+        .map(|pair| pair[1] - pair[0].max(kept_from))
+        .collect();
+    let (least, most) = (surviving.iter().min(), surviving.iter().max());
+    assert!(
+        most.zip(least)
+            .is_some_and(|(most, least)| most - least <= 2 * 8192),
+        "{points:?}"
+    );
+    Ok(())
+}
+
+/// The chunk boundaries of the fields of a struct `batch` that lie inside it.
+fn field_bounds(batch: &ArrayRef) -> Vec<usize> {
+    batch
+        .as_opt::<Struct>()
+        .into_iter()
+        .flat_map(|array| {
+            array
+                .iter_unmasked_fields()
+                .filter_map(|field| field.as_opt::<Chunked>())
+                .flat_map(|field| field.chunk_offset_values().to_vec())
+                .collect::<Vec<_>>()
+        })
+        .filter(|&bound| bound > 0 && bound < batch.len())
+        .collect()
+}
+
+/// Each executor, splitting a scan into the same parts, cuts its batches at the chunks of their
+/// fields: a boundary is left inside a batch only within [`MIN_BATCH_ROWS`] of its start or end,
+/// where cutting it would leave a narrower batch.
+#[rstest]
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[cfg_attr(miri, ignore)]
+async fn batches_are_cut_at_field_chunks(
+    #[values(false, true)] v2: bool,
+    #[values(false, true)] filtered: bool,
+) -> VortexResult<()> {
+    let file = chunked_strings().await?;
+    let source = if v2 {
+        file.plan_data_source()
+    } else {
+        file.layout_reader_data_source(
+            LayoutScanOptions::default().with_split_by(SplitBy::Parts { min_parts: 1 }),
+        )?
+    };
+    // Keeps every row but the first ten, so the batches have the same chunks as unfiltered.
+    let filter = filtered.then(|| gt(get_item("n", root()), lit(9u64)));
+    let scan = source
+        .scan(ScanRequest {
+            filter,
+            ..Default::default()
+        })
+        .await?;
+    let batches: Vec<ArrayRef> = scan.open()?.stream().try_collect().await?;
+    assert_eq!(
+        batches.iter().map(|batch| batch.len() as u64).sum::<u64>(),
+        STRING_ROWS - if filtered { 10 } else { 0 }
+    );
+    for batch in &batches {
+        assert!(!batch.is::<Chunked>(), "a batch is chunked");
+        for bound in field_bounds(batch) {
+            assert!(
+                bound < MIN_BATCH_ROWS || batch.len() - bound < MIN_BATCH_ROWS,
+                "a batch of {} rows holds a chunk boundary at {bound}",
+                batch.len()
+            );
+        }
+    }
+    Ok(())
+}
+
+/// A V1 scan split into parts gives a host one piece per thread it asks for where the file has
+/// the blocks, and the pieces together read every selected row once.
+#[rstest]
+#[case::projection_few_pieces(false, 4)]
+#[case::filter_many_pieces(true, 32)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[cfg_attr(miri, ignore)]
+async fn v1_parts_pieces_read_every_row_once(
+    #[case] filtered: bool,
+    #[case] n: usize,
+) -> VortexResult<()> {
+    let source = open_one_file().await?.layout_reader_data_source(
+        LayoutScanOptions::default().with_split_by(SplitBy::Parts { min_parts: 1 }),
+    )?;
+    let scan = source
+        .scan(ScanRequest {
+            filter: filtered.then(m_filter),
+            ..request()
+        })
+        .await?;
+    let pieces = scan.split(NonZeroUsize::new(n).unwrap_or(NonZeroUsize::MIN))?;
+    assert_eq!(pieces.len(), n);
+    let mut workers = Vec::new();
+    for piece in pieces {
+        workers.extend(read_stream(piece.open()?, 2).await?);
+    }
+    assert_eq!(sorted(workers), expected(0..ROWS, filtered));
     Ok(())
 }

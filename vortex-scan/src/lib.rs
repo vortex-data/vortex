@@ -32,6 +32,7 @@ pub mod prepare;
 pub mod row_mask;
 pub mod selection;
 pub mod source;
+pub mod split;
 pub mod stream;
 pub mod strict_sorted_buffer;
 
@@ -45,6 +46,7 @@ use futures::StreamExt;
 use futures::TryStreamExt;
 use futures::stream::BoxStream;
 use selection::Selection;
+use source::BindCache;
 use stream::ScanExec;
 use vortex_array::aggregate_fn::AggregateFnRef;
 use vortex_array::dtype::DType;
@@ -184,6 +186,9 @@ pub struct ScanRequest {
     /// order is completion order, so each partition applies the limit locally and the caller must
     /// trim the concatenated result.
     pub limit: Option<u64>,
+    /// Bound requests shared by the scans of sources of one schema, such as the files of a
+    /// multi-file scan, so each source need not bind the request again. `None` binds per source.
+    pub bind_cache: Option<BindCache>,
 }
 
 impl Default for ScanRequest {
@@ -197,6 +202,7 @@ impl Default for ScanRequest {
             ordered: false,
             limit: None,
             partition_range: None,
+            bind_cache: None,
         }
     }
 }

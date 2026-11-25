@@ -1,21 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex::aggregate_fn::AggregateFnRef;
-use vortex::aggregate_fn::AggregateFnVTableExt;
-use vortex::aggregate_fn::EmptyOptions;
-use vortex::aggregate_fn::NumericalAggregateOpts;
-use vortex::aggregate_fn::fns::max::Max;
-use vortex::aggregate_fn::fns::min::Min;
-use vortex::aggregate_fn::fns::nan_count::NanCount;
-use vortex::aggregate_fn::fns::null_count::NullCount;
-use vortex::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes;
 use vortex::array::match_each_float_ptype;
+use vortex::array::stats::StatsSet;
 use vortex::dtype::DType;
 use vortex::error::VortexExpect as _;
 use vortex::error::VortexResult;
-use vortex::expr::stats::Precision;
-use vortex::layout::layouts::file_stats::AggregateStats;
+use vortex::expr::stats::Stat;
 use vortex::scalar::Scalar;
 use vortex::scalar::ScalarValue;
 
@@ -81,25 +72,23 @@ pub struct ColumnStatisticsAggregate {
 }
 
 impl ColumnStatisticsAggregate {
-    pub fn new(aggregates: &AggregateStats) -> Self {
-        let exact = |aggregate_fn: AggregateFnRef| match aggregates.get(&aggregate_fn) {
-            Precision::Exact(value) => value.into_value(),
-            _ => None,
-        };
+    /// The statistics DuckDB reads of a column, from its exact values in `stats`, such as a data
+    /// source's [field statistics](vortex::scan::DataSource::field_statistics).
+    pub fn new(stats: &StatsSet) -> Self {
+        let exact = |stat: Stat| stats.get(stat).as_exact();
 
-        let min = exact(Min.bind(NumericalAggregateOpts::skip_nans()));
-        let max = exact(Max.bind(NumericalAggregateOpts::skip_nans()));
+        let min = exact(Stat::Min);
+        let max = exact(Stat::Max);
 
         // DuckDB's string length is u32
-        let max_string_length =
-            exact(UncompressedSizeInBytes.bind(EmptyOptions)).and_then(|value| {
-                u32::try_from(value.as_primitive().as_u64().vortex_expect("not a u64")).ok()
-            });
+        let max_string_length = exact(Stat::UncompressedSizeInBytes).and_then(|value| {
+            u32::try_from(value.as_primitive().as_u64().vortex_expect("not a u64")).ok()
+        });
 
-        let has_null = exact(NullCount.bind(EmptyOptions))
+        let has_null = exact(Stat::NullCount)
             .is_none_or(|count| count.as_primitive().as_u64().vortex_expect("not a u64") > 0);
 
-        let nan_count = exact(NanCount.bind(EmptyOptions))
+        let nan_count = exact(Stat::NaNCount)
             .map(|count| count.as_primitive().as_u64().vortex_expect("not a u64"));
 
         Self {

@@ -65,6 +65,32 @@ impl PrunePlanner {
             .iter()
             .flat_map(|filter| filter.pruning_over(rows.end - rows.start).cloned())
             .collect();
+        Self::with_plans(scan, rows, pruning, next)
+    }
+
+    /// The planner of `pruning` over `rows` of `scan`, starting from the rows `kept` already
+    /// keeps over them, or from all of them when that is `None`.
+    pub(crate) fn over_kept(
+        scan: Arc<PreparedScan>,
+        rows: Range<u64>,
+        pruning: Vec<PlanRef>,
+        kept: Option<Mask>,
+        next: PruneNext,
+    ) -> Self {
+        let mut planner = Self::with_plans(scan, rows, pruning, next);
+        if let Some(kept) = kept {
+            planner.mask = kept;
+            planner.pruned = true;
+        }
+        planner
+    }
+
+    fn with_plans(
+        scan: Arc<PreparedScan>,
+        rows: Range<u64>,
+        pruning: Vec<PlanRef>,
+        next: PruneNext,
+    ) -> Self {
         let len = usize::try_from(rows.end - rows.start).unwrap_or(usize::MAX);
         Self {
             scan,
@@ -141,9 +167,18 @@ impl Planner for PrunePlanner {
                 });
             }
             let input = self.mask.true_count();
-            let excluded = Mask::concat(self.pieces.iter())?;
+            let excluded = match self.pieces.as_slice() {
+                [piece] => piece.clone(),
+                pieces => Mask::concat(pieces.iter())?,
+            };
             vortex_ensure_eq!(excluded.len(), input);
-            self.mask = self.mask.intersect_by_rank(&!excluded);
+            self.mask = if excluded.all_false() {
+                std::mem::replace(&mut self.mask, Mask::new_true(0))
+            } else if self.mask.all_true() {
+                !excluded
+            } else {
+                self.mask.intersect_by_rank(&!excluded)
+            };
             tracing::debug!(
                 row_start = self.rows.start,
                 row_end = self.rows.end,

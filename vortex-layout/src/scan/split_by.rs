@@ -7,6 +7,7 @@ use std::ops::Range;
 use vortex_array::dtype::FieldMask;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 
 use crate::BoundaryMode;
@@ -31,7 +32,7 @@ pub const DEFAULT_MIN_SPLIT_ROWS: u64 = 8192;
 /// Defines how the Vortex file is split into batches for reading.
 ///
 /// Note that each split must fit into the platform's maximum usize.
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum SplitBy {
     /// Splits any time there is a chunk boundary in the file, and nowhere else. This yields
     /// splits that follow the file's chunking exactly, trading intra-file decode parallelism
@@ -48,6 +49,15 @@ pub enum SplitBy {
     LayoutSubSplitting { max_rows: u64 },
     /// Splits every n rows.
     RowCount(usize),
+    /// Splits into the parts the planner-driven executor cuts, so both executors split a scan
+    /// alike: the rows are cut at the chunk boundaries of the fields the scan reads and joined
+    /// into parts of up to [`MAX_PART_ROWS`](vortex_scan::split::MAX_PART_ROWS) surviving rows,
+    /// and a chunk is cut inside only to make at least `min_parts` of them where the rows hold
+    /// enough blocks. See [`split_points`](vortex_scan::split::split_points).
+    ///
+    /// Its parts depend on the scan's projection and filter, so only a
+    /// [`ScanBuilder`](crate::scan::scan_builder::ScanBuilder) computes them.
+    Parts { min_parts: usize },
     // UncompressedSize(u64),
 }
 
@@ -75,10 +85,15 @@ impl SplitBy {
                 vortex_ensure!(n > 0, "SplitBy::RowCount must be greater than zero");
                 Ok(())
             }
+            SplitBy::Parts { .. } => Ok(()),
         }
     }
 
     /// Compute the splits for the given layout.
+    ///
+    /// [`SplitBy::Parts`] is sized from a scan's projection and filter, which this does not see,
+    /// so it is an error here: a [`ScanBuilder`](crate::scan::scan_builder::ScanBuilder) computes
+    /// it.
     // TODO(ngates): remove this once layout readers are stream based.
     pub fn splits(
         &self,
@@ -112,13 +127,16 @@ impl SplitBy {
                 .step_by(n)
                 .chain(once(row_range.end))
                 .collect(),
+            SplitBy::Parts { .. } => {
+                vortex_bail!("SplitBy::Parts is sized from a scan; compute it with a ScanBuilder")
+            }
         })
     }
 }
 
 /// The sorted, deduplicated chunk boundaries the layout registers within `row_range`, bracketed
 /// by the range's start (the layout registers its end).
-fn layout_boundaries(
+pub(crate) fn layout_boundaries(
     layout_reader: &dyn LayoutReader,
     row_range: &Range<u64>,
     field_mask: &[FieldMask],

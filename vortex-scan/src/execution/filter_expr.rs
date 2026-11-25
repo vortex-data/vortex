@@ -47,7 +47,8 @@ pub struct FilterExpr {
     unselective_dynamic: Option<Vec<Mutex<(u64, u32)>>>,
 }
 
-fn bound_conjuncts(expr: &BoundExpression) -> Vec<BoundExpression> {
+/// The conjuncts of `expr`, in order.
+pub(crate) fn bound_conjuncts(expr: &BoundExpression) -> Vec<BoundExpression> {
     let mut conjuncts = Vec::new();
     let mut pending = vec![expr];
 

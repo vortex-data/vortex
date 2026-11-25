@@ -4,6 +4,7 @@
 use std::fmt::Debug;
 use std::fmt::Formatter;
 use std::fmt::Result;
+use std::num::NonZeroUsize;
 
 use crate::cpp;
 use crate::duckdb::TableFilterSet;
@@ -41,6 +42,22 @@ impl<'a> TableInitInput<'a> {
         unsafe {
             std::slice::from_raw_parts(self.input.projection_ids, self.input.projection_ids_count)
         }
+    }
+
+    /// The number of threads DuckDB runs, at least one.
+    pub fn max_threads(&self) -> NonZeroUsize {
+        usize::try_from(self.input.max_threads)
+            .ok()
+            .and_then(NonZeroUsize::new)
+            .unwrap_or(NonZeroUsize::MIN)
+    }
+
+    /// The number of files the scan reads, at least one.
+    pub fn file_count(&self) -> NonZeroUsize {
+        usize::try_from(self.input.file_count)
+            .ok()
+            .and_then(NonZeroUsize::new)
+            .unwrap_or(NonZeroUsize::MIN)
     }
 
     /// Returns the table filter set for the table function.

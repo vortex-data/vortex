@@ -4,6 +4,7 @@
 use std::cmp::max;
 use std::fmt::Formatter;
 use std::fmt::{self};
+use std::num::NonZeroUsize;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::AtomicU64;
@@ -33,7 +34,6 @@ use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::error::vortex_ensure;
 use vortex::error::vortex_err;
-use vortex::expr::BoundExpression;
 use vortex::expr::Expression;
 use vortex::expr::col;
 use vortex::expr::proto::ExprSerializeProtoExt;
@@ -41,7 +41,7 @@ use vortex::expr::proto::ExprSerializeProtoExt;
 use vortex::metrics::tracing::get_global_labels;
 use vortex::proto::expr as expr_pb;
 use vortex::scalar::Scalar;
-use vortex::scan::planning::driver::Run;
+use vortex::scan::source::BindCache;
 use vortex::scan::stream::ScanStream;
 use vortex_utils::aliases::hash_map::HashMap;
 
@@ -182,13 +182,15 @@ impl<'a> TableInitInput<'a> {
 }
 
 pub struct GlobalState {
-    pub projection: BoundExpression,
-    /// The projection before binding, for scans that bind it against each file.
+    /// The projection before binding, which each file's scan binds against the file.
     pub projection_expr: Expression,
     pub filter: Filter,
+    /// The pieces each file's scan cut into parts is split into, and so the fewest parts it is
+    /// cut into: [`file_pieces`].
+    pub file_pieces: NonZeroUsize,
+    /// The scan's request bound to the files' schema, shared by every file's scan.
+    pub bind_cache: BindCache,
     pub file_row_number_column_pos: Option<usize>,
-    /// Whether the scan runs on the planner-driven V2 executor.
-    pub scan_v2: bool,
 
     // Following fields are used only in aggregate scans.
     pub aggregate_state: Mutex<AggregateState>,
@@ -205,14 +207,14 @@ pub struct AggregateState {
 }
 assert_impl_all!(GlobalState: Send, Sync);
 
-/// The scan work that one thread does on a file.
-pub enum Split {
-    /// A stream of the file's V1 scan, which the thread polls inline. It claims the file's splits
-    /// as it has room for them until none is left, and yields only the splits it claimed. `None`
-    /// until the thread's first scan call creates it, outside DuckDB's lock.
-    V1(Option<ScanStream>),
-    /// Chunks of the file's V2 scan, taken by the thread until the scan has none left.
-    V2,
+/// The scan work that one thread does on a file: a stream of one piece of the file's scan, which
+/// the thread polls inline. It takes the piece's work as it has room for it until none is left,
+/// and yields only the work it took.
+pub struct Split {
+    /// The piece of the file's scan the stream reads.
+    pub piece: usize,
+    /// The stream, `None` until the thread's first scan call creates it, outside DuckDB's lock.
+    pub stream: Option<ScanStream>,
 }
 
 /// field position, accumulator
@@ -228,10 +230,6 @@ pub struct LocalState {
     /// DuckDB's global multi-file lock; see `OpenFileReader`.
     pub(crate) retired_files: Vec<Arc<FileScanState>>,
     pub(crate) retired_splits: Vec<Split>,
-    /// The planning run on which this thread runs the chunks of V2 scans.
-    pub(crate) run: Run,
-    /// Chunks of an array that this thread has yet to export, in reverse order.
-    pub(crate) pending: Vec<ArrayRef>,
 
     /// Empty for non-aggregate scan
     pub partials: Partials,
@@ -308,6 +306,17 @@ pub fn finish_reading(global: &GlobalState, local: &mut LocalState) {
     agg.active_threads -= 1;
 }
 
+/// The pieces each file's scan is cut into, given DuckDB's `threads`
+/// and the scan's `files`: at least two, and two for each thread shared out over the files.
+///
+/// Each piece holds a contiguous run of the file's units, one per claim, and threads that finish a
+/// piece early move on to another. Within a piece, a thread with no unit left steals the back half
+/// of another thread's unclaimed units.
+fn file_pieces(threads: NonZeroUsize, files: NonZeroUsize) -> NonZeroUsize {
+    let pieces = (2 * threads.get()).div_ceil(files.get()).max(2);
+    NonZeroUsize::new(pieces).vortex_expect("at least two pieces")
+}
+
 pub fn init_global(init_input: &TableInitInput) -> VortexResult<GlobalState> {
     let bind_data = init_input.bind_data();
 
@@ -349,7 +358,7 @@ pub fn init_global(init_input: &TableInitInput) -> VortexResult<GlobalState> {
 
     debug!(
         %projection,
-        filter = filter.filter
+        filter = filter.expr
             .as_ref()
             .map_or_else(|| "true".to_string(), |f| f.to_string()),
         row_selection = ?filter.row_selection,
@@ -357,18 +366,18 @@ pub fn init_global(init_input: &TableInitInput) -> VortexResult<GlobalState> {
         "table function scan input"
     );
 
-    let projection_expr = projection.clone();
-    let projection = optimize_and_bind(projection, &bind_data.dtype)?;
+    let file_pieces = file_pieces(init_input.max_threads(), init_input.file_count());
+
     Ok(GlobalState {
-        projection,
-        projection_expr,
+        projection_expr: projection,
         filter,
+        file_pieces,
+        bind_cache: BindCache::default(),
         aggregates: bind_data.aggregates.clone(),
         has_count_star,
         aggregate_state: Mutex::new(AggregateState::default()),
         row_count: AtomicU64::new(0),
         file_row_number_column_pos,
-        scan_v2: crate::scan_v2(),
     })
 }
 
@@ -438,14 +447,8 @@ pub fn init_local(bind_data: &BindState, global: &GlobalState) -> LocalState {
         file: None,
         retired_files: Vec::new(),
         retired_splits: Vec::new(),
-        run: Run::new(),
-        pending: Vec::new(),
         finished: false,
     }
-}
-
-pub(crate) fn optimize_and_bind(expr: Expression, dtype: &DType) -> VortexResult<BoundExpression> {
-    expr.bind(dtype)?.optimize_recursive()
 }
 
 pub(crate) fn convert_result(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<StructArray> {

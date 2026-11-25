@@ -57,7 +57,8 @@ fn select(
     }
 }
 
-/// Reads one segment, decodes it, and emits its rows of `slice`, filtered by `filter`.
+/// Reads one segment, decodes it, and emits its rows of `slice`, filtered by `filter`. A segment
+/// that several chunks read part of is decoded once between them.
 pub(crate) struct ScanSource {
     plan: SegmentScanPlan,
     slice: Option<Range<usize>>,
@@ -103,11 +104,15 @@ impl Operator for ScanSource {
         if self.done {
             return Ok(Step::End);
         }
-        let (_, bytes) = cx
+        let (segment, bytes) = cx
             .take_segment()
             .ok_or_else(|| vortex_err!("Segment scan ran without its bytes"))?;
         self.done = true;
-        let array = decode(&self.plan, bytes, cx.session())?;
+        let rows = usize::try_from(self.plan.row_count())?;
+        let read = self.slice.as_ref().map_or(rows, |slice| slice.len());
+        let array = cx.decoded_segment(segment, rows, read, || {
+            decode(&self.plan, bytes, cx.session())
+        })?;
         Ok(Step::Final(select(
             array,
             self.slice.as_ref(),

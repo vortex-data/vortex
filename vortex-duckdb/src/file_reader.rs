@@ -2,20 +2,17 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::num::NonZeroUsize;
-use std::ops::Range;
 use std::sync::Arc;
 use std::sync::OnceLock;
 use std::sync::atomic::AtomicBool;
+use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 
-use futures::FutureExt;
 use futures::StreamExt;
 use object_store::registry::ObjectStoreRegistry;
 use url::Url;
 use vortex::array::ArrayRef;
 use vortex::array::VortexSessionExecute as _;
-use vortex::array::arrays::Chunked;
-use vortex::array::arrays::chunked::ChunkedArrayExt as _;
 use vortex::array::arrays::struct_::StructArrayExt as _;
 use vortex::dtype::FieldPath;
 use vortex::error::VortexExpect;
@@ -26,21 +23,14 @@ use vortex::file::Footer;
 use vortex::file::multi::MultiFileSession;
 use vortex::file::multi::open_cached;
 use vortex::file::multi::parse_uri_or_path;
-use vortex::file::v2::FileStatsLayoutReader;
-use vortex::functions::dynamic::DynamicExprUpdates;
 use vortex::io::compat::Compat;
 use vortex::io::filesystem::FileSystemRef;
 use vortex::io::object_store::ObjectStoreFileSystem;
 use vortex::io::runtime::BlockingRuntime as _;
 use vortex::io::std_file::StdFileSystem;
-use vortex::layout::LayoutReaderRef;
-use vortex::layout::scan::layout::LayoutReaderDataSource;
 use vortex::layout::scan::options::LayoutScanOptions;
-use vortex::layout::scan::scan_builder::ScanBuilder;
-use vortex::layout::scan::v2::ScanBuilder as V2ScanBuilder;
-use vortex::layout::scan::v2::ScanFile;
-use vortex::mask::Mask;
-use vortex::scan::DataSource as _;
+use vortex::layout::scan::split_by::SplitBy;
+use vortex::scan::DataSourceRef;
 use vortex::scan::ScanRequest;
 use vortex::scan::stream::Claims;
 use vortex::scan::stream::ScanExec;
@@ -55,9 +45,7 @@ use crate::duckdb::BindResultRef;
 use crate::duckdb::DataChunkRef;
 use crate::exporter::ArrayExporter;
 use crate::exporter::ConversionCache;
-use crate::projection::Filter;
 use crate::projection::extract_schema_from_dtype;
-use crate::scan_v2::FileScan;
 use crate::table_function::BindState;
 use crate::table_function::GlobalState;
 use crate::table_function::LocalState;
@@ -120,7 +108,7 @@ fn resolve_filesystem(url: &Url) -> VortexResult<(FileSystemRef, String)> {
 }
 
 pub struct OpenFileReader {
-    /// The layout reader, scan and conversion cache of the file. `None` after the file is skipped
+    /// The source, scan and conversion cache of the file. `None` after the file is skipped
     /// or no thread can join it any more.
     ///
     /// DuckDB releases its last reference to a file while it holds the global lock of the
@@ -132,30 +120,37 @@ pub struct OpenFileReader {
 
 /// The state of an open file that the threads scanning it share.
 pub struct FileScanState {
-    reader: LayoutReaderRef,
-    /// The file as the V2 executor reads it.
-    scan_file: ScanFile,
-    /// The file's V2 scan, which every thread scanning the file drives. Set when the file is
-    /// initialized for a V2 scan.
-    v2: OnceLock<FileScan>,
-    /// The opened V1 scan of the file, which each thread scanning the file reads a stream of. Set
-    /// when the file is initialized for a V1 scan.
-    exec: OnceLock<ScanExec>,
+    /// The file as a Scan API source on the executor the scan runs on. After opening the file the
+    /// reader uses nothing else of it.
+    source: DataSourceRef,
+    /// Whether the file's scan is split for DuckDB's threads.
+    split: bool,
+    /// The opened pieces of the file's scan, each of which threads scanning the file read streams
+    /// of. Set when the file is initialized.
+    pieces: OnceLock<Vec<ScanExec>>,
+    /// The piece the next thread to join the file starts looking for work at.
+    next_piece: AtomicUsize,
     cache: ConversionCache,
 }
 
 impl FileScanState {
     /// The scan work a thread joining the file would take, or `None` once the file has none.
     fn next_split(&self) -> Option<Split> {
-        if let Some(scan) = self.v2.get() {
-            return (!scan.is_exhausted()).then_some(Split::V2);
-        }
-        // A thread joins the file until its last split is claimed, then moves on to the next file
-        // while the threads holding the last splits finish them: no thread waits for the rest of
-        // a file to drain. The thread creates its stream on its first scan call, outside DuckDB's
-        // lock.
-        let exec = self.exec.get()?;
-        (!exec.is_exhausted()).then_some(Split::V1(None))
+        // A thread joins the file until its last unit of work, a V1 split or a V2 part, is taken
+        // and, for V2, until no running part is left with rows to steal, then moves on to the
+        // next file while the threads holding the last work finish it: no thread waits for the
+        // rest of a file to drain. Threads joining the file start at
+        // successive pieces, so they spread over its rows. The thread creates its stream on its
+        // first scan call, outside DuckDB's lock.
+        let pieces = self.pieces.get()?;
+        let start = self.next_piece.fetch_add(1, Ordering::Relaxed);
+        (0..pieces.len())
+            .map(|offset| (start + offset) % pieces.len())
+            .find(|&piece| !pieces[piece].is_exhausted())
+            .map(|piece| Split {
+                piece,
+                stream: None,
+            })
     }
 }
 
@@ -164,14 +159,28 @@ impl OpenFileReader {
         let (fs, fs_path) = resolve_filesystem(&parse_uri_or_path(&path)?)?;
         let source = fs.open_read(&fs_path).await?;
         let file = open_cached(&SESSION, Some(&path), source, None, &|options| options).await?;
-        let mut scan_file = file.scan_file();
-        scan_file.cache.get_or_insert_default();
+        // The engine is chosen here, once per file. Everything after reads the file through the
+        // Scan API, the same way for either executor.
+        let (source, split) = if crate::scan_v2() {
+            (file.plan_data_source(), true)
+        } else {
+            // DuckDB runs one thread per core, so its threads are the scan's parallelism: each
+            // runs one split at a time, polling it itself. A stream with room for more would claim
+            // splits other threads could have run, leaving them nothing on a file with few splits.
+            let options = LayoutScanOptions::default().with_concurrency(NonZeroUsize::MIN);
+            let parts = crate::v1_split_parts();
+            let options = match parts {
+                true => options.with_split_by(SplitBy::Parts { min_parts: 1 }),
+                false => options,
+            };
+            (file.layout_reader_data_source(options)?, parts)
+        };
         Ok(OpenFileReader {
             scan_state: Some(Arc::new(FileScanState {
-                reader: file.layout_reader()?,
-                scan_file,
-                v2: OnceLock::new(),
-                exec: OnceLock::new(),
+                source,
+                split,
+                pieces: OnceLock::new(),
+                next_piece: AtomicUsize::new(0),
                 cache: ConversionCache::default(),
             })),
         })
@@ -183,22 +192,16 @@ impl OpenFileReader {
             .vortex_expect("file used after its scan state was released")
     }
 
-    pub(crate) fn reader(&self) -> &LayoutReaderRef {
-        &self.scan_state().reader
+    fn source(&self) -> &DataSourceRef {
+        &self.scan_state().source
     }
 
-    fn can_skip(&self, filter: &Filter) -> VortexResult<bool> {
-        let Some(filter) = &filter.filter else {
-            return Ok(false);
-        };
-        let row_count = self.reader().row_count();
-        let row_range = 0..row_count;
-        let mask = Mask::new_true(usize::try_from(row_count).unwrap_or(usize::MAX));
-        let evaluation = self.reader().pruning_evaluation(&row_range, filter, mask)?;
-        match evaluation.now_or_never() {
-            Some(mask) => mask.map(|mask| mask.all_false()),
-            None => Ok(false),
-        }
+    /// The file's rows, which a Vortex file's source knows exactly.
+    pub(crate) fn row_count(&self) -> VortexResult<u64> {
+        self.source()
+            .row_count()
+            .as_exact()
+            .ok_or_else(|| vortex_err!("a Vortex file source must know its exact row count"))
     }
 }
 
@@ -213,7 +216,7 @@ pub fn reader_open(file_path: &str) -> VortexResult<OpenFileReader> {
 /// support schema evolution, so if any file schema doesn't match first schema,
 /// we break.
 pub fn reader_bind(file: &OpenFileReader, result: &mut BindResultRef) -> VortexResult<BindState> {
-    let dtype = file.reader().dtype().clone();
+    let dtype = file.source().dtype().clone();
     let columns = extract_schema_from_dtype(&dtype)?;
 
     for column in &columns {
@@ -222,7 +225,7 @@ pub fn reader_bind(file: &OpenFileReader, result: &mut BindResultRef) -> VortexR
 
     Ok(BindState {
         dtype,
-        first_file_row_count: file.reader().row_count(),
+        first_file_row_count: file.row_count()?,
         filters: vec![],
         columns,
         has_non_optional_filter: AtomicBool::new(false),
@@ -235,33 +238,8 @@ pub fn reader_bind(file: &OpenFileReader, result: &mut BindResultRef) -> VortexR
 /// whether the opened file should be skipped. If this function returns false,
 /// duckdb closes the file and doesn't call reader_try_initialize_scan on it.
 pub fn reader_initialize(file: &mut OpenFileReader, global: &GlobalState) -> VortexResult<bool> {
-    // Opening the file's scan, or planning a V2 scan, is non-trivial work so we prefer
-    // doing it here under file lock and not in reader_try_initialize_scan under
-    // global lock.
-    if global.scan_v2 {
-        if file.can_skip(&global.filter)? {
-            // DuckDB releases a skipped file under the global lock. Here only the
-            // file-local lock is held, so drop the scan state now.
-            file.scan_state = None;
-            return Ok(true);
-        }
-        let state = file.scan_state();
-        let splits = ScanBuilder::new(SESSION.clone(), Arc::clone(&state.reader))
-            .with_projection(global.projection.clone())
-            .with_some_filter(global.filter.filter.clone())
-            .full_file_splits()?;
-        let dynamic = global
-            .filter
-            .filter
-            .as_ref()
-            .is_some_and(|filter| DynamicExprUpdates::new(filter).is_some());
-        let scan = FileScan::try_new(v2_builder(state, global), &splits, dynamic)?;
-        if state.v2.set(scan).is_err() {
-            vortex_panic!("file initialized twice");
-        }
-        return Ok(false);
-    }
-
+    // Opening the file's scan is non-trivial work so we prefer doing it here under file lock and
+    // not in reader_try_initialize_scan under global lock.
     let state = file.scan_state();
     let filter = &global.filter;
     let request = ScanRequest {
@@ -270,47 +248,36 @@ pub fn reader_initialize(file: &mut OpenFileReader, global: &GlobalState) -> Vor
         row_range: filter.row_range.clone(),
         selection: filter.row_selection.clone(),
         ordered: false,
+        bind_cache: Some(global.bind_cache.clone()),
         ..ScanRequest::default()
     };
-    // DuckDB runs one thread per core, so its threads are the scan's parallelism: each runs one
-    // split at a time, polling it itself. A stream with room for more would claim splits other
-    // threads could have run, leaving them nothing on a file with few splits.
-    let options = LayoutScanOptions::default().with_concurrency(NonZeroUsize::MIN);
-    let source =
-        LayoutReaderDataSource::with_options(Arc::clone(&state.reader), SESSION.clone(), options);
-    // An unordered scan without a limit opens onto a queue of the file's splits, whose streams
-    // each claim the next split once they have finished their last. A scan that the file's
-    // statistics reject opens exhausted.
-    let exec = RUNTIME.block_on(source.scan(request))?.open()?;
-    if exec.is_exhausted() {
+    // An unordered scan without a limit opens onto a queue of the file's work, whose streams each
+    // take the next once they have finished their last. A scan cut into parts, as every V2 scan
+    // is, is first split into its share of DuckDB's threads, so that a scan of fewer parts than
+    // threads cuts its files into smaller parts rather than leaving threads idle. A V1 scan's work
+    // is otherwise its layout splits, which splitting would only regroup. A scan, or a piece, the
+    // file's statistics reject opens exhausted.
+    let scan = RUNTIME.block_on(state.source.scan(request))?;
+    let pieces = if state.split {
+        scan.split(global.file_pieces)?
+    } else {
+        vec![scan]
+    };
+    let pieces = pieces
+        .into_iter()
+        .map(|piece| piece.open())
+        .filter(|exec| !exec.as_ref().is_ok_and(ScanExec::is_exhausted))
+        .collect::<VortexResult<Vec<_>>>()?;
+    if pieces.is_empty() {
+        // DuckDB releases a skipped file under the global lock. Here only the file-local lock is
+        // held, so drop the scan state now.
         file.scan_state = None;
         return Ok(true);
     }
-    if state.exec.set(exec).is_err() {
+    if state.pieces.set(pieces).is_err() {
         vortex_panic!("file initialized twice");
     }
     Ok(false)
-}
-
-/// The rows of the file that the scan's row range keeps. A `file_row_number` filter can bound
-/// the range past the end of the file, up to `u64::MAX`.
-fn file_rows(state: &FileScanState, filter: &Filter) -> Range<u64> {
-    let row_count = state.reader.row_count();
-    filter.row_range.as_ref().map_or(0..row_count, |range| {
-        let end = range.end.min(row_count);
-        range.start.min(end)..end
-    })
-}
-
-/// The V2 scan of the file's rows that the scan's row range and selection keep.
-fn v2_builder(state: &FileScanState, global: &GlobalState) -> V2ScanBuilder {
-    let filter = &global.filter;
-    let rows = file_rows(state, filter);
-    V2ScanBuilder::new(SESSION.clone(), state.scan_file.clone())
-        .with_projection(global.projection.clone())
-        .with_some_filter(filter.filter.clone())
-        .with_selection(filter.row_selection.clone())
-        .with_row_range(rows)
 }
 
 /// What a thread's split yields next.
@@ -324,65 +291,33 @@ enum SplitItem {
 
 /// Takes the next array of the thread's split, keeping the split while it has more to yield.
 fn next_split_item(local: &mut LocalState) -> VortexResult<SplitItem> {
-    match local.split.take() {
-        None => Ok(SplitItem::Done),
-        Some(Split::V1(stream)) => {
-            let mut stream = match stream {
-                Some(stream) => stream,
-                None => local
-                    .file
-                    .as_ref()
-                    .vortex_expect("split without a file")
-                    .exec
-                    .get()
-                    .vortex_expect("V1 split of a file without a V1 scan")
-                    .stream(),
-            };
-            let Some(array) = RUNTIME.block_on(stream.next()).transpose()? else {
-                // Dropping the last stream drops the file's split queue; do that outside DuckDB's
-                // locks.
-                local.retired_splits.push(Split::V1(Some(stream)));
-                return Ok(SplitItem::Done);
-            };
-            local.split = Some(Split::V1(Some(stream)));
-            Ok(if array.is_empty() {
-                SplitItem::Empty
-            } else {
-                SplitItem::Array(array)
-            })
-        }
-        Some(Split::V2) => {
-            let file = local.file.as_ref().vortex_expect("split without a file");
-            let scan = file
-                .v2
-                .get()
-                .vortex_expect("V2 split of a file without a V2 scan");
-            let array = match local.pending.pop() {
-                Some(array) => array,
-                None => {
-                    let Some(array) = scan.next_array(&mut local.run)? else {
-                        return Ok(SplitItem::Done);
-                    };
-                    // A V2 batch can join chunks of several layout chunks. Canonicalizing it
-                    // would decode their dictionaries, so export each chunk on its own, as a V1
-                    // scan yields them.
-                    match array.as_opt::<Chunked>() {
-                        Some(chunked) => {
-                            local.pending.extend(chunked.chunks().into_iter().rev());
-                            local.pending.pop().unwrap_or(array)
-                        }
-                        None => array,
-                    }
-                }
-            };
-            local.split = Some(Split::V2);
-            Ok(if array.is_empty() {
-                SplitItem::Empty
-            } else {
-                SplitItem::Array(array)
-            })
-        }
-    }
+    let Some(Split { piece, stream }) = local.split.take() else {
+        return Ok(SplitItem::Done);
+    };
+    let file = local.file.as_ref().vortex_expect("split without a file");
+    let exec = &file
+        .pieces
+        .get()
+        .vortex_expect("split of a file without an opened scan")[piece];
+    let mut stream = stream.unwrap_or_else(|| exec.stream());
+    let Some(array) = RUNTIME.block_on(stream.next()).transpose()? else {
+        // Dropping the last stream drops the piece's queue of work; do that outside DuckDB's
+        // locks.
+        local.retired_splits.push(Split {
+            piece,
+            stream: Some(stream),
+        });
+        return Ok(SplitItem::Done);
+    };
+    local.split = Some(Split {
+        piece,
+        stream: Some(stream),
+    });
+    Ok(if array.is_empty() {
+        SplitItem::Empty
+    } else {
+        SplitItem::Array(array)
+    })
 }
 
 /// Called by all threads under global lock. If this function returns true,
@@ -394,9 +329,9 @@ fn next_split_item(local: &mut LocalState) -> VortexResult<SplitItem> {
 /// the global lock. It only moves references between the file and the local
 /// state, and reader_scan drops the retired ones.
 pub fn reader_try_initialize_scan(file: &mut OpenFileReader, local: &mut LocalState) -> bool {
-    // A thread joins a file while its V2 scan has chunks left to spawn or its V1
-    // scan has a split left to claim. Either check is one load of a flag that is
-    // written once, so it is cheap under the global lock.
+    // A thread joins a file while its scan has work left to take. The check is
+    // one load of a flag that is written once, so it is cheap under the global
+    // lock.
     let split = file
         .scan_state
         .as_ref()
@@ -496,17 +431,16 @@ pub fn reader_get_statistics(
         return None;
     }
 
-    let reader = file
-        .reader()
-        .as_any()
-        .downcast_ref::<FileStatsLayoutReader>()?;
+    let source = file.source();
+    let dtype = source.dtype().as_struct_fields_opt()?.field(column)?;
+    // A file source reads its statistics from the footer it has already read, so this does no I/O.
+    let stats = RUNTIME
+        .block_on(source.field_statistics(&FieldPath::from_name(column)))
+        .ok()
+        .filter(|stats| !stats.is_empty())?;
 
-    let (stats, dtype) = reader
-        .file_stats()
-        .get_by_path(&FieldPath::from_name(column))?;
-
-    let stats = ColumnStatisticsAggregate::new(stats);
-    match ColumnStatistics::try_from(stats, dtype.clone()) {
+    let stats = ColumnStatisticsAggregate::new(&stats);
+    match ColumnStatistics::try_from(stats, dtype) {
         Ok(stats) => Some(stats),
         Err(e) => vortex_panic!(e),
     }
@@ -519,20 +453,20 @@ pub fn reader_get_progress_in_file(file: &OpenFileReader) -> f64 {
     let Some(state) = file.scan_state.as_ref() else {
         return 100.0;
     };
-    if let Some(scan) = state.v2.get() {
-        return scan.progress();
+    let Some(pieces) = state.pieces.get() else {
+        return 0.0;
+    };
+    let (claimed, total) = pieces
+        .iter()
+        .filter_map(ScanExec::progress)
+        .fold((0, 0), |(claimed, total), progress: Claims| {
+            (claimed + progress.claimed, total + progress.total)
+        });
+    if total == 0 {
+        100.0
+    } else {
+        100.0 * claimed as f64 / total as f64
     }
-    state
-        .exec
-        .get()
-        .and_then(ScanExec::progress)
-        .map_or(0.0, |Claims { claimed, total }| {
-            if total == 0 {
-                100.0
-            } else {
-                100.0 * claimed as f64 / total as f64
-            }
-        })
 }
 
 /// Called by one thread in planning phase
@@ -564,7 +498,7 @@ pub fn footer_get_cached(bind: &mut BindState, path: &str) -> VortexResult<Optio
 pub fn footer_get_statistics(footer: &Footer, column: &str) -> Option<ColumnStatistics> {
     let stats = footer.statistics()?;
     let (stats, dtype) = stats.get_by_path(&FieldPath::from_name(column))?;
-    let stats = ColumnStatisticsAggregate::new(stats);
+    let stats = ColumnStatisticsAggregate::new(&stats.to_stats_set());
     match ColumnStatistics::try_from(stats, dtype.clone()) {
         Ok(stats) => Some(stats),
         Err(e) => vortex_panic!(e),

@@ -14,6 +14,7 @@ use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::Dict;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::Struct;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::VarBin;
 use vortex_array::arrays::VarBinArray;
@@ -21,6 +22,8 @@ use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::dict::DictArraySlotsExt;
 use vortex_array::assert_arrays_eq;
 use vortex_array::dtype::DType;
+use vortex_array::dtype::Nullability;
+use vortex_array::optimizer::ArrayOptimizer;
 use vortex_array::validity::Validity;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -28,11 +31,13 @@ use vortex_error::vortex_err;
 use vortex_expr::get_item;
 use vortex_expr::gt;
 use vortex_expr::lit;
+use vortex_expr::pack;
 use vortex_expr::root;
 use vortex_mask::Mask;
 
 use crate::execution::pipeline::*;
 use crate::plan::ConcatPlan;
+use crate::plan::Eval;
 use crate::plan::EvalPlan;
 use crate::plan::Filter;
 use crate::plan::LazyPlanRef;
@@ -727,6 +732,69 @@ fn eval_applies_expression_to_selected_rows() -> VortexResult<()> {
     Ok(())
 }
 
+/// A projection of fields, as `SELECT *` or a column list makes, emits structs of the input's
+/// field arrays that need no further optimizing, and every batch shares one dtype, so consumers
+/// index its fields once.
+#[rstest]
+#[case::all(Sel::All)]
+#[case::every_other(Sel::EveryOther)]
+fn projections_emit_structs_sharing_one_dtype(#[case] sel: Sel) -> VortexResult<()> {
+    let store = Store::default();
+    let a = PrimitiveArray::from_iter(0..ROWS as i32).into_array();
+    let b = PrimitiveArray::from_iter((0..ROWS as i64).map(|v| v * 10)).into_array();
+    let layout = struct_plan(
+        ROWS,
+        StructArray::from_fields(&[("a", a.clone()), ("b", b.clone())])?
+            .dtype()
+            .clone(),
+        vec![
+            store.chunked(&a, &[7, 5, 8])?,
+            store.chunked(&b, &[7, 5, 8])?,
+        ],
+    );
+    let expression = pack(
+        [("b", get_item("b", root())), ("a", get_item("a", root()))],
+        Nullability::NonNullable,
+    )
+    .bind(layout.dtype())?;
+    let expected = StructArray::from_fields(&[("b", b), ("a", a)])?.into_array();
+    let plan = EvalPlan::try_new(expression, layout)?.into_plan();
+    let rows = 2..18;
+    let mask = sel.mask(16);
+
+    for plan in [plan.clone(), optimize(plan, &SESSION)?] {
+        assert!(
+            plan.is::<Eval>(),
+            "the projection is not evaluated:\n{plan}"
+        );
+        let run = run(
+            &store,
+            &plan,
+            rows.clone(),
+            mask.clone(),
+            delivery(Delivery::Fifo),
+        )?;
+        assert!(run.arrays.len() > 1);
+        let fields = plan.dtype().as_struct_fields();
+        for array in &run.arrays {
+            assert!(
+                array.is::<Struct>(),
+                "{} is not a struct",
+                array.display_tree()
+            );
+            assert!(ArrayRef::ptr_eq(&array.optimize_ctx(&*SESSION)?, array));
+            // Field names live in the fields' shared allocation, so equal addresses mean one
+            // `StructFields` for every batch.
+            assert!(std::ptr::eq(
+                array.dtype().as_struct_fields().names(),
+                fields.names()
+            ));
+        }
+        assert_view(&expected, &rows, &mask, run.arrays)?;
+    }
+    Ok(())
+}
+
 /// A column read by two fields of one struct is read by each field, and both get it.
 #[test]
 fn a_segment_two_readers_need_is_read_by_each() -> VortexResult<()> {
@@ -741,7 +809,7 @@ fn a_segment_two_readers_need_is_read_by_each() -> VortexResult<()> {
         .clone();
     let plan = PackPlan::try_new(
         fields,
-        vortex_array::dtype::Nullability::NonNullable,
+        Nullability::NonNullable,
         ROWS,
         vec![column.clone(), column],
         None,

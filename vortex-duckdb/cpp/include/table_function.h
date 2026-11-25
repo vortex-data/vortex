@@ -50,6 +50,17 @@ typedef struct {
 
     duckdb_vx_table_filter_set filters;
     duckdb_client_context client_context;
+
+    /**
+     * The number of threads DuckDB's task scheduler runs, which a scan can
+     * cut its files' work for.
+     */
+    idx_t max_threads;
+
+    /**
+     * The number of files the scan reads.
+     */
+    idx_t file_count;
 } duckdb_vx_tfunc_init_input;
 
 // Result data returned from the cardinality callback.
