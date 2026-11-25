@@ -167,24 +167,19 @@ impl<R: AsyncRead> Stream for AsyncMessageReader<R> {
 mod tests {
     use std::io;
     use std::pin::Pin;
-    use std::sync::atomic::Ordering;
     use std::task::Context;
     use std::task::Poll;
 
     use futures::AsyncRead;
     use futures::StreamExt;
     use vortex_array::IntoArray;
-    use vortex_array::VortexSessionExecute;
-    use vortex_array::assert_arrays_eq;
     use vortex_buffer::buffer;
     use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
-    use vortex_error::vortex_panic;
 
     use super::*;
     use crate::messages::EncoderMessage;
     use crate::messages::MessageEncoder;
-    use crate::test::FaultyReader;
     use crate::test::SESSION;
     use crate::test::assert_io_error_kind;
 
@@ -254,98 +249,6 @@ mod tests {
             assert_io_error_kind(&err, io::ErrorKind::UnexpectedEof);
             assert!(reader.next().await.is_none());
             assert!(reader.next().await.is_none());
-        }
-
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn resumable_io_error_preserves_progress() -> VortexResult<()> {
-        let array = buffer![7i32, 8, 9].into_array();
-        let mut encoder = MessageEncoder::new(SESSION.clone());
-        let full: Vec<u8> = encoder
-            .encode(EncoderMessage::Array(&array))?
-            .iter()
-            .flat_map(|b| b.as_ref())
-            .copied()
-            .collect();
-
-        for kind in [io::ErrorKind::WouldBlock, io::ErrorKind::TimedOut] {
-            let mut reader =
-                AsyncMessageReader::new(FaultyReader::new(full.clone(), vec![(1, kind)]));
-
-            let err = reader
-                .next()
-                .await
-                .vortex_expect("expected transport error")
-                .unwrap_err();
-            assert_io_error_kind(&err, kind);
-
-            let DecoderMessage::Array((parts, ctx, row_count)) =
-                reader.next().await.vortex_expect("recovered message")?
-            else {
-                vortex_panic!("expected an array message");
-            };
-            let actual = parts.decode(array.dtype(), row_count, &ctx, &SESSION)?;
-            assert_arrays_eq!(actual, array, &mut SESSION.create_execution_ctx());
-            assert!(reader.next().await.is_none());
-        }
-
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn interrupted_read_retries_and_preserves_progress() -> VortexResult<()> {
-        let array = buffer![7i32, 8, 9].into_array();
-        let mut encoder = MessageEncoder::new(SESSION.clone());
-        let parts = encoder.encode(EncoderMessage::Array(&array))?;
-        let header_len = parts[1].len();
-        let full: Vec<u8> = parts.iter().flat_map(|b| b.as_ref()).copied().collect();
-
-        let mut reader = AsyncMessageReader::new(FaultyReader::new(
-            full,
-            vec![
-                (1, io::ErrorKind::Interrupted),
-                (4 + header_len / 2, io::ErrorKind::Interrupted),
-                (4 + header_len + 1, io::ErrorKind::Interrupted),
-            ],
-        ));
-
-        let DecoderMessage::Array((parts, ctx, row_count)) =
-            reader.next().await.vortex_expect("recovered message")?
-        else {
-            vortex_panic!("expected an array message");
-        };
-        let actual = parts.decode(array.dtype(), row_count, &ctx, &SESSION)?;
-        assert_arrays_eq!(actual, array, &mut SESSION.create_execution_ctx());
-        assert!(reader.next().await.is_none());
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn io_error_during_fill_is_terminal() -> VortexResult<()> {
-        let array = buffer![7i32, 8, 9].into_array();
-        let mut encoder = MessageEncoder::new(SESSION.clone());
-        let parts = encoder.encode(EncoderMessage::Array(&array))?;
-        let header_len = parts[1].len();
-        let full: Vec<u8> = parts.iter().flat_map(|b| b.as_ref()).copied().collect();
-
-        for fail_at in [1, 4 + header_len / 2, 4 + header_len + 1] {
-            let inner = FaultyReader::new(full.clone(), vec![(fail_at, io::ErrorKind::BrokenPipe)]);
-            let poll_calls = inner.calls();
-            let mut reader = AsyncMessageReader::new(inner);
-
-            let err = reader
-                .next()
-                .await
-                .vortex_expect("expected io error")
-                .unwrap_err();
-            assert_io_error_kind(&err, io::ErrorKind::BrokenPipe);
-
-            let calls_after_err = poll_calls.load(Ordering::SeqCst);
-            assert!(reader.next().await.is_none());
-            assert!(reader.next().await.is_none());
-            assert_eq!(poll_calls.load(Ordering::SeqCst), calls_after_err);
         }
 
         Ok(())

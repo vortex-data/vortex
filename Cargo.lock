@@ -11968,6 +11968,7 @@ dependencies = [
  "futures",
  "itertools 0.14.0",
  "pin-project-lite",
+ "rstest",
  "tokio",
  "vortex-array",
  "vortex-buffer",

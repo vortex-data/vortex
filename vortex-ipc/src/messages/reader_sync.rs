@@ -113,14 +113,10 @@ impl<R: Read> Iterator for SyncMessageReader<R> {
 
 #[cfg(test)]
 mod tests {
-    use std::io;
     use std::io::Read;
-    use std::sync::atomic::Ordering;
 
     use bytes::BytesMut;
     use vortex_array::IntoArray;
-    use vortex_array::VortexSessionExecute;
-    use vortex_array::assert_arrays_eq;
     use vortex_buffer::buffer;
     use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
@@ -130,7 +126,6 @@ mod tests {
     use crate::messages::DecoderMessage;
     use crate::messages::EncoderMessage;
     use crate::messages::MessageEncoder;
-    use crate::test::FaultyReader;
     use crate::test::SESSION;
     use crate::test::assert_io_error_kind;
 
@@ -141,7 +136,7 @@ mod tests {
     }
 
     impl Read for ByteAtATimeReader {
-        fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
             if buf.is_empty() || self.pos >= self.data.len() {
                 return Ok(0);
             }
@@ -206,100 +201,9 @@ mod tests {
                 .next()
                 .vortex_expect("expected error on truncated frame")
                 .unwrap_err();
-            assert_io_error_kind(&err, std::io::ErrorKind::UnexpectedEof);
+            assert_io_error_kind(&err, io::ErrorKind::UnexpectedEof);
             assert!(messages.next().is_none());
             assert!(messages.next().is_none());
-        }
-
-        Ok(())
-    }
-
-    #[test]
-    fn transport_error_is_distinct_and_preserves_progress() -> VortexResult<()> {
-        let array = buffer![7i32, 8, 9].into_array();
-        let mut encoder = MessageEncoder::new(SESSION.clone());
-        let full: Vec<u8> = encoder
-            .encode(EncoderMessage::Array(&array))?
-            .iter()
-            .flat_map(|b| b.as_ref())
-            .copied()
-            .collect();
-
-        for kind in [io::ErrorKind::WouldBlock, io::ErrorKind::TimedOut] {
-            let mut messages =
-                SyncMessageReader::new(FaultyReader::new(full.clone(), vec![(1, kind)]));
-
-            let err = messages
-                .next()
-                .vortex_expect("expected transport error")
-                .unwrap_err();
-            assert_io_error_kind(&err, kind);
-
-            let DecoderMessage::Array((parts, ctx, row_count)) = messages
-                .next()
-                .vortex_expect("expected recovered message")?
-            else {
-                vortex_panic!("expected an array message");
-            };
-            let actual = parts.decode(array.dtype(), row_count, &ctx, &SESSION)?;
-            assert_arrays_eq!(actual, array, &mut SESSION.create_execution_ctx());
-            assert!(messages.next().is_none());
-        }
-        Ok(())
-    }
-
-    #[test]
-    fn interrupted_read_retries_and_preserves_progress() -> VortexResult<()> {
-        let array = buffer![7i32, 8, 9].into_array();
-        let mut encoder = MessageEncoder::new(SESSION.clone());
-        let parts = encoder.encode(EncoderMessage::Array(&array))?;
-        let header_len = parts[1].len();
-        let full: Vec<u8> = parts.iter().flat_map(|b| b.as_ref()).copied().collect();
-
-        let mut messages = SyncMessageReader::new(FaultyReader::new(
-            full,
-            vec![
-                (1, io::ErrorKind::Interrupted),
-                (4 + header_len / 2, io::ErrorKind::Interrupted),
-                (4 + header_len + 1, io::ErrorKind::Interrupted),
-            ],
-        ));
-
-        let DecoderMessage::Array((parts, ctx, row_count)) =
-            messages.next().vortex_expect("recovered message")?
-        else {
-            vortex_panic!("expected an array message");
-        };
-        let actual = parts.decode(array.dtype(), row_count, &ctx, &SESSION)?;
-        assert_arrays_eq!(actual, array, &mut SESSION.create_execution_ctx());
-        assert!(messages.next().is_none());
-        Ok(())
-    }
-
-    #[test]
-    fn io_error_during_fill_is_terminal() -> VortexResult<()> {
-        let array = buffer![7i32, 8, 9].into_array();
-        let mut encoder = MessageEncoder::new(SESSION.clone());
-        let parts = encoder.encode(EncoderMessage::Array(&array))?;
-        let header_len = parts[1].len();
-        let full: Vec<u8> = parts.iter().flat_map(|b| b.as_ref()).copied().collect();
-
-        for fail_at in [1, 4 + header_len / 2, 4 + header_len + 1] {
-            let reader =
-                FaultyReader::new(full.clone(), vec![(fail_at, io::ErrorKind::BrokenPipe)]);
-            let read_calls = reader.calls();
-            let mut messages = SyncMessageReader::new(reader);
-
-            let err = messages
-                .next()
-                .vortex_expect("expected io error")
-                .unwrap_err();
-            assert_io_error_kind(&err, io::ErrorKind::BrokenPipe);
-
-            let calls_after_err = read_calls.load(Ordering::SeqCst);
-            assert!(messages.next().is_none());
-            assert!(messages.next().is_none());
-            assert_eq!(read_calls.load(Ordering::SeqCst), calls_after_err);
         }
 
         Ok(())
