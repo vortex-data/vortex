@@ -76,7 +76,6 @@ __device__ void init_scan_device(const BinaryView *const __restrict views,
     }
 }
 
-
 __device__ uint64_t upper_bound_offsets(const int32_t *const offsets, uint64_t len, uint64_t value) {
     uint64_t first = 0;
     while (len > 0) {
@@ -188,7 +187,6 @@ extern "C" __global__ void arrow_binary_init_scan(const BinaryView *const views,
                                                   uint64_t len) {
     init_scan_device(views, validity, data_buffer_lens, scan, status, data_buffer_count, len);
 }
-
 
 // Gather inline and referenced BinaryView payloads into Arrow Binary's contiguous values buffer.
 extern "C" __global__ void arrow_binary_gather(const BinaryView *const views,

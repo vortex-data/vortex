@@ -8,7 +8,6 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use futures::future::BoxFuture;
-
 use futures::future::join_all;
 use tracing::error;
 use vortex::array::ArrayRef;
