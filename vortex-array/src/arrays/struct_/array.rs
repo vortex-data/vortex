@@ -520,7 +520,6 @@ impl Array<Struct> {
         };
         let first_dtype = first.borrow().dtype().clone();
         let struct_fields = first_dtype.as_struct_fields().clone();
-        let names = struct_fields.names();
 
         let it = [first].into_iter().chain(it);
         let (field_arrays_per_chunk, validities) = it
@@ -534,15 +533,7 @@ impl Array<Struct> {
                     );
                 }
 
-                let fields = names
-                    .iter()
-                    .map(|name| {
-                        chunk
-                            .unmasked_field_by_name(name)
-                            .vortex_expect("field exists because it is in dtype")
-                            .clone()
-                    })
-                    .collect::<Vec<_>>();
+                let fields = chunk.iter_unmasked_fields().cloned().collect::<Vec<_>>();
                 let validity = chunk.validity()?;
 
                 Ok((fields, (validity, chunk.len())))

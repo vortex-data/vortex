@@ -12,6 +12,7 @@ use vortex_buffer::ByteBuffer;
 use vortex_buffer::ByteBufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 
@@ -499,7 +500,23 @@ impl PrimitiveData {
         &self.buffer
     }
 
+    pub(super) fn validate_buffer_alignment(
+        handle: &BufferHandle,
+        ptype: PType,
+    ) -> VortexResult<()> {
+        if let Some(byte_buffer) = handle.as_host_opt() {
+            let required = Alignment::new(ptype.byte_width());
+            vortex_ensure!(
+                byte_buffer.is_aligned(required),
+                "PrimitiveArray host buffer is not aligned to {required} for {ptype}",
+            );
+        }
+        Ok(())
+    }
+
     pub fn from_buffer_handle(handle: BufferHandle, ptype: PType, _validity: Validity) -> Self {
+        Self::validate_buffer_alignment(&handle, ptype)
+            .vortex_expect("PrimitiveData host buffer must be aligned for ptype");
         Self {
             ptype,
             buffer: handle,

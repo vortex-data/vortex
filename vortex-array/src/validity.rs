@@ -546,6 +546,12 @@ impl Validity {
     /// Concatenate one or more validities together.
     ///
     /// Returns None if the vector is empty.
+    ///
+    /// # Panics
+    ///
+    /// Panics if any [`Validity::Array`] does not have dtype
+    /// [`DType::Bool(Nullability::NonNullable)`](DType::Bool) or has a length different from its
+    /// paired chunk length.
     pub fn concat(validities: Vec<(Validity, usize)>) -> Option<Self> {
         let mut validity_kinds = validities
             .iter()
@@ -566,14 +572,23 @@ impl Validity {
             }
         }
 
-        Some(Validity::Array(
-            unsafe {
-                ChunkedArray::new_unchecked(
-                    validities.into_iter().map(|(v, len)| v.to_array(len)),
-                    DType::Bool(Nullability::NonNullable),
-                )
+        let chunks = validities.into_iter().map(|(v, len)| {
+            if let Validity::Array(a) = &v {
+                assert_eq!(
+                    a.len(),
+                    len,
+                    "Validity::Array length must equal chunk length: {}, {}",
+                    a.len(),
+                    len,
+                );
             }
-            .into_array(),
+            v.to_array(len)
+        });
+
+        Some(Validity::Array(
+            ChunkedArray::try_new(chunks, Self::DTYPE)
+                .vortex_expect("Validity::Array must have non-nullable bool dtype")
+                .into_array(),
         ))
     }
 }
@@ -832,5 +847,26 @@ mod tests {
         let mut ctx = SESSION.create_execution_ctx();
         assert_eq!(lhs.mask_eq(&rhs, 3, &mut ctx)?, expected);
         Ok(())
+    }
+
+    #[test]
+    #[should_panic(expected = "non-nullable bool")]
+    fn concat_rejects_non_bool_validity_array() {
+        let bad = Validity::Array(PrimitiveArray::from_iter([1i32, 2]).into_array());
+        Validity::concat(vec![(bad, 2)]);
+    }
+
+    #[test]
+    #[should_panic(expected = "non-nullable bool")]
+    fn concat_rejects_nullable_bool_validity_array() {
+        let bad = Validity::Array(BoolArray::from_iter([Some(true), None]).into_array());
+        Validity::concat(vec![(bad, 2)]);
+    }
+
+    #[test]
+    #[should_panic(expected = "length must equal chunk length")]
+    fn concat_rejects_mismatched_validity_array_length() {
+        let bad = Validity::Array(BoolArray::from_iter([true, false]).into_array());
+        Validity::concat(vec![(bad, 5)]);
     }
 }
