@@ -137,7 +137,7 @@ impl VectorRef {
     ///   at least `count` (or `count * array_size` for array children).
     /// - If the vector (or any nested struct/array child) is neither flat nor constant (e.g. a
     ///   dictionary or sequence vector), its existing size must already equal `count`.
-    /// - If `count > 0`, the vector buffer must not be null.
+    /// - The vector buffer must not be null (even when `count == 0`).
     pub(crate) unsafe fn flatten_with_count(&mut self, count: usize) {
         unsafe { cpp::duckdb_vx_vector_flatten_with_count(self.as_ptr(), count as idx_t) }
     }
