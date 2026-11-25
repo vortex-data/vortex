@@ -3,7 +3,6 @@
 
 package dev.vortex.jni;
 
-import com.google.common.io.ByteStreams;
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
@@ -55,7 +54,7 @@ public final class NativeLoader {
             tempFile.deleteOnExit();
 
             try (OutputStream out = new FileOutputStream(tempFile)) {
-                ByteStreams.copy(in, out);
+                in.transferTo(out);
             }
             libName = tempFile.getAbsolutePath();
         } catch (IOException e) {

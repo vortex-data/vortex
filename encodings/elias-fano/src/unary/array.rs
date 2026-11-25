@@ -128,7 +128,7 @@ impl UnaryData {
     }
 
     /// The bits. Panics if the buffer is on a device.
-    pub(super) fn to_bit_buffer(&self) -> BitBuffer {
+    pub(crate) fn to_bit_buffer(&self) -> BitBuffer {
         BitBuffer::new_with_offset(
             self.bits.as_host().clone(),
             self.meta.len(),

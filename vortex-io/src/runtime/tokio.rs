@@ -43,21 +43,21 @@ impl From<tokio::runtime::Handle> for TokioRuntime {
 
 impl Executor for tokio::runtime::Handle {
     fn spawn(&self, fut: BoxFuture<'static, ()>) -> AbortHandleRef {
-        #[cfg(unix)]
+        #[cfg(target_os = "linux")]
         {
             use custom_labels::asynchronous::Label;
 
             let fut = fut.with_current_labels();
             Box::new(tokio::runtime::Handle::spawn(self, fut).abort_handle())
         }
-        #[cfg(not(unix))]
+        #[cfg(not(target_os = "linux"))]
         {
             Box::new(tokio::runtime::Handle::spawn(self, fut).abort_handle())
         }
     }
 
     fn spawn_cpu(&self, cpu: Box<dyn FnOnce() + Send + 'static>) -> AbortHandleRef {
-        #[cfg(unix)]
+        #[cfg(target_os = "linux")]
         {
             use custom_labels::asynchronous::Label;
 
@@ -66,14 +66,14 @@ impl Executor for tokio::runtime::Handle {
                     .abort_handle(),
             )
         }
-        #[cfg(not(unix))]
+        #[cfg(not(target_os = "linux"))]
         {
             Box::new(tokio::runtime::Handle::spawn(self, async move { cpu() }).abort_handle())
         }
     }
 
     fn spawn_blocking_io(&self, task: Box<dyn FnOnce() + Send + 'static>) -> AbortHandleRef {
-        #[cfg(unix)]
+        #[cfg(target_os = "linux")]
         {
             use custom_labels::Labelset;
 
@@ -83,7 +83,7 @@ impl Executor for tokio::runtime::Handle {
                     .abort_handle(),
             )
         }
-        #[cfg(not(unix))]
+        #[cfg(not(target_os = "linux"))]
         {
             Box::new(tokio::runtime::Handle::spawn_blocking(self, task).abort_handle())
         }

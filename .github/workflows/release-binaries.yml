@@ -1,6 +1,15 @@
 name: Release Binaries
 
+# Release Tag calls this workflow after it tags the commit. Run it by hand only to build and attach
+# the binaries again while the release is still a draft.
+
 on:
+  workflow_call:
+    inputs:
+      tag:
+        description: "Existing tag of the draft release (e.g., 0.62.0); the workflow builds the commit of this tag"
+        required: true
+        type: string
   workflow_dispatch:
     inputs:
       tag:

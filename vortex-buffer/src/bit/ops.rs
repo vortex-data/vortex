@@ -171,6 +171,33 @@ pub(super) fn bitwise_binary_op_lhs_owned<F: FnMut(u64, u64) -> u64>(
     }
 }
 
+/// The caller must guarantee left and right have equal length
+pub(super) fn bitwise_binary_op_both_owned<F: FnMut(u64, u64) -> u64>(
+    left: BitBuffer,
+    right: BitBuffer,
+    mut op: F,
+) -> BitBuffer {
+    if left.offset() != right.offset() {
+        return bitwise_binary_op(&left, &right, op);
+    }
+
+    let left = match left.try_into_mut() {
+        Ok(mut buf) => {
+            zip_u64_words_in_place(buf.as_mut_slice(), right.inner().as_slice(), op);
+            return buf.freeze();
+        }
+        Err(left) => left,
+    };
+
+    match right.try_into_mut() {
+        Ok(mut buf) => {
+            zip_u64_words_in_place(buf.as_mut_slice(), left.inner().as_slice(), |a, b| op(b, a));
+            buf.freeze()
+        }
+        Err(right) => bitwise_binary_op(&left, &right, op),
+    }
+}
+
 pub(super) fn bitwise_binary_op<F: FnMut(u64, u64) -> u64>(
     left: &BitBuffer,
     right: &BitBuffer,

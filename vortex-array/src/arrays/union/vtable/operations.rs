@@ -8,20 +8,25 @@ use vortex_error::vortex_panic;
 use crate::ExecutionCtx;
 use crate::array::ArrayView;
 use crate::array::OperationsVTable;
+use crate::array::ProbeState;
 use crate::arrays::Union;
 use crate::arrays::union::UnionArrayExt;
-use crate::arrays::union::UnionArraySlotsExt;
+use crate::arrays::union::UnionSlots;
 use crate::scalar::Scalar;
 
 impl OperationsVTable<Union> for Union {
     type ProbeState = ();
 
-    fn scalar_at(
-        array: ArrayView<'_, Union>,
+    fn probe_scalar(
+        state: &mut ProbeState<'_, Union>,
         index: usize,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
-        let type_id_scalar = array.type_ids().execute_scalar(index, ctx)?;
+        let array = state.array();
+        let type_id_scalar = state
+            .slot(UnionSlots::TYPE_IDS)?
+            .ok_or_else(|| vortex_err!("UnionArray is missing its type_ids slot"))?
+            .execute_scalar(index, ctx)?;
         let Some(type_id) = type_id_scalar.as_primitive().typed_value::<u8>() else {
             return Ok(Scalar::null(array.dtype().clone()));
         };
@@ -29,8 +34,8 @@ impl OperationsVTable<Union> for Union {
         let Some(child_index) = array.variants().tag_to_child_index(type_id) else {
             vortex_panic!("Unknown UnionArray type ID {type_id}")
         };
-        let child = array
-            .child(child_index)
+        let mut child = state
+            .slot(UnionSlots::CHILDREN_OFFSET + child_index)?
             .ok_or_else(|| vortex_err!("UnionArray is missing child {child_index}"))?;
         let child_scalar = child.execute_scalar(index, ctx)?;
 
@@ -40,5 +45,13 @@ impl OperationsVTable<Union> for Union {
             child_scalar,
             array.dtype().nullability(),
         )
+    }
+
+    fn scalar_at(
+        array: ArrayView<'_, Union>,
+        index: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Scalar> {
+        Self::probe_scalar(&mut ProbeState::once(array), index, ctx)
     }
 }

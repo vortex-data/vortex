@@ -34,7 +34,6 @@ use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::ScalarFnArray;
 use crate::dtype::DType;
-use crate::expr::display::ExprDisplay;
 use crate::proto::expr as pb;
 use crate::scalar::NumericOperator;
 pub(crate) use crate::scalar::decimal_numeric_result_dtype as numeric_op_result_decimal_dtype;
@@ -48,6 +47,7 @@ use crate::scalar_fn::ScalarFnVTableExt;
 use crate::scalar_fn::builtin::binary::binary_child_name;
 use crate::scalar_fn::builtin::binary::execute_strict_step;
 use crate::scalar_fn::builtin::binary::fmt_infix;
+use crate::scalar_fn::display::ExprDisplay;
 
 /// An arithmetic operation over two operands with a [`NumericOperator`].
 ///

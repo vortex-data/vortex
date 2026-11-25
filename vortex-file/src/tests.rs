@@ -15,6 +15,12 @@ use flatbuffers::FlatBufferBuilder;
 use futures::StreamExt;
 use futures::TryStreamExt;
 use futures::pin_mut;
+#[cfg(feature = "object_store")]
+use object_store::ObjectStoreExt;
+#[cfg(feature = "object_store")]
+use object_store::memory::InMemory;
+#[cfg(feature = "object_store")]
+use object_store::path::Path;
 use rand::RngExt;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
@@ -56,23 +62,6 @@ use vortex_array::dtype::PType;
 use vortex_array::dtype::PType::I32;
 use vortex_array::dtype::StructFields;
 use vortex_array::dtype::i256;
-use vortex_array::expr::BoundExpression;
-use vortex_array::expr::Expression;
-use vortex_array::expr::and;
-use vortex_array::expr::cast;
-use vortex_array::expr::col;
-use vortex_array::expr::eq;
-use vortex_array::expr::get_item;
-use vortex_array::expr::gt;
-use vortex_array::expr::gt_eq;
-use vortex_array::expr::lit;
-use vortex_array::expr::lt;
-use vortex_array::expr::lt_eq;
-use vortex_array::expr::or;
-use vortex_array::expr::root;
-use vortex_array::expr::select;
-use vortex_array::expr::stats::Precision;
-use vortex_array::expr::stats::Stat;
 use vortex_array::extension::datetime::TimeUnit;
 use vortex_array::extension::datetime::Timestamp;
 use vortex_array::extension::datetime::TimestampOptions;
@@ -81,9 +70,10 @@ use vortex_array::flatbuffers::WriteFlatBufferExt;
 use vortex_array::match_each_decimal_value_type;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar::ScalarValue;
-use vortex_array::scalar_fn::ScalarFnVTableExt;
 use vortex_array::scalar_fn::builtin::pack::Pack;
 use vortex_array::scalar_fn::builtin::pack::PackOptions;
+use vortex_array::stats::Precision;
+use vortex_array::stats::Stat;
 use vortex_array::stream::ArrayStreamAdapter;
 use vortex_array::stream::ArrayStreamExt;
 use vortex_array::validity::Validity;
@@ -103,8 +93,26 @@ use vortex_edition::declarations::core::CORE_2026_08_3;
 use vortex_edition::declarations::preview::PREVIEW_2026_08_0;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_expr::BoundExpression;
+use vortex_expr::Expression;
+use vortex_expr::ScalarFnExprExt;
+use vortex_expr::and;
+use vortex_expr::cast;
+use vortex_expr::col;
+use vortex_expr::eq;
+use vortex_expr::get_item;
+use vortex_expr::gt;
+use vortex_expr::gt_eq;
+use vortex_expr::lit;
+use vortex_expr::lt;
+use vortex_expr::lt_eq;
+use vortex_expr::or;
+use vortex_expr::root;
 use vortex_functions::expr::lower;
+use vortex_functions::expr::select;
 use vortex_io::VortexWrite;
+#[cfg(feature = "object_store")]
+use vortex_io::object_store::ObjectStoreWrite;
 use vortex_io::runtime::tokio::TokioRuntime;
 use vortex_io::session::RuntimeSession;
 use vortex_io::std_file::FileWrite;
@@ -141,6 +149,7 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
         .with::<RuntimeSession>();
 
     crate::register_default_encodings(&session);
+    vortex_functions::initialize(&session);
     crate::enable_all_registered_array_encodings(&session);
 
     session
@@ -1683,6 +1692,66 @@ async fn file_excluding_dtype() -> VortexResult<()> {
 }
 
 #[tokio::test]
+async fn open_with_unknown_field_dtype_tag_drops_file_statistics() -> VortexResult<()> {
+    use vortex_array::dtype::flatbuffers as dtype_fb;
+    use vortex_array::flatbuffers::FlatBuffer;
+
+    let array = StructArray::from_fields(&[("a", buffer![1i32, 2, 3].into_array())])?.into_array();
+
+    let mut writer = vec![];
+    SESSION
+        .write_options()
+        .exclude_dtype()
+        .write(&mut writer, array.to_array_stream())
+        .await?;
+    let buffer: Bytes = writer.into();
+
+    let vxf = SESSION
+        .open_options()
+        .with_dtype(array.dtype().clone())
+        .open_buffer(buffer.clone())?;
+    assert!(vxf.file_stats().is_some());
+
+    let mut fbb = FlatBufferBuilder::new();
+    let name_a = fbb.create_string("a");
+    let names = fbb.create_vector(&[name_a]);
+    let unknown_type = dtype_fb::Null::create(&mut fbb, &dtype_fb::NullArgs {});
+    let unknown = dtype_fb::DType::create(
+        &mut fbb,
+        &dtype_fb::DTypeArgs {
+            type_type: dtype_fb::Type(200),
+            type_: Some(unknown_type.as_union_value()),
+        },
+    );
+    let dtypes = fbb.create_vector(&[unknown]);
+    let struct_table = dtype_fb::Struct_::create(
+        &mut fbb,
+        &dtype_fb::Struct_Args {
+            names: Some(names),
+            dtypes: Some(dtypes),
+            nullable: false,
+        },
+    );
+    let root = dtype_fb::DType::create(
+        &mut fbb,
+        &dtype_fb::DTypeArgs {
+            type_type: dtype_fb::Type::Struct_,
+            type_: Some(struct_table.as_union_value()),
+        },
+    );
+    fbb.finish_minimal(root);
+    let dtype = DType::from_flatbuffer(FlatBuffer::copy_from(fbb.finished_data()), &SESSION)?;
+
+    let vxf = SESSION
+        .open_options()
+        .with_dtype(dtype)
+        .open_buffer(buffer)?;
+    assert!(vxf.file_stats().is_none());
+
+    Ok(())
+}
+
+#[tokio::test]
 async fn file_take() -> VortexResult<()> {
     let vxf = chunked_file().await?;
     let result = vxf
@@ -2707,6 +2776,62 @@ async fn test_writer_with_statistics() -> VortexResult<()> {
     );
     assert_eq!(summary.row_count(), 5);
 
+    Ok(())
+}
+
+#[cfg(feature = "object_store")]
+#[rstest]
+#[case::empty(0)]
+#[case::small(17)]
+#[case::multipart(10 * 1024 * 1024 + 13)]
+#[tokio::test]
+async fn test_object_store_deferred_publication(#[case] rows: u64) -> VortexResult<()> {
+    let store: Arc<dyn object_store::ObjectStore> = Arc::new(InMemory::new());
+    let path = Path::from("deferred.vortex");
+    let mut writer = ObjectStoreWrite::new(Arc::clone(&store), &path)
+        .await?
+        .with_concurrency(4);
+    let array =
+        StructArray::from_fields(&[("numbers", Buffer::from_iter(7..rows + 7).into_array())])?
+            .into_array();
+    let summary = SESSION
+        .write_options()
+        .with_strategy(Arc::new(FlatLayoutStrategy::default()))
+        .with_file_statistics(pruning_aggregate_fns())
+        .write(&mut writer, array.clone().to_array_stream())
+        .await?;
+
+    assert_eq!(summary.row_count(), rows);
+    assert!(store.head(&path).await.is_err());
+    assert!(writer.put_result().is_none());
+    if rows == 0 {
+        writer.abort().await?;
+        assert!(store.head(&path).await.is_err());
+        return Ok(());
+    }
+    let statistics = summary.footer().statistics().expect("requested statistics");
+    let (stats, _) = statistics.get(0);
+    assert_eq!(
+        stat_value(stats, Stat::Min),
+        Precision::exact(ScalarValue::from(7u64))
+    );
+    assert_eq!(
+        stat_value(stats, Stat::Max),
+        Precision::exact(ScalarValue::from(rows + 6))
+    );
+    assert_eq!(
+        stat_value(stats, Stat::NullCount),
+        Precision::exact(ScalarValue::from(0u64))
+    );
+
+    writer.shutdown().await?;
+    let bytes = store.get(&path).await?.bytes().await?;
+    assert_eq!(bytes.len() as u64, summary.size());
+    let file = SESSION
+        .open_options()
+        .open_buffer(ByteBuffer::copy_from(bytes))?;
+    let actual = file.scan()?.into_array_stream()?.read_all().await?;
+    assert_arrays_eq!(actual, array, &mut SESSION.create_execution_ctx());
     Ok(())
 }
 

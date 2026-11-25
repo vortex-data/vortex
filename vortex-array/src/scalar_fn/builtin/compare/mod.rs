@@ -47,15 +47,13 @@ use crate::arrays::scalar_fn::ScalarFnArrayExt;
 use crate::arrays::scalar_fn::ScalarFnArrayView;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
-use crate::expr::BoundExpression;
-use crate::expr::bound;
-use crate::expr::display::ExprDisplay;
 use crate::kernel::ExecuteParentKernel;
 use crate::proto::expr as pb;
 use crate::scalar::Scalar;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
 use crate::scalar_fn::ExecutionArgs;
+use crate::scalar_fn::ReduceNode;
 use crate::scalar_fn::ScalarFnExecutionResult;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
@@ -63,8 +61,8 @@ use crate::scalar_fn::ScalarFnVTableExt;
 use crate::scalar_fn::builtin::binary::binary_child_name;
 use crate::scalar_fn::builtin::binary::execute_strict_step;
 use crate::scalar_fn::builtin::binary::fmt_infix;
-use crate::scalar_fn::builtin::literal::Literal;
 use crate::scalar_fn::builtin::operators::CompareOperator;
+use crate::scalar_fn::display::ExprDisplay;
 use crate::validity::Validity;
 
 mod boolean;
@@ -170,20 +168,19 @@ impl ScalarFnVTable for Compare {
         execute_compare(&lhs, &rhs, *operator, ctx)
     }
 
-    fn simplify(
+    fn simplify<T: ReduceNode>(
         &self,
         _operator: &CompareOperator,
-        expr: &BoundExpression,
-    ) -> VortexResult<Option<BoundExpression>> {
-        let is_literal_null =
-            |expr: &BoundExpression| expr.as_opt::<Literal>().is_some_and(Scalar::is_null);
+        node: &T,
+    ) -> VortexResult<Option<T>> {
+        let is_constant_null = |node: &T| node.as_constant().is_some_and(|s| s.is_null());
 
         // Binding already rejected ill-typed comparisons such as `int_col = null_utf8`, so a
-        // comparison against a null literal always evaluates to null.
-        if is_literal_null(expr.child(0)) || is_literal_null(expr.child(1)) {
-            return Ok(Some(bound::lit(Scalar::null(DType::Bool(
-                Nullability::Nullable,
-            )))));
+        // comparison against a null constant always evaluates to null.
+        if is_constant_null(&node.child(0)) || is_constant_null(&node.child(1)) {
+            return Ok(Some(
+                node.new_constant(Scalar::null(DType::Bool(Nullability::Nullable))),
+            ));
         }
 
         Ok(None)

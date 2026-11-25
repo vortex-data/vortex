@@ -14,11 +14,6 @@ use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::dtype::DType;
-use vortex_array::expr::BoundExpression;
-use vortex_array::expr::display::ExprDisplay;
-use vortex_array::expr::traversal::NodeExt;
-use vortex_array::expr::traversal::NodeVisitor;
-use vortex_array::expr::traversal::TraversalOrder;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar::ScalarValue;
 use vortex_array::scalar_fn::Arity;
@@ -30,9 +25,14 @@ use vortex_array::scalar_fn::ScalarFnVTableExt;
 use vortex_array::scalar_fn::VecExecutionArgs;
 use vortex_array::scalar_fn::builtin::compare::Compare;
 use vortex_array::scalar_fn::builtin::operators::CompareOperator;
+use vortex_array::scalar_fn::display::ExprDisplay;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_expr::BoundExpression;
+use vortex_expr::traversal::NodeExt;
+use vortex_expr::traversal::NodeVisitor;
+use vortex_expr::traversal::TraversalOrder;
 use vortex_session::registry::CachedId;
 
 use crate::dynamic_expression::DynamicExpression;
@@ -147,6 +147,11 @@ impl DynamicComparisonExpr {
     /// The result used while the dynamic value is not yet known.
     pub fn default(&self) -> bool {
         self.default
+    }
+
+    /// The dtype of the dynamic value, whether or not the value is known yet.
+    pub fn dtype(&self) -> &DType {
+        &self.rhs.dtype
     }
 
     /// A comparison against the same dynamic value with a different operator and default.
@@ -332,9 +337,10 @@ mod tests {
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
-    use vortex_array::expr::root;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
+    use vortex_expr::ArrayExprExt;
+    use vortex_expr::root;
     use vortex_session::VortexSession;
 
     use super::*;
@@ -361,6 +367,16 @@ mod tests {
         );
 
         assert!(!expr.as_scalar().is_some_and(|f| f.signature().is_strict()));
+    }
+
+    #[test]
+    fn dtype_of_unknown_value() {
+        let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
+        let expr = dynamic(CompareOperator::Lt, || None, dtype.clone(), true, root());
+
+        let options = expr.as_::<DynamicComparison>();
+        assert_eq!(options.scalar(), None);
+        assert_eq!(options.dtype(), &dtype);
     }
 
     #[test]

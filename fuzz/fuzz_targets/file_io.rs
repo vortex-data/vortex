@@ -6,6 +6,8 @@
 use itertools::Itertools;
 use libfuzzer_sys::Corpus;
 use libfuzzer_sys::fuzz_target;
+use vortex::expr::lit;
+use vortex::expr::root;
 use vortex_array::Canonical;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
@@ -13,12 +15,9 @@ use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::bool::BoolArrayExt;
 use vortex_array::assert_arrays_eq;
-use vortex_array::dtype::DType;
-use vortex_array::dtype::StructFields;
-use vortex_array::expr::lit;
-use vortex_array::expr::root;
 use vortex_btrblocks::BtrBlocksCompressorBuilder;
 use vortex_error::VortexExpect;
+use vortex_expr::ArrayExprExt;
 use vortex_file::OpenOptionsSessionExt;
 use vortex_file::WriteOptionsSessionExt;
 use vortex_file::WriteStrategyBuilder;
@@ -26,8 +25,8 @@ use vortex_fuzz::CompressorStrategy;
 use vortex_fuzz::FuzzFileAction;
 use vortex_fuzz::RUNTIME;
 use vortex_fuzz::SESSION;
-use vortex_utils::aliases::DefaultHashBuilder;
-use vortex_utils::aliases::hash_set::HashSet;
+use vortex_fuzz::has_duplicate_field_names;
+use vortex_fuzz::has_nullable_struct;
 
 fuzz_target!(|fuzz: FuzzFileAction| -> Corpus {
     let FuzzFileAction {
@@ -114,33 +113,3 @@ fuzz_target!(|fuzz: FuzzFileAction| -> Corpus {
 
     Corpus::Keep
 });
-
-fn has_nullable_struct(dtype: &DType) -> bool {
-    dtype.is_struct() && dtype.is_nullable()
-        || dtype
-            .as_struct_fields_opt()
-            .map(|sdt| sdt.fields().any(|dtype| has_nullable_struct(&dtype)))
-            .unwrap_or(false)
-        || dtype
-            .as_list_element_opt()
-            .map(|e| has_nullable_struct(e.as_ref()))
-            .unwrap_or(false)
-}
-
-fn has_duplicate_field_names(dtype: &DType) -> bool {
-    if let Some(struct_dtype) = dtype.as_struct_fields_opt() {
-        struct_has_duplicate_names(struct_dtype)
-    } else if let Some(list_elem) = dtype.as_list_element_opt() {
-        has_duplicate_field_names(list_elem)
-    } else {
-        false
-    }
-}
-
-fn struct_has_duplicate_names(struct_dtype: &StructFields) -> bool {
-    HashSet::<_, DefaultHashBuilder>::from_iter(struct_dtype.names().iter()).len()
-        != struct_dtype.names().len()
-        || struct_dtype
-            .fields()
-            .any(|dtype| has_duplicate_field_names(&dtype))
-}

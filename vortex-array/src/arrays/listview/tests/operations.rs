@@ -6,12 +6,15 @@ use std::sync::LazyLock;
 
 use rstest::rstest;
 use vortex_buffer::buffer;
+use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
 
 use super::common::create_basic_listview;
+use super::common::create_empty_lists_listview;
 use super::common::create_large_listview;
 use super::common::create_nullable_listview;
+use super::common::create_overlapping_listview;
 use crate::IntoArray;
 use crate::VortexSessionExecute;
 use crate::aggregate_fn::fns::is_constant::is_constant;
@@ -24,6 +27,7 @@ use crate::arrays::listview::ListViewArrayExt;
 use crate::arrays::listview::ListViewArraySlotsExt;
 use crate::assert_arrays_eq;
 use crate::builtins::ArrayBuiltins;
+use crate::compute::conformance::consistency::test_scalar_probe_consistency;
 use crate::compute::conformance::mask::test_mask_conformance;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
@@ -32,6 +36,22 @@ use crate::optimizer::ArrayOptimizer;
 use crate::validity::Validity;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
+#[test]
+fn test_listview_scalar_probe() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    for array in [
+        create_basic_listview(),
+        create_nullable_listview(),
+        create_overlapping_listview(),
+        create_empty_lists_listview(),
+    ] {
+        let array = array.into_array();
+        test_scalar_probe_consistency(&array, &mut ctx);
+        test_scalar_probe_consistency(&array.slice(1..array.len())?, &mut ctx);
+    }
+    Ok(())
+}
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 // Slice tests
