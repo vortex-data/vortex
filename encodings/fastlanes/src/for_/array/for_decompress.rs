@@ -302,7 +302,7 @@ where
 
     // SAFETY: `unpack_chunks_narrow` initializes every value in this range.
     let output = unsafe { uninit_range.slice_uninit_mut(0, len) };
-    unpack_chunks_narrow::<T, U>(bp, references, output, ctx)?;
+    unpack_chunks_narrow::<T, U>(bp, references, output)?;
 
     if let Some(patches) = bp.patches() {
         apply_patches_narrow::<T, U>(
@@ -326,7 +326,6 @@ fn unpack_chunks_narrow<T, U>(
     bp: ArrayView<'_, BitPacked>,
     references: &[T],
     output: &mut [MaybeUninit<T>],
-    ctx: &mut ExecutionCtx,
 ) -> VortexResult<()>
 where
     T: NativePType + WrappingAdd,
@@ -334,8 +333,9 @@ where
 {
     let offset = usize::from(bp.offset());
     let packed = bp.packed_slice::<U>();
+    let bit_width = usize::from(bp.bit_width());
     let mut scratch = [U::zero(); FL_CHUNK_SIZE];
-    let mut unpack_chunk = |packed: &[U], bit_width: usize, range: Range<usize>| {
+    for_each_packed_chunk::<U, _>(packed, bit_width, offset, bp.len(), |packed, range| {
         let reference = references[range.start / FL_CHUNK_SIZE];
         let skip = offset.saturating_sub(range.start);
         let dst = &mut output[range.start + skip - offset..range.end - offset];
@@ -348,20 +348,7 @@ where
                 out.write(reference.wrapping_add(&val.as_()));
             }
         }
-    };
-    match bp.bit_widths() {
-        BitWidthsView::Global(bit_width) => {
-            let bit_width = usize::from(bit_width);
-            for_each_packed_chunk::<U, _>(packed, bit_width, offset, bp.len(), |packed, range| {
-                unpack_chunk(packed, bit_width, range);
-            })
-        }
-        BitWidthsView::Blocked(offsets) => {
-            let offsets = execute_block_offsets(bp, offsets, ctx)?;
-            for_each_packed_block::<U, _>(packed, &offsets, offset, bp.len(), unpack_chunk);
-            Ok(())
-        }
-    }
+    })
 }
 
 fn apply_patches_narrow<T, U>(

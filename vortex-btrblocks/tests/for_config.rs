@@ -249,7 +249,6 @@ fn cuda_preset_keeps_single_reference() -> VortexResult<()> {
     Ok(())
 }
 
-
 #[test]
 fn v2_handles_wide_global_span_with_narrow_blocks() -> VortexResult<()> {
     let array = PrimitiveArray::from_iter((0..2048i64).map(|i| {

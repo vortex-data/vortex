@@ -81,14 +81,15 @@ pub(crate) static FOR_V2: FoRScheme = FoRScheme::v2();
 /// The v1 mode subtracts one reference, the array's minimum. The v2 mode subtracts one reference
 /// per 1024-element chunk, the chunk's minimum. Arrays with a single reference, including v2
 /// arrays whose references compress to a constant, serialize as `fastlanes.for`, while per-chunk
-/// references serialize as `fastlanes.for.v2`.
+/// references serialize as `fastlanes.for.v2` (same-width residuals) or `fastlanes.for.v3`
+/// (narrowed unsigned residuals).
 ///
 /// The encoded child is always bit-packed by [`BitPackingScheme`] called directly, not chosen by
 /// the compressor, so this scheme declares the child's serialized IDs as its own. Excluding the
 /// BitPacking scheme does not stop FoR from bit-packing; disallowing `fastlanes.bitpacked` does.
 ///
-/// The default uses v1. [`refine`](Scheme::refine) picks v2 references when `fastlanes.for.v2` is
-/// allowed.
+/// The default uses v1. [`refine`](Scheme::refine) picks v2 references when both
+/// `fastlanes.for.v2` and `fastlanes.for.v3` are allowed.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct FoRScheme {
     mode: FoRSchemeMode,
@@ -250,8 +251,7 @@ impl Scheme for FoRScheme {
         // Signed wrapping subtraction on a block wider than `T::MAX` can produce negative
         // residuals; in that case fall back to selecting another encoding (excluding FoR)
         // rather than materializing an uncompressed FoR array larger than the input.
-        let Some(compressed) =
-            try_bitpack_residuals(compressor, biased, &compress_ctx, exec_ctx)?
+        let Some(compressed) = try_bitpack_residuals(compressor, biased, &compress_ctx, exec_ctx)?
         else {
             return compressor.compress_child(data.array(), &compress_ctx, self.id(), 0, exec_ctx);
         };
@@ -561,7 +561,7 @@ mod tests {
     #[case::v3_only(false, false, true, false)]
     #[case::v2_and_v3(false, true, true, true)]
     #[case::all(true, true, true, true)]
-    fn refine_picks_v2_when_v2_id_is_allowed(
+    fn refine_picks_v2_when_blocked_ids_are_allowed(
         #[case] allow_v1: bool,
         #[case] allow_v2: bool,
         #[case] allow_v3: bool,

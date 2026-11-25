@@ -44,7 +44,6 @@ use vortex_functions::builtins::ArrayFunctions;
 
 use crate::BitPacked;
 use crate::BitPackedArrayExt;
-use crate::BitWidthsView;
 use crate::FL_CHUNK_SIZE;
 use crate::FoR;
 use crate::FoRReferences;
@@ -215,9 +214,8 @@ where
 
     if let Some(bp) = lhs.encoded().as_opt::<BitPacked>()
         && bp.offset() == lhs.offset()
-        && let BitWidthsView::Global(bit_width) = bp.bit_widths()
     {
-        let bit_width = usize::from(bit_width);
+        let bit_width = usize::from(bp.bit_width());
         if bp.dtype().as_ptype() == T::PTYPE {
             return compare_blocked_bitpacked::<T, T>(
                 lhs, bp, bit_width, refs, rhs, validity, operator, ctx,

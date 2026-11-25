@@ -40,7 +40,6 @@ use vortex_mask::MaskValues;
 
 use crate::BitPacked;
 use crate::BitPackedArrayExt;
-use crate::BitWidthsView;
 use crate::FL_CHUNK_SIZE;
 use crate::FoR;
 use crate::FoRReferences;
@@ -111,8 +110,8 @@ fn filter_blocked(
 
     if let Some(bp) = array.encoded().as_opt::<BitPacked>()
         && bp.offset() == array.offset()
-        && let BitWidthsView::Global(bit_width) = bp.bit_widths()
     {
+        let bit_width = bp.bit_width();
         let validity = bp.validity()?.filter(mask)?;
         return match_each_integer_ptype!(refs.ptype(), |T| {
             filter_blocked_bitpacked::<T>(

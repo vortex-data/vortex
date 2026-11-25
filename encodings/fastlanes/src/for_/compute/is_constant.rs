@@ -28,7 +28,6 @@ use vortex_mask::Mask;
 
 use crate::BitPacked;
 use crate::BitPackedArrayExt;
-use crate::BitWidthsView;
 use crate::FL_CHUNK_SIZE;
 use crate::FoR;
 use crate::FoRReferences;
@@ -113,9 +112,8 @@ where
 {
     if let Some(bp) = array.encoded().as_opt::<BitPacked>()
         && bp.offset() == array.offset()
-        && let BitWidthsView::Global(bit_width) = bp.bit_widths()
     {
-        let bit_width = usize::from(bit_width);
+        let bit_width = usize::from(bp.bit_width());
         if bp.dtype().as_ptype() == T::PTYPE {
             return is_constant_blocked_bitpacked::<T, T>(bp, bit_width, refs, ctx);
         }

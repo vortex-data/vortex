@@ -199,7 +199,7 @@ async fn test_eof_values() {
     feature = "zstd",
     case::compact(
         BtrBlocksCompressorBuilder::from_session(&SESSION).with_compact(),
-        55_088
+        55_128
     )
 )]
 #[tokio::test]
