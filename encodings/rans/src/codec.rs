@@ -22,11 +22,33 @@ use vortex_mask::Mask;
 /// Number of interleaved rANS state machines per block.
 pub const NUM_LANES: usize = 32;
 
-/// Maximum number of 32-element stripes per block.
-pub const STRIPES_PER_BLOCK: usize = 128;
+/// Minimum supported `log2(block_values)` (`2^10 = 1,024` values = `32` stripes × `32` lanes).
+pub const MIN_BLOCK_SHIFT: u8 = 10;
 
-/// Number of logical rows per independent rANS block (`32 * 128 = 4,096`).
-pub const BLOCK_VALUES: usize = NUM_LANES * STRIPES_PER_BLOCK;
+/// Medium supported `log2(block_values)` (`2^11 = 2,048` values = `64` stripes × `32` lanes).
+pub const MID_BLOCK_SHIFT: u8 = 11;
+
+/// Maximum supported `log2(block_values)` (`2^12 = 4,096` values = `128` stripes × `32` lanes).
+pub const MAX_BLOCK_SHIFT: u8 = 12;
+
+/// Default `log2(block_values)` (`12`, i.e. `4,096` values per block).
+pub const DEFAULT_BLOCK_SHIFT: u8 = MAX_BLOCK_SHIFT;
+
+/// Maximum number of 32-element stripes per block (`128` at [`MAX_BLOCK_SHIFT`]).
+pub const MAX_STRIPES_PER_BLOCK: usize = 1 << (MAX_BLOCK_SHIFT as usize - 5);
+
+/// Maximum number of logical rows per independent rANS block (`32 * 128 = 4,096`).
+pub const MAX_BLOCK_VALUES: usize = NUM_LANES * MAX_STRIPES_PER_BLOCK;
+
+/// Validates `block_shift in 10..=12` and returns `block_values = 1usize << block_shift`.
+#[inline]
+pub fn validate_block_shift(block_shift: u8) -> VortexResult<usize> {
+    vortex_ensure!(
+        (MIN_BLOCK_SHIFT..=MAX_BLOCK_SHIFT).contains(&block_shift),
+        "Rans block_shift must be in {MIN_BLOCK_SHIFT}..={MAX_BLOCK_SHIFT}, got {block_shift}"
+    );
+    Ok(1usize << block_shift)
+}
 
 /// Log2 of the normalized probability scale (`2^11 = 2,048`).
 pub const PROB_BITS: u32 = 11;
@@ -496,15 +518,18 @@ pub struct EncodedRansBuffers {
 }
 
 /// Encodes non-negative `values` (`T` integer slice) with validity `mask` into 32-lane block-reset
-/// rANS buffers. Signed slices containing negative valid values return an error (wrap with `ZigZag`).
+/// rANS buffers of `2^block_shift` elements per block (`block_shift in 10..=12`). Signed slices
+/// containing negative valid values return an error (wrap with `ZigZag`).
 pub fn encode_primitive_slice<T>(
     values: &[T],
     is_signed: bool,
     mask: &Mask,
+    block_shift: u8,
 ) -> VortexResult<EncodedRansBuffers>
 where
     T: NativePType + AsPrimitive<i64> + AsPrimitive<u64>,
 {
+    let block_values = validate_block_shift(block_shift)?;
     let len = values.len();
     if len == 0 {
         let sym_freqs = vec![(0u8, PROB_SCALE as u16)];
@@ -518,7 +543,7 @@ where
         });
     }
 
-    let (counts, fill_sym) = count_chunk_symbols(values, is_signed, mask)?;
+    let (counts, fill_sym) = count_chunk_symbols(values, is_signed, mask, block_values)?;
     let sym_freqs = normalize_counts(&counts);
     let (decode_table, has_extra_bits) = RansDecodeTable::try_from_sym_freqs(&sym_freqs)?;
     let slack_words = if !has_extra_bits {
@@ -542,7 +567,7 @@ where
         cum += f;
     }
 
-    let num_blocks = len.div_ceil(BLOCK_VALUES);
+    let num_blocks = len.div_ceil(block_values);
     let mut headers_buf = ByteBufferMut::with_capacity_aligned(
         num_blocks * BLOCK_HEADER_BYTES,
         Alignment::of::<u64>(),
@@ -551,14 +576,14 @@ where
         ByteBufferMut::with_capacity_aligned(num_blocks * 256, Alignment::of::<u64>());
 
     let mut scratch = BlockEncodeScratch {
-        block_syms: [fill_sym; BLOCK_VALUES],
-        emitted_u16: [0u16; BLOCK_VALUES],
-        bit_writer: BitWriter::with_capacity(BLOCK_VALUES),
+        block_syms: [fill_sym; MAX_BLOCK_VALUES],
+        emitted_u16: [0u16; MAX_BLOCK_VALUES],
+        bit_writer: BitWriter::with_capacity(block_values),
     };
 
     for block_idx in 0..num_blocks {
-        let block_start = block_idx * BLOCK_VALUES;
-        let block_end = (block_start + BLOCK_VALUES).min(len);
+        let block_start = block_idx * block_values;
+        let block_end = (block_start + block_values).min(len);
         encode_one_block(
             values,
             block_start,
@@ -600,6 +625,7 @@ fn count_chunk_symbols<T>(
     values: &[T],
     is_signed: bool,
     mask: &Mask,
+    block_values: usize,
 ) -> VortexResult<([u64; MAX_SYMS], u8)>
 where
     T: Copy + AsPrimitive<i64> + AsPrimitive<u64>,
@@ -655,10 +681,10 @@ where
         }
     }
 
-    let num_blocks = len.div_ceil(BLOCK_VALUES);
-    let last_block_len = len - (num_blocks - 1) * BLOCK_VALUES;
+    let num_blocks = len.div_ceil(block_values);
+    let last_block_len = len - (num_blocks - 1) * block_values;
     let padded_total =
-        (num_blocks - 1) * BLOCK_VALUES + last_block_len.div_ceil(NUM_LANES) * NUM_LANES;
+        (num_blocks - 1) * block_values + last_block_len.div_ceil(NUM_LANES) * NUM_LANES;
     let fill_positions = (padded_total as u64).saturating_sub(valid_count);
     counts[usize::from(fill_sym)] += fill_positions;
 
@@ -666,8 +692,8 @@ where
 }
 
 struct BlockEncodeScratch {
-    block_syms: [u8; BLOCK_VALUES],
-    emitted_u16: [u16; BLOCK_VALUES],
+    block_syms: [u8; MAX_BLOCK_VALUES],
+    emitted_u16: [u16; MAX_BLOCK_VALUES],
     bit_writer: BitWriter,
 }
 
@@ -708,7 +734,7 @@ where
     );
 
     let mut states = [RANS_L; NUM_LANES];
-    let mut emit_pos = BLOCK_VALUES;
+    let mut emit_pos = MAX_BLOCK_VALUES;
     for stripe in (0..n_stripes).rev() {
         let stripe_base = stripe * NUM_LANES;
         for lane in (0..NUM_LANES).rev() {
@@ -808,7 +834,7 @@ fn populate_block_symbols<T>(
     slack_words: usize,
     fill_sym: u8,
     mask: &Mask,
-    block_syms: &mut [u8; BLOCK_VALUES],
+    block_syms: &mut [u8; MAX_BLOCK_VALUES],
     bit_writer: &mut BitWriter,
 ) where
     T: Copy + AsPrimitive<i64> + AsPrimitive<u64>,
@@ -938,7 +964,7 @@ pub fn decode_block_stripes_into<Out, F>(
     Out: Copy,
     F: Copy + Fn(u64) -> Out,
 {
-    debug_assert!(n_stripes <= STRIPES_PER_BLOCK);
+    debug_assert!(n_stripes <= MAX_STRIPES_PER_BLOCK);
     debug_assert!(dst.len() >= n_stripes * NUM_LANES);
 
     let hdr = RansBlockHeader::read_at(headers_bytes, block_idx);

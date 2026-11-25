@@ -5,6 +5,7 @@
 
 use std::sync::LazyLock;
 
+use prost::Message as _;
 use rand::RngExt;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
@@ -17,6 +18,7 @@ use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::SliceArray;
+use vortex_array::arrays::slice::SliceReduce;
 use vortex_array::assert_arrays_eq;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::compute::conformance::filter::test_filter_conformance;
@@ -36,9 +38,14 @@ use vortex_zigzag::ZigZag;
 use vortex_zigzag::ZigZagArraySlotsExt;
 use vortex_zigzag::zigzag_encode;
 
-use crate::BLOCK_VALUES;
+use crate::DEFAULT_BLOCK_SHIFT;
+use crate::MAX_BLOCK_SHIFT;
+use crate::MAX_BLOCK_VALUES;
+use crate::MID_BLOCK_SHIFT;
+use crate::MIN_BLOCK_SHIFT;
 use crate::Rans;
 use crate::RansArrayExt;
+use crate::RansMetadata;
 use crate::RansPlugin;
 use crate::codec::BASE_TABLE;
 use crate::codec::EBITS_TABLE;
@@ -380,7 +387,11 @@ fn nullable_slice_and_slot_templated_plugin_serde() -> VortexResult<()> {
         )?
         .expect("double SliceReduce must reduce Rans");
     assert!(slice2.is::<Rans>());
-    assert_eq!(slice2.as_::<Rans>().offset(), (4200 - BLOCK_VALUES) as u16);
+    assert_eq!(
+        slice2.as_::<Rans>().offset(),
+        (4200 - MAX_BLOCK_VALUES) as u16
+    );
+    assert_eq!(slice2.as_::<Rans>().block_shift(), DEFAULT_BLOCK_SHIFT);
     let expected_slice2 = prim.slice(4200..10_300)?;
     assert_arrays_eq!(&slice2, &expected_slice2, &mut ctx);
 
@@ -467,5 +478,241 @@ fn scalar_at_take_and_filter_kernels() -> VortexResult<()> {
     );
 
     test_filter_conformance(&sliced, &mut ctx);
+    Ok(())
+}
+
+#[rstest]
+#[case::shift_10(MIN_BLOCK_SHIFT)]
+#[case::shift_11(MID_BLOCK_SHIFT)]
+#[case::shift_12(MAX_BLOCK_SHIFT)]
+fn block_shift_roundtrip_slice_scalar_take_filter_and_serde(
+    #[case] block_shift: u8,
+) -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let mut rng = StdRng::seed_from_u64(1000 + u64::from(block_shift));
+    let block_values = 1usize << block_shift;
+    let len = block_values * 4 + 333;
+
+    let prim = PrimitiveArray::from_option_iter((0..len).map(|i| {
+        if (block_values - 5..block_values + 37).contains(&i) || rng.random_range(0..100u32) < 17 {
+            None
+        } else {
+            Some(match i % 5 {
+                0 => 0u64,
+                1 => 45 + rng.random_range(0..35u64),
+                2 => 750 + rng.random_range(0..350u64),
+                3 => (1u64 << 42) + (i as u64),
+                _ => rng.random_range(0..10_000u64),
+            })
+        }
+    }));
+
+    let rans = Rans::encode_with_block_shift(&prim, block_shift, &mut ctx)?;
+    assert_eq!(rans.block_shift(), block_shift);
+    assert_eq!(rans.block_values(), block_values);
+    assert_arrays_eq!(&rans, &prim, &mut ctx);
+
+    // Slice across multiple block boundaries twice so both `offset` and `payload_base_offset`
+    // exercise `block_shift`-specific block indexing.
+    let s1_start = block_values - 70;
+    let s1_end = block_values * 3 + 205;
+    let slice1 = rans
+        .into_array()
+        .slice(s1_start..s1_end)?
+        .optimize_ctx(&SESSION)?;
+    assert!(slice1.is::<Rans>());
+    assert_eq!(slice1.as_::<Rans>().block_shift(), block_shift);
+    assert_eq!(slice1.as_::<Rans>().offset(), (block_values - 70) as u16);
+    assert_arrays_eq!(&slice1, prim.slice(s1_start..s1_end)?, &mut ctx);
+
+    let s2_rel_start = 105usize;
+    let s2_rel_end = block_values * 2 + 19;
+    let sliced = slice1
+        .slice(s2_rel_start..s2_rel_end)?
+        .optimize_ctx(&SESSION)?;
+    assert!(sliced.is::<Rans>());
+    assert_eq!(sliced.as_::<Rans>().block_shift(), block_shift);
+    assert_eq!(sliced.as_::<Rans>().offset(), 35);
+    let expected = prim.slice((s1_start + s2_rel_start)..(s1_start + s2_rel_end))?;
+    assert_arrays_eq!(&sliced, &expected, &mut ctx);
+
+    // Empty `SliceReduce::slice` and empty `encode_with_block_shift` preserve `block_shift`.
+    let empty_sliced = SliceReduce::slice(sliced.as_::<Rans>(), 10..10)?
+        .expect("SliceReduce::slice must reduce empty range");
+    assert!(empty_sliced.is::<Rans>());
+    assert_eq!(empty_sliced.as_::<Rans>().block_shift(), block_shift);
+    assert_arrays_eq!(empty_sliced, expected.slice(10..10)?, &mut ctx);
+    let empty_encoded = Rans::encode_with_block_shift(
+        &PrimitiveArray::empty::<u64>(Nullability::NonNullable),
+        block_shift,
+        &mut ctx,
+    )?;
+    assert_eq!(empty_encoded.block_shift(), block_shift);
+
+    // `scalar_at` across stripe & block boundaries
+    for idx in [
+        0usize,
+        1,
+        31,
+        32,
+        block_values - 36,
+        block_values - 35,
+        block_values - 1,
+        block_values,
+        sliced.len() - 1,
+    ] {
+        assert_eq!(
+            sliced.execute_scalar(idx, &mut ctx)?,
+            expected.execute_scalar(idx, &mut ctx)?,
+            "scalar_at mismatch at idx={idx}, block_shift={block_shift}"
+        );
+    }
+
+    // Ordered & scattered `take`
+    let ordered_idx = PrimitiveArray::from_iter(
+        (0..40).map(|k| ((k * (sliced.len() / 40)).min(sliced.len() - 1)) as u32),
+    )
+    .into_array();
+    assert_arrays_eq!(
+        sliced.take(ordered_idx.clone())?,
+        expected.take(ordered_idx)?,
+        &mut ctx
+    );
+
+    let scattered_idx = PrimitiveArray::from_option_iter((0..64).map(|k| {
+        if k % 11 == 0 {
+            None
+        } else {
+            Some(rng.random_range(0..sliced.len() as u32))
+        }
+    }))
+    .into_array();
+    assert_arrays_eq!(
+        sliced.take(scattered_idx.clone())?,
+        expected.take(scattered_idx)?,
+        &mut ctx
+    );
+
+    // `filter` conformance (covers bit-buffer masks, sparse index masks, dense masks, edge sizes)
+    test_filter_conformance(&sliced, &mut ctx);
+
+    // Plugin serde roundtrip preserves `block_shift`
+    let concrete = {
+        let v = sliced.as_::<Rans>();
+        let val = v.rans_validity().execute_mask(v.len(), &mut ctx)?;
+        let concrete_val = match val {
+            Mask::AllTrue(_) => Validity::AllValid,
+            Mask::AllFalse(_) => Validity::AllInvalid,
+            Mask::Values(mv) => Validity::from(mv.bit_buffer().clone()),
+        };
+        Rans::try_new(v.dtype().clone(), v.len(), v.data().clone(), concrete_val)?.into_array()
+    };
+    let ser = RansPlugin.serialize(&concrete, &SESSION)?.unwrap();
+    let decoded_meta = RansMetadata::decode(ser.metadata.as_slice())?;
+    assert_eq!(decoded_meta.block_shift, u32::from(block_shift));
+
+    let ser_buffers: Vec<BufferHandle> = ser
+        .buffers
+        .into_iter()
+        .map(BufferHandle::new_host)
+        .collect();
+    let deser = RansPlugin.deserialize(
+        ArrayDeserialization::new(
+            ser.serialized_id,
+            concrete.dtype(),
+            concrete.len(),
+            &ser.metadata,
+            &ser_buffers,
+            &ser.children,
+        ),
+        &SESSION,
+    )?;
+    assert_eq!(deser.as_::<Rans>().block_shift(), block_shift);
+    assert_arrays_eq!(deser, expected, &mut ctx);
+
+    // For `block_shift == 12`, omitted/zero `block_shift` in protobuf metadata decodes as 12.
+    if block_shift == DEFAULT_BLOCK_SHIFT {
+        let mut legacy_meta = decoded_meta;
+        legacy_meta.block_shift = 0;
+        let legacy_bytes = legacy_meta.encode_to_vec();
+        let legacy_deser = RansPlugin.deserialize(
+            ArrayDeserialization::new(
+                ser.serialized_id,
+                concrete.dtype(),
+                concrete.len(),
+                &legacy_bytes,
+                &ser_buffers,
+                &ser.children,
+            ),
+            &SESSION,
+        )?;
+        assert_eq!(
+            legacy_deser.as_::<Rans>().block_shift(),
+            DEFAULT_BLOCK_SHIFT
+        );
+    }
+
+    Ok(())
+}
+
+#[test]
+fn rejects_invalid_block_shift_and_offset() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let prim = PrimitiveArray::from_iter(0..2048u32);
+
+    for bad_shift in [0u8, 1, 9, 13, 16, u8::MAX] {
+        assert!(Rans::encode_with_block_shift(&prim, bad_shift, &mut ctx).is_err());
+    }
+
+    let valid = Rans::encode_with_block_shift(&prim, MIN_BLOCK_SHIFT, &mut ctx)?.into_array();
+    let ser = RansPlugin.serialize(&valid, &SESSION)?.unwrap();
+    let ser_buffers: Vec<BufferHandle> = ser
+        .buffers
+        .into_iter()
+        .map(BufferHandle::new_host)
+        .collect();
+    let base_meta = RansMetadata::decode(ser.metadata.as_slice())?;
+
+    for bad_meta_shift in [9u32, 13, 999] {
+        let mut bad = base_meta.clone();
+        bad.block_shift = bad_meta_shift;
+        let bytes = bad.encode_to_vec();
+        assert!(
+            RansPlugin
+                .deserialize(
+                    ArrayDeserialization::new(
+                        ser.serialized_id,
+                        valid.dtype(),
+                        valid.len(),
+                        &bytes,
+                        &ser_buffers,
+                        &ser.children,
+                    ),
+                    &SESSION,
+                )
+                .is_err()
+        );
+    }
+
+    // Offset `1024` is `< 4096` but invalid when `block_shift == 10` (`block_values == 1024`).
+    let mut bad_offset = base_meta;
+    bad_offset.offset = 1024;
+    let bad_offset_bytes = bad_offset.encode_to_vec();
+    assert!(
+        RansPlugin
+            .deserialize(
+                ArrayDeserialization::new(
+                    ser.serialized_id,
+                    valid.dtype(),
+                    valid.len(),
+                    &bad_offset_bytes,
+                    &ser_buffers,
+                    &ser.children,
+                ),
+                &SESSION,
+            )
+            .is_err()
+    );
+
     Ok(())
 }

@@ -4,15 +4,16 @@
 //! 32-lane block-reset `Pow2-Bin + Raw-Bits` rANS integer encoding (`vortex.rans`).
 //!
 //! [`RansArray`] compresses non-negative primitive integers (`u8..=u64`, and `i8..=i64` whose valid
-//! values are `>= 0`) into independent `4,096`-element logical blocks (`128` stripes × `32` rANS
-//! lanes) sharing a compact per-chunk `2,048`-slot probability table (`PROB_BITS = 11`). Signed
-//! arrays with negative values compose via `ZigZag(Rans)` and decode in a single pass through a
-//! fused [`ExecuteParentKernel`](vortex_array::kernel::ExecuteParentKernel).
+//! values are `>= 0`) into independent `1,024`-, `2,048`-, or `4,096`-element logical blocks
+//! (`block_shift` `10`, `11`, or `12`, i.e. `32`, `64`, or `128` stripes × `32` rANS lanes) sharing
+//! a compact per-chunk `2,048`-slot probability table (`PROB_BITS = 11`). Signed arrays with
+//! negative values compose via `ZigZag(Rans)` and decode in a single pass through a fused
+//! [`ExecuteParentKernel`](vortex_array::kernel::ExecuteParentKernel).
 //!
 //! Each non-negative value `u: u64` is bijectively decomposed into a bounded symbol `sym in 0..150`
 //! (`0..32` exact, `32..150` half-power-of-two bins) plus `ebits` verbatim trailing raw bits.
-//! Every `4,096`-row block resets its 32 `u32` rANS states, enabling `O(1)` block skipping in
-//! `slice`, `scalar_at`, `take`, and `filter`.
+//! Every `2^block_shift`-row block resets its 32 `u32` rANS states, enabling `O(1)` block skipping
+//! in `slice`, `scalar_at`, `take`, and `filter`.
 
 mod array;
 pub mod codec;
@@ -27,14 +28,19 @@ pub use array::RansData;
 pub use array::RansSlots;
 pub use codec::BLOCK_HEADER_BYTES;
 pub use codec::BLOCK_STATES_BYTES;
-pub use codec::BLOCK_VALUES;
+pub use codec::DEFAULT_BLOCK_SHIFT;
 pub use codec::EBITS_TABLE;
+pub use codec::MAX_BLOCK_SHIFT;
+pub use codec::MAX_BLOCK_VALUES;
+pub use codec::MAX_STRIPES_PER_BLOCK;
 pub use codec::MAX_SYMS;
+pub use codec::MID_BLOCK_SHIFT;
+pub use codec::MIN_BLOCK_SHIFT;
 pub use codec::NUM_LANES;
 pub use codec::PROB_BITS;
 pub use codec::PROB_SCALE;
-pub use codec::STRIPES_PER_BLOCK;
 pub use codec::pow2_sym_and_ebits;
+pub use codec::validate_block_shift;
 pub use plugin::RansPlugin;
 pub use plugin::rans_id;
 use vortex_array::ArrayVTable;
@@ -64,7 +70,8 @@ pub fn initialize(session: &VortexSession) {
 /// Serialized protobuf metadata for a [`RansArray`].
 #[derive(Clone, PartialEq, Eq, prost::Message)]
 pub struct RansMetadata {
-    /// Element offset within the first `4,096`-value block (`0..4096`, or `0` when empty).
+    /// Element offset within the first `2^block_shift`-value block (`0..2^block_shift`, or `0` when
+    /// empty).
     #[prost(uint32, tag = "1")]
     pub offset: u32,
     /// Whether any active symbol in the chunk has `ebits > 0` (`sym >= 32`).
@@ -76,6 +83,10 @@ pub struct RansMetadata {
     /// Base byte offset subtracted from `block_headers` offsets when `payload` was sliced.
     #[prost(uint32, tag = "4")]
     pub payload_base_offset: u32,
+    /// Log2 of the number of elements per independent rANS block (`10`, `11`, or `12`; `0` decodes
+    /// as the default `12` = `4,096`).
+    #[prost(uint32, tag = "5")]
+    pub block_shift: u32,
 }
 
 #[cfg(test)]

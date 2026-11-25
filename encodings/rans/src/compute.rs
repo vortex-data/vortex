@@ -42,7 +42,7 @@ use crate::RansArrayExt;
 use crate::RansData;
 use crate::array::decompress_rans_mapped;
 use crate::codec::BLOCK_HEADER_BYTES;
-use crate::codec::BLOCK_VALUES;
+use crate::codec::MAX_BLOCK_VALUES;
 use crate::codec::NUM_LANES;
 use crate::codec::RansBlockHeader;
 use crate::codec::decode_block_stripes;
@@ -104,9 +104,11 @@ impl ExecuteParentKernel<Rans> for RansZigZagKernel {
 impl SliceReduce for Rans {
     fn slice(array: ArrayView<'_, Self>, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
         let validity = array.rans_validity().slice(range.clone())?;
+        let block_shift = array.block_shift();
         if range.is_empty() {
             let data = RansData::try_new(
                 0,
+                block_shift,
                 0,
                 array.has_extra_bits(),
                 Arc::from(array.sym_freqs()),
@@ -119,11 +121,12 @@ impl SliceReduce for Rans {
             ));
         }
 
+        let block_values = 1usize << block_shift;
         let abs_start = usize::from(array.offset()) + range.start;
         let abs_stop = usize::from(array.offset()) + range.end;
-        let first_block = abs_start >> 12;
-        let end_block = abs_stop.div_ceil(BLOCK_VALUES);
-        let new_offset = (abs_start & (BLOCK_VALUES - 1)) as u16;
+        let first_block = abs_start >> block_shift;
+        let end_block = abs_stop.div_ceil(block_values);
+        let new_offset = (abs_start & (block_values - 1)) as u16;
 
         let new_headers = array
             .block_headers()
@@ -148,6 +151,7 @@ impl SliceReduce for Rans {
 
         let data = RansData::try_new(
             new_offset,
+            block_shift,
             new_base_offset,
             array.has_extra_bits(),
             Arc::from(array.sym_freqs()),
@@ -234,8 +238,17 @@ where
 {
     let array_len = array.len();
     let offset = usize::from(array.offset());
-    let num_blocks = (offset + array_len).div_ceil(BLOCK_VALUES);
-    let plan = scan_take_blocks(indices, index_validity, array_len, offset, num_blocks)?;
+    let block_shift = array.block_shift();
+    let block_values = 1usize << block_shift;
+    let num_blocks = (offset + array_len).div_ceil(block_values);
+    let plan = scan_take_blocks(
+        indices,
+        index_validity,
+        array_len,
+        offset,
+        block_shift,
+        num_blocks,
+    )?;
 
     let out_len = indices.len();
     let mut out = BufferMut::<T>::with_capacity_in(out_len, ctx.allocator().clone());
@@ -262,8 +275,10 @@ fn scan_take_blocks<I: IntegerPType>(
     index_validity: &Mask,
     array_len: usize,
     offset: usize,
+    block_shift: u8,
     num_blocks: usize,
 ) -> VortexResult<TakeBlockPlan> {
+    let block_mask = (1usize << block_shift) - 1;
     let mut hits_per_block = vec![0u32; num_blocks];
     let mut max_stripe_per_block = vec![0u8; num_blocks];
     let mut block_ordered = true;
@@ -274,8 +289,8 @@ fn scan_take_blocks<I: IntegerPType>(
             for &raw_idx in indices {
                 let idx = checked_index(raw_idx, array_len)?;
                 let pos = offset + idx;
-                let b = pos >> 12;
-                let stripe = ((pos & (BLOCK_VALUES - 1)) >> 5) as u8;
+                let b = pos >> block_shift;
+                let stripe = ((pos & block_mask) >> 5) as u8;
                 if b < prev_block {
                     block_ordered = false;
                 }
@@ -290,8 +305,8 @@ fn scan_take_blocks<I: IntegerPType>(
                 if bits.value(out_i) {
                     let idx = checked_index(raw_idx, array_len)?;
                     let pos = offset + idx;
-                    let b = pos >> 12;
-                    let stripe = ((pos & (BLOCK_VALUES - 1)) >> 5) as u8;
+                    let b = pos >> block_shift;
+                    let stripe = ((pos & block_mask) >> 5) as u8;
                     if b < prev_block {
                         block_ordered = false;
                     }
@@ -323,19 +338,21 @@ fn take_ordered_blocks<T, I>(
     I: IntegerPType,
 {
     let offset = usize::from(array.offset());
+    let block_shift = array.block_shift();
+    let block_mask = (1usize << block_shift) - 1;
     let headers_bytes = array.block_headers().as_host();
     let payload_bytes = array.payload().as_host();
     let table = array.decode_table();
     let base_offset = array.payload_base_offset();
     let has_extra_bits = array.has_extra_bits();
-    let mut scratch: [MaybeUninit<T>; BLOCK_VALUES] =
-        [const { MaybeUninit::uninit() }; BLOCK_VALUES];
+    let mut scratch: [MaybeUninit<T>; MAX_BLOCK_VALUES] =
+        [const { MaybeUninit::uninit() }; MAX_BLOCK_VALUES];
     let mut decoded_block = usize::MAX;
 
     let mut read_at = |raw_idx: I| -> T {
         let pos = offset + AsPrimitive::<usize>::as_(raw_idx);
-        let b = pos >> 12;
-        let in_block = pos & (BLOCK_VALUES - 1);
+        let b = pos >> block_shift;
+        let in_block = pos & block_mask;
         if b != decoded_block {
             let n_stripes = usize::from(plan.max_stripe_per_block[b]) + 1;
             decode_block_stripes::<T>(
@@ -387,6 +404,8 @@ fn take_scattered_blocks<T, I>(
     I: IntegerPType,
 {
     let offset = usize::from(array.offset());
+    let block_shift = array.block_shift();
+    let block_mask = (1usize << block_shift) - 1;
     let num_blocks = plan.hits_per_block.len();
     let mut offsets = vec![0u32; num_blocks + 1];
     for b in 0..num_blocks {
@@ -400,10 +419,10 @@ fn take_scattered_blocks<T, I>(
         Mask::AllTrue(_) => {
             for (out_i, &raw_idx) in indices.iter().enumerate() {
                 let pos = offset + AsPrimitive::<usize>::as_(raw_idx);
-                let b = pos >> 12;
+                let b = pos >> block_shift;
                 let slot = cursor[b] as usize;
                 cursor[b] += 1;
-                grouped[slot] = (out_i as u32, (pos & (BLOCK_VALUES - 1)) as u16);
+                grouped[slot] = (out_i as u32, (pos & block_mask) as u16);
             }
         }
         Mask::Values(mv) => {
@@ -411,10 +430,10 @@ fn take_scattered_blocks<T, I>(
             for (out_i, &raw_idx) in indices.iter().enumerate() {
                 if bits.value(out_i) {
                     let pos = offset + AsPrimitive::<usize>::as_(raw_idx);
-                    let b = pos >> 12;
+                    let b = pos >> block_shift;
                     let slot = cursor[b] as usize;
                     cursor[b] += 1;
-                    grouped[slot] = (out_i as u32, (pos & (BLOCK_VALUES - 1)) as u16);
+                    grouped[slot] = (out_i as u32, (pos & block_mask) as u16);
                 } else {
                     out_slice[out_i] = T::default();
                 }
@@ -428,8 +447,8 @@ fn take_scattered_blocks<T, I>(
     let table = array.decode_table();
     let base_offset = array.payload_base_offset();
     let has_extra_bits = array.has_extra_bits();
-    let mut scratch: [MaybeUninit<T>; BLOCK_VALUES] =
-        [const { MaybeUninit::uninit() }; BLOCK_VALUES];
+    let mut scratch: [MaybeUninit<T>; MAX_BLOCK_VALUES] =
+        [const { MaybeUninit::uninit() }; MAX_BLOCK_VALUES];
 
     for b in 0..num_blocks {
         let start_hit = offsets[b] as usize;
@@ -504,22 +523,24 @@ where
     let out_slice = out.as_mut_slice();
 
     let offset = usize::from(array.offset());
+    let block_shift = array.block_shift();
+    let block_values = 1usize << block_shift;
     let headers_bytes = array.block_headers().as_host();
     let payload_bytes = array.payload().as_host();
     let table = array.decode_table();
     let base_offset = array.payload_base_offset();
     let has_extra_bits = array.has_extra_bits();
 
-    let mut scratch: [MaybeUninit<T>; BLOCK_VALUES] =
-        [const { MaybeUninit::uninit() }; BLOCK_VALUES];
+    let mut scratch: [MaybeUninit<T>; MAX_BLOCK_VALUES] =
+        [const { MaybeUninit::uninit() }; MAX_BLOCK_VALUES];
     let mut written = 0usize;
 
     if let Some(indices) = mask_values.cached_indices() {
         let mut rest = indices;
         while let Some(&first_idx) = rest.first() {
-            let block_idx = (first_idx + offset) >> 12;
-            let block_abs_start = block_idx * BLOCK_VALUES;
-            let block_logical_end = block_abs_start + BLOCK_VALUES - offset;
+            let block_idx = (first_idx + offset) >> block_shift;
+            let block_abs_start = block_idx << block_shift;
+            let block_logical_end = block_abs_start + block_values - offset;
             let count = rest.partition_point(|&i| i < block_logical_end);
             let block_indices = &rest[..count];
             let last_in_block = block_indices[count - 1] + offset - block_abs_start;
@@ -550,13 +571,13 @@ where
     } else {
         let bits = mask_values.bit_buffer();
         let len = bits.len();
-        let num_blocks = (offset + len).div_ceil(BLOCK_VALUES);
-        let mut positions = [0u16; BLOCK_VALUES];
+        let num_blocks = (offset + len).div_ceil(block_values);
+        let mut positions = [0u16; MAX_BLOCK_VALUES];
 
         for block_idx in 0..num_blocks {
-            let block_abs_start = block_idx * BLOCK_VALUES;
+            let block_abs_start = block_idx << block_shift;
             let start = block_abs_start.saturating_sub(offset);
-            let end = (block_abs_start + BLOCK_VALUES - offset).min(len);
+            let end = (block_abs_start + block_values - offset).min(len);
             let count = bits.count_range(start, end);
             if count == 0 {
                 continue;

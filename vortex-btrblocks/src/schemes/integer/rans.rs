@@ -25,9 +25,13 @@ use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_rans::BLOCK_HEADER_BYTES;
 use vortex_rans::BLOCK_STATES_BYTES;
-use vortex_rans::BLOCK_VALUES;
+use vortex_rans::DEFAULT_BLOCK_SHIFT;
 use vortex_rans::EBITS_TABLE;
+use vortex_rans::MAX_BLOCK_SHIFT;
+use vortex_rans::MAX_BLOCK_VALUES;
 use vortex_rans::MAX_SYMS;
+use vortex_rans::MID_BLOCK_SHIFT;
+use vortex_rans::MIN_BLOCK_SHIFT;
 use vortex_rans::Rans;
 use vortex_rans::pow2_sym_and_ebits;
 use vortex_rans::rans_id;
@@ -58,9 +62,30 @@ const MIN_NARROW_BITS_SAVED: f64 = 0.35;
 /// Relative size ceiling paired with [`MIN_NARROW_BITS_SAVED`].
 const MAX_NARROW_REL_RATIO: f64 = 0.80;
 
-/// Per-block fixed byte cost (`32 * 4` state bytes + `8` header bytes = `136` bytes per `4,096`
-/// values, or `~0.265625` bits/value on full blocks).
+/// Per-block fixed byte cost (`32 * 4` state bytes + `8` header bytes = `136` bytes per block).
 const PER_BLOCK_FIXED_BYTES: usize = BLOCK_STATES_BYTES + BLOCK_HEADER_BYTES;
+
+/// Content entropy + extra-bits threshold (`>= 4.0` bpv) where `1,024`-value blocks (`block_shift = 10`)
+/// keep block overhead `< 15%` while giving `4x` faster `scalar_at` and `4x` finer filter/take.
+const MIN_BLOCK_SHIFT_CONTENT_BPV: f64 = 4.0;
+
+/// Content entropy + extra-bits threshold (`>= 2.0` bpv) where `2,048`-value blocks (`block_shift = 11`)
+/// give `2x` faster `scalar_at` with modest per-block state overhead.
+const MID_BLOCK_SHIFT_CONTENT_BPV: f64 = 2.0;
+
+#[derive(Clone, Copy, Debug)]
+struct CachedRansChoice(u8);
+
+#[inline]
+fn select_block_shift(content_bpv: f64) -> u8 {
+    if content_bpv >= MIN_BLOCK_SHIFT_CONTENT_BPV {
+        MIN_BLOCK_SHIFT
+    } else if content_bpv >= MID_BLOCK_SHIFT_CONTENT_BPV {
+        MID_BLOCK_SHIFT
+    } else {
+        MAX_BLOCK_SHIFT
+    }
+}
 
 /// 32-lane `Pow2-Bin + Raw-Bits` rANS leaf scheme (`vortex.int.rans`) for non-negative skewed
 /// integer streams.
@@ -123,11 +148,12 @@ impl Scheme for RansScheme {
 
                 let primitive = data.array().clone().execute::<PrimitiveArray>(exec_ctx)?;
                 let dict_available = dict_is_available(compressor, &compress_ctx);
-                let Some((bp_bits, rans_bits)) =
+                let Some((bp_bits, rans_bits, block_shift)) =
                     estimate_bp_vs_rans_bits(&primitive, dict_available, exec_ctx)?
                 else {
                     return Ok(EstimateVerdict::Skip);
                 };
+                data.get_or_insert_with(|| CachedRansChoice(block_shift));
 
                 let saved = bp_bits - rans_bits;
                 let worthwhile = saved >= MIN_ABSOLUTE_BITS_SAVED
@@ -153,7 +179,21 @@ impl Scheme for RansScheme {
         let primitive_array = compressor
             .with_compressed_validity(data.array(), exec_ctx)?
             .execute::<PrimitiveArray>(exec_ctx)?;
-        Ok(Rans::encode(&primitive_array, exec_ctx)?.into_array())
+        let mut est_err = None;
+        let choice = data.get_or_insert_with(|| {
+            match estimate_bp_vs_rans_bits(&primitive_array, false, exec_ctx) {
+                Ok(Some((_, _, shift))) => CachedRansChoice(shift),
+                Ok(None) => CachedRansChoice(DEFAULT_BLOCK_SHIFT),
+                Err(err) => {
+                    est_err = Some(err);
+                    CachedRansChoice(DEFAULT_BLOCK_SHIFT)
+                }
+            }
+        });
+        if let Some(err) = est_err {
+            return Err(err);
+        }
+        Ok(Rans::encode_with_block_shift(&primitive_array, choice.0, exec_ctx)?.into_array())
     }
 }
 
@@ -168,12 +208,12 @@ fn dict_is_available(compressor: &CascadingCompressor, compress_ctx: &Compressor
 }
 
 /// Samples up to `4` evenly spaced `4,096`-value blocks (`<= 16,384` elements) and computes
-/// `(bp_bits, rans_bits)` in bits/value.
+/// `(bp_bits, rans_bits, block_shift)` in bits/value.
 fn estimate_bp_vs_rans_bits(
     array: &PrimitiveArray,
     dict_available: bool,
     exec_ctx: &mut ExecutionCtx,
-) -> VortexResult<Option<(f64, f64)>> {
+) -> VortexResult<Option<(f64, f64, u8)>> {
     let total_len = array.len();
     if total_len == 0 {
         return Ok(None);
@@ -201,27 +241,27 @@ fn estimate_typed<T>(
     mask: &Mask,
     dict_available: bool,
     total_len: usize,
-) -> Option<(f64, f64)>
+) -> Option<(f64, f64, u8)>
 where
     T: NativePType + AsPrimitive<i64> + AsPrimitive<u64>,
 {
-    let num_blocks = total_len.div_ceil(BLOCK_VALUES);
+    let sample_window_count = total_len.div_ceil(MAX_BLOCK_VALUES);
     let is_signed = ptype.is_signed_int();
 
-    let sample = collect_sampled_histograms(values, is_signed, mask, num_blocks, total_len)?;
+    let sample =
+        collect_sampled_histograms(values, is_signed, mask, sample_window_count, total_len)?;
     let bp_bits = compute_bp_bits(ptype, &sample.bw_hist, sample.sample_len);
-    let (rans_bits, bp_bits) = compute_rans_and_capped_bp_bits(
+    let (rans_bits, bp_bits, block_shift) = compute_rans_and_capped_bp_bits(
         ptype,
         &sample.sym_counts,
         sample.sample_len,
         sample.null_count,
-        num_blocks,
         total_len,
         dict_available,
         bp_bits,
     );
 
-    Some((bp_bits, rans_bits))
+    Some((bp_bits, rans_bits, block_shift))
 }
 
 #[inline]
@@ -257,8 +297,8 @@ where
     let mut valid_count = 0usize;
 
     for i in 0..sampled_blocks {
-        let start = sampled_block_idx(i, num_blocks) * BLOCK_VALUES;
-        let end = (start + BLOCK_VALUES).min(total_len);
+        let start = sampled_block_idx(i, num_blocks) * MAX_BLOCK_VALUES;
+        let end = (start + MAX_BLOCK_VALUES).min(total_len);
         sample_len += end - start;
 
         match mask {
@@ -337,17 +377,15 @@ fn compute_bp_bits(ptype: PType, bw_hist: &[usize; 65], sample_len: usize) -> f6
     best_bits as f64 / sample_len as f64
 }
 
-#[expect(clippy::too_many_arguments)]
 fn compute_rans_and_capped_bp_bits(
     ptype: PType,
     raw_sym_counts: &[usize; MAX_SYMS],
     sample_len: usize,
     null_count: usize,
-    num_blocks: usize,
     total_len: usize,
     dict_available: bool,
     bp_bits: f64,
-) -> (f64, f64) {
+) -> (f64, f64, u8) {
     let mut sym_counts = *raw_sym_counts;
     let mut fill_sym = 0usize;
     let mut best_exact = 0usize;
@@ -376,6 +414,10 @@ fn compute_rans_and_capped_bp_bits(
         }
     }
 
+    let content_bpv = entropy_and_ebits / n_f64;
+    let block_shift = select_block_shift(content_bpv);
+    let num_blocks = total_len.div_ceil(1usize << block_shift);
+
     let capped_bp_bits = if !any_extra_bits && dict_available && active_syms >= 2 {
         let dict_bw = f64::from(usize::BITS - (active_syms - 1).leading_zeros());
         let dict_table_bpv = (active_syms * ptype.byte_width() * 8) as f64 / total_len as f64;
@@ -387,9 +429,9 @@ fn compute_rans_and_capped_bp_bits(
     let per_block_bytes = PER_BLOCK_FIXED_BYTES + if any_extra_bits { 8 } else { 0 };
     let overhead_bytes = num_blocks * per_block_bytes + active_syms * 3 + 16;
     let overhead_bpv = (overhead_bytes * 8) as f64 / total_len as f64;
-    let rans_bits = (entropy_and_ebits / n_f64) + overhead_bpv;
+    let rans_bits = content_bpv + overhead_bpv;
 
-    (rans_bits, capped_bp_bits)
+    (rans_bits, capped_bp_bits, block_shift)
 }
 
 #[cfg(test)]
@@ -415,7 +457,11 @@ mod tests {
     use vortex_edition::declarations::core::CORE_2026_08_3;
     use vortex_edition::declarations::unstable::UNSTABLE;
     use vortex_error::VortexResult;
+    use vortex_rans::MAX_BLOCK_SHIFT;
+    use vortex_rans::MID_BLOCK_SHIFT;
+    use vortex_rans::MIN_BLOCK_SHIFT;
     use vortex_rans::Rans;
+    use vortex_rans::RansArrayExt;
     use vortex_session::VortexSession;
     use vortex_zigzag::ZigZag;
     use vortex_zigzag::ZigZagArraySlotsExt;
@@ -498,6 +544,11 @@ mod tests {
             "GT should select vortex.rans directly, got: {}",
             gt_rans.display_tree()
         );
+        assert_eq!(
+            gt_rans.as_::<Rans>().block_shift(),
+            MAX_BLOCK_SHIFT,
+            "Narrow GT stream (< 2.0 bpv) must pick block_shift == 12 (4,096)"
+        );
         let validity_bytes = (len / 8) as u64;
         assert!(
             (gt_rans.nbytes() - validity_bytes) * 100 < (gt_bp.nbytes() - validity_bytes) * 75,
@@ -544,11 +595,43 @@ mod tests {
             "Non-negative signed PL should select vortex.rans directly, got: {}",
             pl_rans.display_tree()
         );
+        assert_eq!(
+            pl_rans.as_::<Rans>().block_shift(),
+            MIN_BLOCK_SHIFT,
+            "Wide PL stream (~6.8 bpv >= 4.0) must pick block_shift == 10 (1,024)"
+        );
         assert!(
-            pl_rans.nbytes() * 100 < pl_bp.nbytes() * 78,
-            "PL rANS ({}) must beat baseline ({}) by >22%",
+            pl_rans.nbytes() * 100 < pl_bp.nbytes() * 82,
+            "PL rANS ({}) must beat baseline ({}) by >18%",
             pl_rans.nbytes(),
             pl_bp.nbytes()
+        );
+
+        // Medium-entropy stream (`2.0 <= content_bpv < 4.0`) picks `block_shift == 11` (`2,048`).
+        let mid_stream = PrimitiveArray::from_iter((0..len).map(|_| {
+            let d = rng.random_range(0..1000u32);
+            if d < 550 {
+                0u32
+            } else if d < 750 {
+                1
+            } else if d < 880 {
+                2
+            } else {
+                32 + rng.random_range(0..64u32)
+            }
+        }))
+        .into_array();
+        let mid_rans = with_rans.compress(&mid_stream, &mut ctx)?;
+        assert_arrays_eq!(&mid_rans, &mid_stream, &mut ctx);
+        assert!(
+            mid_rans.is::<Rans>(),
+            "Medium-entropy stream should select vortex.rans, got: {}",
+            mid_rans.display_tree()
+        );
+        assert_eq!(
+            mid_rans.as_::<Rans>().block_shift(),
+            MID_BLOCK_SHIFT,
+            "Medium-entropy stream (~2.5 bpv) must pick block_shift == 11 (2,048)"
         );
 
         // 3. Signed Laplacian residuals with negatives must compose as `ZigZag(Rans)` and beat

@@ -37,11 +37,14 @@ use crate::RansArrayExt;
 use crate::RansArraySlotsExt;
 use crate::RansData;
 use crate::RansMetadata;
-use crate::codec::BLOCK_VALUES;
+use crate::codec::DEFAULT_BLOCK_SHIFT;
+use crate::codec::MAX_BLOCK_SHIFT;
+use crate::codec::MIN_BLOCK_SHIFT;
 use crate::codec::PROB_SCALE;
 use crate::codec::RansDecodeTable;
 use crate::codec::pack_sym_freqs;
 use crate::codec::unpack_sym_freqs;
+use crate::codec::validate_block_shift;
 
 /// The serialized and in-memory [`ArrayId`] of [`Rans`] (`"vortex.rans"`).
 pub fn rans_id() -> ArrayId {
@@ -72,6 +75,7 @@ impl ArrayPlugin for RansPlugin {
             has_extra_bits: view.has_extra_bits(),
             sym_freqs: pack_sym_freqs(view.sym_freqs()),
             payload_base_offset: view.payload_base_offset(),
+            block_shift: u32::from(view.block_shift()),
         };
 
         let validity_wire_child = view
@@ -122,9 +126,22 @@ impl ArrayPlugin for RansPlugin {
         );
 
         let metadata = RansMetadata::decode(metadata)?;
+        let block_shift = if metadata.block_shift == 0 {
+            DEFAULT_BLOCK_SHIFT
+        } else {
+            let shift = u8::try_from(metadata.block_shift).map_err(|_| {
+                vortex_err!(
+                    "RansMetadata block_shift {} must be 0 or in {MIN_BLOCK_SHIFT}..={MAX_BLOCK_SHIFT}",
+                    metadata.block_shift
+                )
+            })?;
+            validate_block_shift(shift)?;
+            shift
+        };
+        let block_values = 1usize << block_shift;
         vortex_ensure!(
-            usize::try_from(metadata.offset).is_ok_and(|off| off < BLOCK_VALUES),
-            "RansMetadata offset {} must be < {BLOCK_VALUES}",
+            usize::try_from(metadata.offset).is_ok_and(|off| off < block_values),
+            "RansMetadata offset {} must be < {block_values} (block_shift={block_shift})",
             metadata.offset
         );
         let offset = u16::try_from(metadata.offset)?;
@@ -164,6 +181,7 @@ impl ArrayPlugin for RansPlugin {
 
         let data = RansData::try_new(
             offset,
+            block_shift,
             metadata.payload_base_offset,
             metadata.has_extra_bits,
             Arc::from(sym_freqs),

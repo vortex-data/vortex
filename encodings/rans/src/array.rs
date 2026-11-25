@@ -45,13 +45,15 @@ use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_panic;
 
 use crate::codec::BLOCK_HEADER_BYTES;
-use crate::codec::BLOCK_VALUES;
+use crate::codec::DEFAULT_BLOCK_SHIFT;
+use crate::codec::MAX_BLOCK_VALUES;
 use crate::codec::NUM_LANES;
 use crate::codec::RansDecodeTable;
 use crate::codec::decode_block_stripes;
 use crate::codec::decode_block_stripes_into;
 use crate::codec::encode_primitive_slice;
 use crate::codec::validate_block_headers;
+use crate::codec::validate_block_shift;
 use crate::plugin::rans_id;
 
 /// A [`Rans`]-encoded Vortex array.
@@ -73,6 +75,7 @@ pub struct Rans;
 #[derive(Clone, Debug)]
 pub struct RansData {
     pub(crate) offset: u16,
+    pub(crate) block_shift: u8,
     pub(crate) payload_base_offset: u32,
     pub(crate) has_extra_bits: bool,
     pub(crate) sym_freqs: Arc<[(u8, u16)]>,
@@ -85,8 +88,9 @@ impl Display for RansData {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "offset: {}, extra_bits: {}, syms: {}",
+            "offset: {}, block_shift: {}, extra_bits: {}, syms: {}",
             self.offset,
+            self.block_shift,
             self.has_extra_bits,
             self.sym_freqs.len()
         )
@@ -96,6 +100,7 @@ impl Display for RansData {
 impl ArrayHash for RansData {
     fn array_hash<H: Hasher>(&self, state: &mut H, accuracy: EqMode) {
         self.offset.hash(state);
+        self.block_shift.hash(state);
         self.payload_base_offset.hash(state);
         self.has_extra_bits.hash(state);
         self.sym_freqs.hash(state);
@@ -107,6 +112,7 @@ impl ArrayHash for RansData {
 impl ArrayEq for RansData {
     fn array_eq(&self, other: &Self, accuracy: EqMode) -> bool {
         self.offset == other.offset
+            && self.block_shift == other.block_shift
             && self.payload_base_offset == other.payload_base_offset
             && self.has_extra_bits == other.has_extra_bits
             && self.sym_freqs == other.sym_freqs
@@ -115,20 +121,22 @@ impl ArrayEq for RansData {
     }
 }
 
-/// Number of `4,096`-element blocks spanned by `offset + len` elements (`0` when `len == 0`).
+/// Number of `2^block_shift`-element blocks spanned by `offset + len` elements (`0` when `len == 0`).
 #[inline]
-pub(crate) fn num_blocks_for(offset: u16, len: usize) -> usize {
+pub(crate) fn num_blocks_for(offset: u16, len: usize, block_shift: u8) -> usize {
     if len == 0 {
         0
     } else {
-        (usize::from(offset) + len).div_ceil(BLOCK_VALUES)
+        (usize::from(offset) + len).div_ceil(1usize << block_shift)
     }
 }
 
 impl RansData {
     /// Constructs [`RansData`] from validated components and precomputed decode table.
+    #[expect(clippy::too_many_arguments)]
     pub fn try_new(
         offset: u16,
+        block_shift: u8,
         payload_base_offset: u32,
         has_extra_bits: bool,
         sym_freqs: Arc<[(u8, u16)]>,
@@ -136,12 +144,14 @@ impl RansData {
         block_headers: BufferHandle,
         payload: BufferHandle,
     ) -> VortexResult<Self> {
+        let block_values = validate_block_shift(block_shift)?;
         vortex_ensure!(
-            usize::from(offset) < BLOCK_VALUES,
-            "Rans offset must be < {BLOCK_VALUES}, got {offset}"
+            usize::from(offset) < block_values,
+            "Rans offset must be < {block_values} (block_shift={block_shift}), got {offset}"
         );
         Ok(Self {
             offset,
+            block_shift,
             payload_base_offset,
             has_extra_bits,
             sym_freqs,
@@ -169,13 +179,15 @@ impl RansData {
                 "RansArray validity length must match array length"
             );
         }
+        let block_values = validate_block_shift(self.block_shift)?;
         vortex_ensure!(
-            usize::from(self.offset) < BLOCK_VALUES,
-            "RansArray offset {} must be < {BLOCK_VALUES}",
-            self.offset
+            usize::from(self.offset) < block_values,
+            "RansArray offset {} must be < {block_values} (block_shift={})",
+            self.offset,
+            self.block_shift
         );
 
-        let expected_blocks = num_blocks_for(self.offset, len);
+        let expected_blocks = num_blocks_for(self.offset, len, self.block_shift);
         vortex_ensure_eq!(
             self.block_headers.len(),
             expected_blocks * BLOCK_HEADER_BYTES,
@@ -194,10 +206,22 @@ impl RansData {
         Ok(())
     }
 
-    /// Element offset (`0..4096`) within the first block.
+    /// Element offset (`0..2^block_shift`) within the first block.
     #[inline]
     pub fn offset(&self) -> u16 {
         self.offset
+    }
+
+    /// Log2 of the number of elements per independent rANS block (`10`, `11`, or `12`).
+    #[inline]
+    pub fn block_shift(&self) -> u8 {
+        self.block_shift
+    }
+
+    /// Number of elements per independent rANS block (`1,024`, `2,048`, or `4,096`).
+    #[inline]
+    pub fn block_values(&self) -> usize {
+        1usize << self.block_shift
     }
 
     /// Base byte offset subtracted from `block_headers` offsets into `payload`.
@@ -239,10 +263,22 @@ impl RansData {
 
 /// Typed extension accessors for [`RansArray`] and `ArrayView<'_, Rans>`.
 pub trait RansArrayExt: TypedArrayRef<Rans> {
-    /// Element offset (`0..4096`) within the first block.
+    /// Element offset (`0..2^block_shift`) within the first block.
     #[inline]
     fn offset(&self) -> u16 {
         RansData::offset(self)
+    }
+
+    /// Log2 of the number of elements per independent rANS block (`10`, `11`, or `12`).
+    #[inline]
+    fn block_shift(&self) -> u8 {
+        RansData::block_shift(self)
+    }
+
+    /// Number of elements per independent rANS block (`1,024`, `2,048`, or `4,096`).
+    #[inline]
+    fn block_values(&self) -> usize {
+        1usize << self.block_shift()
     }
 
     /// Base byte offset subtracted from `block_headers` offsets into `payload`.
@@ -306,8 +342,23 @@ impl Rans {
     }
 
     /// Encodes a non-negative integer [`PrimitiveArray`] into a 32-lane `Pow2-Bin + Raw-Bits`
-    /// [`RansArray`]. Negative signed inputs return an error (wrap with `ZigZag` first).
+    /// [`RansArray`] using [`DEFAULT_BLOCK_SHIFT`] (`4,096` values per block).
+    ///
+    /// Negative signed inputs return an error (wrap with `ZigZag` first).
     pub fn encode(array: &PrimitiveArray, ctx: &mut ExecutionCtx) -> VortexResult<RansArray> {
+        Self::encode_with_block_shift(array, DEFAULT_BLOCK_SHIFT, ctx)
+    }
+
+    /// Encodes a non-negative integer [`PrimitiveArray`] into a 32-lane `Pow2-Bin + Raw-Bits`
+    /// [`RansArray`] with `2^block_shift` values per independent block (`block_shift in 10..=12`).
+    ///
+    /// Negative signed inputs return an error (wrap with `ZigZag` first).
+    pub fn encode_with_block_shift(
+        array: &PrimitiveArray,
+        block_shift: u8,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<RansArray> {
+        validate_block_shift(block_shift)?;
         let dtype = array.dtype().clone();
         vortex_ensure!(
             dtype.is_int(),
@@ -319,11 +370,17 @@ impl Rans {
         let mask = validity.execute_mask(len, ctx)?;
 
         let encoded = match_each_integer_ptype!(ptype, |T| {
-            encode_primitive_slice::<T>(array.as_slice::<T>(), ptype.is_signed_int(), &mask)?
+            encode_primitive_slice::<T>(
+                array.as_slice::<T>(),
+                ptype.is_signed_int(),
+                &mask,
+                block_shift,
+            )?
         });
 
         let data = RansData::try_new(
             0,
+            block_shift,
             0,
             encoded.has_extra_bits,
             Arc::from(encoded.sym_freqs),
@@ -441,16 +498,18 @@ where
     T: NativePType + Into<PValue>,
     u64: AsPrimitive<T>,
 {
+    let block_shift = array.block_shift();
+    let block_values = 1usize << block_shift;
     let pos = usize::from(array.offset()) + index;
-    let block_idx = pos >> 12;
-    let pos_in_block = pos & (BLOCK_VALUES - 1);
+    let block_idx = pos >> block_shift;
+    let pos_in_block = pos & (block_values - 1);
     let target_stripe = pos_in_block >> 5;
     let n_stripes = target_stripe + 1;
 
     let headers_bytes = array.block_headers().as_host();
     let payload_bytes = array.payload().as_host();
-    let mut scratch: [MaybeUninit<T>; BLOCK_VALUES] =
-        [const { MaybeUninit::uninit() }; BLOCK_VALUES];
+    let mut scratch: [MaybeUninit<T>; MAX_BLOCK_VALUES] =
+        [const { MaybeUninit::uninit() }; MAX_BLOCK_VALUES];
     decode_block_stripes::<T>(
         array.decode_table(),
         headers_bytes.as_ref(),
@@ -493,9 +552,11 @@ where
         return PrimitiveArray::new(BufferMut::<Out>::with_capacity(0).freeze(), validity);
     }
 
+    let block_shift = array.block_shift();
+    let block_values = 1usize << block_shift;
     let offset = usize::from(array.offset());
     let total_end = offset + len;
-    let num_blocks = total_end.div_ceil(BLOCK_VALUES);
+    let num_blocks = total_end.div_ceil(block_values);
 
     let headers_bytes = array.block_headers().as_host();
     let payload_bytes = array.payload().as_host();
@@ -506,18 +567,18 @@ where
     let mut out = BufferMut::<Out>::with_capacity_in(len, ctx.allocator().clone());
     let out_uninit = &mut out.spare_capacity_mut()[..len];
 
-    let mut scratch: [MaybeUninit<Out>; BLOCK_VALUES] =
-        [const { MaybeUninit::uninit() }; BLOCK_VALUES];
+    let mut scratch: [MaybeUninit<Out>; MAX_BLOCK_VALUES] =
+        [const { MaybeUninit::uninit() }; MAX_BLOCK_VALUES];
     let mut written = 0usize;
 
     for block_idx in 0..num_blocks {
-        let block_abs_start = block_idx * BLOCK_VALUES;
+        let block_abs_start = block_idx << block_shift;
         let in_block_start = if block_idx == 0 { offset } else { 0 };
-        let in_block_end = (total_end - block_abs_start).min(BLOCK_VALUES);
+        let in_block_end = (total_end - block_abs_start).min(block_values);
         let copy_len = in_block_end - in_block_start;
         let n_stripes = in_block_end.div_ceil(NUM_LANES);
 
-        if in_block_start == 0 && copy_len == BLOCK_VALUES {
+        if in_block_start == 0 && copy_len == block_values {
             decode_block_stripes_into(
                 table,
                 headers_bytes.as_ref(),
@@ -526,7 +587,7 @@ where
                 block_idx,
                 n_stripes,
                 has_extra_bits,
-                &mut out_uninit[written..written + BLOCK_VALUES],
+                &mut out_uninit[written..written + block_values],
                 map_out,
             );
         } else {
