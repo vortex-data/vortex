@@ -140,7 +140,7 @@ fn v2_rejects_malformed_parts() -> VortexResult<()> {
     assert_arrays_eq!(restored, array, &mut ctx);
 
     // Readers ignore children that follow the ones the contract declares.
-    let with_trailing = [encoded.clone(), references.clone(), encoded.clone()];
+    let with_trailing = [encoded.clone(), references, encoded.clone()];
     let restored = deserialize_v2_parts(&dtype, len, &metadata, &with_trailing)?;
     assert_arrays_eq!(restored, array, &mut ctx);
 

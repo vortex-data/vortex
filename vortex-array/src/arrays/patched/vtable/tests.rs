@@ -532,14 +532,14 @@ fn test_deserialize_rejects_malformed_parts() -> VortexResult<()> {
     // The offset must lie in the first chunk.
     let offset_past_chunk = PatchedMetadata {
         offset: 1024,
-        ..metadata.clone()
+        ..metadata
     };
     assert!(deserialize(&dtype, len, &offset_past_chunk).is_err());
 
     // The offset plus the length must not overflow.
     let offset = PatchedMetadata {
         offset: 1,
-        ..metadata.clone()
+        ..metadata
     };
     assert!(deserialize(&dtype, usize::MAX, &offset).is_err());
     Ok(())
@@ -595,7 +595,7 @@ fn test_deserialize_rejects_mismatched_children() -> VortexResult<()> {
     // The lane count fixes the length of the lane offsets.
     let fewer_lanes = PatchedMetadata {
         n_lanes: metadata.n_lanes / 2,
-        ..metadata.clone()
+        ..metadata
     };
     assert!(deserialize(&fewer_lanes, &children).is_err());
 
@@ -640,10 +640,7 @@ fn test_try_from_parts_rejects_malformed_slots() -> VortexResult<()> {
 
     assert!(try_from_slots(data.clone(), children.clone()).is_ok());
 
-    let zero_lanes = PatchedData {
-        n_lanes: 0,
-        ..data.clone()
-    };
+    let zero_lanes = PatchedData { n_lanes: 0, ..data };
     assert!(try_from_slots(zero_lanes, children.clone()).is_err());
 
     let mut short_lane_offsets = children.clone();
