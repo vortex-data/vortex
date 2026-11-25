@@ -176,6 +176,11 @@ fn first_nonzero_word(words: &[u64]) -> usize {
 
 #[cfg(test)]
 mod tests {
+    use rand::RngExt;
+    use rand::SeedableRng;
+    use rand::rngs::StdRng;
+    use rstest::rstest;
+
     use crate::BitBuffer;
     use crate::bit::BitIndexIterator;
 
@@ -230,5 +235,28 @@ mod tests {
         assert_eq!(indices.next(), Some(99));
         indices.seek_to(usize::MAX);
         assert_eq!(indices.next(), None);
+    }
+
+    /// Seeks across many distinct words of an offset bitmap, checked against a model that
+    /// skips every index below the seek target.
+    #[rstest]
+    #[case(0)]
+    #[case(3)]
+    #[case(13)]
+    fn seek_matches_naive_across_words(#[case] offset: usize) {
+        let len = 900;
+        let mut rng = StdRng::seed_from_u64(7);
+        let bits: Vec<bool> = (0..offset + len).map(|_| rng.random_bool(0.3)).collect();
+        let buffer = BitBuffer::from(bits.as_slice()).slice(offset..);
+
+        let mut indices = buffer.set_indices();
+        let mut next = 0;
+        for target in [0, 1, 64, 65, 130, 200, 333, 334, 600, 840, 899] {
+            indices.seek_to(target);
+            next = next.max(target);
+            let expected = (next..len).find(|&i| bits[offset + i]);
+            assert_eq!(indices.next(), expected, "seek to {target}");
+            next = expected.map_or(len, |i| i + 1);
+        }
     }
 }

@@ -511,6 +511,22 @@ mod tests {
         }
     }
 
+    /// The scalar kernel only runs on CPUs without BMI2, so test it directly.
+    #[rstest]
+    #[case::lowest(1)]
+    #[case::highest(1 << 63)]
+    #[case::ends(0x8000_0000_0000_0001)]
+    #[case::top_byte_only(0x0300_0000_0000_0000)]
+    #[case::all_set(u64::MAX)]
+    #[case::mixed(0x5A00_FF01_0080_C3A5)]
+    #[case::sparse_bytes(0x0100_0200_0400_0800)]
+    fn test_select_in_word_scalar_matches_naive(#[case] word: u64) {
+        let positions: Vec<usize> = (0..64).filter(|&bit| (word >> bit) & 1 == 1).collect();
+        for (nth, &position) in positions.iter().enumerate() {
+            assert_eq!(select_in_word_scalar(word, nth), position, "nth={nth}");
+        }
+    }
+
     #[test]
     fn test_select_in_byte_basic() {
         assert_eq!(select_in_byte(0b1010_1010, 0), 1);

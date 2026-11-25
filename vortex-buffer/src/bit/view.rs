@@ -503,9 +503,18 @@ impl BitBufferMut {
 
 #[cfg(test)]
 mod tests {
+    use std::ops::Bound;
+
+    use rstest::rstest;
+
     use crate::BitBuffer;
     use crate::BitBufferMut;
+    use crate::BitBufferMutView;
     use crate::bitbuffer;
+
+    fn pattern(i: usize) -> bool {
+        (i * 7) % 5 < 2
+    }
 
     #[test]
     fn view_reads_match_buffer() {
@@ -579,5 +588,69 @@ mod tests {
         }
         let frozen = buffer.freeze();
         assert_eq!(frozen.true_count(), 20);
+    }
+
+    #[rstest]
+    #[case::excluded_start((Bound::Excluded(2), Bound::Excluded(9)), 3, 9)]
+    #[case::excluded_zero_start((Bound::Excluded(0), Bound::Unbounded), 1, 20)]
+    #[case::included_end((Bound::Included(2), Bound::Included(9)), 2, 10)]
+    #[case::included_last((Bound::Unbounded, Bound::Included(19)), 0, 20)]
+    #[case::included_zero_end((Bound::Included(0), Bound::Included(0)), 0, 1)]
+    fn view_slice_resolves_bounds(
+        #[case] range: (Bound<usize>, Bound<usize>),
+        #[case] start: usize,
+        #[case] end: usize,
+    ) {
+        let buffer = BitBuffer::collect_bool(23, |i| i >= 3 && pattern(i - 3)).slice(3..);
+        let view = buffer.as_view().slice(range);
+
+        assert_eq!(view.len(), end - start);
+        let expected: Vec<bool> = (start..end).map(pattern).collect();
+        assert_eq!(view.iter().collect::<Vec<_>>(), expected);
+    }
+
+    #[rstest]
+    #[case(0, 20)]
+    #[case(3, 20)]
+    #[case(8, 17)]
+    #[case(13, 30)]
+    #[case(21, 3)]
+    fn mut_view_new_with_offset_writes_logical_bits(#[case] offset: usize, #[case] len: usize) {
+        let mut bytes = [0u8; 8];
+        {
+            let mut view = BitBufferMutView::new_with_offset(&mut bytes, len, offset);
+            assert_eq!(view.offset(), offset % 8);
+            assert_eq!(view.len(), len);
+            for i in (0..len).filter(|&i| pattern(i)) {
+                view.set(i);
+            }
+        }
+
+        let actual: Vec<bool> = (0..64)
+            .map(|bit| (bytes[bit / 8] >> (bit % 8)) & 1 == 1)
+            .collect();
+        let expected: Vec<bool> = (0..64)
+            .map(|bit| (offset..offset + len).contains(&bit) && pattern(bit - offset))
+            .collect();
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn view_eq_compares_logical_bits() {
+        let bits: Vec<bool> = (0..70).map(pattern).collect();
+        let aligned = BitBuffer::from(bits.as_slice());
+        let shifted = BitBuffer::collect_bool(75, |i| i >= 5 && pattern(i - 5)).slice(5..);
+        let empty = BitBuffer::empty();
+        assert_eq!(aligned.as_view(), shifted.as_view());
+        assert_eq!(empty.as_view(), aligned.as_view().slice(7..7));
+
+        let mut flipped = bits;
+        flipped[69] = !flipped[69];
+        let flipped = BitBuffer::from(flipped.as_slice());
+        assert_ne!(aligned.as_view(), flipped.as_view());
+
+        // Same bits up to the shorter length, and zero padding past it: only the lengths differ.
+        let unset = BitBuffer::new_unset(10);
+        assert_ne!(unset.as_view(), unset.as_view().slice(..9));
     }
 }

@@ -238,6 +238,46 @@ fn filter_buffer_in_place_and_shared() {
     assert_eq!(other.as_slice(), values::<u32>(200).as_slice());
 }
 
+/// A uniquely owned buffer is compacted in place only at a density of at least 0.50.
+#[rstest]
+#[case::quarter(4, false)]
+#[case::half(2, true)]
+fn filter_buffer_in_place_by_density(#[case] period: usize, #[case] in_place: bool) {
+    let bits = make_bits(200, 3, |i| i % period == 0);
+    let expected = expected(&values::<u32>(200), &bits);
+    // SAFETY: the true count comes from `bits`.
+    let selection = unsafe { Selection::from_bitmap_unchecked(&bits, bits.true_count()) };
+
+    let unique = Buffer::copy_from(values::<u32>(200));
+    let unique_ptr = unique.as_ptr();
+    let filtered = filter_buffer(unique, selection, BufferAllocatorRef::static_ref());
+    assert_eq!(filtered.as_slice(), expected.as_slice());
+    assert_eq!(filtered.as_ptr() == unique_ptr, in_place);
+}
+
+/// Values wider than the SIMD slack get no slack values when filtered, while an append still
+/// reserves the one value that the branchless copy stores past the last selected value.
+#[test]
+fn filter_values_wider_than_slack() {
+    let values: Vec<[u64; 16]> = (0..52u64).map(|i| [i; 16]).collect();
+    // Dense enough for the branchless copy, with unselected values after the last selected one.
+    let bits = make_bits(52, 3, |i| i < 45 && i % 4 != 3);
+    let expected = expected(&values, &bits);
+
+    for kind in [Kind::Bitmap, Kind::Slices, Kind::Indices] {
+        assert_eq!(
+            filter(&values, &bits, kind, false).as_slice(),
+            expected.as_slice(),
+            "{kind:?}"
+        );
+        assert_eq!(
+            append(&values, &bits, kind)[1..],
+            expected,
+            "{kind:?}, append"
+        );
+    }
+}
+
 #[test]
 fn filter_buffer_empty() {
     let bits = BitBuffer::from_iter(std::iter::empty::<bool>());
