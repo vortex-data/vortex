@@ -31,6 +31,7 @@ use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_buffer::filter::ChunkDecoder;
+use vortex_error::VortexError;
 use vortex_error::VortexExpect as _;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
@@ -506,24 +507,51 @@ struct ChunkPatches<'a, T> {
 
 impl<T: Copy> ChunkPatches<'_, T> {
     #[inline]
-    fn chunk_range(&self, chunk: usize) -> Range<usize> {
+    fn chunk_range(&self, chunk: usize) -> VortexResult<Range<usize>> {
         let num_patches = self.indices.len();
-        let start = self
-            .chunk_offsets
-            .get(chunk)
-            .saturating_sub(self.base_patch_offset)
+        let raw_start = self.chunk_offsets.get(chunk);
+        let start = raw_start
+            .checked_sub(self.base_patch_offset)
+            .ok_or_else(|| {
+                vortex_err!(
+                    "patch chunk_offsets[{chunk}] ({raw_start}) < base offset ({})",
+                    self.base_patch_offset
+                )
+            })?
             .saturating_sub(self.offset_within_chunk)
             .min(num_patches);
         let end = if chunk + 1 < self.chunk_offsets.len() {
-            self.chunk_offsets
-                .get(chunk + 1)
-                .saturating_sub(self.base_patch_offset)
+            let raw_end = self.chunk_offsets.get(chunk + 1);
+            vortex_ensure!(
+                raw_end >= raw_start,
+                "patch chunk_offsets are not monotonic at chunk {chunk}: {raw_start} > {raw_end}"
+            );
+            raw_end
+                .checked_sub(self.base_patch_offset)
+                .ok_or_else(|| {
+                    vortex_err!(
+                        "patch chunk_offsets[{}] ({raw_end}) < base offset ({})",
+                        chunk + 1,
+                        self.base_patch_offset
+                    )
+                })?
                 .saturating_sub(self.offset_within_chunk)
                 .min(num_patches)
         } else {
             num_patches
         };
-        start..end.max(start)
+        let range = start..end;
+        if !range.is_empty() {
+            let patch_chunk_base = self.base_chunk_offset + chunk * FL_CHUNK_SIZE;
+            let first = self.indices.get(range.start);
+            let last = self.indices.get(range.end - 1);
+            vortex_ensure!(
+                first >= patch_chunk_base && last < patch_chunk_base + FL_CHUNK_SIZE,
+                "patch indices [{first}..={last}] out of bounds for chunk {chunk} ([{patch_chunk_base}..{}))",
+                patch_chunk_base + FL_CHUNK_SIZE
+            );
+        }
+        Ok(range)
     }
 
     #[inline]
@@ -532,7 +560,7 @@ impl<T: Copy> ChunkPatches<'_, T> {
         chunk: usize,
         range: Range<usize>,
         scratch: &mut [MaybeUninit<T>; FL_CHUNK_SIZE],
-    ) {
+    ) -> VortexResult<()> {
         let patch_chunk_base = self.base_chunk_offset + chunk * FL_CHUNK_SIZE;
         let chunk_values = self.values.slice(range.clone());
         match self.indices {
@@ -599,19 +627,40 @@ fn apply_chunk_patches_typed<T: Copy, P: UnsignedPType>(
     chunk_patch_indices: &[P],
     chunk_values: PatchValues<'_, T>,
     patch_chunk_base: usize,
-) {
+) -> VortexResult<()> {
     match chunk_values {
         PatchValues::Slice(values) => {
             for (&patch_index, &patch_value) in chunk_patch_indices.iter().zip(values) {
-                scratch[patch_index.as_() - patch_chunk_base].write(patch_value);
+                let offset = patch_index
+                    .as_()
+                    .checked_sub(patch_chunk_base)
+                    .filter(|&offset| offset < FL_CHUNK_SIZE)
+                    .ok_or_else(|| {
+                        vortex_err!(
+                            "patch index {} out of bounds for chunk starting at {patch_chunk_base}",
+                            patch_index.as_()
+                        )
+                    })?;
+                scratch[offset].write(patch_value);
             }
         }
         PatchValues::Constant(patch_value) => {
             for &patch_index in chunk_patch_indices {
-                scratch[patch_index.as_() - patch_chunk_base].write(patch_value);
+                let offset = patch_index
+                    .as_()
+                    .checked_sub(patch_chunk_base)
+                    .filter(|&offset| offset < FL_CHUNK_SIZE)
+                    .ok_or_else(|| {
+                        vortex_err!(
+                            "patch index {} out of bounds for chunk starting at {patch_chunk_base}",
+                            patch_index.as_()
+                        )
+                    })?;
+                scratch[offset].write(patch_value);
             }
         }
     }
+    Ok(())
 }
 
 fn patch_sparse_within_typed<T: Copy, P: UnsignedPType>(
@@ -667,15 +716,28 @@ fn take_in_order_patched<T: Copy>(
     sparse_limit: usize,
     scratch: &mut [MaybeUninit<T>; FL_CHUNK_SIZE],
     patches: &ChunkPatches<'_, T>,
-) {
+) -> VortexResult<()> {
+    let mut err: Option<VortexError> = None;
     chunked_positions(positions, |chunk, within| {
-        let patch_range = patches.chunk_range(chunk);
+        if err.is_some() {
+            return;
+        }
+        let patch_range = match patches.chunk_range(chunk) {
+            Ok(range) => range,
+            Err(e) => {
+                err = Some(e);
+                return;
+            }
+        };
         let start = output.len();
         let dst = &mut output.spare_capacity_mut()[..within.len()];
         if within.len() > sparse_limit {
             decoder.decode_chunk(chunk, scratch);
-            if !patch_range.is_empty() {
-                patches.patch_scratch_range(chunk, patch_range, scratch);
+            if !patch_range.is_empty()
+                && let Err(e) = patches.patch_scratch_range(chunk, patch_range, scratch)
+            {
+                err = Some(e);
+                return;
             }
             for (slot, &index) in dst.iter_mut().zip(within) {
                 // SAFETY: every position in `within` is below `FL_CHUNK_SIZE`, and `decode_chunk`
@@ -691,6 +753,10 @@ fn take_in_order_patched<T: Copy>(
         // SAFETY: every slot in `dst` (`within.len()` elements) was initialized above.
         unsafe { output.set_len(start + within.len()) };
     });
+    if let Some(e) = err {
+        return Err(e);
+    }
+    Ok(())
 }
 
 fn take_primitive<T: NativePType + BitPacking, I: IntegerPType>(
@@ -764,7 +830,7 @@ fn take_primitive<T: NativePType + BitPacking, I: IntegerPType>(
                 sparse_limit,
                 &mut scratch,
                 &chunk_patches,
-            ),
+            )?,
             _ => take_in_order_patched(
                 &chunks,
                 &mut output,
@@ -772,7 +838,7 @@ fn take_primitive<T: NativePType + BitPacking, I: IntegerPType>(
                 sparse_limit,
                 &mut scratch,
                 &chunk_patches,
-            ),
+            )?,
         }
 
         return Ok(
@@ -840,6 +906,7 @@ mod tests {
     use vortex_buffer::Buffer;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
+    use vortex_error::vortex_err;
     use vortex_session::VortexSession;
 
     use crate::BitPacked;
@@ -1365,7 +1432,7 @@ mod tests {
         assert!(packed.patches().is_some());
         let packed = if slice_offset > 0 {
             BitPacked::slice(packed.as_view(), slice_offset..source_len, &mut ctx)?
-                .expect("BitPacked slice")
+                .ok_or_else(|| vortex_err!("BitPacked slice"))?
         } else {
             packed.into_array()
         };
@@ -1401,7 +1468,9 @@ mod tests {
 
             let indices_prim = indices.clone().execute::<PrimitiveArray>(&mut ctx)?;
             let bp_view = packed.as_::<BitPacked>();
-            let patches = bp_view.patches().expect("sliced array retains patches");
+            let patches = bp_view
+                .patches()
+                .ok_or_else(|| vortex_err!("sliced array retains patches"))?;
             assert_eq!(
                 should_decode_full_for_patches(bp_view, &indices_prim, &patches)?,
                 expect_full_decode
@@ -1434,14 +1503,16 @@ mod tests {
         let encoded = BitPackedData::encode(&values, 6, &mut ctx)?;
         let sliced = if slice_offset > 0 {
             BitPacked::slice(encoded.as_view(), slice_offset..source_len, &mut ctx)?
-                .expect("BitPacked slice")
+                .ok_or_else(|| vortex_err!("BitPacked slice"))?
                 .as_::<BitPacked>()
                 .into_owned()
         } else {
             encoded
         };
         let parts = BitPacked::into_parts(sliced);
-        let orig_patches = parts.patches.expect("expected patches");
+        let orig_patches = parts
+            .patches
+            .ok_or_else(|| vortex_err!("expected patches"))?;
         let patches_without_offsets = Patches::new(
             orig_patches.array_len(),
             orig_patches.offset(),
@@ -1484,7 +1555,9 @@ mod tests {
 
             let bp_view = bitpacked.as_::<BitPacked>();
             let indices_prim = indices.clone().execute::<PrimitiveArray>(&mut ctx)?;
-            let patches = bp_view.patches().expect("patches present");
+            let patches = bp_view
+                .patches()
+                .ok_or_else(|| vortex_err!("patches present"))?;
             assert_eq!(
                 should_decode_full_for_patches(bp_view, &indices_prim, &patches)?,
                 expect_full_decode
@@ -1517,13 +1590,13 @@ mod tests {
         // `offset_within_chunk` accumulates across slices.
         let first_slice =
             BitPacked::slice(encoded.as_view(), 137..4 * FL_CHUNK_SIZE + 500, &mut ctx)?
-                .expect("first BitPacked slice");
+                .ok_or_else(|| vortex_err!("first BitPacked slice"))?;
         let nested_slice = BitPacked::slice(
             first_slice.as_::<BitPacked>(),
             200..3 * FL_CHUNK_SIZE + 100,
             &mut ctx,
         )?
-        .expect("nested BitPacked slice");
+        .ok_or_else(|| vortex_err!("nested BitPacked slice"))?;
         let expected_nested = values.slice(337..337 + (3 * FL_CHUNK_SIZE - 100))?;
 
         // Exercise both sparse-in-chunk (<= 32) and dense-in-chunk (> 32) selections on the
@@ -1612,7 +1685,9 @@ mod tests {
                 .into_array()
                 .cast(index_ptype.into())?
                 .execute::<PrimitiveArray>(&mut ctx)?;
-            let patches = small_packed.patches().expect("small array has patches");
+            let patches = small_packed
+                .patches()
+                .ok_or_else(|| vortex_err!("small array has patches"))?;
             assert!(!should_decode_full_for_patches(
                 small_packed.as_view(),
                 &indices_prim,
@@ -1658,7 +1733,9 @@ mod tests {
                     .into_array()
                     .cast(index_ptype.into())?
                     .execute::<PrimitiveArray>(&mut ctx)?;
-                let patches = large_packed.patches().expect("large array has patches");
+                let patches = large_packed
+                    .patches()
+                    .ok_or_else(|| vortex_err!("large array has patches"))?;
                 assert_eq!(
                     should_decode_full_for_patches(
                         large_packed.as_view(),
@@ -1692,7 +1769,9 @@ mod tests {
         .into_array();
         let encoded = BitPackedData::encode(&values, 6, &mut ctx)?;
         let parts = BitPacked::into_parts(encoded);
-        let orig_patches = parts.patches.expect("encoded array has patches");
+        let orig_patches = parts
+            .patches
+            .ok_or_else(|| vortex_err!("encoded array has patches"))?;
         let narrow_chunk_offsets = orig_patches
             .chunk_offsets()
             .as_ref()
@@ -1721,7 +1800,9 @@ mod tests {
         )?;
         assert!(super::can_use_chunk_aligned_patches(
             packed.as_view(),
-            &packed.patches().expect("const patches"),
+            &packed
+                .patches()
+                .ok_or_else(|| vortex_err!("const patches"))?,
         )?);
         let indices =
             PrimitiveArray::from_iter([0u32, 1, 31, 62, 1024, 1054, 2048, 3069, 4092]).into_array();
@@ -1787,7 +1868,9 @@ mod tests {
         }))
         .into_array();
         let light_i16 = BitPackedData::encode(&light_i16_values, 6, &mut ctx)?;
-        let light_patches = light_i16.patches().expect("lightly patched");
+        let light_patches = light_i16
+            .patches()
+            .ok_or_else(|| vortex_err!("lightly patched"))?;
         assert!(!should_decode_full_for_patches(
             light_i16.as_view(),
             &scattered_1pct,
@@ -1809,7 +1892,9 @@ mod tests {
         }))
         .into_array();
         let heavy_i16 = BitPackedData::encode(&heavy_i16_values, 6, &mut ctx)?;
-        let heavy_i16_patches = heavy_i16.patches().expect("heavily patched i16");
+        let heavy_i16_patches = heavy_i16
+            .patches()
+            .ok_or_else(|| vortex_err!("heavily patched i16"))?;
         assert!(should_decode_full_for_patches(
             heavy_i16.as_view(),
             &scattered_1pct,
@@ -1832,7 +1917,9 @@ mod tests {
         }))
         .into_array();
         let heavy_i64 = BitPackedData::encode(&heavy_i64_values, 6, &mut ctx)?;
-        let heavy_i64_patches = heavy_i64.patches().expect("heavily patched i64");
+        let heavy_i64_patches = heavy_i64
+            .patches()
+            .ok_or_else(|| vortex_err!("heavily patched i64"))?;
         assert!(!should_decode_full_for_patches(
             heavy_i64.as_view(),
             &scattered_1pct,
@@ -1853,6 +1940,77 @@ mod tests {
             &sorted_1pct,
             &offsetless_patches,
         )?);
+        Ok(())
+    }
+
+    #[test]
+    fn test_take_patched_corrupt_chunk_offsets_returns_error() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let len = 4 * FL_CHUNK_SIZE;
+        let values = PrimitiveArray::from_iter((0..len).map(|idx| {
+            if idx.is_multiple_of(31) {
+                999i16
+            } else {
+                (idx % 64) as i16
+            }
+        }))
+        .into_array();
+        let encoded = BitPackedData::encode(&values, 6, &mut ctx)?;
+        let parts = BitPacked::into_parts(encoded);
+        let orig_patches = parts
+            .patches
+            .ok_or_else(|| vortex_err!("encoded array has patches"))?;
+
+        // Corrupt chunk_offsets so chunk 2's start points back into chunk 1's patches.
+        let mut corrupt_offsets = orig_patches
+            .chunk_offsets()
+            .as_ref()
+            .ok_or_else(|| vortex_err!("encoded patches have chunk_offsets"))?
+            .clone()
+            .execute::<PrimitiveArray>(&mut ctx)?
+            .as_slice::<u64>()
+            .to_vec();
+        corrupt_offsets[2] = corrupt_offsets[1];
+        // SAFETY: intentionally constructing corrupt chunk_offsets to verify error handling.
+        let corrupt_patches = unsafe {
+            Patches::new_unchecked(
+                orig_patches.array_len(),
+                orig_patches.offset(),
+                orig_patches.indices().clone(),
+                orig_patches.values().clone(),
+                Some(PrimitiveArray::from_iter(corrupt_offsets).into_array()),
+                orig_patches.offset_within_chunk(),
+            )
+        };
+        let packed = BitPacked::try_new(
+            parts.packed,
+            PType::I16,
+            parts.validity,
+            Some(corrupt_patches),
+            6,
+            parts.len,
+            parts.offset,
+        )?
+        .into_array();
+
+        // Dense take in chunk 2 (> sparse_limit) must return an error rather than panicking.
+        let dense_indices = PrimitiveArray::from_iter(
+            (2 * FL_CHUNK_SIZE..2 * FL_CHUNK_SIZE + 128).map(|i| i as u32),
+        )
+        .into_array();
+        let dense_err = packed
+            .take(dense_indices)?
+            .execute::<PrimitiveArray>(&mut ctx);
+        assert!(dense_err.is_err());
+
+        // Sparse take in chunk 2 (<= sparse_limit) must also return an error rather than wrong data.
+        let sparse_indices =
+            PrimitiveArray::from_iter([2 * FL_CHUNK_SIZE as u32, (2 * FL_CHUNK_SIZE + 1) as u32])
+                .into_array();
+        let sparse_err = packed
+            .take(sparse_indices)?
+            .execute::<PrimitiveArray>(&mut ctx);
+        assert!(sparse_err.is_err());
         Ok(())
     }
 }
